@@ -175,6 +175,47 @@ public sealed class FileLibraryService(SqlRowStore store, MetadataRegistry regis
         return true;
     }, cancellationToken);
 
+    /// <summary>显示名可修改，扩展名保持原类型以避免把已上传内容重新解释成可执行类型。</summary>
+    public Task RenameAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    {
+        FileValidation.RequireName(name);
+        var actor=authorization.RequireActor();var row=await RequiredAsync(Files,id,true,token);RequireOwner(row,actor);
+        if(!string.Equals(Path.GetExtension(name),Path.GetExtension(SqlRowStore.Text(row,"name")),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("更名时不能改变文件扩展名。");
+        await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"name",name},{"update_time",DateTime.UtcNow}},token);return true;
+    },token);
+
+    /// <summary>移动文件先锁定目标目录，和空目录删除共用同一行锁。</summary>
+    public Task MoveAsync(long id,long? targetFolderId,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    {
+        var actor=authorization.RequireActor();
+        if(targetFolderId is{} folder)RequireOwner(await RequiredAsync(Folders,folder,true,token),actor);
+        RequireOwner(await RequiredAsync(Files,id,true,token),actor);
+        await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"folder_id",targetFolderId},{"update_time",DateTime.UtcNow}},token);return true;
+    },token);
+
+    /// <summary>目录更名只修改显示字段，保留原有项目及所有者。</summary>
+    public Task RenameFolderAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    {
+        FileValidation.RequireName(name);if(name.Length>100)throw new ArgumentException("目录名称最多100字符。");
+        RequireOwner(await RequiredAsync(Folders,id,true,token),authorization.RequireActor());
+        await store.UpdateAsync(Folders,id,new Dictionary<string,object?>{{"name",name}},token);return true;
+    },token);
+
+    /// <summary>目录移动串行锁定项目，遍历父链拒绝环；不能跨所有者或跨项目移动。</summary>
+    public Task MoveFolderAsync(long id,long? parentId,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    {
+        var actor=authorization.RequireActor();
+        await store.ReadForUpdateAsync("yz_project",new Dictionary<string,object?>{{"id",Project(actor)}},token);
+        RequireOwner(await RequiredAsync(Folders,id,true,token),actor);
+        var seen=new HashSet<long>{id};var current=parentId;
+        while(current is{} parent)
+        {
+            if(!seen.Add(parent))throw new InvalidOperationException("目录不能移动到自身或子目录。");
+            var ancestor=await RequiredAsync(Folders,parent,true,token);RequireOwner(ancestor,actor);current=NullableId(ancestor,"parent_folder_id");
+        }
+        await store.UpdateAsync(Folders,id,new Dictionary<string,object?>{{"parent_folder_id",parentId}},token);return true;
+    },token);
+
     /// <summary>上传控件必须来自当前项目可编辑页面，不能用其他项目列配置改变访问级别。</summary>
     private ColumnMetadata? ResolveUploadColumn(string? id, RuntimeActor actor)
     {
@@ -250,3 +291,4 @@ public sealed class FileLibraryService(SqlRowStore store, MetadataRegistry regis
     /// <summary>读取可空关联键，不把空值转换成零标识。</summary>
     private static long? NullableId(IReadOnlyDictionary<string, object?> row, string field) => row.GetValueOrDefault(field) is null ? null : SqlRowStore.Id(row, field);
 }
+

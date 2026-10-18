@@ -39,7 +39,7 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
         var menus=catalog.ConfigMenus.Where(m=>m.YzAdminTypeId==admin).ToArray();
         object[] Build(string? parent,string? root)=>(menus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).ThenBy(m=>m.Id,StringComparer.Ordinal).Select(m=>(object)new
         {m.Id,parentId=m.ParentMenuId,firstMenuId=root??m.Id,m.Kind,m.Name,m.SortNo,icon=m.IconName,hidden=m.IsHidden==1,targetPageId=m.ConfigPageId??m.ConfigCustomPageId??"",showCount=m.IsShowCount==1,m.VisibleScheme,children=Build(m.Id,root??m.Id)})).ToArray();
-        return new {projectId,adminTypeId=admin,adminTypes=catalog.YzAdminTypes,revision=Revision(catalog),isV8=true,canWrite=true,capabilities=new{first=new{create=true,update=true,delete=true},second=new{create=true,update=true,delete=true}},tree=Build(null,null),targets=catalog.ConfigPages.Where(p=>p.YzAdminTypeId==admin).Select(p=>new{id=p.Id,kind="GENERATED_PAGE",name=p.Name,route=Route(catalog,p),showCountSupported=true})};
+        return new {projectId,adminTypeId=admin,adminTypes=catalog.YzAdminTypes,revision=Revision(catalog),isV8=true,canWrite=true,capabilities=new{first=new{create=true,update=true,delete=true},second=new{create=true,update=true,delete=true}},tree=Build(null,null),targets=catalog.ConfigPages.Where(p=>p.YzAdminTypeId==admin).Select(p=>(object)new{id=p.Id,kind="GENERATED_PAGE",name=p.Name,route=Route(catalog,p),showCountSupported=true}).Concat(catalog.ConfigCustomPages.Where(p=>p.YzAdminTypeId==admin).Select(p=>(object)new{id=p.Id,kind="CUSTOM_PAGE",name=p.Name,route=CustomRoute(p),showCountSupported=false}))};
     }
     public async Task<object> SaveAsync(MenuSaveRequest request,bool deleting=false,CancellationToken cancellationToken=default)
     {
@@ -78,9 +78,26 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
     {
         var actor=authorization.RequireActor();var catalog=await metadata.LoadProjectAsync(projectId,cancellationToken);Validate(catalog);
         var menus=catalog.ConfigMenus.Where(m=>m.IsHidden!=1).ToArray();
-        object[] Build(string? parent)=>menus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).ThenBy(m=>m.Id,StringComparer.Ordinal).Where(m=>actor.IsAdministrator||m.ConfigPageId is null||CanRead(m.ConfigPageId)).Select(m=>(object)new
-        {id=m.Id,menu_id=m.Id,m.Name,nodeType=m.Kind,isShowCount=m.IsShowCount,target=m.ConfigPageId is{}pageId&&catalog.ConfigPages.FirstOrDefault(p=>p.Id==pageId)is{}page?new{route=Route(catalog,page),tableName=catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId).TableName,pageId=page.Id,tableId=page.ConfigTableId,countEndpoint="/admin/auto/"+catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId).TableName+"/"+page.Id+"/count"}:null,children=Build(m.Id)}).ToArray();
+        object[] Build(string? parent)=>menus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).ThenBy(m=>m.Id,StringComparer.Ordinal).Where(m=>actor.IsAdministrator||m.Kind=="DIRECTORY"||m.ConfigPageId is{} allowed&&CanRead(allowed)).Select(m=>(object)new
+        {id=m.Id,menu_id=m.Id,m.Name,nodeType=m.Kind,isShowCount=m.IsShowCount,target=Target(catalog,m),children=Build(m.Id)}).ToArray();
         return Build(null);
+    }
+    /// <summary>只把当前目录中登记的页面映射为内部前端路由，自定义页不携带计数接口。</summary>
+    private static object? Target(MetadataCatalog catalog,MenuMetadata menu)
+    {
+        if(menu.ConfigPageId is{} id&&catalog.ConfigPages.FirstOrDefault(p=>p.Id==id)is{} page)
+        {
+            var table=catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId);
+            return new{route=Route(catalog,page),tableName=table.TableName,pageId=page.Id,tableId=page.ConfigTableId,countEndpoint="/admin/auto/"+table.TableName+"/"+page.Id+"/count"};
+        }
+        if(menu.ConfigCustomPageId is{} custom&&catalog.ConfigCustomPages.FirstOrDefault(p=>p.Id==custom)is{} target)return new{route=CustomRoute(target),pageId=target.Id};
+        return null;
+    }
+    private static string CustomRoute(CustomPageMetadata page)
+    {
+        var path=page.PagePath.TrimStart('/');
+        if(!System.Text.RegularExpressions.Regex.IsMatch(path,"^pages/[a-zA-Z0-9_/-]+$")||path.Contains(".."))throw new InvalidOperationException("自定义页面路由无效。");
+        return "/"+path;
     }
     private bool CanRead(string pageId){try{authorization.RequirePagePermission(pageId,"list");return true;}catch(UnauthorizedAccessException){return false;}}
     public static string Route(MetadataCatalog catalog,PageMetadata page)=>"/pages/yzp/"+catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId).TableName+"-list-"+page.Id;
@@ -90,8 +107,11 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
         var nodes=catalog.ConfigMenus.ToDictionary(m=>m.Id);
         foreach(var node in nodes.Values)
         {
-            if(!catalog.YzAdminTypes.Any(a=>a.Id==node.YzAdminTypeId))throw new InvalidOperationException("菜单后台归属无效。");
+            if(node.YzProjectId!=catalog.YzProjectId||!catalog.YzAdminTypes.Any(a=>a.Id==node.YzAdminTypeId))throw new InvalidOperationException("菜单后台归属无效。");
             if(node.ConfigPageId is{}pageId&&pageId.Length>0&&!catalog.ConfigPages.Any(p=>p.Id==pageId&&p.YzAdminTypeId==node.YzAdminTypeId))throw new InvalidOperationException("目标页面不属于当前后台。");
+            if(node.Kind=="GENERATED_PAGE"&&string.IsNullOrEmpty(node.ConfigPageId)||node.Kind=="CUSTOM_PAGE"&&string.IsNullOrEmpty(node.ConfigCustomPageId))throw new InvalidOperationException("导航菜单必须选择目标页面。");
+            if(node.ConfigCustomPageId is{} custom&&custom.Length>0&&!catalog.ConfigCustomPages.Any(p=>p.Id==custom&&p.YzAdminTypeId==node.YzAdminTypeId))throw new InvalidOperationException("自定义页面不属于当前后台。");
+            if(node.IsShowCount==1&&node.Kind!="GENERATED_PAGE")throw new InvalidOperationException("只有标准页面支持数量角标。");
             var seen=new HashSet<string>{node.Id};var parent=node.ParentMenuId;
             while(!string.IsNullOrEmpty(parent))
             {

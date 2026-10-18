@@ -57,7 +57,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataRegistry regist
         if(table.StartsWith("config_",StringComparison.Ordinal))
         {
             var defaults=values.ToDictionary(p=>p.Key,p=>p.Value);
-            foreach(var column in columns.Where(c=>c.IsDbNotNull==1&&c.LogicalType=="int32"&&c.ColumnName.StartsWith("is_")))defaults.TryAdd(column.ColumnName,0);
+            foreach(var column in columns.Where(c=>!string.IsNullOrEmpty(c.DefaultValue)))defaults.TryAdd(column.ColumnName,column.DefaultValue);
             values=defaults;
         }
         var selected = columns.Where(c => values.ContainsKey(c.ColumnName)).ToArray();

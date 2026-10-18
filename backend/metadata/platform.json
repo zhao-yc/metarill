@@ -1299,7 +1299,7 @@
       "configTableName": "按钮",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "101876422531874817",
       "initValue": "0",
@@ -2444,7 +2444,7 @@
       "controlDetail": "",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "description": "",
       "developerRemarks": "",
       "displayOption": "",
@@ -3585,7 +3585,7 @@
       "controlDetail": "yzp-table-storage-mode",
       "controlKind": "CustomControl",
       "controlKindShow": "定制控件",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1671029182696714241",
       "isAutoPostBackQuery": 0,
@@ -3613,7 +3613,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1762702783678582786",
       "isAutoPostBackQuery": 0,
@@ -3639,7 +3639,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1995766662368366594",
       "isAutoPostBack": 0,
@@ -3958,7 +3958,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1671100304765059073",
       "isAutoPostBackQuery": 0,
@@ -3984,7 +3984,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1671100306778324994",
       "isAutoPostBackQuery": 0,
@@ -4010,7 +4010,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1671100304899276802",
       "isAutoPostBackQuery": 0,
@@ -4036,7 +4036,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1671100305092214786",
       "isAutoPostBackQuery": 0,
@@ -4346,7 +4346,7 @@
       "controlDetail": "",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1671100308246331393",
       "isAutoPostBackQuery": 0,
@@ -4959,7 +4959,7 @@
       "controlDetail": "",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "description": "",
       "developerRemarks": "",
       "displayOption": "",
@@ -5003,7 +5003,7 @@
       "controlDetail": "固定底部|0,子表上面|1",
       "controlKind": "ConstList",
       "controlKindShow": "常量列表",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "2049665118286897154",
       "isAutoPostBack": 0,
@@ -5283,7 +5283,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1670726648027336705",
       "isAutoPostBackQuery": 0,
@@ -5946,7 +5946,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "1859159260689096705",
       "isAutoPostBackQuery": 0,
@@ -5972,7 +5972,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "2010276898812760066",
       "isAutoPostBack": 0,
@@ -6028,7 +6028,7 @@
       "controlDetail": "1,0",
       "controlKind": "CheckBox",
       "controlKindShow": "复选框",
-      "defaultValue": "",
+      "defaultValue": "0",
       "filterControlKindShow": "",
       "id": "2042496136769486850",
       "isAutoPostBack": 0,
@@ -8889,7 +8889,7 @@
       "logicalType": "string",
       "isDbNotNull": 1,
       "columnLength": "30",
-      "defaultValue": ""
+      "defaultValue": "string"
     },
     {
       "id": "2200000000000000130",
@@ -11664,6 +11664,71 @@
       "defaultValue": ""
     },
     {
+      "id": "2200000000000101001",
+      "configTableId": "2200000000000000323",
+      "configTableName": "Agent设备授权",
+      "columnName": "client_id",
+      "name": "客户端",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 180,
+      "logicalType": "string",
+      "isDbNotNull": 0,
+      "columnLength": "100",
+      "defaultValue": ""
+    },
+    {
+      "id": "2200000000000101002",
+      "configTableId": "2200000000000000323",
+      "configTableName": "Agent设备授权",
+      "columnName": "last_poll_at",
+      "name": "上次轮询",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 190,
+      "logicalType": "datetime",
+      "isDbNotNull": 0,
+      "columnLength": "255",
+      "defaultValue": ""
+    },
+    {
+      "id": "2200000000000101003",
+      "configTableId": "2200000000000000323",
+      "configTableName": "Agent设备授权",
+      "columnName": "poll_interval_seconds",
+      "name": "轮询间隔秒",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 200,
+      "logicalType": "int32",
+      "isDbNotNull": 0,
+      "columnLength": "",
+      "defaultValue": ""
+    },
+    {
+      "id": "2200000000000101004",
+      "configTableId": "2200000000000000323",
+      "configTableName": "Agent设备授权",
+      "columnName": "device_redeemed_at",
+      "name": "设备兑换时间",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 210,
+      "logicalType": "datetime",
+      "isDbNotNull": 0,
+      "columnLength": "255",
+      "defaultValue": ""
+    },
+    {
+      "id": "2200000000000101005",
+      "configTableId": "2200000000000000323",
+      "configTableName": "Agent设备授权",
+      "columnName": "refresh_expires_at",
+      "name": "刷新有效期",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 220,
+      "logicalType": "datetime",
+      "isDbNotNull": 0,
+      "columnLength": "255",
+      "defaultValue": ""
+    },
+    {
       "id": "2200000000000000343",
       "configTableId": "2200000000000000342",
       "configTableName": "Agent请求任务",
@@ -13512,9 +13577,9 @@
       "yzAdminTypeId": "1762777514515656705",
       "yzProjectId": "1608097412978577409",
       "sortNo": 100,
-      "isNew": 1,
-      "isSave": 1,
-      "isDelete": 1,
+      "isNew": 0,
+      "isSave": 0,
+      "isDelete": 0,
       "pageSize": 20,
       "whereSql": "yz_project_id=@current_yz_project_id"
     }
@@ -25450,6 +25515,64 @@
       "sortNo": 35
     }
   ],
+  "configCustomPages": [
+    {
+      "id": "195343283877234660",
+      "name": "system_maintenance",
+      "pagePath": "pages/custom/system_maintenance",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    },
+    {
+      "id": "2062363000000000001",
+      "name": "add_join_columns",
+      "pagePath": "pages/custom/add_join_columns",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    },
+    {
+      "id": "2062363000000000002",
+      "name": "set_role_permission",
+      "pagePath": "pages/main/set_role_permission",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    },
+    {
+      "id": "2062363000000000003",
+      "name": "batch_create_columns",
+      "pagePath": "pages/custom/batch_create_columns",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    },
+    {
+      "id": "2062363000000000004",
+      "name": "config_columns_sort",
+      "pagePath": "pages/custom/config_columns_sort",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    },
+    {
+      "id": "2062363000000000005",
+      "name": "config_page_columns",
+      "pagePath": "pages/custom/config_page_columns",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    },
+    {
+      "id": "2062363000000000006",
+      "name": "select_project",
+      "pagePath": "pages/custom/select_project",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    },
+    {
+      "id": "2076979000000000001",
+      "name": "config_indexes",
+      "pagePath": "pages/custom/config_indexes",
+      "yzProjectId": "1608097412978577409",
+      "yzAdminTypeId": "1762777514515656705"
+    }
+  ],
   "configButtons": [
     {
       "actionType": 1,
@@ -26454,6 +26577,42 @@
       "indexType": "INDEX",
       "isEnabled": 1,
       "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000770",
+      "configTableId": "2200000000000000400",
+      "indexName": "ix_file_scope_record",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000775",
+      "configTableId": "2200000000000000400",
+      "indexName": "ix_file_delete",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000778",
+      "configTableId": "2200000000000000364",
+      "indexName": "ix_file_folder",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000782",
+      "configTableId": "2200000000000000385",
+      "indexName": "ix_folder_parent",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
     }
   ],
   "configIndexColumns": [
@@ -26677,6 +26836,114 @@
       "id": "2200000000000000769",
       "configIndexId": "2200000000000000766",
       "configColumnId": "2200000000000000410",
+      "columnName": "delete_no",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000771",
+      "configIndexId": "2200000000000000770",
+      "configColumnId": "2200000000000000415",
+      "columnName": "yz_project_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000772",
+      "configIndexId": "2200000000000000770",
+      "configColumnId": "2200000000000000413",
+      "columnName": "record_id",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000773",
+      "configIndexId": "2200000000000000770",
+      "configColumnId": "2200000000000000412",
+      "columnName": "page_id",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000774",
+      "configIndexId": "2200000000000000770",
+      "configColumnId": "2200000000000000410",
+      "columnName": "delete_no",
+      "sortNo": 30,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000776",
+      "configIndexId": "2200000000000000775",
+      "configColumnId": "2200000000000000411",
+      "columnName": "file_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000777",
+      "configIndexId": "2200000000000000775",
+      "configColumnId": "2200000000000000410",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000779",
+      "configIndexId": "2200000000000000778",
+      "configColumnId": "2200000000000000383",
+      "columnName": "yz_project_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000780",
+      "configIndexId": "2200000000000000778",
+      "configColumnId": "2200000000000000382",
+      "columnName": "folder_id",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000781",
+      "configIndexId": "2200000000000000778",
+      "configColumnId": "2200000000000000374",
+      "columnName": "delete_no",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000783",
+      "configIndexId": "2200000000000000782",
+      "configColumnId": "2200000000000000399",
+      "columnName": "yz_project_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000784",
+      "configIndexId": "2200000000000000782",
+      "configColumnId": "2200000000000000397",
+      "columnName": "parent_folder_id",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000785",
+      "configIndexId": "2200000000000000782",
+      "configColumnId": "2200000000000000395",
       "columnName": "delete_no",
       "sortNo": 20,
       "sortDirection": "ASC",

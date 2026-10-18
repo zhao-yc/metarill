@@ -1,3 +1,4 @@
+import { exportDownloadRequest, downloadExport } from './yzp_runtime/exportDownload.js';
 var utils = {
 	getFirstAndLastDayOfMonth: function(format) {
 		// 获取当前日期
@@ -36,6 +37,8 @@ var utils = {
 		}
 	},
 	openUrl: function(url) {
+        const request = exportDownloadRequest(url, getApp().globalData.environment.base_url, uni.getStorageSync("loginStateId"), uni.getStorageSync("sysParams"));
+        if (request) return downloadExport(request).catch(error => uni.showModal({showCancel:false,content:error.message || "导出下载失败"}));
 		// #ifdef H5
 		window.open(url);
 		// #endif

@@ -14,7 +14,7 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
     public async Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string username,string password,CancellationToken cancellationToken=default)
     {
         var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken)).SingleOrDefault();
-        if(account is null||SqlRowStore.Text(account,"is_disabled")=="1"||!PasswordHasher.Verify(password,SqlRowStore.Text(account,"password")))
+        if(account is null||!AccountActive(account)||!PasswordHasher.Verify(password,SqlRowStore.Text(account,"password")))
             throw new UnauthorizedAccessException("用户名或密码不正确。");
         var token=PasswordHasher.Token();
         await store.InsertAsync("sys_session",new Dictionary<string,object?>
@@ -41,7 +41,8 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
             foreach(var operation in ParseIds(SqlRowStore.Text(row,"permission_values")))permissions.Add(pageId+":"+operation);
         }
         var project=string.IsNullOrWhiteSpace(selectedProject)?registry.Platform.YzProjectId:selectedProject;
-        var registered=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",long.Parse(project,CultureInfo.InvariantCulture)}},cancellationToken)).SingleOrDefault();
+        if(!long.TryParse(project,NumberStyles.None,CultureInfo.InvariantCulture,out var projectId)||projectId<=0)return null;
+        var registered=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",projectId}},cancellationToken)).SingleOrDefault();
         if(registered is null)return null;
         if(!administrator&&project!=SqlRowStore.Text(account,"yz_project_id"))return null;
         if(SqlRowStore.Text(session,"kind")=="agent"&&project!=SqlRowStore.Text(session,"project_id"))return null;
@@ -53,6 +54,13 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
         }
         var actor=new RuntimeActor(SqlRowStore.Id(account),SqlRowStore.Text(account,"name"),administrator,project,SqlRowStore.Text(account,"yz_admin_type_id"));
         return new(actor,permissions,SqlRowStore.Id(session),grantId);
+    }
+    /// <summary>有效期与登录起止时间在每次请求重新检查，停用立即生效。</summary>
+    public static bool AccountActive(IReadOnlyDictionary<string,object?> account)
+    {
+        var now=DateTime.UtcNow;if(SqlRowStore.Text(account,"is_disabled")=="1")return false;
+        foreach(var field in new[]{"validity_time","login_stop_time"})if(account.GetValueOrDefault(field) is{} end&&Convert.ToDateTime(end,CultureInfo.InvariantCulture)<=now)return false;
+        return account.GetValueOrDefault("login_rise_time") is not{} start||Convert.ToDateTime(start,CultureInfo.InvariantCulture)<=now;
     }
     public Task LogoutAsync(long sessionId,CancellationToken cancellationToken=default)=>store.UpdateAsync("sys_session",sessionId,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},cancellationToken);
     public static Dictionary<string,object?> PublicAccount(IReadOnlyDictionary<string,object?> row)=>new()

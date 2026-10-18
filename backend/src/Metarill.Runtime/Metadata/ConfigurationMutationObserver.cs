@@ -10,10 +10,11 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
 {
     public async Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken=default)
     {
-        if(context.IsDelete)return;
+        if(context.IsDelete){await DeleteOwnedMetadata(context,cancellationToken);return;}
         if(context.TableName is not ("config_table" or "config_column" or "config_page"))return;
         if(store.Session.CurrentTransaction!=context.Transaction)throw new InvalidOperationException("配置联动必须加入同一事务。");
         var project=long.Parse(context.ProjectId);
+        await ValidateAndNormalize(context,project,cancellationToken);
         if(context.TableName=="config_table")
         {
             var table=(await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
@@ -40,6 +41,63 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
         {
             var page=(await store.ReadAsync("config_page",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
             await EnsurePageFields(SqlRowStore.Id(page,"config_table_id"),project,cancellationToken);
+        }
+    }
+    /// <summary>对象规则在生成写入的同一事务里校验；失败回滚刚写入的记录。</summary>
+    private async Task ValidateAndNormalize(RecordMutationContext context,long project,CancellationToken token)
+    {
+        var row=(await store.ReadAsync(context.TableName,new Dictionary<string,object?>{{"id",context.RecordId}},token)).Single();
+        if(context.TableName=="config_table")
+        {
+            var name=SqlRowStore.Text(row,"table_name");Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(name);
+            if((await store.ReadAsync("config_table",new Dictionary<string,object?>{{"yz_project_id",project},{"table_name",name}},token)).Count!=1)throw new InvalidOperationException("同项目表名不能重复。");
+            if(row.GetValueOrDefault("yz_admin_type_id") is{} admin&&(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"id",admin},{"yz_project_id",project}},token)).Count!=1)throw new UnauthorizedAccessException("后台类型不属于当前项目。");
+            return;
+        }
+        var tableId=SqlRowStore.Id(row,"config_table_id");
+        if((await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",tableId},{"yz_project_id",project}},token)).Count!=1)throw new UnauthorizedAccessException("所属表不属于当前项目。");
+        if(context.TableName!="config_column")return;
+        var column=SqlRowStore.Text(row,"column_name");Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(column);
+        if((await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId},{"column_name",column}},token)).Count!=1)throw new InvalidOperationException("同表字段名不能重复。");
+        var type=SqlRowStore.Text(row,"logical_type");
+        if(!context.SubmittedFields.ContainsKey("logical_type")||string.IsNullOrWhiteSpace(type))
+        {
+            var physical=SqlRowStore.Text(row,"column_type").ToLowerInvariant();
+            type=physical switch
+            {
+                "bigint" or "int64"=>"int64","int" or "integer" or "tinyint" or "smallint" or "int32"=>"int32",
+                "decimal" or "numeric" or "double" or "float"=>"decimal","date"=>"date","time"=>"time","datetime" or "timestamp"=>"datetime",
+                "bool" or "boolean"=>"bool","json"=>"json","blob" or "binary"=>"binary",_=>"string"
+            };
+        }
+        if(column=="id"||column.EndsWith("_id",StringComparison.Ordinal))type="int64";
+        if(column=="sort_no")type="int32";
+        if(type is not ("int64" or "int32" or "string" or "decimal" or "date" or "time" or "datetime" or "bool" or "json" or "binary"))throw new ArgumentException("字段逻辑类型无效。");
+        await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);
+    }
+
+    /// <summary>删除配置只清理所属元数据；真实数据库删表删列须另行制定结构变更计划。</summary>
+    private async Task DeleteOwnedMetadata(RecordMutationContext context,CancellationToken token)
+    {
+        if(context.TableName is not ("config_table" or "config_column" or "config_page"))return;
+        if(store.Session.CurrentTransaction!=context.Transaction)throw new InvalidOperationException("配置删除联动必须在同一事务内。");
+        async Task DeleteRows(string table,string field,long id)
+        {
+            foreach(var row in await store.ReadAsync(table,new Dictionary<string,object?>{{field,id},{"yz_project_id",long.Parse(context.ProjectId)}},token))
+                await store.UpdateAsync(table,SqlRowStore.Id(row),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+        }
+        if(context.TableName=="config_column"){await DeleteRows("config_page_column","config_column_id",context.RecordId);await DeleteRows("config_index_column","config_column_id",context.RecordId);}
+        var pageIds=context.TableName=="config_page"?new[]{context.RecordId}:context.TableName=="config_table"?(await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",context.RecordId},{"yz_project_id",long.Parse(context.ProjectId)}},token)).Select(r=>SqlRowStore.Id(r)).ToArray():[];
+        foreach(var pageId in pageIds)
+        {
+            await DeleteRows("config_page_column","config_page_id",pageId);await DeleteRows("config_button","config_page_id",pageId);
+            await DeleteRows("config_menu","config_page_id",pageId);await DeleteRows("config_child","parent_config_page_id",pageId);await DeleteRows("config_child","child_config_page_id",pageId);
+        }
+        if(context.TableName=="config_table")
+        {
+            await DeleteRows("config_page","config_table_id",context.RecordId);await DeleteRows("config_column","config_table_id",context.RecordId);
+            foreach(var index in await store.ReadAsync("config_index",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},token))await DeleteRows("config_index_column","config_index_id",SqlRowStore.Id(index));
+            await DeleteRows("config_index","config_table_id",context.RecordId);
         }
     }
     private async Task EnsurePageFields(long tableId,long project,CancellationToken cancellationToken)

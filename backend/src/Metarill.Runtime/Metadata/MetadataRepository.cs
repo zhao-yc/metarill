@@ -17,6 +17,7 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
             await SeedRows("config_page_column",catalog.ConfigPageColumns,cancellationToken);
             await SeedRows("yz_admin_type",catalog.YzAdminTypes,cancellationToken);
             await SeedRows("config_menu",catalog.ConfigMenus,cancellationToken);
+            await SeedRows("config_custom_page",catalog.ConfigCustomPages,cancellationToken);
             await SeedRows("config_button",catalog.ConfigButtons,cancellationToken);
             await SeedRows("config_child",catalog.ConfigChildren,cancellationToken);
             await SeedRows("config_index",catalog.ConfigIndexes,cancellationToken);
@@ -56,6 +57,7 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
             ConfigTables=await Read<TableMetadata>("config_table"),ConfigColumns=await Read<ColumnMetadata>("config_column"),
             ConfigPages=await Read<PageMetadata>("config_page"),ConfigPageColumns=await Read<PageColumnMetadata>("config_page_column"),
             YzAdminTypes=await Read<AdminTypeMetadata>("yz_admin_type"),ConfigMenus=await Read<MenuMetadata>("config_menu"),
+            ConfigCustomPages=(await Read<CustomPageMetadata>("config_custom_page")).Select(p=>{p.YzAdminTypeId=registry.Platform.YzAdminTypes.FirstOrDefault()?.Id??"";return p;}).ToList(),
             ConfigButtons=await Read<JsonElement>("config_button"),ConfigChildren=await Read<JsonElement>("config_child"),
             ConfigIndexes=await Read<JsonElement>("config_index"),ConfigIndexColumns=await Read<JsonElement>("config_index_column")
         };

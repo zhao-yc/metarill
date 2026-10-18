@@ -17,6 +17,7 @@ public sealed class MetadataCatalog
     public List<PageColumnMetadata> ConfigPageColumns { get; set; } = [];
     public List<AdminTypeMetadata> YzAdminTypes { get; set; } = [];
     public List<MenuMetadata> ConfigMenus { get; set; } = [];
+    public List<CustomPageMetadata> ConfigCustomPages { get; set; } = [];
     public List<JsonElement> ConfigButtons { get; set; } = [];
     public List<JsonElement> ConfigChildren { get; set; } = [];
     public List<JsonElement> ConfigIndexes { get; set; } = [];
@@ -76,6 +77,7 @@ public sealed class PageColumnMetadata : MetadataRecord
     public int IsShow { get; set; } = 1;
     public int IsRequired { get; set; }
 }
+public sealed class CustomPageMetadata : MetadataRecord { public string PagePath { get; set; } = ""; public string YzAdminTypeId { get; set; } = ""; }
 public sealed class AdminTypeMetadata : MetadataRecord { }
 public sealed class MenuMetadata : MetadataRecord
 {

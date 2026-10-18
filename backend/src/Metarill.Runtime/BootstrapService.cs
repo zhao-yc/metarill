@@ -27,6 +27,8 @@ public sealed class BootstrapService(DatabaseSession session,SchemaService schem
                 await store.InsertAsync("yz_role",new Dictionary<string,object?>{{"id",1L},{"name","平台管理员"},{"is_super",1},{"is_built_in",1},{"yz_project_id",long.Parse(registry.Platform.YzProjectId)},{"yz_admin_type_id",long.Parse(registry.Platform.YzAdminTypes[0].Id)}},cancellationToken);
             if((await store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken)).Count==0)
                 await store.InsertAsync("yz_manager",new Dictionary<string,object?>{{"id",1L},{"name",username},{"real_name","管理员"},{"password",PasswordHasher.Hash(password)},{"yz_role_ids","[\"1\"]"},{"is_disabled",0},{"yz_project_id",long.Parse(registry.Platform.YzProjectId)},{"yz_admin_type_id",long.Parse(registry.Platform.YzAdminTypes[0].Id)}},cancellationToken);
+            if((await store.ReadAsync("yz_manager_devices",new Dictionary<string,object?>{{"id",1L}},cancellationToken)).Count==0)
+                await store.InsertAsync("yz_manager_devices",new Dictionary<string,object?>{{"id",1L},{"yz_manager_id",1L},{"name","默认开发设备"},{"yz_project_id",long.Parse(registry.Platform.YzProjectId)}},cancellationToken);
             return true;
         },cancellationToken);
         using var business=new DatabaseSession(businessOptions);

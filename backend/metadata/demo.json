@@ -221,13 +221,17 @@
       "isSave": 1,
       "isDelete": 1,
       "isCopy": 1,
+      "isImport": 1,
+      "isExport": 1,
+      "importMethod": "insert",
+      "exportMethod": "list",
       "pageSize": 20,
       "whereSql": "yz_project_id=@current_yz_project_id"
     }
   ],
   "configPageColumns": [
     {
-      "id": "2200000000000000770",
+      "id": "2200000000000000786",
       "name": "项目",
       "configPageId": "2200000000000100020",
       "configColumnId": "2200000000000100110",
@@ -235,10 +239,12 @@
       "isShow": 1,
       "isEdit": 0,
       "isRequired": 1,
+      "isInFilter": 0,
+      "isSort": 0,
       "sortNo": 100
     },
     {
-      "id": "2200000000000000771",
+      "id": "2200000000000000787",
       "name": "名称",
       "configPageId": "2200000000000100020",
       "configColumnId": "2200000000000100111",
@@ -246,10 +252,12 @@
       "isShow": 1,
       "isEdit": 1,
       "isRequired": 1,
+      "isInFilter": 1,
+      "isSort": 1,
       "sortNo": 110
     },
     {
-      "id": "2200000000000000772",
+      "id": "2200000000000000788",
       "name": "备注",
       "configPageId": "2200000000000100020",
       "configColumnId": "2200000000000100112",
@@ -257,10 +265,12 @@
       "isShow": 1,
       "isEdit": 1,
       "isRequired": 0,
+      "isInFilter": 0,
+      "isSort": 0,
       "sortNo": 120
     },
     {
-      "id": "2200000000000000773",
+      "id": "2200000000000000789",
       "name": "金额",
       "configPageId": "2200000000000100020",
       "configColumnId": "2200000000000100113",
@@ -268,10 +278,12 @@
       "isShow": 1,
       "isEdit": 1,
       "isRequired": 0,
+      "isInFilter": 0,
+      "isSort": 1,
       "sortNo": 130
     },
     {
-      "id": "2200000000000000774",
+      "id": "2200000000000000790",
       "name": "启用",
       "configPageId": "2200000000000100020",
       "configColumnId": "2200000000000100114",
@@ -279,6 +291,8 @@
       "isShow": 1,
       "isEdit": 1,
       "isRequired": 0,
+      "isInFilter": 0,
+      "isSort": 0,
       "sortNo": 140
     }
   ],

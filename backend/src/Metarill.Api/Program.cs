@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Exports;
+using Metarill.Runtime.Exports;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -8,6 +10,7 @@ using Metarill.Generation;
 using Metarill.Runtime;
 using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Menus;
+using Metarill.Runtime.Files;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 using Microsoft.AspNetCore.RateLimiting;
@@ -38,6 +41,13 @@ builder.Services.AddScoped<HttpRuntimeAuthorization>();
 builder.Services.AddScoped<IRuntimeAuthorization>(sp=>sp.GetRequiredService<HttpRuntimeAuthorization>());
 builder.Services.AddScoped<MenuWorkbenchBusiness>();
 builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver>();
+builder.Services.AddSingleton(new FileLibraryOptions{RootDirectory=Path.Combine(root,".local","files")});
+builder.Services.AddScoped<FileLibraryService>();
+builder.Services.AddSingleton(new ExportOptions{RootDirectory=Path.Combine(root,".local","exports")});
+builder.Services.AddSingleton<ExcelPageExportService>();
+builder.Services.AddSingleton<IPageExportService>(sp=>sp.GetRequiredService<ExcelPageExportService>());
+builder.Services.AddHostedService<ExportCleanupWorker>();
+builder.Services.AddScoped<IRecordMutationObserver,FileReferenceMutationObserver>();
 Metarill.Platform.Generated.GeneratedRegistration.AddGeneratedServices(builder.Services);
 Metarill.Demo.Generated.GeneratedRegistration.AddGeneratedServices(builder.Services,sp=>sp.GetRequiredService<TargetDatabaseSessions>().Business);
 builder.Services.AddControllers().AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
@@ -95,3 +105,4 @@ static string FindRoot(string start)
     throw new InvalidOperationException("无法定位 Metarill 根目录。");
 }
 public partial class Program;
+
