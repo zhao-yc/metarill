@@ -20,8 +20,13 @@ public sealed class OptionalJsonConverterFactory : JsonConverterFactory
     private sealed class OptionalJsonConverter<T> : JsonConverter<Optional<T>>
     {
         public override bool HandleNull => true;
-        public override Optional<T> Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) =>
-            new(JsonSerializer.Deserialize<T>(ref reader, options));
+        /// <summary>旧下拉控件用空白字符串清空可空值，仍标记为明确提交；字符串本身保持原值。</summary>
+        public override Optional<T> Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.String && Nullable.GetUnderlyingType(typeof(T)) is not null && string.IsNullOrWhiteSpace(reader.GetString()))
+                return new(default);
+            return new(JsonSerializer.Deserialize<T>(ref reader, options));
+        }
         public override void Write(Utf8JsonWriter writer, Optional<T> value, JsonSerializerOptions options) =>
             JsonSerializer.Serialize(writer, value.Value, options);
     }
