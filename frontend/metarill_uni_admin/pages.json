@@ -450,6 +450,12 @@
       "style": {
         "navigationBarTitleText": "菜单"
       }
+    },
+    {
+      "path": "pages/custom/schema_sync",
+      "style": {
+        "navigationBarTitleText": "数据库结构预览"
+      }
     }
   ],
   "tabBar": {

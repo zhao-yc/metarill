@@ -5,7 +5,8 @@
   "description": "Metarill HBuilderX uni-app Vue 3 管理端",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "sync:write-schema": "node scripts/merge-page-write-schemas.mjs"
+    "sync:write-schema": "node scripts/merge-page-write-schemas.mjs",
+    "sync:custom-routes": "node scripts/merge-custom-routes.mjs"
   },
   "license": "Apache-2.0",
   "dependencies": {

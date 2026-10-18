@@ -36,7 +36,7 @@ HBuilderX 自带条件编译预处理器与 Vue SFC 编译器检查了 74 个项
 | 表配置列表 | POST /admin/auto/config_table/6191083005411328/page | JSON:{orderBy,pageNo,pageSize,filters,parentId}；R.data:{records,total} |
 | 表配置详情 | GET /admin/auto/config_table/6191083005411328/detail/{id} | 可带 parentId query；R.data 为完整实体 |
 | 表配置新增/更新 | POST /admin/auto/config_table/6191083005411328/add 或 /update | JSON 为提交实体，R.data 必须返回完整保存实体与字符串 id；afterAdd 服务端创建默认页面 |
-| 字段配置新增/更新 | POST /admin/auto/config_column/6217715532627968/add 或 /update | JSON 为提交实体，parentId query（新字段归属 configTableId）；afterAdd 服务端给表的所有页面建 page_column |
+| 字段配置新增/更新 | POST /admin/custom/index/preview_batch_create_columns、/save_batch_create_columns；标准 /update 保留 | 原页 isNew=0，标准 /add 不开放；批量请求为表单或JSON:{config_table_id,content}，保存由同事务配置观察器创建全部页面字段 |
 | 标准删除 | DELETE /admin/auto/{table}/{pageId} | JSON 含 id，可带 parentId query；权限和引用检查在服务端 |
 | 自定义按钮 | POST /admin/sys/config_button/execute | JSON:{buttonId,entityId,entity?}，列表另带 visibleScheme/visibleRuleJson；以服务端配置为准，不能信任客户端规则 |
 | 表级生成 | POST /admin/custom/config_table/generate_all?id={tableId} | 首页直接调用；生成目标现为 C#，不改现有按钮路径 |
@@ -63,7 +63,7 @@ HBuilderX 自带条件编译预处理器与 Vue SFC 编译器检查了 74 个项
 
 运行时 getMenu 与工作台 tree 的模型不同：运行时节点使用 menu_id（兼容 id）、name、nodeType、children 及 target:{route,tableName,pageId,tableId,countEndpoint}。角标 isShowCount 生效时才 POST countEndpoint，载荷 {filters:{},parentId:''}。菜单导航查询参数 yzpMenuId 仅用于恢复选中，不能授予权限。
 
-数据库动作目前经按钮网关映射：1696359699042168834→config_table/create_table，1696795154426523650→config_table/delete_table，1764267649526751234→config_column/add_column_to_db，1764274114228662273→config_column/drop_column_to_db，1696360770502291457→index/init_database。前端现有按钮没有结构差异预览及执行计划令牌界面；新“预览→执行→核验”流程需另行补齐界面与服务契约，不能将旧按钮直执行宣称成已满足。
+结构按钮现在由兼容网关解释：1696359699042168834（创建表）、1764267649526751234（创建字段）、1696360770502291457（初始化数据库）只返回 type:path 到 pages/custom/schema_sync，不能直接执行 DDL。1696795154426523650（删除表）和1764274114228662273（删除字段）明确拒绝。新预览页源码与状态机测试已补齐；真实 H5/多端验收仍受新 AppID 缺口阻塞，不能据单元测试宣称完整操作验收。
 
 来源证据：pages/custom/select_project.vue、common/yzp_runtime/menuRuntime.js、common/menuWorkbench.js、pages/yzp/config_table-detail-6191083005411328.vue、pages/yzp/config_column-detail-6217715532627968.vue、pages/custom/page_detail_layout.vue、pages/custom/config_page_columns.vue、components/yzp-file-library/yzp-file-library.vue，以及原平台 ConfigTableServiceImpl.afterAdd / ConfigColumnServiceImpl.afterAdd。本节只是实际调用对照，没有修改 Core 或 Runtime。
 
@@ -83,3 +83,15 @@ PageColumn加载同步 isInEdit→IsEdit、isInGrid→IsShow、isMust→IsRequir
 验证：19项服务端单元+6项200隔离metarill_test真实集成测试，共25/25，无跳过；包括双连接同版本竞争、跨页/表整批拒绝、标志与Core同步、布局回读、原batch预览不写入、批量保存与两页afterAdd联动、重复保存重检。测试只使用随机项目ID并清理其记录。独立Controller与Runtime编译零警告；此分支前端160项测试通过，主分支叠加其他请求清单测试后以协调者计数为准。
 
 集成需注册 AddScoped<MetadataWorkbenchBusiness>()、AddScoped<ConfigurationMutationObserver>()；保留原IRecordMutationObserver注册。测试项目 backend/tests/Metarill.Metadata.Tests，无隔离配置会明确跳过真实数据库项；CI应同时运行该项目。Repository别名归一仅在Read<T>局部，主分支新增ConfigCustomPages读取应保留。HBuilderX AppID、插件许可及真机未验收状态不变。
+
+## 按钮兼容网关与结构预览
+
+服务端新增 CompatibilityButtonBusiness 和 CompatibilityButtonController，协调者须注册 AddScoped<CompatibilityButtonBusiness>()。POST /admin/sys/config_button/execute 接收原 buttonId、entityId、entity，以及列表页 visibleScheme/visibleRuleJson 显示提示；后面三者不参与权限或动作判定。真实数据库 config_button 的 action_type=1、平台项目归属、发布配置页面和精确动作白名单必须同时匹配。实体及其关联表重新读库，核验当前项目；管理员也不能跨项目提交实体。sql 字段只进行路由字符串精确比对，禁止作为 SQL、脚本或动态地址执行。未知、删除结构和初始化账号均明确拒绝，不返回伪成功。
+
+已映射原表/页的列排序、批量字段、页面字段、详情布局、配置表跳转、索引与联接配置页。索引/联接导航可用不代表其保存业务已移植；页面复制、创建页面、创建菜单、单独生成客户端、运行时同步和 Token 重置暂不支持。首页原表/页 generate_all 和导航直调接口也由同一网关处理，支持 query id、表单 id 和JSON id，冲突标识拒绝。生成返回 type:metarillGenerate、projectId；公共按钮处理器向当前API认证POST /admin/sys/generation/generate下载ZIP，错误JSON不能被当成ZIP保存。Web外平台明确提示暂未接入ZIP保存。
+
+结构预览 POST /admin/sys/database/preview {projectId,tableId?} 显示服务器计划和完整SQL。确认后POST /admin/sys/database/apply {projectId,plan} 原样提交完整计划；客户端不编辑SQL，也不删除未知计划属性。一次确认只提交一次，成功或失败后再preview一次核验；核验计划不会自动执行。apply的R.data（失败时map.result或map.journal）作为执行记录显示。网络结果未知、部分DDL失败或核验仍有差异时，保留结果并要求手动重新预览，绝不自动重试。项目/登录变化和离开页面会阻止迟到响应继续执行。
+
+专用路由声明于 frontend/metarill_uni_admin/scripts/custom-routes.json，在前端目录运行 npm run sync:custom-routes 确定性合并到 pages.json；每次重新生成路由后须运行此命令。脚本保持既有生成路由，重复运行changed:false，不能只手改pages.json。
+
+本次验证：后端21项通过（含3项只读隔离MySQL网关/Controller测试，0跳过），并链接编译实际Controller；前端176项通过；75个项目Vue脚本通过H5条件预处理与SFC语法检查；别名导入缺失0。此处未执行DDL、未完成浏览器操作验收，未重新尝试无AppID构建。选择器/富文本继续保留现有设计与许可占位，不替换为picker或原生editor。

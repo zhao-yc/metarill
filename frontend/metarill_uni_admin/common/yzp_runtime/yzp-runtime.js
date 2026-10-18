@@ -1,3 +1,4 @@
+import { generationDownloadRequest, downloadGeneration } from './generationDownload';
 import utils from "../utils";
 import {
 	evaluateRule as evaluateButtonVisibleRuleCore
@@ -293,7 +294,16 @@ var yzp = {
 	//全局自定义按钮事件
 	customButtonHandler: function (res, that, isAutoCloseAfterAction, type) {
 		if (res.code == 200) {
-			if (res.data && res.data.type && res.data.type == "path") {
+			if (res.data && res.data.type === 'metarillGenerate') {
+				// 生成包只从当前 API 认证下载，下载完成前不显示生成成功。
+				const context = () => JSON.stringify([uni.getStorageSync('loginStateId'), uni.getStorageSync('sysParams')]);
+				const original = context();
+				try {
+					const request = generationDownloadRequest(res.data, getApp().globalData.environment.base_url, uni.getStorageSync('loginStateId'), uni.getStorageSync('sysParams'));
+					downloadGeneration(request, () => context() === original).then(() => uni.showToast({ title: '生成包已开始下载', icon: 'none' })).catch(error => this.showErrorModal(error.message));
+				} catch (error) { this.showErrorModal(error.message); }
+				return;
+			} else if (res.data && res.data.type && res.data.type == "path") {
 				if (res.data.path.indexOf("?") >= 0) {
 					uni.navigateTo({
 						url: res.data.path
