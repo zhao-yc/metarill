@@ -5,6 +5,7 @@
 {{FIELDS}}
     </uni-forms>
     <button v-if="id ? canSave : canCreate" :disabled="saving" @click="save">保存</button>
+    <button v-if="id && canCopy" :disabled="saving" @click="copy">复制</button>
     <button v-if="id && canDelete" :disabled="saving" @click="remove">删除</button>
   </view>
 </template>
@@ -12,9 +13,11 @@
 import yzp from '@/common/yzp';
 const writableFields = {{WRITABLE_FIELDS}};
 export default {
-  data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: {{CAN_CREATE}}, canSave: {{CAN_SAVE}}, canDelete: {{CAN_DELETE}} }; },
+  data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: {{CAN_CREATE}}, canSave: {{CAN_SAVE}}, canDelete: {{CAN_DELETE}}, canCopy: {{CAN_COPY}} }; },
   onLoad(options) { this.id = options.id || ''; this.parentId = options.parentId || ''; this.loadOptions(); if (this.id) this.load(); },
   methods: {
+    /** POST复制仅提交源标识，服务端重建新记录与审计身份。 */
+    copy() { uni.showModal({ title: '复制确认', content: '确定复制当前记录？', success: modal => { if (!modal.confirm) return; yzp.request({ url: '{{API}}/copy/' + encodeURIComponent(this.id) + '?parentId=' + encodeURIComponent(this.parentId), method: 'POST', sendSessionId: true, success: res => { if (res.code === 200) { this.id = res.data.id; this.entity = res.data; this.changes = {}; uni.showToast({ title: '复制成功', icon: 'success' }); } } }); } }); },
     /** 关系选项由当前页接口实施范围和权限校验。 */
     loadOptions() {
 {{OPTION_REQUESTS}}

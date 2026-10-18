@@ -20,7 +20,11 @@ public sealed class GeneratedContractTests
         Directory.CreateDirectory(root);
         try
         {
-            var catalog = GeneratorTests.Catalog(); catalog.ConfigPages[0].IsCopy = 1; catalog.ConfigColumns.Single(column => column.ColumnName == "remark").ControlKind = "FileLibrary";
+            var catalog = GeneratorTests.Catalog(); catalog.ConfigPages[0].IsCopy = 1; catalog.ConfigPages[0].IsImport = 1; catalog.ConfigPages[0].IsExport = 1; catalog.ConfigPages[0].Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "status", LogicalType = "int32", Name = "状态", ControlKind = "ConstList", ControlDetail = "启用|1,停用|0" });
+            catalog.ConfigColumns.Add(new() { Id = "17", ConfigTableId = "1", ColumnName = "sign_date", LogicalType = "datetime", Name = "签署日期", ControlKind = "date" });
+            catalog.ConfigPageColumns.Add(new() { Id = "116", ConfigPageId = "101", ConfigColumnId = "16", IsEdit = 1, IsShow = 1 });
+            catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = "101", ConfigColumnId = "17", IsEdit = 1, IsShow = 1 }); catalog.ConfigColumns.Single(column => column.ColumnName == "remark").ControlKind = "FileLibrary";
             new CSharpGenerator().Generate(catalog, Path.Combine(root, "generated"), "Example.Contract");
             var repository = FindRepository();
             var dataProject = Environment.GetEnvironmentVariable("METARILL_DATA_PROJECT") ?? Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj");
@@ -75,11 +79,38 @@ public sealed class GeneratedContractTests
             var copyTask = (Task)copyMethod.Invoke(controller, [1L, null, CancellationToken.None])!;
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => copyTask);
             Assert.Equal("101:copy", authorization.Requested);
+            var importType = assembly.GetType("Example.Contract.Generated.DTOs.CustomerPage101ImportRequest", true)!;
+            var importRequest = JsonSerializer.Deserialize("{\"requestJson\":[{\"名称\":\"甲\"}],\"parentId\":null}", importType, options)!;
+            var importMethod = controllerType.GetMethod("Import")!;
+            var importTask = (Task)importMethod.Invoke(controller, [importRequest, CancellationToken.None])!;
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => importTask);
+            Assert.Equal("101:import", authorization.Requested);
+            var exportMethod = controllerType.GetMethod("InitExport")!;
+            var exportSink = new DeniedExportSink();
+            var exportTask = (Task)exportMethod.Invoke(controller, [new PageRequest(), exportSink, CancellationToken.None])!;
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => exportTask);
+            Assert.Equal("101:export", authorization.Requested); Assert.False(exportSink.Called);
+            var serviceType = assembly.GetType("Example.Contract.Generated.Services.CustomerService", true)!;
+            var parser = serviceType.GetMethod("ParseImport101Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var parserInstance = RuntimeHelpers.GetUninitializedObject(serviceType);
+            var actor = new RuntimeActor(1, "测试", true, "100", "1");
+            using var input = JsonDocument.Parse("{\"名称\":\"甲\",\"备注\":[{\"fileId\":\"7\"}],\"状态\":\"启用\",\"签署日期\":\"2026-10-18 09:10:11\"}");
+            var converted = await (Task<Dictionary<string, JsonElement>>)parser.Invoke(parserInstance, [input.RootElement, null, actor, CancellationToken.None])!;
+            Assert.Equal("甲", converted["name"].GetString()); Assert.Equal(1, converted["status"].GetInt32());
+            Assert.Equal(JsonValueKind.Array, converted["remark"].ValueKind); Assert.Equal(new DateTime(2026, 10, 18, 9, 10, 11), converted["signDate"].GetDateTime());
+            using var forbidden = JsonDocument.Parse("{\"insertManagerId\":\"99\"}");
+            await Assert.ThrowsAsync<ArgumentException>(() => (Task)parser.Invoke(parserInstance, [forbidden.RootElement, null, actor, CancellationToken.None])!);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
     private static bool ReadSpecified(object value) => (bool)value.GetType().GetProperty("IsSpecified")!.GetValue(value)!;
     private static string FindRepository([CallerFilePath] string file = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
+    private sealed class DeniedExportSink : Metarill.Core.Exports.IPageExportService
+    {
+        public bool Called { get; private set; }
+        /// <summary>未通过导出权限时不能创建任何文件或票据。</summary>
+        public Task<string> CreateAsync(Metarill.Core.Exports.PageExportRequest request, RuntimeActor actor, CancellationToken cancellationToken = default) { Called = true; throw new InvalidOperationException("无权限时不应创建导出。"); }
+    }
     private sealed class DeniedAuthorization : IRuntimeAuthorization
     {
         public string Requested { get; private set; } = "";

@@ -1,7 +1,7 @@
 <!-- 由 Metarill 元数据生成，使用现有 uni-app 请求和组件体系。 -->
 <template>
   <view class="yzp-page">
-    <view class="uni-padding-wrap"><text>{{TITLE}}</text><button v-if="canCreate" size="mini" @click="openDetail('')">新增</button></view>
+    <view class="uni-padding-wrap"><text>{{TITLE}}</text><button v-if="canCreate" size="mini" @click="openDetail('')">新增</button><button v-if="canImport" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
     <uni-table :loading="loading" border stripe emptyText="暂无数据">
       <uni-tr>{{HEADERS}}<uni-th>操作</uni-th></uni-tr>
       <uni-tr v-for="row in records" :key="row.id">{{CELLS}}<uni-td><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
@@ -11,11 +11,18 @@
 </template>
 <script>
 import yzp from '@/common/yzp';
+import utils from '@/common/utils';
 export default {
-  data() { return { records: [], pageNo: 1, pages: 1, loading: false, parentId: '', selecting: false, canCreate: {{CAN_CREATE}} }; },
+  data() { return { records: [], pageNo: 1, pages: 1, loading: false, parentId: '', selecting: false, canCreate: {{CAN_CREATE}}, canImport: {{CAN_IMPORT}}, canExport: {{CAN_EXPORT}} }; },
   onLoad(options) { this.parentId = options.parentId || ''; this.selecting = options.select === '1'; },
   onShow() { this.loadPage(); },
   methods: {
+    /** 导入保留客户端读取Excel并提交中文标题JSON的协议。 */
+    initImport() { yzp.chooseImportFile(rows => { yzp.request({ url: '{{API}}/importDatas{{PAGE_ID}}', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
+    /** 导出票据与原下载入口兼容，字段和范围全部由后端决定。 */
+    initExport() { yzp.request({ url: '{{API}}/initExport', method: 'POST', sendSessionId: true, data: { filters: {}, parentId: this.parentId || null }, success: res => { if (res.code === 200) utils.openUrl(getApp().globalData.environment.base_url + '/admin/sys/export/export?exportId=' + encodeURIComponent(res.data)); } }); },
+    /** 批次导入成功后回到第一页重新读取真实数据。 */
+    refreshData() { this.pageNo = 1; this.loadPage(); },
     /** 分页请求沿用统一登录态和 R 响应。 */
     loadPage() {
       this.loading = true;
