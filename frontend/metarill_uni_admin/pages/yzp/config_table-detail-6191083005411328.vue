@@ -10,13 +10,8 @@
 <text v-if='idReadOnly'>{{entity.id}}</text>
 </uni-forms-item>
 
-<uni-forms-item label='一级菜单' name='configFirstMenuId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<uni-easyinput style='display: none;' v-model='entity.configFirstMenuId' maxlength='50' />
-<text v-if='configFirstMenuIdReadOnly'>{{readonlyDisplayText(entity.configFirstMenuName)}}</text><template v-if='!configFirstMenuIdReadOnly'><view class='select-page-input-row'>
-<uni-easyinput disabled primaryColor="#007aff" :model-value='readonlyDisplayText(entity.configFirstMenuName)'/>
-<button v-if='!configFirstMenuIdReadOnly' size='mini' @click='openSelect1671029182436667394()'>选择一级菜单</button>
-</view>
-</template>
+<uni-forms-item label='后台类型' name='yzAdminTypeId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange' /></template>
 </uni-forms-item>
 
 <uni-forms-item label='名称' name='name' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
@@ -63,11 +58,6 @@
 <button size='mini' type='default' v-if='customerButtonShow1696359699042168834' @click='customerButtonHandler1696359699042168834'>在数据库创建表</button>
 <button size='mini' type='default' v-if='customerButtonShow1696795154426523650' @click='customerButtonHandler1696795154426523650'>在数据库删除表</button>
 <button size='mini' type='default' v-if='customerButtonShow1697063177846710274' @click='customerButtonHandler1697063177846710274'>创建视图</button></view></view>
-    <yzp-popup ref="selectPageDialog1671029182436667394" type="center">
-<view class="select-page-dialog-view">
-<config_first_menu_2092458141747736577 ref='1671029182436667394' @onPopSelect="onPopSelect1671029182436667394" @onPopClose="onPopClose1671029182436667394" :selectedIds="entity.configFirstMenuId" :selectedNames="entity.configFirstMenuName" selected-name-field="name"></config_first_menu_2092458141747736577>
-</view>
-</yzp-popup>
         <config_page_1868973685063311361 :parent_id='id' :parentReadOnlyCondition='readOnlyCondition' :parent_page_sn='page_sn' :is_son_page='true' :child_page_open_type='1' ref='config_page_1868973685063311361'></config_page_1868973685063311361>        <config_column_6217715532627968 :parent_id='id' :parentReadOnlyCondition='readOnlyCondition' :parent_page_sn='page_sn' :is_son_page='true' :child_page_open_type='1' ref='config_column_6217715532627968'></config_column_6217715532627968>
 
   </view>
@@ -76,10 +66,10 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
-import config_first_menu_2092458141747736577 from '@/pages/yzp/config_first_menu-list-2092458141747736577.vue';import config_page_1868973685063311361 from '@/pages/yzp/config_page-list-1868973685063311361.vue';import config_column_6217715532627968 from '@/pages/yzp/config_column-list-6217715532627968.vue';
+import config_page_1868973685063311361 from '@/pages/yzp/config_page-list-1868973685063311361.vue';import config_column_6217715532627968 from '@/pages/yzp/config_column-list-6217715532627968.vue';
 export default {
   components: {
-    config_first_menu_2092458141747736577,config_page_1868973685063311361,config_column_6217715532627968,
+    config_page_1868973685063311361,config_column_6217715532627968,
   },
   props: ['is_props', 'props_id', 'props_parent_id', 'props_parent_page_sn', 'parentReadOnlyCondition'],
   data() {
@@ -89,18 +79,19 @@ export default {
       page_sn: '6191083005411328',
       parent_page_sn: '',
       formParametersName: 'formParameters6191083005411328',
+      yz_admin_type_list: [],
       loadEntitySuccess: false,
       page_is_update:  true ,page_is_delete:  true ,page_is_new:  true ,page_is_copy:  false ,page_is_function_table:  false ,detailGridColumns: 2,permissionVersion: 0,
 
 
       entity: {
-        id:'',configFirstMenuId:'',name:'',tableName:'',isRongyu:1,isFunctionTable:0,isView:0,
+        id:'',yzAdminTypeId:'',name:'',tableName:'',isRongyu:1,isFunctionTable:0,isView:0,
       },
       entity_column_readonly: {
-        id:true,configFirstMenuId:false,name:false,tableName:false,isRongyu:false,isFunctionTable:false,isView:false,
+        id:true,yzAdminTypeId:false,name:false,tableName:false,isRongyu:false,isFunctionTable:false,isView:false,
       },
       entity_rules: {
-        id: {  rules: [  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},configFirstMenuId: {  rules: [  {      required: true,     errorMessage: '一级菜单为必填项',  },  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},name: {  rules: [  {      required: true,     errorMessage: '名称为必填项',  },  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},tableName: {  rules: [  {      required: true,     errorMessage: '表名为必填项',  },  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},isRongyu: {  rules: [  {      required: true,     errorMessage: '存储模式为必填项',  },  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},isFunctionTable: {  rules: [  {      required: true,     errorMessage: '功能表为必填项',  },  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},isView: {  rules: [  {      required: true,     errorMessage: '数据库视图为必填项',  },  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},
+        id: {  rules: [  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},yzAdminTypeId: {  rules: [  {      required: true,     errorMessage: '后台类型为必填项',  },  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},name: {  rules: [  {      required: true,     errorMessage: '名称为必填项',  },  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},tableName: {  rules: [  {      required: true,     errorMessage: '表名为必填项',  },  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},isRongyu: {  rules: [  {      required: true,     errorMessage: '存储模式为必填项',  },  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},isFunctionTable: {  rules: [  {      required: true,     errorMessage: '功能表为必填项',  },  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},isView: {  rules: [  {      required: true,     errorMessage: '数据库视图为必填项',  },  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},
       }
     }
   },
@@ -108,7 +99,7 @@ export default {
 
   },
   computed: {
-    readOnlyCondition() {    this.permissionVersion;    if (this.page_is_function_table) {        if (!this.page_is_update || this.parentReadOnlyCondition) {            return true;        }        if (!yzp.hasPagePermission(this.page_sn, 'is_update')) {            return true;        }        return false;    }    var pageAllowsWrite = this.id ? this.page_is_update : this.page_is_new;    if (!pageAllowsWrite || this.parentReadOnlyCondition) {        return true;    }    var writePermissionValue = this.id ? 'is_update' : 'is_new';    if (!yzp.hasPagePermission(this.page_sn, writePermissionValue)) {        return true;    }    return false;},idReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.id;},configFirstMenuIdReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.configFirstMenuId;},nameReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.name;},tableNameReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.tableName;},isRongyuReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isRongyu;},isFunctionTableReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isFunctionTable;},isViewReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isView;},
+    readOnlyCondition() {    this.permissionVersion;    if (this.page_is_function_table) {        if (!this.page_is_update || this.parentReadOnlyCondition) {            return true;        }        if (!yzp.hasPagePermission(this.page_sn, 'is_update')) {            return true;        }        return false;    }    var pageAllowsWrite = this.id ? this.page_is_update : this.page_is_new;    if (!pageAllowsWrite || this.parentReadOnlyCondition) {        return true;    }    var writePermissionValue = this.id ? 'is_update' : 'is_new';    if (!yzp.hasPagePermission(this.page_sn, writePermissionValue)) {        return true;    }    return false;},idReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.id;},yzAdminTypeIdReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.yzAdminTypeId;},nameReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.name;},tableNameReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.tableName;},isRongyuReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isRongyu;},isFunctionTableReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isFunctionTable;},isViewReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isView;},
     customerButtonShow1676828142707372033() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"1676828142707372033",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},customerButtonShow2076978804953321472() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"2076978804953321472",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},customerButtonShow1861242035055382529() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"1861242035055382529",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},customerButtonShow2062356006758912000() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"2062356006758912000",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},customerButtonShow1676850201126719490() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"1676850201126719490",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},customerButtonShow1696359699042168834() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"1696359699042168834",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},customerButtonShow1696795154426523650() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"1696795154426523650",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},customerButtonShow1697063177846710274() {this.permissionVersion;return yzp.isButtonVisible({buttonId:"1697063177846710274",visibleScheme:"Normal",visibleRuleJson:""}, this.entity, this.readOnlyCondition);},hasVisibleCustomerButtons() {this.permissionVersion;return this.customerButtonShow1676828142707372033 || this.customerButtonShow2076978804953321472 || this.customerButtonShow1861242035055382529 || this.customerButtonShow2062356006758912000 || this.customerButtonShow1676850201126719490 || this.customerButtonShow1696359699042168834 || this.customerButtonShow1696795154426523650 || this.customerButtonShow1697063177846710274;},
   },
   mounted: function () {
@@ -207,13 +198,19 @@ export default {
     receive1671029182696714241(newEntity) {    this.entity = newEntity;},customerButtonHandler1676828142707372033: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "1676828142707372033", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},customerButtonHandler2076978804953321472: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "2076978804953321472", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},customerButtonHandler1861242035055382529: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "1861242035055382529", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},customerButtonHandler2062356006758912000: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "2062356006758912000", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},customerButtonHandler1676850201126719490: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "1676850201126719490", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},customerButtonHandler1696359699042168834: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "1696359699042168834", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},customerButtonHandler1696795154426523650: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "1696795154426523650", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},customerButtonHandler1697063177846710274: function() {var that = this;yzp.request({url: "/admin/sys/config_button/execute",data: {buttonId: "1697063177846710274", entityId: that.id, entity: that.entity},sendSessionId:true,method: "POST",success: function(res) {yzp.customButtonHandler(res, that, false, 'detail');}})},showCustomerButtons: function() {var that = this;var actions = [];if (that.customerButtonShow1676828142707372033) {actions.push({name: "列排序", handler: function() { that.customerButtonHandler1676828142707372033(); }});}if (that.customerButtonShow2076978804953321472) {actions.push({name: "索引管理", handler: function() { that.customerButtonHandler2076978804953321472(); }});}if (that.customerButtonShow1861242035055382529) {actions.push({name: "一键生成", handler: function() { that.customerButtonHandler1861242035055382529(); }});}if (that.customerButtonShow2062356006758912000) {actions.push({name: "添加联接字段", handler: function() { that.customerButtonHandler2062356006758912000(); }});}if (that.customerButtonShow1676850201126719490) {actions.push({name: "批量创建字段", handler: function() { that.customerButtonHandler1676850201126719490(); }});}if (that.customerButtonShow1696359699042168834) {actions.push({name: "在数据库创建表", handler: function() { that.customerButtonHandler1696359699042168834(); }});}if (that.customerButtonShow1696795154426523650) {actions.push({name: "在数据库删除表", handler: function() { that.customerButtonHandler1696795154426523650(); }});}if (that.customerButtonShow1697063177846710274) {actions.push({name: "创建视图", handler: function() { that.customerButtonHandler1697063177846710274(); }});}if (actions.length == 0) {uni.showToast({title: '暂无可用操作', icon: 'none'});return;}uni.showActionSheet({itemList: actions.map(function(item) { return item.name; }),success: function(res) {actions[res.tapIndex].handler();}});},/* 刷新权限快照后递增版本，触发按钮显示重新计算。 */refreshCurrentPermissions: function(done) {var that = this;var finish = function() {that.permissionVersion++;if (typeof done === 'function') { done(); }};yzp.refreshCurrentPermissions(finish, finish);},
 
 
-    openSelect1671029182436667394() {this.$refs.selectPageDialog1671029182436667394.open();},onPopClose1671029182436667394() {this.$refs.selectPageDialog1671029182436667394.close();},onPopSelect1671029182436667394(e) {this.entity.configFirstMenuId=e.id;this.entity.configFirstMenuName=e.name;this.$refs.selectPageDialog1671029182436667394.close();},
+    /** 后台归属只写ID与展示名，候选范围由服务端按当前项目校验。 */
+    yz_admin_typeSelectChange(item) { this.entity.yzAdminTypeId=item ? item.id : ''; this.entity.yzAdminTypeName=item ? item.name : ''; },
     initLists: function () {
       // 整页只读时只展示详情数据，不加载编辑候选项接口。
       if (this.readOnlyCondition && !this.page_is_function_table) {
         return;
       }
       var that = this;
+      // 候选路径按当前元数据列ID生成，页面不再依赖旧菜单选择页。
+      yzp.request({ url: '/admin/auto/config_table/6191083005411328/findNameIdYzAdminType2200000000000000087', method: 'POST', sendSessionId: true,
+        data: { formParameters: uni.getStorageSync(that.formParametersName) },
+        success(res) { if (res.code == 200) that.yz_admin_type_list=res.data || []; else uni.showModal({ showCancel: false, content: res.msg }); }
+      });
 
     },
     refreshSonsData: function () {

@@ -23,7 +23,7 @@
 					<uni-tr>
 						<uni-th align="center" width="">操作</uni-th>
 						<uni-th>id</uni-th>
-						<uni-th>一级菜单</uni-th>
+						<uni-th>后台类型</uni-th>
 						<uni-th>名称</uni-th>
 						<uni-th>表名</uni-th>
 						<uni-th>默认冗余</uni-th>
@@ -39,7 +39,7 @@
 							</view>
 						</uni-td>
 						<uni-td><text>{{ item.id }}</text></uni-td>
-						<uni-td><text>{{ item.configFirstMenuName }}</text></uni-td>
+						<uni-td><text>{{ item.yzAdminTypeName }}</text></uni-td>
 						<uni-td><text class="list-column-important">{{ item.name }}</text></uni-td>
 						<uni-td><text>{{ item.tableName }}</text></uni-td>
 						<uni-td>{{ $checkboxRange[item.isRongyu == null ? 0 : item.isRongyu].text }}</uni-td>

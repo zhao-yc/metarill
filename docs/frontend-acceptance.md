@@ -66,3 +66,7 @@ HBuilderX 自带条件编译预处理器与 Vue SFC 编译器检查了 74 个项
 数据库动作目前经按钮网关映射：1696359699042168834→config_table/create_table，1696795154426523650→config_table/delete_table，1764267649526751234→config_column/add_column_to_db，1764274114228662273→config_column/drop_column_to_db，1696360770502291457→index/init_database。前端现有按钮没有结构差异预览及执行计划令牌界面；新“预览→执行→核验”流程需另行补齐界面与服务契约，不能将旧按钮直执行宣称成已满足。
 
 来源证据：pages/custom/select_project.vue、common/yzp_runtime/menuRuntime.js、common/menuWorkbench.js、pages/yzp/config_table-detail-6191083005411328.vue、pages/yzp/config_column-detail-6217715532627968.vue、pages/custom/page_detail_layout.vue、pages/custom/config_page_columns.vue、components/yzp-file-library/yzp-file-library.vue，以及原平台 ConfigTableServiceImpl.afterAdd / ConfigColumnServiceImpl.afterAdd。本节只是实际调用对照，没有修改 Core 或 Runtime。
+
+## 后台归属配套修正
+
+依据当前 platform.json 按列名查得 config_table.yz_admin_type_id 列ID 2200000000000000087、config_page.yz_admin_type_id 列ID 2200000000000000104。表配置详情/列表及首页按后台类型展示，移除旧一级菜单选择页弹窗、静态导入及回调。候选接口统一为 POST /admin/auto/config_table/6191083005411328/findNameIdYzAdminType2200000000000000087，三个配置页面各使用自身pageId与 findNameIdYzAdminType2200000000000000104；请求体仍为 {formParameters}，候选仍为原选择器组件接口，没有替换交互。插件许可与新AppID缺口保持原状态，以上修正不等于H5或真实后端联调完成。

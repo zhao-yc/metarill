@@ -361,7 +361,7 @@ export default {
         return;
       }
       var that = this;
-      yzp.request({    url: '/admin/auto/config_page/1868973685063311361/findNameIdConfigFirstMenu1671100303796174850',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_admin_type_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      yzp.request({    url: '/admin/auto/config_page/1868973685063311361/findNameIdYzAdminType2200000000000000104',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_admin_type_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
     },
     refreshSonsData: function () {
       // this.getEntity();

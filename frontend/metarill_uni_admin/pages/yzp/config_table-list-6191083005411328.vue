@@ -6,8 +6,8 @@
       <uni-nav-bar left-icon="left" @clickLeft="$yzp.back" fixed statusBar :border="false" title="表"></uni-nav-bar>
       <view class="list-page-pc-body">
           <uni-forms label-width="auto" class="pc-filters" :modelValue='filters' v-if="page_is_filter">
-            <uni-forms-item label='一级菜单'>
-<uni-easyinput primaryColor="#007aff" v-model='filters.configFirstMenuName' confirm-type='search' @confirm='filterList'  />
+            <uni-forms-item label='后台类型'>
+<uni-easyinput primaryColor="#007aff" v-model='filters.yzAdminTypeName' confirm-type='search' @confirm='filterList'  />
 </uni-forms-item>
 <uni-forms-item label='名称'>
 <uni-easyinput primaryColor="#007aff" v-model='filters.name' confirm-type='search' @confirm='filterList'  />
@@ -30,7 +30,7 @@
           <uni-table class="list-page-pc-body-table" border  stripe emptyText="暂无更多数据"><uni-tr>
 <!-- 操作列可见性与默认查看权限分离，行内按钮按自身规则显示。 --><uni-th align="center" v-if="true" width="">操作</uni-th>
 <uni-th >id</uni-th>
-<uni-th >一级菜单</uni-th>
+<uni-th >后台类型</uni-th>
 <uni-th >名称</uni-th>
 <uni-th >表名</uni-th>
 </uni-tr>
@@ -39,7 +39,7 @@
 <view class='list-action-link' v-if="customerButtonShow1861242035055382529(item)" @click='customerButtonHandler1861242035055382529(item)'>一键生成</view>
 <view class='list-action-link' v-if="customerButtonShow2076978804953321472(item)" @click='customerButtonHandler2076978804953321472(item)'>索引管理</view></view></uni-td><uni-td><text >{{item.id}}</text>
 </uni-td>
-<uni-td><text>{{$yzp.relationDisplayText(item.configFirstMenuName)}}</text></uni-td>
+<uni-td><text>{{$yzp.relationDisplayText(item.yzAdminTypeName)}}</text></uni-td>
 <uni-td><text class='list-column-important'>{{item.name}}</text>
 </uni-td>
 <uni-td><text >{{item.tableName}}</text>
@@ -64,7 +64,7 @@
         <uni-list-item clickable v-for='(item, index) in list' :key='item.id' @click='toDetail(item.id)'>
           <template v-slot:body>
             <view class='row'>
-              <view class='row-item'><text>id</text><text >{{item.id}}</text></view><view class='row-item'><text>一级菜单</text><text>{{$yzp.relationDisplayText(item.configFirstMenuName)}}</text></view><view class='row-item'><text>名称</text><text class='list-column-important'>{{item.name}}</text></view><view class='row-item'><text>表名</text><text >{{item.tableName}}</text></view>
+              <view class='row-item'><text>id</text><text >{{item.id}}</text></view><view class='row-item'><text>后台类型</text><text>{{$yzp.relationDisplayText(item.yzAdminTypeName)}}</text></view><view class='row-item'><text>名称</text><text class='list-column-important'>{{item.name}}</text></view><view class='row-item'><text>表名</text><text >{{item.tableName}}</text></view>
             </view>
           </template>
         </uni-list-item>
@@ -79,8 +79,8 @@
       <uni-section title='筛选条件' type='line'>
         <view class='section-view'>
           <uni-forms :modelValue='filters'>
-            <uni-forms-item label='一级菜单'>
-<uni-easyinput primaryColor="#007aff" v-model='filters.configFirstMenuName' confirm-type='search' @confirm='filterList'  />
+            <uni-forms-item label='后台类型'>
+<uni-easyinput primaryColor="#007aff" v-model='filters.yzAdminTypeName' confirm-type='search' @confirm='filterList'  />
 </uni-forms-item>
 <uni-forms-item label='名称'>
 <uni-easyinput primaryColor="#007aff" v-model='filters.name' confirm-type='search' @confirm='filterList'  />

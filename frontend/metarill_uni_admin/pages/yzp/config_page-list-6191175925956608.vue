@@ -208,7 +208,7 @@ if (res.code == 200) { that.notifyMenuMutation(); }yzp.customButtonHandler(res, 
     },
     initLists: function () {
       var that = this;
-      yzp.request({    url: '/admin/auto/config_page/6191175925956608/findNameIdConfigFirstMenu1671100303796174850',    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_admin_type_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      yzp.request({    url: '/admin/auto/config_page/6191175925956608/findNameIdYzAdminType2200000000000000104',    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_admin_type_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
     },
     filterList() {
       this.refreshData();
