@@ -90,6 +90,13 @@ public sealed class GeneratedContractTests
             var exportTask = (Task)exportMethod.Invoke(controller, [new PageRequest(), exportSink, CancellationToken.None])!;
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => exportTask);
             Assert.Equal("101:export", authorization.Requested); Assert.False(exportSink.Called);
+            // 即使拥有导出权限，控制器也必须先交给门禁，不能提前访问空服务。
+            var permitted = Activator.CreateInstance(controllerType, [null, new AllowedAuthorization()])!;
+            var deferred = new DeferredExportSink();
+            await (Task)exportMethod.Invoke(permitted, [new PageRequest(), deferred, CancellationToken.None])!;
+            Assert.True(deferred.Called);
+            var legacy = (Task)exportMethod.Invoke(permitted, [new PageRequest(), exportSink, CancellationToken.None])!;
+            await Assert.ThrowsAsync<NotSupportedException>(() => legacy); Assert.False(exportSink.Called);
             var serviceType = assembly.GetType("Example.Contract.Generated.Services.CustomerService", true)!;
             var parser = serviceType.GetMethod("ParseImport101Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var parserInstance = RuntimeHelpers.GetUninitializedObject(serviceType);
@@ -105,6 +112,19 @@ public sealed class GeneratedContractTests
     }
     private static bool ReadSpecified(object value) => (bool)value.GetType().GetProperty("IsSpecified")!.GetValue(value)!;
     private static string FindRepository([CallerFilePath] string file = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
+    private sealed class AllowedAuthorization : IRuntimeAuthorization
+    {
+        /// <summary>此测试仅验证门禁先于服务读取，身份使用固定虚构账号。</summary>
+        public RuntimeActor RequireActor() => new(1, "测试", true, "100", "1");
+        public void RequirePagePermission(string pageId, string operation) { }
+    }
+    private sealed class DeferredExportSink : Metarill.Core.Exports.IPageExportService
+    {
+        public bool Called { get; private set; }
+        public Task<string> CreateAsync(Metarill.Core.Exports.PageExportRequest request, RuntimeActor actor, CancellationToken cancellationToken = default) => throw new InvalidOperationException("不得提前读取。");
+        /// <summary>不调用准备委托即成功，空服务不应被提前求值。</summary>
+        public Task<string> CreateAsync(RuntimeActor actor, Func<int, CancellationToken, Task<Metarill.Core.Exports.PageExportRequest>> prepare, CancellationToken cancellationToken = default) { Called = true; return Task.FromResult("测试票据"); }
+    }
     private sealed class DeniedExportSink : Metarill.Core.Exports.IPageExportService
     {
         public bool Called { get; private set; }

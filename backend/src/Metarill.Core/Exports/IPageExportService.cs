@@ -6,4 +6,7 @@ public sealed record PageExportRequest(string PageId,string Title,IReadOnlyList<
 public interface IPageExportService
 {
     Task<string> CreateAsync(PageExportRequest request,RuntimeActor actor,CancellationToken cancellationToken=default);
+    /// <summary>先取得资源额度再准备数据；尚未实现门禁的宿主默认拒绝，不执行查询委托。</summary>
+    Task<string> CreateAsync(RuntimeActor actor,Func<int,CancellationToken,Task<PageExportRequest>> prepare,CancellationToken cancellationToken=default)
+        => throw new NotSupportedException("导出宿主尚未实现读取前资源门禁。");
 }

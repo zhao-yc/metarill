@@ -19,7 +19,7 @@ internal static class ExportRenderer
     public async Task<R<string>> InitExport([FromBody] PageRequest request, [FromServices] Metarill.Core.Exports.IPageExportService exports, CancellationToken cancellationToken)
     {
         var actor = Actor("export");
-        return R<string>.Success(await exports.CreateAsync(await service.Export{{page.Source.Id}}Async(request, actor, cancellationToken), actor, cancellationToken));
+        return R<string>.Success(await exports.CreateAsync(actor, (maxRows, token) => service.Export{{page.Source.Id}}Async(request, actor, maxRows, token), cancellationToken));
     }
 
 """;
@@ -29,12 +29,14 @@ internal static class ExportRenderer
         if (!Enabled(page)) return "";
         var columns = Columns(page);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和筛选，字段列表由元数据固定，不能来自客户端。</summary>")
-            .AppendLine($"    public async Task<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
+            .AppendLine($"    public async Task<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)")
             .AppendLine("    {")
+            .AppendLine("        if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));")
             .AppendLine($"        var query = Order{page.Source.Id}(Query{page.Source.Id}(request, actor), request);")
-            .AppendLine($"        var entities = await query.ToListAsync(entity => new {table.Name}").AppendLine("        {");
+            .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.Name}").AppendLine("        {");
         foreach (var column in columns.Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
-        result.AppendLine("        }, cancellationToken);");
+        result.AppendLine("        }, cancellationToken);")
+            .AppendLine("        if (entities.Count > maxRows) throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         var relations = RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn)).ToArray();
         foreach (var relation in relations)
         {

@@ -9,3 +9,11 @@
 - 下载使用 `ExportContentHandle.Stream/FileName/ContentType/Length/ExpiresAt`；流可寻址，HTTP层可启用Range。测试会真实生成、读回并解包XLSX验证类型与公式节点，不依赖生产数据。
 
 依赖已经核验：[ClosedXML 0.105.1官方包](https://www.nuget.org/packages/ClosedXML/0.105.1)，[对应版本MIT许可证](https://github.com/ClosedXML/ClosedXML/blob/0.105.1/LICENSE)。不要求服务器安装Excel。
+
+## 读取前资源门禁
+
+新生成的 Controller 使用 `CreateAsync(actor, prepare, cancellationToken)`：Excel 服务先取得并发名额、预留有效票据额度，才调用 `prepare(MaxRows, token)`。生成 Service 在数据库查询中设置 `LIMIT(MaxRows+1)`，超过上限直接拒绝，在关系补全和构建工作簿前终止，不返回截断文件。准备失败或取消时释放预留额度。
+
+原 `CreateAsync(request, actor, token)` 继续通过同一内部实现创建文件，适用于调用方已经准备好投影的兼容场景；它不能约束调用前的读取成本。更新 Core、Runtime 和生成器后必须配套再生成 Controller/Service。自定义导出宿主需要实现新重载；只实现旧重载时默认拒绝且不执行准备委托，不能回退到无限读取。
+
+本轮真实业务库验收用3条唯一测试记录和1行服务端上限：实际SQL为 `LIMIT 0,2`，超限无部分文件，精确1行成功；票据额度已满的后续请求没有执行额外SQL。测试记录已逻辑删除，测试宿主已停止。

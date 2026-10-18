@@ -37,9 +37,20 @@ public sealed partial class ExcelPageExportService : IPageExportService
     }
 
     /// <summary>输入只含生成层开放的列投影，服务不接受客户端 SQL、路径或模板文件。</summary>
-    public async Task<string> CreateAsync(PageExportRequest request, RuntimeActor actor, CancellationToken cancellationToken = default)
+    public Task<string> CreateAsync(PageExportRequest request, RuntimeActor actor, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(request); ValidateActor(actor); ValidateDimensions(request);
+        ArgumentNullException.ThrowIfNull(request);
+        return CreateCoreAsync(actor, (_, _) => Task.FromResult(request), cancellationToken);
+    }
+
+    /// <summary>先限制并发与票据额度，再把服务端行数上限传给数据库读取委托。</summary>
+    public Task<string> CreateAsync(RuntimeActor actor, Func<int, CancellationToken, Task<PageExportRequest>> prepare, CancellationToken cancellationToken = default)
+        => CreateCoreAsync(actor, prepare, cancellationToken);
+
+    /// <summary>兼容入口和延迟读取入口共享唯一资源门禁，失败或取消均释放预留额度。</summary>
+    private async Task<string> CreateCoreAsync(RuntimeActor actor, Func<int, CancellationToken, Task<PageExportRequest>> prepare, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(prepare); ValidateActor(actor);
         cancellationToken.ThrowIfCancellationRequested();
         await _writers.WaitAsync(cancellationToken);
         string? temporary = null; string? destination = null; var reserved = false;
@@ -51,6 +62,10 @@ public sealed partial class ExcelPageExportService : IPageExportService
                 if (_tickets.Count + _reservations >= _options.MaxActiveTickets) throw new InvalidOperationException("当前导出文件数量达到上限，请等待过期清理。");
                 _reservations++; reserved = true;
             }
+            // 读取必须发生在已取得并发槽和预留票据之后，不能先全量物化再校验。
+            var request = await prepare(_options.MaxRows, cancellationToken);
+            ArgumentNullException.ThrowIfNull(request); ValidateDimensions(request);
+            cancellationToken.ThrowIfCancellationRequested();
             EnsureRoot();
             var key = Guid.NewGuid().ToString("N") + ".xlsx";
             destination = Path.Combine(_root, key); temporary = destination + ".part";
