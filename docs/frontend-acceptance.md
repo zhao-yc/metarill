@@ -74,3 +74,12 @@ HBuilderX 自带条件编译预处理器与 Vue SFC 编译器检查了 74 个项
 ## 严格 DTO 前端适配
 
 生成器输出的 createFields/updateFields 是提交字段唯一来源。scripts/merge-page-write-schemas.mjs 确定性合并 platform 与 demo 的版本1清单，冲突或输入缺失时报错；当前21页清单两次合并SHA-256均为 e64e607baa93c1320208aa644ea41ae980ca963a3fc695eba50d244e458fdf9f。共享 yzp.request 在 uni.request 前只裁剪清单中标准 POST add/update 请求，保留自身字段的null/false/0/空字符串，缺失字段不补值；不修改调用者entity，不改变其他路由与方法。服务端白名单、认证和权限规则不变。新增7项清单/请求入口行为验证后，共165项前端测试通过；选择器、富文本许可与AppID/H5缺口仍保留。
+## 元数据工作台服务端兼容
+
+新增 MetadataWorkbenchBusiness 与独立 MetadataWorkbenchController。详情布局snapshot/save、页面字段批量读取/保存、表字段排序沿用原路由；两处bulk仍提交数组，通过 X-Metarill-Metadata-Revision 携带读取时 map.revision，前端save只序列化ID与允许标志/顺序，界面和第三方控件不变。服务端仅管理员入口，当前项目来自认证身份；先锁项目行，再锁页面/表/原列及页面字段，完整核验ID、同表/同页/同项目和revision后在同一事务更新。缺失标志保持不变，null标志拒绝；布局要求完整字段集合，显式空detailGroupKey回常显，null或缺失不隐式清空。
+
+PageColumn加载同步 isInEdit→IsEdit、isInGrid→IsShow、isMust→IsRequired，保留原UI别名但不新增不存在的物理列。当前普通config_column页isNew=0仍保持关闭；新增列通过原preview_batch_create_columns与save_batch_create_columns专门配置领域入口，接受原form-urlencoded或JSON的 {config_table_id,content}，两列文本/JSON七字段白名单、500行/1MB与行错误协议沿用。保存锁内重检，重复字段或坏行整批拒绝；配置insert与ConfigurationMutationObserver的afterAdd同事务，成功明确返回database/generation:pending，不执行DDL或代码生成。另补workbench_columns读取已有字段列表。当前C#生成器尚未支持point/varbinary，预览会明确拒绝，不假称兼容。
+
+验证：19项服务端单元+6项200隔离metarill_test真实集成测试，共25/25，无跳过；包括双连接同版本竞争、跨页/表整批拒绝、标志与Core同步、布局回读、原batch预览不写入、批量保存与两页afterAdd联动、重复保存重检。测试只使用随机项目ID并清理其记录。独立Controller与Runtime编译零警告；此分支前端160项测试通过，主分支叠加其他请求清单测试后以协调者计数为准。
+
+集成需注册 AddScoped<MetadataWorkbenchBusiness>()、AddScoped<ConfigurationMutationObserver>()；保留原IRecordMutationObserver注册。测试项目 backend/tests/Metarill.Metadata.Tests，无隔离配置会明确跳过真实数据库项；CI应同时运行该项目。Repository别名归一仅在Read<T>局部，主分支新增ConfigCustomPages读取应保留。HBuilderX AppID、插件许可及真机未验收状态不变。

@@ -49,7 +49,17 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
         async Task<List<T>> Read<T>(string table)=> (await store.ReadAsync(table,filters,cancellationToken)).Select(row=>
         {
             var clean=row.Where(p=>p.Value is not null).ToDictionary(p=>MetadataRegistry.Camel(p.Key),p=>p.Value);
-            return JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(clean,JsonDefaults.Options),JsonDefaults.Options)!;
+            var record=JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(clean,JsonDefaults.Options),JsonDefaults.Options)!;
+            // 物理配置沿用UI别名，加载时同步Core规范，避免显示开关与生成行为分离。
+            if(record is PageColumnMetadata field)
+            {
+                if(row.TryGetValue("is_in_edit",out var edit))field.IsEdit=MetadataWorkbenchRules.StoredFlag(edit);
+                if(row.TryGetValue("is_in_grid",out var show))field.IsShow=MetadataWorkbenchRules.StoredFlag(show);
+                if(row.TryGetValue("is_must",out var required))field.IsRequired=MetadataWorkbenchRules.StoredFlag(required);
+                foreach(var(alias,physical)in MetadataWorkbenchRules.PageFlags)
+                    if(row.TryGetValue(physical,out var value))field.Extra[alias]=JsonSerializer.SerializeToElement(MetadataWorkbenchRules.StoredFlag(value));
+            }
+            return record;
         }).ToList();
         var result=new MetadataCatalog
         {

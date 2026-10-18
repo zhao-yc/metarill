@@ -8,7 +8,7 @@
 			<view v-if="loading" class="grants-empty">正在加载授权…</view>
 			<view v-else-if="!grants.length && !error" class="grants-empty">当前没有已授权的 Agent。</view>
 			<view v-for="grant in grants" :key="grant.id" class="grant-card">
-				<view class="grant-header"><text class="grant-name">{{ grant.clientName || 'YZP Agent CLI' }}</text><button size="mini" :disabled="loading || revokingId !== ''" @click="confirmRevoke(grant)">{{ revokingId === grant.id ? '撤销中' : '撤销授权' }}</button></view>
+				<view class="grant-header"><text class="grant-name">{{ grant.clientName || 'Metarill Agent CLI' }}</text><button size="mini" :disabled="loading || revokingId !== ''" @click="confirmRevoke(grant)">{{ revokingId === grant.id ? '撤销中' : '撤销授权' }}</button></view>
 				<text class="grant-time">授权时间：{{ formatTime(grant.createdAt) }}</text>
 				<text class="grant-time">最近使用：{{ formatTime(grant.lastUsedAt, '尚未使用') }}</text>
 				<text class="grant-time">授权到期：{{ formatTime(grant.expiresAt) }}</text>
@@ -57,7 +57,7 @@ export default {
 		/** 撤销前让用户核对具体客户端，避免误撤销正在使用的连接。 */
 		confirmRevoke(grant) {
 			if (this.loading || this.revokingId) return;
-			uni.showModal({ title: '撤销 Agent 授权', content: '撤销“' + (grant.clientName || 'YZP Agent CLI') + '”后，该客户端需要重新登录并取得授权。',
+			uni.showModal({ title: '撤销 Agent 授权', content: '撤销“' + (grant.clientName || 'Metarill Agent CLI') + '”后，该客户端需要重新登录并取得授权。',
 				success: result => { if (result.confirm && !this.disposed) this.revoke(grant); } });
 		},
 		/** 仅提交授权 ID，服务端检查其归属；写请求不自动重试。 */

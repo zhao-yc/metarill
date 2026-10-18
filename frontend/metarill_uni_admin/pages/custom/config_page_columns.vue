@@ -75,6 +75,7 @@
 <script>
 	import utils from "@/common/utils";
 	import yzp from "@/common/yzp";
+	import { pageFieldPatchPayload } from '@/common/metadataWorkbenchPayload';
 	export default {
 		data() {
 			return {
@@ -89,6 +90,7 @@
 					isImportant: true,
 					isPrint: true
 				},
+				revision: '',
 				list: []
 			}
 		},
@@ -102,6 +104,7 @@
 				success: function(res) {
 					if (res.code == 200) {
 						that.list = res.data;
+						that.revision = res.map && res.map.revision || '';
 					} else {
 						uni.showModal({
 							showCancel: false,
@@ -184,10 +187,13 @@
 			},
 			save: function() {
 				var that = this;
+				// 并发版本来自本次读取快照；缺失时禁止覆盖服务端配置。
+				if (!this.revision) { yzp.showErrorModal('请重新进入此页面读取最新配置后保存'); return; }
 				yzp.request({
 					url: '/admin/custom/index/save_config_page_columns',
 					sendSessionId: true,
-					data: this.list,
+					data: pageFieldPatchPayload(this.list),
+					header: { 'X-Metarill-Metadata-Revision': this.revision },
 					method: "POST",
 					success: function(res) {
 						if (res.code == 200) {
