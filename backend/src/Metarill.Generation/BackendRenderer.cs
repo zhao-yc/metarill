@@ -23,7 +23,7 @@ internal static class BackendRenderer
                 yield return new($"Controllers/{page.Name}Controller.g.cs", Controller(model, table, page));
             }
         }
-        yield return new("GeneratedRegistration.g.cs", Registration(model));
+        yield return new("GeneratedRegistration.g.cs", Registration(model)); yield return new("VOs/GeneratedOption.g.cs", CSharpGenerator.Header + $"namespace {model.Namespace}.Generated.VOs;\npublic sealed record GeneratedOption(long Id, string? Name, long Value, string? Text);\n");
     }
     private static string Entity(GenerationModel model, TableModel table)
     {
@@ -90,10 +90,10 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     private static string Service(GenerationModel model, TableModel table)
     {
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
-            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Data;")
+            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine($"using {model.Namespace}.Generated.DTOs;")
             .AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Mappers;")
-            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    /// <summary>注入当前事务、类型持久化及标识生成器。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids) {{ this.session = session; this.mapper = mapper; this.ids = ids; }}")
+            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    /// <summary>注入当前事务、类型持久化及标识生成器。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; }}")
             .AppendLine("    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();")
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
             .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }")
@@ -105,10 +105,10 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(Query(model, table, page));
+            result.Append(Query(model, table, page)); result.Append(Relations(model, page));
             result.Append(Mutations(model, table, page));
         }
-        return result.AppendLine("}").ToString();
+        result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
@@ -133,7 +133,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
                 .AppendLine($"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
             var field = model.Catalog.ConfigPageColumns.Single(x => x.ConfigPageId == page.Source.Id && x.ConfigColumnId == column.Source.Id);
-            var like = column.Type == "string?" && field.Extra.TryGetValue("searchType", out var match) && match.ToString() == "like";
+            var matchName = field.Extra.TryGetValue("searchType", out var match) ? match.ToString() : field.Extra.TryGetValue("matchType", out match) ? match.ToString() : ""; var like = column.Type == "string?" && (matchName == "like" || (string.IsNullOrEmpty(matchName) && column.Source.ControlKind is not "List" and not "ConstList" and not "ConstDownList" and not "SelectPage"));
             result.AppendLine(like ? $"                    query = query.Where(entity => entity.{column.Property} != null && value != null && entity.{column.Property}.Contains(value));" : $"                    query = query.Where(entity => entity.{column.Property} == value);")
                 .AppendLine("                    break;").AppendLine("                }");
         }
@@ -186,7 +186,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                     .AppendLine($"        entity.{column.Property} = {ScopeValue(column, "parentId")};");
             result.AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(RequiredValidation(model, table, page, false))
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");")
-                .AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
+                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);").AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
         }
         if (page.Source.IsSave == 1)
         {
@@ -201,7 +201,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
             result.AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");")
-                .AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
+                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken);").AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
         }
         if (page.Source.IsDelete == 1)
         {
@@ -210,12 +210,28 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        BeforeDelete(entity, actor);");
             if (table.Columns.Any(x => x.Source.ColumnName == "delete_no"))
-                result.AppendLine("        entity.DeleteNo = DateTime.UtcNow;").AppendLine("        return await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
-            else result.AppendLine("        return await mapper.DeleteAsync(id, cancellationToken) == 1;");
+                result.AppendLine("        entity.DeleteNo = DateTime.UtcNow;").AppendLine("        var deleted = await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
+            else result.AppendLine("        var deleted = await mapper.DeleteAsync(id, cancellationToken) == 1;"); result.AppendLine($"        if (deleted) await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, new HashSet<string>(), true, true, cancellationToken);").AppendLine("        return deleted;");
             result.AppendLine("    }, cancellationToken);");
         }
         return result.ToString();
     }
+    /// <summary>观察者在数据库事务内执行，异常会让本次对象写入一同回滚。</summary>
+    private static string Observer(GenerationModel model, TableModel table)
+    {
+        var result = new StringBuilder().AppendLine("    /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>")
+            .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)")
+            .AppendLine("    {").AppendLine("        var values = new Dictionary<string, object?>").AppendLine("        {");
+        foreach (var column in table.Columns) result.AppendLine($"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},");
+        result.AppendLine("        };")
+            .AppendLine("        if (!allFields) values = values.Where(item => item.Key == \"id\" || submitted.Contains(item.Key)).ToDictionary(item => item.Key, item => item.Value);")
+            .AppendLine("        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException(\"写入观察者要求当前事务。\");")
+            .AppendLine($"        var context = new RecordMutationContext(pageId, {Literal(table.Source.TableName)}, entity.Id, {ProjectExpression(table)}, values, deleting, transaction);")
+            .AppendLine("        foreach (var observer in observers) await observer.BeforeCommitAsync(context, cancellationToken);")
+            .AppendLine("    }");
+        return result.ToString();
+    }
+    private static string ProjectExpression(TableModel table) => table.Columns.Any(c => c.Source.ColumnName == "yz_project_id") ? "Convert.ToString(entity.YzProjectId, CultureInfo.InvariantCulture) ?? string.Empty" : "actor.ProjectId";
     private static string Audit(TableModel table, bool creating)
     {
         var result = new StringBuilder();
@@ -241,7 +257,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     private static string RequiredValidation(GenerationModel model, TableModel table, PageModel page, bool updating)
     {
         var result = new StringBuilder();
-        foreach (var column in page.Writable.Where(c => c.Source.IsDbNotNull == 1 || model.Catalog.ConfigPageColumns.Any(f => f.ConfigPageId == page.Source.Id && f.ConfigColumnId == c.Source.Id && f.IsRequired == 1)))
+        foreach (var column in page.Writable.Where(c => c.Source.IsDbNotNull == 1 || model.Catalog.ConfigPageColumns.Any(f => f.ConfigPageId == page.Source.Id && f.ConfigColumnId == c.Source.Id && (f.IsRequired == 1 || GenerationModel.Enabled(f.Extra, "isMust")))))
         {
             var condition = column.Type == "string?" ? $"string.IsNullOrWhiteSpace(entity.{column.Property})" : $"entity.{column.Property} is null";
             result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");
@@ -294,7 +310,33 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         if (page.Source.IsDelete == 1)
             result.AppendLine("    /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>").AppendLine("    [HttpDelete]")
                 .AppendLine($"    public async Task<R<string>> Delete([FromBody] {page.Name}RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete{suffix}Async(request.Id, parentId, Actor(\"delete\"), cancellationToken) ? R<string>.Success(\"删除成功\") : R<string>.Error(\"删除失败\");");
+        foreach (var relation in RelationCompilation.ForPage(model, page))
+            result.AppendLine("    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
+                .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]")
+                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}([FromBody] PageRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
         return result.AppendLine("}").ToString();
+    }
+    /// <summary>选项查询复用目标页和关联配置范围，仅输出 id/name/value/text。</summary>
+    private static string Relations(GenerationModel model, PageModel page)
+    {
+        var result = new StringBuilder();
+        foreach (var relation in RelationCompilation.ForPage(model, page))
+        {
+            result.AppendLine("    /// <summary>关联选项先收窄到目标页数据范围，再投影显示字段。</summary>")
+                .AppendLine($"    public async Task<IReadOnlyList<GeneratedOption>> Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
+                .AppendLine("    {").AppendLine("        ValidateActor(actor);")
+                .AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
+            if (relation.Target.Columns.Any(c => c.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
+            var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
+            if (project is not null) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+            foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent"))
+                result.AppendLine("        if (string.IsNullOrWhiteSpace(request.ParentId)) throw new ArgumentException(\"关联选项要求 parentId。\");")
+                    .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "request.ParentId")});");
+            result.AppendLine($"        var entities = await query.OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Limit(5000).ToListAsync(cancellationToken);")
+                .AppendLine($"        return entities.Select(entity => new GeneratedOption(entity.Id, entity.{relation.NameColumn.Property}, entity.Id, entity.{relation.NameColumn.Property})).ToArray();")
+                .AppendLine("    }");
+        }
+        return result.ToString();
     }
     private static string HandwrittenService(GenerationModel model, TableModel table) => $$"""
 namespace {{model.Namespace}}.Generated.Services;
@@ -307,15 +349,15 @@ public partial class {{table.Name}}Service
 """;
     private static string Registration(GenerationModel model)
     {
-        var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using Microsoft.Extensions.DependencyInjection;")
-            .AppendLine($"namespace {model.Namespace}.Generated;").AppendLine("public static class GeneratedRegistration").AppendLine("{")
-            .AppendLine("    /// <summary>按请求作用域注册生成的持久化与业务服务。</summary>")
-            .AppendLine("    public static IServiceCollection AddGeneratedServices(this IServiceCollection services)").AppendLine("    {");
-        foreach (var table in model.Tables) result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>();").AppendLine($"        services.AddScoped<Services.{table.Name}Service>();");
+        var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using Microsoft.Extensions.DependencyInjection;").AppendLine("using Metarill.Data;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;")
+            .AppendLine($"namespace {model.Namespace}.Generated;").AppendLine("internal sealed record GeneratedDatabaseSession(DatabaseSession Value);").AppendLine("public static class GeneratedRegistration").AppendLine("{")
+            .AppendLine("    /// <summary>不同生成项目选择独立业务库；工厂返回由宿主管理生命周期的连接会话。</summary>")
+            .AppendLine("    public static IServiceCollection AddGeneratedServices(this IServiceCollection services, Func<IServiceProvider, DatabaseSession>? databaseFactory = null)").AppendLine("    {")
+            .AppendLine("        services.AddScoped<GeneratedDatabaseSession>(provider => new((databaseFactory ?? (sp => sp.GetRequiredService<DatabaseSession>()))(provider)));");
+        foreach (var table in model.Tables)
+            result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
+                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>()));");
         return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").ToString();
     }
 }
-
-
-
 

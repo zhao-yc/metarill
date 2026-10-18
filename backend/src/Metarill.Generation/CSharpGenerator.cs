@@ -163,8 +163,8 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                     if (!catalog.ConfigColumns.Any(x => x.Id == field.ConfigColumnId && x.ConfigTableId == table.Id)) throw new InvalidOperationException("页面字段跨表引用无效。");
                 bool Has(ColumnModel c, Func<PageColumnMetadata, bool> predicate) => fields.Any(f => f.ConfigColumnId == c.Source.Id && predicate(f));
                 var readable = columns.Where(c => c.IsId || Has(c, f => f.IsShow == 1 || f.IsEdit == 1)).ToArray();
-                var writable = columns.Where(c => !c.IsSystem && Has(c, f => f.IsEdit == 1)).ToArray();
-                var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch"))).ToArray();
+                var writable = columns.Where(c => !c.IsSystem && Has(c, f => f.IsEdit == 1 && !Enabled(f.Extra, "isReadOnly"))).ToArray();
+                var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch") || Enabled(f.Extra, "isInFilter"))).ToArray();
                 var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort"))).ToArray();
                 var scopes = CompileScopes(page.WhereSql, columns);
                 ValidateOrderBy(page.OrderBy, columns);
@@ -175,7 +175,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
         return new GenerationModel(catalog, rootNamespace, result);
     }
-    private static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)
+    internal static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)
     {
         if (string.IsNullOrWhiteSpace(sql)) return [];
         var scopes = new List<(ColumnModel, string)>();
