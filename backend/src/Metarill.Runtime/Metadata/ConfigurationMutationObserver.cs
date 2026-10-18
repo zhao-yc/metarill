@@ -11,17 +11,22 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
     public async Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken=default)
     {
         if(context.IsDelete){await DeleteOwnedMetadata(context,cancellationToken);return;}
-        if(context.TableName=="config_custom_page")
-        {
-            var custom=(await store.ReadAsync("config_custom_page",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
-            var path=SqlRowStore.Text(custom,"page_path").TrimStart('/');
-            if(!System.Text.RegularExpressions.Regex.IsMatch(path,"^pages/[a-zA-Z0-9_/-]+$")||path.Contains(".."))throw new ArgumentException("自定义页面必须使用合法的内部路由。");
-            return;
-        }
-        if(context.TableName is not ("config_table" or "config_column" or "config_page"))return;
-        if(store.Session.CurrentTransaction!=context.Transaction)throw new InvalidOperationException("配置联动必须加入同一事务。");
+        // 保留自定义页路径校验，将其与新增归属检查一起置于原事务及项目锁内。
+        if(context.TableName is not ("config_table" or "config_column" or "config_page" or "config_custom_page"))return;
+        if(store.Session.CurrentTransaction is null||store.Session.CurrentTransaction!=context.Transaction)throw new InvalidOperationException("配置联动必须加入同一事务。");
         if(!registry.Platform.ConfigTables.Any(t=>t.TableName==context.TableName))throw new InvalidOperationException("配置元模型缺少对应表定义。");
         var project=long.Parse(context.ProjectId);
+        // 与菜单、字段和索引聚合共享项目锁，保存时不能依据过期引用作出归属判断。
+        await LockProjectAsync(project,cancellationToken);
+        if(context.TableName=="config_custom_page")
+        {
+            var custom=await OwnedRowAsync("config_custom_page",context.RecordId,project,cancellationToken);
+            var path=SqlRowStore.Text(custom,"page_path").TrimStart('/');
+            if(!System.Text.RegularExpressions.Regex.IsMatch(path,"^pages/[a-zA-Z0-9_/-]+$")||path.Contains(".."))throw new ArgumentException("自定义页面必须使用合法的内部路由。");
+            await ValidateAdminTypeAsync(custom,project,true,cancellationToken);
+            await ValidateMenusAsync("config_custom_page_id",custom,project,cancellationToken);
+            return;
+        }
         await ValidateAndNormalize(context,project,cancellationToken);
         if(context.TableName=="config_table")
         {
@@ -54,17 +59,24 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
     /// <summary>对象规则在生成写入的同一事务里校验；失败回滚刚写入的记录。</summary>
     private async Task ValidateAndNormalize(RecordMutationContext context,long project,CancellationToken token)
     {
-        var row=(await store.ReadAsync(context.TableName,new Dictionary<string,object?>{{"id",context.RecordId}},token)).Single();
+        var row=await OwnedRowAsync(context.TableName,context.RecordId,project,token);
         if(context.TableName=="config_table")
         {
             var name=SqlRowStore.Text(row,"table_name");Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(name);
             if((await store.ReadAsync("config_table",new Dictionary<string,object?>{{"yz_project_id",project},{"table_name",name}},token)).Count!=1)throw new InvalidOperationException("同项目表名不能重复。");
-            if(row.GetValueOrDefault("yz_admin_type_id") is{} admin&&(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"id",admin},{"yz_project_id",project}},token)).Count!=1)throw new UnauthorizedAccessException("后台类型不属于当前项目。");
+            await ValidateAdminTypeAsync(row,project,false,token);
             return;
         }
         var tableId=SqlRowStore.Id(row,"config_table_id");
         if((await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",tableId},{"yz_project_id",project}},token)).Count!=1)throw new UnauthorizedAccessException("所属表不属于当前项目。");
-        if(context.TableName!="config_column")return;
+        if(context.TableName=="config_page")
+        {
+            await ValidateAdminTypeAsync(row,project,true,token);
+            await ValidatePageFieldsAsync(row,project,token);
+            await ValidateMenusAsync("config_page_id",row,project,token);
+            return;
+        }
+        await ValidateColumnReferencesAsync(row,project,token);
         var column=SqlRowStore.Text(row,"column_name");Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(column);
         if((await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId},{"column_name",column}},token)).Count!=1)throw new InvalidOperationException("同表字段名不能重复。");
         var type=SqlRowStore.Text(row,"logical_type");
@@ -84,11 +96,74 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
         await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);
     }
 
+    /// <summary>统一锁定项目，和菜单及索引工作台的聚合写入串行校验。</summary>
+    private async Task LockProjectAsync(long project,CancellationToken token)
+    {
+        if((await store.ReadForUpdateAsync("yz_project",new Dictionary<string,object?>{{"id",project}},token)).Count!=1)
+            throw new UnauthorizedAccessException("当前元数据项目不存在。");
+    }
+    /// <summary>关联对象必须活动且属于同一项目，不能凭合法ID跨项目迁移。</summary>
+    private async Task<Dictionary<string,object?>> OwnedRowAsync(string table,long id,long project,CancellationToken token)
+        => (await store.ReadForUpdateAsync(table,new Dictionary<string,object?>{{"id",id},{"yz_project_id",project}},token)).SingleOrDefault()
+            ??throw new UnauthorizedAccessException("配置引用不存在或不属于当前项目。");
+    /// <summary>页面必须有明确后台；表的可选后台一旦指定也必须属于当前项目。</summary>
+    private async Task ValidateAdminTypeAsync(IReadOnlyDictionary<string,object?> row,long project,bool required,CancellationToken token)
+    {
+        if(row.GetValueOrDefault("yz_admin_type_id") is not{} admin)
+        {
+            if(required)throw new InvalidOperationException("页面必须选择当前项目的后台类型。");
+            return;
+        }
+        await OwnedRowAsync("yz_admin_type",Convert.ToInt64(admin),project,token);
+    }
+    /// <summary>页面换表前检查全部既有字段，不能保留旧表引用或静默挪动页面字段。</summary>
+    private async Task ValidatePageFieldsAsync(IReadOnlyDictionary<string,object?> page,long project,CancellationToken token)
+    {
+        var table=SqlRowStore.Id(page,"config_table_id");
+        foreach(var field in await store.ReadForUpdateAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",SqlRowStore.Id(page)}},token))
+        {
+            RequireProject(field,project);
+            var column=await OwnedRowAsync("config_column",SqlRowStore.Id(field,"config_column_id"),project,token);
+            if(SqlRowStore.Id(column,"config_table_id")!=table)throw new InvalidOperationException("页面已有字段属于其他表，不能直接修改页面所属表。");
+        }
+    }
+    /// <summary>页面换后台时不能留下无法导航的菜单；所有引用均必须同项目同后台。</summary>
+    private async Task ValidateMenusAsync(string field,IReadOnlyDictionary<string,object?> page,long project,CancellationToken token)
+    {
+        foreach(var menu in await store.ReadForUpdateAsync("config_menu",new Dictionary<string,object?>{{field,SqlRowStore.Id(page)}},token))
+        {
+            RequireProject(menu,project);
+            if(SqlRowStore.Id(menu,"yz_admin_type_id")!=SqlRowStore.Id(page,"yz_admin_type_id"))throw new InvalidOperationException("页面仍被其他后台的菜单引用，不能直接修改页面后台类型。");
+        }
+    }
+    /// <summary>字段换表前核验页面与索引聚合，不能让原字段引用跨表或跨项目。</summary>
+    private async Task ValidateColumnReferencesAsync(IReadOnlyDictionary<string,object?> column,long project,CancellationToken token)
+    {
+        var table=SqlRowStore.Id(column,"config_table_id");
+        foreach(var field in await store.ReadForUpdateAsync("config_page_column",new Dictionary<string,object?>{{"config_column_id",SqlRowStore.Id(column)}},token))
+        {
+            RequireProject(field,project);
+            var page=await OwnedRowAsync("config_page",SqlRowStore.Id(field,"config_page_id"),project,token);
+            if(SqlRowStore.Id(page,"config_table_id")!=table)throw new InvalidOperationException("字段仍被原表页面引用，不能直接修改字段所属表。");
+        }
+        foreach(var field in await store.ReadForUpdateAsync("config_index_column",new Dictionary<string,object?>{{"config_column_id",SqlRowStore.Id(column)}},token))
+        {
+            RequireProject(field,project);
+            var index=await OwnedRowAsync("config_index",SqlRowStore.Id(field,"config_index_id"),project,token);
+            if(SqlRowStore.Id(index,"config_table_id")!=table)throw new InvalidOperationException("字段仍被原表索引引用，不能直接修改字段所属表。");
+        }
+    }
+    /// <summary>从属记录按真实归属校验，过滤查询不能掩盖已存在的跨项目引用。</summary>
+    private static void RequireProject(IReadOnlyDictionary<string,object?> row,long project)
+    {
+        if(SqlRowStore.Text(row,"yz_project_id")!=project.ToString(System.Globalization.CultureInfo.InvariantCulture))throw new UnauthorizedAccessException("配置从属记录属于其他项目。");
+    }
     /// <summary>删除配置只清理所属元数据；真实数据库删表删列须另行制定结构变更计划。</summary>
     private async Task DeleteOwnedMetadata(RecordMutationContext context,CancellationToken token)
     {
         if(context.TableName is not ("config_table" or "config_column" or "config_page" or "config_custom_page"))return;
-        if(store.Session.CurrentTransaction!=context.Transaction)throw new InvalidOperationException("配置删除联动必须在同一事务内。");
+        if(store.Session.CurrentTransaction is null||store.Session.CurrentTransaction!=context.Transaction)throw new InvalidOperationException("配置删除联动必须在同一事务内。");
+        await LockProjectAsync(long.Parse(context.ProjectId),token);
         async Task DeleteRows(string table,string field,long id)
         {
             foreach(var row in await store.ReadAsync(table,new Dictionary<string,object?>{{field,id},{"yz_project_id",long.Parse(context.ProjectId)}},token))
@@ -114,9 +189,17 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
     {
         var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
         var columns=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
+        foreach(var column in columns)RequireProject(column,project);
+        var columnIds=columns.Select(column=>SqlRowStore.Id(column)).ToHashSet();
         foreach(var page in pages.Where(p=>pageId is null||SqlRowStore.Id(p)==pageId))
         {
+            RequireProject(page,project);
             var existing=await store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",SqlRowStore.Id(page)}},cancellationToken);
+            foreach(var field in existing)
+            {
+                RequireProject(field,project);
+                if(!columnIds.Contains(SqlRowStore.Id(field,"config_column_id")))throw new InvalidOperationException("页面已有字段不属于当前表，不能自动补充配置。");
+            }
             foreach(var column in columns)
             {
                 if(existing.Any(f=>SqlRowStore.Text(f,"config_column_id")==SqlRowStore.Text(column,"id")))continue;
