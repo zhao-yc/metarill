@@ -1,0 +1,484 @@
+{
+  "leftWindow": {
+    "path": "pages/main/left.vue",
+    "style": {
+      "width": "240px"
+    }
+  },
+  "topWindow": {
+    "path": "pages/main/top.vue",
+    "style": {
+      "height": "60px"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/login",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "登录",
+        "enablePullDownRefresh": false,
+        "topWindow": false,
+        "leftWindow": false
+      }
+    },
+    {
+      "path": "pages/main/index",
+      "style": {
+        "navigationBarTitleText": "首页",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/main/set_admin_role",
+      "style": {
+        "navigationBarTitleText": "设置管理员角色"
+      }
+    },
+    {
+      "path": "pages/main/change_password",
+      "style": {
+        "navigationBarTitleText": "修改密码"
+      }
+    },
+    {
+      "path": "pages/main/left",
+      "style": {
+        "navigationBarTitleText": ""
+      }
+    },
+    {
+      "path": "pages/main/top",
+      "style": {
+        "navigationBarTitleText": ""
+      }
+    },
+    {
+      "path": "pages/main/menu",
+      "style": {
+        "navigationBarTitleText": "菜单",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": false
+      }
+    },
+    {
+      "path": "pages/main/my",
+      "style": {
+        "navigationBarTitleText": "我的",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": false
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager-list-6031906822946816",
+      "style": {
+        "navigationBarTitleText": "管理员",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager-detail-6031906822946816",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "管理员"
+      }
+    },
+    {
+      "path": "pages/yzp/config_table-list-6191083005411328",
+      "style": {
+        "navigationBarTitleText": "表",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_table-detail-6191083005411328",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "表"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-list-6191175925956608",
+      "style": {
+        "navigationBarTitleText": "配置页面",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-detail-6191175925956608",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "配置页面"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-list-1868973685063311361",
+      "style": {
+        "navigationBarTitleText": "配置页面",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-detail-1868973685063311361",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "配置页面"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-list-1869016706289577986",
+      "style": {
+        "navigationBarTitleText": "选择配置页面",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_column-list-6217715532627968",
+      "style": {
+        "navigationBarTitleText": "列",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_column-detail-6217715532627968",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "列"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page_column-list-6218036784398336",
+      "style": {
+        "navigationBarTitleText": "页面字段",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_page_column-detail-6218036784398336",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "页面字段"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices-list-6220589291798528",
+      "style": {
+        "navigationBarTitleText": "管理员信息扩展",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices-detail-6220589291798528",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "管理员信息扩展"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices_project-list-6220608155484160",
+      "style": {
+        "navigationBarTitleText": "各账号项目配置",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices_project-detail-6220608155484160",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "各账号项目配置"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_project-list-6186303424888832",
+      "style": {
+        "navigationBarTitleText": "项目",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_project-detail-6186303424888832",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "项目"
+      }
+    },
+    {
+      "path": "pages/yzp/config_button-list-7097193256583168",
+      "style": {
+        "navigationBarTitleText": "按钮",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_button-detail-7097193256583168",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "按钮"
+      }
+    },
+    {
+      "path": "pages/yzp/config_button-list-1870796062470516738",
+      "style": {
+        "navigationBarTitleText": "按钮",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_button-detail-1870796062470516738",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "按钮"
+      }
+    },
+    {
+      "path": "pages/yzp/config_child-list-1679390851298631682",
+      "style": {
+        "navigationBarTitleText": "子表关系",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_child-detail-1679390851298631682",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "子表关系"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role-list-1692532858529329154",
+      "style": {
+        "navigationBarTitleText": "角色",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role-detail-1692532858529329154",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "角色"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_admin_type-list-1696799309006348290",
+      "style": {
+        "navigationBarTitleText": "后台类型",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_admin_type-detail-1696799309006348290",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "后台类型"
+      }
+    },
+    {
+      "path": "pages/yzp/config_custom_page-list-2062361618137833473",
+      "style": {
+        "navigationBarTitleText": "自定义页面",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_custom_page-detail-2062361618137833473",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "自定义页面"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role_permission-list-2063264600601714690",
+      "style": {
+        "navigationBarTitleText": "角色权限",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role_permission-detail-2063264600601714690",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "角色权限"
+      }
+    },
+    {
+      "path": "pages/yzp/config_index-list-2076977531071803393",
+      "style": {
+        "navigationBarTitleText": "索引配置",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_index-detail-2076977531071803393",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "索引配置"
+      }
+    },
+    {
+      "path": "pages/yzp/config_index_column-list-2076977554350190593",
+      "style": {
+        "navigationBarTitleText": "索引字段",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_index_column-detail-2076977554350190593",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "索引字段"
+      }
+    },
+    {
+      "path": "pages/custom/agent_authorize",
+      "style": {
+        "navigationBarTitleText": "Agent 授权",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": false,
+        "leftWindow": false,
+        "topWindow": false
+      }
+    },
+    {
+      "path": "pages/custom/agent_grants",
+      "style": {
+        "navigationBarTitleText": "Agent 授权管理",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": false
+      }
+    },
+    {
+      "path": "pages/custom/add_join_columns",
+      "style": {
+        "navigationBarTitleText": "添加联接字段",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/main/set_role_permission",
+      "style": {
+        "navigationBarTitleText": "设置角色权限",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/custom/batch_create_columns",
+      "style": {
+        "navigationBarTitleText": "批量创建字段",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/custom/config_columns_sort",
+      "style": {
+        "navigationBarTitleText": "配置列排序",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/custom/config_page_columns",
+      "style": {
+        "navigationBarTitleText": "配置页面字段",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/custom/select_project",
+      "style": {
+        "navigationBarTitleText": "选择项目",
+        "navigationStyle": "custom",
+        "leftWindow": false,
+        "topWindow": false
+      }
+    },
+    {
+      "path": "pages/custom/config_indexes",
+      "style": {
+        "navigationBarTitleText": "索引管理",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/custom/system_maintenance",
+      "style": {
+        "navigationBarTitleText": "系统维护",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/custom/page_detail_layout",
+      "style": {
+        "navigationBarTitleText": "详情布局",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": false,
+        "leftWindow": false,
+        "topWindow": false
+      }
+    },
+    {
+      "path": "pages/custom/menu_workbench",
+      "style": {
+        "navigationBarTitleText": "菜单配置"
+      }
+    },
+    {
+      "path": "pages/main/rtf/rtf",
+      "style": {
+        "navigationBarTitleText": "富文本"
+      }
+    },
+    {
+      "path": "pages/yzp/config_menu-list-2200000000000099000",
+      "style": {
+        "navigationBarTitleText": "菜单"
+      }
+    }
+  ],
+  "tabBar": {
+    "color": "#aaa",
+    "selectedColor": "#007aff",
+    "borderStyle": "black",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/main/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/main/menu",
+        "text": "菜单"
+      },
+      {
+        "pagePath": "pages/main/my",
+        "text": "我的"
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "Metarill",
+    "navigationBarBackgroundColor": "#FFF",
+    "backgroundColor": "#F8F8F8",
+    "app-plus": {
+      "background": "#efeff4"
+    }
+  }
+}
