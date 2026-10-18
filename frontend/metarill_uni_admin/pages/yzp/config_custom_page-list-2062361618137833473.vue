@@ -25,6 +25,7 @@
 <uni-th >显示左侧</uni-th>
 <uni-th >显示顶部</uni-th>
 <uni-th >排序号</uni-th>
+<uni-th >所属后台</uni-th>
 </uni-tr>
 <uni-tr :class="clicked_id == item.id ? 'uni-table-tr-clicked' : ''" v-for='(item, index) in list' :key='item.id'><uni-td v-if="page_is_edit" class="buttons"><view><view class='list-action-link' v-if="permissionVersion >= 0 && page_is_edit && $yzp.hasPagePermission(page_sn, 'is_query')" @click='toDetail(item.id)'>查看</view></view></uni-td><uni-td><text >{{item.name}}</text>
 </uni-td>
@@ -37,6 +38,8 @@
 <uni-td>{{(($checkboxRange || [])[item.isShowTop==null?0:item.isShowTop] || {}).text || ''}}</uni-td>
 <uni-td><text >{{item.sortNo}}</text>
 </uni-td>
+<!-- 列表展示后台名称，归属标识仅用于详情提交。 -->
+<uni-td><text>{{$yzp.relationDisplayText(item.yzAdminTypeName)}}</text></uni-td>
 </uni-tr></uni-table>
           <view v-if="page_size>0" class="uni-pagination-box">
             <uni-pagination show-icon :page-size="page_size" :current="page_no" :total="rows_qty"
@@ -55,7 +58,7 @@
       </view>-->
       <view class="yz-row-container">
             <view class='yz-row' v-for='(item, index) in list' :key='item.id' @click='toDetail(item.id)'>
-              <view class='row-item'><text>页面名称</text><text >{{item.name}}</text></view><view class='row-item'><text>页面路径</text><text >{{item.pagePath}}</text></view><view class='row-item'><text>导航样式</text><text >{{item.navigationStyle}}</text></view><view class='row-item'><text>下拉刷新</text>{{(($checkboxRange || [])[item.enablePullDownRefresh==null?0:item.enablePullDownRefresh] || {}).text || ''}}</view><view class='row-item'><text>显示左侧</text>{{(($checkboxRange || [])[item.isShowLeft==null?0:item.isShowLeft] || {}).text || ''}}</view><view class='row-item'><text>显示顶部</text>{{(($checkboxRange || [])[item.isShowTop==null?0:item.isShowTop] || {}).text || ''}}</view><view class='row-item'><text>排序号</text><text >{{item.sortNo}}</text></view>
+              <view class='row-item'><text>页面名称</text><text >{{item.name}}</text></view><view class='row-item'><text>页面路径</text><text >{{item.pagePath}}</text></view><view class='row-item'><text>导航样式</text><text >{{item.navigationStyle}}</text></view><view class='row-item'><text>下拉刷新</text>{{(($checkboxRange || [])[item.enablePullDownRefresh==null?0:item.enablePullDownRefresh] || {}).text || ''}}</view><view class='row-item'><text>显示左侧</text>{{(($checkboxRange || [])[item.isShowLeft==null?0:item.isShowLeft] || {}).text || ''}}</view><view class='row-item'><text>显示顶部</text>{{(($checkboxRange || [])[item.isShowTop==null?0:item.isShowTop] || {}).text || ''}}</view><view class='row-item'><text>排序号</text><text >{{item.sortNo}}</text></view><view class='row-item'><text>所属后台</text><text>{{$yzp.relationDisplayText(item.yzAdminTypeName)}}</text></view>
             </view>
       </view>
       <uni-load-more @clickLoadMore='loadNextPage()' :status='load_more_status' :contentText="loadMoreText"></uni-load-more>

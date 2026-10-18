@@ -37,6 +37,11 @@
 <text v-if='sortNoReadOnly'>{{entity.sortNo}}</text>
 </uni-forms-item>
 
+<!-- 所属后台沿用平台List选择器与只读展示；许可占位组件不替换交互。 -->
+<uni-forms-item label='所属后台' name='yzAdminTypeId' v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange' /></template>
+</uni-forms-item>
+
         </uni-forms>
       </view>
 
@@ -67,11 +72,12 @@ export default {
       page_is_update:  true ,page_is_delete:  true ,page_is_new:  true ,page_is_copy:  false ,page_is_function_table:  false ,detailGridColumns: 2,permissionVersion: 0,
 
 
+      yz_admin_type_list: [],
       entity: {
-        name:'',pagePath:'',navigationStyle:'',enablePullDownRefresh:'',isShowLeft:'',isShowTop:'',sortNo:99,
+        name:'',pagePath:'',navigationStyle:'',enablePullDownRefresh:'',isShowLeft:'',isShowTop:'',sortNo:99,yzAdminTypeId:'',yzAdminTypeName:'',
       },
       entity_column_readonly: {
-        name:false,pagePath:false,navigationStyle:false,enablePullDownRefresh:false,isShowLeft:false,isShowTop:false,sortNo:false,
+        name:false,pagePath:false,navigationStyle:false,enablePullDownRefresh:false,isShowLeft:false,isShowTop:false,sortNo:false,yzAdminTypeId:false,
       },
       entity_rules: {
         name: {  rules: [  {      required: true,     errorMessage: '页面名称为必填项',  },  {      maxLength: 50,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},pagePath: {  rules: [  {      required: true,     errorMessage: '页面路径为必填项',  },  {      maxLength: 200,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},navigationStyle: {  rules: [  {      maxLength: 20,     errorMessage: '长度需在{maxLength}个字符以内',  },  ]},enablePullDownRefresh: {  rules: [  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},isShowLeft: {  rules: [  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},isShowTop: {  rules: [  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},sortNo: {  rules: [  {      required: true,     errorMessage: '排序号为必填项',  },  {      pattern: '^-?\\d+$',     errorMessage: '只能输入整数',  },  ]},
@@ -83,6 +89,7 @@ export default {
   },
   computed: {
     readOnlyCondition() {    this.permissionVersion;    if (this.page_is_function_table) {        if (!this.page_is_update || this.parentReadOnlyCondition) {            return true;        }        if (!yzp.hasPagePermission(this.page_sn, 'is_update')) {            return true;        }        return false;    }    var pageAllowsWrite = this.id ? this.page_is_update : this.page_is_new;    if (!pageAllowsWrite || this.parentReadOnlyCondition) {        return true;    }    var writePermissionValue = this.id ? 'is_update' : 'is_new';    if (!yzp.hasPagePermission(this.page_sn, writePermissionValue)) {        return true;    }    return false;},nameReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.name;},pagePathReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.pagePath;},navigationStyleReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.navigationStyle;},enablePullDownRefreshReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.enablePullDownRefresh;},isShowLeftReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isShowLeft;},isShowTopReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.isShowTop;},sortNoReadOnly(){    return this.readOnlyCondition || this.entity_column_readonly.sortNo;},
+    yzAdminTypeIdReadOnly(){ return this.readOnlyCondition || this.entity_column_readonly.yzAdminTypeId; },
     hasVisibleCustomerButtons() {this.permissionVersion;return false;},
   },
   mounted: function () {
@@ -182,13 +189,28 @@ export default {
 
 
 
+    /** List选择回调同时维护标识与展示名，清空时不遗留旧后台名称。 */
+    yz_admin_typeSelectChange: function(item) {
+      this.entity.yzAdminTypeId = item ? item.id : '';
+      this.entity.yzAdminTypeName = item ? item.name : '';
+    },
     initLists: function () {
       // 整页只读时只展示详情数据，不加载编辑候选项接口。
       if (this.readOnlyCondition && !this.page_is_function_table) {
         return;
       }
       var that = this;
-
+      // 由后台归属列的生成候选入口限定当前项目，保留原formParameters载荷。
+      yzp.request({
+        url: '/admin/auto/config_custom_page/2062361618137833473/findNameIdYzAdminType2200000000000101010',
+        data: { formParameters: uni.getStorageSync(that.formParametersName) },
+        sendSessionId: true,
+        method: 'POST',
+        success: function(res) {
+          if (res.code == 200) that.yz_admin_type_list = res.data || [];
+          else uni.showModal({ showCancel: false, content: res.msg });
+        }
+      });
     },
     refreshSonsData: function () {
       // this.getEntity();
