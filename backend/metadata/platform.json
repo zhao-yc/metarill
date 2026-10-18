@@ -26463,16 +26463,6 @@
       "yzAdminTypeId": "1762777514515656705",
       "yzProjectId": "1608097412978577409",
       "sortNo": 35
-    },
-    {
-      "id": "2200000000000101009",
-      "name": "索引配置",
-      "parentMenuId": "1669251197366845441",
-      "kind": "CUSTOM_PAGE",
-      "configCustomPageId": "2200000000000101008",
-      "yzAdminTypeId": "1762777514515656705",
-      "yzProjectId": "1608097412978577409",
-      "sortNo": 36
     }
   ],
   "configCustomPages": [
@@ -26528,13 +26518,6 @@
     {
       "id": "2076979000000000001",
       "name": "config_indexes",
-      "pagePath": "pages/custom/config_indexes",
-      "yzProjectId": "1608097412978577409",
-      "yzAdminTypeId": "1762777514515656705"
-    },
-    {
-      "id": "2200000000000101008",
-      "name": "索引配置",
       "pagePath": "pages/custom/config_indexes",
       "yzProjectId": "1608097412978577409",
       "yzAdminTypeId": "1762777514515656705"

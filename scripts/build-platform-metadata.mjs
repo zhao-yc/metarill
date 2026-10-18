@@ -132,11 +132,7 @@ for(const p of pages){
 const finalPageIds=new Set(pages.map(p=>p.id));
 menus=menus.filter(m=>!m.configPageId||finalPageIds.has(m.configPageId));
 menus=menus.map(m=>({...m,yzProjectId:projectId}));
-const indexPageId=id('custompage:index-workbench');
-const indexMenuId=id('menu:index-workbench');
-menus.push({id:indexMenuId,name:'索引配置',parentMenuId:input.configFirstMenus[0].id,kind:'CUSTOM_PAGE',configCustomPageId:indexPageId,yzAdminTypeId:adminId,yzProjectId:projectId,sortNo:36});
 const catalog={schemaVersion:1,backendTarget:'csharp',yzProjectId:projectId,yzProjectName:'Metarill',databaseProvider:'mysql',configTables:tables,configColumns:columns,configPages:pages,configPageColumns:pageColumns,yzAdminTypes:input.yzAdminTypes,configMenus:menus,configCustomPages:input.menuCustomPages.map(p=>({id:p.id,name:p.pagePath.split('/').at(-1),pagePath:p.pagePath,yzProjectId:projectId,yzAdminTypeId:adminId})),configButtons:input.configButtons.filter(b=>!b.configPageId||finalPageIds.has(b.configPageId)).map(b=>({...b,yzProjectId:projectId})),configChildren:input.configChildren.filter(c=>(!c.configPageId||finalPageIds.has(c.configPageId))&&(!c.childConfigPageId||finalPageIds.has(c.childConfigPageId))).map(c=>({...c,yzProjectId:projectId})),configIndexes:[],configIndexColumns:[]};
-catalog.configCustomPages.push({id:indexPageId,name:'索引配置',pagePath:'pages/custom/config_indexes',yzProjectId:projectId,yzAdminTypeId:adminId});
 const indexes=[],indexColumns=[];
 function index(tableName,name,fields,unique=false) {
  const t=tables.find(t=>t.tableName===tableName); if(!t)return;
