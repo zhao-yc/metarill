@@ -24,6 +24,8 @@ public interface IDatabaseProvider
     void Validate(DatabaseOptions options);
     string QuoteIdentifier(string identifier);
     string ParameterPlaceholder(string name);
+    /// <summary>适配器显式提供事务锁定读取；未实现的数据库不能静默降级。</summary>
+    string BuildSelectForUpdate(string selectSql) => throw new NotSupportedException("当前数据库尚未实现锁定读取。");
 }
 
 public static class DatabaseProviders
@@ -53,6 +55,13 @@ public sealed class MySqlDatabaseProvider : IDatabaseProvider
     {
         Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(name);
         return "@" + name;
+    }
+    /// <summary>仅为内部已参数化 SELECT 附加行锁，拒绝多语句与重复锁片段。</summary>
+    public string BuildSelectForUpdate(string selectSql)
+    {
+        if (!selectSql.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase) || selectSql.Contains(';') || selectSql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("锁定读取必须是单条内部 SELECT。");
+        return selectSql + " FOR UPDATE";
     }
     public DatabaseCapabilities Capabilities => DatabaseProviders.Capabilities[0];
 
