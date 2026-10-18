@@ -222,7 +222,7 @@
 				var title = item.indexName || "未命名索引";
 				uni.showModal({
 					title: "确认删除",
-					content: "将删除索引配置“" + title + "”。保存后目标项目会删除对应托管索引。",
+					content: "将删除索引配置“" + title + "”。保存仅删除索引配置；物理索引需单独预览迁移方案，首期不会自动删除。",
 					success: function(res) {
 						if (res.confirm) {
 							that.indexes.splice(index, 1);
@@ -290,6 +290,8 @@
 			buildPayload: function() {
 				return {
 					configTableId: this.config_table_id,
+					// 版本来自上次快照，防止旧草稿覆盖其他管理员的索引配置。
+					revision: this.detail.revision || "",
 					indexes: this.indexes.map(function(item) {
 						this.syncPhysicalName(item);
 						return {

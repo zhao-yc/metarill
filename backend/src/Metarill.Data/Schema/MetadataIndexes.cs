@@ -11,6 +11,10 @@ internal static class MetadataIndexes
         var indexes = new List<IndexSchema>();
         foreach (var record in catalog.ConfigIndexes.Where(x => Text(x, "configTableId") == table.Id))
         {
+            // 关闭索引只移出目标结构，不删除数据库已有索引。旧种子省略开关时沿用启用。
+            var enabled = record.TryGetProperty("isEnabled", out _) ? Number(record, "isEnabled") : 1;
+            if (enabled is not (0 or 1)) throw new InvalidOperationException("索引启用状态只能是0或1。");
+            if (enabled == 0) continue;
             var name = Text(record, "indexName");
             MetadataValidation.RequireIdentifier(name);
             if (name.Equals("PRIMARY", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("不能用普通索引配置覆盖主键。");
@@ -20,6 +24,9 @@ internal static class MetadataIndexes
                 .OrderBy(x => Number(x, "sortNo")).ToArray();
             var names = references.Select(reference =>
             {
+                // 当前结构快照尚未表达索引方向，拒绝降序以免静默生成ASC。
+                var direction = Text(reference, "sortDirection");
+                if (direction.Length > 0 && !direction.Equals("ASC", StringComparison.OrdinalIgnoreCase)) throw new NotSupportedException("首期结构同步仅支持ASC索引方向，DESC需要后续完整适配。");
                 var column = catalog.ConfigColumns.SingleOrDefault(c => c.Id == Text(reference, "configColumnId"));
                 if (column is null || column.ConfigTableId != table.Id || !columns.Any(c => c.Name == column.ColumnName))
                     throw new InvalidOperationException("索引字段必须引用同一实体表中的物理字段。");
