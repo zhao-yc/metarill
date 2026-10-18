@@ -12,8 +12,8 @@
 <script>
 import yzp from '@/common/yzp';
 export default {
-  data() { return { records: [], pageNo: 1, pages: 1, loading: false, parentId: '', canCreate: {{CAN_CREATE}} }; },
-  onLoad(options) { this.parentId = options.parentId || ''; },
+  data() { return { records: [], pageNo: 1, pages: 1, loading: false, parentId: '', selecting: false, canCreate: {{CAN_CREATE}} }; },
+  onLoad(options) { this.parentId = options.parentId || ''; this.selecting = options.select === '1'; },
   onShow() { this.loadPage(); },
   methods: {
     /** 分页请求沿用统一登录态和 R 响应。 */
@@ -27,7 +27,7 @@ export default {
     /** 翻页仅调整当前页面，不拼接查询 SQL。 */
     movePage(delta) { this.pageNo += delta; this.loadPage(); },
     /** 跳转保持既有生成页面命名和父记录上下文。 */
-    openDetail(id) { uni.navigateTo({ url: '{{DETAIL_ROUTE}}?id=' + encodeURIComponent(id) + '&parentId=' + encodeURIComponent(this.parentId) }); }
+    openDetail(id) { if (this.selecting && id) { const row = this.records.find(record => record.id === id); this.getOpenerEventChannel().emit('selected', row); uni.navigateBack(); return; } uni.navigateTo({ url: '{{DETAIL_ROUTE}}?id=' + encodeURIComponent(id) + '&parentId=' + encodeURIComponent(this.parentId) }); }
   }
 };
 </script>

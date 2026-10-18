@@ -7,6 +7,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 /// <summary>关系选项只能编译已声明表、名称列和目标页面，禁止直接解释外部 SQL。</summary>
 internal static class RelationCompilation
 {
+    /// <summary>编译有明确目标页及范围的关系选项。</summary>
     public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page)
     {
         var relations = new List<RelationModel>();

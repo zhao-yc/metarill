@@ -7,7 +7,9 @@ namespace Metarill.Generation;
 /// <summary>生成固定类型访问与页级白名单，运行时不解释元数据。</summary>
 internal static class BackendRenderer
 {
+    /// <summary>生成安全的 C# 字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
+    /// <summary>汇总整个生成批次的强类型后端文件。</summary>
     public static IEnumerable<PlannedFile> Render(GenerationModel model)
     {
         foreach (var table in model.Tables)
@@ -25,6 +27,7 @@ internal static class BackendRenderer
         }
         yield return new("GeneratedRegistration.g.cs", Registration(model)); yield return new("VOs/GeneratedOption.g.cs", CSharpGenerator.Header + $"namespace {model.Namespace}.Generated.VOs;\npublic sealed record GeneratedOption(long Id, string? Name, long Value, string? Text);\n");
     }
+    /// <summary>根据物理字段生成持久化实体。</summary>
     private static string Entity(GenerationModel model, TableModel table)
     {
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using FreeSql.DataAnnotations;").AppendLine("using System.Text.Json.Serialization;")
@@ -38,31 +41,34 @@ internal static class BackendRenderer
         }
         return result.AppendLine("}").ToString();
     }
+    /// <summary>生成只接受页面可写字段的请求。</summary>
     private static string Dto(GenerationModel model, TableModel table, PageModel page)
     {
-        var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Text.Json.Serialization;").AppendLine("using Metarill.Core.Contracts;")
+        var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Text.Json;").AppendLine("using System.Text.Json.Serialization;").AppendLine("using Metarill.Core.Contracts;")
             .AppendLine($"namespace {model.Namespace}.Generated.DTOs;");
         foreach (var kind in new[] { "Create", "Update" })
         {
             result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}{kind}Request").AppendLine("{");
             if (kind == "Update") result.AppendLine("    public long Id { get; set; }");
             foreach (var column in page.Writable)
-                result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]").AppendLine($"    public Optional<{column.Type}> {column.Property} {{ get; set; }}");
+                result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]").AppendLine($"    public Optional<{column.BoundaryType}> {column.Property} {{ get; set; }}");
             result.AppendLine("}");
         }
         result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}RecordRequest {{ public long Id {{ get; set; }} }}");
         return result.ToString();
     }
+    /// <summary>生成页面可读投影并还原数组控件。</summary>
     private static string Vo(GenerationModel model, TableModel table, PageModel page)
     {
-        var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Text.Json.Serialization;").AppendLine($"using {model.Namespace}.Generated.Entities;")
+        var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Text.Json;").AppendLine("using System.Text.Json.Serialization;").AppendLine($"using {model.Namespace}.Generated.Entities;")
             .AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed class {page.Name}Vo").AppendLine("{");
         foreach (var column in page.Readable)
-            result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]").AppendLine($"    public {column.Type} {column.Property} {{ get; init; }}");
+            result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]").AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
         result.AppendLine("    /// <summary>只投影本页声明可读字段。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => new()").AppendLine("    {");
-        foreach (var column in page.Readable) result.AppendLine($"        {column.Property} = entity.{column.Property},");
+        foreach (var column in page.Readable) result.AppendLine(column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
         return result.AppendLine("    };").AppendLine("}").ToString();
     }
+    /// <summary>生成加入当前事务的强类型数据库操作。</summary>
     private static string Mapper(GenerationModel model, TableModel table)
     {
         return CSharpGenerator.Header + $$"""
@@ -87,6 +93,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
 
 """;
     }
+    /// <summary>生成单对象生命周期与按页面隔离的规则。</summary>
     private static string Service(GenerationModel model, TableModel table)
     {
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
@@ -110,6 +117,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         }
         result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
+    /// <summary>编译范围、筛选、排序及分页条件。</summary>
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
         var suffix = page.Source.Id;
@@ -184,6 +192,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"        return entity is null ? null : {page.Name}Vo.FromEntity(entity);").AppendLine("    }");
         return result.ToString();
     }
+    /// <summary>生成新增、部分更新和逻辑删除事务。</summary>
     private static string Mutations(GenerationModel model, TableModel table, PageModel page)
     {
         var suffix = page.Source.Id;
@@ -196,7 +205,8 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in page.Writable)
             {
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = request.{column.Property}.Value; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+                if (column.IsJsonArray) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
                 if (!string.IsNullOrWhiteSpace(column.Source.DefaultValue))
                     result.AppendLine($"        else entity.{column.Property} = {DefaultExpression(column)};");
             }
@@ -216,7 +226,10 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in page.Writable)
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = request.{column.Property}.Value; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+            {
+                if (column.IsJsonArray) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+            }
             result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
@@ -246,12 +259,14 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         result.AppendLine("        };")
             .AppendLine("        if (!allFields) values = values.Where(item => item.Key == \"id\" || submitted.Contains(item.Key)).ToDictionary(item => item.Key, item => item.Value);")
             .AppendLine("        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException(\"写入观察者要求当前事务。\");")
-            .AppendLine($"        var context = new RecordMutationContext(pageId, {Literal(table.Source.TableName)}, entity.Id, {ProjectExpression(table)}, values, deleting, transaction);")
+            .AppendLine($"        var context = new RecordMutationContext(pageId, {Literal(table.Source.TableName)}, entity.Id, {ProjectExpression(table)}, values, deleting, transaction, IsCreate: allFields && !deleting);")
             .AppendLine("        foreach (var observer in observers) await observer.BeforeCommitAsync(context, cancellationToken);")
             .AppendLine("    }");
         return result.ToString();
     }
+    /// <summary>读取实体真实项目归属，缺省时使用当前身份。</summary>
     private static string ProjectExpression(TableModel table) => table.Columns.Any(c => c.Source.ColumnName == "yz_project_id") ? "Convert.ToString(entity.YzProjectId, CultureInfo.InvariantCulture) ?? string.Empty" : "actor.ProjectId";
+    /// <summary>由真实身份补齐审计字段。</summary>
     private static string Audit(TableModel table, bool creating)
     {
         var result = new StringBuilder();
@@ -274,6 +289,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         }
         return result.ToString();
     }
+    /// <summary>生成数据库和页面必填校验。</summary>
     private static string RequiredValidation(GenerationModel model, TableModel table, PageModel page, bool updating)
     {
         var result = new StringBuilder();
@@ -284,6 +300,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         }
         return result.ToString();
     }
+    /// <summary>把固定默认值转为安全的类型表达式。</summary>
     private static string DefaultExpression(ColumnModel column)
     {
         if (column.Type == "string?") return Literal(column.Source.DefaultValue);
@@ -296,6 +313,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         }
         catch (JsonException) { throw new InvalidOperationException("字段默认值不能转换为逻辑类型：" + column.Source.ColumnName); }
     }
+    /// <summary>把可信身份或已校验父记录转换为字段类型。</summary>
     private static string ScopeValue(ColumnModel column, string value) => column.Type switch
     {
         "string?" => value,
@@ -303,6 +321,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         "int?" => $"int.Parse({value}, CultureInfo.InvariantCulture)",
         _ => throw new InvalidOperationException("查询范围字段必须为整型或字符串。")
     };
+    /// <summary>生成兼容原路由的 HTTP 权限边界。</summary>
     private static string Controller(GenerationModel model, TableModel table, PageModel page)
     {
         var suffix = page.Source.Id;
@@ -358,6 +377,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         }
         return result.ToString();
     }
+    /// <summary>生成仅首次创建的业务扩展文件。</summary>
     private static string HandwrittenService(GenerationModel model, TableModel table) => $$"""
 namespace {{model.Namespace}}.Generated.Services;
 
@@ -367,6 +387,7 @@ public partial class {{table.Name}}Service
 }
 
 """;
+    /// <summary>生成可独立选择数据库会话的服务注册。</summary>
     private static string Registration(GenerationModel model)
     {
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using Microsoft.Extensions.DependencyInjection;").AppendLine("using Metarill.Data;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;")

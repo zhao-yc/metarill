@@ -12,9 +12,17 @@
 import yzp from '@/common/yzp';
 const writableFields = {{WRITABLE_FIELDS}};
 export default {
-  data() { return { id: '', parentId: '', entity: {}, changes: {}, saving: false, canCreate: {{CAN_CREATE}}, canSave: {{CAN_SAVE}}, canDelete: {{CAN_DELETE}} }; },
-  onLoad(options) { this.id = options.id || ''; this.parentId = options.parentId || ''; if (this.id) this.load(); },
+  data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: {{CAN_CREATE}}, canSave: {{CAN_SAVE}}, canDelete: {{CAN_DELETE}} }; },
+  onLoad(options) { this.id = options.id || ''; this.parentId = options.parentId || ''; this.loadOptions(); if (this.id) this.load(); },
   methods: {
+    /** 关系选项由当前页接口实施范围和权限校验。 */
+    loadOptions() {
+{{OPTION_REQUESTS}}
+    },
+    /** 定制编辑器只能回填本页允许提交的字段。 */
+    applyCustom(values) { for (const field of writableFields) { if (Object.prototype.hasOwnProperty.call(values, field) && JSON.stringify(values[field]) !== JSON.stringify(this.entity[field])) this.change(field, values[field]); } },
+    /** 选择页复用生成列表，返回标识而非扩大写入字段。 */
+    selectPage(field, path) { uni.navigateTo({ url: path + '?select=1', events: { selected: row => this.change(field, row.id) } }); },
     /** 读取明细只接收服务端页级 VO。 */
     load() { yzp.request({ url: '{{API}}/detail/' + encodeURIComponent(this.id) + '?parentId=' + encodeURIComponent(this.parentId), method: 'GET', sendSessionId: true,
       success: res => { if (res.code === 200) { this.entity = res.data; this.changes = {}; } } }); },

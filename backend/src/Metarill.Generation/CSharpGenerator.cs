@@ -6,7 +6,10 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
-public sealed record GenerationResult(IReadOnlyList<string> GeneratedFiles, IReadOnlyList<string> CreatedHandwrittenFiles, string MetadataSha256);
+public sealed record GenerationResult(IReadOnlyList<string> GeneratedFiles, IReadOnlyList<string> CreatedHandwrittenFiles, string MetadataSha256)
+{
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+}
 internal sealed record OwnedFile(string Path, string Sha256);
 internal sealed record GenerationManifest(int Version, string ProjectId, string RootNamespace, string MetadataSha256, IReadOnlyList<OwnedFile> Files);
 internal sealed record PlannedFile(string Path, string Content, bool Handwritten = false);
@@ -25,7 +28,7 @@ public sealed class CSharpGenerator
         ValidateNamespace(rootNamespace);
         MetadataValidation.Validate(catalog);
         var model = GenerationModel.Create(catalog, rootNamespace);
-        var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
+        var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Select(file => file with { Content = file.Content.Replace("\r\n", "\n").Replace("\r", "\n") }).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
         if (files.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Length) throw new InvalidOperationException("生成路径存在大小写冲突。");
         var output = Path.GetFullPath(outputDirectory);
         RejectLinks(output);
@@ -75,7 +78,8 @@ public sealed class CSharpGenerator
             }
             throw;
         }
-        return new GenerationResult(generated.Select(x => x.Path).ToArray(), firstHandwritten.Select(x => x.Path).ToArray(), hash);
+        var warnings = model.Tables.SelectMany(table => table.Pages.SelectMany(page => page.DetailColumns.Select(column => (Page: page, Column: column, Result: ControlRenderer.Render(model, table, page, column))))).Where(item => item.Result.UnsupportedReason is not null).Select(item => $"页面 {item.Page.Source.Id} 字段 {item.Column.Source.ColumnName}：{item.Result.UnsupportedReason}").ToArray();
+        return new GenerationResult(generated.Select(x => x.Path).ToArray(), firstHandwritten.Select(x => x.Path).ToArray(), hash) { Warnings = warnings };
     }
 
     /// <summary>拒绝绝对路径、上级目录及符号链接，避免输出越过归属目录。</summary>
@@ -87,24 +91,28 @@ public sealed class CSharpGenerator
         RejectLinks(full);
         return full;
     }
+    /// <summary>拒绝路径中任意现存符号链接或目录联接。</summary>
     private static void RejectLinks(string path)
     {
         for (var current = path; current is not null; current = Path.GetDirectoryName(current))
             if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidOperationException("生成目录不能经过符号链接或目录联接。");
     }
+    /// <summary>使用同目录临时文件原子替换单个产物。</summary>
     private static void AtomicWrite(string path, byte[] bytes)
     {
         var temporary = path + ".metarill-tmp-" + Guid.NewGuid().ToString("N");
         try { File.WriteAllBytes(temporary, bytes); File.Move(temporary, path, true); }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+    /// <summary>在渲染前拒绝无效或保留关键字命名空间。</summary>
     private static void ValidateNamespace(string value)
     {
         if (!Regex.IsMatch(value, "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$") || value.Split('.').Any(x => Keywords.Contains(x)))
             throw new InvalidOperationException("C# 根命名空间无效。");
     }
     private static readonly HashSet<string> Keywords = ["class", "namespace", "public", "private", "internal", "void", "string", "int", "long", "event", "base", "this", "new", "return", "using", "default", "object", "dynamic", "record", "struct", "interface", "enum", "delegate", "bool", "decimal", "double", "float", "short", "byte", "char", "null", "true", "false", "var", "params", "ref", "out", "in", "is", "as", "switch", "case", "operator", "readonly", "static", "sealed", "abstract", "protected", "override", "virtual", "partial", "async", "await", "try", "catch", "finally", "throw", "if", "else", "for", "foreach", "while", "do", "break", "continue", "get", "set", "value", "required", "init"];
+    /// <summary>按稳定次序编码元数据以计算归属摘要。</summary>
     private static byte[] CanonicalMetadata(MetadataCatalog catalog)
     {
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(catalog, JsonOptions));
@@ -112,6 +120,7 @@ public sealed class CSharpGenerator
         using (var writer = new Utf8JsonWriter(stream)) WriteCanonical(document.RootElement, writer);
         return stream.ToArray();
     }
+    /// <summary>对对象键及有标识的记录数组稳定排序。</summary>
     private static void WriteCanonical(JsonElement value, Utf8JsonWriter writer)
     {
         if (value.ValueKind == JsonValueKind.Object)
@@ -130,15 +139,16 @@ public sealed class CSharpGenerator
         }
         else value.WriteTo(writer);
     }
+    /// <summary>计算不可逆的生成文件摘要。</summary>
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 }
 
 internal sealed record ColumnModel(ColumnMetadata Source, string Property, string JsonName, string Type)
 {
-    public bool IsId => Source.ColumnName == "id";
+    public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"; public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "yz_project_id" or "yz_project_name";
 }
-internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes);
+internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<ColumnModel> ListColumns, IReadOnlyList<ColumnModel> DetailColumns);
 internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages);
 internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace, IReadOnlyList<TableModel> Tables)
 {
@@ -162,19 +172,21 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 foreach (var field in fields)
                     if (!catalog.ConfigColumns.Any(x => x.Id == field.ConfigColumnId && x.ConfigTableId == table.Id)) throw new InvalidOperationException("页面字段跨表引用无效。");
                 bool Has(ColumnModel c, Func<PageColumnMetadata, bool> predicate) => fields.Any(f => f.ConfigColumnId == c.Source.Id && predicate(f));
-                var readable = columns.Where(c => c.IsId || Has(c, f => f.IsShow == 1 || f.IsEdit == 1)).ToArray();
-                var writable = columns.Where(c => !c.IsSystem && Has(c, f => f.IsEdit == 1 && !Enabled(f.Extra, "isReadOnly"))).ToArray();
+                var pageColumns = columns.OrderBy(c => fields.FirstOrDefault(f => f.ConfigColumnId == c.Source.Id)?.SortNo ?? int.MaxValue).ThenBy(c => c.Source.ColumnName, StringComparer.Ordinal).ToArray();
+                var readable = pageColumns.Where(c => c.IsId || Has(c, f => InGrid(f) || InEdit(f))).ToArray();
+                var writable = pageColumns.Where(c => !c.IsSystem && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
                 var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch") || Enabled(f.Extra, "isInFilter"))).ToArray();
-                var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort"))).ToArray();
+                var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort") || Enabled(c.Source.Extra, "isSort"))).ToArray();
                 var scopes = CompileScopes(page.WhereSql, columns);
                 ValidateOrderBy(page.OrderBy, columns);
-                pageModels.Add(new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes));
+                pageModels.Add(new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()));
             }
             result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels));
         }
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
         return new GenerationModel(catalog, rootNamespace, result);
     }
+    /// <summary>只编译明确的身份或父记录范围。</summary>
     internal static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)
     {
         if (string.IsNullOrWhiteSpace(sql)) return [];
@@ -190,6 +202,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         }
         return scopes;
     }
+    /// <summary>默认排序仅允许已声明列和明确方向。</summary>
     internal static IReadOnlyList<(ColumnModel Column, bool Descending)> ValidateOrderBy(string order, IReadOnlyList<ColumnModel> columns)
     {
         if (string.IsNullOrWhiteSpace(order)) return [];
@@ -202,9 +215,18 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
             result.Add((column, match.Groups[2].Value.Equals("desc", StringComparison.OrdinalIgnoreCase)));
         }
         return result;
-    }    internal static bool Enabled(Dictionary<string, JsonElement> extra, string key) => extra.TryGetValue(key, out var value) && (value.ValueKind == JsonValueKind.True || value.ToString() == "1");
+    }    private static bool InGrid(PageColumnMetadata field) => field.Extra.ContainsKey("isInGrid") ? Enabled(field.Extra, "isInGrid") : field.IsShow == 1;
+    /// <summary>兼容原平台编辑可见标志。</summary>
+    /// <summary>兼容元数据数字或布尔开关。</summary>
+    private static bool InEdit(PageColumnMetadata field) => field.Extra.ContainsKey("isInEdit") ? Enabled(field.Extra, "isInEdit") : field.IsEdit == 1;
+    /// <summary>兼容元数据数字或布尔开关。</summary>
+    internal static bool Enabled(Dictionary<string, JsonElement> extra, string key) => extra.TryGetValue(key, out var value) && (value.ValueKind == JsonValueKind.True || value.ToString() == "1");
+    /// <summary>把数据库名称转换为稳定的类型成员名称。</summary>
     internal static string Pascal(string value) => string.Concat(value.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(x => char.ToUpperInvariant(x[0]) + x[1..]));
+    /// <summary>把数据库名称转换为稳定的类型成员名称。</summary>
+    /// <summary>保留现有前端使用的驼峰 JSON 名称。</summary>
     internal static string Camel(string value) { var name = Pascal(value); return char.ToLowerInvariant(name[0]) + name[1..]; }
+    /// <summary>将逻辑数据类型映射为 C# 类型。</summary>
     private static string TypeFor(ColumnMetadata column)
     {
         if (column.ColumnName == "id") return "long";
@@ -221,4 +243,3 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         };
     }
 }
-

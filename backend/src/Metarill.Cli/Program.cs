@@ -19,6 +19,7 @@ internal static class Program
                 ?? throw new InvalidOperationException("元数据不能为空。");
             var result = new CSharpGenerator().Generate(catalog, options["--output"], options["--namespace"]);
             Console.WriteLine($"生成完成：{result.GeneratedFiles.Count} 个归属文件，{result.CreatedHandwrittenFiles.Count} 个首次创建的手写文件；元数据摘要 {result.MetadataSha256}。");
+            if (result.Warnings.Count > 0) Console.WriteLine($"另有 {result.Warnings.Count} 项控件或关系尚未完成移植，当前按只读保护；详见 generation-capabilities.json。");
             return 0;
         }
         catch (Exception exception)

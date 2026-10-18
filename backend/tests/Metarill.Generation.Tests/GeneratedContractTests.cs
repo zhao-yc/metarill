@@ -20,7 +20,7 @@ public sealed class GeneratedContractTests
         Directory.CreateDirectory(root);
         try
         {
-            var catalog = GeneratorTests.Catalog();
+            var catalog = GeneratorTests.Catalog(); catalog.ConfigColumns.Single(column => column.ColumnName == "remark").ControlKind = "FileLibrary";
             new CSharpGenerator().Generate(catalog, Path.Combine(root, "generated"), "Example.Contract");
             var repository = FindRepository();
             var dataProject = Environment.GetEnvironmentVariable("METARILL_DATA_PROJECT") ?? Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj");
@@ -53,6 +53,17 @@ public sealed class GeneratedContractTests
             Assert.True(ReadSpecified(updateType.GetProperty("Remark")!.GetValue(cleared)!));
             Assert.Throws<JsonException>(() => JsonSerializer.Deserialize("{\"id\":\"1\",\"yzProjectId\":\"999\"}", updateType, options));
             Assert.Throws<JsonException>(() => JsonSerializer.Deserialize("{\"id\":\"1\",\"unknownField\":\"x\"}", updateType, options));
+            var attached = JsonSerializer.Deserialize("{\"id\":\"1\",\"remark\":[{\"fileId\":\"7\"}]}", updateType, options)!;
+            Assert.True(ReadSpecified(updateType.GetProperty("Remark")!.GetValue(attached)!));
+            var entityType = assembly.GetType("Example.Contract.Generated.Entities.Customer", true)!;
+            var entity = Activator.CreateInstance(entityType)!;
+            entityType.GetProperty("Id")!.SetValue(entity, 1L);
+            entityType.GetProperty("Remark")!.SetValue(entity, "[{\"fileId\":\"7\"}]");
+            var voType = assembly.GetType("Example.Contract.Generated.VOs.CustomerPage101Vo", true)!;
+            var vo = voType.GetMethod("FromEntity")!.Invoke(null, [entity])!;
+            using var serialized = JsonDocument.Parse(JsonSerializer.Serialize(vo, voType, options));
+            Assert.Equal(JsonValueKind.Array, serialized.RootElement.GetProperty("remark").ValueKind);
+            Assert.Equal("7", serialized.RootElement.GetProperty("remark")[0].GetProperty("fileId").GetString());
             var controllerType = assembly.GetType("Example.Contract.Generated.Controllers.CustomerPage101Controller", true)!;
             var authorization = new DeniedAuthorization();
             var controller = Activator.CreateInstance(controllerType, [null, authorization])!;
@@ -63,7 +74,7 @@ public sealed class GeneratedContractTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
     private static bool ReadSpecified(object value) => (bool)value.GetType().GetProperty("IsSpecified")!.GetValue(value)!;
-    private static string FindRepository([CallerFilePath] string file = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../..", ".."));
+    private static string FindRepository([CallerFilePath] string file = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
     private sealed class DeniedAuthorization : IRuntimeAuthorization
     {
         public string Requested { get; private set; } = "";
