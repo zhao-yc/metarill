@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "unsupportedControls": [
+    {
+      "pageId": "2076977554350190593",
+      "column": "config_column_id",
+      "reason": "\u63A7\u4EF6\u6216\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AList"
+    },
+    {
+      "pageId": "6218036784398336",
+      "column": "config_column_id",
+      "reason": "\u63A7\u4EF6\u6216\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AList"
+    },
+    {
+      "pageId": "6031906822946816",
+      "column": "yz_role_ids",
+      "reason": "\u63A7\u4EF6\u6216\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AMultiCheckBoxDatabase"
+    },
+    {
+      "pageId": "6186303424888832",
+      "column": "yz_yzp_version_id",
+      "reason": "\u63A7\u4EF6\u6216\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AList"
+    },
+    {
+      "pageId": "2063264600601714690",
+      "column": "config_menu_id",
+      "reason": "\u63A7\u4EF6\u6216\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AList"
+    },
+    {
+      "pageId": "2063264600601714690",
+      "column": "yz_role_id",
+      "reason": "\u63A7\u4EF6\u6216\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AList"
+    }
+  ]
+}
