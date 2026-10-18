@@ -13,5 +13,3 @@ public sealed class SchemaApplyException(SchemaApplyResult result, Exception inn
 {
     public SchemaApplyResult Result { get; } = result;
 }
-
-

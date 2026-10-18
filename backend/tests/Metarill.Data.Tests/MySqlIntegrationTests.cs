@@ -157,4 +157,3 @@ public sealed class MySqlIntegrationTests
         [Column(Name = "delete_no")] public DateTime? DeleteNo { get; set; }
     }
 }
-

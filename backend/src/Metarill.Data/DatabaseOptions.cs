@@ -88,5 +88,3 @@ public sealed class MySqlDatabaseProvider : IDatabaseProvider
         return new MySqlConnection(options.ConnectionString);
     }
 }
-
-

@@ -77,5 +77,3 @@ public sealed class DatabaseSession : IDisposable
         if (_ownsOrm) Orm.Dispose();
     }
 }
-
-

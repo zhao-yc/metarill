@@ -62,4 +62,3 @@ public sealed class IndexTests
         Assert.All(plan.Changes, change => Assert.DoesNotContain("DROP ", change.Sql, StringComparison.OrdinalIgnoreCase));
     }
 }
-

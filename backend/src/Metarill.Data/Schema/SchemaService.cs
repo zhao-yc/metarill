@@ -208,5 +208,3 @@ public sealed class SchemaService(DatabaseSession session, ISchemaChangeJournal?
         }
     }
 }
-
-
