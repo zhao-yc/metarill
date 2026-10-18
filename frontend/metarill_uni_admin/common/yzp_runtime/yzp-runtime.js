@@ -316,6 +316,11 @@ var yzp = {
 			} else if (res.data && res.data.type && res.data.type == "url") {
 				utils.openUrl(res.data.url);
 			} else {
+				// 配置动作回执只触发原刷新流程，不能覆盖正在编辑的实体。
+				var isConfigurationReceipt = res.data && res.data.type === 'metarillRefresh';
+				if (isConfigurationReceipt && res.data.configuration && res.data.configuration.action === 'createMenu') {
+					uni.$emit('onMenuConfigurationChanged', { projectId: res.data.projectId, adminTypeId: res.data.configuration.adminTypeId });
+				}
 				if (type && type == "list") {
 					that.getList();
 				} else {
@@ -342,7 +347,7 @@ var yzp = {
 					}
 
 					var dataType = Object.prototype.toString.call(res.data);
-					if (dataType == "[object Object]") {
+					if (dataType == "[object Object]" && !isConfigurationReceipt) {
 						that.entity = res.data;
 					}
 				}

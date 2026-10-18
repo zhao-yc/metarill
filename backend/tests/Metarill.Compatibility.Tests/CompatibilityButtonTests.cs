@@ -111,7 +111,8 @@ public sealed class CompatibilityGatewayIntegrationTests
         if(options.ExpectedDatabase!="metarill_test")throw new InvalidOperationException("测试仅允许隔离 metarill_test 库。");
         var context=new DefaultHttpContext();var actor=new RuntimeActor(8001,"测试管理员",administrator,project??registry.Platform.YzProjectId,registry.Platform.YzAdminTypes[0].Id);
         context.Items[typeof(AuthenticatedIdentity)]=new AuthenticatedIdentity(actor,new HashSet<string>(),1,null);
-        return new(new SqlRowStore(new DatabaseSession(options),registry),new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},registry),registry);
+        var store=new SqlRowStore(new DatabaseSession(options),registry);var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},registry);var ids=new SnowflakeIdGenerator(855);
+        return new(store,auth,registry,new ConfigurationActionsBusiness(store,registry,new MetadataRepository(store,registry),auth,ids,new ConfigurationMutationObserver(store,registry,ids)));
     }
     [GatewayIntegrationFact]
     public async Task Registered_button_and_legacy_alias_resolve_same_database_object()

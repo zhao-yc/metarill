@@ -6,7 +6,7 @@ using Metarill.Runtime.Security;
 
 namespace Metarill.Runtime.Compatibility;
 
-public sealed record CompatibilityButtonResult(string Type, string? Path = null, string? ProjectId = null);
+public sealed record CompatibilityButtonResult(string Type, string? Path = null, string? ProjectId = null, ConfigurationActionReceipt? Configuration = null);
 public sealed record CompatibilityButtonAction(string Route, string EntityTable, string Operation);
 
 /// <summary>旧按钮仅解释已登记的路由白名单；sql 字段永远不作为 SQL、脚本或可执行地址使用。</summary>
@@ -16,8 +16,10 @@ public static class CompatibilityButtonPolicy
     {
         ["/admin/custom/config_table/config_columns_sort"] = new("", "config_table", "sort"),
         ["/admin/custom/config_table/config_indexes"] = new("", "config_table", "indexes"),
-        ["/admin/custom/config_table/add_join_columns"] = new("", "config_table", "joins"),
         ["/admin/custom/config_table/batch_create_columns"] = new("", "config_table", "batch"),
+        ["/admin/custom/config_table/create_page"] = new("", "config_table", "createPage"),
+        ["/admin/custom/config_page/copy_page"] = new("", "config_page", "copyPage"),
+        ["/admin/custom/config_page/create_menu"] = new("", "config_page", "createMenu"),
         ["/admin/custom/config_table/create_table"] = new("", "config_table", "schema"),
         ["/admin/custom/config_table/generate_all"] = new("", "config_table", "generate"),
         ["/admin/custom/config_page/config_page_columns"] = new("", "config_page", "fields"),
@@ -76,6 +78,7 @@ public static class CompatibilityButtonPolicy
             "table" => new("path", "/pages/yzp/config_table-detail-6191083005411328?" + Query("id", tableId)),
             "schema" => new("path", "/pages/custom/schema_sync?" + Query("projectId", actor.ProjectId) + (tableId.Length == 0 ? "" : "&" + Query("tableId", tableId))),
             "generate" => new("metarillGenerate", ProjectId: actor.ProjectId),
+            "copyPage" or "createPage" or "createMenu" => new("metarillRefresh", ProjectId: actor.ProjectId),
             _ => throw new InvalidOperationException("该按钮动作尚未移植，未执行任何操作。")
         };
     }
@@ -85,7 +88,7 @@ public static class CompatibilityButtonPolicy
 }
 
 /// <summary>兼容旧按钮网关；数据库按钮和关联实体均在服务端重新读取，不执行客户端提交的实体。</summary>
-public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAuthorization authorization, MetadataRegistry registry)
+public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAuthorization authorization, MetadataRegistry registry, ConfigurationActionsBusiness configurationActions)
 {
     /// <summary>按钮 ID 是唯一动作入口，客户端只允许提供待核验的实体 ID。</summary>
     public async Task<CompatibilityButtonResult> ExecuteAsync(string buttonId, string? entityId, CancellationToken cancellationToken = default)
@@ -105,7 +108,7 @@ public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAu
         return await ExecuteRegisteredAsync(actor, button, entityId, cancellationToken);
     }
 
-    /// <summary>加载白名单要求的实体与关联表后生成无副作用指令。</summary>
+    /// <summary>重新核验白名单实体；导航返回指令，配置变更交由明确领域事务执行。</summary>
     private async Task<CompatibilityButtonResult> ExecuteRegisteredAsync(RuntimeActor actor, IReadOnlyDictionary<string, object?> button, string? entityId, CancellationToken cancellationToken)
     {
         var action = CompatibilityButtonPolicy.RequireAction(actor, registry, button);
@@ -113,7 +116,15 @@ public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAu
         // 关联配置表也重新读库；实体自身项目正确不代表其关联主键可信。
         Dictionary<string, object?>? parent = null;
         if (action.EntityTable is "config_page" or "config_column") parent = await RequireRowAsync("config_table", CompatibilityButtonPolicy.RequireId(SqlRowStore.Text(entity, "config_table_id")), cancellationToken);
-        return CompatibilityButtonPolicy.Resolve(actor, action, entity, parent);
+        var result = CompatibilityButtonPolicy.Resolve(actor, action, entity, parent);
+        if (action.Operation is not ("copyPage" or "createPage" or "createMenu")) return result;
+        var receipt = action.Operation switch
+        {
+            "copyPage" => await configurationActions.CopyPageAsync(SqlRowStore.Text(entity, "id"), cancellationToken),
+            "createPage" => await configurationActions.CreatePageAsync(SqlRowStore.Text(entity, "id"), cancellationToken),
+            _ => await configurationActions.CreateMenuAsync(SqlRowStore.Text(entity, "id"), cancellationToken)
+        };
+        return result with { Configuration = receipt };
     }
 
     /// <summary>基础设施查询只使用明确主键，逻辑删除记录由仓储自动排除。</summary>

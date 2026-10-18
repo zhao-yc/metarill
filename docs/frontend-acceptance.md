@@ -88,10 +88,24 @@ PageColumn加载同步 isInEdit→IsEdit、isInGrid→IsShow、isMust→IsRequir
 
 服务端新增 CompatibilityButtonBusiness 和 CompatibilityButtonController，协调者须注册 AddScoped<CompatibilityButtonBusiness>()。POST /admin/sys/config_button/execute 接收原 buttonId、entityId、entity，以及列表页 visibleScheme/visibleRuleJson 显示提示；后面三者不参与权限或动作判定。真实数据库 config_button 的 action_type=1、平台项目归属、发布配置页面和精确动作白名单必须同时匹配。实体及其关联表重新读库，核验当前项目；管理员也不能跨项目提交实体。sql 字段只进行路由字符串精确比对，禁止作为 SQL、脚本或动态地址执行。未知、删除结构和初始化账号均明确拒绝，不返回伪成功。
 
-已映射原表/页的列排序、批量字段、页面字段、详情布局、配置表跳转、索引与联接配置页。索引/联接导航可用不代表其保存业务已移植；页面复制、创建页面、创建菜单、单独生成客户端、运行时同步和 Token 重置暂不支持。首页原表/页 generate_all 和导航直调接口也由同一网关处理，支持 query id、表单 id 和JSON id，冲突标识拒绝。生成返回 type:metarillGenerate、projectId；公共按钮处理器向当前API认证POST /admin/sys/generation/generate下载ZIP，错误JSON不能被当成ZIP保存。Web外平台明确提示暂未接入ZIP保存。
+已映射原表/页的列排序、批量字段、页面字段、详情布局、配置表跳转与索引配置页。索引导航可用不代表其保存业务已移植；联接字段、数据库视图SQL、单独生成客户端、运行时同步和 Token 重置暂不支持。页面复制、创建页面与创建菜单的后续实现见下节。首页原表/页 generate_all 和导航直调接口也由同一网关处理，支持 query id、表单 id 和JSON id，冲突标识拒绝。生成返回 type:metarillGenerate、projectId；公共按钮处理器向当前API认证POST /admin/sys/generation/generate下载ZIP，错误JSON不能被当成ZIP保存。Web外平台明确提示暂未接入ZIP保存。
 
 结构预览 POST /admin/sys/database/preview {projectId,tableId?} 显示服务器计划和完整SQL。确认后POST /admin/sys/database/apply {projectId,plan} 原样提交完整计划；客户端不编辑SQL，也不删除未知计划属性。一次确认只提交一次，成功或失败后再preview一次核验；核验计划不会自动执行。apply的R.data（失败时map.result或map.journal）作为执行记录显示。网络结果未知、部分DDL失败或核验仍有差异时，保留结果并要求手动重新预览，绝不自动重试。项目/登录变化和离开页面会阻止迟到响应继续执行。
 
 专用路由声明于 frontend/metarill_uni_admin/scripts/custom-routes.json，在前端目录运行 npm run sync:custom-routes 确定性合并到 pages.json；每次重新生成路由后须运行此命令。脚本保持既有生成路由，重复运行changed:false，不能只手改pages.json。
 
 本次验证：后端21项通过（含3项只读隔离MySQL网关/Controller测试，0跳过），并链接编译实际Controller；前端176项通过；75个项目Vue脚本通过H5条件预处理与SFC语法检查；别名导入缺失0。此处未执行DDL、未完成浏览器操作验收，未重新尝试无AppID构建。选择器/富文本继续保留现有设计与许可占位，不替换为picker或原生editor。
+
+## 页面复制、从表创建页面与快捷创建菜单
+
+新增 ConfigurationActionsBusiness，协调者须注册 AddScoped<ConfigurationActionsBusiness>()。原 copy_page、create_page、create_menu 按钮及已登记旧接口别名进入该领域入口，不能由客户端替换执行路由。所有动作要求管理员和真实当前项目，按项目→表/页聚合取得数据库锁；元数据新增、默认字段及审计写入使用同一事务，发生中途失败整体回滚。联接字段、数据库视图SQL和初始化账号继续明确拒绝。
+
+copy_page 按原 Java ConfigPageController 复制页面、页面字段、按钮和原页面出向的 config_child；仅 parent_config_page_id 改为副本，child_config_page_id 仍是原目标（包括自引用原页），不复制入向关系或角色权限。主键及审计重建，保留原详情布局和分组key，并返回原页面字段ID→新ID映射；每个字段必须引用同表列，父页、联接页/表及子页关联必须属于当前项目。
+
+config_table/create_page 的原按钮实际创建页面配置，不创建数据库视图。新页沿用表所属后台和既有CRUD默认配置，复用 ConfigurationMutationObserver 在事务中补齐当前页字段；已有字段不重复。系统字段默认只读、联接派生字段只读，sort_no沿用默认99及必填规则。观察器对config_page限定当前页的修正由根集成，表/字段新增仍补全部关联页。
+
+create_menu 使用页面直接归属后台，在该后台根目录“页面”下增加标准页面入口；没有该根目录时同事务创建，同后台有多个匹配根目录则拒绝，页面已存在导航时幂等返回。父链、后台、目标、深度和环校验复用 MenuWorkbenchBusiness.Validate，版本复用其Revision并按落库后快照返回。为避免锁顺序反转，不在已持有项目数据库锁后嵌套调用菜单Save的进程gate；所有菜单新增仍在同项目数据库锁与同事务内。子表页面不创建独立入口，不自动授予任何角色权限。
+
+成功返回 type:metarillRefresh 与配置回执，共享按钮处理器沿原详情/列表刷新和自动关闭设置处理，不把回执覆盖到entity；菜单动作发送既有onMenuConfigurationChanged事件。选择器、富文本及多端操作设计没有替换，H5 AppID和许可验收缺口不变。
+
+本批验证：兼容网关/领域动作后端29项通过，包含8项随机独占项目的真实MySQL动作测试及原3项只读网关/Controller测试，0跳过；前端182项通过，新增4项实际公共按钮处理器测试覆盖实体不被回执污染、菜单刷新、自动关闭与原实体响应兼容。执行中途ID生成失败能回滚已插入页面与字段；并发菜单创建验证使用两条独立数据库连接。未运行H5或设备操作验收。
