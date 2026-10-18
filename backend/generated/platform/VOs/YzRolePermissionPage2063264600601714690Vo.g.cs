@@ -26,6 +26,8 @@ public sealed class YzRolePermissionPage2063264600601714690Vo
     public long? YzProjectId { get; init; }
     [JsonPropertyName("configPageId")]
     public long? ConfigPageId { get; init; }
+    [JsonPropertyName("configButtonId")]
+    public long? ConfigButtonId { get; init; }
     [JsonPropertyName("configMenuId")]
     public long? ConfigMenuId { get; init; }
     [JsonPropertyName("yzRoleId")]
@@ -47,6 +49,7 @@ public sealed class YzRolePermissionPage2063264600601714690Vo
         UpdateManagerRealName = entity.UpdateManagerRealName,
         YzProjectId = entity.YzProjectId,
         ConfigPageId = entity.ConfigPageId,
+        ConfigButtonId = entity.ConfigButtonId,
         ConfigMenuId = entity.ConfigMenuId,
         YzRoleId = entity.YzRoleId,
         PermissionValues = entity.PermissionValues,

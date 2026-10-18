@@ -322,12 +322,14 @@
     "2063264600601714690": {
       "route": "/admin/auto/yz_role_permission/2063264600601714690",
       "createFields": [
+        "configButtonId",
         "configMenuId",
         "configPageId",
         "permissionValues",
         "yzRoleId"
       ],
       "updateFields": [
+        "configButtonId",
         "configMenuId",
         "configPageId",
         "id",

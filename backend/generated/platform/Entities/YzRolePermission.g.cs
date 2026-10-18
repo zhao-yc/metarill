@@ -42,6 +42,9 @@ public partial class YzRolePermission
     [Column(Name = "config_page_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("configPageId")]
     public long? ConfigPageId { get; set; }
+    [Column(Name = "config_button_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [JsonPropertyName("configButtonId")]
+    public long? ConfigButtonId { get; set; }
     [Column(Name = "config_menu_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("configMenuId")]
     public long? ConfigMenuId { get; set; }

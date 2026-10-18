@@ -78,7 +78,7 @@ for(const t of tables) {
  if(!columns.some(c=>c.configTableId===t.id&&c.columnName==='yz_project_id'))addColumn(t,'yz_project_id','项目','int64',true,'');
  if(t.tableName==='config_page'||t.tableName==='config_table'){const c=addColumn(t,'yz_admin_type_id','所属后台','int64',true,'');const target=tables.find(x=>x.tableName==='yz_admin_type');c.controlKind='List';c.linkConfigTableId=target.id;c.linkConfigPageId=pages.find(p=>p.configTableId===target.id)?.id||'';c.controlDetail=JSON.stringify({table:'yz_admin_type',tableId:target.id,nameField:'name'});}
  if(t.tableName==='config_table')addColumn(t,'scope_kind','数据归属模式','string',true,'30');
- if(t.tableName==='yz_role_permission'){addColumn(t,'config_page_id','页面','int64',true,'');addColumn(t,'config_menu_id','菜单','int64',true,'');}
+ if(t.tableName==='yz_role_permission'){addColumn(t,'config_page_id','页面','int64',true,'');addColumn(t,'config_menu_id','菜单','int64',true,'');addColumn(t,'config_button_id','按钮','int64',true,'');}
  if(t.tableName==='config_index')addColumn(t,'is_unique','唯一索引','int32',true,'');
  if(t.tableName==='config_column'){addColumn(t,'logical_type','逻辑类型','string',false,'30');addColumn(t,'precision','数值精度','int32',true,'');addColumn(t,'scale','小数位数','int32',true,'');}
  if(t.tableName==='yz_manager') {const p=columns.find(c=>c.configTableId===t.id&&c.columnName==='password');p.columnLength='255';}
@@ -91,6 +91,7 @@ function newTable(tableName,name,specs,pageId=null) {
 }
 const menuTable=newTable('config_menu','菜单',[['name','名称','string',false,'50'],['parent_menu_id','父菜单','int64'],['yz_project_id','项目','int64',false],['yz_admin_type_id','所属后台','int64',false],['kind','菜单类型','string',false,'30'],['config_page_id','目标页面','int64'],['config_custom_page_id','自定义页面','int64'],['navigate_url','页面地址','string',true,'500'],['icon_name','图标','string',true,'50'],['sort_no','排序','int32'],['is_hidden','隐藏','int32'],['is_show_count','数量角标','int32'],['visible_scheme','可见方案','string',true,'50']],'2200000000000099000');
 Object.assign(pages.find(p=>p.id==='2200000000000099000'),{isNew:0,isSave:0,isDelete:0});
+for(const p of pages)if(tables.find(t=>t.id===p.configTableId)?.tableName==='yz_role_permission')Object.assign(p,{isNew:0,isSave:0,isDelete:0});
 menus.push({id:id('menu:workbench'),name:'菜单',parentMenuId:input.configFirstMenus[0].id,kind:'GENERATED_PAGE',configPageId:'2200000000000099000',yzAdminTypeId:adminId,yzProjectId:projectId,sortNo:35});
 newTable('sys_session','登录会话',[['account_id','账号','int64',false],['token_hash','令牌摘要','string',false,'64'],['expires_at','过期时间','datetime',false],['kind','授权类型','string',false,'20'],['grant_id','设备授权','int64'],['project_id','授权项目','int64']]);
 newTable('sys_agent_grant','Agent设备授权',[['account_id','账号','int64'],['project_id','项目','int64',false],['device_code_hash','设备码摘要','string',false,'64'],['user_code','用户码','string',false,'16'],['client_name','设备名称','string',false,'100'],['status','授权状态','string',false,'20'],['expires_at','过期时间','datetime',false],['refresh_hash','刷新摘要','string',true,'64'],['client_id','客户端','string',true,'100'],['last_poll_at','上次轮询','datetime'],['poll_interval_seconds','轮询间隔秒','int32'],['device_redeemed_at','设备兑换时间','datetime'],['refresh_expires_at','刷新有效期','datetime']]);

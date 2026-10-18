@@ -9,6 +9,8 @@ public sealed class YzRolePermissionPage2063264600601714690CreateRequest
 {
     [JsonPropertyName("configPageId")]
     public Optional<long?> ConfigPageId { get; set; }
+    [JsonPropertyName("configButtonId")]
+    public Optional<long?> ConfigButtonId { get; set; }
     [JsonPropertyName("configMenuId")]
     public Optional<long?> ConfigMenuId { get; set; }
     [JsonPropertyName("yzRoleId")]
@@ -22,6 +24,8 @@ public sealed class YzRolePermissionPage2063264600601714690UpdateRequest
     public long Id { get; set; }
     [JsonPropertyName("configPageId")]
     public Optional<long?> ConfigPageId { get; set; }
+    [JsonPropertyName("configButtonId")]
+    public Optional<long?> ConfigButtonId { get; set; }
     [JsonPropertyName("configMenuId")]
     public Optional<long?> ConfigMenuId { get; set; }
     [JsonPropertyName("yzRoleId")]

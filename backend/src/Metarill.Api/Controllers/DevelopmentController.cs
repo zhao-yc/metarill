@@ -12,10 +12,9 @@ public sealed record SchemaPreviewRequest(string ProjectId,string? TableId);
 public sealed record SchemaApplyRequest(string ProjectId,SchemaChangePlan Plan);
 public sealed record GenerateRequest(string ProjectId,string? RootNamespace);
 [ApiController,Route("api/admin/sys/database")]
-public sealed class DatabaseController(TargetDatabaseSessions sessions,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IServiceProvider services):ControllerBase
+public sealed class DatabaseController(MetadataRepository metadata,HttpRuntimeAuthorization authorization,ProjectSchemaService schemas):ControllerBase
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string,SchemaService> Schemas=new();
-    private SchemaService Resolve(string project)=>Schemas.GetOrAdd(project,_=>new SchemaService(sessions.Resolve(project),services.GetRequiredService<ISchemaChangeJournal>()));
+    private SchemaService Resolve(string project)=>schemas.Resolve(project);
     [HttpPost("preview")]public async Task<R<SchemaChangePlan>> Preview(SchemaPreviewRequest request,CancellationToken cancellationToken)
     {
         authorization.RequireAdministrator();var catalog=await metadata.LoadProjectAsync(request.ProjectId,cancellationToken);

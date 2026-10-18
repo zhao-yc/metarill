@@ -27,7 +27,7 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
             var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
             if(pages.Count==0)
             {
-                var pageId=ids.NextId();var admin=table.GetValueOrDefault("yz_admin_type_id")??long.Parse(registry.Platform.YzAdminTypes[0].Id);
+                var pageId=ids.NextId();var admin=table.GetValueOrDefault("yz_admin_type_id")??(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"yz_project_id",project}},cancellationToken)).FirstOrDefault()?.GetValueOrDefault("id")??throw new InvalidOperationException("请先为当前项目配置后台类型。");
                 await store.InsertAsync("config_page",new Dictionary<string,object?>{{"id",pageId},{"config_table_id",context.RecordId},{"config_table_table_name",SqlRowStore.Text(table,"table_name")},{"name",SqlRowStore.Text(table,"name")},{"yz_project_id",project},{"yz_admin_type_id",admin},{"page_size",20},{"is_new",1},{"is_save",1},{"is_update",1},{"is_delete",1},{"is_search",1},{"where_sql","yz_project_id=@current_yz_project_id"}},cancellationToken);
             }
             await EnsurePageFields(context.RecordId,project,cancellationToken);

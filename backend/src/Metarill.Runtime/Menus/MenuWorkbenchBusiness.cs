@@ -78,7 +78,7 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
     {
         var actor=authorization.RequireActor();var catalog=await metadata.LoadProjectAsync(projectId,cancellationToken);Validate(catalog);
         var menus=catalog.ConfigMenus.Where(m=>m.IsHidden!=1).ToArray();
-        object[] Build(string? parent)=>menus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).ThenBy(m=>m.Id,StringComparer.Ordinal).Where(m=>actor.IsAdministrator||m.Kind=="DIRECTORY"||m.ConfigPageId is{} allowed&&CanRead(allowed)).Select(m=>(object)new
+        object[] Build(string? parent)=>menus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).ThenBy(m=>m.Id,StringComparer.Ordinal).Where(m=>actor.IsAdministrator||m.Kind=="DIRECTORY"||authorization.RequireIdentity().MenuIds.Contains(m.Id)).Select(m=>(object)new
         {id=m.Id,menu_id=m.Id,m.Name,nodeType=m.Kind,isShowCount=m.IsShowCount,target=Target(catalog,m),children=Build(m.Id)}).ToArray();
         return Build(null);
     }
@@ -104,6 +104,7 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
     public static string Revision(MetadataCatalog catalog)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{menus=catalog.ConfigMenus.OrderBy(m=>m.Id,StringComparer.Ordinal),pages=catalog.ConfigPages.OrderBy(p=>p.Id,StringComparer.Ordinal)},JsonDefaults.Options)))).ToLowerInvariant();
     public static void Validate(MetadataCatalog catalog)
     {
+        if(catalog.ConfigMenus.Count>5000)throw new InvalidOperationException("菜单数量超过服务端上限。");
         var nodes=catalog.ConfigMenus.ToDictionary(m=>m.Id);
         foreach(var node in nodes.Values)
         {
@@ -115,6 +116,7 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
             var seen=new HashSet<string>{node.Id};var parent=node.ParentMenuId;
             while(!string.IsNullOrEmpty(parent))
             {
+                if(seen.Count>32)throw new InvalidOperationException("菜单层级不能超过32层。");
                 if(!seen.Add(parent))throw new InvalidOperationException("菜单父级不能成环。");
                 if(!nodes.TryGetValue(parent,out var ancestor)||ancestor.YzAdminTypeId!=node.YzAdminTypeId||ancestor.YzProjectId!=node.YzProjectId||ancestor.Kind!="DIRECTORY")throw new InvalidOperationException("父菜单归属或类型无效。");
                 parent=ancestor.ParentMenuId;

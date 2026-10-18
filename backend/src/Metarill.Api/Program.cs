@@ -1,4 +1,6 @@
 using System.Text.Json;
+using ModelContextProtocol.AspNetCore;
+using Metarill.Api.Mcp;
 using Metarill.Core.Contracts;
 using Metarill.Core.Exports;
 using Metarill.Runtime.Exports;
@@ -26,20 +28,23 @@ var registry=new MetadataRegistry(Path.Combine(root,"backend","metadata","platfo
 var platformOptions=builder.Configuration.GetSection("Metarill:Database").Get<DatabaseOptions>()??throw new InvalidOperationException("请配置 Metarill:Database。");
 var businessOptions=builder.Configuration.GetSection("Metarill:BusinessDatabase").Get<DatabaseOptions>()??throw new InvalidOperationException("请配置 Metarill:BusinessDatabase。");
 builder.Services.AddSingleton(registry);
-builder.Services.AddSingleton(new TargetDatabaseSessions(platformOptions,businessOptions,registry));
+builder.Services.AddSingleton(_=>new TargetDatabaseSessions(platformOptions,businessOptions,registry,builder.Configuration.GetSection("Metarill:ProjectDatabases").Get<Dictionary<string,DatabaseOptions>>()));
 builder.Services.AddSingleton<DatabaseSession>(sp=>sp.GetRequiredService<TargetDatabaseSessions>().Platform);
 builder.Services.AddSingleton<SqlRowStore>();
 builder.Services.AddSingleton<MetadataRepository>();
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue("Metarill:WorkerId",1)));
 builder.Services.AddSingleton<ISchemaChangeJournal>(new FileSchemaChangeJournal(Path.Combine(root,".local","schema-history.jsonl")));
 builder.Services.AddSingleton<SchemaService>();
+builder.Services.AddSingleton<ProjectSchemaService>();
 builder.Services.AddSingleton<BootstrapService>();
 builder.Services.AddSingleton<AuthenticationService>();
 builder.Services.AddSingleton<CSharpGenerator>();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMcpServer().WithHttpTransport(options=>options.SessionMode=HttpServerSessionMode.Stateless).WithTools<PlatformTools>();
 builder.Services.AddScoped<HttpRuntimeAuthorization>();
 builder.Services.AddScoped<IRuntimeAuthorization>(sp=>sp.GetRequiredService<HttpRuntimeAuthorization>());
 builder.Services.AddScoped<MenuWorkbenchBusiness>();
+builder.Services.AddScoped<RolePermissionBusiness>();
 builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver>();
 builder.Services.AddSingleton(new FileLibraryOptions{RootDirectory=Path.Combine(root,".local","files")});
 builder.Services.AddScoped<FileLibraryService>();
@@ -80,12 +85,13 @@ app.Use(async(context,next)=>
             var identity=await context.RequestServices.GetRequiredService<AuthenticationService>().AuthenticateAsync(token,project,context.RequestAborted);
             if(identity is not null)context.Items[typeof(AuthenticatedIdentity)]=identity;
         }
+        if(context.Request.Path.StartsWithSegments("/api/mcp"))context.RequestServices.GetRequiredService<HttpRuntimeAuthorization>().RequireActor();
         await next(context);
     }
     catch(UnauthorizedAccessException exception)
     {
         if(context.Response.HasStarted)throw;
-        context.Response.StatusCode=context.Request.Headers.Authorization.ToString().StartsWith("Bearer ",StringComparison.OrdinalIgnoreCase)?401:200;
+        context.Response.StatusCode=context.Request.Headers.Authorization.ToString().StartsWith("Bearer ",StringComparison.OrdinalIgnoreCase)||context.Request.Path.StartsWithSegments("/api/mcp")?401:200;
         await context.Response.WriteAsJsonAsync(R<object>.Error(exception.Message=="登录超时"?"登录超时":"无权执行此操作。"),context.RequestAborted);
     }
     catch(Exception exception)when(exception is InvalidOperationException or ArgumentException or NotSupportedException or JsonException)
@@ -93,9 +99,16 @@ app.Use(async(context,next)=>
         if(context.Response.HasStarted)throw;
         context.Response.StatusCode=200;await context.Response.WriteAsJsonAsync(R<object>.Error(exception.Message),context.RequestAborted);
     }
+    catch(Exception exception)when(exception is not OperationCanceledException)
+    {
+        if(context.Response.HasStarted)throw;
+        context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Metarill.Api").LogError(exception,"操作失败，追踪标识 {TraceId}",context.TraceIdentifier);
+        context.Response.StatusCode=200;await context.Response.WriteAsJsonAsync(R<object>.Error("操作失败，请查看服务端日志。"),context.RequestAborted);
+    }
 });
 app.MapGet("/api/runtime/health/check",()=>R<object>.Success(new{application="Metarill",backend="csharp",databaseProviders=DatabaseProviders.Capabilities}));
 app.MapControllers();
+app.MapMcp("/api/mcp");
 await app.RunAsync();
 
 static string FindRoot(string start)
@@ -105,4 +118,3 @@ static string FindRoot(string start)
     throw new InvalidOperationException("无法定位 Metarill 根目录。");
 }
 public partial class Program;
-

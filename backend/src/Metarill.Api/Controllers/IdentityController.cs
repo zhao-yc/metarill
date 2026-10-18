@@ -28,8 +28,8 @@ public sealed class IdentityController(AuthenticationService authentication,Http
     private object Permissions()
     {
         var identity=authorization.RequireIdentity();
-        var pages=registry.Platform.ConfigPages.Concat(registry.Demo.ConfigPages).ToDictionary(p=>p.Id,p=>(object)(identity.Actor.IsAdministrator?new[]{"is_new","is_update","is_delete","is_copy","is_import","is_export","is_save"}:identity.Permissions.Where(v=>v.StartsWith(p.Id+":",StringComparison.Ordinal)).Select(v=>v[(p.Id.Length+1)..]).ToArray()));
-        return new{isSuper=identity.Actor.IsAdministrator,pagePermissions=pages,buttonPermissions=identity.Actor.IsAdministrator?registry.Platform.ConfigButtons.Select(b=>b.TryGetProperty("id",out var id)?id.ToString():"").ToArray():[]};
+        var pages=registry.Platform.ConfigPages.Concat(registry.Demo.ConfigPages).ToDictionary(p=>p.Id,p=>(object)(identity.Actor.IsAdministrator?new[]{"is_query","is_new","is_update","is_delete","is_all","is_export"}:identity.Permissions.Where(v=>v.StartsWith(p.Id+":",StringComparison.Ordinal)).Select(v=>v[(p.Id.Length+1)..]).ToArray()));
+        return new{isSuper=identity.Actor.IsAdministrator,pagePermissions=pages,buttonPermissions=identity.Actor.IsAdministrator?registry.Platform.ConfigButtons.Select(b=>b.TryGetProperty("id",out var id)?id.ToString():"").ToArray():identity.ButtonIds.ToArray()};
     }
     [HttpGet("edit_password")]public async Task<R<object>> ChangePassword([FromQuery]string oldPwd,[FromQuery]string pwd,CancellationToken cancellationToken)
     {

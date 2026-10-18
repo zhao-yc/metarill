@@ -41,6 +41,14 @@ public partial class YzRolePermissionService
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u9875\u9762");
         }
+        if ((creating || submitted.Contains("config_button_id")) && entity.ConfigButtonId is not null)
+        {
+            var relationIds2 = new[] { entity.ConfigButtonId.Value };
+            var relationQuery2 = session.Select<ConfigButton>().Where(row => relationIds2.Contains(row.Id));
+            relationQuery2 = relationQuery2.Where(row => row.DeleteNo == null);
+            relationQuery2 = relationQuery2.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+            if (await relationQuery2.CountAsync(cancellationToken) != relationIds2.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u6309\u94AE");
+        }
         if ((creating || submitted.Contains("config_menu_id")) && entity.ConfigMenuId is not null)
         {
             throw new InvalidOperationException("\u5173\u8054\u76EE\u6807\u5C1A\u672A\u79FB\u690D\uFF1A\u4E8C\u7EA7\u83DC\u5355");
@@ -113,67 +121,6 @@ public partial class YzRolePermissionService
         var entity = await Scope2063264600601714690(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : YzRolePermissionPage2063264600601714690Vo.FromEntity(entity);
     }
-    /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
-    public Task<YzRolePermissionPage2063264600601714690Vo> Create2063264600601714690Async(YzRolePermissionPage2063264600601714690CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ValidateActor(actor);
-        await ValidateParents2063264600601714690Async(parentId, actor, cancellationToken);
-        var entity = new YzRolePermission { Id = ids.NextId() };
-        var submitted = new HashSet<string>(StringComparer.Ordinal);
-        if (request.ConfigPageId.IsSpecified) { entity.ConfigPageId = request.ConfigPageId.Value; submitted.Add("config_page_id"); }
-        if (request.ConfigMenuId.IsSpecified) { entity.ConfigMenuId = request.ConfigMenuId.Value; submitted.Add("config_menu_id"); }
-        if (request.YzRoleId.IsSpecified) { entity.YzRoleId = request.YzRoleId.Value; submitted.Add("yz_role_id"); }
-        if (request.PermissionValues.IsSpecified) { entity.PermissionValues = request.PermissionValues.Value; submitted.Add("permission_values"); }
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
-        entity.InsertManagerId = actor.AccountId;
-        entity.UpdateManagerId = actor.AccountId;
-        entity.InsertUserName = actor.AccountName;
-        entity.UpdateUserName = actor.AccountName;
-        entity.InsertManagerRealName = actor.AccountName;
-        entity.UpdateManagerRealName = actor.AccountName;
-        entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
-        BeforeSave(entity, actor, true, submitted);
-        await ValidateRelations2063264600601714690Async(entity, actor, true, submitted, cancellationToken);
-        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
-        await NotifyYzRolePermissionAsync("2063264600601714690", entity, actor, submitted, false, true, cancellationToken);
-        return YzRolePermissionPage2063264600601714690Vo.FromEntity(entity);
-    }, cancellationToken);
-    /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
-    public Task<YzRolePermissionPage2063264600601714690Vo> Update2063264600601714690Async(YzRolePermissionPage2063264600601714690UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        var entity = await Scope2063264600601714690(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
-        var submitted = new HashSet<string>(StringComparer.Ordinal);
-        if (request.ConfigPageId.IsSpecified) { entity.ConfigPageId = request.ConfigPageId.Value; submitted.Add("config_page_id"); }
-        if (request.ConfigMenuId.IsSpecified) { entity.ConfigMenuId = request.ConfigMenuId.Value; submitted.Add("config_menu_id"); }
-        if (request.YzRoleId.IsSpecified) { entity.YzRoleId = request.YzRoleId.Value; submitted.Add("yz_role_id"); }
-        if (request.PermissionValues.IsSpecified) { entity.PermissionValues = request.PermissionValues.Value; submitted.Add("permission_values"); }
-        entity.UpdateTime = DateTime.UtcNow;
-        submitted.Add("update_time");
-        entity.UpdateManagerId = actor.AccountId;
-        submitted.Add("update_manager_id");
-        entity.UpdateUserName = actor.AccountName;
-        submitted.Add("update_user_name");
-        entity.UpdateManagerRealName = actor.AccountName;
-        submitted.Add("update_manager_real_name");
-        BeforeSave(entity, actor, false, submitted);
-        await ValidateRelations2063264600601714690Async(entity, actor, false, submitted, cancellationToken);
-        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
-        await NotifyYzRolePermissionAsync("2063264600601714690", entity, actor, submitted, false, false, cancellationToken);
-        return YzRolePermissionPage2063264600601714690Vo.FromEntity(entity);
-    }, cancellationToken);
-    /// <summary>先校验数据范围，再在同一事务内删除。</summary>
-    public Task<bool> Delete2063264600601714690Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
-    {
-        var entity = await Scope2063264600601714690(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
-        BeforeDelete(entity, actor);
-        entity.DeleteNo = DateTime.UtcNow;
-        var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
-        if (deleted) await NotifyYzRolePermissionAsync("2063264600601714690", entity, actor, new HashSet<string>(), true, true, cancellationToken);
-        return deleted;
-    }, cancellationToken);
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyYzRolePermissionAsync(string pageId, YzRolePermission entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {
@@ -191,6 +138,7 @@ public partial class YzRolePermissionService
             ["delete_no"] = entity.DeleteNo,
             ["yz_project_id"] = entity.YzProjectId,
             ["config_page_id"] = entity.ConfigPageId,
+            ["config_button_id"] = entity.ConfigButtonId,
             ["config_menu_id"] = entity.ConfigMenuId,
             ["yz_role_id"] = entity.YzRoleId,
             ["permission_values"] = entity.PermissionValues,

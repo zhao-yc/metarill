@@ -291,4 +291,3 @@ public sealed class FileLibraryService(SqlRowStore store, MetadataRegistry regis
     /// <summary>读取可空关联键，不把空值转换成零标识。</summary>
     private static long? NullableId(IReadOnlyDictionary<string, object?> row, string field) => row.GetValueOrDefault(field) is null ? null : SqlRowStore.Id(row, field);
 }
-

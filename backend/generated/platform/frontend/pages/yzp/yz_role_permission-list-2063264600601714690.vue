@@ -3,8 +3,8 @@
   <view class="yzp-page">
     <view class="uni-padding-wrap"><text>角色权限</text><button v-if="canCreate" size="mini" @click="openDetail('')">新增</button><button v-if="canImport" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
     <uni-table :loading="loading" border stripe emptyText="暂无数据">
-      <uni-tr><uni-th>创建时间</uni-th><uni-th>修改时间</uni-th><uni-th>创建账号</uni-th><uni-th>修改账号</uni-th><uni-th>创建账号名</uni-th><uni-th>修改账号名</uni-th><uni-th>创建姓名</uni-th><uni-th>修改姓名</uni-th><uni-th>项目</uni-th><uni-th>页面</uni-th><uni-th>二级菜单</uni-th><uni-th>角色</uni-th><uni-th>权限值</uni-th><uni-th>操作</uni-th></uni-tr>
-      <uni-tr v-for="row in records" :key="row.id"><uni-td>{{ row.insertTime }}</uni-td><uni-td>{{ row.updateTime }}</uni-td><uni-td>{{ row.insertManagerId }}</uni-td><uni-td>{{ row.updateManagerId }}</uni-td><uni-td>{{ row.insertUserName }}</uni-td><uni-td>{{ row.updateUserName }}</uni-td><uni-td>{{ row.insertManagerRealName }}</uni-td><uni-td>{{ row.updateManagerRealName }}</uni-td><uni-td>{{ row.yzProjectId }}</uni-td><uni-td>{{ row.configPageId }}</uni-td><uni-td>{{ row.configMenuId }}</uni-td><uni-td>{{ row.yzRoleId }}</uni-td><uni-td>{{ row.permissionValues }}</uni-td><uni-td><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
+      <uni-tr><uni-th>创建时间</uni-th><uni-th>修改时间</uni-th><uni-th>创建账号</uni-th><uni-th>修改账号</uni-th><uni-th>创建账号名</uni-th><uni-th>修改账号名</uni-th><uni-th>创建姓名</uni-th><uni-th>修改姓名</uni-th><uni-th>项目</uni-th><uni-th>页面</uni-th><uni-th>按钮</uni-th><uni-th>二级菜单</uni-th><uni-th>角色</uni-th><uni-th>权限值</uni-th><uni-th>操作</uni-th></uni-tr>
+      <uni-tr v-for="row in records" :key="row.id"><uni-td>{{ row.insertTime }}</uni-td><uni-td>{{ row.updateTime }}</uni-td><uni-td>{{ row.insertManagerId }}</uni-td><uni-td>{{ row.updateManagerId }}</uni-td><uni-td>{{ row.insertUserName }}</uni-td><uni-td>{{ row.updateUserName }}</uni-td><uni-td>{{ row.insertManagerRealName }}</uni-td><uni-td>{{ row.updateManagerRealName }}</uni-td><uni-td>{{ row.yzProjectId }}</uni-td><uni-td>{{ row.configPageId }}</uni-td><uni-td>{{ row.configButtonId }}</uni-td><uni-td>{{ row.configMenuId }}</uni-td><uni-td>{{ row.yzRoleId }}</uni-td><uni-td>{{ row.permissionValues }}</uni-td><uni-td><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
     </uni-table>
     <view><button size="mini" :disabled="pageNo <= 1 || loading" @click="movePage(-1)">上一页</button><text>{{ pageNo }} / {{ pages }}</text><button size="mini" :disabled="pageNo >= pages || loading" @click="movePage(1)">下一页</button></view>
   </view>
@@ -13,7 +13,7 @@
 import yzp from '@/common/yzp';
 import utils from '@/common/utils';
 export default {
-  data() { return { records: [], pageNo: 1, pages: 1, loading: false, parentId: '', selecting: false, canCreate: true, canImport: false, canExport: false }; },
+  data() { return { records: [], pageNo: 1, pages: 1, loading: false, parentId: '', selecting: false, canCreate: false, canImport: false, canExport: false }; },
   onLoad(options) { this.parentId = options.parentId || ''; this.selecting = options.select === '1'; },
   onShow() { this.loadPage(); },
   methods: {

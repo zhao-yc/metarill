@@ -13,6 +13,7 @@ public sealed class DatabaseSession : IDisposable
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
     private readonly bool _ownsOrm;
+    private int _disposed;
     public DatabaseOptions Options { get; }
     public IDatabaseProvider Provider { get; }
     public IFreeSql Orm { get; }
@@ -74,6 +75,6 @@ public sealed class DatabaseSession : IDisposable
     /// <summary>仅释放本会话创建的 ORM，宿主注入的共享实例由宿主管理。</summary>
     public void Dispose()
     {
-        if (_ownsOrm) Orm.Dispose();
+        if (Interlocked.Exchange(ref _disposed,1)==0 && _ownsOrm) Orm.Dispose();
     }
 }

@@ -57,10 +57,11 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
             ConfigTables=await Read<TableMetadata>("config_table"),ConfigColumns=await Read<ColumnMetadata>("config_column"),
             ConfigPages=await Read<PageMetadata>("config_page"),ConfigPageColumns=await Read<PageColumnMetadata>("config_page_column"),
             YzAdminTypes=await Read<AdminTypeMetadata>("yz_admin_type"),ConfigMenus=await Read<MenuMetadata>("config_menu"),
-            ConfigCustomPages=(await Read<CustomPageMetadata>("config_custom_page")).Select(p=>{p.YzAdminTypeId=registry.Platform.YzAdminTypes.FirstOrDefault()?.Id??"";return p;}).ToList(),
+            ConfigCustomPages=await Read<CustomPageMetadata>("config_custom_page"),
             ConfigButtons=await Read<JsonElement>("config_button"),ConfigChildren=await Read<JsonElement>("config_child"),
             ConfigIndexes=await Read<JsonElement>("config_index"),ConfigIndexColumns=await Read<JsonElement>("config_index_column")
         };
+        foreach(var custom in result.ConfigCustomPages)if(string.IsNullOrEmpty(custom.YzAdminTypeId))custom.YzAdminTypeId=result.YzAdminTypes.FirstOrDefault()?.Id??"";
         MetadataValidation.Validate(result);return result;
     }
 }

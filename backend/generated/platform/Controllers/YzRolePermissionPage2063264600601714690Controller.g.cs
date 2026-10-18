@@ -26,13 +26,4 @@ public sealed class YzRolePermissionPage2063264600601714690Controller(YzRolePerm
     /// <summary>数量接口沿用相同页面范围。</summary>
     [HttpPost("count")]
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count2063264600601714690Async(request, Actor("count"), cancellationToken));
-    /// <summary>新增仅接受本页生成 DTO。</summary>
-    [HttpPost("add")]
-    public async Task<R<YzRolePermissionPage2063264600601714690Vo>> Add([FromBody] YzRolePermissionPage2063264600601714690CreateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<YzRolePermissionPage2063264600601714690Vo>.Success(await service.Create2063264600601714690Async(request, parentId, Actor("create"), cancellationToken));
-    /// <summary>更新保留省略字段与显式 null 的区别。</summary>
-    [HttpPost("update")]
-    public async Task<R<YzRolePermissionPage2063264600601714690Vo>> Update([FromBody] YzRolePermissionPage2063264600601714690UpdateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<YzRolePermissionPage2063264600601714690Vo>.Success(await service.Update2063264600601714690Async(request, parentId, Actor("update"), cancellationToken));
-    /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
-    [HttpDelete]
-    public async Task<R<string>> Delete([FromBody] YzRolePermissionPage2063264600601714690RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete2063264600601714690Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
 }

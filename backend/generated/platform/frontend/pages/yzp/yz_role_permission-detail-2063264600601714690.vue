@@ -4,6 +4,7 @@
     <uni-forms ref="form" :modelValue="entity">
       <uni-forms-item label="项目" name="yzProjectId"><text>{{ entity.yzProjectId }}</text></uni-forms-item>
       <uni-forms-item label="页面" name="configPageId"><uni-easyinput :modelValue="entity.configPageId" @update:modelValue="change('configPageId', $event)" /></uni-forms-item>
+      <uni-forms-item label="按钮" name="configButtonId"><uni-easyinput :modelValue="entity.configButtonId" @update:modelValue="change('configButtonId', $event)" /></uni-forms-item>
       <uni-forms-item label="二级菜单" name="configMenuId"><text>{{ entity.configMenuId }}</text><text>此控件待移植，当前只读</text></uni-forms-item>
       <uni-forms-item label="角色" name="yzRoleId"><text>{{ entity.yzRoleId }}</text><text>此控件待移植，当前只读</text></uni-forms-item>
       <uni-forms-item label="权限值" name="permissionValues"><uni-easyinput :modelValue="entity.permissionValues" @update:modelValue="change('permissionValues', $event)" /></uni-forms-item>
@@ -15,9 +16,9 @@
 </template>
 <script>
 import yzp from '@/common/yzp';
-const writableFields = ["configPageId","configMenuId","yzRoleId","permissionValues"];
+const writableFields = ["configPageId","configButtonId","configMenuId","yzRoleId","permissionValues"];
 export default {
-  data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: true, canSave: true, canDelete: true, canCopy: false }; },
+  data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: false, canSave: false, canDelete: false, canCopy: false }; },
   onLoad(options) { this.id = options.id || ''; this.parentId = options.parentId || ''; this.loadOptions(); if (this.id) this.load(); },
   methods: {
     /** POST复制仅提交源标识，服务端重建新记录与审计身份。 */

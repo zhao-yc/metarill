@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "33af8b30ec2681dfa3c0f868865bb9b6e14703771fa3b01074d106bfe07c1925",
+  "metadataSha256": "994e840ae2c87f229128f470f722e98bf05ca866b148affedefdf91a323294ee",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -82,7 +82,7 @@
     },
     {
       "path": "Controllers/YzRolePermissionPage2063264600601714690Controller.g.cs",
-      "sha256": "d0b7ab438dd63d3da451d092cbc3076e6510730aeea6b1d84e6ac846b56e2fae"
+      "sha256": "54259ce9e374c98a2b6f48946b6e8cec5093784cba6ff1dc90edb5858948c6cc"
     },
     {
       "path": "DTOs/ConfigButtonPage1870796062470516738Requests.g.cs",
@@ -162,7 +162,7 @@
     },
     {
       "path": "DTOs/YzRolePermissionPage2063264600601714690Requests.g.cs",
-      "sha256": "5ac01911dd9d3ebdb2597c89494a0cff2f873d466aaa6763a33fc01045426b9c"
+      "sha256": "8b04b6a21c0dd58ef1435ad547ddae42443763848ed1a04ce9f34b0e805f47c6"
     },
     {
       "path": "Entities/ConfigButton.g.cs",
@@ -254,7 +254,7 @@
     },
     {
       "path": "Entities/YzRolePermission.g.cs",
-      "sha256": "8184aea39af8d956868be1df55b687ee312bd2de3cdf31d5bba25cf64ad82008"
+      "sha256": "5d9b292a6ca18b59478e8a88d968b17f0fc02f59c1d5fcbbcce88ed0fdeace9e"
     },
     {
       "path": "GeneratedRegistration.g.cs",
@@ -262,7 +262,7 @@
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
-      "sha256": "6bc410891899e85373b6e0e6c139a047972e8d4d5ab8ce11bad755bbb7a50d9b"
+      "sha256": "dfbabfaaabe80ef53ba65b287b2b2181811019162631013e6f3644e91eb1c23a"
     },
     {
       "path": "Mappers/ConfigButtonMapper.g.cs",
@@ -442,7 +442,7 @@
     },
     {
       "path": "Services/YzRolePermissionService.g.cs",
-      "sha256": "427beeb01ab5d18ccee16ca729c31343dc28eb9752ab22b52fc0fcc1582e5742"
+      "sha256": "dad2ba928ffea198867fea7036bd9102d1534ebbb4d290f7015a72bf5dca8450"
     },
     {
       "path": "Services/YzRoleService.g.cs",
@@ -530,11 +530,11 @@
     },
     {
       "path": "VOs/YzRolePermissionPage2063264600601714690Vo.g.cs",
-      "sha256": "0b9694500b7daa3c73c9ef674cfb2451e9ed1f394ac3a57e7d7f9bab0aa58a61"
+      "sha256": "55c43cc312f11c1c732adbd232f7797a50af85bc04da02eff21de279bfe0c0a8"
     },
     {
       "path": "frontend/common/yzp_runtime/page-write-schema.generated.json",
-      "sha256": "5fb99c4e4b5fc6f9b7b354452474dc7fb35c61bfc5408b15ff3c05398b23fc59"
+      "sha256": "5eab3330c4a5c78ea59b3df0ab85c88554d143a69e2e83350cca28c7e6da34d5"
     },
     {
       "path": "frontend/pages.generated.json",
@@ -694,11 +694,11 @@
     },
     {
       "path": "frontend/pages/yzp/yz_role_permission-detail-2063264600601714690.vue",
-      "sha256": "47d2a03e45f6042e1832317e7a5d71eca67694feb3c6a47bffcdea588f058804"
+      "sha256": "6815f3adfea849736416d33d489308ef89569bb376ac2730f62781402802268c"
     },
     {
       "path": "frontend/pages/yzp/yz_role_permission-list-2063264600601714690.vue",
-      "sha256": "d64c02348c684c0db559f8e3b7e5a2d3d131c2bbccf6f7d1ae64c51d68d02465"
+      "sha256": "eb46f38105c5290a2fbee6795abf25690e886ca2f245e57c4837ef6124fde2da"
     },
     {
       "path": "generation-capabilities.json",

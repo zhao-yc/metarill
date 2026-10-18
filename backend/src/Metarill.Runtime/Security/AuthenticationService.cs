@@ -6,7 +6,11 @@ using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Security;
 
-public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<string> Permissions,long SessionId,long? GrantId);
+public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<string> Permissions,long SessionId,long? GrantId)
+{
+    public IReadOnlySet<string> MenuIds {get;init;}=new HashSet<string>();
+    public IReadOnlySet<string> ButtonIds {get;init;}=new HashSet<string>();
+}
 
 public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry registry,IIdGenerator ids)
 {
@@ -25,17 +29,19 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
     {
         if(token.Length is < 32 or > 200)return null;
         var session=(await store.ReadAsync("sys_session",new Dictionary<string,object?>{{"token_hash",PasswordHasher.Digest(token)}},cancellationToken)).SingleOrDefault();
-        if(session is null||Convert.ToDateTime(session["expires_at"],CultureInfo.InvariantCulture)<=DateTime.UtcNow)return null;
+        if(session is null||SqlRowStore.Text(session,"kind") is not ("web" or "agent")||Convert.ToDateTime(session["expires_at"],CultureInfo.InvariantCulture)<=DateTime.UtcNow)return null;
         var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"id",SqlRowStore.Id(session,"account_id")}},cancellationToken)).SingleOrDefault();
         if(account is null||SqlRowStore.Text(account,"is_disabled")=="1")return null;
         var roles=await store.ReadAsync("yz_role",cancellationToken:cancellationToken);
         var roleIds=ParseIds(SqlRowStore.Text(account,"yz_role_ids"));
         var owned=roles.Where(r=>roleIds.Contains(SqlRowStore.Text(r,"id"))).ToArray();
         var administrator=owned.Any(r=>SqlRowStore.Text(r,"is_super")=="1");
-        var permissions=new HashSet<string>(StringComparer.Ordinal);
+        var permissions=new HashSet<string>(StringComparer.Ordinal);var menuIds=new HashSet<string>(StringComparer.Ordinal);var buttonIds=new HashSet<string>(StringComparer.Ordinal);
         foreach(var row in await store.ReadAsync("yz_role_permission",cancellationToken:cancellationToken))
         {
             if(!roleIds.Contains(SqlRowStore.Text(row,"yz_role_id")))continue;
+            var menuId=SqlRowStore.Text(row,"config_menu_id");if(menuId.Length>0)menuIds.Add(menuId);
+            var buttonId=SqlRowStore.Text(row,"config_button_id");if(buttonId.Length>0)buttonIds.Add(buttonId);
             var pageId=SqlRowStore.Text(row,"config_page_id");
             if(string.IsNullOrEmpty(pageId)) continue; // 菜单显示授权不等价于页面操作授权。
             foreach(var operation in ParseIds(SqlRowStore.Text(row,"permission_values")))permissions.Add(pageId+":"+operation);
@@ -53,7 +59,7 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
             if(record is null||SqlRowStore.Text(record,"status")!="approved")return null;
         }
         var actor=new RuntimeActor(SqlRowStore.Id(account),SqlRowStore.Text(account,"name"),administrator,project,SqlRowStore.Text(account,"yz_admin_type_id"));
-        return new(actor,permissions,SqlRowStore.Id(session),grantId);
+        return new(actor,permissions,SqlRowStore.Id(session),grantId){MenuIds=menuIds,ButtonIds=buttonIds};
     }
     /// <summary>有效期与登录起止时间在每次请求重新检查，停用立即生效。</summary>
     public static bool AccountActive(IReadOnlyDictionary<string,object?> account)
