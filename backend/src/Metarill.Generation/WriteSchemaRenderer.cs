@@ -16,7 +16,7 @@ internal static class WriteSchemaRenderer
             CreateFields = page.Writable.Select(column => column.JsonName).ToArray(),
             UpdateFields = new[] { "id" }.Concat(page.Writable.Select(column => column.JsonName)).ToArray()
         })).OrderBy(page => page.Id, StringComparer.Ordinal).ToArray();
-        var json = JsonSerializer.Serialize(new { schemaVersion = 1, pages = pages.ToDictionary(page => page.Id, page => new { route = page.Route, createFields = page.CreateFields, updateFields = page.UpdateFields }) }, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(new { schemaVersion = 1, pages = pages.ToDictionary(page => page.Id, page => new { route = page.Route, createFields = page.CreateFields, updateFields = page.UpdateFields }) }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" });
         yield return new("frontend/common/yzp_runtime/page-write-schema.generated.json", json + "\n");
         var code = new StringBuilder(CSharpGenerator.Header).AppendLine($"namespace {model.Namespace}.Generated;")
             .AppendLine("public sealed record PageWriteSchema(string Route, IReadOnlyList<string> CreateFields, IReadOnlyList<string> UpdateFields);")

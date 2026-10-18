@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup><ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" /></ItemGroup>
-  <ItemGroup><EmbeddedResource Include="../../templates/uniapp/*.tpl" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../../templates/uniapp/*.tpl" /><EmbeddedResource Include="../../templates/standalone/*.tpl" WithCulture="false" /></ItemGroup>
 </Project>

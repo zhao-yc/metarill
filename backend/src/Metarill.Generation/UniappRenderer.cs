@@ -40,8 +40,8 @@ internal static class UniappRenderer
             routes.Add(new { path = listPath, style = new { navigationBarTitleText = page.Source.Name } });
             routes.Add(new { path = detailPath, style = new { navigationBarTitleText = page.Source.Name } });
         }
-        yield return new("generation-capabilities.json", JsonSerializer.Serialize(new { schemaVersion = 1, unsupportedControls = gaps }, new JsonSerializerOptions { WriteIndented = true }) + "\n");
-        yield return new("frontend/pages.generated.json", JsonSerializer.Serialize(new { pages = routes }, new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        yield return new("generation-capabilities.json", JsonSerializer.Serialize(new { schemaVersion = 1, unsupportedControls = gaps }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
+        yield return new("frontend/pages.generated.json", JsonSerializer.Serialize(new { pages = routes }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
     }
     /// <summary>转义展示文本以保护模板结构。</summary>
     private static string Escape(string value) => SecurityElement.Escape(value) ?? "";

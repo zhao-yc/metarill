@@ -21,3 +21,15 @@
 - 明确的单值或多值关联在新增、修改、复制、导入前检查目标存在、逻辑删除及项目归属；修改只检查实际提交的关系字段。仅显式global元数据可跨当前项目范围，不接受请求参数放宽。
 - 导出沿用 `POST initExport` 返回票据。生成方法复用范围和筛选、固定list/edit投影，关系名称批量补全，64位整数输出文本；宿主实现 `IPageExportService` 负责Excel资源和 `/admin/sys/export/export?exportId=...` 下载。
 - 定制导入及尚无安全候选规则的复杂关系会明确拒绝，不会退回裸表查询。数据库整批回滚及Excel票据下载需要在集成服务器继续验收。
+
+## 独立应用包
+
+执行：`dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/metadata/demo.json --output .local/demo-application --namespace Example.Demo --source-root .`。
+
+`ApplicationPackager.Create(catalog, outputDirectory, rootNamespace, sourceRoot)` 返回 `ApplicationPackageResult`（Files、MetadataSha256、RedactedPaths、Warnings）。HTTP 宿主必须由管理员配置可信 sourceRoot，不能让请求任意指定服务器源码路径。输出目录必须不存在或为空，失败清理临时目录，不覆盖既有项目。
+
+包包含独立 ASP.NET Core 工程、Core/Data 源码、元数据、生成代码、固定 SDK 和直接依赖版本；首次 restore 生成传递依赖锁文件。仅复制允许的源码/工程，不复制 `.local`、bin/obj、配置或凭据。已知敏感配置键递归剔除，密码等敏感列保留定义并清空默认值。所有文本与归属 JSON 固定 LF；相同输入重复打包逐字节一致，跨操作系统仍需 CI 对照验证。
+
+默认拒绝匿名 API。仅 Development 环境显式配置账号密码可启用开发会话，项目由包内元数据固定；正式认证通过同程序集 HostCustomization partial 替换。正常启动不执行 DDL，结构预览/执行必须使用显式命令。文件、导出下载、Agent、完整 uni-app 工程不随包提供，不能宣称这些能力已经独立化。
+
+本轮已用独立业务测试库验证包内宿主的 CRUD、复制、部分更新、系统字段拒绝、服务端项目隔离、退出和到期会话失效；显式结构预览无差异且未执行 DDL。自动测试额外验证完整包从自身 Core/Data 工程编译、敏感值剔除和原子打包；这些结果不代表其他数据库和前端设备验收。
