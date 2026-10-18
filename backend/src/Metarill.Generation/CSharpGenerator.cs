@@ -25,10 +25,12 @@ public sealed class CSharpGenerator
     public GenerationResult Generate(MetadataCatalog catalog, string outputDirectory, string rootNamespace)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        // 生成任务固定自己的元数据快照，避免调用方后续修改混入同一批次。
+        catalog = JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog, JsonOptions), JsonOptions)!;
         ValidateNamespace(rootNamespace);
         MetadataValidation.Validate(catalog);
         var model = GenerationModel.Create(catalog, rootNamespace);
-        var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Select(file => file with { Content = file.Content.Replace("\r\n", "\n").Replace("\r", "\n") }).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
+        var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(WriteSchemaRenderer.Render(model)).Select(file => file with { Content = file.Content.Replace("\r\n", "\n").Replace("\r", "\n") }).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
         if (files.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Length) throw new InvalidOperationException("生成路径存在大小写冲突。");
         var output = Path.GetFullPath(outputDirectory);
         RejectLinks(output);
@@ -146,10 +148,10 @@ public sealed class CSharpGenerator
 internal sealed record ColumnModel(ColumnMetadata Source, string Property, string JsonName, string Type)
 {
     public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"; public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
-    public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "yz_project_id" or "yz_project_name";
+    public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";
 }
 internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<ColumnModel> ListColumns, IReadOnlyList<ColumnModel> DetailColumns);
-internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages);
+internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages) { public bool IsGlobal => Source.Extra.TryGetValue("scopeKind", out var scope) && scope.ToString() == "global"; }
 internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace, IReadOnlyList<TableModel> Tables)
 {
     /// <summary>把松散元数据编译为不可变生成模型，批次中禁止静默忽略查询范围。</summary>
@@ -229,7 +231,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
     /// <summary>将逻辑数据类型映射为 C# 类型。</summary>
     private static string TypeFor(ColumnMetadata column)
     {
-        if (column.ColumnName == "id") return "long";
+        if (column.ColumnName == "id") { if (column.LogicalType.ToLowerInvariant() is not "id" and not "long" and not "bigint" and not "int64") throw new InvalidOperationException("id 主键必须声明为 64 位整数。"); return "long"; }
         return column.LogicalType.ToLowerInvariant() switch
         {
             "id" or "long" or "bigint" or "int64" => "long?",

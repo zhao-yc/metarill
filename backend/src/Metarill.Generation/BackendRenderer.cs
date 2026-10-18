@@ -112,12 +112,37 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(Query(model, table, page)); result.Append(Relations(model, page));
+            result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page));
             result.Append(Mutations(model, table, page));
         }
         result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
     /// <summary>编译范围、筛选、排序及分页条件。</summary>
+    /// <summary>新增父键必须对应真实存在且属于当前项目的父记录。</summary>
+    private static string ParentValidation(GenerationModel model, TableModel table, PageModel page)
+    {
+        var result = new StringBuilder().AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
+            .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
+            .AppendLine("    {");
+        var number = 0;
+        foreach (var (column, source) in page.Scopes.Where(scope => scope.Source == "parent"))
+        {
+            var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
+                ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
+            var project = parent.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == "yz_project_id");
+            result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");");
+            if (project is null) result.AppendLine("        throw new InvalidOperationException(\"父表未声明项目归属，当前页面需要明确的父记录访问规则。\");");
+            else
+            {
+                number++;
+                result.AppendLine($"        var parent{number} = session.Select<{parent.Name}>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+                if (parent.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"        parent{number} = parent{number}.Where(entity => entity.DeleteNo == null);");
+                result.AppendLine($"        if (await parent{number}.ForUpdate().FirstAsync(cancellationToken) is null) throw new InvalidOperationException(\"父记录不存在或不属于当前项目。\");");
+            }
+        }
+        if (!page.Scopes.Any(scope => scope.Source == "parent")) result.AppendLine("        await Task.CompletedTask;");
+        return result.AppendLine("    }").ToString();
+    }
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
         var suffix = page.Source.Id;
@@ -125,7 +150,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor, string? parentId)").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
         var project = table.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
-        if (project is not null) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+        if (project is not null && (!table.IsGlobal || page.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
         foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
             result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                 .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
@@ -202,7 +227,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>")
                 .AppendLine($"    public Task<{page.Name}Vo> Create{suffix}Async({page.Name}CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);").AppendLine("        ValidateActor(actor);")
-                .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
+                .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken);").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in page.Writable)
             {
                 if (column.IsJsonArray) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
@@ -272,11 +297,11 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder();
         var assignments = new Dictionary<string, string>
         {
-            ["update_time"] = "DateTime.UtcNow", ["update_manager_id"] = "actor.AccountId", ["update_manager_name"] = "actor.AccountName"
+            ["update_time"] = "DateTime.UtcNow", ["update_manager_id"] = "actor.AccountId", ["update_manager_name"] = "actor.AccountName", ["update_manager_real_name"] = "actor.AccountName", ["update_user_name"] = "actor.AccountName"
         };
         if (creating)
         {
-            assignments["insert_time"] = "DateTime.UtcNow"; assignments["insert_manager_id"] = "actor.AccountId"; assignments["insert_manager_name"] = "actor.AccountName";
+            assignments["insert_time"] = "DateTime.UtcNow"; assignments["insert_manager_id"] = "actor.AccountId"; assignments["insert_manager_name"] = "actor.AccountName"; assignments["insert_manager_real_name"] = "actor.AccountName"; assignments["insert_user_name"] = "actor.AccountName";
             var project = table.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null) assignments["yz_project_id"] = ScopeValue(project, "actor.ProjectId");
         }
@@ -367,7 +392,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
             if (relation.Target.Columns.Any(c => c.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
             var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
-            if (project is not null) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+            if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent"))
                 result.AppendLine("        if (string.IsNullOrWhiteSpace(request.ParentId)) throw new ArgumentException(\"关联选项要求 parentId。\");")
                     .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "request.ParentId")});");

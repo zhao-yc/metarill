@@ -108,6 +108,24 @@ public sealed class GeneratorTests : IDisposable
         Assert.True(File.Exists(Path.Combine(directory, "Services/CustomerService.cs")));
     }
 
+    [Fact]
+    public void String_primary_key_is_rejected_instead_of_generating_mismatched_mapping()
+    {
+        var metadata = Catalog(); metadata.ConfigColumns[0].LogicalType = "string";
+        Assert.Throws<InvalidOperationException>(() => new CSharpGenerator().Generate(metadata, directory, "Example.App"));
+        Assert.False(Directory.Exists(directory));
+    }
+    [Fact]
+    public void Write_schema_never_allows_readonly_or_system_fields()
+    {
+        var metadata = Catalog(); metadata.ConfigPageColumns[0].Extra["isReadOnly"] = JsonSerializer.SerializeToElement(1);
+        new CSharpGenerator().Generate(metadata, directory, "Example.App");
+        using var schema = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "frontend/common/yzp_runtime/page-write-schema.generated.json")));
+        var page = schema.RootElement.GetProperty("pages").GetProperty("101");
+        Assert.Equal("/admin/auto/customer/101", page.GetProperty("route").GetString());
+        Assert.Equal(["remark"], page.GetProperty("createFields").EnumerateArray().Select(field => field.GetString()).ToArray());
+        Assert.Equal(["id", "remark"], page.GetProperty("updateFields").EnumerateArray().Select(field => field.GetString()).ToArray());
+    }
     internal static MetadataCatalog Catalog() => new()
     {
         YzProjectId = "100",
