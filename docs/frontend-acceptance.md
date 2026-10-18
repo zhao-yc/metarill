@@ -70,3 +70,7 @@ HBuilderX 自带条件编译预处理器与 Vue SFC 编译器检查了 74 个项
 ## 后台归属配套修正
 
 依据当前 platform.json 按列名查得 config_table.yz_admin_type_id 列ID 2200000000000000087、config_page.yz_admin_type_id 列ID 2200000000000000104。表配置详情/列表及首页按后台类型展示，移除旧一级菜单选择页弹窗、静态导入及回调。候选接口统一为 POST /admin/auto/config_table/6191083005411328/findNameIdYzAdminType2200000000000000087，三个配置页面各使用自身pageId与 findNameIdYzAdminType2200000000000000104；请求体仍为 {formParameters}，候选仍为原选择器组件接口，没有替换交互。插件许可与新AppID缺口保持原状态，以上修正不等于H5或真实后端联调完成。
+
+## 严格 DTO 前端适配
+
+生成器输出的 createFields/updateFields 是提交字段唯一来源。scripts/merge-page-write-schemas.mjs 确定性合并 platform 与 demo 的版本1清单，冲突或输入缺失时报错；当前21页清单两次合并SHA-256均为 e64e607baa93c1320208aa644ea41ae980ca963a3fc695eba50d244e458fdf9f。共享 yzp.request 在 uni.request 前只裁剪清单中标准 POST add/update 请求，保留自身字段的null/false/0/空字符串，缺失字段不补值；不修改调用者entity，不改变其他路由与方法。服务端白名单、认证和权限规则不变。新增7项清单/请求入口行为验证后，共165项前端测试通过；选择器、富文本许可与AppID/H5缺口仍保留。

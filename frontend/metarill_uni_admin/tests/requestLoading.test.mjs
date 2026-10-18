@@ -8,6 +8,9 @@ const templatePath = new URL('../../../backend/yzp/src/main/resources/template/v
 const source = await readFile(runtimePath, 'utf8')
 const relationSource = await readFile(new URL('../common/yzp_runtime/relationReadValues.js', import.meta.url), 'utf8')
 const relationRuntime = await import('data:text/javascript;base64,' + Buffer.from(relationSource).toString('base64'))
+const writeFilterSource = await readFile(new URL('../common/yzp_runtime/pageWritePayload.js', import.meta.url), 'utf8')
+const { createPageWriteFilter } = await import('data:text/javascript;base64,' + Buffer.from(writeFilterSource).toString('base64'))
+const writeSchema = JSON.parse(await readFile(new URL('../common/yzp_runtime/page-write-schema.generated.json', import.meta.url), 'utf8'))
 
 /** 使用真实请求封装和可控时钟，模拟 H5 加载框内部的延迟显示、关闭。 */
 function createFixture({ startError = false, loggedIn = true, abortCallbacks = true } = {}) {
@@ -74,6 +77,7 @@ function createFixture({ startError = false, loggedIn = true, abortCallbacks = t
 	}
 	const context = vm.createContext({
 		...relationRuntime,
+		filterPageWriteData: createPageWriteFilter(writeSchema),
 		uni,
 		utils: { isBlank: value => value == null || value === '' },
 		getApp: () => ({ globalData: { environment: { base_url: 'http://test/api' } } }),
@@ -484,3 +488,28 @@ test('时效守卫异常不会泄漏资源或提交业务副作用', () => {
 	assert.equal(f.runtime.getRequestLoadingState().pending.length, 0)
 	assert.equal(f.timers.size, 0)
 })
+
+
+test('真实请求入口按生成清单去掉只读与系统字段，保留null且不修改原实体', () => {
+ const f = createFixture();
+ const entity = Object.freeze({ id: '客户端旧ID', name: '示例名称', notes: null, amount: '12.50', insertTime: '系统时间', deleteNo: null, displayLabel: '辅助展示', unknown: '未知字段' });
+ f.runtime.request({ url: '/admin/auto/demo_customer/2200000000000100020/add?parentId=父记录', method: 'POST', data: entity });
+ assert.deepEqual(f.requests[0].options.data, { amount: '12.50', name: '示例名称', notes: null });
+ assert.equal(Object.hasOwn(f.requests[0].options.data, 'isEnabled'), false);
+ assert.equal(entity.id, '客户端旧ID');
+ assert.equal(entity.displayLabel, '辅助展示');
+ f.finish(0);
+});
+
+test('更新保留ID和省略差异，未知写路由与其他方法保持原载荷', () => {
+ const f = createFixture();
+ const entity = { id: '记录', name: null, insertManagerId: '系统用户' };
+ f.runtime.request({ url: '/admin/auto/demo_customer/2200000000000100020/update', method: 'POST', data: entity });
+ assert.deepEqual(f.requests[0].options.data, { id: '记录', name: null });
+ assert.equal(Object.hasOwn(f.requests[0].options.data, 'notes'), false);
+ for (const options of [{ url: '/admin/custom/demo/update', method: 'POST' }, { url: '/admin/auto/unknown/999/add', method: 'POST' }, { url: '/admin/auto/demo_customer/2200000000000100020/update', method: 'GET' }]) {
+  f.runtime.request({ ...options, data: entity });
+  assert.equal(f.requests.at(-1).options.data, entity);
+ }
+ for (let index=0; index<f.requests.length; index++) f.finish(index);
+});

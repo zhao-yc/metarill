@@ -15,3 +15,9 @@
 用户已决定保留现有交互设计，待确认原组件许可后接入。选择器和富文本编辑当前显式标记不可用，不使用简化替代交互；原字段值和 sendRtf/onReceiveRtf 协议保持。详见 THIRD-PARTY-NOTICES.md。
 
 生成页面由平台元数据和生成器维护；此批导入是旧页面ID、API外观和通用组件的脱敏基线，后续更新必须回到元数据/模板来源。
+
+## 标准写入清单
+
+先运行后端生成器生成 platform 与 demo，再在仓库根目录执行 npm --prefix frontend/metarill_uni_admin run sync:write-schema。脚本只读取 backend/generated/{platform,demo}/frontend/common/yzp_runtime/page-write-schema.generated.json，合并后写入管理端 common/yzp_runtime/page-write-schema.generated.json；不从页面实体猜测允许字段。任务独立克隆可显式传 --source-root 源仓库绝对路径，来源冲突会失败，重复执行字节稳定。
+
+共享请求仅对清单内标准 POST add/update 裁剪提交体，不改实体、原交互、未知路由或省略/null语义。服务端继续严格拒绝未知字段；每次元数据/生成器变更后应重新生成并合并清单。此适配不表示被占位的第三方组件已获得许可或H5已完成构建。

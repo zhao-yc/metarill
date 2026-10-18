@@ -8,6 +8,11 @@ import {
 import * as XLSX from 'xlsx'; //官网https://docs.sheetjs.com/docs/api/parse-options
 import { relationArray, relationDisplayText, selectedRelationRows, refreshSelectedRelationRows, relationWriteEntity } from './relationReadValues';
 
+import pageWriteSchema from './page-write-schema.generated.json';
+import { createPageWriteFilter } from './pageWritePayload';
+
+const filterPageWriteData = createPageWriteFilter(pageWriteSchema);
+
 const TAB_BAR_PAGES = [
 	"/pages/main/index",
 	"/pages/main/menu",
@@ -849,7 +854,8 @@ var yzp = {
 		try {
 			requestTask = uni.request({
 				url,
-				data: utils.isBlank(obj.data) ? {} : obj.data,
+				// 生成清单裁剪标准写入 DTO；客户端适配不替代服务端白名单与权限校验。
+				data: filterPageWriteData(path, obj.method || 'GET', utils.isBlank(obj.data) ? {} : obj.data),
 				dataType: obj.dataType || 'json',
 				header,
 				method: obj.method || 'GET',
