@@ -19,7 +19,7 @@ const standard = [
 const excludedTables = new Set(['config_first_menu','config_second_menu','yz_yzp_version','copy_table']);
 let tables = input.configTables.filter(t=>!excludedTables.has(t.tableName)).map(t=>({...t, yzProjectId:projectId, configFirstMenuId:undefined, configFirstMenuName:undefined}));
 const allowedTables=new Set(tables.map(t=>t.id));
-let columns=input.configColumns.filter(c=>allowedTables.has(c.configTableId) && c.columnName!=='config_first_menu_id' && c.columnName!=='config_first_menu_name').map(c=>({...c}));
+let columns=input.configColumns.filter(c=>c.isVirtualColumn!==1 && allowedTables.has(c.configTableId) && c.columnName!=='config_first_menu_id' && c.columnName!=='config_first_menu_name').map(c=>({...c}));
 let pages=input.configPages.filter(p=>allowedTables.has(p.configTableId)).map(p=>({...p, yzAdminTypeId:adminId, configFirstMenuId:undefined, configFirstMenuName:undefined, pageSize:Number(p.pageSize||20), sortNo:Number(p.sortNo||0)}));
 const allowedPages=new Set(pages.map(p=>p.id));
 const oldPageColumns=input.configPageColumns.filter(p=>allowedPages.has(p.configPageId));
@@ -63,6 +63,8 @@ for(const t of tables) {
  for(const [name,label,type,nullable] of standard)addColumn(t,name,label,type,nullable,type==='string'?'100':'');
  if(!columns.some(c=>c.configTableId===t.id&&c.columnName==='yz_project_id'))addColumn(t,'yz_project_id','项目','int64',true,'');
  if(t.tableName==='config_page'||t.tableName==='config_table')addColumn(t,'yz_admin_type_id','所属后台','int64',true,'');
+ if(t.tableName==='yz_role_permission'){addColumn(t,'config_page_id','页面','int64',true,'');addColumn(t,'config_menu_id','菜单','int64',true,'');}
+ if(t.tableName==='config_index')addColumn(t,'is_unique','唯一索引','int32',true,'');
  if(t.tableName==='config_column'){addColumn(t,'logical_type','逻辑类型','string',false,'30');addColumn(t,'precision','数值精度','int32',true,'');addColumn(t,'scale','小数位数','int32',true,'');}
  if(t.tableName==='yz_manager') {const p=columns.find(c=>c.configTableId===t.id&&c.columnName==='password');p.columnLength='255';}
 }
@@ -87,7 +89,7 @@ for(const c of columns) {
  if(c.logicalType==='int64'||c.logicalType==='int32')c.columnLength='';
  if(c.columnName==='sort_no'||c.columnName==='page_size')c.logicalType='int32';
  if(c.logicalType==='string'&&!c.columnLength)c.columnLength='255';
- if(c.isVirtualColumn===1)c.isVirtualColumn=0; // 自举字段来自显式持久化定义；布局虚拟字段不会进入下方页面映射。
+ // 虚拟布局字段已经在来源过滤，不进入物理结构。
 }
 const byTable=new Map(tables.map(t=>[t.id,columns.filter(c=>c.configTableId===t.id)]));
 const oldFields=new Map(oldPageColumns.map(f=>[f.configPageId+':'+f.configColumnId,f]));
@@ -105,6 +107,25 @@ for(const p of pages){
 const finalPageIds=new Set(pages.map(p=>p.id));
 menus=menus.filter(m=>!m.configPageId||finalPageIds.has(m.configPageId));
 const catalog={schemaVersion:1,backendTarget:'csharp',yzProjectId:projectId,yzProjectName:'Metarill',databaseProvider:'mysql',configTables:tables,configColumns:columns,configPages:pages,configPageColumns:pageColumns,yzAdminTypes:input.yzAdminTypes,configMenus:menus,configButtons:input.configButtons.filter(b=>!b.configPageId||finalPageIds.has(b.configPageId)),configChildren:input.configChildren.filter(c=>(!c.configPageId||finalPageIds.has(c.configPageId))&&(!c.childConfigPageId||finalPageIds.has(c.childConfigPageId))),configIndexes:[],configIndexColumns:[]};
+const indexes=[],indexColumns=[];
+function index(tableName,name,fields,unique=false) {
+ const t=tables.find(t=>t.tableName===tableName); if(!t)return;
+ const cols=fields.map(f=>columns.find(c=>c.configTableId===t.id&&c.columnName===f)); if(cols.some(c=>!c))return;
+ const idx={id:id(),configTableId:t.id,indexName:name,isUnique:unique?1:0,indexType:unique?'UNIQUE':'INDEX',isEnabled:1,yzProjectId:projectId};indexes.push(idx);
+ cols.forEach((c,i)=>indexColumns.push({id:id(),configIndexId:idx.id,configColumnId:c.id,columnName:c.columnName,sortNo:i*10,sortDirection:'ASC',yzProjectId:projectId}));
+}
+index('yz_manager','ux_manager_name',['name'],true);
+index('sys_session','ux_session_token',['token_hash'],true);
+index('sys_agent_grant','ux_grant_device',['device_code_hash'],true);
+index('sys_agent_grant','ux_grant_user',['user_code'],true);
+index('sys_agent_task','ux_task_request',['account_id','project_id','request_id'],true);
+index('config_menu','ix_menu_parent',['yz_project_id','yz_admin_type_id','parent_menu_id','delete_no','sort_no']);
+index('config_table','ix_table_project',['yz_project_id','delete_no']);
+index('config_column','ix_column_table',['config_table_id','delete_no','sort_no']);
+index('config_page','ix_page_table',['config_table_id','delete_no']);
+index('config_page_column','ix_page_field',['config_page_id','config_column_id','delete_no']);
+index('yz_file_ref','ix_file_record',['page_id','record_id','delete_no']);
+catalog.configIndexes=indexes;catalog.configIndexColumns=indexColumns;
 fs.writeFileSync(path.join(root,'backend/metadata/platform.json'),JSON.stringify(catalog,null,2)+'\n');
 const demoProject='2200000000000100000', demoAdmin='2200000000000100001';
 const demoTable={id:'2200000000000100010',name:'示例客户',tableName:'demo_customer',yzProjectId:demoProject,sortNo:10};

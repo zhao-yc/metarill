@@ -166,7 +166,7 @@
       "yzProjectName": "Metarill"
     },
     {
-      "id": "2200000000000000277",
+      "id": "2200000000000000280",
       "name": "菜单",
       "tableName": "config_menu",
       "yzProjectId": "1608097412978577409",
@@ -176,7 +176,7 @@
       "isRongyu": 1
     },
     {
-      "id": "2200000000000000302",
+      "id": "2200000000000000305",
       "name": "登录会话",
       "tableName": "sys_session",
       "yzProjectId": "1608097412978577409",
@@ -186,7 +186,7 @@
       "isRongyu": 1
     },
     {
-      "id": "2200000000000000319",
+      "id": "2200000000000000322",
       "name": "Agent设备授权",
       "tableName": "sys_agent_grant",
       "yzProjectId": "1608097412978577409",
@@ -196,7 +196,7 @@
       "isRongyu": 1
     },
     {
-      "id": "2200000000000000338",
+      "id": "2200000000000000341",
       "name": "Agent请求任务",
       "tableName": "sys_agent_task",
       "yzProjectId": "1608097412978577409",
@@ -206,7 +206,7 @@
       "isRongyu": 1
     },
     {
-      "id": "2200000000000000360",
+      "id": "2200000000000000363",
       "name": "文件库",
       "tableName": "yz_file_library",
       "yzProjectId": "1608097412978577409",
@@ -216,7 +216,7 @@
       "isRongyu": 1
     },
     {
-      "id": "2200000000000000381",
+      "id": "2200000000000000384",
       "name": "文件夹",
       "tableName": "yz_file_library_folder",
       "yzProjectId": "1608097412978577409",
@@ -226,7 +226,7 @@
       "isRongyu": 1
     },
     {
-      "id": "2200000000000000396",
+      "id": "2200000000000000399",
       "name": "文件引用",
       "tableName": "yz_file_ref",
       "yzProjectId": "1608097412978577409",
@@ -10498,6 +10498,32 @@
     },
     {
       "id": "2200000000000000250",
+      "configTableId": "2063264600555577345",
+      "configTableName": "角色权限",
+      "columnName": "config_page_id",
+      "name": "页面",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 140,
+      "logicalType": "int64",
+      "isDbNotNull": 0,
+      "columnLength": "",
+      "defaultValue": ""
+    },
+    {
+      "id": "2200000000000000251",
+      "configTableId": "2063264600555577345",
+      "configTableName": "角色权限",
+      "columnName": "config_menu_id",
+      "name": "菜单",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 150,
+      "logicalType": "int64",
+      "isDbNotNull": 0,
+      "columnLength": "",
+      "defaultValue": ""
+    },
+    {
+      "id": "2200000000000000252",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "id",
@@ -10511,7 +10537,7 @@
       "columnType": "bigint"
     },
     {
-      "id": "2200000000000000251",
+      "id": "2200000000000000253",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "config_table_name",
@@ -10525,7 +10551,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000252",
+      "id": "2200000000000000254",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "yz_project_name",
@@ -10539,7 +10565,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000253",
+      "id": "2200000000000000255",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "import_no",
@@ -10553,7 +10579,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000254",
+      "id": "2200000000000000256",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "delete_no",
@@ -10567,7 +10593,7 @@
       "columnType": "datetime"
     },
     {
-      "id": "2200000000000000255",
+      "id": "2200000000000000257",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "insert_time",
@@ -10581,7 +10607,7 @@
       "columnType": "datetime"
     },
     {
-      "id": "2200000000000000256",
+      "id": "2200000000000000258",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "update_time",
@@ -10595,7 +10621,7 @@
       "columnType": "datetime"
     },
     {
-      "id": "2200000000000000257",
+      "id": "2200000000000000259",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "insert_manager_id",
@@ -10609,7 +10635,7 @@
       "columnType": "bigint"
     },
     {
-      "id": "2200000000000000258",
+      "id": "2200000000000000260",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "update_manager_id",
@@ -10623,7 +10649,7 @@
       "columnType": "bigint"
     },
     {
-      "id": "2200000000000000259",
+      "id": "2200000000000000261",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "insert_manager_real_name",
@@ -10637,7 +10663,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000260",
+      "id": "2200000000000000262",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "update_manager_real_name",
@@ -10651,7 +10677,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000261",
+      "id": "2200000000000000263",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "insert_user_name",
@@ -10665,7 +10691,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000262",
+      "id": "2200000000000000264",
       "configTableId": "2076977530983813120",
       "configTableName": "索引配置",
       "columnName": "update_user_name",
@@ -10679,7 +10705,20 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000263",
+      "id": "2200000000000000265",
+      "configTableId": "2076977530983813120",
+      "configTableName": "索引配置",
+      "columnName": "is_unique",
+      "name": "唯一索引",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 180,
+      "logicalType": "int32",
+      "isDbNotNull": 0,
+      "columnLength": "",
+      "defaultValue": ""
+    },
+    {
+      "id": "2200000000000000266",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "id",
@@ -10693,7 +10732,7 @@
       "columnType": "bigint"
     },
     {
-      "id": "2200000000000000264",
+      "id": "2200000000000000267",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "config_index_index_name",
@@ -10707,7 +10746,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000265",
+      "id": "2200000000000000268",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "config_column_name",
@@ -10721,7 +10760,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000266",
+      "id": "2200000000000000269",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "yz_project_name",
@@ -10735,7 +10774,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000267",
+      "id": "2200000000000000270",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "import_no",
@@ -10749,7 +10788,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000268",
+      "id": "2200000000000000271",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "delete_no",
@@ -10763,7 +10802,7 @@
       "columnType": "datetime"
     },
     {
-      "id": "2200000000000000269",
+      "id": "2200000000000000272",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "insert_time",
@@ -10777,7 +10816,7 @@
       "columnType": "datetime"
     },
     {
-      "id": "2200000000000000270",
+      "id": "2200000000000000273",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "update_time",
@@ -10791,7 +10830,7 @@
       "columnType": "datetime"
     },
     {
-      "id": "2200000000000000271",
+      "id": "2200000000000000274",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "insert_manager_id",
@@ -10805,7 +10844,7 @@
       "columnType": "bigint"
     },
     {
-      "id": "2200000000000000272",
+      "id": "2200000000000000275",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "update_manager_id",
@@ -10819,7 +10858,7 @@
       "columnType": "bigint"
     },
     {
-      "id": "2200000000000000273",
+      "id": "2200000000000000276",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "insert_manager_real_name",
@@ -10833,7 +10872,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000274",
+      "id": "2200000000000000277",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "update_manager_real_name",
@@ -10847,7 +10886,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000275",
+      "id": "2200000000000000278",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "insert_user_name",
@@ -10861,7 +10900,7 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000276",
+      "id": "2200000000000000279",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
       "columnName": "update_user_name",
@@ -10875,8 +10914,8 @@
       "columnType": "varchar"
     },
     {
-      "id": "2200000000000000278",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000281",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "id",
       "name": "标识",
@@ -10888,8 +10927,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000279",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000282",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "insert_time",
       "name": "创建时间",
@@ -10901,8 +10940,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000280",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000283",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "update_time",
       "name": "修改时间",
@@ -10914,8 +10953,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000281",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000284",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "insert_manager_id",
       "name": "创建账号",
@@ -10927,8 +10966,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000282",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000285",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "update_manager_id",
       "name": "修改账号",
@@ -10940,8 +10979,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000283",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000286",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "insert_user_name",
       "name": "创建账号名",
@@ -10953,8 +10992,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000284",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000287",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "update_user_name",
       "name": "修改账号名",
@@ -10966,8 +11005,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000285",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000288",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "insert_manager_real_name",
       "name": "创建姓名",
@@ -10979,8 +11018,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000286",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000289",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "update_manager_real_name",
       "name": "修改姓名",
@@ -10992,8 +11031,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000287",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000290",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "delete_no",
       "name": "删除时间",
@@ -11005,8 +11044,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000288",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000291",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "name",
       "name": "名称",
@@ -11018,8 +11057,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000289",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000292",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "parent_menu_id",
       "name": "父菜单",
@@ -11031,8 +11070,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000290",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000293",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "yz_project_id",
       "name": "项目",
@@ -11044,8 +11083,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000291",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000294",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "yz_admin_type_id",
       "name": "所属后台",
@@ -11057,8 +11096,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000292",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000295",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "kind",
       "name": "菜单类型",
@@ -11070,8 +11109,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000293",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000296",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "config_page_id",
       "name": "目标页面",
@@ -11083,8 +11122,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000294",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000297",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "config_custom_page_id",
       "name": "自定义页面",
@@ -11096,8 +11135,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000295",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000298",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "navigate_url",
       "name": "页面地址",
@@ -11109,8 +11148,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000296",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000299",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "icon_name",
       "name": "图标",
@@ -11122,8 +11161,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000297",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000300",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "sort_no",
       "name": "排序",
@@ -11135,8 +11174,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000298",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000301",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "is_hidden",
       "name": "隐藏",
@@ -11148,8 +11187,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000299",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000302",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "is_show_count",
       "name": "数量角标",
@@ -11161,8 +11200,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000300",
-      "configTableId": "2200000000000000277",
+      "id": "2200000000000000303",
+      "configTableId": "2200000000000000280",
       "configTableName": "菜单",
       "columnName": "visible_scheme",
       "name": "可见方案",
@@ -11174,8 +11213,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000303",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000306",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "id",
       "name": "标识",
@@ -11187,8 +11226,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000304",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000307",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "insert_time",
       "name": "创建时间",
@@ -11200,8 +11239,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000305",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000308",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "update_time",
       "name": "修改时间",
@@ -11213,8 +11252,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000306",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000309",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "insert_manager_id",
       "name": "创建账号",
@@ -11226,8 +11265,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000307",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000310",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "update_manager_id",
       "name": "修改账号",
@@ -11239,8 +11278,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000308",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000311",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "insert_user_name",
       "name": "创建账号名",
@@ -11252,8 +11291,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000309",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000312",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "update_user_name",
       "name": "修改账号名",
@@ -11265,8 +11304,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000310",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000313",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "insert_manager_real_name",
       "name": "创建姓名",
@@ -11278,8 +11317,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000311",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000314",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "update_manager_real_name",
       "name": "修改姓名",
@@ -11291,8 +11330,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000312",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000315",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "delete_no",
       "name": "删除时间",
@@ -11304,8 +11343,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000313",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000316",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "account_id",
       "name": "账号",
@@ -11317,8 +11356,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000314",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000317",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "token_hash",
       "name": "令牌摘要",
@@ -11330,8 +11369,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000315",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000318",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "expires_at",
       "name": "过期时间",
@@ -11343,8 +11382,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000316",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000319",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "kind",
       "name": "授权类型",
@@ -11356,8 +11395,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000317",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000320",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "grant_id",
       "name": "设备授权",
@@ -11369,8 +11408,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000318",
-      "configTableId": "2200000000000000302",
+      "id": "2200000000000000321",
+      "configTableId": "2200000000000000305",
       "configTableName": "登录会话",
       "columnName": "project_id",
       "name": "授权项目",
@@ -11382,8 +11421,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000320",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000323",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "id",
       "name": "标识",
@@ -11395,8 +11434,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000321",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000324",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "insert_time",
       "name": "创建时间",
@@ -11408,8 +11447,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000322",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000325",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "update_time",
       "name": "修改时间",
@@ -11421,8 +11460,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000323",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000326",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "insert_manager_id",
       "name": "创建账号",
@@ -11434,8 +11473,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000324",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000327",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "update_manager_id",
       "name": "修改账号",
@@ -11447,8 +11486,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000325",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000328",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "insert_user_name",
       "name": "创建账号名",
@@ -11460,8 +11499,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000326",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000329",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "update_user_name",
       "name": "修改账号名",
@@ -11473,8 +11512,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000327",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000330",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "insert_manager_real_name",
       "name": "创建姓名",
@@ -11486,8 +11525,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000328",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000331",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "update_manager_real_name",
       "name": "修改姓名",
@@ -11499,8 +11538,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000329",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000332",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "delete_no",
       "name": "删除时间",
@@ -11512,8 +11551,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000330",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000333",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "account_id",
       "name": "账号",
@@ -11525,8 +11564,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000331",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000334",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "project_id",
       "name": "项目",
@@ -11538,8 +11577,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000332",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000335",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "device_code_hash",
       "name": "设备码摘要",
@@ -11551,8 +11590,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000333",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000336",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "user_code",
       "name": "用户码",
@@ -11564,8 +11603,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000334",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000337",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "client_name",
       "name": "设备名称",
@@ -11577,8 +11616,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000335",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000338",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "status",
       "name": "授权状态",
@@ -11590,8 +11629,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000336",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000339",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "expires_at",
       "name": "过期时间",
@@ -11603,8 +11642,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000337",
-      "configTableId": "2200000000000000319",
+      "id": "2200000000000000340",
+      "configTableId": "2200000000000000322",
       "configTableName": "Agent设备授权",
       "columnName": "refresh_hash",
       "name": "刷新摘要",
@@ -11616,8 +11655,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000339",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000342",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "id",
       "name": "标识",
@@ -11629,8 +11668,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000340",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000343",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "insert_time",
       "name": "创建时间",
@@ -11642,8 +11681,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000341",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000344",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "update_time",
       "name": "修改时间",
@@ -11655,8 +11694,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000342",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000345",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "insert_manager_id",
       "name": "创建账号",
@@ -11668,8 +11707,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000343",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000346",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "update_manager_id",
       "name": "修改账号",
@@ -11681,8 +11720,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000344",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000347",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "insert_user_name",
       "name": "创建账号名",
@@ -11694,8 +11733,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000345",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000348",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "update_user_name",
       "name": "修改账号名",
@@ -11707,8 +11746,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000346",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000349",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "insert_manager_real_name",
       "name": "创建姓名",
@@ -11720,8 +11759,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000347",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000350",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "update_manager_real_name",
       "name": "修改姓名",
@@ -11733,8 +11772,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000348",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000351",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "delete_no",
       "name": "删除时间",
@@ -11746,8 +11785,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000349",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000352",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "account_id",
       "name": "账号",
@@ -11759,8 +11798,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000350",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000353",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "project_id",
       "name": "项目",
@@ -11772,8 +11811,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000351",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000354",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "request_id",
       "name": "请求标识",
@@ -11785,8 +11824,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000352",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000355",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "capability",
       "name": "能力",
@@ -11798,8 +11837,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000353",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000356",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "request_hash",
       "name": "请求摘要",
@@ -11811,8 +11850,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000354",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000357",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "status",
       "name": "状态",
@@ -11824,8 +11863,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000355",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000358",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "outcome",
       "name": "结果状态",
@@ -11837,8 +11876,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000356",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000359",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "result_id",
       "name": "结果标识",
@@ -11850,8 +11889,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000357",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000360",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "http_status",
       "name": "HTTP状态",
@@ -11863,8 +11902,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000358",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000361",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "business_code",
       "name": "业务状态",
@@ -11876,8 +11915,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000359",
-      "configTableId": "2200000000000000338",
+      "id": "2200000000000000362",
+      "configTableId": "2200000000000000341",
       "configTableName": "Agent请求任务",
       "columnName": "expires_at",
       "name": "过期时间",
@@ -11889,8 +11928,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000361",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000364",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "id",
       "name": "标识",
@@ -11902,8 +11941,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000362",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000365",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "insert_time",
       "name": "创建时间",
@@ -11915,8 +11954,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000363",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000366",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "update_time",
       "name": "修改时间",
@@ -11928,8 +11967,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000364",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000367",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "insert_manager_id",
       "name": "创建账号",
@@ -11941,8 +11980,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000365",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000368",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "update_manager_id",
       "name": "修改账号",
@@ -11954,8 +11993,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000366",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000369",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "insert_user_name",
       "name": "创建账号名",
@@ -11967,8 +12006,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000367",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000370",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "update_user_name",
       "name": "修改账号名",
@@ -11980,8 +12019,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000368",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000371",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "insert_manager_real_name",
       "name": "创建姓名",
@@ -11993,8 +12032,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000369",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000372",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "update_manager_real_name",
       "name": "修改姓名",
@@ -12006,8 +12045,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000370",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000373",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "delete_no",
       "name": "删除时间",
@@ -12019,8 +12058,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000371",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000374",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "name",
       "name": "名称",
@@ -12032,8 +12071,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000372",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000375",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "content_type",
       "name": "文件类型",
@@ -12045,8 +12084,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000373",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000376",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "size",
       "name": "文件大小",
@@ -12058,8 +12097,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000374",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000377",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "storage_key",
       "name": "存储标识",
@@ -12071,8 +12110,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000375",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000378",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "access_mode",
       "name": "访问模式",
@@ -12084,8 +12123,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000376",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000379",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "status",
       "name": "文件状态",
@@ -12097,8 +12136,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000377",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000380",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "owner_id",
       "name": "所有者",
@@ -12110,8 +12149,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000378",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000381",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "folder_id",
       "name": "文件夹",
@@ -12123,8 +12162,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000379",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000382",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "yz_project_id",
       "name": "项目",
@@ -12136,8 +12175,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000380",
-      "configTableId": "2200000000000000360",
+      "id": "2200000000000000383",
+      "configTableId": "2200000000000000363",
       "configTableName": "文件库",
       "columnName": "sha256",
       "name": "校验摘要",
@@ -12149,8 +12188,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000382",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000385",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "id",
       "name": "标识",
@@ -12162,8 +12201,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000383",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000386",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "insert_time",
       "name": "创建时间",
@@ -12175,8 +12214,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000384",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000387",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "update_time",
       "name": "修改时间",
@@ -12188,8 +12227,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000385",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000388",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "insert_manager_id",
       "name": "创建账号",
@@ -12201,8 +12240,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000386",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000389",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "update_manager_id",
       "name": "修改账号",
@@ -12214,8 +12253,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000387",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000390",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "insert_user_name",
       "name": "创建账号名",
@@ -12227,8 +12266,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000388",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000391",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "update_user_name",
       "name": "修改账号名",
@@ -12240,8 +12279,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000389",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000392",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "insert_manager_real_name",
       "name": "创建姓名",
@@ -12253,8 +12292,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000390",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000393",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "update_manager_real_name",
       "name": "修改姓名",
@@ -12266,8 +12305,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000391",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000394",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "delete_no",
       "name": "删除时间",
@@ -12279,8 +12318,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000392",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000395",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "name",
       "name": "名称",
@@ -12292,8 +12331,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000393",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000396",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "parent_folder_id",
       "name": "上级",
@@ -12305,8 +12344,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000394",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000397",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "owner_id",
       "name": "所有者",
@@ -12318,8 +12357,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000395",
-      "configTableId": "2200000000000000381",
+      "id": "2200000000000000398",
+      "configTableId": "2200000000000000384",
       "configTableName": "文件夹",
       "columnName": "yz_project_id",
       "name": "项目",
@@ -12331,8 +12370,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000397",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000400",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "id",
       "name": "标识",
@@ -12344,8 +12383,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000398",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000401",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "insert_time",
       "name": "创建时间",
@@ -12357,8 +12396,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000399",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000402",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "update_time",
       "name": "修改时间",
@@ -12370,8 +12409,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000400",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000403",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "insert_manager_id",
       "name": "创建账号",
@@ -12383,8 +12422,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000401",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000404",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "update_manager_id",
       "name": "修改账号",
@@ -12396,8 +12435,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000402",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000405",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "insert_user_name",
       "name": "创建账号名",
@@ -12409,8 +12448,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000403",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000406",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "update_user_name",
       "name": "修改账号名",
@@ -12422,8 +12461,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000404",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000407",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "insert_manager_real_name",
       "name": "创建姓名",
@@ -12435,8 +12474,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000405",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000408",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "update_manager_real_name",
       "name": "修改姓名",
@@ -12448,8 +12487,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000406",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000409",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "delete_no",
       "name": "删除时间",
@@ -12461,8 +12500,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000407",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000410",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "file_id",
       "name": "文件",
@@ -12474,8 +12513,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000408",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000411",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "page_id",
       "name": "页面",
@@ -12487,8 +12526,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000409",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000412",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "record_id",
       "name": "记录",
@@ -12500,8 +12539,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000410",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000413",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "field_name",
       "name": "字段",
@@ -12513,8 +12552,8 @@
       "defaultValue": ""
     },
     {
-      "id": "2200000000000000411",
-      "configTableId": "2200000000000000396",
+      "id": "2200000000000000414",
+      "configTableId": "2200000000000000399",
       "configTableName": "文件引用",
       "columnName": "yz_project_id",
       "name": "项目",
@@ -13460,7 +13499,7 @@
     {
       "id": "2200000000000099000",
       "name": "菜单",
-      "configTableId": "2200000000000000277",
+      "configTableId": "2200000000000000280",
       "yzAdminTypeId": "1762777514515656705",
       "yzProjectId": "1608097412978577409",
       "sortNo": 100,
@@ -13829,7 +13868,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000412",
+      "id": "2200000000000000415",
       "name": "创建时间",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000172",
@@ -13840,7 +13879,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000413",
+      "id": "2200000000000000416",
       "name": "修改时间",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000173",
@@ -13851,7 +13890,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000414",
+      "id": "2200000000000000417",
       "name": "创建账号",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000174",
@@ -13862,7 +13901,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000415",
+      "id": "2200000000000000418",
       "name": "修改账号",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000175",
@@ -13873,7 +13912,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000416",
+      "id": "2200000000000000419",
       "name": "创建账号名",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000176",
@@ -13884,7 +13923,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000417",
+      "id": "2200000000000000420",
       "name": "修改账号名",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000177",
@@ -13895,7 +13934,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000418",
+      "id": "2200000000000000421",
       "name": "创建姓名",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000178",
@@ -13906,7 +13945,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000419",
+      "id": "2200000000000000422",
       "name": "修改姓名",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000179",
@@ -13917,7 +13956,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000420",
+      "id": "2200000000000000423",
       "name": "项目",
       "configPageId": "6186303424888832",
       "configColumnId": "2200000000000000181",
@@ -14356,7 +14395,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000421",
+      "id": "2200000000000000424",
       "name": "config_table_name",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000182",
@@ -14367,7 +14406,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000422",
+      "id": "2200000000000000425",
       "name": "config_page_name",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000183",
@@ -14378,7 +14417,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000423",
+      "id": "2200000000000000426",
       "name": "import_no",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000184",
@@ -14389,7 +14428,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000424",
+      "id": "2200000000000000427",
       "name": "update_time",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000185",
@@ -14400,7 +14439,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000425",
+      "id": "2200000000000000428",
       "name": "insert_manager_id",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000186",
@@ -14411,7 +14450,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000426",
+      "id": "2200000000000000429",
       "name": "insert_user_name",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000187",
@@ -14422,7 +14461,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000427",
+      "id": "2200000000000000430",
       "name": "update_manager_id",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000188",
@@ -14433,7 +14472,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000428",
+      "id": "2200000000000000431",
       "name": "insert_manager_real_name",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000189",
@@ -14444,7 +14483,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000429",
+      "id": "2200000000000000432",
       "name": "update_manager_real_name",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000190",
@@ -14455,7 +14494,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000430",
+      "id": "2200000000000000433",
       "name": "update_user_name",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000191",
@@ -14466,7 +14505,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000431",
+      "id": "2200000000000000434",
       "name": "yz_project_name",
       "configPageId": "7097193256583168",
       "configColumnId": "2200000000000000193",
@@ -14908,7 +14947,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000432",
+      "id": "2200000000000000435",
       "name": "config_table_name",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000182",
@@ -14919,7 +14958,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000433",
+      "id": "2200000000000000436",
       "name": "config_page_name",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000183",
@@ -14930,7 +14969,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000434",
+      "id": "2200000000000000437",
       "name": "import_no",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000184",
@@ -14941,7 +14980,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000435",
+      "id": "2200000000000000438",
       "name": "update_time",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000185",
@@ -14952,7 +14991,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000436",
+      "id": "2200000000000000439",
       "name": "insert_manager_id",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000186",
@@ -14963,7 +15002,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000437",
+      "id": "2200000000000000440",
       "name": "insert_user_name",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000187",
@@ -14974,7 +15013,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000438",
+      "id": "2200000000000000441",
       "name": "update_manager_id",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000188",
@@ -14985,7 +15024,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000439",
+      "id": "2200000000000000442",
       "name": "insert_manager_real_name",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000189",
@@ -14996,7 +15035,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000440",
+      "id": "2200000000000000443",
       "name": "update_manager_real_name",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000190",
@@ -15007,7 +15046,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000441",
+      "id": "2200000000000000444",
       "name": "update_user_name",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000191",
@@ -15018,7 +15057,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000442",
+      "id": "2200000000000000445",
       "name": "yz_project_name",
       "configPageId": "1870796062470516738",
       "configColumnId": "2200000000000000193",
@@ -15154,7 +15193,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000443",
+      "id": "2200000000000000446",
       "name": "parent_config_page_name",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000195",
@@ -15165,7 +15204,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000444",
+      "id": "2200000000000000447",
       "name": "child_config_page_name",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000196",
@@ -15176,7 +15215,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000445",
+      "id": "2200000000000000448",
       "name": "yz_project_name",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000197",
@@ -15187,7 +15226,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000446",
+      "id": "2200000000000000449",
       "name": "import_no",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000198",
@@ -15198,7 +15237,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000447",
+      "id": "2200000000000000450",
       "name": "insert_time",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000200",
@@ -15209,7 +15248,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000448",
+      "id": "2200000000000000451",
       "name": "update_time",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000201",
@@ -15220,7 +15259,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000449",
+      "id": "2200000000000000452",
       "name": "insert_manager_id",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000202",
@@ -15231,7 +15270,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000450",
+      "id": "2200000000000000453",
       "name": "update_manager_id",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000203",
@@ -15242,7 +15281,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000451",
+      "id": "2200000000000000454",
       "name": "insert_manager_real_name",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000204",
@@ -15253,7 +15292,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000452",
+      "id": "2200000000000000455",
       "name": "update_manager_real_name",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000205",
@@ -15264,7 +15303,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000453",
+      "id": "2200000000000000456",
       "name": "insert_user_name",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000206",
@@ -15275,7 +15314,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000454",
+      "id": "2200000000000000457",
       "name": "update_user_name",
       "configPageId": "1679390851298631682",
       "configColumnId": "2200000000000000207",
@@ -15376,7 +15415,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000455",
+      "id": "2200000000000000458",
       "name": "yz_project_name",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000219",
@@ -15387,7 +15426,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000456",
+      "id": "2200000000000000459",
       "name": "import_no",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000220",
@@ -15398,7 +15437,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000457",
+      "id": "2200000000000000460",
       "name": "insert_time",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000222",
@@ -15409,7 +15448,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000458",
+      "id": "2200000000000000461",
       "name": "update_time",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000223",
@@ -15420,7 +15459,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000459",
+      "id": "2200000000000000462",
       "name": "insert_manager_id",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000224",
@@ -15431,7 +15470,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000460",
+      "id": "2200000000000000463",
       "name": "update_manager_id",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000225",
@@ -15442,7 +15481,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000461",
+      "id": "2200000000000000464",
       "name": "insert_manager_real_name",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000226",
@@ -15453,7 +15492,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000462",
+      "id": "2200000000000000465",
       "name": "update_manager_real_name",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000227",
@@ -15464,7 +15503,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000463",
+      "id": "2200000000000000466",
       "name": "创建账号名",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000228",
@@ -15475,7 +15514,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000464",
+      "id": "2200000000000000467",
       "name": "修改账号名",
       "configPageId": "1696799309006348290",
       "configColumnId": "2200000000000000229",
@@ -15703,7 +15742,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000465",
+      "id": "2200000000000000468",
       "name": "创建时间",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000230",
@@ -15714,7 +15753,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000466",
+      "id": "2200000000000000469",
       "name": "修改时间",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000231",
@@ -15725,7 +15764,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000467",
+      "id": "2200000000000000470",
       "name": "创建账号",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000232",
@@ -15736,7 +15775,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000468",
+      "id": "2200000000000000471",
       "name": "修改账号",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000233",
@@ -15747,7 +15786,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000469",
+      "id": "2200000000000000472",
       "name": "创建账号名",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000234",
@@ -15758,7 +15797,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000470",
+      "id": "2200000000000000473",
       "name": "修改账号名",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000235",
@@ -15769,7 +15808,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000471",
+      "id": "2200000000000000474",
       "name": "创建姓名",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000236",
@@ -15780,7 +15819,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000472",
+      "id": "2200000000000000475",
       "name": "修改姓名",
       "configPageId": "2062361618137833473",
       "configColumnId": "2200000000000000237",
@@ -15926,10 +15965,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000473",
+      "id": "2200000000000000476",
       "name": "config_table_name",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000251",
+      "configColumnId": "2200000000000000253",
       "columnName": "config_table_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 60,
@@ -15937,10 +15976,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000474",
+      "id": "2200000000000000477",
       "name": "yz_project_name",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000252",
+      "configColumnId": "2200000000000000254",
       "columnName": "yz_project_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 70,
@@ -15948,10 +15987,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000475",
+      "id": "2200000000000000478",
       "name": "import_no",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000253",
+      "configColumnId": "2200000000000000255",
       "columnName": "import_no",
       "yzProjectId": "1608097412978577409",
       "sortNo": 80,
@@ -15959,10 +15998,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000476",
+      "id": "2200000000000000479",
       "name": "insert_time",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000255",
+      "configColumnId": "2200000000000000257",
       "columnName": "insert_time",
       "yzProjectId": "1608097412978577409",
       "sortNo": 100,
@@ -15970,10 +16009,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000477",
+      "id": "2200000000000000480",
       "name": "update_time",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000256",
+      "configColumnId": "2200000000000000258",
       "columnName": "update_time",
       "yzProjectId": "1608097412978577409",
       "sortNo": 110,
@@ -15981,10 +16020,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000478",
+      "id": "2200000000000000481",
       "name": "insert_manager_id",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000257",
+      "configColumnId": "2200000000000000259",
       "columnName": "insert_manager_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 120,
@@ -15992,10 +16031,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000479",
+      "id": "2200000000000000482",
       "name": "update_manager_id",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000258",
+      "configColumnId": "2200000000000000260",
       "columnName": "update_manager_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 130,
@@ -16003,10 +16042,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000480",
+      "id": "2200000000000000483",
       "name": "insert_manager_real_name",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000259",
+      "configColumnId": "2200000000000000261",
       "columnName": "insert_manager_real_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 140,
@@ -16014,10 +16053,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000481",
+      "id": "2200000000000000484",
       "name": "update_manager_real_name",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000260",
+      "configColumnId": "2200000000000000262",
       "columnName": "update_manager_real_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 150,
@@ -16025,10 +16064,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000482",
+      "id": "2200000000000000485",
       "name": "insert_user_name",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000261",
+      "configColumnId": "2200000000000000263",
       "columnName": "insert_user_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 160,
@@ -16036,15 +16075,26 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000483",
+      "id": "2200000000000000486",
       "name": "update_user_name",
       "configPageId": "2076977531071803393",
-      "configColumnId": "2200000000000000262",
+      "configColumnId": "2200000000000000264",
       "columnName": "update_user_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 170,
       "isShow": 1,
       "isEdit": 0
+    },
+    {
+      "id": "2200000000000000487",
+      "name": "唯一索引",
+      "configPageId": "2076977531071803393",
+      "configColumnId": "2200000000000000265",
+      "columnName": "is_unique",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 180,
+      "isShow": 1,
+      "isEdit": 1
     },
     {
       "configColumnColumnName": "config_index_id",
@@ -16209,10 +16259,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000484",
+      "id": "2200000000000000488",
       "name": "config_index_index_name",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000264",
+      "configColumnId": "2200000000000000267",
       "columnName": "config_index_index_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 70,
@@ -16220,10 +16270,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000485",
+      "id": "2200000000000000489",
       "name": "config_column_name",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000265",
+      "configColumnId": "2200000000000000268",
       "columnName": "config_column_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 80,
@@ -16231,10 +16281,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000486",
+      "id": "2200000000000000490",
       "name": "yz_project_name",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000266",
+      "configColumnId": "2200000000000000269",
       "columnName": "yz_project_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 90,
@@ -16242,10 +16292,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000487",
+      "id": "2200000000000000491",
       "name": "import_no",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000267",
+      "configColumnId": "2200000000000000270",
       "columnName": "import_no",
       "yzProjectId": "1608097412978577409",
       "sortNo": 100,
@@ -16253,10 +16303,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000488",
+      "id": "2200000000000000492",
       "name": "insert_time",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000269",
+      "configColumnId": "2200000000000000272",
       "columnName": "insert_time",
       "yzProjectId": "1608097412978577409",
       "sortNo": 120,
@@ -16264,10 +16314,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000489",
+      "id": "2200000000000000493",
       "name": "update_time",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000270",
+      "configColumnId": "2200000000000000273",
       "columnName": "update_time",
       "yzProjectId": "1608097412978577409",
       "sortNo": 130,
@@ -16275,10 +16325,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000490",
+      "id": "2200000000000000494",
       "name": "insert_manager_id",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000271",
+      "configColumnId": "2200000000000000274",
       "columnName": "insert_manager_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 140,
@@ -16286,10 +16336,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000491",
+      "id": "2200000000000000495",
       "name": "update_manager_id",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000272",
+      "configColumnId": "2200000000000000275",
       "columnName": "update_manager_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 150,
@@ -16297,10 +16347,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000492",
+      "id": "2200000000000000496",
       "name": "insert_manager_real_name",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000273",
+      "configColumnId": "2200000000000000276",
       "columnName": "insert_manager_real_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 160,
@@ -16308,10 +16358,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000493",
+      "id": "2200000000000000497",
       "name": "update_manager_real_name",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000274",
+      "configColumnId": "2200000000000000277",
       "columnName": "update_manager_real_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 170,
@@ -16319,10 +16369,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000494",
+      "id": "2200000000000000498",
       "name": "insert_user_name",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000275",
+      "configColumnId": "2200000000000000278",
       "columnName": "insert_user_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 180,
@@ -16330,10 +16380,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000495",
+      "id": "2200000000000000499",
       "name": "update_user_name",
       "configPageId": "2076977554350190593",
-      "configColumnId": "2200000000000000276",
+      "configColumnId": "2200000000000000279",
       "columnName": "update_user_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 190,
@@ -16491,7 +16541,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000496",
+      "id": "2200000000000000500",
       "name": "sql",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000010",
@@ -16502,7 +16552,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000497",
+      "id": "2200000000000000501",
       "name": "oracle_sql",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000011",
@@ -16513,7 +16563,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000498",
+      "id": "2200000000000000502",
       "name": "where_sql",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000012",
@@ -16524,7 +16574,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000499",
+      "id": "2200000000000000503",
       "name": "order_by",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000013",
@@ -16535,7 +16585,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000500",
+      "id": "2200000000000000504",
       "name": "group_by",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000014",
@@ -16546,7 +16596,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000501",
+      "id": "2200000000000000505",
       "name": "page_size",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000015",
@@ -16557,7 +16607,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000502",
+      "id": "2200000000000000506",
       "name": "is_edit",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000016",
@@ -16568,7 +16618,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000503",
+      "id": "2200000000000000507",
       "name": "is_new",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000017",
@@ -16579,7 +16629,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000504",
+      "id": "2200000000000000508",
       "name": "is_save",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000018",
@@ -16590,7 +16640,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000505",
+      "id": "2200000000000000509",
       "name": "is_delete",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000019",
@@ -16601,7 +16651,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000506",
+      "id": "2200000000000000510",
       "name": "is_search",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000020",
@@ -16612,7 +16662,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000507",
+      "id": "2200000000000000511",
       "name": "before_delete_sql",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000021",
@@ -16623,7 +16673,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000508",
+      "id": "2200000000000000512",
       "name": "after_save_sql",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000022",
@@ -16634,7 +16684,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000509",
+      "id": "2200000000000000513",
       "name": "after_import_sql",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000023",
@@ -16645,7 +16695,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000510",
+      "id": "2200000000000000514",
       "name": "is_import",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000024",
@@ -16656,7 +16706,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000511",
+      "id": "2200000000000000515",
       "name": "is_export",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000025",
@@ -16667,7 +16717,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000512",
+      "id": "2200000000000000516",
       "name": "is_multi_select",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000026",
@@ -16678,7 +16728,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000513",
+      "id": "2200000000000000517",
       "name": "is_lazy_query",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000027",
@@ -16689,7 +16739,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000514",
+      "id": "2200000000000000518",
       "name": "grid_edit",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000028",
@@ -16700,7 +16750,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000515",
+      "id": "2200000000000000519",
       "name": "title",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000029",
@@ -16711,7 +16761,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000516",
+      "id": "2200000000000000520",
       "name": "title_2",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000030",
@@ -16722,7 +16772,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000517",
+      "id": "2200000000000000521",
       "name": "title_3",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000031",
@@ -16733,7 +16783,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000518",
+      "id": "2200000000000000522",
       "name": "is_sum",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000032",
@@ -16744,7 +16794,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000519",
+      "id": "2200000000000000523",
       "name": "grid_width",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000033",
@@ -16755,7 +16805,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000520",
+      "id": "2200000000000000524",
       "name": "is_print_preview",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000034",
@@ -16766,7 +16816,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000521",
+      "id": "2200000000000000525",
       "name": "is_batch_delete",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000035",
@@ -16777,7 +16827,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000522",
+      "id": "2200000000000000526",
       "name": "import_method",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000036",
@@ -16788,7 +16838,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000523",
+      "id": "2200000000000000527",
       "name": "read_only_condition",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000037",
@@ -16799,7 +16849,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000524",
+      "id": "2200000000000000528",
       "name": "pop_window_width",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000038",
@@ -16810,7 +16860,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000525",
+      "id": "2200000000000000529",
       "name": "pop_window_height",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000039",
@@ -16821,7 +16871,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000526",
+      "id": "2200000000000000530",
       "name": "is_export_edit",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000040",
@@ -16832,7 +16882,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000527",
+      "id": "2200000000000000531",
       "name": "is_no_save_and_close",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000041",
@@ -16843,7 +16893,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000528",
+      "id": "2200000000000000532",
       "name": "is_update",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000042",
@@ -16854,7 +16904,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000529",
+      "id": "2200000000000000533",
       "name": "is_head_group",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000043",
@@ -16865,7 +16915,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000530",
+      "id": "2200000000000000534",
       "name": "is_modify_log",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000044",
@@ -16876,7 +16926,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000531",
+      "id": "2200000000000000535",
       "name": "layout",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000045",
@@ -16887,7 +16937,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000532",
+      "id": "2200000000000000536",
       "name": "conn_string",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000046",
@@ -16898,7 +16948,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000533",
+      "id": "2200000000000000537",
       "name": "export_method",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000047",
@@ -16909,7 +16959,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000534",
+      "id": "2200000000000000538",
       "name": "import_no",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000048",
@@ -16920,7 +16970,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000535",
+      "id": "2200000000000000539",
       "name": "insert_time",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000049",
@@ -16931,7 +16981,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000536",
+      "id": "2200000000000000540",
       "name": "update_time",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000050",
@@ -16942,7 +16992,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000537",
+      "id": "2200000000000000541",
       "name": "insert_manager_id",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000051",
@@ -16953,7 +17003,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000538",
+      "id": "2200000000000000542",
       "name": "insert_user_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000052",
@@ -16964,7 +17014,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000539",
+      "id": "2200000000000000543",
       "name": "update_manager_id",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000053",
@@ -16975,7 +17025,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000540",
+      "id": "2200000000000000544",
       "name": "insert_manager_real_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000054",
@@ -16986,7 +17036,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000541",
+      "id": "2200000000000000545",
       "name": "update_manager_real_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000055",
@@ -16997,7 +17047,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000542",
+      "id": "2200000000000000546",
       "name": "update_user_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000056",
@@ -17008,7 +17058,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000543",
+      "id": "2200000000000000547",
       "name": "copy_method",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000057",
@@ -17019,7 +17069,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000544",
+      "id": "2200000000000000548",
       "name": "sql_more",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000058",
@@ -17030,7 +17080,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000545",
+      "id": "2200000000000000549",
       "name": "authorize_scheme",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000059",
@@ -17041,7 +17091,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000546",
+      "id": "2200000000000000550",
       "name": "clear_method",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000060",
@@ -17052,7 +17102,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000547",
+      "id": "2200000000000000551",
       "name": "is_raw",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000061",
@@ -17063,7 +17113,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000548",
+      "id": "2200000000000000552",
       "name": "same_edit_code",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000062",
@@ -17074,7 +17124,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000549",
+      "id": "2200000000000000553",
       "name": "sql_grid",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000064",
@@ -17085,7 +17135,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000550",
+      "id": "2200000000000000554",
       "name": "data_src",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000065",
@@ -17096,7 +17146,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000551",
+      "id": "2200000000000000555",
       "name": "main_column",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000066",
@@ -17107,7 +17157,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000552",
+      "id": "2200000000000000556",
       "name": "batch_new_page_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000067",
@@ -17118,7 +17168,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000553",
+      "id": "2200000000000000557",
       "name": "edit_table_id",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000068",
@@ -17129,7 +17179,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000554",
+      "id": "2200000000000000558",
       "name": "edit_table_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000069",
@@ -17140,7 +17190,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000555",
+      "id": "2200000000000000559",
       "name": "edit_page_id",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000070",
@@ -17151,7 +17201,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000556",
+      "id": "2200000000000000560",
       "name": "edit_page_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000071",
@@ -17162,7 +17212,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000557",
+      "id": "2200000000000000561",
       "name": "edit_key_column",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000072",
@@ -17173,7 +17223,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000558",
+      "id": "2200000000000000562",
       "name": "button_visible",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000073",
@@ -17184,7 +17234,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000559",
+      "id": "2200000000000000563",
       "name": "auto_save",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000074",
@@ -17195,7 +17245,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000560",
+      "id": "2200000000000000564",
       "name": "child_place",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000075",
@@ -17206,7 +17256,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000561",
+      "id": "2200000000000000565",
       "name": "super_column_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000076",
@@ -17217,7 +17267,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000562",
+      "id": "2200000000000000566",
       "name": "edit_page_url",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000077",
@@ -17228,7 +17278,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000563",
+      "id": "2200000000000000567",
       "name": "display_option",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000078",
@@ -17239,7 +17289,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000564",
+      "id": "2200000000000000568",
       "name": "bpm_step_kind",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000079",
@@ -17250,7 +17300,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000565",
+      "id": "2200000000000000569",
       "name": "document_ready",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000080",
@@ -17261,7 +17311,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000566",
+      "id": "2200000000000000570",
       "name": "help",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000081",
@@ -17272,7 +17322,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000567",
+      "id": "2200000000000000571",
       "name": "edit_width",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000082",
@@ -17283,7 +17333,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000568",
+      "id": "2200000000000000572",
       "name": "yz_project_name",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000083",
@@ -17294,7 +17344,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000569",
+      "id": "2200000000000000573",
       "name": "is_platform",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000084",
@@ -17305,7 +17355,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000570",
+      "id": "2200000000000000574",
       "name": "is_sys",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000085",
@@ -17316,7 +17366,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000571",
+      "id": "2200000000000000575",
       "name": "is_repeat_pwd",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000086",
@@ -17327,7 +17377,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000572",
+      "id": "2200000000000000576",
       "name": "所属后台",
       "configPageId": "6191083005411328",
       "configColumnId": "2200000000000000087",
@@ -18535,7 +18585,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000573",
+      "id": "2200000000000000577",
       "name": "config_table_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000088",
@@ -18546,7 +18596,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000574",
+      "id": "2200000000000000578",
       "name": "parent_config_table_id",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000089",
@@ -18557,7 +18607,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000575",
+      "id": "2200000000000000579",
       "name": "parent_config_table_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000090",
@@ -18568,7 +18618,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000576",
+      "id": "2200000000000000580",
       "name": "parent_config_page_id",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000091",
@@ -18579,7 +18629,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000577",
+      "id": "2200000000000000581",
       "name": "parent_config_page_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000092",
@@ -18590,7 +18640,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000578",
+      "id": "2200000000000000582",
       "name": "yz_project_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000093",
@@ -18601,7 +18651,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000579",
+      "id": "2200000000000000583",
       "name": "import_no",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000094",
@@ -18612,7 +18662,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000580",
+      "id": "2200000000000000584",
       "name": "insert_time",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000096",
@@ -18623,7 +18673,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000581",
+      "id": "2200000000000000585",
       "name": "update_time",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000097",
@@ -18634,7 +18684,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000582",
+      "id": "2200000000000000586",
       "name": "insert_manager_id",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000098",
@@ -18645,7 +18695,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000583",
+      "id": "2200000000000000587",
       "name": "update_manager_id",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000099",
@@ -18656,7 +18706,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000584",
+      "id": "2200000000000000588",
       "name": "insert_manager_real_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000100",
@@ -18667,7 +18717,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000585",
+      "id": "2200000000000000589",
       "name": "update_manager_real_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000101",
@@ -18678,7 +18728,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000586",
+      "id": "2200000000000000590",
       "name": "insert_user_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000102",
@@ -18689,7 +18739,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000587",
+      "id": "2200000000000000591",
       "name": "update_user_name",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000103",
@@ -18700,7 +18750,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000588",
+      "id": "2200000000000000592",
       "name": "所属后台",
       "configPageId": "6191175925956608",
       "configColumnId": "2200000000000000104",
@@ -19903,7 +19953,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000589",
+      "id": "2200000000000000593",
       "name": "config_table_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000088",
@@ -19914,7 +19964,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000590",
+      "id": "2200000000000000594",
       "name": "parent_config_table_id",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000089",
@@ -19925,7 +19975,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000591",
+      "id": "2200000000000000595",
       "name": "parent_config_table_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000090",
@@ -19936,7 +19986,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000592",
+      "id": "2200000000000000596",
       "name": "parent_config_page_id",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000091",
@@ -19947,7 +19997,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000593",
+      "id": "2200000000000000597",
       "name": "parent_config_page_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000092",
@@ -19958,7 +20008,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000594",
+      "id": "2200000000000000598",
       "name": "yz_project_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000093",
@@ -19969,7 +20019,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000595",
+      "id": "2200000000000000599",
       "name": "import_no",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000094",
@@ -19980,7 +20030,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000596",
+      "id": "2200000000000000600",
       "name": "insert_time",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000096",
@@ -19991,7 +20041,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000597",
+      "id": "2200000000000000601",
       "name": "update_time",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000097",
@@ -20002,7 +20052,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000598",
+      "id": "2200000000000000602",
       "name": "insert_manager_id",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000098",
@@ -20013,7 +20063,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000599",
+      "id": "2200000000000000603",
       "name": "update_manager_id",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000099",
@@ -20024,7 +20074,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000600",
+      "id": "2200000000000000604",
       "name": "insert_manager_real_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000100",
@@ -20035,7 +20085,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000601",
+      "id": "2200000000000000605",
       "name": "update_manager_real_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000101",
@@ -20046,7 +20096,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000602",
+      "id": "2200000000000000606",
       "name": "insert_user_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000102",
@@ -20057,7 +20107,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000603",
+      "id": "2200000000000000607",
       "name": "update_user_name",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000103",
@@ -20068,7 +20118,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000604",
+      "id": "2200000000000000608",
       "name": "所属后台",
       "configPageId": "1868973685063311361",
       "configColumnId": "2200000000000000104",
@@ -21271,7 +21321,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000605",
+      "id": "2200000000000000609",
       "name": "config_table_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000088",
@@ -21282,7 +21332,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000606",
+      "id": "2200000000000000610",
       "name": "parent_config_table_id",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000089",
@@ -21293,7 +21343,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000607",
+      "id": "2200000000000000611",
       "name": "parent_config_table_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000090",
@@ -21304,7 +21354,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000608",
+      "id": "2200000000000000612",
       "name": "parent_config_page_id",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000091",
@@ -21315,7 +21365,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000609",
+      "id": "2200000000000000613",
       "name": "parent_config_page_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000092",
@@ -21326,7 +21376,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000610",
+      "id": "2200000000000000614",
       "name": "yz_project_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000093",
@@ -21337,7 +21387,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000611",
+      "id": "2200000000000000615",
       "name": "import_no",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000094",
@@ -21348,7 +21398,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000612",
+      "id": "2200000000000000616",
       "name": "insert_time",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000096",
@@ -21359,7 +21409,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000613",
+      "id": "2200000000000000617",
       "name": "update_time",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000097",
@@ -21370,7 +21420,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000614",
+      "id": "2200000000000000618",
       "name": "insert_manager_id",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000098",
@@ -21381,7 +21431,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000615",
+      "id": "2200000000000000619",
       "name": "update_manager_id",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000099",
@@ -21392,7 +21442,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000616",
+      "id": "2200000000000000620",
       "name": "insert_manager_real_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000100",
@@ -21403,7 +21453,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000617",
+      "id": "2200000000000000621",
       "name": "update_manager_real_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000101",
@@ -21414,7 +21464,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000618",
+      "id": "2200000000000000622",
       "name": "insert_user_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000102",
@@ -21425,7 +21475,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000619",
+      "id": "2200000000000000623",
       "name": "update_user_name",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000103",
@@ -21436,7 +21486,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000620",
+      "id": "2200000000000000624",
       "name": "所属后台",
       "configPageId": "1869016706289577986",
       "configColumnId": "2200000000000000104",
@@ -22341,7 +22391,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000621",
+      "id": "2200000000000000625",
       "name": "config_table_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000106",
@@ -22352,7 +22402,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000622",
+      "id": "2200000000000000626",
       "name": "is_in_grid",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000107",
@@ -22363,7 +22413,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000623",
+      "id": "2200000000000000627",
       "name": "is_in_filter",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000108",
@@ -22374,7 +22424,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000624",
+      "id": "2200000000000000628",
       "name": "is_in_edit",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000109",
@@ -22385,7 +22435,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000625",
+      "id": "2200000000000000629",
       "name": "is_read_only",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000110",
@@ -22396,7 +22446,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000626",
+      "id": "2200000000000000630",
       "name": "is_must",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000111",
@@ -22407,7 +22457,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000627",
+      "id": "2200000000000000631",
       "name": "link_config_table_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000112",
@@ -22418,7 +22468,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000628",
+      "id": "2200000000000000632",
       "name": "link_config_page_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000113",
@@ -22429,7 +22479,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000629",
+      "id": "2200000000000000633",
       "name": "yz_project_id",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000114",
@@ -22440,7 +22490,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000630",
+      "id": "2200000000000000634",
       "name": "yz_project_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000115",
@@ -22451,7 +22501,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000631",
+      "id": "2200000000000000635",
       "name": "is_print",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000116",
@@ -22462,7 +22512,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000632",
+      "id": "2200000000000000636",
       "name": "import_no",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000117",
@@ -22473,7 +22523,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000633",
+      "id": "2200000000000000637",
       "name": "insert_time",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000119",
@@ -22484,7 +22534,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000634",
+      "id": "2200000000000000638",
       "name": "update_time",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000120",
@@ -22495,7 +22545,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000635",
+      "id": "2200000000000000639",
       "name": "insert_manager_id",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000121",
@@ -22506,7 +22556,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000636",
+      "id": "2200000000000000640",
       "name": "update_manager_id",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000122",
@@ -22517,7 +22567,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000637",
+      "id": "2200000000000000641",
       "name": "insert_manager_real_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000123",
@@ -22528,7 +22578,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000638",
+      "id": "2200000000000000642",
       "name": "update_manager_real_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000124",
@@ -22539,7 +22589,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000639",
+      "id": "2200000000000000643",
       "name": "insert_user_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000125",
@@ -22550,7 +22600,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000640",
+      "id": "2200000000000000644",
       "name": "update_user_name",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000126",
@@ -22561,7 +22611,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000641",
+      "id": "2200000000000000645",
       "name": "sum_kind",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000127",
@@ -22572,7 +22622,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000642",
+      "id": "2200000000000000646",
       "name": "逻辑类型",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000128",
@@ -22583,7 +22633,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000643",
+      "id": "2200000000000000647",
       "name": "数值精度",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000129",
@@ -22594,7 +22644,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000644",
+      "id": "2200000000000000648",
       "name": "小数位数",
       "configPageId": "6217715532627968",
       "configColumnId": "2200000000000000130",
@@ -23230,7 +23280,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000645",
+      "id": "2200000000000000649",
       "name": "config_column_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000132",
@@ -23241,7 +23291,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000646",
+      "id": "2200000000000000650",
       "name": "config_page_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000133",
@@ -23252,7 +23302,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000647",
+      "id": "2200000000000000651",
       "name": "link_config_table_id",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000134",
@@ -23263,7 +23313,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000648",
+      "id": "2200000000000000652",
       "name": "link_config_table_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000135",
@@ -23274,7 +23324,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000649",
+      "id": "2200000000000000653",
       "name": "link_config_page_id",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000136",
@@ -23285,7 +23335,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000650",
+      "id": "2200000000000000654",
       "name": "link_config_page_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000137",
@@ -23296,7 +23346,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000651",
+      "id": "2200000000000000655",
       "name": "combine_super_column_id",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000138",
@@ -23307,7 +23357,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000652",
+      "id": "2200000000000000656",
       "name": "combine_super_column_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000139",
@@ -23318,7 +23368,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000653",
+      "id": "2200000000000000657",
       "name": "import_no",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000140",
@@ -23329,7 +23379,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000654",
+      "id": "2200000000000000658",
       "name": "insert_time",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000142",
@@ -23340,7 +23390,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000655",
+      "id": "2200000000000000659",
       "name": "update_time",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000143",
@@ -23351,7 +23401,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000656",
+      "id": "2200000000000000660",
       "name": "insert_manager_id",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000144",
@@ -23362,7 +23412,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000657",
+      "id": "2200000000000000661",
       "name": "update_manager_id",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000145",
@@ -23373,7 +23423,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000658",
+      "id": "2200000000000000662",
       "name": "insert_manager_real_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000146",
@@ -23384,7 +23434,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000659",
+      "id": "2200000000000000663",
       "name": "update_manager_real_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000147",
@@ -23395,7 +23445,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000660",
+      "id": "2200000000000000664",
       "name": "insert_user_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000148",
@@ -23406,7 +23456,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000661",
+      "id": "2200000000000000665",
       "name": "update_user_name",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000149",
@@ -23417,7 +23467,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000662",
+      "id": "2200000000000000666",
       "name": "项目",
       "configPageId": "6218036784398336",
       "configColumnId": "2200000000000000150",
@@ -23524,7 +23574,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000663",
+      "id": "2200000000000000667",
       "name": "创建时间",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000151",
@@ -23535,7 +23585,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000664",
+      "id": "2200000000000000668",
       "name": "修改时间",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000152",
@@ -23546,7 +23596,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000665",
+      "id": "2200000000000000669",
       "name": "创建账号",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000153",
@@ -23557,7 +23607,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000666",
+      "id": "2200000000000000670",
       "name": "修改账号",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000154",
@@ -23568,7 +23618,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000667",
+      "id": "2200000000000000671",
       "name": "创建账号名",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000155",
@@ -23579,7 +23629,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000668",
+      "id": "2200000000000000672",
       "name": "修改账号名",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000156",
@@ -23590,7 +23640,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000669",
+      "id": "2200000000000000673",
       "name": "创建姓名",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000157",
@@ -23601,7 +23651,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000670",
+      "id": "2200000000000000674",
       "name": "修改姓名",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000158",
@@ -23612,7 +23662,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000671",
+      "id": "2200000000000000675",
       "name": "项目",
       "configPageId": "6220589291798528",
       "configColumnId": "2200000000000000160",
@@ -23789,7 +23839,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000672",
+      "id": "2200000000000000676",
       "name": "创建时间",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000162",
@@ -23800,7 +23850,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000673",
+      "id": "2200000000000000677",
       "name": "修改时间",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000163",
@@ -23811,7 +23861,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000674",
+      "id": "2200000000000000678",
       "name": "创建账号",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000164",
@@ -23822,7 +23872,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000675",
+      "id": "2200000000000000679",
       "name": "修改账号",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000165",
@@ -23833,7 +23883,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000676",
+      "id": "2200000000000000680",
       "name": "创建账号名",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000166",
@@ -23844,7 +23894,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000677",
+      "id": "2200000000000000681",
       "name": "修改账号名",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000167",
@@ -23855,7 +23905,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000678",
+      "id": "2200000000000000682",
       "name": "创建姓名",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000168",
@@ -23866,7 +23916,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000679",
+      "id": "2200000000000000683",
       "name": "修改姓名",
       "configPageId": "6220608155484160",
       "configColumnId": "2200000000000000169",
@@ -24012,7 +24062,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000680",
+      "id": "2200000000000000684",
       "name": "创建时间",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000209",
@@ -24023,7 +24073,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000681",
+      "id": "2200000000000000685",
       "name": "修改时间",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000210",
@@ -24034,7 +24084,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000682",
+      "id": "2200000000000000686",
       "name": "创建账号",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000211",
@@ -24045,7 +24095,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000683",
+      "id": "2200000000000000687",
       "name": "修改账号",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000212",
@@ -24056,7 +24106,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000684",
+      "id": "2200000000000000688",
       "name": "创建账号名",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000213",
@@ -24067,7 +24117,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000685",
+      "id": "2200000000000000689",
       "name": "修改账号名",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000214",
@@ -24078,7 +24128,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000686",
+      "id": "2200000000000000690",
       "name": "创建姓名",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000215",
@@ -24089,7 +24139,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000687",
+      "id": "2200000000000000691",
       "name": "修改姓名",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000216",
@@ -24100,7 +24150,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000688",
+      "id": "2200000000000000692",
       "name": "项目",
       "configPageId": "1692532858529329154",
       "configColumnId": "2200000000000000218",
@@ -24186,7 +24236,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000689",
+      "id": "2200000000000000693",
       "name": "创建时间",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000240",
@@ -24197,7 +24247,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000690",
+      "id": "2200000000000000694",
       "name": "修改时间",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000241",
@@ -24208,7 +24258,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000691",
+      "id": "2200000000000000695",
       "name": "创建账号",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000242",
@@ -24219,7 +24269,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000692",
+      "id": "2200000000000000696",
       "name": "修改账号",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000243",
@@ -24230,7 +24280,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000693",
+      "id": "2200000000000000697",
       "name": "创建账号名",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000244",
@@ -24241,7 +24291,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000694",
+      "id": "2200000000000000698",
       "name": "修改账号名",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000245",
@@ -24252,7 +24302,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000695",
+      "id": "2200000000000000699",
       "name": "创建姓名",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000246",
@@ -24263,7 +24313,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000696",
+      "id": "2200000000000000700",
       "name": "修改姓名",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000247",
@@ -24274,13 +24324,35 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000697",
+      "id": "2200000000000000701",
       "name": "项目",
       "configPageId": "2063264600601714690",
       "configColumnId": "2200000000000000249",
       "columnName": "yz_project_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 130,
+      "isShow": 1,
+      "isEdit": 1
+    },
+    {
+      "id": "2200000000000000702",
+      "name": "页面",
+      "configPageId": "2063264600601714690",
+      "configColumnId": "2200000000000000250",
+      "columnName": "config_page_id",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 140,
+      "isShow": 1,
+      "isEdit": 1
+    },
+    {
+      "id": "2200000000000000703",
+      "name": "菜单",
+      "configPageId": "2063264600601714690",
+      "configColumnId": "2200000000000000251",
+      "columnName": "config_menu_id",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 150,
       "isShow": 1,
       "isEdit": 1
     },
@@ -24747,7 +24819,7 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000698",
+      "id": "2200000000000000704",
       "name": "修改时间",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000001",
@@ -24758,7 +24830,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000699",
+      "id": "2200000000000000705",
       "name": "创建账号",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000002",
@@ -24769,7 +24841,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000700",
+      "id": "2200000000000000706",
       "name": "修改账号",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000003",
@@ -24780,7 +24852,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000701",
+      "id": "2200000000000000707",
       "name": "创建账号名",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000004",
@@ -24791,7 +24863,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000702",
+      "id": "2200000000000000708",
       "name": "修改账号名",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000005",
@@ -24802,7 +24874,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000703",
+      "id": "2200000000000000709",
       "name": "创建姓名",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000006",
@@ -24813,7 +24885,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000704",
+      "id": "2200000000000000710",
       "name": "修改姓名",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000007",
@@ -24824,7 +24896,7 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000705",
+      "id": "2200000000000000711",
       "name": "项目",
       "configPageId": "6031906822946816",
       "configColumnId": "2200000000000000009",
@@ -24835,10 +24907,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000706",
+      "id": "2200000000000000712",
       "name": "创建时间",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000279",
+      "configColumnId": "2200000000000000282",
       "columnName": "insert_time",
       "yzProjectId": "1608097412978577409",
       "sortNo": 10,
@@ -24846,10 +24918,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000707",
+      "id": "2200000000000000713",
       "name": "修改时间",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000280",
+      "configColumnId": "2200000000000000283",
       "columnName": "update_time",
       "yzProjectId": "1608097412978577409",
       "sortNo": 20,
@@ -24857,10 +24929,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000708",
+      "id": "2200000000000000714",
       "name": "创建账号",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000281",
+      "configColumnId": "2200000000000000284",
       "columnName": "insert_manager_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 30,
@@ -24868,10 +24940,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000709",
+      "id": "2200000000000000715",
       "name": "修改账号",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000282",
+      "configColumnId": "2200000000000000285",
       "columnName": "update_manager_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 40,
@@ -24879,10 +24951,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000710",
+      "id": "2200000000000000716",
       "name": "创建账号名",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000283",
+      "configColumnId": "2200000000000000286",
       "columnName": "insert_user_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 50,
@@ -24890,10 +24962,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000711",
+      "id": "2200000000000000717",
       "name": "修改账号名",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000284",
+      "configColumnId": "2200000000000000287",
       "columnName": "update_user_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 60,
@@ -24901,10 +24973,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000712",
+      "id": "2200000000000000718",
       "name": "创建姓名",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000285",
+      "configColumnId": "2200000000000000288",
       "columnName": "insert_manager_real_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 70,
@@ -24912,10 +24984,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000713",
+      "id": "2200000000000000719",
       "name": "修改姓名",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000286",
+      "configColumnId": "2200000000000000289",
       "columnName": "update_manager_real_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 80,
@@ -24923,10 +24995,10 @@
       "isEdit": 0
     },
     {
-      "id": "2200000000000000714",
+      "id": "2200000000000000720",
       "name": "名称",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000288",
+      "configColumnId": "2200000000000000291",
       "columnName": "name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 100,
@@ -24934,10 +25006,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000715",
+      "id": "2200000000000000721",
       "name": "父菜单",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000289",
+      "configColumnId": "2200000000000000292",
       "columnName": "parent_menu_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 110,
@@ -24945,10 +25017,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000716",
+      "id": "2200000000000000722",
       "name": "项目",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000290",
+      "configColumnId": "2200000000000000293",
       "columnName": "yz_project_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 120,
@@ -24956,10 +25028,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000717",
+      "id": "2200000000000000723",
       "name": "所属后台",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000291",
+      "configColumnId": "2200000000000000294",
       "columnName": "yz_admin_type_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 130,
@@ -24967,10 +25039,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000718",
+      "id": "2200000000000000724",
       "name": "菜单类型",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000292",
+      "configColumnId": "2200000000000000295",
       "columnName": "kind",
       "yzProjectId": "1608097412978577409",
       "sortNo": 140,
@@ -24978,10 +25050,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000719",
+      "id": "2200000000000000725",
       "name": "目标页面",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000293",
+      "configColumnId": "2200000000000000296",
       "columnName": "config_page_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 150,
@@ -24989,10 +25061,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000720",
+      "id": "2200000000000000726",
       "name": "自定义页面",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000294",
+      "configColumnId": "2200000000000000297",
       "columnName": "config_custom_page_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 160,
@@ -25000,10 +25072,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000721",
+      "id": "2200000000000000727",
       "name": "页面地址",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000295",
+      "configColumnId": "2200000000000000298",
       "columnName": "navigate_url",
       "yzProjectId": "1608097412978577409",
       "sortNo": 170,
@@ -25011,10 +25083,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000722",
+      "id": "2200000000000000728",
       "name": "图标",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000296",
+      "configColumnId": "2200000000000000299",
       "columnName": "icon_name",
       "yzProjectId": "1608097412978577409",
       "sortNo": 180,
@@ -25022,10 +25094,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000723",
+      "id": "2200000000000000729",
       "name": "排序",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000297",
+      "configColumnId": "2200000000000000300",
       "columnName": "sort_no",
       "yzProjectId": "1608097412978577409",
       "sortNo": 190,
@@ -25033,10 +25105,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000724",
+      "id": "2200000000000000730",
       "name": "隐藏",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000298",
+      "configColumnId": "2200000000000000301",
       "columnName": "is_hidden",
       "yzProjectId": "1608097412978577409",
       "sortNo": 200,
@@ -25044,10 +25116,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000725",
+      "id": "2200000000000000731",
       "name": "数量角标",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000299",
+      "configColumnId": "2200000000000000302",
       "columnName": "is_show_count",
       "yzProjectId": "1608097412978577409",
       "sortNo": 210,
@@ -25055,10 +25127,10 @@
       "isEdit": 1
     },
     {
-      "id": "2200000000000000726",
+      "id": "2200000000000000732",
       "name": "可见方案",
       "configPageId": "2200000000000099000",
-      "configColumnId": "2200000000000000300",
+      "configColumnId": "2200000000000000303",
       "columnName": "visible_scheme",
       "yzProjectId": "1608097412978577409",
       "sortNo": 220,
@@ -25358,7 +25430,7 @@
       "yzAdminTypeId": "1762777514515656705"
     },
     {
-      "id": "2200000000000000301",
+      "id": "2200000000000000304",
       "name": "菜单",
       "parentMenuId": "1669251197366845441",
       "kind": "GENERATED_PAGE",
@@ -26273,6 +26345,332 @@
       "yzProjectName": "Metarill"
     }
   ],
-  "configIndexes": [],
-  "configIndexColumns": []
+  "configIndexes": [
+    {
+      "id": "2200000000000000733",
+      "configTableId": "6031906809708544",
+      "indexName": "ux_manager_name",
+      "isUnique": 1,
+      "indexType": "UNIQUE",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000735",
+      "configTableId": "2200000000000000305",
+      "indexName": "ux_session_token",
+      "isUnique": 1,
+      "indexType": "UNIQUE",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000737",
+      "configTableId": "2200000000000000322",
+      "indexName": "ux_grant_device",
+      "isUnique": 1,
+      "indexType": "UNIQUE",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000739",
+      "configTableId": "2200000000000000322",
+      "indexName": "ux_grant_user",
+      "isUnique": 1,
+      "indexType": "UNIQUE",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000741",
+      "configTableId": "2200000000000000341",
+      "indexName": "ux_task_request",
+      "isUnique": 1,
+      "indexType": "UNIQUE",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000745",
+      "configTableId": "2200000000000000280",
+      "indexName": "ix_menu_parent",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000751",
+      "configTableId": "6191080026669056",
+      "indexName": "ix_table_project",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000754",
+      "configTableId": "6217714881724416",
+      "indexName": "ix_column_table",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000758",
+      "configTableId": "6191173858623488",
+      "indexName": "ix_page_table",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000761",
+      "configTableId": "6218035521716224",
+      "indexName": "ix_page_field",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000765",
+      "configTableId": "2200000000000000399",
+      "indexName": "ix_file_record",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    }
+  ],
+  "configIndexColumns": [
+    {
+      "id": "2200000000000000734",
+      "configIndexId": "2200000000000000733",
+      "configColumnId": "1679698326577131521",
+      "columnName": "name",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000736",
+      "configIndexId": "2200000000000000735",
+      "configColumnId": "2200000000000000317",
+      "columnName": "token_hash",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000738",
+      "configIndexId": "2200000000000000737",
+      "configColumnId": "2200000000000000335",
+      "columnName": "device_code_hash",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000740",
+      "configIndexId": "2200000000000000739",
+      "configColumnId": "2200000000000000336",
+      "columnName": "user_code",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000742",
+      "configIndexId": "2200000000000000741",
+      "configColumnId": "2200000000000000352",
+      "columnName": "account_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000743",
+      "configIndexId": "2200000000000000741",
+      "configColumnId": "2200000000000000353",
+      "columnName": "project_id",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000744",
+      "configIndexId": "2200000000000000741",
+      "configColumnId": "2200000000000000354",
+      "columnName": "request_id",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000746",
+      "configIndexId": "2200000000000000745",
+      "configColumnId": "2200000000000000293",
+      "columnName": "yz_project_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000747",
+      "configIndexId": "2200000000000000745",
+      "configColumnId": "2200000000000000294",
+      "columnName": "yz_admin_type_id",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000748",
+      "configIndexId": "2200000000000000745",
+      "configColumnId": "2200000000000000292",
+      "columnName": "parent_menu_id",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000749",
+      "configIndexId": "2200000000000000745",
+      "configColumnId": "2200000000000000290",
+      "columnName": "delete_no",
+      "sortNo": 30,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000750",
+      "configIndexId": "2200000000000000745",
+      "configColumnId": "2200000000000000300",
+      "columnName": "sort_no",
+      "sortNo": 40,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000752",
+      "configIndexId": "2200000000000000751",
+      "configColumnId": "1671029182113705986",
+      "columnName": "yz_project_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000753",
+      "configIndexId": "2200000000000000751",
+      "configColumnId": "2200000000000000063",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000755",
+      "configIndexId": "2200000000000000754",
+      "configColumnId": "1670724765850193921",
+      "columnName": "config_table_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000756",
+      "configIndexId": "2200000000000000754",
+      "configColumnId": "2200000000000000118",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000757",
+      "configIndexId": "2200000000000000754",
+      "configColumnId": "1670726645452034049",
+      "columnName": "sort_no",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000759",
+      "configIndexId": "2200000000000000758",
+      "configColumnId": "1671100304320462849",
+      "columnName": "config_table_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000760",
+      "configIndexId": "2200000000000000758",
+      "configColumnId": "2200000000000000095",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000762",
+      "configIndexId": "2200000000000000761",
+      "configColumnId": "1676901024972058625",
+      "columnName": "config_page_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000763",
+      "configIndexId": "2200000000000000761",
+      "configColumnId": "1676901024774926338",
+      "columnName": "config_column_id",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000764",
+      "configIndexId": "2200000000000000761",
+      "configColumnId": "2200000000000000141",
+      "columnName": "delete_no",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000766",
+      "configIndexId": "2200000000000000765",
+      "configColumnId": "2200000000000000411",
+      "columnName": "page_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000767",
+      "configIndexId": "2200000000000000765",
+      "configColumnId": "2200000000000000412",
+      "columnName": "record_id",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000768",
+      "configIndexId": "2200000000000000765",
+      "configColumnId": "2200000000000000409",
+      "columnName": "delete_no",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    }
+  ]
 }
