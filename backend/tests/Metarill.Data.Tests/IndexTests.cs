@@ -5,6 +5,17 @@ using Xunit;
 
 namespace Metarill.Data.Tests;
 
+public sealed class PlatformMetadataFactAttribute : FactAttribute
+{
+    public PlatformMetadataFactAttribute()
+    {
+        var settings = Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS");
+        var metadata = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA");
+        if (string.IsNullOrWhiteSpace(settings) || !File.Exists(settings) || string.IsNullOrWhiteSpace(metadata) || !File.Exists(metadata))
+            Skip = "未同时提供专用 MySQL 配置与平台元数据路径，平台反查预览未验收。";
+    }
+}
+
 public sealed class IndexTests
 {
     [Fact]
@@ -35,12 +46,12 @@ public sealed class IndexTests
         Assert.Throws<InvalidOperationException>(() => MySqlSchemaPlanner.Compile(catalog, "db"));
     }
 
-    [MySqlIntegrationFact]
+    [PlatformMetadataFact]
     public async Task Platform_metadata_compiles_and_only_previews()
     {
         var path = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA");
-        if (string.IsNullOrEmpty(path)) return; // 独立数据层测试不要求协调者的平台文件；真实运行时显式传入。
-        var catalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(path), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        Assert.False(string.IsNullOrEmpty(path));
+        var catalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(path!), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
         using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options = settings.RootElement.GetProperty("Metarill").GetProperty("Database").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
         Assert.Equal("metarill_test", options.ExpectedDatabase);
@@ -51,3 +62,4 @@ public sealed class IndexTests
         Assert.All(plan.Changes, change => Assert.DoesNotContain("DROP ", change.Sql, StringComparison.OrdinalIgnoreCase));
     }
 }
+

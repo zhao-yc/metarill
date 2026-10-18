@@ -10,9 +10,9 @@ using MySqlConnector;
 namespace Metarill.Data.Schema;
 
 /// <summary>显式结构变更入口。预览令牌绑定当前实例、连接目标和结构快照，SQL 不由 HTTP 调用者决定。</summary>
-public sealed class SchemaService(DatabaseSession session)
+public sealed class SchemaService(DatabaseSession session, ISchemaChangeJournal? journal = null)
 {
-    private sealed record PendingPlan(SchemaChangePlan Plan, DatabaseSchema Desired, string Identity, string Signature);
+    private sealed record PendingPlan(SchemaChangePlan Plan, DatabaseSchema Desired, string Identity, string Signature, DateTimeOffset ExpiresAt);
     private readonly ConcurrentDictionary<string, PendingPlan> _pending = new();
     private readonly ConcurrentQueue<SchemaApplyResult> _history = new();
     public IReadOnlyList<SchemaApplyResult> History => _history.ToArray();
@@ -31,7 +31,9 @@ public sealed class SchemaService(DatabaseSession session)
             MySqlSchemaPlanner.Fingerprint(current), MySqlSchemaPlanner.Fingerprint(desired), changes);
         // 存储不可变序列化副本，调用者修改 Changes 集合不能影响待执行指令。
         var copy = JsonSerializer.Deserialize<SchemaChangePlan>(JsonSerializer.Serialize(plan))!;
-        _pending[plan.Id] = new PendingPlan(copy, desired, identity, Sign(copy));
+        foreach (var expired in _pending.Where(x => x.Value.ExpiresAt <= DateTimeOffset.UtcNow).Select(x => x.Key)) _pending.TryRemove(expired, out _);
+        if (_pending.Count >= 1000) throw new InvalidOperationException("未执行计划过多，请稍后重新预览。");
+        _pending[plan.Id] = new PendingPlan(copy, desired, identity, Sign(copy), DateTimeOffset.UtcNow.AddMinutes(30));
         return plan;
     }
 
@@ -41,6 +43,7 @@ public sealed class SchemaService(DatabaseSession session)
         ArgumentNullException.ThrowIfNull(plan);
         EnsureMySql();
         if (!_pending.TryRemove(plan.Id, out var pending)) throw new InvalidOperationException("计划不存在、已使用或进程已重启，请重新预览。");
+        if (pending.ExpiresAt <= DateTimeOffset.UtcNow) throw new InvalidOperationException("计划已过期，请重新预览。");
         if (pending.Signature != Sign(plan)) throw new InvalidOperationException("预览计划被修改，必须重新预览。");
         if (session.CurrentTransaction is not null) throw new InvalidOperationException("结构变更不能加入业务事务。");
         var started = DateTimeOffset.UtcNow;
@@ -68,14 +71,15 @@ public sealed class SchemaService(DatabaseSession session)
             var actual = await ReadSchemaAsync(connection, names, cancellationToken);
             if (MySqlSchemaPlanner.Compare(actual, pending.Desired).Count != 0) throw new InvalidOperationException("DDL 执行后的结构与预期不符。");
             var result = new SchemaApplyResult(plan.Id, plan.Database, started, DateTimeOffset.UtcNow, true, applied, null);
-            _history.Enqueue(result);
+            await RecordAsync(pending.Plan, result);
             return result;
         }
         catch (Exception exception)
         {
             // 只记录异常类型和安全说明，连接异常不得将凭据写入历史或客户端。
             var result = new SchemaApplyResult(plan.Id, plan.Database, started, DateTimeOffset.UtcNow, false, applied, exception.GetType().Name);
-            _history.Enqueue(result);
+            try { await RecordAsync(pending.Plan, result); }
+            catch (Exception journalError) { exception = new AggregateException("结构执行或审计记录失败。", exception, journalError); }
             throw new SchemaApplyException(result, exception);
         }
         finally
@@ -97,6 +101,14 @@ public sealed class SchemaService(DatabaseSession session)
         await connection.OpenAsync(cancellationToken);
         await ValidateTargetAsync(connection, cancellationToken);
         return await ReadSchemaAsync(connection, desired.Tables.Select(t => t.Name).ToArray(), cancellationToken);
+    }
+
+    /// <summary>保留有界运行历史，并通过宿主注入的持久化审计写入完整结果。</summary>
+    private async Task RecordAsync(SchemaChangePlan plan, SchemaApplyResult result)
+    {
+        _history.Enqueue(result);
+        while (_history.Count > 1000) _history.TryDequeue(out _);
+        if (journal is not null) await journal.AppendAsync(new SchemaAuditEntry(plan, result), CancellationToken.None);
     }
 
     private void EnsureMySql()
@@ -196,4 +208,5 @@ public sealed class SchemaService(DatabaseSession session)
         }
     }
 }
+
 

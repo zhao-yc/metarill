@@ -61,6 +61,28 @@ public sealed class MySqlIntegrationTests
             var missingRequired = Catalog(table);
             missingRequired.ConfigColumns.Add(new() { Id = "required", ConfigTableId = "table", ColumnName = "required_value", LogicalType = "string", IsDbNotNull = 1 });
             await Assert.ThrowsAsync<InvalidOperationException>(() => schema.PreviewAsync(missingRequired));
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            System.Data.Common.DbTransaction? firstTransaction = null;
+            var first = session.InTransactionAsync(async () =>
+            {
+                firstTransaction = session.CurrentTransaction;
+                entered.SetResult();
+                await release.Task;
+                await session.Insert<TestRow>().AsTable(table).AppendData(new TestRow { Id = 3, Name = "并发一" }).ExecuteAffrowsAsync();
+                return 0;
+            });
+            await entered.Task;
+            var second = session.InTransactionAsync(async () =>
+            {
+                Assert.NotSame(firstTransaction, session.CurrentTransaction);
+                await session.Insert<TestRow>().AsTable(table).AppendData(new TestRow { Id = 4, Name = "并发二" }).ExecuteAffrowsAsync();
+                return 0;
+            });
+            try { await second; }
+            finally { release.TrySetResult(); }
+            await first;
+            Assert.Equal(3, await session.Select<TestRow>().AsTable((_, _) => table).CountAsync());
             Assert.Contains(schema.History, h => h.Succeeded);
         }
         finally { await DropTemporaryAsync(session, table); }
@@ -135,3 +157,4 @@ public sealed class MySqlIntegrationTests
         [Column(Name = "delete_no")] public DateTime? DeleteNo { get; set; }
     }
 }
+

@@ -35,6 +35,7 @@ public static class MySqlSchemaPlanner
     public static ColumnSchema CompileColumn(ColumnMetadata column)
     {
         MetadataValidation.RequireIdentifier(column.ColumnName);
+        if (string.IsNullOrWhiteSpace(column.LogicalType)) throw new InvalidOperationException("必须明确指定字段逻辑类型。");
         var logical = column.LogicalType.ToLowerInvariant();
         var sqlType = logical switch
         {
@@ -58,6 +59,7 @@ public static class MySqlSchemaPlanner
         return new ColumnSchema(column.ColumnName, sqlType, column.IsDbNotNull == 0, isId, defaultSql);
     }
 
+    /// <summary>只创建、增列和安全扩宽；未声明字段或索引不自动删除。</summary>
     public static IReadOnlyList<SchemaChange> Compare(DatabaseSchema current, DatabaseSchema desired)
     {
         if (current.Database != desired.Database) throw new InvalidOperationException("结构快照数据库不一致。");
@@ -109,6 +111,7 @@ public static class MySqlSchemaPlanner
         return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(normalized))).ToLowerInvariant();
     }
 
+    /// <summary>只接受单段白名单标识符，禁止跨库、反引号及 SQL 表达式。</summary>
     public static string Quote(string identifier)
     {
         MetadataValidation.RequireIdentifier(identifier);
@@ -162,6 +165,7 @@ public static class MySqlSchemaPlanner
     private static string? CompileDefault(string value, string logical)
     {
         if (string.IsNullOrEmpty(value)) return null;
+        if (logical == "string" && value.Contains((char)92)) throw new InvalidOperationException("首期结构默认值不支持反斜杠，请由 Service 设置默认值。");
         return logical switch
         {
             "string" => "'" + value.Replace("\\", "\\\\").Replace("'", "''") + "'",
@@ -174,6 +178,7 @@ public static class MySqlSchemaPlanner
         };
     }
 }
+
 
 
 

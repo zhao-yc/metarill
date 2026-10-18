@@ -36,7 +36,7 @@ public static class DatabaseProviders
     });
 
     /// <summary>未实现的数据库明确失败，禁止误用 MySQL 方言。</summary>
-    public static IDatabaseProvider Resolve(string provider) => provider.ToLowerInvariant() switch
+    public static IDatabaseProvider Resolve(string provider) => provider?.ToLowerInvariant() switch
     {
         "mysql" => new MySqlDatabaseProvider(),
         _ => throw new NotSupportedException($"数据库 {provider} 尚未完成 Metarill 适配。")
@@ -46,7 +46,9 @@ public static class DatabaseProviders
 public sealed class MySqlDatabaseProvider : IDatabaseProvider
 {
     public string Name => "mysql";
+    /// <summary>按 MySQL 方言引用经过白名单校验的单段名称。</summary>
     public string QuoteIdentifier(string identifier) => Schema.MySqlSchemaPlanner.Quote(identifier);
+    /// <summary>参数只接受安全名称，值始终通过 DbParameter 传递。</summary>
     public string ParameterPlaceholder(string name)
     {
         Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(name);
@@ -79,10 +81,12 @@ public sealed class MySqlDatabaseProvider : IDatabaseProvider
             .UseGenerateCommandParameterWithLambda(true).Build();
     }
 
+    /// <summary>创建未打开的受目标库约束连接，由调用者释放。</summary>
     public DbConnection CreateConnection(DatabaseOptions options)
     {
         Validate(options);
         return new MySqlConnection(options.ConnectionString);
     }
 }
+
 

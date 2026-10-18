@@ -30,9 +30,13 @@ public sealed class DatabaseSession : IDisposable
         _ownsOrm = orm is null;
     }
 
+    /// <summary>创建强类型 Select 指令并加入当前业务事务。</summary>
     public ISelect<T> Select<T>() where T : class => Orm.Select<T>().WithTransaction(CurrentTransaction);
+    /// <summary>创建强类型 Insert 指令并加入当前业务事务。</summary>
     public IInsert<T> Insert<T>() where T : class => Orm.Insert<T>().WithTransaction(CurrentTransaction);
+    /// <summary>创建强类型 Update 指令并加入当前业务事务。</summary>
     public IUpdate<T> Update<T>() where T : class => Orm.Update<T>().WithTransaction(CurrentTransaction);
+    /// <summary>创建强类型 Delete 指令并加入当前业务事务。</summary>
     public IDelete<T> Delete<T>() where T : class => Orm.Delete<T>().WithTransaction(CurrentTransaction);
 
     /// <summary>完整业务流程开启事务；内层 Service 加入同一事务，任何内层失败均阻止外层提交。</summary>
@@ -67,9 +71,11 @@ public sealed class DatabaseSession : IDisposable
         finally { _transaction.Value = null; }
     }
 
+    /// <summary>仅释放本会话创建的 ORM，宿主注入的共享实例由宿主管理。</summary>
     public void Dispose()
     {
         if (_ownsOrm) Orm.Dispose();
     }
 }
+
 
