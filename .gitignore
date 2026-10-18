@@ -1,0 +1,16 @@
+.tools/
+.local/
+**/bin/
+**/obj/
+**/node_modules/
+**/unpackage/
+.env
+.env.*
+!.env.example
+*.user
+*.suo
+*.log
+*.pfx
+*.pem
+*.key
+.DS_Store
