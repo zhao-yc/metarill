@@ -74,4 +74,3 @@ public static class AgentRequestAuthentication
     public static AgentRequestIdentity RequireWeb(HttpContext context) { var identity = Require(context); if (identity.Kind != "web") throw new UnauthorizedAccessException("需要真实网页登录会话。"); return identity; }
     public static AgentRequestIdentity RequireAgent(HttpContext context) { var identity = Require(context); if (identity.Kind != "agent") throw new UnauthorizedAccessException("需要Agent授权。"); return identity; }
 }
-

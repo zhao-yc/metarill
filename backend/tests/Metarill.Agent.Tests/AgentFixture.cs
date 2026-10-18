@@ -46,6 +46,8 @@ internal sealed class AgentFixture : IAsyncDisposable
     private readonly List<long> _roles = [];
     private WebApplication? _application;
     public DatabaseSession Session { get; private set; } = null!;
+    public DatabaseSession BusinessSession { get; private set; } = null!;
+    public AgentTaskStore Tasks { get; private set; } = null!;
     public MetadataRegistry Registry { get; private set; } = null!;
     public SqlRowStore Store { get; private set; } = null!;
     public AgentClock Clock { get; } = new();
@@ -67,11 +69,15 @@ internal sealed class AgentFixture : IAsyncDisposable
             var options = json.RootElement.GetProperty("Metarill").GetProperty("Database").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
             if (options.ExpectedDatabase != "metarill_test") throw new InvalidOperationException("Agent测试只允许指定隔离库。");
             fixture.Session = new(options);
+            var businessOptions = json.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+            if (businessOptions.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("Agent测试只允许指定业务隔离库。");
+            fixture.BusinessSession = new(businessOptions);
             var metadata = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             fixture.Registry = new(metadata, Path.Combine(Path.GetDirectoryName(metadata)!, "demo.json"));
             fixture.Store = new(fixture.Session, fixture.Registry);
             fixture.Authentication = new(fixture.Store, fixture.Registry, Ids);
             fixture.OAuth = new(fixture.Store, fixture.Registry, Ids, new(), fixture.Clock);
+            fixture.Tasks = new(fixture.Store, Ids, new(), fixture.Clock);
             fixture.AccountId = Ids.NextId(); fixture.RoleId = Ids.NextId();
             fixture._accounts.Add(fixture.AccountId); fixture._roles.Add(fixture.RoleId);
             var name = "mt_agent_" + Guid.NewGuid().ToString("N")[..16];
@@ -84,6 +90,8 @@ internal sealed class AgentFixture : IAsyncDisposable
             {
                 services.AddSingleton(fixture.Session); services.AddSingleton(fixture.Store); services.AddSingleton(fixture.Registry); services.AddSingleton<IIdGenerator>(Ids);
                 services.AddSingleton(fixture.Authentication); services.AddSingleton<TimeProvider>(fixture.Clock); services.AddSingleton(new AgentOAuthOptions());
+                services.AddSingleton(new AgentTaskOptions()); services.AddSingleton(fixture.Tasks);
+                Metarill.Demo.Generated.GeneratedRegistration.AddGeneratedServices(services, _ => fixture.BusinessSession);
                 services.AddSingleton(fixture.OAuth); services.AddSingleton<AgentAuthenticationService>(); services.AddSingleton<AgentPublicRateLimiter>();
                 services.AddHttpContextAccessor(); services.AddScoped<IRuntimeAuthorization, HttpRuntimeAuthorization>(); services.AddSingleton<GeneratedCapabilityIndex>(); services.AddScoped<AgentCapabilityCatalog>();
                 services.AddControllers().AddApplicationPart(typeof(AgentOAuthController).Assembly).AddJsonOptions(o => JsonDefaults.CopyTo(o.JsonSerializerOptions));
@@ -95,7 +103,9 @@ internal sealed class AgentFixture : IAsyncDisposable
                     catch (UnauthorizedAccessException error) { context.Response.StatusCode = 401; await context.Response.WriteAsJsonAsync(R<object>.Error(error.Message), JsonDefaults.Options); }
                     catch (InvalidOperationException error) { context.Response.StatusCode = 400; await context.Response.WriteAsJsonAsync(R<object>.Error(error.Message), JsonDefaults.Options); }
                 });
-                app.UseRouting(); app.UseMiddleware<AgentAuthenticationMiddleware>(); app.MapControllers();
+                app.UseRouting(); app.UseMiddleware<AgentAuthenticationMiddleware>(); app.UseMiddleware<AgentTaskMiddleware>();
+                app.Use(async (context, next) => { await next(); if (context.Request.Headers["X-Test-After-Commit"] == "fail") throw new InvalidOperationException("测试模拟提交后响应丢失"); });
+                app.MapControllers();
             fixture._application = app; await app.StartAsync(); fixture.Client = app.GetTestClient();
             return fixture;
         }
@@ -144,11 +154,16 @@ internal sealed class AgentFixture : IAsyncDisposable
                 foreach (var table in new[] { "sys_agent_task", "sys_session", "sys_agent_grant" }) await ExecuteAsync(connection, "DELETE FROM " + Session.Provider.QuoteIdentifier(table) + " WHERE account_id=@id", id);
                 await ExecuteAsync(connection, "DELETE FROM yz_manager WHERE id=@id", id);
             }
+            if (BusinessSession is not null)
+            {
+                await using var business = BusinessSession.Provider.CreateConnection(BusinessSession.Options); await business.OpenAsync();
+                foreach (var id in _accounts) await ExecuteAsync(business, "DELETE FROM demo_customer WHERE insert_manager_id=@id", id);
+            }
             foreach (var id in _roles) { await ExecuteAsync(connection, "DELETE FROM yz_role_permission WHERE yz_role_id=@id", id); await ExecuteAsync(connection, "DELETE FROM yz_role WHERE id=@id", id); }
             // 未批准设备没有账号，用本测试唯一客户端名称及创建的设备ID跟踪清理由测试统一登记。
             foreach (var id in _devices) await ExecuteAsync(connection, "DELETE FROM sys_agent_grant WHERE id=@id", id);
         }
-        finally { Session.Dispose(); }
+        finally { BusinessSession?.Dispose(); Session.Dispose(); }
     }
     private readonly HashSet<long> _devices = [];
     public async Task TrackAsync(JsonElement device)
@@ -156,7 +171,3 @@ internal sealed class AgentFixture : IAsyncDisposable
     private static async Task ExecuteAsync(DbConnection connection, string sql, long id)
     { await using var command = connection.CreateCommand(); command.CommandText = sql; var parameter = command.CreateParameter(); parameter.ParameterName = "id"; parameter.Value = id; command.Parameters.Add(parameter); await command.ExecuteNonQueryAsync(); }
 }
-
-
-
-

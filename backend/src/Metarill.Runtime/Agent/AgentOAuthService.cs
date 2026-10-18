@@ -102,6 +102,7 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
             var status = SqlRowStore.Text(row, "status");
             if (status == "pending") return Failure("authorization_pending", "等待网页登录人工确认。");
             if (status != "approved") return Failure("access_denied", "用户拒绝或授权已撤销。");
+            if (Date(row, "refresh_expires_at") <= now) return Failure("access_denied", "批准授权已过期。");
             if (!await ValidAccountAsync(SqlRowStore.Id(row, "account_id"), cancellationToken)) return Failure("access_denied", "批准授权的账号已失效。");
             var access = PasswordHasher.Token(); var refresh = PasswordHasher.Token();
             await store.UpdateAsync("sys_agent_grant", SqlRowStore.Id(row), new Dictionary<string, object?> { ["device_redeemed_at"] = now, ["refresh_hash"] = PasswordHasher.Digest(refresh) }, cancellationToken);
@@ -191,6 +192,7 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
     private async Task<string> ProjectNameAsync(string project, CancellationToken token) { var row = (await store.ReadAsync("yz_project", new Dictionary<string, object?> { ["id"] = long.Parse(project, CultureInfo.InvariantCulture) }, token)).SingleOrDefault() ?? throw new UnauthorizedAccessException("项目未登记。"); return SqlRowStore.Text(row, "name"); }
     /// <summary>OAuth响应使用标准snake_case键，不经过业务R封装。</summary>
     private TokenResult Success(IReadOnlyDictionary<string, object?> row, string access, string refresh) => new(new() { ["access_token"] = access, ["refresh_token"] = refresh, ["token_type"] = "Bearer", ["expires_in"] = Math.Max(1, (int)(AccessExpiry(row) - _clock.GetUtcNow().UtcDateTime).TotalSeconds), ["project_id"] = SqlRowStore.Text(row, "project_id") }, null);
+    /// <summary>短期访问期限不能超过人工批准的总体期限。</summary>
     private DateTime AccessExpiry(IReadOnlyDictionary<string, object?> row) { var maximum = _clock.GetUtcNow().AddSeconds(options.AccessTokenSeconds).UtcDateTime; var end = Date(row, "refresh_expires_at"); return end < maximum ? end : maximum; }
     private static TokenResult Failure(string code, string message) => new(null, Error(code, message));
     private static AgentOAuthException Error(string code, string message, int status = 400) => new(code, message, status);
@@ -199,6 +201,7 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
     private static void RequireClient(string client) { if (client != ClientId) throw Error("invalid_client", "未识别的Agent客户端。"); }
     private static void RequireToken(string? token) { if (token is null || !TokenPattern().IsMatch(token)) throw Error("invalid_request", "授权凭据格式无效。"); }
     private static string NormalizeCode(string value) { var code = (value ?? "").Trim().Replace("-", "").ToUpperInvariant(); if (!UserCodePattern().IsMatch(code)) throw new InvalidOperationException("用户码格式无效。"); return code; }
+    /// <summary>验证地址只使用服务端配置，不接受Host头或客户端回调地址。</summary>
     private void ValidateOptions()
     {
         if (options.DeviceCodeSeconds is < 60 or > 1800 || options.PollingSeconds is < 1 or > 30 || options.AccessTokenSeconds is < 60 or > 3600 || options.GrantSeconds is < 3600 or > 90 * 24 * 3600) throw new InvalidOperationException("Agent授权有效期配置无效。");

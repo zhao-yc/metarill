@@ -40,4 +40,3 @@ public sealed class AgentOAuthController(AgentOAuthService oauth, AgentPublicRat
         catch (System.Data.Common.DbException) { return StatusCode(503, new { error = "temporarily_unavailable", error_description = "授权存储暂不可用，请稍后重试。" }); }
     }
 }
-

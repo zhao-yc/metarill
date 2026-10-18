@@ -111,5 +111,3 @@ public sealed class AgentOAuthIntegrationTests
         var described = await f.BearerAsync(access, "/api/admin/sys/agent/capabilities/" + Uri.EscapeDataString(create.GetProperty("id").GetString()!)); Assert.Equal(HttpStatusCode.Unauthorized, described.StatusCode);
     }
 }
-
-

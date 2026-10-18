@@ -10,7 +10,7 @@ namespace Metarill.Api.AgentControllers;
 [ApiController]
 [Route("api/admin/sys/agent")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class AgentManagementController(AgentOAuthService oauth, AgentPublicRateLimiter limiter, AgentCapabilityCatalog catalog, SqlRowStore store) : ControllerBase
+public sealed class AgentManagementController(AgentOAuthService oauth, AgentPublicRateLimiter limiter, AgentCapabilityCatalog catalog, SqlRowStore store, AgentTaskStore tasks) : ControllerBase
 {
     [HttpGet("device")]
     public async Task<R<AgentDeviceView>> Device([FromQuery] string userCode, CancellationToken cancellationToken)
@@ -41,6 +41,13 @@ public sealed class AgentManagementController(AgentOAuthService oauth, AgentPubl
     public R<object> Capabilities() { AgentRequestAuthentication.RequireAgent(HttpContext); return R<object>.Success(catalog.List()); }
     [HttpGet("capabilities/{id}")]
     public R<AgentCapability> Describe(string id) { AgentRequestAuthentication.RequireAgent(HttpContext); return R<AgentCapability>.Success(catalog.Describe(id)); }
+    /// <summary>只查询当前Agent账号项目的任务，未找到不能据此断言业务没有执行。</summary>
+    [HttpGet("tasks/{requestId}")]
+    public async Task<IActionResult> Tasks(string requestId, CancellationToken cancellationToken)
+    {
+        try { return Ok(R<AgentTaskView>.Success(await tasks.GetAsync(AgentRequestAuthentication.RequireAgent(HttpContext).Identity.Actor, requestId.ToLowerInvariant(), cancellationToken))); }
+        catch (AgentTaskException error) { await AgentTaskMiddleware.WriteErrorAsync(HttpContext, error); return new EmptyResult(); }
+    }
     [HttpGet("skill")]
     public R<object> Skill()
     {
