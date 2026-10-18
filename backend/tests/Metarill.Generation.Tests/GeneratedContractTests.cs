@@ -20,7 +20,7 @@ public sealed class GeneratedContractTests
         Directory.CreateDirectory(root);
         try
         {
-            var catalog = GeneratorTests.Catalog(); catalog.ConfigColumns.Single(column => column.ColumnName == "remark").ControlKind = "FileLibrary";
+            var catalog = GeneratorTests.Catalog(); catalog.ConfigPages[0].IsCopy = 1; catalog.ConfigColumns.Single(column => column.ColumnName == "remark").ControlKind = "FileLibrary";
             new CSharpGenerator().Generate(catalog, Path.Combine(root, "generated"), "Example.Contract");
             var repository = FindRepository();
             var dataProject = Environment.GetEnvironmentVariable("METARILL_DATA_PROJECT") ?? Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj");
@@ -70,6 +70,11 @@ public sealed class GeneratedContractTests
             var task = (Task)controllerType.GetMethod("Page")!.Invoke(controller, [new PageRequest(), CancellationToken.None])!;
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => task);
             Assert.Equal("101:list", authorization.Requested);
+            var copyMethod = controllerType.GetMethod("Copy")!;
+            Assert.Equal("copy/{id}", copyMethod.GetCustomAttributes().Single(attribute => attribute.GetType().Name == "HttpPostAttribute").GetType().GetProperty("Template")!.GetValue(copyMethod.GetCustomAttributes().Single(attribute => attribute.GetType().Name == "HttpPostAttribute")));
+            var copyTask = (Task)copyMethod.Invoke(controller, [1L, null, CancellationToken.None])!;
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => copyTask);
+            Assert.Equal("101:copy", authorization.Requested);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

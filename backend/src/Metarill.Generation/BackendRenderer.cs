@@ -113,7 +113,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var page in table.Pages)
         {
             result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page));
-            result.Append(Mutations(model, table, page));
+            result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
         result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
@@ -274,6 +274,26 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         }
         return result.ToString();
     }
+    /// <summary>复制完整业务值，重建主键和审计，不复制子表。</summary>
+    private static string Copy(GenerationModel model, TableModel table, PageModel page)
+    {
+        if (page.Source.IsCopy != 1) return "";
+        var result = new StringBuilder().AppendLine("    /// <summary>复制受限记录，创建规则和文件引用仍处于同一事务。</summary>")
+            .AppendLine($"    public Task<{page.Name}Vo> Copy{page.Source.Id}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
+            .AppendLine("    {")
+            .AppendLine($"        await ValidateParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
+            .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+            .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};")
+            .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
+        foreach (var column in table.Columns.Where(column => !column.IsSystem))
+            result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
+        result.Append(Audit(table, true)).AppendLine("        BeforeSave(entity, actor, true, submitted);")
+            .Append(RequiredValidation(model, table, page, false))
+            .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");")
+            .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);")
+            .AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
+        return result.ToString();
+    }
     /// <summary>观察者在数据库事务内执行，异常会让本次对象写入一同回滚。</summary>
     private static string Observer(GenerationModel model, TableModel table)
     {
@@ -374,6 +394,9 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         if (page.Source.IsDelete == 1)
             result.AppendLine("    /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>").AppendLine("    [HttpDelete]")
                 .AppendLine($"    public async Task<R<string>> Delete([FromBody] {page.Name}RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete{suffix}Async(request.Id, parentId, Actor(\"delete\"), cancellationToken) ? R<string>.Success(\"删除成功\") : R<string>.Error(\"删除失败\");");
+        if (page.Source.IsCopy == 1)
+            result.AppendLine("    /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>").AppendLine("    [HttpPost(\"copy/{id}\")]")
+                .AppendLine($"    public async Task<R<{page.Name}Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Copy{suffix}Async(id, parentId, Actor(\"copy\"), cancellationToken));");
         foreach (var relation in RelationCompilation.ForPage(model, page))
             result.AppendLine("    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]")
