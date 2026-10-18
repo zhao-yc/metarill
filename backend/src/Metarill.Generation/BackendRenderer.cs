@@ -131,18 +131,38 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var column in page.Searchable)
         {
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
-                .AppendLine($"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
-            var field = model.Catalog.ConfigPageColumns.Single(x => x.ConfigPageId == page.Source.Id && x.ConfigColumnId == column.Source.Id);
-            var matchName = field.Extra.TryGetValue("searchType", out var match) ? match.ToString() : field.Extra.TryGetValue("matchType", out match) ? match.ToString() : ""; var like = column.Type == "string?" && (matchName == "like" || (string.IsNullOrEmpty(matchName) && column.Source.ControlKind is not "List" and not "ConstList" and not "ConstDownList" and not "SelectPage"));
-            result.AppendLine(like ? $"                    query = query.Where(entity => entity.{column.Property} != null && value != null && entity.{column.Property}.Contains(value));" : $"                    query = query.Where(entity => entity.{column.Property} == value);")
-                .AppendLine("                    break;").AppendLine("                }");
-        }
-        result.AppendLine("                default: throw new ArgumentException(\"页面未开放该筛选字段：\" + filter.Key);").AppendLine("            }").AppendLine("        }")
-            .AppendLine("        if (request.SelectedIds.Count > 0)").AppendLine("        {").AppendLine("            var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();")
+                .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
+            if (column.Type == "DateTime?")
+            {
+                result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {")
+                    .AppendLine("                        if (filter.Value.GetArrayLength() != 2) throw new ArgumentException(\"日期范围要求起止两个值。\");")
+                    .AppendLine("                        var start = DateTime.Parse(filter.Value[0].GetString()!, CultureInfo.InvariantCulture);")
+                    .AppendLine("                        var end = DateTime.Parse(filter.Value[1].GetString()!, CultureInfo.InvariantCulture);")
+                    .AppendLine("                        if (start > end) throw new ArgumentException(\"日期范围起点不能晚于终点。\");")
+                    .AppendLine($"                        query = query.Where(entity => entity.{column.Property} >= start && entity.{column.Property} <= end);")
+                    .AppendLine("                        break;").AppendLine("                    }")
+                    .AppendLine("                    var value = DateTime.Parse(filter.Value.GetString()!, CultureInfo.InvariantCulture);")
+                    .AppendLine($"                    query = query.Where(entity => entity.{column.Property} == value);");
+            }
+            else
+            {
+                result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {")
+                    .AppendLine($"                        var values = JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(), JsonOptions)!;")
+                    .AppendLine($"                        query = query.Where(entity => values.Contains(entity.{column.Property}));")
+                    .AppendLine("                        break;").AppendLine("                    }")
+                    .AppendLine($"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
+                var field = model.Catalog.ConfigPageColumns.Single(x => x.ConfigPageId == page.Source.Id && x.ConfigColumnId == column.Source.Id);
+                var matchName = field.Extra.TryGetValue("searchType", out var match) ? match.ToString() : field.Extra.TryGetValue("matchType", out match) ? match.ToString() : "";
+                var like = column.Type == "string?" && (matchName == "like" || (string.IsNullOrEmpty(matchName) && column.Source.ControlKind is not "List" and not "ConstList" and not "ConstDownList" and not "SelectPage"));
+                result.AppendLine(like ? $"                    query = query.Where(entity => entity.{column.Property} != null && value != null && entity.{column.Property}.Contains(value));" : $"                    query = query.Where(entity => entity.{column.Property} == value);");
+            }
+            result.AppendLine("                    break;").AppendLine("                }");
+        }        result.AppendLine("                default: throw new ArgumentException(\"页面未开放该筛选字段：\" + filter.Key);").AppendLine("            }").AppendLine("        }")
+            .AppendLine("        if (request.SelectedIds is null) throw new ArgumentException(\"selectedIds 不能为空。\");").AppendLine("        if (request.SelectedIds.Count > 0)").AppendLine("        {").AppendLine("            var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();")
             .AppendLine("            query = query.Where(entity => selected.Contains(entity.Id));").AppendLine("        }").AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>")
             .AppendLine($"    private static ISelect<{table.Name}> Order{suffix}(ISelect<{table.Name}> query, PageRequest request)").AppendLine("    {")
-            .AppendLine("        if (request.OrderBy is not null)").AppendLine("        {")
+            .AppendLine("        if (request.OrderBy is not null && (!string.IsNullOrWhiteSpace(request.OrderBy.Column) || !string.IsNullOrWhiteSpace(request.OrderBy.Field) || !string.IsNullOrWhiteSpace(request.OrderBy.Order)))").AppendLine("        {")
             .AppendLine("            var descending = request.OrderBy.Order switch { \"descending\" => true, \"ascending\" => false, _ => throw new ArgumentException(\"排序方向无效。\") };")
             .AppendLine("            return (request.OrderBy.Column ?? request.OrderBy.Field) switch").AppendLine("            {");
         foreach (var column in page.Sortable)
@@ -360,4 +380,3 @@ public partial class {{table.Name}}Service
         return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").ToString();
     }
 }
-
