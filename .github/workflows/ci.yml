@@ -5,32 +5,55 @@ permissions:
 jobs:
   backend:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      METARILL_PLATFORM_METADATA: ${{ github.workspace }}/backend/metadata/platform.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
-      - name: 生成平台和示例后端
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: 重新生成并核对提交产物
+        shell: pwsh
         run: |
-          dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/platform.json --output backend/generated/platform --namespace Metarill.Platform
-          dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/demo.json --output backend/generated/demo --namespace Metarill.Demo
+          foreach ($target in @('platform','demo')) {
+            $namespace = if ($target -eq 'platform') { 'Metarill.Platform' } else { 'Metarill.Demo' }
+            dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/$target.json --output backend/generated/$target --namespace $namespace
+            if ($LASTEXITCODE -ne 0) { throw '重新生成失败' }
+          }
+          npm run sync:write-schema --prefix frontend/metarill_uni_admin
+          npm run sync:custom-routes --prefix frontend/metarill_uni_admin
+          git diff --exit-code -- backend/generated frontend/metarill_uni_admin
+          if ($LASTEXITCODE -ne 0) { throw '生成产物与已提交内容不一致' }
       - name: 编译服务
-        run: dotnet build backend/src/Metarill.Api
-      - name: 数据库适配与生成保护单元测试
+        run: dotnet build backend/src/Metarill.Api --configuration Release
+      - name: 运行全部后端测试项目
+        shell: pwsh
         run: |
-          dotnet test backend/tests/Metarill.Data.Tests --logger "trx;LogFileName=data.trx"
-          dotnet test backend/tests/Metarill.Generation.Tests --logger "trx;LogFileName=generation.trx"
+          foreach ($project in Get-ChildItem backend/tests -Filter *.csproj -Recurse) {
+            dotnet test $project.FullName --logger "trx;LogFileName=$($project.BaseName).trx"
+            if ($LASTEXITCODE -ne 0) { throw "测试失败：$($project.BaseName)" }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 测试报告-${{ matrix.os }}
+          path: backend/tests/**/TestResults/*.trx
   frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - name: 运行时及Agent协议测试
+          node-version: 24
+      - name: 运行时与Agent协议测试
         run: |
-          node --test frontend/metarill_uni_admin/tests/*.test.mjs
+          npm test --prefix frontend/metarill_uni_admin
+          npm run check --prefix tools/metarill-agent-cli
           npm test --prefix tools/metarill-agent-cli

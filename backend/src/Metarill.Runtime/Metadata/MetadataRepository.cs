@@ -27,13 +27,15 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
     }
     private async Task SeedRows<T>(string table,IEnumerable<T> records,CancellationToken cancellationToken)
     {
-        var existing=(await store.ReadAsync(table,cancellationToken:cancellationToken)).Select(r=>SqlRowStore.Id(r)).ToHashSet();
+        var existing=(await store.ReadIncludingDeletedAsync(table,cancellationToken:cancellationToken)).Select(r=>SqlRowStore.Id(r)).ToHashSet();
         foreach(var record in records)
         {
             var json=JsonSerializer.SerializeToElement(record,JsonDefaults.Options);
             var values=json.EnumerateObject().ToDictionary(p=>MetadataRegistry.Snake(p.Name),p=>(object?)p.Value.Clone());
             if(!values.TryGetValue("id",out var idValue)||!long.TryParse(idValue?.ToString(),out var id))throw new InvalidOperationException("种子记录缺少合法标识。");
             if(existing.Contains(id))continue;
+            if(record is PageMetadata page){values.TryAdd("is_edit",1);values.TryAdd("is_update",page.IsSave);}
+            if(record is PageColumnMetadata field){values["is_in_edit"]=field.IsEdit;values["is_in_grid"]=field.IsShow;values["is_must"]=field.IsRequired;}
             values.TryAdd("insert_time",DateTime.UtcNow);values.TryAdd("update_time",DateTime.UtcNow);
             var physical=registry.Platform.ConfigTables.Single(t=>t.TableName==table);
             foreach(var required in registry.Platform.ConfigColumns.Where(c=>c.ConfigTableId==physical.Id&&c.IsDbNotNull==1&&!values.ContainsKey(c.ColumnName)))
@@ -51,6 +53,7 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
             var clean=row.Where(p=>p.Value is not null).ToDictionary(p=>MetadataRegistry.Camel(p.Key),p=>p.Value);
             var record=JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(clean,JsonDefaults.Options),JsonDefaults.Options)!;
             // 物理配置沿用UI别名，加载时同步Core规范，避免显示开关与生成行为分离。
+            if(record is PageMetadata page)page.IsSave=MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("is_edit"))==1&&MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("is_update"))==1?1:0;
             if(record is PageColumnMetadata field)
             {
                 if(row.TryGetValue("is_in_edit",out var edit))field.IsEdit=MetadataWorkbenchRules.StoredFlag(edit);

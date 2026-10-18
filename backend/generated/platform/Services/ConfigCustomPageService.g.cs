@@ -33,6 +33,14 @@ public partial class ConfigCustomPageService
     private async Task ValidateRelations2062361618137833473Async(ConfigCustomPage entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
+        if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
+        {
+            var relationIds1 = new[] { entity.YzAdminTypeId.Value };
+            var relationQuery1 = session.Select<YzAdminType>().Where(row => relationIds1.Contains(row.Id));
+            relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
+            relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+            if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u6240\u5C5E\u540E\u53F0");
+        }
     }
     /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>
     private async Task ValidateParents2062361618137833473Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
@@ -97,6 +105,16 @@ public partial class ConfigCustomPageService
         var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : ConfigCustomPagePage2062361618137833473Vo.FromEntity(entity);
     }
+    /// <summary>关联选项先收窄到目标页数据范围，再投影显示字段。</summary>
+    public async Task<IReadOnlyList<GeneratedOption>> Options2062361618137833473_2200000000000101010Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        var query = session.Select<YzAdminType>();
+        query = query.Where(entity => entity.DeleteNo == null);
+        query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5000).ToListAsync(cancellationToken);
+        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<ConfigCustomPagePage2062361618137833473Vo> Create2062361618137833473Async(ConfigCustomPagePage2062361618137833473CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
@@ -112,6 +130,7 @@ public partial class ConfigCustomPageService
         if (request.IsShowLeft.IsSpecified) { entity.IsShowLeft = request.IsShowLeft.Value; submitted.Add("is_show_left"); }
         if (request.IsShowTop.IsSpecified) { entity.IsShowTop = request.IsShowTop.Value; submitted.Add("is_show_top"); }
         if (request.SortNo.IsSpecified) { entity.SortNo = request.SortNo.Value; submitted.Add("sort_no"); }
+        if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
         entity.InsertTime = DateTime.UtcNow;
         entity.UpdateTime = DateTime.UtcNow;
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
@@ -143,6 +162,7 @@ public partial class ConfigCustomPageService
         if (request.IsShowLeft.IsSpecified) { entity.IsShowLeft = request.IsShowLeft.Value; submitted.Add("is_show_left"); }
         if (request.IsShowTop.IsSpecified) { entity.IsShowTop = request.IsShowTop.Value; submitted.Add("is_show_top"); }
         if (request.SortNo.IsSpecified) { entity.SortNo = request.SortNo.Value; submitted.Add("sort_no"); }
+        if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
         entity.UpdateTime = DateTime.UtcNow;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
@@ -193,6 +213,7 @@ public partial class ConfigCustomPageService
             ["insert_manager_real_name"] = entity.InsertManagerRealName,
             ["update_manager_real_name"] = entity.UpdateManagerRealName,
             ["delete_no"] = entity.DeleteNo,
+            ["yz_admin_type_id"] = entity.YzAdminTypeId,
         };
         if (!allFields) values = values.Where(item => item.Key == "id" || submitted.Contains(item.Key)).ToDictionary(item => item.Key, item => item.Value);
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入观察者要求当前事务。");

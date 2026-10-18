@@ -129,16 +129,6 @@ public partial class ConfigIndexColumnService
         var entities = await query.OrderBy(entity => entity.IndexName).OrderBy(entity => entity.Id).Limit(5000).ToListAsync(cancellationToken);
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.IndexName, entity.Id, entity.IndexName)).ToArray();
     }
-    /// <summary>先校验数据范围，再在同一事务内删除。</summary>
-    public Task<bool> Delete2076977554350190593Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
-    {
-        var entity = await Scope2076977554350190593(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
-        BeforeDelete(entity, actor);
-        entity.DeleteNo = DateTime.UtcNow;
-        var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
-        if (deleted) await NotifyConfigIndexColumnAsync("2076977554350190593", entity, actor, new HashSet<string>(), true, true, cancellationToken);
-        return deleted;
-    }, cancellationToken);
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyConfigIndexColumnAsync(string pageId, ConfigIndexColumn entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {

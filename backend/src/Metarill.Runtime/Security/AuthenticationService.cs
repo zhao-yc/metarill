@@ -12,7 +12,7 @@ public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<strin
     public IReadOnlySet<string> ButtonIds {get;init;}=new HashSet<string>();
 }
 
-public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry registry,IIdGenerator ids)
+public sealed class AuthenticationService(SqlRowStore store,IIdGenerator ids)
 {
     /// <summary>网页登录校验账号状态，令牌仅保存摘要；原始密码与令牌不写日志。</summary>
     public async Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string username,string password,CancellationToken cancellationToken=default)
@@ -22,7 +22,7 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
             throw new UnauthorizedAccessException("用户名或密码不正确。");
         var token=PasswordHasher.Token();
         await store.InsertAsync("sys_session",new Dictionary<string,object?>
-        {{"id",ids.NextId()},{"account_id",SqlRowStore.Id(account)},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",long.Parse(registry.Platform.YzProjectId)},{"insert_time",DateTime.UtcNow}},cancellationToken);
+        {{"id",ids.NextId()},{"account_id",SqlRowStore.Id(account)},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",SqlRowStore.Id(account,"yz_project_id")},{"insert_time",DateTime.UtcNow}},cancellationToken);
         return (PublicAccount(account),token);
     }
     public async Task<AuthenticatedIdentity?> AuthenticateAsync(string token,string? selectedProject,CancellationToken cancellationToken=default)
@@ -31,7 +31,7 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
         var session=(await store.ReadAsync("sys_session",new Dictionary<string,object?>{{"token_hash",PasswordHasher.Digest(token)}},cancellationToken)).SingleOrDefault();
         if(session is null||SqlRowStore.Text(session,"kind") is not ("web" or "agent")||Convert.ToDateTime(session["expires_at"],CultureInfo.InvariantCulture)<=DateTime.UtcNow)return null;
         var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"id",SqlRowStore.Id(session,"account_id")}},cancellationToken)).SingleOrDefault();
-        if(account is null||SqlRowStore.Text(account,"is_disabled")=="1")return null;
+        if(account is null||!AccountActive(account))return null;
         var roles=await store.ReadAsync("yz_role",cancellationToken:cancellationToken);
         var roleIds=ParseIds(SqlRowStore.Text(account,"yz_role_ids"));
         var owned=roles.Where(r=>roleIds.Contains(SqlRowStore.Text(r,"id"))).ToArray();
@@ -46,7 +46,7 @@ public sealed class AuthenticationService(SqlRowStore store,MetadataRegistry reg
             if(string.IsNullOrEmpty(pageId)) continue; // 菜单显示授权不等价于页面操作授权。
             foreach(var operation in ParseIds(SqlRowStore.Text(row,"permission_values")))permissions.Add(pageId+":"+operation);
         }
-        var project=string.IsNullOrWhiteSpace(selectedProject)?registry.Platform.YzProjectId:selectedProject;
+        var project=string.IsNullOrWhiteSpace(selectedProject)?SqlRowStore.Text(session,"kind")=="agent"?SqlRowStore.Text(session,"project_id"):SqlRowStore.Text(account,"yz_project_id"):selectedProject;
         if(!long.TryParse(project,NumberStyles.None,CultureInfo.InvariantCulture,out var projectId)||projectId<=0)return null;
         var registered=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",projectId}},cancellationToken)).SingleOrDefault();
         if(registered is null)return null;

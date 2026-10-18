@@ -60,4 +60,7 @@ public partial class ConfigCustomPage
     [Column(Name = "delete_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("deleteNo")]
     public DateTime? DeleteNo { get; set; }
+    [Column(Name = "yz_admin_type_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [JsonPropertyName("yzAdminTypeId")]
+    public long? YzAdminTypeId { get; set; }
 }

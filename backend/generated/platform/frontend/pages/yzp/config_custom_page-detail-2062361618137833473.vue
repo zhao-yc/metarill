@@ -9,6 +9,7 @@
       <uni-forms-item label="显示左侧" name="isShowLeft"><uni-data-select :modelValue="entity.isShowLeft" @update:modelValue="change('isShowLeft', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
       <uni-forms-item label="显示顶部" name="isShowTop"><uni-data-select :modelValue="entity.isShowTop" @update:modelValue="change('isShowTop', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
       <uni-forms-item label="排序号" name="sortNo"><uni-easyinput :modelValue="entity.sortNo" @update:modelValue="change('sortNo', $event)" /></uni-forms-item>
+      <uni-forms-item label="所属后台" name="yzAdminTypeId"><uni-data-select :modelValue="entity.yzAdminTypeId" @update:modelValue="change('yzAdminTypeId', $event)" :localdata="options.yzAdminTypeId || []" /></uni-forms-item>
     </uni-forms>
     <button v-if="id ? canSave : canCreate" :disabled="saving" @click="save">保存</button>
     <button v-if="id && canCopy" :disabled="saving" @click="copy">复制</button>
@@ -17,7 +18,7 @@
 </template>
 <script>
 import yzp from '@/common/yzp';
-const writableFields = ["name","pagePath","navigationStyle","enablePullDownRefresh","isShowLeft","isShowTop","sortNo"];
+const writableFields = ["name","pagePath","navigationStyle","enablePullDownRefresh","isShowLeft","isShowTop","sortNo","yzAdminTypeId"];
 export default {
   data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: true, canSave: true, canDelete: true, canCopy: false }; },
   onLoad(options) { this.id = options.id || ''; this.parentId = options.parentId || ''; this.loadOptions(); if (this.id) this.load(); },
@@ -26,7 +27,7 @@ export default {
     copy() { uni.showModal({ title: '复制确认', content: '确定复制当前记录？', success: modal => { if (!modal.confirm) return; yzp.request({ url: '/admin/auto/config_custom_page/2062361618137833473/copy/' + encodeURIComponent(this.id) + '?parentId=' + encodeURIComponent(this.parentId), method: 'POST', sendSessionId: true, success: res => { if (res.code === 200) { this.id = res.data.id; this.entity = res.data; this.changes = {}; uni.showToast({ title: '复制成功', icon: 'success' }); } } }); } }); },
     /** 关系选项由当前页接口实施范围和权限校验。 */
     loadOptions() {
-
+      yzp.request({ url: '/admin/auto/config_custom_page/2062361618137833473/findNameIdYzAdminType2200000000000101010', method: 'POST', data: { parentId: this.parentId || null }, sendSessionId: true, success: res => { if (res.code === 200) this.options.yzAdminTypeId = res.data; } });
     },
     /** 定制编辑器只能回填本页允许提交的字段。 */
     applyCustom(values) { for (const field of writableFields) { if (Object.prototype.hasOwnProperty.call(values, field) && JSON.stringify(values[field]) !== JSON.stringify(this.entity[field])) this.change(field, values[field]); } },

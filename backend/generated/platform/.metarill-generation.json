@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "994e840ae2c87f229128f470f722e98bf05ca866b148affedefdf91a323294ee",
+  "metadataSha256": "7b356bdd6941c695e73df60fad419ace27af6e871e91da80372e56908937ec22",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -18,19 +18,19 @@
     },
     {
       "path": "Controllers/ConfigColumnPage6217715532627968Controller.g.cs",
-      "sha256": "1c0a25424418d2f10a944e11fa02827b073ffd4f6a2952743c9f710c91cc5d48"
+      "sha256": "a00c5fc041a3b0f94874436a098895fef42f40baf5d90b8cd902e8f3660af8fa"
     },
     {
       "path": "Controllers/ConfigCustomPagePage2062361618137833473Controller.g.cs",
-      "sha256": "735228684941b6bb750731d121cacbc0fc48565583f02209bdb2ea6a723fc8dd"
+      "sha256": "d5a6164d95f66c7e925c1c0fe669daeaac2bd9459cbde62f060730f46ce130ad"
     },
     {
       "path": "Controllers/ConfigIndexColumnPage2076977554350190593Controller.g.cs",
-      "sha256": "7dac35fa1c12b2b474a801cfd2ec2fc31c56f3052a004cf8d47d1fa3f3f4266e"
+      "sha256": "a0c300f291512738258f272ed659a0d1541b55967379ae75a8787600ddfad887"
     },
     {
       "path": "Controllers/ConfigIndexPage2076977531071803393Controller.g.cs",
-      "sha256": "031d05d0574adc77a2223c1e88ccc4da1a8450bc25660940157b249573882019"
+      "sha256": "a010901564aeaef385ba3ca07f3f01c32d679f9f86d424691a458edc32eaf110"
     },
     {
       "path": "Controllers/ConfigMenuPage2200000000000099000Controller.g.cs",
@@ -102,7 +102,7 @@
     },
     {
       "path": "DTOs/ConfigCustomPagePage2062361618137833473Requests.g.cs",
-      "sha256": "021a02c5bae985a5f36c91f7c7d1cc9b7529fb2739d3010dd4ebf3840470a8c2"
+      "sha256": "c9105486cd94c296d028d1362291a0d620f42603458fd7577bc939dc67c1c163"
     },
     {
       "path": "DTOs/ConfigIndexColumnPage2076977554350190593Requests.g.cs",
@@ -178,7 +178,7 @@
     },
     {
       "path": "Entities/ConfigCustomPage.g.cs",
-      "sha256": "282e99124d659e26c9886f0c9b8e8a05c8d67f2bbc2e4f24daf40fe4b2db14dd"
+      "sha256": "a43ba693145915d650062102191c1cc297a8ed45efa5853a1e16799b216ee93a"
     },
     {
       "path": "Entities/ConfigIndex.g.cs",
@@ -262,7 +262,7 @@
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
-      "sha256": "dfbabfaaabe80ef53ba65b287b2b2181811019162631013e6f3644e91eb1c23a"
+      "sha256": "7858f437bb20d928fd3b732a71b26c7c679c29e70a270293305320336419dc34"
     },
     {
       "path": "Mappers/ConfigButtonMapper.g.cs",
@@ -366,19 +366,19 @@
     },
     {
       "path": "Services/ConfigColumnService.g.cs",
-      "sha256": "39763b318bf84d5e88e1998c1527376932d6fdd330df049d9ba63ce9a29c6115"
+      "sha256": "c5634e187d904e9ab75eb44027fa9fec41ca800aa24aaa5d5a8654788973e7af"
     },
     {
       "path": "Services/ConfigCustomPageService.g.cs",
-      "sha256": "2e90718989ef166d49efc7bbf4a98f5172d4faedf72d2e69577103acff9d9d46"
+      "sha256": "dc7307f573b37893c2f76de6c52f2629add50a47f08f6599a5e9ff602f5ba36e"
     },
     {
       "path": "Services/ConfigIndexColumnService.g.cs",
-      "sha256": "01a8558fc890b93fa9f65d146f8a547954249914024970c5afac9e2382c72424"
+      "sha256": "e7c5b1db6b1a7f70aedfd5ceefb05c43228c91eb167ee19914bf7c4f953e1d88"
     },
     {
       "path": "Services/ConfigIndexService.g.cs",
-      "sha256": "77f4aede2ee973044ce0139a58fbacbaf8aec1d9f60889cd2405a35b3f13d56f"
+      "sha256": "3e2bbe873c763699b3359e54425b77349dcc44740023a9b50ab9c0fc171643a4"
     },
     {
       "path": "Services/ConfigMenuService.g.cs",
@@ -466,7 +466,7 @@
     },
     {
       "path": "VOs/ConfigCustomPagePage2062361618137833473Vo.g.cs",
-      "sha256": "e41929e580ac04d09943caf96f87b7bc1b5cf4a04e127ff5b038848bffed297d"
+      "sha256": "1ed549261734e68801c6cebcdc1ce23d22ba231c608830379acb7319c59c17eb"
     },
     {
       "path": "VOs/ConfigIndexColumnPage2076977554350190593Vo.g.cs",
@@ -534,7 +534,7 @@
     },
     {
       "path": "frontend/common/yzp_runtime/page-write-schema.generated.json",
-      "sha256": "5eab3330c4a5c78ea59b3df0ab85c88554d143a69e2e83350cca28c7e6da34d5"
+      "sha256": "31f23f58df2618123c5351687074b361dbe8ad00e11fe4add3fcd35a0e093ef4"
     },
     {
       "path": "frontend/pages.generated.json",
@@ -574,15 +574,15 @@
     },
     {
       "path": "frontend/pages/yzp/config_custom_page-detail-2062361618137833473.vue",
-      "sha256": "90efca52ceb9cc436b0dc1823b6c0681bde903b4a4a42b43e38b039a3ced7a98"
+      "sha256": "0e09dd0c8c6e5d760800708c18f0ed980b1c0448f34b8f6656ca8d70fc800391"
     },
     {
       "path": "frontend/pages/yzp/config_custom_page-list-2062361618137833473.vue",
-      "sha256": "9403a78d165cace4da2be048e121f224d91fd18d29eb49f94d170c8a6963c320"
+      "sha256": "01f324ff4958de3a48f9fb786b2cfec205b8fdd47f771e8b91c270291a9aa301"
     },
     {
       "path": "frontend/pages/yzp/config_index-detail-2076977531071803393.vue",
-      "sha256": "ab2245daa88879669fe689868a83cbd194057364602ded13c405611d85c44a92"
+      "sha256": "5c0396eda9daf5b6902b4cb36655613db7c4f5cde95f10add9b21c757e219994"
     },
     {
       "path": "frontend/pages/yzp/config_index-list-2076977531071803393.vue",
@@ -590,7 +590,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_index_column-detail-2076977554350190593.vue",
-      "sha256": "39b60ca6990d6ef7bcdbed0714d8b4857883a4ff29890b8ad61746ceb43138e8"
+      "sha256": "afafeed283a7e06fdc3c6bc0675f897a5cd77927707379843daf86ce69286272"
     },
     {
       "path": "frontend/pages/yzp/config_index_column-list-2076977554350190593.vue",

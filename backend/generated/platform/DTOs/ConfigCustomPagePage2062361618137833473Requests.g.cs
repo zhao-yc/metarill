@@ -21,6 +21,8 @@ public sealed class ConfigCustomPagePage2062361618137833473CreateRequest
     public Optional<int?> IsShowTop { get; set; }
     [JsonPropertyName("sortNo")]
     public Optional<int?> SortNo { get; set; }
+    [JsonPropertyName("yzAdminTypeId")]
+    public Optional<long?> YzAdminTypeId { get; set; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ConfigCustomPagePage2062361618137833473UpdateRequest
@@ -40,6 +42,8 @@ public sealed class ConfigCustomPagePage2062361618137833473UpdateRequest
     public Optional<int?> IsShowTop { get; set; }
     [JsonPropertyName("sortNo")]
     public Optional<int?> SortNo { get; set; }
+    [JsonPropertyName("yzAdminTypeId")]
+    public Optional<long?> YzAdminTypeId { get; set; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ConfigCustomPagePage2062361618137833473RecordRequest { public long Id { get; set; } }

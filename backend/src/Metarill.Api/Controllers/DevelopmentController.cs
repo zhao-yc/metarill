@@ -32,7 +32,7 @@ public sealed class DatabaseController(MetadataRepository metadata,HttpRuntimeAu
     {authorization.RequireAdministrator();return R<SchemaApplyResult>.Success(await Resolve(request.ProjectId).ApplyAsync(request.Plan,cancellationToken));}
 }
 [ApiController,Route("api/admin/sys/generation")]
-public sealed class GenerationController(MetadataRepository metadata,CSharpGenerator generator,HttpRuntimeAuthorization authorization):ControllerBase
+public sealed class GenerationController(MetadataRepository metadata,ApplicationPackager packager,MetadataRegistry registry,HttpRuntimeAuthorization authorization):ControllerBase
 {
     [HttpPost("generate")]public async Task<IActionResult> Generate(GenerateRequest request,CancellationToken cancellationToken)
     {
@@ -40,7 +40,8 @@ public sealed class GenerationController(MetadataRepository metadata,CSharpGener
         var output=Path.Combine(Path.GetTempPath(),"metarill-generation",Guid.NewGuid().ToString("N"));
         try
         {
-            generator.Generate(catalog,output,request.RootNamespace??"Metarill.Application");
+            var sourceRoot=Path.GetFullPath(Path.Combine(Path.GetDirectoryName(registry.PlatformPath)!,"..",".."));
+            packager.Create(catalog,output,request.RootNamespace??"Metarill.Application",sourceRoot);
             using var stream=new MemoryStream();using(var archive=new ZipArchive(stream,ZipArchiveMode.Create,true))
                 foreach(var path in Directory.EnumerateFiles(output,"*",SearchOption.AllDirectories).Order(StringComparer.Ordinal))
                 {var entry=archive.CreateEntry(Path.GetRelativePath(output,path).Replace('\\','/'));await using var target=entry.Open();await using var source=System.IO.File.OpenRead(path);await source.CopyToAsync(target,cancellationToken);}

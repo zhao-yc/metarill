@@ -1,6 +1,6 @@
 # Metarill Agent CLI
 
-此工具迁自 YZP Agent CLI 0.2.0，保留版本 1 能力目录和 X-Yzp-Agent-* 协议头以便兼容。**代码和本地协议测试不代表 C# 后端已经支持全部能力；需要按项目验收 auth/device、能力目录、撤权和任务恢复接口。**
+此工具迁自 YZP Agent CLI 0.2.0，保留版本 1 能力目录和 X-Yzp-Agent-* 协议头以便兼容。当前 C# 开发版已通过设备授权、能力目录、撤权和持久任务的真实 CLI 联调；独立生成项目仍需自行接入并验收这些服务，不能从 CLI 测试推断所有项目已支持。
 
 
 Node.js 20+ 通用命令行工具，无第三方运行依赖。通过项目自身的设备授权和能力目录，让 Agent 使用已有后台账号的权限调用 Metarill 页面接口和显式开放的业务动作。
@@ -110,4 +110,4 @@ metarill-agent skill install --force
 - `POST /admin/sys/agent/revoke`：撤销当前授权。
 - `GET /admin/sys/agent/tasks/{requestId}`：查询当前账号的请求任务摘要；调用前仍检查授权，未找到返回结构化错误，不能解释为从未执行。
 
-所有地址基于 `--url` 中完整 API 基础路径。CLI 不直接访问数据库，不修改平台元数据；此类开发工作继续使用 YZP MCP。
+所有地址基于 `--url` 中完整 API 基础路径。CLI 不直接访问数据库，不修改平台元数据；此类开发工作使用 Metarill MCP。

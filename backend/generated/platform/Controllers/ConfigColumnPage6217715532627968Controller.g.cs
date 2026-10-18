@@ -37,6 +37,6 @@ public sealed class ConfigColumnPage6217715532627968Controller(ConfigColumnServi
     public async Task<R<string>> InitExport([FromBody] PageRequest request, [FromServices] Metarill.Core.Exports.IPageExportService exports, CancellationToken cancellationToken)
     {
         var actor = Actor("export");
-        return R<string>.Success(await exports.CreateAsync(await service.Export6217715532627968Async(request, actor, cancellationToken), actor, cancellationToken));
+        return R<string>.Success(await exports.CreateAsync(actor, (maxRows, token) => service.Export6217715532627968Async(request, actor, maxRows, token), cancellationToken));
     }
 }

@@ -47,6 +47,6 @@ public sealed class DemoCustomerPage2200000000000100020Controller(DemoCustomerSe
     public async Task<R<string>> InitExport([FromBody] PageRequest request, [FromServices] Metarill.Core.Exports.IPageExportService exports, CancellationToken cancellationToken)
     {
         var actor = Actor("export");
-        return R<string>.Success(await exports.CreateAsync(await service.Export2200000000000100020Async(request, actor, cancellationToken), actor, cancellationToken));
+        return R<string>.Success(await exports.CreateAsync(actor, (maxRows, token) => service.Export2200000000000100020Async(request, actor, maxRows, token), cancellationToken));
     }
 }

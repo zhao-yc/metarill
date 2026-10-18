@@ -36,6 +36,8 @@ public sealed class ConfigCustomPagePage2062361618137833473Vo
     public string? InsertManagerRealName { get; init; }
     [JsonPropertyName("updateManagerRealName")]
     public string? UpdateManagerRealName { get; init; }
+    [JsonPropertyName("yzAdminTypeId")]
+    public long? YzAdminTypeId { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
     /// <summary>只投影本页声明可读字段。</summary>
@@ -56,6 +58,7 @@ public sealed class ConfigCustomPagePage2062361618137833473Vo
         UpdateUserName = entity.UpdateUserName,
         InsertManagerRealName = entity.InsertManagerRealName,
         UpdateManagerRealName = entity.UpdateManagerRealName,
+        YzAdminTypeId = entity.YzAdminTypeId,
         Id = entity.Id,
     };
 }

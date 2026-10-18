@@ -1,11 +1,11 @@
 ---
 name: metarill-agent
-description: 使用 metarill-agent CLI 发现并调用已授权 YZP v8 项目的数据和业务功能。用于查询项目数据、执行标准页面操作或已开放业务动作；平台元数据配置与代码生成仍使用 YZP MCP。
+description: 使用 metarill-agent CLI 发现并调用已授权 Metarill 项目的数据和业务功能。用于查询项目数据、执行标准页面操作或已开放业务动作；平台元数据配置与代码生成仍使用 Metarill MCP。
 ---
 
-# 操作 YZP 项目
+# 操作 Metarill 项目
 
-通过项目自身的能力目录调用现有接口。目录随登录用户权限变化，不依赖 YZP 平台在线。
+通过项目自身的能力目录调用现有接口。目录随登录用户权限变化，不依赖 Metarill 平台在线。
 
 - 先执行 `metarill-agent profiles list`，选择用户指明的项目；多个项目且无法确定时先澄清目标。使用 `--profile 名称` 固定本次目标，避免改动全局默认配置。
 - 未授权时执行 `metarill-agent auth login --url https://项目域名/api --profile 名称`，向用户展示 CLI 返回的授权网址和用户码。授权需由用户在项目网页完成，等待 CLI 成功后再继续。

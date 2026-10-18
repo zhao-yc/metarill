@@ -10,6 +10,8 @@ using Metarill.Data;
 using Metarill.Data.Schema;
 using Metarill.Generation;
 using Metarill.Runtime;
+using Metarill.Runtime.Agent;
+using Metarill.Runtime.Compatibility;
 using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Menus;
 using Metarill.Runtime.Files;
@@ -19,7 +21,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
 var initialize=args.Contains("--initialize");
-var builder=WebApplication.CreateBuilder(args.Where(a=>a!="--initialize").ToArray());
+var repairSeed=args.Contains("--synchronize-development-seed");
+var builder=WebApplication.CreateBuilder(args.Where(a=>a!="--initialize"&&a!="--synchronize-development-seed").ToArray());
 var root=FindRoot(builder.Environment.ContentRootPath);
 var settings=Environment.GetEnvironmentVariable("METARILL_SETTINGS")??Path.Combine(root,".local","development.settings.json");
 builder.Configuration.AddJsonFile(settings,optional:true,reloadOnChange:false).AddEnvironmentVariables();
@@ -32,6 +35,7 @@ builder.Services.AddSingleton(_=>new TargetDatabaseSessions(platformOptions,busi
 builder.Services.AddSingleton<DatabaseSession>(sp=>sp.GetRequiredService<TargetDatabaseSessions>().Platform);
 builder.Services.AddSingleton<SqlRowStore>();
 builder.Services.AddSingleton<MetadataRepository>();
+builder.Services.AddSingleton<DevelopmentSeedSynchronizer>();
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue("Metarill:WorkerId",1)));
 builder.Services.AddSingleton<ISchemaChangeJournal>(new FileSchemaChangeJournal(Path.Combine(root,".local","schema-history.jsonl")));
 builder.Services.AddSingleton<SchemaService>();
@@ -39,6 +43,17 @@ builder.Services.AddSingleton<ProjectSchemaService>();
 builder.Services.AddSingleton<BootstrapService>();
 builder.Services.AddSingleton<AuthenticationService>();
 builder.Services.AddSingleton<CSharpGenerator>();
+builder.Services.AddSingleton<ApplicationPackager>();
+builder.Services.AddSingleton(builder.Configuration.GetSection("Metarill:Agent").Get<AgentOAuthOptions>()??new AgentOAuthOptions{VerificationUri="http://127.0.0.1:5188/#/pages/custom/agent_authorize"});
+builder.Services.AddSingleton<AgentOAuthService>();
+builder.Services.AddSingleton<AgentAuthenticationService>();
+builder.Services.AddSingleton<AgentPublicRateLimiter>();
+builder.Services.AddSingleton<GeneratedCapabilityIndex>();
+builder.Services.AddScoped<AgentCapabilityCatalog>();
+builder.Services.AddSingleton(new AgentTaskOptions());
+builder.Services.AddSingleton<AgentTaskStore>();
+builder.Services.AddScoped<CompatibilityButtonBusiness>();
+builder.Services.AddScoped<ConfigurationActionsBusiness>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMcpServer().WithHttpTransport(options=>options.SessionMode=HttpServerSessionMode.Stateless).WithTools<PlatformTools>();
 builder.Services.AddScoped<HttpRuntimeAuthorization>();
@@ -46,6 +61,9 @@ builder.Services.AddScoped<IRuntimeAuthorization>(sp=>sp.GetRequiredService<Http
 builder.Services.AddScoped<MenuWorkbenchBusiness>();
 builder.Services.AddScoped<RolePermissionBusiness>();
 builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver>();
+builder.Services.AddScoped<ConfigurationMutationObserver>();
+builder.Services.AddScoped<MetadataWorkbenchBusiness>();
+builder.Services.AddScoped<IndexWorkbenchBusiness>();
 builder.Services.AddSingleton(new FileLibraryOptions{RootDirectory=Path.Combine(root,".local","files")});
 builder.Services.AddScoped<FileLibraryService>();
 builder.Services.AddSingleton(new ExportOptions{RootDirectory=Path.Combine(root,".local","exports")});
@@ -61,32 +79,28 @@ builder.Services.ConfigureHttpJsonOptions(options=>JsonDefaults.CopyTo(options.S
 builder.Services.AddCors(options=>options.AddDefaultPolicy(policy=>policy.SetIsOriginAllowed(origin=>Uri.TryCreate(origin,UriKind.Absolute,out var uri)&&uri.IsLoopback).AllowAnyHeader().AllowAnyMethod()));
 builder.Services.AddRateLimiter(options=>options.AddPolicy("login",context=>RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString()??"local",_=>new FixedWindowRateLimiterOptions{PermitLimit=10,Window=TimeSpan.FromMinutes(1),QueueLimit=0})));
 var app=builder.Build();
+if(repairSeed)
+{
+    var backup=await app.Services.GetRequiredService<DevelopmentSeedSynchronizer>().SynchronizeAsync(Path.Combine(root,".local","seed-backups"));
+    Console.WriteLine("开发内置元数据已校正，备份："+backup);return;
+}
 if(initialize)
 {
     await app.Services.GetRequiredService<BootstrapService>().InitializeAsync(builder.Configuration["Metarill:Bootstrap:Username"]??"",builder.Configuration["Metarill:Bootstrap:Password"]??"",businessOptions);
     Console.WriteLine("平台与独立业务库初始化完成；重复执行不会重置管理员密码。");return;
 }
-app.UseCors();app.UseRateLimiter();
+app.UseRouting();app.UseCors();app.UseRateLimiter();
 app.Use(async(context,next)=>
 {
     try
     {
-        var token=context.Request.Headers["loginStateId"].ToString();
-        if(context.Request.Headers.Authorization.ToString().StartsWith("Bearer ",StringComparison.OrdinalIgnoreCase))token=context.Request.Headers.Authorization.ToString()[7..];
-        if(!string.IsNullOrEmpty(token))
-        {
-            string? project=null;
-            if(context.Request.Headers.TryGetValue("sysParams",out var value)&&value.ToString().Length>0)
-            {
-                if(value.ToString().Length>8192)throw new InvalidOperationException("上下文过长。");
-                using var json=JsonDocument.Parse(Uri.UnescapeDataString(value.ToString()));
-                if(json.RootElement.TryGetProperty("yzProjectId",out var selected))project=selected.ToString();
-            }
-            var identity=await context.RequestServices.GetRequiredService<AuthenticationService>().AuthenticateAsync(token,project,context.RequestAborted);
-            if(identity is not null)context.Items[typeof(AuthenticatedIdentity)]=identity;
-        }
-        if(context.Request.Path.StartsWithSegments("/api/mcp"))context.RequestServices.GetRequiredService<HttpRuntimeAuthorization>().RequireActor();
         await next(context);
+    }
+    catch(SchemaApplyException exception)
+    {
+        if(context.Response.HasStarted)throw;
+        context.Response.StatusCode=200;var response=R<object>.Error(exception.Message);response.Map["result"]=exception.Result;
+        await context.Response.WriteAsJsonAsync(response,context.RequestAborted);
     }
     catch(UnauthorizedAccessException exception)
     {
@@ -105,6 +119,13 @@ app.Use(async(context,next)=>
         context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Metarill.Api").LogError(exception,"操作失败，追踪标识 {TraceId}",context.TraceIdentifier);
         context.Response.StatusCode=200;await context.Response.WriteAsJsonAsync(R<object>.Error("操作失败，请查看服务端日志。"),context.RequestAborted);
     }
+});
+app.UseMiddleware<AgentAuthenticationMiddleware>();
+app.UseMiddleware<AgentTaskMiddleware>();
+app.Use(async(context,next)=>
+{
+    if(context.Request.Path.StartsWithSegments("/api/mcp"))context.RequestServices.GetRequiredService<HttpRuntimeAuthorization>().RequireActor();
+    await next(context);
 });
 app.MapGet("/api/runtime/health/check",()=>R<object>.Success(new{application="Metarill",backend="csharp",databaseProviders=DatabaseProviders.Capabilities}));
 app.MapControllers();

@@ -14,3 +14,9 @@
 *.pem
 *.key
 .DS_Store
+
+# Agent CLI 的 bin 是源码入口，须随仓库发布。
+!tools/metarill-agent-cli/bin/
+!tools/metarill-agent-cli/bin/*.mjs
+**/TestResults/
+*.trx

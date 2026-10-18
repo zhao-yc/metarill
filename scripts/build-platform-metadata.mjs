@@ -76,7 +76,7 @@ for(const t of tables) {
  }
  for(const [name,label,type,nullable] of standard)addColumn(t,name,label,type,nullable,type==='string'?'100':'');
  if(!columns.some(c=>c.configTableId===t.id&&c.columnName==='yz_project_id'))addColumn(t,'yz_project_id','项目','int64',true,'');
- if(t.tableName==='config_page'||t.tableName==='config_table'){const c=addColumn(t,'yz_admin_type_id','所属后台','int64',true,'');const target=tables.find(x=>x.tableName==='yz_admin_type');c.controlKind='List';c.linkConfigTableId=target.id;c.linkConfigPageId=pages.find(p=>p.configTableId===target.id)?.id||'';c.controlDetail=JSON.stringify({table:'yz_admin_type',tableId:target.id,nameField:'name'});}
+ if(['config_page','config_table','config_custom_page'].includes(t.tableName)){const c=addColumn(t,'yz_admin_type_id','所属后台','int64',true,'');const target=tables.find(x=>x.tableName==='yz_admin_type');c.controlKind='List';c.linkConfigTableId=target.id;c.linkConfigPageId=pages.find(p=>p.configTableId===target.id)?.id||'';c.controlDetail=JSON.stringify({table:'yz_admin_type',tableId:target.id,nameField:'name'});}
  if(t.tableName==='config_table')addColumn(t,'scope_kind','数据归属模式','string',true,'30');
  if(t.tableName==='yz_role_permission'){addColumn(t,'config_page_id','页面','int64',true,'');addColumn(t,'config_menu_id','菜单','int64',true,'');addColumn(t,'config_button_id','按钮','int64',true,'');}
  if(t.tableName==='config_index')addColumn(t,'is_unique','唯一索引','int32',true,'');
@@ -90,8 +90,8 @@ function newTable(tableName,name,specs,pageId=null) {
  return t;
 }
 const menuTable=newTable('config_menu','菜单',[['name','名称','string',false,'50'],['parent_menu_id','父菜单','int64'],['yz_project_id','项目','int64',false],['yz_admin_type_id','所属后台','int64',false],['kind','菜单类型','string',false,'30'],['config_page_id','目标页面','int64'],['config_custom_page_id','自定义页面','int64'],['navigate_url','页面地址','string',true,'500'],['icon_name','图标','string',true,'50'],['sort_no','排序','int32'],['is_hidden','隐藏','int32'],['is_show_count','数量角标','int32'],['visible_scheme','可见方案','string',true,'50']],'2200000000000099000');
-Object.assign(pages.find(p=>p.id==='2200000000000099000'),{isNew:0,isSave:0,isDelete:0});
-for(const p of pages)if(tables.find(t=>t.id===p.configTableId)?.tableName==='yz_role_permission')Object.assign(p,{isNew:0,isSave:0,isDelete:0});
+Object.assign(pages.find(p=>p.id==='2200000000000099000'),{isNew:0,isSave:0,isUpdate:0,isDelete:0});
+for(const p of pages)if(['yz_role_permission','config_index','config_index_column'].includes(tables.find(t=>t.id===p.configTableId)?.tableName))Object.assign(p,{isNew:0,isSave:0,isUpdate:0,isDelete:0});
 menus.push({id:id('menu:workbench'),name:'菜单',parentMenuId:input.configFirstMenus[0].id,kind:'GENERATED_PAGE',configPageId:'2200000000000099000',yzAdminTypeId:adminId,yzProjectId:projectId,sortNo:35});
 newTable('sys_session','登录会话',[['account_id','账号','int64',false],['token_hash','令牌摘要','string',false,'64'],['expires_at','过期时间','datetime',false],['kind','授权类型','string',false,'20'],['grant_id','设备授权','int64'],['project_id','授权项目','int64']]);
 newTable('sys_agent_grant','Agent设备授权',[['account_id','账号','int64'],['project_id','项目','int64',false],['device_code_hash','设备码摘要','string',false,'64'],['user_code','用户码','string',false,'16'],['client_name','设备名称','string',false,'100'],['status','授权状态','string',false,'20'],['expires_at','过期时间','datetime',false],['refresh_hash','刷新摘要','string',true,'64'],['client_id','客户端','string',true,'100'],['last_poll_at','上次轮询','datetime'],['poll_interval_seconds','轮询间隔秒','int32'],['device_redeemed_at','设备兑换时间','datetime'],['refresh_expires_at','刷新有效期','datetime']]);
@@ -100,7 +100,7 @@ newTable('yz_file_library','文件库',[['name','名称','string',false,'255'],[
 newTable('yz_file_library_folder','文件夹',[['name','名称','string',false,'100'],['parent_folder_id','上级','int64'],['owner_id','所有者','int64',false],['yz_project_id','项目','int64',false]]);
 newTable('yz_file_ref','文件引用',[['file_id','文件','int64',false],['page_id','页面','int64',false],['record_id','记录','int64',false],['field_name','字段','string',false,'100'],['yz_project_id','项目','int64',false]]);
 for(const c of columns) {
- c.logicalType=c.logicalType||logical(c);
+ c.yzProjectId=projectId;c.logicalType=c.logicalType||logical(c);
  c.columnLength=String(c.columnLength??'255');c.sortNo=Number(c.sortNo||0);c.defaultValue='';
  if(c.columnName==='id'){c.logicalType='int64';c.isDbNotNull=1;}
  if(c.columnName==='logical_type')c.defaultValue='string';
@@ -121,17 +121,22 @@ let pageColumns=[];
 for(const p of pages){
  const t=tables.find(t=>t.id===p.configTableId);
  p.yzProjectId=projectId;p.yzAdminTypeId=adminId;p.pageSize=Number(p.pageSize||20);
+ p.isSave=Number(p.isEdit??1)===1&&Number(p.isUpdate??p.isSave??1)===1?1:0;
  if(p.whereSql && !/^[a-z_]+\s*=\s*@(?:current_yz_project_id|parent_id|parentId)(?:\s+and\s+[a-z_]+\s*=\s*@(?:current_yz_project_id|parent_id|parentId))*$/i.test(p.whereSql))p.whereSql='yz_project_id=@current_yz_project_id';
  for(const c of byTable.get(t.id)||[]){
   const old=oldFields.get(p.id+':'+c.id);
   if(c.columnName==='id'||c.columnName==='delete_no'||c.columnName.includes('password')||c.columnName==='salt')continue;
-  pageColumns.push({...old,id:old?.id||id('pagefield:'+p.id+':'+c.id),name:c.name,configPageId:p.id,configColumnId:c.id,columnName:c.columnName,yzProjectId:projectId,sortNo:Number(old?.sortNo||c.sortNo||0),isShow:old?.isShow??1,isEdit:old?.isEdit??(standard.some(s=>s[0]===c.columnName)?0:1)});
+  pageColumns.push({...old,id:old?.id||id('pagefield:'+p.id+':'+c.id),name:c.name,configPageId:p.id,configColumnId:c.id,columnName:c.columnName,yzProjectId:projectId,sortNo:Number(old?.sortNo||c.sortNo||0),isShow:old?.isShow??old?.isInGrid??1,isEdit:old?.isEdit??old?.isInEdit??(standard.some(s=>s[0]===c.columnName)?0:1),isRequired:old?.isRequired??old?.isMust??c.isDbNotNull});
  }
 }
 const finalPageIds=new Set(pages.map(p=>p.id));
 menus=menus.filter(m=>!m.configPageId||finalPageIds.has(m.configPageId));
 menus=menus.map(m=>({...m,yzProjectId:projectId}));
+const indexPageId=id('custompage:index-workbench');
+const indexMenuId=id('menu:index-workbench');
+menus.push({id:indexMenuId,name:'索引配置',parentMenuId:input.configFirstMenus[0].id,kind:'CUSTOM_PAGE',configCustomPageId:indexPageId,yzAdminTypeId:adminId,yzProjectId:projectId,sortNo:36});
 const catalog={schemaVersion:1,backendTarget:'csharp',yzProjectId:projectId,yzProjectName:'Metarill',databaseProvider:'mysql',configTables:tables,configColumns:columns,configPages:pages,configPageColumns:pageColumns,yzAdminTypes:input.yzAdminTypes,configMenus:menus,configCustomPages:input.menuCustomPages.map(p=>({id:p.id,name:p.pagePath.split('/').at(-1),pagePath:p.pagePath,yzProjectId:projectId,yzAdminTypeId:adminId})),configButtons:input.configButtons.filter(b=>!b.configPageId||finalPageIds.has(b.configPageId)).map(b=>({...b,yzProjectId:projectId})),configChildren:input.configChildren.filter(c=>(!c.configPageId||finalPageIds.has(c.configPageId))&&(!c.childConfigPageId||finalPageIds.has(c.childConfigPageId))).map(c=>({...c,yzProjectId:projectId})),configIndexes:[],configIndexColumns:[]};
+catalog.configCustomPages.push({id:indexPageId,name:'索引配置',pagePath:'pages/custom/config_indexes',yzProjectId:projectId,yzAdminTypeId:adminId});
 const indexes=[],indexColumns=[];
 function index(tableName,name,fields,unique=false) {
  const t=tables.find(t=>t.tableName===tableName); if(!t)return;
@@ -159,8 +164,8 @@ fs.writeFileSync(path.join(root,'backend/metadata/platform.json'),JSON.stringify
 const demoProject='2200000000000100000', demoAdmin='2200000000000100001';
 const demoTable={id:'2200000000000100010',name:'示例客户',tableName:'demo_customer',yzProjectId:demoProject,sortNo:10};
 const demoColumns=[...standard,['yz_project_id','项目','int64',false],['name','名称','string',false],['notes','备注','string',true,'max'],['amount','金额','decimal',true],['is_enabled','启用','int32',true]].map(([cn,label,type,nullable,length],i)=>({id:String(2200000000000100100n+BigInt(i)),name:label,configTableId:demoTable.id,columnName:cn,logicalType:type,columnType:type,columnLength:length|| (type==='string'?'255':''),isDbNotNull:nullable?0:1,sortNo:i*10,defaultValue:'',yzProjectId:demoProject}));
-const demoPage={id:'2200000000000100020',name:'示例客户',configTableId:demoTable.id,yzAdminTypeId:demoAdmin,yzProjectId:demoProject,isNew:1,isSave:1,isDelete:1,isCopy:1,isImport:1,isExport:1,importMethod:'insert',exportMethod:'list',pageSize:20,whereSql:'yz_project_id=@current_yz_project_id'};
-const demo={schemaVersion:1,backendTarget:'csharp',yzProjectId:demoProject,yzProjectName:'示例项目',databaseProvider:'mysql',configTables:[demoTable],configColumns:demoColumns,configPages:[demoPage],configPageColumns:demoColumns.filter(c=>!standard.some(s=>s[0]===c.columnName)).map(c=>({id:id('pagefield:'+demoPage.id+':'+c.id),name:c.name,configPageId:demoPage.id,configColumnId:c.id,columnName:c.columnName,isShow:1,isEdit:c.columnName==='yz_project_id'?0:1,isRequired:c.isDbNotNull,isInFilter:c.columnName==='name'?1:0,isSort:['name','amount'].includes(c.columnName)?1:0,sortNo:c.sortNo})),yzAdminTypes:[{id:demoAdmin,name:'示例后台',yzProjectId:demoProject}],configMenus:[{id:'2200000000000100030',name:'示例',kind:'DIRECTORY',parentMenuId:null,yzAdminTypeId:demoAdmin,yzProjectId:demoProject,sortNo:10},{id:'2200000000000100031',name:'客户',kind:'GENERATED_PAGE',parentMenuId:'2200000000000100030',configPageId:demoPage.id,yzAdminTypeId:demoAdmin,yzProjectId:demoProject,sortNo:10}],configButtons:[],configChildren:[],configIndexes:[],configIndexColumns:[]};
+const demoPage={id:'2200000000000100020',name:'示例客户',configTableId:demoTable.id,yzAdminTypeId:demoAdmin,yzProjectId:demoProject,isNew:1,isSave:1,isUpdate:1,isEdit:1,isDelete:1,isCopy:1,isImport:1,isExport:1,importMethod:'insert',exportMethod:'list',pageSize:20,whereSql:'yz_project_id=@current_yz_project_id'};
+const demo={schemaVersion:1,backendTarget:'csharp',yzProjectId:demoProject,yzProjectName:'示例项目',databaseProvider:'mysql',configTables:[demoTable],configColumns:demoColumns,configPages:[demoPage],configPageColumns:demoColumns.filter(c=>!standard.some(s=>s[0]===c.columnName)).map(c=>({id:id('pagefield:'+demoPage.id+':'+c.id),name:c.name,configPageId:demoPage.id,yzProjectId:demoProject,configColumnId:c.id,columnName:c.columnName,isShow:1,isEdit:c.columnName==='yz_project_id'?0:1,isRequired:c.isDbNotNull,isInFilter:c.columnName==='name'?1:0,isSort:['name','amount'].includes(c.columnName)?1:0,sortNo:c.sortNo})),yzAdminTypes:[{id:demoAdmin,name:'示例后台',yzProjectId:demoProject}],configMenus:[{id:'2200000000000100030',name:'示例',kind:'DIRECTORY',parentMenuId:null,yzAdminTypeId:demoAdmin,yzProjectId:demoProject,sortNo:10},{id:'2200000000000100031',name:'客户',kind:'GENERATED_PAGE',parentMenuId:'2200000000000100030',configPageId:demoPage.id,yzAdminTypeId:demoAdmin,yzProjectId:demoProject,sortNo:10}],configButtons:[],configChildren:[],configIndexes:[],configIndexColumns:[]};
 fs.writeFileSync(path.join(root,'backend/metadata/demo.json'),JSON.stringify(demo,null,2)+'\n');
 fs.writeFileSync(identifiersPath,JSON.stringify(Object.fromEntries(Object.entries(identifiers).sort(([a],[b])=>a.localeCompare(b))),null,2)+'\n');
 console.log(JSON.stringify({表:tables.length,字段:columns.length,页面:pages.length,页面字段:pageColumns.length,菜单:menus.length}));

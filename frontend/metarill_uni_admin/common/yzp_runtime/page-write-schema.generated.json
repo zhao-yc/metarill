@@ -306,7 +306,8 @@
         "name",
         "navigationStyle",
         "pagePath",
-        "sortNo"
+        "sortNo",
+        "yzAdminTypeId"
       ],
       "updateFields": [
         "enablePullDownRefresh",
@@ -316,7 +317,8 @@
         "name",
         "navigationStyle",
         "pagePath",
-        "sortNo"
+        "sortNo",
+        "yzAdminTypeId"
       ]
     },
     "2063264600601714690": {

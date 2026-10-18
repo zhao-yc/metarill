@@ -19,18 +19,20 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataRegistry regist
     }
     private string Q(string value) => session.Provider.QuoteIdentifier(value);
     public Task<List<Dictionary<string, object?>>> ReadAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken);
+    /// <summary>只用于种子存在性与开发备份，包含逻辑删除记录；业务查询不得使用此入口。</summary>
+    public Task<List<Dictionary<string,object?>>> ReadIncludingDeletedAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken,true);
     public Task<List<Dictionary<string,object?>>> ReadForUpdateAsync(string table,IReadOnlyDictionary<string,object?> filters,CancellationToken cancellationToken=default)
     {
         if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");
         return ReadInternalAsync(table,filters,true,cancellationToken);
     }
-    private async Task<List<Dictionary<string, object?>>> ReadInternalAsync(string table,IReadOnlyDictionary<string,object?>? filters,bool forUpdate,CancellationToken cancellationToken)
+    private async Task<List<Dictionary<string, object?>>> ReadInternalAsync(string table,IReadOnlyDictionary<string,object?>? filters,bool forUpdate,CancellationToken cancellationToken,bool includeDeleted=false)
     {
         var columns = Columns(table); var allowed = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.Ordinal);
         return await CommandAsync(async command =>
         {
             var conditions = new List<string>();
-            if (allowed.Contains("delete_no")) conditions.Add(Q("delete_no") + " IS NULL");
+            if (!includeDeleted && allowed.Contains("delete_no")) conditions.Add(Q("delete_no") + " IS NULL");
             if (filters is not null)
                 foreach (var (key, value) in filters)
                 {
@@ -70,11 +72,11 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataRegistry regist
         }, cancellationToken);
     }
     /// <summary>只按明确主键更新；字段白名单来自发布元数据，不能执行客户端 SQL。</summary>
-    public async Task UpdateAsync(string table, long id, IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
+    public async Task<int> UpdateAsync(string table, long id, IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
     {
         var columns = Columns(table).Where(c => c.ColumnName != "id" && values.ContainsKey(c.ColumnName)).ToArray();
-        if (columns.Length == 0) return;
-        await CommandAsync(async command =>
+        if (columns.Length == 0) return 0;
+        return await CommandAsync(async command =>
         {
             var assignments = columns.Select(c => Q(c.ColumnName)+"="+AddParameter(command,"p"+command.Parameters.Count,Coerce(values[c.ColumnName],c))).ToArray();
             var key = AddParameter(command,"record_id",id);

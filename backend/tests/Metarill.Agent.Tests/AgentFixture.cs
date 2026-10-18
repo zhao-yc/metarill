@@ -75,7 +75,7 @@ internal sealed class AgentFixture : IAsyncDisposable
             var metadata = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             fixture.Registry = new(metadata, Path.Combine(Path.GetDirectoryName(metadata)!, "demo.json"));
             fixture.Store = new(fixture.Session, fixture.Registry);
-            fixture.Authentication = new(fixture.Store, fixture.Registry, Ids);
+            fixture.Authentication = new(fixture.Store, Ids);
             fixture.OAuth = new(fixture.Store, fixture.Registry, Ids, new(), fixture.Clock);
             fixture.Tasks = new(fixture.Store, Ids, new(), fixture.Clock);
             fixture.AccountId = Ids.NextId(); fixture.RoleId = Ids.NextId();

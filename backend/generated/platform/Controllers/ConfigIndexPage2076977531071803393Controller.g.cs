@@ -26,9 +26,6 @@ public sealed class ConfigIndexPage2076977531071803393Controller(ConfigIndexServ
     /// <summary>数量接口沿用相同页面范围。</summary>
     [HttpPost("count")]
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count2076977531071803393Async(request, Actor("count"), cancellationToken));
-    /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
-    [HttpDelete]
-    public async Task<R<string>> Delete([FromBody] ConfigIndexPage2076977531071803393RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete2076977531071803393Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdConfigTable2076977821456142336")]
     public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigTable2076977821456142336([FromBody] PageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2076977531071803393_2076977821456142336Async(request, actor, cancellationToken)); }

@@ -137,10 +137,11 @@ public partial class ConfigColumnService
         return entity is null ? null : ConfigColumnPage6217715532627968Vo.FromEntity(entity);
     }
     /// <summary>导出复用列表范围和筛选，字段列表由元数据固定，不能来自客户端。</summary>
-    public async Task<Metarill.Core.Exports.PageExportRequest> Export6217715532627968Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    public async Task<Metarill.Core.Exports.PageExportRequest> Export6217715532627968Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)
     {
+        if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));
         var query = Order6217715532627968(Query6217715532627968(request, actor), request);
-        var entities = await query.ToListAsync(entity => new ConfigColumn
+        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new ConfigColumn
         {
             Name = entity.Name,
             ColumnType = entity.ColumnType,
@@ -175,6 +176,7 @@ public partial class ConfigColumnService
             Scale = entity.Scale,
             Id = entity.Id,
         }, cancellationToken);
+        if (entities.Count > maxRows) throw new InvalidOperationException("导出记录数量超过服务端上限，请缩小筛选范围后重试。");
         var rows = entities.Select(entity => (IReadOnlyList<object?>)new object?[]
         {
             entity.Name,

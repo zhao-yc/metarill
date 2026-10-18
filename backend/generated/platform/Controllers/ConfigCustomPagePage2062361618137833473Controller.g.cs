@@ -35,4 +35,7 @@ public sealed class ConfigCustomPagePage2062361618137833473Controller(ConfigCust
     /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
     [HttpDelete]
     public async Task<R<string>> Delete([FromBody] ConfigCustomPagePage2062361618137833473RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete2062361618137833473Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
+    [HttpPost("findNameIdYzAdminType2200000000000101010")]
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzAdminType2200000000000101010([FromBody] PageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("1696799309006348290", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2062361618137833473_2200000000000101010Async(request, actor, cancellationToken)); }
 }

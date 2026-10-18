@@ -1,14 +1,58 @@
 # Metarill · 元溪
 
-基于 YZP 主框架重写的开源元数据应用开发平台。平台和生成应用使用 C#，前端沿用 uni-app。
+基于 YZP 主框架重写的开源元数据应用开发平台。平台和生成应用采用 C# / ASP.NET Core，管理端保留 HBuilderX uni-app Vue 3 工程。Apache-2.0 许可证。
 
 ## 当前状态
 
-项目正在实现首期 MySQL 版本。其他数据库、跨端运行、性能及完整能力均以验收记录为准。
+当前是首期 MySQL 开发版，尚未达到完整替代 YZP 的发布标准。已完成真实 MySQL 的登录→表字段配置→结构预览/执行/核验→生成独立应用→业务 CRUD 闭环，以及菜单树、权限、文件、导入导出、MCP 和 Agent 的核心接口验收。具体证据与剩余范围见 [验收台账](docs/acceptance.md)。
 
-## 核心约定
+前端保留原交互设计；新 DCloud AppID 和原选择器、富文本组件许可仍待确认，因此完整 H5 构建、浏览器业务操作与真机验收尚未通过。其他数据库与同条件性能对照尚未验收。
 
-- 元数据驱动结构同步和强类型代码生成，平台自身支持自举。
-- 生成与手写代码通过 C# partial 分离，手写业务按需组织。
-- 平台库与生成项目业务库独立配置，数据库适配集中管理。
-- Apache-2.0 开源；不包含原项目业务数据和私有环境。
+## 架构
+
+- 元数据驱动结构同步、强类型 Entity / DTO / VO / Mapper / Service / Controller 及页面生成。
+- 同一程序集内以 C# `partial` 分离生成文件与手写扩展；重复生成保护手写内容。
+- 普通 CRUD 由 Service 完成；跨对象流程按需建立手写 Business，并共享同一数据库事务。
+- FreeSql 负责普通持久化，MySqlConnector 作为 MySQL 驱动；数据库差异集中在适配层。
+- 平台库、示例业务库和其他项目库分别配置。未配置的项目明确失败，不回退到平台库。
+- 结构变更必须显式预览、确认执行、核验并记录；启动不会自动修改数据库。
+
+## 开发入口
+
+先安装 [global.json](global.json) 中声明的 .NET SDK、Node.js 24 和 HBuilderX。安装位置与版本必须实际核验。
+
+1. 按 [配置示例](backend/appsettings.Example.json) 创建不提交的 `.local/development.settings.json`。提前准备独立的 MySQL 平台库和业务库，以及仅有对应库权限的账号；连接串中的库名须与 `ExpectedDatabase` 完全一致。
+2. 设置随机管理员密码，为不同服务进程分配独立的 `WorkerId`。部署时通过服务端 `Metarill:ProjectDatabases` 按项目 ID 配置额外业务库；不能由客户端提供连接串。
+3. 执行以下命令。初始化会显式预览、执行首期结构并补缺失种子；重复初始化不会重置密码或复活已删除的元数据。普通启动不执行结构同步。
+
+```powershell
+pwsh -NoProfile -File scripts/dev.ps1 initialize
+pwsh -NoProfile -File scripts/dev.ps1 generate
+npm run sync:write-schema --prefix frontend/metarill_uni_admin
+npm run sync:custom-routes --prefix frontend/metarill_uni_admin
+pwsh -NoProfile -File scripts/dev.ps1 start
+```
+
+API 默认地址为 `http://127.0.0.1:8088/api`，内嵌 MCP 为 `/api/mcp`。日志与停止命令：
+
+```powershell
+pwsh -NoProfile -File scripts/dev.ps1 logs
+pwsh -NoProfile -File scripts/dev.ps1 stop
+```
+
+前端先在其目录执行 `npm ci`，申请并配置自己的 DCloud AppID，再使用 HBuilderX 打开工程。已有一键入口见 [.vscode/tasks.json](.vscode/tasks.json) 和 [.codex/environments/environment.toml](.codex/environments/environment.toml)。完整前端要求及许可状态见 [前端说明](frontend/metarill_uni_admin/README.md)。
+
+## 验证
+
+`scripts/dev.ps1 test` 遍历全部后端测试项目；`npm test --prefix frontend/metarill_uni_admin` 验证前端运行时，Agent CLI 另执行 `npm run check --prefix tools/metarill-agent-cli` 和 `npm test --prefix tools/metarill-agent-cli`。
+
+真实数据库测试仅接受隔离库名 `metarill_test` / `metarill_business_test`，通过 `METARILL_TEST_SETTINGS` 指向私有测试配置，并设置 `METARILL_PLATFORM_METADATA` 为平台元数据文件的绝对路径。未提供时相关用例明确跳过，不能算真实业务验收。CI 编译并运行所有测试项目，真实 MySQL 验收在核实身份后的 Server-200 独立测试库执行。
+
+## 进一步阅读
+
+- [架构与实施边界](docs/architecture.md)
+- [前后端契约](docs/integration-contracts.md)
+- [索引聚合配置及限制](docs/index-workbench.md)
+- [来源与脱敏基线](docs/source-baseline.md)
+- [前端许可清单](frontend/metarill_uni_admin/THIRD-PARTY-NOTICES.md)
+- [Agent CLI](tools/metarill-agent-cli/README.md)

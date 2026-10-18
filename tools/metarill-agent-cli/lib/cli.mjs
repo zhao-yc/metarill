@@ -12,7 +12,7 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const DEFAULT_TIMEOUT = 30_000;
 const READ_OPERATIONS = new Set(['list', 'detail', 'count', 'options']);
 const REQUEST_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-const HELP = `YZP 项目 Agent CLI（Node.js 20+）
+const HELP = `Metarill 项目 Agent CLI（Node.js 20+）
 用法：metarill-agent <命令> [--profile 名称] [--timeout 毫秒]
 
   auth login --url https://项目域名/api [--profile 名称] [--name 设备名称]
@@ -159,7 +159,7 @@ async function login(store, options, output, log) {
   if (current && current.url !== url) throw new CliError('该配置已绑定其他地址，请使用不同 --profile 名称。', 'profile_url_conflict');
   const timeoutMs = options.timeout ?? DEFAULT_TIMEOUT;
   const device = await requestJson(`${url}/agent/oauth/device`, { method: 'POST', form: true, timeoutMs,
-    data: { client_id: 'metarill-agent-cli', client_name: options.name ?? 'YZP Agent CLI' } });
+    data: { client_id: 'metarill-agent-cli', client_name: options.name ?? 'Metarill Agent CLI' } });
   if (!device.ok || device.payload?.error) throw oauthError(device);
   const grant = device.payload;
   if (!grant || typeof grant.device_code !== 'string' || typeof grant.user_code !== 'string'

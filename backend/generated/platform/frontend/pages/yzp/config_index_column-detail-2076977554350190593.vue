@@ -21,7 +21,7 @@
 import yzp from '@/common/yzp';
 const writableFields = ["configIndexId","configColumnId","columnName","sortNo","sortDirection","configIndexIndexName","configColumnName","importNo"];
 export default {
-  data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: false, canSave: false, canDelete: true, canCopy: false }; },
+  data() { return { id: '', parentId: '', entity: {}, changes: {}, options: {}, saving: false, canCreate: false, canSave: false, canDelete: false, canCopy: false }; },
   onLoad(options) { this.id = options.id || ''; this.parentId = options.parentId || ''; this.loadOptions(); if (this.id) this.load(); },
   methods: {
     /** POST复制仅提交源标识，服务端重建新记录与审计身份。 */

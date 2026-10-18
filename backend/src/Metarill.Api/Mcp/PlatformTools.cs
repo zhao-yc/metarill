@@ -34,6 +34,7 @@ public sealed class PlatformTools
     {
         var actor=authorization.RequireActor();authorization.RequirePagePermission(pageId,operation);
         var catalog=new[]{registry.Platform,registry.Demo}.SingleOrDefault(c=>c.ConfigPages.Any(p=>p.Id==pageId))??throw new InvalidOperationException("页面尚未发布。");
+        if(authorization.RequireIdentity().GrantId is not null&&catalog.YzProjectId!=actor.ProjectId)throw new UnauthorizedAccessException("MCP页面不属于已批准的Agent项目。");
         var page=catalog.ConfigPages.Single(p=>p.Id==pageId);var table=catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId);
         var writing=operation is "create" or "update" or "delete" or "copy";
         if(writing&&!confirmed)throw new InvalidOperationException("写入前必须检查请求并明确确认。");

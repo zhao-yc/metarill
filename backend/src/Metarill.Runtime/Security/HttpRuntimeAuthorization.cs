@@ -13,6 +13,7 @@ public sealed class HttpRuntimeAuthorization(IHttpContextAccessor accessor,Metad
     {
         var identity=RequireIdentity();var page=registry.FindPage(pageId)??throw new UnauthorizedAccessException("页面未登记。");
         if(identity.Actor.IsAdministrator)return;
+        if(registry.Platform.ConfigPages.Any(p=>p.Id==pageId))throw new UnauthorizedAccessException("平台配置和账号角色管理需要平台管理员权限。");
         var table=registry.Platform.ConfigTables.Concat(registry.Demo.ConfigTables).FirstOrDefault(t=>t.Id==page.ConfigTableId);
         if(table?.Extra.TryGetValue("scopeKind",out var scope)==true&&scope.GetString()=="global")throw new UnauthorizedAccessException("全局目录需要管理员权限。");
         if(page.YzProjectId!=identity.Actor.ProjectId)throw new UnauthorizedAccessException("无此页面访问权限。");
