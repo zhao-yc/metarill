@@ -34,6 +34,10 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
             if(!values.TryGetValue("id",out var idValue)||!long.TryParse(idValue?.ToString(),out var id))throw new InvalidOperationException("种子记录缺少合法标识。");
             if(existing.Contains(id))continue;
             values.TryAdd("insert_time",DateTime.UtcNow);values.TryAdd("update_time",DateTime.UtcNow);
+            var physical=registry.Platform.ConfigTables.Single(t=>t.TableName==table);
+            foreach(var required in registry.Platform.ConfigColumns.Where(c=>c.ConfigTableId==physical.Id&&c.IsDbNotNull==1&&!values.ContainsKey(c.ColumnName)))
+                if(required.LogicalType is "int32" or "int64" or "decimal")values[required.ColumnName]=0;
+                else if(required.LogicalType=="bool")values[required.ColumnName]=false;
             await store.InsertAsync(table,values,cancellationToken);
         }
     }

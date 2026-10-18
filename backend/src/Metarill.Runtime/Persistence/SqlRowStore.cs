@@ -18,7 +18,13 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataRegistry regist
         return registry.Platform.ConfigColumns.Where(c => c.ConfigTableId == definition.Id && c.IsVirtualColumn == 0).ToArray();
     }
     private string Q(string value) => session.Provider.QuoteIdentifier(value);
-    public async Task<List<Dictionary<string, object?>>> ReadAsync(string table, IReadOnlyDictionary<string, object?>? filters = null, CancellationToken cancellationToken = default)
+    public Task<List<Dictionary<string, object?>>> ReadAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken);
+    public Task<List<Dictionary<string,object?>>> ReadForUpdateAsync(string table,IReadOnlyDictionary<string,object?> filters,CancellationToken cancellationToken=default)
+    {
+        if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");
+        return ReadInternalAsync(table,filters,true,cancellationToken);
+    }
+    private async Task<List<Dictionary<string, object?>>> ReadInternalAsync(string table,IReadOnlyDictionary<string,object?>? filters,bool forUpdate,CancellationToken cancellationToken)
     {
         var columns = Columns(table); var allowed = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.Ordinal);
         return await CommandAsync(async command =>
@@ -33,6 +39,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataRegistry regist
                     else { var name = "p" + command.Parameters.Count; conditions.Add(Q(key) + "=" + AddParameter(command, name, value)); }
                 }
             command.CommandText = "SELECT " + string.Join(",", columns.Select(c => Q(c.ColumnName))) + " FROM " + Q(table) + (conditions.Count == 0 ? "" : " WHERE " + string.Join(" AND ", conditions));
+            if(forUpdate)command.CommandText=session.Provider.BuildSelectForUpdate(command.CommandText);
             var result = new List<Dictionary<string, object?>>();
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
@@ -47,6 +54,12 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataRegistry regist
     public async Task InsertAsync(string table, IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
     {
         var columns = Columns(table);
+        if(table.StartsWith("config_",StringComparison.Ordinal))
+        {
+            var defaults=values.ToDictionary(p=>p.Key,p=>p.Value);
+            foreach(var column in columns.Where(c=>c.IsDbNotNull==1&&c.LogicalType=="int32"&&c.ColumnName.StartsWith("is_")))defaults.TryAdd(column.ColumnName,0);
+            values=defaults;
+        }
         var selected = columns.Where(c => values.ContainsKey(c.ColumnName)).ToArray();
         if (!selected.Any(c => c.ColumnName == "id")) throw new InvalidOperationException("基础设施写入必须明确标识。");
         await CommandAsync(async command =>

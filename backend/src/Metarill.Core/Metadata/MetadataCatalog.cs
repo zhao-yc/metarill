@@ -87,6 +87,7 @@ public sealed class MenuMetadata : MetadataRecord
     public string? NavigateUrl { get; set; }
     public string? IconName { get; set; }
     public int IsHidden { get; set; }
+    public string? VisibleScheme { get; set; }
     public int IsShowCount { get; set; }
 }
 

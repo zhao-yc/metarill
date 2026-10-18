@@ -62,7 +62,8 @@ for(const t of tables) {
  }
  for(const [name,label,type,nullable] of standard)addColumn(t,name,label,type,nullable,type==='string'?'100':'');
  if(!columns.some(c=>c.configTableId===t.id&&c.columnName==='yz_project_id'))addColumn(t,'yz_project_id','项目','int64',true,'');
- if(t.tableName==='config_page'||t.tableName==='config_table')addColumn(t,'yz_admin_type_id','所属后台','int64',true,'');
+ if(t.tableName==='config_page'||t.tableName==='config_table'){const c=addColumn(t,'yz_admin_type_id','所属后台','int64',true,'');const target=tables.find(x=>x.tableName==='yz_admin_type');c.controlKind='List';c.linkConfigTableId=target.id;c.linkConfigPageId=pages.find(p=>p.configTableId===target.id)?.id||'';c.controlDetail=JSON.stringify({table:'yz_admin_type',tableId:target.id,nameField:'name'});}
+ if(t.tableName==='config_table')addColumn(t,'scope_kind','数据归属模式','string',true,'30');
  if(t.tableName==='yz_role_permission'){addColumn(t,'config_page_id','页面','int64',true,'');addColumn(t,'config_menu_id','菜单','int64',true,'');}
  if(t.tableName==='config_index')addColumn(t,'is_unique','唯一索引','int32',true,'');
  if(t.tableName==='config_column'){addColumn(t,'logical_type','逻辑类型','string',false,'30');addColumn(t,'precision','数值精度','int32',true,'');addColumn(t,'scale','小数位数','int32',true,'');}
@@ -91,8 +92,12 @@ for(const c of columns) {
  if(c.logicalType==='string'&&!c.columnLength)c.columnLength='255';
  // 虚拟布局字段已经在来源过滤，不进入物理结构。
 }
+for(const c of columns)if(c.columnName==='config_second_menu_id')c.columnName='config_menu_id';
+columns=columns.filter((c,i,all)=>all.findIndex(x=>x.configTableId===c.configTableId&&x.columnName===c.columnName)===i);
+for(const t of tables)if(t.tableName==='yz_project')t.scopeKind='global';
 const byTable=new Map(tables.map(t=>[t.id,columns.filter(c=>c.configTableId===t.id)]));
 const oldFields=new Map(oldPageColumns.map(f=>[f.configPageId+':'+f.configColumnId,f]));
+for(const c of columns){if(c.columnName==='config_second_menu_id'){c.columnName='config_menu_id';c.name='菜单';c.logicalType='int64';}if(c.joinTable==='config_second_menu'){c.joinTable='config_menu';c.linkConfigTableId=menuTable.id;c.linkConfigPageId='2200000000000099000';c.controlDetail=JSON.stringify({table:'config_menu',tableId:menuTable.id,nameField:'name'});}if(c.linkConfigTableId&&!tables.some(t=>t.id===c.linkConfigTableId)){c.linkConfigTableId='';c.linkConfigPageId='';c.controlKind='';c.controlDetail='';}}
 let pageColumns=[];
 for(const p of pages){
  const t=tables.find(t=>t.id===p.configTableId);
@@ -106,7 +111,8 @@ for(const p of pages){
 }
 const finalPageIds=new Set(pages.map(p=>p.id));
 menus=menus.filter(m=>!m.configPageId||finalPageIds.has(m.configPageId));
-const catalog={schemaVersion:1,backendTarget:'csharp',yzProjectId:projectId,yzProjectName:'Metarill',databaseProvider:'mysql',configTables:tables,configColumns:columns,configPages:pages,configPageColumns:pageColumns,yzAdminTypes:input.yzAdminTypes,configMenus:menus,configButtons:input.configButtons.filter(b=>!b.configPageId||finalPageIds.has(b.configPageId)),configChildren:input.configChildren.filter(c=>(!c.configPageId||finalPageIds.has(c.configPageId))&&(!c.childConfigPageId||finalPageIds.has(c.childConfigPageId))),configIndexes:[],configIndexColumns:[]};
+menus=menus.map(m=>({...m,yzProjectId:projectId}));
+const catalog={schemaVersion:1,backendTarget:'csharp',yzProjectId:projectId,yzProjectName:'Metarill',databaseProvider:'mysql',configTables:tables,configColumns:columns,configPages:pages,configPageColumns:pageColumns,yzAdminTypes:input.yzAdminTypes,configMenus:menus,configButtons:input.configButtons.filter(b=>!b.configPageId||finalPageIds.has(b.configPageId)).map(b=>({...b,yzProjectId:projectId})),configChildren:input.configChildren.filter(c=>(!c.configPageId||finalPageIds.has(c.configPageId))&&(!c.childConfigPageId||finalPageIds.has(c.childConfigPageId))).map(c=>({...c,yzProjectId:projectId})),configIndexes:[],configIndexColumns:[]};
 const indexes=[],indexColumns=[];
 function index(tableName,name,fields,unique=false) {
  const t=tables.find(t=>t.tableName===tableName); if(!t)return;

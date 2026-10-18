@@ -3,7 +3,7 @@ namespace Metarill.Core.Persistence;
 
 /// <summary>标准变更在提交前通知基础设施，引用写入必须使用同一个数据库事务。</summary>
 public sealed record RecordMutationContext(string PageId,string TableName,long RecordId,string ProjectId,
-    IReadOnlyDictionary<string,object?> SubmittedFields,bool IsDelete,DbTransaction Transaction);
+    IReadOnlyDictionary<string,object?> SubmittedFields,bool IsDelete,DbTransaction Transaction,bool IsCreate=false);
 public interface IRecordMutationObserver
 {
     Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken = default);

@@ -1,0 +1,36 @@
+name: 构建与契约验证
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: 生成平台和示例后端
+        run: |
+          dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/platform.json --output backend/generated/platform --namespace Metarill.Platform
+          dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/demo.json --output backend/generated/demo --namespace Metarill.Demo
+      - name: 编译服务
+        run: dotnet build backend/src/Metarill.Api
+      - name: 数据库适配与生成保护单元测试
+        run: |
+          dotnet test backend/tests/Metarill.Data.Tests --logger "trx;LogFileName=data.trx"
+          dotnet test backend/tests/Metarill.Generation.Tests --logger "trx;LogFileName=generation.trx"
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 运行时及Agent协议测试
+        run: |
+          node --test frontend/metarill_uni_admin/tests/*.test.mjs
+          npm test --prefix tools/metarill-agent-cli
