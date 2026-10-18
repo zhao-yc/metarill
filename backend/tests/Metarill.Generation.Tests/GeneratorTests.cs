@@ -123,8 +123,8 @@ public sealed class GeneratorTests : IDisposable
         using var schema = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "frontend/common/yzp_runtime/page-write-schema.generated.json")));
         var page = schema.RootElement.GetProperty("pages").GetProperty("101");
         Assert.Equal("/admin/auto/customer/101", page.GetProperty("route").GetString());
-        Assert.Equal(["remark"], page.GetProperty("createFields").EnumerateArray().Select(field => field.GetString()).ToArray());
-        Assert.Equal(["id", "remark"], page.GetProperty("updateFields").EnumerateArray().Select(field => field.GetString()).ToArray());
+        Assert.Equal(["remark"], page.GetProperty("createFields").EnumerateArray().Select(field => field.GetString()!).ToArray());
+        Assert.Equal(["id", "remark"], page.GetProperty("updateFields").EnumerateArray().Select(field => field.GetString()!).ToArray());
     }
     internal static MetadataCatalog Catalog() => new()
     {
