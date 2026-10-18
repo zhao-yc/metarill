@@ -19,7 +19,7 @@
 | 导入导出 | 前端行数据导入整批回滚；真实 XLSX；身份绑定短期下载；读前并发/票据门禁与 SQL 上限 | 复杂控件/关系按能力清单明确拒绝；不静默截断 |
 | MCP | 官方 C# SDK 2.2.0；匿名拒绝；工具列表、结构预览和同 Service 页操作通过真实客户端 | Agent 的 MCP 写操作当前拒绝，写入走带任务保护的能力 API |
 | Agent | 设备码授权、刷新轮换/撤销、能力目录、写确认、持久任务 UUID 去重；实际 CLI 端到端通过 | 人工确认由隔离测试账号模拟协议，尚无真实浏览器授权操作验收 |
-| 前端 | 脱敏 HBuilderX Vue 3 工程、运行时与配置交互契约测试；SFC 脚本/模板语法检查 | 新 DCloud AppID、原选择器/富文本许可、完整 H5、Web/小程序/Android/iOS 均待验收 |
+| 前端 | 新 AppID；HBuilderX 完整 Web 发行成功；真实浏览器登录、项目选择、菜单和配置表列表/详情回读；188项运行时测试 | 原选择器/富文本许可、完整写入闭环、小程序/Android/iOS 待验收；本机 HBuilderX 预览入口未启动，使用发行产物静态服务验证 |
 | 性能 | 保留固定类型热点查询/映射；导出实测 LIMIT 上限和满额不读库 | 未完成与 Java YZP 同数据/SQL/索引/并发/资源的对照，不作性能达标结论 |
 | 多数据库 | Provider、逻辑类型、能力、结构计划与平台/业务连接边界 | 目前只实现 MySQL；MariaDB/PostgreSQL/SQL Server/Oracle/SQLite 尚未支持 |
 
@@ -33,7 +33,7 @@ CI 在 Linux / Windows 重新生成、比对提交产物、编译宿主并遍历
 
 ## 待验收顺序
 
-1. 取得新 DCloud AppID、确认原组件许可，恢复原选择器与富文本接入，完成 H5 编译及浏览器闭环。
+1. 确认原组件许可并恢复原选择器、富文本接入，完成完整浏览器写入闭环；新AppID与Web发行构建已通过。
 2. 按实际能力清单补齐高级联接、关系控件、生成助手和其他既有平台能力，完成独立应用运行时集成。
 3. 完成 Web、小程序、Android、iOS 真实验收和 Server-200 同资源性能对照，稳定退化阻断发布。
 4. MySQL 首版完整验收后，再依次适配其他数据库；每种分别验证自举、反查/DDL、生成/CRUD、权限/关系、导入导出和事务并发。
@@ -45,3 +45,15 @@ CI 在 Linux / Windows 重新生成、比对提交产物、编译宿主并遍历
 [Linux / Windows 与前端 CI 记录](https://github.com/zhao-yc/metarill/actions/runs/39121606269) 三项作业均通过。CI 缺少真实 MySQL 凭据的数据库用例按设计跳过；真实数据库证据来自上述独立测试库。
 
 索引工作台保留从配置表详情携带 `config_table_id` 进入，不能新增无表上下文的全局菜单。开发服务通过 `scripts/dev.ps1 start` 启动后已实测健康检查、登录、当前项目菜单及注销；日志和停止入口见 README。以上结果不替代尚未完成的发布验收。
+
+## AppID接入后的Web验证
+
+用户提供并授权使用 __UNI__CF80CAE，已备份原manifest并写入回读。HBuilderX 5.26.2026091802（Vue3）实际发行命令成功，产物位于 frontend/metarill_uni_admin/unpackage/dist/build/web；首页及3项入口资源HTTP 200。关闭默认统计注入后的首页SHA-256为0E87A59D53CDEEB7B825B518119FCBDC7AE001FDA21BD37F08F61486950D955F。
+
+真实内嵌浏览器已登录、选择Metarill项目，读取菜单、23项配置表列表及配置表详情/从属页字段。发现并修正运行时菜单text/icon/projectId/adminTypeId响应遗漏，补齐原存储模式控件只读能力接口；supportsNonRedundant明确为false，不把尚未实现的能力标记为支持。新增2项真实HTTP回归后，API测试11/11通过；本轮前端188/188通过。
+
+该验证没有执行元数据保存或DDL；选择器与富文本继续显示许可待确认状态，不能据此宣布完整前端或多端验收通过。
+
+真实浏览器的一键生成已捕获下载事件，取得metarill-application.zip（428543字节、226条目），核验含backend/Application.Host/Program.cs与src/Metarill.Data/Metarill.Data.csproj；SHA-256：A8906995DB1A4FADC9DD23F4CE5B0BCA1C3B920C05884E5D34F3CCC5A73C2B76。它是生成包下载验收，不表示包内完整前端/运行时已经全部移植。
+
+浏览器注销后刷新仍显示登录页，会话已清理。临时静态服务仅供本机查看发行产物；日志为.local/h5-preview.log，停止入口为.local/stop-h5-preview.ps1。本轮未上传或部署站点。

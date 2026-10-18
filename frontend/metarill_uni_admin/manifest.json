@@ -1,6 +1,6 @@
 {
   "name": "Metarill",
-  "appid": "",
+  "appid": "__UNI__CF80CAE",
   "description": "元数据驱动的开源应用开发平台",
   "versionName": "0.1.0",
   "versionCode": "1",
@@ -30,5 +30,8 @@
       "urlCheck": true
     },
     "usingComponents": true
+  },
+  "uniStatistics": {
+    "enable": false
   }
 }

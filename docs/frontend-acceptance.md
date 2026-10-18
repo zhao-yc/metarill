@@ -1,5 +1,9 @@
 # 前端与 Agent 接入验收
 
+当前状态以此处更新及docs/acceptance.md为准；后续分批记录保留实施时证据，旧AppID阻塞描述属于历史。
+
+2026-10-18：用户提供AppID __UNI__CF80CAE后，HBuilderX已实际编译并导出Web成功；发行产物经静态服务完成真实登录、项目选择、菜单、配置表列表与详情回读。保留原交互及组件许可占位；完整写入闭环和多端仍待验收。
+
 ## 已完成
 
 - 独立 HBuilderX uni-app Vue 3 工程，默认 C# API 8088、H5 5188；未改成 CLI/Vite 工程。
@@ -11,13 +15,13 @@
 ## 尚未通过
 
 - 用户选择保留原选择器、富文本交互，待确认原组件许可后再接入；未复制未确认源码和原私有API key，当前两类能力显式显示待接入。
-- HBuilderX 5.26.2026091802 / CLI 1.0.0.0 已导入工程。publish web 实际报“appid 不存在，请在 manifest.json 中重新获取”；空值和本地占位不获接受，已恢复空值，不复用旧或他人标识。launch web --ui true --compile true 只返回命令已下发，logcat web 无构建日志，不能算编译成功。需正式新AppID后重新执行。
+- HBuilderX 5.26.2026091802 / CLI 1.0.0.0 已发行Web成功。launch web界面模式仅下发命令、直接CLI也未启动预览，本轮使用发行产物的本地静态服务验证；HBuilderX热更新预览仍未通过。
 - C#核心接口与CLI已通过真实MySQL联调；完整接口覆盖、浏览器业务闭环、微信/Android/iOS真机、原生签名和性能对照仍待验收。Node行为测试不能替代这些验收。
 - Agent CLI client_id 为 metarill-agent-cli；服务端设备授权、身份核对、能力目录、撤权、刷新和任务协议已通过真实CLI联调，浏览器授权交互仍待验收。
 
 ## 交付验收顺序
 
-新AppID与插件许可→HBuilderX Web编译→登录/设备项目选择→元数据CRUD→结构预览/同步→生成与独立项目CRUD→菜单/权限/文件/导入导出/Agent→Web及三类真机→200服务器同资源性能对照。
+插件许可确认及原控件接入→元数据CRUD→结构预览/同步→生成与独立项目CRUD→菜单/权限/文件/导入导出/Agent→Web及三类真机→200服务器同资源性能对照。
 
 HBuilderX 自带条件编译预处理器与 Vue SFC 编译器检查了 74 个项目 Vue 文件，脚本与模板描述语法零错误；这仍不替代完整 H5 构建。官方组件源码按原样保留，未做项目格式化。
 
@@ -61,7 +65,7 @@ HBuilderX 自带条件编译预处理器与 Vue SFC 编译器检查了 74 个项
 
 菜单工作台快照至少包含 projectId、adminTypeId、adminTypes、revision、isV8:true、canWrite、capabilities.first/second 的 create/update/delete 布尔值、tree 和 targets。tree 使用 id、parentId、firstMenuId、kind、name、children；targets 使用 id、kind、name、route、showCountSupported。根节点显示为 DIRECTORY，保存草稿里的 FIRST_MENU 是根分组语义；不要求底层保留两张表。冲突不能自动覆盖。
 
-运行时 getMenu 与工作台 tree 的模型不同：运行时节点使用 menu_id（兼容 id）、name、nodeType、children 及 target:{route,tableName,pageId,tableId,countEndpoint}。角标 isShowCount 生效时才 POST countEndpoint，载荷 {filters:{},parentId:''}。菜单导航查询参数 yzpMenuId 仅用于恢复选中，不能授予权限。
+运行时 getMenu 与工作台 tree 的模型不同：运行时节点使用 menu_id（兼容 id）、text（组件展示）、name（兼容）、icon、projectId、adminTypeId、nodeType、children 及 target:{route,tableName,pageId,tableId,countEndpoint}。角标 isShowCount 生效时才 POST countEndpoint，载荷 {filters:{},parentId:''}。菜单导航查询参数 yzpMenuId 仅用于恢复选中，不能授予权限。
 
 结构按钮现在由兼容网关解释：1696359699042168834（创建表）、1764267649526751234（创建字段）、1696360770502291457（初始化数据库）只返回 type:path 到 pages/custom/schema_sync，不能直接执行 DDL。1696795154426523650（删除表）和1764274114228662273（删除字段）明确拒绝。新预览页源码与状态机测试已补齐；真实 H5/多端验收仍受新 AppID 缺口阻塞，不能据单元测试宣称完整操作验收。
 
