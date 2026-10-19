@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: 验证空库工具的服务器与清理边界
+        run: python -m unittest discover -s tools/acceptance -p test_server200_fresh_mysql.py
       - name: 核对文件基础表派生元数据
         run: node tools/metadata/derive-files.mjs --check
       - name: 重新生成并核对提交产物

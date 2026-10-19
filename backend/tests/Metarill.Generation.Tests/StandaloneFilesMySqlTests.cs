@@ -139,14 +139,19 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     private string PublicColumn => Catalog.ConfigColumns.Single(c => c.ColumnName == "public_files").Id;
 
     /// <summary>内存元数据只增加本次业务字段，文件基础设施定义必须读取打包后的唯一来源。</summary>
-    public static async Task<PackagedFilesFixture> CreateAsync()
+    public static async Task<PackagedFilesFixture> CreateAsync(DatabaseOptions? freshOptions = null)
     {
         var fixture = new PackagedFilesFixture();
         try
         {
-            using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
-            var options = settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
-            if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("独立文件验收仅允许 MySQL metarill_business_test。");
+            DatabaseOptions options;
+            if (freshOptions is null)
+            {
+                using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
+                options = settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+                if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("独立文件验收仅允许 MySQL metarill_business_test。");
+            }
+            else { FreshInstallConfiguration.Validate(freshOptions, "package"); options = freshOptions; }
             fixture.Session = new DatabaseSession(options);
             fixture.root = SourceRoot();
             fixture.Catalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.root, "backend/metadata/demo.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -356,7 +361,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
             await StopAsync(); Client?.Dispose(); Anonymous?.Dispose();
             if (Session is not null)
             {
-                if (Session.Options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("拒绝清理非业务隔离库。");
+                if (Session.Options.ExpectedDatabase != "metarill_business_test") FreshInstallConfiguration.Validate(Session.Options, "package");
                 foreach (var id in FileIds) { await ExecuteAsync("DELETE FROM `yz_file_ref` WHERE `file_id`=@id", id); await ExecuteAsync("DELETE FROM `yz_file_library` WHERE `id`=@id", id); }
                 foreach (var id in RecordIds) await ExecuteAsync("DELETE FROM `yz_file_ref` WHERE `record_id`=@id", id);
                 if (cleanupTable)
