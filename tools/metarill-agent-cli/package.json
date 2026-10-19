@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "node --check bin/metarill-agent.mjs && node --check lib/cli.mjs"
+    "check": "node --check bin/metarill-agent.mjs && node --check lib/cli.mjs && node --check lib/generation-helper.mjs && node --check lib/generation-application.mjs"
   },
   "license": "Apache-2.0",
   "private": false

@@ -19,6 +19,8 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
         var action = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
         // 人工管理动作仍由控制器RequireWeb拒绝Agent，不能把自身授权当作网页登录。
         if (action?.ControllerTypeInfo.FullName == "Metarill.Api.AgentControllers.AgentManagementController" && action.ActionName is "Me" or "Capabilities" or "Describe" or "Skill" or "Tasks" or "Revoke" or "Device" or "Approve" or "Grants") { await next(context); return; }
+        // 助手控制通道由控制器再次校验Agent管理员及精确grant/lease；不放宽普通能力目录。
+        if (action?.ControllerTypeInfo.FullName == "Metarill.Api.Controllers.GenerationAssistantController" && action.ActionName is "Bind" or "Claim" or "Report" or "Approvals" or "Authorize" or "VerifyTicket" or "ApplicationReport") { await next(context); return; }
         AgentTaskClaim? claim = null;
         try
         {

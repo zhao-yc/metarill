@@ -111,3 +111,11 @@ metarill-agent skill install --force
 - `GET /admin/sys/agent/tasks/{requestId}`：查询当前账号的请求任务摘要；调用前仍检查授权，未找到返回结构化错误，不能解释为从未执行。
 
 所有地址基于 `--url` 中完整 API 基础路径。CLI 不直接访问数据库，不修改平台元数据；此类开发工作使用 Metarill MCP。
+
+## 在线本地生成助手
+
+先完成真实设备授权，再用 `helper bind --target 绝对FullApplication目录 --source-root 可信Metarill源码 --cli 固定Metarill.Cli.dll --dotnet dotnet绝对路径 --work-root 独立工作区` 一次性绑定。默认 `preview` 明确无法写入；允许原按钮写入需绑定时明确 `--mode apply --allow-actions generate-project-config,sync-runtime,generate-all-page --confirm`，也可只选其中受支持动作。绑定后运行 `helper poll`，日常操作保持平台三个原按钮及确认，无需手动JSON或CLI应用。
+
+本机只运行固定、复核摘要、无shell的C#CLI；不上传目录/连接/日志，不执行安装、SQL/DDL或服务启动。缺依赖回原按钮分别确认，仅同快照真实确认集合可合组；短ticket在应用前再核对grant与平台metadata SHA。预览/排队/未知不是应用成功。
+
+回执先落本机出箱，服务器已保存但ACK丢失仍按原编号幂等重传；中断apply只核对严格原journal，再恢复同一个本机反查事务，证据不全或用户后来编辑保持unknown并保留现场，绝不盲目重新apply。具体授权、路径、TTL、恢复和实际验收边界见 [在线助手说明](../../docs/generation-assistant.md)。

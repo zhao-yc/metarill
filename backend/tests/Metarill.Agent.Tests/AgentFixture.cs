@@ -60,7 +60,7 @@ internal sealed class AgentFixture : IAsyncDisposable
     public AgentOAuthService OAuth { get; private set; } = null!;
     public AuthenticationService Authentication { get; private set; } = null!;
 
-    public static async Task<AgentFixture> CreateAsync(bool administrator = true)
+    public static async Task<AgentFixture> CreateAsync(bool administrator = true, Action<IServiceCollection>? customize = null)
     {
         var fixture = new AgentFixture();
         try
@@ -95,13 +95,14 @@ internal sealed class AgentFixture : IAsyncDisposable
                 services.AddSingleton(fixture.OAuth); services.AddSingleton<AgentAuthenticationService>(); services.AddSingleton<AgentPublicRateLimiter>();
                 services.AddHttpContextAccessor(); services.AddScoped<IRuntimeAuthorization, HttpRuntimeAuthorization>(); services.AddSingleton<GeneratedCapabilityIndex>(); services.AddScoped<AgentCapabilityCatalog>();
                 services.AddControllers().AddApplicationPart(typeof(AgentOAuthController).Assembly).AddJsonOptions(o => JsonDefaults.CopyTo(o.JsonSerializerOptions));
-            }; configure(builder.Services);
+            }; configure(builder.Services); customize?.Invoke(builder.Services);
             var app = builder.Build();
                 app.Use(async (context, next) =>
                 {
                     try { await next(); }
                     catch (UnauthorizedAccessException error) { context.Response.StatusCode = 401; await context.Response.WriteAsJsonAsync(R<object>.Error(error.Message), JsonDefaults.Options); }
                     catch (InvalidOperationException error) { context.Response.StatusCode = 400; await context.Response.WriteAsJsonAsync(R<object>.Error(error.Message), JsonDefaults.Options); }
+                    catch (Exception error) when (error is JsonException or ArgumentException) { context.Response.StatusCode = 400; await context.Response.WriteAsJsonAsync(R<object>.Error("请求字段无效。"), JsonDefaults.Options); }
                 });
                 app.UseRouting(); app.UseMiddleware<AgentAuthenticationMiddleware>(); app.UseMiddleware<AgentTaskMiddleware>();
                 app.Use(async (context, next) => { await next(); if (context.Request.Headers["X-Test-After-Commit"] == "fail") throw new InvalidOperationException("测试模拟提交后响应丢失"); });

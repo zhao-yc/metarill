@@ -51,17 +51,31 @@ internal static class Program
     /// <summary>更新仅接受本机明确目录和预览摘要，不提供force、SQL、脚本或安装选项。</summary>
     private static int Update(string[] args)
     {
-        if (args.Length < 2 || args[1] is not ("preview" or "apply" or "recover")) throw new ArgumentException("更新子命令必须是preview、apply或recover。");
+        if (args.Length < 2 || args[1] is not ("target-identity" or "prepare" or "preview" or "apply" or "apply-status" or "recover")) throw new ArgumentException("更新子命令必须是target-identity、prepare、preview、apply、apply-status或recover。");
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var index = 2; index < args.Length; index += 2)
             if (index + 1 >= args.Length || args[index + 1].StartsWith("--", StringComparison.Ordinal) || !values.TryAdd(args[index], args[index + 1])) throw new ArgumentException("更新参数缺值或重复。");
-        var allowed = args[1] switch { "preview" => new[] { "--target", "--candidate", "--actions", "--plan" }, "apply" => new[] { "--target", "--candidate", "--plan", "--confirm" }, _ => new[] { "--target", "--transaction", "--confirm" } };
+        var allowed = args[1] switch { "target-identity" => new[] { "--target" }, "prepare" => new[] { "--request", "--target", "--candidate", "--source-root", "--plan" }, "preview" => new[] { "--target", "--candidate", "--actions", "--plan" }, "apply" => new[] { "--target", "--candidate", "--plan", "--confirm" }, "apply-status" => new[] { "--target", "--plan", "--confirm" }, _ => new[] { "--target", "--transaction", "--confirm" } };
         if (values.Count != allowed.Length || values.Keys.Any(key => !allowed.Contains(key, StringComparer.Ordinal))) throw new ArgumentException("更新参数缺失或包含未知键。");
         var updater = new LocalGenerationUpdater();
+        if (args[1] == "target-identity")
+        {
+            Console.WriteLine(JsonSerializer.Serialize(updater.InspectTarget(values["--target"]), new JsonSerializerOptions(JsonSerializerDefaults.Web))); return 0;
+        }
+        if (args[1] == "prepare")
+        {
+            var result = updater.PrepareRequest(values["--request"], values["--target"], values["--candidate"], values["--source-root"], values["--plan"]);
+            Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true })); return result.Plan.CanApply ? 0 : 3;
+        }
         if (args[1] == "preview")
         {
             var plan = updater.Preview(values["--target"], values["--candidate"], values["--actions"].Split(',')); LocalGenerationUpdater.WritePlan(plan, values["--plan"]);
             Console.WriteLine(JsonSerializer.Serialize(plan, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true })); return plan.CanApply ? 0 : 3;
+        }
+        if (args[1] == "apply-status")
+        {
+            var plan = LocalGenerationUpdater.ReadApplicationStatusPlan(values["--plan"]);
+            Console.WriteLine(JsonSerializer.Serialize(updater.InspectApplicationStatus(values["--target"], plan, values["--confirm"]), new JsonSerializerOptions(JsonSerializerDefaults.Web))); return 0;
         }
         if (args[1] == "apply")
         {
@@ -72,5 +86,5 @@ internal static class Program
         Console.WriteLine(JsonSerializer.Serialize(updater.Recover(values["--target"], values["--transaction"], values["--confirm"]), new JsonSerializerOptions(JsonSerializerDefaults.Web))); return 0;
     }
     /// <summary>显示稳定的脚本调用协议。</summary>
-    private static void PrintUsage() => Console.WriteLine("用法：metarill generate --metadata 元数据.json --output 输出目录 --namespace 根命名空间\n或：metarill package --metadata 元数据.json --output 空目录 --namespace 根命名空间 --source-root Metarill源码根目录 [--backend-only]\n或：metarill update preview --target 已有FullApplication --candidate 新包目录 --actions generate-project-config,sync-runtime,generate-all-page --plan 新计划.json\n应用：metarill update apply --target 原目录 --candidate 原候选 --plan 计划.json --confirm 计划摘要\n恢复：metarill update recover --target 原目录 --transaction 事务ID --confirm 计划摘要");
+    private static void PrintUsage() => Console.WriteLine("用法：metarill generate --metadata 元数据.json --output 输出目录 --namespace 根命名空间\n或：metarill package --metadata 元数据.json --output 空目录 --namespace 根命名空间 --source-root Metarill源码根目录 [--backend-only]\n或：metarill update target-identity --target 已有FullApplication（只读绑定身份）\n或：metarill update prepare --request 已审核请求.json --target 已有FullApplication --candidate 新空候选目录 --source-root 可信Metarill源码 --plan 新计划.json\n或：metarill update preview --target 已有FullApplication --candidate 新包目录 --actions generate-project-config,sync-runtime,generate-all-page --plan 新计划.json\n应用：metarill update apply --target 原目录 --candidate 原候选 --plan 计划.json --confirm 计划摘要\n状态：metarill update apply-status --target 原目录 --plan 原计划.json --confirm 计划摘要（只读；unknown不代表未写入）\n恢复：metarill update recover --target 原目录 --transaction 事务ID --confirm 计划摘要");
 }

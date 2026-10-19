@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ModelContextProtocol.AspNetCore;
 using Metarill.Api.Mcp;
+using Metarill.Api.GenerationAssistant;
 using Metarill.Core.Contracts;
 using Metarill.Core.Exports;
 using Metarill.Runtime.Exports;
@@ -46,6 +47,8 @@ builder.Services.AddSingleton<BootstrapService>();
 builder.Services.AddSingleton<AuthenticationService>();
 builder.Services.AddSingleton<CSharpGenerator>();
 builder.Services.AddSingleton<ApplicationPackager>();
+builder.Services.AddSingleton(new GenerationAssistantOptions(Path.Combine(root, ".local", "generation-assistant")));
+builder.Services.AddSingleton<GenerationAssistantQueue>();
 builder.Services.AddSingleton(builder.Configuration.GetSection("Metarill:Agent").Get<AgentOAuthOptions>()??new AgentOAuthOptions{VerificationUri="http://127.0.0.1:5188/#/pages/custom/agent_authorize"});
 builder.Services.AddSingleton<AgentOAuthService>();
 builder.Services.AddSingleton<AgentAuthenticationService>();

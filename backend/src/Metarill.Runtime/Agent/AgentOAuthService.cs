@@ -153,6 +153,14 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
         }, cancellationToken);
     }
 
+    /// <summary>网页投递助手任务前重新核对目标grant仍获批准，文件绑定记录本身不授予继续投递的权利。</summary>
+    public async Task RequireApprovedGrantAsync(long grantId, AuthenticatedIdentity identity, CancellationToken token = default)
+    {
+        await RequireWebAsync(identity, true, token);
+        var grant = (await store.ReadAsync("sys_agent_grant", new Dictionary<string, object?> { ["id"] = grantId, ["account_id"] = identity.Actor.AccountId, ["project_id"] = long.Parse(identity.Actor.ProjectId, CultureInfo.InvariantCulture) }, token)).SingleOrDefault();
+        if (grant is null || SqlRowStore.Text(grant, "status") != "approved" || SqlRowStore.Text(grant, "client_id") != ClientId || grant.GetValueOrDefault("refresh_expires_at") is null || Date(grant, "refresh_expires_at") <= _clock.GetUtcNow().UtcDateTime) throw new UnauthorizedAccessException("目标助手grant已撤销、过期或不属于当前账号项目。");
+    }
+
     /// <summary>网页授权列表不回显凭据；时间延续原毫秒协议，避免统一日期转换器丢失时区。</summary>
     public async Task<IReadOnlyList<object>> GrantsAsync(AuthenticatedIdentity identity, CancellationToken cancellationToken = default)
     {

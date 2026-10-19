@@ -24,9 +24,6 @@ public sealed class ApplicationPackager
     internal ApplicationPackager(Action<string, string> publish) => this.publish = publish;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] FoundationProjects = ["Metarill.Core", "Metarill.Data", "Metarill.Exports", "Metarill.Files"];
-    private static readonly HashSet<string> SensitiveKeys = new(StringComparer.OrdinalIgnoreCase)
-    { "connstring", "connectionstring", "password", "pwd", "dbpassword", "accesskey", "accesskeyid", "accesskeysecret", "secret", "secretkey", "privatekey", "clientsecret", "apitoken", "accesstoken", "refreshtoken", "token", "apikey", "credentials" };
-
     /// <summary>先在同级临时目录完成整个包，成功后一次移动；既有非空项目永不覆盖。</summary>
     public ApplicationPackageResult Create(MetadataCatalog catalog, string outputDirectory, string rootNamespace, string sourceRoot, ApplicationPackageMode mode = ApplicationPackageMode.FullApplication)
     {
@@ -39,24 +36,13 @@ public sealed class ApplicationPackager
         foreach (var project in FoundationProjects)
             if (output.StartsWith(Path.Combine(source, "backend", "src", project) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || output.Equals(Path.Combine(source, "backend", "src", project), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("打包目录不能位于基础源码项目内部。");
         var stage = output.TrimEnd(Path.DirectorySeparatorChar) + ".staging-" + Guid.NewGuid().ToString("N");
-        var redactions = new List<string>();
-        var json = JsonNode.Parse(JsonSerializer.Serialize(catalog, JsonOptions))!;
-        Scrub(json, "$", redactions);
-        // 密码列保留定义，只清除默认凭据，不能把 columnName/password 误当敏感值移除。
-        var sensitiveColumns = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var column in json["configColumns"]?.AsArray() ?? [])
-        {
-            if (column is not JsonObject item || !SensitiveKeys.Contains(Normalize(item["columnName"]?.ToString() ?? ""))) continue;
-            sensitiveColumns.Add(item["id"]?.ToString() ?? "");
-            foreach (var key in new[] { "defaultValue", "initValue" }) if (item[key] is not null) { item[key] = ""; redactions.Add("$.configColumns[" + item["id"] + "]." + key); }
-        }
-        foreach (var field in json["configPageColumns"]?.AsArray() ?? [])
-            if (field is JsonObject item && sensitiveColumns.Contains(item["configColumnId"]?.ToString() ?? ""))
-                foreach (var key in new[] { "defaultValue", "initValue" }) if (item[key] is not null) { item[key] = ""; redactions.Add("$.configPageColumns[" + item["id"] + "]." + key); }
-        var sanitized = json.Deserialize<MetadataCatalog>(JsonOptions)!;
+        var published = GenerationMetadataPublisher.Publish(catalog);
+        var redactions = published.RedactedPaths.ToList();
+        var sanitized = published.Metadata;
+        var json = JsonNode.Parse(JsonSerializer.Serialize(sanitized, JsonOptions))!;
         // 基础表仅来自已提交的派生模型；先验证物理组合，冲突不产生任何输出。
         var infrastructureJson = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source, "backend/metadata/files.json")))!;
-        Scrub(infrastructureJson, "$.files", redactions);
+        GenerationMetadataPublisher.Scrub(infrastructureJson, "$.files", redactions);
         var infrastructure = infrastructureJson.Deserialize<MetadataCatalog>(JsonOptions)!;
         MetadataCatalogComposition.MergePhysical(sanitized, infrastructure);
         var frontend = new FrontendPackager(publish);
@@ -141,25 +127,6 @@ public sealed class ApplicationPackager
             else if (Path.GetExtension(item) is ".cs" or ".csproj" || (Path.GetFileName(directory) == "licenses" && (Path.GetFileName(item) is "LICENSE.txt" or "THIRD-PARTY-NOTICES.txt"))) yield return item;
         }
     }
-    /// <summary>递归删除配置值；普通字段定义与注释不会按内容猜测删除。</summary>
-    private static void Scrub(JsonNode node, string path, List<string> redactions)
-    {
-        if (node is JsonObject obj)
-            foreach (var property in obj.ToArray())
-            {
-                var childPath = path + "." + property.Key;
-                if (SensitiveKeys.Contains(Normalize(property.Key))) { obj.Remove(property.Key); redactions.Add(childPath); }
-                else if (property.Value is JsonObject or JsonArray) Scrub(property.Value, childPath, redactions);
-                else if (property.Value is JsonValue value && value.TryGetValue<string>(out var content) && content.TrimStart() is [ '{' or '[', .. ])
-                {
-                    try { var nested = JsonNode.Parse(content); if (nested is JsonObject or JsonArray) { Scrub(nested, childPath, redactions); obj[property.Key] = nested.ToJsonString(JsonOptions); } }
-                    catch (JsonException) { /* 非 JSON 配置说明保持原文，不执行或猜测其内容。 */ }
-                }
-            }
-        else if (node is JsonArray array) for (var i = 0; i < array.Count; i++) if (array[i] is { } item) Scrub(item, path + "[" + i + "]", redactions);
-    }
-    /// <summary>匹配敏感键时忽略常见分隔符，不检查普通配置说明的文本内容。</summary>
-    private static string Normalize(string value) => new(value.Where(char.IsLetterOrDigit).ToArray());
     /// <summary>只从随程序集发布的固定模板读取宿主文件。</summary>
     private static string Template(string name)
     {
