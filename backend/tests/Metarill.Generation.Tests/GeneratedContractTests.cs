@@ -93,6 +93,8 @@ public sealed class GeneratedContractTests
             Assert.Equal("basic", voType.GetProperty("TierShow")!.GetValue(voType.GetMethod("FromEntity")!.Invoke(null, [entity])));
 
             var controllerType = assembly.GetType("Example.Contract.Generated.Controllers.CustomerPage101Controller", true)!;
+            Assert.Equal(updateType, controllerType.GetMethod("Update")!.GetCustomAttribute<LegacyPageWriteRequestAttribute>()!.RequestType);
+            Assert.Equal("CustomerPage101CreateRequest", controllerType.GetMethod("Add")!.GetCustomAttribute<LegacyPageWriteRequestAttribute>()!.RequestType.Name);
             var authorization = new DeniedAuthorization();
             var controller = Activator.CreateInstance(controllerType, [null, authorization])!;
             var task = (Task)controllerType.GetMethod("Page")!.Invoke(controller, [new PageRequest(), CancellationToken.None])!;

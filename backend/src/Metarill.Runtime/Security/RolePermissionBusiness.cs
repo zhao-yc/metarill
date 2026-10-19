@@ -79,7 +79,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
     private static string[] Values(string value){try{return JsonSerializer.Deserialize<string[]>(value)??[];}catch(JsonException){return [];}}
     private static string[] PageActions(PageMetadata page)
     {
-        var result=new List<string>{"is_query","is_all"};if(page.IsNew==1)result.Add("is_new");if(page.IsSave==1)result.Add("is_update");if(page.IsDelete==1)result.Add("is_delete");
+        var result=new List<string>{"is_query","is_all"};if(page.IsNew==1)result.Add("is_new");if(Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page))result.Add("is_update");if(page.IsDelete==1)result.Add("is_delete");
         if(page.IsExport==1||page.Extra.TryGetValue("exportMethod",out var method)&&method.GetString() is "list" or "edit")result.Add("is_export");return result.ToArray();
     }
 }

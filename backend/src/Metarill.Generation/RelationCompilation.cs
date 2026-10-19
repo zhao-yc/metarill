@@ -4,7 +4,20 @@ using System.Text.Json.Nodes;
 namespace Metarill.Generation;
 
 internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target, PageModel TargetPage, ColumnModel NameColumn, string Endpoint,
-    IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents);
+    IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents)
+{
+    /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
+    public string LegacyEndpoint
+    {
+        get
+        {
+            var name = SourceColumn.Property;
+            if (name.EndsWith("Ids", StringComparison.Ordinal)) name = name[..^3];
+            else if (name.EndsWith("Id", StringComparison.Ordinal)) name = name[..^2];
+            return "findNameId" + name + SourceColumn.Source.Id;
+        }
+    }
+}
 
 /// <summary>关系选项只能编译已声明表、名称列和目标页面，禁止直接解释外部 SQL。</summary>
 internal static class RelationCompilation

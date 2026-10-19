@@ -77,7 +77,10 @@ public sealed class GeneratedMultiSelectMySqlTests
             Assert.Single(await store.ReadAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = long.Parse(record) }));
             async Task<string> Snapshot() => JsonSerializer.Serialize(new { Source = await rows.ReadIncludingDeletedAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) }), Refs = (await store.ReadIncludingDeletedAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = long.Parse(record) })).OrderBy(row => Convert.ToInt64(row["id"])).ToArray() });
             var hiddenEndpoint = "/api/admin/auto/" + prefix + "_source/202";
-            var before = await Snapshot(); using (var rejected = await client.PostAsJsonAsync(endpoint + "/update", new { id = record, targetNames = new[] { "客户端伪造" } })) Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode); Assert.Equal(before, await Snapshot());
+            var before = await Snapshot(); Data(await Post(client, endpoint + "/update", new { id = record, targetNames = new[] { "客户端伪造" } })); Assert.Equal(before, await Snapshot());
+            // 原详情整实体回传辅助名称，HTTP只剥离回显；IDs仍由同一源事务重新验证并派生名称。
+            var echoed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(created.GetRawText())!; echoed["targetNames"] = JsonSerializer.SerializeToElement(new[] { "不能写入的伪名称" });
+            Assert.Equal(new[] { "目标乙", "目标甲" }, Data(await Post(client, endpoint + "/update", echoed)).GetProperty("targetNames").EnumerateArray().Select(value => value.GetString()));
             // 省略IDs不刷新历史名称；客户端无法只写辅助名称。
             await Execute(session, "UPDATE " + Q(session, prefix + "_source") + " SET target_names=@names WHERE id=@id", ("names", "[\"历史名称\"]"), ("id", long.Parse(record)));
             Data(await Post(client, endpoint + "/update", new { id = record, name = "只改来源名称" })); Assert.Equal("[\"历史名称\"]", (await rows.ReadAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) })).Single()["target_names"]);

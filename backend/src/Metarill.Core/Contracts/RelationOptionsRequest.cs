@@ -14,6 +14,21 @@ public sealed class RelationOptionsLegacyRequest
     public PageOrderBy? OrderBy { get; set; }
     public List<string> SelectedIds { get; set; } = [];
     public System.Text.Json.JsonElement? FormParameters { get; set; }
+    public Optional<System.Text.Json.JsonElement?> Id { get; set; }
+
+    /// <summary>原只读字段只回读指定 ID；显式空值保持空候选，不得退化成全部数据。</summary>
+    public RelationOptionsSelectedRequest? ToSelectedRequest()
+    {
+        Validate();
+        if (!Id.IsSpecified) return null;
+        var value = Id.Value;
+        if (value is null || value.Value.ValueKind == System.Text.Json.JsonValueKind.Null
+            || value.Value.ValueKind == System.Text.Json.JsonValueKind.String && string.IsNullOrWhiteSpace(value.Value.GetString()))
+            return new() { ParentId = ParentId };
+        var text = value.Value.ValueKind is System.Text.Json.JsonValueKind.String or System.Text.Json.JsonValueKind.Number ? value.Value.ToString() : null;
+        if (!long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number <= 0) throw new ArgumentException("只读关联 ID 必须为正整数文本。");
+        return new() { SelectedIds = [number.ToString(CultureInfo.InvariantCulture)], ParentId = ParentId };
+    }
 
     /// <summary>旧入口不解释筛选、排序或已选状态；这些请求必须使用明确的新合同。</summary>
     public void Validate()

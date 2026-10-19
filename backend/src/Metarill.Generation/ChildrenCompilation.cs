@@ -66,7 +66,7 @@ internal static class ChildrenCompilation
     }
 
     /// <summary>更新能力沿用原 isUpdate；精简元数据未声明时使用既有保存能力。</summary>
-    public static bool CanUpdate(PageModel page) => Integer(page.Source.Extra, "isUpdate", page.Source.IsSave) switch { 0 => false, 1 => true, _ => throw new InvalidOperationException("页面更新能力必须为 0 或 1。") };
+    public static bool CanUpdate(PageModel page) => Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source);
 
     /// <summary>JSON 扩展只接受确切字符串，null 与未声明均使用空值。</summary>
     private static string Text(IReadOnlyDictionary<string, JsonElement> source, string name) => source.TryGetValue(name, out var value) ? Text(value) : "";

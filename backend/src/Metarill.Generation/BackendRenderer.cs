@@ -243,7 +243,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("            query = query.Where(entity => selected.Contains(entity.Id));").AppendLine("        }").AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>")
             .AppendLine($"    private static ISelect<{table.Name}> Order{suffix}(ISelect<{table.Name}> query, PageRequest request)").AppendLine("    {")
-            .AppendLine("        if (request.OrderBy is not null && (!string.IsNullOrWhiteSpace(request.OrderBy.Column) || !string.IsNullOrWhiteSpace(request.OrderBy.Field) || !string.IsNullOrWhiteSpace(request.OrderBy.Order)))").AppendLine("        {")
+            .AppendLine("        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))").AppendLine("        {")
             .AppendLine("            var descending = request.OrderBy.Order switch { \"descending\" => true, \"ascending\" => false, _ => throw new ArgumentException(\"排序方向无效。\") };")
             .AppendLine("            return (request.OrderBy.Column ?? request.OrderBy.Field) switch").AppendLine("            {");
         foreach (var column in page.Sortable)
@@ -253,11 +253,14 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         result.AppendLine("        return query" + string.Concat(order.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => entity.{item.Column.Property})")) + (order.Any(item => item.Column.IsId) ? ";" : ".OrderByDescending(entity => entity.Id);"))
             .AppendLine("    }").AppendLine("    /// <summary>分页与统计使用同一条已受限查询。</summary>")
             .AppendLine($"    public async Task<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
-            .AppendLine("        if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")
+            .AppendLine("        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")
+            .AppendLine($"        var unpaged = request.PageSize == 0 && {(page.Source.PageSize == 0).ToString().ToLowerInvariant()};")
+            .AppendLine("        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException(\"仅已配置不分页的页面允许 pageSize=0，且页码必须为1。\");")
             .AppendLine(SelectionPageRenderer.Enabled(page) ? $"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);" : "")
             .AppendLine($"        var query = Query{suffix}(request, actor);").AppendLine("        var total = await query.CountAsync(cancellationToken);")
-            .AppendLine($"        var entities = await Order{suffix}(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);")
-            .AppendLine($"        return new(entities.Select({page.Name}Vo.FromEntity).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
+            .AppendLine($"        var ordered = Order{suffix}(query, request);")
+            .AppendLine("        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);")
+            .AppendLine($"        return new(entities.Select({page.Name}Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
             .AppendLine("    }").AppendLine("    /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>")
             .AppendLine(SelectionPageRenderer.Enabled(page)
                 ? $"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) {{ await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken); return await Query{suffix}(request, actor).CountAsync(cancellationToken); }}"
@@ -297,7 +300,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");")
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);").AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
         }
-        if (page.Source.IsSave == 1 || (ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) == "OverWriteByFirstColumn"))
+        if (Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source) || (ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) == "OverWriteByFirstColumn"))
         {
             result.AppendLine("    /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>")
                 .AppendLine($"    public Task<{page.Name}Vo> Update{suffix}Async({page.Name}UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
@@ -435,6 +438,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"public sealed class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")
             .AppendLine($"    private RuntimeActor Actor(string operation) {{ authorization.RequirePagePermission({Literal(suffix)}, operation); return authorization.RequireActor(); }}")
+            .Append(LegacyPageRequestRenderer.Controller(table, page))
             .AppendLine("    /// <summary>兼容现有页面明细路由。</summary>").AppendLine("    [HttpGet(\"detail/{id}\")]")
             .AppendLine($"    public async Task<R<{page.Name}Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)").AppendLine("    {")
             .AppendLine($"        var record = await service.Detail{suffix}Async(id, parentId, Actor(\"detail\"), cancellationToken);")
@@ -445,26 +449,26 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count{suffix}Async(request, Actor(\"count\"), cancellationToken));");
         if (page.Source.IsNew == 1)
             result.AppendLine("    /// <summary>新增仅接受本页生成 DTO。</summary>").AppendLine("    [HttpPost(\"add\")]")
-                .AppendLine($"    public async Task<R<{page.Name}Vo>> Add([FromBody] {page.Name}CreateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Create{suffix}Async(request, parentId, Actor(\"create\"), cancellationToken));");
-        if (page.Source.IsSave == 1)
+                .Append(LegacyPageRequestRenderer.Mutation(page, "Add"));
+        if (Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))
             result.AppendLine("    /// <summary>更新保留省略字段与显式 null 的区别。</summary>").AppendLine("    [HttpPost(\"update\")]")
-                .AppendLine($"    public async Task<R<{page.Name}Vo>> Update([FromBody] {page.Name}UpdateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Update{suffix}Async(request, parentId, Actor(\"update\"), cancellationToken));");
+                .Append(LegacyPageRequestRenderer.Mutation(page, "Update"));
         if (page.Source.IsDelete == 1)
             result.AppendLine("    /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>").AppendLine("    [HttpDelete]")
-                .AppendLine($"    public async Task<R<string>> Delete([FromBody] {page.Name}RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete{suffix}Async(request.Id, parentId, Actor(\"delete\"), cancellationToken) ? R<string>.Success(\"删除成功\") : R<string>.Error(\"删除失败\");");
+                .Append(LegacyPageRequestRenderer.Mutation(page, "Delete"));
         if (page.Source.IsCopy == 1)
             result.AppendLine("    /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>").AppendLine("    [HttpPost(\"copy/{id}\")]")
                 .AppendLine($"    public async Task<R<{page.Name}Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Copy{suffix}Async(id, parentId, Actor(\"copy\"), cancellationToken));");
         result.Append(SelectionPageRenderer.Controller(page));
         foreach (var relation in RelationCompilation.ForPage(model, page))
             result.AppendLine("    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
-                .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]")
-                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ToPageRequest(), actor, cancellationToken)); }}")
+                .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint)})]"))
+                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RelationOptionsLegacyRequest? request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); request ??= new(); var selected = request.ToSelectedRequest(); return R<IReadOnlyList<GeneratedOption>>.Success(selected is null ? await service.Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ToPageRequest(), actor, cancellationToken) : await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(selected, actor, cancellationToken)); }}")
                 .AppendLine("    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>")
-                .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/page")})]")
+                .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/page")})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint + "/page")})]"))
                 .AppendLine($"    public async Task<R<PageResult<GeneratedOption>>> {relation.Endpoint}Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}")
                 .AppendLine("    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>")
-                .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/selected")})]")
+                .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/selected")})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint + "/selected")})]"))
                 .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
         result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(page));
         return result.AppendLine("}").ToString();

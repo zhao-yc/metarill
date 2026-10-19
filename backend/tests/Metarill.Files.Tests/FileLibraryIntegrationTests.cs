@@ -9,6 +9,20 @@ namespace Metarill.Files.Tests;
 
 public sealed class FileLibraryIntegrationTests
 {
+    /// <summary>旧 isUpdate=0 不能被 IsSave 默认值重新开启文件上传；显式允许后仍使用原真实控件规则。</summary>
+    [FilesIntegrationFact]
+    public async Task Original_update_flag_controls_upload_when_new_records_are_disabled()
+    {
+        await using var fixture = await FilesFixture.CreateAsync();
+        var page = fixture.Registry.Platform.ConfigPages.Single(page => page.Id == fixture.PageId);
+        page.IsNew = 0; page.IsSave = 1; page.Extra["isUpdate"] = JsonSerializer.SerializeToElement(0);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.PlanAsync("不能创建上传计划.txt", Encoding.UTF8.GetBytes("拒绝")));
+        Assert.Empty(fixture.FileIds);
+        page.Extra["isUpdate"] = JsonSerializer.SerializeToElement(1);
+        var allowed = await fixture.PlanAsync("旧开关明确允许.txt", Encoding.UTF8.GetBytes("允许"));
+        Assert.Equal(allowed.FileId, Assert.Single(fixture.FileIds));
+    }
+
     [FilesIntegrationFact]
     public async Task Local_upload_complete_private_public_folder_and_delete_lifecycle()
     {

@@ -54,7 +54,9 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                     var binding = parameter.BindingInfo?.BindingSource;
                     var kind = binding == BindingSource.Body ? "body" : binding == BindingSource.Query ? "query" : route.Contains("{" + parameter.Name + "}", StringComparison.Ordinal) ? "path" : null;
                     if (kind is null) continue;
-                    var schema = AgentJsonSchema.Create(parameter.ParameterType);
+                    // 原页面 HTTP 回传适配不扩大 Agent 输入，schema 仍来自生成器固定标注的严格 DTO。
+                    var requestType = kind == "body" ? action.MethodInfo.GetCustomAttribute<LegacyPageWriteRequestAttribute>()?.RequestType : null;
+                    var schema = AgentJsonSchema.Create(requestType ?? parameter.ParameterType);
                     if (kind == "body")
                     {
                         requestSchema = schema;

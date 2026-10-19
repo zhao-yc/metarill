@@ -247,7 +247,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
             {
                 var page = catalog.ConfigPages.Single(p => p.Id == field.ConfigPageId);
                 if (page.ConfigTableId != column.ConfigTableId) throw new UnauthorizedAccessException("文件字段与页面所属表不一致。");
-                foreach (var operation in new[] { "create", "update" }.Where(op => op == "create" ? page.IsNew == 1 : page.IsSave == 1))
+                foreach (var operation in new[] { "create", "update" }.Where(op => op == "create" ? page.IsNew == 1 : Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page)))
                 {
                     try { authorization.RequirePagePermission(page.Id, operation); return column; }
                     catch (Exception denied) when (denied is UnauthorizedAccessException or System.Security.SecurityException) { }
