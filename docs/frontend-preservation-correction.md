@@ -100,3 +100,12 @@
 platform/demo再次正式生成两轮，175/14个归属产物与两份归属清单摘要一致，24个手写partial保持不变；证据为.local/original-regeneration-0da47d9，平台元数据摘要4b6a1159eeaf6532bdbbac1c32090b0dbe0b019417d5b0fe53e6d0662c2006a9，当前仍有6项后端能力缺口。整合实际生成产物的API Release构建0警告、0错误。
 
 分批验证分别为：c78bbcc用途读取IR/固定组件/权限引用64/64、Data真实MySQL41/41；0da47d9前端256/256、原列表/详情/选择合同35/35，全部0失败、0跳过。它们不是同一完整测试批次，不与前述318项相加，也不替代新独立包的浏览器退出复验。旧冻结c825包的退出失败证据继续保留；新包正在准备，未将源码测试称作真实界面成功。
+
+
+## 原退出流程真实复验与固定查询收口（2026-10-20）
+
+新独立包冻结0da47d9重新导出、Release构建及HBuilderX发行，未手改旧包。root在真实浏览器reload后依次完成登录、原菜单列表13条、原顶栏退出确认、正常返回登录页，再次登录后原菜单重新读取13条；退出不再出现旧包的额外失效提示。该包587项源码/工具封存SHA-256为c7cea81396d4171a39f4cc1e624f90da7a5188455ccc177384619256aa13c4cf；前后4表结构及14行摘要不变，没有DDL、重seed或业务写入。私有回执位于.local/original-browser-20261020-db3aef68-logout-72fe3478/control/state，旧失败包和截图保留。
+
+主线ceb1cc1集中实际固定页面范围和默认排序后，两个config_child名称筛选的原附加项目条件及id desc已证明与实际Query相同，原配置完整保留。主线IR/固定组件/固定Query/权限合同102/102、0失败、0跳过。正式platform/demo两轮191项产物及清单一致，24个手写partial不变；精确剩余4项详情关系Gap，API Release构建0警告0错误。证据为.local/original-fixed-query-integrated-ceb.trx及.local/original-regeneration-ceb1cc1，不与历史批次加总。
+
+平台最新HBuilderX命令仍为publish web --project E:/git/metarill/frontend/metarill_uni_admin --webTitle Metarill --webHosting false，实际成功；155文件、4799996字节，485项受管前端源前后不变，原logo、六页签PNG与新头像均在产物中逐字节核对。回执为.local/platform-web-ceb1cc1-f6518c72。本批仅声明Web构建与上述真实浏览器退出复验，原导入文件选择、复杂关系、真机和同条件性能仍待完成；Tiny Cloud按用户决定继续空key。

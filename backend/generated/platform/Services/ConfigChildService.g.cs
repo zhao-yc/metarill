@@ -74,12 +74,18 @@ public partial class ConfigChildService
         {
             switch (filter.Key)
             {
-                case "parentConfigPageName":
-                    if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;
-                    throw new ArgumentException("\u9009\u62E9\u9875\u540D\u79F0\u7B5B\u9009\u5C1A\u672A\u652F\u6301\uFF1A\u5355\u9009\u9644\u52A0\u8303\u56F4/\u6392\u5E8F\u5C1A\u65E0\u5B8C\u6574\u7F16\u8BD1\u8BC1\u660E\u3002");
-                case "childConfigPageName":
-                    if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;
-                    throw new ArgumentException("\u9009\u62E9\u9875\u540D\u79F0\u7B5B\u9009\u5C1A\u672A\u652F\u6301\uFF1A\u5355\u9009\u9644\u52A0\u8303\u56F4/\u6392\u5E8F\u5C1A\u65E0\u5B8C\u6574\u7F16\u8BD1\u8BC1\u660E\u3002");
+case "parentConfigPageName": {
+if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;
+if (filter.Value.ValueKind != JsonValueKind.String) throw new ArgumentException("名称筛选只接受文本。");
+var value = filter.Value.GetString()!;
+query = Metarill.Data.Queries.StringNameQuery.ApplyLike(session, query, entity => entity.ParentConfigPageName, value);
+break; }
+case "childConfigPageName": {
+if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;
+if (filter.Value.ValueKind != JsonValueKind.String) throw new ArgumentException("名称筛选只接受文本。");
+var value = filter.Value.GetString()!;
+query = Metarill.Data.Queries.StringNameQuery.ApplyLike(session, query, entity => entity.ChildConfigPageName, value);
+break; }
                 case "parentConfigPageId":
                 {
                     if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;

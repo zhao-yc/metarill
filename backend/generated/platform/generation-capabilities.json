@@ -2,18 +2,6 @@
   "schemaVersion": 1,
   "unsupportedControls": [
     {
-      "pageId": "1679390851298631682",
-      "column": "parent_config_page_id",
-      "usage": "filter",
-      "reason": "\u9009\u62E9\u9875\u540D\u79F0\u7B5B\u9009\u5C1A\u672A\u652F\u6301\uFF1A\u5355\u9009\u9644\u52A0\u8303\u56F4/\u6392\u5E8F\u5C1A\u65E0\u5B8C\u6574\u7F16\u8BD1\u8BC1\u660E\u3002"
-    },
-    {
-      "pageId": "1679390851298631682",
-      "column": "child_config_page_id",
-      "usage": "filter",
-      "reason": "\u9009\u62E9\u9875\u540D\u79F0\u7B5B\u9009\u5C1A\u672A\u652F\u6301\uFF1A\u5355\u9009\u9644\u52A0\u8303\u56F4/\u6392\u5E8F\u5C1A\u65E0\u5B8C\u6574\u7F16\u8BD1\u8BC1\u660E\u3002"
-    },
-    {
       "pageId": "2076977554350190593",
       "column": "config_column_id",
       "usage": "detail",
