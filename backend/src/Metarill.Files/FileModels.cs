@@ -9,6 +9,8 @@ public sealed record FileLibraryOptions
     public string RootDirectory { get; init; } = ".local/files";
     /// <summary>多项目宿主为公开URL附带的可信定位提示，不作为访问授权。</summary>
     public string? PublicContentProjectId { get; init; }
+    /// <summary>旧上传返回地址的可信公开origin及可选路径前缀；空值保留同源路径。</summary>
+    public string? LegacyPublicBaseUrl { get; init; }
     public long MaxFileBytes { get; init; } = 100L * 1024 * 1024;
     public IReadOnlySet<string> AllowedExtensions { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".txt", ".csv", ".xlsx", ".xls", ".docx", ".doc", ".pptx", ".ppt", ".zip", ".mp3", ".mp4" };

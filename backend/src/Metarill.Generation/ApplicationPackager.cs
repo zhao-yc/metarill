@@ -106,7 +106,7 @@ public sealed class ApplicationPackager
             if (Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output) && Path.GetFileName(stage).StartsWith(Path.GetFileName(output) + ".staging-", StringComparison.Ordinal)) Directory.Delete(stage, true);
         }
     }
-    /// <summary>仅枚举基础项目源码与工程，拒绝链接，跳过环境文件和构建目录。</summary>
+    /// <summary>仅枚举基础源码、工程和固定许可证，拒绝链接，跳过环境文件和构建目录。</summary>
     private static IEnumerable<string> EnumerateSources(string directory)
     {
         foreach (var item in Directory.EnumerateFileSystemEntries(directory).Order(StringComparer.Ordinal))
@@ -117,7 +117,7 @@ public sealed class ApplicationPackager
                 if (Path.GetFileName(item) is "bin" or "obj" || Path.GetFileName(item).StartsWith('.')) continue;
                 foreach (var nested in EnumerateSources(item)) yield return nested;
             }
-            else if (Path.GetExtension(item) is ".cs" or ".csproj") yield return item;
+            else if (Path.GetExtension(item) is ".cs" or ".csproj" || (Path.GetFileName(directory) == "licenses" && (Path.GetFileName(item) is "LICENSE.txt" or "THIRD-PARTY-NOTICES.txt"))) yield return item;
         }
     }
     /// <summary>递归删除配置值；普通字段定义与注释不会按内容猜测删除。</summary>

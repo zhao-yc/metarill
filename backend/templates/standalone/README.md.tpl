@@ -49,3 +49,9 @@ Exports 配置控制私有目录、有效期及资源上限；默认目录 `.loc
 backend/generated/frontend 仅为复用已有 uni-app 组件和共享运行时的页面模板，不是完整可独立运行的 uni-app 工程。控件未移植项见 generation-capabilities.json，不能用后端构建代替 Web、小程序或 App 验收。
 
 元数据已删除已知敏感配置键及密码列默认值；发布前仍需审核业务定义中是否存在以非标准名称保存的凭据。包内 .metarill-package.json 记录文件摘要；生成目录 .metarill-generation.json 保护后续生成归属。
+
+## 原上传接口的公开地址
+
+旧ImageUpload/富文本上传可调用 `/api/admin/sys/upload/uploadImage`，仅限真实登录的当前项目，成功文件按原协议公开。JPEG/PNG会重新编码并受10MiB、1600万像素与8192边长限制，普通附件按文件库白名单和大小上限导入。旧URL字段尚未获得FileLibrary字段的引用阻删生命周期。
+
+`Files:LegacyPublicBaseUrl` 默认空，返回同源 `/api/...` 路径。前后端分离端口、App或真机必须配置实际可达的API公开origin；例如 `https://api.example.com/prefix` 会完整生成 `https://api.example.com/prefix/api/...`，保留可选路径前缀。该配置不含认证、query或fragment，只接受HTTP(S)；不会从Host、X-Forwarded或请求参数推断可信地址。部署者须配置对应HTTPS网关/路径转发，示例域名不代表实际可访问。

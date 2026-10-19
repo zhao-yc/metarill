@@ -79,8 +79,12 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
     public void Platform_physical_definitions_are_deduplicated_without_exposing_file_pages()
     {
         var catalog = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(SourceRoot(), "backend/metadata/platform.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        var result = new ApplicationPackager().Create(catalog, Path.Combine(temporary, "platform"), "Example.Platform", SourceRoot());
+        var output = Path.Combine(temporary, "platform");
+        var result = new ApplicationPackager().Create(catalog, output, "Example.Platform", SourceRoot());
         Assert.Contains("backend/metadata/files.json", result.Files);
+        Assert.Contains("src/Metarill.Files/licenses/LICENSE.txt", result.Files);
+        Assert.Contains("src/Metarill.Files/licenses/THIRD-PARTY-NOTICES.txt", result.Files);
+        Assert.Contains("SkiaSharp.NativeAssets.Linux.NoDependencies", File.ReadAllText(Path.Combine(output, "Directory.Packages.props")));
     }
     [Theory]
     [InlineData("../Metarill.Runtime/Metarill.Runtime.csproj")]

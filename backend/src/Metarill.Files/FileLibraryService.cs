@@ -7,7 +7,7 @@ using Metarill.Runtime.Persistence;
 namespace Metarill.Runtime.Files;
 
 /// <summary>本地文件库只使用固定磁盘根与服务端随机键，公开与受保护读取共用真实状态检查。</summary>
-public sealed class FileLibraryService(SqlRowStore store, FileMetadataContext registry, IIdGenerator ids, IRuntimeAuthorization authorization, FileLibraryOptions options)
+public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataContext registry, IIdGenerator ids, IRuntimeAuthorization authorization, FileLibraryOptions options)
 {
     private const string Files = "yz_file_library";
     private const string Folders = "yz_file_library_folder";
@@ -15,12 +15,16 @@ public sealed class FileLibraryService(SqlRowStore store, FileMetadataContext re
     private string Root => Path.GetFullPath(options.RootDirectory);
 
     /// <summary>创建待上传记录，供应商、对象键和访问级别均由服务端决定。</summary>
-    public Task<FileUploadPlan> PlanUploadAsync(FileUploadRequest request, CancellationToken cancellationToken = default) => store.Session.InTransactionAsync(async () =>
+    public Task<FileUploadPlan> PlanUploadAsync(FileUploadRequest request, CancellationToken cancellationToken = default) => PlanUploadCoreAsync(request, false, cancellationToken);
+
+    /// <summary>仅服务端旧上传兼容入口可指定公开导入，普通计划仍由元数据决定访问模式。</summary>
+    private Task<FileUploadPlan> PlanUploadCoreAsync(FileUploadRequest request, bool legacyPublic, CancellationToken cancellationToken) => store.Session.InTransactionAsync(async () =>
     {
         var actor = authorization.RequireActor();
         FileValidation.RequireName(request.OriginalName);
         var column = ResolveUploadColumn(request.ConfigColumnId, actor);
         var policy = FileValidation.Policy(column, options);
+        if (legacyPublic) policy = policy with { AccessMode = "PUBLIC" };
         if (request.SizeBytes < 0 || request.SizeBytes > policy.MaximumBytes) throw new InvalidOperationException("文件大小超过服务端或控件上限。");
         if (!policy.Extensions.Contains(Path.GetExtension(request.OriginalName))) throw new InvalidOperationException("文件扩展名不在允许范围。");
         if (request.FolderId is { } folder) RequireOwner(await RequiredAsync(Folders, folder, true, cancellationToken), actor);

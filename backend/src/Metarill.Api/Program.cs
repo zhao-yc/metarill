@@ -67,7 +67,7 @@ builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver
 builder.Services.AddScoped<ConfigurationMutationObserver>();
 builder.Services.AddScoped<MetadataWorkbenchBusiness>();
 builder.Services.AddScoped<IndexWorkbenchBusiness>();
-builder.Services.AddSingleton(new FileLibraryOptions{RootDirectory=Path.Combine(root,".local","files")});
+builder.Services.AddSingleton(new FileLibraryOptions{RootDirectory=Path.Combine(root,".local","files"),LegacyPublicBaseUrl=builder.Configuration["Metarill:Files:LegacyPublicBaseUrl"]});
 builder.Services.AddScoped<IFileLibraryResolver,ProjectFileLibraryResolver>();
 builder.Services.AddSingleton(new ExportOptions{RootDirectory=Path.Combine(root,".local","exports")});
 builder.Services.AddSingleton<ExcelPageExportService>();

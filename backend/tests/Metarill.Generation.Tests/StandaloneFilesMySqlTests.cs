@@ -49,6 +49,21 @@ public sealed class StandaloneFilesMySqlTests(ITestOutputHelper output)
         await fixture.StartAsync();
         await fixture.LoginAsync();
 
+        // 包内真实旧上传入口必须能加载native依赖并返回可匿名读取的重新编码图片。
+        var legacyPng = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGP4z8DwH4QZMBgAoXkL9U3EmgcAAAAASUVORK5CYII=");
+        using (var legacyForm = new MultipartFormDataContent())
+        {
+            legacyForm.Add(new ByteArrayContent(legacyPng), "file", "standalone-legacy.png");
+            using var legacyResponse = await fixture.Client.PostAsync("/api/admin/sys/upload/uploadImage", legacyForm);
+            legacyResponse.EnsureSuccessStatusCode(); var legacy = await legacyResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(200, legacy.GetProperty("code").GetInt32()); var url = legacy.GetProperty("location").GetString()!;
+            Assert.Equal(url, legacy.GetProperty("data").GetProperty("url").GetString());
+            var legacyId = long.Parse(Regex.Match(url, "public-content/([0-9]+)").Groups[1].Value); fixture.FileIds.Add(legacyId);
+            using var publicImage = await fixture.Anonymous.GetAsync(url); publicImage.EnsureSuccessStatusCode();
+            Assert.Equal("image/png", publicImage.Content.Headers.ContentType?.MediaType);
+            var processed = await publicImage.Content.ReadAsByteArrayAsync(); Assert.Equal(legacyPng[..8], processed[..8]);
+        }
+
         var bytes = Encoding.UTF8.GetBytes("独立包真实文件下载与事务验收");
         var privateFile = await fixture.UploadAsync("private.txt", bytes);
         var publicFile = await fixture.UploadAsync("public.txt", bytes, publicly: true);
