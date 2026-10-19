@@ -103,6 +103,7 @@ public partial class ConfigButtonService
             }
         }
         if (request.SelectedIds is null) throw new ArgumentException("selectedIds 不能为空。");
+
         if (request.SelectedIds.Count > 0)
         {
             var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();
@@ -127,6 +128,7 @@ public partial class ConfigButtonService
     public async Task<PageResult<ConfigButtonPage1870796062470516738Vo>> Page1870796062470516738Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+
         var query = Query1870796062470516738(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var entities = await Order1870796062470516738(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);
@@ -364,6 +366,7 @@ public partial class ConfigButtonService
             }
         }
         if (request.SelectedIds is null) throw new ArgumentException("selectedIds 不能为空。");
+
         if (request.SelectedIds.Count > 0)
         {
             var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();
@@ -388,6 +391,7 @@ public partial class ConfigButtonService
     public async Task<PageResult<ConfigButtonPage7097193256583168Vo>> Page7097193256583168Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+
         var query = Query7097193256583168(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var entities = await Order7097193256583168(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);

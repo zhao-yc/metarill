@@ -82,6 +82,7 @@ public partial class ConfigIndexColumnService
             }
         }
         if (request.SelectedIds is null) throw new ArgumentException("selectedIds 不能为空。");
+
         if (request.SelectedIds.Count > 0)
         {
             var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();
@@ -107,6 +108,7 @@ public partial class ConfigIndexColumnService
     public async Task<PageResult<ConfigIndexColumnPage2076977554350190593Vo>> Page2076977554350190593Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+
         var query = Query2076977554350190593(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var entities = await Order2076977554350190593(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);

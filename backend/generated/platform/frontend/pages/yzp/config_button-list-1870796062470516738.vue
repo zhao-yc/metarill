@@ -1,7 +1,7 @@
 <!-- 由 Metarill 元数据生成，使用现有 uni-app 请求和组件体系。 -->
 <template>
   <view class="yzp-page">
-    <view class="uni-padding-wrap"><text>按钮</text><button v-if="canCreateRecord" size="mini" @click="openDetail('')">新增</button><button v-if="canImportRecords" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
+    <view class="uni-padding-wrap"><text>按钮</text><button v-if="!multiSelecting && canCreateRecord" size="mini" @click="openDetail('')">新增</button><button v-if="!multiSelecting && canImportRecords" size="mini" @click="initImport">导入</button><button v-if="!multiSelecting && canExport" size="mini" @click="initExport">导出</button></view>
     <view v-if="filterFields.length" class="uni-padding-wrap">
       <uni-forms :modelValue="draftFilters">
 <uni-forms-item label="名称" name="name"><uni-easyinput :modelValue="draftFilters.name" @update:modelValue="setFilter('name', $event)" placeholder="请输入名称" /></uni-forms-item>
@@ -14,9 +14,10 @@
       <uni-data-select :modelValue="sortDirection" :localdata="sortDirections" :clear="false" placeholder="默认排序" @update:modelValue="selectSortDirection" />
     </view>
     <text v-if="loadError">{{ loadError }}</text>
+    <view v-if="multiSelecting" class="multi-select-page-buttons"><text v-if="selectionError">{{ selectionError }}</text><button size="mini" @click="toggleSelectedOnly">{{ showSelectedOnly ? '查看全部' : '仅看已选' }}</button><button type="primary" size="mini" :disabled="!selectionCanConfirm" @click="sureSelect">选好了（{{ selectedDraftIds.length }}）</button><button size="mini" @click="sureClose">关闭</button></view>
     <uni-table :loading="loading" border stripe emptyText="暂无数据">
-      <uni-tr><uni-th>名称</uni-th><uni-th>行为类型</uni-th><uni-th>sql</uni-th><uni-th>创建时间</uni-th><uni-th>视图</uni-th><uni-th>config_table_name</uni-th><uni-th>config_page_name</uni-th><uni-th>import_no</uni-th><uni-th>update_time</uni-th><uni-th>insert_manager_id</uni-th><uni-th>insert_user_name</uni-th><uni-th>update_manager_id</uni-th><uni-th>insert_manager_real_name</uni-th><uni-th>update_manager_real_name</uni-th><uni-th>update_user_name</uni-th><uni-th>yz_project_name</uni-th><uni-th>多选按钮</uni-th><uni-th>操作</uni-th></uni-tr>
-      <uni-tr v-for="row in records" :key="row.id"><uni-td>{{ displayValue(row, 'name') }}</uni-td><uni-td>{{ displayValue(row, 'actionType') }}</uni-td><uni-td>{{ displayValue(row, 'sql') }}</uni-td><uni-td>{{ displayValue(row, 'insertTime') }}</uni-td><uni-td>{{ displayValue(row, 'configPageId') }}</uni-td><uni-td>{{ displayValue(row, 'configTableName') }}</uni-td><uni-td>{{ displayValue(row, 'configPageName') }}</uni-td><uni-td>{{ displayValue(row, 'importNo') }}</uni-td><uni-td>{{ displayValue(row, 'updateTime') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertUserName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateUserName') }}</uni-td><uni-td>{{ displayValue(row, 'yzProjectName') }}</uni-td><uni-td>{{ displayValue(row, 'isBatchSelectButton') }}</uni-td><uni-td><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
+      <uni-tr><uni-th v-if="multiSelecting"><button size="mini" :disabled="selectionBusy || readOnlyCondition" @click="selectAll">{{ selectionAllOnPage ? '取消本页' : '全选本页' }}</button></uni-th><uni-th>名称</uni-th><uni-th>行为类型</uni-th><uni-th>sql</uni-th><uni-th>创建时间</uni-th><uni-th>视图</uni-th><uni-th>config_table_name</uni-th><uni-th>config_page_name</uni-th><uni-th>import_no</uni-th><uni-th>update_time</uni-th><uni-th>insert_manager_id</uni-th><uni-th>insert_user_name</uni-th><uni-th>update_manager_id</uni-th><uni-th>insert_manager_real_name</uni-th><uni-th>update_manager_real_name</uni-th><uni-th>update_user_name</uni-th><uni-th>yz_project_name</uni-th><uni-th>多选按钮</uni-th><uni-th v-if="!multiSelecting">操作</uni-th></uni-tr>
+      <uni-tr v-for="row in records" :key="row.id"><uni-td v-if="multiSelecting"><checkbox :checked="selectionHas(row.id)" :disabled="selectionBusy || readOnlyCondition" @click="toggleSelection(row)" /></uni-td><uni-td>{{ displayValue(row, 'name') }}</uni-td><uni-td>{{ displayValue(row, 'actionType') }}</uni-td><uni-td>{{ displayValue(row, 'sql') }}</uni-td><uni-td>{{ displayValue(row, 'insertTime') }}</uni-td><uni-td>{{ displayValue(row, 'configPageId') }}</uni-td><uni-td>{{ displayValue(row, 'configTableName') }}</uni-td><uni-td>{{ displayValue(row, 'configPageName') }}</uni-td><uni-td>{{ displayValue(row, 'importNo') }}</uni-td><uni-td>{{ displayValue(row, 'updateTime') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertUserName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateUserName') }}</uni-td><uni-td>{{ displayValue(row, 'yzProjectName') }}</uni-td><uni-td>{{ displayValue(row, 'isBatchSelectButton') }}</uni-td><uni-td v-if="!multiSelecting"><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
     </uni-table>
     <view><button size="mini" :disabled="pageNo <= 1 || loading" @click="movePage(-1)">上一页</button><text>{{ pageNo }} / {{ pages }}</text><button size="mini" :disabled="pageNo >= pages || loading" @click="movePage(1)">下一页</button></view>
     <yzp-popup ref="child_detail_popup" type="center" @change="onChildDetailPopupChange">
@@ -30,6 +31,7 @@
 <script>
 import yzp from '@/common/yzp';
 
+
 import utils from '@/common/utils';
 import PageDetail from '@/pages/yzp/config_button-detail-1870796062470516738.vue';
 const filterFields = [{"field":"name","type":"string?","name":"\u540D\u79F0"}];
@@ -42,7 +44,7 @@ export default {
   mixins: [],
   components: { PageDetail },
   props: { parent_id: { type: String, default: '' }, parent_page_sn: { type: String, default: '' }, is_son_page: { type: Boolean, default: false }, child_page_open_type: { type: Number, default: 1 }, parentReadOnlyCondition: { type: Boolean, default: false } },
-  data() { return { permissionsReady: false, permissionVersion: 0, canUpdate: true, childDetailPopupVisible: false, childDetailPopupId: '', childDetailPopupKey: 0, records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: ["\u89C6\u56FE\uFF1A\u7B5B\u9009\u63A7\u4EF6\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1ASelectPage"], sortFields,
+  data() { return { multiSelecting: false, permissionsReady: false, permissionVersion: 0, canUpdate: true, childDetailPopupVisible: false, childDetailPopupId: '', childDetailPopupKey: 0, records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: ["\u89C6\u56FE\uFF1A\u7B5B\u9009\u63A7\u4EF6\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1ASelectPage"], sortFields,
     sortDirections: [{text: '默认排序', value: ''}, {text: '升序', value: 'ascending'}, {text: '降序', value: 'descending'}], canCreate: true, canImport: false, canExport: false }; },
   computed: {
     /** 子列表沿用父页只读；前端权限快照只负责隐藏操作，后端仍验证真实身份。 */
@@ -54,11 +56,11 @@ export default {
   },
   watch: {
     /** 父记录改变时取消旧读取并重建子列表，不触发父表保存。 */
-    parent_id() { if (this.is_son_page && this._alive) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } }
+    parent_id() { if ((this.is_son_page || this.multiSelecting) && this._alive) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } }
   },
-  mounted() { if (this.is_son_page) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } },
+  mounted() { if (this.is_son_page || this.multiSelecting && !this._alive) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } },
   /** 路由和嵌入组件分别初始化，避免嵌入模式依赖不会触发的 onLoad。 */
-  onLoad(options) { if (!this.is_son_page) this.initializeList(options); },
+  onLoad(options) { if (!this.is_son_page) { this._listRouted = true; this.initializeList(options); } },
   onShow() { if (!this.is_son_page) this.loadPage(); },
   onUnload() { this.disposeList(); },
   beforeUnmount() { this.disposeList(); },
@@ -70,9 +72,10 @@ export default {
       const epoch = this._epoch, ready = () => { if (this._alive && epoch === this._epoch) { this.permissionsReady = true; this.permissionVersion++; } };
       if (this.is_son_page) ready(); else yzp.refreshCurrentPermissions(ready, ready);
       if (!(false || this.is_son_page) || this.parentId) this.loadOptions();
+      this.initializeSelection?.();
     },
     /** 卸载或换父记录时失效列表、候选项和弹层回调。 */
-    disposeList() { this._alive = false; this._epoch = (this._epoch || 0) + 1; this._requestNo = (this._requestNo || 0) + 1; this._request?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); this.closeChildDetailPopup(); },
+    disposeList() { this.disposeSelection?.(); this._alive = false; this._epoch = (this._epoch || 0) + 1; this._requestNo = (this._requestNo || 0) + 1; this._request?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); this.closeChildDetailPopup(); },
     /** 导入保留客户端读取Excel并提交中文标题JSON的协议。 */
     initImport() { if (!this.canImportRecords || (false || this.is_son_page) && !this.parentId) return; const parentId = this.parentId, identity = this.currentIdentity(); yzp.chooseImportFile(rows => { if (!this._alive || !this.canImportRecords || parentId !== this.parentId || identity !== this.currentIdentity()) return; yzp.request({ url: '/admin/auto/config_button/1870796062470516738/importDatas1870796062470516738', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
     /** 导出使用已提交筛选、排序和父记录，不混入尚未点击查询的草稿。 */
@@ -118,13 +121,14 @@ export default {
     /** 默认排序清空显式 orderBy，升降序要求先选择已开放字段。 */
     selectSortDirection(order) { if (!['', 'ascending', 'descending'].includes(order)) return; if (order && !this.sortField) { uni.showToast({ title: '请先选择排序字段', icon: 'none' }); return; } this.sortDirection = order; this.orderBy = order ? { column: this.sortField, order } : null; this.loadPage(1); },
     /** 每次请求复制已提交查询，防止后续输入或翻页修改正在发送的对象。 */
-    pageRequest(pageNo) { return { pageNo, pageSize: 20, filters: JSON.parse(JSON.stringify(this.appliedFilters)), parentId: this.parentId || null, orderBy: this.orderBy ? { ...this.orderBy } : null }; },
+    pageRequest(pageNo) { return { ...(this.multiSelecting ? { selectedIds: this.showSelectedOnly ? this.selectedDraftIds.slice() : [] } : {}), pageNo, pageSize: 20, filters: JSON.parse(JSON.stringify(this.appliedFilters)), parentId: this.parentId || null, orderBy: this.orderBy ? { ...this.orderBy } : null }; },
     /** 真实登录及工作区快照用于隔离迟到的读响应，不能替代后端授权。 */
     currentIdentity() { return JSON.stringify([uni.getStorageSync('loginStateId') || '', uni.getStorageSync('sysParams') || {}]); },
     /** 最新查询完成后才提交页码和行；失败保留已确认数据，乱序响应不可回退列表。 */
     loadPage(target = this.pageNo) {
       if (!this._alive) return;
       if ((false || this.is_son_page) && !this.parentId) { this.loadError = '为避免数据丢失，请先保存当前页面的数据。'; return; }
+      if (this.multiSelecting && this.showSelectedOnly && this.selectedDraftIds.length === 0) { this._requestNo++; this._request?.abort?.(); this.records = []; this.pages = 1; this.pageNo = 1; this.loading = false; this.loadError = ''; return; }
       const identity = this.currentIdentity();
       if (this._listIdentity && this._listIdentity !== identity) { this.records = []; this.pages = 1; this.pageNo = 1; target = 1; }
       this._listIdentity = identity;
@@ -171,6 +175,7 @@ export default {
     openDetail(id) {
       if (!this._alive) return;
       if ((false || this.is_son_page) && !this.parentId) { uni.showModal({ showCancel: false, content: '为避免数据丢失，请先保存当前页面的数据' }); return; }
+      if (this.multiSelecting) return;
       if (this.selecting && id) { const row = this.records.find(record => record.id === id); this.getOpenerEventChannel().emit('selected', row); uni.navigateBack(); return; }
       if (!id && !this.canCreateRecord) return;
       if (this.is_son_page && ![1, 2].includes(this.child_page_open_type)) { uni.showModal({ showCancel: false, content: '子页面打开方式未支持。' }); return; }

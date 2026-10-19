@@ -85,6 +85,7 @@ public partial class YzRolePermissionService
             }
         }
         if (request.SelectedIds is null) throw new ArgumentException("selectedIds 不能为空。");
+
         if (request.SelectedIds.Count > 0)
         {
             var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();
@@ -109,6 +110,7 @@ public partial class YzRolePermissionService
     public async Task<PageResult<YzRolePermissionPage2063264600601714690Vo>> Page2063264600601714690Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+
         var query = Query2063264600601714690(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var entities = await Order2063264600601714690(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);

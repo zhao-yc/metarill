@@ -82,6 +82,7 @@ public partial class YzManagerDevicesProjectService
             }
         }
         if (request.SelectedIds is null) throw new ArgumentException("selectedIds 不能为空。");
+
         if (request.SelectedIds.Count > 0)
         {
             var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();
@@ -106,6 +107,7 @@ public partial class YzManagerDevicesProjectService
     public async Task<PageResult<YzManagerDevicesProjectPage6220608155484160Vo>> Page6220608155484160Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+
         var query = Query6220608155484160(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var entities = await Order6220608155484160(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);
