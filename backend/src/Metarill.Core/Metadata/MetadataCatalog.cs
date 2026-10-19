@@ -10,6 +10,8 @@ public sealed class MetadataCatalog
     public string BackendTarget { get; set; } = "csharp";
     public string YzProjectId { get; set; } = "1608097412978577409";
     public string YzProjectName { get; set; } = "Metarill";
+    /// <summary>生成页面沿用项目主色，未配置时与原平台uni.scss一致。</summary>
+    public string PrimaryColor { get; set; } = "#0ab3ad";
     public string DatabaseProvider { get; set; } = "mysql";
     public List<TableMetadata> ConfigTables { get; set; } = [];
     public List<ColumnMetadata> ConfigColumns { get; set; } = [];

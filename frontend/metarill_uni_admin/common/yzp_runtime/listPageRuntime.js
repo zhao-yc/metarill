@@ -19,7 +19,7 @@ function count(value) {
 }
 
 /** 创建普通列表与子表共用的状态机；页面仍负责首次加载和自己的交互。 */
-export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onParentChanged } = {}) {
+export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onParentChanged, additionalData, emptyResult } = {}) {
 	// 请求任务、代次和查询快照不进入 Vue 响应式对象，也不在不同组件间共享。
 	const instances = new WeakMap()
 
@@ -34,8 +34,11 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 
 	/** 只在提交查询时读取筛选；编辑但未提交的筛选不影响在途响应和下一页。 */
 	function queryScope(page) {
-		return snapshot({ orderBy: page.orderBy || {}, filters: page.filters || {},
-			parentId: page.parent_id, pageSize: page.page_size, isSonPage: !!page.is_son_page })
+		const scope = { orderBy: page.orderBy || {}, filters: page.filters || {},
+			parentId: page.parent_id, pageSize: page.page_size, isSonPage: !!page.is_son_page }
+		// 原type=2页也使用相同请求隔离；附加的已选ID必须进入冻结范围及漂移判定。
+		if (typeof additionalData === 'function') scope.additionalData = snapshot(additionalData.call(page) || {})
+		return snapshot(scope)
 	}
 
 	/** 所有回调同时校验代次、组件存活和父记录，覆盖 watcher 执行前的窗口。 */
@@ -119,6 +122,12 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 			stopPull(page)
 			return
 		}
+		// 原多选页仅看已选但草稿为空时只显示空结果，不能把空ID条件当成查询全部。
+		if (typeof emptyResult === 'function' && emptyResult.call(page, scope)) {
+			invalidate(page); clearRows(page)
+			value.scope = scope; value.scopeKey = JSON.stringify(scope); value.retry = null; value.confirmed = true
+			page.load_more_status = 'no-more'; stopPull(page); return
+		}
 		const scopeKey = JSON.stringify(scope)
 		if (!force && value.active && current(page, value.active)
 			&& value.scopeKey === scopeKey && value.active.pageNo === pageNo && value.active.append === append) {
@@ -135,7 +144,7 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 		page.pagination_version++
 		const pending = { sequence: value.sequence, pageNo, append, scope, task: null, handled: false }
 		value.active = pending
-		const data = Object.freeze({ orderBy: scope.orderBy, pageNo, pageSize: scope.pageSize,
+		const data = Object.freeze({ ...(scope.additionalData || {}), orderBy: scope.orderBy, pageNo, pageSize: scope.pageSize,
 			filters: scope.filters, parentId: scope.parentId })
 		try {
 			const task = request({ url, data, sendSessionId: true, method: 'POST',

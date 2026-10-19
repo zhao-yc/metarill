@@ -68,7 +68,7 @@ internal static class UniappRenderer
                 ["WRITABLE_FIELDS"] = JsonSerializer.Serialize(page.Writable.Select(column => column.JsonName))
             };
             parameters["LIST_DETAIL_POPUP"] = SelectionPageRenderer.Enabled(page) ? "" : RenderTemplate("list-detail-popup.vue.tpl", parameters);
-            yield return new("frontend/" + listPath + ".vue", RenderTemplate("list.vue.tpl", parameters));
+            yield return new("frontend/" + listPath + ".vue", OriginalUniappListRenderer.Render(model, table, page));
             var detailParameters = new Dictionary<string, string>(parameters) { ["RELATION_IMPORT"] = MultiSelectUiRenderer.Imports(multi), ["RELATION_MIXIN"] = MultiSelectUiRenderer.Mixin(table, page, multi), ["SELECTION_IMPORT"] = "", ["SELECTION_MIXIN"] = "", ["MULTI_COMPONENTS"] = MultiSelectUiRenderer.Components(multi), ["MULTI_POPUPS"] = MultiSelectUiRenderer.Popups(multi) };
             yield return new("frontend/" + detailPath + ".vue", RenderTemplate("detail.vue.tpl", detailParameters));
             routes.Add(new { path = listPath, style = new { navigationBarTitleText = page.Source.Name } });
