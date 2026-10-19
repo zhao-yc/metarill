@@ -1,6 +1,6 @@
 # 主框架功能收口审计
 
-审计日期：2026-10-19。原 YZP 只读参考为 `D:\\svn\\yzp`，审计时 HEAD 为 `06066f79`；Metarill 初次审计基于 `7de6c8b`；当前持续更新包含已集成的配置候选、生成查询交互和原媒体控件切片。源码事实、已有验收和待完成事项分开记录；后续每个切片应更新本文件，不能把静态源码存在当作完整验收。
+审计日期：2026-10-19。原 YZP 只读参考为 `D:\\svn\\yzp`，审计时 HEAD 为 `06066f79`；Metarill 初次审计基于 `7de6c8b`；当前状态复核基于 `a1c2ed0`，包含配置候选、生成查询/主子交互、独立前端宿主和关系分页 UI 切片。源码事实、已有验收和待完成事项分开记录；后续每个切片应更新本文件，不能把静态源码存在当作完整验收。
 
 ## 范围与已经替换的设计
 
@@ -14,21 +14,23 @@
 
 **本轮补齐：** [list.vue.tpl](../backend/templates/uniapp/list.vue.tpl) 按 Searchable/Sortable 白名单编译筛选、排序和分页快照，导出复用已确认筛选；零、false、长标识与日期范围保留。列表/详情消费真实常量 `xxxShow` 和已有关系别名/合法选项映射，缺失关系名保持原标识。RTF 沿原事件且未编辑不写回，FileLibrary 编译已声明的访问及数量/类型配置；未知或坏配置拒绝生成。
 
-**仍缺：** 多选页“仅看已选”、完整关系名称读计划、详情分组、条件显示/只读、完整表单规则和配置按钮。`ConfigChildren` 目前只在 Core、种子和仓储中保留，生成器未消费；当前脱敏平台模型有 8 条主子关系。
+**主子编译与权限：** [ChildrenCompilation](../backend/src/Metarill.Generation/ChildrenCompilation.cs) 已消费 `ConfigChildren`，校验父/子页、同后台归属、唯一父范围和对应外键，拒绝循环、未知配置及不支持的列表类型，按排序和打开方式生成子模块。父详情支持 Tab，打开方式 1 为新页面、2 为 PC 弹层；未取得权限、父记录未保存或回读未就绪时不开放子写入。生成页结合页权限、父只读上下文和已声明可读字段的只读条件限制操作；服务端仍独立验证父记录、项目和 CRUD 权限，前端禁用不替代授权。
+
+**仍缺：** 多选页“仅看已选”、完整关系名称读计划、详情分组、复杂条件显示/只读、完整表单规则和配置按钮。主子源码与脚本测试已具备，不等于独立生成工程的 Web、浏览器或真机验收完成。
 
 **原实现证据：** YZP `service/yzp/v8/UniappService.java` 的 `1421` 附近按 ConfigChild 排序和 childPageOpenType 生成子页面，并传递父记录与只读上下文；`2001` 附近生成排序和筛选组件。`JavaService.java` 的 `1748` 附近及 `V8ControllerRenderer` 的 page 返回还支持独立 statistics。C# 当前有 count，不能据此声称已具备原聚合统计协议。
 
-**可验收切片：** 从模板编译已声明的列表筛选/排序，再编译父页到子页的导航和弹层。真实生成样板验证跨页选择、刷新、分页、父级保存前禁写子级、伪造 parentId 拒绝、父只读状态、导出复用筛选。平台原复制前端能显示子表，不等于再生成产物具备相同能力。
+**待实际界面验收：** 用独立生成样板验证已接线的筛选/排序、父子 Tab、新页面和弹层，以及跨页选择、刷新、分页、父级保存前禁写子级、伪造 parentId 拒绝、父只读状态、导出复用筛选。平台原复制前端能显示子表，不等于再生成产物具备相同能力。
 
 ## 二、关系控件、联接与存储模式
 
 **已有：** [RelationCompilation](../backend/src/Metarill.Generation/RelationCompilation.cs) 可编译明确 List 目标和范围；ForeignValidationRenderer 校验关系记录存在、未删除和同项目。SelectPage 已有简单单选导航。
 
-**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。未再生成的旧页面仍可能调用旧数组；浏览器/跨端验收和独立包运行时装配仍须分别验证。MultiSelectPage、MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
+**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系资源清单的最终集成、Web/浏览器及跨端验收仍须分别核验，不能把子任务脚本结果当作协调者完整组合验收。MultiSelectPage、MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
 
 **原实现证据：** YZP 的 `NonRedundantReadPlanCompiler`、`MixedRelationPropagationCompiler`、运行时 list/selectpage/cascade，以及 `SystemMaintenanceBusiness` 的回填入口。只读引用扫描可识别这些配置声明，不能因扫描命中就宣称对应控件执行能力已移植。
 
-**可验收切片：** 先完成候选关键字分页与单选/多选闭环，覆盖超过 5000 条、已选但不在当前页、删除/越权目标和稀疏更新；之后再单独实现级联和派生读/传播，验证更新与删除事务、关系名称导入以及多值分页不倍增。原生 SQL 保留方言边界，不自动猜译。
+**待实际界面验收：** 核验已实现的 List 候选关键字分页、单选/多选与名称回读，覆盖超过 5000 条、已选但不在当前页、删除/越权目标和稀疏更新；之后再单独实现级联和派生读/传播，验证更新与删除事务、关系名称导入以及多值分页不倍增。原生 SQL 保留方言边界，不自动猜译。
 
 ## 三、配置候选、字段引用和工作台断链
 
@@ -36,19 +38,17 @@
 
 **原实现证据：** YZP `ConfigColumnController` 的上述四个方法、`ConfigColumnReferenceBusiness`、`ConfigPageColumnServiceImpl.clearControlDetailForColumn`；前端 `yzp-control-detail-editor.vue` 的 430/432 附近及批量字段页的 references 调用。
 
-**仍待：** `join_column_candidates` / `save_join_columns` 尚未移植，保留的 add_join_columns 页面调用会失败；本轮没有实现联接保存、非冗余传播或关系分页 UI。字段继承详情断链已在本次修复，未扩大标准生成页面范围。
+**仍待：** `join_column_candidates` / `save_join_columns` 尚未移植，保留的 add_join_columns 页面调用会失败；联接保存与非冗余传播仍未实现；关系分页 UI 已由后续切片接入，范围与待验收边界见第二节。字段继承详情断链已在配置切片修复，未扩大标准生成页面范围。
 
 **验收边界：** 新接口需真实 API 验证旧表单/JSON 编码、跨项目、重复键及未知字段拒绝，清空多页失败无部分提交、基础明细和其它字段不变。专用字段详情另测完整条件字节保持、普通账号/匿名/跨项目/不存在/软删字段及父表拒绝；前端运行实际方法验证继承条件、缓存和迟到回调。页面选择器的组件许可、完整浏览器交互依对应台账另行确认。
 
 ## 四、独立生成应用的前端、认证与运行时
 
-**已有：** [ApplicationPackager](../backend/src/Metarill.Generation/ApplicationPackager.cs) 携带 Core/Data/Exports/Files、后端宿主和生成 Vue；后端已完成独立包真实 MySQL 闭环，开发认证只在显式 Development 配置下启用，普通启动不 DDL。
+**已有：** [ApplicationPackager](../backend/src/Metarill.Generation/ApplicationPackager.cs) 携带 Core/Data/Exports/Files 和后端宿主，默认 FullApplication 由 [FrontendPackager](../backend/src/Metarill.Generation/FrontendPackager.cs) 组装独立 HBuilderX uni-app Vue3 工程，包含登录、菜单、common、受控组件、页面写入 schema 和生成 list/detail。固定逐文件清单与逐层链接拒绝保护来源边界，默认 AppID 为空，不复制平台配置页或环境凭据；非空输出目录拒绝覆盖手写宿主。未知或未接线 CustomControl（含只读详情）在写入前明确拒绝。CLI 可显式选择 BackendOnly，平台下载按服务端已发布身份选择该模式，manifest/README/响应提示不含完整前端，不能默默降级业务包。
 
-**缺口：** 独立包没有完整 uni-app 工程、登录/主框架、common、组件、菜单/权限等配套运行时，只有 Vue 片段及 pages.generated.json；包内正式认证授权及 Agent 宿主也未独立完成。平台前端能运行和包内后端能编译均不代替独立应用前端验收。
+**认证与证据边界：** 后端已有独立包真实 MySQL 闭环；开发认证只在显式 Development 配置下启用，固定包内单项目，不接收 query 身份，普通启动不 DDL。同一条件下仅允许 HTTP(S) 回环 Origin 的开发跨端口预检，允许来源不产生身份。真实 Node/HTTP 脚本已执行登录→菜单→生成 list/detail 新增、修改、删除与注销失效，初始 AppID 空值和开发者定制后运行校验分开验证。正式认证授权与 Agent 宿主仍待接入；完整独立包的 Web 发行、浏览器和真机仍待协调者实际验收。
 
-**原实现证据：** YZP `template/v8/runtime/uniapp` 与运行时同步包括 main.js、common、components 和通用页面；当前 C# packager 的基础工程集合不包含这些宿主资源。
-
-**可验收切片：** 建立经过许可核对的确定性前端运行时清单，装配独立 HBuilderX Vue3 工程，固定页面/权限契约且不带平台配置页或环境凭据；在离开原仓库的目录完成 HBuilderX 构建和浏览器登录→列表筛选排序→父子 CRUD→文件/导入导出。小程序、Android、iOS 真机仍分别验收。
+**来源与下一步：** 原 YZP `template/v8/runtime/uniapp` 的通用运行时由受控资产清单复用，详情见 [独立应用包](standalone-application.md)。协调者的私有主子 v2 包已完成 450 文件装配、npm 闭包检查、后端编译及随机子表显式安装后 0 差异核验；这项准备不计为 Web 或浏览器验收。在离开原仓库的目录继续实际验证登录→列表筛选排序→父子 CRUD→文件/导入导出，小程序、Android、iOS 真机分别验收。
 
 ## 五、本地生成助手和既有项目跟进
 
@@ -66,13 +66,13 @@
 
 **仍缺：** CLI 专用反查入口、未登记表的安全目录和待确认元数据导入计划。当前普通结构预览不是反向创建元数据。原 YZP SchemaClient 主要是配置到 DDL 的同步，未发现已完成的全库逆向导入成品；完整逆向导入应记为本计划待交付，不冒称旧功能被移除。MCP preview_database_schema 已在集成切片与 HTTP 完整预览统一采用文件基础设施组合，并通过真实 MCP 客户端/HTTP 指纹相等回归。
 
-**可验收切片：** 先只读开放已授权项目连接的表结构反查，区分受管/未受管范围，SQL 只作预览、`executable: false`；未知属性和缺少定义拒绝。之后单独实现结构→逻辑模型→差异确认→元数据事务保存，禁止读取后自动写元数据或执行 DDL。覆盖 MySQL 类型/默认值/索引/外键、目标库不一致、视图/未知类型和结构并发漂移。
+**后续切片：** 在现有受管 HTTP/MCP 只读反查上补 CLI 和未受管表安全目录，保持 `executable: false`，未知属性和缺少定义拒绝。之后单独实现结构→逻辑模型→差异确认→元数据事务保存，禁止读取后自动写元数据或执行 DDL。覆盖 MySQL 类型/默认值/索引/外键、目标库不一致、视图/未知类型和结构并发漂移。
 
 ## 建议推进顺序与发布门槛
 
-1. 配置候选/引用接口 → 关系候选分页与单多选闭环 → 生成列表/详情/父子页面交互。
-2. 确定性独立前端运行时 → 独立应用认证与权限 → 本地生成助手安全跟进现有应用。
-3. 只读结构反查可平行推进；逆向导入、联接派生/传播、维护回填分别设事务和并发验收。
+1. 对已集成的配置候选、关系分页和生成主子交互完成独立包 Web/浏览器实测，按实际结果补缺口。
+2. 核验完整包运行时清单，继续正式认证适配、Agent 宿主和本地生成助手安全跟进现有应用。
+3. 受管只读反查已开放；CLI、未受管目录、逆向导入、联接派生/传播和维护回填继续分别交付与验收。
 
 首期发布还需核对原通用文件的 S3/云存储边界、完整 Agent/浏览器授权、跨端真机以及同数据/SQL/索引/资源的 Java 性能对照。后续 PostgreSQL、SQL Server、MariaDB、Oracle、SQLite 依计划分批，不因驱动能连接宣布产品支持。失败、跳过、静态构建和真实验收必须保留区别，不能以一个切片完成代替完整 YZP 替代。
 
