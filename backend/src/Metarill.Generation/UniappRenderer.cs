@@ -33,6 +33,9 @@ internal static class UniappRenderer
                 ["CHILD_COMPONENTS"] = string.Join(", ", children.Select(child => child.Component)),
                 ["CHILDREN_JSON"] = JsonSerializer.Serialize(children.Select(child => new { id = child.Id, pageId = child.Page.Source.Id, name = child.Page.Source.Name })),
                 ["CHILDREN_MARKUP"] = ChildrenMarkup(page, children, tabs),
+                ["IS_MULTI_SELECTION"] = SelectionPageRenderer.Enabled(page).ToString().ToLowerInvariant(),
+                ["SELECTION_IMPORT"] = SelectionPageRenderer.Enabled(page) ? "import { createSelectionPageMixin } from '@/common/yzp_runtime/selectionPageMixin';" : "",
+                ["SELECTION_MIXIN"] = SelectionPageRenderer.Enabled(page) ? "createSelectionPageMixin(" + JsonSerializer.Serialize("/admin/auto/" + table.Source.TableName + "/" + page.Source.Id) + "," + page.Scopes.Any(scope => scope.Source == "parent").ToString().ToLowerInvariant() + ")," : "",
                 ["CAN_UPDATE"] = ChildrenCompilation.CanUpdate(page).ToString().ToLowerInvariant(),
                 ["REQUIRES_PARENT"] = page.Scopes.Any(scope => scope.Source == "parent").ToString().ToLowerInvariant(),
                 ["READONLY_FIELD"] = JsonSerializer.Serialize(ChildrenCompilation.ReadonlyField(page)),
@@ -61,7 +64,7 @@ internal static class UniappRenderer
                 ["WRITABLE_FIELDS"] = JsonSerializer.Serialize(page.Writable.Select(column => column.JsonName))
             };
             yield return new("frontend/" + listPath + ".vue", RenderTemplate("list.vue.tpl", parameters));
-            var detailParameters = new Dictionary<string, string>(parameters) { ["RELATION_IMPORT"] = "", ["RELATION_MIXIN"] = "" };
+            var detailParameters = new Dictionary<string, string>(parameters) { ["RELATION_IMPORT"] = "", ["RELATION_MIXIN"] = "", ["SELECTION_IMPORT"] = "", ["SELECTION_MIXIN"] = "" };
             yield return new("frontend/" + detailPath + ".vue", RenderTemplate("detail.vue.tpl", detailParameters));
             routes.Add(new { path = listPath, style = new { navigationBarTitleText = page.Source.Name } });
             routes.Add(new { path = detailPath, style = new { navigationBarTitleText = page.Source.Name } });

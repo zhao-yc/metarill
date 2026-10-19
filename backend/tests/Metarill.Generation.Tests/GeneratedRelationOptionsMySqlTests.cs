@@ -36,6 +36,7 @@ public sealed class GeneratedRelationOptionsMySqlTests
         if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("关联分页仅允许明确的 MySQL 业务隔离测试库。");
         using var session = new DatabaseSession(options);
         var prefix = "mt_rel_" + Guid.NewGuid().ToString("N")[..12]; var catalog = RelationOptionsContractTests.Catalog(prefix);
+        catalog.ConfigPages.Single(page => page.Id == "301").Extra["type"] = JsonSerializer.SerializeToElement(2);
         // 第二来源页使用本表记录作父级，目标仍使用独立父表，不能把两个长 ID 混为一个。
         catalog.ConfigColumns.Add(new() { Id = "28", ConfigTableId = "2", ColumnName = "source_owner_id", LogicalType = "int64", LinkConfigTableId = "2" });
         catalog.ConfigPages.Add(new() { Id = "202", ConfigTableId = "2", WhereSql = "yz_project_id=@current_yz_project_id AND source_owner_id=@parentId" });
@@ -127,6 +128,30 @@ public sealed class GeneratedRelationOptionsMySqlTests
             foreach (var request in new object[] { new { parentId = Parent.ToString(), pageSize = 101 }, new { parentId = Parent.ToString(), keyword = new string('字', 101) } })
                 Assert.Equal(500, (await Post(client, endpoint + "/page", request)).GetProperty("code").GetInt32());
             Assert.Equal(500, (await Post(client, endpoint + "/selected", new { parentId = Parent.ToString(), selectedIds = Enumerable.Repeat(selectedId, 201).ToArray() })).GetProperty("code").GetInt32());
+            // type=2独立选择页确认前回读完整VO；目标页list权限、真实父和项目/软删范围一致。
+            var selection = "/api/admin/auto/" + prefix + "_target/301";
+            var initial = new[] { selectedId, First.ToString() };
+            var selectedRows = Data(await Post(client, selection + "/selection/selected", new { parentId = Parent.ToString(), selectedIds = initial })).EnumerateArray().ToArray();
+            Assert.Equal(initial, selectedRows.Select(Id)); Assert.All(selectedRows, row => Assert.Equal(JsonValueKind.String, row.GetProperty("id").ValueKind));
+            var selectedPage = Data(await Post(client, selection + "/page", new { parentId = Parent.ToString(), selectedIds = initial, pageSize = 1 }));
+            Assert.Equal(2, long.Parse(selectedPage.GetProperty("total").ToString())); Assert.Single(selectedPage.GetProperty("records").EnumerateArray());
+            foreach (var invalid in new[] { First + 6000, First + 6001, First + 6002, First + 9999 })
+                Assert.Equal(500, (await Post(client, selection + "/selection/selected", new { parentId = Parent.ToString(), selectedIds = new[] { selectedId, invalid.ToString() } })).GetProperty("code").GetInt32());
+            foreach (var parent in new string?[] { null, "1 OR 1=1", (Parent + 2).ToString(), (Parent + 3).ToString(), (Parent + 99).ToString() })
+            {
+                Assert.Equal(500, (await Post(client, selection + "/selection/selected", new { parentId = parent, selectedIds = initial })).GetProperty("code").GetInt32());
+                Assert.Equal(500, (await Post(client, selection + "/page", new { parentId = parent, selectedIds = initial })).GetProperty("code").GetInt32());
+            }
+            client.DefaultRequestHeaders.Add("denyPage", "301");
+            Assert.Equal(500, (await Post(client, selection + "/selection/selected", new { parentId = Parent.ToString(), selectedIds = initial })).GetProperty("code").GetInt32());
+            client.DefaultRequestHeaders.Remove("denyPage");
+            Assert.Equal(500, (await Post(client, selection + "/selection/selected", new { parentId = Parent.ToString(), selectedIds = Enumerable.Repeat(selectedId, 201).ToArray() })).GetProperty("code").GetInt32());
+            Assert.Equal(500, (await Post(client, selection + "/page", new { parentId = Parent.ToString(), selectedIds = Enumerable.Repeat(selectedId, 201).ToArray() })).GetProperty("code").GetInt32());
+            Assert.Equal(500, (await Post(client, selection + "/page", new { parentId = Parent.ToString(), pageNo = 1000001 })).GetProperty("code").GetInt32());
+            using (var rejected = await client.PostAsJsonAsync(selection + "/selection/selected", new { parentId = Parent.ToString(), selectedIds = initial, table = prefix + "_source" })) Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+            await Execute(session, "UPDATE " + session.Provider.QuoteIdentifier(prefix + "_target") + " SET delete_no=@deleted WHERE id=@id", ("id", long.Parse(selectedId)), ("deleted", DateTime.UtcNow));
+            Assert.Equal(500, (await Post(client, selection + "/selection/selected", new { parentId = Parent.ToString(), selectedIds = initial })).GetProperty("code").GetInt32());
+
         }
         finally
         {

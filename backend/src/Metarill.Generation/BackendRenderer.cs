@@ -145,7 +145,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page));
             result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
         result.Append(Preparation(table)); result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
@@ -236,7 +236,9 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             }
             result.AppendLine("                    break;").AppendLine("                }");
         }        result.AppendLine("                default: throw new ArgumentException(\"页面未开放该筛选字段：\" + filter.Key);").AppendLine("            }").AppendLine("        }")
-            .AppendLine("        if (request.SelectedIds is null) throw new ArgumentException(\"selectedIds 不能为空。\");").AppendLine("        if (request.SelectedIds.Count > 0)").AppendLine("        {").AppendLine("            var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();")
+            .AppendLine("        if (request.SelectedIds is null) throw new ArgumentException(\"selectedIds 不能为空。\");")
+            .AppendLine(SelectionPageRenderer.Enabled(page) ? "        if (request.SelectedIds.Count > 200 || request.PageNo > 1000000) throw new ArgumentException(\"多选页最多200个已选项，页码最多1000000。\");" : "")
+            .AppendLine("        if (request.SelectedIds.Count > 0)").AppendLine("        {").AppendLine("            var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();")
             .AppendLine("            query = query.Where(entity => selected.Contains(entity.Id));").AppendLine("        }").AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>")
             .AppendLine($"    private static ISelect<{table.Name}> Order{suffix}(ISelect<{table.Name}> query, PageRequest request)").AppendLine("    {")
@@ -251,11 +253,14 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    }").AppendLine("    /// <summary>分页与统计使用同一条已受限查询。</summary>")
             .AppendLine($"    public async Task<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
             .AppendLine("        if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")
+            .AppendLine(SelectionPageRenderer.Enabled(page) ? $"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);" : "")
             .AppendLine($"        var query = Query{suffix}(request, actor);").AppendLine("        var total = await query.CountAsync(cancellationToken);")
             .AppendLine($"        var entities = await Order{suffix}(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);")
             .AppendLine($"        return new(entities.Select({page.Name}Vo.FromEntity).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
             .AppendLine("    }").AppendLine("    /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>")
-            .AppendLine($"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
+            .AppendLine(SelectionPageRenderer.Enabled(page)
+                ? $"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) {{ await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken); return await Query{suffix}(request, actor).CountAsync(cancellationToken); }}"
+                : $"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
             .AppendLine("    /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>")
             .AppendLine($"    public async Task<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
             .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);")
@@ -447,6 +452,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         if (page.Source.IsCopy == 1)
             result.AppendLine("    /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>").AppendLine("    [HttpPost(\"copy/{id}\")]")
                 .AppendLine($"    public async Task<R<{page.Name}Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Copy{suffix}Async(id, parentId, Actor(\"copy\"), cancellationToken));");
+        result.Append(SelectionPageRenderer.Controller(page));
         foreach (var relation in RelationCompilation.ForPage(model, page))
             result.AppendLine("    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]")
