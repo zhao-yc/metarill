@@ -1,7 +1,7 @@
 <!-- 由 Metarill 元数据生成，使用现有 uni-app 请求和组件体系。 -->
 <template>
   <view class="yzp-page">
-    <view class="uni-padding-wrap"><text>{{TITLE}}</text><button v-if="canCreate && !readOnlyCondition" size="mini" @click="openDetail('')">新增</button><button v-if="canImport && !readOnlyCondition" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
+    <view class="uni-padding-wrap"><text>{{TITLE}}</text><button v-if="canCreateRecord" size="mini" @click="openDetail('')">新增</button><button v-if="canImportRecords" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
     <view v-if="filterFields.length" class="uni-padding-wrap">
       <uni-forms :modelValue="draftFilters">
 {{FILTER_FIELDS}}
@@ -44,7 +44,11 @@ export default {
     sortDirections: [{text: '默认排序', value: ''}, {text: '升序', value: 'ascending'}, {text: '降序', value: 'descending'}], canCreate: {{CAN_CREATE}}, canImport: {{CAN_IMPORT}}, canExport: {{CAN_EXPORT}} }; },
   computed: {
     /** 子列表沿用父页只读；前端权限快照只负责隐藏操作，后端仍验证真实身份。 */
-    readOnlyCondition() { this.permissionVersion; return !this.permissionsReady || Boolean(this.parentReadOnlyCondition || getApp().globalData.readOnly || !this.canUpdate) || !this.is_son_page && !yzp.hasPagePermission('{{PAGE_ID}}', 'is_update'); }
+    readOnlyCondition() { this.permissionVersion; return !this.permissionsReady || Boolean(this.parentReadOnlyCondition || getApp().globalData.readOnly); },
+    /** 新增、修改、导入分别受本页能力和对应操作权限控制，不能用修改权限统管。 */
+    canCreateRecord() { this.permissionVersion; return !this.readOnlyCondition && this.canCreate && yzp.hasPagePermission('{{PAGE_ID}}', 'is_new'); },
+    canEditRecord() { this.permissionVersion; return !this.readOnlyCondition && this.canUpdate && yzp.hasPagePermission('{{PAGE_ID}}', 'is_update'); },
+    canImportRecords() { this.permissionVersion; return !this.readOnlyCondition && this.canImport && yzp.hasPagePermission('{{PAGE_ID}}', 'is_all'); }
   },
   watch: {
     /** 父记录改变时取消旧读取并重建子列表，不触发父表保存。 */
@@ -68,7 +72,7 @@ export default {
     /** 卸载或换父记录时失效列表、候选项和弹层回调。 */
     disposeList() { this._alive = false; this._epoch = (this._epoch || 0) + 1; this._requestNo = (this._requestNo || 0) + 1; this._request?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); this.closeChildDetailPopup(); },
     /** 导入保留客户端读取Excel并提交中文标题JSON的协议。 */
-    initImport() { if (!this.canImport || this.readOnlyCondition || ({{REQUIRES_PARENT}} || this.is_son_page) && !this.parentId) return; const parentId = this.parentId, identity = this.currentIdentity(); yzp.chooseImportFile(rows => { if (!this._alive || this.readOnlyCondition || parentId !== this.parentId || identity !== this.currentIdentity()) return; yzp.request({ url: '{{API}}/importDatas{{PAGE_ID}}', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
+    initImport() { if (!this.canImportRecords || ({{REQUIRES_PARENT}} || this.is_son_page) && !this.parentId) return; const parentId = this.parentId, identity = this.currentIdentity(); yzp.chooseImportFile(rows => { if (!this._alive || !this.canImportRecords || parentId !== this.parentId || identity !== this.currentIdentity()) return; yzp.request({ url: '{{API}}/importDatas{{PAGE_ID}}', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
     /** 导出使用已提交筛选、排序和父记录，不混入尚未点击查询的草稿。 */
     initExport() { yzp.request({ url: '{{API}}/initExport', method: 'POST', sendSessionId: true, data: this.pageRequest(this.pageNo), success: res => { if (res.code === 200) utils.openUrl(getApp().globalData.environment.base_url + '/admin/sys/export/export?exportId=' + encodeURIComponent(res.data)); } }); },
     /** 导入后只重读第一页，已提交查询和父上下文继续保留。 */
@@ -166,7 +170,7 @@ export default {
       if (!this._alive) return;
       if (({{REQUIRES_PARENT}} || this.is_son_page) && !this.parentId) { uni.showModal({ showCancel: false, content: '为避免数据丢失，请先保存当前页面的数据' }); return; }
       if (this.selecting && id) { const row = this.records.find(record => record.id === id); this.getOpenerEventChannel().emit('selected', row); uni.navigateBack(); return; }
-      if (!id && (!this.canCreate || this.readOnlyCondition)) return;
+      if (!id && !this.canCreateRecord) return;
       if (this.is_son_page && ![1, 2].includes(this.child_page_open_type)) { uni.showModal({ showCancel: false, content: '子页面打开方式未支持。' }); return; }
       if (this.is_son_page && this.$deviceInfo?.is_pc && this.child_page_open_type === 2) { this.openChildDetailPopup(id); return; }
       const parentId = this.parentId, epoch = this._epoch, identity = this.currentIdentity();

@@ -116,11 +116,13 @@ public sealed class GeneratedChildrenTests
             new ColumnMetadata { Id = "201", ColumnName = "id", LogicalType = "id" }, new() { Id = "202", ColumnName = "name", LogicalType = "string" },
             new() { Id = "203", ColumnName = "customer_id", LogicalType = "id", LinkConfigTableId = "1" }, new() { Id = "204", ColumnName = "yz_project_id", LogicalType = "id" },
             new() { Id = "205", ColumnName = "remark", LogicalType = "string", ControlKind = "RTF" } }) { column.ConfigTableId = "2"; catalog.ConfigColumns.Add(column); }
-        foreach (var id in new[] { "201", "202", "203" })
+        foreach (var id in new[] { "201", "202", "203", "204" })
         {
             catalog.ConfigPages.Add(new() { Id = id, ConfigTableId = "2", Name = "子页" + id, WhereSql = "customer_id=@parent_id and yz_project_id=@current_yz_project_id", IsCopy = 1, IsImport = 1 });
             foreach (var column in new[] { "202", "205" }) catalog.ConfigPageColumns.Add(new() { Id = id + column, ConfigPageId = id, ConfigColumnId = column, Extra = new() { ["isSearch"] = JsonSerializer.SerializeToElement(1), ["isSort"] = JsonSerializer.SerializeToElement(1) } });
         }
+        // 仅新增页面不能因禁用修改而失去新增入口，导入仍须独立的 is_all 权限。
+        var createOnly = catalog.ConfigPages.Single(page => page.Id == "204"); createOnly.IsSave = 0; createOnly.IsDelete = 0; createOnly.IsCopy = 0; createOnly.Extra["isUpdate"] = JsonSerializer.SerializeToElement(0);
         catalog.ConfigChildren = [
             JsonSerializer.SerializeToElement(new { id = "cB", parentConfigPageId = "101", childConfigPageId = "201", sortNo = "10", childPageOpenType = 2, yzProjectId = "100" }),
             JsonSerializer.SerializeToElement(new { id = "cZ", parentConfigPageId = "101", childConfigPageId = "202", sortNo = 2, childPageOpenType = 1, yzProjectId = "100" }),

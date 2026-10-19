@@ -5,8 +5,8 @@
 {{FIELDS}}
     </uni-forms>
     <button v-if="!readOnlyCondition && (id ? canSave : canCreate)" :disabled="saving" @click="save">保存</button>
-    <button v-if="!readOnlyCondition && id && canCopy" :disabled="saving" @click="copy">复制</button>
-    <button v-if="!readOnlyCondition && id && canDelete" :disabled="saving" @click="remove">删除</button>
+    <button v-if="canCopyRecord" :disabled="saving" @click="copy">复制</button>
+    <button v-if="canDeleteRecord" :disabled="saving" @click="remove">删除</button>
 {{CHILDREN_MARKUP}}
   </view>
 </template>
@@ -25,8 +25,11 @@ export default {
   props: { is_props: { type: Boolean, default: false }, props_id: { type: String, default: '' }, props_parent_id: { type: String, default: '' }, props_parent_page_sn: { type: String, default: '' }, parentReadOnlyCondition: { type: Boolean, default: false } },
   data() { return { id: '', parentId: '', parentPageId: '', routeReadOnly: false, recordReady: false, permissionsReady: false, permissionVersion: 0, currentChild: 0, children, canUpdate: {{CAN_UPDATE}}, entity: {}, changes: {}, options: {}, saving: false, canCreate: {{CAN_CREATE}}, canSave: {{CAN_SAVE}}, canDelete: {{CAN_DELETE}}, canCopy: {{CAN_COPY}} }; },
   computed: {
-    /** 子表继承整页只读；客户端条件仅控制交互，服务端权限仍独立核验。 */
-    readOnlyCondition() { this.permissionVersion; return !this.permissionsReady || Boolean(this.parentReadOnlyCondition || this.routeReadOnly || getApp().globalData.readOnly || (this.id ? !this.canUpdate : !this.canCreate) || readonlyField && this.entity[readonlyField]) || !this.parentPageId && !yzp.hasPagePermission('{{PAGE_ID}}', this.id ? 'is_update' : 'is_new'); },
+    /** 子表继承父只读后仍检查自身当前操作权限；共享快照不代表继承操作授权。 */
+    readOnlyCondition() { this.permissionVersion; return !this.permissionsReady || Boolean(this.parentReadOnlyCondition || this.routeReadOnly || getApp().globalData.readOnly || (this.id ? !this.canUpdate : !this.canCreate) || readonlyField && this.entity[readonlyField]) || !yzp.hasPagePermission('{{PAGE_ID}}', this.id ? 'is_update' : 'is_new'); },
+    /** 复制和删除分别检查自身操作授权，修改授权不会隐式开放其他动作。 */
+    canCopyRecord() { this.permissionVersion; return !this.readOnlyCondition && Boolean(this.id) && this.canCopy && yzp.hasPagePermission('{{PAGE_ID}}', 'is_all'); },
+    canDeleteRecord() { this.permissionVersion; return !this.readOnlyCondition && Boolean(this.id) && this.canDelete && yzp.hasPagePermission('{{PAGE_ID}}', 'is_delete'); },
     /** 只有已读取或写入成功的父记录可以挂载子页，手填路由 ID 不开放子页。 */
     childrenReady() { return this.recordReady && this.permissionsReady && Boolean(this.id) && String(this.entity.id) === this.id; }
   },
@@ -57,10 +60,10 @@ export default {
     closeDetail() { if (this.is_props) this.$emit('onPopClose'); else uni.navigateBack(); },
     /** POST复制仅提交源标识，服务端重建新记录与审计身份。 */
     copy() {
-      if (this.readOnlyCondition || !this.canCopy || !this.id || this.saving) return;
+      if (this.readOnlyCondition || !this.canCopy || !yzp.hasPagePermission('{{PAGE_ID}}', 'is_all') || !this.id || this.saving) return;
       const id = this.id, parentId = this.parentId, epoch = this._epoch, identity = this.currentIdentity();
       const current = () => this._alive && epoch === this._epoch && id === this.id && parentId === this.parentId && identity === this.currentIdentity();
-      uni.showModal({ title: '复制确认', content: '确定复制当前记录？', success: modal => { if (!modal.confirm || !current() || this.readOnlyCondition || this.saving) return; this.saving = true;
+      uni.showModal({ title: '复制确认', content: '确定复制当前记录？', success: modal => { if (!modal.confirm || !current() || this.readOnlyCondition || !yzp.hasPagePermission('{{PAGE_ID}}', 'is_all') || this.saving) return; this.saving = true;
         this._writeRequest = yzp.request({ url: '{{API}}/copy/' + encodeURIComponent(id) + '?parentId=' + encodeURIComponent(parentId), method: 'POST', sendSessionId: true, isCurrent: current,
           success: res => { if (current() && res.code === 200 && recordId(res.data?.id)) { this.id = res.data.id; this.entity = res.data; this.changes = {}; this.recordReady = true; this.emitDetailChange('copy', res.data); if (this.is_props) this.closeDetail(); uni.showToast({ title: '复制成功', icon: 'success' }); } }, complete: () => { if (this._alive && epoch === this._epoch) this.saving = false; } });
       } });
@@ -115,10 +118,10 @@ export default {
     },
     /** 删除仅通知当前列表，子表刷新不会写入或重载父实体。 */
     remove() {
-      if (this.readOnlyCondition || !this.canDelete || !this.id || this.saving) return;
+      if (this.readOnlyCondition || !this.canDelete || !yzp.hasPagePermission('{{PAGE_ID}}', 'is_delete') || !this.id || this.saving) return;
       const id = this.id, parentId = this.parentId, epoch = this._epoch, identity = this.currentIdentity();
       const current = () => this._alive && epoch === this._epoch && id === this.id && parentId === this.parentId && identity === this.currentIdentity();
-      uni.showModal({ title: '删除确认', content: '确定删除当前记录？', success: modal => { if (!modal.confirm || !current() || this.readOnlyCondition || this.saving) return; this.saving = true;
+      uni.showModal({ title: '删除确认', content: '确定删除当前记录？', success: modal => { if (!modal.confirm || !current() || this.readOnlyCondition || !yzp.hasPagePermission('{{PAGE_ID}}', 'is_delete') || this.saving) return; this.saving = true;
         this._writeRequest = yzp.request({ url: '{{API}}?parentId=' + encodeURIComponent(parentId), method: 'DELETE', data: { id }, sendSessionId: true, isCurrent: current,
           success: res => { if (current() && res.code === 200) { this.recordReady = false; this.emitDetailChange('delete'); this.closeDetail(); } }, complete: () => { if (this._alive && epoch === this._epoch) this.saving = false; } });
       } });

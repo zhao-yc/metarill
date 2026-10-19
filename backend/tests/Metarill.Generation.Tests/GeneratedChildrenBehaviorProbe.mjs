@@ -5,14 +5,14 @@ import vm from 'node:vm'
 
 const root = process.argv[2], plain = value => JSON.parse(JSON.stringify(value))
 const read = name => readFile(join(root, 'frontend/pages/yzp/' + name), 'utf8')
-const parentSource = await read('customer-detail-101.vue'), listSource = await read('customer_note-list-201.vue'), detailSource = await read('customer_note-detail-201.vue')
+const parentSource = await read('customer-detail-101.vue'), listSource = await read('customer_note-list-201.vue'), detailSource = await read('customer_note-detail-201.vue'), createListSource = await read('customer_note-list-204.vue'), createDetailSource = await read('customer_note-detail-204.vue')
 
 /** 实际生成脚本使用 Vue 数据/props/计算属性及生命周期，网络和导航仅由探针记录。 */
 function fixture(source, config = {}) {
  const requests = [], navigations = [], dialogs = [], emissions = [], popup = [], ticks = [], permissionCallbacks = []
  const storage = { loginStateId: '测试会话', sysParams: { yzProjectId: '100' } }, globalData = { environment: { base_url: 'https://example.test/api' }, ...config.global }
  const context = { JSON, Date, Number, Object, Array,
-  yzp: { request(options) { const task = { aborted: false, abort() { task.aborted = true } }; requests.push({ options, task }); return task }, hasPagePermission: () => config.permission !== false,
+  yzp: { request(options) { const task = { aborted: false, abort() { task.aborted = true } }; requests.push({ options, task }); return task }, hasPagePermission(page, action) { if (config.permissions) { const granted = config.permissions[page] || []; return granted.includes('is_all') || granted.includes(action) } return config.permission !== false },
    refreshCurrentPermissions(ready) { if (config.deferPermissions) permissionCallbacks.push(ready); else ready() }, chooseImportFile: callback => callback([{ 名称: '导入' }]), importSuccessAction() {} },
   utils: { openUrl() {} }, getApp: () => ({ globalData }),
   uni: { getStorageSync: key => storage[key], navigateTo: options => navigations.push(options), navigateBack: () => emissions.push({ name: 'navigateBack' }), showToast() {}, showModal: options => dialogs.push(options) } }
@@ -125,4 +125,31 @@ function childList(parent, config = {}) { return fixture(listSource, { mount: tr
  const remove = editDetail(); remove.state.remove(); remove.dialogs.at(-1).success({ confirm: true }); assert.equal(remove.requests.at(-1).options.url, '/admin/auto/customer_note/201?parentId=9007199254740993'); assert.equal(remove.requests.at(-1).options.method, 'DELETE'); assert.deepEqual(plain(remove.requests.at(-1).options.data), { id: '9007199254741001' }); success(remove.requests.at(-1), '删除成功')
  assert.equal(child.pages().length, 4); assert.equal(parent.writes().length, 1)
  console.log('通过：子明细读取、部分更新、复制和删除均携带正确父范围，外键不能由表单覆盖')
+}
+
+{
+ const parent = createParent(); assert.equal(parent.state.readOnlyCondition, false)
+ const queryPermissions = { '201': ['is_query'] }
+ const queryChild = childList(parent, { permissions: queryPermissions }); assert.equal(queryChild.state.readOnlyCondition, false); assert.equal(queryChild.state.canCreateRecord, false); assert.equal(queryChild.state.canEditRecord, false); assert.equal(queryChild.state.canImportRecords, false)
+ queryChild.state.openDetail(''); queryChild.state.initImport(); assert.equal(queryChild.navigations.length, 0); assert.equal(queryChild.requests.length, 1)
+ queryChild.state.openDetail('9007199254741001'); assert.equal(queryChild.state.childDetailPopupVisible, true)
+ const detail = fixture(detailSource, { mount: true, props: { is_props: true, props_id: '9007199254741001', props_parent_id: parent.state.id, props_parent_page_sn: '101', parentReadOnlyCondition: false }, permissions: queryPermissions })
+ success(detail.requests.at(-1), { id: '9007199254741001', name: '只能查询' }); assert.equal(detail.state.parentPageId, '101'); assert.equal(detail.state.readOnlyCondition, true)
+ detail.state.change('name', '不能借父权限写入'); detail.state.save(); detail.state.copy(); detail.state.remove(); assert.equal(detail.writes().length, 0); assert.equal(detail.dialogs.length, 0); assert.deepEqual(plain(detail.state.changes), {})
+ const routed = fixture(detailSource, { route: { id: '9007199254741001', parentId: parent.state.id, parentPageId: '101' }, permissions: queryPermissions }); assert.equal(routed.state.readOnlyCondition, true)
+ const updateOnly = fixture(detailSource, { mount: true, props: { is_props: true, props_id: '9007199254741001', props_parent_id: parent.state.id, props_parent_page_sn: '101' }, permissions: { '201': ['is_query', 'is_update'] } }); success(updateOnly.requests.at(-1), { id: '9007199254741001', name: '只能修改' }); assert.equal(updateOnly.state.readOnlyCondition, false); assert.equal(updateOnly.state.canCopyRecord, false); assert.equal(updateOnly.state.canDeleteRecord, false)
+ updateOnly.state.copy(); updateOnly.state.remove(); assert.equal(updateOnly.dialogs.length, 0); updateOnly.state.change('name', '合法修改'); updateOnly.state.save(); assert.equal(updateOnly.writes().length, 1)
+ console.log('通过：可编辑父页不能授予子页修改/新增/导入权限，嵌入和路由均检查自身操作权限')
+}
+
+{
+ const permissions = { '204': ['is_query', 'is_new'] }, child = fixture(createListSource, { route: { parentId: '9007199254740993' }, permissions })
+ assert.equal(child.state.canUpdate, false); assert.equal(child.state.canCreateRecord, true); assert.equal(child.state.canEditRecord, false); assert.equal(child.state.canImportRecords, false)
+ child.state.openDetail(''); assert.equal(child.navigations.length, 1); assert.equal(child.navigations[0].url.includes('parentReadOnly=0'), true)
+ child.state.initImport(); assert.equal(child.requests.length, 0)
+ const create = fixture(createDetailSource, { route: { parentId: '9007199254740993', parentPageId: '101' }, permissions }); assert.equal(create.state.readOnlyCondition, false); create.state.change('name', '允许新增'); create.state.save(); assert.equal(create.lastWrite().options.url, '/admin/auto/customer_note/204/add?parentId=9007199254740993')
+ success(create.lastWrite(), { id: '9007199254741001', name: '允许新增' }); assert.equal(create.state.readOnlyCondition, true); const writes = create.writes().length; create.state.change('name', '禁止修改'); create.state.save(); assert.equal(create.writes().length, writes)
+ const existing = fixture(createDetailSource, { route: { id: '9007199254741001', parentId: '9007199254740993' }, permissions }); success(existing.requests.at(-1), { id: '9007199254741001', name: '只能查看' }); assert.equal(existing.state.readOnlyCondition, true)
+ const importAllowed = fixture(createListSource, { route: { parentId: '9007199254740993' }, permissions: { '204': ['is_all'] } }); assert.equal(importAllowed.state.canUpdate, false); assert.equal(importAllowed.state.canImportRecords, true); importAllowed.state.initImport(); assert.equal(importAllowed.requests.length, 1); assert.equal(importAllowed.requests[0].options.url, '/admin/auto/customer_note/204/importDatas204')
+ console.log('通过：仅新增页可新增而不能修改，导入按独立is_all授权，不受禁用更新误拦截')
 }
