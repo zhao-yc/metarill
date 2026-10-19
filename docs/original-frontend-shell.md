@@ -50,3 +50,11 @@
 真实临时Full包验证了原App/左栏/菜单/我的全文与源副本一致、原顶栏/首页/改密style保持、Node脚本/动态导入/组件/路由/静态资产闭包、PC/移动生命周期与公共globals、原账户事件、真实服务端确认退出顺序。真实独立宿主HTTP验证匿名/旧密码/弱密码/未知重复字段、持久重启、全部会话和跨进程撤销、项目/用户名绑定、损坏/缺失状态、真实链接/断链与过宽ACL拒绝。临时包保护测试验证手写壳/API/AppID逐字节保留。
 
 所有HTTP使用随机本机回环临时宿主并终止，不连接数据库，不执行DDL、不安装服务。测试日志保留在任务clone的 `.local/original-shell-results`，不能替代父任务的浏览器和设备验收。
+
+## 平台宿主的原导航标记同步
+
+平台自身 frontend/metarill_uni_admin/pages/main/top.vue 已恢复原 slot-image logo与头像标记，my.vue 已恢复原 head image；DOM位置和两页原style保留，仅继续使用Metarill品牌标题及已授权的 pages/custom/menu_workbench 入口。头像仍是上述 e4829... 用户授权新产物，没有重新复制原水印头像；未接入其它背景/字体/专用业务或钉钉SDK。
+
+pages.json 的六个tab图标由 npm run sync:platform-shell（既有 sync:custom-routes 同样执行）从 backend/templates/standalone-frontend/frontend-pages.json.tpl 的固定三页签声明合并，不拷贝旧整份pages.json。同步仅替换匹配页签的 iconPath/selectedIconPath，保留全部当前/新增自定义与生成页面、每页style、全局style、窗口尺寸、页签顺序和现有主题。缺页签、重复、未注册页面或越界图标来源明确拒绝，重复同步稳定。该脚本用于平台源码目录；独立Full包仍由原模板及项目PrimaryColor生成，未回滚主题下发逻辑。
+
+新增Node测试冻结原模板DOM（移除注释与标签间空白后）和LF规范style的摘要，不依赖CI存在旧D盘工程；并核对原logo/六张PNG及新头像的真实SHA-256、页签资源闭包和同步的路由/主题保护。此处为源码与脚本验收，未运行HBuilderX、真实浏览器或真机，不将其写作视觉完成证据。

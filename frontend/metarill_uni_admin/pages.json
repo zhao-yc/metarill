@@ -466,15 +466,21 @@
     "list": [
       {
         "pagePath": "pages/main/index",
-        "text": "首页"
+        "text": "首页",
+        "iconPath": "static/images/home.png",
+        "selectedIconPath": "static/images/home-selected.png"
       },
       {
         "pagePath": "pages/main/menu",
-        "text": "菜单"
+        "text": "菜单",
+        "iconPath": "static/images/menu.png",
+        "selectedIconPath": "static/images/menu-selected.png"
       },
       {
         "pagePath": "pages/main/my",
-        "text": "我的"
+        "text": "我的",
+        "iconPath": "static/images/my.png",
+        "selectedIconPath": "static/images/my-selected.png"
       }
     ]
   },

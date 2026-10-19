@@ -7,7 +7,7 @@
 		</view>
 		<view class="top-content">
 			<view style="margin-left:20px;">
-				<text style="font-size:24px;font-weight:700;color:#0ab3ad">M</text>
+				<image class="slot-image" src="/static/logo.png" mode="widthFix"></image>
 			</view>
 			<view style="flex: 1;">
 				<text class="slot-box slot-text">Metarill 管理平台（{{ enevName }}）</text>
@@ -18,7 +18,7 @@
 				<button size="mini" @click="toIndex">首页</button>
 				<button size="mini" @click="changeProject">【{{ currentSelectionText }}】切换设备/项目</button>
 				<view class="top-right-img" @click="showActions">
-					<uni-icons type="person-filled" size="28" color="#0ab3ad" />
+					<image class="slot-image" src="/static/images/avatar.png" mode="widthFix"></image>
 					<view style="margin-right: 5px;">{{userInfo.merchantName}}[{{userInfo.name}}]</view>
 					<uni-icons type="down"></uni-icons>
 				</view>

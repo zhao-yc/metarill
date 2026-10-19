@@ -4,7 +4,7 @@
 		<view class="user">
 			<view class="head">
 
-				<uni-icons type="person-filled" size="28" color="#0ab3ad" />
+				<image src="/static/images/avatar.png"></image>
 
 			</view>
 			<view class="sign">
