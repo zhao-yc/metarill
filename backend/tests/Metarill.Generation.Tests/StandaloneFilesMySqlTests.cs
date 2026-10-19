@@ -13,6 +13,7 @@ using Metarill.Core.Metadata;
 using Metarill.Data;
 using Metarill.Data.Schema;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Metarill.Generation.Tests;
 
@@ -27,12 +28,14 @@ public sealed class StandaloneFilesMySqlFactAttribute : FactAttribute
 }
 
 /// <summary>从真实独立包 HTTP 入口验证文件与生成业务记录的原子引用，不伪装多账号权限验收。</summary>
-public sealed class StandaloneFilesMySqlTests
+public sealed class StandaloneFilesMySqlTests(ITestOutputHelper output)
 {
+    /// <summary>串联显式结构、实际文件流、生成记录事务与注销状态。</summary>
     [StandaloneFilesMySqlFact]
     public async Task Packaged_files_and_generated_records_share_real_mysql_transactions()
     {
         await using var fixture = await PackagedFilesFixture.CreateAsync();
+        output.WriteLine("显式 schema 前已存在的文件基础表：" + string.Join("、", fixture.ExistingFileTables));
         await fixture.BuildAsync();
         // 正常 Web 启动不能隐式建业务表；建表只能来自包内显式 schema 命令。
         await fixture.StartAsync();
@@ -95,6 +98,16 @@ public sealed class StandaloneFilesMySqlTests
         Assert.True(deleted.GetProperty("data").GetProperty("storageRemoved").GetBoolean());
         using var unavailable = await fixture.Client.GetAsync(fixture.ContentPath(privateFile, false));
         Assert.Equal(HttpStatusCode.Unauthorized, unavailable.StatusCode);
+        var logoutProbe = await fixture.UploadAsync("logout-private.txt", bytes);
+        await fixture.AssertContentAsync(logoutProbe, bytes, publicly: false);
+        await fixture.SuccessAsync(HttpMethod.Post, "/api/admin/sys/yz_manager/exit_login", new { });
+        using (var revokedList = await fixture.Client.PostAsJsonAsync(fixture.FileRoute + "/list", new { }))
+            Assert.Equal(HttpStatusCode.Unauthorized, revokedList.StatusCode);
+        using (var revokedPlan = await fixture.Client.PostAsJsonAsync(fixture.FileRoute + "/upload-plan", new { originalName = "revoked.txt", sizeBytes = 1, configColumnId = fixture.Catalog.ConfigColumns.Single(c => c.ColumnName == "attachments").Id }))
+            Assert.Equal(HttpStatusCode.Unauthorized, revokedPlan.StatusCode);
+        using (var revokedPrivate = await fixture.Client.GetAsync(fixture.ContentPath(logoutProbe, false)))
+            Assert.Equal(HttpStatusCode.Unauthorized, revokedPrivate.StatusCode);
+        await fixture.AssertContentAsync(publicFile, bytes, publicly: true);
     }
 }
 
@@ -120,6 +133,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     public HttpClient Client { get; private set; } = null!;
     public HttpClient Anonymous { get; private set; } = null!;
     public List<long> FileIds { get; } = [];
+    public string[] ExistingFileTables { get; private set; } = [];
     public List<long> RecordIds { get; } = [];
     private string ProtectedColumn => Catalog.ConfigColumns.Single(c => c.ColumnName == "attachments").Id;
     private string PublicColumn => Catalog.ConfigColumns.Single(c => c.ColumnName == "public_files").Id;
@@ -151,6 +165,11 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
             Assert.False(fixture.Output.StartsWith(fixture.root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             fixture.FileCatalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.Output, "backend/metadata/files.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             Assert.Equal(new[] { "yz_file_library", "yz_file_library_folder", "yz_file_ref" }, fixture.FileCatalog.ConfigTables.Select(t => t.TableName).Order().ToArray());
+            var schema = new SchemaService(fixture.Session);
+            fixture.ExistingFileTables = (await schema.InspectAsync(fixture.FileCatalog)).Tables.Select(t => t.Name).Order().ToArray();
+            var filePlan = await schema.PreviewAsync(fixture.FileCatalog);
+            // 已存在的固定基础表只能验证复用，结构漂移时拒绝执行 DDL。
+            Assert.DoesNotContain(filePlan.Changes, change => fixture.ExistingFileTables.Contains(change.Table));
             return fixture;
         }
         catch { await fixture.DisposeAsync(); throw; }
@@ -231,6 +250,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         return id;
     }
 
+    /// <summary>只构造固定协议的数字文件标识路径。</summary>
     public string ContentPath(long id, bool publicly) => FileRoute + (publicly ? "/public-content/" : "/protected-content/") + id;
 
     /// <summary>公开流使用无会话客户端，分别核对 GET、HEAD 和字节范围。</summary>
@@ -267,6 +287,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         return JsonSerializer.Serialize(Enumerable.Range(0, reader.FieldCount).Select(i => reader.IsDBNull(i) ? null : reader.GetValue(i)).ToArray());
     }
 
+    /// <summary>只统计当前独占业务记录的有效引用。</summary>
     public async Task<long> ActiveReferencesAsync(long record) => Convert.ToInt64(await ScalarAsync("SELECT COUNT(*) FROM `yz_file_ref` WHERE `record_id`=@id AND `delete_no` IS NULL", record));
 
     /// <summary>不仅计数，还验证引用所属页面、项目、字段和文件标识。</summary>
@@ -284,11 +305,13 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         await using var command = connection.CreateCommand(); command.CommandText = sql; Bind(command, id);
         var value = await command.ExecuteScalarAsync(); return value is DBNull ? null : value;
     }
+    /// <summary>写入只用于独占负例播种和精确清理，所有值均参数化。</summary>
     public async Task ExecuteAsync(string sql, long id)
     {
         await using var connection = Session.Provider.CreateConnection(Session.Options); await connection.OpenAsync();
         await using var command = connection.CreateCommand(); command.CommandText = sql; Bind(command, id); await command.ExecuteNonQueryAsync();
     }
+    /// <summary>固定参数名绑定数据库值。</summary>
     private static void Bind(DbCommand command, long id) { var parameter = command.CreateParameter(); parameter.ParameterName = "id"; parameter.Value = id; command.Parameters.Add(parameter); }
 
     /// <summary>子进程日志仅消费不打印，任何失败使用不含配置的固定提示。</summary>
@@ -300,6 +323,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         try { await process.WaitForExitAsync(timeout.Token); } catch { if (!process.HasExited) process.Kill(true); throw; }
         await output; await error; Assert.True(process.ExitCode == 0, "独立文件包命令失败，日志未输出以保护环境信息。");
     }
+    /// <summary>宿主配置限定为隔离业务库、专属存储根与测试节点。</summary>
     private ProcessStartInfo HostInfo()
     {
         var info = StartInfo(HostDirectory); info.ArgumentList.Add(Path.Combine(HostDirectory, "bin/Debug/net10.0/Application.Host.dll"));
@@ -310,7 +334,9 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         info.Environment["Files__RootDirectory"] = Path.Combine(temporary, "objects"); info.Environment["Files__MaxFileBytes"] = "4096";
         return info;
     }
+    /// <summary>所有子进程隐藏窗口，并消费标准输出避免阻塞。</summary>
     private static ProcessStartInfo StartInfo(string directory) => new(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+    /// <summary>默认定位本普通克隆，可由 CI 显式指定可信源目录。</summary>
     private static string SourceRoot([CallerFilePath] string file = "") => Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT") ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
 
     /// <summary>停止持有数据库连接的宿主后再清理，绝不停止用户的其他服务。</summary>
