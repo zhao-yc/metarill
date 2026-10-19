@@ -151,3 +151,9 @@ TinyMCE 核心 8.3.2 本地 `license.md` 与官方 https://www.tiny.cloud/docs/t
 ## SheetJS 实际高危依赖升级（2026-10-19）
 
 `npm audit` 唯一高危依赖为 xlsx 0.18.5，包含原型污染和 ReDoS 两项公告。已按官方 CE 安装说明替换为 vendored 0.20.3 原始归档，记录 SHA-256 / SRI / Apache-2.0 许可；原共享导入方法和交互未改。新增 5 项真实 SheetJS 格式与原选择文件回归，完整前端 213 项通过，0 失败、0 跳过；真实重新安装后的 `npm audit --json` 全部级别 0 项。升级导致的既有 XLSX 日期解析偏差修正及完整证据边界见 `docs/frontend-dependencies.md`，未用模拟结果代替审计或 HBuilderX 验收。
+
+## 原选择器纯界面建表闭环（2026-10-19）
+
+协调者在真实内嵌浏览器中从零选择示例后台、新建临时配置表、回读8个系统字段，再预检保存2个业务字段；没有以 API 预先准备表。通过原“在数据库创建表”按钮预览唯一随机表的 SQL，确认执行后自动核验剩余 0 项差异。临时配置经界面软删除，列表重新读取只剩原示例客户；独占物理表确认空表后精确清理。浏览器随后注销。新默认布局修复另有真实 API 新建与回写测试，不以旧临时记录冒充修复后字段证据。
+
+集成后完整前端 217/217 通过，依赖 audit 全级别为 0；实际命令 `D:/HBuilderX/cli.exe publish web --project E:/git/metarill/frontend/metarill_uni_admin --webTitle Metarill --webHosting false` 再次成功。Tiny Cloud 仍为空配置，用户已明确延期真实加载/编辑。生成列表/详情的新增交互通过实际生成方法探针，本节浏览器所用管理端保留原页面，不能混称其已验证所有新生成模板。

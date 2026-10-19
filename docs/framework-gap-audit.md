@@ -1,6 +1,6 @@
 # 主框架功能收口审计
 
-审计日期：2026-10-19。原 YZP 只读参考为 `D:\\svn\\yzp`，审计时 HEAD 为 `06066f79`；Metarill 基于 `7de6c8b` 及本次配置候选切片。源码事实、已有验收和待完成事项分开记录；后续每个切片应更新本文件，不能把静态源码存在当作完整验收。
+审计日期：2026-10-19。原 YZP 只读参考为 `D:\\svn\\yzp`，审计时 HEAD 为 `06066f79`；Metarill 初次审计基于 `7de6c8b`；当前持续更新包含已集成的配置候选、生成查询交互和原媒体控件切片。源码事实、已有验收和待完成事项分开记录；后续每个切片应更新本文件，不能把静态源码存在当作完整验收。
 
 ## 范围与已经替换的设计
 
@@ -12,7 +12,9 @@
 
 **已有：** [BackendRenderer](../backend/src/Metarill.Generation/BackendRenderer.cs) 的 Query、ParentValidation、Mutations 已实现开放筛选、排序、selectedIds、分页/count、parentId 受限等值范围和真实父记录校验。
 
-**缺口：** [list.vue.tpl](../backend/templates/uniapp/list.vue.tpl) 的分页和导出仍发送固定 `filters: {}`，没有排序和多选页“仅看已选”界面；[UniappRenderer](../backend/src/Metarill.Generation/UniappRenderer.cs) 列表直接展示原字段，没有消费已生成的常量 `xxxShow` 或完整关系显示。详情模板只有字段及基本按钮，未编译详情分组、条件显示/只读、完整表单规则和配置按钮。`ConfigChildren` 目前只在 Core、种子和仓储中保留，生成器未消费；当前脱敏平台模型有 8 条主子关系。
+**本轮补齐：** [list.vue.tpl](../backend/templates/uniapp/list.vue.tpl) 按 Searchable/Sortable 白名单编译筛选、排序和分页快照，导出复用已确认筛选；零、false、长标识与日期范围保留。列表/详情消费真实常量 `xxxShow` 和已有关系别名/合法选项映射，缺失关系名保持原标识。RTF 沿原事件且未编辑不写回，FileLibrary 编译已声明的访问及数量/类型配置；未知或坏配置拒绝生成。
+
+**仍缺：** 多选页“仅看已选”、完整关系名称读计划、详情分组、条件显示/只读、完整表单规则和配置按钮。`ConfigChildren` 目前只在 Core、种子和仓储中保留，生成器未消费；当前脱敏平台模型有 8 条主子关系。
 
 **原实现证据：** YZP `service/yzp/v8/UniappService.java` 的 `1421` 附近按 ConfigChild 排序和 childPageOpenType 生成子页面，并传递父记录与只读上下文；`2001` 附近生成排序和筛选组件。`JavaService.java` 的 `1748` 附近及 `V8ControllerRenderer` 的 page 返回还支持独立 statistics。C# 当前有 count，不能据此声称已具备原聚合统计协议。
 
@@ -60,7 +62,7 @@
 
 **已有：** [SchemaService.InspectAsync](../backend/src/Metarill.Data/Schema/SchemaService.cs) 已校验真实目标并读取受管表、列、索引和 SHOW CREATE 快照；Preview/Apply 有计划和执行核验。不能把这部分写成“完全没有反查”。
 
-**缺口：** 缺 HTTP/MCP/CLI 专用反查入口、未登记表的安全目录和待确认元数据导入计划。当前普通结构预览不是反向创建元数据。原 YZP SchemaClient 主要是配置到 DDL 的同步，未发现已完成的全库逆向导入成品；完整逆向导入应记为本计划待交付，不冒称旧功能被移除。MCP preview_database_schema 还应核对是否与 HTTP 完整预览采用同一文件基础设施组合。
+**缺口：** 缺 HTTP/MCP/CLI 专用反查入口、未登记表的安全目录和待确认元数据导入计划。当前普通结构预览不是反向创建元数据。原 YZP SchemaClient 主要是配置到 DDL 的同步，未发现已完成的全库逆向导入成品；完整逆向导入应记为本计划待交付，不冒称旧功能被移除。MCP preview_database_schema 已在集成切片与 HTTP 完整预览统一采用文件基础设施组合，并通过真实 MCP 客户端/HTTP 指纹相等回归。
 
 **可验收切片：** 先只读开放已授权项目连接的表结构反查，区分受管/未受管范围，SQL 只作预览、`executable: false`；未知属性和缺少定义拒绝。之后单独实现结构→逻辑模型→差异确认→元数据事务保存，禁止读取后自动写元数据或执行 DDL。覆盖 MySQL 类型/默认值/索引/外键、目标库不一致、视图/未知类型和结构并发漂移。
 
@@ -77,3 +79,9 @@
 2026-10-19 在独立普通 clone 验证：`Metarill.Metadata.Tests` 64/64、`Metarill.Api.Tests` 16/16、前端 `node --test tests/*.test.mjs` 198/198，全部零跳过。后端使用显式隔离的 Server-200 MySQL 测试库；候选新增用例只创建唯一测试元数据，通过统一删除入口清理，不创建业务物理表。前端新增三项直接执行真实组件方法，覆盖专用接口载荷、继承配置/条件、缓存和迟到/失败响应。
 
 这些结果确认本切片规则及 HTTP/运行时接线，不替代 HBuilderX 完整构建、浏览器或移动端验收，也不代表其余五类缺口已完成。本切片未修改元数据主文件或生成 `.g.cs`，未实现 join 列保存、非冗余传播和关系分页 UI。
+
+## 生成查询与真实界面补充证据
+
+2026-10-19 协调者按当前模板与含四项索引的最终元数据再生成平台/示例产物；再次生成的 215 个文件字节一致，24 个手写 partial 摘要不变。真实生成 Vue 方法探针覆盖筛选/排序/乱序/父上下文、媒体事件与空值语义，不能代替浏览器。完整管理端前端回归 217/217 通过，HBuilderX Vue3 实际 Web 发行成功。
+
+真实浏览器从空白表单选择原后台选择器，新建唯一临时表，批量预检并保存两个字段，原按钮进入结构预览；只预览一条 CREATE TABLE，显式执行后重新读取数据库剩余差异为 0。临时配置已通过标准界面软删除，列表只剩原 demo_customer；物理清理前验证本轮表原先不存在、当前为空且配置已软删，未操作既有表。此证据补齐了纯界面建表；完整生成应用业务/主子/多选和三类真机仍按上述缺口继续验收。
