@@ -18,7 +18,8 @@ export function createSelectionPageMixin(endpoint, requiresParent = false) {
   props: { selectedIds: { type: [Array, String], default: () => [] }, selectedNames: { type: [Array, String], default: () => [] }, selectedNameField: { type: String, default: 'name' } },
   data() { return { selectedDraftIds: [], selectedRows: [], showSelectedOnly: false, selectionBusy: false, selectionReady: false, selectionError: '' } },
   computed: {
-   selectionCanConfirm() { return this._alive && !this.readOnlyCondition && !this.selectionBusy && this.selectionReady && !this.selectionError },
+   /** 先订阅响应式ready，避免初次私有_alive尚未设置时短路而永久缓存禁用状态。 */
+   selectionCanConfirm() { return Boolean(this.selectionReady && this._alive && !this.readOnlyCondition && !this.selectionBusy && !this.selectionError) },
    selectionAllOnPage() { return this.records.length > 0 && this.records.every(row => this.selectionHas(row.id)) }
   },
   watch: { selectedIds: { deep: true, handler() { if (this._alive) { this.initializeSelection(); if (this.showSelectedOnly) this.loadPage(1) } } } },
