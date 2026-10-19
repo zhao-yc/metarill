@@ -55,5 +55,6 @@
       "usage": "detail",
       "reason": "\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AList"
     }
-  ]
+  ],
+  "supportedControlSubsets": []
 }

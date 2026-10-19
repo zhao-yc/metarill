@@ -15,6 +15,7 @@
       <view><ChildList2034175000850300930 :key="id + ':2034175000850300930'" ref="child_2034175000850300930" :parent_id="id" parent_page_sn="6220589291798528" :is_son_page="true" :child_page_open_type="1" :parentReadOnlyCondition="readOnlyCondition" /></view>
     </view>
     <view v-else class="uni-padding-wrap"><text>为避免数据丢失，请先保存当前页面的数据，再维护子表。</text></view>
+
   </view>
 </template>
 <script>
@@ -22,7 +23,7 @@ import yzp from '@/common/yzp';
 
 import ChildList2034175000850300930 from '@/pages/yzp/yz_manager_devices_project-list-6220608155484160.vue';
 const writableFields = ["yzManagerId","name","isMac"];
-const displayFields = {"yzManagerId":{"alias":null,"optionField":"yzManagerId"},"name":{"alias":null,"optionField":null},"insertTime":{"alias":null,"optionField":null},"updateTime":{"alias":null,"optionField":null},"insertManagerId":{"alias":null,"optionField":null},"isMac":{"alias":null,"optionField":null},"token":{"alias":null,"optionField":null},"updateManagerId":{"alias":null,"optionField":null},"insertUserName":{"alias":null,"optionField":null},"updateUserName":{"alias":null,"optionField":null},"insertManagerRealName":{"alias":null,"optionField":null},"updateManagerRealName":{"alias":null,"optionField":null},"yzProjectId":{"alias":null,"optionField":null},"id":{"alias":null,"optionField":null}};
+const displayFields = {"yzManagerId":{"alias":null,"optionField":"yzManagerId","multiNames":false},"name":{"alias":null,"optionField":null,"multiNames":false},"insertTime":{"alias":null,"optionField":null,"multiNames":false},"updateTime":{"alias":null,"optionField":null,"multiNames":false},"insertManagerId":{"alias":null,"optionField":null,"multiNames":false},"isMac":{"alias":null,"optionField":null,"multiNames":false},"token":{"alias":null,"optionField":null,"multiNames":false},"updateManagerId":{"alias":null,"optionField":null,"multiNames":false},"insertUserName":{"alias":null,"optionField":null,"multiNames":false},"updateUserName":{"alias":null,"optionField":null,"multiNames":false},"insertManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"updateManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"yzProjectId":{"alias":null,"optionField":null,"multiNames":false},"id":{"alias":null,"optionField":null,"multiNames":false}};
 const rtfFields = [];
 const children = [{"id":"2034175000850300930","pageId":"6220608155484160","name":"\u5404\u8D26\u53F7\u9879\u76EE\u914D\u7F6E"}];
 const readonlyField = null;
@@ -52,13 +53,14 @@ export default {
       this.disposeDetail(); this._alive = true; this._optionRequests = []; this._loadNo = 0;
       this.id = recordId(options.id); this.parentId = recordId(options.parentId || options.parent_id); this.parentPageId = recordId(options.parentPageId || options.parent_page_sn); this.routeReadOnly = options.parentReadOnly === '1';
       this.entity = {}; this.changes = {}; this.recordReady = false; this.saving = false; this.currentChild = 0; this.permissionsReady = false;
+      this.initializeMultiSelections?.();
       const epoch = this._epoch, current = () => this._alive && epoch === this._epoch;
       const ready = () => { if (!current()) return; this.permissionsReady = true; this.permissionVersion++; this.loadOptions(); if (this.id) this.load(); };
       // 嵌入子页复用父页已刷新的权限快照，避免每个子模块重复请求。
       if (this.parentPageId) ready(); else yzp.refreshCurrentPermissions(ready, ready);
     },
     /** 取消读写及选项请求；迟到的弹层或导航回调不影响下一条父记录。 */
-    disposeDetail() { this._alive = false; this._epoch = (this._epoch || 0) + 1; this._loadRequest?.abort?.(); this._writeRequest?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); },
+    disposeDetail() { this.disposeMultiSelections?.(); this._alive = false; this._epoch = (this._epoch || 0) + 1; this._loadRequest?.abort?.(); this._writeRequest?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); },
     /** 页签只改变子模块显示，保留父表单脏字段及已挂载子列表状态。 */
     selectChild(index) { if (this.childrenReady && Number.isInteger(index) && index >= 0 && index < children.length) this.currentChild = index; },
     /** 父记录保存后仅重读各子列表，不向父表单回填或提交任何字段。 */
@@ -102,6 +104,8 @@ export default {
     /** 消费真实常量展示别名和关系选项，缺失名称时仍显示原 ID。 */
     displayValue(row, field) {
       const definition = displayFields[field];
+      // 多选名称仍按原逗号文本展示，HTTP数组与历史JSON文本都不回写实体。
+      if (definition?.multiNames) { const value = definition.alias && row[definition.alias] != null ? row[definition.alias] : row[field]; try { const values = typeof value === 'string' ? JSON.parse(value) : value; if (Array.isArray(values)) return values.map(item => item == null ? '' : String(item)).join('，'); } catch {} return value ?? ''; }
       if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
       if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
       return row[field] ?? '';

@@ -30,3 +30,5 @@ FilesFixture 仅连接已核对的 Server-200 `metarill_test`，由 SchemaServic
 2026-10-19，本切片在 Server-200 隔离库通过完整文件模块 **54/54**，0失败、0跳过，包含10项严格范围合同及6项新增真实父子文件事务用例。编译0警告/0错误；私有原始TRX保存于本任务 `.local/child-file-evidence/full-39074fb31b834035936c7f178551e7f7/files.trx`。另有独立只读peer复核；这些结果不代替主线集成及实际生成应用HTTP/浏览器验收。
 
 平台需重建并加载更新后的 Files 模块；已导出项目从新包使用受控 `sync-runtime` 跟进，并按更新器提示满足依赖闭包。此修复不改变页面或DTO协议；已明确声明父表/外键且数据库与元数据一致时无需DDL。未知或缺失父定义应先在元数据中明确，不能绕过拒绝。
+
+主线合入后已独立重跑完整Files54/54，零失败零跳过，TRX为backend/tests/Metarill.Files.Tests/TestResults/files-multi-integrated.trx；Release构建与真实生成HTTP/Files观察者多选用例亦通过。子页面文件控件的真实浏览器仍待补验，不扩大本轮UI证据。

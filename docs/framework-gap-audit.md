@@ -16,7 +16,7 @@
 
 **主子编译与权限：** [ChildrenCompilation](../backend/src/Metarill.Generation/ChildrenCompilation.cs) 已消费 `ConfigChildren`，校验父/子页、同后台归属、唯一父范围和对应外键，拒绝循环、未知配置及不支持的列表类型，按排序和打开方式生成子模块。父详情支持 Tab，打开方式 1 为新页面、2 为 PC 弹层；未取得权限、父记录未保存或回读未就绪时不开放子写入。生成页结合页权限、父只读上下文和已声明可读字段的只读条件限制操作；服务端仍独立验证父记录、项目和 CRUD 权限，前端禁用不替代授权。
 
-**仍缺：** 完整关系名称读计划、详情分组、复杂条件显示/只读、完整表单规则和配置按钮。type=2 独立多选页的跨页草稿、仅看已选和完整确认回读已补齐；冗余 MultiSelectPage 字段的原弹层与源事务校验已集成源码，完整包仍待新增运行时装配及主线验收。独立包主子 Tab/PC 弹层和多选页 Web/浏览器已有实际证据，真机仍待验收。
+**仍缺：** 完整关系名称读计划、详情分组、复杂条件显示/只读、完整表单规则和配置按钮。type=2 独立多选页的跨页草稿、仅看已选和完整确认回读已补齐；冗余 MultiSelectPage 字段的原弹层与源事务校验已集成源码，完整包已加入新运行时资产，并补验原字段弹层的跨页草稿、取消、完整确认、保存/整页回读、父切换失效及空数组保存；限已证明的冗余子集。独立包主子 Tab/PC 弹层和多选页 Web/浏览器已有实际证据，真机仍待验收。
 
 **原实现证据：** YZP `service/yzp/v8/UniappService.java` 的 `1421` 附近按 ConfigChild 排序和 childPageOpenType 生成子页面，并传递父记录与只读上下文；`2001` 附近生成排序和筛选组件。`JavaService.java` 的 `1748` 附近及 `V8ControllerRenderer` 的 page 返回还支持独立 statistics。C# 当前有 count，不能据此声称已具备原聚合统计协议。
 
@@ -34,7 +34,7 @@
 
 ## 三、配置候选、字段引用和工作台断链
 
-**本次补齐：** [ConfigurationCandidatesController](../backend/src/Metarill.Api/Controllers/ConfigurationCandidatesController.cs) 保留 `list_control_tables`、`select_page_options`、`references`、`clear_page_control_detail`。表/页候选只返回 id/name/value/text，页面仅 type=1，范围来自真实网页登录管理员当前项目。引用响应保留页面、索引和精确控件映射定位，不返回控件 JSON、SQL 或脚本原文。清空页面覆盖通过统一配置准备守卫先锁项目，在原事务内全量验证实际字段/表/页归属后只改 control_detail 与审计，不改基础字段定义和其它页面属性。新增 `control_metadata` 只投影编辑器所需的 controlKind/columnName/columnType/name/controlDetail：要求真实网页登录管理员，从当前项目有效字段推导并验证有效父表。明细保持已存完整字节，不执行其中的 SQL/脚本，也不返回页级 SQL 或连接。编辑器已改调此专用接口，标准 detail 的 parentId 范围保持严格。
+**本次补齐：** [ConfigurationCandidatesController](../backend/src/Metarill.Api/Controllers/ConfigurationCandidatesController.cs) 保留 `list_control_tables`、`select_page_options`、`references`、`clear_page_control_detail`。表/页候选只返回 id/name/value/text；默认页面仍为 type=1，明确 MultiSelectPage 时返回 type=2，范围来自真实网页登录管理员当前项目并复核有效父表。引用响应保留页面、索引和精确控件映射定位，不返回控件 JSON、SQL 或脚本原文。清空页面覆盖通过统一配置准备守卫先锁项目，在原事务内全量验证实际字段/表/页归属后只改 control_detail 与审计，不改基础字段定义和其它页面属性。新增 `control_metadata` 只投影编辑器所需的 controlKind/columnName/columnType/name/controlDetail：要求真实网页登录管理员，从当前项目有效字段推导并验证有效父表。明细保持已存完整字节，不执行其中的 SQL/脚本，也不返回页级 SQL 或连接。编辑器已改调此专用接口，标准 detail 的 parentId 范围保持严格。
 
 **原实现证据：** YZP `ConfigColumnController` 的上述四个方法、`ConfigColumnReferenceBusiness`、`ConfigPageColumnServiceImpl.clearControlDetailForColumn`；前端 `yzp-control-detail-editor.vue` 的 430/432 附近及批量字段页的 references 调用。
 
@@ -46,7 +46,7 @@
 
 **已有：** [ApplicationPackager](../backend/src/Metarill.Generation/ApplicationPackager.cs) 携带 Core/Data/Exports/Files 和后端宿主，默认 FullApplication 由 [FrontendPackager](../backend/src/Metarill.Generation/FrontendPackager.cs) 组装独立 HBuilderX uni-app Vue3 工程，包含登录、菜单、common、受控组件、页面写入 schema 和生成 list/detail。固定逐文件清单与逐层链接拒绝保护来源边界，默认 AppID 为空，不复制平台配置页或环境凭据；非空输出目录拒绝覆盖手写宿主。未知或未接线 CustomControl（含只读详情）在写入前明确拒绝。CLI 可显式选择 BackendOnly，平台下载按服务端已发布身份选择该模式，manifest/README/响应提示不含完整前端，不能默默降级业务包。
 
-**认证与证据边界：** 后端已有独立包真实 MySQL 闭环；开发认证只在显式 Development 配置下启用，固定包内单项目，不接收 query 身份，普通启动不 DDL。同一条件下仅允许 HTTP(S) 回环 Origin 的开发跨端口预检，允许来源不产生身份。真实 Node/HTTP 脚本已执行登录→菜单→生成 list/detail 新增、修改、删除与注销失效，初始 AppID 空值和开发者定制后运行校验分开验证。正式认证授权与 Agent 宿主仍待接入；完整独立包 Web 发行、核心主子和独立多选页浏览器已经协调者实测，文件/导入导出/远程关系大数据浏览器及真机仍待验收。
+**认证与证据边界：** 后端已有独立包真实 MySQL 闭环；开发认证只在显式 Development 配置下启用，固定包内单项目，不接收 query 身份，普通启动不 DDL。同一条件下仅允许 HTTP(S) 回环 Origin 的开发跨端口预检，允许来源不产生身份。真实 Node/HTTP 脚本已执行登录→菜单→生成 list/detail 新增、修改、删除与注销失效，初始 AppID 空值和开发者定制后运行校验分开验证。正式认证授权与 Agent 宿主仍待接入；完整独立包 Web 发行、核心主子和独立多选页浏览器已经协调者实测，文件/导入导出、超过5000项关系候选及真机仍待验收；远程List的128/105项与冗余多选字段浏览器已分别补验。
 
 **来源与下一步：** 原 YZP `template/v8/runtime/uniapp` 的通用运行时由受控资产清单复用，详情见 [独立应用包](standalone-application.md)。协调者的私有450文件主子 v2 包已完成装配、依赖闭包、后端编译、显式安装后0差异、实际 HBuilderX 发行与浏览器登录/菜单/父子 CRUD；另一448文件 type=2 包补验两页21项选择。临时服务、凭据和精确样本均已清理。继续分别补文件/导入导出、远程 List 浏览器和小程序/Android/iOS 真机，不能扩大这两批证据范围。
 
@@ -105,3 +105,9 @@
 ## 原生成按钮操作方式（2026-10-19）
 
 已形成可审查的离线请求/CLI prepare桥接切片，但用户确认保留三个原按钮直接对接在线本地助手的操作方式。因此离线文件不作为原按钮最终替代；继续实现真实授权队列、本机明确目录绑定、受控预览/应用与可恢复回执。不能把生成ZIP或预览完成展示为工程已更新，不能隐式扩大所选动作或执行DDL。
+
+## 本轮补验：冗余多选字段与子页文件（2026-10-19）
+
+主线已集成冗余 MultiSelectPage 源事务及原弹层，并在独立454文件包真实HBuilderX/Web浏览器验证；长列表弹层缺少高度约束的问题已从生成源头修复后重新导出。取消和跨页草稿不落库；完整四项确认、生成API保存/整页回读、父范围变化的失效拒绝及空数组保存均有数据库回读。随机239样本仅由私有参数化事务预置，不冒充界面创建。两表及临时账号配置已精确清理。
+
+文件模块已支持严格父等值范围及新增隐藏空文件字段，主线Server-200完整54/54零跳过；见[子页文件引用](child-file-reference-scope.md)。这不替代生成应用文件浏览器验收。在线助手按用户确认保留三原按钮，目前实现及审查中，未计完成。

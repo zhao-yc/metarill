@@ -36,7 +36,7 @@ import utils from '@/common/utils';
 import PageDetail from '@/pages/yzp/demo_customer-detail-2200000000000100020.vue';
 const filterFields = [{"field":"name","type":"string?","name":"\u540D\u79F0"}];
 const sortFields = [{"value":"name","text":"\u540D\u79F0"},{"value":"amount","text":"\u91D1\u989D"}];
-const displayFields = {"yzProjectId":{"alias":null,"optionField":null},"name":{"alias":null,"optionField":null},"notes":{"alias":null,"optionField":null},"amount":{"alias":null,"optionField":null},"isEnabled":{"alias":null,"optionField":null},"id":{"alias":null,"optionField":null}};
+const displayFields = {"yzProjectId":{"alias":null,"optionField":null,"multiNames":false},"name":{"alias":null,"optionField":null,"multiNames":false},"notes":{"alias":null,"optionField":null,"multiNames":false},"amount":{"alias":null,"optionField":null,"multiNames":false},"isEnabled":{"alias":null,"optionField":null,"multiNames":false},"id":{"alias":null,"optionField":null,"multiNames":false}};
 const rtfFields = [];
 /** 父键保持字符串精度，空值与历史 null/undefined 字面量均视为未保存。 */
 const recordId = value => typeof value === 'string' && !['undefined', 'null'].includes(value.trim()) ? value.trim() : '';
@@ -151,6 +151,8 @@ export default {
     /** 优先显示后端真实别名，再从合法选项映射名称，缺失名称时保留原 ID。 */
     displayValue(row, field) {
       const definition = displayFields[field];
+      // 多选名称仍按原逗号文本展示，HTTP数组与历史JSON文本都不回写实体。
+      if (definition?.multiNames) { const value = definition.alias && row[definition.alias] != null ? row[definition.alias] : row[field]; try { const values = typeof value === 'string' ? JSON.parse(value) : value; if (Array.isArray(values)) return values.map(item => item == null ? '' : String(item)).join('，'); } catch {} return value ?? ''; }
       if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
       if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
       return row[field] ?? '';

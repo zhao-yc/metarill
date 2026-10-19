@@ -20,6 +20,7 @@
     <button v-if="canCopyRecord" :disabled="saving" @click="copy">复制</button>
     <button v-if="canDeleteRecord" :disabled="saving" @click="remove">删除</button>
 
+
   </view>
 </template>
 <script>
@@ -27,7 +28,7 @@ import yzp from '@/common/yzp';
 
 
 const writableFields = ["name","parentMenuId","yzAdminTypeId","kind","configPageId","configCustomPageId","navigateUrl","iconName","sortNo","isHidden","isShowCount","visibleScheme"];
-const displayFields = {"insertTime":{"alias":null,"optionField":null},"updateTime":{"alias":null,"optionField":null},"insertManagerId":{"alias":null,"optionField":null},"updateManagerId":{"alias":null,"optionField":null},"insertUserName":{"alias":null,"optionField":null},"updateUserName":{"alias":null,"optionField":null},"insertManagerRealName":{"alias":null,"optionField":null},"updateManagerRealName":{"alias":null,"optionField":null},"name":{"alias":null,"optionField":null},"parentMenuId":{"alias":null,"optionField":null},"yzProjectId":{"alias":null,"optionField":null},"yzAdminTypeId":{"alias":null,"optionField":null},"kind":{"alias":null,"optionField":null},"configPageId":{"alias":null,"optionField":null},"configCustomPageId":{"alias":null,"optionField":null},"navigateUrl":{"alias":null,"optionField":null},"iconName":{"alias":null,"optionField":null},"sortNo":{"alias":null,"optionField":null},"isHidden":{"alias":null,"optionField":null},"isShowCount":{"alias":null,"optionField":null},"visibleScheme":{"alias":null,"optionField":null},"id":{"alias":null,"optionField":null}};
+const displayFields = {"insertTime":{"alias":null,"optionField":null,"multiNames":false},"updateTime":{"alias":null,"optionField":null,"multiNames":false},"insertManagerId":{"alias":null,"optionField":null,"multiNames":false},"updateManagerId":{"alias":null,"optionField":null,"multiNames":false},"insertUserName":{"alias":null,"optionField":null,"multiNames":false},"updateUserName":{"alias":null,"optionField":null,"multiNames":false},"insertManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"updateManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"name":{"alias":null,"optionField":null,"multiNames":false},"parentMenuId":{"alias":null,"optionField":null,"multiNames":false},"yzProjectId":{"alias":null,"optionField":null,"multiNames":false},"yzAdminTypeId":{"alias":null,"optionField":null,"multiNames":false},"kind":{"alias":null,"optionField":null,"multiNames":false},"configPageId":{"alias":null,"optionField":null,"multiNames":false},"configCustomPageId":{"alias":null,"optionField":null,"multiNames":false},"navigateUrl":{"alias":null,"optionField":null,"multiNames":false},"iconName":{"alias":null,"optionField":null,"multiNames":false},"sortNo":{"alias":null,"optionField":null,"multiNames":false},"isHidden":{"alias":null,"optionField":null,"multiNames":false},"isShowCount":{"alias":null,"optionField":null,"multiNames":false},"visibleScheme":{"alias":null,"optionField":null,"multiNames":false},"id":{"alias":null,"optionField":null,"multiNames":false}};
 const rtfFields = [];
 const children = [];
 const readonlyField = null;
@@ -57,13 +58,14 @@ export default {
       this.disposeDetail(); this._alive = true; this._optionRequests = []; this._loadNo = 0;
       this.id = recordId(options.id); this.parentId = recordId(options.parentId || options.parent_id); this.parentPageId = recordId(options.parentPageId || options.parent_page_sn); this.routeReadOnly = options.parentReadOnly === '1';
       this.entity = {}; this.changes = {}; this.recordReady = false; this.saving = false; this.currentChild = 0; this.permissionsReady = false;
+      this.initializeMultiSelections?.();
       const epoch = this._epoch, current = () => this._alive && epoch === this._epoch;
       const ready = () => { if (!current()) return; this.permissionsReady = true; this.permissionVersion++; this.loadOptions(); if (this.id) this.load(); };
       // 嵌入子页复用父页已刷新的权限快照，避免每个子模块重复请求。
       if (this.parentPageId) ready(); else yzp.refreshCurrentPermissions(ready, ready);
     },
     /** 取消读写及选项请求；迟到的弹层或导航回调不影响下一条父记录。 */
-    disposeDetail() { this._alive = false; this._epoch = (this._epoch || 0) + 1; this._loadRequest?.abort?.(); this._writeRequest?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); },
+    disposeDetail() { this.disposeMultiSelections?.(); this._alive = false; this._epoch = (this._epoch || 0) + 1; this._loadRequest?.abort?.(); this._writeRequest?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); },
     /** 页签只改变子模块显示，保留父表单脏字段及已挂载子列表状态。 */
     selectChild(index) { if (this.childrenReady && Number.isInteger(index) && index >= 0 && index < children.length) this.currentChild = index; },
     /** 父记录保存后仅重读各子列表，不向父表单回填或提交任何字段。 */
@@ -107,6 +109,8 @@ export default {
     /** 消费真实常量展示别名和关系选项，缺失名称时仍显示原 ID。 */
     displayValue(row, field) {
       const definition = displayFields[field];
+      // 多选名称仍按原逗号文本展示，HTTP数组与历史JSON文本都不回写实体。
+      if (definition?.multiNames) { const value = definition.alias && row[definition.alias] != null ? row[definition.alias] : row[field]; try { const values = typeof value === 'string' ? JSON.parse(value) : value; if (Array.isArray(values)) return values.map(item => item == null ? '' : String(item)).join('，'); } catch {} return value ?? ''; }
       if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
       if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
       return row[field] ?? '';

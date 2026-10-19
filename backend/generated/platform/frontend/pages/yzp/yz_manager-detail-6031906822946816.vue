@@ -30,6 +30,7 @@
     <button v-if="canCopyRecord" :disabled="saving" @click="copy">复制</button>
     <button v-if="canDeleteRecord" :disabled="saving" @click="remove">删除</button>
 
+
   </view>
 </template>
 <script>
@@ -37,7 +38,7 @@ import yzp from '@/common/yzp';
 
 
 const writableFields = ["name","yzRoleIds","realName","mobile","lockIp","lastLoginTime","loginIp","email","phone","isDisabled","notes","isEditPwd","editPwdTime","openid","avatar","dingUserid","dingUnionid","loginRiseTime","loginStopTime","validityTime","yzAdminTypeId"];
-const displayFields = {"name":{"alias":null,"optionField":null},"yzRoleIds":{"alias":null,"optionField":null},"realName":{"alias":null,"optionField":null},"mobile":{"alias":null,"optionField":null},"lockIp":{"alias":null,"optionField":null},"lastLoginTime":{"alias":null,"optionField":null},"loginIp":{"alias":null,"optionField":null},"email":{"alias":null,"optionField":null},"phone":{"alias":null,"optionField":null},"isDisabled":{"alias":null,"optionField":null},"notes":{"alias":null,"optionField":null},"isEditPwd":{"alias":null,"optionField":null},"editPwdTime":{"alias":null,"optionField":null},"openid":{"alias":null,"optionField":null},"avatar":{"alias":null,"optionField":null},"dingUserid":{"alias":null,"optionField":null},"dingUnionid":{"alias":null,"optionField":null},"loginRiseTime":{"alias":null,"optionField":null},"loginStopTime":{"alias":null,"optionField":null},"validityTime":{"alias":null,"optionField":null},"insertTime":{"alias":null,"optionField":null},"yzAdminTypeId":{"alias":null,"optionField":"yzAdminTypeId"},"updateTime":{"alias":null,"optionField":null},"insertManagerId":{"alias":null,"optionField":null},"updateManagerId":{"alias":null,"optionField":null},"insertUserName":{"alias":null,"optionField":null},"updateUserName":{"alias":null,"optionField":null},"insertManagerRealName":{"alias":null,"optionField":null},"updateManagerRealName":{"alias":null,"optionField":null},"yzProjectId":{"alias":null,"optionField":null},"id":{"alias":null,"optionField":null}};
+const displayFields = {"name":{"alias":null,"optionField":null,"multiNames":false},"yzRoleIds":{"alias":null,"optionField":null,"multiNames":false},"realName":{"alias":null,"optionField":null,"multiNames":false},"mobile":{"alias":null,"optionField":null,"multiNames":false},"lockIp":{"alias":null,"optionField":null,"multiNames":false},"lastLoginTime":{"alias":null,"optionField":null,"multiNames":false},"loginIp":{"alias":null,"optionField":null,"multiNames":false},"email":{"alias":null,"optionField":null,"multiNames":false},"phone":{"alias":null,"optionField":null,"multiNames":false},"isDisabled":{"alias":null,"optionField":null,"multiNames":false},"notes":{"alias":null,"optionField":null,"multiNames":false},"isEditPwd":{"alias":null,"optionField":null,"multiNames":false},"editPwdTime":{"alias":null,"optionField":null,"multiNames":false},"openid":{"alias":null,"optionField":null,"multiNames":false},"avatar":{"alias":null,"optionField":null,"multiNames":false},"dingUserid":{"alias":null,"optionField":null,"multiNames":false},"dingUnionid":{"alias":null,"optionField":null,"multiNames":false},"loginRiseTime":{"alias":null,"optionField":null,"multiNames":false},"loginStopTime":{"alias":null,"optionField":null,"multiNames":false},"validityTime":{"alias":null,"optionField":null,"multiNames":false},"insertTime":{"alias":null,"optionField":null,"multiNames":false},"yzAdminTypeId":{"alias":null,"optionField":"yzAdminTypeId","multiNames":false},"updateTime":{"alias":null,"optionField":null,"multiNames":false},"insertManagerId":{"alias":null,"optionField":null,"multiNames":false},"updateManagerId":{"alias":null,"optionField":null,"multiNames":false},"insertUserName":{"alias":null,"optionField":null,"multiNames":false},"updateUserName":{"alias":null,"optionField":null,"multiNames":false},"insertManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"updateManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"yzProjectId":{"alias":null,"optionField":null,"multiNames":false},"id":{"alias":null,"optionField":null,"multiNames":false}};
 const rtfFields = [];
 const children = [];
 const readonlyField = null;
@@ -67,13 +68,14 @@ export default {
       this.disposeDetail(); this._alive = true; this._optionRequests = []; this._loadNo = 0;
       this.id = recordId(options.id); this.parentId = recordId(options.parentId || options.parent_id); this.parentPageId = recordId(options.parentPageId || options.parent_page_sn); this.routeReadOnly = options.parentReadOnly === '1';
       this.entity = {}; this.changes = {}; this.recordReady = false; this.saving = false; this.currentChild = 0; this.permissionsReady = false;
+      this.initializeMultiSelections?.();
       const epoch = this._epoch, current = () => this._alive && epoch === this._epoch;
       const ready = () => { if (!current()) return; this.permissionsReady = true; this.permissionVersion++; this.loadOptions(); if (this.id) this.load(); };
       // 嵌入子页复用父页已刷新的权限快照，避免每个子模块重复请求。
       if (this.parentPageId) ready(); else yzp.refreshCurrentPermissions(ready, ready);
     },
     /** 取消读写及选项请求；迟到的弹层或导航回调不影响下一条父记录。 */
-    disposeDetail() { this._alive = false; this._epoch = (this._epoch || 0) + 1; this._loadRequest?.abort?.(); this._writeRequest?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); },
+    disposeDetail() { this.disposeMultiSelections?.(); this._alive = false; this._epoch = (this._epoch || 0) + 1; this._loadRequest?.abort?.(); this._writeRequest?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); },
     /** 页签只改变子模块显示，保留父表单脏字段及已挂载子列表状态。 */
     selectChild(index) { if (this.childrenReady && Number.isInteger(index) && index >= 0 && index < children.length) this.currentChild = index; },
     /** 父记录保存后仅重读各子列表，不向父表单回填或提交任何字段。 */
@@ -117,6 +119,8 @@ export default {
     /** 消费真实常量展示别名和关系选项，缺失名称时仍显示原 ID。 */
     displayValue(row, field) {
       const definition = displayFields[field];
+      // 多选名称仍按原逗号文本展示，HTTP数组与历史JSON文本都不回写实体。
+      if (definition?.multiNames) { const value = definition.alias && row[definition.alias] != null ? row[definition.alias] : row[field]; try { const values = typeof value === 'string' ? JSON.parse(value) : value; if (Array.isArray(values)) return values.map(item => item == null ? '' : String(item)).join('，'); } catch {} return value ?? ''; }
       if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
       if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
       return row[field] ?? '';
