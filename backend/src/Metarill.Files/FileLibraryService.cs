@@ -2,13 +2,12 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
-using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Files;
 
 /// <summary>本地文件库只使用固定磁盘根与服务端随机键，公开与受保护读取共用真实状态检查。</summary>
-public sealed class FileLibraryService(SqlRowStore store, MetadataRegistry registry, IIdGenerator ids, IRuntimeAuthorization authorization, FileLibraryOptions options)
+public sealed class FileLibraryService(SqlRowStore store, FileMetadataContext registry, IIdGenerator ids, IRuntimeAuthorization authorization, FileLibraryOptions options)
 {
     private const string Files = "yz_file_library";
     private const string Folders = "yz_file_library_folder";
@@ -205,7 +204,7 @@ public sealed class FileLibraryService(SqlRowStore store, MetadataRegistry regis
     public Task MoveFolderAsync(long id,long? parentId,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
         var actor=authorization.RequireActor();
-        await store.ReadForUpdateAsync("yz_project",new Dictionary<string,object?>{{"id",Project(actor)}},token);
+        await LockFolderScopeAsync(actor,token);
         RequireOwner(await RequiredAsync(Folders,id,true,token),actor);
         var seen=new HashSet<long>{id};var current=parentId;
         while(current is{} parent)
@@ -216,11 +215,26 @@ public sealed class FileLibraryService(SqlRowStore store, MetadataRegistry regis
         await store.UpdateAsync(Folders,id,new Dictionary<string,object?>{{"parent_folder_id",parentId}},token);return true;
     },token);
 
+    /// <summary>按固定顺序锁定当前项目目录；仅依赖文件基础表，跨连接移动仍不能产生环。</summary>
+    private async Task LockFolderScopeAsync(RuntimeActor actor, CancellationToken token)
+    {
+        var transaction=store.Session.CurrentTransaction ?? throw new InvalidOperationException("目录范围锁必须加入当前事务。");
+        var provider=store.Session.Provider;
+        await using var command=transaction.Connection!.CreateCommand(); command.Transaction=transaction;
+        var parameter=command.CreateParameter(); parameter.ParameterName="folder_project"; parameter.Value=Project(actor); command.Parameters.Add(parameter);
+        var query="SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(Folders)
+            +" WHERE "+provider.QuoteIdentifier("yz_project_id")+"="+provider.ParameterPlaceholder(parameter.ParameterName)
+            +" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL ORDER BY "+provider.QuoteIdentifier("id");
+        command.CommandText=provider.BuildSelectForUpdate(query);
+        await using var reader=await command.ExecuteReaderAsync(token);
+        while(await reader.ReadAsync(token)) { /* 读取完整结果，所有目录行锁持有至事务结束。 */ }
+    }
+
     /// <summary>上传控件必须来自当前项目可编辑页面，不能用其他项目列配置改变访问级别。</summary>
     private ColumnMetadata? ResolveUploadColumn(string? id, RuntimeActor actor)
     {
         if (string.IsNullOrWhiteSpace(id)) return null;
-        foreach (var catalog in new[] { registry.Platform, registry.Demo }.Where(c => c.YzProjectId == actor.ProjectId))
+        foreach (var catalog in registry.Catalogs.Where(c => c.YzProjectId == actor.ProjectId))
         {
             var column = catalog.ConfigColumns.SingleOrDefault(c => c.Id == id && c.ControlKind.Equals("FileLibrary", StringComparison.OrdinalIgnoreCase));
             if (column is null) continue;
@@ -231,7 +245,7 @@ public sealed class FileLibraryService(SqlRowStore store, MetadataRegistry regis
                 foreach (var operation in new[] { "create", "update" }.Where(op => op == "create" ? page.IsNew == 1 : page.IsSave == 1))
                 {
                     try { authorization.RequirePagePermission(page.Id, operation); return column; }
-                    catch (UnauthorizedAccessException) { }
+                    catch (Exception denied) when (denied is UnauthorizedAccessException or System.Security.SecurityException) { }
                 }
             }
         }

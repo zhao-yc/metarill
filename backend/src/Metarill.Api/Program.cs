@@ -33,7 +33,8 @@ var businessOptions=builder.Configuration.GetSection("Metarill:BusinessDatabase"
 builder.Services.AddSingleton(registry);
 builder.Services.AddSingleton(_=>new TargetDatabaseSessions(platformOptions,businessOptions,registry,builder.Configuration.GetSection("Metarill:ProjectDatabases").Get<Dictionary<string,DatabaseOptions>>()));
 builder.Services.AddSingleton<DatabaseSession>(sp=>sp.GetRequiredService<TargetDatabaseSessions>().Platform);
-builder.Services.AddSingleton<SqlRowStore>();
+builder.Services.AddSingleton(sp=>new SqlRowStore(sp.GetRequiredService<DatabaseSession>(),registry.Platform));
+builder.Services.AddSingleton(new FileMetadataContext([registry.Platform,registry.Demo]));
 builder.Services.AddSingleton<MetadataRepository>();
 builder.Services.AddSingleton<DevelopmentSeedSynchronizer>();
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue("Metarill:WorkerId",1)));
@@ -73,7 +74,7 @@ builder.Services.AddHostedService<ExportCleanupWorker>();
 builder.Services.AddScoped<IRecordMutationObserver,FileReferenceMutationObserver>();
 Metarill.Platform.Generated.GeneratedRegistration.AddGeneratedServices(builder.Services);
 Metarill.Demo.Generated.GeneratedRegistration.AddGeneratedServices(builder.Services,sp=>sp.GetRequiredService<TargetDatabaseSessions>().Business);
-builder.Services.AddControllers().AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
+builder.Services.AddControllers().AddApplicationPart(typeof(Metarill.Api.Controllers.FileLibraryController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options=>options.InvalidModelStateResponseFactory=_=>new Microsoft.AspNetCore.Mvc.OkObjectResult(R<object>.Error("请求字段类型、字段名或必填项不正确。")));
 builder.Services.ConfigureHttpJsonOptions(options=>JsonDefaults.CopyTo(options.SerializerOptions));
 builder.Services.AddCors(options=>options.AddDefaultPolicy(policy=>policy.SetIsOriginAllowed(origin=>Uri.TryCreate(origin,UriKind.Absolute,out var uri)&&uri.IsLoopback).AllowAnyHeader().AllowAnyMethod()));

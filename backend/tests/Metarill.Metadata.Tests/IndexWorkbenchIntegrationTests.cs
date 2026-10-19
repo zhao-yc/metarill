@@ -21,7 +21,7 @@ internal sealed class IndexWorkbenchFixture : IAsyncDisposable
     {
         var actor = new RuntimeActor(8013, "索引测试", administrator, project ?? Metadata.ProjectId.ToString(), Metadata.Registry.Platform.YzAdminTypes[0].Id);
         var context = new DefaultHttpContext(); context.Items[typeof(AuthenticatedIdentity)] = new AuthenticatedIdentity(actor, new HashSet<string>(), 1, agent ? 1 : null);
-        return new(new SqlRowStore(session ?? Metadata.Session, Metadata.Registry), new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = context }, Metadata.Registry), ids ?? Ids);
+        return new(new SqlRowStore(session ?? Metadata.Session, Metadata.Registry.Platform), new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = context }, Metadata.Registry), ids ?? Ids);
     }
     internal Task<IndexWorkbenchSnapshot> Snapshot(long? table = null) => Business().SnapshotAsync(Json(new { configTableId = (table ?? Metadata.TableId).ToString() }));
     internal static JsonElement Json(object value) => JsonSerializer.SerializeToElement(value, JsonDefaults.Options);

@@ -49,7 +49,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
             if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_test") throw new InvalidOperationException("角色安全测试只允许metarill_test隔离库。");
             fixture.Session = new(options);
             var path = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
-            fixture.Registry = new(path, Path.Combine(Path.GetDirectoryName(path)!, "demo.json")); fixture.Store = new(fixture.Session, fixture.Registry);
+            fixture.Registry = new(path, Path.Combine(Path.GetDirectoryName(path)!, "demo.json")); fixture.Store = new(fixture.Session, fixture.Registry.Platform);
             fixture.ProjectId = demo ? fixture.Registry.Demo.YzProjectId : fixture.Registry.Platform.YzProjectId;
             fixture.AccountId = Ids.NextId(); fixture.RoleId = Ids.NextId(); var name = "mt_role_sec_" + Guid.NewGuid().ToString("N")[..16];
             await fixture.Store.InsertAsync("yz_role", new Dictionary<string, object?> { ["id"] = fixture.RoleId, ["name"] = name, ["sort_no"] = 10, ["is_super"] = administrator ? 1 : 0,

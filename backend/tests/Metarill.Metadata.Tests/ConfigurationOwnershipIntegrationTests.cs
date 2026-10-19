@@ -118,7 +118,7 @@ internal sealed class OwnershipFixture:IAsyncDisposable
             var options=settings.RootElement.GetProperty("Metarill").GetProperty("Database").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
             if(options.ExpectedDatabase!="metarill_test"||options.Provider!="mysql")throw new InvalidOperationException("归属测试只允许metarill_test隔离MySQL库。");
             var metadata=Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
-            f.Registry=new(metadata,Path.Combine(Path.GetDirectoryName(metadata)!,"demo.json"));f.Session=new(options);f.Store=new(f.Session,f.Registry);
+            f.Registry=new(metadata,Path.Combine(Path.GetDirectoryName(metadata)!,"demo.json"));f.Session=new(options);f.Store=new(f.Session,f.Registry.Platform);
             await f.Session.InTransactionAsync(async()=>
             {
                 await f.Add("yz_project",f.Project,new(){["name"]="归属独立测试"});await f.Add("yz_project",f.ForeignProject,new(){["name"]="归属对照测试"});

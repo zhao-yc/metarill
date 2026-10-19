@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" /><ProjectReference Include="../Metarill.Data/Metarill.Data.csproj" /><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
+</Project>

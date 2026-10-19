@@ -133,16 +133,17 @@ public sealed class FileLibraryIntegrationTests
         {
             await observer.BeforeCommitAsync(Context(fixture, record, new Dictionary<string, object?> { ["attachments"] = json })); return true;
         }));
+        // 模拟重新发布元数据后创建新观察器；已发布的观察器保留自己的配置快照。
         fixture.Registry.Platform.ConfigPageColumns.Single(f => f.ConfigColumnId == fixture.ProtectedColumnId).IsEdit = 0;
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Session.InTransactionAsync(async () =>
         {
-            await observer.BeforeCommitAsync(Context(fixture, record, new Dictionary<string, object?> { ["attachments"] = null })); return true;
+            await fixture.Observer().BeforeCommitAsync(Context(fixture, record, new Dictionary<string, object?> { ["attachments"] = null })); return true;
         }));
         fixture.Registry.Platform.ConfigPageColumns.Single(f => f.ConfigColumnId == fixture.ProtectedColumnId).IsEdit = 1;
         fixture.Registry.Platform.ConfigPages.Single(p => p.Id == fixture.PageId).WhereSql = "parent_id=@parent_id";
         await Assert.ThrowsAsync<NotSupportedException>(() => fixture.Session.InTransactionAsync(async () =>
         {
-            await observer.BeforeCommitAsync(Context(fixture, record, new Dictionary<string, object?> { ["attachments"] = null })); return true;
+            await fixture.Observer().BeforeCommitAsync(Context(fixture, record, new Dictionary<string, object?> { ["attachments"] = null })); return true;
         }));
     }
 
@@ -171,7 +172,7 @@ public sealed class FileLibraryIntegrationTests
         await using var fixture = await FilesFixture.CreateAsync();
         var file = await fixture.ReadyAsync("create-only.txt", Encoding.UTF8.GetBytes("新增权限与引用竞争"));
         var json = JsonSerializer.Serialize(new[] { file.FileId.ToString() });
-        var createOnly = new FileReferenceMutationObserver(fixture.Store, fixture.Registry, new TestAuthorization(fixture.Actor(), fixture.Registry, new HashSet<string> { "create" }), fixture.Ids, fixture.Options);
+        var createOnly = new FileReferenceMutationObserver(fixture.Store, new([fixture.Registry.Platform,fixture.Registry.Demo]), new TestAuthorization(fixture.Actor(), fixture.Registry, new HashSet<string> { "create" }), fixture.Ids, fixture.Options);
         var record = fixture.Ids.NextId(); fixture.RecordIds.Add(record);
         await fixture.Session.InTransactionAsync(async () =>
         {

@@ -27,7 +27,7 @@ internal sealed class ConfigurationActionsFixture:IAsyncDisposable
     internal long[] Fields {get;private set;}=[];
     internal ConfigurationActionsBusiness Business(DatabaseSession? session=null,bool administrator=true,string? project=null,IIdGenerator? generator=null)
     {
-        var store=new SqlRowStore(session??Session,Registry);var actor=new RuntimeActor(8026,"配置动作测试",administrator,project??Project.ToString(),Admin.ToString());
+        var store=new SqlRowStore(session??Session,Registry.Platform);var actor=new RuntimeActor(8026,"配置动作测试",administrator,project??Project.ToString(),Admin.ToString());
         var context=new DefaultHttpContext();context.Items[typeof(AuthenticatedIdentity)]=new AuthenticatedIdentity(actor,new HashSet<string>(),1,null);
         var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},Registry);
         var currentIds=generator??Ids;return new(store,Registry,new MetadataRepository(store,Registry),auth,currentIds,new ConfigurationMutationObserver(store,Registry,currentIds));
@@ -46,7 +46,7 @@ internal sealed class ConfigurationActionsFixture:IAsyncDisposable
             using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
             f.Options=settings.RootElement.GetProperty("Metarill").GetProperty("Database").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
             if(f.Options.ExpectedDatabase!="metarill_test"||f.Options.Provider!="mysql")throw new InvalidOperationException("配置动作测试只允许隔离MySQL的metarill_test库。");
-            f.Registry=CompatibilityButtonTests.Registry();f.Session=new(f.Options);f.Store=new(f.Session,f.Registry);
+            f.Registry=CompatibilityButtonTests.Registry();f.Session=new(f.Options);f.Store=new(f.Session,f.Registry.Platform);
             f.Project=Ids.NextId();f.ForeignProject=Ids.NextId();f.Admin=Ids.NextId();f.ForeignAdmin=Ids.NextId();
             f.Table=Ids.NextId();f.OtherTable=Ids.NextId();f.ForeignTable=Ids.NextId();f.Page=Ids.NextId();f.ChildPage=Ids.NextId();f.ParentPage=Ids.NextId();
             f.Title=Ids.NextId();f.Sort=Ids.NextId();f.Derived=Ids.NextId();f.Fields=[Ids.NextId(),Ids.NextId(),Ids.NextId()];

@@ -4,18 +4,17 @@ using System.Text.RegularExpressions;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
-using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Files;
 
 /// <summary>只同步 FileLibrary 字段；业务记录与引用校验、增删必须处于同一实际数据库事务。</summary>
-public sealed class FileReferenceMutationObserver(SqlRowStore store, MetadataRegistry registry, IRuntimeAuthorization authorization, IIdGenerator ids, FileLibraryOptions? options = null) : IRecordMutationObserver
+public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadataContext registry, IRuntimeAuthorization authorization, IIdGenerator ids, FileLibraryOptions? options = null) : IRecordMutationObserver
 {
     /// <summary>字段省略保持引用不变，显式 null 清空，任何非法引用令整个业务事务回滚。</summary>
     public async Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)
     {
-        var catalog = new[] { registry.Platform, registry.Demo }.SingleOrDefault(c => c.ConfigPages.Any(p => p.Id == context.PageId))
+        var catalog = registry.Catalogs.SingleOrDefault(c => c.ConfigPages.Any(p => p.Id == context.PageId))
             ?? throw new UnauthorizedAccessException("来源页面未登记。");
         var page = catalog.ConfigPages.Single(p => p.Id == context.PageId);
         var table = catalog.ConfigTables.Single(t => t.Id == page.ConfigTableId);

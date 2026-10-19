@@ -4,18 +4,17 @@ using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Data;
-using Metarill.Runtime.Metadata;
 
 namespace Metarill.Runtime.Persistence;
 
 /// <summary>仅供元数据、认证及文件基础设施使用；业务 CRUD 由强类型生成 Mapper 执行。</summary>
-public sealed class SqlRowStore(DatabaseSession session, MetadataRegistry registry)
+public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrastructure)
 {
     public DatabaseSession Session => session;
     private IReadOnlyList<ColumnMetadata> Columns(string table)
     {
-        var definition = registry.Platform.ConfigTables.SingleOrDefault(t => t.TableName == table) ?? throw new InvalidOperationException("未登记的基础设施表。");
-        return registry.Platform.ConfigColumns.Where(c => c.ConfigTableId == definition.Id && c.IsVirtualColumn == 0).ToArray();
+        var definition = infrastructure.ConfigTables.SingleOrDefault(t => t.TableName == table) ?? throw new InvalidOperationException("未登记的基础设施表。");
+        return infrastructure.ConfigColumns.Where(c => c.ConfigTableId == definition.Id && c.IsVirtualColumn == 0).ToArray();
     }
     private string Q(string value) => session.Provider.QuoteIdentifier(value);
     public Task<List<Dictionary<string, object?>>> ReadAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken);

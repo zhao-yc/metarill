@@ -92,7 +92,7 @@ public static partial class FileValidation
     /// <summary>控件只允许已知访问模式、大小和扩展名规则，未知配置明确失败。</summary>
     internal static FileControlPolicy Policy(ColumnMetadata? column, FileLibraryOptions options)
     {
-        if (options.MaxFileBytes <= 0) throw new InvalidOperationException("服务端文件大小上限无效。");
+        if (options.MaxFileBytes is <= 0 or > 100L * 1024 * 1024) throw new InvalidOperationException("服务端文件大小上限必须在100MiB以内。");
         var access = "PROTECTED"; var maximum = options.MaxFileBytes; var count = 9;
         IReadOnlySet<string> extensions = options.AllowedExtensions;
         if (column is not null && !string.IsNullOrWhiteSpace(column.ControlDetail))

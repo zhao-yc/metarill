@@ -10,3 +10,7 @@
 - 未提供完整父记录证明的复杂 `WhereSql` 范围明确拒绝；首期只支持空范围或真实项目范围。平台库和业务库不能跨库同步引用，各项目文件表必须与业务记录处于同一数据库事务。
 - API 注册需要 `FileLibraryService`、`FileLibraryOptions`、`FileReferenceMutationObserver`；服务可按请求注入认证上下文。物理删除失败时数据库已经失效，返回 `StorageRemoved=false`，需后续维护清理，不能声称存储完全删除。
 - 真正的隔离数据库测试使用 `METARILL_TEST_SETTINGS` 与 `METARILL_PLATFORM_METADATA`。文件基础设施必须已显式初始化；测试只创建随机 `mt_test_files_` 业务表、唯一ID文件记录及项目临时目录，最后清理，不改生产库。
+
+- 文件服务、引用观察器及 HTTP Controller 位于独立 `Metarill.Files` 工程，平台与生成应用复用同一实现。命名空间沿用既有名称以保持调用兼容；基础设施行存储位于 `Metarill.Data`，不依赖平台注册器。
+- 宿主显式注册 `FileMetadataContext` 的发布快照、同一个 `DatabaseSession` 与 `SqlRowStore`，并添加文件 Controller 所在程序集。启动不隐式建表。
+- 目录移动按固定 ID 顺序锁定当前项目有效目录，拒绝父链成环；不依赖平台的项目表。HTTP 上传限制对应服务端最大 100 MiB，超出配置明确拒绝。

@@ -40,8 +40,8 @@ internal sealed class FilesFixture : IAsyncDisposable
     public List<long> RecordIds { get; } = [];
     public IIdGenerator Ids => SharedIds;
     public RuntimeActor Actor(long id = 8001, bool administrator = false, string? project = null) => new(id, "文件测试账号", administrator, project ?? Registry.Platform.YzProjectId, Registry.Platform.YzAdminTypes[0].Id);
-    public FileLibraryService Service(RuntimeActor? actor = null) => new(Store, Registry, Ids, new TestAuthorization(actor ?? Actor(), Registry), Options);
-    public FileReferenceMutationObserver Observer(RuntimeActor? actor = null) => new(Store, Registry, new TestAuthorization(actor ?? Actor(), Registry), Ids, Options);
+    public FileLibraryService Service(RuntimeActor? actor = null) => new(Store, new([Registry.Platform,Registry.Demo]), Ids, new TestAuthorization(actor ?? Actor(), Registry), Options);
+    public FileReferenceMutationObserver Observer(RuntimeActor? actor = null) => new(Store, new([Registry.Platform,Registry.Demo]), new TestAuthorization(actor ?? Actor(), Registry), Ids, Options);
 
     /// <summary>只在指定测试库建立随机临时业务表，文件基础设施表必须已由协调者初始化。</summary>
     public static async Task<FilesFixture> CreateAsync()
@@ -78,7 +78,7 @@ internal sealed class FilesFixture : IAsyncDisposable
         var testPlatform = Path.Combine(fixture.DirectoryPath, "platform.json");
         await File.WriteAllTextAsync(testPlatform, JsonSerializer.Serialize(platform, JsonDefaults.Options));
         fixture.Registry = new MetadataRegistry(testPlatform, Path.Combine(Path.GetDirectoryName(metadataPath)!, "demo.json"));
-        fixture.Store = new SqlRowStore(fixture.Session, fixture.Registry);
+        fixture.Store = new SqlRowStore(fixture.Session, fixture.Registry.Platform);
         await fixture.Store.ReadAsync("yz_file_library", new Dictionary<string, object?> { ["id"] = -1L });
         var schema = new SchemaService(fixture.Session);
         var managed = new MetadataCatalog { YzProjectId = platform.YzProjectId, ConfigTables = [table], ConfigColumns = columns.ToList() };

@@ -40,7 +40,7 @@ internal sealed class MetadataWorkbenchFixture : IAsyncDisposable
     {
         var actor=new RuntimeActor(8012,"工作台测试",administrator,project??ProjectId.ToString(),Registry.Platform.YzAdminTypes[0].Id);
         var context=new DefaultHttpContext(); context.Items[typeof(AuthenticatedIdentity)]=new AuthenticatedIdentity(actor,new HashSet<string>(),1,null);
-        var currentStore=new SqlRowStore(session??Session,Registry);
+        var currentStore=new SqlRowStore(session??Session,Registry.Platform);
         return new(currentStore,new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},Registry),Registry,Ids,new ConfigurationMutationObserver(currentStore,Registry,Ids));
     }
     /// <summary>仅允许明确指定的metarill_test隔离数据库，源连接内容不写日志。</summary>
@@ -54,7 +54,7 @@ internal sealed class MetadataWorkbenchFixture : IAsyncDisposable
             if(fixture.Options.ExpectedDatabase!="metarill_test"||fixture.Options.Provider!="mysql")throw new InvalidOperationException("元数据集成测试只允许MySQL的metarill_test隔离库。");
             var metadata=Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             fixture.Registry=new(metadata,Path.Combine(Path.GetDirectoryName(metadata)!,"demo.json"));
-            fixture.Session=new(fixture.Options); fixture.Store=new(fixture.Session,fixture.Registry);
+            fixture.Session=new(fixture.Options); fixture.Store=new(fixture.Session,fixture.Registry.Platform);
             fixture.ProjectId=Ids.NextId(); fixture.TableId=Ids.NextId(); fixture.OtherTableId=Ids.NextId(); fixture.PageId=Ids.NextId(); fixture.OtherPageId=Ids.NextId();
             fixture.FirstColumnId=Ids.NextId(); fixture.SecondColumnId=Ids.NextId(); fixture.OtherColumnId=Ids.NextId(); fixture.FirstFieldId=Ids.NextId(); fixture.SecondFieldId=Ids.NextId(); fixture.OtherFieldId=Ids.NextId();
             await fixture.Session.InTransactionAsync(async()=>
