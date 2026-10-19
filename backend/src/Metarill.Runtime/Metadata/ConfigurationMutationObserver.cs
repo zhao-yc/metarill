@@ -6,13 +6,13 @@ using Metarill.Runtime.Persistence;
 namespace Metarill.Runtime.Metadata;
 
 /// <summary>元数据对象固有联动：创建表补默认字段/页面，新增字段补各页字段，沿原事务执行。</summary>
-public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegistry registry,IIdGenerator ids):IRecordMutationObserver
+public sealed partial class ConfigurationMutationObserver(SqlRowStore store,MetadataRegistry registry,IIdGenerator ids):IRecordMutationObserver
 {
     public async Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken=default)
     {
         if(context.IsDelete){await DeleteOwnedMetadata(context,cancellationToken);return;}
         // 保留自定义页路径校验，将其与新增归属检查一起置于原事务及项目锁内。
-        if(context.TableName is not ("config_table" or "config_column" or "config_page" or "config_custom_page"))return;
+        if(context.TableName is not ("config_table" or "config_column" or "config_page" or "config_page_column" or "config_custom_page"))return;
         if(store.Session.CurrentTransaction is null||store.Session.CurrentTransaction!=context.Transaction)throw new InvalidOperationException("配置联动必须加入同一事务。");
         if(!registry.Platform.ConfigTables.Any(t=>t.TableName==context.TableName))throw new InvalidOperationException("配置元模型缺少对应表定义。");
         var project=long.Parse(context.ProjectId);
@@ -25,6 +25,11 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
             if(!System.Text.RegularExpressions.Regex.IsMatch(path,"^pages/[a-zA-Z0-9_/-]+$")||path.Contains(".."))throw new ArgumentException("自定义页面必须使用合法的内部路由。");
             await ValidateAdminTypeAsync(custom,project,true,cancellationToken);
             await ValidateMenusAsync("config_custom_page_id",custom,project,cancellationToken);
+            return;
+        }
+        if(context.TableName=="config_page_column")
+        {
+            await ValidatePageColumnAsync(context,project,cancellationToken);
             return;
         }
         await ValidateAndNormalize(context,project,cancellationToken);
@@ -43,6 +48,8 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
                 await store.InsertAsync("config_column",values,cancellationToken);
             }
             var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
+            if(context.IsCreate||context.SubmittedFields.ContainsKey("table_name"))
+                await SynchronizeTableNameAsync(table,pages,project,cancellationToken);
             if(pages.Count==0)
             {
                 var pageId=ids.NextId();var admin=table.GetValueOrDefault("yz_admin_type_id")??(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"yz_project_id",project}},cancellationToken)).FirstOrDefault()?.GetValueOrDefault("id")??throw new InvalidOperationException("请先为当前项目配置后台类型。");
@@ -73,15 +80,18 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
             return;
         }
         var tableId=SqlRowStore.Id(row,"config_table_id");
-        if((await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",tableId},{"yz_project_id",project}},token)).Count!=1)throw new UnauthorizedAccessException("所属表不属于当前项目。");
+        var tables=await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",tableId},{"yz_project_id",project}},token);
+        if(tables.Count!=1)throw new UnauthorizedAccessException("所属表不属于当前项目。");
         if(context.TableName=="config_page")
         {
+            if(context.IsCreate||context.SubmittedFields.ContainsKey("config_table_id"))
+                ConfigurationMaterializedValues.RequirePage(row,tables[0]);
             await ValidateAdminTypeAsync(row,project,true,token);
             await ValidatePageFieldsAsync(row,project,token);
             await ValidateMenusAsync("config_page_id",row,project,token);
             return;
         }
-        await ValidateColumnReferencesAsync(row,project,token);
+        var references=await ValidateColumnReferencesAsync(row,project,token);
         var column=SqlRowStore.Text(row,"column_name");Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(column);
         if((await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId},{"column_name",column}},token)).Count!=1)throw new InvalidOperationException("同表字段名不能重复。");
         var type=SqlRowStore.Text(row,"logical_type");
@@ -99,6 +109,7 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
         if(column=="sort_no")type="int32";
         if(type is not ("int64" or "int32" or "string" or "decimal" or "date" or "time" or "datetime" or "bool" or "json" or "binary"))throw new ArgumentException("字段逻辑类型无效。");
         await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);
+        await SynchronizeColumnValuesAsync(row,references,context.SubmittedFields.Keys.ToHashSet(StringComparer.Ordinal),token);
     }
 
     /// <summary>统一锁定项目，和菜单及索引工作台的聚合写入串行校验。</summary>
@@ -142,21 +153,41 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
         }
     }
     /// <summary>字段换表前核验页面与索引聚合，不能让原字段引用跨表或跨项目。</summary>
-    private async Task ValidateColumnReferencesAsync(IReadOnlyDictionary<string,object?> column,long project,CancellationToken token)
+    private async Task<List<Dictionary<string,object?>>> ValidateColumnReferencesAsync(IReadOnlyDictionary<string,object?> column,long project,CancellationToken token)
     {
-        var table=SqlRowStore.Id(column,"config_table_id");
-        foreach(var field in await store.ReadForUpdateAsync("config_page_column",new Dictionary<string,object?>{{"config_column_id",SqlRowStore.Id(column)}},token))
+        var table=SqlRowStore.Id(column,"config_table_id");var id=SqlRowStore.Id(column);
+        // 先只读发现全部异常归属，再锁自己的引用；不能先锁其他项目的损坏记录。
+        var fields=await store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_column_id",id}},token);
+        var indexes=await store.ReadAsync("config_index_column",new Dictionary<string,object?>{{"config_column_id",id}},token);
+        foreach(var field in fields)
         {
             RequireProject(field,project);
+            var page=(await store.ReadAsync("config_page",new Dictionary<string,object?>{{"id",SqlRowStore.Id(field,"config_page_id")},{"yz_project_id",project}},token)).SingleOrDefault();
+            if(page is null||SqlRowStore.Id(page,"config_table_id")!=table)throw new InvalidOperationException("字段仍被原表页面引用，不能直接修改字段所属表。");
+        }
+        foreach(var field in indexes)
+        {
+            RequireProject(field,project);
+            var index=(await store.ReadAsync("config_index",new Dictionary<string,object?>{{"id",SqlRowStore.Id(field,"config_index_id")},{"yz_project_id",project}},token)).SingleOrDefault();
+            if(index is null||SqlRowStore.Id(index,"config_table_id")!=table)throw new InvalidOperationException("字段仍被原表索引引用，不能直接修改字段所属表。");
+        }
+        var locked=new List<Dictionary<string,object?>>();
+        foreach(var discovered in fields.OrderBy(field=>SqlRowStore.Id(field)))
+        {
+            var field=await OwnedRowAsync("config_page_column",SqlRowStore.Id(discovered),project,token);
+            if(SqlRowStore.Id(field,"config_column_id")!=id)throw new InvalidOperationException("页面字段关联已变化，请重试。");
             var page=await OwnedRowAsync("config_page",SqlRowStore.Id(field,"config_page_id"),project,token);
             if(SqlRowStore.Id(page,"config_table_id")!=table)throw new InvalidOperationException("字段仍被原表页面引用，不能直接修改字段所属表。");
+            locked.Add(field);
         }
-        foreach(var field in await store.ReadForUpdateAsync("config_index_column",new Dictionary<string,object?>{{"config_column_id",SqlRowStore.Id(column)}},token))
+        foreach(var discovered in indexes.OrderBy(field=>SqlRowStore.Id(field)))
         {
-            RequireProject(field,project);
+            var field=await OwnedRowAsync("config_index_column",SqlRowStore.Id(discovered),project,token);
+            if(SqlRowStore.Id(field,"config_column_id")!=id)throw new InvalidOperationException("索引字段关联已变化，请重试。");
             var index=await OwnedRowAsync("config_index",SqlRowStore.Id(field,"config_index_id"),project,token);
             if(SqlRowStore.Id(index,"config_table_id")!=table)throw new InvalidOperationException("字段仍被原表索引引用，不能直接修改字段所属表。");
         }
+        return locked;
     }
     /// <summary>从属记录按真实归属校验，过滤查询不能掩盖已存在的跨项目引用。</summary>
     private static void RequireProject(IReadOnlyDictionary<string,object?> row,long project)
@@ -209,7 +240,9 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
             {
                 if(existing.Any(f=>SqlRowStore.Text(f,"config_column_id")==SqlRowStore.Text(column,"id")))continue;
                 var name=SqlRowStore.Text(column,"column_name");var writable=name is not ("id" or "yz_project_id" or "delete_no")&&!name.StartsWith("insert_")&&!name.StartsWith("update_");
-                await store.InsertAsync("config_page_column",new Dictionary<string,object?>{{"id",ids.NextId()},{"config_page_id",SqlRowStore.Id(page)},{"config_column_id",SqlRowStore.Id(column)},{"column_name",name},{"name",SqlRowStore.Text(column,"name")},{"yz_project_id",project},{"sort_no",column.GetValueOrDefault("sort_no")??0},{"is_edit",writable?1:0},{"is_show",1},{"is_in_edit",writable?1:0},{"is_in_grid",1},{"is_read_only",writable?0:1}},cancellationToken);
+                var values=new Dictionary<string,object?>{{"id",ids.NextId()},{"config_page_id",SqlRowStore.Id(page)},{"config_column_id",SqlRowStore.Id(column)},{"column_name",name},{"name",SqlRowStore.Text(column,"name")},{"yz_project_id",project},{"sort_no",column.GetValueOrDefault("sort_no")??0},{"is_edit",writable?1:0},{"is_show",1},{"is_in_edit",writable?1:0},{"is_in_grid",1},{"is_read_only",writable?0:1}};
+                ConfigurationMaterializedValues.PageColumn(values,column);
+                await store.InsertAsync("config_page_column",values,cancellationToken);
             }
         }
     }

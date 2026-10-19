@@ -106,7 +106,11 @@ public sealed partial class MetadataWorkbenchBusiness(SqlRowStore store, HttpRun
             var ids = scope.Columns.Select(row => SqlRowStore.Id(row)).ToHashSet();
             if (patches.Any(patch => !ids.Contains(patch.Id))) throw new InvalidOperationException("不能跨表或项目批量修改字段顺序。");
             var actor = authorization.RequireAdministrator();
-            foreach (var patch in patches) await store.UpdateAsync("config_column", patch.Id, Audit(patch.Values.ToDictionary(pair => pair.Key, pair => pair.Value), actor), cancellationToken);
+            foreach (var patch in patches)
+            {
+                await store.UpdateAsync("config_column", patch.Id, Audit(patch.Values.ToDictionary(pair => pair.Key, pair => pair.Value), actor), cancellationToken);
+                await configurationMutations.SynchronizeColumnOrderDerivedAsync(patch.Id,MetadataWorkbenchRules.ParseId(actor.ProjectId),cancellationToken);
+            }
             var next = await ReadTableScopeAsync(tableId, cancellationToken);
             return new MetadataRowsSnapshot(ColumnRows(next), TableRevision(next));
         }, cancellationToken);

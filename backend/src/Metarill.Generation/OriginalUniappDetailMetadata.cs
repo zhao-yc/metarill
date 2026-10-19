@@ -44,7 +44,10 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         var @default = settings.Extra.TryGetValue("defaultValue", out var value) && value.ValueKind != JsonValueKind.Null ? value.ToString() : column.Source.DefaultValue;
         var span = Integer(column.Source.Extra, "colSpan", 1); span = Math.Min(GridColumns, Math.Max(span, 1));
         var derived=Derived(column);
-        return new(column, settings, detail, @default, derived || !Page.Writable.Any(item => item.Source.Id == column.Source.Id), !derived && (settings.IsRequired == 1 || Enabled(settings.Extra, "isMust")), Text(settings.Extra, "detailGroupKey"), span,derived);
+        // 原冗余页面按页级只读标志生成原输入/校验；派生列的服务端写保护不能改变原DOM。
+        var originalJoinInput = Table.Source.IsRongyu == 1 && Enabled(column.Source.Extra, "isJoinColumn") && !column.IsSystem;
+        var readOnly = derived || (originalJoinInput ? Enabled(settings.Extra, "isReadOnly") : !Page.Writable.Any(item => item.Source.Id == column.Source.Id));
+        return new(column, settings, detail, @default, readOnly, !derived && (settings.IsRequired == 1 || Enabled(settings.Extra, "isMust")), Text(settings.Extra, "detailGroupKey"), span,derived);
     }
     /// <summary>移植原非冗余字段展示归属；联接、审计名称、布局及级联祖先不生成输入/校验/自动保存。</summary>
     private bool Derived(ColumnModel column)

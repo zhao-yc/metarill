@@ -177,7 +177,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 bool Has(ColumnModel c, Func<PageColumnMetadata, bool> predicate) => fields.Any(f => f.ConfigColumnId == c.Source.Id && predicate(f));
                 var pageColumns = columns.OrderBy(c => fields.FirstOrDefault(f => f.ConfigColumnId == c.Source.Id)?.SortNo ?? int.MaxValue).ThenBy(c => c.Source.ColumnName, StringComparer.Ordinal).ToArray();
                 var readable = pageColumns.Where(c => c.IsId || Has(c, f => InGrid(f) || InEdit(f))).ToArray();
-                var writable = pageColumns.Where(c => !c.IsSystem && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
+                var writable = pageColumns.Where(c => !c.IsSystem && !Enabled(c.Source.Extra, "isJoinColumn") && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
                 var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch") || Enabled(f.Extra, "isInFilter"))).ToArray();
                 var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort") || Enabled(c.Source.Extra, "isSort"))).ToArray();
                 var scopes = CompileScopes(page.WhereSql, columns);

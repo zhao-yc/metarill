@@ -29,6 +29,13 @@ internal static class ForeignValidationRenderer
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
             .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;");
+        var derived = MaterializedDerivedWriteCompilation.ForTable(model, table);
+        // 未证明的派生值不能借默认值、复制或手写钩子的submitted集合绕过严格DTO。
+        foreach (var storage in table.Columns.Where(column => GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !derived.Any(binding => binding.Storage.Source.Id == column.Source.Id)))
+            result.AppendLine($"        if (creating ? entity.{storage.Property} is not null : submitted.Contains({Literal(storage.Source.ColumnName)})) throw new InvalidOperationException({Literal("物理派生写入尚未证明：" + storage.Source.ColumnName)});");
+        foreach (var binding in derived)
+            result.AppendLine($"        if (!creating && submitted.Contains({Literal(binding.Storage.Source.ColumnName)}) && !submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) throw new InvalidOperationException(\"派生字段只能随已声明关联重算。\");")
+                .AppendLine($"        if ((creating || submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) && entity.{binding.ForeignKey.Property} is null) {{ entity.{binding.Storage.Property} = null; submitted.Add({Literal(binding.Storage.Source.ColumnName)}); }}");
         var number = 0;
         foreach (var column in table.Columns.Where(column => !column.IsSystem && (column.Type is "long?" or "string?")))
         {
@@ -67,6 +74,16 @@ internal static class ForeignValidationRenderer
                 else if (project is null && !target.IsGlobal)
                     result.AppendLine($"            if (relationIds{number}.Length != 0) throw new InvalidOperationException(\"关联目标未声明项目归属，需要明确访问规则。\");");
                 result.AppendLine($"            if (await relationQuery{number}.CountAsync(cancellationToken) != relationIds{number}.Length) throw new InvalidOperationException({Literal("关联记录不存在、已删除或不属于当前项目：" + column.Source.Name)});");
+                var assignments = derived.Where(binding => binding.ForeignKey.Source.Id == column.Source.Id).ToArray();
+                if (assignments.Length > 0)
+                {
+                    // 保留同项目活动COUNT预检，再加一次窄当前读；两个页面字段缓存共用此查询。
+                    var fields = new[] { "Id" }.Concat(assignments.Select(binding => binding.Value.Property)).Distinct(StringComparer.Ordinal);
+                    result.AppendLine($"            var derivedRows{number} = await relationQuery{number}.ForUpdate().ToListAsync(row => new {{ {string.Join(", ", fields.Select(field => "row." + field))} }}, cancellationToken);")
+                        .AppendLine($"            if (derivedRows{number}.Count != 1 || derivedRows{number}[0].Id != relationIds{number}[0]) throw new InvalidOperationException(\"派生关联已变化、已删除或不属于当前项目。\");");
+                    foreach (var binding in assignments)
+                        result.AppendLine($"            entity.{binding.Storage.Property} = derivedRows{number}[0].{binding.Value.Property}; submitted.Add({Literal(binding.Storage.Source.ColumnName)});");
+                }
             }
             result.AppendLine("        }");
         }

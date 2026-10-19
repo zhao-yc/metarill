@@ -50,12 +50,14 @@ public sealed class ConfigurationActionsBusiness(SqlRowStore store, MetadataRegi
             await RequireAdminType(target,actor,cancellationToken);
         }
         var copy = CopyValues(source,pageId,actor); copy["name"]=name;
+        ConfigurationMaterializedValues.Page(copy,scope.Table);
         await store.InsertAsync("config_page",copy,cancellationToken);
         var mapping = new Dictionary<string,string>(StringComparer.Ordinal);
         foreach(var field in fields)
         {
             var newId=ids.NextId(); mapping.Add(SqlRowStore.Text(field,"id"),newId.ToString(CultureInfo.InvariantCulture));
             var values=CopyValues(field,newId,actor); values["config_page_id"]=pageId; values["config_page_name"]=name;
+            ConfigurationMaterializedValues.PageColumn(values,scope.Columns.Single(column=>SqlRowStore.Id(column)==SqlRowStore.Id(field,"config_column_id")));
             await store.InsertAsync("config_page_column",values,cancellationToken);
         }
         foreach(var button in buttons)
