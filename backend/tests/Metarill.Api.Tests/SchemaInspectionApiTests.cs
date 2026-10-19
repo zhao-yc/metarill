@@ -37,4 +37,31 @@ public sealed partial class ApiAcceptanceTests
         Assert.Equal(historyBefore, schemas.Resolve(Project).History.Count);
         Assert.Equal(snapshot.GetProperty("fingerprint").GetString(), Data(await Post(client, path, new { })).GetProperty("snapshot").GetProperty("fingerprint").GetString());
     }
+    /// <summary>合法功能表/视图定义明确标记排除，不能因适配器未检查而误报物理缺失。</summary>
+    [MySqlApiFact]
+    public async Task Non_physical_definitions_are_excluded_instead_of_reported_as_missing_tables()
+    {
+        var (factory, client) = await Login(); await using var host = factory; using var http = client;
+        var ids = new List<string>(); const string tableRoute = "/admin/auto/config_table/6191083005411328";
+        try
+        {
+            foreach (var (function, view) in new[] { (1, 0), (0, 1) })
+            {
+                var name = "mt_ix_" + Guid.NewGuid().ToString("N");
+                var saved = Data(await Post(client, tableRoute + "/add", new { name = "反查排除验收", tableName = name, yzAdminTypeId = "2200000000000100001", isRongyu = 1, isFunctionTable = function, isView = view }));
+                var id = saved.GetProperty("id").GetString()!; ids.Add(id);
+                var full = Data(await Post(client, "/admin/sys/database/inspect", new { }));
+                Assert.DoesNotContain(full.GetProperty("managedTables").EnumerateArray(), entry => entry.GetString() == name);
+                Assert.DoesNotContain(full.GetProperty("missingTables").EnumerateArray(), entry => entry.GetString() == name);
+                Assert.Contains(full.GetProperty("excludedTables").EnumerateArray(), entry => entry.GetProperty("tableId").GetString() == id && entry.GetProperty("tableName").GetString() == name);
+                var denied = await Post(client, "/admin/sys/database/inspect", new { tableId = id });
+                Assert.Equal(500, denied.GetProperty("code").GetInt32()); Assert.Contains("不支持", denied.GetProperty("msg").GetString());
+            }
+        }
+        finally
+        {
+            foreach (var id in ids) Data(await Body(await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api" + tableRoute) { Content = JsonContent.Create(new { id }) })));
+        }
+    }
+
 }

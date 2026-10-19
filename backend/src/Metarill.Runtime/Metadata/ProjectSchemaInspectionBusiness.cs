@@ -6,8 +6,11 @@ using Metarill.Runtime.Security;
 
 namespace Metarill.Runtime.Metadata;
 
+/// <summary>明确列出本次适配器未检查的定义，避免误报为物理缺失。</summary>
+public sealed record SchemaInspectionExclusion(string TableId, string TableName, string Reason);
+
 /// <summary>结构快照只有只读语义，不具有结构计划标识或执行权限。</summary>
-public sealed record ProjectSchemaInspection(string ProjectId, SchemaInspectionSnapshot Snapshot, IReadOnlyList<string> ManagedTables, IReadOnlyList<string> MissingTables)
+public sealed record ProjectSchemaInspection(string ProjectId, SchemaInspectionSnapshot Snapshot, IReadOnlyList<string> ManagedTables, IReadOnlyList<string> MissingTables, IReadOnlyList<SchemaInspectionExclusion> ExcludedTables)
 {
     public bool Executable => false;
 }
@@ -26,7 +29,8 @@ public sealed class ProjectSchemaInspectionBusiness(MetadataRepository metadata,
         if (request.TryGetProperty("tableId", out _))
         {
             var id = MetadataWorkbenchRules.Id(request, "tableId").ToString(CultureInfo.InvariantCulture);
-            if (!catalog.ConfigTables.Any(table => table.Id == id)) throw new UnauthorizedAccessException("受管表不存在或不属于当前项目。");
+            var selected = catalog.ConfigTables.SingleOrDefault(table => table.Id == id) ?? throw new UnauthorizedAccessException("受管表不存在或不属于当前项目。");
+            if (selected.IsFunctionTable != 0 || selected.IsView != 0) throw new NotSupportedException("当前受管实体结构反查不支持功能表或视图。");
             catalog.ConfigTables = catalog.ConfigTables.Where(table => table.Id == id).ToList();
             catalog.ConfigColumns = catalog.ConfigColumns.Where(column => column.ConfigTableId == id).ToList();
             var indexes = catalog.ConfigIndexes.Where(index => index.TryGetProperty("configTableId", out var table) && table.ToString() == id).ToList();
@@ -35,9 +39,12 @@ public sealed class ProjectSchemaInspectionBusiness(MetadataRepository metadata,
             catalog.ConfigIndexColumns = catalog.ConfigIndexColumns.Where(column => column.TryGetProperty("configIndexId", out var index) && indexIds.Contains(index.ToString())).ToList();
             catalog.ConfigPages = []; catalog.ConfigPageColumns = []; catalog.ConfigChildren = []; catalog.ConfigButtons = []; catalog.ConfigMenus = [];
         }
-        var managed = catalog.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal).ToArray();
+        // 适配器只反查普通实体表，功能表/视图明确排除，不能误报成缺失物理表。
+        var excluded = catalog.ConfigTables.Where(table => table.IsFunctionTable != 0 || table.IsView != 0)
+            .OrderBy(table => table.TableName, StringComparer.Ordinal).Select(table => new SchemaInspectionExclusion(table.Id, table.TableName, table.IsView != 0 ? "视图反查尚未接入" : "功能表不属于实体结构反查范围")).ToArray();
+        var managed = catalog.ConfigTables.Where(table => table.IsFunctionTable == 0 && table.IsView == 0).Select(table => table.TableName).Order(StringComparer.Ordinal).ToArray();
         var snapshot = await schemas.Resolve(actor.ProjectId).InspectSnapshotAsync(catalog, token);
         var present = snapshot.Schema.Tables.Select(table => table.Name).ToHashSet(StringComparer.Ordinal);
-        return new(actor.ProjectId, snapshot, managed, managed.Where(name => !present.Contains(name)).ToArray());
+        return new(actor.ProjectId, snapshot, managed, managed.Where(name => !present.Contains(name)).ToArray(), excluded);
     }
 }
