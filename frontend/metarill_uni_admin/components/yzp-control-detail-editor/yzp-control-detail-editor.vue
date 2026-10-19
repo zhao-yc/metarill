@@ -425,7 +425,7 @@ const MULTI_IMAGE = 'MultiImage'
 const SOURCE_MODE_CROSS_TABLE = 'crossTable'
 const SOURCE_MODE_SELF_TREE = 'selfTree'
 
-const CONFIG_COLUMN_DETAIL_URL = '/admin/auto/config_column/6217715532627968/detail/'
+const CONFIG_COLUMN_DETAIL_URL = '/admin/custom/config_column/control_metadata'
 const CONFIG_TABLE_DETAIL_URL = '/admin/auto/config_table/6191083005411328/detail/'
 const CONFIG_TABLE_OPTIONS_URL = '/admin/custom/config_column/list_control_tables'
 const CONFIG_VIEW_OPTIONS_URL = '/admin/auto/config_page_column/6218036784398336/findNameIdConfigPage1676901024972058625'
@@ -781,6 +781,7 @@ export default {
 			}
 			return ''
 		},
+		/** 从真实项目字段读取继承配置，专用接口验证父表，不依赖当前页面的 parentId。 */
 		ensureConfigColumnMeta(configColumnId) {
 			if (this.controlKind || (this.entity && this.entity.controlKind)) {
 				return
@@ -801,7 +802,9 @@ export default {
 			}
 			const that = this
 			yzp.request({
-				url: CONFIG_COLUMN_DETAIL_URL + configColumnId,
+				url: CONFIG_COLUMN_DETAIL_URL,
+				method: 'POST',
+				data: { id: configColumnId },
 				sendSessionId: true,
 				success(res) {
 					if (res.code !== 200 || !res.data) {
