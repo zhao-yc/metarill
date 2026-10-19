@@ -149,6 +149,74 @@ public sealed partial class LocalGenerationUpdateTests
         var applied = await Cli(source, cli, "update", "apply", "--target", target, "--candidate", candidate, "--plan", planPath, "--confirm", plan.PlanSha256); Assert.True(applied.Code == 0, applied.Output); Assert.Contains("committed", applied.Output); Assert.Equal("CLI候选", JsonNode.Parse(File.ReadAllText(Path.Combine(target, "backend/metadata/project.json")))!["yzProjectName"]!.GetValue<string>());
     }
 
+    /// <summary>恢复不相信journal自报摘要；新增路径、动作和hash的变更必须与原确认计划逐项一致。</summary>
+    [Fact]
+    public void Recovery_rejects_retargeted_creates_and_every_unconfirmed_journal_write_change()
+    {
+        var (target, candidate) = Packages(Catalog(), WithExtraPage(Catalog())); var planner = new LocalGenerationUpdater(); var plan = planner.Preview(target, candidate, All);
+        var created = plan.Files.First(file => file.Action == "create"); var injected = false;
+        var updater = new LocalGenerationUpdater { AfterWrite = path => { if (path == created.Path && !injected) { injected = true; File.WriteAllText(Path.Combine(target, path), "// 模拟写入后的外部改动\n"); throw new IOException("留存真实未完成事务"); } } };
+        Assert.Throws<InvalidOperationException>(() => updater.Apply(plan, plan.PlanSha256)); Assert.True(injected);
+        File.WriteAllBytes(Path.Combine(target, created.Path), File.ReadAllBytes(Path.Combine(candidate, created.Path)));
+        var active = JsonNode.Parse(File.ReadAllText(Path.Combine(target, ".local/metarill-updates/active.json")))!; var id = active["transactionId"]!.GetValue<string>();
+        var transaction = Path.Combine(target, ".local/metarill-updates/transactions", id); var journalPath = Path.Combine(transaction, "journal.json"); var original = File.ReadAllText(journalPath);
+        const string userFile = "frontend/common/yzp_runtime/user-created-later.js"; var userPath = Path.Combine(target, userFile); var userBytes = Encoding.UTF8.GetBytes("// 此文件由开发者在失败后创建，禁止恢复器删除。\n"); File.WriteAllBytes(userPath, userBytes); var snapshot = SourceSnapshot(target);
+        foreach (var scenario in new[] { "retarget", "after", "before", "action", "scope", "omit", "append", "reorder", "actions", "identity", "legacy" })
+        {
+            var journal = JsonNode.Parse(original)!; var files = journal["files"]!.AsArray(); var entry = files.Single(file => file!["path"]!.GetValue<string>() == created.Path)!;
+            switch (scenario)
+            {
+                case "retarget": entry["path"] = userFile; entry["afterSha256"] = Convert.ToHexStringLower(SHA256.HashData(userBytes)); break;
+                case "after": entry["afterSha256"] = new string('0', 64); break;
+                case "before": entry["beforeSha256"] = new string('0', 64); break;
+                case "action": entry["action"] = "replace"; break;
+                case "scope": entry["scope"] = "sync-runtime"; break;
+                case "omit": files.Remove(entry); break;
+                case "append": var extra = entry.DeepClone(); extra["path"] = userFile; extra["afterSha256"] = Convert.ToHexStringLower(SHA256.HashData(userBytes)); files.Add(extra); break;
+                case "reorder": var first = files[0]!.DeepClone(); files.RemoveAt(0); files.Add(first); break;
+                case "actions": journal["actions"] = new JsonArray("sync-runtime"); break;
+                case "identity": journal["rootNamespace"] = "Example.Other"; break;
+                case "legacy": journal["schemaVersion"] = 1; break;
+            }
+            File.WriteAllText(journalPath, journal.ToJsonString(Json)); Assert.Throws<InvalidOperationException>(() => planner.Recover(target, id, plan.PlanSha256)); Assert.Equal(snapshot, SourceSnapshot(target)); Assert.Equal(userBytes, File.ReadAllBytes(userPath));
+        }
+        File.WriteAllText(journalPath, original); var planPath = Path.Combine(transaction, "plan.json"); var originalPlan = File.ReadAllText(planPath); var changedPlan = JsonNode.Parse(originalPlan)!; changedPlan["candidateDirectory"] = Path.Combine(root, "unconfirmed-candidate"); File.WriteAllText(planPath, changedPlan.ToJsonString(Json));
+        Assert.Throws<InvalidOperationException>(() => planner.Recover(target, id, plan.PlanSha256)); Assert.Equal(snapshot, SourceSnapshot(target)); File.Delete(planPath);
+        Assert.Throws<InvalidOperationException>(() => planner.Recover(target, id, plan.PlanSha256)); Assert.Equal(snapshot, SourceSnapshot(target)); File.WriteAllText(planPath, originalPlan);
+        // 恢复只依赖目标内的完整确认计划与备份，候选退役后也应能够回滚。
+        Assert.StartsWith(root + Path.DirectorySeparatorChar, Path.GetFullPath(candidate), StringComparison.OrdinalIgnoreCase); Directory.Move(candidate, Path.Combine(root, "retired-candidate"));
+        var receipt = planner.Recover(target, id, plan.PlanSha256); Assert.Equal("rolled-back", receipt.Status); Assert.False(File.Exists(Path.Combine(target, created.Path))); Assert.Equal(userBytes, File.ReadAllBytes(userPath)); Assert.False(File.Exists(Path.Combine(target, ".local/metarill-updates/active.json")));
+    }
+
+    /// <summary>同时删入口文件和两层归属仍不能成为合法FullApplication候选，不能删除目标启动入口。</summary>
+    [Fact]
+    public void Full_application_bootstrap_files_cannot_be_removed_by_pruning_manifests()
+    {
+        var (target, candidate) = Packages(Catalog(), Catalog()); var marker = Path.Combine(candidate, ".metarill-package.json"); var frontendMarker = Path.Combine(candidate, "frontend/.metarill-frontend.json"); var original = File.ReadAllText(marker); var originalFrontend = File.ReadAllText(frontendMarker); var snapshot = SourceSnapshot(target);
+        foreach (var path in new[] { "frontend/main.js", "frontend/App.vue", "frontend/index.html", "backend/Application.Host/Program.cs", "backend/Application.Host/Application.Host.csproj", "src/Metarill.Core/Metarill.Core.csproj" })
+        {
+            var bytes = File.ReadAllBytes(Path.Combine(candidate, path)); var package = JsonNode.Parse(original)!; var files = package["files"]!.AsArray(); files.Remove(files.Single(file => file!["path"]!.GetValue<string>() == path)); File.Delete(Path.Combine(candidate, path));
+            if (path.StartsWith("frontend/", StringComparison.Ordinal))
+            {
+                var frontend = JsonNode.Parse(originalFrontend)!; var registered = frontend["files"]!.AsArray(); registered.Remove(registered.Single(file => file!["path"]!.GetValue<string>() == path["frontend/".Length..])); File.WriteAllText(frontendMarker, frontend.ToJsonString(Json));
+                files.Single(file => file!["path"]!.GetValue<string>() == "frontend/.metarill-frontend.json")!["sha256"] = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(frontendMarker)));
+            }
+            File.WriteAllText(marker, package.ToJsonString(Json)); var error = Assert.Throws<InvalidOperationException>(() => new LocalGenerationUpdater().Preview(target, candidate, ["sync-runtime"])); Assert.Contains("启动归属", error.Message); Assert.Equal(snapshot, SourceSnapshot(target)); File.WriteAllBytes(Path.Combine(candidate, path), bytes); File.WriteAllText(marker, original); File.WriteAllText(frontendMarker, originalFrontend);
+        }
+    }
+
+    /// <summary>仅首次补建缺失partial且清单未变时，恢复仍能通过原指纹绑定旧身份并回到缺失状态。</summary>
+    [Fact]
+    public void Recovery_of_only_missing_handwritten_shell_does_not_require_a_marker_rewrite()
+    {
+        var (target, candidate) = Packages(Catalog(), Catalog()); var planner = new LocalGenerationUpdater(); var stable = planner.Preview(target, candidate, All); planner.Apply(stable, stable.PlanSha256);
+        const string shell = "backend/generated/Services/DemoCustomerService.cs"; var shellPath = Path.Combine(target, shell); File.Delete(shellPath); var before = SourceSnapshot(target); var plan = planner.Preview(target, candidate, ["generate-all-page"]);
+        Assert.Single(plan.Files, file => file.Action != "preserve"); Assert.DoesNotContain(plan.Files, file => file.Path == ".metarill-package.json");
+        var updater = new LocalGenerationUpdater { AfterWrite = path => { File.WriteAllText(Path.Combine(target, path), "// 创建之后的第三种内容\n"); throw new IOException("测试partial创建中断"); } };
+        Assert.Throws<InvalidOperationException>(() => updater.Apply(plan, plan.PlanSha256)); File.WriteAllBytes(shellPath, File.ReadAllBytes(Path.Combine(candidate, shell)));
+        var active = JsonNode.Parse(File.ReadAllText(Path.Combine(target, ".local/metarill-updates/active.json")))!; var receipt = planner.Recover(target, active["transactionId"]!.GetValue<string>(), plan.PlanSha256); Assert.Equal("rolled-back", receipt.Status); Assert.Equal(before, SourceSnapshot(target));
+    }
+
     /// <summary>额外详情页复用同表字段，不引入数据库或手写类型依赖，用于实际新增/删除路径验收。</summary>
     private static MetadataCatalog WithExtraPage(MetadataCatalog catalog)
     {

@@ -6,7 +6,7 @@ public sealed partial class LocalGenerationUpdater
 {
     private const string Control = ".local/metarill-updates";
     private sealed record ActiveUpdate(int SchemaVersion, string TransactionId, string PlanSha256);
-    private sealed record JournalFile(string Path, string? BeforeSha256, string? AfterSha256);
+    private sealed record JournalFile(string Path, string Action, string Scope, string? BeforeSha256, string? AfterSha256);
     private sealed record UpdateJournal(int SchemaVersion, string TransactionId, string TargetDirectory, string ProjectId, string RootNamespace, string PlanSha256,
         string[] Actions, string Status, JournalFile[] Files, string BeforePackageSha256, string BeforeGenerationSha256, string? Failure);
 
@@ -32,11 +32,13 @@ public sealed partial class LocalGenerationUpdater
     /// <summary>先持久化全部备份、候选和日志，再替换文件；清单最后提交，失败只恢复仍属于本次事务的字节。</summary>
     private GenerationUpdateReceipt Commit(GenerationUpdatePlan plan, Dictionary<string, byte[]> payload)
     {
-        var changes = plan.Files.Where(file => file.Action != "preserve").OrderBy(file => file.Scope == "manifest" ? 1 : 0).ThenBy(file => file.Path == PackageMarker ? 1 : 0).ThenBy(file => file.Path, StringComparer.Ordinal).ToArray();
+        var changes = PlannedChanges(plan);
         if (changes.Length == 0) return new("", plan.PlanSha256, "unchanged", 0, 0, plan.Files.Count(file => file.Action == "preserve"));
         var id = Guid.NewGuid().ToString("N"); var target = plan.TargetDirectory;
         var oldPackage = ReadBytes(target, PackageMarker); var oldGeneration = ReadBytes(target, GenerationMarker);
-        var journal = new UpdateJournal(1, id, target, plan.ProjectId, plan.RootNamespace, plan.PlanSha256, plan.Actions.ToArray(), "prepared", changes.Select(file => new JournalFile(file.Path, file.BeforeSha256, file.AfterSha256)).ToArray(), Hash(oldPackage), Hash(oldGeneration), null);
+        var journal = new UpdateJournal(2, id, target, plan.ProjectId, plan.RootNamespace, plan.PlanSha256, plan.Actions.ToArray(), "prepared", changes.Select(file => new JournalFile(file.Path, file.Action, file.Scope, file.BeforeSha256, file.AfterSha256)).ToArray(), Hash(oldPackage), Hash(oldGeneration), null);
+        // 确认计划先于active持久化；恢复必须重算摘要，不能相信journal自称的PlanSha256。
+        DurableWrite(target, Transaction(id) + "/plan.json", Encode(plan));
         // 两份旧身份清单始终留存，运行时更新未改generation marker时也不能依赖当前混合状态。
         DurableWrite(target, Transaction(id) + "/identity/package.json", oldPackage); DurableWrite(target, Transaction(id) + "/identity/generation.json", oldGeneration);
         for (var index = 0; index < changes.Length; index++)
@@ -61,7 +63,12 @@ public sealed partial class LocalGenerationUpdater
                 var file = changes[index];
                 if (ExistingHash(target, file.Path) != file.BeforeSha256) throw new InvalidOperationException("应用期间文件发生变化：" + file.Path);
                 if (file.AfterSha256 is null) File.Delete(Safe(target, file.Path));
-                else DurableWrite(target, file.Path, ReadBytes(target, Transaction(id) + $"/staged/{index:D5}.bin"));
+                else
+                {
+                    var bytes = ReadBytes(target, Transaction(id) + $"/staged/{index:D5}.bin");
+                    if (Hash(bytes) != file.AfterSha256) throw new InvalidOperationException("实际写入前候选暂存摘要不一致。");
+                    DurableWrite(target, file.Path, bytes);
+                }
                 AfterWrite?.Invoke(file.Path);
             }
             foreach (var file in plan.Files) if (ExistingHash(target, file.Path) != (file.Action == "preserve" ? file.BeforeSha256 : file.AfterSha256)) throw new InvalidOperationException("应用后的文件校验不一致：" + file.Path);
@@ -93,7 +100,12 @@ public sealed partial class LocalGenerationUpdater
             if (current == file.BeforeSha256) continue;
             if (current != file.AfterSha256) throw new InvalidOperationException("恢复写入前出现用户后来修改的内容：" + file.Path);
             if (file.BeforeSha256 is null) File.Delete(Safe(target, file.Path));
-            else DurableWrite(target, file.Path, ReadBytes(target, Transaction(journal.TransactionId) + $"/backups/{index:D5}.bin"));
+            else
+            {
+                var bytes = ReadBytes(target, Transaction(journal.TransactionId) + $"/backups/{index:D5}.bin");
+                if (Hash(bytes) != file.BeforeSha256) throw new InvalidOperationException("实际恢复前备份摘要不一致。");
+                DurableWrite(target, file.Path, bytes);
+            }
         }
         foreach (var file in journal.Files) if (ExistingHash(target, file.Path) != file.BeforeSha256) throw new InvalidOperationException("恢复后的文件摘要不一致。");
     }
@@ -102,7 +114,7 @@ public sealed partial class LocalGenerationUpdater
     private static UpdateJournal ReadJournal(string target, string id)
     {
         var journal = Decode<UpdateJournal>(ReadBytes(target, Transaction(id) + "/journal.json"));
-        if (journal.SchemaVersion != 1 || journal.TransactionId != id || journal.TargetDirectory != target || !ValidHash(journal.PlanSha256)
+        if (journal.SchemaVersion != 2 || journal.TransactionId != id || journal.TargetDirectory != target || !ValidHash(journal.PlanSha256)
             || journal.Actions is null || journal.Actions.Length == 0 || journal.Actions.Any(action => !Scopes.Contains(action, StringComparer.Ordinal)) || journal.Actions.Distinct(StringComparer.Ordinal).Count() != journal.Actions.Length
             || journal.Files is null || journal.Files.Length is 0 or > 20000 || !ValidHash(journal.BeforePackageSha256) || !ValidHash(journal.BeforeGenerationSha256)) throw new InvalidOperationException("事务日志身份、版本或范围无效。");
         var oldPackageBytes = ReadBytes(target, Transaction(id) + "/identity/package.json"); var oldGenerationBytes = ReadBytes(target, Transaction(id) + "/identity/generation.json");
@@ -113,6 +125,7 @@ public sealed partial class LocalGenerationUpdater
             || !long.TryParse(journal.ProjectId, out var project) || project <= 0 || project.ToString(System.Globalization.CultureInfo.InvariantCulture) != journal.ProjectId
             || !Regex.IsMatch(journal.RootNamespace ?? "", @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$") || oldPackage.MetadataSha256 != oldGeneration.MetadataSha256 || !ValidHash(oldPackage.MetadataSha256)
             || !oldEntries.TryGetValue(GenerationMarker, out var oldGenerationEntry) || oldGenerationEntry.Sha256 != journal.BeforeGenerationSha256) throw new InvalidOperationException("恢复日志与旧清单项目身份不一致。");
+        ValidateRecoveryPlan(target, id, journal, oldEntries);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in journal.Files)
         {
@@ -123,12 +136,55 @@ public sealed partial class LocalGenerationUpdater
             if (baseline != file.BeforeSha256 && !missingShell) throw new InvalidOperationException("恢复文件旧摘要不属于本次旧清单。");
             if (missingShell && file.AfterSha256 is null) throw new InvalidOperationException("手写壳只能首次创建。");
             if (!seen.Add(file.Path) || file.BeforeSha256 is not null && !ValidHash(file.BeforeSha256) || file.AfterSha256 is not null && !ValidHash(file.AfterSha256) || file.BeforeSha256 is null && file.AfterSha256 is null || Protected.Contains(file.Path)) throw new InvalidOperationException("事务路径或摘要无效。");
-            if (file.Path is PackageMarker or GenerationMarker or FrontendMarker || Configuration.Contains(file.Path) || RuntimeFiles.Contains(file.Path) || FrontendAssets.Value.Contains(file.Path)
+            if (file.Path is PackageMarker or GenerationMarker or FrontendMarker or "backend/generated/frontend/common/yzp_runtime/page-write-schema.generated.json" || Configuration.Contains(file.Path) || RuntimeFiles.Contains(file.Path) || FrontendAssets.Value.Contains(file.Path)
                 || Regex.IsMatch(file.Path, @"^(?:src/Metarill\.(?:Core|Data|Exports|Files)/[A-Za-z0-9_./-]+|frontend/common/yzp_runtime/[A-Za-z0-9_-]+\.js|backend/generated/(?:[A-Za-z0-9_/-]+\.(?:g\.cs|vue|json)|Services/[A-Za-z0-9_]+Service\.cs)|frontend/pages/yzp/[A-Za-z0-9_-]+\.vue|frontend/common/yzp_runtime/page-write-schema\.generated\.json)$")) continue;
             throw new InvalidOperationException("恢复日志包含未知写入路径。");
         }
         return journal;
     }
+
+    /// <summary>完整原计划绑定确认摘要与每条journal写入，新增路径也不能靠自报hash变成恢复目标。</summary>
+    private static void ValidateRecoveryPlan(string target, string id, UpdateJournal journal, Dictionary<string, UpdateEntry> oldEntries)
+    {
+        var plan = Decode<GenerationUpdatePlan>(ReadBytes(target, Transaction(id) + "/plan.json"));
+        if (plan.SchemaVersion != 1 || !plan.CanApply || plan.RequiredActions is null || plan.RequiredActions.Count != 0 || plan.Actions is null || plan.Files is null || plan.Files.Count is 0 or > 20000
+            || plan.TargetDirectory != target || plan.ProjectId != journal.ProjectId || plan.RootNamespace != journal.RootNamespace
+            || plan.PlanSha256 != journal.PlanSha256 || Hash(Encode(plan with { PlanSha256 = "" })) != journal.PlanSha256
+            || !ValidHash(plan.TargetFingerprint) || !ValidHash(plan.CandidateFingerprint) || !plan.Actions.SequenceEqual(journal.Actions, StringComparer.Ordinal)) throw new InvalidOperationException("持久化计划摘要、身份或动作与恢复日志不一致。");
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in plan.Files)
+        {
+            if (file is null || !seen.Add(file.Path) || file.Action is not ("create" or "replace" or "delete" or "preserve")) throw new InvalidOperationException("持久化计划包含未知动作或重复路径。");
+            ValidateRelative(file.Path);
+            if (file.Action == "preserve")
+            {
+                if (file.Scope is not ("preserve" or "handwritten") || !ValidHash(file.BeforeSha256) || file.BeforeSha256 != file.AfterSha256) throw new InvalidOperationException("保留项计划无效。");
+                continue;
+            }
+            if (file.Scope != "manifest" && !plan.Actions.Contains(file.Scope, StringComparer.Ordinal)
+                || file.BeforeSha256 is not null && !ValidHash(file.BeforeSha256) || file.AfterSha256 is not null && !ValidHash(file.AfterSha256)
+                || file.Action == "create" && (file.BeforeSha256 is not null || file.AfterSha256 is null)
+                || file.Action == "replace" && (file.BeforeSha256 is null || file.AfterSha256 is null)
+                || file.Action == "delete" && (file.BeforeSha256 is null || file.AfterSha256 is not null)) throw new InvalidOperationException("持久化计划写入范围或前后摘要无效。");
+        }
+        var expected = PlannedChanges(plan);
+        if (expected.Length != journal.Files.Length) throw new InvalidOperationException("恢复日志写入集合与已确认计划不一致。");
+        for (var index = 0; index < expected.Length; index++)
+        {
+            var file = expected[index]; var actual = journal.Files[index];
+            if (actual is null || actual.Path != file.Path || actual.Action != file.Action || actual.Scope != file.Scope || actual.BeforeSha256 != file.BeforeSha256 || actual.AfterSha256 != file.AfterSha256) throw new InvalidOperationException("恢复日志写入条目与已确认计划不一致。");
+        }
+        // 仅补建缺失手写壳时三个清单可能完全不变，因此不能要求计划必须改写根marker。
+        // 用原计划登记的保留项/缺失壳状态和旧受管hash重建原指纹，始终绑定完整旧包身份。
+        var planned = plan.Files.ToDictionary(file => file.Path, StringComparer.OrdinalIgnoreCase);
+        var fingerprint = Hash(Encode(new { package = journal.BeforePackageSha256, files = oldEntries.Values.OrderBy(file => file.Path, StringComparer.Ordinal)
+            .Select(file => new { file.Path, expected = file.Sha256, actual = Protected.Contains(file.Path) || Regex.IsMatch(file.Path, @"^backend/generated/Services/[A-Za-z0-9_]+Service\.cs$") ? planned.GetValueOrDefault(file.Path)?.BeforeSha256 : file.Sha256 }).ToArray() }));
+        if (fingerprint != plan.TargetFingerprint) throw new InvalidOperationException("旧包身份与文件基线不属于已确认计划。");
+    }
+
+    /// <summary>应用与恢复共用稳定的写入顺序，不能分别重排后误配备份编号。</summary>
+    private static GenerationUpdateFile[] PlannedChanges(GenerationUpdatePlan plan) => plan.Files.Where(file => file.Action != "preserve")
+        .OrderBy(file => file.Scope == "manifest" ? 1 : 0).ThenBy(file => file.Path == PackageMarker ? 1 : 0).ThenBy(file => file.Path, StringComparer.Ordinal).ToArray();
 
     /// <summary>存在未完成任务时不允许新的预览/应用，先由显式recover核对恢复。</summary>
     private static void RejectPending(string target)

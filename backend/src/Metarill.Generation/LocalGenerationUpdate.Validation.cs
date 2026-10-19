@@ -43,8 +43,14 @@ public sealed partial class LocalGenerationUpdater
         if (metadata.YzProjectId != generated.ProjectId || CanonicalHash(metadata) != generated.MetadataSha256) throw new InvalidOperationException("应用元数据与生成清单摘要不一致。");
         if (package.Warnings is null || package.Warnings.Any(warning => warning is null)) throw new InvalidOperationException("包提示列表无效。");
         var snapshot = new PackageSnapshot(root, package, generated, frontend, metadata, entries);
-        foreach (var required in new[] { GenerationMarker, FrontendMarker, "backend/metadata/project.json", "backend/metadata/files.json", "frontend/manifest.json", "frontend/common/application.config.js", "frontend/pages.json" })
-            if (!entries.ContainsKey(required)) throw new InvalidOperationException("完整包缺少必要归属：" + required);
+        // FullApplication的启动入口不能通过同时删文件和删归属来伪装成可选运行时删除。
+        var bootstrap = new[] { GenerationMarker, FrontendMarker, "Directory.Build.props", "Directory.Packages.props", "global.json", "LICENSE",
+            "backend/metadata/project.json", "backend/metadata/files.json", "backend/Application.Host/Program.cs", "backend/Application.Host/Application.Host.csproj", "backend/Application.Host/DevelopmentAuthentication.cs", "backend/Application.Host/DevelopmentNavigation.cs",
+            "frontend/App.vue", "frontend/main.js", "frontend/uni.scss", "frontend/index.html", "frontend/manifest.json", "frontend/package.json", "frontend/package-lock.json",
+            "frontend/common/application.config.js", "frontend/common/application.generated.json", "frontend/common/environment.js", "frontend/common/yzp.js", "frontend/common/yzp_runtime/yzp-runtime.js", "frontend/pages.json", "frontend/pages.generated.json" }
+            .Concat(new[] { "Core", "Data", "Exports", "Files" }.Select(name => "src/Metarill." + name + "/Metarill." + name + ".csproj"));
+        foreach (var required in bootstrap)
+            if (!entries.ContainsKey(required)) throw new InvalidOperationException("完整包缺少必要启动归属：" + required);
         foreach (var entry in generatedEntries.Values)
         {
             if (!entries.TryGetValue("backend/generated/" + entry.Path, out var outer) || outer.Sha256 != entry.Sha256) throw new InvalidOperationException("生成清单与包清单不一致。");
