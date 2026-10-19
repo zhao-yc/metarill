@@ -72,7 +72,7 @@ internal static class OriginalUniappDetailFields
                 return $"<picker mode='date' fields='month' :disabled='{ro}' :value='entity.{name} ? String(entity.{name}).substring(0,7) : \"\"' @change='{name}MonthChange'><uni-easyinput :disabled='{ro}' :model-value='entity.{name} ? String(entity.{name}).substring(0,7) : \"\"' primaryColor=\"{primary}\" /></picker>";
             case "time": return $"<picker mode='time' :disabled='{ro}' :value='entity.{name}' @change='entity.{name}=$event.detail.value'><uni-easyinput :disabled='{ro}' :model-value='entity.{name}' /></picker>";
             case "ConstList": case "ConstDownList":
-                var choices = f.Detail.Split(',').Select(token => token.Split('|', 2)).Select(pair => new { text = pair[0], value = ConstValue(column, pair.Length == 2 ? pair[1] : "") }).ToArray();
+                var choices = f.Detail.Split(',').Select(token => token.Split('|', 2)).Select(pair => new { text = pair[0], value = ConstValue(column, pair.Length == 2 ? pair[1] : pair[0]) }).ToArray();
                 c.Data.Append(name).Append("Range:").Append(Js(choices)).Append(',');
                 return Choice(ro, $"entity.{name}Show", kind == "ConstList" ? $"<uni-data-checkbox :disabled='{ro}' v-model='entity.{name}' :localdata='{name}Range' />" : $"<zxz-uni-data-select v-model='entity.{name}' :localdata='{name}Range' filterable :disabled='{ro}' />");
             case "CheckBox": return Choice(ro, $"(($checkboxRange || [])[entity.{name}==null?0:entity.{name}] || {{}}).text || ''", $"<uni-data-checkbox :disabled='{ro}' v-model='entity.{name}' :localdata='$checkboxRange' />");
@@ -116,8 +116,15 @@ internal static class OriginalUniappDetailFields
         var load = "that.originalRequest({url:"+Js(endpoint)+",data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName)"+(f.ReadOnly?",id:that.entity."+column.JsonName:"")+"},method:'POST',sendSessionId:true,success(res){if(res.code===200){that."+list+"=res.data||[];"+(checkbox?"that."+column.JsonName+"Change();":"")+"}else uni.showModal({showCancel:false,content:res.msg});}});";
         if (Enabled(column.Source.Extra, "isAutoPostBackQuery")) c.DynamicInit.AppendLine($"that.{list}=[];" + load); else c.Init.AppendLine(load);
     }
-    /// <summary>常量长ID保持字符串，其他数值严格按字段类型生成。</summary>
-    private static object ConstValue(ColumnModel column, string value) => column.Type is "string?" or "long" or "long?" ? value : int.TryParse(value, out var number) ? number : throw new InvalidOperationException("原详情常量值与字段类型不符。");
+    /// <summary>沿用现有DTO/VO常量类型；长整数保留字符串，小数按decimal解析，不经JavaScript整数转换。</summary>
+    private static object? ConstValue(ColumnModel column, string value) => column.Type switch
+    {
+        "string?" => value,
+        "long" or "long?" => value.Length==0?null:long.Parse(value,NumberStyles.Integer,CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
+        "int?" => value.Length==0?null:int.Parse(value,NumberStyles.Integer,CultureInfo.InvariantCulture),
+        "decimal?" => value.Length==0?null:decimal.Parse(value,NumberStyles.Number,CultureInfo.InvariantCulture),
+        _ => throw new InvalidOperationException("原详情常量值与字段类型不符："+column.Source.ColumnName)
+    };
     private static string Stem(ColumnModel column) => column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
 
     /// <summary>文件库沿用原v-model、上下文和全部控件props，默认保护访问与可信后端一致。</summary>
