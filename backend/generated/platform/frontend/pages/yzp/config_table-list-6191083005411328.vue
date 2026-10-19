@@ -2,9 +2,23 @@
 <template>
   <view class="yzp-page">
     <view class="uni-padding-wrap"><text>表</text><button v-if="canCreate" size="mini" @click="openDetail('')">新增</button><button v-if="canImport" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
+    <view v-if="filterFields.length" class="uni-padding-wrap">
+      <uni-forms :modelValue="draftFilters">
+<uni-forms-item label="名称" name="name"><uni-easyinput :modelValue="draftFilters.name" @update:modelValue="setFilter('name', $event)" placeholder="请输入名称" /></uni-forms-item>
+<uni-forms-item label="表名" name="tableName"><uni-easyinput :modelValue="draftFilters.tableName" @update:modelValue="setFilter('tableName', $event)" placeholder="请输入表名" /></uni-forms-item>
+<uni-forms-item label="数据库视图" name="isView"><uni-data-select :modelValue="draftFilters.isView" @update:modelValue="setFilter('isView', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
+      </uni-forms>
+      <button size="mini" @click="applyFilters">查询</button><button size="mini" @click="resetFilters">重置</button>
+    </view>
+    <view v-for="message in filterGaps" :key="message" class="uni-padding-wrap"><text>{{ message }}</text></view>
+    <view v-if="sortFields.length" class="uni-padding-wrap">
+      <uni-data-select :modelValue="sortField" :localdata="sortFields" placeholder="排序字段" @update:modelValue="selectSortField" />
+      <uni-data-select :modelValue="sortDirection" :localdata="sortDirections" :clear="false" placeholder="默认排序" @update:modelValue="selectSortDirection" />
+    </view>
+    <text v-if="loadError">{{ loadError }}</text>
     <uni-table :loading="loading" border stripe emptyText="暂无数据">
       <uni-tr><uni-th>名称</uni-th><uni-th>表名</uni-th><uni-th>sql</uni-th><uni-th>oracle_sql</uni-th><uni-th>where_sql</uni-th><uni-th>order_by</uni-th><uni-th>group_by</uni-th><uni-th>page_size</uni-th><uni-th>is_edit</uni-th><uni-th>is_new</uni-th><uni-th>is_save</uni-th><uni-th>is_delete</uni-th><uni-th>is_search</uni-th><uni-th>before_delete_sql</uni-th><uni-th>after_save_sql</uni-th><uni-th>after_import_sql</uni-th><uni-th>is_import</uni-th><uni-th>is_export</uni-th><uni-th>is_multi_select</uni-th><uni-th>is_lazy_query</uni-th><uni-th>grid_edit</uni-th><uni-th>title</uni-th><uni-th>title_2</uni-th><uni-th>title_3</uni-th><uni-th>is_sum</uni-th><uni-th>grid_width</uni-th><uni-th>is_print_preview</uni-th><uni-th>is_batch_delete</uni-th><uni-th>import_method</uni-th><uni-th>read_only_condition</uni-th><uni-th>pop_window_width</uni-th><uni-th>pop_window_height</uni-th><uni-th>is_export_edit</uni-th><uni-th>is_no_save_and_close</uni-th><uni-th>is_update</uni-th><uni-th>is_head_group</uni-th><uni-th>is_modify_log</uni-th><uni-th>layout</uni-th><uni-th>conn_string</uni-th><uni-th>export_method</uni-th><uni-th>import_no</uni-th><uni-th>insert_time</uni-th><uni-th>update_time</uni-th><uni-th>insert_manager_id</uni-th><uni-th>insert_user_name</uni-th><uni-th>update_manager_id</uni-th><uni-th>insert_manager_real_name</uni-th><uni-th>update_manager_real_name</uni-th><uni-th>update_user_name</uni-th><uni-th>copy_method</uni-th><uni-th>sql_more</uni-th><uni-th>authorize_scheme</uni-th><uni-th>clear_method</uni-th><uni-th>is_raw</uni-th><uni-th>same_edit_code</uni-th><uni-th>sql_grid</uni-th><uni-th>data_src</uni-th><uni-th>main_column</uni-th><uni-th>batch_new_page_name</uni-th><uni-th>edit_table_id</uni-th><uni-th>edit_table_name</uni-th><uni-th>edit_page_id</uni-th><uni-th>edit_page_name</uni-th><uni-th>edit_key_column</uni-th><uni-th>button_visible</uni-th><uni-th>auto_save</uni-th><uni-th>child_place</uni-th><uni-th>super_column_name</uni-th><uni-th>edit_page_url</uni-th><uni-th>display_option</uni-th><uni-th>bpm_step_kind</uni-th><uni-th>document_ready</uni-th><uni-th>help</uni-th><uni-th>edit_width</uni-th><uni-th>yz_project_name</uni-th><uni-th>is_platform</uni-th><uni-th>is_sys</uni-th><uni-th>is_repeat_pwd</uni-th><uni-th>所属后台</uni-th><uni-th>数据归属模式</uni-th><uni-th>操作</uni-th></uni-tr>
-      <uni-tr v-for="row in records" :key="row.id"><uni-td>{{ row.name }}</uni-td><uni-td>{{ row.tableName }}</uni-td><uni-td>{{ row.sql }}</uni-td><uni-td>{{ row.oracleSql }}</uni-td><uni-td>{{ row.whereSql }}</uni-td><uni-td>{{ row.orderBy }}</uni-td><uni-td>{{ row.groupBy }}</uni-td><uni-td>{{ row.pageSize }}</uni-td><uni-td>{{ row.isEdit }}</uni-td><uni-td>{{ row.isNew }}</uni-td><uni-td>{{ row.isSave }}</uni-td><uni-td>{{ row.isDelete }}</uni-td><uni-td>{{ row.isSearch }}</uni-td><uni-td>{{ row.beforeDeleteSql }}</uni-td><uni-td>{{ row.afterSaveSql }}</uni-td><uni-td>{{ row.afterImportSql }}</uni-td><uni-td>{{ row.isImport }}</uni-td><uni-td>{{ row.isExport }}</uni-td><uni-td>{{ row.isMultiSelect }}</uni-td><uni-td>{{ row.isLazyQuery }}</uni-td><uni-td>{{ row.gridEdit }}</uni-td><uni-td>{{ row.title }}</uni-td><uni-td>{{ row.title2 }}</uni-td><uni-td>{{ row.title3 }}</uni-td><uni-td>{{ row.isSum }}</uni-td><uni-td>{{ row.gridWidth }}</uni-td><uni-td>{{ row.isPrintPreview }}</uni-td><uni-td>{{ row.isBatchDelete }}</uni-td><uni-td>{{ row.importMethod }}</uni-td><uni-td>{{ row.readOnlyCondition }}</uni-td><uni-td>{{ row.popWindowWidth }}</uni-td><uni-td>{{ row.popWindowHeight }}</uni-td><uni-td>{{ row.isExportEdit }}</uni-td><uni-td>{{ row.isNoSaveAndClose }}</uni-td><uni-td>{{ row.isUpdate }}</uni-td><uni-td>{{ row.isHeadGroup }}</uni-td><uni-td>{{ row.isModifyLog }}</uni-td><uni-td>{{ row.layout }}</uni-td><uni-td>{{ row.connString }}</uni-td><uni-td>{{ row.exportMethod }}</uni-td><uni-td>{{ row.importNo }}</uni-td><uni-td>{{ row.insertTime }}</uni-td><uni-td>{{ row.updateTime }}</uni-td><uni-td>{{ row.insertManagerId }}</uni-td><uni-td>{{ row.insertUserName }}</uni-td><uni-td>{{ row.updateManagerId }}</uni-td><uni-td>{{ row.insertManagerRealName }}</uni-td><uni-td>{{ row.updateManagerRealName }}</uni-td><uni-td>{{ row.updateUserName }}</uni-td><uni-td>{{ row.copyMethod }}</uni-td><uni-td>{{ row.sqlMore }}</uni-td><uni-td>{{ row.authorizeScheme }}</uni-td><uni-td>{{ row.clearMethod }}</uni-td><uni-td>{{ row.isRaw }}</uni-td><uni-td>{{ row.sameEditCode }}</uni-td><uni-td>{{ row.sqlGrid }}</uni-td><uni-td>{{ row.dataSrc }}</uni-td><uni-td>{{ row.mainColumn }}</uni-td><uni-td>{{ row.batchNewPageName }}</uni-td><uni-td>{{ row.editTableId }}</uni-td><uni-td>{{ row.editTableName }}</uni-td><uni-td>{{ row.editPageId }}</uni-td><uni-td>{{ row.editPageName }}</uni-td><uni-td>{{ row.editKeyColumn }}</uni-td><uni-td>{{ row.buttonVisible }}</uni-td><uni-td>{{ row.autoSave }}</uni-td><uni-td>{{ row.childPlace }}</uni-td><uni-td>{{ row.superColumnName }}</uni-td><uni-td>{{ row.editPageUrl }}</uni-td><uni-td>{{ row.displayOption }}</uni-td><uni-td>{{ row.bpmStepKind }}</uni-td><uni-td>{{ row.documentReady }}</uni-td><uni-td>{{ row.help }}</uni-td><uni-td>{{ row.editWidth }}</uni-td><uni-td>{{ row.yzProjectName }}</uni-td><uni-td>{{ row.isPlatform }}</uni-td><uni-td>{{ row.isSys }}</uni-td><uni-td>{{ row.isRepeatPwd }}</uni-td><uni-td>{{ row.yzAdminTypeId }}</uni-td><uni-td>{{ row.scopeKind }}</uni-td><uni-td><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
+      <uni-tr v-for="row in records" :key="row.id"><uni-td>{{ displayValue(row, 'name') }}</uni-td><uni-td>{{ displayValue(row, 'tableName') }}</uni-td><uni-td>{{ displayValue(row, 'sql') }}</uni-td><uni-td>{{ displayValue(row, 'oracleSql') }}</uni-td><uni-td>{{ displayValue(row, 'whereSql') }}</uni-td><uni-td>{{ displayValue(row, 'orderBy') }}</uni-td><uni-td>{{ displayValue(row, 'groupBy') }}</uni-td><uni-td>{{ displayValue(row, 'pageSize') }}</uni-td><uni-td>{{ displayValue(row, 'isEdit') }}</uni-td><uni-td>{{ displayValue(row, 'isNew') }}</uni-td><uni-td>{{ displayValue(row, 'isSave') }}</uni-td><uni-td>{{ displayValue(row, 'isDelete') }}</uni-td><uni-td>{{ displayValue(row, 'isSearch') }}</uni-td><uni-td>{{ displayValue(row, 'beforeDeleteSql') }}</uni-td><uni-td>{{ displayValue(row, 'afterSaveSql') }}</uni-td><uni-td>{{ displayValue(row, 'afterImportSql') }}</uni-td><uni-td>{{ displayValue(row, 'isImport') }}</uni-td><uni-td>{{ displayValue(row, 'isExport') }}</uni-td><uni-td>{{ displayValue(row, 'isMultiSelect') }}</uni-td><uni-td>{{ displayValue(row, 'isLazyQuery') }}</uni-td><uni-td>{{ displayValue(row, 'gridEdit') }}</uni-td><uni-td>{{ displayValue(row, 'title') }}</uni-td><uni-td>{{ displayValue(row, 'title2') }}</uni-td><uni-td>{{ displayValue(row, 'title3') }}</uni-td><uni-td>{{ displayValue(row, 'isSum') }}</uni-td><uni-td>{{ displayValue(row, 'gridWidth') }}</uni-td><uni-td>{{ displayValue(row, 'isPrintPreview') }}</uni-td><uni-td>{{ displayValue(row, 'isBatchDelete') }}</uni-td><uni-td>{{ displayValue(row, 'importMethod') }}</uni-td><uni-td>{{ displayValue(row, 'readOnlyCondition') }}</uni-td><uni-td>{{ displayValue(row, 'popWindowWidth') }}</uni-td><uni-td>{{ displayValue(row, 'popWindowHeight') }}</uni-td><uni-td>{{ displayValue(row, 'isExportEdit') }}</uni-td><uni-td>{{ displayValue(row, 'isNoSaveAndClose') }}</uni-td><uni-td>{{ displayValue(row, 'isUpdate') }}</uni-td><uni-td>{{ displayValue(row, 'isHeadGroup') }}</uni-td><uni-td>{{ displayValue(row, 'isModifyLog') }}</uni-td><uni-td>{{ displayValue(row, 'layout') }}</uni-td><uni-td>{{ displayValue(row, 'connString') }}</uni-td><uni-td>{{ displayValue(row, 'exportMethod') }}</uni-td><uni-td>{{ displayValue(row, 'importNo') }}</uni-td><uni-td>{{ displayValue(row, 'insertTime') }}</uni-td><uni-td>{{ displayValue(row, 'updateTime') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertUserName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateUserName') }}</uni-td><uni-td>{{ displayValue(row, 'copyMethod') }}</uni-td><uni-td>{{ displayValue(row, 'sqlMore') }}</uni-td><uni-td>{{ displayValue(row, 'authorizeScheme') }}</uni-td><uni-td>{{ displayValue(row, 'clearMethod') }}</uni-td><uni-td>{{ displayValue(row, 'isRaw') }}</uni-td><uni-td>{{ displayValue(row, 'sameEditCode') }}</uni-td><uni-td>{{ displayValue(row, 'sqlGrid') }}</uni-td><uni-td>{{ displayValue(row, 'dataSrc') }}</uni-td><uni-td>{{ displayValue(row, 'mainColumn') }}</uni-td><uni-td>{{ displayValue(row, 'batchNewPageName') }}</uni-td><uni-td>{{ displayValue(row, 'editTableId') }}</uni-td><uni-td>{{ displayValue(row, 'editTableName') }}</uni-td><uni-td>{{ displayValue(row, 'editPageId') }}</uni-td><uni-td>{{ displayValue(row, 'editPageName') }}</uni-td><uni-td>{{ displayValue(row, 'editKeyColumn') }}</uni-td><uni-td>{{ displayValue(row, 'buttonVisible') }}</uni-td><uni-td>{{ displayValue(row, 'autoSave') }}</uni-td><uni-td>{{ displayValue(row, 'childPlace') }}</uni-td><uni-td>{{ displayValue(row, 'superColumnName') }}</uni-td><uni-td>{{ displayValue(row, 'editPageUrl') }}</uni-td><uni-td>{{ displayValue(row, 'displayOption') }}</uni-td><uni-td>{{ displayValue(row, 'bpmStepKind') }}</uni-td><uni-td>{{ displayValue(row, 'documentReady') }}</uni-td><uni-td>{{ displayValue(row, 'help') }}</uni-td><uni-td>{{ displayValue(row, 'editWidth') }}</uni-td><uni-td>{{ displayValue(row, 'yzProjectName') }}</uni-td><uni-td>{{ displayValue(row, 'isPlatform') }}</uni-td><uni-td>{{ displayValue(row, 'isSys') }}</uni-td><uni-td>{{ displayValue(row, 'isRepeatPwd') }}</uni-td><uni-td>{{ displayValue(row, 'yzAdminTypeId') }}</uni-td><uni-td>{{ displayValue(row, 'scopeKind') }}</uni-td><uni-td><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
     </uni-table>
     <view><button size="mini" :disabled="pageNo <= 1 || loading" @click="movePage(-1)">上一页</button><text>{{ pageNo }} / {{ pages }}</text><button size="mini" :disabled="pageNo >= pages || loading" @click="movePage(1)">下一页</button></view>
   </view>
@@ -12,27 +26,98 @@
 <script>
 import yzp from '@/common/yzp';
 import utils from '@/common/utils';
+const filterFields = [{"field":"name","type":"string?","name":"\u540D\u79F0"},{"field":"tableName","type":"string?","name":"\u8868\u540D"},{"field":"isView","type":"int?","name":"\u6570\u636E\u5E93\u89C6\u56FE"}];
+const sortFields = [];
+const displayFields = {"name":{"alias":null,"optionField":null},"tableName":{"alias":null,"optionField":null},"isRongyu":{"alias":null,"optionField":null},"isFunctionTable":{"alias":null,"optionField":null},"sql":{"alias":null,"optionField":null},"isView":{"alias":null,"optionField":null},"oracleSql":{"alias":null,"optionField":null},"whereSql":{"alias":null,"optionField":null},"orderBy":{"alias":null,"optionField":null},"groupBy":{"alias":null,"optionField":null},"pageSize":{"alias":null,"optionField":null},"isEdit":{"alias":null,"optionField":null},"isNew":{"alias":null,"optionField":null},"isSave":{"alias":null,"optionField":null},"isDelete":{"alias":null,"optionField":null},"isSearch":{"alias":null,"optionField":null},"beforeDeleteSql":{"alias":null,"optionField":null},"afterSaveSql":{"alias":null,"optionField":null},"afterImportSql":{"alias":null,"optionField":null},"isImport":{"alias":null,"optionField":null},"isExport":{"alias":null,"optionField":null},"isMultiSelect":{"alias":null,"optionField":null},"isLazyQuery":{"alias":null,"optionField":null},"gridEdit":{"alias":null,"optionField":null},"title":{"alias":null,"optionField":null},"title2":{"alias":null,"optionField":null},"title3":{"alias":null,"optionField":null},"isSum":{"alias":null,"optionField":null},"gridWidth":{"alias":null,"optionField":null},"isPrintPreview":{"alias":null,"optionField":null},"isBatchDelete":{"alias":null,"optionField":null},"importMethod":{"alias":null,"optionField":null},"readOnlyCondition":{"alias":null,"optionField":null},"popWindowWidth":{"alias":null,"optionField":null},"popWindowHeight":{"alias":null,"optionField":null},"isExportEdit":{"alias":null,"optionField":null},"isNoSaveAndClose":{"alias":null,"optionField":null},"isUpdate":{"alias":null,"optionField":null},"isHeadGroup":{"alias":null,"optionField":null},"isModifyLog":{"alias":null,"optionField":null},"layout":{"alias":null,"optionField":null},"connString":{"alias":null,"optionField":null},"exportMethod":{"alias":null,"optionField":null},"importNo":{"alias":null,"optionField":null},"insertTime":{"alias":null,"optionField":null},"updateTime":{"alias":null,"optionField":null},"insertManagerId":{"alias":null,"optionField":null},"insertUserName":{"alias":null,"optionField":null},"updateManagerId":{"alias":null,"optionField":null},"insertManagerRealName":{"alias":null,"optionField":null},"updateManagerRealName":{"alias":null,"optionField":null},"updateUserName":{"alias":null,"optionField":null},"copyMethod":{"alias":null,"optionField":null},"sqlMore":{"alias":null,"optionField":null},"authorizeScheme":{"alias":null,"optionField":null},"clearMethod":{"alias":null,"optionField":null},"isRaw":{"alias":null,"optionField":null},"sameEditCode":{"alias":null,"optionField":null},"sqlGrid":{"alias":null,"optionField":null},"dataSrc":{"alias":null,"optionField":null},"mainColumn":{"alias":null,"optionField":null},"batchNewPageName":{"alias":null,"optionField":null},"editTableId":{"alias":null,"optionField":null},"editTableName":{"alias":null,"optionField":null},"editPageId":{"alias":null,"optionField":null},"editPageName":{"alias":null,"optionField":null},"editKeyColumn":{"alias":null,"optionField":null},"buttonVisible":{"alias":null,"optionField":null},"autoSave":{"alias":null,"optionField":null},"childPlace":{"alias":null,"optionField":null},"superColumnName":{"alias":null,"optionField":null},"editPageUrl":{"alias":null,"optionField":null},"displayOption":{"alias":null,"optionField":null},"bpmStepKind":{"alias":null,"optionField":null},"documentReady":{"alias":null,"optionField":null},"help":{"alias":null,"optionField":null},"editWidth":{"alias":null,"optionField":null},"yzProjectName":{"alias":null,"optionField":null},"isPlatform":{"alias":null,"optionField":null},"isSys":{"alias":null,"optionField":null},"isRepeatPwd":{"alias":null,"optionField":null},"yzAdminTypeId":{"alias":null,"optionField":"yzAdminTypeId"},"scopeKind":{"alias":null,"optionField":null},"id":{"alias":null,"optionField":null}};
+const rtfFields = [];
 export default {
-  data() { return { records: [], pageNo: 1, pages: 1, loading: false, parentId: '', selecting: false, canCreate: true, canImport: false, canExport: false }; },
-  onLoad(options) { this.parentId = options.parentId || ''; this.selecting = options.select === '1'; },
+  data() { return { records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: [], sortFields,
+    sortDirections: [{text: '默认排序', value: ''}, {text: '升序', value: 'ascending'}, {text: '降序', value: 'descending'}], canCreate: true, canImport: false, canExport: false }; },
+  /** 父记录和选择页上下文在筛选、排序及翻页期间保持不变。 */
+  onLoad(options) { this._alive = true; this._requestNo = 0; this._optionRequests = []; this.parentId = options.parentId || ''; this.selecting = options.select === '1'; this.loadOptions(); },
   onShow() { this.loadPage(); },
+  /** 先失效所有回调，再取消请求，离开的页面不会接收迟到数据。 */
+  onUnload() { this._alive = false; this._requestNo++; this._request?.abort?.(); this._optionRequests.forEach(task => task?.abort?.()); },
   methods: {
     /** 导入保留客户端读取Excel并提交中文标题JSON的协议。 */
     initImport() { yzp.chooseImportFile(rows => { yzp.request({ url: '/admin/auto/config_table/6191083005411328/importDatas6191083005411328', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
-    /** 导出票据与原下载入口兼容，字段和范围全部由后端决定。 */
-    initExport() { yzp.request({ url: '/admin/auto/config_table/6191083005411328/initExport', method: 'POST', sendSessionId: true, data: { filters: {}, parentId: this.parentId || null }, success: res => { if (res.code === 200) utils.openUrl(getApp().globalData.environment.base_url + '/admin/sys/export/export?exportId=' + encodeURIComponent(res.data)); } }); },
-    /** 批次导入成功后回到第一页重新读取真实数据。 */
-    refreshData() { this.pageNo = 1; this.loadPage(); },
-    /** 分页请求沿用统一登录态和 R 响应。 */
-    loadPage() {
-      this.loading = true;
-      yzp.request({ url: '/admin/auto/config_table/6191083005411328/page', method: 'POST', sendSessionId: true,
-        data: { pageNo: this.pageNo, pageSize: 14, filters: {}, parentId: this.parentId || null },
-        success: res => { if (res.code === 200) { this.records = res.data.records; this.pages = Math.max(1, Number(res.data.pages)); } },
-        complete: () => { this.loading = false; } });
+    /** 导出使用已提交筛选、排序和父记录，不混入尚未点击查询的草稿。 */
+    initExport() { yzp.request({ url: '/admin/auto/config_table/6191083005411328/initExport', method: 'POST', sendSessionId: true, data: this.pageRequest(this.pageNo), success: res => { if (res.code === 200) utils.openUrl(getApp().globalData.environment.base_url + '/admin/sys/export/export?exportId=' + encodeURIComponent(res.data)); } }); },
+    /** 导入后只重读第一页，已提交查询和父上下文继续保留。 */
+    refreshData() { this.loadPage(1); },
+    /** 编辑筛选草稿不立即改变正在展示的查询快照。 */
+    setFilter(field, value) { if (filterFields.some(item => item.field === field)) this.draftFilters[field] = Array.isArray(value) ? value.slice() : value; },
+    /** 仅提交生成白名单中的有效值，保留 false/0，空值与未填写字段都省略。 */
+    compileFilters() {
+      const filters = {};
+      for (const rule of filterFields) {
+        const value = this.draftFilters[rule.field];
+        if (value === undefined || value === null || typeof value === 'string' && !value.trim() || Array.isArray(value) && value.length === 0) continue;
+        if (Array.isArray(value)) {
+          if (rule.type !== 'DateTime?' || value.length !== 2 || value.some(item => typeof item !== 'string' || !item.trim())) throw new Error('请选择完整日期范围：' + rule.name);
+          const start = Date.parse(value[0].replace(' ', 'T')), end = Date.parse(value[1].replace(' ', 'T'));
+          if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) throw new Error('日期范围无效：' + rule.name);
+          filters[rule.field] = value.slice();
+        } else if (typeof value === 'object') throw new Error('筛选值无效：' + rule.name);
+        else {
+          if (rule.type === 'bool?' && typeof value !== 'boolean') throw new Error('请选择有效布尔值：' + rule.name);
+          if (['long', 'long?', 'int?'].includes(rule.type) && !/^[+-]?\d+$/.test(String(value))) throw new Error('请输入整数：' + rule.name);
+          if (rule.type === 'int?' && (!Number.isSafeInteger(Number(value)) || Number(value) < -2147483648 || Number(value) > 2147483647)) throw new Error('整数超出范围：' + rule.name);
+          if (['decimal?', 'double?'].includes(rule.type) && (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(String(value)) || !Number.isFinite(Number(value)))) throw new Error('请输入有效数值：' + rule.name);
+          if (rule.type === 'string?' && typeof value !== 'string') throw new Error('请输入文本：' + rule.name);
+          filters[rule.field] = value;
+        }
+      }
+      return filters;
     },
-    /** 翻页仅调整当前页面，不拼接查询 SQL。 */
-    movePage(delta) { this.pageNo += delta; this.loadPage(); },
+    /** 查询确认时冻结草稿；无效条件不覆盖先前已提交查询。 */
+    applyFilters() { try { this.appliedFilters = this.compileFilters(); this.loadPage(1); } catch (error) { uni.showModal({ showCancel: false, content: error.message }); } },
+    /** 重置只清理筛选，父记录、选择模式和用户排序继续保留。 */
+    resetFilters() { this.draftFilters = {}; this.appliedFilters = {}; this.loadPage(1); },
+    /** 表头按真实 PageRequest 的 column/order 传递排序，不发送 SQL。 */
+    changeSort(field, event) {
+      if (!sortFields.some(item => item.value === field) || !event || !['ascending', 'descending', null].includes(event.order)) return;
+      this.sortField = event.order ? field : ''; this.sortDirection = event.order || ''; this.orderBy = event.order ? { column: field, order: event.order } : null; this.loadPage(1);
+    },
+    /** 下拉排序覆盖移动端和不在列表中展示的开放排序字段。 */
+    selectSortField(field) { if (field && !sortFields.some(item => item.value === field)) return; this.sortField = field || ''; this.sortDirection = field ? this.sortDirection || 'ascending' : ''; this.orderBy = field ? { column: field, order: this.sortDirection } : null; this.loadPage(1); },
+    /** 默认排序清空显式 orderBy，升降序要求先选择已开放字段。 */
+    selectSortDirection(order) { if (!['', 'ascending', 'descending'].includes(order)) return; if (order && !this.sortField) { uni.showToast({ title: '请先选择排序字段', icon: 'none' }); return; } this.sortDirection = order; this.orderBy = order ? { column: this.sortField, order } : null; this.loadPage(1); },
+    /** 每次请求复制已提交查询，防止后续输入或翻页修改正在发送的对象。 */
+    pageRequest(pageNo) { return { pageNo, pageSize: 14, filters: JSON.parse(JSON.stringify(this.appliedFilters)), parentId: this.parentId || null, orderBy: this.orderBy ? { ...this.orderBy } : null }; },
+    /** 真实登录及工作区快照用于隔离迟到的读响应，不能替代后端授权。 */
+    currentIdentity() { return JSON.stringify([uni.getStorageSync('loginStateId') || '', uni.getStorageSync('sysParams') || {}]); },
+    /** 最新查询完成后才提交页码和行；失败保留已确认数据，乱序响应不可回退列表。 */
+    loadPage(target = this.pageNo) {
+      if (!this._alive) return;
+      const identity = this.currentIdentity();
+      if (this._listIdentity && this._listIdentity !== identity) { this.records = []; this.pages = 1; this.pageNo = 1; target = 1; }
+      this._listIdentity = identity;
+      const sequence = ++this._requestNo, data = this.pageRequest(target), parentId = this.parentId;
+      this._request?.abort?.(); this.loading = true; this.loadError = '';
+      const current = () => this._alive && sequence === this._requestNo && parentId === this.parentId && identity === this.currentIdentity();
+      this._request = yzp.request({ url: '/admin/auto/config_table/6191083005411328/page', method: 'POST', sendSessionId: true, data, isCurrent: current,
+        success: res => { if (!current()) return; if (res.code === 200 && res.data && Array.isArray(res.data.records)) { this.records = res.data.records; this.pages = Math.max(1, Number(res.data.pages) || 1); this.pageNo = target; } else this.loadError = res.msg || '读取列表失败。'; },
+        fail: () => { if (current()) this.loadError = '读取列表失败，请重试。'; }, complete: () => { if (current()) this.loading = false; } });
+      if (!this._request && current()) this.loading = false;
+    },
+    /** 翻页只调整请求页码，不改变筛选、排序和父记录。 */
+    movePage(delta) { if (this.loading) return; const target = Math.max(1, Math.min(this.pages, this.pageNo + delta)); if (target !== this.pageNo) this.loadPage(target); },
+    /** 关系选项来自当前页已编译端点，父记录或身份变化后不接受旧选项。 */
+    loadOptions() {
+      const parentId = this.parentId || null, identity = this.currentIdentity();
+      const current = () => this._alive && parentId === (this.parentId || null) && identity === this.currentIdentity();
+      this._optionRequests.push(yzp.request({ url: '/admin/auto/config_table/6191083005411328/findNameIdYzAdminType2200000000000000087', method: 'POST', data: { parentId }, sendSessionId: true, isCurrent: current, success: res => { if (current() && res.code === 200 && Array.isArray(res.data)) this.options.yzAdminTypeId = res.data; } }));
+    },
+    /** 优先显示后端真实别名，再从合法选项映射名称，缺失名称时保留原 ID。 */
+    displayValue(row, field) {
+      const definition = displayFields[field];
+      if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
+      if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
+      return row[field] ?? '';
+    },
+    /** 列表富文本复用原预览页与 sendRtf 事件，不把 HTML 当普通文本字段编辑。 */
+    previewRtf(row, field) { if (!rtfFields.includes(field)) return; uni.navigateTo({ url: '/pages/main/rtf/rtf?action=review', success: result => result.eventChannel.emit('sendRtf', { data: row[field] || '' }) }); },
     /** 跳转保持既有生成页面命名和父记录上下文。 */
     openDetail(id) { if (this.selecting && id) { const row = this.records.find(record => record.id === id); this.getOpenerEventChannel().emit('selected', row); uni.navigateBack(); return; } uni.navigateTo({ url: '/pages/yzp/config_table-detail-6191083005411328?id=' + encodeURIComponent(id) + '&parentId=' + encodeURIComponent(this.parentId) }); }
   }
