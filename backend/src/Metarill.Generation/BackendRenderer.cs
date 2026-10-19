@@ -129,7 +129,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>生成单对象生命周期与按页面隔离的规则。</summary>
     private static string Service(GenerationModel model, TableModel table)
     {
-        var hasMulti = table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0);
+        var hasMulti = table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) || ExportRenderer.RequiresAuthorization(model, table);
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
             .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
@@ -470,23 +470,38 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/selected")})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint + "/selected")})]"))
                 .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
-        result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(page));
+        result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(model, page));
         return result.AppendLine("}").ToString();
     }
     /// <summary>数组、分页和已选回读共用目标、真实父记录和固定范围，不生成通用查询网关。</summary>
     private static string Relations(GenerationModel model, PageModel page)
     {
-        var result = new StringBuilder();
-        foreach (var relation in RelationCompilation.ForPage(model, page))
+        var result = new StringBuilder(); var relations = RelationCompilation.ForPage(model, page);
+        if (relations.Count == 0) return "";
+        // 来源父验证单独复用，使空导出也不会跳过真实父记录校验。
+        var sourceParents = relations[0].SourceParents;
+        result.AppendLine("    /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>")
+            .AppendLine($"    private async Task ValidateOptionsSourceParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
+            .AppendLine("    {").AppendLine("        ValidateActor(actor);");
+        if (sourceParents.Count > 0) result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
+        for (var index = 0; index < sourceParents.Count; index++) Parent(sourceParents[index], "sourceParentKey", "sourceParent" + index);
+        if (sourceParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
+        result.AppendLine("    }");
+        /// <summary>父定义来自固定元数据，来源与目标分别验证同项目及软删，不取写锁。</summary>
+        void Parent(TableModel parent, string key, string variable)
+        {
+            var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
+            result.AppendLine($"        var {variable} = session.Select<{parent.Name}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+            if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
+            result.AppendLine($"        if (!await {variable}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\");");
+        }
+        foreach (var relation in relations)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
                 .AppendLine($"    private async Task<ISelect<{relation.Target.Name}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)")
-                .AppendLine("    {").AppendLine("        ValidateActor(actor);");
+                .AppendLine("    {").AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);");
             var sameParent = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
-            if (relation.SourceParents.Count > 0)
-                result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
-            for (var index = 0; index < relation.SourceParents.Count; index++) Parent(relation.SourceParents[index], "sourceParentKey", "sourceParent" + index);
             if (relation.TargetParents.Count > 0)
             {
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
@@ -495,14 +510,6 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             }
             else result.AppendLine("        if (targetParentId is not null) throw new ArgumentException(\"当前关联不使用 targetParentId。\");");
             if (relation.SourceParents.Count == 0 && relation.TargetParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
-            // 父定义来自生成元数据，来源与目标分别验证真实记录，绝不猜索引到表等跨层映射。
-            void Parent(TableModel parent, string key, string variable)
-            {
-                var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
-                result.AppendLine($"        var {variable} = session.Select<{parent.Name}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
-                if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
-                result.AppendLine($"        if (!await {variable}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\");");
-            }
             result.AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
             if (relation.Target.Columns.Any(c => c.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
             var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
@@ -560,7 +567,7 @@ public partial class {{table.Name}}Service
             .AppendLine("        services.AddScoped<GeneratedDatabaseSession>(provider => new((databaseFactory ?? (sp => sp.GetRequiredService<DatabaseSession>()))(provider)));");
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
-                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
+                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) || ExportRenderer.RequiresAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
         return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").ToString();
     }
 }
