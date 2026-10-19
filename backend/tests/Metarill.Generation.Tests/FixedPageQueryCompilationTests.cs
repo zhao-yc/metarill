@@ -163,7 +163,7 @@ public sealed class FixedPageQueryCompilationTests
         foreach (var id in new[] { "1679391145852018689", "1679391146044956674" }) Assert.DoesNotContain(read.List.Gaps.Concat(read.Detail.Gaps), gap => gap.ColumnId == id);
         var target = model.Tables.Single(table => table.Source.TableName == "config_page"); var targetPage = target.Pages.Single(page => page.Source.Id == "1869016706289577986");
         Assert.DoesNotContain(ReadProjectionCompilation.ForPage(model, target, targetPage).Selection.Gaps, gap => gap.ColumnId is "1679391145852018689" or "1679391146044956674");
-        Assert.Equal(4, GenerationCapabilityAudit.Collect(model).Count); Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+        Assert.Equal(2, GenerationCapabilityAudit.Collect(model).Count); Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-fixed-platform"); var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
         {

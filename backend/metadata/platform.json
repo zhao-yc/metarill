@@ -2655,7 +2655,7 @@
       "columnTypeShow": "字符",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
-      "controlDetail": "{\"table\":\"config_column\",\"tableId\":\"6217714881724416\",\"nameField\":\"name\",\"whereSql\":\"\",\"orderBy\":\"sort_no asc\"}",
+      "controlDetail": "{\"table\": \"config_column\", \"tableId\": \"6217714881724416\", \"nameField\": \"name\", \"whereSql\": \"\", \"orderBy\": \"sort_no asc\", \"sourceParentOwnerColumnId\": \"2076977821456142336\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -3966,6 +3966,7 @@
       "name": "配置表",
       "sortNo": 80,
       "yzProjectId": "1608097412978577409",
+      "linkConfigTableId": "6191080026669056",
       "logicalType": "int64"
     },
     {
@@ -5729,6 +5730,7 @@
       "name": "配置表",
       "sortNo": 340,
       "yzProjectId": "1608097412978577409",
+      "linkConfigTableId": "6191080026669056",
       "logicalType": "int64"
     },
     {
@@ -6362,7 +6364,7 @@
       "columnTypeShow": "字符",
       "configTableId": "6218035521716224",
       "configTableName": "页面字段",
-      "controlDetail": "{\"table\": \"config_column\", \"orderBy\": \"\", \"tableId\": \"6217714881724416\", \"whereSql\": \"\", \"nameField\": \"name\"}",
+      "controlDetail": "{\"table\": \"config_column\", \"orderBy\": \"\", \"tableId\": \"6217714881724416\", \"whereSql\": \"\", \"nameField\": \"name\", \"sourceParentOwnerColumnId\": \"1671100304320462849\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -6379,6 +6381,8 @@
       "name": "列",
       "sortNo": 20,
       "yzProjectId": "1608097412978577409",
+      "linkConfigTableId": "6217714881724416",
+      "linkConfigPageId": "6217715532627968",
       "logicalType": "int64"
     },
     {
@@ -6406,6 +6410,7 @@
       "name": "视图",
       "sortNo": 30,
       "yzProjectId": "1608097412978577409",
+      "linkConfigTableId": "6191173858623488",
       "logicalType": "int64"
     },
     {

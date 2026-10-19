@@ -69,11 +69,13 @@ internal static class ExportRenderer
                 continue;
             }
             var sourceId = IdExpression(relation.SourceColumn, "entity");
+            // 导出已验证来源export权限；固定绑定只需重新验证目标读取，不额外要求来源list权限。
+            var scopeAuthorization = relation.ParentBinding?.Binding is not null ? ", false, false" : "";
             result.AppendLine("        // 按真实目标父分组隔离名称缓存；相同ID不能借用另一父范围的名称。")
                 .AppendLine($"        foreach (var group{name} in entities.Where(entity => entity.{name} is not null).GroupBy(TargetParent{name}))")
                 .AppendLine("        {")
                 .AppendLine($"            var ids{name} = group{name}.Select(entity => {sourceId}).Distinct().ToArray();")
-                .AppendLine($"            var query{name} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId, group{name}.Key, actor, cancellationToken);")
+                .AppendLine($"            var query{name} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId, group{name}.Key, actor, cancellationToken{scopeAuthorization});")
                 .AppendLine($"            var rows{name} = await query{name}.Where(entity => ids{name}.Contains(entity.Id)).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
                 .AppendLine($"            foreach (var row in rows{name}) names{name}[(group{name}.Key, row.Id)] = row.Name;")
                 .AppendLine("        }");

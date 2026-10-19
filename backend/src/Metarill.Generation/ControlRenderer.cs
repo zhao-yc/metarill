@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace Metarill.Generation;
 
 internal sealed record ControlResult(string Markup, string? UnsupportedReason = null);
-internal sealed record RelationUiContext(bool SameParent, string? TargetParentField, bool UnresolvedTarget);
+internal sealed record RelationUiContext(bool SameParent, string? TargetParentField, bool UnresolvedTarget, bool ServerDerivedTargetParent = false);
 
 /// <summary>复用原有控件；只编译已完成的类型，未接入的能力同时标明原因。</summary>
 internal static class ControlRenderer
@@ -27,7 +27,7 @@ internal static class ControlRenderer
         {
             var relation = RelationCompilation.ForPage(model, page).Single(candidate => candidate.SourceColumn == column);
             var context = RelationContext(page, relation, false);
-            if (context.UnresolvedTarget) return Wrap($"<text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text><text>关联目标父范围尚未明确，当前只读并保留原ID</text>", "关联目标需要独立 targetParentId，当前页没有唯一可读的声明外键。");
+            if (context.UnresolvedTarget) return Wrap($"<text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text><text>关联目标父范围尚未明确，当前只读并保留原ID</text>", relation.ParentBinding?.Reason ?? "关联目标需要独立 targetParentId，当前页没有唯一可读的声明外键。");
             return Wrap(RelationMarkup(model, page, relation, context, "entity", writable ? "readOnlyCondition" : "true", writable ? change : ""));
         }
         if (column.Source.ControlKind == "MultiSelectPage")
@@ -91,6 +91,7 @@ internal static class ControlRenderer
     /// <summary>目标父只取同父上下文或唯一可读声明外键，不猜索引到表等跨层映射。</summary>
     internal static RelationUiContext RelationContext(PageModel page, RelationModel relation, bool filter)
     {
+        if (relation.ParentBinding?.Declared == true) return new(false, null, relation.ParentBinding.Binding is null, relation.ParentBinding.Binding is not null);
         var same = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
         if (same || relation.TargetParents.Count == 0) return new(same, null, false);
         if (relation.TargetParents.Count != 1) return new(false, null, true);
@@ -105,7 +106,7 @@ internal static class ControlRenderer
         var table = model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId);
         var endpoint = "/admin/auto/" + table.Source.TableName + "/" + page.Source.Id + "/" + relation.Endpoint;
         var target = context.TargetParentField is null ? "" : $" :target-parent-id=\"{row}.{context.TargetParentField}\"";
-        return $"<yzp-relation-select :modelValue=\"{row}.{relation.SourceColumn.JsonName}\" endpoint=\"{Escape(endpoint)}\" :parent-id=\"parentId\"{target} :require-parent=\"{(relation.SourceParents.Count > 0).ToString().ToLowerInvariant()}\" :require-target-parent=\"{(relation.TargetParents.Count > 0).ToString().ToLowerInvariant()}\" :same-parent=\"{context.SameParent.ToString().ToLowerInvariant()}\" :readonly=\"{readOnly}\" {change} />";
+        return $"<yzp-relation-select :modelValue=\"{row}.{relation.SourceColumn.JsonName}\" endpoint=\"{Escape(endpoint)}\" :parent-id=\"parentId\"{target} :require-parent=\"{(relation.SourceParents.Count > 0).ToString().ToLowerInvariant()}\" :require-target-parent=\"{(relation.TargetParents.Count > 0 && !context.ServerDerivedTargetParent).ToString().ToLowerInvariant()}\" :same-parent=\"{context.SameParent.ToString().ToLowerInvariant()}\" :readonly=\"{readOnly}\" {change} />";
     }
 
     /// <summary>文件库完整传递声明配置；默认保护访问与后端一致，未知或损坏值在生成阶段拒绝。</summary>

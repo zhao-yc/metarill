@@ -140,7 +140,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>生成单对象生命周期与按页面隔离的规则。</summary>
     private static string Service(GenerationModel model, TableModel table)
     {
-        var hasMulti = table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) || ExportRenderer.RequiresAuthorization(model, table);
+        var hasMulti = table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table);
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
             .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
@@ -158,7 +158,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var page in table.Pages)
         {
             result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
-            result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
+            result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
         result.Append(Preparation(table)); result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
@@ -315,7 +315,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                     .AppendLine($"        entity.{column.Property} = {ScopeValue(column, "parentId")};");
-            result.AppendLine("        BeforeSave(entity, actor, true, submitted);").AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(RequiredValidation(model, table, page, false))
+            result.AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");")
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);").AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
         }
@@ -333,7 +333,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 if (column.IsJsonArray && !multi) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
                 result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
             }
-            result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(RequiredValidation(model, table, page, true));
+            result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
             result.AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");")
@@ -345,7 +345,9 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"    public Task<bool> Delete{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Delete, actor, cancellationToken);")
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
-                .AppendLine("        BeforeDelete(entity, actor);");
+                .AppendLine("        BeforeDelete(entity, actor);")
+                .Append(BoundRelationValidationRenderer.Call(model, table, page, true, true))
+                .Append(BoundRelationValidationRenderer.Call(model, table, page, true, false));
             if (table.Columns.Any(x => x.Source.ColumnName == "delete_no"))
                 result.AppendLine("        entity.DeleteNo = DateTime.UtcNow;").AppendLine("        var deleted = await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
             else result.AppendLine("        var deleted = await mapper.DeleteAsync(id, cancellationToken) == 1;"); result.AppendLine($"        if (deleted) await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, new HashSet<string>(), true, true, cancellationToken);").AppendLine("        return deleted;");
@@ -367,7 +369,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
         foreach (var column in table.Columns.Where(column => !column.IsSystem))
             result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
-        result.Append(Audit(table, true)).AppendLine("        BeforeSave(entity, actor, true, submitted);").AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);")
+        result.Append(Audit(table, true)).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
             .Append(RequiredValidation(model, table, page, false))
             .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");")
             .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);")
@@ -495,8 +497,9 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>数组、分页和已选回读共用目标、真实父记录和固定范围，不生成通用查询网关。</summary>
     private static string Relations(GenerationModel model, PageModel page)
     {
-        var result = new StringBuilder(); var relations = RelationCompilation.ForPage(model, page);
-        if (relations.Count == 0) return "";
+        var visibleRelations = RelationCompilation.ForPage(model, page);
+        var result = new StringBuilder(); var relations = visibleRelations.Concat(RelationCompilation.ForPage(model, page, true)).DistinctBy(relation => relation.SourceColumn.Source.Id).ToArray();
+        if (relations.Length == 0) return "";
         // 来源父验证单独复用，使空导出也不会跳过真实父记录校验。
         var sourceParents = relations[0].SourceParents;
         result.AppendLine("    /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>")
@@ -518,14 +521,21 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
-                .AppendLine($"    private async Task<ISelect<{relation.Target.Name}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)")
-                .AppendLine("    {").AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);");
+                .AppendLine($"    private async Task<ISelect<{relation.Target.Name}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)")
+                .AppendLine("    {");
+            if (relation.ParentBinding?.Declared == true)
+            {
+                if (relation.ParentBinding.Binding is null) result.AppendLine($"        RejectBound{page.Source.Id}({Literal(relation.ParentBinding.Reason!)});");
+                else result.AppendLine($"        targetParentId = (await ResolveBound{suffix}Async(parentId, targetParentId, actor, locking, requireSourceList, cancellationToken)).ToString(CultureInfo.InvariantCulture);");
+            }
+            else result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);");
             var sameParent = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
             if (relation.TargetParents.Count > 0)
             {
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
-                for (var index = 0; index < relation.TargetParents.Count; index++) Parent(relation.TargetParents[index], "targetParentKey", "targetParent" + index);
+                if (relation.ParentBinding?.Binding is null)
+                    for (var index = 0; index < relation.TargetParents.Count; index++) Parent(relation.TargetParents[index], "targetParentKey", "targetParent" + index);
             }
             else result.AppendLine("        if (targetParentId is not null) throw new ArgumentException(\"当前关联不使用 targetParentId。\");");
             if (relation.SourceParents.Count == 0 && relation.TargetParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
@@ -535,23 +545,38 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
-            result.AppendLine("        return query;").AppendLine("    }")
-                .AppendLine("    /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>")
+            if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")
+            {
+                foreach (var flag in relation.Target.Columns.Where(column => column.Source.ColumnName is "is_virtual_column" or "is_join_column"))
+                    result.AppendLine($"        query = query.Where(entity => entity.{flag.Property} == null || entity.{flag.Property} != {(flag.Type == "bool?" ? "true" : "1")});");
+                var kind = relation.Target.Columns.Single(column => column.Source.ColumnName == "control_kind");
+                result.AppendLine($"        query = query.Where(entity => entity.{kind.Property} == null || entity.{kind.Property} != \"Title\" && entity.{kind.Property} != \"Tab\");");
+            }
+            if (relation.ParentBinding?.Binding is not null)
+                result.AppendLine("        // 读取以同句相关范围防换表；写入已持有源父和归属当前读锁，不混入旧一致性快照。")
+                    .AppendLine($"        if (!locking) query = ApplyBoundScope{suffix}(query, long.Parse(parentId!, NumberStyles.None, CultureInfo.InvariantCulture), actor);");
+            var optionOrder = relation.OptionsOrder is {} ordering
+                ? string.Concat(ordering.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => entity.{item.Column.Property})"))
+                : $".OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id)";
+            result.AppendLine("        return query;").AppendLine("    }");
+            // 隐藏字段只生成最终值校验所需的私有范围，不新增公开候选方法或Controller路由。
+            if (!visibleRelations.Any(candidate => candidate.SourceColumn.Source.Id == relation.SourceColumn.Source.Id)) continue;
+            result.AppendLine("    /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>")
                 .AppendLine($"    public async Task<IReadOnlyList<GeneratedOption>> Options{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken, string? targetParentId = null)")
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .AppendLine($"        var query = await OptionsScope{suffix}Async(request.ParentId, targetParentId, actor, cancellationToken);")
-                .AppendLine($"        var entities = await query.OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
+                .AppendLine($"        var entities = await query{optionOrder}.Limit(5001).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
                 .AppendLine($"        if (entities.Count > 5000) throw new InvalidOperationException({Literal("关联候选超过 5000 条，请使用 " + relation.Endpoint + "/page 分页查询。")});")
                 .AppendLine($"        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();")
                 .AppendLine("    }")
-                .AppendLine("    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>")
+                .AppendLine("    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>")
                 .AppendLine($"    public async Task<PageResult<GeneratedOption>> OptionsPage{suffix}Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); request.Validate();")
                 .AppendLine($"        var query = await OptionsScope{suffix}Async(request.ParentId, request.TargetParentId, actor, cancellationToken);")
                 .AppendLine("        if (!string.IsNullOrEmpty(request.Keyword))").AppendLine("        {").AppendLine("            var keyword = request.Keyword;")
                 .AppendLine($"            query = query.Where(entity => entity.{relation.NameColumn.Property} != null && entity.{relation.NameColumn.Property}.Contains(keyword));")
                 .AppendLine("        }").AppendLine("        var total = await query.CountAsync(cancellationToken);")
-                .AppendLine($"        var entities = await query.OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Page(request.PageNo, request.PageSize).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
+                .AppendLine($"        var entities = await query{optionOrder}.Page(request.PageNo, request.PageSize).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
                 .AppendLine($"        return new(entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
                 .AppendLine("    }")
                 .AppendLine("    /// <summary>已选回读忽略当前关键词，但不得扩大项目、页面或控件范围。</summary>")
@@ -559,7 +584,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
                 .AppendLine($"        var query = await OptionsScope{suffix}Async(request.ParentId, request.TargetParentId, actor, cancellationToken);")
                 .AppendLine("        if (selected.Length == 0) return [];")
-                .AppendLine($"        var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
+                .AppendLine($"        var entities = await query.Where(entity => selected.Contains(entity.Id)){optionOrder}.Limit(200).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
                 .AppendLine("        if (entities.Count != selected.Length) throw new InvalidOperationException(\"关联已选项不存在、已删除或不在当前可选范围。\");")
                 .AppendLine($"        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();")
                 .AppendLine("    }");

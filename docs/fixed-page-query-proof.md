@@ -19,7 +19,7 @@
 
 `config_child` 页 `1679390851298631682` 的 `parent_config_page_id` / `child_config_page_id` 页配置均指向目标页 `1869016706289577986`，保留 `whereSql=yz_project_id=@current_yz_project_id` 与 `orderBy=id desc`。目标 config_page 表为非 global，实际查询含未删除、真实 Actor 项目约束，没有父范围，并默认 `id desc`。因此这两项是已有范围与排序的重复声明，可以安全接通原名称筛选。
 
-保留原列表输入及辅助键 `parentConfigPageName`、`childConfigPageName`，名称谓词仍在共享 Query 的分页前执行，page/count/export 继续复用。角色权限引用修正后的 6 项能力缺口只减少这两个筛选项，剩余 4 个详情关系保持明确 Gap，Full 包门禁继续拒绝未完成能力。
+保留原列表输入及辅助键 `parentConfigPageName`、`childConfigPageName`，名称谓词仍在共享 Query 的分页前执行，page/count/export 继续复用。该查询证明独立验收时，角色权限引用修正后的 6 项能力缺口只减少这两个筛选项，剩余 4 个详情关系保持明确 Gap；后续[固定源父归属](fixed-parent-column-relations.md)单独接通其中两项。Full 包门禁继续拒绝剩余未完成能力。
 
 ## 验证与升级边界
 

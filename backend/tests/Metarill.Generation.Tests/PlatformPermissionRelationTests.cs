@@ -21,10 +21,8 @@ public sealed class PlatformPermissionRelationTests
     ];
     private static readonly string[] RemainingGaps =
     [
-        "2076977554350190593:config_column_id:detail",
         "6031906822946816:yz_role_ids:detail",
-        "6186303424888832:yz_yzp_version_id:detail",
-        "6218036784398336:config_column_id:detail"
+        "6186303424888832:yz_yzp_version_id:detail"
     ];
 
     /// <summary>直接验证首次安装源的固定表页关系，不通过放宽编译器或移除原控件消除缺口。</summary>

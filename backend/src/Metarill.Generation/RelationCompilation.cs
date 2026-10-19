@@ -4,7 +4,8 @@ using System.Text.Json.Nodes;
 namespace Metarill.Generation;
 
 internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target, PageModel TargetPage, ColumnModel NameColumn, string Endpoint,
-    IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents)
+    IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents,
+    FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null)
 {
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
@@ -23,10 +24,11 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 internal static class RelationCompilation
 {
     /// <summary>把字段与页面覆盖合并后编译一次，三种候选入口共用同一范围。</summary>
-    public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page)
+    public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page, bool forService = false)
     {
         var relations = new List<RelationModel>();
-        foreach (var source in page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id).Where(c => c.Source.ControlKind == "List"))
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(FixedParentRelationCompilation.HasDeclaration) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        foreach (var source in candidates.Where(c => c.Source.ControlKind == "List"))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);
@@ -54,7 +56,14 @@ internal static class RelationCompilation
             var scopes = GenerationModel.CompileScopes(Mapped("whereSql"), target.Columns);
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
-            relations.Add(new RelationModel(source, target, targetPage, name, "findNameId" + target.Name + source.Source.Id, scopes, sourceParents, targetParents));
+            var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
+            IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
+            if (binding.Binding is not null && !string.IsNullOrWhiteSpace(Mapped("orderBy")))
+            {
+                try { var order = GenerationModel.ValidateOrderBy(Mapped("orderBy"), target.Columns).ToList(); if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false)); ordering = order; }
+                catch (InvalidOperationException) { binding = new(true, null, "固定归属候选排序不能安全编译。"); }
+            }
+            relations.Add(new RelationModel(source, target, targetPage, name, "findNameId" + target.Name + source.Source.Id, scopes, sourceParents, targetParents, binding, ordering));
         }
         return relations;
     }
