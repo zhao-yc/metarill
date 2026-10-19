@@ -12,7 +12,7 @@
 
 ## 接入边界
 
-用户已决定保留现有交互设计，待确认原组件许可后接入。选择器和富文本编辑当前显式标记不可用，不使用简化替代交互；原字段值和 sendRtf/onReceiveRtf 协议保持。详见 THIRD-PARTY-NOTICES.md。
+原搜索/多选选择器已确认 MIT 许可并按原组件接回。富文本按用户选择使用自有 Tiny Cloud，保留原编辑/预览和 sendRtf/onReceiveRtf 协议；key 暂留空时显示待配置且不加载远端脚本。配置见 docs/tiny-cloud.md，许可见 THIRD-PARTY-NOTICES.md。实际 Cloud 与多端验收仍待执行。
 
 生成页面由平台元数据和生成器维护；此批导入是旧页面ID、API外观和通用组件的脱敏基线，后续更新必须回到元数据/模板来源。
 
