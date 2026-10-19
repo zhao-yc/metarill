@@ -18,8 +18,9 @@ public partial class DemoCustomerService
     private readonly DemoCustomerMapper mapper;
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
-    /// <summary>注入当前事务、类型持久化及标识生成器。</summary>
-    public DemoCustomerService(DatabaseSession session, DemoCustomerMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; }
+    private readonly IEnumerable<IRecordMutationGuard> guards;
+    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
+    public DemoCustomerService(DatabaseSession session, DemoCustomerMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -140,7 +141,8 @@ public partial class DemoCustomerService
     /// <summary>任意行失败时撤销整批；单行复用标准新增或明确字段更新。</summary>
     public Task<string> Import2200000000000100020Async(DemoCustomerPage2200000000000100020ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
-        ArgumentNullException.ThrowIfNull(request); ValidateActor(actor);
+        ArgumentNullException.ThrowIfNull(request);
+        await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Import, actor, cancellationToken);
         if (request.RequestJson.ValueKind != JsonValueKind.Array) throw new ArgumentException("requestJson 必须为 Excel 解析后的行数组。");
         await ValidateParents2200000000000100020Async(request.ParentId, actor, cancellationToken);
         var rowNumber = 0;
@@ -200,7 +202,7 @@ public partial class DemoCustomerService
     public Task<DemoCustomerPage2200000000000100020Vo> Create2200000000000100020Async(DemoCustomerPage2200000000000100020CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateActor(actor);
+        await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Create, actor, cancellationToken);
         await ValidateParents2200000000000100020Async(parentId, actor, cancellationToken);
         var entity = new DemoCustomer { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -228,6 +230,7 @@ public partial class DemoCustomerService
     public Task<DemoCustomerPage2200000000000100020Vo> Update2200000000000100020Async(DemoCustomerPage2200000000000100020UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
+        await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Update, actor, cancellationToken);
         var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -252,6 +255,7 @@ public partial class DemoCustomerService
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete2200000000000100020Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
+        await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Delete, actor, cancellationToken);
         var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         BeforeDelete(entity, actor);
         entity.DeleteNo = DateTime.UtcNow;
@@ -262,6 +266,7 @@ public partial class DemoCustomerService
     /// <summary>复制受限记录，创建规则和文件引用仍处于同一事务。</summary>
     public Task<DemoCustomerPage2200000000000100020Vo> Copy2200000000000100020Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
+        await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Copy, actor, cancellationToken);
         await ValidateParents2200000000000100020Async(parentId, actor, cancellationToken);
         var source = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var entity = new DemoCustomer { Id = ids.NextId() };
@@ -286,6 +291,14 @@ public partial class DemoCustomerService
         await NotifyDemoCustomerAsync("2200000000000100020", entity, actor, submitted, false, true, cancellationToken);
         return DemoCustomerPage2200000000000100020Vo.FromEntity(entity);
     }, cancellationToken);
+    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
+        foreach (var guard in guards)
+            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "demo_customer", operation, actor, transaction), cancellationToken);
+    }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyDemoCustomerAsync(string pageId, DemoCustomer entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {

@@ -62,6 +62,7 @@ builder.Services.AddScoped<HttpRuntimeAuthorization>();
 builder.Services.AddScoped<IRuntimeAuthorization>(sp=>sp.GetRequiredService<HttpRuntimeAuthorization>());
 builder.Services.AddScoped<MenuWorkbenchBusiness>();
 builder.Services.AddScoped<RolePermissionBusiness>();
+builder.Services.AddScoped<IRecordMutationGuard,ConfigurationMutationGuard>();
 builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver>();
 builder.Services.AddScoped<ConfigurationMutationObserver>();
 builder.Services.AddScoped<MetadataWorkbenchBusiness>();

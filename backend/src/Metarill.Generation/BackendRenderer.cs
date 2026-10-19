@@ -133,7 +133,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
             .AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Mappers;")
-            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    /// <summary>注入当前事务、类型持久化及标识生成器。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; }}")
+            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; }}")
             .AppendLine("    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();")
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
             .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }")
@@ -148,9 +148,21 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page));
             result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
-        result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
+        result.Append(Preparation(table)); result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
-    /// <summary>编译范围、筛选、排序及分页条件。</summary>
+    /// <summary>准备守卫在实际事务内、首次父记录或对象锁之前执行，空集合不改变普通业务规则。</summary>
+    private static string Preparation(TableModel table) => $$"""
+    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
+        foreach (var guard in guards)
+            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "{{table.Source.TableName}}", operation, actor, transaction), cancellationToken);
+    }
+
+""";
+
     /// <summary>新增父键必须对应真实存在且属于当前项目的父记录。</summary>
     private static string ParentValidation(GenerationModel model, TableModel table, PageModel page)
     {
@@ -259,7 +271,8 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         {
             result.AppendLine("    /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>")
                 .AppendLine($"    public Task<{page.Name}Vo> Create{suffix}Async({page.Name}CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
-                .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);").AppendLine("        ValidateActor(actor);")
+                .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
+                .AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Create, actor, cancellationToken);")
                 .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken);").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
             foreach (var column in page.Writable)
@@ -282,6 +295,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>")
                 .AppendLine($"    public Task<{page.Name}Vo> Update{suffix}Async({page.Name}UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
+                .AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Update, actor, cancellationToken);")
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in page.Writable)
@@ -299,7 +313,8 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         {
             result.AppendLine("    /// <summary>先校验数据范围，再在同一事务内删除。</summary>")
                 .AppendLine($"    public Task<bool> Delete{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
-                .AppendLine("    {").AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .AppendLine("    {").AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Delete, actor, cancellationToken);")
+                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        BeforeDelete(entity, actor);");
             if (table.Columns.Any(x => x.Source.ColumnName == "delete_no"))
                 result.AppendLine("        entity.DeleteNo = DateTime.UtcNow;").AppendLine("        var deleted = await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
@@ -315,6 +330,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder().AppendLine("    /// <summary>复制受限记录，创建规则和文件引用仍处于同一事务。</summary>")
             .AppendLine($"    public Task<{page.Name}Vo> Copy{page.Source.Id}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
             .AppendLine("    {")
+            .AppendLine($"        await PrepareMutationAsync({Literal(page.Source.Id)}, RecordMutationOperation.Copy, actor, cancellationToken);")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
             .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
             .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};")
@@ -480,7 +496,7 @@ public partial class {{table.Name}}Service
             .AppendLine("        services.AddScoped<GeneratedDatabaseSession>(provider => new((databaseFactory ?? (sp => sp.GetRequiredService<DatabaseSession>()))(provider)));");
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
-                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>()));");
+                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>()));");
         return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").ToString();
     }
 }

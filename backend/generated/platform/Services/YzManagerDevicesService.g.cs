@@ -18,8 +18,9 @@ public partial class YzManagerDevicesService
     private readonly YzManagerDevicesMapper mapper;
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
-    /// <summary>注入当前事务、类型持久化及标识生成器。</summary>
-    public YzManagerDevicesService(DatabaseSession session, YzManagerDevicesMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; }
+    private readonly IEnumerable<IRecordMutationGuard> guards;
+    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
+    public YzManagerDevicesService(DatabaseSession session, YzManagerDevicesMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -119,7 +120,7 @@ public partial class YzManagerDevicesService
     public Task<YzManagerDevicesPage6220589291798528Vo> Create6220589291798528Async(YzManagerDevicesPage6220589291798528CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateActor(actor);
+        await PrepareMutationAsync("6220589291798528", RecordMutationOperation.Create, actor, cancellationToken);
         await ValidateParents6220589291798528Async(parentId, actor, cancellationToken);
         var entity = new YzManagerDevices { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -146,6 +147,7 @@ public partial class YzManagerDevicesService
     public Task<YzManagerDevicesPage6220589291798528Vo> Update6220589291798528Async(YzManagerDevicesPage6220589291798528UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
+        await PrepareMutationAsync("6220589291798528", RecordMutationOperation.Update, actor, cancellationToken);
         var entity = await Scope6220589291798528(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.YzManagerId.IsSpecified) { entity.YzManagerId = request.YzManagerId.Value; submitted.Add("yz_manager_id"); }
@@ -169,6 +171,7 @@ public partial class YzManagerDevicesService
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6220589291798528Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
+        await PrepareMutationAsync("6220589291798528", RecordMutationOperation.Delete, actor, cancellationToken);
         var entity = await Scope6220589291798528(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         BeforeDelete(entity, actor);
         entity.DeleteNo = DateTime.UtcNow;
@@ -176,6 +179,14 @@ public partial class YzManagerDevicesService
         if (deleted) await NotifyYzManagerDevicesAsync("6220589291798528", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
     }, cancellationToken);
+    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
+        foreach (var guard in guards)
+            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "yz_manager_devices", operation, actor, transaction), cancellationToken);
+    }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyYzManagerDevicesAsync(string pageId, YzManagerDevices entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {

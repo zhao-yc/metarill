@@ -24,14 +24,14 @@ public sealed partial class ApiAcceptanceTests
     private static async Task<JsonElement> Post(HttpClient client,string path,object body)=>await Body(await client.PostAsJsonAsync("/api"+path,body));
     private static JsonElement Data(JsonElement json){Assert.True(json.GetProperty("code").GetInt32()==200,json.ToString());return json.GetProperty("data");}
     /// <summary>测试库名称必须显式含 test，禁止误用开发库或生产库做验收清理。</summary>
-    private static async Task<(WebApplicationFactory<Program>,HttpClient)> Login()
+    private static async Task<(WebApplicationFactory<Program>,HttpClient)> Login(Func<WebApplicationFactory<Program>,WebApplicationFactory<Program>>? customize=null)
     {
         var settings=Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!;
         var config=Json(await File.ReadAllTextAsync(settings));
         foreach(var key in new[]{"Database","BusinessDatabase"})
             Assert.Contains("test",config.GetProperty("Metarill").GetProperty(key).GetProperty("ExpectedDatabase").GetString()!,StringComparison.OrdinalIgnoreCase);
         Environment.SetEnvironmentVariable("METARILL_SETTINGS",settings);
-        var factory=new WebApplicationFactory<Program>();var client=factory.CreateClient();
+        var factory=new WebApplicationFactory<Program>();if(customize is not null)factory=customize(factory);var client=factory.CreateClient();
         var bootstrap=config.GetProperty("Metarill").GetProperty("Bootstrap");
         var login=await Body(await client.PostAsync("/api/admin/sys/yz_manager/login",new FormUrlEncodedContent(new Dictionary<string,string>{{"username",bootstrap.GetProperty("Username").GetString()!},{"password",bootstrap.GetProperty("Password").GetString()!}})));
         Data(login);client.DefaultRequestHeaders.Add("loginStateId",login.GetProperty("map").GetProperty("loginStateId").GetString());

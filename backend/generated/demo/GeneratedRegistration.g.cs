@@ -13,7 +13,7 @@ public static class GeneratedRegistration
     {
         services.AddScoped<GeneratedDatabaseSession>(provider => new((databaseFactory ?? (sp => sp.GetRequiredService<DatabaseSession>()))(provider)));
         services.AddScoped<Mappers.DemoCustomerMapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));
-        services.AddScoped<Services.DemoCustomerService>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.DemoCustomerMapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>()));
+        services.AddScoped<Services.DemoCustomerService>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.DemoCustomerMapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>()));
         return services;
     }
 }

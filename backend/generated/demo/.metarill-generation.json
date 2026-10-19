@@ -18,7 +18,7 @@
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "ac211460059dc3dc3980eee0c44e36fdda2d2531e8b1896d6ae64a74b58c0c0d"
+      "sha256": "a0ea0336e8d2ce9f6650ad73e5ae8fd0c27f595fe099275dfa8f742855b9ae4a"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -30,7 +30,7 @@
     },
     {
       "path": "Services/DemoCustomerService.g.cs",
-      "sha256": "50ffe5657db2e0d4e6bb950ea281f194085f8ed5a3875cdd7d5c368e6ce2bfb4"
+      "sha256": "47bdc6d2e3f1cca066eb5b218d2e84fc486ba1017f62312706c4530628d1d9b6"
     },
     {
       "path": "VOs/DemoCustomerPage2200000000000100020Vo.g.cs",

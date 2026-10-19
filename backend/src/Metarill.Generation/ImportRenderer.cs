@@ -42,7 +42,8 @@ public sealed class {{page.Name}}ImportRequest
         if (overwrite && columns.Count == 0) throw new InvalidOperationException("覆盖导入至少需要一个可导入字段。");
         var result = new StringBuilder().AppendLine("    /// <summary>任意行失败时撤销整批；单行复用标准新增或明确字段更新。</summary>")
             .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
-            .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); ValidateActor(actor);")
+            .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
+            .AppendLine($"        await PrepareMutationAsync({Literal(page.Source.Id)}, RecordMutationOperation.Import, actor, cancellationToken);")
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"requestJson 必须为 Excel 解析后的行数组。\");")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);")
             .AppendLine("        var rowNumber = 0;")

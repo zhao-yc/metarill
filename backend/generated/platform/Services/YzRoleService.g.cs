@@ -18,8 +18,9 @@ public partial class YzRoleService
     private readonly YzRoleMapper mapper;
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
-    /// <summary>注入当前事务、类型持久化及标识生成器。</summary>
-    public YzRoleService(DatabaseSession session, YzRoleMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; }
+    private readonly IEnumerable<IRecordMutationGuard> guards;
+    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
+    public YzRoleService(DatabaseSession session, YzRoleMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -132,7 +133,7 @@ public partial class YzRoleService
     public Task<YzRolePage1692532858529329154Vo> Create1692532858529329154Async(YzRolePage1692532858529329154CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateActor(actor);
+        await PrepareMutationAsync("1692532858529329154", RecordMutationOperation.Create, actor, cancellationToken);
         await ValidateParents1692532858529329154Async(parentId, actor, cancellationToken);
         var entity = new YzRole { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -164,6 +165,7 @@ public partial class YzRoleService
     public Task<YzRolePage1692532858529329154Vo> Update1692532858529329154Async(YzRolePage1692532858529329154UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
+        await PrepareMutationAsync("1692532858529329154", RecordMutationOperation.Update, actor, cancellationToken);
         var entity = await Scope1692532858529329154(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -192,6 +194,7 @@ public partial class YzRoleService
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete1692532858529329154Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
+        await PrepareMutationAsync("1692532858529329154", RecordMutationOperation.Delete, actor, cancellationToken);
         var entity = await Scope1692532858529329154(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         BeforeDelete(entity, actor);
         entity.DeleteNo = DateTime.UtcNow;
@@ -199,6 +202,14 @@ public partial class YzRoleService
         if (deleted) await NotifyYzRoleAsync("1692532858529329154", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
     }, cancellationToken);
+    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
+        foreach (var guard in guards)
+            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "yz_role", operation, actor, transaction), cancellationToken);
+    }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyYzRoleAsync(string pageId, YzRole entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {

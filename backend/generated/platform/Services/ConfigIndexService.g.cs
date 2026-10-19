@@ -18,8 +18,9 @@ public partial class ConfigIndexService
     private readonly ConfigIndexMapper mapper;
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
-    /// <summary>注入当前事务、类型持久化及标识生成器。</summary>
-    public ConfigIndexService(DatabaseSession session, ConfigIndexMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; }
+    private readonly IEnumerable<IRecordMutationGuard> guards;
+    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
+    public ConfigIndexService(DatabaseSession session, ConfigIndexMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -114,6 +115,14 @@ public partial class ConfigIndexService
         query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5000).ToListAsync(cancellationToken);
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
+        foreach (var guard in guards)
+            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "config_index", operation, actor, transaction), cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyConfigIndexAsync(string pageId, ConfigIndex entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
