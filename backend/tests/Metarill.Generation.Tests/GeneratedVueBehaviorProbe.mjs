@@ -12,13 +12,14 @@ const plain = value => JSON.parse(JSON.stringify(value))
 function fixture(source, parameters = {}) {
  const requests = [], navigations = [], dialogs = [], toasts = [], emissions = [], storage = { loginStateId: '测试身份', sysParams: { yzProjectId: '100' } }
  const context = { JSON, Date, Number, Object, Array,
-  yzp: { request: options => { const task = { aborted: false, abort() { task.aborted = true } }; requests.push({ options, task }); return task }, chooseImportFile() {}, importSuccessAction() {} },
+  yzp: { request: options => { const task = { aborted: false, abort() { task.aborted = true } }; requests.push({ options, task }); return task }, chooseImportFile() {}, importSuccessAction() {}, hasPagePermission: () => true, refreshCurrentPermissions: ready => ready() },
   utils: { openUrl: url => navigations.push(url) },
   getApp: () => ({ globalData: { environment: { base_url: 'https://test.example/api' } } }),
   uni: { getStorageSync: key => storage[key], navigateTo: options => navigations.push(options), showModal: options => dialogs.push(options), showToast: options => toasts.push(options), navigateBack() {} } }
- const script = source.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^import .*;$/gm, '').replace('export default', 'globalThis.options =')
+ const script = source.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^import .*;$/gm, '').replace(/components: \{[^}]*\},/, 'components: {},').replace('export default', 'globalThis.options =')
  vm.runInNewContext(script, context)
- const options = context.options, state = Object.assign(options.data(), options.methods, { getOpenerEventChannel: () => ({ emit: (name, value) => emissions.push({ name, value }) }) })
+ const options = context.options, state = Object.assign(Object.fromEntries(Object.entries(options.props || {}).map(([key, value]) => [key, value.default])), options.data(), options.methods, { $refs: {}, $nextTick: callback => callback(), getOpenerEventChannel: () => ({ emit: (name, value) => emissions.push({ name, value }) }) })
+ for (const [name, getter] of Object.entries(options.computed || {})) Object.defineProperty(state, name, { get: () => getter.call(state) })
  options.onLoad.call(state, { parentId: '父记录甲', ...parameters })
  return { state, options, requests, navigations, dialogs, toasts, emissions, storage,
   pages: () => requests.filter(item => item.options.url.endsWith('/page')),

@@ -10,6 +10,7 @@ internal static class UniappRenderer
     public static IEnumerable<PlannedFile> Render(GenerationModel model)
     {
         var routes = new List<object>(); var gaps = new List<object>();
+        var childDefinitions = ChildrenCompilation.Compile(model);
         foreach (var table in model.Tables)
         foreach (var page in table.Pages)
         {
@@ -22,10 +23,19 @@ internal static class UniappRenderer
             foreach (var filter in filters.Where(item => item.Control.UnsupportedReason is not null))
                 gaps.Add(new { pageId = page.Source.Id, column = filter.Column.Source.ColumnName, usage = "filter", reason = filter.Control.UnsupportedReason });
             var supported = filters.Where(item => item.Control.UnsupportedReason is null).ToArray();
+            var children = childDefinitions.Where(child => child.Parent == page).ToArray();
+            var tabs = ChildrenCompilation.Tabs(page);
             var stem = table.Source.TableName;
             var listPath = $"pages/yzp/{stem}-list-{page.Source.Id}"; var detailPath = $"pages/yzp/{stem}-detail-{page.Source.Id}";
             var parameters = new Dictionary<string, string>
             {
+                ["CHILD_IMPORTS"] = string.Join("\n", children.Select(child => $"import {child.Component} from '@/pages/yzp/{child.Table.Source.TableName}-list-{child.Page.Source.Id}.vue';")),
+                ["CHILD_COMPONENTS"] = string.Join(", ", children.Select(child => child.Component)),
+                ["CHILDREN_JSON"] = JsonSerializer.Serialize(children.Select(child => new { id = child.Id, pageId = child.Page.Source.Id, name = child.Page.Source.Name })),
+                ["CHILDREN_MARKUP"] = ChildrenMarkup(page, children, tabs),
+                ["CAN_UPDATE"] = ChildrenCompilation.CanUpdate(page).ToString().ToLowerInvariant(),
+                ["REQUIRES_PARENT"] = page.Scopes.Any(scope => scope.Source == "parent").ToString().ToLowerInvariant(),
+                ["READONLY_FIELD"] = JsonSerializer.Serialize(ChildrenCompilation.ReadonlyField(page)),
                 ["TITLE"] = Escape(page.Source.Name), ["API"] = "/admin/auto/" + stem + "/" + page.Source.Id,
                 ["DETAIL_ROUTE"] = "/" + detailPath,
                 ["CAN_CREATE"] = (page.Source.IsNew == 1).ToString().ToLowerInvariant(),
@@ -55,6 +65,20 @@ internal static class UniappRenderer
         }
         yield return new("generation-capabilities.json", JsonSerializer.Serialize(new { schemaVersion = 1, unsupportedControls = gaps }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
         yield return new("frontend/pages.generated.json", JsonSerializer.Serialize(new { pages = routes }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
+    }
+
+    /// <summary>子页放在父表单之外，保存成功后挂载；页签切换保持子列表的筛选和分页状态。</summary>
+    private static string ChildrenMarkup(PageModel page, IReadOnlyList<ChildModel> children, bool tabs)
+    {
+        if (children.Count == 0) return "";
+        var content = new System.Text.StringBuilder("    <view v-if=\"childrenReady\" class=\"yzp-children\">\n");
+        if (tabs) content.AppendLine("      <view class=\"yzp-child-tabs\"><scroll-view class=\"yzp-child-tabs__scroll\" scroll-x><view class=\"yzp-child-tabs__inner\"><view v-for=\"(item, index) in children\" :key=\"item.id\" class=\"yzp-child-tabs__item\" :class=\"{ 'is-active': currentChild === index }\" @click=\"selectChild(index)\"><text class=\"yzp-child-tabs__text\">{{ item.name }}</text></view></view></scroll-view></view>");
+        for (var index = 0; index < children.Count; index++)
+        {
+            var child = children[index];
+            content.AppendLine($"      <view{(tabs ? $" v-show=\"currentChild === {index}\"" : "")}><{child.Component} :key=\"id + ':{child.Id}'\" ref=\"child_{child.Id}\" :parent_id=\"id\" parent_page_sn=\"{page.Source.Id}\" :is_son_page=\"true\" :child_page_open_type=\"{child.OpenType}\" :parentReadOnlyCondition=\"readOnlyCondition\" /></view>");
+        }
+        return content.AppendLine("    </view>").Append("    <view v-else class=\"uni-padding-wrap\"><text>为避免数据丢失，请先保存当前页面的数据，再维护子表。</text></view>").ToString();
     }
 
     /// <summary>列表复杂内容复用原只读组件或预览入口，常量和关系显示统一消费实际 VO。</summary>

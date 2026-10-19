@@ -10,11 +10,11 @@ internal sealed record ControlResult(string Markup, string? UnsupportedReason = 
 /// <summary>复用原有控件；只编译已完成的类型，未接入的能力同时标明原因。</summary>
 internal static class ControlRenderer
 {
-    /// <summary>按声明控件生成原有编辑器，字段是否可写只由当前页白名单决定。</summary>
+    /// <summary>按声明控件生成原有编辑器，字段白名单与整页只读共同限制编辑。</summary>
     public static ControlResult Render(GenerationModel model, TableModel table, PageModel page, ColumnModel column)
     {
         var label = Escape(column.Source.Name);
-        var binding = $":modelValue=\"entity.{column.JsonName}\"";
+        var binding = $":modelValue=\"entity.{column.JsonName}\" :disabled=\"readOnlyCondition\"";
         var change = $"@update:modelValue=\"change('{column.JsonName}', $event)\"";
         var wrapper = $"      <uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">";
         ControlResult Wrap(string content, string? reason = null) => new(wrapper + content + "</uni-forms-item>", reason);
@@ -24,7 +24,7 @@ internal static class ControlRenderer
             return Wrap($"<text>{{{{ entity.{column.JsonName} }}}}</text><text>此关系控件待移植，当前只读</text>", "目标关系尚未完成移植：" + column.Source.ControlKind);
         if (column.Source.ControlKind == "FileLibrary") return Wrap(FileLibraryMarkup(table, page, column, "entity", writable));
         if (column.Source.ControlKind == "RTF" && column.Type == "string?")
-            return Wrap((writable ? $"<button size=\"mini\" @click=\"openRtf('{column.JsonName}', 'edit')\">编辑</button>" : "") + $"<button size=\"mini\" @click=\"openRtf('{column.JsonName}', 'review')\">预览</button><rich-text :nodes=\"entity.{column.JsonName} || ''\" />");
+            return Wrap((writable ? $"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"openRtf('{column.JsonName}', 'edit')\">编辑</button>" : "") + $"<button size=\"mini\" @click=\"openRtf('{column.JsonName}', 'review')\">预览</button><rich-text :nodes=\"entity.{column.JsonName} || ''\" />");
         if (!writable && column.Source.ControlKind == "IntenetImage") return Wrap($"<image v-if=\"entity.{column.JsonName}\" :src=\"entity.{column.JsonName}\" mode=\"aspectFit\" />");
         if (!writable && column.Source.ControlKind is "" or "TextArea" or "ConstList" or "ConstDownList" or "CheckBox" or "date" or "date_time" or "List" or "SelectPage" or "IntenetImage")
             return Wrap($"<text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text>");
@@ -44,11 +44,11 @@ internal static class ControlRenderer
                 break;
             case "SelectPage":
                 var target = SelectionTarget(model, column);
-                if (target is not null) return Wrap($"<button size=\"mini\" @click=\"selectPage('{column.JsonName}', '{target}')\">选择</button><text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text>");
+                if (target is not null) return Wrap($"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"selectPage('{column.JsonName}', '{target}')\">选择</button><text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text>");
                 break;
             case "CustomControl":
                 if (Regex.IsMatch(column.Source.ControlDetail, "^yzp-[a-z0-9]+(?:-[a-z0-9]+)*$"))
-                    return Wrap($"<{column.Source.ControlDetail} :entity=\"entity\" :record-id=\"id\" :readonly=\"{(!writable).ToString().ToLowerInvariant()}\" {(writable ? "@receive=\"applyCustom\"" : "")} />");
+                    return Wrap($"<{column.Source.ControlDetail} :entity=\"entity\" :record-id=\"id\" :readonly=\"{(writable ? "readOnlyCondition" : "true")}\" {(writable ? "@receive=\"applyCustom\"" : "")} />");
                 break;
             case "IntenetImage":
                 return Wrap($"<image v-if=\"entity.{column.JsonName}\" :src=\"entity.{column.JsonName}\" mode=\"aspectFit\" /><uni-easyinput {binding} {change} />");
@@ -105,7 +105,7 @@ internal static class ControlRenderer
         }
         var record = row == "entity" ? "id" : row + ".id";
         var events = writable ? $" @update:modelValue=\"change('{column.JsonName}', $event)\"" : "";
-        return $"<yzp-file-library :modelValue=\"{row}.{column.JsonName}\"{events} config-column-id=\"{column.Source.Id}\" page-id=\"{page.Source.Id}\" table-id=\"{table.Source.Id}\" :record-id=\"{record}\" :parent-id=\"parentId\" access-mode=\"{access}\" accept=\"{accept}\" :max-count=\"{maximum}\" :max-size-mb=\"{Math.Min(size, 100)}\" :extensions=\"{Escape(JsonSerializer.Serialize(extensions))}\" :allow-library=\"{allow.ToString().ToLowerInvariant()}\" :crop-images=\"{crop.ToString().ToLowerInvariant()}\" :readonly=\"{(!writable).ToString().ToLowerInvariant()}\" />";
+        return $"<yzp-file-library :modelValue=\"{row}.{column.JsonName}\"{events} config-column-id=\"{column.Source.Id}\" page-id=\"{page.Source.Id}\" table-id=\"{table.Source.Id}\" :record-id=\"{record}\" :parent-id=\"parentId\" access-mode=\"{access}\" accept=\"{accept}\" :max-count=\"{maximum}\" :max-size-mb=\"{Math.Min(size, 100)}\" :extensions=\"{Escape(JsonSerializer.Serialize(extensions))}\" :allow-library=\"{allow.ToString().ToLowerInvariant()}\" :crop-images=\"{crop.ToString().ToLowerInvariant()}\" :readonly=\"{(writable ? "readOnlyCondition" : "true")}\" />";
     }
 
     /// <summary>选择页必须存在于当前元数据生成目标，不拼接任意外部路由。</summary>
