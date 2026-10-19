@@ -24,7 +24,7 @@ public sealed class ApplicationPackager
         CSharpGenerator.SafePath(output, ".metarill-package.json");
         if (File.Exists(output) || Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new InvalidOperationException("独立包输出目录必须不存在或为空。");
         var source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceRoot));
-        foreach (var project in new[] { "Metarill.Core", "Metarill.Data" })
+        foreach (var project in new[] { "Metarill.Core", "Metarill.Data", "Metarill.Exports" })
             if (output.StartsWith(Path.Combine(source, "backend", "src", project) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || output.Equals(Path.Combine(source, "backend", "src", project), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("打包目录不能位于基础源码项目内部。");
         var stage = output.TrimEnd(Path.DirectorySeparatorChar) + ".staging-" + Guid.NewGuid().ToString("N");
         var redactions = new List<string>();
@@ -46,7 +46,7 @@ public sealed class ApplicationPackager
         {
             Directory.CreateDirectory(stage);
             var generated = new CSharpGenerator().Generate(sanitized, Path.Combine(stage, "backend/generated"), rootNamespace);
-            var projects = new[] { "Metarill.Core", "Metarill.Data" };
+            var projects = new[] { "Metarill.Core", "Metarill.Data", "Metarill.Exports" };
             var packageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var project in projects)
             {

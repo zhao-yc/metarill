@@ -1,5 +1,7 @@
 # 私有页面导出
 
+实现已提取到 `backend/src/Metarill.Exports`，平台 Runtime 与独立应用包引用同一份基础工程；保留 `Metarill.Runtime.Exports` 命名空间以兼容已有调用。该工程只依赖 Core、ClosedXML 和 ASP.NET Core 共享框架，不携带平台元数据、认证业务或数据库访问。
+
 - `ExcelPageExportService` 实现 Core 的 `IPageExportService`。生成层先完成页权限、真实项目范围、筛选及导出列投影；本服务只接受投影结果，不执行客户端 SQL。
 - 注册同一个单例供 `IPageExportService` 和下载端点使用，并注册 `ExportCleanupWorker`。下载 `/api/admin/sys/export/export?exportId=...` 必须先取得真实 `RuntimeActor`，再调用 `OpenAsync`；票据同时绑定账号和项目，管理员也不能借用他人票据。
 - 默认私有根目录 `.local/exports`，票据15分钟失效。到期后立即拒绝新下载；分钟级后台任务负责删除，已合法打开的流可完成传输。不得把目录作为静态资源公开。

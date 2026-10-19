@@ -34,6 +34,9 @@ public sealed class ApplicationPackagerTests : IDisposable
         Assert.DoesNotContain(source, host);
         Assert.DoesNotContain("Metarill.Runtime", host);
         Assert.Contains("../../src/Metarill.Data", host);
+        Assert.Contains("../../src/Metarill.Exports", host);
+        Assert.Contains("ClosedXML", File.ReadAllText(Path.Combine(output, "Directory.Packages.props")));
+        StandaloneExportHttpProbe.WriteFixture(output);
         Assert.Contains("environment.IsDevelopment()", File.ReadAllText(Path.Combine(output, "backend/Application.Host/DevelopmentAuthentication.cs")));
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var argument in new[] { "build", "backend/Application.Host/Application.Host.csproj", "--nologo", "--disable-build-servers", "--verbosity", "quiet" }) start.ArgumentList.Add(argument);
@@ -43,6 +46,7 @@ public sealed class ApplicationPackagerTests : IDisposable
         try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
         Assert.True(process.ExitCode == 0, await stdout.WaitAsync(timeout.Token) + await stderr.WaitAsync(timeout.Token));
         Assert.True(File.Exists(Path.Combine(output, "backend/Application.Host/packages.lock.json")));
+        await StandaloneExportHttpProbe.VerifyAsync(output);
     }
     [Fact]
     public void Failed_package_is_atomic_and_existing_output_is_never_overwritten()

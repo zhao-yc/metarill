@@ -1,6 +1,6 @@
 # 独立应用 {{NAMESPACE}}
 
-本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
+本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data/Exports 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
 
 ## 构建与结构同步
 
@@ -11,7 +11,7 @@ dotnet restore backend/Application.Host/Application.Host.csproj
 dotnet build backend/Application.Host/Application.Host.csproj --no-restore
 ```
 
-SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
+SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data/Exports 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
 
 通过环境变量设置 Database__Provider=mysql、Database__ConnectionString、Database__ExpectedDatabase，或在宿主目录自行创建已忽略的 appsettings.local.json。不要把真实凭据提交到仓库。
 
@@ -36,7 +36,11 @@ POST `/api/admin/sys/yz_manager/login`，JSON 或表单包含 username/password�
 
 生成服务 `.g.cs` 与手写 `.cs` 使用 partial；BeforeSave 修改派生字段后必须加入 submittedFields。write-schema 列出每页允许提交的字段，服务端拒绝未知和审计字段，省略与显式 null 含义不同。表范围、权限、ID、审计和事务在服务端执行。
 
-本包包含当前已实现的普通 CRUD、复制、JSON 行导入及查询导出投影。文件库、导出票据/下载、Agent、平台设计器和复杂自定义 SQL 未随包提供。未接入文件库时写入非空文件引用会回滚；导出调用明确返回不可用。正式宿主需替换 IRecordMutationObserver/IPageExportService 接口实现。
+本包包含当前已实现的普通 CRUD、复制、JSON 行导入及查询导出投影。文件库、Agent、平台设计器和复杂自定义 SQL 未随包提供。未接入文件库时写入非空文件引用会回滚；正式文件宿主需替换 IRecordMutationObserver 实现。
+
+标准 Excel 导出已经接通：沿用生成页的 initExport 和 `/api/admin/sys/export/export?exportId=...` 下载协议，筛选、页权限及导出列仍由生成服务确定。读取前先取得并发及票据额度，数据库按 MaxRows+1 检测超限，明确失败且不截断。下载必须携带当前登录头，票据绑定账号和项目；支持 Range，设置 private/no-store 与 nosniff。
+
+Exports 配置控制私有目录、有效期及资源上限；默认目录 `.local/exports`，正式部署应提供持久存储且不能映射为静态资源。票据保存在单进程内存，15分钟到期，重启立即失效；后台分钟级清理过期和崩溃遗留文件。多实例需会话亲和或另行接入共享票据，当前不提供跨实例下载保证。可在手写 partial 中替换 IPageExportService，必须实现读取前门禁重载；不支持的实现默认拒绝且不执行准备查询。
 
 backend/generated/frontend 仅为复用已有 uni-app 组件和共享运行时的页面模板，不是完整可独立运行的 uni-app 工程。控件未移植项见 generation-capabilities.json，不能用后端构建代替 Web、小程序或 App 验收。
 

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using Metarill.Core.Contracts;
 using Metarill.Core.Exports;
+using Metarill.Runtime.Exports;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
@@ -23,7 +24,11 @@ builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Con
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<DevelopmentSessions>();
 builder.Services.AddScoped<IRuntimeAuthorization, DevelopmentAuthorization>();
-builder.Services.AddSingleton<IPageExportService, UnavailableExportService>();
+// 生成和下载共享同一个票据仓库；先取得资源额度，再执行生成页的有界查询。
+builder.Services.AddSingleton(builder.Configuration.GetSection("Exports").Get<ExportOptions>() ?? new());
+builder.Services.AddSingleton<ExcelPageExportService>();
+builder.Services.AddSingleton<IPageExportService>(provider => provider.GetRequiredService<ExcelPageExportService>());
+builder.Services.AddHostedService<ExportCleanupWorker>();
 builder.Services.AddSingleton<IRecordMutationObserver, UnavailableFileObserver>();
 builder.Services.AddGeneratedServices();
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
@@ -33,7 +38,7 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "local",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
-// 正式宿主在手写 partial 中替换认证、文件和导出实现。
+// 正式宿主在手写 partial 中替换认证、文件或按需扩展导出实现。
 HostCustomization.Configure(builder.Services, builder.Configuration, builder.Environment);
 var app = builder.Build();
 if (args.Contains("--schema-preview", StringComparer.Ordinal) || args.Contains("--schema-apply", StringComparer.Ordinal))
@@ -87,6 +92,14 @@ app.MapPost("/api/admin/sys/yz_manager/login", async (HttpContext context, Devel
     var result = R<object>.Success(new { id = "1", username, name = username }); result.Map["loginStateId"] = token; return Results.Json(result);
 }).RequireRateLimiting("login");
 app.MapPost("/api/admin/sys/yz_manager/exit_login", (HttpContext context, DevelopmentSessions sessions) => { sessions.Logout(DevelopmentSessions.ReadToken(context)); return R<string>.Success("退出成功"); });
+// 保留已有下载协议，票据仍须绑定当前真实账号和项目，不能公开私有导出目录。
+app.MapGet("/api/admin/sys/export/export", async (string exportId, HttpContext context, ExcelPageExportService exports, IRuntimeAuthorization authorization, CancellationToken token) =>
+{
+    var content = await exports.OpenAsync(exportId, authorization.RequireActor(), token);
+    context.Response.Headers.CacheControl = "private, no-store";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    return Results.File(content.Stream, content.ContentType, content.FileName, enableRangeProcessing: true);
+});
 app.MapControllers();
 await app.RunAsync();
 
@@ -101,12 +114,6 @@ namespace {{NAMESPACE}}.Host
         static partial void ConfigureServices(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment);
     }
     public sealed record DevelopmentLogin(string? Username, string? Password);
-    /// <summary>独立包不附带平台导出运行时；未接入时明确失败，不签发无效票据。</summary>
-    internal sealed class UnavailableExportService : IPageExportService
-    {
-        /// <summary>未接入导出设施时明确拒绝。</summary>
-        public Task<string> CreateAsync(PageExportRequest request, RuntimeActor actor, CancellationToken cancellationToken = default) => throw new NotSupportedException("请接入独立导出服务。");
-    }
     /// <summary>未接入文件库时拒绝写入非空文件引用，避免生成无归属的文件数据。</summary>
     internal sealed class UnavailableFileObserver(MetadataCatalog metadata) : IRecordMutationObserver
     {
