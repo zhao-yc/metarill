@@ -8,7 +8,7 @@ public sealed partial class LocalGenerationUpdater
     private sealed record ActiveUpdate(int SchemaVersion, string TransactionId, string PlanSha256);
     private sealed record JournalFile(string Path, string Action, string Scope, string? BeforeSha256, string? AfterSha256);
     private sealed record UpdateJournal(int SchemaVersion, string TransactionId, string TargetDirectory, string ProjectId, string RootNamespace, string PlanSha256,
-        string[] Actions, string Status, JournalFile[] Files, string BeforePackageSha256, string BeforeGenerationSha256, string? Failure);
+        string[] Actions, string Status, JournalFile[] Files, string BeforePackageSha256, string BeforeGenerationSha256, string? Failure, int[]? ConfirmedFrontendCreates = null);
 
     /// <summary>仅回滚本机已登记的未完成事务；恢复不读取候选，也不猜测或覆盖用户后来修改的内容。</summary>
     public GenerationUpdateReceipt Recover(string targetDirectory, string transactionId, string confirmation)
@@ -36,7 +36,7 @@ public sealed partial class LocalGenerationUpdater
         if (changes.Length == 0) return new("", plan.PlanSha256, "unchanged", 0, 0, plan.Files.Count(file => file.Action == "preserve"));
         var id = Guid.NewGuid().ToString("N"); var target = plan.TargetDirectory;
         var oldPackage = ReadBytes(target, PackageMarker); var oldGeneration = ReadBytes(target, GenerationMarker);
-        var journal = new UpdateJournal(2, id, target, plan.ProjectId, plan.RootNamespace, plan.PlanSha256, plan.Actions.ToArray(), "prepared", changes.Select(file => new JournalFile(file.Path, file.Action, file.Scope, file.BeforeSha256, file.AfterSha256)).ToArray(), Hash(oldPackage), Hash(oldGeneration), null);
+        var journal = new UpdateJournal(3, id, target, plan.ProjectId, plan.RootNamespace, plan.PlanSha256, plan.Actions.ToArray(), "prepared", changes.Select(file => new JournalFile(file.Path, file.Action, file.Scope, file.BeforeSha256, file.AfterSha256)).ToArray(), Hash(oldPackage), Hash(oldGeneration), null, []);
         // 确认计划先于active持久化；恢复必须重算摘要，不能相信journal自称的PlanSha256。
         DurableWrite(target, Transaction(id) + "/plan.json", Encode(plan));
         // 两份旧身份清单始终留存，运行时更新未改generation marker时也不能依赖当前混合状态。
@@ -62,12 +62,21 @@ public sealed partial class LocalGenerationUpdater
             {
                 var file = changes[index];
                 if (ExistingHash(target, file.Path) != file.BeforeSha256) throw new InvalidOperationException("应用期间文件发生变化：" + file.Path);
+                BeforeWrite?.Invoke(file.Path);
                 if (file.AfterSha256 is null) File.Delete(Safe(target, file.Path));
                 else
                 {
                     var bytes = ReadBytes(target, Transaction(id) + $"/staged/{index:D5}.bin");
                     if (Hash(bytes) != file.AfterSha256) throw new InvalidOperationException("实际写入前候选暂存摘要不一致。");
-                    DurableWrite(target, file.Path, bytes);
+                    // create在最终原子发布也拒绝覆盖，保护最后预检后才出现的开发者文件。
+                    DurableWrite(target, file.Path, bytes, overwrite: file.Action != "create");
+                    if (IsFrontendCreate(journal.Files[index]))
+                    {
+                        // 确认先刷盘再赋值；发布后、确认前中断时只能保留未知归属路径，不能凭AfterHash认领。
+                        AfterCreatePublication?.Invoke(file.Path);
+                        var confirmed = journal with { ConfirmedFrontendCreates = [.. journal.ConfirmedFrontendCreates!, index] };
+                        SaveJournal(target, confirmed); journal = confirmed;
+                    }
                 }
                 AfterWrite?.Invoke(file.Path);
             }
@@ -92,11 +101,13 @@ public sealed partial class LocalGenerationUpdater
             var file = journal.Files[index];
             if (file.BeforeSha256 is not null && Hash(ReadBytes(target, Transaction(journal.TransactionId) + $"/backups/{index:D5}.bin")) != file.BeforeSha256) throw new InvalidOperationException("恢复备份摘要不一致。");
             var current = ExistingHash(target, file.Path);
+            RequireConfirmedFrontendCreate(target, journal, index, current);
             if (current != file.BeforeSha256 && current != file.AfterSha256) throw new InvalidOperationException("恢复路径出现用户后来修改的内容：" + file.Path);
         }
         for (var index = journal.Files.Length - 1; index >= 0; index--)
         {
             var file = journal.Files[index]; BeforeRestore?.Invoke(file.Path); var current = ExistingHash(target, file.Path);
+            RequireConfirmedFrontendCreate(target, journal, index, current);
             if (current == file.BeforeSha256) continue;
             if (current != file.AfterSha256) throw new InvalidOperationException("恢复写入前出现用户后来修改的内容：" + file.Path);
             if (file.BeforeSha256 is null) File.Delete(Safe(target, file.Path));
@@ -114,7 +125,7 @@ public sealed partial class LocalGenerationUpdater
     private static UpdateJournal ReadJournal(string target, string id)
     {
         var journal = Decode<UpdateJournal>(ReadBytes(target, Transaction(id) + "/journal.json"));
-        if (journal.SchemaVersion != 2 || journal.TransactionId != id || journal.TargetDirectory != target || !ValidHash(journal.PlanSha256)
+        if (journal.SchemaVersion is not (2 or 3) || journal.TransactionId != id || journal.TargetDirectory != target || !ValidHash(journal.PlanSha256)
             || journal.Actions is null || journal.Actions.Length == 0 || journal.Actions.Any(action => !Scopes.Contains(action, StringComparer.Ordinal)) || journal.Actions.Distinct(StringComparer.Ordinal).Count() != journal.Actions.Length
             || journal.Files is null || journal.Files.Length is 0 or > 20000 || !ValidHash(journal.BeforePackageSha256) || !ValidHash(journal.BeforeGenerationSha256)) throw new InvalidOperationException("事务日志身份、版本或范围无效。");
         var oldPackageBytes = ReadBytes(target, Transaction(id) + "/identity/package.json"); var oldGenerationBytes = ReadBytes(target, Transaction(id) + "/identity/generation.json");
@@ -126,21 +137,36 @@ public sealed partial class LocalGenerationUpdater
             || !Regex.IsMatch(journal.RootNamespace ?? "", @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$") || oldPackage.MetadataSha256 != oldGeneration.MetadataSha256 || !ValidHash(oldPackage.MetadataSha256)
             || !oldEntries.TryGetValue(GenerationMarker, out var oldGenerationEntry) || oldGenerationEntry.Sha256 != journal.BeforeGenerationSha256) throw new InvalidOperationException("恢复日志与旧清单项目身份不一致。");
         ValidateRecoveryPlan(target, id, journal, oldEntries);
+        var confirmedCreates = journal.ConfirmedFrontendCreates;
+        if (journal.SchemaVersion == 3 && confirmedCreates is null || journal.SchemaVersion == 2 && confirmedCreates is { Length: > 0 }
+            || confirmedCreates is not null && (!confirmedCreates.SequenceEqual(confirmedCreates.Distinct().Order()) || confirmedCreates.Any(index => index < 0 || index >= journal.Files.Length || !IsFrontendCreate(journal.Files[index])))) throw new InvalidOperationException("原壳归属确认索引无效，未执行恢复。");
+        if (journal.Status == "committed" && journal.Files.Select((file,index)=>(file,index)).Any(item=>IsFrontendCreate(item.file) && !(confirmedCreates?.Contains(item.index) ?? false))) throw new InvalidOperationException("原壳发布缺少持久归属确认，不能宣称提交成功。");
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in journal.Files)
         {
             if (file is null) throw new InvalidOperationException("事务文件记录不能为空。");
             ValidateRelative(file.Path);
             var baseline = file.Path == PackageMarker ? journal.BeforePackageSha256 : oldEntries.GetValueOrDefault(file.Path)?.Sha256;
-            var missingShell = file.BeforeSha256 is null && Regex.IsMatch(file.Path, @"^backend/generated/Services/[A-Za-z0-9_]+Service\.cs$");
+            // 受保护原壳仅允许本机已确认的create/no-before日志，绝不能借恢复执行替换或删除。
+            var missingFrontendShell = journal.SchemaVersion == 3 && IsFrontendCreate(file);
+            var missingShell = file.BeforeSha256 is null && Regex.IsMatch(file.Path, @"^backend/generated/Services/[A-Za-z0-9_]+Service\.cs$") || missingFrontendShell;
             if (baseline != file.BeforeSha256 && !missingShell) throw new InvalidOperationException("恢复文件旧摘要不属于本次旧清单。");
             if (missingShell && file.AfterSha256 is null) throw new InvalidOperationException("手写壳只能首次创建。");
-            if (!seen.Add(file.Path) || file.BeforeSha256 is not null && !ValidHash(file.BeforeSha256) || file.AfterSha256 is not null && !ValidHash(file.AfterSha256) || file.BeforeSha256 is null && file.AfterSha256 is null || Protected.Contains(file.Path)) throw new InvalidOperationException("事务路径或摘要无效。");
-            if (file.Path is PackageMarker or GenerationMarker or FrontendMarker or "backend/generated/frontend/common/yzp_runtime/page-write-schema.generated.json" || Configuration.Contains(file.Path) || RuntimeFiles.Contains(file.Path) || FrontendAssets.Value.Contains(file.Path)
+            if (!seen.Add(file.Path) || file.BeforeSha256 is not null && !ValidHash(file.BeforeSha256) || file.AfterSha256 is not null && !ValidHash(file.AfterSha256) || file.BeforeSha256 is null && file.AfterSha256 is null || Protected.Contains(file.Path) && !missingFrontendShell) throw new InvalidOperationException("事务路径或摘要无效。");
+            if (file.Path is PackageMarker or GenerationMarker or FrontendMarker or "backend/generated/frontend/common/yzp_runtime/page-write-schema.generated.json" || Configuration.Contains(file.Path) || RuntimeFiles.Contains(file.Path) || FrontendAssets.Value.Contains(file.Path) || missingFrontendShell
                 || Regex.IsMatch(file.Path, @"^(?:src/Metarill\.(?:Core|Data|Exports|Files)/[A-Za-z0-9_./-]+|frontend/common/yzp_runtime/[A-Za-z0-9_-]+\.js|backend/generated/(?:[A-Za-z0-9_/-]+\.(?:g\.cs|vue|json)|Services/[A-Za-z0-9_]+Service\.cs)|frontend/pages/yzp/[A-Za-z0-9_-]+\.vue|frontend/common/yzp_runtime/page-write-schema\.generated\.json)$")) continue;
             throw new InvalidOperationException("恢复日志包含未知写入路径。");
         }
         return journal;
+    }
+
+    /// <summary>只有固定原壳的Runtime create/no-before可登记发布归属；索引始终绑定完整已确认计划。</summary>
+    private static bool IsFrontendCreate(JournalFile? file) => file is not null && FirstCreateFrontend.Contains(file.Path) && file.Action == "create" && file.Scope == Runtime && file.BeforeSha256 is null && file.AfterSha256 is not null;
+    /// <summary>Move未成功或确认前中断时，存在路径即保留，哪怕字节恰好等于候选；人工核查移走后才可继续恢复。</summary>
+    private static void RequireConfirmedFrontendCreate(string target, UpdateJournal journal, int index, string? current)
+    {
+        var file=journal.Files[index];
+        if(IsFrontendCreate(file) && !(journal.ConfirmedFrontendCreates?.Contains(index) ?? false) && (current is not null || Directory.Exists(Safe(target,file.Path)))) throw new InvalidOperationException("原壳创建归属尚未确认，请先人工审查并移走该路径后再恢复："+file.Path);
     }
 
     /// <summary>完整原计划绑定确认摘要与每条journal写入，新增路径也不能靠自报hash变成恢复目标。</summary>
@@ -199,11 +225,11 @@ public sealed partial class LocalGenerationUpdater
         catch (IOException error) { throw new InvalidOperationException("当前项目已有生成或更新任务持锁，请稍后重新预览。", error); }
     }
     /// <summary>日志和源码均以同目录临时文件、强制刷盘及原子替换写入。</summary>
-    private static void DurableWrite(string target, string relative, byte[] bytes)
+    private static void DurableWrite(string target, string relative, byte[] bytes, bool overwrite = true)
     {
         var path = Safe(target, relative); Directory.CreateDirectory(Path.GetDirectoryName(path)!); Safe(target, relative);
         var temp = path + ".metarill-update-" + Guid.NewGuid().ToString("N");
-        try { using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { stream.Write(bytes); stream.Flush(true); } Safe(target, relative); File.Move(temp, path, true); }
+        try { using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { stream.Write(bytes); stream.Flush(true); } Safe(target, relative); File.Move(temp, path, overwrite); }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
     /// <summary>事务目录只接受本工具生成的GUID，不允许日志参数变成路径。</summary>

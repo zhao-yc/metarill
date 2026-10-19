@@ -15,6 +15,9 @@ public sealed partial class LocalGenerationUpdater
     { public string ProjectId => Generated.ProjectId; }
     private static readonly HashSet<string> Protected = new(StringComparer.Ordinal)
     { "README.md", ".gitignore", "backend/Application.Host/appsettings.example.json", "frontend/README.md", "frontend/.gitignore", "frontend/manifest.json", "frontend/common/application.config.js", "frontend/common/project.js", "frontend/static/logo.png", "frontend/App.vue", "frontend/main.js", "frontend/pages/main/index.vue", "frontend/pages/main/main.vue", "frontend/pages/main/left.vue", "frontend/pages/main/top.vue", "frontend/pages/main/menu.vue", "frontend/pages/main/my.vue", "frontend/pages/main/change_password.vue" };
+    // 固定原壳骨架只能在完全缺失时首次创建；已有字节始终属于开发者，不包含AppID/API配置或私有凭据。
+    private static readonly HashSet<string> FirstCreateFrontend = new(StringComparer.Ordinal)
+    { "frontend/App.vue", "frontend/main.js", "frontend/pages/main/index.vue", "frontend/pages/main/main.vue", "frontend/pages/main/left.vue", "frontend/pages/main/top.vue", "frontend/pages/main/menu.vue", "frontend/pages/main/my.vue", "frontend/pages/main/change_password.vue", "frontend/common/project.js", "frontend/static/logo.png" };
     private static readonly HashSet<string> Configuration = new(StringComparer.Ordinal)
     { "backend/metadata/project.json", "frontend/common/application.generated.json", "frontend/pages.json", "frontend/pages.generated.json", "backend/generated/frontend/pages.generated.json" };
     private static readonly HashSet<string> RuntimeFiles = new(StringComparer.Ordinal)

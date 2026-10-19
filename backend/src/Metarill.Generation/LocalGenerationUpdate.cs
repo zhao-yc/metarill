@@ -23,6 +23,10 @@ public sealed partial class LocalGenerationUpdater
     { PropertyNameCaseInsensitive = false, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, WriteIndented = true, NewLine = "\n" };
     // 测试只在真实文件替换后注入异常，生产CLI不提供故障或命令执行入口。
     internal Action<string>? AfterWrite { get; init; }
+    // 仅测试在最后旧摘要检查后模拟第三方创建目标；生产CLI不暴露。
+    internal Action<string>? BeforeWrite { get; init; }
+    // 仅测试原壳发布已成功、归属确认尚未刷盘的中断窗口，CLI不提供故障入口。
+    internal Action<string>? AfterCreatePublication { get; init; }
     // 恢复并发探针只供测试在首轮检查后模拟外部编辑，CLI不暴露。
     internal Action<string>? BeforeRestore { get; init; }
 
@@ -46,9 +50,11 @@ public sealed partial class LocalGenerationUpdater
             var actual = ExistingHash(target, path);
             if (role is "preserve" or "handwritten")
             {
-                if (role == "handwritten" && actual is null && newEntry is not null)
+                // 原壳仅允许固定清单路径缺失时首次补建；不把同名已有文件纳入受管替换。
+                var createScope = role == "handwritten" ? Pages : FirstCreateFrontend.Contains(path) ? Runtime : null;
+                if (createScope is not null && actual is null && newEntry is not null)
                 {
-                    if (chosen.Contains(Pages, StringComparer.Ordinal)) files.Add(new(path, "create", Pages, null, newEntry.Sha256)); else required.Add(Pages);
+                    if (chosen.Contains(createScope, StringComparer.Ordinal)) files.Add(new(path, "create", createScope, null, newEntry.Sha256)); else required.Add(createScope);
                 }
                 else if (actual is not null) files.Add(new(path, "preserve", role, actual, actual));
                 continue;

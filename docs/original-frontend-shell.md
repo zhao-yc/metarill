@@ -14,7 +14,7 @@
 
 ## 首次创建与已有项目
 
-`FullApplication`只发布到空目录，反复导出得到稳定字节；已有非空目录一律拒绝覆盖。后续 `sync-runtime`仍仅更新受管公共代码，App.vue、main.js、index/main/top/left/menu/my/change_password、project.js、manifest/AppID、API配置与自定义logo属于保留区域。新版本恢复原壳不构成覆盖用户首页的授权。
+`FullApplication`只发布到空目录，反复导出得到稳定字节；已有非空目录一律拒绝覆盖。后续 `sync-runtime`仍仅更新受管公共代码，App.vue、main.js、index/main/top/left/menu/my/change_password、project.js、manifest/AppID、API配置与自定义logo属于保留区域。新版本恢复原壳不构成覆盖用户首页的授权。仅上述固定原壳骨架完全缺失时，可由明确选择的 `sync-runtime`首次补建；AppID/API配置、README和私有凭据不属于该补建范围。存在的字节一律保留，计划和恢复日志只接受create/no-before，不能借恢复替换或删除已有壳。create最终原子发布也不允许覆盖；最后预检后若出现第三方文件，应用拒绝并保留待人工核查的恢复现场，不删除后来文件，即使内容与候选完全相同。新journal为v3，固定plan文件索引数组登记已经持久确认的原壳create；Move成功且确认刷盘后才可自动撤除。发布后、确认前崩溃视为归属不明，recover保留该路径，必须先人工审查移走再继续恢复。没有新增服务器路径/旁路事实文件；v2旧事务只读取原本无protected-create的边界。
 
 旧简化壳或自定义宿主需在另一个目录导出后对照原壳审查合并，不能因公共模块更新就宣称现有页面已恢复保真。尚有未完成源码更新事务时，先用生成该事务的CLI核对recover后再升级CLI；不跨版本猜测恢复受保护路径。
 
@@ -40,6 +40,10 @@
 | `static/images/avatar.png` | `8bebe539d27a1d49d3fa742aa74d858bbdb72245b4a6c7d655413367c82175e3` | 原图第三方水印，未复制；用户已授权另生成替代 |
 
 用户已明确授权重新生成默认头像。主任务生成的新PNG摘要为 `e4829fa7be2628c6a103b246bfa2a4205b6fbdb7479cb890bf55f11f85eef96c`，沿用原头像位置与大小，不复制/编辑带水印原图；新产物及提示词来源记录由主任务独立提交。此任务只将该既定产物纳入原壳闭包，不宣称浏览器视觉已验收。
+
+## 原列表内部适配模块
+
+完整包固定装配 `originalSelectionPageMixin.js`（原页面selectedList/isSelectAll/chkChange接口桥接）和 `originalListOptionsMixin.js`（固定选项端点的父/身份/卸载迟到隔离），继续保留原组件DOM与原按钮位置。模块源由主任务 `c71514c` / `ccf7e5c` 提交，本任务只新增装配清单与真实闭包回归，不复制未提交源或重复认领模块实现。
 
 ## 本轮验证
 
