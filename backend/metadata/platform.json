@@ -2283,7 +2283,7 @@
       "columnTypeShow": "字符",
       "configTableId": "2063264600555577345",
       "configTableName": "角色权限",
-      "controlDetail": "{\"table\": \"config_second_menu\", \"orderBy\": \"\", \"tableId\": \"1763923891442454529\", \"whereSql\": \"\", \"nameField\": \"name\"}",
+      "controlDetail": "{\"table\": \"config_menu\", \"orderBy\": \"\", \"tableId\": \"2200000000000000281\", \"whereSql\": \"\", \"nameField\": \"name\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -2300,6 +2300,8 @@
       "name": "二级菜单",
       "sortNo": 1000,
       "yzProjectId": "1608097412978577409",
+      "linkConfigTableId": "2200000000000000281",
+      "linkConfigPageId": "2200000000000099000",
       "logicalType": "int64"
     },
     {
@@ -2310,7 +2312,7 @@
       "columnTypeShow": "字符",
       "configTableId": "2063264600555577345",
       "configTableName": "角色权限",
-      "controlDetail": "{\"table\": \"yz_role\", \"orderBy\": \"\", \"tableId\": \"1763907139337793538\", \"whereSql\": \"\", \"nameField\": \"name\"}",
+      "controlDetail": "{\"table\": \"yz_role\", \"orderBy\": \"\", \"tableId\": \"1692532858499969026\", \"whereSql\": \"\", \"nameField\": \"name\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -2327,6 +2329,8 @@
       "name": "角色",
       "sortNo": 1000,
       "yzProjectId": "1608097412978577409",
+      "linkConfigTableId": "1692532858499969026",
+      "linkConfigPageId": "1692532858529329154",
       "logicalType": "int64"
     },
     {
