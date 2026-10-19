@@ -1,6 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
-using System.Text.RegularExpressions;
+using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
@@ -29,18 +29,24 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         if (actor.ProjectId != context.ProjectId || catalog.YzProjectId != actor.ProjectId || context.RecordId <= 0)
             throw new UnauthorizedAccessException("文件引用项目范围无效。");
         authorization.RequirePagePermission(page.Id, context.IsDelete ? "delete" : context.IsCreate ? "create" : "update");
-        RequireSupportedScope(page);
-        if (!context.IsDelete)
-            foreach (var column in affected)
-                if (!catalog.ConfigPageColumns.Any(f => f.ConfigPageId == page.Id && f.ConfigColumnId == column.Id && f.IsEdit == 1))
-                    throw new UnauthorizedAccessException("来源页面未开放该文件字段写入。");
+        var parents = FileReferenceScope.Compile(catalog, table, page);
         var record = await LockRecordAsync(context, tableColumns, cancellationToken);
+        await LockParentsAsync(context, parents, record, cancellationToken);
         var requested = new Dictionary<string, IReadOnlyList<long>>(StringComparer.Ordinal);
+        var hiddenEmpty = new HashSet<string>(StringComparer.Ordinal);
         foreach (var column in affected)
         {
             var values = context.IsDelete ? [] : FileValidation.ParseFileIds(context.SubmittedFields[column.ColumnName]);
-            if (!context.IsDelete && !values.SequenceEqual(FileValidation.ParseFileIds(record.GetValueOrDefault(column.ColumnName))))
+            var actual = record.GetValueOrDefault(column.ColumnName);
+            if (!context.IsDelete && !values.SequenceEqual(FileValidation.ParseFileIds(actual)))
                 throw new InvalidOperationException("文件引用与实际业务记录字段不一致。");
+            if (!context.IsDelete && !catalog.ConfigPageColumns.Any(f => f.ConfigPageId == page.Id && f.ConfigColumnId == column.Id && f.IsEdit == 1))
+            {
+                // 新增观察上下文包含全表值；隐藏的真实空字段只有在确认无引用后才能无效果跳过。
+                if (!context.IsCreate || !EmptyValue(context.SubmittedFields[column.ColumnName]) || !EmptyValue(actual))
+                    throw new UnauthorizedAccessException("来源页面未开放该文件字段写入。");
+                hiddenEmpty.Add(column.ColumnName); requested[column.ColumnName] = values; continue;
+            }
             var policy = FileValidation.Policy(column, options ?? new());
             if (values.Count > policy.MaxCount) throw new InvalidOperationException("文件数量超过控件上限。");
             requested[column.ColumnName] = values;
@@ -55,8 +61,12 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
             files[fileId] = row;
         }
         var tablePageIds = catalog.ConfigPages.Where(p => p.ConfigTableId == table.Id).Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
-        var current = (await store.ReadForUpdateAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = context.RecordId, ["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture) }, cancellationToken))
-            .Where(r => tablePageIds.Contains(SqlRowStore.Text(r, "page_id")) && requested.ContainsKey(SqlRowStore.Text(r, "field_name"))).ToArray();
+        var references = await store.ReadForUpdateAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = context.RecordId, ["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture) }, cancellationToken);
+        if (references.Any(row => hiddenEmpty.Contains(SqlRowStore.Text(row, "field_name"))))
+            throw new UnauthorizedAccessException("隐藏文件字段已有引用，不能作为新增空值跳过。");
+        foreach (var field in hiddenEmpty) requested.Remove(field);
+        affected = affected.Where(column => !hiddenEmpty.Contains(column.ColumnName)).ToArray();
+        var current = references.Where(r => tablePageIds.Contains(SqlRowStore.Text(r, "page_id")) && requested.ContainsKey(SqlRowStore.Text(r, "field_name"))).ToArray();
         foreach (var column in affected)
         {
             var policy = FileValidation.Policy(column, options ?? new());
@@ -82,13 +92,36 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
                 }, cancellationToken);
     }
 
-    /// <summary>上下文未提供父记录范围证明；无法完整执行的页面范围明确拒绝。</summary>
-    private static void RequireSupportedScope(PageMetadata page)
+    /// <summary>父键只取已锁源记录；父锁在文件/引用之前取得，当前读拒绝并发删除后的父行。</summary>
+    private async Task LockParentsAsync(RecordMutationContext context, IReadOnlyList<FileParentScope> scopes, IReadOnlyDictionary<string, object?> record, CancellationToken token)
     {
-        if (string.IsNullOrWhiteSpace(page.WhereSql)) return;
-        foreach (var clause in Regex.Split(page.WhereSql.Trim(), @"\s+AND\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-            if (!Regex.IsMatch(clause.Trim(), @"^`?yz_project_id`?\s*=\s*@current_yz_project_id$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-                throw new NotSupportedException("该页面包含尚未证明的记录范围，文件引用同步拒绝执行。");
+        var parents = scopes.Select(scope => (Scope: scope, Id: FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
+        // 同一页面的@parentId只有一个实际值，多条等值条件不得被解释为互不相干的父身份。
+        if (parents.Select(parent => parent.Id).Distinct().Skip(1).Any()) throw new UnauthorizedAccessException("实际记录不满足同一父记录范围。");
+        var provider = store.Session.Provider;
+        foreach (var parent in parents.DistinctBy(parent => (parent.Scope.Parent.Id, parent.Id)).OrderBy(parent => parent.Scope.Parent.TableName, StringComparer.Ordinal).ThenBy(parent => parent.Id))
+        {
+            await using var command = context.Transaction.Connection!.CreateCommand(); command.Transaction = context.Transaction;
+            var query = "SELECT " + provider.QuoteIdentifier("id") + " FROM " + provider.QuoteIdentifier(parent.Scope.Parent.TableName)
+                + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "scope_parent_id", parent.Id)
+                + " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, "scope_project", FileReferenceScope.IdentityValue(parent.Scope.Project, FileReferenceScope.PositiveId(context.ProjectId)));
+            if (parent.Scope.HasSoftDelete) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
+            command.CommandText = provider.BuildSelectForUpdate(query);
+            if (await command.ExecuteScalarAsync(token) is null) throw new UnauthorizedAccessException("父记录不存在、已删除或不属于当前项目。");
+        }
+    }
+
+    /// <summary>新增隐藏字段只允许真实null或空JSON数组，不能把损坏文本或非空值当成无效果。</summary>
+    private static bool EmptyValue(object? value)
+    {
+        if (value is null) return true;
+        if (value is JsonElement json) return json.ValueKind == JsonValueKind.Null || json.ValueKind == JsonValueKind.Array && json.GetArrayLength() == 0;
+        if (value is string text)
+        {
+            try { using var document = JsonDocument.Parse(text); return document.RootElement.ValueKind == JsonValueKind.Array && document.RootElement.GetArrayLength() == 0; }
+            catch (JsonException) { return false; }
+        }
+        return value is System.Collections.ICollection collection && collection.Count == 0;
     }
 
     /// <summary>实际记录读取使用上下文原事务，表和字段只允许发布元数据中的名称。</summary>
