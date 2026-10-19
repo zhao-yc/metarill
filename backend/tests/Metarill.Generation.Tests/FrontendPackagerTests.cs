@@ -43,6 +43,23 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         Assert.False(Directory.Exists(root));
     }
 
+    /// <summary>只读详情仍有组件合同，未接线的CustomControl必须在完整包stage创建前拒绝。</summary>
+    [Fact]
+    public void Readonly_custom_detail_control_is_rejected_without_creating_output()
+    {
+        var catalog = Demo(); var column = catalog.ConfigColumns.Single(column => column.ColumnName == "name");
+        column.ControlKind = "CustomControl"; column.ControlDetail = "yzp-readonly-custom";
+        var field = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == column.Id);
+        field.Extra["isReadOnly"] = JsonSerializer.SerializeToElement(1);
+        var output = Path.Combine(root, "readonly-blocked");
+        var error = Assert.Throws<InvalidOperationException>(() => new ApplicationPackager().Create(catalog, output, "Example.Readonly", SourceRoot()));
+        Assert.Contains(column.ControlDetail, error.Message); Assert.Contains(catalog.ConfigPages[0].Id, error.Message);
+        Assert.Contains("--backend-only", error.Message); Assert.False(Directory.Exists(output)); Assert.False(Directory.Exists(root));
+        // 仅后端是显式能力，不能因完整前端合同拒绝而一并删除。
+        var backend = new ApplicationPackager().Create(catalog, Path.Combine(root, "readonly-backend"), "Example.Readonly", SourceRoot(), ApplicationPackageMode.BackendOnly);
+        Assert.Equal(ApplicationPackageMode.BackendOnly, backend.Mode); Assert.False(backend.FrontendIncluded);
+    }
+
     /// <summary>无根循环和孤儿不能在菜单组装时静默消失，跨后台目标不能误导导航。</summary>
     [Theory]
     [InlineData("orphan")]

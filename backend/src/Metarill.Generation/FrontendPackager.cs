@@ -23,7 +23,8 @@ public sealed class FrontendPackager
         MetadataValidation.Validate(catalog);
         ValidateMenus(catalog);
         var model = GenerationModel.Create(catalog, "Metarill.Frontend");
-        var gaps = model.Tables.SelectMany(table => table.Pages.SelectMany(page => page.DetailColumns.Where(column => page.Writable.Contains(column) && column.Source.ControlKind == "CustomControl")
+        // 只读详情也可能渲染完整自定义组件；是否可写不能作为组件依赖已接线的依据。
+        var gaps = model.Tables.SelectMany(table => table.Pages.SelectMany(page => page.DetailColumns.Where(column => column.Source.ControlKind == "CustomControl")
             .Select(column => $"页面{page.Source.Name}({page.Source.Id})：{column.Source.ControlDetail}"))).Distinct().ToArray();
         if (gaps.Length != 0) throw new InvalidOperationException("独立前端缺少已接线的自定义控件：" + string.Join("；", gaps) + "。平台请显式使用仅后端打包（CLI --backend-only）。");
         var unsupportedMenus = catalog.ConfigMenus.Where(menu => menu.IsHidden != 1 && menu.Kind is not ("DIRECTORY" or "GENERATED_PAGE")).ToArray();
