@@ -14,7 +14,7 @@
 <li>支持下拉菜单溢出屏幕底部时自动改为向上弹出</li>
 <li>监听搜索输入事件</li>
 </ol>
- 
+
 <h2>API</h2>
 ### zxz-uni-data-select Props
 
