@@ -74,6 +74,12 @@ public partial class ConfigButtonService
         {
             switch (filter.Key)
             {
+case "configPageName": {
+if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;
+if (filter.Value.ValueKind != JsonValueKind.String) throw new ArgumentException("名称筛选只接受文本。");
+var value = filter.Value.GetString()!;
+query = Metarill.Data.Queries.StringNameQuery.ApplyLike(session, query, entity => entity.ConfigPageName, value);
+break; }
                 case "name":
                 {
                     if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;

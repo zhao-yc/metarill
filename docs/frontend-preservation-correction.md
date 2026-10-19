@@ -75,3 +75,19 @@
 平台前端冻结83dfc79文件快照经HBuilderX 5.26真实执行 `D:/HBuilderX/cli.exe publish web --project E:/git/metarill/frontend/metarill_uni_admin --webTitle Metarill --webHosting false`，exit0，无上传；产物155文件/4,799,789字节，602处本地资源/模块引用无缺失，原logo/六tab/新头像8图与源摘要一致。484个受管前端源前后0变化，用户AppID保持。公共前端248/248、0跳过。证据为.local/platform-web-20261020-83dfc79-6df49e72/验收记录.md及web-build-receipt.json；构建期间后端HEAD推进c82537e，但前端快照完全未变，不据此宣称新增后端逻辑或真实浏览器已验收。
 
 正式CLI从已提交元数据再生成backend/generated/platform和demo，分别175/14个归属输出，均0个新手写文件；生成前后24个手写partial摘要一致，合计189个归属输出已记录首轮摘要。平台元数据摘要b967df4df00b40479a51597b762b424429aaca45790e9c4d6eec36f50162e85b，demo为58ed1e8a8db53a9cbf9fcbd207bc64621a2340083383416e7b047e47e8d97add。实际包含这批产物的API Release构建0警告0错误。平台仍有9项控件/关系后端缺口，保留原UI不代表这些能力已交付；下一切片整合后还需最终重复生成与完整验收。
+
+## 原页面真实浏览器验收与当前边界（2026-10-20）
+
+协调者从冻结c82537e源导出新的465文件独立包，使用用户AppID完成HBuilderX Web发行（47文件、本地引用无缺失）。本轮独占随机表mt_original_ui_db3aef68先由产品SchemaService预览、审查、显式执行和回读0差异；Server-200实际实例与测试库已核对，三张既有文件基础表结构未变。初次私有启动检查误把原静态index标题当作运行后的项目标题而受控停止在seed之前；原始拒绝保留，核对封存HTML字节及已登记进程后续跑，没有修改生成页、重做DDL或重复写入。
+
+实际内嵌浏览器通过原登录、240px左菜单和顶部导航进入原PC列表，12条API预置数据按5/5/2三页呈现。已实际点击原分页、姓名筛选、清空再提交、启用0/1筛选、原日期日历同日范围及金额升降序；原文字“查看”打开完整详情，原uni-forms空姓名必填校验生效。将李宁记录备注及启用状态修改后保存、关闭，列表真实回读金额0、闰日2024-02-29和停用状态均保持。
+
+随后完全通过原新增表单创建一条记录（18.25、启用0、空日期）；先取消复制、再确认复制，列表得到两条不同字符串ID；通过原删除确认软删复制记录，列表只剩原新增行。API预置12条与界面新增/复制两条明确分开。最终独立只读核验14物理行、13可见行、恰1软删，逐条正式GET得到13次成功及1次软删无data，完整字段一致；最终内容摘要为c14b0bf22949fff45f5cdeca3bf873f0e0400d96e925e5e8d69e9f39583d94d6。
+
+原导出按钮在唯一新增姓名筛选下实际发起请求，服务端生成的xlsx已独立保存核验：6803字节、SHA-256为cc5ba95c1dd5be412f5aa83618f5a6811f9def6faa6849a35adac4610029fabb，单sheet、A1:F2、六列表头及唯一新增行一致，金额18.25为数值、启用为原生FALSE、日期空。这里证明按钮请求与服务端真实字节，不宣称浏览器下载文件已在用户下载目录落盘，也不宣称与旧xls格式字节相同。
+
+临时390×844视口下重新启动页面，实际验证原移动卡片、点击加载更多1→2→3/3共13条、原筛选弹层从第三页查到李宁1条及原移动详情；测试后已reset视口并重新加载默认PC页面。截图保留于本任务visualizations目录，分别为metarill-original-list-20261020.jpg、metarill-original-detail-20261020.jpg、metarill-original-mobile-20261020.jpg及metarill-original-mobile-detail-20261020.jpg。响应式浏览器结果不算小程序、Android或iOS真机验收。
+
+退出确认后已回原登录页，但实际发现旧列表onLogout处理仍刷新并额外触发登录失效提示。该失败已保留截图，正在从共享运行时修复并准备新包复验，不手改当前冻结包、不把退出流程写成全绿。原Tiny Cloud配置继续按用户要求留空，复杂关系、主子、文件/导入与各平台完整视觉对照也不能由本单表包替代。私有证据位于.local/original-browser-20261020-db3aef68/control/state；清理草案已核14个已知ID、0未知及0外部依赖，但当前仅只读，尚未执行清理。
+
+主线3811dee的名称适配整合后，platform/demo已正式两轮再生成，189个归属输出及两份归属清单摘要一致，24个手写partial不变，证据为.local/original-re-generation-3811dee。平台能力缺口从9变为8，只关闭已交付名称筛选，未知附加范围仍明确保留。主线用途读取IR36/36、Agent19/19分别通过且均0跳过，不累加为同一完整批次；完整普通Generation组合318/318通过、0失败、0跳过，耗时14分53秒，原始TRX为.local/original-ui-generation-integrated-3811dee.trx；两项FreshInstall专属类显式排除而非计作跳过。包含当前正式产物的API Release构建0警告0错误。ed51af5的远端CI已核对Linux、Windows、前端三项全部成功（PR run39296997392），但该CI不包含后续3811dee/读取IR，也不持私有MySQL配置。
