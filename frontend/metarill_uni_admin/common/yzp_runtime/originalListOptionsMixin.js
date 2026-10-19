@@ -1,9 +1,15 @@
 import yzp from '@/common/yzp_runtime/yzp-runtime';
 
 /** 原下拉框仍消费原数组端点；只在内部隔离父/身份切换和迟到回执。 */
-export function createOriginalListOptionsMixin() {
+export function createOriginalListOptionsMixin({ targetParentFields = [] } = {}) {
  return {
-  created() { this._originalListAlive = true; this._originalOptionSequence = 0; this._originalOptionTasks = new Map() },
+  created() {
+   this._originalListAlive = true; this._originalOptionSequence = 0; this._originalOptionTasks = new Map()
+   // 固定元数据声明的目标父变化立即清候选并重新加载，不改变原筛选控件或已选值。
+   for (const field of targetParentFields) this.$watch(() => this.filters?.[field], () => {
+    if (this._originalListAlive) { this.invalidateOriginalListOptions(); this.initLists() }
+   }, { flush: 'sync' })
+  },
   mounted() {
    this._originalOptionIdentity = () => { if (this._originalListAlive) { this.invalidateOriginalListOptions(); this.initLists(); this.refreshData() } }
    for (const event of ['onChangeProject', 'onLogin', 'onLogout']) uni.$on(event, this._originalOptionIdentity)
@@ -19,7 +25,7 @@ export function createOriginalListOptionsMixin() {
     if (!this._originalListAlive) return
     const key = options.url, old = this._originalOptionTasks.get(key), sequence = ++this._originalOptionSequence, identity = this.originalListIdentity()
     this._originalOptionTasks.set(key, { sequence, task: null }); old?.task?.abort?.()
-    const current = () => this._originalListAlive && this._originalOptionTasks.get(key)?.sequence === sequence && identity === this.originalListIdentity()
+    const current = () => this._originalListAlive && this._originalOptionTasks.get(key)?.sequence === sequence && identity === this.originalListIdentity() && (typeof options.isCurrent !== 'function' || options.isCurrent())
     const task = yzp.request({ ...options, isCurrent: current, success: response => { if (current()) options.success?.(response) }, fail: error => { if (current()) options.fail?.(error) }, complete: value => { if (current()) options.complete?.(value) } })
     if (current()) this._originalOptionTasks.get(key).task = task
     return task

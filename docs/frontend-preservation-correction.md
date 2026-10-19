@@ -61,3 +61,10 @@
 冻结e6fe956的独立原页面工程已实际完成npm依赖/闭包检查与HBuilderX 5.26 Web发行，命令包含publish web --webHosting false，未上传托管。产物46文件；461个归属文件前后核验仅私有副本manifest.appid按用户提供标识发生变化，生成页面未被手改。证据见.local/original-demo-ui-evidence-20261020-9b1c54f8/验收记录.md及web-build-receipt.json。该构建不代表后续提交或浏览器/真机交互已通过。
 
 项目主题真实MySQL回读1/1、原完整宿主主题下发1/1通过。随包HTTP探针已迁到原mixins/data/computed/生命周期、saveEntity/deleteEntity/getList；通过真实独立宿主HTTP/MySQL完成登录、菜单、整entity新增修改删除、注销失效及文件引用事务1/1（.local/original-standalone-files-http-v2.trx）。测试明确核对保存body仍含原只读/空字段，不裁剪成新payload。Node只提供表单validate公开宿主，不模拟uni-forms规则或DOM，不当浏览器/设备验收。第一次迁移运行因测试导航栈一直只有一页、错误等待原返回首页分支而失败，已保留v1证据；修正探针真实栈后v2通过，未修改页面返回交互。
+
+
+## 原数组筛选候选双父补齐
+
+原List筛选继续使用zxz和findNameId数组入口。来源父沿原parent_id；独立目标父只取当前页唯一可读且可筛选的已声明外键，仍由后端验证双方真实父/项目/软删范围。空目标父、非法/溢出ID不枚举候选。目标父改变同步清候选并重新加载，保留筛选原选中值；请求组合固定父快照、来源父和身份/卸载隔离，旧回执不能恢复旧候选。缺映射仍由统一能力缺口约束，不猜关系。
+
+原列表/双父Vue/日期纯值定向27/27、公共前端238/238通过，均0跳过；本批没有DDL或浏览器验收。完整生成冻结bf1cf83曾执行185项，184通过、1项仅在Schema.Apply因测试共享隔离库争唯一锁失败、0跳过，TRX为.local/original-ui-integrated-generation-v1.trx。元数据工作台全69/69、0跳过。结构写用例现统一同一串行collection，不修改产品锁/超时、不加测试重试；新slice整合后仍须完整复验，不能把该185批次写成全绿。

@@ -43,7 +43,7 @@ internal static partial class OriginalUniappListRenderer
                     var name = column.Source.ColumnName.Length >= 3 ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
                     markup.Append($"<zxz-uni-data-select v-model='filters.{key}' :localdata='{name}_list' filterable dataKey='name' dataValue='id' />");
                     data.Append(name).Append("_list:[],");
-                    requests.Append(OriginalOptionsRequest(table, page, column, name)); break;
+                    requests.Append(OriginalOptionsRequest(model, table, page, column, name)); break;
                 case "CheckBox": markup.Append($"<uni-data-checkbox v-model='filters.{key}' :localdata='$checkboxRange' />"); break;
                 case "CascadeTree":
                     // 后端级联能力仍由导出门禁检查；模板保持原组件，不能降级成普通输入框。
@@ -69,10 +69,22 @@ internal static partial class OriginalUniappListRenderer
     }
 
     /// <summary>旧选项路径按来源列生成；空POST不改成候选分页协议。</summary>
-    private static string OriginalOptionsRequest(TableModel table, PageModel page, ColumnModel column, string name)
+    private static string OriginalOptionsRequest(GenerationModel model, TableModel table, PageModel page, ColumnModel column, string name)
     {
         var property = column.Property.EndsWith("Ids", StringComparison.Ordinal) ? column.Property[..^3] : column.Property.EndsWith("Id", StringComparison.Ordinal) ? column.Property[..^2] : column.Property;
-        return "that." + name + "_list=[];" + (page.Scopes.Any(scope=>scope.Source=="parent") ? "if(that.parent_id){" : "") + "that.originalOptionRequest({url:" + J("/admin/auto/" + table.Source.TableName + "/" + page.Source.Id + "/findNameId" + property + column.Source.Id) + (page.Scopes.Any(scope=>scope.Source=="parent") ? ",data:{parentId:that.parent_id}" : "") + ",sendSessionId:true,method:'POST',success:function(res){if(res.code==200){that." + name + "_list=res.data||[];}else{uni.showModal({showCancel:false,content:res.msg});}}});" + (page.Scopes.Any(scope=>scope.Source=="parent") ? "}" : "");
+        var relation=RelationCompilation.ForPage(model,page).SingleOrDefault(item=>item.SourceColumn.Source.Id==column.Source.Id);
+        var context=relation is null?null:ControlRenderer.RelationContext(page,relation,true);
+        if(context?.UnresolvedTarget==true)return "that."+name+"_list=[];";
+        var sourceParent=page.Scopes.Any(scope=>scope.Source=="parent");
+        var target=context?.TargetParentField is {} field?"that.filters."+field:context?.SameParent==true?"that.parent_id":null;
+        var body=sourceParent?"parentId:that.parent_id,":"";
+        var request="that.originalOptionRequest({url:"+J("/admin/auto/"+table.Source.TableName+"/"+page.Source.Id+"/findNameId"+property+column.Source.Id)
+            +(sourceParent||target is not null?",data:{"+body+(target is null?"":"targetParentId:optionParent,")+"}":"")
+            +(target is null?"":",isCurrent:()=>optionParent===String("+target+"??'')")
+            +",sendSessionId:true,method:'POST',success:function(res){if(res.code==200){that."+name+"_list=res.data||[];}else{uni.showModal({showCancel:false,content:res.msg});}}});";
+        if(target is not null)request="const optionParent=String("+target+"??'');if(!/^[1-9][0-9]{0,18}$/.test(optionParent)||optionParent.length===19&&optionParent>'9223372036854775807')return;"+request;
+        if(sourceParent)request="if(!that.parent_id)return;"+request;
+        return "that."+name+"_list=[];(()=>{"+request+"})();";
     }
     /// <summary>常量保留原text/value，长整数字符串不经过浮点转换。</summary>
     private static string ConstantRange(ColumnModel column, string detail) => J(detail.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(option =>
