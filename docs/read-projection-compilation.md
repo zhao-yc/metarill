@@ -70,3 +70,25 @@ Selection 的入站 nameField 从已知根配置和页级明细覆盖中解析�
 在仓库内以 dotnet test backend/tests/Metarill.Generation.Tests --filter FullyQualifiedName~ReadProjectionCompilationTests 执行。
 
 测试覆盖用途隔离、原 flag 优先级、精确入站名称、关系名和独立目标父、实际原控件覆盖、原按钮嵌套规则、未知能力拒绝；另执行真实生成项目 C# build，且明确断言当前 VO 尚未接入本 IR。
+
+## 固定平台自定义控件读取子集
+
+FixedCustomControlReadCompilation 仅接入 IR 的原详情 CustomControl 分支，仍不接 VO/SQL 或完整包能力门禁。标签必须为精确值，不能夹带属性；宿主表与来源列固定，不按任意 JSON 属性、字符串字段名或别页读取来扩展。
+
+| 精确组件 | 固定宿主 | 当前页必需可读物理字段 |
+| --- | --- | --- |
+| yzp-button-visible-rule-editor | config_button.visible_rule_json | visible_rule_json |
+| yzp-table-storage-mode | config_table.is_rongyu | id、is_rongyu、is_view、is_function_table |
+| yzp-control-detail-editor | config_column.control_detail | control_detail、control_kind、name；config_column_id 必须未声明 |
+| yzp-control-detail-editor | config_page_column.control_detail | control_detail、config_column_id、name；control_kind 必须未声明 |
+
+两种 control_detail 宿主对应原组件不同继承分支：字段页直接读取 controlKind，页面字段页通过 configColumnId 调用现有受权字段元数据接口。不存在的属性保持原 undefined 语义，不伪造 null 列。若宿主新增了会改变此分支的属性，固定合同先报 Gap，等待新增证明。
+
+原组件收到完整 entity 后透传、拷贝并仅更改自身字段，不代表其读取授权需要整个 Readable。真实 Vue 源码消费者比较窄实体与完整实体的渲染、计算属性、原事件；验证无关值在完整事件中保留，但不进入窄读取计划。网络响应和宿主控件节点受控，不宣称真实浏览器或后端写入验收。
+
+缺失、不可读、虚拟/联接、数组或不符合固定类型的必需字段仍 Gap；未知标签、属性、宿主和动态分支仍 Gap。列表页级 CustomControl 没有此详情合同，仍明确拒绝。Join/MultiCheckBoxDatabase 原缺口及 FullApplication 自定义组件门禁没有放宽。
+
+controlKind/controlDetail 页级覆盖精确保持原长度规则：长度为零才继承，空格不回落。列表空格 kind 按原普通显示，详情仍按表级 kind；空格自定义标签明确 Gap，空格常量明细原样进入派生计划。
+
+
+Vue3 内部适配仅将 yzp-control-detail-editor 的 emitEntity 中旧 this.$set 替换为响应式对象直接赋值。保留原实体引用、DOM、props、receive 事件及“值未变则不回传”的行为；真实完整组件探针使用标准 Vue3，不提供虚假的 $set 宿主兼容层。is_rongyu 固定为 int32 的 0/1；is_view/is_function_table 经原 Number 消费允许 int32/bool，四种 bool 组合以真实组件证明。

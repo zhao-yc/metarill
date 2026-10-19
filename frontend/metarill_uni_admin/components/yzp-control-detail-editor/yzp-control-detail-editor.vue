@@ -1380,7 +1380,8 @@ export default {
 			if (entity.controlDetail === controlDetail) {
 				return
 			}
-			this.$set(entity, 'controlDetail', controlDetail)
+			// Vue3响应式对象支持直接赋值，沿用原实体与receive事件。
+			entity.controlDetail = controlDetail
 			this.$emit('receive', entity)
 		},
 		addLevel() {

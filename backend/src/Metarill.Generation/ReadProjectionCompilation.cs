@@ -63,15 +63,31 @@ internal static class ReadProjectionCompilation
             { Gap(column.Source.Id, "读取依赖不属于本页已声明可读字段：" + column.JsonName); return; }
             if (column.Source.IsVirtualColumn != 0 || GenerationModel.Enabled(column.Source.Extra, "isJoinColumn"))
             { Gap(column.Source.Id, "联接或虚拟字段缺少固定读取计划：" + column.JsonName); return; }
-            if (Kind(column) is "CustomControl" or "CascadeTree" or "Title" or "Tab" or "MultiCheckBoxDatabase" ||
+            FixedCustomControlReadContract? custom = null;
+            if (Kind(column) == "CustomControl")
+            {
+                if (purpose != ReadProjectionPurpose.Detail)
+                { Gap(column.Source.Id, "控件读取依赖尚未证明：CustomControl列表覆盖"); return; }
+                var fixedRead = FixedCustomControlReadCompilation.Resolve(model, table, page, column);
+                if (fixedRead.Contract is null) { Gap(column.Source.Id, fixedRead.Reason!); return; }
+                custom = fixedRead.Contract;
+            }
+            if (Kind(column) is "CascadeTree" or "Title" or "Tab" or "MultiCheckBoxDatabase" ||
                 purpose == ReadProjectionPurpose.Detail && Kind(column) is not ("" or "date_time" or "date" or "month" or "time" or
                     "ConstList" or "ConstDownList" or "CheckBox" or "List" or "TextArea" or "FileLibrary" or "IntenetImage" or
-                    "Base64Image" or "Image" or "MultiImage" or "Upload" or "Video" or "SelectPage" or "MultiSelectPage" or "RTF"))
+                    "Base64Image" or "Image" or "MultiImage" or "Upload" or "Video" or "SelectPage" or "MultiSelectPage" or "RTF" or "CustomControl"))
             { Gap(column.Source.Id, "控件读取依赖尚未证明：" + Kind(column)); return; }
             physical.TryAdd(column.Source.Id, column);
             Reason(column.Source.Id, reason);
             Output(new(column.JsonName, column.Property, column, ReadProjectionOutputKind.Physical));
             if (!expand || !expanded.Add(column.Source.Id)) return;
+            if (custom is not null)
+            {
+                Reason(column.Source.Id, "固定控件读取：" + custom.Tag);
+                foreach (var dependency in custom.Columns.Where(item => item.Source.Id != column.Source.Id))
+                    Add(dependency, "固定控件依赖：" + custom.Tag + "/" + column.JsonName, false);
+                return;
+            }
             var kind = Kind(column);
             // 原列表的后缀展示分支先于常量分支；页覆盖只影响显示/筛选，不创建详情选择弹层。
             if (purpose != ReadProjectionPurpose.Detail &&
@@ -114,7 +130,7 @@ internal static class ReadProjectionCompilation
         {
             var settings = model.Catalog.ConfigPageColumns.SingleOrDefault(field => field.ConfigPageId == page.Source.Id && field.ConfigColumnId == column.Source.Id);
             var value = settings is null ? "" : OriginalDetailContext.Text(settings.Extra, key);
-            return string.IsNullOrWhiteSpace(value) ? fallback : value;
+            return value.Length == 0 ? fallback : value;
         }
 
         /// <summary>缺辅助名时沿原UI保留ID；存在但未开放或无法证明的列不会偷偷暴露。</summary>

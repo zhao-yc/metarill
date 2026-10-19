@@ -85,3 +85,22 @@ test('单选和多选择页使用同一专用候选接口并显式绑定类型�
   assert.equal(requests.length, 2)
   assert.doesNotMatch(source, /findNameIdConfigPage1676901024972058625/)
 })
+
+
+test('Vue3不提供$set时仍直接更新原实体并沿用receive事件，未变更不重复回传', () => {
+  const { state } = fixture()
+  state.entity = { id: '9007199254740993', name: '原字段', controlDetail: '', unrelated: '原回显' }
+  const original = state.entity, events = []
+  state.$emit = (...args) => events.push(args)
+  assert.equal(state.$set, undefined)
+  const next = '{"accessMode":"PROTECTED","maxCount":3}'
+  state.emitEntity(next)
+  assert.equal(state.entity, original)
+  assert.equal(state.entity.controlDetail, next)
+  assert.equal(state.entity.unrelated, '原回显')
+  assert.equal(events.length, 1)
+  assert.equal(events[0][0], 'receive')
+  assert.equal(events[0][1], original)
+  state.emitEntity(next)
+  assert.equal(events.length, 1)
+})
