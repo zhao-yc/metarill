@@ -10,12 +10,12 @@ internal static class OriginalUniappDetailSelection
     /// <summary>目标页必须来自同一批已发布元数据，不能把字符串配置当作任意路由。</summary>
     internal static string Render(OriginalDetailContext c, OriginalDetailField f, string ro)
     {
-        var definition=Object(f.Detail,"选择页"); var pageId=Property(definition,"pageId");
+        var definition=SelectionControlDefinition.Resolve(f.Column,f.Settings);var pageId=definition.PageId;
         var target=c.Model.Tables.SelectMany(table=>table.Pages.Select(page=>(Table:table,Page:page))).SingleOrDefault(item=>item.Page.Source.Id==pageId);
         if(target.Page is null)throw new InvalidOperationException("原选择页目标不存在："+pageId);
-        var nameField=Property(definition,"nameField","name"); var targetName=target.Table.Columns.SingleOrDefault(column=>column.Source.ColumnName==nameField||column.JsonName==nameField);
+        var nameField=definition.NameField; var targetName=target.Table.Columns.SingleOrDefault(column=>column.Source.ColumnName==nameField||column.JsonName==nameField);
         if(targetName is null||!target.Page.Readable.Any(column=>column.Source.Id==targetName.Source.Id))throw new InvalidOperationException("原选择页名称列未开放读取。");
-        var button=Property(definition,"buttonText","选择"); var id=f.Column.Source.Id; var field=f.Column.JsonName; var display=c.DisplayField(f.Column,targetName.Source.ColumnName); var component="OriginalSelection"+id;
+        var button=definition.ButtonText; var id=f.Column.Source.Id; var field=f.Column.JsonName; var display=c.DisplayField(f.Column,targetName.Source.ColumnName); var component="OriginalSelection"+id;
         c.Import(component,$"@/pages/yzp/{target.Table.Source.TableName}-list-{pageId}.vue");
         var multi=SelectionPageRenderer.Enabled(target.Page);var targetParent=TargetParent(c,target.Page);
         if(multi)
