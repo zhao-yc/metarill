@@ -1655,5 +1655,39 @@
       "source": "tests/tableStorageMode.test.mjs",
       "sha256": "4b1c144087450c50b5bb0c5416398a020a96a64a48fa966063f54b5a14704c2b"
     }
+  ],
+  "additionalImports": [
+    {
+      "name": "zxz-uni-data-select",
+      "version": "1.0.20",
+      "sourceRepository": "YZP",
+      "sourceRevision": "06066f791c569aebd7f07183657a6bffc3fb8bda",
+      "upstream": "https://ext.dcloud.net.cn/plugin?name=zxz-uni-data-select",
+      "license": "MIT; inherited DCloud uni-ui portions Apache-2.0",
+      "verifiedAt": "2026-10-19",
+      "note": "原源码交互与逻辑未修改；组件文件仅增加来源说明。",
+      "files": [
+        {
+          "source": "uni_modules/zxz-uni-data-select/components/zxz-uni-data-select/zxz-uni-data-select.vue",
+          "destination": "components/zxz-uni-data-select/zxz-uni-data-select.vue",
+          "sha256": "718ba0901eb196619c8495994b87981ca5e25052d2dd855ce32c0f5865c81d78"
+        },
+        {
+          "source": "uni_modules/zxz-uni-data-select/package.json",
+          "destination": "components/zxz-uni-data-select/package.json",
+          "sha256": "d421d4a808ad6fde022237dac9d398ede9b5da515e8d6f33067223fb484a6499"
+        },
+        {
+          "source": "uni_modules/zxz-uni-data-select/readme.md",
+          "destination": "components/zxz-uni-data-select/readme.md",
+          "sha256": "5d55e67df44b358bf9d5eb50f3bf8eed75803ca4a4c68a80dfae802a0fd7c11d"
+        },
+        {
+          "source": "uni_modules/zxz-uni-data-select/changelog.md",
+          "destination": "components/zxz-uni-data-select/changelog.md",
+          "sha256": "a92534854e6f48e2aa1fb8d27db3b5a041a8bca3e26f3bf5f79adad6148fe8c4"
+        }
+      ]
+    }
   ]
 }

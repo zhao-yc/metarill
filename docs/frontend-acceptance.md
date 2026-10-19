@@ -130,3 +130,12 @@ create_menu 使用页面直接归属后台，在该后台根目录“页面”�
 最终前端 **195/195**、CLI **19/19**，HBuilderX Vue3 Web 发行再次成功。浏览器实际删除临时元数据并返回首页，随后 HTTP 回读确认记录不可用。下载包为 84204 字节、58 条目，含 `src/Metarill.Exports/Metarill.Exports.csproj` 与真实导出源码，SHA-256 为 2912254B471D443090030F447C8508AA6AD8E2126D883FC14780E9B6860466B9。
 
 本次不更换选择器或富文本，不包含从零纯界面建表、生成业务前端写入、复杂关系或真机验收。服务与临时 Web 预览仍在本机回环地址运行，没有部署到服务器。
+
+
+## 原选择器许可确认与接回（2026-10-19）
+
+作者发布页 https://ext.dcloud.net.cn/plugin?name=zxz-uni-data-select 同时列出 1.0.20（2024-05-09）和 MIT 协议，匹配原 YZP 下载包版本；按用户“待确认原组件许可后再接入”的决定恢复原组件。共享源位于 `components/zxz-uni-data-select`，所有配置页与生成页继续按原组件名使用；没有手改生成页面或替换交互。保留原搜索、单选、多选、禁用、清空、候选对象回调、折叠标签和上下展开逻辑，导入前摘要追加到 `SOURCE-MANIFEST.json`，MIT 正文、来源声明与 DCloud 基底 Apache-2.0 副本随组件保留。
+
+新增 6 项 Node 测试运行实际组件 Vue3 脚本，覆盖搜索、自定义数据字段、字符串长 ID、多选连续选择/取消/标签移除、禁用、清空和异步候选回显；`npm test --prefix frontend/metarill_uni_admin` 共 201 项通过，0 失败、0 跳过。这些测试不替代 HBuilderX Web 编译、浏览器操作和移动真机验收；完整构建由集成者统一执行。当前 C# 前端生成器提供页面与路由片段，完整独立前端工程尚未打包；复用页面时需同时携带本共享组件及其许可文件。
+
+TinyMCE 核心 8.3.2 本地 `license.md` 与官方 https://www.tiny.cloud/docs/tinymce/latest/license-key/ 均确认 GPLv2+ 或商业许可；Vue 封装 6.3.0 自身为 MIT。原接入使用 Tiny Cloud API key，不能把该 key 当作新的 Metarill 商业授权或提交到开源仓库；旧中文包无明确来源，官方又区分商业与社区译包。因此富文本仍保留当前占位和原事件约定，待确定合法部署方式，未擅自改用其他编辑器。

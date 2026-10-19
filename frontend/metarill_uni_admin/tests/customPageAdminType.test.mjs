@@ -13,7 +13,7 @@ function fixture(){
  const options=context.options,state=options.data();Object.assign(state,options.methods,{readOnlyCondition:false})
  return {options,state,requests,parameters,dialogs}
 }
-test('自定义页后台List选择器保留搜索、ID/name回调和许可占位接口',()=>{
+test('自定义页后台List选择器保留搜索、ID/name回调和原组件接口',()=>{
  assert.match(detail,/<zxz-uni-data-select[^>]*v-model='entity.yzAdminTypeId'[^>]*filterable[^>]*dataKey='name'[^>]*dataValue='id'[^>]*@change='yz_admin_typeSelectChange'/)
  assert.match(detail,/readonlyDisplayText\(entity.yzAdminTypeName\)/);assert.doesNotMatch(detail,/<picker\b|<uni-data-select\b/)
  const {state}=fixture();assert.equal(state.entity.yzAdminTypeId,'');assert.equal(state.entity.yzAdminTypeName,'')
