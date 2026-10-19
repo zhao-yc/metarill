@@ -1,6 +1,6 @@
 # List 关系候选分页与已选回读
 
-本能力由 `RelationCompilation` 与 `BackendRenderer` 生成，只支持已有明确目标的 `List`。本轮仅新增后端合同，不表示现有选择器已经接入分页；SelectPage、MultiSelectPage、级联及关系派生不在本轮范围。现有生成应用须由生成流程更新后端，再由后续 UI 切片接入新入口；不能手工修改可覆盖 `.g.cs`。
+本能力由 `RelationCompilation` 与 `BackendRenderer` 生成，只支持已有明确目标的 `List`。已编译 List 的新生成页面现通过 `yzp-relation-select` 接入远程分页，保留 MIT 原 zxz 选择器的搜索、标签、单多选外观与事件。SelectPage、MultiSelectPage、级联及关系派生不在本轮范围；共享组件支持多选并不代表后端已编译这些控件。现有生成应用须更新共享运行时并重新生成前后端，不能手工修改可覆盖 `.g.cs`。
 
 ## 固定路由与响应
 
@@ -38,6 +38,12 @@ List 的页面覆盖按原已知配置键非空合并，原控件配置和未知
 
 平台已有 config_index_column→config_column 的已存目标页分别受索引父级和表父级约束；本合同保留两者定义并要求分别提供，当前专用索引编辑器不依赖该通用只读列。既有主框架合法元数据仍可整批生成，不能以省略目标页范围消除双父问题。
 
-本轮不改 uni-app 模板、控件、独立包宿主或元数据，不提交旧生成产物。现有 UI 仍调用数组接口，超过上限会明确报错；分页搜索/已选回显 UI、SelectPage/MultiSelectPage 和独立应用完整前端验收需后续切片完成。
+新生成 List 不再调用旧全量数组入口；旧版本页面仍可能调用旧入口并在超过上限时收到明确错误。页面通过两处 mixin 钩子接入当前 records 的同权名称批量回读，每批最多200 ID，不逐行发请求。当前展示合同按字段和ID查名称；同一ID同时出现在不同目标父组时保守保留原ID，不发布任何组的名称，避免失败组借用成功组的标签。详情 wrapper 独立回读已选，当前关键词和首屏候选不改变已选值；清空单选明确提交 null，零/长ID/不可用ID不会被初始化或失败回调清空。
 
-本次最终执行 `dotnet test backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj`：43 项通过，2 项专用全新库测试因本轮未启用独立创建库配置而跳过，零失败；其中本切片新增 4 项均实际执行通过。空库权限与初始化由独立验收切片继续负责，不能将这里的跳过计为通过。没有运行 Docker，也没有执行真实生产变更。
+目标父只有元数据证明同父，或当前页存在唯一可读声明外键时才提供；筛选还要求该外键已开放筛选。其它双父字段保留原ID、只读提示，并列入生成能力缺口，不猜索引到表的映射。搜索防抖300ms，底部滚动/点击加载更多，候选在一万条时明确要求缩小搜索；项目、父记录、只读或卸载变化会失效请求和缓存。
+
+新增运行时闭包为 `components/yzp-relation-select/yzp-relation-select.vue`、`common/yzp_runtime/remoteRelationOptions.js`、`common/yzp_runtime/relationOptionsMixin.js`，并继续携带原 `components/zxz-uni-data-select` 及许可证。独立包 allowlist 由打包切片同步维护；未完成该装配前不能声称下载包已接入完整选择闭包。本切片未改后端关系编译、元数据、独立宿主或旧生成产物。HBuilderX、浏览器和设备验收另行执行，本次未运行。
+
+后端分页切片执行 `dotnet test backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj`：43 项通过，2 项专用全新库测试因本轮未启用独立创建库配置而跳过，零失败；其中本切片新增 4 项均实际执行通过。空库权限与初始化由独立验收切片继续负责，不能将这里的跳过计为通过。没有运行 Docker，也没有执行真实生产变更。
+
+2026-10-19 UI 切片已在保留权限修补后验证：完整前端 Node 测试 229/229；生成器完整测试 66 项通过、2 项专用全新库测试未启用而跳过，零失败。测试实际执行原组件、wrapper、状态机、页级mixin及真实生成脚本；包含搜索乱序/失败、已选整体拒绝、零/长ID、默认本地模式不变、只读与卸载、批量selected、双父缺口及同ID跨目标父组一成功一失败的标签隔离。修复标签隔离后另复验真实生成页面脚本1项通过。没有运行 HBuilderX 或浏览器，不能把脚本结果当成跨端视觉验收。

@@ -2,7 +2,7 @@
   第三方来源：zxz-uni-data-select 1.0.20，作者 182***@qq.com。
   作者发布页明确采用 MIT：https://ext.dcloud.net.cn/plugin?name=zxz-uni-data-select
   基于 DCloud uni-data-select（Apache-2.0）；完整许可与来源见同目录 NOTICE.md。
-  Metarill 仅调整目录并补充本说明，保留原选择交互和实现。
+  Metarill 保留默认本地交互，另提供可选受控远程模式；修改说明见 NOTICE.md。
 -->
 <template>
 	<view class="uni-stat__select">
@@ -45,19 +45,21 @@
 				<view class="uni-select__selector"
 					:class="isDown?'uni-select__selector__down':'uni-select__selector__upwards'" v-if="showSelector">
 					<view class="uni-popper__arrow"></view>
-					<scroll-view scroll-y="true" class="uni-select__selector-scroll">
+					<scroll-view scroll-y="true" class="uni-select__selector-scroll" @scrolltolower="loadMore">
 						<view class="uni-select__selector-empty" v-if="filterMixinDatacomResData.length === 0">
 							<span>{{emptyTips}}</span>
 						</view>
 						<view v-else :class="['uni-select__selector-item', {'uni-select_selector-item_active' :multiple
-							&& currentArr.includes(item[dataValue])}]"
+							&& selectedContains(item[dataValue])}]"
 							style="display: flex;justify-content: space-between;align-items: center;"
 							v-for="(item,index) in filterMixinDatacomResData" :key="index" @click="change(item)">
 							<span
 								:class="{'uni-select__selector__disabled': item.disable}">{{formatItemName(item)}}</span>
-							<uni-icons v-if="multiple&&currentArr.includes(item[dataValue])" type="checkmarkempty"
+							<uni-icons v-if="multiple&&selectedContains(item[dataValue])" type="checkmarkempty"
 								color="#007aff" />
 						</view>
+						<view v-if="remote && remoteLoading" class="uni-select__selector-empty"><text>加载中…</text></view>
+						<view v-else-if="remote && remoteHasMore" class="uni-select__selector-empty" @click.stop="loadMore"><text>加载更多</text></view>
 					</scroll-view>
 				</view>
 			</view>
@@ -89,6 +91,11 @@
 		name: "uni-stat-select",
 		mixins: [uniCloud.mixinDatacom || {}],
 		props: {
+			// 受控远程模式只交给外层加载数据；默认 false 保持原本地搜索和事件。
+			remote: { type: Boolean, default: false },
+			remoteSelected: { type: Array, default: () => [] },
+			remoteLoading: { type: Boolean, default: false },
+			remoteHasMore: { type: Boolean, default: false },
 			collapseTagsNum: {
 				type: Number,
 				default: 1
@@ -241,6 +248,7 @@
 		},
 		computed: {
 			filterMixinDatacomResData() {
+				if (this.remote) return this.mixinDatacomResData
 				if (this.filterable && this.filterInput) {
 					return this.mixinDatacomResData.filter(e => e[this.dataKey].includes(this.filterInput))
 				} else {
@@ -269,6 +277,8 @@
 			}
 		},
 		watch: {
+			remoteSelected: { deep: true, handler() { if (this.remote) this.initDefVal() } },
+			disabled(value) { if (this.remote && value) this.showSelector = false },
 			localdata: {
 				immediate: true,
 				handler(val, old) {
@@ -289,13 +299,26 @@
 			mixinDatacomResData: {
 				immediate: true,
 				handler(val) {
-					if (val.length) {
+					if (this.remote || val.length) {
 						this.initDefVal()
 					}
 				}
 			},
 		},
 		methods: {
+			/** 远程模式按文本键判断相等，保留零和长ID，默认本地模式仍用原严格匹配。 */
+			selectedContains(value) { return this.remote ? this.currentArr.some(id => String(id) === String(value)) : this.currentArr.includes(value) },
+			/** 底部滚动与点击只通知外层，不在原组件内部访问网络。 */
+			loadMore() { if (this.remote && !this.disabled && !this.remoteLoading && this.remoteHasMore) this.$emit('loadMore') },
+			/** 已选项与当前页分开回显，分页或搜索结果缺少旧值也不能删除 ID。 */
+			initRemoteValue() {
+				const value = this.valueCom
+				const values = this.multiple ? (Array.isArray(value) ? value.slice() : []) : (value === null || value === undefined || value === '' ? [] : [value])
+				const rows = [...this.remoteSelected, ...this.mixinDatacomResData]
+				const selected = values.map(id => rows.find(row => String(row[this.dataValue]) === String(id)) || { [this.dataValue]: id, [this.dataKey]: String(id) })
+				this.currentArr = values
+				this.current = this.multiple ? selected : selected.length ? this.formatItemName(selected[0]) : ''
+			},
 			getIsDown() {
 				const query = uni.createSelectorQuery().in(this);
 				const _this = this
@@ -330,6 +353,7 @@
 				}
 			},
 			initDefVal() {
+				if (this.remote) { this.initRemoteValue(); return }
 				let defValue = ''
 				if ((this.valueCom || this.valueCom === 0) && !this.isDisabled(this.valueCom)) {
 					defValue = this.valueCom
@@ -406,8 +430,10 @@
 				}
 				this.placeholderOld = this.placeholder
 				this.filterInput = ""
+				if (this.remote) this.$emit('inputChange', '')
 			},
 			change(item) {
+				if (this.remote && this.disabled) return
 				if (!item.disable) {
 					if (this.multiple) {
 						if (!this.current) {
@@ -416,7 +442,7 @@
 						if (!this.currentArr) {
 							this.currentArr = []
 						}
-						if (this.currentArr.includes(item[this.dataValue])) {
+						if (this.selectedContains(item[this.dataValue])) {
 							let index = this.current.findIndex(e => {
 								return e[this.dataValue] == item[this.dataValue]
 							})
@@ -430,6 +456,7 @@
 
 						}
 						this.filterInput = ""
+						if (this.remote) this.$emit('inputChange', '')
 					} else {
 						this.showSelector = false
 						this.current = this.formatItemName(item)
@@ -444,7 +471,7 @@
 				if (this.disabled) {
 					return
 				}
-				if (this.currentArr.includes(item[this.dataValue])) {
+				if (this.selectedContains(item[this.dataValue])) {
 					let index = this.current.findIndex(e => {
 						return e[this.dataValue] == item[this.dataValue]
 					})
@@ -454,6 +481,14 @@
 				}
 			},
 			emit(val) {
+				if (this.remote) {
+					if (this.disabled) return
+					const rows = [...this.remoteSelected, ...this.mixinDatacomResData]
+					const value = this.multiple ? this.currentArr.slice() : val
+					this.$emit('input', value); this.$emit('update:modelValue', value)
+					this.$emit('change', this.multiple ? this.currentArr.map(id => rows.find(row => String(row[this.dataValue]) === String(id)) || { [this.dataValue]: id, [this.dataKey]: String(id) }) : rows.find(row => String(row[this.dataValue]) === String(val)))
+					return
+				}
 				if (this.multiple) {
 					this.$emit('input', this.currentArr)
 					this.$emit('update:modelValue', this.currentArr)
@@ -486,6 +521,7 @@
 				// }
 				this.getIsDown()
 				this.showSelector = !this.showSelector
+				if (this.remote && this.showSelector) this.$emit('open')
 				this.isFocus = this.showSelector
 				if (this.filterable && this.current && this.showSelector) {
 					if (!this.multiple) {
@@ -521,6 +557,7 @@
 					}
 					return str;
 				} else {
+					if (this.remote) return text === null || text === undefined || text === '' ? String(value ?? '') : String(text)
 					return this.collection.indexOf('app-list') > 0 ?
 						`${text}(${value})` :
 						(

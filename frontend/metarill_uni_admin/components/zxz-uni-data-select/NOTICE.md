@@ -6,3 +6,5 @@
 - 原作者说明基于 [DCloud uni-data-select](https://ext.dcloud.net.cn/plugin?id=7993) 二次开发。DCloud uni-ui 的 Apache-2.0 许可副本保留在 `LICENSE.upstream`，官方来源为 https://github.com/dcloudio/uni-ui 。
 - Metarill 的修改：调整到共享 `components/zxz-uni-data-select` 目录，补充源码来源注释、MIT 正文及本说明，并清理原说明文档的行尾空白；搜索、单选、多选、禁用、清空、事件与样式沿用原实现。此共享文件由所有原组件引用复用，未手改可再生成页面。
 - 分发时保留本目录的 `LICENSE`、`LICENSE.upstream`、本说明与原源码已有的署名/归属注释；Metarill 的 Apache-2.0 不替代组件自身许可。
+
+- 2026-10-19：增加默认关闭的受控 `remote` 模式，提供独立已选回显、底部加载通知和加载状态；原本地过滤/选择模式保持原实现。网络、权限、分页和乱序隔离在 Metarill 外层 wrapper/runtime 管理，原 MIT/Apache-2.0 许可继续随目录分发。

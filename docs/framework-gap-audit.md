@@ -24,7 +24,7 @@
 
 **已有：** [RelationCompilation](../backend/src/Metarill.Generation/RelationCompilation.cs) 可编译明确 List 目标和范围；ForeignValidationRenderer 校验关系记录存在、未删除和同项目。SelectPage 已有简单单选导航。
 
-**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。现有 UI 尚未接入新分页/回读，仍调用旧数组入口；不能把后端端点存在当作控件完整闭环。MultiSelectPage、MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
+**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。未再生成的旧页面仍可能调用旧数组；浏览器/跨端验收和独立包运行时装配仍须分别验证。MultiSelectPage、MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
 
 **原实现证据：** YZP 的 `NonRedundantReadPlanCompiler`、`MixedRelationPropagationCompiler`、运行时 list/selectpage/cascade，以及 `SystemMaintenanceBusiness` 的回填入口。只读引用扫描可识别这些配置声明，不能因扫描命中就宣称对应控件执行能力已移植。
 

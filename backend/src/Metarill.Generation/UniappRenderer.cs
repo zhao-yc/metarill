@@ -55,11 +55,14 @@ internal static class UniappRenderer
                 ["DISPLAY_FIELDS_JSON"] = JsonSerializer.Serialize(DisplayFields(model, page)),
                 ["RTF_FIELDS_JSON"] = JsonSerializer.Serialize(page.Readable.Where(column => column.Source.ControlKind == "RTF" && column.Type == "string?").Select(column => column.JsonName)),
                 ["FIELDS"] = string.Join("\n", page.DetailColumns.Select(column => ControlRenderer.Render(model, table, page, column).Markup)),
-                ["OPTION_REQUESTS"] = OptionRequests(model, table, page),
+                ["OPTION_REQUESTS"] = "      this.refreshRelationLabels?.();",
+                ["RELATION_IMPORT"] = RelationCompilation.ForPage(model, page).Count > 0 ? "import { createRelationOptionsMixin } from '@/common/yzp_runtime/relationOptionsMixin';" : "",
+                ["RELATION_MIXIN"] = RelationCompilation.ForPage(model, page).Count > 0 ? "createRelationOptionsMixin(" + RelationDefinitions(model, table, page) + ")" : "",
                 ["WRITABLE_FIELDS"] = JsonSerializer.Serialize(page.Writable.Select(column => column.JsonName))
             };
             yield return new("frontend/" + listPath + ".vue", RenderTemplate("list.vue.tpl", parameters));
-            yield return new("frontend/" + detailPath + ".vue", RenderTemplate("detail.vue.tpl", parameters));
+            var detailParameters = new Dictionary<string, string>(parameters) { ["RELATION_IMPORT"] = "", ["RELATION_MIXIN"] = "" };
+            yield return new("frontend/" + detailPath + ".vue", RenderTemplate("detail.vue.tpl", detailParameters));
             routes.Add(new { path = listPath, style = new { navigationBarTitleText = page.Source.Name } });
             routes.Add(new { path = detailPath, style = new { navigationBarTitleText = page.Source.Name } });
         }
@@ -106,9 +109,14 @@ internal static class UniappRenderer
         }, StringComparer.Ordinal);
     }
 
-    /// <summary>选项端点只来自已编译关系，父记录及身份变化后旧响应不能落回新页面。</summary>
-    private static string OptionRequests(GenerationModel model, TableModel table, PageModel page) => string.Join("\n", RelationCompilation.ForPage(model, page).Select(relation =>
-        $"      this._optionRequests.push(yzp.request({{ url: '/admin/auto/{table.Source.TableName}/{page.Source.Id}/{relation.Endpoint}', method: 'POST', data: {{ parentId }}, sendSessionId: true, isCurrent: current, success: res => {{ if (current() && res.code === 200 && Array.isArray(res.data)) this.options.{relation.SourceColumn.JsonName} = res.data; }} }}));"));
+    /// <summary>列表标签只按当前页ID调用固定 selected；目标父映射只能来自可读声明字段。</summary>
+    private static string RelationDefinitions(GenerationModel model, TableModel table, PageModel page) => JsonSerializer.Serialize(RelationCompilation.ForPage(model, page).Select(relation =>
+    {
+        var context = ControlRenderer.RelationContext(page, relation, false);
+        return new { field = relation.SourceColumn.JsonName, endpoint = "/admin/auto/" + table.Source.TableName + "/" + page.Source.Id + "/" + relation.Endpoint,
+            requireParent = relation.SourceParents.Count > 0, requireTargetParent = relation.TargetParents.Count > 0,
+            sameParent = context.SameParent, targetParentField = context.TargetParentField, unresolvedTarget = context.UnresolvedTarget };
+    }));
 
     /// <summary>转义展示文本以保护模板结构。</summary>
     private static string Escape(string value) => SecurityElement.Escape(value) ?? "";

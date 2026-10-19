@@ -35,3 +35,10 @@
 |clear			| Boolean				| true			| 是否清空																								|
 |format			| String				| -				| 格式化输出 用法 field="_id as value, version as text, uni_platform as label" format="{label} - {text}"|
 |@inputChange	| event					| event(String)	| 搜索输入事件																							|
+
+
+## Metarill 可选受控远程模式
+
+`remote` 默认 `false`，原本地模式的搜索、单多选和事件保持原实现。设为 `true` 后，`localdata` 只表示当前搜索已加载的候选，`remoteSelected` 独立提供跨页已选名称；缺失名称时保留原 ID。`remoteLoading` / `remoteHasMore` 控制底部加载提示，`open` / `loadMore` / 原 `inputChange` 通知外层。组件不直接访问网络，也不接受 SQL 或动态连接。
+
+生成页面通过 `yzp-relation-select` 外壳接入固定分页与已选端点。默认模式不启用任何新增行为；分发仍保留本目录 MIT 与上游 Apache-2.0 许可。

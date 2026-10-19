@@ -29,6 +29,7 @@
 </template>
 <script>
 import yzp from '@/common/yzp';
+{{RELATION_IMPORT}}
 import utils from '@/common/utils';
 import PageDetail from '@{{DETAIL_ROUTE}}.vue';
 const filterFields = {{FILTER_FIELDS_JSON}};
@@ -38,6 +39,7 @@ const rtfFields = {{RTF_FIELDS_JSON}};
 /** 父键保持字符串精度，空值与历史 null/undefined 字面量均视为未保存。 */
 const recordId = value => typeof value === 'string' && !['undefined', 'null'].includes(value.trim()) ? value.trim() : '';
 export default {
+  mixins: [{{RELATION_MIXIN}}],
   components: { PageDetail },
   props: { parent_id: { type: String, default: '' }, parent_page_sn: { type: String, default: '' }, is_son_page: { type: Boolean, default: false }, child_page_open_type: { type: Number, default: 1 }, parentReadOnlyCondition: { type: Boolean, default: false } },
   data() { return { permissionsReady: false, permissionVersion: 0, canUpdate: {{CAN_UPDATE}}, childDetailPopupVisible: false, childDetailPopupId: '', childDetailPopupKey: 0, records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: {{FILTER_GAPS_JSON}}, sortFields,

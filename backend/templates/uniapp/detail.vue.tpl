@@ -12,6 +12,7 @@
 </template>
 <script>
 import yzp from '@/common/yzp';
+{{RELATION_IMPORT}}
 {{CHILD_IMPORTS}}
 const writableFields = {{WRITABLE_FIELDS}};
 const displayFields = {{DISPLAY_FIELDS_JSON}};
@@ -21,6 +22,7 @@ const readonlyField = {{READONLY_FIELD}};
 /** 空父键不接受历史 undefined/null 字面量，字符串 ID 全程不转为浮点。 */
 const recordId = value => typeof value === 'string' && !['undefined', 'null'].includes(value.trim()) ? value.trim() : '';
 export default {
+  mixins: [{{RELATION_MIXIN}}],
   components: { {{CHILD_COMPONENTS}} },
   props: { is_props: { type: Boolean, default: false }, props_id: { type: String, default: '' }, props_parent_id: { type: String, default: '' }, props_parent_page_sn: { type: String, default: '' }, parentReadOnlyCondition: { type: Boolean, default: false } },
   data() { return { id: '', parentId: '', parentPageId: '', routeReadOnly: false, recordReady: false, permissionsReady: false, permissionVersion: 0, currentChild: 0, children, canUpdate: {{CAN_UPDATE}}, entity: {}, changes: {}, options: {}, saving: false, canCreate: {{CAN_CREATE}}, canSave: {{CAN_SAVE}}, canDelete: {{CAN_DELETE}}, canCopy: {{CAN_COPY}} }; },

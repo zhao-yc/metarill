@@ -3,6 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import vm from 'node:vm'
 
+const remoteSource = await readFile(new URL('../../../frontend/metarill_uni_admin/common/yzp_runtime/remoteRelationOptions.js', import.meta.url), 'utf8')
+const labelsSource = await readFile(new URL('../../../frontend/metarill_uni_admin/common/yzp_runtime/relationOptionsMixin.js', import.meta.url), 'utf8')
+const { createRemoteRelationOptions } = await import('data:text/javascript;base64,' + Buffer.from(remoteSource).toString('base64'))
 const root = process.argv[2]
 const list = await readFile(join(root, 'frontend/pages/yzp/customer-list-101.vue'), 'utf8')
 const detail = await readFile(join(root, 'frontend/pages/yzp/customer-detail-101.vue'), 'utf8')
@@ -15,13 +18,17 @@ function fixture(source, parameters = {}) {
   yzp: { request: options => { const task = { aborted: false, abort() { task.aborted = true } }; requests.push({ options, task }); return task }, chooseImportFile() {}, importSuccessAction() {}, hasPagePermission: () => true, refreshCurrentPermissions: ready => ready() },
   utils: { openUrl: url => navigations.push(url) },
   getApp: () => ({ globalData: { environment: { base_url: 'https://test.example/api' } } }),
-  uni: { getStorageSync: key => storage[key], navigateTo: options => navigations.push(options), showModal: options => dialogs.push(options), showToast: options => toasts.push(options), navigateBack() {} } }
+  uni: { getStorageSync: key => storage[key], $on() {}, $off() {}, navigateTo: options => navigations.push(options), showModal: options => dialogs.push(options), showToast: options => toasts.push(options), navigateBack() {} } }
+ context.createRelationOptionsMixin = new Function('uni', 'yzp', 'createRemoteRelationOptions', labelsSource.replace(/^import .*;$/gm, '').replace('export function', 'function') + ';return createRelationOptionsMixin')(context.uni, context.yzp, createRemoteRelationOptions)
  const script = source.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^import .*;$/gm, '').replace(/components: \{[^}]*\},/, 'components: {},').replace('export default', 'globalThis.options =')
  vm.runInNewContext(script, context)
- const options = context.options, state = Object.assign(Object.fromEntries(Object.entries(options.props || {}).map(([key, value]) => [key, value.default])), options.data(), options.methods, { $refs: {}, $nextTick: callback => callback(), getOpenerEventChannel: () => ({ emit: (name, value) => emissions.push({ name, value }) }) })
+ const options = context.options, mixins = options.mixins || [], watchers = []
+ const state = Object.assign(Object.fromEntries(Object.entries(options.props || {}).map(([key, value]) => [key, value.default])), options.data(), ...mixins.map(mixin => mixin.methods || {}), options.methods, { $refs: {}, $watch: (get, handler) => { const watcher = { get, handler, value: get(), active: true }; watchers.push(watcher); return () => { watcher.active = false } }, $nextTick: callback => callback(), getOpenerEventChannel: () => ({ emit: (name, value) => emissions.push({ name, value }) }) })
  for (const [name, getter] of Object.entries(options.computed || {})) Object.defineProperty(state, name, { get: () => getter.call(state) })
- options.onLoad.call(state, { parentId: '父记录甲', ...parameters })
+ for (const hook of ['mounted', 'onShow', 'onUnload', 'beforeUnmount']) { const own = options[hook], inherited = mixins.map(mixin => mixin[hook]).filter(Boolean); if (own || inherited.length) options[hook] = function(...args) { inherited.forEach(method => method.apply(this, args)); return own?.apply(this, args) } }
+ options.onLoad.call(state, { parentId: '父记录甲', ...parameters }); options.mounted?.call(state)
  return { state, options, requests, navigations, dialogs, toasts, emissions, storage,
+  flushLabels() { for (const watcher of watchers) if (watcher.active) { const value = watcher.get(); if (value !== watcher.value) { watcher.value = value; watcher.handler() } } },
   pages: () => requests.filter(item => item.options.url.endsWith('/page')),
   lastPage() { return this.pages().at(-1) },
   writes: () => requests.filter(item => /\/(add|update)\?/.test(item.options.url)) }
@@ -109,4 +116,19 @@ function loadedDetail(entity = {}) {
  const review = loadedDetail({ remark: '<p>原值</p>' }); review.state.openRtf('remark', 'review'); review.navigations.at(-1).events.onReceiveRtf('<p>不能通过预览修改</p>'); assert.deepEqual(plain(review.state.changes), {})
  const readOnly = loadedDetail(); readOnly.state.openRtf('groupName', 'edit'); assert.equal(readOnly.navigations.length, 0)
  console.log('通过：RTF记录、父上下文、身份切换与卸载后的回传保护')
+}
+
+{
+ const f = fixture(list); f.options.onShow.call(f.state)
+ assert.equal(f.requests.filter(item => item.options.url.includes('findNameId')).length, 0)
+ finish(f.lastPage(), [{ id: '9007199254741000', groupId: '9007199254740993', ownerId: '2' }]); f.flushLabels()
+ const selected = f.requests.filter(item => item.options.url.includes('findNameId'))
+ assert.equal(selected.length, 2); assert.ok(selected.every(item => item.options.url.endsWith('/selected')))
+ assert.deepEqual(plain(selected[0].options.data.selectedIds), ['9007199254740993'])
+ for (const request of selected) { const id = request.options.data.selectedIds[0], text = id === '2' ? '同权负责人' : '非首屏分组'; request.options.success({ code: 200, data: [{ id, value: id, name: text, text }] }); request.options.complete() }
+ assert.equal(f.state.displayValue(f.state.records[0], 'groupId'), '非首屏分组'); assert.equal(f.state.displayValue(f.state.records[0], 'ownerId'), '同权负责人')
+ f.storage.sysParams = { yzProjectId: '另一个项目' }; f.options.onShow.call(f.state)
+ assert.equal(f.state.options.groupId.length, 0); assert.equal(f.state.options.ownerId.length, 0)
+ f.options.onUnload.call(f.state); assert.ok(f.requests.filter(item => item.options.url.endsWith('/selected')).every(item => item.task.aborted || item.options.isCurrent() === false))
+ console.log('通过：真实生成列表按当前ID批量selected回读，不全量预取，项目/卸载清理标签')
 }

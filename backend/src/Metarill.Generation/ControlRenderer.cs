@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 namespace Metarill.Generation;
 
 internal sealed record ControlResult(string Markup, string? UnsupportedReason = null);
+internal sealed record RelationUiContext(bool SameParent, string? TargetParentField, bool UnresolvedTarget);
 
 /// <summary>复用原有控件；只编译已完成的类型，未接入的能力同时标明原因。</summary>
 internal static class ControlRenderer
@@ -22,6 +23,13 @@ internal static class ControlRenderer
         // 只读展示也不能把未编译关系伪装成已完成的选择控件。
         if (column.Source.ControlKind == "List" && !RelationCompilation.ForPage(model, page).Any(relation => relation.SourceColumn == column) || column.Source.ControlKind == "SelectPage" && SelectionTarget(model, column) is null)
             return Wrap($"<text>{{{{ entity.{column.JsonName} }}}}</text><text>此关系控件待移植，当前只读</text>", "目标关系尚未完成移植：" + column.Source.ControlKind);
+        if (column.Source.ControlKind == "List")
+        {
+            var relation = RelationCompilation.ForPage(model, page).Single(candidate => candidate.SourceColumn == column);
+            var context = RelationContext(page, relation, false);
+            if (context.UnresolvedTarget) return Wrap($"<text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text><text>关联目标父范围尚未明确，当前只读并保留原ID</text>", "关联目标需要独立 targetParentId，当前页没有唯一可读的声明外键。");
+            return Wrap(RelationMarkup(model, page, relation, context, "entity", writable ? "readOnlyCondition" : "true", writable ? change : ""));
+        }
         if (column.Source.ControlKind == "FileLibrary") return Wrap(FileLibraryMarkup(table, page, column, "entity", writable));
         if (column.Source.ControlKind == "RTF" && column.Type == "string?")
             return Wrap((writable ? $"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"openRtf('{column.JsonName}', 'edit')\">编辑</button>" : "") + $"<button size=\"mini\" @click=\"openRtf('{column.JsonName}', 'review')\">预览</button><rich-text :nodes=\"entity.{column.JsonName} || ''\" />");
@@ -38,10 +46,6 @@ internal static class ControlRenderer
                 return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(CheckOptions(column))}\" />");
             case "date": case "date_time":
                 return Wrap($"<uni-datetime-picker type=\"{(column.Source.ControlKind == "date" ? "date" : "datetime")}\" {binding} @change=\"change('{column.JsonName}', $event)\" />");
-            case "List":
-                var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(r => r.SourceColumn == column);
-                if (relation is not null) return Wrap($"<zxz-uni-data-select filterable {binding} {change} :localdata=\"options.{column.JsonName} || []\" />");
-                break;
             case "SelectPage":
                 var target = SelectionTarget(model, column);
                 if (target is not null) return Wrap($"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"selectPage('{column.JsonName}', '{target}')\">选择</button><text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text>");
@@ -65,13 +69,37 @@ internal static class ControlRenderer
         ControlResult Wrap(string content) => new($"<uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">{content}</uni-forms-item>");
         if (column.Source.ControlKind is "ConstList" or "ConstDownList") return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(ConstOptions(column))}\" />");
         if (column.Source.ControlKind == "CheckBox" || column.Type == "bool?" && column.Source.ControlKind == "") return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(CheckOptions(column))}\" />");
-        if (column.Source.ControlKind == "List" && RelationCompilation.ForPage(model, page).Any(relation => relation.SourceColumn == column))
-            return Wrap($"<zxz-uni-data-select filterable {binding} {change} :localdata=\"options.{column.JsonName} || []\" />");
+        if (column.Source.ControlKind == "List" && RelationCompilation.ForPage(model, page).SingleOrDefault(relation => relation.SourceColumn == column) is { } relation)
+        {
+            var context = RelationContext(page, relation, true);
+            if (context.UnresolvedTarget) return new("", "关联筛选缺少可证明的目标父范围，当前不提供选择。");
+            return Wrap(RelationMarkup(model, page, relation, context, "draftFilters", "false", change));
+        }
         if (column.Type == "DateTime?" && column.Source.ControlKind is "" or "date" or "date_time")
             return Wrap($"<uni-datetime-picker type=\"{(column.Source.ControlKind == "date" ? "daterange" : "datetimerange")}\" {binding} @change=\"setFilter('{column.JsonName}', $event)\" />");
         if (column.Source.ControlKind is "" or "TextArea" or "RTF")
             return Wrap($"<uni-easyinput {binding} {change} placeholder=\"请输入{label}\" />");
         return new("", "筛选控件尚未完成移植：" + column.Source.ControlKind);
+    }
+
+    /// <summary>目标父只取同父上下文或唯一可读声明外键，不猜索引到表等跨层映射。</summary>
+    internal static RelationUiContext RelationContext(PageModel page, RelationModel relation, bool filter)
+    {
+        var same = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
+        if (same || relation.TargetParents.Count == 0) return new(same, null, false);
+        if (relation.TargetParents.Count != 1) return new(false, null, true);
+        var target = relation.TargetParents[0].Source.Id;
+        var fields = page.Readable.Where(column => column.Source.Id != relation.SourceColumn.Source.Id && column.Source.LinkConfigTableId == target && (!filter || page.Searchable.Contains(column))).Take(2).ToArray();
+        return fields.Length == 1 ? new(false, fields[0].JsonName, false) : new(false, null, true);
+    }
+
+    /// <summary>远程外壳保持原选择器交互，只消费当前页已编译的固定端点。</summary>
+    private static string RelationMarkup(GenerationModel model, PageModel page, RelationModel relation, RelationUiContext context, string row, string readOnly, string change)
+    {
+        var table = model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId);
+        var endpoint = "/admin/auto/" + table.Source.TableName + "/" + page.Source.Id + "/" + relation.Endpoint;
+        var target = context.TargetParentField is null ? "" : $" :target-parent-id=\"{row}.{context.TargetParentField}\"";
+        return $"<yzp-relation-select :modelValue=\"{row}.{relation.SourceColumn.JsonName}\" endpoint=\"{Escape(endpoint)}\" :parent-id=\"parentId\"{target} :require-parent=\"{(relation.SourceParents.Count > 0).ToString().ToLowerInvariant()}\" :require-target-parent=\"{(relation.TargetParents.Count > 0).ToString().ToLowerInvariant()}\" :same-parent=\"{context.SameParent.ToString().ToLowerInvariant()}\" :readonly=\"{readOnly}\" {change} />";
     }
 
     /// <summary>文件库完整传递声明配置；默认保护访问与后端一致，未知或损坏值在生成阶段拒绝。</summary>
