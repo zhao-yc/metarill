@@ -1688,6 +1688,19 @@
           "sha256": "a92534854e6f48e2aa1fb8d27db3b5a041a8bca3e26f3bf5f79adad6148fe8c4"
         }
       ]
+    },
+    {
+      "name": "Tiny Cloud Vue 富文本接线",
+      "sourceRepository": "YZP",
+      "sourceRevision": "06066f791c569aebd7f07183657a6bffc3fb8bda",
+      "source": "pages/main/rtf/rtf.vue",
+      "sourceSha256": "2f82a22c8eac846b95658d5bd4164c51d6baeb9fd6e051e3578bd5e1a18c6466",
+      "destination": "pages/main/rtf/rtf.vue",
+      "note": "保留原HTML编辑/事件/工具栏设计并适配TinyMCE8现行配置名；未复制私有API key、原中文资源或TinyMCE核心，Cloud key默认留空。",
+      "dependency": "@tinymce/tinymce-vue@6.3.0",
+      "license": "MIT",
+      "upstream": "https://github.com/tinymce/tinymce-vue",
+      "verifiedAt": "2026-10-19"
     }
   ]
 }

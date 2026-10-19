@@ -10,7 +10,8 @@
 | [SheetJS](https://github.com/SheetJS/sheetjs) / xlsx | 0.18.5 | Apache-2.0 | npm registry 核对，保持既有导入导出协议；未将依赖树打入源码 |
 | [Cropper.js](https://github.com/fengyuanchen/cropperjs) | vendored 文件头版本 | MIT | 保留 vendor/cropperjs/LICENSE |
 | [zxz-uni-data-select](https://ext.dcloud.net.cn/plugin?name=zxz-uni-data-select) | 1.0.20 | MIT；DCloud 基底 Apache-2.0 | 作者发布页明确许可；共享 components 源头原样接回搜索、多选、禁用、清空交互，保留同目录 LICENSE、LICENSE.upstream、NOTICE.md |
-| TinyMCE 及其 Vue 封装 | 原平台 8.3.2 / 6.3.0 | 原组件使用方式未确认 | 未复制源码、资源、API key；保留富文本入口及事件协议，编辑能力待接入 |
+| [TinyMCE Vue 封装](https://github.com/tinymce/tinymce-vue) | 6.3.0 | MIT | 固定 npm 依赖与锁文件，保留 licenses/tinymce-vue.LICENSE.txt；只接入用户自有 Tiny Cloud，不安装或分发 TinyMCE 核心及来源未确认的旧中文包 |
+| [Tiny Cloud](https://www.tiny.cloud/docs/tinymce/latest/vue-cloud/) | 部署指定稳定 8/8.x 频道 | 各部署自身 Cloud 账户条款 | 服务端私有配置 ApiKey，认证后仅下发浏览器加载所需字段；中文及付费资源由该账户远程提供，项目 Apache-2.0 不替代 Cloud 账户授权 |
 | uCharts / qiun-data-charts | 原平台组件 | 未确认 | 未复制 |
 
 未复制原平台 logo、头像、背景、独立图标字体、钉钉 SDK、AppID、证书或部署配置。uni-icons 内自带字体随官方组件条款保留。
