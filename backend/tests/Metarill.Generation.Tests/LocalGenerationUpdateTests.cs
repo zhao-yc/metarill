@@ -11,6 +11,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>临时真实FullApplication目录中的源码更新、保护、清单与恢复验收；不连接数据库。</summary>
 public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
 {
+    private PackagePublicationException? publicationFailure;
     private readonly string root = Path.Combine(Path.GetTempPath(), "metarill-local-update", Guid.NewGuid().ToString("N"));
     private static readonly string[] All = ["generate-project-config", "sync-runtime", "generate-all-page"];
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
@@ -101,7 +102,9 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
     private (string Target, string Candidate) Packages(MetadataCatalog old, MetadataCatalog next)
     {
         Directory.CreateDirectory(root); var target = Path.Combine(root, "target"); var candidate = Path.Combine(root, "candidate");
-        new ApplicationPackager().Create(old, target, "Example.LocalUpdate", SourceRoot()); new ApplicationPackager().Create(next, candidate, "Example.LocalUpdate", SourceRoot()); return (target, candidate);
+        try { new ApplicationPackager().Create(old, target, "Example.LocalUpdate", SourceRoot()); new ApplicationPackager().Create(next, candidate, "Example.LocalUpdate", SourceRoot()); return (target, candidate); }
+        catch (PackagePublicationException error) when (error.StageDirectory.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        { publicationFailure = error; PublicationHandleProbe.Capture(error); throw; }
     }
     /// <summary>测试候选的新框架文件同步维护两层hash，与真实再打包的输出契约一致。</summary>
     private static void Rehash(string directory, string path)
@@ -120,5 +123,7 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
     /// <summary>由xUnit异步生命周期管理每个临时GUID目录。</summary>
     public Task InitializeAsync() => Task.CompletedTask;
     /// <summary>只清理本测试在固定临时根下建立的目录。</summary>
-    public Task DisposeAsync() => TestDirectoryCleanup.DeleteAsync(root, Path.Combine(Path.GetTempPath(), "metarill-local-update"));
+    // Packages已验证实际发布异常属于本GUID；权限错误可能令Exists返回false，不能据此销毁外层证据。
+    public Task DisposeAsync() => publicationFailure is not null
+        ? Task.CompletedTask : TestDirectoryCleanup.DeleteAsync(root, Path.Combine(Path.GetTempPath(), "metarill-local-update"));
 }

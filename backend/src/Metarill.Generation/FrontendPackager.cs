@@ -11,6 +11,11 @@ public sealed record FrontendPackageResult(IReadOnlyList<string> Files);
 /// <summary>独立uni-app宿主只读取受控公共资产，不复制平台配置页、环境、AppID或用户文件。</summary>
 public sealed class FrontendPackager
 {
+    private readonly Action<string, string> publish;
+    /// <summary>默认单次原子目录发布；内部注入用于验证真实内外层失败保护。</summary>
+    public FrontendPackager() : this(PackagePublication.Publish) { }
+    /// <summary>内部逐实例注入发布动作，故障测试不使用全局可变hook。</summary>
+    internal FrontendPackager(Action<string, string> publish) => this.publish = publish;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] RuntimeModules = ["buttonVisibleRule", "detailLayoutRuntime", "exportDownload", "fileLibraryFolderTree", "fileLibraryThumbnailPan", "generationDownload", "h5DocumentTitleSync", "imageUploadCropper", "listPageRuntime", "menuRuntime", "menuRuntimeBridge", "multiSelectFieldMixin", "pageWritePayload", "relationOptionsMixin", "relationReadValues", "remoteRelationOptions", "selectionPageMixin", "tinyCloudEditor", "yzp-runtime"];
     private static readonly string[] Components = ["yzp-auto-pan-image", "yzp-cascade-tree", "yzp-file-library", "yzp-popup", "yzp-relation-select", "zxz-uni-data-select"];
@@ -100,12 +105,14 @@ public sealed class FrontendPackager
         var manifest = files.OrderBy(file => file.Key, StringComparer.Ordinal).Select(file => new { path = file.Key, sha256 = Convert.ToHexStringLower(SHA256.HashData(file.Value)) }).ToArray();
         Text(".metarill-frontend.json", JsonSerializer.Serialize(new { schemaVersion = 1, projectId = catalog.YzProjectId, authentication = "development-only", files = manifest }, JsonOptions) + "\n");
         var stage = output + ".staging-" + Guid.NewGuid().ToString("N");
+        var preserveStage = false;
         try
         {
             foreach (var (relative, bytes) in files.OrderBy(file => file.Key, StringComparer.Ordinal)) { var path = CSharpGenerator.SafePath(stage, relative); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllBytes(path, bytes); }
-            if (Directory.Exists(output)) Directory.Delete(output, false); Directory.Move(stage, output);
+            publish(stage, output);
         }
-        finally { if (Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output)) Directory.Delete(stage, true); }
+        catch (PackagePublicationException) { preserveStage = true; throw; }
+        finally { if (!preserveStage && Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output)) Directory.Delete(stage, true); }
         return new(files.Keys.Order(StringComparer.Ordinal).ToArray());
     }
 

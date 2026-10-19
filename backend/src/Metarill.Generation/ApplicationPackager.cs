@@ -17,6 +17,11 @@ public sealed record ApplicationPackageResult(IReadOnlyList<string> Files, strin
 /// <summary>将通用基础设施和生成源码装配为独立应用，不读取私有配置，也不连接数据库。</summary>
 public sealed class ApplicationPackager
 {
+    private readonly Action<string, string> publish;
+    /// <summary>内外两层使用同一发布边界，失败stage必须一直保留到调用者诊断。</summary>
+    public ApplicationPackager() : this(PackagePublication.Publish) { }
+    /// <summary>内部逐实例注入发布动作，故障测试不使用全局可变hook。</summary>
+    internal ApplicationPackager(Action<string, string> publish) => this.publish = publish;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] FoundationProjects = ["Metarill.Core", "Metarill.Data", "Metarill.Exports", "Metarill.Files"];
     private static readonly HashSet<string> SensitiveKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -54,9 +59,10 @@ public sealed class ApplicationPackager
         Scrub(infrastructureJson, "$.files", redactions);
         var infrastructure = infrastructureJson.Deserialize<MetadataCatalog>(JsonOptions)!;
         MetadataCatalogComposition.MergePhysical(sanitized, infrastructure);
-        var frontend = new FrontendPackager();
+        var frontend = new FrontendPackager(publish);
         if (mode == ApplicationPackageMode.FullApplication) frontend.Validate(sanitized);
         var frontendIncluded = mode == ApplicationPackageMode.FullApplication;
+        var preserveStage = false;
         try
         {
             Directory.CreateDirectory(stage);
@@ -108,14 +114,17 @@ public sealed class ApplicationPackager
             var files = Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories).Select(file => new { path = Path.GetRelativePath(stage, file).Replace('\\', '/'), sha256 = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(file))) }).OrderBy(file => file.path, StringComparer.Ordinal).ToArray();
             Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files }, JsonOptions) + "\n");
             // 移动前再次检查输出目录，避免其他进程在打包期间写入后被覆盖。
-            if (Directory.Exists(output)) Directory.Delete(output, false);
-            Directory.Move(stage, output);
+            publish(stage, output);
             return new ApplicationPackageResult(files.Select(file => file.path).Append(".metarill-package.json").ToArray(), generated.MetadataSha256, redactions.Distinct().Order(StringComparer.Ordinal).ToArray(), warnings) { Mode = mode, FrontendIncluded = frontendIncluded };
+        }
+        catch (PackagePublicationException error)
+        {
+            preserveStage = true; error.PreserveContainingStage(stage); throw;
         }
         finally
         {
-            // 只清理本次创建的、已验证位于输出同级的临时目录。
-            if (Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output) && Path.GetFileName(stage).StartsWith(Path.GetFileName(output) + ".staging-", StringComparison.Ordinal)) Directory.Delete(stage, true);
+            // 发布异常保留明确定义的本次stage；其余失败仍按原边界清理。
+            if (!preserveStage && Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output) && Path.GetFileName(stage).StartsWith(Path.GetFileName(output) + ".staging-", StringComparison.Ordinal)) Directory.Delete(stage, true);
         }
     }
     /// <summary>仅枚举基础源码、工程和固定许可证，拒绝链接，跳过环境文件和构建目录。</summary>
