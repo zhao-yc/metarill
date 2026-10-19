@@ -149,18 +149,7 @@ internal static partial class OriginalUniappListRenderer
     }
 
     /// <summary>名称辅助列必须来自现有声明；未声明时保留原ID，不发明列。</summary>
-    private static string RelationName(TableModel table, ColumnModel column)
-    {
-        var display = "name";
-        if (column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage")
-        {
-            try { using var definition = JsonDocument.Parse(column.Source.ControlDetail); if (definition.RootElement.TryGetProperty("nameField", out var field) && field.ValueKind == JsonValueKind.String && field.GetString() is { Length: > 0 } configured) display = configured; }
-            catch (JsonException) { /* 空定义沿用原name展示字段，能力清单负责记录不可导出的控件。 */ }
-        }
-        if (display.Equals("id", StringComparison.OrdinalIgnoreCase)) return column.JsonName;
-        var name = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] + "_" + (display.EndsWith('s') ? display : display + "s") : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] + "_" + display : column.Source.ColumnName;
-        return table.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == name)?.JsonName ?? column.JsonName;
-    }
+    private static string RelationName(TableModel table,ColumnModel column)=>SelectionDisplayFieldCompilation.Resolve(table,column).JsonName;
     /// <summary>页级控件设置按原规则覆盖字段，空值继承基础配置。</summary>
     private static string Effective(ColumnMetadata column, PageColumnMetadata field, string key, string fallback) => field.Extra.TryGetValue(key, out var value) && value.ValueKind != JsonValueKind.Null && value.ToString().Length > 0 ? value.ToString() : fallback;
     private static PageColumnMetadata Field(GenerationModel model, PageModel page, ColumnModel column) => model.Catalog.ConfigPageColumns.Single(field => field.ConfigPageId == page.Source.Id && field.ConfigColumnId == column.Source.Id);
