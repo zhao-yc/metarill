@@ -39,6 +39,7 @@ function New-FreshOptions([string]$Suffix){
 }
 $oldSettings=$env:METARILL_FRESH_INSTALL_SETTINGS;$oldDotnet=$env:DOTNET_HOST_PATH
 $created=$false;$cleaned=$false;$passed=$false
+$startedAt=[DateTimeOffset]::UtcNow.ToString('o')
 try{
  $created=$true;Invoke-FreshServer 'create'|Out-Null
  @{RunId=$runId;Database=(New-FreshOptions 'platform');BusinessDatabase=(New-FreshOptions 'business');PackagedDatabase=(New-FreshOptions 'package')}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $settingsPath -Encoding utf8
@@ -47,6 +48,10 @@ try{
  if($LASTEXITCODE -ne 0){throw '平台编译失败，请检查本轮私有 build.log。'}
  & $DotnetPath test (Join-Path $repoRoot 'backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj') --nologo --disable-build-servers --filter 'FullyQualifiedName~FreshInstallMySqlTests' --logger 'trx;LogFileName=fresh-install.trx' --results-directory $runDirectory *> (Join-Path $runDirectory 'test.log')
  if($LASTEXITCODE -ne 0){throw '空库真实验收失败，请检查本轮私有 test.log 与 TRX。'}
+ # 命令成功不等于场景实际执行，必须明确2项均通过且没有跳过。
+ [xml]$trx=Get-Content -Raw -LiteralPath (Join-Path $runDirectory 'fresh-install.trx')
+ $counters=$trx.TestRun.ResultSummary.Counters
+ if([int]$counters.total -ne 2 -or [int]$counters.executed -ne 2 -or [int]$counters.passed -ne 2 -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0){throw '首次安装场景未全部实际通过，不能计为验收成功。'}
  $passed=$true
 }
 finally{
@@ -57,4 +62,7 @@ finally{
  if($cleaned){Write-Output '本轮随机账号与3个随机库已全部清理；未操作既有库。'}
 }
 
-if($passed -and $cleaned){Write-Output "空库验收通过；编号：$runId，测试结果：$runDirectory"}
+if($passed -and $cleaned){
+ @{schemaVersion=1;runId=$runId;server='Server-200';address='192.168.31.200';startedAt=$startedAt;completedAt=[DateTimeOffset]::UtcNow.ToString('o');passed=2;failed=0;skipped=0;createdDatabaseCount=3;createdTemporaryAccountCount=1;allTemporaryObjectsCleaned=$true;credentialFileRemoved=(!(Test-Path -LiteralPath $settingsPath))}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $runDirectory 'result.json') -Encoding utf8
+ Write-Output "空库验收通过；编号：$runId，测试结果：$runDirectory"
+}

@@ -86,14 +86,15 @@ public sealed class FreshInstallMySqlTests(ITestOutputHelper output)
             }
             var catalog = await CatalogAsync(Path.Combine(root, "backend/metadata/platform.json"));
             var demo = await CatalogAsync(Path.Combine(root, "backend/metadata/demo.json"));
+            var businessCatalog = MetadataCatalogComposition.MergePhysical(demo, await CatalogAsync(Path.Combine(root, "backend/metadata/files.json")));
             var schema = new SchemaService(platformSession); var initial = await schema.PreviewAsync(catalog);
             Assert.Equal(catalog.ConfigTables.Count, initial.Changes.Count(change => change.Kind == "createTable"));
             Assert.Equal(0L, await CountTablesAsync(platformSession));
             await RunAsync(StartInfo("--initialize"));
             Assert.Equal(catalog.ConfigTables.Count, await CountTablesAsync(platformSession));
-            Assert.Equal(demo.ConfigTables.Count, await CountTablesAsync(businessSession));
+            Assert.Equal(businessCatalog.ConfigTables.Count, await CountTablesAsync(businessSession));
             Assert.Empty((await schema.PreviewAsync(catalog)).Changes);
-            Assert.Empty((await new SchemaService(businessSession).PreviewAsync(demo)).Changes);
+            Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
             var expected = new Dictionary<string, int> { ["config_table"] = catalog.ConfigTables.Count + demo.ConfigTables.Count, ["config_column"] = catalog.ConfigColumns.Count + demo.ConfigColumns.Count, ["config_page"] = catalog.ConfigPages.Count + demo.ConfigPages.Count, ["config_page_column"] = catalog.ConfigPageColumns.Count + demo.ConfigPageColumns.Count };
             foreach (var (table, count) in expected) Assert.Equal(count, Convert.ToInt32(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table + "` WHERE `delete_no` IS NULL")));
             Assert.Equal(2L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `yz_project` WHERE `delete_no` IS NULL")));
@@ -110,7 +111,7 @@ public sealed class FreshInstallMySqlTests(ITestOutputHelper output)
             var permissions = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
             Assert.Equal(200, permissions.GetProperty("code").GetInt32()); Assert.True(permissions.GetProperty("data").GetProperty("isSuper").GetBoolean());
             var menu = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getMenu"); Assert.Equal(200, menu.GetProperty("code").GetInt32()); Assert.NotEmpty(menu.GetProperty("menu").EnumerateArray());
-            output.WriteLine($"平台：普通启动保持0表，显式初始化创建{catalog.ConfigTables.Count}表并播种元数据，业务库创建{demo.ConfigTables.Count}表；重复初始化无重复且密码未重置，真实登录/权限/菜单通过。");
+            output.WriteLine($"平台：普通启动保持0表，显式初始化创建{catalog.ConfigTables.Count}表并播种元数据，业务库创建{businessCatalog.ConfigTables.Count}表；重复初始化无重复且密码未重置，真实登录/权限/菜单通过。");
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, temporaryRoot); }
     }
@@ -183,4 +184,3 @@ internal sealed class FreshHost : IAsyncDisposable
     /// <summary>退出宿主后等待日志管道结束，释放DLL占用。</summary>
     public async ValueTask DisposeAsync() { if (!process.HasExited) process.Kill(true); await process.WaitForExitAsync(); await stdout; await stderr; process.Dispose(); Client.Dispose(); }
 }
-
