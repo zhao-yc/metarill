@@ -450,28 +450,79 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var relation in RelationCompilation.ForPage(model, page))
             result.AppendLine("    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]")
-                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}([FromBody] PageRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
+                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ToPageRequest(), actor, cancellationToken)); }}")
+                .AppendLine("    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>")
+                .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/page")})]")
+                .AppendLine($"    public async Task<R<PageResult<GeneratedOption>>> {relation.Endpoint}Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}")
+                .AppendLine("    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>")
+                .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/selected")})]")
+                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
         result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(page));
         return result.AppendLine("}").ToString();
     }
-    /// <summary>选项查询复用目标页和关联配置范围，仅输出 id/name/value/text。</summary>
+    /// <summary>数组、分页和已选回读共用目标、真实父记录和固定范围，不生成通用查询网关。</summary>
     private static string Relations(GenerationModel model, PageModel page)
     {
         var result = new StringBuilder();
         foreach (var relation in RelationCompilation.ForPage(model, page))
         {
-            result.AppendLine("    /// <summary>关联选项先收窄到目标页数据范围，再投影显示字段。</summary>")
-                .AppendLine($"    public async Task<IReadOnlyList<GeneratedOption>> Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
-                .AppendLine("    {").AppendLine("        ValidateActor(actor);")
-                .AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
+            var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
+            result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
+                .AppendLine($"    private async Task<ISelect<{relation.Target.Name}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)")
+                .AppendLine("    {").AppendLine("        ValidateActor(actor);");
+            var sameParent = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
+            if (relation.SourceParents.Count > 0)
+                result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
+            for (var index = 0; index < relation.SourceParents.Count; index++) Parent(relation.SourceParents[index], "sourceParentKey", "sourceParent" + index);
+            if (relation.TargetParents.Count > 0)
+            {
+                if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
+                result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
+                for (var index = 0; index < relation.TargetParents.Count; index++) Parent(relation.TargetParents[index], "targetParentKey", "targetParent" + index);
+            }
+            else result.AppendLine("        if (targetParentId is not null) throw new ArgumentException(\"当前关联不使用 targetParentId。\");");
+            if (relation.SourceParents.Count == 0 && relation.TargetParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
+            // 父定义来自生成元数据，来源与目标分别验证真实记录，绝不猜索引到表等跨层映射。
+            void Parent(TableModel parent, string key, string variable)
+            {
+                var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
+                result.AppendLine($"        var {variable} = session.Select<{parent.Name}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+                if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
+                result.AppendLine($"        if (!await {variable}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\");");
+            }
+            result.AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
             if (relation.Target.Columns.Any(c => c.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
             var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
-            foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent"))
-                result.AppendLine("        if (string.IsNullOrWhiteSpace(request.ParentId)) throw new ArgumentException(\"关联选项要求 parentId。\");")
-                    .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "request.ParentId")});");
-            result.AppendLine($"        var entities = await query.OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Limit(5000).ToListAsync(cancellationToken);")
-                .AppendLine($"        return entities.Select(entity => new GeneratedOption(entity.Id, entity.{relation.NameColumn.Property}, entity.Id, entity.{relation.NameColumn.Property})).ToArray();")
+            foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
+                result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
+            result.AppendLine("        return query;").AppendLine("    }")
+                .AppendLine("    /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>")
+                .AppendLine($"    public async Task<IReadOnlyList<GeneratedOption>> Options{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
+                .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
+                .AppendLine($"        var query = await OptionsScope{suffix}Async(request.ParentId, null, actor, cancellationToken);")
+                .AppendLine($"        var entities = await query.OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
+                .AppendLine($"        if (entities.Count > 5000) throw new InvalidOperationException({Literal("关联候选超过 5000 条，请使用 " + relation.Endpoint + "/page 分页查询。")});")
+                .AppendLine($"        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();")
+                .AppendLine("    }")
+                .AppendLine("    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>")
+                .AppendLine($"    public async Task<PageResult<GeneratedOption>> OptionsPage{suffix}Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
+                .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); request.Validate();")
+                .AppendLine($"        var query = await OptionsScope{suffix}Async(request.ParentId, request.TargetParentId, actor, cancellationToken);")
+                .AppendLine("        if (!string.IsNullOrEmpty(request.Keyword))").AppendLine("        {").AppendLine("            var keyword = request.Keyword;")
+                .AppendLine($"            query = query.Where(entity => entity.{relation.NameColumn.Property} != null && entity.{relation.NameColumn.Property}.Contains(keyword));")
+                .AppendLine("        }").AppendLine("        var total = await query.CountAsync(cancellationToken);")
+                .AppendLine($"        var entities = await query.OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Page(request.PageNo, request.PageSize).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
+                .AppendLine($"        return new(entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
+                .AppendLine("    }")
+                .AppendLine("    /// <summary>已选回读忽略当前关键词，但不得扩大项目、页面或控件范围。</summary>")
+                .AppendLine($"    public async Task<IReadOnlyList<GeneratedOption>> OptionsSelected{suffix}Async(RelationOptionsSelectedRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
+                .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
+                .AppendLine($"        var query = await OptionsScope{suffix}Async(request.ParentId, request.TargetParentId, actor, cancellationToken);")
+                .AppendLine("        if (selected.Length == 0) return [];")
+                .AppendLine($"        var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
+                .AppendLine("        if (entities.Count != selected.Length) throw new InvalidOperationException(\"关联已选项不存在、已删除或不在当前可选范围。\");")
+                .AppendLine($"        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();")
                 .AppendLine("    }");
         }
         return result.ToString();

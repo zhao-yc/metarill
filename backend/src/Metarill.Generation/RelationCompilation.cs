@@ -1,35 +1,71 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Metarill.Generation;
 
-internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target, PageModel TargetPage, ColumnModel NameColumn, string Endpoint, IReadOnlyList<(ColumnModel Column, string Source)> Scopes);
+internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target, PageModel TargetPage, ColumnModel NameColumn, string Endpoint,
+    IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents);
 
 /// <summary>关系选项只能编译已声明表、名称列和目标页面，禁止直接解释外部 SQL。</summary>
 internal static class RelationCompilation
 {
-    /// <summary>编译有明确目标页及范围的关系选项。</summary>
+    /// <summary>把字段与页面覆盖合并后编译一次，三种候选入口共用同一范围。</summary>
     public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page)
     {
         var relations = new List<RelationModel>();
         foreach (var source in page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id).Where(c => c.Source.ControlKind == "List"))
         {
-            if (string.IsNullOrWhiteSpace(source.Source.ControlDetail)) continue;
-            using var detail = JsonDocument.Parse(source.Source.ControlDetail);
-            var root = detail.RootElement;
-            var tableId = root.TryGetProperty("tableId", out var tableValue) ? tableValue.ToString() : source.Source.LinkConfigTableId;
-            var tableName = root.TryGetProperty("table", out var nameValue) ? nameValue.ToString() : "";
+            var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
+            var root = Definition(source.Source.ControlDetail);
+            var overlay = Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString() ?? "");
+            // 仅编译已知映射键，原元数据和未知合法键保持原样；页面非空配置覆盖字段定义。
+            string Mapped(string key, string fallback = "")
+            {
+                var value = Text(overlay, key); if (string.IsNullOrWhiteSpace(value)) value = Text(root, key);
+                return string.IsNullOrWhiteSpace(value) ? fallback : value;
+            }
+            var tableId = Mapped("tableId", source.Source.LinkConfigTableId); var tableName = Mapped("table");
             var target = model.Tables.SingleOrDefault(t => !string.IsNullOrEmpty(tableId) ? t.Source.Id == tableId : t.Source.TableName == tableName);
             if (target is null) continue; // 保留尚未移植的外部关系配置，能力清单明确列出未接入字段。
-            var nameField = root.TryGetProperty("nameField", out var fieldValue) ? fieldValue.ToString() : "name";
-            var name = target.Columns.SingleOrDefault(c => c.Source.ColumnName == nameField);
+            if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))
+                throw new InvalidOperationException("关联目标未声明项目归属或明确的全局范围：" + target.Source.TableName);
+            var name = target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
             if (name is null || name.Type != "string?") continue;
-            var targetPage = target.Pages.FirstOrDefault(p => p.Source.YzAdminTypeId == page.Source.YzAdminTypeId && !p.Scopes.Any(s => s.Source == "parent"))
-                ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent"));
+            var explicitPage = source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            var targetPage = !string.IsNullOrWhiteSpace(explicitPage)
+                ? target.Pages.SingleOrDefault(candidate => candidate.Source.Id == explicitPage) ?? throw new InvalidOperationException("关联目标页不存在或不属于目标表。")
+                : target.Pages.FirstOrDefault(p => p.Source.YzAdminTypeId == page.Source.YzAdminTypeId && !p.Scopes.Any(s => s.Source == "parent"))
+                    ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent"));
             if (targetPage is null) continue;
-            var sql = root.TryGetProperty("whereSql", out var sqlValue) ? sqlValue.ToString() : "";
-            var scopes = GenerationModel.CompileScopes(sql, target.Columns);
-            relations.Add(new RelationModel(source, target, targetPage, name, "findNameId" + target.Name + source.Source.Id, scopes));
+            if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
+            var scopes = GenerationModel.CompileScopes(Mapped("whereSql"), target.Columns);
+            var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
+            var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
+            relations.Add(new RelationModel(source, target, targetPage, name, "findNameId" + target.Name + source.Source.Id, scopes, sourceParents, targetParents));
         }
         return relations;
     }
+
+    /// <summary>父范围必须引用真实已声明的表与项目键，不能按请求选择父定义。</summary>
+    private static TableModel Parent(GenerationModel model, ColumnModel column)
+    {
+        var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
+            ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
+            ?? throw new InvalidOperationException("关联父范围缺少明确目标表：" + column.Source.ColumnName);
+        if (!parent.Columns.Any(candidate => candidate.Source.ColumnName == "yz_project_id")) throw new InvalidOperationException("关联父表未声明项目归属。");
+        return parent;
+    }
+
+    /// <summary>只接受对象，重复键不得导致不同入口采用不同配置解释。</summary>
+    private static JsonObject Definition(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return new();
+        using var parsed = JsonDocument.Parse(text);
+        if (parsed.RootElement.ValueKind != JsonValueKind.Object || parsed.RootElement.EnumerateObject().Select(property => property.Name).Distinct(StringComparer.Ordinal).Count() != parsed.RootElement.EnumerateObject().Count())
+            throw new InvalidOperationException("关联控件明细必须为无重复键的对象。");
+        return JsonNode.Parse(text)!.AsObject();
+    }
+    /// <summary>映射键只接受标量字符串/数字，不把复杂对象转成 SQL。</summary>
+    private static string Text(JsonObject source, string key) => source[key] is null ? "" : source[key]!.GetValueKind() is JsonValueKind.String or JsonValueKind.Number
+        ? source[key]!.ToString() : throw new InvalidOperationException("关联控件映射字段类型无效。");
 }
