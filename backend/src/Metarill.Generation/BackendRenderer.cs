@@ -51,7 +51,11 @@ internal static class BackendRenderer
             result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}{kind}Request").AppendLine("{");
             if (kind == "Update") result.AppendLine("    public long Id { get; set; }");
             foreach (var column in page.Writable)
-                result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]").AppendLine($"    public Optional<{column.BoundaryType}> {column.Property} {{ get; set; }}");
+            {
+                result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
+                if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(CheckboxBooleanJsonConverter))]");
+                result.AppendLine($"    public Optional<{column.BoundaryType}> {column.Property} {{ get; set; }}");
+            }
             result.AppendLine("}");
         }
         result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}RecordRequest {{ public long Id {{ get; set; }} }}");
@@ -68,7 +72,11 @@ internal static class BackendRenderer
         var result = new StringBuilder(CSharpGenerator.Header).Append(constants.Length == 0 ? "" : "using System.Globalization;\n").AppendLine("using System.Text.Json;").AppendLine("using System.Text.Json.Serialization;").AppendLine($"using {model.Namespace}.Generated.Entities;")
             .AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed class {page.Name}Vo").AppendLine("{");
         foreach (var column in page.Readable)
-            result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]").AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
+        {
+            result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
+            if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
+        }
         foreach (var column in constants)
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName + "Show")})]").AppendLine($"    public string? {column.Property}Show {{ get; init; }}");
         result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => new()").AppendLine("    {");
@@ -76,6 +84,8 @@ internal static class BackendRenderer
         foreach (var column in constants) result.AppendLine($"        {column.Property}Show = {ConstantDisplayExpression(column)},");
         return result.AppendLine("    };").AppendLine("}").ToString();
     }
+    /// <summary>只对已发布CheckBox布尔字段使用原0/1协议，其他bool API不改变。</summary>
+    private static bool Checkbox(ColumnModel column) => column.Type == "bool?" && column.Source.ControlKind == "CheckBox";
     /// <summary>把常量标签预编译为类型匹配的 switch，未知值保留原文、空值保持为空。</summary>
     private static string ConstantDisplayExpression(ColumnModel column)
     {
@@ -224,10 +234,10 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             else
             {
                 result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {")
-                    .AppendLine($"                        var values = JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(), JsonOptions)!;")
+                    .AppendLine(Checkbox(column) ? "                        var values = filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).ToArray();" : $"                        var values = JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(), JsonOptions)!;")
                     .AppendLine($"                        query = query.Where(entity => values.Contains(entity.{column.Property}));")
                     .AppendLine("                        break;").AppendLine("                    }")
-                    .AppendLine($"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
+                    .AppendLine(Checkbox(column) ? "                    var value = CheckboxBooleanJsonConverter.Parse(filter.Value);" : $"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
                 var field = model.Catalog.ConfigPageColumns.Single(x => x.ConfigPageId == page.Source.Id && x.ConfigColumnId == column.Source.Id);
                 var matchName = field.Extra.TryGetValue("searchType", out var match) ? match.ToString() : field.Extra.TryGetValue("matchType", out match) ? match.ToString() : "";
                 var like = column.Type == "string?" && (matchName == "like" || (string.IsNullOrEmpty(matchName) && column.Source.ControlKind is not "List" and not "ConstList" and not "ConstDownList" and not "SelectPage"));

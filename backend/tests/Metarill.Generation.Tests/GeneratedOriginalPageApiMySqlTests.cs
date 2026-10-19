@@ -59,7 +59,7 @@ public sealed class GeneratedOriginalPageApiMySqlTests
             using var client = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + port), Timeout = TimeSpan.FromSeconds(15) };
             var normal = "/api/admin/auto/" + prefix + "_source/201"; var child = normal.Replace("/201", "/202", StringComparison.Ordinal); var parentQuery = "?parentId=" + Parent;
             // 原新增表单带空 id、父实体键和展示回显，服务器仍自行分配 ID 与真实父键。
-            var created = Data(await Post(client, child + "/add" + parentQuery, new { id = "", name = "原页新增", parentId = Parent.ToString(), yzProjectId = Project.ToString(), status = 1, statusShow = "伪标签", readonlyCode = "客户端不能写", remark = "初始备注", buyerId = First.ToString() }));
+            var created = Data(await Post(client, child + "/add" + parentQuery, new { id = "", name = "原页新增", parentId = Parent.ToString(), yzProjectId = Project.ToString(), status = 1, statusShow = "伪标签", readonlyCode = "客户端不能写", remark = "初始备注", buyerId = First.ToString(), flag = 1, normalFlag = true }));
             var id = created.GetProperty("id").GetString()!; Assert.Equal("服务器默认值", created.GetProperty("readonlyCode").GetString()); Assert.Equal("启用", created.GetProperty("statusShow").GetString());
             var echo = JsonNode.Parse(created.GetRawText())!.AsObject(); echo["name"] = "原页整实体更新"; echo["readonlyCode"] = "仍不能写"; echo["remark"] = null; echo["parentId"] = Parent.ToString();
             var updated = Data(await Post(client, child + "/update" + parentQuery, echo)); Assert.Equal("服务器默认值", updated.GetProperty("readonlyCode").GetString()); Assert.Equal(JsonValueKind.Null, updated.GetProperty("remark").ValueKind);
@@ -106,6 +106,29 @@ public sealed class GeneratedOriginalPageApiMySqlTests
                 Assert.Equal(500, (await Post(client, normal + "/page", new { filters = new { eventTime = dates } })).GetProperty("code").GetInt32());
             using (var disabled = await client.PostAsJsonAsync(normal.Replace("/201", "/203", StringComparison.Ordinal) + "/update", new { id, name = "不能保存" })) Assert.Equal(HttpStatusCode.NotFound, disabled.StatusCode);
             client.DefaultRequestHeaders.Add("denyPage", "202"); Assert.Equal(500, (await Post(client, child + "/update" + parentQuery, new { id, name = "拒绝写" })).GetProperty("code").GetInt32()); client.DefaultRequestHeaders.Remove("denyPage"); Assert.Equal(before, await Current());
+            // 原uni-data-checkbox实际发送0/1；VO只对固定CheckBox回显数字，普通bool保持boolean。
+            var checkedRow = Data(await Read(client, child + "/detail/" + id + parentQuery));
+            Assert.Equal(1, checkedRow.GetProperty("flag").GetInt32()); Assert.True(checkedRow.GetProperty("normalFlag").GetBoolean());
+            foreach (var selected in new[] { 0, 1 })
+            {
+                var saved = Data(await Post(client, child + "/update" + parentQuery, new { id, flag = selected })); Assert.Equal(selected, saved.GetProperty("flag").GetInt32()); Assert.True(saved.GetProperty("normalFlag").GetBoolean());
+                var unchanged = Data(await Post(client, child + "/update" + parentQuery, new { id, name = "省略复选框保留" })); Assert.Equal(selected, unchanged.GetProperty("flag").GetInt32());
+                var filter = new { filters = new { flag = selected } }; Assert.Single(Data(await Post(client, normal + "/page", filter)).GetProperty("records").EnumerateArray()); Assert.Equal("1", Data(await Post(client, normal + "/count", filter)).ToString());
+            }
+            Assert.Single(Data(await Post(client, normal + "/page", new { filters = new { flag = new[] { 0, 1 } } })).GetProperty("records").EnumerateArray());
+            Assert.Equal("1", Data(await Post(client, normal + "/count", new { filters = new { normalFlag = true } })).ToString());
+            foreach (var raw in new[] { "2", "-0", "1.0", "1e0", "9007199254740993", "1.0000000000000000000000001", "{}", "[]" })
+            {
+                var stable = await Current(); var value = JsonSerializer.Deserialize<JsonElement>(raw);
+                Assert.Equal(500, (await Post(client, child + "/update" + parentQuery, new { id, flag = value })).GetProperty("code").GetInt32()); Assert.Equal(stable, await Current());
+                if (raw != "[]") Assert.Equal(500, (await Post(client, normal + "/page", new { filters = new { flag = value } })).GetProperty("code").GetInt32());
+            }
+            Assert.Equal(500, (await Post(client, child + "/update" + parentQuery, new { id, normalFlag = 1 })).GetProperty("code").GetInt32());
+            Assert.Equal(500, (await Post(client, normal + "/page", new { filters = new { normalFlag = 1 } })).GetProperty("code").GetInt32());
+            var cleared = Data(await Post(client, child + "/update" + parentQuery, new { id, flag = (object?)null })); Assert.Equal(JsonValueKind.Null, cleared.GetProperty("flag").ValueKind);
+            Assert.Equal(JsonValueKind.Null, Data(await Post(client, child + "/update" + parentQuery, new { id, remark = "省略保持清空" })).GetProperty("flag").ValueKind);
+            Assert.Equal(0, Data(await Post(client, child + "/update" + parentQuery, new { id, flag = "0" })).GetProperty("flag").GetInt32());
+            before = await Current();
             // 原删除提交整个实体，服务端仍只读取 ID 并在真实父范围删除。
             var deleteEntity = JsonNode.Parse(before)!.AsObject(); deleteEntity["parentId"] = Parent.ToString();
             using var deletion = new HttpRequestMessage(HttpMethod.Delete, child + parentQuery) { Content = JsonContent.Create(deleteEntity) }; Data(JsonSerializer.Deserialize<JsonElement>(await (await client.SendAsync(deletion)).Content.ReadAsStringAsync()));
@@ -131,6 +154,8 @@ public sealed class GeneratedOriginalPageApiMySqlTests
         var buyer = catalog.ConfigColumns.Single(column => column.Id == "25"); buyer.ColumnName = "buyer_id"; buyer.ControlDetail = "{\"tableId\":\"3\",\"nameField\":\"name\"}";
         catalog.ConfigColumns.AddRange([new() { Id = "27", ConfigTableId = "2", ColumnName = "readonly_code", LogicalType = "string", DefaultValue = "服务器默认值" }, new() { Id = "28", ConfigTableId = "2", ColumnName = "status", LogicalType = "int32", ControlKind = "ConstList", ControlDetail = "启用|1,停用|0" }, new() { Id = "29", ConfigTableId = "2", ColumnName = "remark", LogicalType = "string" }]);
         catalog.ConfigColumns.Add(new() { Id = "210", ConfigTableId = "2", ColumnName = "event_time", LogicalType = "datetime", ControlKind = "Date" });
+        catalog.ConfigColumns.AddRange([new() { Id = "211", ConfigTableId = "2", ColumnName = "flag", LogicalType = "bool", ControlKind = "CheckBox" }, new() { Id = "212", ConfigTableId = "2", ColumnName = "normal_flag", LogicalType = "bool" }]);
+        foreach (var checkbox in new[] { "211", "212" }) catalog.ConfigPageColumns.Add(new() { Id = "201_" + checkbox, ConfigPageId = "201", ConfigColumnId = checkbox, IsShow = 1, IsEdit = 1, Extra = new() { ["isSearch"] = JsonSerializer.SerializeToElement(1) } });
         catalog.ConfigPageColumns.Add(new() { Id = "201_210", ConfigPageId = "201", ConfigColumnId = "210", IsEdit = 0, IsShow = 1, Extra = new() { ["isSearch"] = JsonSerializer.SerializeToElement(1) } });
         foreach (var (id, editable) in new[] { ("23", false), ("27", false), ("28", true), ("29", true) }) catalog.ConfigPageColumns.Add(new() { Id = "201_" + id, ConfigPageId = "201", ConfigColumnId = id, IsEdit = editable ? 1 : 0, IsShow = 1 });
         foreach (var (id, parent, unpaged) in new[] { ("202", true, false), ("203", false, false), ("204", false, true) })

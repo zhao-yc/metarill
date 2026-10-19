@@ -25,6 +25,8 @@ namespace Metarill.Agent.Tests
                 demo.ConfigTables.Add(new() { Id = "1", TableName = "legacy_fixture" });
                 demo.ConfigColumns.Add(new() { Id = "11", ConfigTableId = "1", ColumnName = "id", LogicalType = "int64" });
                 demo.ConfigColumns.Add(new() { Id = "12", ConfigTableId = "1", ColumnName = "remark", LogicalType = "string" });
+                demo.ConfigColumns.Add(new() { Id = "13", ConfigTableId = "1", ColumnName = "flag", LogicalType = "bool", ControlKind = "CheckBox" });
+                demo.ConfigColumns.Add(new() { Id = "14", ConfigTableId = "1", ColumnName = "normal", LogicalType = "bool" });
                 demo.ConfigPages.Add(new() { Id = "101", ConfigTableId = "1", YzProjectId = "77" });
                 var platform = Path.Combine(directory, "platform.json"); var business = Path.Combine(directory, "demo.json");
                 File.WriteAllText(platform, JsonSerializer.Serialize(new MetadataCatalog { YzProjectId = "76" })); File.WriteAllText(business, JsonSerializer.Serialize(demo));
@@ -34,8 +36,11 @@ namespace Metarill.Agent.Tests
                 var capability = new AgentCapabilityCatalog(index, new Authorization()).Describe("page:101:update");
                 using var json = JsonDocument.Parse(JsonSerializer.Serialize(capability.RequestSchema)); var schema = json.RootElement;
                 Assert.Equal("object", schema.GetProperty("type").GetString()); Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
-                Assert.Equal(new[] { "id", "remark" }, schema.GetProperty("properties").EnumerateObject().Select(field => field.Name));
+                Assert.Equal(new[] { "id", "remark", "flag", "normal" }, schema.GetProperty("properties").EnumerateObject().Select(field => field.Name));
                 Assert.Contains("null", schema.GetProperty("properties").GetProperty("remark").GetProperty("type").EnumerateArray().Select(value => value.GetString()));
+                var checkbox = schema.GetProperty("properties").GetProperty("flag").GetProperty("anyOf").EnumerateArray().ToArray();
+                Assert.Equal(new[] { 0, 1 }, checkbox.Single(value => value.GetProperty("type").GetString() == "integer").GetProperty("enum").EnumerateArray().Select(value => value.GetInt32()));
+                Assert.Equal(new[] { "boolean", "null" }, schema.GetProperty("properties").GetProperty("normal").GetProperty("type").EnumerateArray().Select(value => value.GetString()));
                 Assert.Equal(new[] { "id" }, schema.GetProperty("required").EnumerateArray().Select(value => value.GetString()));
             }
             finally { Directory.Delete(directory, true); }
@@ -64,5 +69,7 @@ namespace Metarill.Agent.Tests.Generated.Controllers
     {
         public long Id { get; set; }
         public Optional<string?> Remark { get; set; }
+        [JsonConverter(typeof(CheckboxBooleanJsonConverter))] public Optional<bool?> Flag { get; set; }
+        public Optional<bool?> Normal { get; set; }
     }
 }

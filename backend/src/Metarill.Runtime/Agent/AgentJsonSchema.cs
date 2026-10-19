@@ -32,7 +32,10 @@ internal static class AgentJsonSchema
         {
             if (property.GetCustomAttribute<JsonIgnoreAttribute>()?.Condition == JsonIgnoreCondition.Always) continue;
             var name = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? JsonNamingPolicy.CamelCase.ConvertName(property.Name);
-            properties[name] = Create(property.PropertyType, depth + 1);
+            // 固定CheckBox属性保留旧数字模型及现有bool输入；其余bool仍是普通boolean。
+            properties[name] = property.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType == typeof(CheckboxBooleanJsonConverter)
+                ? new Dictionary<string, object?> { ["anyOf"] = new object[] { new Dictionary<string, object?> { ["type"] = "boolean" }, new Dictionary<string, object?> { ["type"] = "integer", ["enum"] = new[] { 0, 1 } }, new Dictionary<string, object?> { ["type"] = "string", ["pattern"] = @"^(?:0|1|\s*)$" }, new Dictionary<string, object?> { ["type"] = "null" } } }
+                : Create(property.PropertyType, depth + 1);
             if (property.GetCustomAttribute<RequiredAttribute>() is not null || property.GetCustomAttribute<JsonRequiredAttribute>() is not null) required.Add(name);
         }
         var result = new Dictionary<string, object?> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = type.GetCustomAttribute<JsonUnmappedMemberHandlingAttribute>()?.UnmappedMemberHandling != JsonUnmappedMemberHandling.Disallow };

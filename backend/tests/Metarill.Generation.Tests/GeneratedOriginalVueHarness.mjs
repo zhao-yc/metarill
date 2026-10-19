@@ -9,7 +9,7 @@ const Vue=require('vue'),{parse}=require('@vue/compiler-sfc')
 const runtime=path.join(sourceRoot,'frontend/metarill_uni_admin/common/yzp_runtime')
 export const plain=value=>JSON.parse(JSON.stringify(value))
 /** 真实Vue3解析、编译并挂载生成页面；仅网络和外部控件底层渲染受控，不复制生成逻辑。 */
-export function mountGenerated(source,props={},route){
+export function mountGenerated(source,props={},route,{components={}}={}){
  const requests=[],dialogs=[],navigations=[],events=[],toasts=[],targets=[],subscriptions=new Map(),storage={loginStateId:'测试身份',sysParams:{yzProjectId:'100'}},inputProps=Vue.reactive({...props})
  let permission=true,valid=true,validationCount=0
  const uni={getStorageSync:key=>storage[key],setStorageSync:(key,value)=>storage[key]=value,$on(key,fn){if(!subscriptions.has(key))subscriptions.set(key,new Set());subscriptions.get(key).add(fn)},$off(key,fn){subscriptions.get(key)?.delete(fn);if(subscriptions.get(key)?.size===0)subscriptions.delete(key)},$emit:(...args)=>events.push(args),showModal:options=>dialogs.push(options),showToast:options=>toasts.push(options),showActionSheet:options=>dialogs.push(options),navigateTo:options=>navigations.push(options),navigateBack(){},stopPullDownRefresh(){}}
@@ -31,10 +31,10 @@ export function mountGenerated(source,props={},route){
  const renderer=Vue.createRenderer({createElement:tag=>element(tag),createText:text=>element('#text',text),createComment:text=>element('#comment',text),setElementText(node,text){node.text=text;node.children=[]},setText(node,text){node.text=text},patchProp(node,key,previous,value){node.props[key]=value},insert(node,parent,anchor){if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1);const i=anchor?parent.children.indexOf(anchor):-1;parent.children.splice(i<0?parent.children.length:i,0,node);node.parent=parent},remove(node){if(node.parent)node.parent.children.splice(node.parent.children.indexOf(node),1);node.parent=null},parentNode:node=>node.parent,nextSibling:node=>node.parent?.children[node.parent.children.indexOf(node)+1]||null})
  const app=renderer.createApp({render(){return Vue.h(component,{onOnChange:value=>events.push(['onChange',value]),onOnPopClose:()=>events.push(['onPopClose']),onOnPopSelect:value=>events.push(['onPopSelect',value]),...inputProps,ref:'page'})}})
  const Stub={render(){return Vue.h('host',{},this.$slots.default?.())}}
- for(const name of new Set([...descriptor.template.content.matchAll(/<([a-z][a-z0-9-]*)/g)].map(match=>match[1]).filter(name=>!['template','uni-forms','yzp-popup'].includes(name))))app.component(name,Stub)
+ for(const name of new Set([...descriptor.template.content.matchAll(/<([a-z][a-z0-9-]*)/g)].map(match=>match[1]).filter(name=>!['template','uni-forms','yzp-popup'].includes(name))))app.component(name,components[name]||Stub)
  app.component('uni-forms',{props:['modelValue','rules'],methods:{validate(){validationCount++;return valid?Promise.resolve({}):Promise.reject([{key:'name'}])}},render(){return Vue.h('form',{},this.$slots.default?.())}})
  app.component('yzp-popup',{emits:['change'],methods:{open(){this.$emit('change',{show:true})},close(){this.$emit('change',{show:false})}},render(){return Vue.h('popup',{},this.$slots.default?.())}})
- app.config.globalProperties.$deviceInfo={is_pc:true};app.config.globalProperties.$yzp=yzp;app.config.globalProperties.$checkboxRange=[{value:false,text:'否'},{value:true,text:'是'}];app.config.globalProperties.$imageStyles={}
+ app.config.globalProperties.$deviceInfo={is_pc:true};app.config.globalProperties.$yzp=yzp;app.config.globalProperties.$checkboxRange=[{value:0,text:'否'},{value:1,text:'是'}];app.config.globalProperties.$imageStyles={}
  app.config.warnHandler=message=>{throw new Error(message)}
  const tree=element('root'),host=app.mount(tree),state=host.$refs.page;state.getOpenerEventChannel=()=>({emit:(...args)=>events.push(args)})
  if(route)component.onLoad?.call(state,route)
