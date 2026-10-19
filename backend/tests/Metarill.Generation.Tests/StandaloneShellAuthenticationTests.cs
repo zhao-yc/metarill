@@ -81,11 +81,11 @@ public sealed class StandaloneShellAuthenticationTests
             // 实际目录链接不能把密码更新写到外部目录，保持原私有目录和外部空目录。
             var preserved=privateFolder+"-preserved";var outside=Path.Combine(root,"outside");Directory.CreateDirectory(outside);Directory.Move(privateFolder,preserved);CreateLink(privateFolder,outside);
             try{await using var server=await Server.Start(host,"Development",oldPassword);using var login=await server.Client.PostAsJsonAsync("/api/admin/sys/yz_manager/login",new{username="shell-probe",password=oldPassword});Assert.False(login.IsSuccessStatusCode);Assert.Empty(Directory.EnumerateFileSystemEntries(outside));}
-            finally{Directory.Delete(privateFolder,false);Directory.Move(preserved,privateFolder);}
+            finally{RemoveTestLink(privateFolder);Directory.Move(preserved,privateFolder);}
             // 断链同样不能回退原配置密码，外部目标不能因登录而被创建。
             Directory.Move(privateFolder,preserved);var missing=Path.Combine(root,"missing-target");CreateLink(privateFolder,missing);
             try{await using var server=await Server.Start(host,"Development",oldPassword);using var login=await server.Client.PostAsJsonAsync("/api/admin/sys/yz_manager/login",new{username="shell-probe",password=oldPassword});Assert.False(login.IsSuccessStatusCode);Assert.False(Directory.Exists(missing));}
-            finally{Directory.Delete(privateFolder,false);Directory.Move(preserved,privateFolder);}
+            finally{RemoveTestLink(privateFolder);Directory.Move(preserved,privateFolder);}
         }
         finally{await TestDirectoryCleanup.DeleteAsync(root,Path.Combine(Path.GetTempPath(),"metarill-shell-auth"));}
     }
@@ -101,6 +101,12 @@ public sealed class StandaloneShellAuthenticationTests
         if(OperatingSystem.IsWindows()){var security=new FileInfo(path).GetAccessControl();security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid,null),FileSystemRights.Read,AccessControlType.Allow));new FileInfo(path).SetAccessControl(security);}
         else File.SetUnixFileMode(path,UnixFileMode.UserRead|UnixFileMode.UserWrite|UnixFileMode.GroupRead);
     }
+    /// <summary>只移除本fixture刚创建的链接本身；Unix断链须按文件unlink，不能递归删除或跟随目标。</summary>
+    private static void RemoveTestLink(string path)
+    {
+        if(new DirectoryInfo(path).LinkTarget is null)throw new InvalidOperationException("测试清理路径不是链接，已保留现场。");
+        if(OperatingSystem.IsWindows())Directory.Delete(path,false);else File.Delete(path);
+    }
     /// <summary>链接仅位于本fixture随机目录；Windows使用junction并拒绝shell元字符。</summary>
     private static void CreateLink(string path,string target)
     {
@@ -113,7 +119,7 @@ public sealed class StandaloneShellAuthenticationTests
     private static Task<HttpResponseMessage> Send(HttpClient client,string token,object body){var request=new HttpRequestMessage(HttpMethod.Post,"/api/admin/sys/yz_manager/edit_password"){Content=JsonContent.Create(body)};request.Headers.Add("loginStateId",token);return client.SendAsync(request);}
     private static Task<HttpResponseMessage> Permissions(HttpClient client,string token){var request=new HttpRequestMessage(HttpMethod.Get,"/api/admin/sys/yz_manager/getCurrentPermissions");request.Headers.Add("loginStateId",token);return client.SendAsync(request);}
     /// <summary>只构建刚生成的临时独立包，完全从自己的源编译。</summary>
-    private static async Task Build(string output){var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet"){WorkingDirectory=output,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};foreach(var arg in new[]{"build","backend/Application.Host/Application.Host.csproj","--nologo","--disable-build-servers","--verbosity","quiet"})start.ArgumentList.Add(arg);using var process=Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromMinutes(2));await process.WaitForExitAsync(timeout.Token);Assert.True(process.ExitCode==0,await stdout+await stderr);}
+    private static async Task Build(string output){var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet"){WorkingDirectory=output,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};foreach(var arg in new[]{"build","backend/Application.Host/Application.Host.csproj","--nologo","--disable-build-servers","--verbosity","quiet","-p:WarningsAsErrors=CA1416"})start.ArgumentList.Add(arg);using var process=Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromMinutes(2));await process.WaitForExitAsync(timeout.Token);Assert.True(process.ExitCode==0,await stdout+await stderr);}
     private static string SourceRoot([CallerFilePath]string file="")=>Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../../.."));
     /// <summary>临时回环真实宿主，固定Warning日志不记录含测试密码的旧GET；退出终止整棵测试进程。</summary>
     private sealed class Server(Process process,HttpClient client,Task<string> stdout,Task<string> stderr):IAsyncDisposable

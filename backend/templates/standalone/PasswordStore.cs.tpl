@@ -100,7 +100,10 @@ internal sealed class DevelopmentPasswordStore(string contentRoot, string projec
                 security.AddAccessRule(new FileSystemAccessRule(owner,FileSystemRights.FullControl,directory?InheritanceFlags.ContainerInherit|InheritanceFlags.ObjectInherit:InheritanceFlags.None,PropagationFlags.None,AccessControlType.Allow));
                 if(directory)new DirectoryInfo(path).SetAccessControl((DirectorySecurity)security);else new FileInfo(path).SetAccessControl((FileSecurity)security);
             }
-            if(!owner.Equals(security.GetOwner(typeof(SecurityIdentifier)))||security.GetAccessRules(true,true,typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>().Any(rule=>rule.AccessControlType==AccessControlType.Allow&&!owner.Equals(rule.IdentityReference)))throw new InvalidOperationException("开发凭据权限必须仅允许当前用户。");
+            if(!owner.Equals(security.GetOwner(typeof(SecurityIdentifier))))throw new InvalidOperationException("开发凭据权限必须仅允许当前用户。");
+            // 保持原ACL检查，在明确Windows守卫内逐条检查，避免lambda丢失平台分析上下文。
+            foreach(FileSystemAccessRule rule in security.GetAccessRules(true,true,typeof(SecurityIdentifier)))
+                if(rule.AccessControlType==AccessControlType.Allow&&!owner.Equals(rule.IdentityReference))throw new InvalidOperationException("开发凭据权限必须仅允许当前用户。");
         }
         else
         {

@@ -58,3 +58,10 @@
 pages.json 的六个tab图标由 npm run sync:platform-shell（既有 sync:custom-routes 同样执行）从 backend/templates/standalone-frontend/frontend-pages.json.tpl 的固定三页签声明合并，不拷贝旧整份pages.json。同步仅替换匹配页签的 iconPath/selectedIconPath，保留全部当前/新增自定义与生成页面、每页style、全局style、窗口尺寸、页签顺序和现有主题。缺页签、重复、未注册页面或越界图标来源明确拒绝，重复同步稳定。该脚本用于平台源码目录；独立Full包仍由原模板及项目PrimaryColor生成，未回滚主题下发逻辑。
 
 新增Node测试冻结原模板DOM（移除注释与标签间空白后）和LF规范style的摘要，不依赖CI存在旧D盘工程；并核对原logo/六张PNG及新头像的真实SHA-256、页签资源闭包和同步的路由/主题保护。此处为源码与脚本验收，未运行HBuilderX、真实浏览器或真机，不将其写作视觉完成证据。
+
+
+## 平台分析与跨系统CI补验
+
+独立包Windows ACL校验保持原拒绝规则，将Windows守卫内的LINQ lambda改为foreach，消除CA1416分析器无法传入lambda的平台上下文警告；不抑制分析器、不放宽ACL。已有真实临时独立账户/持久状态/跨进程撤权/链接与过宽权限HTTP回归在构建阶段将CA1416视为错误，本机1/1通过。冻结c825浏览器准备包的3条警告仍如实保留，不冒用修后结果。
+
+37421a6远端CI的前端任务已成功；Linux后端生成与API编译通过，后端测试20项原Vue探针因该job未npm ci缺少vue失败，另1项为测试清理Unix断链时Directory.Delete抛DirectoryNotFound。现后端job按同一lock安装真实Vue依赖，不跳过探针；测试清理只移除自己验证的链接本身，Unix用File.Delete、Windows用非递归Directory.Delete，不跟随目标，产品路径守卫不改。修后仍须核对新的Linux/Windows CI，不能把原失败批次标为成功。
