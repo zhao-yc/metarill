@@ -131,8 +131,11 @@ public sealed class GeneratedMultiSelectContractTests
     private static string SourceRoot([CallerFilePath] string source = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../../.."));
 
     [Theory]
-    [InlineData("scope")][InlineData("name")][InlineData("parent")][InlineData("names")]
-    public async Task Incomplete_field_proofs_stay_explicitly_unsupported(string kind)
+    [InlineData("scope", "配置或范围无法安全编译", "配置或范围无法安全编译")]
+    [InlineData("name", "名称列未开放读取", "名称字段不在目标页可读投影")]
+    [InlineData("parent", "目标父没有唯一可读来源字段", "来源页未开放目标父字段")]
+    [InlineData("names", "冗余名称辅助列尚未明确声明", "冗余名称辅助列尚未明确声明")]
+    public async Task Incomplete_field_proofs_stay_explicitly_unsupported(string kind, string generatedReason, string capabilityReason)
     {
         var catalog = Catalog();
         if (kind == "scope") catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail = "{\"pageId\":\"301\",\"whereSql\":\"name='unproved'\"}";
@@ -144,10 +147,18 @@ public sealed class GeneratedMultiSelectContractTests
         try
         {
             // 原控件不能换只读占位；证据不足的批次在落盘前拒绝，Full包门禁同样拒绝。
-            var generatedError=Assert.ThrowsAny<Exception>(()=>new CSharpGenerator().Generate(catalog,output,"Example.MultiGap"));
+            var generatedError=Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,output,"Example.MultiGap"));
+            Assert.Contains(generatedReason, generatedError.Message);
             Assert.False(Directory.Exists(output));
-            var packageError=Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(catalog,output,"Example.MultiGap",SourceRoot(),ApplicationPackageMode.FullApplication));
-            Assert.Equal(generatedError.Message,packageError.Message);Assert.False(Directory.Exists(output));
+            // 完整包先走统一能力审计，定位与原因必须一致，不要求不同入口的外层前缀相同。
+            var model = GenerationModel.Create(catalog, "Example.MultiGap");
+            var gap = Assert.Single(GenerationCapabilityAudit.Collect(model), gap => gap.PageId == "201" && gap.Column == "target_ids" && gap.Usage == "detail");
+            Assert.StartsWith("MultiSelectPage尚未支持：", gap.Reason);
+            Assert.Contains(capabilityReason, gap.Reason);
+            var packageError=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,"Example.MultiGap",SourceRoot(),ApplicationPackageMode.FullApplication));
+            Assert.StartsWith("原页面仍有未完成的后端能力：", packageError.Message);
+            Assert.Contains($"页面{gap.PageId}/{gap.Column}/{gap.Usage}：{gap.Reason}", packageError.Message);
+            Assert.False(Directory.Exists(output));
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }
