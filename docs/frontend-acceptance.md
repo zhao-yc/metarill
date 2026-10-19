@@ -4,6 +4,8 @@
 
 2026-10-18：用户提供AppID __UNI__CF80CAE后，HBuilderX已实际编译并导出Web成功；发行产物经静态服务完成真实登录、项目选择、菜单、配置表列表与详情回读。保留原交互及组件许可占位；完整写入闭环和多端仍待验收。
 
+2026-10-19：在独立示例开发项目的一张随机临时表完成真实浏览器保存并刷新回读、批量字段预检/保存、原按钮跳转结构预览、确认执行与零差异核验、生成 ZIP 下载、删除元数据。初始表及后台类型通过现有 HTTP 接口准备，因为原选择器仍待许可确认，不能把本次记成纯界面从零建表。临时物理表先核对为空，再独占清理；既有平台配置与原示例业务记录未修改。公共请求修复标准 DELETE 的完整实体载荷兼容，服务端仍严格要求只含 ID。
+
 ## 已完成
 
 - 独立 HBuilderX uni-app Vue 3 工程，默认 C# API 8088、H5 5188；未改成 CLI/Vite 工程。
@@ -121,3 +123,10 @@ create_menu 使用页面直接归属后台，在该后台根目录“页面”�
 验证：`node --test frontend/metarill_uni_admin/tests/agentBrowserCompat.test.mjs` 共 5 项通过，直接执行实际 Vue 页面方法，覆盖登录回跳、查询与确认分离、重复提交保护、网络结果未知后的重新查询提示及人工确认撤销。使用 `METARILL_TEST_SETTINGS` 指向不提交的隔离配置，`METARILL_PLATFORM_METADATA` 指向本克隆平台元数据，执行 `dotnet test backend/tests/Metarill.Agent.Tests/Metarill.Agent.Tests.csproj --nologo --verbosity minimal` 共 17 项通过、0 失败、0 跳过；新增 HTTP 列表测试核对 UTC 毫秒精度及凭据不回显。HTTP 经 ASP.NET TestServer 和真实 MySQL，测试强制限定 metarill_test / metarill_business_test，仅创建随机测试账号、角色及其关联记录，按本次主键清理，不写开发库。
 
 本轮未启动 8088/5188 服务，未完成浏览器人工授权操作、H5 构建或真机验收；上述方法测试与 TestServer HTTP 测试不能替代这些验收。
+## 标准删除载荷与实际写入验收（2026-10-19）
+
+原详情页保留完整 entity 及删除确认交互。公共 `pageWritePayload` 仅对生成清单已登记的精确标准 DELETE 路由提取自有 id，保留 parentId 查询串；未知路由、文件库删除和其他方法不变。省略或非法 ID 继续交服务端拒绝，不修改调用者实体。新增真实公共请求行为测试；后端真实 HTTP 仍拒绝完整实体的删除载荷，并确认失败没有删除记录。
+
+最终前端 **195/195**、CLI **19/19**，HBuilderX Vue3 Web 发行再次成功。浏览器实际删除临时元数据并返回首页，随后 HTTP 回读确认记录不可用。下载包为 84204 字节、58 条目，含 `src/Metarill.Exports/Metarill.Exports.csproj` 与真实导出源码，SHA-256 为 2912254B471D443090030F447C8508AA6AD8E2126D883FC14780E9B6860466B9。
+
+本次不更换选择器或富文本，不包含从零纯界面建表、生成业务前端写入、复杂关系或真机验收。服务与临时 Web 预览仍在本机回环地址运行，没有部署到服务器。

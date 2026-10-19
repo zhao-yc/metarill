@@ -47,6 +47,10 @@ public sealed partial class ApiAcceptanceTests
         {
             var added=Data(await Post(client,route+"/add",new{name="接口验收-"+Guid.NewGuid().ToString("N"),notes="省略保留",amount=12.34,isEnabled=1}));
             var id=added.GetProperty("id").GetString()!;ids.Add(id);
+            // 删除仍严格绑定标识 DTO；旧前端完整实体须在公共请求边界裁剪。
+            using var invalidDelete=await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete,"/api"+route){Content=JsonContent.Create(added)});
+            Assert.Equal(500,(await Body(invalidDelete)).GetProperty("code").GetInt32());
+            Assert.Equal(id,Data(await Body(await client.GetAsync("/api"+route+"/detail/"+id))).GetProperty("id").GetString());
             var updated=Data(await Post(client,route+"/update",new{id,amount=45.67}));
             Assert.Equal("省略保留",updated.GetProperty("notes").GetString());
             Assert.Equal(JsonValueKind.Null,Data(await Post(client,route+"/update",new{id,notes=(string?)null})).GetProperty("notes").ValueKind);

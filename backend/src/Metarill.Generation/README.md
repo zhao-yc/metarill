@@ -5,6 +5,7 @@
 生成目录需要在宿主项目中包含所有 `.cs`，并引用 `Metarill.Core`、`Metarill.Data` 和 `Microsoft.AspNetCore.App`。宿主注册真实 `IRuntimeAuthorization`、`IIdGenerator`、`DatabaseSession`，然后调用生成命名空间的 `GeneratedRegistration.AddGeneratedServices`。若平台与业务库不同，传入返回宿主管理会话的 `databaseFactory`；同一生成命名空间的 Mapper、Service 始终共享该会话。
 
 - `.g.cs`、生成 Vue 和清单归生成器所有。`.cs` 手写 Service 仅首次创建；可实现 `BeforeSave`、`BeforeDelete` partial 钩子。派生字段应通过 `submittedFields.Add("数据库列名")` 明确加入更新。
+- 常量列表/下拉字段的可读 VO 自动补齐 `字段名Show`，原字段保留原值；标签 switch 在生成时编译，未知值显示原文、null 保持空值。展示别名不能写回，和真实字段重名会在写文件前拒绝整批生成。平台及生成应用跟进只需重新生成、编译部署，无元数据回填或 SQL 迁移；手写 partial 不变。
 - 普通写入经过页级编辑白名单。省略字段不修改，显式 null 清空；未知字段及系统字段拒绝绑定。审计字段来自真实 actor。
 - `IRecordMutationObserver` 在真实事务提交前执行，异常回滚；文件引用及平台联动可加入同一事务。新增传实际完整实体值，更新传实际已更新值和 id，删除传全实体及删除标志，键为数据库列名。
 - 查询范围只接受明确列与身份/父记录参数的等值 AND 条件；其他原生 SQL 拒绝生成，不会静默扩大访问。筛选/排序限定开放字段，空筛选与空排序保持原 YZP 行为。
@@ -12,7 +13,7 @@
 - 前端模板复用现有 `common/yzp`、uni-ui、文件库和定制组件，生成 `pages.generated.json` 供工程集成；不覆盖宿主自有 `pages.json`、应用入口或运行时。
 - `generation-capabilities.json` 和 CLI 警告明确列出未接入的控件及关系，前端按只读保护。特殊 SQL、函数表、视图、复杂权限、聚合统计及定制导入不因代码编译成功而视为已支持；需逐项实现和真实验收。
 
-回归命令：`dotnet test backend/tests/Metarill.Generation.Tests`。测试包含真实生成产物引用 Data 编译、JSON 字段存在性/数组协议和授权拒绝；不连接本机数据库。数据库 CRUD、事务、SQL 性能及多端设备验收由独立集成测试完成。
+回归命令：`dotnet test backend/tests/Metarill.Generation.Tests`。测试包含真实生成产物引用 Data 编译、JSON 字段存在性/数组协议、常量展示及授权拒绝；不连接本机数据库。设置 `METARILL_TEST_SETTINGS` 后，可选独立包 MySQL 导出测试只连接核对后的 Server-200 隔离业务库；缺少配置明确跳过。SQL 性能及多端设备验收另行完成。
 
 ## 复制、导入与导出
 

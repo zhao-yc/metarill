@@ -513,3 +513,12 @@ test('更新保留ID和省略差异，未知写路由与其他方法保持原载
  }
  for (let index=0; index<f.requests.length; index++) f.finish(index);
 });
+
+
+test('原详情完整实体经真实公共请求转换为只含ID的DELETE载荷', () => {
+ const f=createFixture(), entity=Object.freeze({id:'9007199254740993',name:'记录',columnTypeShow:'字符',deleteNo:null});
+ f.runtime.request({url:'/admin/auto/config_table/6191083005411328?parentId=8',method:'DELETE',data:entity});
+ assert.deepEqual(f.requests[0].options.data,{id:'9007199254740993'});
+ assert.equal(entity.columnTypeShow,'字符');
+ f.finish(0);
+});

@@ -7,7 +7,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>独立包必须包含真实基础工程、可编译宿主和脱敏后的单一元数据来源。</summary>
-public sealed class ApplicationPackagerTests : IDisposable
+public sealed class ApplicationPackagerTests : IAsyncLifetime
 {
     private readonly string temporary = Path.Combine(Path.GetTempPath(), "metarill-package-tests", Guid.NewGuid().ToString("N"));
     [Fact]
@@ -69,5 +69,7 @@ public sealed class ApplicationPackagerTests : IDisposable
         foreach (var file in Directory.GetFiles(first, "*", SearchOption.AllDirectories)) Assert.Equal(File.ReadAllBytes(file), File.ReadAllBytes(Path.Combine(second, Path.GetRelativePath(first, file))));
     }
     private static string SourceRoot([CallerFilePath] string file = "") => Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT") ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
-    public void Dispose() { if (Directory.Exists(temporary)) Directory.Delete(temporary, true); }
+    /// <summary>异步收尾避免 Windows 文件占用让有效业务验收偶发失败。</summary>
+    public Task InitializeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() => TestDirectoryCleanup.DeleteAsync(temporary, Path.Combine(Path.GetTempPath(), "metarill-package-tests"));
 }

@@ -159,7 +159,7 @@ public sealed class StandaloneExportMySqlTests
                         await using var command = connection.CreateCommand(); command.CommandText = "DROP TABLE IF EXISTS " + session.Provider.QuoteIdentifier(table); await command.ExecuteNonQueryAsync();
                     }
                 }
-                finally { if (Directory.Exists(temporary)) Directory.Delete(temporary, true); }
+                finally { await TestDirectoryCleanup.DeleteAsync(temporary, Path.Combine(Path.GetTempPath(), "metarill-mysql-export")); }
             }
         }
     }

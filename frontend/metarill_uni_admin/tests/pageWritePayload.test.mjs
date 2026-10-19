@@ -26,9 +26,9 @@ test('更新只复制自有字段，显式null、false、零与空字符串不�
  assert.deepEqual(filter(page.route + '/update', 'POST', inherited), { id: '9', name: '实际值' });
 });
 
-test('未知路由、相似路径和非POST方法不作裁剪，非对象请求体交服务端拒绝', () => {
+test('未知路由、相似路径和未登记方法不作裁剪，非对象请求体交服务端拒绝', () => {
  const filter = createPageWriteFilter(schema), entity={ id:'9', unknown:'保留' };
- for (const [url,method] of [['/admin/custom/sample/update','POST'], ['/admin/auto/other/42/add','POST'], [page.route+'/add/extra','POST'], [page.route+'/add','GET'], [page.route,'DELETE']]) assert.equal(filter(url,method,entity), entity);
+ for (const [url,method] of [['/admin/custom/sample/update','POST'], ['/admin/auto/other/42/add','POST'], [page.route+'/add/extra','POST'], [page.route+'/add','GET'], [page.route+'/add','DELETE'],[page.route,'POST'],['/admin/sys/file-library/42','DELETE']]) assert.equal(filter(url,method,entity), entity);
  for (const body of [null, [], '正文', 0]) assert.equal(filter(page.route+'/add','POST',body),body);
 });
 
@@ -52,4 +52,16 @@ test('可复现脚本同时读取platform/demo，重复执行不重写相同字�
   await rm(join(root,'backend/generated/demo'),{recursive:true,force:true});
   await assert.rejects(writeMergedSchema({sourceRoot:root,output}),/先生成/);
  } finally { await rm(root,{recursive:true,force:true}); }
+});
+
+/** 删除延续原界面交互，载荷在标准请求边界转换为严格标识 DTO。 */
+test('标准删除只保留自有ID，移除实体、常量展示和系统字段且不修改原对象', () => {
+ const filter = createPageWriteFilter(schema);
+ const entity = Object.freeze({ id:'9007199254740993', name:'记录', statusShow:'启用', insertManagerId:'系统账号' });
+ assert.deepEqual(filter(page.route+'?parentId=8', 'delete', entity), { id:'9007199254740993' });
+ assert.equal(entity.statusShow,'启用');
+ assert.deepEqual(filter(page.route,'DELETE',{name:'缺失ID'}),{});
+ assert.deepEqual(filter(page.route,'DELETE',Object.create({id:'原型ID'})),{});
+ for (const id of [null,0,'']) assert.deepEqual(filter(page.route,'DELETE',{id,name:'记录'}),{id});
+ for (const data of [null,[],'正文']) assert.equal(filter(page.route,'DELETE',data),data);
 });
