@@ -178,10 +178,8 @@ internal static class ReadProjectionCompilation
                 }
                 else
                 {
-                    var scopes = GenerationModel.CompileScopes(definition.WhereSql, target.Columns);
-                    if (scopes.Any(scope => !targetPage.Scopes.Any(allowed => allowed.Column.Source.Id == scope.Column.Source.Id && allowed.Source == scope.Source)) ||
-                        !string.IsNullOrWhiteSpace(definition.OrderBy) && !GenerationModel.ValidateOrderBy(definition.OrderBy, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)).SequenceEqual(GenerationModel.ValidateOrderBy(targetPage.Source.OrderBy, target.Columns).Select(item => (item.Column.Source.Id, item.Descending))))
-                    { Gap(source.Source.Id, "选择控件额外范围或排序没有对应目标页合同。"); return; }
+                    if (!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target, targetPage), definition, out var reason))
+                    { Gap(source.Source.Id, reason!); return; }
                     if (purpose == ReadProjectionPurpose.Detail)
                     {
                         var parents = Parents(targetPage);
@@ -232,10 +230,8 @@ internal static class ReadProjectionCompilation
                 {
                     try
                     {
-                        var scopes = GenerationModel.CompileScopes(definition.WhereSql, table.Columns);
-                        if (scopes.Any(scope => !page.Scopes.Any(allowed => allowed.Column.Source.Id == scope.Column.Source.Id && allowed.Source == scope.Source)) ||
-                            !string.IsNullOrWhiteSpace(definition.OrderBy) && !GenerationModel.ValidateOrderBy(definition.OrderBy, table.Columns).Select(item => (item.Column.Source.Id, item.Descending)).SequenceEqual(GenerationModel.ValidateOrderBy(page.Source.OrderBy, table.Columns).Select(item => (item.Column.Source.Id, item.Descending))))
-                        { Gap(source.Source.Id, "固定入站选择的额外范围或排序未证明。"); continue; }
+                        if (!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(table, page), definition, out var reason))
+                        { Gap(source.Source.Id, reason!); continue; }
                     }
                     catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException) { Gap(source.Source.Id, "固定入站选择依赖无法编译：" + error.Message); continue; }
                 }

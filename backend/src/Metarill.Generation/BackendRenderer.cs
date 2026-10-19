@@ -114,6 +114,7 @@ internal static class BackendRenderer
     /// <summary>生成加入当前事务的强类型数据库操作。</summary>
     private static string Mapper(GenerationModel model, TableModel table)
     {
+        var deleted = FixedPageQueryCompilation.SoftDeleteColumn(table);
         return CSharpGenerator.Header + $$"""
 using FreeSql;
 using Metarill.Data;
@@ -124,7 +125,7 @@ namespace {{model.Namespace}}.Generated.Mappers;
 public sealed class {{table.Name}}Mapper(DatabaseSession session)
 {
     /// <summary>创建仅包含未删除记录的查询起点。</summary>
-    public ISelect<{{table.Name}}> Query() => session.Select<{{table.Name}}>(){{(table.Columns.Any(c => c.Source.ColumnName == "delete_no") ? ".Where(entity => entity.DeleteNo == null)" : "")}};
+    public ISelect<{{table.Name}}> Query() => session.Select<{{table.Name}}>(){{(deleted is not null ? $".Where(entity => entity.{deleted.Property} == null)" : "")}};
     /// <summary>插入当前服务已验证的记录。</summary>
     public Task<int> InsertAsync({{table.Name}} entity, CancellationToken cancellationToken) => session.Insert<{{table.Name}}>().AppendData(entity).ExecuteAffrowsAsync(cancellationToken);
     /// <summary>仅更新服务列出的提交字段，禁止实体全量覆盖。</summary>
@@ -202,16 +203,18 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
         var suffix = page.Source.Id;
+        var fixedQuery = FixedPageQueryCompilation.For(table, page);
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
         var nameKeys = names.ConsumedKeys.Concat(names.Gaps.Select(gap => gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var result = new StringBuilder().AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
             .AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor, string? parentId)").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
-        var project = table.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
-        if (project is not null && (!table.IsGlobal || page.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
-        foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
-            result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
+        foreach (var (column, source) in fixedQuery.IdentityScopes)
+        {
+            if (source == "project") result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "actor.ProjectId")});");
+            else result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                 .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
+        }
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>")
             .AppendLine($"    private ISelect<{table.Name}> Query{suffix}(PageRequest request, RuntimeActor actor)").AppendLine("    {")
@@ -266,8 +269,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var column in page.Sortable)
             result.AppendLine($"                {Literal(column.JsonName)} => descending ? query.OrderByDescending(entity => entity.{column.Property}).OrderByDescending(entity => entity.Id) : query.OrderBy(entity => entity.{column.Property}).OrderByDescending(entity => entity.Id),");
         result.AppendLine("                _ => throw new ArgumentException(\"页面未开放该排序字段。\")").AppendLine("            };").AppendLine("        }");
-        var order = GenerationModel.ValidateOrderBy(page.Source.OrderBy, table.Columns);
-        result.AppendLine("        return query" + string.Concat(order.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => entity.{item.Column.Property})")) + (order.Any(item => item.Column.IsId) ? ";" : ".OrderByDescending(entity => entity.Id);"))
+        result.AppendLine("        return query" + string.Concat(fixedQuery.DefaultOrder.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => entity.{item.Column.Property})")) + ";")
             .AppendLine("    }").AppendLine("    /// <summary>分页与统计使用同一条已受限查询。</summary>")
             .AppendLine($"    public async Task<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
             .AppendLine("        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")

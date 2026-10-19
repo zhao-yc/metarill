@@ -49,7 +49,7 @@ internal static class SelectionNameFilterCompilation
                 else
                 {
                     if(storage.IsJsonArray||SelectionPageRenderer.Enabled(targetPage)){Gap("单选名称不是标量，或目标页面实际为多选。");continue;}
-                    if(!string.IsNullOrWhiteSpace(definition.WhereSql)||!string.IsNullOrWhiteSpace(definition.OrderBy)){Gap("单选附加范围/排序尚无完整编译证明。");continue;}
+                    if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason)){Gap(reason!);continue;}
                     kind=SelectionNameFilterKind.ScalarLike;
                 }
                 var binding=new SelectionNameFilterBinding(source,storage,key,kind);
