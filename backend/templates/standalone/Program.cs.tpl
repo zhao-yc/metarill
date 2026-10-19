@@ -16,7 +16,18 @@ using Metarill.Data.Schema;
 using {{NAMESPACE}}.Generated;
 using {{NAMESPACE}}.Host;
 
-var builder = WebApplication.CreateBuilder(args.Where(value => value is not "--schema-preview" and not "--schema-apply").ToArray());
+// JSON与中文拒绝消息固定UTF8，重定向输出不依赖Windows当前控制台代码页。
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+// 在构造Web宿主前拒绝混合、重复或未知结构命令，避免误启动服务或误执行写入。
+string[] schemaCommands = ["--schema-inspect", "--schema-preview", "--schema-apply"];
+var requestedSchemaCommands = args.Where(value => value.StartsWith("--schema-", StringComparison.Ordinal)).ToArray();
+if (requestedSchemaCommands.Length > 1 || requestedSchemaCommands.Any(value => !schemaCommands.Contains(value, StringComparer.Ordinal)))
+{
+    Console.Error.WriteLine("结构命令仅支持 --schema-inspect、--schema-preview 或 --schema-apply，必须单独使用且不能重复或带赋值。");
+    Environment.ExitCode = 2; return;
+}
+var schemaCommand = requestedSchemaCommands.SingleOrDefault();
+var builder = WebApplication.CreateBuilder(args.Where(value => !schemaCommands.Contains(value, StringComparer.Ordinal)).ToArray());
 builder.Configuration.AddJsonFile("appsettings.local.json", optional: true).AddEnvironmentVariables();
 // 仅显式开发认证启用时允许本机HBuilderX不同端口；不默认开放正式部署来源。
 var developmentCors = builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Authentication:DevelopmentBootstrap:Enabled");
@@ -60,14 +71,23 @@ builder.Services.AddRateLimiter(options =>
 // 正式宿主在手写 partial 中替换认证、文件或按需扩展导出实现。
 HostCustomization.Configure(builder.Services, builder.Configuration, builder.Environment);
 var app = builder.Build();
-if (args.Contains("--schema-preview", StringComparer.Ordinal) || args.Contains("--schema-apply", StringComparer.Ordinal))
+if (schemaCommand is not null)
 {
-    // 结构修改只能由显式命令触发，正常 Web 启动永远不自动建表。
+    // 只有显式结构命令进入此分支；普通Web启动不读取或修改数据库结构。
     using var scope = app.Services.CreateScope();
-    var schema = new SchemaService(scope.ServiceProvider.GetRequiredService<DatabaseSession>(), new FileSchemaChangeJournal(Path.Combine(app.Environment.ContentRootPath, ".local/schema-history.jsonl")));
+    var database = scope.ServiceProvider.GetRequiredService<DatabaseSession>();
+    var outputOptions = new JsonSerializerOptions(jsonOptions) { WriteIndented = true, NewLine = "\n" };
+    if (schemaCommand == "--schema-inspect")
+    {
+        // 反查仅使用包内受管物理模型，不创建计划、不注入执行journal，也不启动HTTP/后台服务。
+        var snapshot = await new SchemaService(database).InspectSnapshotAsync(physicalMetadata);
+        Console.WriteLine(JsonSerializer.Serialize(new { executable = false, snapshot.Provider, DatabaseSchema = snapshot.Schema, snapshot.Fingerprint }, outputOptions));
+        return;
+    }
+    var schema = new SchemaService(database, new FileSchemaChangeJournal(Path.Combine(app.Environment.ContentRootPath, ".local/schema-history.jsonl")));
     var plan = await schema.PreviewAsync(physicalMetadata);
-    Console.WriteLine(JsonSerializer.Serialize(plan, new JsonSerializerOptions(jsonOptions) { WriteIndented = true, NewLine = "\n" }));
-    if (args.Contains("--schema-apply", StringComparer.Ordinal)) Console.WriteLine(JsonSerializer.Serialize(await schema.ApplyAsync(plan), jsonOptions));
+    Console.WriteLine(JsonSerializer.Serialize(plan, outputOptions));
+    if (schemaCommand == "--schema-apply") Console.WriteLine(JsonSerializer.Serialize(await schema.ApplyAsync(plan), jsonOptions));
     return;
 }
 // CORS必须在认证前处理OPTIONS预检；允许来源只解决浏览器访问，绝不赋予API身份。

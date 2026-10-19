@@ -55,3 +55,11 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/generated-ui-8
 ## 跨工作副本文本规范化
 
 受控前端文本按严格UTF-8读取、移除UTF-8 BOM并统一LF；字体和离线tgz按原字节复制。历史西语JSON已按原GB18030严格解码转存UTF-8，文案未改。真实CRLF/BOM源码副本与LF源码生成的全前端文件及清单相同，开发者改行尾后随包Node校验也可执行；未闭合条件块明确拒绝。15项前端打包回归及10项应用包/真实MySQL文件链定向回归已通过，独立克隆此前失败日志保留，不据主工作副本偶然LF把失败删除。
+
+## 独立宿主只读结构反查
+
+在独立包根目录运行 `dotnet run --project backend/Application.Host -- --schema-inspect`。该命令固定读取包内 `project.json` 与 `files.json` 合并的 physical metadata，以及部署者的私有 `Database` 配置，复用 `SchemaService.InspectSnapshotAsync`。标准输出是单一 JSON：`executable:false`、`provider`、`databaseSchema` 和 `fingerprint`；`databaseSchema` 包含实际受管表、列、索引与 SHOW CREATE 快照，不包含业务行数据。
+
+命令不创建执行计划、不保存元数据或执行历史、不执行 DDL，也不启动 HTTP/后台服务。普通 Web 启动不因该能力读取或修改结构。`--schema-inspect`、`--schema-preview`、`--schema-apply` 互斥，不可重复；混用、赋值变体或未知 `--schema-*` 参数在构造宿主前明确拒绝。预期库和连接实际目标不一致时拒绝，不回退到其它数据库。
+
+这是独立包本地管理员对固定受管模型的只读命令，不是 Metarill 平台 CLI 选项目，不提供未登记表目录、元数据反向导入或任意 SQL 入口；不会把快照当可执行计划。当前仍只有 MySQL 实现，顺序快照不保证外部并发 DDL 下的一致时刻，后续变更前须重新核验指纹。
