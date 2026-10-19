@@ -29,7 +29,7 @@ public sealed class GeneratedSelectionPageTests
             var catalog = RelationOptionsContractTests.Catalog(); catalog.ConfigPages.Single(page => page.Id == "301").Extra["type"] = JsonSerializer.SerializeToElement(2);
             new CSharpGenerator().Generate(catalog, output, "Example.SelectionUi");
             var target = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_target-list-301.vue"));
-            Assert.Contains("multiSelecting: true", target); Assert.Contains("createSelectionPageMixin(\"/admin/auto/relation_target/301\",true)", target);
+            Assert.Contains("class=\"multi-select-page-buttons\"", target); Assert.Contains("createOriginalSelectionPageMixin(\"/admin/auto/relation_target/301\",true)", target);
             Assert.Contains("onPopSelect", File.ReadAllText(RuntimeFile("selectionPageMixin.js")));
             Assert.Contains("selection/selected", File.ReadAllText(Path.Combine(output, "Controllers/RelationTargetPage301Controller.g.cs")));
             Assert.DoesNotContain("selection/selected", File.ReadAllText(Path.Combine(output, "Controllers/RelationParentPage101Controller.g.cs")));
@@ -37,9 +37,9 @@ public sealed class GeneratedSelectionPageTests
             // 仍未完成的多值名称派生/传播不得因选择页可用而静默改为可写控件。
             catalog.ConfigColumns.Single(column => column.Id == "25").ControlKind = "MultiSelectPage";
             catalog.ConfigColumns.Single(column => column.Id == "25").LogicalType = "string";
-            new CSharpGenerator().Generate(catalog, output, "Example.SelectionUi");
-            using var gaps = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "generation-capabilities.json")));
-            Assert.Contains(gaps.RootElement.GetProperty("unsupportedControls").EnumerateArray(), item => item.GetProperty("column").GetString() == "target_id");
+            var before = File.ReadAllText(Path.Combine(output, ".metarill-generation.json"));
+            Assert.Throws<InvalidOperationException>(() => new CSharpGenerator().Generate(catalog, output, "Example.SelectionUi"));
+            Assert.Equal(before, File.ReadAllText(Path.Combine(output, ".metarill-generation.json")));
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }

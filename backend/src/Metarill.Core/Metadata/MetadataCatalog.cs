@@ -101,6 +101,10 @@ public static class MetadataValidation
     public static void Validate(MetadataCatalog catalog)
     {
         if (catalog.BackendTarget != "csharp") throw new InvalidOperationException("生成目标必须为 C#。");
+        // 主色进入原模板属性/CSS，仅接受颜色字面值，不能夹带模板属性或可执行表达式。
+        if (string.IsNullOrWhiteSpace(catalog.PrimaryColor) || !System.Text.RegularExpressions.Regex.IsMatch(catalog.PrimaryColor,
+            "^(#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{4}|#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{8}|[A-Za-z]{1,32}|(?:rgb|rgba|hsl|hsla)\\([0-9 .,%+-]+\\))$"))
+            throw new InvalidOperationException("项目主色必须为合法颜色字面值。");
         var tables = catalog.ConfigTables.ToDictionary(x => x.Id);
         var columns = catalog.ConfigColumns.ToDictionary(x => x.Id);
         var pages = catalog.ConfigPages.ToDictionary(x => x.Id);

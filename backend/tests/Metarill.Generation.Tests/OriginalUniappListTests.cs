@@ -52,11 +52,24 @@ public sealed class OriginalUniappListTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
+    /// <summary>主题配置不能逃出原属性边界，把代码注入待编译的Vue模板。</summary>
+    [Theory]
+    [InlineData("#0ab3ad\" @click=\"alert(1)")]
+    [InlineData("url(javascript:alert(1))")]
+    [InlineData("red; background:url(https://example.test)")]
+    public void Unsafe_theme_is_rejected_before_generation(string color)
+    {
+        var catalog=Catalog(1);catalog.PrimaryColor=color;
+        Assert.Throws<InvalidOperationException>(()=>Metarill.Core.Metadata.MetadataValidation.Validate(catalog));
+    }
+
     /// <summary>同一页配置生成普通与多选两页；两页仍使用原字段与原可视操作。</summary>
     private static MetadataCatalog Catalog(int layout)
     {
         var catalog=GeneratorTests.Catalog();catalog.ConfigPages[0].Extra["isUpdate"]=JsonSerializer.SerializeToElement(0);catalog.ConfigPages[0].Extra["mobileListPageStyleType"]=JsonSerializer.SerializeToElement(layout);
         var selection=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(catalog.ConfigPages[0]))!;selection.Id="102";selection.IsNew=0;selection.Extra["type"]=JsonSerializer.SerializeToElement(2);
+        catalog.ConfigColumns.Add(new() { Id="billing",ConfigTableId="1",ColumnName="billing_month",LogicalType="datetime",ControlKind="month",Name="账单月" });
+        catalog.ConfigPageColumns.Add(new() { Id="billing-field",ConfigPageId="101",ConfigColumnId="billing",Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)} });
         catalog.ConfigPages.Add(selection);
         foreach(var field in catalog.ConfigPageColumns.ToArray()){var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;copy.Id+="s";copy.ConfigPageId="102";catalog.ConfigPageColumns.Add(copy);}
         return catalog;

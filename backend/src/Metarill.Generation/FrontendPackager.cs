@@ -34,6 +34,9 @@ public sealed class FrontendPackager
         var gaps = model.Tables.SelectMany(table => table.Pages.SelectMany(page => page.DetailColumns.Where(column => column.Source.ControlKind == "CustomControl")
             .Select(column => $"页面{page.Source.Name}({page.Source.Id})：{column.Source.ControlDetail}"))).Distinct().ToArray();
         if (gaps.Length != 0) throw new InvalidOperationException("独立前端缺少已接线的自定义控件：" + string.Join("；", gaps) + "。平台请显式使用仅后端打包（CLI --backend-only）。");
+        // 原控件布局不得被替换成只读占位；后端尚未接线时拒绝完整应用，不能导出可点击但失效的页面。
+        var backendGaps = GenerationCapabilityAudit.Collect(model);
+        if (backendGaps.Count != 0) throw new InvalidOperationException("原页面仍有未完成的后端能力：" + string.Join("；", backendGaps.Select(gap => $"页面{gap.PageId}/{gap.Column}/{gap.Usage}：{gap.Reason}")) + "。请完成适配后打包，或明确选择BackendOnly。");
         var unsupportedMenus = catalog.ConfigMenus.Where(menu => menu.IsHidden != 1 && menu.Kind is not ("DIRECTORY" or "GENERATED_PAGE")).ToArray();
         if (unsupportedMenus.Length != 0) throw new InvalidOperationException("独立前端未提供自定义或外部菜单源：" + string.Join("；", unsupportedMenus.Select(menu => menu.Name + "(" + menu.Id + ")")) + "。请移除入口或显式使用仅后端打包。");
     }

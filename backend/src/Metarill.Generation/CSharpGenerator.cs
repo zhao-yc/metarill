@@ -80,7 +80,7 @@ public sealed class CSharpGenerator
             }
             throw;
         }
-        var warnings = model.Tables.SelectMany(table => table.Pages.SelectMany(page => page.DetailColumns.Select(column => (Page: page, Column: column, Result: ControlRenderer.Render(model, table, page, column))))).Where(item => item.Result.UnsupportedReason is not null).Select(item => $"页面 {item.Page.Source.Id} 字段 {item.Column.Source.ColumnName}：{item.Result.UnsupportedReason}").ToArray();
+        var warnings = GenerationCapabilityAudit.Collect(model).Select(gap => $"页面 {gap.PageId} 字段 {gap.Column}（{gap.Usage}）：{gap.Reason}").ToArray();
         return new GenerationResult(generated.Select(x => x.Path).ToArray(), firstHandwritten.Select(x => x.Path).ToArray(), hash) { Warnings = warnings };
     }
 

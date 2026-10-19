@@ -21,7 +21,7 @@ public sealed class GeneratedChildrenTests
             var path = Path.Combine(output, "frontend/pages/yzp/customer-detail-101.vue"); var before = File.ReadAllText(path);
             Assert.Single(System.Text.RegularExpressions.Regex.Matches(before, "<uni-forms "));
             Assert.True(before.IndexOf("</uni-forms>", StringComparison.Ordinal) < before.IndexOf("<ChildList", StringComparison.Ordinal));
-            Assert.Contains("v-show=\"currentChild === 0\"", before); Assert.Contains(":parent_id=\"id\"", before); Assert.Contains(":parentReadOnlyCondition=\"readOnlyCondition\"", before);
+            Assert.Contains("v-show=\"currentSonItem === 0\"", before); Assert.Contains(":parent_id='id'", before); Assert.Contains(":parentReadOnlyCondition='readOnlyCondition'", before);
             catalog.ConfigChildren.Reverse(); new CSharpGenerator().Generate(catalog, output, "Example.Children"); Assert.Equal(before, File.ReadAllText(path));
             await RunProbe(output);
         }
@@ -39,7 +39,7 @@ public sealed class GeneratedChildrenTests
             var catalog = Catalog(); catalog.ConfigPages[0].Extra["childPlace"] = JsonSerializer.SerializeToElement(place);
             new CSharpGenerator().Generate(catalog, output, "Example.Children");
             var detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/customer-detail-101.vue"));
-            Assert.DoesNotContain("v-show=\"currentChild", detail); Assert.Contains(":child_page_open_type=\"1\"", detail);
+            Assert.DoesNotContain("v-show=\"currentSonItem", detail); Assert.Contains(":child_page_open_type='1'", detail);
             Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(detail, "<ChildList").Count);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
@@ -98,7 +98,7 @@ public sealed class GeneratedChildrenTests
             {
                 var id = child.GetProperty("parentConfigPageId").GetString()!; var page = catalog.ConfigPages.Single(page => page.Id == id); var table = catalog.ConfigTables.Single(table => table.Id == page.ConfigTableId);
                 var detail = File.ReadAllText(Path.Combine(output, $"frontend/pages/yzp/{table.TableName}-detail-{id}.vue"));
-                Assert.Contains("ref=\"child_" + child.GetProperty("id").GetString() + "\"", detail);
+                Assert.Contains("ref='ChildList" + child.GetProperty("id").GetString() + "'", detail);
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }

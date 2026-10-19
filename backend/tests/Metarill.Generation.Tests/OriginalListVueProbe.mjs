@@ -50,6 +50,7 @@ try{
  assert.equal(normal.vm.page_is_update,false);assert.equal(normal.vm.page_is_new,true);assert.equal(normal.vm.readOnlyCondition,false)
  assert.equal(pageRequests(normal).length,1)
  const first=pageRequests(normal)[0];assert.equal(first.options.data.pageNo,1);assert.deepEqual(plain(first.options.data.filters),{})
+ normal.vm.billingMonthMonthFilterChange({detail:{value:'2024-02'}});assert.deepEqual(plain(normal.vm.filters.billingMonth),['2024-02-01','2024-02-29']);normal.vm.billingMonthMonthFilterChange({detail:{value:''}});assert.deepEqual(plain(normal.vm.filters.billingMonth),[])
  normal.vm.filters.name='未提交';assert.deepEqual(plain(first.options.data.filters),{})
  success(first,{records:[{id:longId,name:'原名称'}],total:41,pages:3});await Vue.nextTick();assert.equal(normal.vm.list[0].name,'原名称')
  normal.vm.filterList();const filtered=pageRequests(normal).at(-1);assert.equal(filtered.options.data.filters.name,'未提交')

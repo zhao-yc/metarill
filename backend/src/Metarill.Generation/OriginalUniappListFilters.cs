@@ -29,7 +29,7 @@ internal static partial class OriginalUniappListRenderer
             {
                 case "DateTime": case "date_time": markup.Append($"<uni-datetime-picker type='datetimerange' v-model='filters.{key}' />"); break;
                 case "Date": case "date": markup.Append($"<uni-datetime-picker type='daterange' v-model='filters.{key}' />"); break;
-                case "Month":
+                case "Month": case "month":
                     var date = IsDateColumn(column);
                     var display = date ? $"filters.{key} && filters.{key}.length > 0 ? filters.{key}[0].toString().substring(0, 7) : \"\"" : $"filters.{key} || \"\"";
                     markup.Append($"<picker mode='date' fields='month' :value='{display}' @change='{key}MonthFilterChange'><uni-easyinput primaryColor=\"{color}\" disabled class='can-read' :value='{display}' suffixIcon='bottom' /></picker>");
@@ -61,7 +61,7 @@ internal static partial class OriginalUniappListRenderer
                 data.Append(key).Append("Range:").Append(ConstantRange(column, detail)).Append(',');
             var value = Text(field.Extra, "queryDefaultValue");
             if (value.Length == 0 || kind == "CascadeTree") continue;
-            if (kind == "Month") defaults.Append($"this.{key}MonthFilterChange({{detail:{{value:{(value == "today" ? "(function(){var now=new Date();return now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');})()" : J(value))}}}}});");
+            if (kind is "Month" or "month") defaults.Append($"this.{key}MonthFilterChange({{detail:{{value:{(value == "today" ? "(function(){var now=new Date();return now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');})()" : J(value))}}}}});");
             else if (kind is "DateTime" or "Date" or "date_time" or "date") { if (value == "today") defaults.Append($"this.filters.{key}=utils.getTodayDateAry();"); }
             else defaults.Append("this.filters.").Append(inputKey).Append('=').Append(column.Type is "int?" or "decimal?" && decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _) ? value : J(value)).Append(';');
         }
@@ -78,7 +78,14 @@ internal static partial class OriginalUniappListRenderer
     private static string ConstantRange(ColumnModel column, string detail) => J(detail.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(option =>
     {
         var parts = option.Split('|', 2); var value = parts.Length > 1 ? parts[1] : "";
-        return new { text = parts[0], value = column.Type == "int?" && int.TryParse(value, out var number) ? (object)number : value };
+        object typed = column.Type switch
+        {
+            "int?" when int.TryParse(value, out var number) => number,
+            "decimal?" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) => number,
+            "long?" or "long" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number.ToString(CultureInfo.InvariantCulture),
+            _ => value
+        };
+        return new { text = parts[0], value = typed };
     }));
     private static bool IsDateColumn(ColumnModel column) => column.Source.LogicalType is "datetime" or "date" || column.Source.ColumnType is "datetime" or "date";
     private static string JsonValue(string value) { try { using var document = JsonDocument.Parse(value); return document.RootElement.GetRawText(); } catch (JsonException) { return "{}"; } }

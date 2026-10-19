@@ -8,20 +8,10 @@ internal static class UniappRenderer
     /// <summary>原列表和详情共享同一元数据快照，尚未交付的后端控件仍写入能力缺口。</summary>
     public static IEnumerable<PlannedFile> Render(GenerationModel model)
     {
-        var routes=new List<object>();var gaps=new List<object>();var children=ChildrenCompilation.Compile(model);
+        var routes=new List<object>();var gaps=GenerationCapabilityAudit.Collect(model);var children=ChildrenCompilation.Compile(model);
         foreach(var table in model.Tables)
         foreach(var page in table.Pages)
         {
-            foreach(var column in page.Readable)
-            {
-                var result=ControlRenderer.Render(model,table,page,column);
-                if(result.UnsupportedReason is not null)gaps.Add(new{pageId=page.Source.Id,column=column.Source.ColumnName,usage="detail",reason=result.UnsupportedReason});
-            }
-            foreach(var column in page.Searchable)
-            {
-                var result=ControlRenderer.RenderFilter(model,page,column);
-                if(result.UnsupportedReason is not null)gaps.Add(new{pageId=page.Source.Id,column=column.Source.ColumnName,usage="filter",reason=result.UnsupportedReason});
-            }
             var stem=table.Source.TableName;var list=$"pages/yzp/{stem}-list-{page.Source.Id}";var detail=$"pages/yzp/{stem}-detail-{page.Source.Id}";
             yield return new("frontend/"+list+".vue",OriginalUniappListRenderer.Render(model,table,page));
             yield return new("frontend/"+detail+".vue",OriginalUniappDetailRenderer.Render(model,table,page,children.Where(child=>child.Parent==page).ToArray()));

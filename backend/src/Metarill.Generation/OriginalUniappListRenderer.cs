@@ -63,12 +63,15 @@ internal static partial class OriginalUniappListRenderer
             ["//##init_lists##"] = filter.Requests,
             ["//##reset_columns##"] = filter.Reset,
             ["table_name"] = table.Source.TableName, ["page_sn"] = page.Source.Id, ["page_id"] = page.Source.Id,
-            ["toDetailNewGuard"] = child ? "if (id === '' && !this.page_is_new) {" : "if (id === '' && (!this.page_is_new || !yzp.hasPagePermission(this.page_sn, 'is_new'))) {",
+            ["toDetailNewGuard"] = child ? "if (id === '' && (this.readOnlyCondition || !this.page_is_new)) {" : "if (id === '' && (this.readOnlyCondition || !this.page_is_new || !yzp.hasPagePermission(this.page_sn, 'is_new'))) {",
             ["toDetailQueryGuard"] = child ? "if (id !== '' && !this.page_is_edit) {" : "if (id !== '' && (!this.page_is_edit || !yzp.hasPagePermission(this.page_sn, 'is_query'))) {"
         };
         var result = Template("original-list-ordinary.vue.tpl");
         // 列表继承父/全局只读；新增和更新按各自能力判断，避免旧模板使“仅新增”页面丢失新增入口。
         result = result.Replace("!this.page_is_update || this.parentReadOnlyCondition", "this.parentReadOnlyCondition || getApp().globalData.readOnly", StringComparison.Ordinal);
+        result = result.Replace("this.clicked_id = id;", "this.clicked_id = id;const detailIdentity=this.originalListIdentity();const detailCurrent=()=>this._originalListAlive && detailIdentity===this.originalListIdentity();", StringComparison.Ordinal)
+            .Replace("that.handleDetailChange(change);", "if(detailCurrent())that.handleDetailChange(change);", StringComparison.Ordinal)
+            .Replace("+ id + '&parent_id=' + this.parent_id + '&parent_page_sn=' + this.parent_page_sn", "+ encodeURIComponent(id) + '&parent_id=' + encodeURIComponent(this.parent_id || '') + '&parent_page_sn=' + encodeURIComponent(this.parent_page_sn || '')", StringComparison.Ordinal);
         foreach (var (key, value) in values)
             result = result.Replace(key.StartsWith("//##", StringComparison.Ordinal) ? key : "##" + key + "##", value, StringComparison.Ordinal);
         if (System.Text.RegularExpressions.Regex.IsMatch(result, @"##[a-zA-Z_]+##")) throw new InvalidOperationException("原列表模板有未解析占位符。");
@@ -138,7 +141,7 @@ internal static partial class OriginalUniappListRenderer
         if (column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) && kind.Length > 0 || column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal)) return "<text>{{$yzp.relationDisplayText(item." + RelationName(table, column) + ")}}</text>";
         if (kind is "ConstList" or "ConstDownList") return "{{item." + column.JsonName + "Show}}";
         if (kind == "CheckBox") return "{{item." + column.JsonName + " === true || item." + column.JsonName + " === 1 || item." + column.JsonName + " === '1' ? '是' : '否'}}";
-        if (kind == "Month") return "{{item." + column.JsonName + " ? String(item." + column.JsonName + ").slice(0, 7) : ''}}";
+        if (kind is "Month" or "month") return "{{item." + column.JsonName + " ? String(item." + column.JsonName + ").slice(0, 7) : ''}}";
         if (kind is "IntenetImage" or "InternetImage") return "<image class='list-img' mode='widthFix' :src='item." + column.JsonName + "'></image>";
         if (kind is "Image" or "MultiImage") return "<uni-file-picker :imageStyles='$imageStyles' disabled readonly limit='" + Html(Effective(column.Source, field, "controlDetail", column.Source.ControlDetail)) + "' v-model='item." + column.JsonName + "'></uni-file-picker>";
         if (kind == "Upload") return "";

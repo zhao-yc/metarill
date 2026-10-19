@@ -19,7 +19,7 @@ internal static partial class OriginalUniappListRenderer
         if (selection) result.Append(",additionalData(){return {selectedIds:this.showSelectedOnly?this.selectedDraftIds.slice():[]};},emptyResult(){return this.showSelectedOnly&&!this.selectedDraftIds.length;}");
         result.Append("}),");
         if (selection) result.Append("createOriginalSelectionPageMixin(").Append(J(endpoint)).Append(',').Append(B(child)).Append("),");
-        result.Append("],props:{parent_id:{type:String},parent_page_sn:{type:String},is_son_page:{type:Boolean,default:false},child_page_open_type:{type:Number,default:1},parentReadOnlyCondition:{type:Boolean,default:false}},");
+        result.Append("],props:{parent_id:{type:String},parent_page_sn:{type:String},is_son_page:{type:Boolean,default:").Append(B(child)).Append("},child_page_open_type:{type:Number,default:1},parentReadOnlyCondition:{type:Boolean,default:false}},");
         if (importDetail) result.Append("components:{").Append(detail).Append("},");
         return result.ToString();
     }
@@ -29,7 +29,7 @@ internal static partial class OriginalUniappListRenderer
 
     private const string PopupMethods = """
     // 弹窗关闭先卸载子详情，重复打开不能沿用上个实体状态。
-    openChildDetailPopup(id){this.childDetailPopupId=id||'';this.childDetailPopupKey++;this.childDetailPopupVisible=true;this.$nextTick(()=>this.$refs.child_detail_popup.open('center'));},
+    openChildDetailPopup(id){this.childDetailPopupId=id||'';this.childDetailPopupKey++;this.childDetailPopupVisible=true;const key=this.childDetailPopupKey,identity=this.originalListIdentity();this.$nextTick(()=>{if(this._originalListAlive&&this.childDetailPopupVisible&&this.childDetailPopupKey===key&&identity===this.originalListIdentity())this.$refs.child_detail_popup.open('center');});},
     closeChildDetailPopup(){this.childDetailPopupVisible=false;this.childDetailPopupId='';this.$refs.child_detail_popup?.close();},
     onChildDetailPopupChange(e){if(!e.show){this.childDetailPopupVisible=false;this.childDetailPopupId='';}},
     handleChildDetailChange(change){this.handleDetailChange(change);},
