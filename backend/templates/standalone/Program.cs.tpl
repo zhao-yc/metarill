@@ -18,6 +18,11 @@ using {{NAMESPACE}}.Host;
 
 var builder = WebApplication.CreateBuilder(args.Where(value => value is not "--schema-preview" and not "--schema-apply").ToArray());
 builder.Configuration.AddJsonFile("appsettings.local.json", optional: true).AddEnvironmentVariables();
+// 仅显式开发认证启用时允许本机HBuilderX不同端口；不默认开放正式部署来源。
+var developmentCors = builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Authentication:DevelopmentBootstrap:Enabled");
+if (developmentCors) builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.SetIsOriginAllowed(origin =>
+    Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.IsLoopback
+    && uri.UserInfo.Length == 0 && uri.AbsolutePath == "/" && uri.Query.Length == 0 && uri.Fragment.Length == 0).AllowAnyHeader().AllowAnyMethod()));
 var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 var metadata = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/project.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少应用元数据。");
@@ -65,6 +70,9 @@ if (args.Contains("--schema-preview", StringComparer.Ordinal) || args.Contains("
     if (args.Contains("--schema-apply", StringComparer.Ordinal)) Console.WriteLine(JsonSerializer.Serialize(await schema.ApplyAsync(plan), jsonOptions));
     return;
 }
+// CORS必须在认证前处理OPTIONS预检；允许来源只解决浏览器访问，绝不赋予API身份。
+app.UseRouting();
+if (developmentCors) app.UseCors();
 // 在控制器创建数据库服务前认证，因此无数据库配置时默认也能明确返回 401。
 app.Use(async (context, next) =>
 {

@@ -26,6 +26,8 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 仅 Development 环境且显式启用 `Authentication:DevelopmentBootstrap` 才能使用开发账号；用户名、至少12位的密码由开发者私有配置，没有默认真实账号密码。服务端固定包内单项目，签发内存不透明会话，每次 API 验证；客户端项目选择和 query 令牌不产生身份。菜单与权限查询也受相同认证约束。
 
+独立宿主仅在 Development 且显式启用开发认证时允许 HTTP(S) 回环 Origin 的本机跨端口预检；不允许外域或带路径、用户信息、query、fragment 的 Origin，也不设置 AllowCredentials。CORS 在认证前执行，因此真实预检可通过，匿名业务写仍返回401。关闭开发认证或 Production 不默认开放；其他Web来源需可信同源网关或自有部署策略。
+
 这不是生产账号系统。正式项目须在手写 partial `HostCustomization.ConfigureServices` 中接入自己的 `IRuntimeAuthorization`，不能把开发管理员直接作为生产认证。
 
 ## 重新生成与验收

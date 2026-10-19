@@ -32,6 +32,8 @@ dotnet run --project backend/Application.Host --urls http://127.0.0.1:5080
 
 POST `/api/admin/sys/yz_manager/login`，JSON 或表单包含 username/password；成功响应 map.loginStateId，后续在 loginStateId 请求头传递令牌（也可 Bearer）。POST `/api/admin/sys/yz_manager/exit_login` 使当前会话失效。通过 SessionLifetimeSeconds 配置 1..86400 秒有效期。已登录开发账号可调用 GET `/api/admin/sys/yz_manager/getMenu` 与 `getCurrentPermissions`；菜单只返回包内生成页面及目录，权限仍在每次业务请求验证。自定义页面、平台项目切换及正式生产账号不随包提供。
 
+Development且显式启用开发认证时，宿主在认证前处理HTTP(S)回环Origin的CORS预检，允许本机HBuilderX不同端口携带loginStateId/JSON头，不开放AllowCredentials。来源允许不产生身份，匿名写仍为401；关闭开发认证或Production均不默认开放，其他Web来源需可信同源网关或自有部署策略。
+
 ## 业务扩展与边界
 
 生成服务 `.g.cs` 与手写 `.cs` 使用 partial；BeforeSave 修改派生字段后必须加入 submittedFields。write-schema 列出每页允许提交的字段，服务端拒绝未知和审计字段，省略与显式 null 含义不同。表范围、权限、ID、审计和事务在服务端执行。

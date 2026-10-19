@@ -52,6 +52,7 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
         Assert.True(process.ExitCode == 0, await stdout.WaitAsync(timeout.Token) + await stderr.WaitAsync(timeout.Token));
         Assert.True(File.Exists(Path.Combine(output, "backend/Application.Host/packages.lock.json")));
+        await StandaloneCorsHttpProbe.VerifyAsync(output);
         await StandaloneExportHttpProbe.VerifyAsync(output);
     }
     [Fact]
