@@ -13,6 +13,14 @@ public sealed class ConfigButtonPage7097193256583168Controller(ConfigButtonServi
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("7097193256583168", operation); return authorization.RequireActor(); }
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "actionType", "sql", "place", "visibleScheme", "visibleRuleJson", "sortNo", "saveOption", "isNeedConfirm", "configTableName", "configPageName", "importNo", "confirmMsg", "type", "isBatchSelectButton", "isAutoCloseAfterAction"], ["name", "actionType", "sql", "insertTime", "place", "visibleScheme", "visibleRuleJson", "sortNo", "saveOption", "isNeedConfirm", "configTableName", "configPageName", "importNo", "updateTime", "insertManagerId", "insertUserName", "updateManagerId", "insertManagerRealName", "updateManagerRealName", "updateUserName", "confirmMsg", "yzProjectName", "type", "isBatchSelectButton", "isAutoCloseAfterAction", "id", "actionTypeShow", "placeShow", "visibleSchemeShow", "saveOptionShow", "typeShow"], ["configPageId"], "yzProjectId");
+    /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
+    private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
+    {
+        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
+        return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
+    }
     /// <summary>兼容现有页面明细路由。</summary>
     [HttpGet("detail/{id}")]
     public async Task<R<ConfigButtonPage7097193256583168Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)
@@ -28,13 +36,31 @@ public sealed class ConfigButtonPage7097193256583168Controller(ConfigButtonServi
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count7097193256583168Async(request, Actor("count"), cancellationToken));
     /// <summary>新增仅接受本页生成 DTO。</summary>
     [HttpPost("add")]
-    public async Task<R<ConfigButtonPage7097193256583168Vo>> Add([FromBody] ConfigButtonPage7097193256583168CreateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<ConfigButtonPage7097193256583168Vo>.Success(await service.Create7097193256583168Async(request, parentId, Actor("create"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(ConfigButtonPage7097193256583168CreateRequest))]
+    public async Task<R<ConfigButtonPage7097193256583168Vo>> Add([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("create");
+        var request = LegacyRequest<ConfigButtonPage7097193256583168CreateRequest>(entity, LegacyPageWriteOperation.Create, actor, parentId);
+        return R<ConfigButtonPage7097193256583168Vo>.Success(await service.Create7097193256583168Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>更新保留省略字段与显式 null 的区别。</summary>
     [HttpPost("update")]
-    public async Task<R<ConfigButtonPage7097193256583168Vo>> Update([FromBody] ConfigButtonPage7097193256583168UpdateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<ConfigButtonPage7097193256583168Vo>.Success(await service.Update7097193256583168Async(request, parentId, Actor("update"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(ConfigButtonPage7097193256583168UpdateRequest))]
+    public async Task<R<ConfigButtonPage7097193256583168Vo>> Update([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("update");
+        var request = LegacyRequest<ConfigButtonPage7097193256583168UpdateRequest>(entity, LegacyPageWriteOperation.Update, actor, parentId);
+        return R<ConfigButtonPage7097193256583168Vo>.Success(await service.Update7097193256583168Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
     [HttpDelete]
-    public async Task<R<string>> Delete([FromBody] ConfigButtonPage7097193256583168RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete7097193256583168Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    [LegacyPageWriteRequest(typeof(ConfigButtonPage7097193256583168RecordRequest))]
+    public async Task<R<string>> Delete([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("delete");
+        var request = LegacyRequest<ConfigButtonPage7097193256583168RecordRequest>(entity, LegacyPageWriteOperation.Delete, actor, parentId);
+        return await service.Delete7097193256583168Async(request.Id, parentId, actor, cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    }
     /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>
     [HttpPost("copy/{id}")]
     public async Task<R<ConfigButtonPage7097193256583168Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<ConfigButtonPage7097193256583168Vo>.Success(await service.Copy7097193256583168Async(id, parentId, Actor("copy"), cancellationToken));

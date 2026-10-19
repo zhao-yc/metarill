@@ -1,193 +1,384 @@
-<!-- 由 Metarill 元数据生成，使用现有 uni-app 请求和组件体系。 -->
 <template>
-  <view class="yzp-page">
-    <view class="uni-padding-wrap"><text>表</text><button v-if="!multiSelecting && canCreateRecord" size="mini" @click="openDetail('')">新增</button><button v-if="!multiSelecting && canImportRecords" size="mini" @click="initImport">导入</button><button v-if="!multiSelecting && canExport" size="mini" @click="initExport">导出</button></view>
-    <view v-if="filterFields.length" class="uni-padding-wrap">
-      <uni-forms :modelValue="draftFilters">
-<uni-forms-item label="名称" name="name"><uni-easyinput :modelValue="draftFilters.name" @update:modelValue="setFilter('name', $event)" placeholder="请输入名称" /></uni-forms-item>
-<uni-forms-item label="表名" name="tableName"><uni-easyinput :modelValue="draftFilters.tableName" @update:modelValue="setFilter('tableName', $event)" placeholder="请输入表名" /></uni-forms-item>
-<uni-forms-item label="数据库视图" name="isView"><uni-data-select :modelValue="draftFilters.isView" @update:modelValue="setFilter('isView', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      </uni-forms>
-      <button size="mini" @click="applyFilters">查询</button><button size="mini" @click="resetFilters">重置</button>
+  <view class='list-page main-page' >
+    <!-- PC端 -->
+    
+    <view v-if='$deviceInfo.is_pc' class='list-page-pc'>
+      <uni-nav-bar left-icon="left" @clickLeft="$yzp.back" fixed statusBar :border="false" title="表"></uni-nav-bar>
+      <view class="list-page-pc-body">
+          <uni-forms label-width="auto" class="pc-filters" :modelValue='filters' v-if="page_is_filter">
+            <uni-forms-item label='名称'>
+<uni-easyinput primaryColor="#0ab3ad" v-model='filters.name' confirm-type='search' @confirm='filterList'  /></uni-forms-item>
+<uni-forms-item label='表名'>
+<uni-easyinput primaryColor="#0ab3ad" v-model='filters.tableName' confirm-type='search' @confirm='filterList' focus /></uni-forms-item>
+<uni-forms-item label='数据库视图'>
+<uni-data-checkbox v-model='filters.isView' :localdata='$checkboxRange' /></uni-forms-item>
+
+            <view class="pc-filters-buttons">
+              <button class='cancel-btn' size="mini" @click='resetFilter'>重置</button>
+              <button size="mini" type='primary' @click='filterList'>筛选</button>
+            </view>
+          </uni-forms>
+          <view class="list-page-buttons">
+            <button size="mini" type='primary' @click="toDetail('')" v-if="permissionVersion >= 0 && !readOnlyCondition && page_is_new && $yzp.hasPagePermission(page_sn, 'is_new')">新增</button>
+            
+          </view>
+          <uni-table class="list-page-pc-body-table" border  stripe emptyText="暂无更多数据"><uni-tr>
+<!-- 操作列可见性与默认查看权限分离，行内按钮按自身规则显示。 --><uni-th align="center" v-if="true" width="">操作</uni-th>
+<uni-th >名称</uni-th>
+<uni-th >表名</uni-th>
+<uni-th >sql</uni-th>
+<uni-th >oracle_sql</uni-th>
+<uni-th >where_sql</uni-th>
+<uni-th >order_by</uni-th>
+<uni-th >group_by</uni-th>
+<uni-th >page_size</uni-th>
+<uni-th >is_edit</uni-th>
+<uni-th >is_new</uni-th>
+<uni-th >is_save</uni-th>
+<uni-th >is_delete</uni-th>
+<uni-th >is_search</uni-th>
+<uni-th >before_delete_sql</uni-th>
+<uni-th >after_save_sql</uni-th>
+<uni-th >after_import_sql</uni-th>
+<uni-th >is_import</uni-th>
+<uni-th >is_export</uni-th>
+<uni-th >is_multi_select</uni-th>
+<uni-th >is_lazy_query</uni-th>
+<uni-th >grid_edit</uni-th>
+<uni-th >title</uni-th>
+<uni-th >title_2</uni-th>
+<uni-th >title_3</uni-th>
+<uni-th >is_sum</uni-th>
+<uni-th >grid_width</uni-th>
+<uni-th >is_print_preview</uni-th>
+<uni-th >is_batch_delete</uni-th>
+<uni-th >import_method</uni-th>
+<uni-th >read_only_condition</uni-th>
+<uni-th >pop_window_width</uni-th>
+<uni-th >pop_window_height</uni-th>
+<uni-th >is_export_edit</uni-th>
+<uni-th >is_no_save_and_close</uni-th>
+<uni-th >is_update</uni-th>
+<uni-th >is_head_group</uni-th>
+<uni-th >is_modify_log</uni-th>
+<uni-th >layout</uni-th>
+<uni-th >conn_string</uni-th>
+<uni-th >export_method</uni-th>
+<uni-th >import_no</uni-th>
+<uni-th >insert_time</uni-th>
+<uni-th >update_time</uni-th>
+<uni-th >insert_manager_id</uni-th>
+<uni-th >insert_user_name</uni-th>
+<uni-th >update_manager_id</uni-th>
+<uni-th >insert_manager_real_name</uni-th>
+<uni-th >update_manager_real_name</uni-th>
+<uni-th >update_user_name</uni-th>
+<uni-th >copy_method</uni-th>
+<uni-th >sql_more</uni-th>
+<uni-th >authorize_scheme</uni-th>
+<uni-th >clear_method</uni-th>
+<uni-th >is_raw</uni-th>
+<uni-th >same_edit_code</uni-th>
+<uni-th >sql_grid</uni-th>
+<uni-th >data_src</uni-th>
+<uni-th >main_column</uni-th>
+<uni-th >batch_new_page_name</uni-th>
+<uni-th >edit_table_id</uni-th>
+<uni-th >edit_table_name</uni-th>
+<uni-th >edit_page_id</uni-th>
+<uni-th >edit_page_name</uni-th>
+<uni-th >edit_key_column</uni-th>
+<uni-th >button_visible</uni-th>
+<uni-th >auto_save</uni-th>
+<uni-th >child_place</uni-th>
+<uni-th >super_column_name</uni-th>
+<uni-th >edit_page_url</uni-th>
+<uni-th >display_option</uni-th>
+<uni-th >bpm_step_kind</uni-th>
+<uni-th >document_ready</uni-th>
+<uni-th >help</uni-th>
+<uni-th >edit_width</uni-th>
+<uni-th >yz_project_name</uni-th>
+<uni-th >is_platform</uni-th>
+<uni-th >is_sys</uni-th>
+<uni-th >is_repeat_pwd</uni-th>
+<uni-th >所属后台</uni-th>
+<uni-th >数据归属模式</uni-th>
+</uni-tr>
+<uni-tr :class="clicked_id == item.id ? 'uni-table-tr-clicked' : ''" v-for='(item, index) in list' :key='item.id'><uni-td v-if="true" class="buttons"><view><view class='list-action-link' v-if="permissionVersion &gt;= 0 &amp;&amp; page_is_edit &amp;&amp; $yzp.hasPagePermission(page_sn, &apos;is_query&apos;)" @click='toDetail(item.id)'>查看</view>
+<view class='list-action-link' v-if="customerButtonShow1676828142707372033(item)" @click='customerButtonHandler1676828142707372033(item)'>列排序</view>
+<view class='list-action-link' v-if="customerButtonShow2076978804953321472(item)" @click='customerButtonHandler2076978804953321472(item)'>索引管理</view>
+<view class='list-action-link' v-if="customerButtonShow1861242035055382529(item)" @click='customerButtonHandler1861242035055382529(item)'>一键生成</view></view></uni-td><uni-td><text class='list-column-important'>{{item.name}}</text></uni-td>
+<uni-td><text >{{item.tableName}}</text></uni-td>
+<uni-td><text >{{item.sql}}</text></uni-td>
+<uni-td><text >{{item.oracleSql}}</text></uni-td>
+<uni-td><text >{{item.whereSql}}</text></uni-td>
+<uni-td><text >{{item.orderBy}}</text></uni-td>
+<uni-td><text >{{item.groupBy}}</text></uni-td>
+<uni-td><text >{{item.pageSize}}</text></uni-td>
+<uni-td><text >{{item.isEdit}}</text></uni-td>
+<uni-td><text >{{item.isNew}}</text></uni-td>
+<uni-td><text >{{item.isSave}}</text></uni-td>
+<uni-td><text >{{item.isDelete}}</text></uni-td>
+<uni-td><text >{{item.isSearch}}</text></uni-td>
+<uni-td><text >{{item.beforeDeleteSql}}</text></uni-td>
+<uni-td><text >{{item.afterSaveSql}}</text></uni-td>
+<uni-td><text >{{item.afterImportSql}}</text></uni-td>
+<uni-td><text >{{item.isImport}}</text></uni-td>
+<uni-td><text >{{item.isExport}}</text></uni-td>
+<uni-td><text >{{item.isMultiSelect}}</text></uni-td>
+<uni-td><text >{{item.isLazyQuery}}</text></uni-td>
+<uni-td><text >{{item.gridEdit}}</text></uni-td>
+<uni-td><text >{{item.title}}</text></uni-td>
+<uni-td><text >{{item.title2}}</text></uni-td>
+<uni-td><text >{{item.title3}}</text></uni-td>
+<uni-td><text >{{item.isSum}}</text></uni-td>
+<uni-td><text >{{item.gridWidth}}</text></uni-td>
+<uni-td><text >{{item.isPrintPreview}}</text></uni-td>
+<uni-td><text >{{item.isBatchDelete}}</text></uni-td>
+<uni-td><text >{{item.importMethod}}</text></uni-td>
+<uni-td><text >{{item.readOnlyCondition}}</text></uni-td>
+<uni-td><text >{{item.popWindowWidth}}</text></uni-td>
+<uni-td><text >{{item.popWindowHeight}}</text></uni-td>
+<uni-td><text >{{item.isExportEdit}}</text></uni-td>
+<uni-td><text >{{item.isNoSaveAndClose}}</text></uni-td>
+<uni-td><text >{{item.isUpdate}}</text></uni-td>
+<uni-td><text >{{item.isHeadGroup}}</text></uni-td>
+<uni-td><text >{{item.isModifyLog}}</text></uni-td>
+<uni-td><text >{{item.layout}}</text></uni-td>
+<uni-td><text >{{item.connString}}</text></uni-td>
+<uni-td><text >{{item.exportMethod}}</text></uni-td>
+<uni-td><text >{{item.importNo}}</text></uni-td>
+<uni-td><text >{{item.insertTime}}</text></uni-td>
+<uni-td><text >{{item.updateTime}}</text></uni-td>
+<uni-td><text >{{item.insertManagerId}}</text></uni-td>
+<uni-td><text >{{item.insertUserName}}</text></uni-td>
+<uni-td><text >{{item.updateManagerId}}</text></uni-td>
+<uni-td><text >{{item.insertManagerRealName}}</text></uni-td>
+<uni-td><text >{{item.updateManagerRealName}}</text></uni-td>
+<uni-td><text >{{item.updateUserName}}</text></uni-td>
+<uni-td><text >{{item.copyMethod}}</text></uni-td>
+<uni-td><text >{{item.sqlMore}}</text></uni-td>
+<uni-td><text >{{item.authorizeScheme}}</text></uni-td>
+<uni-td><text >{{item.clearMethod}}</text></uni-td>
+<uni-td><text >{{item.isRaw}}</text></uni-td>
+<uni-td><text >{{item.sameEditCode}}</text></uni-td>
+<uni-td><text >{{item.sqlGrid}}</text></uni-td>
+<uni-td><text >{{item.dataSrc}}</text></uni-td>
+<uni-td><text >{{item.mainColumn}}</text></uni-td>
+<uni-td><text >{{item.batchNewPageName}}</text></uni-td>
+<uni-td><text >{{item.editTableId}}</text></uni-td>
+<uni-td><text >{{item.editTableName}}</text></uni-td>
+<uni-td><text >{{item.editPageId}}</text></uni-td>
+<uni-td><text >{{item.editPageName}}</text></uni-td>
+<uni-td><text >{{item.editKeyColumn}}</text></uni-td>
+<uni-td><text >{{item.buttonVisible}}</text></uni-td>
+<uni-td><text >{{item.autoSave}}</text></uni-td>
+<uni-td><text >{{item.childPlace}}</text></uni-td>
+<uni-td><text >{{item.superColumnName}}</text></uni-td>
+<uni-td><text >{{item.editPageUrl}}</text></uni-td>
+<uni-td><text >{{item.displayOption}}</text></uni-td>
+<uni-td><text >{{item.bpmStepKind}}</text></uni-td>
+<uni-td><text >{{item.documentReady}}</text></uni-td>
+<uni-td><text >{{item.help}}</text></uni-td>
+<uni-td><text >{{item.editWidth}}</text></uni-td>
+<uni-td><text >{{item.yzProjectName}}</text></uni-td>
+<uni-td><text >{{item.isPlatform}}</text></uni-td>
+<uni-td><text >{{item.isSys}}</text></uni-td>
+<uni-td><text >{{item.isRepeatPwd}}</text></uni-td>
+<uni-td><text>{{$yzp.relationDisplayText(item.yzAdminTypeId)}}</text></uni-td>
+<uni-td><text >{{item.scopeKind}}</text></uni-td>
+</uni-tr></uni-table>
+          <view v-if="list_error" role="alert" class="uni-pagination-box"><text>{{list_error}}</text><button size="mini" @click="retryListRequest">重试加载</button></view>
+          <view v-if="page_size>0" class="uni-pagination-box">
+            <uni-pagination :key="page_no + ':' + pagination_version" show-icon :page-size="page_size" :current="page_no" :total="rows_qty"
+              @change="paginationChange" />
+          </view>
+          
+        </view>
     </view>
-    <view v-for="message in filterGaps" :key="message" class="uni-padding-wrap"><text>{{ message }}</text></view>
-    <view v-if="sortFields.length" class="uni-padding-wrap">
-      <uni-data-select :modelValue="sortField" :localdata="sortFields" placeholder="排序字段" @update:modelValue="selectSortField" />
-      <uni-data-select :modelValue="sortDirection" :localdata="sortDirections" :clear="false" placeholder="默认排序" @update:modelValue="selectSortDirection" />
+    
+    <!-- 移动端 -->
+    <view v-if='!$deviceInfo.is_pc' class='list-page-mobile'>
+      <uni-nav-bar left-icon="left" @clickLeft="$yzp.back" fixed statusBar :border="false" title="表" rightText="筛选" @clickRight="openFilterPopup('bottom')"></uni-nav-bar>
+      <!--<view class="sort-filter-view">
+          <view class='sort-view'></view>
+          <view class="filter-btn" @click="openFilterPopup('bottom')" v-if="page_is_filter">筛选</view>
+      </view>-->
+      <uni-list>
+        <uni-list-item clickable v-for='(item, index) in list' :key='item.id' @click='toDetail(item.id)'>
+          <template v-slot:body>
+            <view class='row'>
+              <view class='row-item'><text>名称</text><text class='list-column-important'>{{item.name}}</text></view><view class='row-item'><text>表名</text><text >{{item.tableName}}</text></view><view class='row-item'><text>sql</text><text >{{item.sql}}</text></view><view class='row-item'><text>oracle_sql</text><text >{{item.oracleSql}}</text></view><view class='row-item'><text>where_sql</text><text >{{item.whereSql}}</text></view><view class='row-item'><text>order_by</text><text >{{item.orderBy}}</text></view><view class='row-item'><text>group_by</text><text >{{item.groupBy}}</text></view><view class='row-item'><text>page_size</text><text >{{item.pageSize}}</text></view><view class='row-item'><text>is_edit</text><text >{{item.isEdit}}</text></view><view class='row-item'><text>is_new</text><text >{{item.isNew}}</text></view><view class='row-item'><text>is_save</text><text >{{item.isSave}}</text></view><view class='row-item'><text>is_delete</text><text >{{item.isDelete}}</text></view><view class='row-item'><text>is_search</text><text >{{item.isSearch}}</text></view><view class='row-item'><text>before_delete_sql</text><text >{{item.beforeDeleteSql}}</text></view><view class='row-item'><text>after_save_sql</text><text >{{item.afterSaveSql}}</text></view><view class='row-item'><text>after_import_sql</text><text >{{item.afterImportSql}}</text></view><view class='row-item'><text>is_import</text><text >{{item.isImport}}</text></view><view class='row-item'><text>is_export</text><text >{{item.isExport}}</text></view><view class='row-item'><text>is_multi_select</text><text >{{item.isMultiSelect}}</text></view><view class='row-item'><text>is_lazy_query</text><text >{{item.isLazyQuery}}</text></view><view class='row-item'><text>grid_edit</text><text >{{item.gridEdit}}</text></view><view class='row-item'><text>title</text><text >{{item.title}}</text></view><view class='row-item'><text>title_2</text><text >{{item.title2}}</text></view><view class='row-item'><text>title_3</text><text >{{item.title3}}</text></view><view class='row-item'><text>is_sum</text><text >{{item.isSum}}</text></view><view class='row-item'><text>grid_width</text><text >{{item.gridWidth}}</text></view><view class='row-item'><text>is_print_preview</text><text >{{item.isPrintPreview}}</text></view><view class='row-item'><text>is_batch_delete</text><text >{{item.isBatchDelete}}</text></view><view class='row-item'><text>import_method</text><text >{{item.importMethod}}</text></view><view class='row-item'><text>read_only_condition</text><text >{{item.readOnlyCondition}}</text></view><view class='row-item'><text>pop_window_width</text><text >{{item.popWindowWidth}}</text></view><view class='row-item'><text>pop_window_height</text><text >{{item.popWindowHeight}}</text></view><view class='row-item'><text>is_export_edit</text><text >{{item.isExportEdit}}</text></view><view class='row-item'><text>is_no_save_and_close</text><text >{{item.isNoSaveAndClose}}</text></view><view class='row-item'><text>is_update</text><text >{{item.isUpdate}}</text></view><view class='row-item'><text>is_head_group</text><text >{{item.isHeadGroup}}</text></view><view class='row-item'><text>is_modify_log</text><text >{{item.isModifyLog}}</text></view><view class='row-item'><text>layout</text><text >{{item.layout}}</text></view><view class='row-item'><text>conn_string</text><text >{{item.connString}}</text></view><view class='row-item'><text>export_method</text><text >{{item.exportMethod}}</text></view><view class='row-item'><text>import_no</text><text >{{item.importNo}}</text></view><view class='row-item'><text>insert_time</text><text >{{item.insertTime}}</text></view><view class='row-item'><text>update_time</text><text >{{item.updateTime}}</text></view><view class='row-item'><text>insert_manager_id</text><text >{{item.insertManagerId}}</text></view><view class='row-item'><text>insert_user_name</text><text >{{item.insertUserName}}</text></view><view class='row-item'><text>update_manager_id</text><text >{{item.updateManagerId}}</text></view><view class='row-item'><text>insert_manager_real_name</text><text >{{item.insertManagerRealName}}</text></view><view class='row-item'><text>update_manager_real_name</text><text >{{item.updateManagerRealName}}</text></view><view class='row-item'><text>update_user_name</text><text >{{item.updateUserName}}</text></view><view class='row-item'><text>copy_method</text><text >{{item.copyMethod}}</text></view><view class='row-item'><text>sql_more</text><text >{{item.sqlMore}}</text></view><view class='row-item'><text>authorize_scheme</text><text >{{item.authorizeScheme}}</text></view><view class='row-item'><text>clear_method</text><text >{{item.clearMethod}}</text></view><view class='row-item'><text>is_raw</text><text >{{item.isRaw}}</text></view><view class='row-item'><text>same_edit_code</text><text >{{item.sameEditCode}}</text></view><view class='row-item'><text>sql_grid</text><text >{{item.sqlGrid}}</text></view><view class='row-item'><text>data_src</text><text >{{item.dataSrc}}</text></view><view class='row-item'><text>main_column</text><text >{{item.mainColumn}}</text></view><view class='row-item'><text>batch_new_page_name</text><text >{{item.batchNewPageName}}</text></view><view class='row-item'><text>edit_table_id</text><text >{{item.editTableId}}</text></view><view class='row-item'><text>edit_table_name</text><text >{{item.editTableName}}</text></view><view class='row-item'><text>edit_page_id</text><text >{{item.editPageId}}</text></view><view class='row-item'><text>edit_page_name</text><text >{{item.editPageName}}</text></view><view class='row-item'><text>edit_key_column</text><text >{{item.editKeyColumn}}</text></view><view class='row-item'><text>button_visible</text><text >{{item.buttonVisible}}</text></view><view class='row-item'><text>auto_save</text><text >{{item.autoSave}}</text></view><view class='row-item'><text>child_place</text><text >{{item.childPlace}}</text></view><view class='row-item'><text>super_column_name</text><text >{{item.superColumnName}}</text></view><view class='row-item'><text>edit_page_url</text><text >{{item.editPageUrl}}</text></view><view class='row-item'><text>display_option</text><text >{{item.displayOption}}</text></view><view class='row-item'><text>bpm_step_kind</text><text >{{item.bpmStepKind}}</text></view><view class='row-item'><text>document_ready</text><text >{{item.documentReady}}</text></view><view class='row-item'><text>help</text><text >{{item.help}}</text></view><view class='row-item'><text>edit_width</text><text >{{item.editWidth}}</text></view><view class='row-item'><text>yz_project_name</text><text >{{item.yzProjectName}}</text></view><view class='row-item'><text>is_platform</text><text >{{item.isPlatform}}</text></view><view class='row-item'><text>is_sys</text><text >{{item.isSys}}</text></view><view class='row-item'><text>is_repeat_pwd</text><text >{{item.isRepeatPwd}}</text></view><view class='row-item'><text>所属后台</text><text>{{$yzp.relationDisplayText(item.yzAdminTypeId)}}</text></view><view class='row-item'><text>数据归属模式</text><text >{{item.scopeKind}}</text></view>
+            </view>
+          </template>
+        </uni-list-item>
+      </uni-list>
+
+      <uni-load-more @clickLoadMore='loadNextPage()' :status='load_more_status' :contentText="loadMoreText"></uni-load-more>
+      <view class='bottom-buttons' v-if="permissionVersion >= 0 && !readOnlyCondition && page_is_new && $yzp.hasPagePermission(page_sn, 'is_new')">
+        <button type="primary" @click="toDetail('')">新增</button>
+      </view>
     </view>
-    <text v-if="loadError">{{ loadError }}</text>
-    <view v-if="multiSelecting" class="multi-select-page-buttons"><text v-if="selectionError">{{ selectionError }}</text><button size="mini" @click="toggleSelectedOnly">{{ showSelectedOnly ? '查看全部' : '仅看已选' }}</button><button type="primary" size="mini" :disabled="!selectionCanConfirm" @click="sureSelect">选好了（{{ selectedDraftIds.length }}）</button><button size="mini" @click="sureClose">关闭</button></view>
-    <uni-table :loading="loading" border stripe emptyText="暂无数据">
-      <uni-tr><uni-th v-if="multiSelecting"><button size="mini" :disabled="selectionBusy || readOnlyCondition" @click="selectAll">{{ selectionAllOnPage ? '取消本页' : '全选本页' }}</button></uni-th><uni-th>名称</uni-th><uni-th>表名</uni-th><uni-th>sql</uni-th><uni-th>oracle_sql</uni-th><uni-th>where_sql</uni-th><uni-th>order_by</uni-th><uni-th>group_by</uni-th><uni-th>page_size</uni-th><uni-th>is_edit</uni-th><uni-th>is_new</uni-th><uni-th>is_save</uni-th><uni-th>is_delete</uni-th><uni-th>is_search</uni-th><uni-th>before_delete_sql</uni-th><uni-th>after_save_sql</uni-th><uni-th>after_import_sql</uni-th><uni-th>is_import</uni-th><uni-th>is_export</uni-th><uni-th>is_multi_select</uni-th><uni-th>is_lazy_query</uni-th><uni-th>grid_edit</uni-th><uni-th>title</uni-th><uni-th>title_2</uni-th><uni-th>title_3</uni-th><uni-th>is_sum</uni-th><uni-th>grid_width</uni-th><uni-th>is_print_preview</uni-th><uni-th>is_batch_delete</uni-th><uni-th>import_method</uni-th><uni-th>read_only_condition</uni-th><uni-th>pop_window_width</uni-th><uni-th>pop_window_height</uni-th><uni-th>is_export_edit</uni-th><uni-th>is_no_save_and_close</uni-th><uni-th>is_update</uni-th><uni-th>is_head_group</uni-th><uni-th>is_modify_log</uni-th><uni-th>layout</uni-th><uni-th>conn_string</uni-th><uni-th>export_method</uni-th><uni-th>import_no</uni-th><uni-th>insert_time</uni-th><uni-th>update_time</uni-th><uni-th>insert_manager_id</uni-th><uni-th>insert_user_name</uni-th><uni-th>update_manager_id</uni-th><uni-th>insert_manager_real_name</uni-th><uni-th>update_manager_real_name</uni-th><uni-th>update_user_name</uni-th><uni-th>copy_method</uni-th><uni-th>sql_more</uni-th><uni-th>authorize_scheme</uni-th><uni-th>clear_method</uni-th><uni-th>is_raw</uni-th><uni-th>same_edit_code</uni-th><uni-th>sql_grid</uni-th><uni-th>data_src</uni-th><uni-th>main_column</uni-th><uni-th>batch_new_page_name</uni-th><uni-th>edit_table_id</uni-th><uni-th>edit_table_name</uni-th><uni-th>edit_page_id</uni-th><uni-th>edit_page_name</uni-th><uni-th>edit_key_column</uni-th><uni-th>button_visible</uni-th><uni-th>auto_save</uni-th><uni-th>child_place</uni-th><uni-th>super_column_name</uni-th><uni-th>edit_page_url</uni-th><uni-th>display_option</uni-th><uni-th>bpm_step_kind</uni-th><uni-th>document_ready</uni-th><uni-th>help</uni-th><uni-th>edit_width</uni-th><uni-th>yz_project_name</uni-th><uni-th>is_platform</uni-th><uni-th>is_sys</uni-th><uni-th>is_repeat_pwd</uni-th><uni-th>所属后台</uni-th><uni-th>数据归属模式</uni-th><uni-th v-if="!multiSelecting">操作</uni-th></uni-tr>
-      <uni-tr v-for="row in records" :key="row.id"><uni-td v-if="multiSelecting"><checkbox :checked="selectionHas(row.id)" :disabled="selectionBusy || readOnlyCondition" @click="toggleSelection(row)" /></uni-td><uni-td>{{ displayValue(row, 'name') }}</uni-td><uni-td>{{ displayValue(row, 'tableName') }}</uni-td><uni-td>{{ displayValue(row, 'sql') }}</uni-td><uni-td>{{ displayValue(row, 'oracleSql') }}</uni-td><uni-td>{{ displayValue(row, 'whereSql') }}</uni-td><uni-td>{{ displayValue(row, 'orderBy') }}</uni-td><uni-td>{{ displayValue(row, 'groupBy') }}</uni-td><uni-td>{{ displayValue(row, 'pageSize') }}</uni-td><uni-td>{{ displayValue(row, 'isEdit') }}</uni-td><uni-td>{{ displayValue(row, 'isNew') }}</uni-td><uni-td>{{ displayValue(row, 'isSave') }}</uni-td><uni-td>{{ displayValue(row, 'isDelete') }}</uni-td><uni-td>{{ displayValue(row, 'isSearch') }}</uni-td><uni-td>{{ displayValue(row, 'beforeDeleteSql') }}</uni-td><uni-td>{{ displayValue(row, 'afterSaveSql') }}</uni-td><uni-td>{{ displayValue(row, 'afterImportSql') }}</uni-td><uni-td>{{ displayValue(row, 'isImport') }}</uni-td><uni-td>{{ displayValue(row, 'isExport') }}</uni-td><uni-td>{{ displayValue(row, 'isMultiSelect') }}</uni-td><uni-td>{{ displayValue(row, 'isLazyQuery') }}</uni-td><uni-td>{{ displayValue(row, 'gridEdit') }}</uni-td><uni-td>{{ displayValue(row, 'title') }}</uni-td><uni-td>{{ displayValue(row, 'title2') }}</uni-td><uni-td>{{ displayValue(row, 'title3') }}</uni-td><uni-td>{{ displayValue(row, 'isSum') }}</uni-td><uni-td>{{ displayValue(row, 'gridWidth') }}</uni-td><uni-td>{{ displayValue(row, 'isPrintPreview') }}</uni-td><uni-td>{{ displayValue(row, 'isBatchDelete') }}</uni-td><uni-td>{{ displayValue(row, 'importMethod') }}</uni-td><uni-td>{{ displayValue(row, 'readOnlyCondition') }}</uni-td><uni-td>{{ displayValue(row, 'popWindowWidth') }}</uni-td><uni-td>{{ displayValue(row, 'popWindowHeight') }}</uni-td><uni-td>{{ displayValue(row, 'isExportEdit') }}</uni-td><uni-td>{{ displayValue(row, 'isNoSaveAndClose') }}</uni-td><uni-td>{{ displayValue(row, 'isUpdate') }}</uni-td><uni-td>{{ displayValue(row, 'isHeadGroup') }}</uni-td><uni-td>{{ displayValue(row, 'isModifyLog') }}</uni-td><uni-td>{{ displayValue(row, 'layout') }}</uni-td><uni-td>{{ displayValue(row, 'connString') }}</uni-td><uni-td>{{ displayValue(row, 'exportMethod') }}</uni-td><uni-td>{{ displayValue(row, 'importNo') }}</uni-td><uni-td>{{ displayValue(row, 'insertTime') }}</uni-td><uni-td>{{ displayValue(row, 'updateTime') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertUserName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateUserName') }}</uni-td><uni-td>{{ displayValue(row, 'copyMethod') }}</uni-td><uni-td>{{ displayValue(row, 'sqlMore') }}</uni-td><uni-td>{{ displayValue(row, 'authorizeScheme') }}</uni-td><uni-td>{{ displayValue(row, 'clearMethod') }}</uni-td><uni-td>{{ displayValue(row, 'isRaw') }}</uni-td><uni-td>{{ displayValue(row, 'sameEditCode') }}</uni-td><uni-td>{{ displayValue(row, 'sqlGrid') }}</uni-td><uni-td>{{ displayValue(row, 'dataSrc') }}</uni-td><uni-td>{{ displayValue(row, 'mainColumn') }}</uni-td><uni-td>{{ displayValue(row, 'batchNewPageName') }}</uni-td><uni-td>{{ displayValue(row, 'editTableId') }}</uni-td><uni-td>{{ displayValue(row, 'editTableName') }}</uni-td><uni-td>{{ displayValue(row, 'editPageId') }}</uni-td><uni-td>{{ displayValue(row, 'editPageName') }}</uni-td><uni-td>{{ displayValue(row, 'editKeyColumn') }}</uni-td><uni-td>{{ displayValue(row, 'buttonVisible') }}</uni-td><uni-td>{{ displayValue(row, 'autoSave') }}</uni-td><uni-td>{{ displayValue(row, 'childPlace') }}</uni-td><uni-td>{{ displayValue(row, 'superColumnName') }}</uni-td><uni-td>{{ displayValue(row, 'editPageUrl') }}</uni-td><uni-td>{{ displayValue(row, 'displayOption') }}</uni-td><uni-td>{{ displayValue(row, 'bpmStepKind') }}</uni-td><uni-td>{{ displayValue(row, 'documentReady') }}</uni-td><uni-td>{{ displayValue(row, 'help') }}</uni-td><uni-td>{{ displayValue(row, 'editWidth') }}</uni-td><uni-td>{{ displayValue(row, 'yzProjectName') }}</uni-td><uni-td>{{ displayValue(row, 'isPlatform') }}</uni-td><uni-td>{{ displayValue(row, 'isSys') }}</uni-td><uni-td>{{ displayValue(row, 'isRepeatPwd') }}</uni-td><uni-td>{{ displayValue(row, 'yzAdminTypeId') }}</uni-td><uni-td>{{ displayValue(row, 'scopeKind') }}</uni-td><uni-td v-if="!multiSelecting"><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
-    </uni-table>
-    <view><button size="mini" :disabled="pageNo <= 1 || loading" @click="movePage(-1)">上一页</button><text>{{ pageNo }} / {{ pages }}</text><button size="mini" :disabled="pageNo >= pages || loading" @click="movePage(1)">下一页</button></view>
-    <yzp-popup ref="child_detail_popup" type="center" @change="onChildDetailPopupChange">
-      <view class="select-page-dialog-view"><uni-section title="表" type="line"><view class="section-view child-detail-dialog-view">
-        <PageDetail v-if="childDetailPopupVisible" :key="childDetailPopupKey" :is_props="true" :props_id="childDetailPopupId" :props_parent_id="parentId" :props_parent_page_sn="parent_page_sn" :parentReadOnlyCondition="readOnlyCondition" @onChange="handleChildDetailChange" @onPopClose="closeChildDetailPopup" />
-        <button size="mini" @click="closeChildDetailPopup">关闭</button>
-      </view></uni-section></view>
+    <yzp-popup ref="child_detail_popup" type="center" @change="onChildDetailPopupChange"><view class="select-page-dialog-view"><uni-section title='表' class='select-page-uni-section' type='line'><view class='section-view'><view class="child-detail-dialog-view" :class="{ 'is-mobile': !$deviceInfo.is_pc }"><config_table_detail_6191083005411328 v-if="childDetailPopupVisible" :key="childDetailPopupKey" :is_props="true" :props_id="childDetailPopupId" :props_parent_id="parent_id" :props_parent_page_sn="parent_page_sn" :parentReadOnlyCondition="readOnlyCondition" @onChange="handleChildDetailChange" @onPopClose="closeChildDetailPopup"></config_table_detail_6191083005411328></view></view></uni-section></view></yzp-popup>
+    <yzp-popup class='filter-popup' ref="filter_popup" background-color="#fff">
+      <uni-section title='筛选条件' type='line'>
+        <view class='section-view'>
+          <uni-forms :modelValue='filters'>
+            <uni-forms-item label='名称'>
+<uni-easyinput primaryColor="#0ab3ad" v-model='filters.name' confirm-type='search' @confirm='filterList'  /></uni-forms-item>
+<uni-forms-item label='表名'>
+<uni-easyinput primaryColor="#0ab3ad" v-model='filters.tableName' confirm-type='search' @confirm='filterList' focus /></uni-forms-item>
+<uni-forms-item label='数据库视图'>
+<uni-data-checkbox v-model='filters.isView' :localdata='$checkboxRange' /></uni-forms-item>
+
+          </uni-forms>
+        </view>
+      </uni-section>
+      <view class="popup-footer">
+        <!--<button class='cancel-btn' @click='resetFilter'>重置</button>-->
+        <button type="primary" @click='filterList'>确定</button>
+      </view>
     </yzp-popup>
   </view>
 </template>
 <script>
-import yzp from '@/common/yzp';
-import { createRelationOptionsMixin } from '@/common/yzp_runtime/relationOptionsMixin';
-
-import utils from '@/common/utils';
-import PageDetail from '@/pages/yzp/config_table-detail-6191083005411328.vue';
-const filterFields = [{"field":"name","type":"string?","name":"\u540D\u79F0"},{"field":"tableName","type":"string?","name":"\u8868\u540D"},{"field":"isView","type":"int?","name":"\u6570\u636E\u5E93\u89C6\u56FE"}];
-const sortFields = [];
-const displayFields = {"name":{"alias":null,"optionField":null,"multiNames":false},"tableName":{"alias":null,"optionField":null,"multiNames":false},"isRongyu":{"alias":null,"optionField":null,"multiNames":false},"isFunctionTable":{"alias":null,"optionField":null,"multiNames":false},"sql":{"alias":null,"optionField":null,"multiNames":false},"isView":{"alias":null,"optionField":null,"multiNames":false},"oracleSql":{"alias":null,"optionField":null,"multiNames":false},"whereSql":{"alias":null,"optionField":null,"multiNames":false},"orderBy":{"alias":null,"optionField":null,"multiNames":false},"groupBy":{"alias":null,"optionField":null,"multiNames":false},"pageSize":{"alias":null,"optionField":null,"multiNames":false},"isEdit":{"alias":null,"optionField":null,"multiNames":false},"isNew":{"alias":null,"optionField":null,"multiNames":false},"isSave":{"alias":null,"optionField":null,"multiNames":false},"isDelete":{"alias":null,"optionField":null,"multiNames":false},"isSearch":{"alias":null,"optionField":null,"multiNames":false},"beforeDeleteSql":{"alias":null,"optionField":null,"multiNames":false},"afterSaveSql":{"alias":null,"optionField":null,"multiNames":false},"afterImportSql":{"alias":null,"optionField":null,"multiNames":false},"isImport":{"alias":null,"optionField":null,"multiNames":false},"isExport":{"alias":null,"optionField":null,"multiNames":false},"isMultiSelect":{"alias":null,"optionField":null,"multiNames":false},"isLazyQuery":{"alias":null,"optionField":null,"multiNames":false},"gridEdit":{"alias":null,"optionField":null,"multiNames":false},"title":{"alias":null,"optionField":null,"multiNames":false},"title2":{"alias":null,"optionField":null,"multiNames":false},"title3":{"alias":null,"optionField":null,"multiNames":false},"isSum":{"alias":null,"optionField":null,"multiNames":false},"gridWidth":{"alias":null,"optionField":null,"multiNames":false},"isPrintPreview":{"alias":null,"optionField":null,"multiNames":false},"isBatchDelete":{"alias":null,"optionField":null,"multiNames":false},"importMethod":{"alias":null,"optionField":null,"multiNames":false},"readOnlyCondition":{"alias":null,"optionField":null,"multiNames":false},"popWindowWidth":{"alias":null,"optionField":null,"multiNames":false},"popWindowHeight":{"alias":null,"optionField":null,"multiNames":false},"isExportEdit":{"alias":null,"optionField":null,"multiNames":false},"isNoSaveAndClose":{"alias":null,"optionField":null,"multiNames":false},"isUpdate":{"alias":null,"optionField":null,"multiNames":false},"isHeadGroup":{"alias":null,"optionField":null,"multiNames":false},"isModifyLog":{"alias":null,"optionField":null,"multiNames":false},"layout":{"alias":null,"optionField":null,"multiNames":false},"connString":{"alias":null,"optionField":null,"multiNames":false},"exportMethod":{"alias":null,"optionField":null,"multiNames":false},"importNo":{"alias":null,"optionField":null,"multiNames":false},"insertTime":{"alias":null,"optionField":null,"multiNames":false},"updateTime":{"alias":null,"optionField":null,"multiNames":false},"insertManagerId":{"alias":null,"optionField":null,"multiNames":false},"insertUserName":{"alias":null,"optionField":null,"multiNames":false},"updateManagerId":{"alias":null,"optionField":null,"multiNames":false},"insertManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"updateManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"updateUserName":{"alias":null,"optionField":null,"multiNames":false},"copyMethod":{"alias":null,"optionField":null,"multiNames":false},"sqlMore":{"alias":null,"optionField":null,"multiNames":false},"authorizeScheme":{"alias":null,"optionField":null,"multiNames":false},"clearMethod":{"alias":null,"optionField":null,"multiNames":false},"isRaw":{"alias":null,"optionField":null,"multiNames":false},"sameEditCode":{"alias":null,"optionField":null,"multiNames":false},"sqlGrid":{"alias":null,"optionField":null,"multiNames":false},"dataSrc":{"alias":null,"optionField":null,"multiNames":false},"mainColumn":{"alias":null,"optionField":null,"multiNames":false},"batchNewPageName":{"alias":null,"optionField":null,"multiNames":false},"editTableId":{"alias":null,"optionField":null,"multiNames":false},"editTableName":{"alias":null,"optionField":null,"multiNames":false},"editPageId":{"alias":null,"optionField":null,"multiNames":false},"editPageName":{"alias":null,"optionField":null,"multiNames":false},"editKeyColumn":{"alias":null,"optionField":null,"multiNames":false},"buttonVisible":{"alias":null,"optionField":null,"multiNames":false},"autoSave":{"alias":null,"optionField":null,"multiNames":false},"childPlace":{"alias":null,"optionField":null,"multiNames":false},"superColumnName":{"alias":null,"optionField":null,"multiNames":false},"editPageUrl":{"alias":null,"optionField":null,"multiNames":false},"displayOption":{"alias":null,"optionField":null,"multiNames":false},"bpmStepKind":{"alias":null,"optionField":null,"multiNames":false},"documentReady":{"alias":null,"optionField":null,"multiNames":false},"help":{"alias":null,"optionField":null,"multiNames":false},"editWidth":{"alias":null,"optionField":null,"multiNames":false},"yzProjectName":{"alias":null,"optionField":null,"multiNames":false},"isPlatform":{"alias":null,"optionField":null,"multiNames":false},"isSys":{"alias":null,"optionField":null,"multiNames":false},"isRepeatPwd":{"alias":null,"optionField":null,"multiNames":false},"yzAdminTypeId":{"alias":null,"optionField":"yzAdminTypeId","multiNames":false},"scopeKind":{"alias":null,"optionField":null,"multiNames":false},"id":{"alias":null,"optionField":null,"multiNames":false}};
-const rtfFields = [];
-/** 父键保持字符串精度，空值与历史 null/undefined 字面量均视为未保存。 */
-const recordId = value => typeof value === 'string' && !['undefined', 'null'].includes(value.trim()) ? value.trim() : '';
-export default {
-  mixins: [createRelationOptionsMixin([{"field":"yzAdminTypeId","endpoint":"/admin/auto/config_table/6191083005411328/findNameIdYzAdminType2200000000000000087","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"unresolvedTarget":false}])],
-  components: { PageDetail },
-  props: { parent_id: { type: String, default: '' }, parent_page_sn: { type: String, default: '' }, is_son_page: { type: Boolean, default: false }, child_page_open_type: { type: Number, default: 1 }, parentReadOnlyCondition: { type: Boolean, default: false } },
-  data() { return { multiSelecting: false, permissionsReady: false, permissionVersion: 0, canUpdate: true, childDetailPopupVisible: false, childDetailPopupId: '', childDetailPopupKey: 0, records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: [], sortFields,
-    sortDirections: [{text: '默认排序', value: ''}, {text: '升序', value: 'ascending'}, {text: '降序', value: 'descending'}], canCreate: true, canImport: false, canExport: false }; },
+  import utils from '@/common/utils';
+import yzp from '@/common/yzp_runtime/yzp-runtime';
+import project from '@/common/project';
+import { menuBoolean } from '@/common/yzp_runtime/menuRuntime';
+import { createListPageMixin } from '@/common/yzp_runtime/listPageRuntime';
+import { createOriginalListOptionsMixin } from '@/common/yzp_runtime/originalListOptionsMixin';
+import config_table_detail_6191083005411328 from '@/pages/yzp/config_table-detail-6191083005411328.vue';
+export default {mixins:[createOriginalListOptionsMixin({targetParentFields:[]}),createListPageMixin({url:"/admin/auto/config_table/6191083005411328/page",pageSize:14,request(options){return yzp.request(options);},onParentChanged(){if(Array.isArray(this.selectedList)){this.selectedList=[];this.isSelectAll=false;}if(this.closeChildDetailPopup)this.closeChildDetailPopup();},onLoaded(){if(this.syncOriginalSelectionRows)this.syncOriginalSelectionRows();else if(this.selectedList){for(const item of this.list)item.isSelect=this.selectedList.some(row=>String(row.id)===String(item.id));this.checkIsAllSelect();}}}),],props:{parent_id:{type:String},parent_page_sn:{type:String},is_son_page:{type:Boolean,default:false},child_page_open_type:{type:Number,default:1},parentReadOnlyCondition:{type:Boolean,default:false}},components:{config_table_detail_6191083005411328},
+  data() {
+    return {
+      page_sn:"6191083005411328",page_is_new:true,page_is_update:true,page_is_edit:true,page_is_filter:true,permissionVersion:0,childDetailPopupVisible:false,childDetailPopupId:'',childDetailPopupKey:0,
+      
+      
+      isShowCount: false,
+      yzpMenuId: '',
+      //menu_id: '',
+      filters: {},
+      clicked_id: '',
+      orderBy: {},
+      yzManager: uni.getStorageSync("userInfo")
+    }
+  },
   computed: {
-    /** 子列表沿用父页只读；前端权限快照只负责隐藏操作，后端仍验证真实身份。 */
-    readOnlyCondition() { this.permissionVersion; return !this.permissionsReady || Boolean(this.parentReadOnlyCondition || getApp().globalData.readOnly); },
-    /** 新增、修改、导入分别受本页能力和对应操作权限控制，不能用修改权限统管。 */
-    canCreateRecord() { this.permissionVersion; return !this.readOnlyCondition && this.canCreate && yzp.hasPagePermission('6191083005411328', 'is_new'); },
-    canEditRecord() { this.permissionVersion; return !this.readOnlyCondition && this.canUpdate && yzp.hasPagePermission('6191083005411328', 'is_update'); },
-    canImportRecords() { this.permissionVersion; return !this.readOnlyCondition && this.canImport && yzp.hasPagePermission('6191083005411328', 'is_all'); }
+	readOnlyCondition() {
+		if (this.parentReadOnlyCondition || getApp().globalData.readOnly) {
+			return true;
+		}
+		return false;
+	},
   },
-  watch: {
-    /** 父记录改变时取消旧读取并重建子列表，不触发父表保存。 */
-    parent_id() { if ((this.is_son_page || this.multiSelecting) && this._alive) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } }
+  //作为子表时，onload不执行，所以放在这
+  mounted: function (e) {
+    //this.menu_id = e.menu_id;
+    
+
+    //全局只读
+    if (getApp().globalData.readOnly) { this.page_is_new = false; this.page_is_update = false; }
+
+    // 刷新权限快照后递增版本，触发按钮显示重新计算。
+    this.refreshCurrentPermissions();
+    this.getList();
+    this.initLists();
   },
-  mounted() { if (this.is_son_page || this.multiSelecting && !this._alive) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } },
-  /** 路由和嵌入组件分别初始化，避免嵌入模式依赖不会触发的 onLoad。 */
-  onLoad(options) { if (!this.is_son_page) { this._listRouted = true; this.initializeList(options); } },
-  onShow() { if (!this.is_son_page) this.loadPage(); },
-  onUnload() { this.disposeList(); },
-  beforeUnmount() { this.disposeList(); },
+  onLoad: function (e) {
+    // URL 布尔值必须明确解析，入口标识只用于详情导航定位。
+    this.isShowCount = menuBoolean(e && e.isShowCount);
+    this.yzpMenuId = e && e.yzpMenuId || '';
+  },
+  onReachBottom() {
+    //this.loadNextPage();
+  },
   methods: {
-    /** 保留查询与排序，换父记录只清空旧数据和旧选项；未保存父键不发出任何查询。 */
-    initializeList(options = {}) {
-      this.disposeList(); this._alive = true; this._optionRequests = []; this.parentId = recordId(options.parentId || options.parent_id); this.selecting = options.select === '1';
-      this.records = []; this.pageNo = 1; this.pages = 1; this.options = {}; this.loading = false; this.loadError = ''; this.permissionsReady = false;
-      const epoch = this._epoch, ready = () => { if (this._alive && epoch === this._epoch) { this.permissionsReady = true; this.permissionVersion++; } };
-      if (this.is_son_page) ready(); else yzp.refreshCurrentPermissions(ready, ready);
-      if (!(false || this.is_son_page) || this.parentId) this.loadOptions();
-      this.initializeSelection?.();
+    // 成功写入只刷新关联页面和表的角标，不依赖当前入口是否显示角标。
+    notifyMenuMutation() {
+      uni.$emit('yzpMenuChanged', { pageId: '6191083005411328', tableName: 'config_table' });
     },
-    /** 卸载或换父记录时失效列表、候选项和弹层回调。 */
-    disposeList() { this.disposeSelection?.(); this._alive = false; this._epoch = (this._epoch || 0) + 1; this._requestNo = (this._requestNo || 0) + 1; this._request?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); this.closeChildDetailPopup(); },
-    /** 导入保留客户端读取Excel并提交中文标题JSON的协议。 */
-    initImport() { if (!this.canImportRecords || (false || this.is_son_page) && !this.parentId) return; const parentId = this.parentId, identity = this.currentIdentity(); yzp.chooseImportFile(rows => { if (!this._alive || !this.canImportRecords || parentId !== this.parentId || identity !== this.currentIdentity()) return; yzp.request({ url: '/admin/auto/config_table/6191083005411328/importDatas6191083005411328', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
-    /** 导出使用已提交筛选、排序和父记录，不混入尚未点击查询的草稿。 */
-    initExport() { yzp.request({ url: '/admin/auto/config_table/6191083005411328/initExport', method: 'POST', sendSessionId: true, data: this.pageRequest(this.pageNo), success: res => { if (res.code === 200) utils.openUrl(getApp().globalData.environment.base_url + '/admin/sys/export/export?exportId=' + encodeURIComponent(res.data)); } }); },
-    /** 导入后只重读第一页，已提交查询和父上下文继续保留。 */
-    refreshData() { this.loadPage(1); },
-    /** 编辑筛选草稿不立即改变正在展示的查询快照。 */
-    setFilter(field, value) { if (filterFields.some(item => item.field === field)) this.draftFilters[field] = Array.isArray(value) ? value.slice() : value; },
-    /** 仅提交生成白名单中的有效值，保留 false/0，空值与未填写字段都省略。 */
-    compileFilters() {
-      const filters = {};
-      for (const rule of filterFields) {
-        const value = this.draftFilters[rule.field];
-        if (value === undefined || value === null || typeof value === 'string' && !value.trim() || Array.isArray(value) && value.length === 0) continue;
-        if (Array.isArray(value)) {
-          if (rule.type !== 'DateTime?' || value.length !== 2 || value.some(item => typeof item !== 'string' || !item.trim())) throw new Error('请选择完整日期范围：' + rule.name);
-          const start = Date.parse(value[0].replace(' ', 'T')), end = Date.parse(value[1].replace(' ', 'T'));
-          if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) throw new Error('日期范围无效：' + rule.name);
-          filters[rule.field] = value.slice();
-        } else if (typeof value === 'object') throw new Error('筛选值无效：' + rule.name);
-        else {
-          if (rule.type === 'bool?' && typeof value !== 'boolean') throw new Error('请选择有效布尔值：' + rule.name);
-          if (['long', 'long?', 'int?'].includes(rule.type) && !/^[+-]?\d+$/.test(String(value))) throw new Error('请输入整数：' + rule.name);
-          if (rule.type === 'int?' && (!Number.isSafeInteger(Number(value)) || Number(value) < -2147483648 || Number(value) > 2147483647)) throw new Error('整数超出范围：' + rule.name);
-          if (['decimal?', 'double?'].includes(rule.type) && (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(String(value)) || !Number.isFinite(Number(value)))) throw new Error('请输入有效数值：' + rule.name);
-          if (rule.type === 'string?' && typeof value !== 'string') throw new Error('请输入文本：' + rule.name);
-          filters[rule.field] = value;
-        }
+    // 弹窗关闭先卸载子详情，重复打开不能沿用上个实体状态。
+openChildDetailPopup(id){this.childDetailPopupId=id||'';this.childDetailPopupKey++;this.childDetailPopupVisible=true;const key=this.childDetailPopupKey,identity=this.originalListIdentity();this.$nextTick(()=>{if(this._originalListAlive&&this.childDetailPopupVisible&&this.childDetailPopupKey===key&&identity===this.originalListIdentity())this.$refs.child_detail_popup.open('center');});},
+closeChildDetailPopup(){this.childDetailPopupVisible=false;this.childDetailPopupId='';this.$refs.child_detail_popup?.close();},
+onChildDetailPopupChange(e){if(!e.show){this.childDetailPopupVisible=false;this.childDetailPopupId='';}},
+handleChildDetailChange(change){this.handleDetailChange(change);},
+    customerButtonShow1676828142707372033(item){this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1676828142707372033","visibleScheme":"Normal","visibleRuleJson":""},item,this.readOnlyCondition);},customerButtonHandler1676828142707372033(item){var that=this;this.clicked_id=item.id;yzp.request({url:'/admin/sys/config_button/execute',data:{buttonId:"1676828142707372033",entityId:item.id,visibleScheme:"Normal",visibleRuleJson:""},sendSessionId:true,method:'POST',success(res){if(res.code==200)that.notifyMenuMutation();yzp.customButtonHandler(res,that,false,'list');}});},customerButtonShow2076978804953321472(item){this.permissionVersion;return yzp.isButtonVisible({"buttonId":"2076978804953321472","visibleScheme":"Normal","visibleRuleJson":""},item,this.readOnlyCondition);},customerButtonHandler2076978804953321472(item){var that=this;this.clicked_id=item.id;yzp.request({url:'/admin/sys/config_button/execute',data:{buttonId:"2076978804953321472",entityId:item.id,visibleScheme:"Normal",visibleRuleJson:""},sendSessionId:true,method:'POST',success(res){if(res.code==200)that.notifyMenuMutation();yzp.customButtonHandler(res,that,false,'list');}});},customerButtonShow1861242035055382529(item){this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1861242035055382529","visibleScheme":"Normal","visibleRuleJson":""},item,this.readOnlyCondition);},customerButtonHandler1861242035055382529(item){var that=this;this.clicked_id=item.id;yzp.request({url:'/admin/sys/config_button/execute',data:{buttonId:"1861242035055382529",entityId:item.id,visibleScheme:"Normal",visibleRuleJson:""},sendSessionId:true,method:'POST',success(res){if(res.code==200)that.notifyMenuMutation();yzp.customButtonHandler(res,that,false,'list');}});},
+    
+    
+    // 刷新权限快照后递增版本，触发按钮显示重新计算。
+    refreshCurrentPermissions: function() {
+      var that = this;
+      yzp.refreshCurrentPermissions(function() { that.permissionVersion++; }, function() { that.permissionVersion++; });
+    },
+    initLists: function () {
+      var that = this;
+      
+    },
+    filterList() {
+      this.refreshData();
+      this.closeFilterPopup();
+    },
+    handleDetailChange(change) {
+      var action = typeof change === 'string' ? change : (change && change.action);
+      yzp.showDetailPageSuccessToast(action);
+      if (this.applyUpdatedEntityFromDetail(change)) {
+        return;
       }
-      return filters;
+      this.refreshData();
     },
-    /** 查询确认时冻结草稿；无效条件不覆盖先前已提交查询。 */
-    applyFilters() { try { this.appliedFilters = this.compileFilters(); this.loadPage(1); } catch (error) { uni.showModal({ showCancel: false, content: error.message }); } },
-    /** 重置只清理筛选，父记录、选择模式和用户排序继续保留。 */
-    resetFilters() { this.draftFilters = {}; this.appliedFilters = {}; this.loadPage(1); },
-    /** 表头按真实 PageRequest 的 column/order 传递排序，不发送 SQL。 */
-    changeSort(field, event) {
-      if (!sortFields.some(item => item.value === field) || !event || !['ascending', 'descending', null].includes(event.order)) return;
-      this.sortField = event.order ? field : ''; this.sortDirection = event.order || ''; this.orderBy = event.order ? { column: field, order: event.order } : null; this.loadPage(1);
+    selectThis(item){
+	    this.$emit('onPopSelect', item);
     },
-    /** 下拉排序覆盖移动端和不在列表中展示的开放排序字段。 */
-    selectSortField(field) { if (field && !sortFields.some(item => item.value === field)) return; this.sortField = field || ''; this.sortDirection = field ? this.sortDirection || 'ascending' : ''; this.orderBy = field ? { column: field, order: this.sortDirection } : null; this.loadPage(1); },
-    /** 默认排序清空显式 orderBy，升降序要求先选择已开放字段。 */
-    selectSortDirection(order) { if (!['', 'ascending', 'descending'].includes(order)) return; if (order && !this.sortField) { uni.showToast({ title: '请先选择排序字段', icon: 'none' }); return; } this.sortDirection = order; this.orderBy = order ? { column: this.sortField, order } : null; this.loadPage(1); },
-    /** 每次请求复制已提交查询，防止后续输入或翻页修改正在发送的对象。 */
-    pageRequest(pageNo) { return { ...(this.multiSelecting ? { selectedIds: this.showSelectedOnly ? this.selectedDraftIds.slice() : [] } : {}), pageNo, pageSize: 14, filters: JSON.parse(JSON.stringify(this.appliedFilters)), parentId: this.parentId || null, orderBy: this.orderBy ? { ...this.orderBy } : null }; },
-    /** 真实登录及工作区快照用于隔离迟到的读响应，不能替代后端授权。 */
-    currentIdentity() { return JSON.stringify([uni.getStorageSync('loginStateId') || '', uni.getStorageSync('sysParams') || {}]); },
-    /** 最新查询完成后才提交页码和行；失败保留已确认数据，乱序响应不可回退列表。 */
-    loadPage(target = this.pageNo) {
-      if (!this._alive) return;
-      if ((false || this.is_son_page) && !this.parentId) { this.loadError = '为避免数据丢失，请先保存当前页面的数据。'; return; }
-      if (this.multiSelecting && this.showSelectedOnly && this.selectedDraftIds.length === 0) { this._requestNo++; this._request?.abort?.(); this.records = []; this.pages = 1; this.pageNo = 1; this.loading = false; this.loadError = ''; return; }
-      const identity = this.currentIdentity();
-      if (this._listIdentity && this._listIdentity !== identity) { this.records = []; this.pages = 1; this.pageNo = 1; target = 1; }
-      this._listIdentity = identity;
-      const sequence = ++this._requestNo, data = this.pageRequest(target), parentId = this.parentId;
-      this._request?.abort?.(); this.loading = true; this.loadError = '';
-      const current = () => this._alive && sequence === this._requestNo && parentId === this.parentId && identity === this.currentIdentity();
-      this._request = yzp.request({ url: '/admin/auto/config_table/6191083005411328/page', method: 'POST', sendSessionId: true, data, isCurrent: current,
-        success: res => { if (!current()) return; if (res.code === 200 && res.data && Array.isArray(res.data.records)) { this.records = res.data.records; this.pages = Math.max(1, Number(res.data.pages) || 1); this.pageNo = target; } else this.loadError = res.msg || '读取列表失败。'; },
-        fail: () => { if (current()) this.loadError = '读取列表失败，请重试。'; }, complete: () => { if (current()) this.loading = false; } });
-      if (!this._request && current()) this.loading = false;
+    toDetail(id) {
+      var that = this;
+      this.clicked_id = id;const detailIdentity=this.originalListIdentity();const detailCurrent=()=>this._originalListAlive && detailIdentity===this.originalListIdentity();
+      if (this.is_son_page && utils.isBlank(this.parent_id)) {
+        uni.showModal({
+          showCancel: false,
+          content: "为避免数据丢失，请先保存当前页面的数据"
+        });
+        return;
+      }
+if (id === '' && (this.readOnlyCondition || !this.page_is_new || !yzp.hasPagePermission(this.page_sn, 'is_new'))) {    return;}if (id !== '' && (!this.page_is_edit || !yzp.hasPagePermission(this.page_sn, 'is_query'))) {    return;}      // 子表弹窗配置只对 PC 端生效，移动端保持新页面打开。
+      if (this.is_son_page && this.$deviceInfo.is_pc && this.child_page_open_type === 2 && this.openChildDetailPopup) {
+        this.openChildDetailPopup(id);
+        return;
+      }
+      uni.navigateTo({
+        url: '/pages/yzp/config_table-detail-6191083005411328?id=' + encodeURIComponent(id) + '&parent_id=' + encodeURIComponent(this.parent_id || '') + '&parent_page_sn=' + encodeURIComponent(this.parent_page_sn || '') + '&yzpMenuId=' + encodeURIComponent(this.yzpMenuId || ''),
+        events: {
+          onChange: function (change) {
+            if(detailCurrent())that.handleDetailChange(change);
+          }
+        }
+      })
     },
-    /** 翻页只调整请求页码，不改变筛选、排序和父记录。 */
-    movePage(delta) { if (this.loading) return; const target = Math.max(1, Math.min(this.pages, this.pageNo + delta)); if (target !== this.pageNo) this.loadPage(target); },
-    /** 关系选项来自当前页已编译端点，父记录或身份变化后不接受旧选项。 */
-    loadOptions() {
-      const parentId = this.parentId || null, identity = this.currentIdentity();
-      const current = () => this._alive && parentId === (this.parentId || null) && identity === this.currentIdentity();
-      this.refreshRelationLabels?.();
+    openFilterPopup(type) {
+      this.$refs['filter_popup'].open(type);
     },
-    /** 优先显示后端真实别名，再从合法选项映射名称，缺失名称时保留原 ID。 */
-    displayValue(row, field) {
-      const definition = displayFields[field];
-      // 多选名称仍按原逗号文本展示，HTTP数组与历史JSON文本都不回写实体。
-      if (definition?.multiNames) { const value = definition.alias && row[definition.alias] != null ? row[definition.alias] : row[field]; try { const values = typeof value === 'string' ? JSON.parse(value) : value; if (Array.isArray(values)) return values.map(item => item == null ? '' : String(item)).join('，'); } catch {} return value ?? ''; }
-      if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
-      if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
-      return row[field] ?? '';
+    closeFilterPopup() {
+      this.$refs['filter_popup'].close();
     },
-    /** 列表富文本复用原预览页与 sendRtf 事件，不把 HTML 当普通文本字段编辑。 */
-    previewRtf(row, field) { if (!rtfFields.includes(field)) return; uni.navigateTo({ url: '/pages/main/rtf/rtf?action=review', success: result => result.eventChannel.emit('sendRtf', { data: row[field] || '' }) }); },
-    /** 子记录变更只刷新本列表，保留父键、筛选与排序，不调用父表单写入口。 */
-    handleDetailChange(change) { const action = typeof change === 'string' ? change : change?.action; if (this._alive && ['save', 'delete', 'copy'].includes(action)) this.loadPage(this.pageNo); },
-    /** 弹层事件不再向祖先冒泡，关闭后的旧详情事件忽略。 */
-    handleChildDetailChange(change) { if (this.childDetailPopupVisible) this.handleDetailChange(change); },
-    /** PC 子表弹层保留原组件及 props 合同；移动端仍由 openDetail 导航。 */
-    openChildDetailPopup(id) {
-      if (!this._alive || !this.parentId || ![1, 2].includes(this.child_page_open_type)) return;
-      this.childDetailPopupId = id || ''; this.childDetailPopupKey++; this.childDetailPopupVisible = true;
-      const key = this.childDetailPopupKey, parentId = this.parentId, identity = this.currentIdentity();
-      this.$nextTick(() => { if (this._alive && this.childDetailPopupVisible && key === this.childDetailPopupKey && parentId === this.parentId && identity === this.currentIdentity()) this.$refs.child_detail_popup?.open('center'); });
-    },
-    /** 关闭只销毁当前子详情，不影响父记录及查询上下文。 */
-    closeChildDetailPopup() { this.childDetailPopupVisible = false; this.childDetailPopupId = ''; this.$refs?.child_detail_popup?.close(); },
-    onChildDetailPopupChange(event) { if (!event.show) { this.childDetailPopupVisible = false; this.childDetailPopupId = ''; } },
-    /** 子页必须绑定已保存父键；打开方式只影响 PC，URL 的父键继续交给既有后端 Scope 校验。 */
-    openDetail(id) {
-      if (!this._alive) return;
-      if ((false || this.is_son_page) && !this.parentId) { uni.showModal({ showCancel: false, content: '为避免数据丢失，请先保存当前页面的数据' }); return; }
-      if (this.multiSelecting) return;
-      if (this.selecting && id) { const row = this.records.find(record => record.id === id); this.getOpenerEventChannel().emit('selected', row); uni.navigateBack(); return; }
-      if (!id && !this.canCreateRecord) return;
-      if (this.is_son_page && ![1, 2].includes(this.child_page_open_type)) { uni.showModal({ showCancel: false, content: '子页面打开方式未支持。' }); return; }
-      if (this.is_son_page && this.$deviceInfo?.is_pc && this.child_page_open_type === 2) { this.openChildDetailPopup(id); return; }
-      const parentId = this.parentId, epoch = this._epoch, identity = this.currentIdentity();
-      const current = () => this._alive && epoch === this._epoch && parentId === this.parentId && identity === this.currentIdentity();
-      uni.navigateTo({ url: '/pages/yzp/config_table-detail-6191083005411328?id=' + encodeURIComponent(id) + '&parentId=' + encodeURIComponent(parentId) + '&parentPageId=' + encodeURIComponent(this.parent_page_sn) + '&parentReadOnly=' + (this.readOnlyCondition ? '1' : '0'), events: { onChange: change => { if (current()) this.handleDetailChange(change); } } });
+    resetFilter() {
+      this.filters = {};
+      
     }
   }
-};
+}
 </script>
+<style>
+.navigation {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #EEEEEE;
+  background-color: #FFFFFF;
+  margin-top: 5px;
+}
+
+.navigation-right {
+  padding: 0px 20px;
+  border-left: 1px solid #EEEEEE;
+}
+</style>

@@ -86,7 +86,7 @@ public partial class DemoCustomerService
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
     private static ISelect<DemoCustomer> Order2200000000000100020(ISelect<DemoCustomer> query, PageRequest request)
     {
-        if (request.OrderBy is not null && (!string.IsNullOrWhiteSpace(request.OrderBy.Column) || !string.IsNullOrWhiteSpace(request.OrderBy.Field) || !string.IsNullOrWhiteSpace(request.OrderBy.Order)))
+        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
             var descending = request.OrderBy.Order switch { "descending" => true, "ascending" => false, _ => throw new ArgumentException("排序方向无效。") };
             return (request.OrderBy.Column ?? request.OrderBy.Field) switch
@@ -101,12 +101,15 @@ public partial class DemoCustomerService
     /// <summary>分页与统计使用同一条已受限查询。</summary>
     public async Task<PageResult<DemoCustomerPage2200000000000100020Vo>> Page2200000000000100020Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        var unpaged = request.PageSize == 0 && false;
+        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException("仅已配置不分页的页面允许 pageSize=0，且页码必须为1。");
 
         var query = Query2200000000000100020(request, actor);
         var total = await query.CountAsync(cancellationToken);
-        var entities = await Order2200000000000100020(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);
-        return new(entities.Select(DemoCustomerPage2200000000000100020Vo.FromEntity).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        var ordered = Order2200000000000100020(query, request);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        return new(entities.Select(DemoCustomerPage2200000000000100020Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count2200000000000100020Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query2200000000000100020(request, actor).CountAsync(cancellationToken);
@@ -116,7 +119,7 @@ public partial class DemoCustomerService
         var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : DemoCustomerPage2200000000000100020Vo.FromEntity(entity);
     }
-    /// <summary>导出复用列表范围和筛选，字段列表由元数据固定，不能来自客户端。</summary>
+    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>
     public async Task<Metarill.Core.Exports.PageExportRequest> Export2200000000000100020Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)
     {
         if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));

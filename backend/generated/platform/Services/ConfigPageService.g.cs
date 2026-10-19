@@ -107,7 +107,7 @@ public partial class ConfigPageService
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
     private static ISelect<ConfigPage> Order1868973685063311361(ISelect<ConfigPage> query, PageRequest request)
     {
-        if (request.OrderBy is not null && (!string.IsNullOrWhiteSpace(request.OrderBy.Column) || !string.IsNullOrWhiteSpace(request.OrderBy.Field) || !string.IsNullOrWhiteSpace(request.OrderBy.Order)))
+        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
             var descending = request.OrderBy.Order switch { "descending" => true, "ascending" => false, _ => throw new ArgumentException("排序方向无效。") };
             return (request.OrderBy.Column ?? request.OrderBy.Field) switch
@@ -120,12 +120,15 @@ public partial class ConfigPageService
     /// <summary>分页与统计使用同一条已受限查询。</summary>
     public async Task<PageResult<ConfigPagePage1868973685063311361Vo>> Page1868973685063311361Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        var unpaged = request.PageSize == 0 && false;
+        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException("仅已配置不分页的页面允许 pageSize=0，且页码必须为1。");
 
         var query = Query1868973685063311361(request, actor);
         var total = await query.CountAsync(cancellationToken);
-        var entities = await Order1868973685063311361(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);
-        return new(entities.Select(ConfigPagePage1868973685063311361Vo.FromEntity).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        var ordered = Order1868973685063311361(query, request);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        return new(entities.Select(ConfigPagePage1868973685063311361Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count1868973685063311361Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query1868973685063311361(request, actor).CountAsync(cancellationToken);
@@ -135,14 +138,19 @@ public partial class ConfigPageService
         var entity = await Scope1868973685063311361(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : ConfigPagePage1868973685063311361Vo.FromEntity(entity);
     }
-    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<YzAdminType>> OptionsScope1868973685063311361_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
+    private async Task ValidateOptionsSourceParents1868973685063311361Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ValidateActor(actor);
         if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException("关联来源页要求有效 parentId。");
         var sourceParent0 = session.Select<ConfigTable>().Where(entity => entity.Id == sourceParentKey && entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         sourceParent0 = sourceParent0.Where(entity => entity.DeleteNo == null);
         if (!await sourceParent0.AnyAsync(cancellationToken)) throw new InvalidOperationException("关联父记录不存在、已删除或不属于当前项目。");
+    }
+    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
+    private async Task<ISelect<YzAdminType>> OptionsScope1868973685063311361_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        await ValidateOptionsSourceParents1868973685063311361Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
         var query = session.Select<YzAdminType>();
         query = query.Where(entity => entity.DeleteNo == null);
@@ -150,10 +158,10 @@ public partial class ConfigPageService
         return query;
     }
     /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>
-    public async Task<IReadOnlyList<GeneratedOption>> Options1868973685063311361_2200000000000000105Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<GeneratedOption>> Options1868973685063311361_2200000000000000105Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken, string? targetParentId = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var query = await OptionsScope1868973685063311361_2200000000000000105Async(request.ParentId, null, actor, cancellationToken);
+        var query = await OptionsScope1868973685063311361_2200000000000000105Async(request.ParentId, targetParentId, actor, cancellationToken);
         var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdYzAdminType2200000000000000105/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
@@ -344,7 +352,7 @@ public partial class ConfigPageService
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
     private static ISelect<ConfigPage> Order1869016706289577986(ISelect<ConfigPage> query, PageRequest request)
     {
-        if (request.OrderBy is not null && (!string.IsNullOrWhiteSpace(request.OrderBy.Column) || !string.IsNullOrWhiteSpace(request.OrderBy.Field) || !string.IsNullOrWhiteSpace(request.OrderBy.Order)))
+        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
             var descending = request.OrderBy.Order switch { "descending" => true, "ascending" => false, _ => throw new ArgumentException("排序方向无效。") };
             return (request.OrderBy.Column ?? request.OrderBy.Field) switch
@@ -357,12 +365,15 @@ public partial class ConfigPageService
     /// <summary>分页与统计使用同一条已受限查询。</summary>
     public async Task<PageResult<ConfigPagePage1869016706289577986Vo>> Page1869016706289577986Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        var unpaged = request.PageSize == 0 && false;
+        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException("仅已配置不分页的页面允许 pageSize=0，且页码必须为1。");
 
         var query = Query1869016706289577986(request, actor);
         var total = await query.CountAsync(cancellationToken);
-        var entities = await Order1869016706289577986(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);
-        return new(entities.Select(ConfigPagePage1869016706289577986Vo.FromEntity).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        var ordered = Order1869016706289577986(query, request);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        return new(entities.Select(ConfigPagePage1869016706289577986Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count1869016706289577986Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query1869016706289577986(request, actor).CountAsync(cancellationToken);
@@ -372,10 +383,16 @@ public partial class ConfigPageService
         var entity = await Scope1869016706289577986(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : ConfigPagePage1869016706289577986Vo.FromEntity(entity);
     }
+    /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
+    private async Task ValidateOptionsSourceParents1869016706289577986Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        await Task.CompletedTask;
+    }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
     private async Task<ISelect<YzAdminType>> OptionsScope1869016706289577986_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        ValidateActor(actor);
+        await ValidateOptionsSourceParents1869016706289577986Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
         await Task.CompletedTask;
         var query = session.Select<YzAdminType>();
@@ -384,10 +401,10 @@ public partial class ConfigPageService
         return query;
     }
     /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>
-    public async Task<IReadOnlyList<GeneratedOption>> Options1869016706289577986_2200000000000000105Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<GeneratedOption>> Options1869016706289577986_2200000000000000105Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken, string? targetParentId = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var query = await OptionsScope1869016706289577986_2200000000000000105Async(request.ParentId, null, actor, cancellationToken);
+        var query = await OptionsScope1869016706289577986_2200000000000000105Async(request.ParentId, targetParentId, actor, cancellationToken);
         var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdYzAdminType2200000000000000105/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
@@ -578,7 +595,7 @@ public partial class ConfigPageService
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
     private static ISelect<ConfigPage> Order6191175925956608(ISelect<ConfigPage> query, PageRequest request)
     {
-        if (request.OrderBy is not null && (!string.IsNullOrWhiteSpace(request.OrderBy.Column) || !string.IsNullOrWhiteSpace(request.OrderBy.Field) || !string.IsNullOrWhiteSpace(request.OrderBy.Order)))
+        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
             var descending = request.OrderBy.Order switch { "descending" => true, "ascending" => false, _ => throw new ArgumentException("排序方向无效。") };
             return (request.OrderBy.Column ?? request.OrderBy.Field) switch
@@ -591,12 +608,15 @@ public partial class ConfigPageService
     /// <summary>分页与统计使用同一条已受限查询。</summary>
     public async Task<PageResult<ConfigPagePage6191175925956608Vo>> Page6191175925956608Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        var unpaged = request.PageSize == 0 && false;
+        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException("仅已配置不分页的页面允许 pageSize=0，且页码必须为1。");
 
         var query = Query6191175925956608(request, actor);
         var total = await query.CountAsync(cancellationToken);
-        var entities = await Order6191175925956608(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);
-        return new(entities.Select(ConfigPagePage6191175925956608Vo.FromEntity).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        var ordered = Order6191175925956608(query, request);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        return new(entities.Select(ConfigPagePage6191175925956608Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count6191175925956608Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query6191175925956608(request, actor).CountAsync(cancellationToken);
@@ -606,10 +626,16 @@ public partial class ConfigPageService
         var entity = await Scope6191175925956608(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : ConfigPagePage6191175925956608Vo.FromEntity(entity);
     }
+    /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
+    private async Task ValidateOptionsSourceParents6191175925956608Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        await Task.CompletedTask;
+    }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
     private async Task<ISelect<ConfigTable>> OptionsScope6191175925956608_1671100304320462849Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        ValidateActor(actor);
+        await ValidateOptionsSourceParents6191175925956608Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
         await Task.CompletedTask;
         var query = session.Select<ConfigTable>();
@@ -618,10 +644,10 @@ public partial class ConfigPageService
         return query;
     }
     /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>
-    public async Task<IReadOnlyList<GeneratedOption>> Options6191175925956608_1671100304320462849Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<GeneratedOption>> Options6191175925956608_1671100304320462849Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken, string? targetParentId = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var query = await OptionsScope6191175925956608_1671100304320462849Async(request.ParentId, null, actor, cancellationToken);
+        var query = await OptionsScope6191175925956608_1671100304320462849Async(request.ParentId, targetParentId, actor, cancellationToken);
         var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigTable1671100304320462849/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
@@ -653,7 +679,7 @@ public partial class ConfigPageService
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
     private async Task<ISelect<YzAdminType>> OptionsScope6191175925956608_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        ValidateActor(actor);
+        await ValidateOptionsSourceParents6191175925956608Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
         await Task.CompletedTask;
         var query = session.Select<YzAdminType>();
@@ -662,10 +688,10 @@ public partial class ConfigPageService
         return query;
     }
     /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>
-    public async Task<IReadOnlyList<GeneratedOption>> Options6191175925956608_2200000000000000105Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<GeneratedOption>> Options6191175925956608_2200000000000000105Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken, string? targetParentId = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var query = await OptionsScope6191175925956608_2200000000000000105Async(request.ParentId, null, actor, cancellationToken);
+        var query = await OptionsScope6191175925956608_2200000000000000105Async(request.ParentId, targetParentId, actor, cancellationToken);
         var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdYzAdminType2200000000000000105/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();

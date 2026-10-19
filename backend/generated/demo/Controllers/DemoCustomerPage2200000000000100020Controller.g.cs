@@ -13,6 +13,14 @@ public sealed class DemoCustomerPage2200000000000100020Controller(DemoCustomerSe
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("2200000000000100020", operation); return authorization.RequireActor(); }
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "notes", "amount", "isEnabled"], ["yzProjectId", "name", "notes", "amount", "isEnabled", "id"], [], "yzProjectId");
+    /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
+    private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
+    {
+        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
+        return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
+    }
     /// <summary>兼容现有页面明细路由。</summary>
     [HttpGet("detail/{id}")]
     public async Task<R<DemoCustomerPage2200000000000100020Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)
@@ -28,13 +36,31 @@ public sealed class DemoCustomerPage2200000000000100020Controller(DemoCustomerSe
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count2200000000000100020Async(request, Actor("count"), cancellationToken));
     /// <summary>新增仅接受本页生成 DTO。</summary>
     [HttpPost("add")]
-    public async Task<R<DemoCustomerPage2200000000000100020Vo>> Add([FromBody] DemoCustomerPage2200000000000100020CreateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<DemoCustomerPage2200000000000100020Vo>.Success(await service.Create2200000000000100020Async(request, parentId, Actor("create"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(DemoCustomerPage2200000000000100020CreateRequest))]
+    public async Task<R<DemoCustomerPage2200000000000100020Vo>> Add([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("create");
+        var request = LegacyRequest<DemoCustomerPage2200000000000100020CreateRequest>(entity, LegacyPageWriteOperation.Create, actor, parentId);
+        return R<DemoCustomerPage2200000000000100020Vo>.Success(await service.Create2200000000000100020Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>更新保留省略字段与显式 null 的区别。</summary>
     [HttpPost("update")]
-    public async Task<R<DemoCustomerPage2200000000000100020Vo>> Update([FromBody] DemoCustomerPage2200000000000100020UpdateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<DemoCustomerPage2200000000000100020Vo>.Success(await service.Update2200000000000100020Async(request, parentId, Actor("update"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(DemoCustomerPage2200000000000100020UpdateRequest))]
+    public async Task<R<DemoCustomerPage2200000000000100020Vo>> Update([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("update");
+        var request = LegacyRequest<DemoCustomerPage2200000000000100020UpdateRequest>(entity, LegacyPageWriteOperation.Update, actor, parentId);
+        return R<DemoCustomerPage2200000000000100020Vo>.Success(await service.Update2200000000000100020Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
     [HttpDelete]
-    public async Task<R<string>> Delete([FromBody] DemoCustomerPage2200000000000100020RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete2200000000000100020Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    [LegacyPageWriteRequest(typeof(DemoCustomerPage2200000000000100020RecordRequest))]
+    public async Task<R<string>> Delete([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("delete");
+        var request = LegacyRequest<DemoCustomerPage2200000000000100020RecordRequest>(entity, LegacyPageWriteOperation.Delete, actor, parentId);
+        return await service.Delete2200000000000100020Async(request.Id, parentId, actor, cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    }
     /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>
     [HttpPost("copy/{id}")]
     public async Task<R<DemoCustomerPage2200000000000100020Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<DemoCustomerPage2200000000000100020Vo>.Success(await service.Copy2200000000000100020Async(id, parentId, Actor("copy"), cancellationToken));
@@ -42,11 +68,12 @@ public sealed class DemoCustomerPage2200000000000100020Controller(DemoCustomerSe
     [HttpPost("importDatas2200000000000100020")]
     public async Task<R<string>> Import([FromBody] DemoCustomerPage2200000000000100020ImportRequest request, CancellationToken cancellationToken) =>
         R<string>.Success(await service.Import2200000000000100020Async(request, Actor("import"), cancellationToken));
-    /// <summary>使用当前页导出权限生成有身份约束的下载票据。</summary>
+    /// <summary>使用当前页导出权限生成原页面可使用的两分钟下载凭证。</summary>
     [HttpPost("initExport")]
     public async Task<R<string>> InitExport([FromBody] PageRequest request, [FromServices] Metarill.Core.Exports.IPageExportService exports, CancellationToken cancellationToken)
     {
         var actor = Actor("export");
-        return R<string>.Success(await exports.CreateAsync(actor, (maxRows, token) => service.Export2200000000000100020Async(request, actor, maxRows, token), cancellationToken));
+
+        return R<string>.Success(await exports.CreateDownloadAsync(actor, (maxRows, token) => service.Export2200000000000100020Async(request, actor, maxRows, token), cancellationToken));
     }
 }

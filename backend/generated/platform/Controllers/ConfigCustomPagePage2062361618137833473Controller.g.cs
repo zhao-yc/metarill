@@ -13,6 +13,14 @@ public sealed class ConfigCustomPagePage2062361618137833473Controller(ConfigCust
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("2062361618137833473", operation); return authorization.RequireActor(); }
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "pagePath", "navigationStyle", "enablePullDownRefresh", "isShowLeft", "isShowTop", "sortNo", "yzAdminTypeId"], ["name", "pagePath", "navigationStyle", "enablePullDownRefresh", "isShowLeft", "isShowTop", "insertTime", "sortNo", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzAdminTypeId", "id"], [], "yzProjectId");
+    /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
+    private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
+    {
+        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
+        return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
+    }
     /// <summary>兼容现有页面明细路由。</summary>
     [HttpGet("detail/{id}")]
     public async Task<R<ConfigCustomPagePage2062361618137833473Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)
@@ -28,16 +36,34 @@ public sealed class ConfigCustomPagePage2062361618137833473Controller(ConfigCust
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count2062361618137833473Async(request, Actor("count"), cancellationToken));
     /// <summary>新增仅接受本页生成 DTO。</summary>
     [HttpPost("add")]
-    public async Task<R<ConfigCustomPagePage2062361618137833473Vo>> Add([FromBody] ConfigCustomPagePage2062361618137833473CreateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<ConfigCustomPagePage2062361618137833473Vo>.Success(await service.Create2062361618137833473Async(request, parentId, Actor("create"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(ConfigCustomPagePage2062361618137833473CreateRequest))]
+    public async Task<R<ConfigCustomPagePage2062361618137833473Vo>> Add([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("create");
+        var request = LegacyRequest<ConfigCustomPagePage2062361618137833473CreateRequest>(entity, LegacyPageWriteOperation.Create, actor, parentId);
+        return R<ConfigCustomPagePage2062361618137833473Vo>.Success(await service.Create2062361618137833473Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>更新保留省略字段与显式 null 的区别。</summary>
     [HttpPost("update")]
-    public async Task<R<ConfigCustomPagePage2062361618137833473Vo>> Update([FromBody] ConfigCustomPagePage2062361618137833473UpdateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<ConfigCustomPagePage2062361618137833473Vo>.Success(await service.Update2062361618137833473Async(request, parentId, Actor("update"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(ConfigCustomPagePage2062361618137833473UpdateRequest))]
+    public async Task<R<ConfigCustomPagePage2062361618137833473Vo>> Update([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("update");
+        var request = LegacyRequest<ConfigCustomPagePage2062361618137833473UpdateRequest>(entity, LegacyPageWriteOperation.Update, actor, parentId);
+        return R<ConfigCustomPagePage2062361618137833473Vo>.Success(await service.Update2062361618137833473Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
     [HttpDelete]
-    public async Task<R<string>> Delete([FromBody] ConfigCustomPagePage2062361618137833473RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete2062361618137833473Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    [LegacyPageWriteRequest(typeof(ConfigCustomPagePage2062361618137833473RecordRequest))]
+    public async Task<R<string>> Delete([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("delete");
+        var request = LegacyRequest<ConfigCustomPagePage2062361618137833473RecordRequest>(entity, LegacyPageWriteOperation.Delete, actor, parentId);
+        return await service.Delete2062361618137833473Async(request.Id, parentId, actor, cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    }
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdYzAdminType2200000000000101010")]
-    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzAdminType2200000000000101010([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("1696799309006348290", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2062361618137833473_2200000000000101010Async(request.ToPageRequest(), actor, cancellationToken)); }
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzAdminType2200000000000101010([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RelationOptionsLegacyRequest? request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("1696799309006348290", "list"); request ??= new(); var selected = request.ToSelectedRequest(); return R<IReadOnlyList<GeneratedOption>>.Success(selected is null ? await service.Options2062361618137833473_2200000000000101010Async(request.ToPageRequest(), actor, cancellationToken, request.TargetParentId) : await service.OptionsSelected2062361618137833473_2200000000000101010Async(selected, actor, cancellationToken)); }
     /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>
     [HttpPost("findNameIdYzAdminType2200000000000101010/page")]
     public async Task<R<PageResult<GeneratedOption>>> findNameIdYzAdminType2200000000000101010Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("1696799309006348290", "list"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage2062361618137833473_2200000000000101010Async(request, actor, cancellationToken)); }

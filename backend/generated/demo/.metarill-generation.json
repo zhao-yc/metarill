@@ -2,11 +2,11 @@
   "version": 1,
   "projectId": "2200000000000100000",
   "rootNamespace": "Metarill.Demo",
-  "metadataSha256": "f0afabf1003fb32005beaf694a429afcf846c8026a87c1389e5863c2ece81663",
+  "metadataSha256": "58ed1e8a8db53a9cbf9fcbd207bc64621a2340083383416e7b047e47e8d97add",
   "files": [
     {
       "path": "Controllers/DemoCustomerPage2200000000000100020Controller.g.cs",
-      "sha256": "377693a2c5562a6e0cf65eec5223d4f24ea596ac24f76818621aa35351737f53"
+      "sha256": "0ad9f930fc1f1bbb6793a16ea415cb5b095b37823b772531c87b51fa523b472a"
     },
     {
       "path": "DTOs/DemoCustomerPage2200000000000100020Requests.g.cs",
@@ -30,7 +30,7 @@
     },
     {
       "path": "Services/DemoCustomerService.g.cs",
-      "sha256": "71a62849ec7b73c807e4c743533ea9140f43f980039613e0e2d05ad0e03eb6f9"
+      "sha256": "c2c241c88ea59315cd11180e8d6ca70549b8f72dd00abc558ea95f650c1b6b19"
     },
     {
       "path": "VOs/DemoCustomerPage2200000000000100020Vo.g.cs",
@@ -46,15 +46,15 @@
     },
     {
       "path": "frontend/pages.generated.json",
-      "sha256": "82b08d0b149a9819c5ead7faa63e67457ecf9ea6f2afc814f0d53ab8b507938a"
+      "sha256": "e4e714b8ce9f480d34daed0c1b61a91d5a43e3a28426d3e9803c9d63bbf272b7"
     },
     {
       "path": "frontend/pages/yzp/demo_customer-detail-2200000000000100020.vue",
-      "sha256": "4cb9c43fbb798c5720733e0f0dd3a55d79951ec59441acfc0e7916cc0452afaf"
+      "sha256": "bdb3175a756d7fa1ba4ba49cdb98aae8247d53d5108c95e0b4037f2b14f1243c"
     },
     {
       "path": "frontend/pages/yzp/demo_customer-list-2200000000000100020.vue",
-      "sha256": "e00229e1606619407ded3d3f1d2efb6c550ddeb3388a7954051b7e3deb0fd647"
+      "sha256": "e79fcd227e9d073db7d28057a86fb15a0beccde8611040d13f3d020b1eaf693e"
     },
     {
       "path": "generation-capabilities.json",

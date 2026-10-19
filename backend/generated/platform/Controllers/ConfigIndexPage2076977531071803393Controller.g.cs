@@ -13,6 +13,14 @@ public sealed class ConfigIndexPage2076977531071803393Controller(ConfigIndexServ
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("2076977531071803393", operation); return authorization.RequireActor(); }
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["configTableId", "indexName", "indexType", "isEnabled", "configTableName", "importNo", "isUnique"], ["configTableId", "indexName", "indexType", "isEnabled", "configTableName", "yzProjectName", "importNo", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertManagerRealName", "updateManagerRealName", "insertUserName", "updateUserName", "isUnique", "id", "indexTypeShow"], [], "yzProjectId");
+    /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
+    private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
+    {
+        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
+        return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
+    }
     /// <summary>兼容现有页面明细路由。</summary>
     [HttpGet("detail/{id}")]
     public async Task<R<ConfigIndexPage2076977531071803393Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)
@@ -28,7 +36,7 @@ public sealed class ConfigIndexPage2076977531071803393Controller(ConfigIndexServ
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count2076977531071803393Async(request, Actor("count"), cancellationToken));
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdConfigTable2076977821456142336")]
-    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigTable2076977821456142336([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2076977531071803393_2076977821456142336Async(request.ToPageRequest(), actor, cancellationToken)); }
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigTable2076977821456142336([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RelationOptionsLegacyRequest? request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); request ??= new(); var selected = request.ToSelectedRequest(); return R<IReadOnlyList<GeneratedOption>>.Success(selected is null ? await service.Options2076977531071803393_2076977821456142336Async(request.ToPageRequest(), actor, cancellationToken, request.TargetParentId) : await service.OptionsSelected2076977531071803393_2076977821456142336Async(selected, actor, cancellationToken)); }
     /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>
     [HttpPost("findNameIdConfigTable2076977821456142336/page")]
     public async Task<R<PageResult<GeneratedOption>>> findNameIdConfigTable2076977821456142336Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage2076977531071803393_2076977821456142336Async(request, actor, cancellationToken)); }

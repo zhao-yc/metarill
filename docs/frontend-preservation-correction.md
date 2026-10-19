@@ -68,3 +68,10 @@
 原List筛选继续使用zxz和findNameId数组入口。来源父沿原parent_id；独立目标父只取当前页唯一可读且可筛选的已声明外键，仍由后端验证双方真实父/项目/软删范围。空目标父、非法/溢出ID不枚举候选。目标父改变同步清候选并重新加载，保留筛选原选中值；请求组合固定父快照、来源父和身份/卸载隔离，旧回执不能恢复旧候选。缺映射仍由统一能力缺口约束，不猜关系。
 
 原列表/双父Vue/日期纯值定向27/27、公共前端238/238通过，均0跳过；本批没有DDL或浏览器验收。完整生成冻结bf1cf83曾执行185项，184通过、1项仅在Schema.Apply因测试共享隔离库争唯一锁失败、0跳过，TRX为.local/original-ui-integrated-generation-v1.trx。元数据工作台全69/69、0跳过。结构写用例现统一同一串行collection，不修改产品锁/超时、不加测试重试；新slice整合后仍须完整复验，不能把该185批次写成全绿。
+
+
+## 平台源码构建与正式再生成
+
+平台前端冻结83dfc79文件快照经HBuilderX 5.26真实执行 `D:/HBuilderX/cli.exe publish web --project E:/git/metarill/frontend/metarill_uni_admin --webTitle Metarill --webHosting false`，exit0，无上传；产物155文件/4,799,789字节，602处本地资源/模块引用无缺失，原logo/六tab/新头像8图与源摘要一致。484个受管前端源前后0变化，用户AppID保持。公共前端248/248、0跳过。证据为.local/platform-web-20261020-83dfc79-6df49e72/验收记录.md及web-build-receipt.json；构建期间后端HEAD推进c82537e，但前端快照完全未变，不据此宣称新增后端逻辑或真实浏览器已验收。
+
+正式CLI从已提交元数据再生成backend/generated/platform和demo，分别175/14个归属输出，均0个新手写文件；生成前后24个手写partial摘要一致，合计189个归属输出已记录首轮摘要。平台元数据摘要b967df4df00b40479a51597b762b424429aaca45790e9c4d6eec36f50162e85b，demo为58ed1e8a8db53a9cbf9fcbd207bc64621a2340083383416e7b047e47e8d97add。实际包含这批产物的API Release构建0警告0错误。平台仍有9项控件/关系后端缺口，保留原UI不代表这些能力已交付；下一切片整合后还需最终重复生成与完整验收。

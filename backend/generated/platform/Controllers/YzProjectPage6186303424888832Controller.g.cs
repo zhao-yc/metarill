@@ -13,6 +13,14 @@ public sealed class YzProjectPage6186303424888832Controller(YzProjectService ser
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("6186303424888832", operation); return authorization.RequireActor(); }
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "mysqlConnStr", "shortName", "dbName", "contextRoot", "x5AdminName", "eclipseBaseName", "yzYzpVersionId", "dbType", "isHide", "dbUrl", "dbUsername", "primaryColor", "isSmall"], ["name", "mysqlConnStr", "shortName", "dbName", "contextRoot", "x5AdminName", "eclipseBaseName", "yzYzpVersionId", "dbType", "isHide", "dbUrl", "dbUsername", "primaryColor", "isSmall", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzProjectId", "id", "dbTypeShow"], [], "yzProjectId");
+    /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
+    private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
+    {
+        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
+        return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
+    }
     /// <summary>兼容现有页面明细路由。</summary>
     [HttpGet("detail/{id}")]
     public async Task<R<YzProjectPage6186303424888832Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)
@@ -28,13 +36,31 @@ public sealed class YzProjectPage6186303424888832Controller(YzProjectService ser
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count6186303424888832Async(request, Actor("count"), cancellationToken));
     /// <summary>新增仅接受本页生成 DTO。</summary>
     [HttpPost("add")]
-    public async Task<R<YzProjectPage6186303424888832Vo>> Add([FromBody] YzProjectPage6186303424888832CreateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<YzProjectPage6186303424888832Vo>.Success(await service.Create6186303424888832Async(request, parentId, Actor("create"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(YzProjectPage6186303424888832CreateRequest))]
+    public async Task<R<YzProjectPage6186303424888832Vo>> Add([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("create");
+        var request = LegacyRequest<YzProjectPage6186303424888832CreateRequest>(entity, LegacyPageWriteOperation.Create, actor, parentId);
+        return R<YzProjectPage6186303424888832Vo>.Success(await service.Create6186303424888832Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>更新保留省略字段与显式 null 的区别。</summary>
     [HttpPost("update")]
-    public async Task<R<YzProjectPage6186303424888832Vo>> Update([FromBody] YzProjectPage6186303424888832UpdateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<YzProjectPage6186303424888832Vo>.Success(await service.Update6186303424888832Async(request, parentId, Actor("update"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(YzProjectPage6186303424888832UpdateRequest))]
+    public async Task<R<YzProjectPage6186303424888832Vo>> Update([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("update");
+        var request = LegacyRequest<YzProjectPage6186303424888832UpdateRequest>(entity, LegacyPageWriteOperation.Update, actor, parentId);
+        return R<YzProjectPage6186303424888832Vo>.Success(await service.Update6186303424888832Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
     [HttpDelete]
-    public async Task<R<string>> Delete([FromBody] YzProjectPage6186303424888832RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete6186303424888832Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    [LegacyPageWriteRequest(typeof(YzProjectPage6186303424888832RecordRequest))]
+    public async Task<R<string>> Delete([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("delete");
+        var request = LegacyRequest<YzProjectPage6186303424888832RecordRequest>(entity, LegacyPageWriteOperation.Delete, actor, parentId);
+        return await service.Delete6186303424888832Async(request.Id, parentId, actor, cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    }
     /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>
     [HttpPost("copy/{id}")]
     public async Task<R<YzProjectPage6186303424888832Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<YzProjectPage6186303424888832Vo>.Success(await service.Copy6186303424888832Async(id, parentId, Actor("copy"), cancellationToken));

@@ -97,7 +97,7 @@ public partial class YzRolePermissionService
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
     private static ISelect<YzRolePermission> Order2063264600601714690(ISelect<YzRolePermission> query, PageRequest request)
     {
-        if (request.OrderBy is not null && (!string.IsNullOrWhiteSpace(request.OrderBy.Column) || !string.IsNullOrWhiteSpace(request.OrderBy.Field) || !string.IsNullOrWhiteSpace(request.OrderBy.Order)))
+        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
             var descending = request.OrderBy.Order switch { "descending" => true, "ascending" => false, _ => throw new ArgumentException("排序方向无效。") };
             return (request.OrderBy.Column ?? request.OrderBy.Field) switch
@@ -110,12 +110,15 @@ public partial class YzRolePermissionService
     /// <summary>分页与统计使用同一条已受限查询。</summary>
     public async Task<PageResult<YzRolePermissionPage2063264600601714690Vo>> Page2063264600601714690Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        if (request.PageNo < 1 || request.PageSize < 1 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException("分页参数无效，每页最多 1000 条。");
+        var unpaged = request.PageSize == 0 && false;
+        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException("仅已配置不分页的页面允许 pageSize=0，且页码必须为1。");
 
         var query = Query2063264600601714690(request, actor);
         var total = await query.CountAsync(cancellationToken);
-        var entities = await Order2063264600601714690(query, request).Page(request.PageNo, request.PageSize).ToListAsync(cancellationToken);
-        return new(entities.Select(YzRolePermissionPage2063264600601714690Vo.FromEntity).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        var ordered = Order2063264600601714690(query, request);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        return new(entities.Select(YzRolePermissionPage2063264600601714690Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count2063264600601714690Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query2063264600601714690(request, actor).CountAsync(cancellationToken);

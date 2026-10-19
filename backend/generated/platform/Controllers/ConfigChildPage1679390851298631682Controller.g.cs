@@ -13,6 +13,14 @@ public sealed class ConfigChildPage1679390851298631682Controller(ConfigChildServ
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("1679390851298631682", operation); return authorization.RequireActor(); }
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["parentConfigPageId", "childConfigPageId", "sortNo", "childPageOpenType", "parentConfigPageName", "childConfigPageName", "importNo"], ["parentConfigPageId", "childConfigPageId", "sortNo", "childPageOpenType", "parentConfigPageName", "childConfigPageName", "yzProjectName", "importNo", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertManagerRealName", "updateManagerRealName", "insertUserName", "updateUserName", "id", "childPageOpenTypeShow"], [], "yzProjectId");
+    /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
+    private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
+    {
+        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
+        return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
+    }
     /// <summary>兼容现有页面明细路由。</summary>
     [HttpGet("detail/{id}")]
     public async Task<R<ConfigChildPage1679390851298631682Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)
@@ -28,11 +36,29 @@ public sealed class ConfigChildPage1679390851298631682Controller(ConfigChildServ
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count1679390851298631682Async(request, Actor("count"), cancellationToken));
     /// <summary>新增仅接受本页生成 DTO。</summary>
     [HttpPost("add")]
-    public async Task<R<ConfigChildPage1679390851298631682Vo>> Add([FromBody] ConfigChildPage1679390851298631682CreateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<ConfigChildPage1679390851298631682Vo>.Success(await service.Create1679390851298631682Async(request, parentId, Actor("create"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(ConfigChildPage1679390851298631682CreateRequest))]
+    public async Task<R<ConfigChildPage1679390851298631682Vo>> Add([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("create");
+        var request = LegacyRequest<ConfigChildPage1679390851298631682CreateRequest>(entity, LegacyPageWriteOperation.Create, actor, parentId);
+        return R<ConfigChildPage1679390851298631682Vo>.Success(await service.Create1679390851298631682Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>更新保留省略字段与显式 null 的区别。</summary>
     [HttpPost("update")]
-    public async Task<R<ConfigChildPage1679390851298631682Vo>> Update([FromBody] ConfigChildPage1679390851298631682UpdateRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<ConfigChildPage1679390851298631682Vo>.Success(await service.Update1679390851298631682Async(request, parentId, Actor("update"), cancellationToken));
+    [LegacyPageWriteRequest(typeof(ConfigChildPage1679390851298631682UpdateRequest))]
+    public async Task<R<ConfigChildPage1679390851298631682Vo>> Update([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("update");
+        var request = LegacyRequest<ConfigChildPage1679390851298631682UpdateRequest>(entity, LegacyPageWriteOperation.Update, actor, parentId);
+        return R<ConfigChildPage1679390851298631682Vo>.Success(await service.Update1679390851298631682Async(request, parentId, actor, cancellationToken));
+    }
     /// <summary>兼容原 DELETE 请求体及逻辑删除流程。</summary>
     [HttpDelete]
-    public async Task<R<string>> Delete([FromBody] ConfigChildPage1679390851298631682RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete1679390851298631682Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    [LegacyPageWriteRequest(typeof(ConfigChildPage1679390851298631682RecordRequest))]
+    public async Task<R<string>> Delete([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
+    {
+        var actor = Actor("delete");
+        var request = LegacyRequest<ConfigChildPage1679390851298631682RecordRequest>(entity, LegacyPageWriteOperation.Delete, actor, parentId);
+        return await service.Delete1679390851298631682Async(request.Id, parentId, actor, cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    }
 }

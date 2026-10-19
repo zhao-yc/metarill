@@ -1,192 +1,648 @@
-<!-- 由 Metarill 元数据生成；未编辑字段不进入更新请求。 -->
 <template>
-  <view class="yzp-page detail-page uni-padding-wrap" :class="{ ispc: $deviceInfo?.is_pc, ismobile: !$deviceInfo?.is_pc }">
-    <uni-forms ref="form" :modelValue="entity">
-      <uni-forms-item label="名称" name="name"><uni-easyinput :modelValue="entity.name" :disabled="readOnlyCondition" @update:modelValue="change('name', $event)" /></uni-forms-item>
-      <uni-forms-item label="表名" name="configTableTableName"><uni-easyinput :modelValue="entity.configTableTableName" :disabled="readOnlyCondition" @update:modelValue="change('configTableTableName', $event)" /></uni-forms-item>
-      <uni-forms-item label="order_by" name="orderBy"><uni-easyinput :modelValue="entity.orderBy" :disabled="readOnlyCondition" @update:modelValue="change('orderBy', $event)" /></uni-forms-item>
-      <uni-forms-item label="Where" name="whereSql"><uni-easyinput type="textarea" :modelValue="entity.whereSql" :disabled="readOnlyCondition" @update:modelValue="change('whereSql', $event)" /></uni-forms-item>
-      <uni-forms-item label="配置表" name="configTableId"><yzp-relation-select :modelValue="entity.configTableId" endpoint="/admin/auto/config_page/6191175925956608/findNameIdConfigTable1671100304320462849" :parent-id="parentId" :require-parent="false" :require-target-parent="false" :same-parent="false" :readonly="readOnlyCondition" @update:modelValue="change('configTableId', $event)" /></uni-forms-item>
-      <uni-forms-item label="精确数据管理匹配字段" name="exactDataManageMatchField"><uni-easyinput :modelValue="entity.exactDataManageMatchField" :disabled="readOnlyCondition" @update:modelValue="change('exactDataManageMatchField', $event)" /></uni-forms-item>
-      <uni-forms-item label="page_size" name="pageSize"><uni-easyinput :modelValue="entity.pageSize" :disabled="readOnlyCondition" @update:modelValue="change('pageSize', $event)" /></uni-forms-item>
-      <uni-forms-item label="is_edit" name="isEdit"><uni-data-select :modelValue="entity.isEdit" :disabled="readOnlyCondition" @update:modelValue="change('isEdit', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_new" name="isNew"><uni-data-select :modelValue="entity.isNew" :disabled="readOnlyCondition" @update:modelValue="change('isNew', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_update" name="isUpdate"><uni-data-select :modelValue="entity.isUpdate" :disabled="readOnlyCondition" @update:modelValue="change('isUpdate', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_delete" name="isDelete"><uni-data-select :modelValue="entity.isDelete" :disabled="readOnlyCondition" @update:modelValue="change('isDelete', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_search" name="isSearch"><uni-data-select :modelValue="entity.isSearch" :disabled="readOnlyCondition" @update:modelValue="change('isSearch', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_sum" name="isSum"><uni-data-select :modelValue="entity.isSum" :disabled="readOnlyCondition" @update:modelValue="change('isSum', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_batch_delete" name="isBatchDelete"><uni-data-select :modelValue="entity.isBatchDelete" :disabled="readOnlyCondition" @update:modelValue="change('isBatchDelete', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_import" name="isImport"><uni-data-select :modelValue="entity.isImport" :disabled="readOnlyCondition" @update:modelValue="change('isImport', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_export" name="isExport"><uni-data-select :modelValue="entity.isExport" :disabled="readOnlyCondition" @update:modelValue="change('isExport', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_multi_select" name="isMultiSelect"><uni-data-select :modelValue="entity.isMultiSelect" :disabled="readOnlyCondition" @update:modelValue="change('isMultiSelect', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_export_edit" name="isExportEdit"><uni-data-select :modelValue="entity.isExportEdit" :disabled="readOnlyCondition" @update:modelValue="change('isExportEdit', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="export_method" name="exportMethod"><uni-easyinput :modelValue="entity.exportMethod" :disabled="readOnlyCondition" @update:modelValue="change('exportMethod', $event)" /></uni-forms-item>
-      <uni-forms-item label="复制方法" name="isCopy"><uni-data-select :modelValue="entity.isCopy" :disabled="readOnlyCondition" @update:modelValue="change('isCopy', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="read_only_condition" name="readOnlyCondition"><uni-easyinput :modelValue="entity.readOnlyCondition" :disabled="readOnlyCondition" @update:modelValue="change('readOnlyCondition', $event)" /></uni-forms-item>
-      <uni-forms-item label="import_method" name="importMethod"><uni-easyinput :modelValue="entity.importMethod" :disabled="readOnlyCondition" @update:modelValue="change('importMethod', $event)" /></uni-forms-item>
-      <uni-forms-item label="button_visible" name="buttonVisible"><uni-easyinput :modelValue="entity.buttonVisible" :disabled="readOnlyCondition" @update:modelValue="change('buttonVisible', $event)" /></uni-forms-item>
-      <uni-forms-item label="is_after_add" name="isAfterAdd"><uni-data-select :modelValue="entity.isAfterAdd" :disabled="readOnlyCondition" @update:modelValue="change('isAfterAdd', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_after_save" name="isAfterSave"><uni-data-select :modelValue="entity.isAfterSave" :disabled="readOnlyCondition" @update:modelValue="change('isAfterSave', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_before_save" name="isBeforeSave"><uni-data-select :modelValue="entity.isBeforeSave" :disabled="readOnlyCondition" @update:modelValue="change('isBeforeSave', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="子模块位置" name="childPlace"><uni-data-select :modelValue="entity.childPlace" :disabled="readOnlyCondition" @update:modelValue="change('childPlace', $event)" :localdata="[{&quot;text&quot;:&quot;\u4E00\u62D6N&quot;,&quot;value&quot;:&quot;OneWithMany&quot;},{&quot;text&quot;:&quot;\u6807\u7B7E\u663E\u793A&quot;,&quot;value&quot;:&quot;Tab&quot;},{&quot;text&quot;:&quot;\u65B0\u9875\u9762\u6253\u5F00&quot;,&quot;value&quot;:&quot;NewPage&quot;}]" /></uni-forms-item>
-      <uni-forms-item label="is_after_delete" name="isAfterDelete"><uni-data-select :modelValue="entity.isAfterDelete" :disabled="readOnlyCondition" @update:modelValue="change('isAfterDelete', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="is_repeat_pwd" name="isRepeatPwd"><uni-data-select :modelValue="entity.isRepeatPwd" :disabled="readOnlyCondition" @update:modelValue="change('isRepeatPwd', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="save_auto_close" name="saveAutoClose"><uni-easyinput :modelValue="entity.saveAutoClose" :disabled="readOnlyCondition" @update:modelValue="change('saveAutoClose', $event)" /></uni-forms-item>
-      <uni-forms-item label="child_style" name="childStyle"><uni-easyinput :modelValue="entity.childStyle" :disabled="readOnlyCondition" @update:modelValue="change('childStyle', $event)" /></uni-forms-item>
-      <uni-forms-item label="is_before_delete" name="isBeforeDelete"><uni-data-select :modelValue="entity.isBeforeDelete" :disabled="readOnlyCondition" @update:modelValue="change('isBeforeDelete', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="config_table_name" name="configTableName"><uni-easyinput :modelValue="entity.configTableName" :disabled="readOnlyCondition" @update:modelValue="change('configTableName', $event)" /></uni-forms-item>
-      <uni-forms-item label="自动隐藏" name="isAutoHide"><uni-data-select :modelValue="entity.isAutoHide" :disabled="readOnlyCondition" @update:modelValue="change('isAutoHide', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="列表页编辑" name="isListEdit"><uni-data-select :modelValue="entity.isListEdit" :disabled="readOnlyCondition" @update:modelValue="change('isListEdit', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="parent_config_table_id" name="parentConfigTableId"><uni-easyinput :modelValue="entity.parentConfigTableId" :disabled="readOnlyCondition" @update:modelValue="change('parentConfigTableId', $event)" /></uni-forms-item>
-      <uni-forms-item label="parent_config_table_name" name="parentConfigTableName"><uni-easyinput :modelValue="entity.parentConfigTableName" :disabled="readOnlyCondition" @update:modelValue="change('parentConfigTableName', $event)" /></uni-forms-item>
-      <uni-forms-item label="页面类型" name="type"><uni-data-select :modelValue="entity.type" :disabled="readOnlyCondition" @update:modelValue="change('type', $event)" :localdata="[{&quot;text&quot;:&quot;\u9ED8\u8BA4&quot;,&quot;value&quot;:0},{&quot;text&quot;:&quot;\u9009\u62E9\u9875&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;\u591A\u9009\u9875&quot;,&quot;value&quot;:2}]" /></uni-forms-item>
-      <uni-forms-item label="列表页查询前" name="isBeforeQuery"><uni-data-select :modelValue="entity.isBeforeQuery" :disabled="readOnlyCondition" @update:modelValue="change('isBeforeQuery', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="parent_config_page_id" name="parentConfigPageId"><uni-easyinput :modelValue="entity.parentConfigPageId" :disabled="readOnlyCondition" @update:modelValue="change('parentConfigPageId', $event)" /></uni-forms-item>
-      <uni-forms-item label="详情页查询前" name="isBeforeGet"><uni-data-select :modelValue="entity.isBeforeGet" :disabled="readOnlyCondition" @update:modelValue="change('isBeforeGet', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="parent_config_page_name" name="parentConfigPageName"><uni-easyinput :modelValue="entity.parentConfigPageName" :disabled="readOnlyCondition" @update:modelValue="change('parentConfigPageName', $event)" /></uni-forms-item>
-      <uni-forms-item label="不生成详情页" name="isNotGenerateDetailPage"><uni-data-select :modelValue="entity.isNotGenerateDetailPage" :disabled="readOnlyCondition" @update:modelValue="change('isNotGenerateDetailPage', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="yz_project_name" name="yzProjectName"><text>{{ displayValue(entity, 'yzProjectName') }}</text></uni-forms-item>
-      <uni-forms-item label="import_no" name="importNo"><uni-easyinput :modelValue="entity.importNo" :disabled="readOnlyCondition" @update:modelValue="change('importNo', $event)" /></uni-forms-item>
-      <uni-forms-item label="移动端列表页样式" name="mobileListPageStyleType"><uni-data-select :modelValue="entity.mobileListPageStyleType" :disabled="readOnlyCondition" @update:modelValue="change('mobileListPageStyleType', $event)" :localdata="[{&quot;text&quot;:&quot;\u4F20\u7EDF\u6837\u5F0F&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;Grid\u6837\u5F0F&quot;,&quot;value&quot;:2},{&quot;text&quot;:&quot;Grid\u5E26\u5934\u50CF&quot;,&quot;value&quot;:3}]" /></uni-forms-item>
-      <uni-forms-item label="移动端详情页保存后自动返回列表页" name="isAutoBackOnMobileSave"><uni-data-select :modelValue="entity.isAutoBackOnMobileSave" :disabled="readOnlyCondition" @update:modelValue="change('isAutoBackOnMobileSave', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="PC详情页每行列数" name="cols"><uni-easyinput :modelValue="entity.cols" :disabled="readOnlyCondition" @update:modelValue="change('cols', $event)" /></uni-forms-item>
-      <uni-forms-item label="仅更新编辑页字段" name="isUpdateEditColumnsOnly"><uni-data-select :modelValue="entity.isUpdateEditColumnsOnly" :disabled="readOnlyCondition" @update:modelValue="change('isUpdateEditColumnsOnly', $event)" :localdata="[{&quot;text&quot;:&quot;是&quot;,&quot;value&quot;:1},{&quot;text&quot;:&quot;否&quot;,&quot;value&quot;:0}]" /></uni-forms-item>
-      <uni-forms-item label="详情页按钮位置" name="detailPageButtonsPosition"><uni-data-select :modelValue="entity.detailPageButtonsPosition" :disabled="readOnlyCondition" @update:modelValue="change('detailPageButtonsPosition', $event)" :localdata="[{&quot;text&quot;:&quot;\u56FA\u5B9A\u5E95\u90E8&quot;,&quot;value&quot;:0},{&quot;text&quot;:&quot;\u5B50\u8868\u4E0A\u9762&quot;,&quot;value&quot;:1}]" /></uni-forms-item>
-      <uni-forms-item label="所属后台" name="yzAdminTypeId"><yzp-relation-select :modelValue="entity.yzAdminTypeId" endpoint="/admin/auto/config_page/6191175925956608/findNameIdYzAdminType2200000000000000105" :parent-id="parentId" :require-parent="false" :require-target-parent="false" :same-parent="false" :readonly="readOnlyCondition" @update:modelValue="change('yzAdminTypeId', $event)" /></uni-forms-item>
-    </uni-forms>
-    <button v-if="!readOnlyCondition && (id ? canSave : canCreate)" :disabled="saving" @click="save">保存</button>
-    <button v-if="canCopyRecord" :disabled="saving" @click="copy">复制</button>
-    <button v-if="canDeleteRecord" :disabled="saving" @click="remove">删除</button>
-    <view v-if="childrenReady" class="yzp-children">
-      <view><ChildList1676947774218887170 :key="id + ':1676947774218887170'" ref="child_1676947774218887170" :parent_id="id" parent_page_sn="6191175925956608" :is_son_page="true" :child_page_open_type="1" :parentReadOnlyCondition="readOnlyCondition" /></view>
-      <view><ChildList1678023451326115842 :key="id + ':1678023451326115842'" ref="child_1678023451326115842" :parent_id="id" parent_page_sn="6191175925956608" :is_son_page="true" :child_page_open_type="1" :parentReadOnlyCondition="readOnlyCondition" /></view>
-    </view>
-    <view v-else class="uni-padding-wrap"><text>为避免数据丢失，请先保存当前页面的数据，再维护子表。</text></view>
+  <view class='detail-page' :class="{ ispc: $deviceInfo.is_pc, ismobile: !$deviceInfo.is_pc }" :style="$deviceInfo.is_pc ? {'--detail-grid-columns': detailGridColumns} : null">
+    <view v-if="!is_props"><uni-nav-bar left-icon="left" @clickLeft="$yzp.back" fixed statusBar v-if='!readOnlyCondition' :border="false" title="配置页面" @clickRight="showCustomerButtons" :rightIcon="hasVisibleCustomerButtons ? 'more-filled' : ''"></uni-nav-bar><uni-nav-bar left-icon="left" @clickLeft="$yzp.back" fixed statusBar v-else :border="false" title="配置页面"></uni-nav-bar></view>
+    <view class="base-info" type='line'>
+      <view class='section-view'>
+        <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
+          <uni-forms-item label='名称' name='name' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!nameReadOnly' v-model='entity.name' maxlength='50'   /><text v-if='nameReadOnly'>{{entity.name}}</text>
+</uni-forms-item>
+<uni-forms-item label='表名' name='configTableTableName'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!configTableTableNameReadOnly' v-model='entity.configTableTableName' maxlength='50'   /><text v-if='configTableTableNameReadOnly'>{{entity.configTableTableName}}</text>
+</uni-forms-item>
+<uni-forms-item label='order_by' name='orderBy'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!orderByReadOnly' v-model='entity.orderBy' maxlength='500'   /><text v-if='orderByReadOnly'>{{entity.orderBy}}</text>
+</uni-forms-item>
+<uni-forms-item label='Where' name='whereSql'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" :disabled='whereSqlReadOnly' type='textarea' maxlength='-1' v-model='entity.whereSql' />
+</uni-forms-item>
+<uni-forms-item label='配置表' name='configTableId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='configTableIdReadOnly'>{{readonlyDisplayText(entity.configTableName)}}</text><template v-if='!configTableIdReadOnly'><zxz-uni-data-select v-model='entity.configTableId' :localdata='config_table_list' filterable :disabled='configTableIdReadOnly' dataKey='name' dataValue='id' @change='configTableIdDetailChange' /></template>
+</uni-forms-item>
+<uni-forms-item label='精确数据管理匹配字段' name='exactDataManageMatchField'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!exactDataManageMatchFieldReadOnly' v-model='entity.exactDataManageMatchField' maxlength='50'   /><text v-if='exactDataManageMatchFieldReadOnly'>{{entity.exactDataManageMatchField}}</text>
+<view class='input-tips'>用于精确数据管理时，当前视图参与匹配的数据字段名</view>
+</uni-forms-item>
+<uni-forms-item label='page_size' name='pageSize'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!pageSizeReadOnly' v-model='entity.pageSize'  type='number'  /><text v-if='pageSizeReadOnly'>{{entity.pageSize}}</text>
+</uni-forms-item>
+<uni-forms-item label='is_edit' name='isEdit'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isEditReadOnly'>{{(($checkboxRange || [])[entity.isEdit==null?0:entity.isEdit] || {}).text || ''}}</text><template v-if='!isEditReadOnly'><uni-data-checkbox :disabled='isEditReadOnly' v-model='entity.isEdit' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_new' name='isNew' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isNewReadOnly'>{{(($checkboxRange || [])[entity.isNew==null?0:entity.isNew] || {}).text || ''}}</text><template v-if='!isNewReadOnly'><uni-data-checkbox :disabled='isNewReadOnly' v-model='entity.isNew' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_update' name='isUpdate' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isUpdateReadOnly'>{{(($checkboxRange || [])[entity.isUpdate==null?0:entity.isUpdate] || {}).text || ''}}</text><template v-if='!isUpdateReadOnly'><uni-data-checkbox :disabled='isUpdateReadOnly' v-model='entity.isUpdate' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_delete' name='isDelete'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isDeleteReadOnly'>{{(($checkboxRange || [])[entity.isDelete==null?0:entity.isDelete] || {}).text || ''}}</text><template v-if='!isDeleteReadOnly'><uni-data-checkbox :disabled='isDeleteReadOnly' v-model='entity.isDelete' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_search' name='isSearch'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isSearchReadOnly'>{{(($checkboxRange || [])[entity.isSearch==null?0:entity.isSearch] || {}).text || ''}}</text><template v-if='!isSearchReadOnly'><uni-data-checkbox :disabled='isSearchReadOnly' v-model='entity.isSearch' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_sum' name='isSum'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isSumReadOnly'>{{(($checkboxRange || [])[entity.isSum==null?0:entity.isSum] || {}).text || ''}}</text><template v-if='!isSumReadOnly'><uni-data-checkbox :disabled='isSumReadOnly' v-model='entity.isSum' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_batch_delete' name='isBatchDelete'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isBatchDeleteReadOnly'>{{(($checkboxRange || [])[entity.isBatchDelete==null?0:entity.isBatchDelete] || {}).text || ''}}</text><template v-if='!isBatchDeleteReadOnly'><uni-data-checkbox :disabled='isBatchDeleteReadOnly' v-model='entity.isBatchDelete' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_import' name='isImport'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isImportReadOnly'>{{(($checkboxRange || [])[entity.isImport==null?0:entity.isImport] || {}).text || ''}}</text><template v-if='!isImportReadOnly'><uni-data-checkbox :disabled='isImportReadOnly' v-model='entity.isImport' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_export' name='isExport'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isExportReadOnly'>{{(($checkboxRange || [])[entity.isExport==null?0:entity.isExport] || {}).text || ''}}</text><template v-if='!isExportReadOnly'><uni-data-checkbox :disabled='isExportReadOnly' v-model='entity.isExport' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_multi_select' name='isMultiSelect'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isMultiSelectReadOnly'>{{(($checkboxRange || [])[entity.isMultiSelect==null?0:entity.isMultiSelect] || {}).text || ''}}</text><template v-if='!isMultiSelectReadOnly'><uni-data-checkbox :disabled='isMultiSelectReadOnly' v-model='entity.isMultiSelect' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_export_edit' name='isExportEdit'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isExportEditReadOnly'>{{(($checkboxRange || [])[entity.isExportEdit==null?0:entity.isExportEdit] || {}).text || ''}}</text><template v-if='!isExportEditReadOnly'><uni-data-checkbox :disabled='isExportEditReadOnly' v-model='entity.isExportEdit' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='export_method' name='exportMethod'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!exportMethodReadOnly' v-model='entity.exportMethod' maxlength='50'   /><text v-if='exportMethodReadOnly'>{{entity.exportMethod}}</text>
+</uni-forms-item>
+<uni-forms-item label='复制方法' name='isCopy' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isCopyReadOnly'>{{(($checkboxRange || [])[entity.isCopy==null?0:entity.isCopy] || {}).text || ''}}</text><template v-if='!isCopyReadOnly'><uni-data-checkbox :disabled='isCopyReadOnly' v-model='entity.isCopy' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='read_only_condition' name='readOnlyCondition'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!readOnlyConditionReadOnly' v-model='entity.readOnlyCondition' maxlength='50'   /><text v-if='readOnlyConditionReadOnly'>{{entity.readOnlyCondition}}</text>
+</uni-forms-item>
+<uni-forms-item label='import_method' name='importMethod'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!importMethodReadOnly' v-model='entity.importMethod' maxlength='50'   /><text v-if='importMethodReadOnly'>{{entity.importMethod}}</text>
+</uni-forms-item>
+<uni-forms-item label='button_visible' name='buttonVisible'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!buttonVisibleReadOnly' v-model='entity.buttonVisible' maxlength='50'   /><text v-if='buttonVisibleReadOnly'>{{entity.buttonVisible}}</text>
+</uni-forms-item>
+<uni-forms-item label='is_after_add' name='isAfterAdd'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isAfterAddReadOnly'>{{(($checkboxRange || [])[entity.isAfterAdd==null?0:entity.isAfterAdd] || {}).text || ''}}</text><template v-if='!isAfterAddReadOnly'><uni-data-checkbox :disabled='isAfterAddReadOnly' v-model='entity.isAfterAdd' :localdata='$checkboxRange' /></template>
+<view class='input-tips'>仅 v7：控制页面写入钩子；v8 写入规则统一由 Service 生命周期执行，与本开关无关。</view>
+</uni-forms-item>
+<uni-forms-item label='is_after_save' name='isAfterSave'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isAfterSaveReadOnly'>{{(($checkboxRange || [])[entity.isAfterSave==null?0:entity.isAfterSave] || {}).text || ''}}</text><template v-if='!isAfterSaveReadOnly'><uni-data-checkbox :disabled='isAfterSaveReadOnly' v-model='entity.isAfterSave' :localdata='$checkboxRange' /></template>
+<view class='input-tips'>仅 v7：控制页面写入钩子；v8 写入规则统一由 Service 生命周期执行，与本开关无关。</view>
+</uni-forms-item>
+<uni-forms-item label='is_before_save' name='isBeforeSave'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isBeforeSaveReadOnly'>{{(($checkboxRange || [])[entity.isBeforeSave==null?0:entity.isBeforeSave] || {}).text || ''}}</text><template v-if='!isBeforeSaveReadOnly'><uni-data-checkbox :disabled='isBeforeSaveReadOnly' v-model='entity.isBeforeSave' :localdata='$checkboxRange' /></template>
+<view class='input-tips'>仅 v7：控制页面写入钩子；v8 写入规则统一由 Service 生命周期执行，与本开关无关。</view>
+</uni-forms-item>
+<uni-forms-item label='子模块位置' name='childPlace'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='childPlaceReadOnly'>{{entity.childPlaceShow}}</text><template v-if='!childPlaceReadOnly'><uni-data-checkbox :disabled='childPlaceReadOnly' v-model='entity.childPlace' :localdata='childPlaceRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='is_after_delete' name='isAfterDelete'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isAfterDeleteReadOnly'>{{(($checkboxRange || [])[entity.isAfterDelete==null?0:entity.isAfterDelete] || {}).text || ''}}</text><template v-if='!isAfterDeleteReadOnly'><uni-data-checkbox :disabled='isAfterDeleteReadOnly' v-model='entity.isAfterDelete' :localdata='$checkboxRange' /></template>
+<view class='input-tips'>仅 v7：控制页面写入钩子；v8 写入规则统一由 Service 生命周期执行，与本开关无关。</view>
+</uni-forms-item>
+<uni-forms-item label='is_repeat_pwd' name='isRepeatPwd'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isRepeatPwdReadOnly'>{{(($checkboxRange || [])[entity.isRepeatPwd==null?0:entity.isRepeatPwd] || {}).text || ''}}</text><template v-if='!isRepeatPwdReadOnly'><uni-data-checkbox :disabled='isRepeatPwdReadOnly' v-model='entity.isRepeatPwd' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='save_auto_close' name='saveAutoClose'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!saveAutoCloseReadOnly' v-model='entity.saveAutoClose' maxlength='50'   /><text v-if='saveAutoCloseReadOnly'>{{entity.saveAutoClose}}</text>
+</uni-forms-item>
+<uni-forms-item label='child_style' name='childStyle'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!childStyleReadOnly' v-model='entity.childStyle' maxlength='50'   /><text v-if='childStyleReadOnly'>{{entity.childStyle}}</text>
+</uni-forms-item>
+<uni-forms-item label='is_before_delete' name='isBeforeDelete'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isBeforeDeleteReadOnly'>{{(($checkboxRange || [])[entity.isBeforeDelete==null?0:entity.isBeforeDelete] || {}).text || ''}}</text><template v-if='!isBeforeDeleteReadOnly'><uni-data-checkbox :disabled='isBeforeDeleteReadOnly' v-model='entity.isBeforeDelete' :localdata='$checkboxRange' /></template>
+<view class='input-tips'>仅 v7：控制页面写入钩子；v8 写入规则统一由 Service 生命周期执行，与本开关无关。</view>
+</uni-forms-item>
+<uni-forms-item label='config_table_name' name='configTableName'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!configTableNameReadOnly' v-model='entity.configTableName' maxlength='50'   /><text v-if='configTableNameReadOnly'>{{entity.configTableName}}</text>
+</uni-forms-item>
+<uni-forms-item label='自动隐藏' name='isAutoHide'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isAutoHideReadOnly'>{{(($checkboxRange || [])[entity.isAutoHide==null?0:entity.isAutoHide] || {}).text || ''}}</text><template v-if='!isAutoHideReadOnly'><uni-data-checkbox :disabled='isAutoHideReadOnly' v-model='entity.isAutoHide' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='列表页编辑' name='isListEdit'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isListEditReadOnly'>{{(($checkboxRange || [])[entity.isListEdit==null?0:entity.isListEdit] || {}).text || ''}}</text><template v-if='!isListEditReadOnly'><uni-data-checkbox :disabled='isListEditReadOnly' v-model='entity.isListEdit' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='parent_config_table_id' name='parentConfigTableId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!parentConfigTableIdReadOnly' v-model='entity.parentConfigTableId'    /><text v-if='parentConfigTableIdReadOnly'>{{entity.parentConfigTableId}}</text>
+</uni-forms-item>
+<uni-forms-item label='parent_config_table_name' name='parentConfigTableName'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!parentConfigTableNameReadOnly' v-model='entity.parentConfigTableName' maxlength='50'   /><text v-if='parentConfigTableNameReadOnly'>{{entity.parentConfigTableName}}</text>
+</uni-forms-item>
+<uni-forms-item label='页面类型' name='type'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='typeReadOnly'>{{entity.typeShow}}</text><template v-if='!typeReadOnly'><uni-data-checkbox :disabled='typeReadOnly' v-model='entity.type' :localdata='typeRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='列表页查询前' name='isBeforeQuery'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isBeforeQueryReadOnly'>{{(($checkboxRange || [])[entity.isBeforeQuery==null?0:entity.isBeforeQuery] || {}).text || ''}}</text><template v-if='!isBeforeQueryReadOnly'><uni-data-checkbox :disabled='isBeforeQueryReadOnly' v-model='entity.isBeforeQuery' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='parent_config_page_id' name='parentConfigPageId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!parentConfigPageIdReadOnly' v-model='entity.parentConfigPageId'    /><text v-if='parentConfigPageIdReadOnly'>{{entity.parentConfigPageId}}</text>
+</uni-forms-item>
+<uni-forms-item label='详情页查询前' name='isBeforeGet'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isBeforeGetReadOnly'>{{(($checkboxRange || [])[entity.isBeforeGet==null?0:entity.isBeforeGet] || {}).text || ''}}</text><template v-if='!isBeforeGetReadOnly'><uni-data-checkbox :disabled='isBeforeGetReadOnly' v-model='entity.isBeforeGet' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='parent_config_page_name' name='parentConfigPageName'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!parentConfigPageNameReadOnly' v-model='entity.parentConfigPageName' maxlength='50'   /><text v-if='parentConfigPageNameReadOnly'>{{entity.parentConfigPageName}}</text>
+</uni-forms-item>
+<uni-forms-item label='不生成详情页' name='isNotGenerateDetailPage'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isNotGenerateDetailPageReadOnly'>{{(($checkboxRange || [])[entity.isNotGenerateDetailPage==null?0:entity.isNotGenerateDetailPage] || {}).text || ''}}</text><template v-if='!isNotGenerateDetailPageReadOnly'><uni-data-checkbox :disabled='isNotGenerateDetailPageReadOnly' v-model='entity.isNotGenerateDetailPage' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='yz_project_name' name='yzProjectName'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!yzProjectNameReadOnly' v-model='entity.yzProjectName' maxlength='50'   /><text v-if='yzProjectNameReadOnly'>{{entity.yzProjectName}}</text>
+</uni-forms-item>
+<uni-forms-item label='import_no' name='importNo'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!importNoReadOnly' v-model='entity.importNo' maxlength='45'   /><text v-if='importNoReadOnly'>{{entity.importNo}}</text>
+</uni-forms-item>
+<uni-forms-item label='移动端列表页样式' name='mobileListPageStyleType' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='mobileListPageStyleTypeReadOnly'>{{entity.mobileListPageStyleTypeShow}}</text><template v-if='!mobileListPageStyleTypeReadOnly'><uni-data-checkbox :disabled='mobileListPageStyleTypeReadOnly' v-model='entity.mobileListPageStyleType' :localdata='mobileListPageStyleTypeRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='移动端详情页保存后自动返回列表页' name='isAutoBackOnMobileSave'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isAutoBackOnMobileSaveReadOnly'>{{(($checkboxRange || [])[entity.isAutoBackOnMobileSave==null?0:entity.isAutoBackOnMobileSave] || {}).text || ''}}</text><template v-if='!isAutoBackOnMobileSaveReadOnly'><uni-data-checkbox :disabled='isAutoBackOnMobileSaveReadOnly' v-model='entity.isAutoBackOnMobileSave' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='PC详情页每行列数' name='cols' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!colsReadOnly' v-model='entity.cols'  type='number'  /><text v-if='colsReadOnly'>{{entity.cols}}</text>
+</uni-forms-item>
+<uni-forms-item label='仅更新编辑页字段' name='isUpdateEditColumnsOnly' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='isUpdateEditColumnsOnlyReadOnly'>{{(($checkboxRange || [])[entity.isUpdateEditColumnsOnly==null?0:entity.isUpdateEditColumnsOnly] || {}).text || ''}}</text><template v-if='!isUpdateEditColumnsOnlyReadOnly'><uni-data-checkbox :disabled='isUpdateEditColumnsOnlyReadOnly' v-model='entity.isUpdateEditColumnsOnly' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='详情页按钮位置' name='detailPageButtonsPosition' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='detailPageButtonsPositionReadOnly'>{{entity.detailPageButtonsPositionShow}}</text><template v-if='!detailPageButtonsPositionReadOnly'><uni-data-checkbox :disabled='detailPageButtonsPositionReadOnly' v-model='entity.detailPageButtonsPosition' :localdata='detailPageButtonsPositionRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='所属后台' name='yzAdminTypeId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yzAdminTypeIdDetailChange' /></template>
+</uni-forms-item>
 
+        </uni-forms>
+      </view>
+      
+    </view>
+    
+    <view v-if="originalChildrenReady"><ChildList1676947774218887170 :key="id + ':1676947774218887170'" :parent_id='id' :parentReadOnlyCondition='readOnlyCondition' :parent_page_sn='page_sn' :is_son_page='true' :child_page_open_type='1' ref='ChildList1676947774218887170' /><ChildList1678023451326115842 :key="id + ':1678023451326115842'" :parent_id='id' :parentReadOnlyCondition='readOnlyCondition' :parent_page_sn='page_sn' :is_son_page='true' :child_page_open_type='1' ref='ChildList1678023451326115842' /></view><view v-else class='section-view'>为避免数据丢失，请先保存当前页面的数据，再维护子表。</view>
+    <view style="height:150px;" v-if="!is_props"></view><view><view class='bottom-buttons' :class="{ 'is-embedded': is_props }"><button type='warn' size="mini" v-if="!readOnlyCondition && page_is_delete && $yzp.hasPagePermission(page_sn,'is_delete')" @click='deleteEntity()'>删除</button><button type='primary' size="mini" v-if="!readOnlyCondition && !page_is_function_table && (id ? page_is_save : page_is_new) && $yzp.hasPagePermission(page_sn,id ? 'is_update' : 'is_new')" @click='saveEntity()'>保存</button><button type='default' size="mini" @click="closeDetail()">关闭</button><button size='mini' type='default' v-if='customerButtonShow1675705392114606082' @click='customerButtonHandler1675705392114606082'>生成代码</button>
+<button size='mini' type='default' v-if='customerButtonShow1676949833760571394' @click='customerButtonHandler1676949833760571394'>列权限</button>
+<button size='mini' type='default' v-if='customerButtonShow1677942658826280962' @click='customerButtonHandler1677942658826280962'>列排序</button>
+<button size='mini' type='default' v-if='customerButtonShow1678020383436009473' @click='customerButtonHandler1678020383436009473'>配置表</button>
+<button size='mini' type='default' v-if='customerButtonShow1761377189732839425' @click='customerButtonHandler1761377189732839425'>复制页面</button>
+<button size='mini' type='default' v-if='customerButtonShow1696339787104047106' @click='customerButtonHandler1696339787104047106'>创建菜单</button>
+<button size='mini' type='default' v-if='customerButtonShow2111122691124760576' @click='customerButtonHandler2111122691124760576'>详情布局</button>
+<button size='mini' type='default' v-if='customerButtonShow1880945414320971778' @click='customerButtonHandler1880945414320971778'>生成客户端代码</button>
+</view></view>
   </view>
 </template>
 <script>
-import yzp from '@/common/yzp';
+import utils from "@/common/utils";
+import yzp from "@/common/yzp_runtime/yzp-runtime";
+import project from "@/common/project";
+import ChildList1676947774218887170 from "@/pages/yzp/config_page_column-list-6218036784398336.vue";
+import ChildList1678023451326115842 from "@/pages/yzp/config_button-list-7097193256583168.vue";
 
-import ChildList1676947774218887170 from '@/pages/yzp/config_page_column-list-6218036784398336.vue';
-import ChildList1678023451326115842 from '@/pages/yzp/config_button-list-7097193256583168.vue';
-const writableFields = ["name","configTableTableName","orderBy","whereSql","configTableId","exactDataManageMatchField","pageSize","isEdit","isNew","isUpdate","isDelete","isSearch","isSum","isBatchDelete","isImport","isExport","isMultiSelect","isExportEdit","exportMethod","isCopy","readOnlyCondition","importMethod","buttonVisible","isAfterAdd","isAfterSave","isBeforeSave","childPlace","isAfterDelete","isRepeatPwd","saveAutoClose","childStyle","isBeforeDelete","configTableName","isAutoHide","isListEdit","parentConfigTableId","parentConfigTableName","type","isBeforeQuery","parentConfigPageId","isBeforeGet","parentConfigPageName","isNotGenerateDetailPage","importNo","mobileListPageStyleType","isAutoBackOnMobileSave","cols","isUpdateEditColumnsOnly","detailPageButtonsPosition","yzAdminTypeId"];
-const displayFields = {"name":{"alias":null,"optionField":null,"multiNames":false},"configTableTableName":{"alias":null,"optionField":null,"multiNames":false},"orderBy":{"alias":null,"optionField":null,"multiNames":false},"whereSql":{"alias":null,"optionField":null,"multiNames":false},"configTableId":{"alias":"configTableName","optionField":"configTableId","multiNames":false},"exactDataManageMatchField":{"alias":null,"optionField":null,"multiNames":false},"pageSize":{"alias":null,"optionField":null,"multiNames":false},"isEdit":{"alias":null,"optionField":null,"multiNames":false},"isNew":{"alias":null,"optionField":null,"multiNames":false},"isUpdate":{"alias":null,"optionField":null,"multiNames":false},"isDelete":{"alias":null,"optionField":null,"multiNames":false},"isSearch":{"alias":null,"optionField":null,"multiNames":false},"isSum":{"alias":null,"optionField":null,"multiNames":false},"isBatchDelete":{"alias":null,"optionField":null,"multiNames":false},"isImport":{"alias":null,"optionField":null,"multiNames":false},"isExport":{"alias":null,"optionField":null,"multiNames":false},"isMultiSelect":{"alias":null,"optionField":null,"multiNames":false},"isExportEdit":{"alias":null,"optionField":null,"multiNames":false},"exportMethod":{"alias":null,"optionField":null,"multiNames":false},"isCopy":{"alias":null,"optionField":null,"multiNames":false},"readOnlyCondition":{"alias":null,"optionField":null,"multiNames":false},"importMethod":{"alias":null,"optionField":null,"multiNames":false},"buttonVisible":{"alias":null,"optionField":null,"multiNames":false},"isAfterAdd":{"alias":null,"optionField":null,"multiNames":false},"isAfterSave":{"alias":null,"optionField":null,"multiNames":false},"isBeforeSave":{"alias":null,"optionField":null,"multiNames":false},"childPlace":{"alias":"childPlaceShow","optionField":null,"multiNames":false},"isAfterDelete":{"alias":null,"optionField":null,"multiNames":false},"isRepeatPwd":{"alias":null,"optionField":null,"multiNames":false},"saveAutoClose":{"alias":null,"optionField":null,"multiNames":false},"childStyle":{"alias":null,"optionField":null,"multiNames":false},"isBeforeDelete":{"alias":null,"optionField":null,"multiNames":false},"configTableName":{"alias":null,"optionField":null,"multiNames":false},"isAutoHide":{"alias":null,"optionField":null,"multiNames":false},"isListEdit":{"alias":null,"optionField":null,"multiNames":false},"parentConfigTableId":{"alias":null,"optionField":null,"multiNames":false},"parentConfigTableName":{"alias":null,"optionField":null,"multiNames":false},"type":{"alias":"typeShow","optionField":null,"multiNames":false},"isBeforeQuery":{"alias":null,"optionField":null,"multiNames":false},"parentConfigPageId":{"alias":null,"optionField":null,"multiNames":false},"isBeforeGet":{"alias":null,"optionField":null,"multiNames":false},"parentConfigPageName":{"alias":null,"optionField":null,"multiNames":false},"isNotGenerateDetailPage":{"alias":null,"optionField":null,"multiNames":false},"yzProjectName":{"alias":null,"optionField":null,"multiNames":false},"importNo":{"alias":null,"optionField":null,"multiNames":false},"mobileListPageStyleType":{"alias":"mobileListPageStyleTypeShow","optionField":null,"multiNames":false},"isAutoBackOnMobileSave":{"alias":null,"optionField":null,"multiNames":false},"cols":{"alias":null,"optionField":null,"multiNames":false},"insertTime":{"alias":null,"optionField":null,"multiNames":false},"updateTime":{"alias":null,"optionField":null,"multiNames":false},"insertManagerId":{"alias":null,"optionField":null,"multiNames":false},"updateManagerId":{"alias":null,"optionField":null,"multiNames":false},"insertManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"updateManagerRealName":{"alias":null,"optionField":null,"multiNames":false},"insertUserName":{"alias":null,"optionField":null,"multiNames":false},"isUpdateEditColumnsOnly":{"alias":null,"optionField":null,"multiNames":false},"updateUserName":{"alias":null,"optionField":null,"multiNames":false},"detailPageButtonsPosition":{"alias":"detailPageButtonsPositionShow","optionField":null,"multiNames":false},"yzAdminTypeId":{"alias":null,"optionField":"yzAdminTypeId","multiNames":false},"id":{"alias":null,"optionField":null,"multiNames":false}};
-const rtfFields = [];
-const children = [{"id":"1676947774218887170","pageId":"6218036784398336","name":"\u9875\u9762\u5B57\u6BB5"},{"id":"1678023451326115842","pageId":"7097193256583168","name":"\u6309\u94AE"}];
-const readonlyField = null;
-/** 空父键不接受历史 undefined/null 字面量，字符串 ID 全程不转为浮点。 */
-const recordId = value => typeof value === 'string' && !['undefined', 'null'].includes(value.trim()) ? value.trim() : '';
+const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
+
 export default {
-  mixins: [],
-  components: { ChildList1676947774218887170, ChildList1678023451326115842 },
-  props: { is_props: { type: Boolean, default: false }, props_id: { type: String, default: '' }, props_parent_id: { type: String, default: '' }, props_parent_page_sn: { type: String, default: '' }, parentReadOnlyCondition: { type: Boolean, default: false } },
-  data() { return { id: '', parentId: '', parentPageId: '', routeReadOnly: false, recordReady: false, permissionsReady: false, permissionVersion: 0, currentChild: 0, children, canUpdate: true, entity: {}, changes: {}, options: {}, saving: false, canCreate: true, canSave: true, canDelete: true, canCopy: false }; },
-  computed: {
-    /** 子表继承父只读后仍检查自身当前操作权限；共享快照不代表继承操作授权。 */
-    readOnlyCondition() { this.permissionVersion; return !this.permissionsReady || Boolean(this.parentReadOnlyCondition || this.routeReadOnly || getApp().globalData.readOnly || (this.id ? !this.canUpdate : !this.canCreate) || readonlyField && this.entity[readonlyField]) || !yzp.hasPagePermission('6191175925956608', this.id ? 'is_update' : 'is_new'); },
-    /** 复制和删除分别检查自身操作授权，修改授权不会隐式开放其他动作。 */
-    canCopyRecord() { this.permissionVersion; return !this.readOnlyCondition && Boolean(this.id) && this.canCopy && yzp.hasPagePermission('6191175925956608', 'is_all'); },
-    canDeleteRecord() { this.permissionVersion; return !this.readOnlyCondition && Boolean(this.id) && this.canDelete && yzp.hasPagePermission('6191175925956608', 'is_delete'); },
-    /** 只有已读取或写入成功的父记录可以挂载子页，手填路由 ID 不开放子页。 */
-    childrenReady() { return this.recordReady && this.permissionsReady && Boolean(this.id) && String(this.entity.id) === this.id; }
+  
+  components: {
+    ChildList1676947774218887170,ChildList1678023451326115842,
   },
-  mounted() { if (this.is_props) this.initializeDetail({ id: this.props_id, parentId: this.props_parent_id, parentPageId: this.props_parent_page_sn }); },
-  onLoad(options) { if (!this.is_props) this.initializeDetail(options); },
-  onUnload() { this.disposeDetail(); },
-  beforeUnmount() { this.disposeDetail(); },
+  props: ['is_props', 'props_id', 'props_parent_id', 'props_parent_page_sn', 'parentReadOnlyCondition'],
+  data() {
+    return {
+      id: '',
+      parent_id: '',
+      yzpMenuId: '',
+      page_sn: '6191175925956608',
+      parent_page_sn: '',
+      formParametersName: 'formParameters6191175925956608',
+      loadEntitySuccess: false,
+      config_table_list:[],childPlaceRange:[{"text":"\u4E00\u62D6N","value":"OneWithMany"},{"text":"\u6807\u7B7E\u663E\u793A","value":"Tab"},{"text":"\u65B0\u9875\u9762\u6253\u5F00","value":"NewPage"}],typeRange:[{"text":"\u9ED8\u8BA4","value":0},{"text":"\u9009\u62E9\u9875","value":1},{"text":"\u591A\u9009\u9875","value":2}],mobileListPageStyleTypeRange:[{"text":"\u4F20\u7EDF\u6837\u5F0F","value":1},{"text":"Grid\u6837\u5F0F","value":2},{"text":"Grid\u5E26\u5934\u50CF","value":3}],detailPageButtonsPositionRange:[{"text":"\u56FA\u5B9A\u5E95\u90E8","value":0},{"text":"\u5B50\u8868\u4E0A\u9762","value":1}],yz_admin_type_list:[],originalButtons:[{"id":"1675705392114606082","name":"\u751F\u6210\u4EE3\u7801","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/generate_all","close":false},{"id":"1676949833760571394","name":"\u5217\u6743\u9650","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/config_page_columns","close":false},{"id":"1677942658826280962","name":"\u5217\u6392\u5E8F","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/config_columns_sort","close":false},{"id":"1678020383436009473","name":"\u914D\u7F6E\u8868","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/to_config_table","close":false},{"id":"1761377189732839425","name":"\u590D\u5236\u9875\u9762","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/copy_page","close":false},{"id":"1696339787104047106","name":"\u521B\u5EFA\u83DC\u5355","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/create_menu","close":false},{"id":"2111122691124760576","name":"\u8BE6\u60C5\u5E03\u5C40","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/detail_layout","close":false},{"id":"1880945414320971778","name":"\u751F\u6210\u5BA2\u6237\u7AEF\u4EE3\u7801","action":1,"save":"NotSave","confirm":false,"confirmMsg":"","target":"/admin/custom/config_page/generate_app_all","close":false}],page_is_update:true,page_is_save:true,page_is_delete:true,page_is_new:true,page_is_copy:false,page_is_function_table:false,detailGridColumns:2,permissionVersion:0,permissionsReady:false,recordReady:false,saving:false,routeReadOnly:false,changes:{},
+      
+      
+      entity: {
+        name:"",configTableTableName:"",orderBy:"",whereSql:"",configTableId:"",exactDataManageMatchField:"",pageSize:"",isEdit:"",isNew:"",isUpdate:"",isDelete:"",isSearch:"",isSum:"",isBatchDelete:"",isImport:"",isExport:"",isMultiSelect:"",isExportEdit:"",exportMethod:"",isCopy:"",readOnlyCondition:"",importMethod:"",buttonVisible:"",isAfterAdd:"",isAfterSave:"",isBeforeSave:"",childPlace:"",isAfterDelete:"",isRepeatPwd:"",saveAutoClose:"",childStyle:"",isBeforeDelete:"",configTableName:"",isAutoHide:"",isListEdit:"",parentConfigTableId:"",parentConfigTableName:"",type:"",isBeforeQuery:0,parentConfigPageId:"",isBeforeGet:"",parentConfigPageName:"",isNotGenerateDetailPage:"",yzProjectName:"",importNo:"",mobileListPageStyleType:"",isAutoBackOnMobileSave:0,cols:2,isUpdateEditColumnsOnly:"",detailPageButtonsPosition:"",yzAdminTypeId:"",
+      },
+      entity_column_readonly: {
+        name:false,configTableTableName:false,orderBy:false,whereSql:false,configTableId:false,exactDataManageMatchField:false,pageSize:false,isEdit:false,isNew:false,isUpdate:false,isDelete:false,isSearch:false,isSum:false,isBatchDelete:false,isImport:false,isExport:false,isMultiSelect:false,isExportEdit:false,exportMethod:false,isCopy:false,readOnlyCondition:false,importMethod:false,buttonVisible:false,isAfterAdd:false,isAfterSave:false,isBeforeSave:false,childPlace:false,isAfterDelete:false,isRepeatPwd:false,saveAutoClose:false,childStyle:false,isBeforeDelete:false,configTableName:false,isAutoHide:false,isListEdit:false,parentConfigTableId:false,parentConfigTableName:false,type:false,isBeforeQuery:false,parentConfigPageId:false,isBeforeGet:false,parentConfigPageName:false,isNotGenerateDetailPage:false,yzProjectName:true,importNo:false,mobileListPageStyleType:false,isAutoBackOnMobileSave:false,cols:false,isUpdateEditColumnsOnly:false,detailPageButtonsPosition:false,yzAdminTypeId:false,
+      },
+      entity_rules: {
+        name:{rules:[{"required":true,"errorMessage":"\u540D\u79F0\u4E3A\u5FC5\u586B\u9879"},{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},configTableTableName:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},orderBy:{rules:[{"maxLength":500,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},whereSql:{rules:[]},configTableId:{rules:[{"required":true,"errorMessage":"\u914D\u7F6E\u8868\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},exactDataManageMatchField:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},pageSize:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isEdit:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isNew:{rules:[{"required":true,"errorMessage":"is_new\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isUpdate:{rules:[{"required":true,"errorMessage":"is_update\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isDelete:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isSearch:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isSum:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isBatchDelete:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isImport:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isExport:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isMultiSelect:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isExportEdit:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},exportMethod:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isCopy:{rules:[{"required":true,"errorMessage":"\u590D\u5236\u65B9\u6CD5\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},readOnlyCondition:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},importMethod:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},buttonVisible:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isAfterAdd:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isAfterSave:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isBeforeSave:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},childPlace:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isAfterDelete:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isRepeatPwd:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},saveAutoClose:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},childStyle:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isBeforeDelete:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},configTableName:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isAutoHide:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isListEdit:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},parentConfigTableId:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},parentConfigTableName:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},type:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isBeforeQuery:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},parentConfigPageId:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isBeforeGet:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},parentConfigPageName:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isNotGenerateDetailPage:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},yzProjectName:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},importNo:{rules:[{"maxLength":45,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},mobileListPageStyleType:{rules:[{"required":true,"errorMessage":"\u79FB\u52A8\u7AEF\u5217\u8868\u9875\u6837\u5F0F\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isAutoBackOnMobileSave:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},cols:{rules:[{"required":true,"errorMessage":"PC\u8BE6\u60C5\u9875\u6BCF\u884C\u5217\u6570\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},isUpdateEditColumnsOnly:{rules:[{"required":true,"errorMessage":"\u4EC5\u66F4\u65B0\u7F16\u8F91\u9875\u5B57\u6BB5\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},detailPageButtonsPosition:{rules:[{"required":true,"errorMessage":"\u8BE6\u60C5\u9875\u6309\u94AE\u4F4D\u7F6E\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},yzAdminTypeId:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},
+      }
+    }
+  },
+  watch: {
+    props_id() { if (this.is_props) this.initPage({ id: this.props_id, parent_id: this.props_parent_id, parent_page_sn: this.props_parent_page_sn }); },
+    props_parent_id() { if (this.is_props) this.initPage({ id: this.props_id, parent_id: this.props_parent_id, parent_page_sn: this.props_parent_page_sn }); },
+    
+  },
+  computed: {
+    nameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.name; },
+configTableTableNameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.configTableTableName; },
+orderByReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.orderBy; },
+whereSqlReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.whereSql; },
+configTableIdReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.configTableId; },
+exactDataManageMatchFieldReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.exactDataManageMatchField; },
+pageSizeReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.pageSize; },
+isEditReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isEdit; },
+isNewReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isNew; },
+isUpdateReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isUpdate; },
+isDeleteReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isDelete; },
+isSearchReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isSearch; },
+isSumReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isSum; },
+isBatchDeleteReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isBatchDelete; },
+isImportReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isImport; },
+isExportReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isExport; },
+isMultiSelectReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isMultiSelect; },
+isExportEditReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isExportEdit; },
+exportMethodReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.exportMethod; },
+isCopyReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isCopy; },
+readOnlyConditionReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.readOnlyCondition; },
+importMethodReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.importMethod; },
+buttonVisibleReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.buttonVisible; },
+isAfterAddReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isAfterAdd; },
+isAfterSaveReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isAfterSave; },
+isBeforeSaveReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isBeforeSave; },
+childPlaceReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.childPlace; },
+isAfterDeleteReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isAfterDelete; },
+isRepeatPwdReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isRepeatPwd; },
+saveAutoCloseReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.saveAutoClose; },
+childStyleReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.childStyle; },
+isBeforeDeleteReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isBeforeDelete; },
+configTableNameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.configTableName; },
+isAutoHideReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isAutoHide; },
+isListEditReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isListEdit; },
+parentConfigTableIdReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.parentConfigTableId; },
+parentConfigTableNameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.parentConfigTableName; },
+typeReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.type; },
+isBeforeQueryReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isBeforeQuery; },
+parentConfigPageIdReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.parentConfigPageId; },
+isBeforeGetReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isBeforeGet; },
+parentConfigPageNameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.parentConfigPageName; },
+isNotGenerateDetailPageReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isNotGenerateDetailPage; },
+yzProjectNameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.yzProjectName; },
+importNoReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.importNo; },
+mobileListPageStyleTypeReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.mobileListPageStyleType; },
+isAutoBackOnMobileSaveReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isAutoBackOnMobileSave; },
+colsReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.cols; },
+isUpdateEditColumnsOnlyReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isUpdateEditColumnsOnly; },
+detailPageButtonsPositionReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.detailPageButtonsPosition; },
+yzAdminTypeIdReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.yzAdminTypeId; },
+customerButtonShow1675705392114606082() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1675705392114606082","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+customerButtonShow1676949833760571394() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1676949833760571394","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+customerButtonShow1677942658826280962() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1677942658826280962","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+customerButtonShow1678020383436009473() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1678020383436009473","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+customerButtonShow1761377189732839425() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1761377189732839425","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+customerButtonShow1696339787104047106() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1696339787104047106","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+customerButtonShow2111122691124760576() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"2111122691124760576","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+customerButtonShow1880945414320971778() { this.permissionVersion;return yzp.isButtonVisible({"buttonId":"1880945414320971778","visibleScheme":"Normal","visibleRuleJson":""},this.entity,this.readOnlyCondition); },
+hasVisibleCustomerButtons() { this.permissionVersion;return this.originalButtons.some(button=>this['customerButtonShow'+button.id]); },
+parentId() { return this.parent_id || ''; },
+originalChildrenReady() { return this.recordReady && this.permissionsReady && Boolean(this.id) && originalRecordId(this.entity.id)===this.id; },
+readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Boolean(this.id && !this.recordReady) || Boolean(this.parentReadOnlyCondition || this.routeReadOnly || getApp().globalData.readOnly || (this.page_is_function_table ? !this.page_is_update : this.id ? !this.page_is_update : !this.page_is_new)) || !yzp.hasPagePermission(this.page_sn,this.page_is_function_table || this.id ? 'is_update' : 'is_new'); },
+
+    
+  },
+  created() {
+    // 独立范围观察不覆盖原AutoPostBack/AutoSave字段watcher，也不改变控件布局。
+    
+  },
+  onUnload() { this.disposeOriginalDetail(); },
+  beforeUnmount() { this.disposeOriginalDetail(); },
+  mounted: function () {
+    if (this.is_props) {
+      var e = {};
+      e.id = this.props_id;
+      e.parent_id = this.props_parent_id;
+      e.parent_page_sn = this.props_parent_page_sn;
+      this.initPage(e);
+    }
+  },
+  onLoad: function (e) {
+    this.initPage(e);
+  },
   methods: {
-    /** 路由和弹层使用同一初始化入口；切换或卸载先取消旧记录回调。 */
-    initializeDetail(options = {}) {
-      this.disposeDetail(); this._alive = true; this._optionRequests = []; this._loadNo = 0;
-      this.id = recordId(options.id); this.parentId = recordId(options.parentId || options.parent_id); this.parentPageId = recordId(options.parentPageId || options.parent_page_sn); this.routeReadOnly = options.parentReadOnly === '1';
-      this.entity = {}; this.changes = {}; this.recordReady = false; this.saving = false; this.currentChild = 0; this.permissionsReady = false;
-      this.initializeMultiSelections?.();
-      const epoch = this._epoch, current = () => this._alive && epoch === this._epoch;
-      const ready = () => { if (!current()) return; this.permissionsReady = true; this.permissionVersion++; this.loadOptions(); if (this.id) this.load(); };
-      // 嵌入子页复用父页已刷新的权限快照，避免每个子模块重复请求。
-      if (this.parentPageId) ready(); else yzp.refreshCurrentPermissions(ready, ready);
+    // 成功写入只失效关联资源的角标，普通详情读取不产生刷新事件。
+    notifyMenuMutation() {
+      uni.$emit('yzpMenuChanged', { pageId: '6191175925956608', tableName: 'config_page' });
     },
-    /** 取消读写及选项请求；迟到的弹层或导航回调不影响下一条父记录。 */
-    disposeDetail() { this.disposeMultiSelections?.(); this._alive = false; this._epoch = (this._epoch || 0) + 1; this._loadRequest?.abort?.(); this._writeRequest?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); },
-    /** 页签只改变子模块显示，保留父表单脏字段及已挂载子列表状态。 */
-    selectChild(index) { if (this.childrenReady && Number.isInteger(index) && index >= 0 && index < children.length) this.currentChild = index; },
-    /** 父记录保存后仅重读各子列表，不向父表单回填或提交任何字段。 */
-    refreshSonsData() { if (!this.childrenReady) return; for (const child of children) { const list = this.$refs['child_' + child.id]; list?.refreshData?.(); } },
-    /** 弹层与新页面沿用原 onChange 事件，接收方只负责刷新自己的列表。 */
-    emitDetailChange(action, entity, method) { const payload = action === 'save' && method === 'update' ? { action, method, entity } : action; if (this.is_props) this.$emit('onChange', payload); else this.getOpenerEventChannel?.()?.emit?.('onChange', payload); },
-    /** 关闭弹层不操作导航栈，新页面沿用返回行为。 */
-    closeDetail() { if (this.is_props) this.$emit('onPopClose'); else uni.navigateBack(); },
-    /** POST复制仅提交源标识，服务端重建新记录与审计身份。 */
-    copy() {
-      if (this.readOnlyCondition || !this.canCopy || !yzp.hasPagePermission('6191175925956608', 'is_all') || !this.id || this.saving) return;
-      const id = this.id, parentId = this.parentId, epoch = this._epoch, identity = this.currentIdentity();
-      const current = () => this._alive && epoch === this._epoch && id === this.id && parentId === this.parentId && identity === this.currentIdentity();
-      uni.showModal({ title: '复制确认', content: '确定复制当前记录？', success: modal => { if (!modal.confirm || !current() || this.readOnlyCondition || !yzp.hasPagePermission('6191175925956608', 'is_all') || this.saving) return; this.saving = true;
-        this._writeRequest = yzp.request({ url: '/admin/auto/config_page/6191175925956608/copy/' + encodeURIComponent(id) + '?parentId=' + encodeURIComponent(parentId), method: 'POST', sendSessionId: true, isCurrent: current,
-          success: res => { if (current() && res.code === 200 && recordId(res.data?.id)) { this.id = res.data.id; this.entity = res.data; this.changes = {}; this.recordReady = true; this.emitDetailChange('copy', res.data); if (this.is_props) this.closeDetail(); uni.showToast({ title: '复制成功', icon: 'success' }); } }, complete: () => { if (this._alive && epoch === this._epoch) this.saving = false; } });
-      } });
+    initPage(e = {}) {
+      this.beginOriginalDetail(e);
+      var that = this;
+      // 功能表没有物理业务表，不能把菜单或 URL 参数当作实体 ID 使用。
+      this.id = this.page_is_function_table ? '' : originalRecordId(e.id);
+      this.parent_id = originalRecordId(e.parent_id || e.parentId);
+      this.parent_page_sn = originalRecordId(e.parent_page_sn || e.parentPageId);
+      // 入口标识仅用于导航定位，不参与后端权限判定。
+      this.yzpMenuId = e.yzpMenuId || '';
+
+      //全局只读
+      if (getApp().globalData.readOnly) {
+        this.page_is_update = false
+      }
+
+      //初始化成对象，不然会当字符串处理，会报错
+      var formParameters = uni.getStorageSync(this.formParametersName) || {};
+      formParameters.configPage = {};
+      uni.setStorageSync(this.formParametersName, formParameters);
+
+      // 先刷新权限快照，再加载详情和候选项，避免只读判断使用空权限快照。
+      const current = this.originalContext();
+      this.refreshCurrentPermissions(function() {
+        if (!current()) return;
+        that.permissionsReady = true;
+        that.initPageAfterPermissions();
+      });
     },
-    /** 关系选项来自当前页已编译端点，旧身份和父记录的响应不回填。 */
-    loadOptions() {
-      const parentId = this.parentId || null, identity = this.currentIdentity();
-      const current = () => this._alive && parentId === (this.parentId || null) && identity === this.currentIdentity();
-      this.refreshRelationLabels?.();
+    initPageAfterPermissions: function () {
+      // 功能表只作为工具表单承载自定义按钮，不查询标准实体详情。
+      if (this.page_is_function_table) {
+        this.initLists();
+        setTimeout(() => this.loadEntitySuccess = true, 300);
+      } else if (!utils.isBlank(this.id)) {
+        this.getEntity();
+      } else {
+        this.initLists();
+      }
     },
-    /** 定制编辑器只能回填本页允许提交的字段。 */
-    applyCustom(values) { for (const field of writableFields) { if (Object.prototype.hasOwnProperty.call(values, field) && JSON.stringify(values[field]) !== JSON.stringify(this.entity[field])) this.change(field, values[field]); } },
-    /** 选择页返回标识；路由保持原选择页协议。 */
-    selectPage(field, path) { if (!this.readOnlyCondition && writableFields.includes(field)) uni.navigateTo({ url: path + '?select=1', events: { selected: row => this.change(field, row.id) } }); },
-    /** 真实身份快照只用于隔离迟到回调，所有数据权限仍由后端核验。 */
-    currentIdentity() { return JSON.stringify([uni.getStorageSync('loginStateId') || '', uni.getStorageSync('sysParams') || {}]); },
-    /** 读取明细只接收服务端页级 VO，离开页面或父记录变化后忽略回调。 */
-    load() {
-      const id = this.id, parentId = this.parentId, identity = this.currentIdentity(), sequence = ++this._loadNo;
-      const current = () => this._alive && sequence === this._loadNo && id === this.id && parentId === this.parentId && identity === this.currentIdentity();
-      this._loadRequest?.abort?.();
-      this._loadRequest = yzp.request({ url: '/admin/auto/config_page/6191175925956608/detail/' + encodeURIComponent(id) + '?parentId=' + encodeURIComponent(parentId), method: 'GET', sendSessionId: true, isCurrent: current,
-        success: res => { if (current() && res.code === 200 && recordId(res.data?.id) === id) { this.entity = res.data; this.changes = {}; this.recordReady = true; } } });
+    buildParentIdQuery: function () {
+      // 单条接口需要父级范围时才追加 parentId，普通页面和历史 undefined 字符串都不传。
+      if (utils.isBlank(this.parent_id) || this.parent_id === 'undefined' || this.parent_id === 'null') {
+        return '';
+      }
+      return '?parentId=' + this.parent_id;
     },
-    /** 只记录用户修改且在白名单内的字段，原值不变的回调不会把 null 改为空字符串。 */
-    change(field, value) { if (this.readOnlyCondition || !writableFields.includes(field) || JSON.stringify(this.entity[field]) === JSON.stringify(value)) return; this.entity[field] = value; this.changes[field] = value; },
-    /** 消费真实常量展示别名和关系选项，缺失名称时仍显示原 ID。 */
-    displayValue(row, field) {
-      const definition = displayFields[field];
-      // 多选名称仍按原逗号文本展示，HTTP数组与历史JSON文本都不回写实体。
-      if (definition?.multiNames) { const value = definition.alias && row[definition.alias] != null ? row[definition.alias] : row[field]; try { const values = typeof value === 'string' ? JSON.parse(value) : value; if (Array.isArray(values)) return values.map(item => item == null ? '' : String(item)).join('，'); } catch {} return value ?? ''; }
-      if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
-      if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
-      return row[field] ?? '';
+    readonlyDisplayText: function (value, joiner) {
+      // 只读态统一展示文本，兼容数组、JSON 数组字符串和普通字符串。
+      var separator = joiner || '、';
+      if (value === null || value === undefined) {
+        return '';
+      }
+      var normalizedValue = value;
+      if (typeof normalizedValue === 'string') {
+        var text = normalizedValue.trim();
+        if (!text) {
+          return '';
+        }
+        if (text.indexOf('[') === 0 && text.lastIndexOf(']') === text.length - 1) {
+          try {
+            normalizedValue = JSON.parse(text);
+          } catch (e) {
+            return normalizedValue;
+          }
+        } else {
+          return normalizedValue;
+        }
+      }
+      if (Array.isArray(normalizedValue)) {
+        return normalizedValue.map(function (item) {
+          if (item === null || item === undefined) {
+            return '';
+          }
+          if (typeof item === 'object') {
+            return item.text || item.name || item.realName || item.value || item.id || '';
+          }
+          return String(item);
+        }).filter(function (item) {
+          return item !== '';
+        }).join(separator);
+      }
+      if (typeof normalizedValue === 'object') {
+        return normalizedValue.text || normalizedValue.name || normalizedValue.realName || normalizedValue.value || normalizedValue.id || '';
+      }
+      return String(normalizedValue);
     },
-    /** 富文本沿用原编辑/预览页和事件协议；未修改、离开或切换记录的回传不产生写入。 */
-    openRtf(field, action) {
-      if (!rtfFields.includes(field) || !['edit', 'review'].includes(action) || action === 'edit' && (this.readOnlyCondition || !writableFields.includes(field))) return;
-      const original = this.entity[field], text = original ?? '', id = this.id, parentId = this.parentId, identity = this.currentIdentity();
-      const current = () => this._alive && id === this.id && parentId === this.parentId && identity === this.currentIdentity();
-      uni.navigateTo({ url: '/pages/main/rtf/rtf?action=' + action, events: { onReceiveRtf: value => { if (action === 'edit' && current() && typeof value === 'string' && value !== text) this.change(field, value); } }, success: result => { if (current()) result.eventChannel.emit('sendRtf', { data: text }); } });
+    /** 页面/弹层进入使用同一实例边界，旧回调不能写到下一条记录。 */
+beginOriginalDetail(options) {
+ this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={name:"",configTableTableName:"",orderBy:"",whereSql:"",configTableId:"",exactDataManageMatchField:"",pageSize:"",isEdit:"",isNew:"",isUpdate:"",isDelete:"",isSearch:"",isSum:"",isBatchDelete:"",isImport:"",isExport:"",isMultiSelect:"",isExportEdit:"",exportMethod:"",isCopy:"",readOnlyCondition:"",importMethod:"",buttonVisible:"",isAfterAdd:"",isAfterSave:"",isBeforeSave:"",childPlace:"",isAfterDelete:"",isRepeatPwd:"",saveAutoClose:"",childStyle:"",isBeforeDelete:"",configTableName:"",isAutoHide:"",isListEdit:"",parentConfigTableId:"",parentConfigTableName:"",type:"",isBeforeQuery:0,parentConfigPageId:"",isBeforeGet:"",parentConfigPageName:"",isNotGenerateDetailPage:"",yzProjectName:"",importNo:"",mobileListPageStyleType:"",isAutoBackOnMobileSave:0,cols:2,isUpdateEditColumnsOnly:"",detailPageButtonsPosition:"",yzAdminTypeId:"",};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
+},
+/** 卸载只取消本详情的任务与订阅，不触发保存或父表刷新。 */
+disposeOriginalDetail() {this._alive=false;this._detailEpoch=(this._detailEpoch||0)+1;(this._detailTasks||[]).forEach(task=>task?.abort?.());this._detailTasks=[];this.disposeMultiSelections?.();},
+/** 当前身份用于迟到隔离，不能替代后端真实授权。 */
+currentIdentity() {return JSON.stringify([uni.getStorageSync('loginStateId')||'',uni.getStorageSync('sysParams')||{}]);},
+/** 原props及URL始终使用字符串ID，父/项目切换即使watcher未执行也失效。 */
+originalContext() {const epoch=this._detailEpoch,id=this.id,parent=this.parent_id,identity=this.currentIdentity();return ()=>Boolean(this._alive&&epoch===this._detailEpoch&&id===this.id&&parent===this.parent_id&&identity===this.currentIdentity());},
+/** 不裁剪、不补null；原整entity由固定页C#归一器兼容处理。 */
+originalRequest(options) {
+ const current=this.originalContext(),epoch=this._detailEpoch,parent=this.parent_id,identity=this.currentIdentity(),method=String(options.method||'GET').toUpperCase(),route=String(options.url||'').split('?')[0];
+ const mutation=route==="/admin/auto/config_page/6191175925956608"&&method==='DELETE'||method==='POST'&&["/admin/auto/config_page/6191175925956608"+'/add',"/admin/auto/config_page/6191175925956608"+'/update'].includes(route)||method==='POST'&&route.startsWith("/admin/auto/config_page/6191175925956608"+'/copy/');
+ if(mutation)this.permissionVersion++;if(mutation&&(this.saving||this.readOnlyCondition))return null;if(mutation)this.saving=true;
+ const read=route.startsWith("/admin/auto/config_page/6191175925956608"+'/detail/'),sequence=read?++this._detailRead:0,active=()=>current()&&(!read||sequence===this._detailRead)&&(typeof options.isCurrent!=='function'||options.isCurrent());
+ const complete=options.complete,success=options.success,fail=options.fail;
+ const task=yzp.request({...options,isCurrent:active,success:res=>{if(active())success?.call(options,res);},fail:error=>{if(active())fail?.call(options,error);},complete:value=>{if(this._alive&&epoch===this._detailEpoch&&parent===this.parent_id&&identity===this.currentIdentity()){if(mutation)this.saving=false;complete?.call(options,value);}}});
+ if(task)this._detailTasks.push(task);else if(mutation)this.saving=false;return task;
+},
+/** 保留原300ms候选/控件准备时序，只有实际VO标识一致才开放子表。 */
+markOriginalRecordReady() {this.recordReady=Boolean(this.id&&originalRecordId(this.entity.id)===this.id);const current=this.originalContext();setTimeout(()=>{if(current())this.loadEntitySuccess=true;},300);},
+/** 已验证多选桥接使用原实体；changes仅用于内部选择状态，不替换整entity请求。 */
+change(field,value) {if(this.readOnlyCondition||!["name","configTableTableName","orderBy","whereSql","configTableId","exactDataManageMatchField","pageSize","isEdit","isNew","isUpdate","isDelete","isSearch","isSum","isBatchDelete","isImport","isExport","isMultiSelect","isExportEdit","exportMethod","isCopy","readOnlyCondition","importMethod","buttonVisible","isAfterAdd","isAfterSave","isBeforeSave","childPlace","isAfterDelete","isRepeatPwd","saveAutoClose","childStyle","isBeforeDelete","configTableName","isAutoHide","isListEdit","parentConfigTableId","parentConfigTableName","type","isBeforeQuery","parentConfigPageId","isBeforeGet","parentConfigPageName","isNotGenerateDetailPage","importNo","mobileListPageStyleType","isAutoBackOnMobileSave","cols","isUpdateEditColumnsOnly","detailPageButtonsPosition","yzAdminTypeId"].includes(field))return;this.entity[field]=value;this.changes[field]=value;},
+/** 原权限刷新始终完成回调；子页复用快照仍由readOnlyCondition核对自身操作。 */
+refreshCurrentPermissions(done) {const epoch=this._detailEpoch,identity=this.currentIdentity();const finish=()=>{if(this._alive&&epoch===this._detailEpoch&&identity===this.currentIdentity()){this.permissionVersion++;done?.();}};yzp.refreshCurrentPermissions(finish,finish);},
+/** 复制沿用POST和原onChange/关闭行为，确认窗口的迟到回调不会写其他记录。 */
+copyEntity() {if(this.readOnlyCondition||!this.page_is_copy||!this.id||!yzp.hasPagePermission(this.page_sn,'is_all'))return;const that=this,current=this.originalContext();uni.showModal({title:'确定要复制吗？',success(modal){if(!modal.confirm||!current()||that.readOnlyCondition)return;that.originalRequest({url:"/admin/auto/config_page/6191175925956608"+'/copy/'+that.id+that.buildParentIdQuery(),method:'POST',sendSessionId:true,success(res){if(res.code===200){that.notifyMenuMutation();that.emitDetailChange('copy');that.closeDetail();}else uni.showModal({showCancel:false,content:res.msg});}});}});},
+/** 按原Save/NotSave、确认、固定接口或页面动作执行，不接受调用方改写动作。 */
+runOriginalButton(id) {
+ const button=this.originalButtons.find(item=>item.id===id);if(!button||!this['customerButtonShow'+id])return;const current=this.originalContext(),that=this;
+ const execute=()=>{that.permissionVersion++;if(!current()||!that['customerButtonShow'+id])return;const action=()=>{
+  if(button.action===1)that.originalRequest({url:'/admin/sys/config_button/execute',method:'POST',data:{buttonId:id,entityId:that.id,entity:that.entity},sendSessionId:true,success(res){if(res.code===200)that.notifyMenuMutation();yzp.customButtonHandler(res,that,button.close,'detail');}});
+  else if(button.action===2){const handler=project['customerButtonHandler'+id];if(typeof handler!=='function')throw new Error('项目未提供原按钮扩展：'+id);uni.navigateTo({url:'/'+button.target,success(){if(that._alive)handler(that.entity);}});}
+  else if(button.action===3){if(typeof window==='undefined')throw new Error('原新窗口按钮只支持Web端。');window.open(location.href.split('pages')[0]+button.target+'?id='+that.id,'_blank');}
+ };if(button.save==='NotSave')action();else that.saveEntity(()=>{if(that._alive&&that.currentIdentity()===identity)action();});};
+ const identity=this.currentIdentity();if(button.confirm)uni.showModal({content:button.confirmMsg||'您确定'+button.name+'吗？',success(modal){if(modal.confirm)execute();}});else execute();
+},
+
+    loadOriginalOptions1671100304320462849() {const that=this;that.config_table_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["1671100304320462849"]||0)+1;that._originalOptions["1671100304320462849"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/config_page/6191175925956608/findNameIdConfigTable1671100304320462849",isCurrent:()=>optionSequence===that._originalOptions["1671100304320462849"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.configTableId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.config_table_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+configTableIdDetailChange(item) { if(this.configTableIdReadOnly) return; this.entity.configTableId=item ? item.id : ''; this.entity.configTableName=item ? item.name : ''; },
+loadOriginalOptions2200000000000000105() {const that=this;that.yz_admin_type_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["2200000000000000105"]||0)+1;that._originalOptions["2200000000000000105"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/config_page/6191175925956608/findNameIdYzAdminType2200000000000000105",isCurrent:()=>optionSequence===that._originalOptions["2200000000000000105"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.yzAdminTypeId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_admin_type_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : '';  },
+customerButtonHandler1675705392114606082() { this.runOriginalButton("1675705392114606082"); },
+customerButtonHandler1676949833760571394() { this.runOriginalButton("1676949833760571394"); },
+customerButtonHandler1677942658826280962() { this.runOriginalButton("1677942658826280962"); },
+customerButtonHandler1678020383436009473() { this.runOriginalButton("1678020383436009473"); },
+customerButtonHandler1761377189732839425() { this.runOriginalButton("1761377189732839425"); },
+customerButtonHandler1696339787104047106() { this.runOriginalButton("1696339787104047106"); },
+customerButtonHandler2111122691124760576() { this.runOriginalButton("2111122691124760576"); },
+customerButtonHandler1880945414320971778() { this.runOriginalButton("1880945414320971778"); },
+showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },
+
+    
+    
+    
+    initLists: function () {
+      // 整页只读时只展示详情数据，不加载编辑候选项接口。
+      if (this.readOnlyCondition && !this.page_is_function_table) {
+        return;
+      }
+      var that = this;
+      that.loadOriginalOptions1671100304320462849();
+that.loadOriginalOptions2200000000000000105();
+
     },
-    /** 新增和修改均只发送元数据允许编辑的字段，保留省略、null、false和零。 */
-    save() {
-      if (this.saving || this.readOnlyCondition || !(this.id ? this.canSave : this.canCreate) || false && !this.parentId) return;
-      const data = {};
-      for (const field of writableFields) { if (this.id ? Object.prototype.hasOwnProperty.call(this.changes, field) : Object.prototype.hasOwnProperty.call(this.entity, field)) data[field] = this.id ? this.changes[field] : this.entity[field]; }
-      if (this.id) data.id = this.id;
-      const id = this.id, parentId = this.parentId, identity = this.currentIdentity(), epoch = this._epoch, hadChildren = this.childrenReady;
-      const current = () => this._alive && epoch === this._epoch && id === this.id && parentId === this.parentId && identity === this.currentIdentity();
-      this.saving = true;
-      this._writeRequest = yzp.request({ url: '/admin/auto/config_page/6191175925956608/' + (this.id ? 'update' : 'add') + '?parentId=' + encodeURIComponent(this.parentId), method: 'POST', data, sendSessionId: true, isCurrent: current,
-        success: res => { if (current() && res.code === 200 && recordId(res.data?.id)) { this.id = res.data.id; this.entity = res.data; this.changes = {}; this.recordReady = true; this.emitDetailChange('save', res.data, id ? 'update' : 'add'); if (this.is_props) this.closeDetail(); else if (hadChildren) this.$nextTick(() => this.refreshSonsData()); uni.showToast({ title: '保存成功', icon: 'success' }); } }, complete: () => { if (this._alive && epoch === this._epoch) this.saving = false; } });
+    refreshSonsData: function () {
+      // this.getEntity();
+      if (!this.originalChildrenReady) return;
+      this.$refs.ChildList1676947774218887170?.refreshData();
+this.$refs.ChildList1678023451326115842?.refreshData();
     },
-    /** 删除仅通知当前列表，子表刷新不会写入或重载父实体。 */
-    remove() {
-      if (this.readOnlyCondition || !this.canDelete || !yzp.hasPagePermission('6191175925956608', 'is_delete') || !this.id || this.saving) return;
-      const id = this.id, parentId = this.parentId, epoch = this._epoch, identity = this.currentIdentity();
-      const current = () => this._alive && epoch === this._epoch && id === this.id && parentId === this.parentId && identity === this.currentIdentity();
-      uni.showModal({ title: '删除确认', content: '确定删除当前记录？', success: modal => { if (!modal.confirm || !current() || this.readOnlyCondition || !yzp.hasPagePermission('6191175925956608', 'is_delete') || this.saving) return; this.saving = true;
-        this._writeRequest = yzp.request({ url: '/admin/auto/config_page/6191175925956608?parentId=' + encodeURIComponent(parentId), method: 'DELETE', data: { id }, sendSessionId: true, isCurrent: current,
-          success: res => { if (current() && res.code === 200) { this.recordReady = false; this.emitDetailChange('delete'); this.closeDetail(); } }, complete: () => { if (this._alive && epoch === this._epoch) this.saving = false; } });
-      } });
+    initDynamicLists: function () {
+      // 整页只读时不响应联动候选项加载。
+      if (this.readOnlyCondition && !this.page_is_function_table) {
+        return;
+      }
+      var that = this;
+      
+    },
+    emitDetailChange(action, entity, method) {
+      // 仅修改保存时携带最新实体；新增、删除等动作继续使用旧字符串事件。
+      var payload = action;
+      if (action == 'save' && method == 'update' && entity && entity.id) {
+        payload = {
+          action: action,
+          method: method,
+          entity: entity
+        };
+      }
+      if (this.is_props) {
+        this.$emit('onChange', payload);
+        return;
+      }
+      const openerEventChannel = this.getOpenerEventChannel ? this.getOpenerEventChannel() : null;
+      if (openerEventChannel && openerEventChannel.emit) {
+        openerEventChannel.emit('onChange', payload);
+      }
+    },
+    closeDetail() {
+      if (this.is_props) {
+        this.$emit('onPopClose');
+        return;
+      }
+      // 独立路由页关闭时复用全局返回兜底，避免没有历史栈时停留空操作。
+      yzp.back();
+    },
+    getEntity: function () {
+      if (this.page_is_function_table) {
+        // 功能表没有物理业务表，刷新时只重载候选数据，避免访问标准详情接口。
+        this.initLists();
+        setTimeout(() => this.loadEntitySuccess = true, 300);
+        return;
+      }
+      var that = this;
+      that.originalRequest({
+        url: '/admin/auto/config_page/6191175925956608/detail/' + that.id + that.buildParentIdQuery(),
+        sendSessionId: true,
+        success: function (res) {
+          if (res.code == 200) {
+            // 既有记录必须由当前请求回读同一字符串ID，错误VO不能成为下一次整entity写入对象。
+            if (!res.data || Array.isArray(res.data) || originalRecordId(res.data.id) !== that.id) {
+              that.recordReady = false;
+              that.loadEntitySuccess = false;
+              uni.showModal({ showCancel: false, content: '详情返回记录与当前页面不一致，请刷新后重试' });
+              return;
+            }
+            that.entity = res.data;
+            
+            that.markOriginalRecordReady();
+            that.initLists();
+          } else {
+            uni.showModal({
+              showCancel: false,
+              content: res.msg,
+              success(modalRes) {
+                  if (modalRes.confirm) uni.navigateBack();
+              }
+            })
+          }
+        },
+      })
+    },
+    saveEntity: function (successFunction, close) {
+      this.permissionVersion++;
+      if (!this._alive || this.saving || this.readOnlyCondition || (!this.page_is_function_table && (this.id ? !this.page_is_save : !this.page_is_new))) return;
+      var that = this;
+      if (this.page_is_function_table) {
+        // 功能表不走标准 add/update，只校验表单后交给自定义按钮继续执行。
+        const validationCurrent = this.originalContext();
+      this.$refs.entityForm.validate().then(valid_res => {
+        if (!validationCurrent() || this.readOnlyCondition || this.saving) return;
+          if (successFunction) {
+            successFunction({ code: 200, data: that.entity });
+          }
+        }).catch(err => {
+          
+          console.log('表单错误信息：', err);
+        })
+        return;
+      }
+      const validationCurrent = this.originalContext();
+      this.$refs.entityForm.validate().then(valid_res => {
+        if (!validationCurrent() || this.readOnlyCondition || this.saving) return;
+        //console.log('表单数据信息：', valid_res);
+        var method = 'add';
+        if (!utils.isBlank(this.id)) {
+          method = 'update';
+        }
+        
+        that.originalRequest({
+          url: '/admin/auto/config_page/6191175925956608/' + method + that.buildParentIdQuery(),
+          data: that.entity,
+          sendSessionId: true,
+          method: 'POST',
+          success: function (res) {
+            if (res.code == 200) {
+              if (!res.data || !originalRecordId(res.data.id) || method === 'update' && originalRecordId(res.data.id) !== that.id) {
+                that.recordReady = false;
+                uni.showModal({ showCancel: false, content: '保存返回记录与当前页面不一致，请重新读取后确认' });
+                return;
+              }
+              that.notifyMenuMutation();
+              that.id = originalRecordId(res.data.id);
+              that.entity = res.data;
+              that.markOriginalRecordReady();
+              // 新建后先确认真实记录ID，再继续原“先保存再执行”按钮动作。
+              if (successFunction) {
+                successFunction(res);
+              }
+              that.emitDetailChange('save', res.data, method);
+              if (that.is_props) {
+                that.closeDetail();
+              } else if (close || (!that.$deviceInfo.is_pc && false)) {
+                that.closeDetail();
+              } else {
+                that.refreshSonsData();
+              }
+            } else {
+              uni.showModal({
+                showCancel: false,
+                content: res.msg
+              })
+            }
+          },
+        })
+      }).catch(err => {
+        
+        console.log('表单错误信息：', err);
+      })
+    },
+    deleteEntity: function () {
+      if (!this._alive || this.saving || this.readOnlyCondition || !this.page_is_delete || !yzp.hasPagePermission(this.page_sn, 'is_delete')) return;
+      const current = this.originalContext();
+      var that = this;
+      uni.showModal({
+        title: '确定要删除吗？',
+        confirmColor: '#0ab3ad',
+        success(modal) {
+          if (modal.confirm && current() && !that.readOnlyCondition) {
+            that.originalRequest({
+              url: '/admin/auto/config_page/6191175925956608' + that.buildParentIdQuery(),
+              method: 'DELETE',
+              data: that.entity,
+              sendSessionId: true,
+              success: function (res) {
+                if (res.code == 200) {
+                  that.notifyMenuMutation();
+                  that.emitDetailChange('delete');
+                  that.closeDetail();
+                } else {
+                  uni.showModal({
+                    showCancel: false,
+                    content: res.msg
+                  })
+                }
+              },
+            })
+          }
+        }
+      })
     }
   }
-};
+}
 </script>
+<style></style>

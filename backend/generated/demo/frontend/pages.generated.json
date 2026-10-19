@@ -3,13 +3,16 @@
     {
       "path": "pages/yzp/demo_customer-list-2200000000000100020",
       "style": {
-        "navigationBarTitleText": "\u793A\u4F8B\u5BA2\u6237"
+        "navigationBarTitleText": "\u793A\u4F8B\u5BA2\u6237",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
       }
     },
     {
       "path": "pages/yzp/demo_customer-detail-2200000000000100020",
       "style": {
-        "navigationBarTitleText": "\u793A\u4F8B\u5BA2\u6237"
+        "navigationBarTitleText": "\u793A\u4F8B\u5BA2\u6237",
+        "navigationStyle": "custom"
       }
     }
   ]

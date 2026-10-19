@@ -13,6 +13,14 @@ public sealed class ConfigMenuPage2200000000000099000Controller(ConfigMenuServic
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("2200000000000099000", operation); return authorization.RequireActor(); }
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "parentMenuId", "yzAdminTypeId", "kind", "configPageId", "configCustomPageId", "navigateUrl", "iconName", "sortNo", "isHidden", "isShowCount", "visibleScheme"], ["insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "name", "parentMenuId", "yzProjectId", "yzAdminTypeId", "kind", "configPageId", "configCustomPageId", "navigateUrl", "iconName", "sortNo", "isHidden", "isShowCount", "visibleScheme", "id"], [], "yzProjectId");
+    /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
+    private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
+    {
+        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
+        return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
+    }
     /// <summary>兼容现有页面明细路由。</summary>
     [HttpGet("detail/{id}")]
     public async Task<R<ConfigMenuPage2200000000000099000Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)
