@@ -153,12 +153,12 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
         }, cancellationToken);
     }
 
-    /// <summary>网页授权列表不回显令牌、摘要或设备长码。</summary>
+    /// <summary>网页授权列表不回显凭据；时间延续原毫秒协议，避免统一日期转换器丢失时区。</summary>
     public async Task<IReadOnlyList<object>> GrantsAsync(AuthenticatedIdentity identity, CancellationToken cancellationToken = default)
     {
         await RequireWebAsync(identity, false, cancellationToken);
         return (await store.ReadAsync("sys_agent_grant", new Dictionary<string, object?> { ["account_id"] = identity.Actor.AccountId, ["project_id"] = long.Parse(identity.Actor.ProjectId, CultureInfo.InvariantCulture), ["status"] = "approved" }, cancellationToken))
-            .Where(r => Date(r, "refresh_expires_at") > _clock.GetUtcNow().UtcDateTime).Select(r => (object)new { id = SqlRowStore.Id(r), clientName = SqlRowStore.Text(r, "client_name"), createdAt = Date(r, "insert_time"), expiresAt = Date(r, "refresh_expires_at") }).ToArray();
+            .Where(r => Date(r, "refresh_expires_at") > _clock.GetUtcNow().UtcDateTime).Select(r => (object)new { id = SqlRowStore.Id(r), clientName = SqlRowStore.Text(r, "client_name"), createdAt = new DateTimeOffset(DateTime.SpecifyKind(Date(r, "insert_time"), DateTimeKind.Utc)).ToUnixTimeMilliseconds(), expiresAt = new DateTimeOffset(DateTime.SpecifyKind(Date(r, "refresh_expires_at"), DateTimeKind.Utc)).ToUnixTimeMilliseconds() }).ToArray();
     }
 
     /// <summary>服务入口再次核对真实web会话和当前账号角色，不能只相信调用者构造的Actor。</summary>

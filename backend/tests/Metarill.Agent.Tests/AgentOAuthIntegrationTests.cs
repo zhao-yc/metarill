@@ -62,6 +62,28 @@ public sealed class AgentOAuthIntegrationTests
         Assert.Equal("expired_token", (await AgentFixture.ReadAsync(await f.PollAsync(expired.GetProperty("device_code").GetString()!))).GetProperty("error").GetString());
     }
 
+    /// <summary>真实 HTTP 列表保留原毫秒时间协议，不受全局日期格式转换影响。</summary>
+    [AgentIntegrationFact]
+    public async Task BrowserGrantListDatesPreserveUtcAndDoNotExposeCredentials()
+    {
+        await using var f = await AgentFixture.CreateAsync();
+        var token = await f.GrantAsync();
+        var grant = Assert.Single(await f.Store.ReadAsync("sys_agent_grant", new Dictionary<string, object?> { ["account_id"] = f.AccountId, ["status"] = "approved" }));
+        var response = await AgentFixture.ReadAsync(await f.WebAsync(HttpMethod.Get, "/api/admin/sys/agent/grants", project: f.DemoProject));
+        var listed = Assert.Single(response.GetProperty("data").EnumerateArray());
+        foreach (var pair in new[] { ("createdAt", "insert_time"), ("expiresAt", "refresh_expires_at") })
+        {
+            var actual = listed.GetProperty(pair.Item1).GetString()!;
+            Assert.True(long.TryParse(actual, out var milliseconds));
+            var expected = DateTime.SpecifyKind(Convert.ToDateTime(grant[pair.Item2], System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
+            Assert.Equal(new DateTimeOffset(expected).ToUnixTimeMilliseconds(), milliseconds);
+        }
+        Assert.False(listed.TryGetProperty("refresh_hash", out _));
+        Assert.False(listed.TryGetProperty("device_code_hash", out _));
+        Assert.DoesNotContain(token.GetProperty("access_token").GetString()!, listed.GetRawText());
+        Assert.DoesNotContain(token.GetProperty("refresh_token").GetString()!, listed.GetRawText());
+    }
+
     [AgentIntegrationFact]
     public async Task RefreshRotatesImmediatelyAndReplayRevokesFamily()
     {

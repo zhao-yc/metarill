@@ -36,8 +36,13 @@ export default {
 			yzp.goLoginWithRedirect('/pages/custom/agent_grants');
 			return false;
 		},
-		/** 服务端返回毫秒时间戳，空的最近使用时间保持明确提示。 */
-		formatTime(value, empty = '以服务器校验为准') { return value ? new Date(Number(value)).toLocaleString() : empty; },
+		/** 兼容旧服务的毫秒时间戳和 C# 服务的 ISO 日期，空值或非法值保持明确提示。 */
+		formatTime(value, empty = '以服务器校验为准') {
+			if (value === null || value === undefined || String(value).trim() === '') return empty;
+			const numeric = Number(value);
+			const date = new Date(Number.isFinite(numeric) ? numeric : value);
+			return Number.isNaN(date.getTime()) ? empty : date.toLocaleString();
+		},
 		/** 每次进入或刷新重新读取当前账号的有效连接。 */
 		loadGrants() {
 			if (this.loading || this.revokingId || !this.ensureLogin()) return;

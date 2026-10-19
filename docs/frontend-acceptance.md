@@ -113,3 +113,11 @@ create_menu 使用页面直接归属后台，在该后台根目录“页面”�
 成功返回 type:metarillRefresh 与配置回执，共享按钮处理器沿原详情/列表刷新和自动关闭设置处理，不把回执覆盖到entity；菜单动作发送既有onMenuConfigurationChanged事件。选择器、富文本及多端操作设计没有替换，H5 AppID和许可验收缺口不变。
 
 本批验证：兼容网关/领域动作后端29项通过，包含8项随机独占项目的真实MySQL动作测试及原3项只读网关/Controller测试，0跳过；前端182项通过，新增4项实际公共按钮处理器测试覆盖实体不被回执污染、菜单刷新、自动关闭与原实体响应兼容。执行中途ID生成失败能回滚已插入页面与字段；并发菜单创建验证使用两条独立数据库连接。未运行H5或设备操作验收。
+
+## Agent 授权页面协议兼容补充（2026-10-19）
+
+授权列表的 createdAt / expiresAt 保留原 YZP 的 UTC 毫秒语义；C# 通过统一 long 转换器输出数字字符串，避免 DateTime 转换器的无时区文本导致浏览器误读。前端 formatTime 同时兼容数字毫秒、数字字符串与带时区 ISO 日期，空值及非法日期显示明确占位。当前没有 lastUsedAt 数据字段，不新增数据库列，也不伪造最近使用时间。
+
+验证：`node --test frontend/metarill_uni_admin/tests/agentBrowserCompat.test.mjs` 共 5 项通过，直接执行实际 Vue 页面方法，覆盖登录回跳、查询与确认分离、重复提交保护、网络结果未知后的重新查询提示及人工确认撤销。使用 `METARILL_TEST_SETTINGS` 指向不提交的隔离配置，`METARILL_PLATFORM_METADATA` 指向本克隆平台元数据，执行 `dotnet test backend/tests/Metarill.Agent.Tests/Metarill.Agent.Tests.csproj --nologo --verbosity minimal` 共 17 项通过、0 失败、0 跳过；新增 HTTP 列表测试核对 UTC 毫秒精度及凭据不回显。HTTP 经 ASP.NET TestServer 和真实 MySQL，测试强制限定 metarill_test / metarill_business_test，仅创建随机测试账号、角色及其关联记录，按本次主键清理，不写开发库。
+
+本轮未启动 8088/5188 服务，未完成浏览器人工授权操作、H5 构建或真机验收；上述方法测试与 TestServer HTTP 测试不能替代这些验收。
