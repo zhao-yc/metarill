@@ -72,6 +72,8 @@ public sealed partial class LocalGenerationUpdater
             if (!manifest.RootElement.TryGetProperty("vueVersion", out var vue) || vue.GetString() != "3" || !manifest.RootElement.TryGetProperty("appid", out var appid) || appid.ValueKind != JsonValueKind.String) throw new InvalidOperationException("已有前端必须保持Vue3及字符串AppID配置。");
         if (candidate)
         {
+            // 候选必须满足完整前端能力合同；旧目标只读归属验证不反向强加新能力门禁。
+            new FrontendPackager().Validate(metadata);
             var model = GenerationModel.Create(metadata, package.RootNamespace);
             var rendered = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(WriteSchemaRenderer.Render(model)).ToArray();
             var expected = rendered.Where(file => !file.Handwritten).Select(file => new UpdateEntry(file.Path, Hash(System.Text.Encoding.UTF8.GetBytes(file.Content.Replace("\r\n", "\n").Replace("\r", "\n"))))).ToArray();
