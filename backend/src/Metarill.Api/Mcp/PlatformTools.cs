@@ -6,6 +6,7 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Runtime;
 using Metarill.Runtime.Metadata;
+using Metarill.Runtime.Files;
 using Metarill.Runtime.Security;
 using ModelContextProtocol.Server;
 
@@ -25,9 +26,12 @@ public sealed class PlatformTools
             pages=catalog.ConfigPages.Select(p=>new{p.Id,p.ConfigTableId,p.Name,p.YzAdminTypeId}),menus=catalog.ConfigMenus};
     }
     [McpServerTool(Name="preview_database_schema",ReadOnly=true),Description("预览当前项目的数据库结构差异和 SQL，不执行 DDL。")]
-    public static async Task<object> Preview(MetadataRepository metadata,ProjectSchemaService schemas,HttpRuntimeAuthorization authorization,CancellationToken token)
+    public static async Task<object> Preview(MetadataRepository metadata,ProjectSchemaService schemas,ProjectFileRuntimes files,HttpRuntimeAuthorization authorization,CancellationToken token)
     {
-        var actor=authorization.RequireAdministrator();return await schemas.Resolve(actor.ProjectId).PreviewAsync(await metadata.LoadProjectAsync(actor.ProjectId,token),token);
+        var actor=authorization.RequireAdministrator();
+        // 完整项目预览与HTTP入口相同，包含源头派生的同库文件基础结构。
+        var physical=files.ComposePhysical(await metadata.LoadProjectAsync(actor.ProjectId,token));
+        return await schemas.Resolve(actor.ProjectId).PreviewAsync(physical,token);
     }
     [McpServerTool(Name="call_generated_page",ReadOnly=false),Description("调用已发布页的强类型服务。operation 为 list/detail/create/update/delete/copy；写操作必须明确 confirmed=true。字段遵循生成 DTO，省略保持，null 清空。")]
     public static async Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,MetadataRegistry registry,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)

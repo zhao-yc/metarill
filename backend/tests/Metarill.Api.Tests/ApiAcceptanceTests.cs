@@ -188,6 +188,12 @@ public sealed partial class ApiAcceptanceTests
         var tools=await mcp.ListToolsAsync();Assert.Contains(tools,t=>t.Name=="get_project_metadata");Assert.Contains(tools,t=>t.Name=="call_generated_page");
         var result=await mcp.CallToolAsync("call_generated_page",new Dictionary<string,object?>{{"pageId","2200000000000100020"},{"operation","list"},{"data",new{filters=new{}}},{"confirmed",false}});
         Assert.NotEqual(true,result.IsError);Assert.Contains("records",JsonSerializer.Serialize(result),StringComparison.Ordinal);
+        var preview=await mcp.CallToolAsync("preview_database_schema",new Dictionary<string,object?>());
+        Assert.NotEqual(true,preview.IsError);
+        var text=Assert.Single(preview.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>()).Text;
+        var mcpPlan=Json(text);
+        var httpPlan=Data(await Post(client,"/admin/sys/database/preview",new{projectId=Project}));
+        Assert.Equal(httpPlan.GetProperty("desiredFingerprint").GetString(),mcpPlan.GetProperty("desiredFingerprint").GetString());
         using var anonymous=factory.CreateClient();using var denied=await anonymous.PostAsJsonAsync("/api/mcp",new{jsonrpc="2.0",id=3,method="tools/list",@params=new{}});Assert.Equal(System.Net.HttpStatusCode.Unauthorized,denied.StatusCode);
     }
     [MySqlApiFact]
