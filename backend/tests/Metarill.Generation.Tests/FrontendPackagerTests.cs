@@ -25,10 +25,25 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         Assert.DoesNotContain(result.Files, file => file.Contains("pages/custom/", StringComparison.Ordinal) || file.Contains("yzp-control-detail-editor", StringComparison.Ordinal) || file.Contains(".local/", StringComparison.Ordinal) || file.Contains("development.settings", StringComparison.Ordinal));
         var sourceAppId = JsonDocument.Parse(File.ReadAllText(Path.Combine(SourceRoot(), "frontend/metarill_uni_admin/manifest.json"))).RootElement.GetProperty("appid").GetString()!;
         foreach (var path in Directory.EnumerateFiles(Path.Combine(output, "frontend"), "*", SearchOption.AllDirectories).Where(path => Path.GetExtension(path) is ".js" or ".json" or ".vue")) Assert.DoesNotContain(sourceAppId, File.ReadAllText(path));
-        var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node") { WorkingDirectory = Path.Combine(output, "frontend"), CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
-        info.ArgumentList.Add("--experimental-vm-modules"); info.ArgumentList.Add("scripts/verify-frontend.mjs");
-        using var process = Process.Start(info)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); await process.WaitForExitAsync();
-        Assert.True(process.ExitCode == 0, await stderr); Assert.Contains("闭包检查通过", await stdout);
+        var verified = await VerifyFrontendAsync(Path.Combine(output, "frontend"));
+        Assert.True(verified.Code == 0, verified.Error); Assert.Contains("闭包检查通过", verified.Output);
+    }
+
+    /// <summary>导出初始AppID仍为空，开发者填写自己的字符串AppID后真实Node闭包检查必须继续可用。</summary>
+    [Fact]
+    public async Task Developer_customized_appid_passes_real_node_verification()
+    {
+        var output = Path.Combine(root, "custom-appid"); new ApplicationPackager().Create(Demo(), output, "Example.CustomAppId", SourceRoot());
+        var manifestPath = Path.Combine(output, "frontend/manifest.json");
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(manifestPath))!;
+        Assert.Equal("", manifest["appid"]!.GetValue<string>());
+        manifest["appid"] = "__UNI__0000000"; // 本测试的虚构标识，不复用平台或用户AppID，也不执行发行。
+        File.WriteAllText(manifestPath, manifest.ToJsonString());
+        var verified = await VerifyFrontendAsync(Path.Combine(output, "frontend"));
+        Assert.True(verified.Code == 0, verified.Error); Assert.Contains("闭包检查通过", verified.Output);
+        manifest["appid"] = 123; File.WriteAllText(manifestPath, manifest.ToJsonString());
+        var invalid = await VerifyFrontendAsync(Path.Combine(output, "frontend"));
+        Assert.NotEqual(0, invalid.Code); Assert.Contains("manifest.appid必须为字符串", invalid.Error);
     }
 
     /// <summary>未知与平台专用控件必须在stage写入前拒绝，错误准确指出页面和控件。</summary>
@@ -143,6 +158,17 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
             foreach (var file in Directory.EnumerateFiles(Path.Combine(output, "frontend"), "*", SearchOption.AllDirectories).Where(file => Path.GetExtension(file) is ".js" or ".json" or ".vue")) Assert.DoesNotContain(marker, File.ReadAllText(file));
         }
         finally { File.Delete(target); }
+    }
+
+    /// <summary>在实际工程目录执行随包Node校验，不用源码断言代替运行结果。</summary>
+    private static async Task<(int Code, string Output, string Error)> VerifyFrontendAsync(string directory)
+    {
+        var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node") { WorkingDirectory = directory, CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
+        info.ArgumentList.Add("--experimental-vm-modules"); info.ArgumentList.Add("scripts/verify-frontend.mjs");
+        using var process = Process.Start(info)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(timeout.Token); } catch { if (!process.HasExited) process.Kill(true); throw; }
+        return (process.ExitCode, await stdout.WaitAsync(timeout.Token), await stderr.WaitAsync(timeout.Token));
     }
 
     public async ValueTask DisposeAsync() => await TestDirectoryCleanup.DeleteAsync(root, Path.Combine(Path.GetTempPath(), "metarill-frontend-package"));
