@@ -2,12 +2,13 @@ using Metarill.Core.Security;
 using Metarill.Data;
 using Metarill.Data.Schema;
 using Metarill.Runtime.Metadata;
+using Metarill.Runtime.Files;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 
 namespace Metarill.Runtime;
 
-public sealed class BootstrapService(DatabaseSession session,SchemaService schema,SqlRowStore store,MetadataRepository metadata,MetadataRegistry registry)
+public sealed class BootstrapService(DatabaseSession session,SchemaService schema,SqlRowStore store,MetadataRepository metadata,MetadataRegistry registry,ProjectFileRuntimes files)
 {
     /// <summary>只能由显式初始化命令调用，普通服务启动从不执行 DDL。</summary>
     public async Task InitializeAsync(string username,string password,DatabaseOptions businessOptions,CancellationToken cancellationToken=default)
@@ -33,7 +34,7 @@ public sealed class BootstrapService(DatabaseSession session,SchemaService schem
         },cancellationToken);
         using var business=new DatabaseSession(businessOptions);
         var businessSchema=new SchemaService(business);
-        var businessPlan=await businessSchema.PreviewAsync(registry.Demo,cancellationToken);
+        var businessPlan=await businessSchema.PreviewAsync(files.ComposePhysical(registry.Demo),cancellationToken);
         if(businessPlan.Changes.Count>0)await businessSchema.ApplyAsync(businessPlan,cancellationToken);
     }
 }
