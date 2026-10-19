@@ -12,8 +12,8 @@ public sealed record FrontendPackageResult(IReadOnlyList<string> Files);
 public sealed class FrontendPackager
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
-    private static readonly string[] RuntimeModules = ["buttonVisibleRule", "detailLayoutRuntime", "exportDownload", "fileLibraryFolderTree", "fileLibraryThumbnailPan", "generationDownload", "h5DocumentTitleSync", "imageUploadCropper", "listPageRuntime", "menuRuntime", "menuRuntimeBridge", "pageWritePayload", "relationReadValues", "tinyCloudEditor", "yzp-runtime"];
-    private static readonly string[] Components = ["yzp-auto-pan-image", "yzp-cascade-tree", "yzp-file-library", "yzp-popup", "zxz-uni-data-select"];
+    private static readonly string[] RuntimeModules = ["buttonVisibleRule", "detailLayoutRuntime", "exportDownload", "fileLibraryFolderTree", "fileLibraryThumbnailPan", "generationDownload", "h5DocumentTitleSync", "imageUploadCropper", "listPageRuntime", "menuRuntime", "menuRuntimeBridge", "pageWritePayload", "relationOptionsMixin", "relationReadValues", "remoteRelationOptions", "tinyCloudEditor", "yzp-runtime"];
+    private static readonly string[] Components = ["yzp-auto-pan-image", "yzp-cascade-tree", "yzp-file-library", "yzp-popup", "yzp-relation-select", "zxz-uni-data-select"];
     private static readonly string[] UniModules = ["uni-badge", "uni-calendar", "uni-card", "uni-collapse", "uni-combox", "uni-countdown", "uni-data-checkbox", "uni-data-picker", "uni-data-select", "uni-dateformat", "uni-datetime-picker", "uni-drawer", "uni-easyinput", "uni-fab", "uni-fav", "uni-file-picker", "uni-forms", "uni-goods-nav", "uni-grid", "uni-group", "uni-icons", "uni-indexed-list", "uni-link", "uni-list", "uni-load-more", "uni-nav-bar", "uni-notice-bar", "uni-number-box", "uni-pagination", "uni-popup", "uni-rate", "uni-row", "uni-scss", "uni-search-bar", "uni-section", "uni-segmented-control", "uni-steps", "uni-swipe-action", "uni-swiper-dot", "uni-table", "uni-tag", "uni-title", "uni-tooltip", "uni-transition", "uni-ui"];
 
 

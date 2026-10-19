@@ -3,6 +3,7 @@
   "components/yzp-cascade-tree/yzp-cascade-tree.vue",
   "components/yzp-file-library/yzp-file-library.vue",
   "components/yzp-popup/yzp-popup.vue",
+  "components/yzp-relation-select/yzp-relation-select.vue",
   "components/zxz-uni-data-select/LICENSE",
   "components/zxz-uni-data-select/LICENSE.upstream",
   "components/zxz-uni-data-select/NOTICE.md",
