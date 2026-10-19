@@ -22,7 +22,7 @@ export default {
  onLoad(options) {
   this._alive = true; this._revision = 0; this._uploads = new Set(); this._channel = this.getOpenerEventChannel();
   this.action = options.action === 'edit' ? 'edit' : 'review';
-  this._receiveRtf = data => { if (this._alive) this.rtf = typeof data?.data === 'string' ? data.data : ''; };
+  this._receiveRtf = data => { if (this._alive) { this._originalRtf = typeof data?.data === 'string' ? data.data : ''; this.rtf = this._originalRtf; } };
   this._channel.on('sendRtf', this._receiveRtf);
   if (this.action === 'review') uni.setNavigationBarTitle({ title: '预览' });
   else this.loadEditorConfiguration();
@@ -32,7 +32,11 @@ export default {
   if (!this._alive) return;
   if (this.action === 'edit') {
    // 编辑器已经销毁时保留最后一次双向绑定值，仍须完成回传与清理。
-   try { if (this._editor && typeof this._editor.getContent === 'function') this.rtf = this._editor.getContent(); } catch { /* 保留已有 HTML。 */ }
+   try {
+    // 初始化可能规范化HTML；用户没有编辑时回传原始字节，避免只打开页面就产生更新。
+    if (this._editor?.isDirty?.() === false) this.rtf = this._originalRtf ?? '';
+    else if (this._editor && typeof this._editor.getContent === 'function') this.rtf = this._editor.getContent();
+   } catch { /* 保留已有 HTML。 */ }
    this._channel.emit('onReceiveRtf', this.rtf);
   }
   this._alive = false; this._revision++; clearTimeout(this._loadTimer);

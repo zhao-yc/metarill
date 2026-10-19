@@ -83,3 +83,15 @@ test('图片失败、非法地址和编辑页失效均拒绝插入，绝不回�
  }
  const expired = uploadFixture(); expired.changed(); expired.request.success({ statusCode: 200, data: { code: 200, location: 'https://example.invalid/image.png' } }); await assert.rejects(expired.pending, /页面已失效/)
 })
+
+/** TinyMCE初始化可规范化HTML，模拟真实dirty标记区分用户输入，不访问Cloud。 */
+test('只打开编辑器不编辑时保留原始HTML，真实编辑才采用最新内容', () => {
+ for (const original of ['<P class="raw">原文&nbsp;</P>', '']) {
+  const clean = fixture(); clean.handlers.sendRtf({ data: original }); clean.requests[0].options.success({ code: 200, data: configuration })
+  clean.state.onEditorInit({}, { isDirty: () => false, getContent: () => '<p>初始化规范化</p>' }); clean.state.rtf = '<p>初始化规范化</p>'
+  clean.options.onUnload.call(clean.state); assert.deepEqual(clean.events, [{ name: 'onReceiveRtf', value: original }])
+ }
+ const dirty = fixture(); dirty.handlers.sendRtf({ data: '<p>原文</p>' }); dirty.requests[0].options.success({ code: 200, data: configuration })
+ dirty.state.onEditorInit({}, { isDirty: () => true, getContent: () => '<p>用户修改</p>' }); dirty.options.onUnload.call(dirty.state)
+ assert.deepEqual(dirty.events, [{ name: 'onReceiveRtf', value: '<p>用户修改</p>' }])
+})

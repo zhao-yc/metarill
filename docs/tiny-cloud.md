@@ -25,3 +25,5 @@ Metarill 保留原富文本页面、HTML 双向编辑、预览、工具栏和 `s
 许可依据为 [官方 Vue Cloud 文档](https://www.tiny.cloud/docs/tinymce/latest/vue-cloud/)、[Vue 配置参考](https://www.tiny.cloud/docs/tinymce/latest/vue-ref/) 和 [官方中文资源说明](https://www.tiny.cloud/docs/tinymce/latest/ui-localization/)。Vue 封装采用 MIT，版权与许可保存在 `frontend/metarill_uni_admin/licenses/tinymce-vue.LICENSE.txt`。没有打包 TinyMCE GPL 核心，Cloud 服务自身仍按部署者账户条款使用。
 
 验证边界：配置测试、页面方法/生命周期与上传协议模拟不等于真实 Cloud 加载。当前 key 依用户要求留空，实际 Cloud 编辑、中文/付费插件和图片端到端操作待新账户配置后验收；不因此重复索取 key。HBuilderX 构建与浏览器验证由集成者统一进行，其他目标平台不得由 Web 结果代替验收。
+
+编辑器退出时依据 TinyMCE 的 dirty 标记：只打开未编辑仍回传传入的原始 HTML，避免初始化规范化标签造成意外字段更新；实际用户编辑才读取最新内容。该行为已通过实际页面生命周期探针验证，不代表真实 Cloud 加载验收。
