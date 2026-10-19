@@ -38,10 +38,12 @@ public sealed class GeneratedOriginalPageApiMySqlTests
             var schema = new SchemaService(session); Assert.Empty((await schema.InspectAsync(catalog)).Tables);
             var plan = await schema.PreviewAsync(catalog); Assert.Equal(3, plan.Changes.Count); installed = true; Assert.True((await schema.ApplyAsync(plan)).Succeeded);
             await Execute(session, "INSERT INTO " + Q(session, prefix + "_parent") + " (id,name,yz_project_id) VALUES (@id,'本轮父记录',@project)", ("id", Parent), ("project", Project));
+            var eventTimes = new[] { "2024-02-01 00:00:00", "2024-02-28 23:59:59", "2024-02-29 00:00:00", "2024-02-29 12:00:00", "2024-02-29 23:59:59", "2024-03-01 00:00:00", "2024-01-31 23:59:59" };
             for (var index = 0; index < 23; index++)
             {
                 await Execute(session, "INSERT INTO " + Q(session, prefix + "_target") + " (id,name,yz_project_id,delete_no) VALUES (@id,@name,@project,NULL)", ("id", First + index), ("name", "候选" + index.ToString("D2")), ("project", Project));
                 await Execute(session, "INSERT INTO " + Q(session, prefix + "_source") + " (id,name,yz_project_id,parent_id,readonly_code,status,remark) VALUES (@id,@name,@project,@parent,'原只读值',1,'原备注')", ("id", First + 1000 + index), ("name", "来源" + index.ToString("D2")), ("project", Project), ("parent", Parent));
+                if (index < eventTimes.Length) await Execute(session, "UPDATE " + Q(session, prefix + "_source") + " SET event_time=@time WHERE id=@id", ("time", DateTime.Parse(eventTimes[index], System.Globalization.CultureInfo.InvariantCulture)), ("id", First + 1000 + index));
             }
             await Execute(session, "INSERT INTO " + Q(session, prefix + "_target") + " (id,name,yz_project_id,delete_no) VALUES (@foreign,'外项目',@foreignProject,NULL),(@deleted,'已删',@project,@now)", ("foreign", First + 50), ("foreignProject", Project + 1), ("deleted", First + 51), ("project", Project), ("now", DateTime.UtcNow));
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.LegacyProbe");
@@ -90,6 +92,17 @@ public sealed class GeneratedOriginalPageApiMySqlTests
             var entire = Data(await Post(client, unpaged + "/page", new { pageNo = 1, pageSize = 0, filters = new { } })); Assert.Equal(24, entire.GetProperty("records").GetArrayLength()); Assert.Equal("24", entire.GetProperty("total").ToString()); Assert.Equal("0", entire.GetProperty("pages").ToString()); Assert.Equal(0, entire.GetProperty("size").GetInt32());
             Assert.Equal(500, (await Post(client, normal + "/page", new { pageNo = 1, pageSize = 0 })).GetProperty("code").GetInt32());
             Assert.Equal(500, (await Post(client, unpaged + "/page", new { pageNo = 2, pageSize = 0 })).GetProperty("code").GetInt32());
+            // 原Date/月筛选传YYYY-MM-DD范围，截止日白天不能漏；显式午夜时间仍只到该时刻。
+            foreach (var (start, end, expected) in new[] { ("2024-02-01", "2024-02-29", 5), ("2024-02-29", "2024-02-29", 3), ("2024-02-29T00:00:00", "2024-02-29T00:00:00", 1), ("2024-02-29 00:00:00", "2024-02-29 12:00:00", 2), ("2024-02-29 12:00:00", "2024-02-29", 2), ("2024-02-29", "2024-03-01T00:00:00", 4) })
+            {
+                var filter = new { filters = new { eventTime = new[] { start, end } } };
+                var found = Data(await Post(client, normal + "/page", filter)); Assert.Equal(expected, found.GetProperty("records").GetArrayLength());
+                Assert.Equal(expected.ToString(), Data(await Post(client, normal + "/count", filter)).ToString());
+                Assert.DoesNotContain(found.GetProperty("records").EnumerateArray(), row => row.GetProperty("eventTime").ValueKind == JsonValueKind.Null);
+            }
+            Assert.Equal("24", Data(await Post(client, normal + "/count", new { filters = new { eventTime = Array.Empty<string>() } })).ToString());
+            foreach (var dates in new object[] { new[] { "2024-02-30", "2024-03-01" }, new[] { "2024-03-01", "2024-02-29" }, new[] { "2024-02-29T12:00:00", "2024-02-29T00:00:00" }, new[] { "2024-02-29" }, new object?[] { null, "2024-02-29" }, new[] { "1 OR 1=1", "2024-02-29" } })
+                Assert.Equal(500, (await Post(client, normal + "/page", new { filters = new { eventTime = dates } })).GetProperty("code").GetInt32());
             using (var disabled = await client.PostAsJsonAsync(normal.Replace("/201", "/203", StringComparison.Ordinal) + "/update", new { id, name = "不能保存" })) Assert.Equal(HttpStatusCode.NotFound, disabled.StatusCode);
             client.DefaultRequestHeaders.Add("denyPage", "202"); Assert.Equal(500, (await Post(client, child + "/update" + parentQuery, new { id, name = "拒绝写" })).GetProperty("code").GetInt32()); client.DefaultRequestHeaders.Remove("denyPage"); Assert.Equal(before, await Current());
             // 原删除提交整个实体，服务端仍只读取 ID 并在真实父范围删除。
@@ -116,6 +129,8 @@ public sealed class GeneratedOriginalPageApiMySqlTests
         catalog.ConfigPages.Single(page => page.Id == "301").WhereSql = "yz_project_id=@current_yz_project_id";
         var buyer = catalog.ConfigColumns.Single(column => column.Id == "25"); buyer.ColumnName = "buyer_id"; buyer.ControlDetail = "{\"tableId\":\"3\",\"nameField\":\"name\"}";
         catalog.ConfigColumns.AddRange([new() { Id = "27", ConfigTableId = "2", ColumnName = "readonly_code", LogicalType = "string", DefaultValue = "服务器默认值" }, new() { Id = "28", ConfigTableId = "2", ColumnName = "status", LogicalType = "int32", ControlKind = "ConstList", ControlDetail = "启用|1,停用|0" }, new() { Id = "29", ConfigTableId = "2", ColumnName = "remark", LogicalType = "string" }]);
+        catalog.ConfigColumns.Add(new() { Id = "210", ConfigTableId = "2", ColumnName = "event_time", LogicalType = "datetime", ControlKind = "Date" });
+        catalog.ConfigPageColumns.Add(new() { Id = "201_210", ConfigPageId = "201", ConfigColumnId = "210", IsEdit = 0, IsShow = 1, Extra = new() { ["isSearch"] = JsonSerializer.SerializeToElement(1) } });
         foreach (var (id, editable) in new[] { ("23", false), ("27", false), ("28", true), ("29", true) }) catalog.ConfigPageColumns.Add(new() { Id = "201_" + id, ConfigPageId = "201", ConfigColumnId = id, IsEdit = editable ? 1 : 0, IsShow = 1 });
         foreach (var (id, parent, unpaged) in new[] { ("202", true, false), ("203", false, false), ("204", false, true) })
         {

@@ -23,3 +23,5 @@
 新增实际生成编译、真实 HTTP/Service 与 Server-200 随机三表测试：独立父与同父、两个父组、同 ID 跨父不串名、外项目/软删/不存在目标不泄露名称、来源及目标无权限在准备前拒绝、空结果非法来源父仍拒绝、非法目标父整次不发行、隐藏/多义父映射明确拒绝、真实 Actor 不一致及漏授权依赖拒绝。AOP 检查目标读取不包含未开放私密列，也没有 `SELECT *`。投影接收器用于直接检查真实 Service 的有界结果，不把它冒充 Excel 文件；文件格式和无头下载由既有实际独立包/平台 HTTP 回归覆盖。测试结束仅删除本轮随机表并反查不存在。
 
 2026-10-20 冻结验证：本切片初次定向 3/3 通过，扩大回归前曾被原详情页级 `nameField=id` 覆盖丢失目标页阻断，已保留失败记录并集成独立修复，未改合法夹具。完整 Generation 172 项结果为 164 通过、6 失败、2 项 FreshInstall 专属配置跳过；失败中本fixture在安装阶段与程序集并发DDL争用同库唯一结构锁，尚未执行导出。随后只给此fixture加入不与其他collection并发的测试调度，未给产品加重试或放宽结构锁；导出/选项/Multi/独立包HTTP与MySQL的准确非空定向 6/6 通过、零跳过。其余完整回归失败为四项旧精确错误文本断言及独立前端验收脚本调用旧简化 `save()` 方法，已分别交原UI/脚本维护切片处理，完整套件仍需整合后复验。私有证据在 `.local/relation-export/relation-export-generation-full-v1.trx` 和 `relation-export-target-v4.trx`。不将这次定向通过写成完整套件全绿。
+
+计数澄清：上述最终 6/6 是 `GeneratedRelationExportMySqlTests`、`GeneratedContractTests`、`GeneratedRelationOptionsMySqlTests`、`StandaloneExportMySqlTests`、`GeneratedMultiSelectMySqlTests` 及 `ApplicationPackagerTests.Standalone_package_builds_from_its_own_sources...`；最后一项调用 `StandaloneExportHttpProbe`。不包含 `StandaloneFilesMySqlTests`，该类包内前端 HTTP 脚本在完整回归中的旧 `save()` 失败仍待其独立修复。
