@@ -1,4 +1,8 @@
 using System.Security;
+using System.Globalization;
+using Metarill.Runtime.Files;
+using Metarill.Runtime.Persistence;
+using Metarill.Api.Controllers;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using Metarill.Core.Contracts;
@@ -18,6 +22,9 @@ var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 var metadata = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/project.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少应用元数据。");
 MetadataValidation.Validate(metadata);
+var infrastructure = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/files.json")), jsonOptions)
+    ?? throw new InvalidOperationException("缺少文件基础元数据。");
+var physicalMetadata = MetadataCatalogComposition.MergePhysical(metadata, infrastructure);
 builder.Services.AddSingleton(metadata);
 builder.Services.AddSingleton(provider => new DatabaseSession(builder.Configuration.GetSection("Database").Get<DatabaseOptions>() ?? new()));
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue<int?>("Ids:WorkerId") ?? 1));
@@ -29,9 +36,14 @@ builder.Services.AddSingleton(builder.Configuration.GetSection("Exports").Get<Ex
 builder.Services.AddSingleton<ExcelPageExportService>();
 builder.Services.AddSingleton<IPageExportService>(provider => provider.GetRequiredService<ExcelPageExportService>());
 builder.Services.AddHostedService<ExportCleanupWorker>();
-builder.Services.AddSingleton<IRecordMutationObserver, UnavailableFileObserver>();
+// 文件基础设施与生成 CRUD 共享同一个 DatabaseSession，引用在原业务事务内同步。
+builder.Services.AddSingleton(provider => new SqlRowStore(provider.GetRequiredService<DatabaseSession>(), infrastructure));
+builder.Services.AddSingleton(new FileMetadataContext([metadata]));
+builder.Services.AddSingleton(builder.Configuration.GetSection("Files").Get<FileLibraryOptions>() ?? new());
+builder.Services.AddScoped<FileLibraryService>();
+builder.Services.AddScoped<IRecordMutationObserver, FileReferenceMutationObserver>();
 builder.Services.AddGeneratedServices();
-builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
+builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -46,7 +58,7 @@ if (args.Contains("--schema-preview", StringComparer.Ordinal) || args.Contains("
     // 结构修改只能由显式命令触发，正常 Web 启动永远不自动建表。
     using var scope = app.Services.CreateScope();
     var schema = new SchemaService(scope.ServiceProvider.GetRequiredService<DatabaseSession>(), new FileSchemaChangeJournal(Path.Combine(app.Environment.ContentRootPath, ".local/schema-history.jsonl")));
-    var plan = await schema.PreviewAsync(metadata);
+    var plan = await schema.PreviewAsync(physicalMetadata);
     Console.WriteLine(JsonSerializer.Serialize(plan, new JsonSerializerOptions(jsonOptions) { WriteIndented = true, NewLine = "\n" }));
     if (args.Contains("--schema-apply", StringComparer.Ordinal)) Console.WriteLine(JsonSerializer.Serialize(await schema.ApplyAsync(plan), jsonOptions));
     return;
@@ -57,7 +69,7 @@ app.Use(async (context, next) =>
     try
     {
         var path = context.Request.Path;
-        if (path.StartsWithSegments("/api") && path != "/api/admin/sys/yz_manager/login") context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
+        if (path.StartsWithSegments("/api") && path != "/api/admin/sys/yz_manager/login" && !IsPublicFileContent(context.Request)) context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
         await next(context);
     }
     catch (Exception error) when (!context.Response.HasStarted)
@@ -103,6 +115,15 @@ app.MapGet("/api/admin/sys/export/export", async (string exportId, HttpContext c
 app.MapControllers();
 await app.RunAsync();
 
+// 仅正整数文件标识的 GET/HEAD 公开流可匿名；写入、解析、私有流和相似路径仍须认证。
+static bool IsPublicFileContent(HttpRequest request)
+{
+    const string prefix = "/api/admin/sys/file-library/public-content/";
+    var path = request.Path.Value ?? "";
+    return (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method)) && path.StartsWith(prefix, StringComparison.Ordinal)
+        && long.TryParse(path.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0;
+}
+
 namespace {{NAMESPACE}}.Host
 {
     /// <summary>正式认证和基础设施可通过同程序集手写 partial 接入。</summary>
@@ -114,17 +135,4 @@ namespace {{NAMESPACE}}.Host
         static partial void ConfigureServices(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment);
     }
     public sealed record DevelopmentLogin(string? Username, string? Password);
-    /// <summary>未接入文件库时拒绝写入非空文件引用，避免生成无归属的文件数据。</summary>
-    internal sealed class UnavailableFileObserver(MetadataCatalog metadata) : IRecordMutationObserver
-    {
-        /// <summary>当前事务中阻止没有文件服务接管的引用写入。</summary>
-        public Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)
-        {
-            if (context.IsDelete) return Task.CompletedTask;
-            var table = metadata.ConfigTables.Single(item => item.TableName == context.TableName);
-            foreach (var column in metadata.ConfigColumns.Where(item => item.ConfigTableId == table.Id && item.ControlKind == "FileLibrary"))
-                if (context.SubmittedFields.TryGetValue(column.ColumnName, out var value) && value is not null && value.ToString() is not "" and not "[]" and not "null") throw new NotSupportedException("请先接入文件引用事务服务。");
-            return Task.CompletedTask;
-        }
-    }
 }

@@ -13,6 +13,7 @@ public sealed record ApplicationPackageResult(IReadOnlyList<string> Files, strin
 public sealed class ApplicationPackager
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
+    private static readonly string[] FoundationProjects = ["Metarill.Core", "Metarill.Data", "Metarill.Exports", "Metarill.Files"];
     private static readonly HashSet<string> SensitiveKeys = new(StringComparer.OrdinalIgnoreCase)
     { "connstring", "connectionstring", "password", "pwd", "dbpassword", "accesskey", "accesskeyid", "accesskeysecret", "secret", "secretkey", "privatekey", "clientsecret", "apitoken", "accesstoken", "refreshtoken", "token", "apikey", "credentials" };
 
@@ -24,7 +25,7 @@ public sealed class ApplicationPackager
         CSharpGenerator.SafePath(output, ".metarill-package.json");
         if (File.Exists(output) || Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new InvalidOperationException("独立包输出目录必须不存在或为空。");
         var source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceRoot));
-        foreach (var project in new[] { "Metarill.Core", "Metarill.Data", "Metarill.Exports" })
+        foreach (var project in FoundationProjects)
             if (output.StartsWith(Path.Combine(source, "backend", "src", project) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || output.Equals(Path.Combine(source, "backend", "src", project), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("打包目录不能位于基础源码项目内部。");
         var stage = output.TrimEnd(Path.DirectorySeparatorChar) + ".staging-" + Guid.NewGuid().ToString("N");
         var redactions = new List<string>();
@@ -42,11 +43,16 @@ public sealed class ApplicationPackager
             if (field is JsonObject item && sensitiveColumns.Contains(item["configColumnId"]?.ToString() ?? ""))
                 foreach (var key in new[] { "defaultValue", "initValue" }) if (item[key] is not null) { item[key] = ""; redactions.Add("$.configPageColumns[" + item["id"] + "]." + key); }
         var sanitized = json.Deserialize<MetadataCatalog>(JsonOptions)!;
+        // 基础表仅来自已提交的派生模型；先验证物理组合，冲突不产生任何输出。
+        var infrastructureJson = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source, "backend/metadata/files.json")))!;
+        Scrub(infrastructureJson, "$.files", redactions);
+        var infrastructure = infrastructureJson.Deserialize<MetadataCatalog>(JsonOptions)!;
+        MetadataCatalogComposition.MergePhysical(sanitized, infrastructure);
         try
         {
             Directory.CreateDirectory(stage);
             var generated = new CSharpGenerator().Generate(sanitized, Path.Combine(stage, "backend/generated"), rootNamespace);
-            var projects = new[] { "Metarill.Core", "Metarill.Data", "Metarill.Exports" };
+            var projects = FoundationProjects;
             var packageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var project in projects)
             {
@@ -55,7 +61,11 @@ public sealed class ApplicationPackager
                 var xml = XDocument.Load(csproj);
                 if (xml.Descendants().Any(element => element.Name.LocalName is "Import" or "Target" or "UsingTask" || element.Name.LocalName == "Compile" && element.Attribute("Include") is not null)) throw new InvalidOperationException("基础项目存在外部编译或构建扩展，不能自动打包。");
                 foreach (var reference in xml.Descendants("ProjectReference"))
-                    if (reference.Attribute("Include")?.Value.Replace('\\', '/') != "../Metarill.Core/Metarill.Core.csproj") throw new InvalidOperationException("基础项目引用超出独立包边界。");
+                {
+                    var include = reference.Attribute("Include")?.Value.Replace('\\', '/') ?? "";
+                    if (!FoundationProjects.Any(target => include == "../" + target + "/" + target + ".csproj"))
+                        throw new InvalidOperationException("基础项目引用超出独立包边界。");
+                }
                 foreach (var reference in xml.Descendants("PackageReference")) packageIds.Add(reference.Attribute("Include")?.Value ?? throw new InvalidOperationException("NuGet 引用缺少名称。"));
                 foreach (var file in EnumerateSources(projectSource))
                 {
@@ -79,6 +89,7 @@ public sealed class ApplicationPackager
             Write(stage, "LICENSE", File.ReadAllText(CSharpGenerator.SafePath(source, "LICENSE")));
             Write(stage, "Directory.Build.props", "<Project>\n  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><LangVersion>latest</LangVersion><Deterministic>true</Deterministic><RestorePackagesWithLockFile>true</RestorePackagesWithLockFile></PropertyGroup>\n</Project>\n");
             Write(stage, "backend/metadata/project.json", json.ToJsonString(JsonOptions) + "\n");
+            Write(stage, "backend/metadata/files.json", infrastructureJson.ToJsonString(JsonOptions) + "\n");
             foreach (var (template, destination) in new[] { ("Program.cs.tpl", "backend/Application.Host/Program.cs"), ("Authentication.cs.tpl", "backend/Application.Host/DevelopmentAuthentication.cs"), ("Host.csproj.tpl", "backend/Application.Host/Application.Host.csproj"), ("README.md.tpl", "README.md"), ("appsettings.example.json.tpl", "backend/Application.Host/appsettings.example.json") })
                 Write(stage, destination, Template(template).Replace("{{NAMESPACE}}", rootNamespace));
             Write(stage, ".gitignore", "**/bin/\n**/obj/\n.local/\n**/appsettings.local.json\n**/appsettings.Development.json\n");

@@ -29,10 +29,12 @@
 
 `ApplicationPackager.Create(catalog, outputDirectory, rootNamespace, sourceRoot)` 返回 `ApplicationPackageResult`（Files、MetadataSha256、RedactedPaths、Warnings）。HTTP 宿主必须由管理员配置可信 sourceRoot，不能让请求任意指定服务器源码路径。输出目录必须不存在或为空，失败清理临时目录，不覆盖既有项目。
 
-包包含独立 ASP.NET Core 工程、Core/Data/Exports 源码、元数据、生成代码、固定 SDK 和直接依赖版本；首次 restore 生成传递依赖锁文件。仅复制允许的源码/工程，不复制 `.local`、bin/obj、配置或凭据。已知敏感配置键递归剔除，密码等敏感列保留定义并清空默认值。所有文本与归属 JSON 固定 LF；相同输入重复打包逐字节一致，跨操作系统仍需 CI 对照验证。
+包包含独立 ASP.NET Core 工程、Core/Data/Exports/Files 源码、元数据、生成代码、固定 SDK 和直接依赖版本；首次 restore 生成传递依赖锁文件。仅复制允许的源码/工程，不复制 `.local`、bin/obj、配置或凭据。已知敏感配置键递归剔除，密码等敏感列保留定义并清空默认值。所有文本与归属 JSON 固定 LF；相同输入重复打包逐字节一致，跨操作系统仍需 CI 对照验证。
 
-默认拒绝匿名 API。仅 Development 环境显式配置账号密码可启用开发会话，项目由包内元数据固定；正式认证通过同程序集 HostCustomization partial 替换。正常启动不执行 DDL，结构预览/执行必须使用显式命令。标准 XLSX 导出与私有票据下载随包提供，复用平台同一个 Metarill.Exports 工程，保留读取前门禁、账号/项目隔离、限额与到期清理。文件、Agent、完整 uni-app 工程不随包提供，不能宣称这些能力已经独立化。
+默认拒绝匿名 API；仅已完成且标记 PUBLIC 的文件内容提供匿名 GET/HEAD。仅 Development 环境显式配置账号密码可启用开发会话，项目由包内元数据固定；正式认证通过同程序集 HostCustomization partial 替换。正常启动不执行 DDL，结构预览/执行必须使用显式命令。标准 XLSX 导出与私有票据下载随包提供，复用平台同一个 Metarill.Exports 工程，保留读取前门禁、账号/项目隔离、限额与到期清理。本地文件库复用平台同一个 Metarill.Files 工程，基础三表随包纳入显式结构同步，引用与业务 CRUD 共用原事务。Agent、完整 uni-app 工程不随包提供，不能宣称这些能力已经独立化。
 
-本轮已用独立业务测试库验证包内宿主的 CRUD、复制、部分更新、系统字段拒绝、服务端项目隔离、退出和到期会话失效；显式结构预览无差异且未执行 DDL。自动测试额外验证完整包从自身 Core/Data/Exports 工程编译、敏感值剔除、原子打包，以及无数据库固定投影的真实 HTTP 下载；可选 StandaloneExportMySqlTests 另在严格隔离的 metarill_business_test 库通过唯一随机表验证真实生成页新增、name 筛选导出、长编号文本、超限无部分文件和下载认证，缺少 METARILL_TEST_SETTINGS 时明确跳过；这些结果不代表复杂关系、其他数据库和前端设备验收。
+本轮已用独立业务测试库验证包内宿主的 CRUD、复制、部分更新、系统字段拒绝、服务端项目隔离、退出和到期会话失效；显式结构预览无差异且未执行 DDL。自动测试额外验证完整包从自身 Core/Data/Exports/Files 工程编译、敏感值剔除、原子打包，以及无数据库固定投影的真实 HTTP 下载；可选 StandaloneExportMySqlTests 另在严格隔离的 metarill_business_test 库通过唯一随机表验证真实生成页新增、name 筛选导出、长编号文本、超限无部分文件和下载认证，缺少 METARILL_TEST_SETTINGS 时明确跳过；这些结果不代表复杂关系、其他数据库和前端设备验收。
 
 导出 Controller/Service 需与新的 Core/Runtime 同步再生成：Controller 将延迟准备委托交给 `IPageExportService`；服务端传入行数上限，SQL最多读取上限加一条并显式拒绝超限，不静默截断。自定义导出实现未接入新重载时默认拒绝，不提前读取数据库。
+
+文件基础设施独立包：`node tools/metadata/derive-files.mjs` 从 `backend/metadata/platform.json` 生成 `backend/metadata/files.json`，`--check` 只核对漂移，CI 在生成前执行核对。修改文件基础表元数据后必须重新派生并一并提交，不手写第二套结构。独立包携带 Core/Data/Exports/Files 源码、文件基础元数据、共享文件 Controller 和观察者；结构 CLI 合并物理模型，正常启动不自动建表。相同基础物理定义仅在无业务页面暴露时去重；保留表名及标识冲突提前失败。

@@ -64,6 +64,12 @@ public sealed class ExportProbeController(IPageExportService exports, IRuntimeAu
             Assert.True(ready, "独立包测试宿主未就绪。");
             using var anonymous = await client.GetAsync("/api/admin/sys/export/export?exportId=unknown");
             Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+            // 公开例外仅限 GET/HEAD 正整数标识，近似路径、错误动词和私有流不能绕过认证。
+            foreach (var path in new[] { "/api/admin/sys/file-library/protected-content/1", "/api/admin/sys/file-library/public-content/0", "/api/admin/sys/file-library/public-content/-1", "/api/admin/sys/file-library/public-content/9223372036854775808", "/api/admin/sys/file-library/public-content/1/extra", "/api/admin/sys/file-library/public-content/1/" })
+            {
+                using var denied = await client.GetAsync(path); Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+            }
+            using (var deniedWrite = await client.PostAsJsonAsync("/api/admin/sys/file-library/public-content/1", new { })) Assert.Equal(HttpStatusCode.Unauthorized, deniedWrite.StatusCode);
             using var login = await client.PostAsJsonAsync("/api/admin/sys/yz_manager/login", new { username = "package-probe", password = "package-probe-secret" });
             login.EnsureSuccessStatusCode();
             var loginJson = await login.Content.ReadFromJsonAsync<JsonElement>();

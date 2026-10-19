@@ -35,6 +35,12 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         Assert.DoesNotContain("Metarill.Runtime", host);
         Assert.Contains("../../src/Metarill.Data", host);
         Assert.Contains("../../src/Metarill.Exports", host);
+        Assert.Contains("../../src/Metarill.Files", host);
+        var filesMetadata = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(output, "backend/metadata/files.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(["yz_file_library", "yz_file_library_folder", "yz_file_ref"], filesMetadata.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal).ToArray());
+        Assert.Empty(filesMetadata.ConfigPages);
+        Assert.NotEmpty(filesMetadata.ConfigIndexes);
+        Assert.NotEmpty(filesMetadata.ConfigIndexColumns);
         Assert.Contains("ClosedXML", File.ReadAllText(Path.Combine(output, "Directory.Packages.props")));
         StandaloneExportHttpProbe.WriteFixture(output);
         Assert.Contains("environment.IsDevelopment()", File.ReadAllText(Path.Combine(output, "backend/Application.Host/DevelopmentAuthentication.cs")));
@@ -59,6 +65,39 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         Directory.CreateDirectory(output); File.WriteAllText(Path.Combine(output, "keep.txt"), "保留用户内容");
         Assert.Throws<InvalidOperationException>(() => new ApplicationPackager().Create(GeneratorTests.Catalog(), output, "Example.Standalone", SourceRoot()));
         Assert.Equal("保留用户内容", File.ReadAllText(Path.Combine(output, "keep.txt")));
+    }
+    [Fact]
+    public void Reserved_file_name_conflict_is_rejected_before_output_is_created()
+    {
+        var catalog = GeneratorTests.Catalog(); catalog.ConfigTables[0].TableName = "yz_file_ref";
+        var output = Path.Combine(temporary, "conflict");
+        Assert.Throws<InvalidOperationException>(() => new ApplicationPackager().Create(catalog, output, "Example.Conflict", SourceRoot()));
+        Assert.False(Directory.Exists(output));
+        Assert.False(Directory.Exists(temporary));
+    }
+    [Fact]
+    public void Platform_physical_definitions_are_deduplicated_without_exposing_file_pages()
+    {
+        var catalog = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(SourceRoot(), "backend/metadata/platform.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var result = new ApplicationPackager().Create(catalog, Path.Combine(temporary, "platform"), "Example.Platform", SourceRoot());
+        Assert.Contains("backend/metadata/files.json", result.Files);
+    }
+    [Theory]
+    [InlineData("../Metarill.Runtime/Metarill.Runtime.csproj")]
+    [InlineData("../../outside/Metarill.Core.csproj")]
+    [InlineData("../Metarill.Data/../../outside.csproj")]
+    [InlineData("$(MSBuildProjectDirectory)/../Metarill.Core/Metarill.Core.csproj")]
+    public void Foundation_project_reference_must_belong_to_explicit_package_set(string reference)
+    {
+        var source = Path.Combine(temporary, "unsafe-source");
+        var core = Path.Combine(source, "backend/src/Metarill.Core"); Directory.CreateDirectory(core);
+        var metadata = Path.Combine(source, "backend/metadata"); Directory.CreateDirectory(metadata);
+        File.Copy(Path.Combine(SourceRoot(), "backend/metadata/files.json"), Path.Combine(metadata, "files.json"));
+        File.WriteAllText(Path.Combine(core, "Metarill.Core.csproj"), new System.Xml.Linq.XElement("Project", new System.Xml.Linq.XElement("ItemGroup", new System.Xml.Linq.XElement("ProjectReference", new System.Xml.Linq.XAttribute("Include", reference)))).ToString());
+        var output = Path.Combine(temporary, "unsafe-app");
+        Assert.Throws<InvalidOperationException>(() => new ApplicationPackager().Create(GeneratorTests.Catalog(), output, "Example.Unsafe", source));
+        Assert.False(Directory.Exists(output));
+        Assert.Empty(Directory.GetDirectories(temporary, "*.staging-*"));
     }
     [Fact]
     public void Same_metadata_and_foundation_produce_identical_package_bytes()
