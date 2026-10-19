@@ -23,7 +23,7 @@ public sealed class ExportProbeController(IPageExportService exports, IRuntimeAu
 {
     /// <summary>经真实认证和读取前门禁提交固定投影，不访问任何数据库。</summary>
     [HttpPost]
-    public async Task<R<string>> Create(CancellationToken token) => R<string>.Success(await exports.CreateAsync(authorization.RequireActor(), (maxRows, _) =>
+    public async Task<R<string>> Create(CancellationToken token) => R<string>.Success(await exports.CreateDownloadAsync(authorization.RequireActor(), (maxRows, _) =>
     {
         if (maxRows != 1) throw new InvalidOperationException("未读取独立包导出限额。");
         return Task.FromResult(new PageExportRequest("101", "独立包导出", ["名称", "长编号", "安全文本"], [new object?[] { "中文验收", "9223372036854775807", "=1+1" }]));
@@ -31,7 +31,8 @@ public sealed class ExportProbeController(IPageExportService exports, IRuntimeAu
 }
 """);
 
-    /// <summary>使用随机空闲回环端口启动包内 DLL，验证登录、XLSX、Range、拒绝匿名和票据限额。</summary>
+    /// <summary>使用随机空闲回环端口启动包内 DLL，验证登录、XLSX、Range、两分钟下载凭证及票据限额。</summary>
+    private const string ExcelType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     public static async Task VerifyAsync(string output)
     {
         var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
@@ -95,8 +96,14 @@ public sealed class ExportProbeController(IPageExportService exports, IRuntimeAu
             using var full = await client.PostAsJsonAsync("/api/test/export", new { });
             Assert.Equal(HttpStatusCode.InternalServerError, full.StatusCode);
             Assert.Single(Directory.GetFiles(Path.Combine(output, ".local/exports")));
+            using var browser = new HttpClient { BaseAddress = client.BaseAddress };
+            using (var noHeader = await browser.GetAsync(downloadPath)) { noHeader.EnsureSuccessStatusCode(); Assert.Equal(ExcelType, noHeader.Content.Headers.ContentType?.MediaType); Assert.Contains("no-referrer", noHeader.Headers.GetValues("Referrer-Policy")); }
+            using (var invalidHeader = new HttpRequestMessage(HttpMethod.Get, downloadPath)) { invalidHeader.Headers.Add("loginStateId", "invalid-session"); using var deniedHeader = await browser.SendAsync(invalidHeader); Assert.Equal(HttpStatusCode.Unauthorized, deniedHeader.StatusCode); }
+            using (var extra = await browser.GetAsync(downloadPath + "&projectId=1")) Assert.Equal(HttpStatusCode.Unauthorized, extra.StatusCode);
             using var logout = await client.PostAsJsonAsync("/api/admin/sys/yz_manager/exit_login", new { }); logout.EnsureSuccessStatusCode();
             using var revoked = await client.GetAsync(downloadPath); Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+            // 无头凭证不绑定会话撤销；原 openUrl 在其两分钟 TTL 内仍能完成本次下载。
+            using var stillGranted = await browser.GetAsync(downloadPath); stillGranted.EnsureSuccessStatusCode();
         }
         finally
         {

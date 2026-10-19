@@ -62,5 +62,8 @@ public sealed class LegacyPageWriteContractTests
         foreach (var text in new[] { "{\"id\":null}", "{\"id\":\"\"}" }) Assert.Empty(JsonSerializer.Deserialize<RelationOptionsLegacyRequest>(text, options)!.ToSelectedRequest()!.SelectedIds);
         Assert.Equal(new[] { "9007199254740993" }, JsonSerializer.Deserialize<RelationOptionsLegacyRequest>("{\"id\":\"9007199254740993\"}", options)!.ToSelectedRequest()!.SelectedIds);
         Assert.Throws<ArgumentException>(() => JsonSerializer.Deserialize<RelationOptionsLegacyRequest>("{\"id\":\"1 OR 1=1\"}", options)!.ToSelectedRequest());
+        var independent = JsonSerializer.Deserialize<RelationOptionsLegacyRequest>("{\"parentId\":\"9\",\"targetParentId\":\"10\",\"id\":\"7\"}", options)!.ToSelectedRequest()!;
+        Assert.Equal("9", independent.ParentId); Assert.Equal("10", independent.TargetParentId);
+        Assert.Equal("10", JsonSerializer.Deserialize<RelationOptionsLegacyRequest>("{\"targetParentId\":\"10\",\"id\":null}", options)!.ToSelectedRequest()!.TargetParentId);
     }
 }

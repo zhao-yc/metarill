@@ -149,7 +149,7 @@ public sealed class GeneratedContractTests
         public bool Called { get; private set; }
         public Task<string> CreateAsync(Metarill.Core.Exports.PageExportRequest request, RuntimeActor actor, CancellationToken cancellationToken = default) => throw new InvalidOperationException("不得提前读取。");
         /// <summary>不调用准备委托即成功，空服务不应被提前求值。</summary>
-        public Task<string> CreateAsync(RuntimeActor actor, Func<int, CancellationToken, Task<Metarill.Core.Exports.PageExportRequest>> prepare, CancellationToken cancellationToken = default) { Called = true; return Task.FromResult("测试票据"); }
+        public Task<string> CreateDownloadAsync(RuntimeActor actor, Func<int, CancellationToken, Task<Metarill.Core.Exports.PageExportRequest>> prepare, CancellationToken cancellationToken = default) { Called = true; return Task.FromResult("测试票据"); }
     }
     private sealed class DeniedExportSink : Metarill.Core.Exports.IPageExportService
     {

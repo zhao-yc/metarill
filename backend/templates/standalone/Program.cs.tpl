@@ -99,7 +99,7 @@ app.Use(async (context, next) =>
     try
     {
         var path = context.Request.Path;
-        if (path.StartsWithSegments("/api") && path != "/api/admin/sys/yz_manager/login" && !IsPublicFileContent(context.Request)) context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
+        if (path.StartsWithSegments("/api") && path != "/api/admin/sys/yz_manager/login" && !IsPublicFileContent(context.Request) && !ExportDownloadAccess.CanUseGrant(context.Request)) context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
         await next(context);
     }
     catch (Exception error) when (!context.Response.HasStarted)
@@ -140,10 +140,11 @@ app.MapMethods("/api/admin/sys/yz_manager/edit_password", ["GET","POST"], async(
     context.Response.Headers.CacheControl="private, no-store";return R<string>.Success("修改成功");
 }).RequireRateLimiting("login");
 app.MapPost("/api/admin/sys/yz_manager/exit_login", (HttpContext context, DevelopmentSessions sessions) => { sessions.Logout(DevelopmentSessions.ReadToken(context)); return R<string>.Success("退出成功"); });
-// 保留已有下载协议，票据仍须绑定当前真实账号和项目，不能公开私有导出目录。
-app.MapGet("/api/admin/sys/export/export", async (string exportId, HttpContext context, ExcelPageExportService exports, IRuntimeAuthorization authorization, CancellationToken token) =>
+// 原 openUrl 无头下载只使用已签发的两分钟凭证；显式认证头继续检查真实账号与项目。
+app.MapMethods("/api/admin/sys/export/export", new[] { "GET", "HEAD" }, async (string exportId, HttpContext context, ExcelPageExportService exports, IRuntimeAuthorization authorization, CancellationToken token) =>
 {
-    var content = await exports.OpenAsync(exportId, authorization.RequireActor(), token);
+    var content = ExportDownloadAccess.CanUseGrant(context.Request) ? await exports.OpenDownloadAsync(exportId, token) : await exports.OpenAsync(exportId, authorization.RequireActor(), token);
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
     context.Response.Headers.CacheControl = "private, no-store";
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     return Results.File(content.Stream, content.ContentType, content.FileName, enableRangeProcessing: true);

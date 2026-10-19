@@ -8,10 +8,10 @@ using Metarill.Core.Security;
 
 namespace Metarill.Runtime.Exports;
 
-/// <summary>将已受页面权限和数据范围约束的投影写为 Excel，下载票据绑定真实账号及当前项目。</summary>
+/// <summary>将已受页面权限和数据范围约束的投影写为 Excel，下载票据绑定真实账号及当前项目，原页面可显式签发短时下载凭证。</summary>
 public sealed partial class ExcelPageExportService : IPageExportService
 {
-    private sealed record Ticket(long AccountId, string ProjectId, string Path, string Name, DateTimeOffset ExpiresAt);
+    private sealed record Ticket(long AccountId, string ProjectId, string Path, string Name, DateTimeOffset ExpiresAt, DateTimeOffset? DownloadExpiresAt);
     public const string ExcelContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     private readonly ExportOptions _options;
     private readonly TimeProvider _clock;
@@ -40,15 +40,19 @@ public sealed partial class ExcelPageExportService : IPageExportService
     public Task<string> CreateAsync(PageExportRequest request, RuntimeActor actor, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return CreateCoreAsync(actor, (_, _) => Task.FromResult(request), cancellationToken);
+        return CreateCoreAsync(actor, (_, _) => Task.FromResult(request), false, cancellationToken);
     }
 
     /// <summary>先限制并发与票据额度，再把服务端行数上限传给数据库读取委托。</summary>
     public Task<string> CreateAsync(RuntimeActor actor, Func<int, CancellationToken, Task<PageExportRequest>> prepare, CancellationToken cancellationToken = default)
-        => CreateCoreAsync(actor, prepare, cancellationToken);
+        => CreateCoreAsync(actor, prepare, false, cancellationToken);
+
+    /// <summary>仅固定页面的已授权导出入口调用；无头凭证为256位随机值，最多两分钟且不超文件有效期。</summary>
+    public Task<string> CreateDownloadAsync(RuntimeActor actor, Func<int, CancellationToken, Task<PageExportRequest>> prepare, CancellationToken cancellationToken = default)
+        => CreateCoreAsync(actor, prepare, true, cancellationToken);
 
     /// <summary>兼容入口和延迟读取入口共享唯一资源门禁，失败或取消均释放预留额度。</summary>
-    private async Task<string> CreateCoreAsync(RuntimeActor actor, Func<int, CancellationToken, Task<PageExportRequest>> prepare, CancellationToken cancellationToken)
+    private async Task<string> CreateCoreAsync(RuntimeActor actor, Func<int, CancellationToken, Task<PageExportRequest>> prepare, bool downloadGrant, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(prepare); ValidateActor(actor);
         cancellationToken.ThrowIfCancellationRequested();
@@ -84,7 +88,9 @@ public sealed partial class ExcelPageExportService : IPageExportService
             var exportId = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             lock (_sync)
             {
-                _tickets.Add(exportId, new Ticket(actor.AccountId, actor.ProjectId, destination, title + ".xlsx", _clock.GetUtcNow().Add(_options.TimeToLive)));
+                var now = _clock.GetUtcNow(); var expiresAt = now.Add(_options.TimeToLive);
+                var grantExpiresAt = now.AddMinutes(2);
+                _tickets.Add(exportId, new Ticket(actor.AccountId, actor.ProjectId, destination, title + ".xlsx", expiresAt, downloadGrant ? (grantExpiresAt < expiresAt ? grantExpiresAt : expiresAt) : null));
                 _activePaths.Remove(destination); _activePaths.Remove(destination + ".part");
             }
             destination = null;
@@ -107,19 +113,31 @@ public sealed partial class ExcelPageExportService : IPageExportService
     }
 
     /// <summary>票据可在有效期内重试下载；管理员也不能跨账号或跨项目使用他人票据。</summary>
-    public async Task<ExportContentHandle> OpenAsync(string exportId, RuntimeActor actor, CancellationToken cancellationToken = default)
+    public Task<ExportContentHandle> OpenAsync(string exportId, RuntimeActor actor, CancellationToken cancellationToken = default)
     {
-        ValidateActor(actor); cancellationToken.ThrowIfCancellationRequested();
+        ValidateActor(actor); return OpenCoreAsync(exportId, actor, false, cancellationToken);
+    }
+
+    /// <summary>原 openUrl 无认证头，只凭已签发的两分钟 bearer 凭证读取该文件；不伪造账号或项目身份。</summary>
+    public Task<ExportContentHandle> OpenDownloadAsync(string exportId, CancellationToken cancellationToken = default)
+        => OpenCoreAsync(exportId, null, true, cancellationToken);
+
+    /// <summary>带头账号约束与短时无头凭证共用对象检查，任何拒绝均不泄露票据状态或物理路径。</summary>
+    private async Task<ExportContentHandle> OpenCoreAsync(string exportId, RuntimeActor? actor, bool downloadGrant, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrEmpty(exportId) || !TicketPattern().IsMatch(exportId)) throw Denied();
         await CleanupExpiredAsync(cancellationToken);
         lock (_sync)
         {
-            if (!_tickets.TryGetValue(exportId, out var ticket) || ticket.ExpiresAt <= _clock.GetUtcNow() || ticket.AccountId != actor.AccountId || ticket.ProjectId != actor.ProjectId) throw Denied();
+            var now = _clock.GetUtcNow();
+            if (!_tickets.TryGetValue(exportId, out var ticket) || ticket.ExpiresAt <= now) throw Denied();
+            if (downloadGrant ? ticket.DownloadExpiresAt is null || ticket.DownloadExpiresAt <= now : actor is null || ticket.AccountId != actor.AccountId || ticket.ProjectId != actor.ProjectId) throw Denied();
             try
             {
                 if (File.GetAttributes(ticket.Path).HasFlag(FileAttributes.ReparsePoint)) throw Denied();
                 var stream = new FileStream(ticket.Path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                return new ExportContentHandle(stream, ticket.Name, ExcelContentType, stream.Length, ticket.ExpiresAt);
+                return new ExportContentHandle(stream, ticket.Name, ExcelContentType, stream.Length, downloadGrant ? ticket.DownloadExpiresAt!.Value : ticket.ExpiresAt);
             }
             catch (FileNotFoundException) { _tickets.Remove(exportId); throw Denied(); }
             catch (DirectoryNotFoundException) { _tickets.Remove(exportId); throw Denied(); }

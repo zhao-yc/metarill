@@ -137,7 +137,10 @@ public sealed class StandaloneExportMySqlTests
             Assert.Equal(HttpStatusCode.InternalServerError, overflow.StatusCode);
             Assert.Equal(before, Directory.GetFiles(exportRoot).Order().ToArray());
             using var anonymous = new HttpClient { BaseAddress = client.BaseAddress };
-            using var denied = await anonymous.GetAsync(downloadPath); Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+            using var granted = await anonymous.GetAsync(downloadPath); granted.EnsureSuccessStatusCode();
+            Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", granted.Content.Headers.ContentType?.MediaType);
+            using (var unknown = await anonymous.GetAsync("/api/admin/sys/export/export?exportId=" + new string('f', 64))) Assert.Equal(HttpStatusCode.Unauthorized, unknown.StatusCode);
+            using (var invalid = new HttpRequestMessage(HttpMethod.Get, downloadPath)) { invalid.Headers.Add("loginStateId", "invalid-session"); using var rejected = await anonymous.SendAsync(invalid); Assert.Equal(HttpStatusCode.Unauthorized, rejected.StatusCode); }
             using var logout = await client.PostAsJsonAsync("/api/admin/sys/yz_manager/exit_login", new { }); logout.EnsureSuccessStatusCode();
             using var revoked = await client.GetAsync(downloadPath); Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
         }

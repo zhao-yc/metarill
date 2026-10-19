@@ -193,7 +193,10 @@ public sealed partial class ApiAcceptanceTests
             var url="/api/admin/sys/export/export?exportId="+ticket;
             using var download=await client.GetAsync(url);Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",download.Content.Headers.ContentType?.MediaType);
             using var archive=new System.IO.Compression.ZipArchive(await download.Content.ReadAsStreamAsync());Assert.Contains(archive.Entries,e=>e.FullName=="xl/workbook.xml");
-            using var anonymous=factory.CreateClient();Assert.Equal(500,(await Body(await anonymous.GetAsync(url))).GetProperty("code").GetInt32());
+            using var anonymous=factory.CreateClient();
+            using(var direct=await anonymous.GetAsync(url)){Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",direct.Content.Headers.ContentType?.MediaType);Assert.Contains("no-referrer",direct.Headers.GetValues("Referrer-Policy"));}
+            using(var invalid=new HttpRequestMessage(HttpMethod.Get,url)){invalid.Headers.Add("loginStateId","invalid-session");Assert.Equal(500,(await Body(await anonymous.SendAsync(invalid))).GetProperty("code").GetInt32());}
+            Assert.Equal(500,(await Body(await anonymous.GetAsync("/api/admin/sys/export/export?exportId="+new string('f',64)))).GetProperty("code").GetInt32());
             client.DefaultRequestHeaders.Remove("sysParams");client.DefaultRequestHeaders.Add("sysParams",Uri.EscapeDataString("{\"yzProjectId\":\"1608097412978577409\"}"));
             Assert.Equal(500,(await Body(await client.GetAsync(url))).GetProperty("code").GetInt32());
         }

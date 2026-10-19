@@ -14,12 +14,12 @@ internal static class ExportRenderer
     private static IReadOnlyList<ColumnModel> Columns(PageModel page) => (Mode(page) == "edit" ? page.DetailColumns : page.ListColumns).Where(column => column.Source.ControlKind != "CustomControl").ToArray();
     /// <summary>沿用 initExport 返回票据，下载入口由宿主统一承接。</summary>
     public static string Controller(PageModel page) => !Enabled(page) ? "" : $$"""
-    /// <summary>使用当前页导出权限生成有身份约束的下载票据。</summary>
+    /// <summary>使用当前页导出权限生成原页面可使用的两分钟下载凭证。</summary>
     [HttpPost("initExport")]
     public async Task<R<string>> InitExport([FromBody] PageRequest request, [FromServices] Metarill.Core.Exports.IPageExportService exports, CancellationToken cancellationToken)
     {
         var actor = Actor("export");
-        return R<string>.Success(await exports.CreateAsync(actor, (maxRows, token) => service.Export{{page.Source.Id}}Async(request, actor, maxRows, token), cancellationToken));
+        return R<string>.Success(await exports.CreateDownloadAsync(actor, (maxRows, token) => service.Export{{page.Source.Id}}Async(request, actor, maxRows, token), cancellationToken));
     }
 
 """;

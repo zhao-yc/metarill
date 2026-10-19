@@ -11,6 +11,8 @@ public sealed class RelationOptionsLegacyRequest
     public int PageSize { get; set; } = 20;
     public Dictionary<string, System.Text.Json.JsonElement> Filters { get; set; } = [];
     public string? ParentId { get; set; }
+    /// <summary>目标父仅是固定关联范围的值，来源父仍单独由 ParentId 核验。</summary>
+    public string? TargetParentId { get; set; }
     public PageOrderBy? OrderBy { get; set; }
     public List<string> SelectedIds { get; set; } = [];
     public System.Text.Json.JsonElement? FormParameters { get; set; }
@@ -24,10 +26,10 @@ public sealed class RelationOptionsLegacyRequest
         var value = Id.Value;
         if (value is null || value.Value.ValueKind == System.Text.Json.JsonValueKind.Null
             || value.Value.ValueKind == System.Text.Json.JsonValueKind.String && string.IsNullOrWhiteSpace(value.Value.GetString()))
-            return new() { ParentId = ParentId };
+            return new() { ParentId = ParentId, TargetParentId = TargetParentId };
         var text = value.Value.ValueKind is System.Text.Json.JsonValueKind.String or System.Text.Json.JsonValueKind.Number ? value.Value.ToString() : null;
         if (!long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number <= 0) throw new ArgumentException("只读关联 ID 必须为正整数文本。");
-        return new() { SelectedIds = [number.ToString(CultureInfo.InvariantCulture)], ParentId = ParentId };
+        return new() { SelectedIds = [number.ToString(CultureInfo.InvariantCulture)], ParentId = ParentId, TargetParentId = TargetParentId };
     }
 
     /// <summary>旧入口不解释筛选、排序或已选状态；这些请求必须使用明确的新合同。</summary>

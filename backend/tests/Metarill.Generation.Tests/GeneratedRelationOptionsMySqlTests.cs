@@ -105,6 +105,27 @@ public sealed class GeneratedRelationOptionsMySqlTests
             var independent = endpoint.Replace("/201/", "/202/", StringComparison.Ordinal); var sourceParent = (First + 8000).ToString();
             Assert.Equal(5014, long.Parse(Data(await Post(client, independent + "/page", new { parentId = sourceParent, targetParentId = Parent.ToString() })).GetProperty("total").ToString()));
             Assert.Equal(selectedId, Id(Assert.Single(Data(await Post(client, independent + "/selected", new { parentId = sourceParent, targetParentId = Parent.ToString(), selectedIds = new[] { selectedId } })).EnumerateArray())));
+            // 原数组及只读 id 也必须分别验证来源父和目标父，不能借 formParameters 选择目标。
+            var legacyIndependent = independent.Replace("findNameId" + Pascal(prefix + "_target"), "findNameIdTarget", StringComparison.Ordinal);
+            foreach (var legacyEndpoint in new[] { independent, legacyIndependent })
+            {
+                var bounded = Data(await Post(client, legacyEndpoint, new { parentId = sourceParent, targetParentId = (Parent + 1).ToString(), formParameters = new { } })).EnumerateArray().ToArray();
+                Assert.Equal((First + 6002).ToString(), Id(Assert.Single(bounded)));
+                Assert.Equal(selectedId, Id(Assert.Single(Data(await Post(client, legacyEndpoint, new { parentId = sourceParent, targetParentId = Parent.ToString(), id = selectedId })).EnumerateArray())));
+                Assert.Empty(Data(await Post(client, legacyEndpoint, new { parentId = sourceParent, targetParentId = Parent.ToString(), id = "" })).EnumerateArray());
+                foreach (var invalidTarget in new[] { (Parent + 2).ToString(), (Parent + 3).ToString(), sourceParent, "1 OR 1=1" })
+                    foreach (var id in new string?[] { null, selectedId })
+                        Assert.Equal(500, (await Post(client, legacyEndpoint, new { parentId = sourceParent, targetParentId = invalidTarget, id })).GetProperty("code").GetInt32());
+                foreach (var invalidSource in new[] { (First + 8001).ToString(), (First + 8002).ToString(), Parent.ToString() })
+                    Assert.Equal(500, (await Post(client, legacyEndpoint, new { parentId = invalidSource, targetParentId = Parent.ToString(), id = selectedId })).GetProperty("code").GetInt32());
+                Assert.Equal(500, (await Post(client, legacyEndpoint, new { parentId = sourceParent, targetParentId = (Parent + 1).ToString(), id = selectedId })).GetProperty("code").GetInt32());
+                foreach (var denied in new[] { "202", "301" })
+                {
+                    client.DefaultRequestHeaders.Add("denyPage", denied);
+                    Assert.Equal(500, (await Post(client, legacyEndpoint, new { parentId = sourceParent, targetParentId = Parent.ToString(), id = selectedId })).GetProperty("code").GetInt32());
+                    client.DefaultRequestHeaders.Remove("denyPage");
+                }
+            }
             foreach (var action in new[] { "", "/page", "/selected" })
             {
                 var missingTarget = await Post(client, independent + action, action == "/selected" ? new { parentId = sourceParent, selectedIds = new[] { selectedId } } : (object)new { parentId = sourceParent });
