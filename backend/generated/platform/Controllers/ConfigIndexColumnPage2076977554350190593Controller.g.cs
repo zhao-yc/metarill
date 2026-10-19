@@ -28,5 +28,20 @@ public sealed class ConfigIndexColumnPage2076977554350190593Controller(ConfigInd
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count2076977554350190593Async(request, Actor("count"), cancellationToken));
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdConfigIndex2076977805266128896")]
-    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigIndex2076977805266128896([FromBody] PageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("2076977531071803393", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2076977554350190593_2076977805266128896Async(request, actor, cancellationToken)); }
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigIndex2076977805266128896([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("2076977531071803393", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2076977554350190593_2076977805266128896Async(request.ToPageRequest(), actor, cancellationToken)); }
+    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>
+    [HttpPost("findNameIdConfigIndex2076977805266128896/page")]
+    public async Task<R<PageResult<GeneratedOption>>> findNameIdConfigIndex2076977805266128896Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("2076977531071803393", "list"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage2076977554350190593_2076977805266128896Async(request, actor, cancellationToken)); }
+    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>
+    [HttpPost("findNameIdConfigIndex2076977805266128896/selected")]
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigIndex2076977805266128896Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("2076977531071803393", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected2076977554350190593_2076977805266128896Async(request, actor, cancellationToken)); }
+    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
+    [HttpPost("findNameIdConfigColumn2076977805534564352")]
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigColumn2076977805534564352([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6217715532627968", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2076977554350190593_2076977805534564352Async(request.ToPageRequest(), actor, cancellationToken)); }
+    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>
+    [HttpPost("findNameIdConfigColumn2076977805534564352/page")]
+    public async Task<R<PageResult<GeneratedOption>>> findNameIdConfigColumn2076977805534564352Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6217715532627968", "list"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage2076977554350190593_2076977805534564352Async(request, actor, cancellationToken)); }
+    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>
+    [HttpPost("findNameIdConfigColumn2076977805534564352/selected")]
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigColumn2076977805534564352Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6217715532627968", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected2076977554350190593_2076977805534564352Async(request, actor, cancellationToken)); }
 }

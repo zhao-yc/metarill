@@ -120,15 +120,103 @@ public partial class ConfigIndexColumnService
         var entity = await Scope2076977554350190593(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : ConfigIndexColumnPage2076977554350190593Vo.FromEntity(entity);
     }
-    /// <summary>关联选项先收窄到目标页数据范围，再投影显示字段。</summary>
-    public async Task<IReadOnlyList<GeneratedOption>> Options2076977554350190593_2076977805266128896Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
+    private async Task<ISelect<ConfigIndex>> OptionsScope2076977554350190593_2076977805266128896Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ValidateActor(actor);
+        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException("关联来源页要求有效 parentId。");
+        var sourceParent0 = session.Select<ConfigIndex>().Where(entity => entity.Id == sourceParentKey && entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        sourceParent0 = sourceParent0.Where(entity => entity.DeleteNo == null);
+        if (!await sourceParent0.AnyAsync(cancellationToken)) throw new InvalidOperationException("关联父记录不存在、已删除或不属于当前项目。");
+        if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
         var query = session.Select<ConfigIndex>();
         query = query.Where(entity => entity.DeleteNo == null);
         query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
-        var entities = await query.OrderBy(entity => entity.IndexName).OrderBy(entity => entity.Id).Limit(5000).ToListAsync(cancellationToken);
-        return entities.Select(entity => new GeneratedOption(entity.Id, entity.IndexName, entity.Id, entity.IndexName)).ToArray();
+        return query;
+    }
+    /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>
+    public async Task<IReadOnlyList<GeneratedOption>> Options2076977554350190593_2076977805266128896Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var query = await OptionsScope2076977554350190593_2076977805266128896Async(request.ParentId, null, actor, cancellationToken);
+        var entities = await query.OrderBy(entity => entity.IndexName).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.IndexName }, cancellationToken);
+        if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigIndex2076977805266128896/page \u5206\u9875\u67E5\u8BE2\u3002");
+        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    public async Task<PageResult<GeneratedOption>> OptionsPage2076977554350190593_2076977805266128896Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request); request.Validate();
+        var query = await OptionsScope2076977554350190593_2076977805266128896Async(request.ParentId, request.TargetParentId, actor, cancellationToken);
+        if (!string.IsNullOrEmpty(request.Keyword))
+        {
+            var keyword = request.Keyword;
+            query = query.Where(entity => entity.IndexName != null && entity.IndexName.Contains(keyword));
+        }
+        var total = await query.CountAsync(cancellationToken);
+        var entities = await query.OrderBy(entity => entity.IndexName).OrderBy(entity => entity.Id).Page(request.PageNo, request.PageSize).ToListAsync(entity => new { entity.Id, Name = entity.IndexName }, cancellationToken);
+        return new(entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+    }
+    /// <summary>已选回读忽略当前关键词，但不得扩大项目、页面或控件范围。</summary>
+    public async Task<IReadOnlyList<GeneratedOption>> OptionsSelected2076977554350190593_2076977805266128896Async(RelationOptionsSelectedRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();
+        var query = await OptionsScope2076977554350190593_2076977805266128896Async(request.ParentId, request.TargetParentId, actor, cancellationToken);
+        if (selected.Length == 0) return [];
+        var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.IndexName).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new { entity.Id, Name = entity.IndexName }, cancellationToken);
+        if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
+        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
+    private async Task<ISelect<ConfigColumn>> OptionsScope2076977554350190593_2076977805534564352Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException("关联来源页要求有效 parentId。");
+        var sourceParent0 = session.Select<ConfigIndex>().Where(entity => entity.Id == sourceParentKey && entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        sourceParent0 = sourceParent0.Where(entity => entity.DeleteNo == null);
+        if (!await sourceParent0.AnyAsync(cancellationToken)) throw new InvalidOperationException("关联父记录不存在、已删除或不属于当前项目。");
+        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException("\u5173\u8054\u76EE\u6807\u8303\u56F4\u8981\u6C42\u6709\u6548 targetParentId\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigColumn2076977805534564352/page \u5206\u9875\u5408\u540C\u3002");
+        var targetParent0 = session.Select<ConfigTable>().Where(entity => entity.Id == targetParentKey && entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        targetParent0 = targetParent0.Where(entity => entity.DeleteNo == null);
+        if (!await targetParent0.AnyAsync(cancellationToken)) throw new InvalidOperationException("关联父记录不存在、已删除或不属于当前项目。");
+        var query = session.Select<ConfigColumn>();
+        query = query.Where(entity => entity.DeleteNo == null);
+        query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        query = query.Where(entity => entity.ConfigTableId == long.Parse(targetParentId!, CultureInfo.InvariantCulture));
+        return query;
+    }
+    /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>
+    public async Task<IReadOnlyList<GeneratedOption>> Options2076977554350190593_2076977805534564352Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var query = await OptionsScope2076977554350190593_2076977805534564352Async(request.ParentId, null, actor, cancellationToken);
+        var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigColumn2076977805534564352/page \u5206\u9875\u67E5\u8BE2\u3002");
+        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    public async Task<PageResult<GeneratedOption>> OptionsPage2076977554350190593_2076977805534564352Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request); request.Validate();
+        var query = await OptionsScope2076977554350190593_2076977805534564352Async(request.ParentId, request.TargetParentId, actor, cancellationToken);
+        if (!string.IsNullOrEmpty(request.Keyword))
+        {
+            var keyword = request.Keyword;
+            query = query.Where(entity => entity.Name != null && entity.Name.Contains(keyword));
+        }
+        var total = await query.CountAsync(cancellationToken);
+        var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Page(request.PageNo, request.PageSize).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        return new(entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+    }
+    /// <summary>已选回读忽略当前关键词，但不得扩大项目、页面或控件范围。</summary>
+    public async Task<IReadOnlyList<GeneratedOption>> OptionsSelected2076977554350190593_2076977805534564352Async(RelationOptionsSelectedRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();
+        var query = await OptionsScope2076977554350190593_2076977805534564352Async(request.ParentId, request.TargetParentId, actor, cancellationToken);
+        if (selected.Length == 0) return [];
+        var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
+        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
     /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
     private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)

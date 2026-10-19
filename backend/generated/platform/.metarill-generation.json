@@ -22,15 +22,15 @@
     },
     {
       "path": "Controllers/ConfigCustomPagePage2062361618137833473Controller.g.cs",
-      "sha256": "d5a6164d95f66c7e925c1c0fe669daeaac2bd9459cbde62f060730f46ce130ad"
+      "sha256": "f94fdb4f4b88b7b0903ea543174a2e0f6fea4ab0adeab61c9159d37e58f3ddc4"
     },
     {
       "path": "Controllers/ConfigIndexColumnPage2076977554350190593Controller.g.cs",
-      "sha256": "a0c300f291512738258f272ed659a0d1541b55967379ae75a8787600ddfad887"
+      "sha256": "9da36b5d5556c39c73c4230ab752946b1fa02c818742fdb11af2c690e751886c"
     },
     {
       "path": "Controllers/ConfigIndexPage2076977531071803393Controller.g.cs",
-      "sha256": "a010901564aeaef385ba3ca07f3f01c32d679f9f86d424691a458edc32eaf110"
+      "sha256": "5541cb6a45f13b66640dd538889373953effa4ca5e1d26aa8b9c048db3aa9c04"
     },
     {
       "path": "Controllers/ConfigMenuPage2200000000000099000Controller.g.cs",
@@ -38,23 +38,23 @@
     },
     {
       "path": "Controllers/ConfigPageColumnPage6218036784398336Controller.g.cs",
-      "sha256": "b096b09a1eb277eb68d7d1da673da79597bf2525aad23163dcf8e48acaf74e22"
+      "sha256": "6c07757f03e60c6e7a93f09655306782794aeb6ab18f05c269cebf1d83c0e31d"
     },
     {
       "path": "Controllers/ConfigPagePage1868973685063311361Controller.g.cs",
-      "sha256": "312d320ad33996fb319aea7df9ae90ecea62c04856f0746e8d74df5a823d50ea"
+      "sha256": "58ca99e1d3708af4b029bd67ba3725bbe2abcf62889801823e639e0e0f17b61d"
     },
     {
       "path": "Controllers/ConfigPagePage1869016706289577986Controller.g.cs",
-      "sha256": "4c8e8e08e54348c50afc655bfbebc595408f5e39ff64c7489b38c44b930a4213"
+      "sha256": "dc64dd237afc1f0fb57832d0ce784d1e7157905ec9302a3e0dbbe21006acf1e6"
     },
     {
       "path": "Controllers/ConfigPagePage6191175925956608Controller.g.cs",
-      "sha256": "3de729dbbf571eff19c791ef87cd67808d95e699da2c79bd383e7ac5cff72bd8"
+      "sha256": "1b5b3d8d32117248d1f8ea9904332356769c62f47ef4054c22fbbf7f7fd2b0e0"
     },
     {
       "path": "Controllers/ConfigTablePage6191083005411328Controller.g.cs",
-      "sha256": "65ad68f4bc0420776b153d9c8735fa31f29c7252f12f45b474408ade5b4fbaad"
+      "sha256": "114ccb3e9ca210f4f7ec98a1c6003f02bdd9ac89ef435ab9994cc6fa21444954"
     },
     {
       "path": "Controllers/YzAdminTypePage1696799309006348290Controller.g.cs",
@@ -62,15 +62,15 @@
     },
     {
       "path": "Controllers/YzManagerDevicesPage6220589291798528Controller.g.cs",
-      "sha256": "bb22975fe9ab8a365145ebd84b4f10391ce052d92d1098ab6a7fe66e2444b26b"
+      "sha256": "50a7e074d2af3fc6f6cc66a2703d6b12e5680912b29b5750876b29d1177db4bb"
     },
     {
       "path": "Controllers/YzManagerDevicesProjectPage6220608155484160Controller.g.cs",
-      "sha256": "1804fa7306b34bf93c6516bb1e675b262a778e3f55941e1449af80a9e8ae72bf"
+      "sha256": "e959faedbf7f97bc71cc85721761eda074ec7fc0bf6cb49ca009c8e18de7aad1"
     },
     {
       "path": "Controllers/YzManagerPage6031906822946816Controller.g.cs",
-      "sha256": "a2151e608fa04420094fe4933f6b59669fd41190bfe55cba5e12401cb806f09c"
+      "sha256": "0739805c34c9d57dc2d34af07d382b792372d67c670e550499cad00a7c3cb52c"
     },
     {
       "path": "Controllers/YzProjectPage6186303424888832Controller.g.cs",
@@ -78,7 +78,7 @@
     },
     {
       "path": "Controllers/YzRolePage1692532858529329154Controller.g.cs",
-      "sha256": "8c2a1f4279dba99aff2d8b4d23af2393b4c0308317513fce868b8c8eab0a938e"
+      "sha256": "a9ce7cf652baed4d5ff51ed6fcc3725a3e118e58f8306610869270d0d478abe4"
     },
     {
       "path": "Controllers/YzRolePermissionPage2063264600601714690Controller.g.cs",
@@ -370,15 +370,15 @@
     },
     {
       "path": "Services/ConfigCustomPageService.g.cs",
-      "sha256": "7d0a25642d2d2d4e1b751467ce93e44f9ffe6ab723f10d9a3ff7b0ca98b18e38"
+      "sha256": "e2f1b9273862d37a713c65f2edf91de02b123000fd0a7fba54ab6edac68970cb"
     },
     {
       "path": "Services/ConfigIndexColumnService.g.cs",
-      "sha256": "9a04af597361ab2714a6dfc954eb415fd0a75dea404eac3d23853ef7a07eed50"
+      "sha256": "7f08e390b627ab98560df3bdbbc3c3e0477668576ebf55e686840fa6e6e67d1d"
     },
     {
       "path": "Services/ConfigIndexService.g.cs",
-      "sha256": "87131e0f5daa5153ae49ca79dd4bd380837450990720f3d17660c24b7094b5d2"
+      "sha256": "7271fc214f7b059fc62bca3217da1773deb73e166b58cbd82d7223bdc7e9935e"
     },
     {
       "path": "Services/ConfigMenuService.g.cs",
@@ -386,15 +386,15 @@
     },
     {
       "path": "Services/ConfigPageColumnService.g.cs",
-      "sha256": "f61c814ad32d1275d8f92cc12dd261e18f31dbf86bc9c21094c8082aa543ee82"
+      "sha256": "a291e6ecc64d301f329e707e69d6a150448fc46d4322b341284e5c7b8324678d"
     },
     {
       "path": "Services/ConfigPageService.g.cs",
-      "sha256": "41904afedc083e100f7cef688b1d9086e5cae373a0db28e6c569a3178f099fb5"
+      "sha256": "0e28e4228c888abbc73f966be22f7a844b6aa4747924b968c824bc2647aa5709"
     },
     {
       "path": "Services/ConfigTableService.g.cs",
-      "sha256": "719cd2469034b902f2f7b1843f5a6460dbb522af0538265e5bc8e4d7ecb10d15"
+      "sha256": "dfc20f0a967276cb0d93ae793094efabaa70e8d4f7d5f649236d4770836b9455"
     },
     {
       "path": "Services/SysAgentGrantService.g.cs",
@@ -426,15 +426,15 @@
     },
     {
       "path": "Services/YzManagerDevicesProjectService.g.cs",
-      "sha256": "507116ffb5a1233a04637fcb88233e704ac8d1c67f16a51dfc4fcf0a39ea9b9e"
+      "sha256": "30bec6cd87b596aadac9cae9ef5d8ac6d02273b546e1299286ef6ba326210239"
     },
     {
       "path": "Services/YzManagerDevicesService.g.cs",
-      "sha256": "f4ab7c80d2467819e156d713a7970fc3f234fa7e617418c494a9aedc77e30e1c"
+      "sha256": "27c8f8966d607e84e63ea3299da2ba176603b94a891f367dfa5dd6a7c57efed2"
     },
     {
       "path": "Services/YzManagerService.g.cs",
-      "sha256": "98b50e1663df9b6fb759d3d8ec70e049ca99314ab4f2dd1dbd8c456fdae0537f"
+      "sha256": "be08520d19bca40e55240b380bd58c3613742d51f9ffa99a070d56be7095b0e9"
     },
     {
       "path": "Services/YzProjectService.g.cs",
@@ -446,7 +446,7 @@
     },
     {
       "path": "Services/YzRoleService.g.cs",
-      "sha256": "b6d8e085d808191cc5e4ce8cae953b973540341c43d2475204288913aa1b0ad0"
+      "sha256": "9be0ac69846dc27aa0c48b6179d9b9734c83127d71ec20979f306edf3f9b21b8"
     },
     {
       "path": "VOs/ConfigButtonPage1870796062470516738Vo.g.cs",
@@ -542,167 +542,167 @@
     },
     {
       "path": "frontend/pages/yzp/config_button-detail-1870796062470516738.vue",
-      "sha256": "5e1c72a96b0809ccdc201615ab851316834b875430e1e084ab9a92274f3ef73b"
+      "sha256": "4e7c552a24c038c72aca9cbf8e0f3a77e078ee4f76b8f075d55797819a5aebcd"
     },
     {
       "path": "frontend/pages/yzp/config_button-detail-7097193256583168.vue",
-      "sha256": "840fe503e6e0cf5a5d734b2dc3d52044f22897b677b467df46e3c4e322ccd741"
+      "sha256": "98f50ad40dc5649d74fc0cb003964fba22cd55ac33b917ba4a34674a5a978e6c"
     },
     {
       "path": "frontend/pages/yzp/config_button-list-1870796062470516738.vue",
-      "sha256": "69782bdc404dc9c609a06be5dfbbcc2923a0cecb94a18a5b07a6ec492a9bf703"
+      "sha256": "9ffea6a401297ab5f0ce7452b4cdd86a95e8222aa9a6e700e75156a9df1d8b83"
     },
     {
       "path": "frontend/pages/yzp/config_button-list-7097193256583168.vue",
-      "sha256": "17fbda1134371105de95406b37f55851abf164faedf7cb9e88fc76fd96c9513b"
+      "sha256": "64c6b78b51ca65f58ad97eb4d12eba0873a542c6aa593b086c107ea101f49162"
     },
     {
       "path": "frontend/pages/yzp/config_child-detail-1679390851298631682.vue",
-      "sha256": "fc7649ed4e3a31d38bbb942f43f67a330f200329b3008cd6ba5be08749d19748"
+      "sha256": "73aed28fdc44d0207bd377f196eeeabea6e906c6f979c95fc09dd0dce4a69324"
     },
     {
       "path": "frontend/pages/yzp/config_child-list-1679390851298631682.vue",
-      "sha256": "308675f5d1a01a5b898154b7c0b8e7a9af03e3f7bbe90e06c6a24f09ba90c8f7"
+      "sha256": "f025f8be98cb2adea03ac45a456e485885a5153fda285162b63e98db0e261d19"
     },
     {
       "path": "frontend/pages/yzp/config_column-detail-6217715532627968.vue",
-      "sha256": "8f08fde30c79451cbdee5ab4e2e5ddda6478dcb4cf691ee8eecf41f96f677b34"
+      "sha256": "95c40fda754e5c72b0f777a1a6d99c3cd7d098d944d05f429510b114b193973c"
     },
     {
       "path": "frontend/pages/yzp/config_column-list-6217715532627968.vue",
-      "sha256": "b00188a09bcd681f39e0dafdf720d1c2ac445fd07b920e955589cff81f0163ca"
+      "sha256": "45c3243db11a1c0997e3def4da027444c71aafd5faa245ee877dd5e1cfbeb256"
     },
     {
       "path": "frontend/pages/yzp/config_custom_page-detail-2062361618137833473.vue",
-      "sha256": "bf9560053b7e39333099d5663b4548e16f3e6387bb12bec907109162a8596a02"
+      "sha256": "687f62da127f26fb26e4abe7b145dd6b9b7c42894a67d3f889c73fa77c849dde"
     },
     {
       "path": "frontend/pages/yzp/config_custom_page-list-2062361618137833473.vue",
-      "sha256": "b3988ecf74a82fd8b668b96279e30b6021f21716315a4db8e5a74160966ee50d"
+      "sha256": "e60c18c0bd57012a0f023b78fb834dc68f6cf63976201bdf6fd2c280d654f9da"
     },
     {
       "path": "frontend/pages/yzp/config_index-detail-2076977531071803393.vue",
-      "sha256": "382e7043d853ef467c5f38d4044f5f942cac77eb057c6e467a8b638035c7b844"
+      "sha256": "d8ff0af6c6b54099729ef68b2aa599c139042d15bc1163f5a3b370b4c643bfed"
     },
     {
       "path": "frontend/pages/yzp/config_index-list-2076977531071803393.vue",
-      "sha256": "a19f33f473cde56863cc2cca12690231d16f25a27a14e153d6e58bb2c2975edf"
+      "sha256": "d7a2142c60e19fb0e7f3cf2f447272c086205475cd308535c5d93d44f9a32323"
     },
     {
       "path": "frontend/pages/yzp/config_index_column-detail-2076977554350190593.vue",
-      "sha256": "cc3bf1225b3cccfcfe9a8c91bde17edf06b801d868aa24fb32de5a26cfd98100"
+      "sha256": "0a5ccf13abf45510fc68a9b017085eb62885d0a959bf53d0074f160e3932df0c"
     },
     {
       "path": "frontend/pages/yzp/config_index_column-list-2076977554350190593.vue",
-      "sha256": "ceae1dab064d03c011d848f5f6dc9c28bef01d786c7a1f1f033371c77c44b53e"
+      "sha256": "73f8b6c678a647cf06449314babac2c90c1ffac2f68a4402a69c8b29ad335dbf"
     },
     {
       "path": "frontend/pages/yzp/config_menu-detail-2200000000000099000.vue",
-      "sha256": "a9205ab37bad852dba8ce9dd55a138c2b3b8a64770da4c28edbf4d7633437040"
+      "sha256": "6ece06972f25e9ac3b6b7733697d967288f6c3e8926892c14ab55d8d4af80557"
     },
     {
       "path": "frontend/pages/yzp/config_menu-list-2200000000000099000.vue",
-      "sha256": "200b54bc6d1c10a86db29f37d3820fe2cc5b08bd05e2d6341c143fb8867b8d90"
+      "sha256": "05e521dc72374cdda5f879c4ef844c3b0a758f694614b4432b95dc2fbd7fc7f4"
     },
     {
       "path": "frontend/pages/yzp/config_page-detail-1868973685063311361.vue",
-      "sha256": "8207849dcca8666452cad7edd3850ddd77dffe85d53c99571b37c579ec85e0dc"
+      "sha256": "2b1cb98f8800ec8467b979dd68a45c6189d493537ab23749da28fa9a006758da"
     },
     {
       "path": "frontend/pages/yzp/config_page-detail-1869016706289577986.vue",
-      "sha256": "985e4d547225c5ffa85bc28a49f301b7cd1847f0b37336165b68833ab77b5f00"
+      "sha256": "94e82f67d6e9d20faa6c99c6290a1067893996964e2ec845cc0b18cdc1b2ae47"
     },
     {
       "path": "frontend/pages/yzp/config_page-detail-6191175925956608.vue",
-      "sha256": "a1f086c8ef0aefb6608610c8372c875c957f69cb072fa9706b3de7d3735f8af6"
+      "sha256": "a5fb001c4710d028fc17656a5682297baa2a7e087110f6f592889264cf317648"
     },
     {
       "path": "frontend/pages/yzp/config_page-list-1868973685063311361.vue",
-      "sha256": "56c31fa568d29778ab56c57fb068bf29b8d436269cd0a4e4b22533cb263d7dd4"
+      "sha256": "b69db852bbc77c50d7f03ab05e160642fdbbeb8c76d2d88fd595f41f862bc1a9"
     },
     {
       "path": "frontend/pages/yzp/config_page-list-1869016706289577986.vue",
-      "sha256": "adc0a927394f9adaab76fbfbfb196df3c55985f0f32b0db1430e75c3484f3a08"
+      "sha256": "77211d1a8ab4eb17336b264c2e3c849dfabf2ec200d2c3be77cb2043555ba51b"
     },
     {
       "path": "frontend/pages/yzp/config_page-list-6191175925956608.vue",
-      "sha256": "738bd75d25661fe6f85ae4efa584ff91a9bdd77e6d967450196f09cccef0b482"
+      "sha256": "332ee125aa60352f48c5ff667816ad750f1a60a143133637b221d6ec1ca51b89"
     },
     {
       "path": "frontend/pages/yzp/config_page_column-detail-6218036784398336.vue",
-      "sha256": "d905d0eecbba58a8aacb141d12b5c9e6ee799cfecfa80c02b03ad62ebd8c6dc7"
+      "sha256": "d602dc150cc2d6ae92573fa7409cca543ee1bbe2c0a01c33118b1f73e0ccd73d"
     },
     {
       "path": "frontend/pages/yzp/config_page_column-list-6218036784398336.vue",
-      "sha256": "fdc977ab11e8243362926e5350cc198b5b50e520f76471c4367fcd34d6989982"
+      "sha256": "f0ccb8f6a9e180918a49f91076be3c68c22e9f8ee46dbef0a660eb0bab6adb64"
     },
     {
       "path": "frontend/pages/yzp/config_table-detail-6191083005411328.vue",
-      "sha256": "67ddebca566b553ff57eeff9cf90038a4f24cb35a22155c731d427a8fc81cc7b"
+      "sha256": "6f6a2ac7248743d0b3d7a3f19c97940362e0d825c2f073f7b2d36dc119721c1f"
     },
     {
       "path": "frontend/pages/yzp/config_table-list-6191083005411328.vue",
-      "sha256": "02fba587e6e2a45fdeee37f60a87563390c81da0d9bc38742ceb429e1c6c8c12"
+      "sha256": "3107f7f1efed9bdd813bbc3a96efff7802773b5eee63035b30a10cd16b726c04"
     },
     {
       "path": "frontend/pages/yzp/yz_admin_type-detail-1696799309006348290.vue",
-      "sha256": "b329bb79a69638b9d2271146f3f19a62ae994f8a94961114f82cee4c72445901"
+      "sha256": "78b570e3032ea629099928ba5f758d92ac4b17456c4e7f7f91d2d642fe581561"
     },
     {
       "path": "frontend/pages/yzp/yz_admin_type-list-1696799309006348290.vue",
-      "sha256": "e4be83d42597e512467fc0de1690c547f4e226096006ae1e9b0165270cf80ea8"
+      "sha256": "f1e3feb78f32085e3885d5223ab346ca32cc38c1f68cd4bcb42ac638b988269a"
     },
     {
       "path": "frontend/pages/yzp/yz_manager-detail-6031906822946816.vue",
-      "sha256": "696c2f0f1c1b0cb5100baa5b09cc42a17df0d1566823a15c2274c8ce50b6f1ea"
+      "sha256": "1a26cdf3a05c16db6d64d24b3b70351d22a0bef4788b7205bf3c4a503f02d8d0"
     },
     {
       "path": "frontend/pages/yzp/yz_manager-list-6031906822946816.vue",
-      "sha256": "ee826b21f2c556284e0e7f6f9a3040e44f9692e8c17a3c8eb020a35876c10d19"
+      "sha256": "1b293bbf462dbef6118f2cce1d32b2124c58e0c2912f1e2e26b64ff3f88066f8"
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices-detail-6220589291798528.vue",
-      "sha256": "9e07c61fa7a3e9689876926f267974ff1a56c810f7785266598eec78b38da725"
+      "sha256": "3461b7dc19fa6c7e7116f6ce8ae490399eff2aa7072786193af2ce740b6b3d9d"
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices-list-6220589291798528.vue",
-      "sha256": "796b4da4dc74b100b8739c2ad910478b161956d11fec04d3802a7c481fcfaac7"
+      "sha256": "3c4d5d5bd0cdf64feeb3ed096214a9171b26c05f3d2d88a19dde4e65a766ac95"
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices_project-detail-6220608155484160.vue",
-      "sha256": "ca7b94ad5d42da7a6e8c3bd1fb38491c1e8d9f4e4404edba516eeb17756792fc"
+      "sha256": "4abeb9abaa036071a2bacfaea6c6875ec5b35013e787371a0f1679ae72600902"
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices_project-list-6220608155484160.vue",
-      "sha256": "ec98721f9ed0fa940fb46899405cb5d80143dfe3513efadb57b424af50097404"
+      "sha256": "73b77938b79fd005ff67a6d4f2238a9a7b5e352e9cd67dc98458bf9993299ce9"
     },
     {
       "path": "frontend/pages/yzp/yz_project-detail-6186303424888832.vue",
-      "sha256": "53c42bb43f4a2e08c21b9760256644156375dc412c0f1ab0cb9974f9fc85384d"
+      "sha256": "a33ba8a3a402257933397860ca3d852e2bb4393421710c805daf19ab4618bc00"
     },
     {
       "path": "frontend/pages/yzp/yz_project-list-6186303424888832.vue",
-      "sha256": "e746b6e156a511623b741dd94ac89d2830b47b260d63856268797a672d7ca681"
+      "sha256": "b86e3a5ea296e48264185b91c8f08e80c1ce66d81fb217a949dd7740e65bd887"
     },
     {
       "path": "frontend/pages/yzp/yz_role-detail-1692532858529329154.vue",
-      "sha256": "bab91a960b954b54f547645379dd2d6f8c2b1f8a797c68aa12875bfca75d6294"
+      "sha256": "7882467cf6d36f9a3a7988f2ac0837131440106f8b55d8a886427247c8e8bd33"
     },
     {
       "path": "frontend/pages/yzp/yz_role-list-1692532858529329154.vue",
-      "sha256": "0ed7a84e3bf887eb1d27a6d993d7ef52f5205963a5183a9bf0c07d4d93f693dd"
+      "sha256": "7cbe15cf2099e349c495611b15983828daa7d0b428c7bb1f05683683ed33f5ef"
     },
     {
       "path": "frontend/pages/yzp/yz_role_permission-detail-2063264600601714690.vue",
-      "sha256": "5ca68b5872eb6d605fdba4a31450cce4c83c7a45950ec5aed47d5265d019eb63"
+      "sha256": "fb4ad8257c6c5e53875c0f270662240add1fadd30143ac5671be76088db1a9fc"
     },
     {
       "path": "frontend/pages/yzp/yz_role_permission-list-2063264600601714690.vue",
-      "sha256": "554cc5db22cac4849bdb6a24bf37b682500cb3d5f9457ef967d5a96674857acb"
+      "sha256": "425c505033b740b2bc600ce8717c7ac0a4be8387f3cf1afccaf7b8614153390d"
     },
     {
       "path": "generation-capabilities.json",
-      "sha256": "178df3f60ba759b748e71c2a86e799b0aebeca5acc1a6feaa9773059bc678813"
+      "sha256": "287c1a4a382ca2261c77b6d4040c0d5260738f510f1871b9305229e4b5cc50d9"
     }
   ]
 }

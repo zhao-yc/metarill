@@ -50,11 +50,11 @@
     },
     {
       "path": "frontend/pages/yzp/demo_customer-detail-2200000000000100020.vue",
-      "sha256": "ea71311e5bbf3adb7acc0dc7b83c8bd2876121677090e9d1e34f57884b5ac14a"
+      "sha256": "4cd0a3b80da2e92a6cfec37bc5d915577d5a39faa4e1c90f964fb8ea23780978"
     },
     {
       "path": "frontend/pages/yzp/demo_customer-list-2200000000000100020.vue",
-      "sha256": "32578e608b5cb85174e3d6cebcdfd2037d3ef7d962cbfc60fc19c86533f3b790"
+      "sha256": "b18b14dccac633702fca6b38c81eb7a10c1f46fc1cad7d9d0b020ce2b9701abb"
     },
     {
       "path": "generation-capabilities.json",

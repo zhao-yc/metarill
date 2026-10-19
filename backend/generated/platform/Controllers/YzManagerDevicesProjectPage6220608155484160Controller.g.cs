@@ -37,8 +37,20 @@ public sealed class YzManagerDevicesProjectPage6220608155484160Controller(YzMana
     public async Task<R<string>> Delete([FromBody] YzManagerDevicesProjectPage6220608155484160RecordRequest request, [FromQuery] string? parentId, CancellationToken cancellationToken) => await service.Delete6220608155484160Async(request.Id, parentId, Actor("delete"), cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdYzProject1679323290301280258")]
-    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzProject1679323290301280258([FromBody] PageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6186303424888832", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options6220608155484160_1679323290301280258Async(request, actor, cancellationToken)); }
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzProject1679323290301280258([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6186303424888832", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options6220608155484160_1679323290301280258Async(request.ToPageRequest(), actor, cancellationToken)); }
+    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>
+    [HttpPost("findNameIdYzProject1679323290301280258/page")]
+    public async Task<R<PageResult<GeneratedOption>>> findNameIdYzProject1679323290301280258Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6186303424888832", "list"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage6220608155484160_1679323290301280258Async(request, actor, cancellationToken)); }
+    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>
+    [HttpPost("findNameIdYzProject1679323290301280258/selected")]
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzProject1679323290301280258Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6186303424888832", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected6220608155484160_1679323290301280258Async(request, actor, cancellationToken)); }
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdYzManager1679323290464858113")]
-    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzManager1679323290464858113([FromBody] PageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6031906822946816", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options6220608155484160_1679323290464858113Async(request, actor, cancellationToken)); }
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzManager1679323290464858113([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6031906822946816", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options6220608155484160_1679323290464858113Async(request.ToPageRequest(), actor, cancellationToken)); }
+    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>
+    [HttpPost("findNameIdYzManager1679323290464858113/page")]
+    public async Task<R<PageResult<GeneratedOption>>> findNameIdYzManager1679323290464858113Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6031906822946816", "list"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage6220608155484160_1679323290464858113Async(request, actor, cancellationToken)); }
+    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>
+    [HttpPost("findNameIdYzManager1679323290464858113/selected")]
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdYzManager1679323290464858113Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6031906822946816", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected6220608155484160_1679323290464858113Async(request, actor, cancellationToken)); }
 }

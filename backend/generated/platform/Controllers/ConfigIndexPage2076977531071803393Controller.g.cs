@@ -28,5 +28,11 @@ public sealed class ConfigIndexPage2076977531071803393Controller(ConfigIndexServ
     public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count2076977531071803393Async(request, Actor("count"), cancellationToken));
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdConfigTable2076977821456142336")]
-    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigTable2076977821456142336([FromBody] PageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2076977531071803393_2076977821456142336Async(request, actor, cancellationToken)); }
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigTable2076977821456142336([FromBody] RelationOptionsLegacyRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.Options2076977531071803393_2076977821456142336Async(request.ToPageRequest(), actor, cancellationToken)); }
+    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>
+    [HttpPost("findNameIdConfigTable2076977821456142336/page")]
+    public async Task<R<PageResult<GeneratedOption>>> findNameIdConfigTable2076977821456142336Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage2076977531071803393_2076977821456142336Async(request, actor, cancellationToken)); }
+    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>
+    [HttpPost("findNameIdConfigTable2076977821456142336/selected")]
+    public async Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigTable2076977821456142336Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) { var actor = Actor("list"); authorization.RequirePagePermission("6191083005411328", "list"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected2076977531071803393_2076977821456142336Async(request, actor, cancellationToken)); }
 }

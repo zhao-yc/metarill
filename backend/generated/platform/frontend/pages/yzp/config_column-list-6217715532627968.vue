@@ -1,7 +1,7 @@
 <!-- 由 Metarill 元数据生成，使用现有 uni-app 请求和组件体系。 -->
 <template>
   <view class="yzp-page">
-    <view class="uni-padding-wrap"><text>列</text><button v-if="canCreate" size="mini" @click="openDetail('')">新增</button><button v-if="canImport" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
+    <view class="uni-padding-wrap"><text>列</text><button v-if="canCreateRecord" size="mini" @click="openDetail('')">新增</button><button v-if="canImportRecords" size="mini" @click="initImport">导入</button><button v-if="canExport" size="mini" @click="initExport">导出</button></view>
     <view v-if="filterFields.length" class="uni-padding-wrap">
       <uni-forms :modelValue="draftFilters">
 <uni-forms-item label="名称" name="name"><uni-easyinput :modelValue="draftFilters.name" @update:modelValue="setFilter('name', $event)" placeholder="请输入名称" /></uni-forms-item>
@@ -20,26 +20,62 @@
       <uni-tr v-for="row in records" :key="row.id"><uni-td>{{ displayValue(row, 'name') }}</uni-td><uni-td>{{ displayValue(row, 'columnType') }}</uni-td><uni-td>{{ displayValue(row, 'columnLength') }}</uni-td><uni-td>{{ displayValue(row, 'columnName') }}</uni-td><uni-td>{{ displayValue(row, 'configTableName') }}</uni-td><uni-td>{{ displayValue(row, 'isInGrid') }}</uni-td><uni-td>{{ displayValue(row, 'isInFilter') }}</uni-td><uni-td>{{ displayValue(row, 'isInEdit') }}</uni-td><uni-td>{{ displayValue(row, 'isReadOnly') }}</uni-td><uni-td>{{ displayValue(row, 'isMust') }}</uni-td><uni-td>{{ displayValue(row, 'linkConfigTableName') }}</uni-td><uni-td>{{ displayValue(row, 'linkConfigPageName') }}</uni-td><uni-td>{{ displayValue(row, 'sortNo') }}</uni-td><uni-td>{{ displayValue(row, 'yzProjectId') }}</uni-td><uni-td>{{ displayValue(row, 'yzProjectName') }}</uni-td><uni-td>{{ displayValue(row, 'isPrint') }}</uni-td><uni-td>{{ displayValue(row, 'importNo') }}</uni-td><uni-td>{{ displayValue(row, 'insertTime') }}</uni-td><uni-td>{{ displayValue(row, 'updateTime') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerId') }}</uni-td><uni-td>{{ displayValue(row, 'insertManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'updateManagerRealName') }}</uni-td><uni-td>{{ displayValue(row, 'insertUserName') }}</uni-td><uni-td>{{ displayValue(row, 'updateUserName') }}</uni-td><uni-td>{{ displayValue(row, 'isSort') }}</uni-td><uni-td>{{ displayValue(row, 'sumKind') }}</uni-td><uni-td>{{ displayValue(row, 'isVirtualColumn') }}</uni-td><uni-td>{{ displayValue(row, 'logicalType') }}</uni-td><uni-td>{{ displayValue(row, 'precision') }}</uni-td><uni-td>{{ displayValue(row, 'scale') }}</uni-td><uni-td><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
     </uni-table>
     <view><button size="mini" :disabled="pageNo <= 1 || loading" @click="movePage(-1)">上一页</button><text>{{ pageNo }} / {{ pages }}</text><button size="mini" :disabled="pageNo >= pages || loading" @click="movePage(1)">下一页</button></view>
+    <yzp-popup ref="child_detail_popup" type="center" @change="onChildDetailPopupChange">
+      <view class="select-page-dialog-view"><uni-section title="列" type="line"><view class="section-view child-detail-dialog-view">
+        <PageDetail v-if="childDetailPopupVisible" :key="childDetailPopupKey" :is_props="true" :props_id="childDetailPopupId" :props_parent_id="parentId" :props_parent_page_sn="parent_page_sn" :parentReadOnlyCondition="readOnlyCondition" @onChange="handleChildDetailChange" @onPopClose="closeChildDetailPopup" />
+        <button size="mini" @click="closeChildDetailPopup">关闭</button>
+      </view></uni-section></view>
+    </yzp-popup>
   </view>
 </template>
 <script>
 import yzp from '@/common/yzp';
+
 import utils from '@/common/utils';
+import PageDetail from '@/pages/yzp/config_column-detail-6217715532627968.vue';
 const filterFields = [{"field":"name","type":"string?","name":"\u540D\u79F0"},{"field":"columnName","type":"string?","name":"\u5217\u540D\u79F0"}];
 const sortFields = [];
 const displayFields = {"name":{"alias":null,"optionField":null},"joinTable":{"alias":null,"optionField":null},"isHideSelectGrid":{"alias":null,"optionField":null},"isJoinColumn":{"alias":null,"optionField":null},"columnType":{"alias":"columnTypeShow","optionField":null},"columnConstrain":{"alias":null,"optionField":null},"columnLength":{"alias":null,"optionField":null},"columnFullName":{"alias":null,"optionField":null},"isAutoPostBackQuery":{"alias":null,"optionField":null},"saveOption":{"alias":null,"optionField":null},"displayOption":{"alias":null,"optionField":null},"description":{"alias":null,"optionField":null},"developerRemarks":{"alias":null,"optionField":null},"isAutoUpdate":{"alias":null,"optionField":null},"isCopy":{"alias":null,"optionField":null},"queryDefaultValue":{"alias":null,"optionField":null},"columnName":{"alias":null,"optionField":null},"matchType":{"alias":"matchTypeShow","optionField":null},"width":{"alias":null,"optionField":null},"configTableName":{"alias":null,"optionField":null},"isInGrid":{"alias":null,"optionField":null},"isInFilter":{"alias":null,"optionField":null},"isInEdit":{"alias":null,"optionField":null},"controlKind":{"alias":"controlKindShow","optionField":null},"isReadOnly":{"alias":null,"optionField":null},"controlDetail":{"alias":null,"optionField":null},"isMust":{"alias":null,"optionField":null},"filterControlKind":{"alias":"filterControlKindShow","optionField":null},"linkConfigTableName":{"alias":null,"optionField":null},"linkConfigPageName":{"alias":null,"optionField":null},"sortNo":{"alias":null,"optionField":null},"defaultValue":{"alias":null,"optionField":null},"yzProjectId":{"alias":null,"optionField":null},"initValue":{"alias":null,"optionField":null},"yzProjectName":{"alias":null,"optionField":null},"isPrint":{"alias":null,"optionField":null},"importNo":{"alias":null,"optionField":null},"insertTime":{"alias":null,"optionField":null},"controlWidth":{"alias":null,"optionField":null},"updateTime":{"alias":null,"optionField":null},"colSpan":{"alias":null,"optionField":null},"insertManagerId":{"alias":null,"optionField":null},"align":{"alias":null,"optionField":null},"updateManagerId":{"alias":null,"optionField":null},"insertManagerRealName":{"alias":null,"optionField":null},"isAutoPostBack":{"alias":null,"optionField":null},"updateManagerRealName":{"alias":null,"optionField":null},"visibleCondition":{"alias":null,"optionField":null},"insertUserName":{"alias":null,"optionField":null},"updateUserName":{"alias":null,"optionField":null},"isSort":{"alias":null,"optionField":null},"sumKind":{"alias":null,"optionField":null},"isVirtualColumn":{"alias":null,"optionField":null},"logicalType":{"alias":null,"optionField":null},"mobileListPageColSpan":{"alias":"mobileListPageColSpanShow","optionField":null},"precision":{"alias":null,"optionField":null},"isDbNotNull":{"alias":null,"optionField":null},"scale":{"alias":null,"optionField":null},"id":{"alias":null,"optionField":null}};
 const rtfFields = [];
+/** 父键保持字符串精度，空值与历史 null/undefined 字面量均视为未保存。 */
+const recordId = value => typeof value === 'string' && !['undefined', 'null'].includes(value.trim()) ? value.trim() : '';
 export default {
-  data() { return { records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: [], sortFields,
+  mixins: [],
+  components: { PageDetail },
+  props: { parent_id: { type: String, default: '' }, parent_page_sn: { type: String, default: '' }, is_son_page: { type: Boolean, default: false }, child_page_open_type: { type: Number, default: 1 }, parentReadOnlyCondition: { type: Boolean, default: false } },
+  data() { return { permissionsReady: false, permissionVersion: 0, canUpdate: true, childDetailPopupVisible: false, childDetailPopupId: '', childDetailPopupKey: 0, records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: [], sortFields,
     sortDirections: [{text: '默认排序', value: ''}, {text: '升序', value: 'ascending'}, {text: '降序', value: 'descending'}], canCreate: false, canImport: false, canExport: true }; },
-  /** 父记录和选择页上下文在筛选、排序及翻页期间保持不变。 */
-  onLoad(options) { this._alive = true; this._requestNo = 0; this._optionRequests = []; this.parentId = options.parentId || ''; this.selecting = options.select === '1'; this.loadOptions(); },
-  onShow() { this.loadPage(); },
-  /** 先失效所有回调，再取消请求，离开的页面不会接收迟到数据。 */
-  onUnload() { this._alive = false; this._requestNo++; this._request?.abort?.(); this._optionRequests.forEach(task => task?.abort?.()); },
+  computed: {
+    /** 子列表沿用父页只读；前端权限快照只负责隐藏操作，后端仍验证真实身份。 */
+    readOnlyCondition() { this.permissionVersion; return !this.permissionsReady || Boolean(this.parentReadOnlyCondition || getApp().globalData.readOnly); },
+    /** 新增、修改、导入分别受本页能力和对应操作权限控制，不能用修改权限统管。 */
+    canCreateRecord() { this.permissionVersion; return !this.readOnlyCondition && this.canCreate && yzp.hasPagePermission('6217715532627968', 'is_new'); },
+    canEditRecord() { this.permissionVersion; return !this.readOnlyCondition && this.canUpdate && yzp.hasPagePermission('6217715532627968', 'is_update'); },
+    canImportRecords() { this.permissionVersion; return !this.readOnlyCondition && this.canImport && yzp.hasPagePermission('6217715532627968', 'is_all'); }
+  },
+  watch: {
+    /** 父记录改变时取消旧读取并重建子列表，不触发父表保存。 */
+    parent_id() { if (this.is_son_page && this._alive) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } }
+  },
+  mounted() { if (this.is_son_page) { this.initializeList({ parentId: this.parent_id }); this.loadPage(1); } },
+  /** 路由和嵌入组件分别初始化，避免嵌入模式依赖不会触发的 onLoad。 */
+  onLoad(options) { if (!this.is_son_page) this.initializeList(options); },
+  onShow() { if (!this.is_son_page) this.loadPage(); },
+  onUnload() { this.disposeList(); },
+  beforeUnmount() { this.disposeList(); },
   methods: {
+    /** 保留查询与排序，换父记录只清空旧数据和旧选项；未保存父键不发出任何查询。 */
+    initializeList(options = {}) {
+      this.disposeList(); this._alive = true; this._optionRequests = []; this.parentId = recordId(options.parentId || options.parent_id); this.selecting = options.select === '1';
+      this.records = []; this.pageNo = 1; this.pages = 1; this.options = {}; this.loading = false; this.loadError = ''; this.permissionsReady = false;
+      const epoch = this._epoch, ready = () => { if (this._alive && epoch === this._epoch) { this.permissionsReady = true; this.permissionVersion++; } };
+      if (this.is_son_page) ready(); else yzp.refreshCurrentPermissions(ready, ready);
+      if (!(true || this.is_son_page) || this.parentId) this.loadOptions();
+    },
+    /** 卸载或换父记录时失效列表、候选项和弹层回调。 */
+    disposeList() { this._alive = false; this._epoch = (this._epoch || 0) + 1; this._requestNo = (this._requestNo || 0) + 1; this._request?.abort?.(); (this._optionRequests || []).forEach(task => task?.abort?.()); this.closeChildDetailPopup(); },
     /** 导入保留客户端读取Excel并提交中文标题JSON的协议。 */
-    initImport() { yzp.chooseImportFile(rows => { yzp.request({ url: '/admin/auto/config_column/6217715532627968/importDatas6217715532627968', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
+    initImport() { if (!this.canImportRecords || (true || this.is_son_page) && !this.parentId) return; const parentId = this.parentId, identity = this.currentIdentity(); yzp.chooseImportFile(rows => { if (!this._alive || !this.canImportRecords || parentId !== this.parentId || identity !== this.currentIdentity()) return; yzp.request({ url: '/admin/auto/config_column/6217715532627968/importDatas6217715532627968', method: 'POST', sendSessionId: true, data: { requestJson: rows, parentId: this.parentId || null }, success: res => yzp.importSuccessAction(res, this) }); }); },
     /** 导出使用已提交筛选、排序和父记录，不混入尚未点击查询的草稿。 */
     initExport() { yzp.request({ url: '/admin/auto/config_column/6217715532627968/initExport', method: 'POST', sendSessionId: true, data: this.pageRequest(this.pageNo), success: res => { if (res.code === 200) utils.openUrl(getApp().globalData.environment.base_url + '/admin/sys/export/export?exportId=' + encodeURIComponent(res.data)); } }); },
     /** 导入后只重读第一页，已提交查询和父上下文继续保留。 */
@@ -89,6 +125,7 @@ export default {
     /** 最新查询完成后才提交页码和行；失败保留已确认数据，乱序响应不可回退列表。 */
     loadPage(target = this.pageNo) {
       if (!this._alive) return;
+      if ((true || this.is_son_page) && !this.parentId) { this.loadError = '为避免数据丢失，请先保存当前页面的数据。'; return; }
       const identity = this.currentIdentity();
       if (this._listIdentity && this._listIdentity !== identity) { this.records = []; this.pages = 1; this.pageNo = 1; target = 1; }
       this._listIdentity = identity;
@@ -106,7 +143,7 @@ export default {
     loadOptions() {
       const parentId = this.parentId || null, identity = this.currentIdentity();
       const current = () => this._alive && parentId === (this.parentId || null) && identity === this.currentIdentity();
-
+      this.refreshRelationLabels?.();
     },
     /** 优先显示后端真实别名，再从合法选项映射名称，缺失名称时保留原 ID。 */
     displayValue(row, field) {
@@ -117,8 +154,32 @@ export default {
     },
     /** 列表富文本复用原预览页与 sendRtf 事件，不把 HTML 当普通文本字段编辑。 */
     previewRtf(row, field) { if (!rtfFields.includes(field)) return; uni.navigateTo({ url: '/pages/main/rtf/rtf?action=review', success: result => result.eventChannel.emit('sendRtf', { data: row[field] || '' }) }); },
-    /** 跳转保持既有生成页面命名和父记录上下文。 */
-    openDetail(id) { if (this.selecting && id) { const row = this.records.find(record => record.id === id); this.getOpenerEventChannel().emit('selected', row); uni.navigateBack(); return; } uni.navigateTo({ url: '/pages/yzp/config_column-detail-6217715532627968?id=' + encodeURIComponent(id) + '&parentId=' + encodeURIComponent(this.parentId) }); }
+    /** 子记录变更只刷新本列表，保留父键、筛选与排序，不调用父表单写入口。 */
+    handleDetailChange(change) { const action = typeof change === 'string' ? change : change?.action; if (this._alive && ['save', 'delete', 'copy'].includes(action)) this.loadPage(this.pageNo); },
+    /** 弹层事件不再向祖先冒泡，关闭后的旧详情事件忽略。 */
+    handleChildDetailChange(change) { if (this.childDetailPopupVisible) this.handleDetailChange(change); },
+    /** PC 子表弹层保留原组件及 props 合同；移动端仍由 openDetail 导航。 */
+    openChildDetailPopup(id) {
+      if (!this._alive || !this.parentId || ![1, 2].includes(this.child_page_open_type)) return;
+      this.childDetailPopupId = id || ''; this.childDetailPopupKey++; this.childDetailPopupVisible = true;
+      const key = this.childDetailPopupKey, parentId = this.parentId, identity = this.currentIdentity();
+      this.$nextTick(() => { if (this._alive && this.childDetailPopupVisible && key === this.childDetailPopupKey && parentId === this.parentId && identity === this.currentIdentity()) this.$refs.child_detail_popup?.open('center'); });
+    },
+    /** 关闭只销毁当前子详情，不影响父记录及查询上下文。 */
+    closeChildDetailPopup() { this.childDetailPopupVisible = false; this.childDetailPopupId = ''; this.$refs?.child_detail_popup?.close(); },
+    onChildDetailPopupChange(event) { if (!event.show) { this.childDetailPopupVisible = false; this.childDetailPopupId = ''; } },
+    /** 子页必须绑定已保存父键；打开方式只影响 PC，URL 的父键继续交给既有后端 Scope 校验。 */
+    openDetail(id) {
+      if (!this._alive) return;
+      if ((true || this.is_son_page) && !this.parentId) { uni.showModal({ showCancel: false, content: '为避免数据丢失，请先保存当前页面的数据' }); return; }
+      if (this.selecting && id) { const row = this.records.find(record => record.id === id); this.getOpenerEventChannel().emit('selected', row); uni.navigateBack(); return; }
+      if (!id && !this.canCreateRecord) return;
+      if (this.is_son_page && ![1, 2].includes(this.child_page_open_type)) { uni.showModal({ showCancel: false, content: '子页面打开方式未支持。' }); return; }
+      if (this.is_son_page && this.$deviceInfo?.is_pc && this.child_page_open_type === 2) { this.openChildDetailPopup(id); return; }
+      const parentId = this.parentId, epoch = this._epoch, identity = this.currentIdentity();
+      const current = () => this._alive && epoch === this._epoch && parentId === this.parentId && identity === this.currentIdentity();
+      uni.navigateTo({ url: '/pages/yzp/config_column-detail-6217715532627968?id=' + encodeURIComponent(id) + '&parentId=' + encodeURIComponent(parentId) + '&parentPageId=' + encodeURIComponent(this.parent_page_sn) + '&parentReadOnly=' + (this.readOnlyCondition ? '1' : '0'), events: { onChange: change => { if (current()) this.handleDetailChange(change); } } });
+    }
   }
 };
 </script>

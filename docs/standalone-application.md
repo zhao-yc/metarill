@@ -37,3 +37,17 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 `npm test` 在 Node 24 检查 H5/Vue3 条件编译后的真实 JavaScript 语法、ES/CommonJS 导入、生成路由及组件文件闭包。真实隔离 MySQL 测试从打包结果构建宿主、显式结构同步，执行生成登录/菜单/list/detail 脚本到实际 HTTP 接口，并验证新增、显式 null、读取、删除及注销失效；这仍不是浏览器 DOM、HBuilderX 发行、小程序、Android 或 iOS 验收。Excel/DOM 第三方组件只在此脚本中检查依赖闭包，不声称已在 Node 模拟完整执行。
 
 旧 ImageUpload/RTF URL 沿用公开上传协议，尚不具备 FileLibrary 字段的引用阻删生命周期。Agent、复杂自定义 SQL、平台设计器和正式账号体系不在当前独立前端宿主范围内。
+
+## 独立生成包 Web 与主子浏览器验收（2026-10-19）
+
+协调者从元数据和公共源重新输出全新私有目录，装配 450 文件 FullApplication 包；导出默认 AppID 为空，只在验收副本填写用户已提供的 Metarill AppID 和回环 API 地址。`npm ci --ignore-scripts --offline`、随包 `npm test`、后端真实构建（0警告/0错误）均通过，HBuilderX 5.26 Vue3 的实际命令为：
+
+```powershell
+D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/generated-ui-8c394058-v2/frontend --webTitle Metarill独立应用验收 --webHosting false
+```
+
+产物静态服务 5194 与独立后端 8098 分离端口，浏览器使用真实开发登录和发布菜单进入新生成页面。父记录保存前不挂载子表；保存后显示 Tab 子列表。纯界面完成父新增、PC 弹层中两条子记录新增/修改/软删除、名称筛选和重置、升序/降序回读、父备注最终保存及列表回读、父软删除和注销。子记录操作前故意修改父备注而不保存，子列表刷新后该脏字段仍保留；重新从列表进入父详情确认最终值真实持久化。父只读路由下父字段禁用，父保存/复制/删除及子新增隐藏；该前端行为不替代独立的服务端权限测试。
+
+结构验收先证明随机子表不存在，完整预览仅一条 CREATE TABLE，持久化创建意图后显式执行并核验0差异。浏览器退出后先停本轮进程，再核对精确父ID、最终备注/金额和两条子记录的归属及软删除状态，只清理本轮随机表与父行；不存在核验及清理回执保留于私有 `.local`。两个临时开发认证配置已删除，其余既有数据未清理。
+
+本批只验证两条子记录与 1/1 分页状态，未验证浏览器跨页边界或超过5000候选；后者已有真实 HTTP 回归，不能互相替代。小程序、Android、iOS、真实 Tiny Cloud、文件/导入导出的独立包浏览器操作和正式账号体系仍分别待验收。Tiny Cloud key按用户要求保持空值。独立8098/5194临时服务已停止。
