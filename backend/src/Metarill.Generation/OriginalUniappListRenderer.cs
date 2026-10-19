@@ -67,8 +67,8 @@ internal static partial class OriginalUniappListRenderer
             ["toDetailQueryGuard"] = child ? "if (id !== '' && !this.page_is_edit) {" : "if (id !== '' && (!this.page_is_edit || !yzp.hasPagePermission(this.page_sn, 'is_query'))) {"
         };
         var result = Template("original-list-ordinary.vue.tpl");
-        // 选择页采用相同原列表状态机；勾选回读只在内部桥接，不添加新的工具栏或分页控件。
-        if (selection) result = result.Replace("!this.page_is_update || this.parentReadOnlyCondition", "this.parentReadOnlyCondition || getApp().globalData.readOnly", StringComparison.Ordinal);
+        // 列表继承父/全局只读；新增和更新按各自能力判断，避免旧模板使“仅新增”页面丢失新增入口。
+        result = result.Replace("!this.page_is_update || this.parentReadOnlyCondition", "this.parentReadOnlyCondition || getApp().globalData.readOnly", StringComparison.Ordinal);
         foreach (var (key, value) in values)
             result = result.Replace(key.StartsWith("//##", StringComparison.Ordinal) ? key : "##" + key + "##", value, StringComparison.Ordinal);
         if (System.Text.RegularExpressions.Regex.IsMatch(result, @"##[a-zA-Z_]+##")) throw new InvalidOperationException("原列表模板有未解析占位符。");

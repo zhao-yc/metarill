@@ -1,5 +1,16 @@
 import { createSelectionPageMixin } from '@/common/yzp_runtime/selectionPageMixin';
 
+/** 确认重试前核验原输入；解析错误不能被草稿空数组掩盖成合法清空。 */
+function validateOriginalIds(value) {
+ const ids = value === null || value === undefined || value === '' ? [] : typeof value === 'string' ? JSON.parse(value) : value
+ if (!Array.isArray(ids) || ids.length > 200) throw new Error('多选页最多200个已选项，已选值必须为数组。')
+ for (const id of ids) {
+  if (typeof id !== 'string' && (typeof id !== 'number' || !Number.isSafeInteger(id))) throw new Error('已选ID必须为完整正整数字符串。')
+  const text = String(id)
+  if (!/^[1-9][0-9]{0,18}$/.test(text) || text.length === 19 && text > '9223372036854775807') throw new Error('已选ID必须为完整正整数字符串。')
+ }
+}
+
 /** 原列表只保留selectedList/isSelectAll/chkChange接口；内部桥接已验证的完整同权回读，不改变组件和工具栏。 */
 export function createOriginalSelectionPageMixin(endpoint, requiresParent = false) {
  return {
@@ -37,6 +48,7 @@ export function createOriginalSelectionPageMixin(endpoint, requiresParent = fals
    /** 原确认按钮保持位置和外观；失败用原弹窗反馈，并允许再次同权核验。 */
    sureSelect() {
     if (!this._alive || this.readOnlyCondition || this.selectionBusy) return
+    try { validateOriginalIds(this.selectedIds) } catch (_) { uni.showModal({ showCancel: false, content: '原已选值无效，请先修复已选ID后确认。' }); return }
     this._originalConfirmPending = true; this.selectionError = ''; this.selectionReady = true
     this.readSelection(true)
    },

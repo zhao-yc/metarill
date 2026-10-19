@@ -55,7 +55,7 @@ public sealed class OriginalUniappListTests
     /// <summary>同一页配置生成普通与多选两页；两页仍使用原字段与原可视操作。</summary>
     private static MetadataCatalog Catalog(int layout)
     {
-        var catalog=GeneratorTests.Catalog();catalog.ConfigPages[0].Extra["mobileListPageStyleType"]=JsonSerializer.SerializeToElement(layout);
+        var catalog=GeneratorTests.Catalog();catalog.ConfigPages[0].Extra["isUpdate"]=JsonSerializer.SerializeToElement(0);catalog.ConfigPages[0].Extra["mobileListPageStyleType"]=JsonSerializer.SerializeToElement(layout);
         var selection=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(catalog.ConfigPages[0]))!;selection.Id="102";selection.IsNew=0;selection.Extra["type"]=JsonSerializer.SerializeToElement(2);
         catalog.ConfigPages.Add(selection);
         foreach(var field in catalog.ConfigPageColumns.ToArray()){var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;copy.Id+="s";copy.ConfigPageId="102";catalog.ConfigPageColumns.Add(copy);}

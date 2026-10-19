@@ -1,5 +1,7 @@
 # 主框架功能收口审计
 
+> 2026-10-20纠偏：下文部分界面证据来自已被用户否定的简化生成页，不能作为“沿用原前端”的验收。默认生成入口现已切回原v8列表/详情，恢复状态以[前端纠偏台账](frontend-preservation-correction.md)为准。原页面浏览器和全回归尚待完成。
+
 审计日期：2026-10-19。原 YZP 只读参考为 `D:\\svn\\yzp`，审计时 HEAD 为 `06066f79`；Metarill 初次审计基于 `7de6c8b`；当前状态复核包含 `cc63976` 及统一再生成产物：配置候选、主子交互、完整独立前端、List 关系分页 UI、type=2 独立多选页、本地受控源码更新和独立宿主只读结构命令。源码事实、已有验收和待完成事项分开记录；后续每个切片应更新本文件，不能把静态源码存在当作完整验收。
 
 ## 范围与已经替换的设计
@@ -12,7 +14,7 @@
 
 **已有：** [BackendRenderer](../backend/src/Metarill.Generation/BackendRenderer.cs) 的 Query、ParentValidation、Mutations 已实现开放筛选、排序、selectedIds、分页/count、parentId 受限等值范围和真实父记录校验。
 
-**本轮补齐：** [list.vue.tpl](../backend/templates/uniapp/list.vue.tpl) 按 Searchable/Sortable 白名单编译筛选、排序和分页快照，导出复用已确认筛选；零、false、长标识与日期范围保留。列表/详情消费真实常量 `xxxShow` 和已有关系别名/合法选项映射，缺失关系名保持原标识。RTF 沿原事件且未编辑不写回，FileLibrary 编译已声明的访问及数量/类型配置；未知或坏配置拒绝生成。
+**本轮补齐：** [原列表渲染器](../backend/src/Metarill.Generation/OriginalUniappListRenderer.cs) 按 Searchable/Sortable 白名单编译筛选、排序和分页快照，导出复用已确认筛选；零、false、长标识与日期范围保留。列表/详情消费真实常量 `xxxShow` 和已有关系别名/合法选项映射，缺失关系名保持原标识。RTF 沿原事件且未编辑不写回，FileLibrary 编译已声明的访问及数量/类型配置；未知或坏配置拒绝生成。
 
 **主子编译与权限：** [ChildrenCompilation](../backend/src/Metarill.Generation/ChildrenCompilation.cs) 已消费 `ConfigChildren`，校验父/子页、同后台归属、唯一父范围和对应外键，拒绝循环、未知配置及不支持的列表类型，按排序和打开方式生成子模块。父详情支持 Tab，打开方式 1 为新页面、2 为 PC 弹层；未取得权限、父记录未保存或回读未就绪时不开放子写入。生成页结合页权限、父只读上下文和已声明可读字段的只读条件限制操作；服务端仍独立验证父记录、项目和 CRUD 权限，前端禁用不替代授权。
 

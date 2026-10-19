@@ -46,6 +46,7 @@ const pageRequests=f=>f.requests.filter(r=>r.options.url.endsWith('/page'))
 
 const normal=fixture('101')
 try{
+ assert.equal(normal.vm.page_is_update,false);assert.equal(normal.vm.page_is_new,true);assert.equal(normal.vm.readOnlyCondition,false)
  assert.equal(pageRequests(normal).length,1)
  const first=pageRequests(normal)[0];assert.equal(first.options.data.pageNo,1);assert.deepEqual(plain(first.options.data.filters),{})
  normal.vm.filters.name='未提交';assert.deepEqual(plain(first.options.data.filters),{})
@@ -74,3 +75,13 @@ try{
  success(confirm,[]);await Vue.nextTick();assert.ok(selected.events.some(event=>event[0]==='onPopSelect'&&event[1].length===0))
  console.log('通过：原多选DOM、跨页草稿、完整回读、仅看已选清空后不查询全部、原row[]确认')
 }finally{selected.app.unmount()}
+
+for(const value of ['[', '{}', '[0]', '["9223372036854775808"]', [Number.MAX_SAFE_INTEGER+1]]) {
+ const invalid=fixture('102',{selectedIds:value,onOnPopSelect:rows=>invalid.events.push(['onPopSelect',rows])})
+ try {
+  await Vue.nextTick();assert.ok(invalid.vm.selectionError);assert.equal(invalid.requests.filter(r=>r.options.url.endsWith('/selection/selected')).length,0)
+  const count=invalid.requests.length;invalid.vm.sureSelect();await Vue.nextTick()
+  assert.equal(invalid.requests.length,count);assert.equal(invalid.events.filter(event=>event[0]==='onPopSelect').length,0);assert.match(invalid.dialogs.at(-1).content,/原已选值无效/)
+ }finally{invalid.app.unmount()}
+}
+console.log('通过：非法原已选JSON/ID不能转成空确认，仅新增页面保留原新增入口')
