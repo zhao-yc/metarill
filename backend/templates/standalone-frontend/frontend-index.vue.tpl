@@ -1,6 +1,40 @@
-<template><view class="uni-padding-wrap"><view class="title">{{ application.name }}</view><text>从菜单进入业务页面。</text><button @click="menu">打开菜单</button></view></template>
+<template>
+	<view class='detail-page'>
+		<keep-alive>
+			<component :is="asyncComponent" :home-visible="homeVisible && isHomeContent"></component>
+		</keep-alive>
+	</view>
+</template>
 <script>
-import application from '@/common/application.generated.json'
-export default { data() { return { application } }, onShow() { if (!this.$yzp.checkLogin()) this.$yzp.goLoginWithRedirect() }, methods: { /** 移动端与桌面共用相同菜单和生成页面。 */ menu() { uni.switchTab({ url: '/pages/main/menu' }) } } }
+	import { markRaw } from "vue";
+	export default {
+		data() {
+			return {
+				asyncComponent: null,
+				homeVisible: false,
+				isHomeContent: true
+			}
+		},
+		onShow() {
+			// 动态内容显式接收页面进入事件，统一刷新配置搜索。
+			this.homeVisible = true;
+		},
+		onHide() {
+			this.homeVisible = false;
+		},
+		onUnload() {
+			this.homeVisible = false;
+		},
+		onLoad: function(e) {
+			var that = this;
+
+			// 原工程首页插槽仅首次提供空main，业务内容由开发者维护；不夹带平台配置搜索或财务功能。
+			import("@/pages/main/main").then(module => {
+				that.asyncComponent = markRaw(module.default)
+			})
+
+		}
+	}
 </script>
-<style>.title{font-size:24px;margin:28px 0 16px}.uni-padding-wrap{padding:24px}</style>
+<style>
+</style>

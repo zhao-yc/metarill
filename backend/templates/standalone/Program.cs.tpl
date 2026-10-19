@@ -131,7 +131,13 @@ app.MapPost("/api/admin/sys/yz_manager/login", async (HttpContext context, Devel
     }
     var token = sessions.Login(username, password);
     if (token is null) return Results.Json(R<object>.Error("账号、密码或开发认证配置无效。", 401), statusCode: 401);
-    var result = R<object>.Success(new { id = "1", username, name = username }); result.Map["loginStateId"] = token; return Results.Json(result);
+    var result = R<object>.Success(new { id = "1", username, name = username, merchantName = metadata.YzProjectName }); result.Map["loginStateId"] = token; return Results.Json(result);
+}).RequireRateLimiting("login");
+// 原修改密码页合同保留；POST避免新客户端把密码放进URL，GET仅供旧协议兼容。
+app.MapMethods("/api/admin/sys/yz_manager/edit_password", ["GET","POST"], async(HttpContext context,DevelopmentSessions sessions)=>
+{
+    var request=await ReadPasswordChange(context.Request);sessions.ChangePassword(DevelopmentSessions.ReadToken(context),request.OldPwd,request.Pwd);
+    context.Response.Headers.CacheControl="private, no-store";return R<string>.Success("修改成功");
 }).RequireRateLimiting("login");
 app.MapPost("/api/admin/sys/yz_manager/exit_login", (HttpContext context, DevelopmentSessions sessions) => { sessions.Logout(DevelopmentSessions.ReadToken(context)); return R<string>.Success("退出成功"); });
 // 保留已有下载协议，票据仍须绑定当前真实账号和项目，不能公开私有导出目录。
@@ -158,6 +164,22 @@ static bool IsPublicFileContent(HttpRequest request)
         && long.TryParse(path.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0;
 }
 
+// 请求只允许原oldPwd/pwd两个有界字段；不接账户、项目、路径、配置或任意JSON键。
+static async Task<DevelopmentPasswordChange> ReadPasswordChange(HttpRequest request)
+{
+    if(HttpMethods.IsGet(request.Method))
+    {
+        if(request.Query.Keys.Any(key=>key is not("oldPwd" or "pwd"))||request.Query["oldPwd"].Count!=1||request.Query["pwd"].Count!=1||request.ContentLength>0)throw new ArgumentException("改密请求参数无效。");
+        return new(request.Query["oldPwd"].ToString(),request.Query["pwd"].ToString());
+    }
+    if(request.Query.Count!=0)throw new ArgumentException("改密请求不能混合query。");
+    var bytes=new byte[4097];var length=0;while(length<bytes.Length){var count=await request.Body.ReadAsync(bytes.AsMemory(length),request.HttpContext.RequestAborted);if(count==0)break;length+=count;}
+    if(length>4096)throw new ArgumentException("改密请求超过限制。");
+    using var document=JsonDocument.Parse(bytes.AsMemory(0,length));var fields=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    if(document.RootElement.ValueKind!=JsonValueKind.Object||document.RootElement.EnumerateObject().Any(field=>!fields.Add(field.Name)||field.Name is not("oldPwd" or "pwd")||field.Value.ValueKind!=JsonValueKind.String)||fields.Count!=2)throw new ArgumentException("改密请求参数无效。");
+    return new(document.RootElement.GetProperty("oldPwd").GetString(),document.RootElement.GetProperty("pwd").GetString());
+}
+
 namespace {{NAMESPACE}}.Host
 {
     /// <summary>正式认证和基础设施可通过同程序集手写 partial 接入。</summary>
@@ -169,4 +191,5 @@ namespace {{NAMESPACE}}.Host
         static partial void ConfigureServices(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment);
     }
     public sealed record DevelopmentLogin(string? Username, string? Password);
+    public sealed record DevelopmentPasswordChange(string? OldPwd,string? Pwd);
 }

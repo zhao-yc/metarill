@@ -9,4 +9,10 @@ yzp.request = function (options) {
   if (success) success.call(options, response)
  } })
 }
+/** 保留原退出确认交互；C#不透明会话必须在服务器撤销成功后再清缓存。 */
+yzp.exitLogin = function () {
+ uni.showModal({content:'您确认要退出登录吗？',success:confirmation=>{if(!confirmation.confirm)return;
+  yzp.request({url:'/admin/sys/yz_manager/exit_login',method:'POST',sendSessionId:true,data:{},success:response=>{if(response.code!==200)return;yzp.clearLoginStorage();uni.$emit('onLogout');uni.reLaunch({url:'/pages/login'})}})
+ }})
+}
 export default yzp

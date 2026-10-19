@@ -57,3 +57,11 @@ FullApplication 模式额外提供 frontend 独立 HBuilderX uni-app Vue3 工程
 旧ImageUpload/富文本上传可调用 `/api/admin/sys/upload/uploadImage`，仅限真实登录的当前项目，成功文件按原协议公开。JPEG/PNG会重新编码并受10MiB、1600万像素与8192边长限制，普通附件按文件库白名单和大小上限导入。旧URL字段尚未获得FileLibrary字段的引用阻删生命周期。
 
 `Files:LegacyPublicBaseUrl` 默认空，返回同源 `/api/...` 路径。前后端分离端口、App或真机必须配置实际可达的API公开origin；例如 `https://api.example.com/prefix` 会完整生成 `https://api.example.com/prefix/api/...`，保留可选路径前缀。该配置不含认证、query或fragment，只接受HTTP(S)；不会从Host、X-Forwarded或请求参数推断可信地址。部署者须配置对应HTTPS网关/路径转发，示例域名不代表实际可访问。
+
+## 开发账户改密与本机私有状态
+
+完整前端沿用原修改密码页。开发账户通过POST `/api/admin/sys/yz_manager/edit_password` 提交JSON `{oldPwd,pwd}`，必须已登录并核验旧密码；新密码为12至1024个字符。服务端保留旧GET同参数合同，推荐POST避免密码进入URL日志。成功才返回“修改成功”，并撤销全部旧会话；其他同目录开发进程下次校验同样撤销旧会话。
+
+首次实际改密在宿主固定 `.local/development-auth/credentials.json` 创建PBKDF2-SHA256随机盐摘要（600000次），不保存明文，不接受请求指定路径。文件/目录只允许当前运行用户，原子刷盘并拒绝任何祖先/文件链接与过宽权限。摘要绑定项目和显式配置用户名；重启保留新密码，单改原启动Password配置不能覆盖已持久化摘要。状态损坏、已存在目录缺文件或身份不符均拒绝，不回退复活原密码。需要重置时由开发者停止宿主、保留并核查私有状态后实施自己的明确重置流程，本包不提供远程重置后门。
+
+该私有目录不进源码/包清单，也不会由运行时同步写入或恢复。真实使用时随部署者私有配置备份且限制访问，不能公开映射/提交Git；本项目用户约定的重要凭据备份应按项目归档并附说明。此功能只属于显式Development开发账户，不能视为生产认证、账户管理或正式密码策略已交付。

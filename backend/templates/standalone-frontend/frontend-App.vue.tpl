@@ -1,13 +1,58 @@
 <script>
-import { createAppEnvironment } from '@/common/environment'
-export default {
- globalData: { readOnly: false, windowInfo: {}, environment: createAppEnvironment() },
- /** 原有桌面/移动布局全局属性保持一致，独立宿主没有平台项目切换及账号管理路由。 */
- onLaunch() {
-  uni.getSystemInfo({ success: info => { if (info.windowWidth < 768) { Object.keys(this.$imageStyles).forEach(key => delete this.$imageStyles[key]); this.$deviceInfo.is_pc = false } } })
-  this.globalData.windowInfo = uni.getWindowInfo()
-  uni.onWindowResize(event => { this.globalData.windowInfo = { ...this.globalData.windowInfo, ...event.size } })
- }
-}
+	import {
+		createAppEnvironment
+	} from '@/common/environment'
+
+	export default {
+		globalData: {
+			readOnly: false,
+			windowInfo: {},
+			environment: createAppEnvironment()
+		},
+		onLaunch: function() {
+			var that = this;
+
+			//获取设备屏幕宽度，用于处理在不同宽度时的样式
+			uni.getSystemInfo({
+				success: function(res) {
+					//移动端的时候
+					if (res.windowWidth < 768) {
+						Object.keys(that.$imageStyles).forEach(function(key) {
+							delete that.$imageStyles[key];
+						});
+						that.$deviceInfo.is_pc = false;
+					}
+				}
+			});
+
+
+			this.globalData.windowInfo = uni.getWindowInfo();
+			console.log("windowInfo", this.globalData.windowInfo)
+			uni.onWindowResize(function(res) {
+				console.log("onWindowResize", res)
+				that.globalData.windowInfo.windowWidth = res.size.windowWidth
+				that.globalData.windowInfo.windowHeight = res.size.windowHeight
+			})
+
+
+			if (this.$deviceInfo.is_pc) {
+				uni.$on('navigateToChangePassword', function() {
+					uni.navigateTo({
+						url: "/pages/main/change_password"
+					})
+				})
+			}
+		},
+		onShow: function() {
+			console.log('App Show')
+		},
+		onHide: function() {
+			console.log('App Hide')
+		}
+	}
 </script>
-<style lang="scss">@import '@/common/yzp.scss';</style>
+
+<style lang="scss">
+
+	@import "@/common/yzp.scss";
+</style>

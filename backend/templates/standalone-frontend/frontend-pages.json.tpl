@@ -25,56 +25,92 @@
         "navigationStyle": "custom",
         "navigationBarTitleText": "登录",
         "topWindow": false,
-        "leftWindow": false
+        "leftWindow": false,
+        "enablePullDownRefresh": false
       }
     },
     {
       "path": "pages/main/index",
       "style": {
-        "navigationBarTitleText": "首页"
+        "navigationBarTitleText": "首页",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/main/change_password",
+      "style": {
+        "navigationBarTitleText": "修改密码"
+      }
+    },
+    {
+      "path": "pages/main/left",
+      "style": {
+        "navigationBarTitleText": ""
+      }
+    },
+    {
+      "path": "pages/main/top",
+      "style": {
+        "navigationBarTitleText": ""
       }
     },
     {
       "path": "pages/main/menu",
       "style": {
-        "navigationBarTitleText": "菜单"
+        "navigationBarTitleText": "菜单",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": false
       }
     },
     {
       "path": "pages/main/my",
       "style": {
-        "navigationBarTitleText": "我的"
+        "navigationBarTitleText": "我的",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": false
       }
     },
     {
       "path": "pages/main/rtf/rtf",
       "style": {
-        "navigationBarTitleText": "富文本"
+        "navigationBarTitleText": "编辑富文本",
+        "enablePullDownRefresh": false
       }
     }
   ],
   "tabBar": {
-    "color": "#707070",
+    "color": "#aaa",
     "selectedColor": "#0ab3ad",
     "list": [
       {
         "pagePath": "pages/main/index",
-        "text": "首页"
+        "text": "首页",
+        "iconPath": "static/images/home.png",
+        "selectedIconPath": "static/images/home-selected.png"
       },
       {
         "pagePath": "pages/main/menu",
-        "text": "菜单"
+        "text": "菜单",
+        "iconPath": "static/images/menu.png",
+        "selectedIconPath": "static/images/menu-selected.png"
       },
       {
         "pagePath": "pages/main/my",
-        "text": "我的"
+        "text": "我的",
+        "iconPath": "static/images/my.png",
+        "selectedIconPath": "static/images/my-selected.png"
       }
-    ]
+    ],
+    "borderStyle": "black",
+    "backgroundColor": "#ffffff"
   },
   "globalStyle": {
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "Metarill 应用",
-    "navigationBarBackgroundColor": "#ffffff",
-    "backgroundColor": "#ffffff"
+    "navigationBarBackgroundColor": "#FFF",
+    "backgroundColor": "#F8F8F8",
+    "app-plus": {
+      "background": "#efeff4"
+    }
   }
 }

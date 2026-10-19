@@ -20,13 +20,52 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
     {
         var output = Path.Combine(root, "full"); var result = new ApplicationPackager().Create(Demo(), output, "Example.Frontend", SourceRoot());
         Assert.True(result.FrontendIncluded); Assert.Equal(ApplicationPackageMode.FullApplication, result.Mode);
-        foreach (var file in new[] { "frontend/main.js", "frontend/App.vue", "frontend/manifest.json", "frontend/pages/login.vue", "frontend/pages/main/menu.vue", "frontend/common/yzp_runtime/page-write-schema.generated.json", "frontend/components/yzp-file-library/yzp-file-library.vue", "frontend/components/yzp-relation-select/yzp-relation-select.vue", "frontend/common/yzp_runtime/relationOptionsMixin.js", "frontend/common/yzp_runtime/remoteRelationOptions.js", "frontend/common/yzp_runtime/selectionPageMixin.js", "frontend/common/yzp_runtime/multiSelectFieldMixin.js", "frontend/uni_modules/uni-datetime-picker/components/uni-datetime-picker/uni-datetime-picker.vue", "frontend/pages/main/rtf/rtf.vue", "frontend/vendor/xlsx-0.20.3.tgz" }) Assert.Contains(file, result.Files);
+        foreach (var file in new[] { "frontend/main.js", "frontend/App.vue", "frontend/manifest.json", "frontend/pages/login.vue", "frontend/pages/main/menu.vue", "frontend/pages/main/main.vue", "frontend/pages/main/change_password.vue", "frontend/components/yzp-menu/yzp-menu.vue", "frontend/common/project.js", "frontend/common/yzp_runtime/page-write-schema.generated.json", "frontend/components/yzp-file-library/yzp-file-library.vue", "frontend/components/yzp-relation-select/yzp-relation-select.vue", "frontend/common/yzp_runtime/relationOptionsMixin.js", "frontend/common/yzp_runtime/remoteRelationOptions.js", "frontend/common/yzp_runtime/selectionPageMixin.js", "frontend/common/yzp_runtime/multiSelectFieldMixin.js", "frontend/uni_modules/uni-datetime-picker/components/uni-datetime-picker/uni-datetime-picker.vue", "frontend/pages/main/rtf/rtf.vue", "frontend/vendor/xlsx-0.20.3.tgz" }) Assert.Contains(file, result.Files);
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "frontend/manifest.json"))); Assert.Equal("", manifest.RootElement.GetProperty("appid").GetString());
         Assert.DoesNotContain(result.Files, file => file.Contains("pages/custom/", StringComparison.Ordinal) || file.Contains("yzp-control-detail-editor", StringComparison.Ordinal) || file.Contains(".local/", StringComparison.Ordinal) || file.Contains("development.settings", StringComparison.Ordinal));
         var sourceAppId = JsonDocument.Parse(File.ReadAllText(Path.Combine(SourceRoot(), "frontend/metarill_uni_admin/manifest.json"))).RootElement.GetProperty("appid").GetString()!;
         foreach (var path in Directory.EnumerateFiles(Path.Combine(output, "frontend"), "*", SearchOption.AllDirectories).Where(path => Path.GetExtension(path) is ".js" or ".json" or ".vue")) Assert.DoesNotContain(sourceAppId, File.ReadAllText(path));
         var verified = await VerifyFrontendAsync(Path.Combine(output, "frontend"));
         Assert.True(verified.Code == 0, verified.Error); Assert.Contains("闭包检查通过", verified.Output);
+    }
+
+    /// <summary>恢复原App/导航壳完整template/style，首页保留原keep-alive空内容槽，平台按钮按能力门禁。</summary>
+    [Fact]
+    public async Task Original_shell_and_first_create_home_are_preserved_without_platform_dashboard()
+    {
+        var output=Path.Combine(root,"original-shell");new ApplicationPackager().Create(Demo(),output,"Example.OriginalShell",SourceRoot());
+        string Original(string path)=>File.ReadAllText(Path.Combine(SourceRoot(),"frontend/metarill_uni_admin",path)).Replace("\r\n","\n");
+        string Result(string path)=>File.ReadAllText(Path.Combine(output,"frontend",path));
+        foreach(var path in new[]{"App.vue","pages/main/left.vue","pages/main/menu.vue"})Assert.Equal(Original(path),Result(path));
+        Assert.Equal(Original("pages/main/my.vue").Replace("<uni-icons type=\"person-filled\" size=\"28\" color=\"#0ab3ad\" />","<image src=\"/static/images/avatar.png\"></image>"),Result("pages/main/my.vue"));
+        foreach(var path in new[]{"pages/main/top.vue","pages/main/index.vue","pages/main/change_password.vue"})
+        {
+            var originalStyle=System.Text.RegularExpressions.Regex.Match(Original(path),@"<style[\s\S]*?</style>").Value;
+            Assert.Equal(originalStyle,System.Text.RegularExpressions.Regex.Match(Result(path),@"<style[\s\S]*?</style>").Value);
+        }
+        Assert.Equal(System.Text.RegularExpressions.Regex.Match(Original("pages/main/index.vue"),@"<template>[\s\S]*?</template>").Value,System.Text.RegularExpressions.Regex.Match(Result("pages/main/index.vue"),@"<template>[\s\S]*?</template>").Value);
+        Assert.Contains("keep-alive",Result("pages/main/index.vue"));Assert.Contains("@/pages/main/main",Result("pages/main/index.vue"));Assert.DoesNotContain("config_table",Result("pages/main/index.vue"));Assert.DoesNotContain("config_page",Result("pages/main/index.vue"));
+        Assert.Contains("<view></view>",Result("pages/main/main.vue"));Assert.DoesNotContain("dashboard",Result("pages/main/main.vue"),StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("v-if=\"isYzp\"",Result("pages/main/top.vue"));Assert.Contains("supportsAgentGrants",Result("components/yzp-menu/yzp-menu.vue"));
+        using var application=JsonDocument.Parse(Result("common/application.generated.json"));Assert.False(application.RootElement.GetProperty("capabilities").GetProperty("platformManagement").GetBoolean());Assert.False(application.RootElement.GetProperty("capabilities").GetProperty("agentGrants").GetBoolean());
+        using var pages=JsonDocument.Parse(Result("pages.json"));Assert.Equal("240px",pages.RootElement.GetProperty("leftWindow").GetProperty("style").GetProperty("width").GetString());Assert.Equal("60px",pages.RootElement.GetProperty("topWindow").GetProperty("style").GetProperty("height").GetString());Assert.Contains(pages.RootElement.GetProperty("pages").EnumerateArray(),page=>page.GetProperty("path").GetString()=="pages/main/change_password");
+        Assert.Contains("export default {}",Result("common/project.js"));Assert.DoesNotContain("import",Result("common/project.js"));
+        foreach(var image in new[]{"static/logo.png","static/images/home.png","static/images/home-selected.png","static/images/menu.png","static/images/menu-selected.png","static/images/my.png","static/images/my-selected.png","static/images/avatar.png"})Assert.Equal(File.ReadAllBytes(Path.Combine(SourceRoot(),"frontend/metarill_uni_admin",image)),File.ReadAllBytes(Path.Combine(output,"frontend",image)));
+        Assert.Contains("src=\"/static/logo.png\"",Result("pages/main/top.vue"));Assert.Contains("src=\"/static/images/avatar.png\"",Result("pages/main/top.vue"));
+        foreach(var tab in pages.RootElement.GetProperty("tabBar").GetProperty("list").EnumerateArray())foreach(var field in new[]{"iconPath","selectedIconPath"})Assert.True(File.Exists(Path.Combine(output,"frontend",tab.GetProperty(field).GetString()!)));
+        var verified=await VerifyFrontendAsync(Path.Combine(output,"frontend"));Assert.True(verified.Code==0,verified.Error);
+    }
+
+    /// <summary>执行包内原壳生命周期与公共请求适配，避免只有template/style相同但事件和globals已断开的假通过。</summary>
+    [Fact]
+    public async Task Original_shell_lifecycle_runs_with_original_globals_events_and_server_confirmed_logout()
+    {
+        var output=Path.Combine(root,"shell-lifecycle");new ApplicationPackager().Create(Demo(),output,"Example.ShellLifecycle",SourceRoot());
+        var info=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node"){WorkingDirectory=output,CreateNoWindow=true,UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
+        info.ArgumentList.Add("--experimental-vm-modules");info.ArgumentList.Add(Path.Combine(SourceRoot(),"backend/tests/Metarill.Generation.Tests/Fixtures/original-shell-lifecycle.mjs"));info.ArgumentList.Add(Path.Combine(output,"frontend"));
+        using var process=Process.Start(info)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try {await process.WaitForExitAsync(timeout.Token);}catch{if(!process.HasExited)process.Kill(true);throw;}
+        Assert.True(process.ExitCode==0,await stdout+await stderr);Assert.Contains("原壳真实脚本",await stdout);
     }
 
     /// <summary>导出初始AppID仍为空，开发者填写自己的字符串AppID后真实Node闭包检查必须继续可用。</summary>
@@ -59,7 +98,7 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
             var original = Path.Combine(SourceRoot(), "frontend/metarill_uni_admin", relative);
             if (!File.Exists(original)) continue;
             var destination = Path.Combine(source, "frontend/metarill_uni_admin", relative); Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            if (Path.GetExtension(relative) is ".tgz" or ".ttf" or ".woff" or ".woff2") File.Copy(original, destination);
+            if (Path.GetExtension(relative) is ".tgz" or ".ttf" or ".woff" or ".woff2" or ".png") File.Copy(original, destination);
             else File.WriteAllText(destination, File.ReadAllText(original).Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n"), new UTF8Encoding(true));
         }
         var second = Path.Combine(root, "newline-second"); packager.Create(Demo(), Path.Combine(generated, "frontend"), second, source);

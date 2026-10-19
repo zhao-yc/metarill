@@ -29,7 +29,7 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         var files = Directory.GetFiles(output, "*", SearchOption.AllDirectories);
         Assert.DoesNotContain(files, file => file.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar));
         Assert.DoesNotContain(files, file => file.EndsWith("settings.json"));
-        Assert.All(files.Where(file => Path.GetExtension(file) is not (".tgz" or ".ttf" or ".woff" or ".woff2")), file => Assert.DoesNotContain("\r", File.ReadAllText(file)));
+        Assert.All(files.Where(file => Path.GetExtension(file) is not (".tgz" or ".ttf" or ".woff" or ".woff2" or ".png")), file => Assert.DoesNotContain("\r", File.ReadAllText(file)));
         var host = File.ReadAllText(Path.Combine(output, "backend/Application.Host/Application.Host.csproj"));
         Assert.DoesNotContain(source, host);
         Assert.DoesNotContain("Metarill.Runtime", host);

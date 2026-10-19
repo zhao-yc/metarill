@@ -2,6 +2,7 @@
   "components/yzp-auto-pan-image/yzp-auto-pan-image.vue",
   "components/yzp-cascade-tree/yzp-cascade-tree.vue",
   "components/yzp-file-library/yzp-file-library.vue",
+  "components/yzp-menu/yzp-menu.vue",
   "components/yzp-popup/yzp-popup.vue",
   "components/yzp-relation-select/yzp-relation-select.vue",
   "components/zxz-uni-data-select/LICENSE",
@@ -312,5 +313,13 @@
   "uni_modules/uni-ui/changelog.md",
   "uni_modules/uni-ui/components/uni-ui/uni-ui.vue",
   "uni_modules/uni-ui/package.json",
-  "uni_modules/uni-ui/readme.md"
+  "uni_modules/uni-ui/readme.md",
+  "static/logo.png",
+  "static/images/home.png",
+  "static/images/home-selected.png",
+  "static/images/menu.png",
+  "static/images/menu-selected.png",
+  "static/images/my.png",
+  "static/images/my-selected.png",
+  "static/images/avatar.png"
 ]

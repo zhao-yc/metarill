@@ -64,13 +64,18 @@ for (const file of files.filter(file => /\.(?:vue|js|mjs)$/.test(file))) {
   for (const match of source.matchAll(/\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]/g)) resolve(match[1], file);
  }
  if (file.endsWith('.vue')) {
-  for (const match of preprocess(fs.readFileSync(file, 'utf8')).matchAll(/<(uni-[a-z0-9-]+|yzp-[a-z0-9-]+|zxz-[a-z0-9-]+)\b/g)) assert.ok(componentNames.has(match[1]), '缺少组件：' + match[1]);
+  const vue = preprocess(fs.readFileSync(file, 'utf8'));
+  for (const match of vue.matchAll(/<(uni-[a-z0-9-]+|yzp-[a-z0-9-]+|zxz-[a-z0-9-]+)\b/g)) assert.ok(componentNames.has(match[1]), '缺少组件：' + match[1]);
+  for (const match of vue.matchAll(/\bsrc\s*=\s*['"](\/static\/[^'"]+)['"]/g)) assert.ok(fs.existsSync(path.join(root, match[1].slice(1))), '缺少原静态资源：' + match[1]);
  }
 }
 const pages = JSON.parse(fs.readFileSync(path.join(root, 'pages.json'), 'utf8'));
 const routes = new Set();
 for (const item of pages.pages) { assert.ok(!routes.has(item.path), '重复页面路由'); routes.add(item.path); assert.ok(fs.existsSync(path.join(root, item.path + '.vue')), '页面不存在：' + item.path); }
-for (const item of pages.tabBar.list) assert.ok(routes.has(item.pagePath), 'tabBar路由不存在');
+for (const item of pages.tabBar.list) {
+ assert.ok(routes.has(item.pagePath), 'tabBar路由不存在');
+ for (const name of ['iconPath', 'selectedIconPath']) if(item[name]) assert.ok(fs.existsSync(path.join(root,item[name])), 'tabBar图标不存在：'+item[name]);
+}
 for (const window of ['leftWindow', 'topWindow']) assert.ok(fs.existsSync(path.join(root, pages[window].path)), '窗口不存在');
 // 空AppID由打包初始产物测试保证；工程定制后只检查类型，不阻止开发者配置自己的标识。
 assert.equal(typeof JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8')).appid, 'string', 'manifest.appid必须为字符串');

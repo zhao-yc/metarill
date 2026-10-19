@@ -63,7 +63,7 @@ export default {
   /** 保留原生表单与回车交互，开发密码只提交给明确配置的API。 */
   submitLoginForm(event){if(this.loginSubmitting||event?.isComposing)return;const form=this.$el?.querySelector('#yzp-login-form');if(form?.requestSubmit)form.requestSubmit();else this.login()},
   /** 服务器签发不透明会话，项目只取包内公开描述，不提供平台项目选择入口。 */
-  login(){if(this.loginSubmitting)return;if(!this.user_name||!this.password){uni.showModal({content:'请输入用户名和密码',showCancel:false});return}this.loginSubmitting=true;yzp.request({url:'/admin/sys/yz_manager/login',method:'POST',data:{username:this.user_name,password:this.password},success:response=>{if(response.code!==200)return;uni.setStorageSync('loginStateId',response.map.loginStateId);uni.setStorageSync('userInfo',response.data);uni.setStorageSync('sysParams',{yzProjectId:application.projectId,yzAdminTypeId:application.adminTypeId});this.password='';uni.$emit('onLoginLoadMenu');yzp.navigateAfterLogin(this.redirectUrl)},complete:()=>{this.loginSubmitting=false}})}
+  login(){if(this.loginSubmitting)return;if(!this.user_name||!this.password){uni.showModal({content:'请输入用户名和密码',showCancel:false});return}this.loginSubmitting=true;yzp.request({url:'/admin/sys/yz_manager/login',method:'POST',data:{username:this.user_name,password:this.password},success:response=>{if(response.code!==200)return;uni.setStorageSync('loginStateId',response.map.loginStateId);uni.setStorageSync('userInfo',response.data);uni.setStorageSync('sysParams',{yzProjectId:application.projectId,yzAdminTypeId:application.adminTypeId});this.password='';uni.$emit('onLoginLoadMenu');uni.$emit('onLoginLoadTop');yzp.navigateAfterLogin(this.redirectUrl)},complete:()=>{this.loginSubmitting=false}})}
  }
 }
 </script>

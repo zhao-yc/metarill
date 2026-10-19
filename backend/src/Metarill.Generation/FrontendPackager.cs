@@ -18,7 +18,9 @@ public sealed class FrontendPackager
     internal FrontendPackager(Action<string, string> publish) => this.publish = publish;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] RuntimeModules = ["buttonVisibleRule", "detailLayoutRuntime", "exportDownload", "fileLibraryFolderTree", "fileLibraryThumbnailPan", "generationDownload", "h5DocumentTitleSync", "imageUploadCropper", "listPageRuntime", "menuRuntime", "menuRuntimeBridge", "multiSelectFieldMixin", "pageWritePayload", "relationOptionsMixin", "relationReadValues", "remoteRelationOptions", "selectionPageMixin", "tinyCloudEditor", "yzp-runtime"];
-    private static readonly string[] Components = ["yzp-auto-pan-image", "yzp-cascade-tree", "yzp-file-library", "yzp-popup", "yzp-relation-select", "zxz-uni-data-select"];
+    // 仅原工程明确核对的logo/六张tab素材与用户授权新生成的默认头像；来源不等于额外商标或第三方分发授权。
+    private static readonly string[] StaticAssets = ["static/logo.png", "static/images/home.png", "static/images/home-selected.png", "static/images/menu.png", "static/images/menu-selected.png", "static/images/my.png", "static/images/my-selected.png", "static/images/avatar.png"];
+    private static readonly string[] Components = ["yzp-auto-pan-image", "yzp-cascade-tree", "yzp-file-library", "yzp-menu", "yzp-popup", "yzp-relation-select", "zxz-uni-data-select"];
     private static readonly string[] UniModules = ["uni-badge", "uni-calendar", "uni-card", "uni-collapse", "uni-combox", "uni-countdown", "uni-data-checkbox", "uni-data-picker", "uni-data-select", "uni-dateformat", "uni-datetime-picker", "uni-drawer", "uni-easyinput", "uni-fab", "uni-fav", "uni-file-picker", "uni-forms", "uni-goods-nav", "uni-grid", "uni-group", "uni-icons", "uni-indexed-list", "uni-link", "uni-list", "uni-load-more", "uni-nav-bar", "uni-notice-bar", "uni-number-box", "uni-pagination", "uni-popup", "uni-rate", "uni-row", "uni-scss", "uni-search-bar", "uni-section", "uni-segmented-control", "uni-steps", "uni-swipe-action", "uni-swiper-dot", "uni-table", "uni-tag", "uni-title", "uni-tooltip", "uni-transition", "uni-ui"];
 
 
@@ -51,18 +53,26 @@ public sealed class FrontendPackager
         void Copy(string relative)
         {
             var bytes = File.ReadAllBytes(CSharpGenerator.SafePath(source, relative));
-            if (Path.GetExtension(relative) is ".tgz" or ".ttf" or ".woff" or ".woff2") { Add(relative, bytes); return; }
+            if (Path.GetExtension(relative) is ".tgz" or ".ttf" or ".woff" or ".woff2" or ".png") { Add(relative, bytes); return; }
             string content;
             try { content = new UTF8Encoding(false, true).GetString(bytes); }
             catch (DecoderFallbackException error) { throw new InvalidDataException("前端受控文本不是UTF8：" + relative, error); }
             if (content.StartsWith('\uFEFF')) content = content[1..];
+            if (relative == "components/yzp-menu/yzp-menu.vue")
+            {
+                // 独立开发宿主尚未提供Agent控制面，显示条件只控制原入口，不授予后台能力。
+                const string entry = "<view class=\"agent-entry\">";
+                if (!content.Contains(entry, StringComparison.Ordinal)) throw new InvalidOperationException("原菜单授权入口结构已变化，请先核对能力门禁。");
+                content = content.Replace(entry, "<view v-if=\"supportsAgentGrants\" class=\"agent-entry\">", StringComparison.Ordinal)
+                    .Replace("computed: {", "computed: {\n\t\t/** 入口沿用原布局，未接线能力明确关闭，不能点击404或伪称Agent已支持。 */\n\t\tsupportsAgentGrants() { return getApp().globalData.environment.capabilities?.agentGrants === true },", StringComparison.Ordinal);
+            }
             Text(relative, content);
         }
         foreach (var path in new[] { "main.js", "uni.scss", "common/utils.js", "common/yzp.scss", "pages/main/rtf/rtf.vue", "THIRD-PARTY-NOTICES.md", "uni_modules/LICENSE.uni-ui", "licenses/sheetjs.LICENSE", "licenses/sheetjs-dist.LICENSE", "licenses/tinymce-vue.LICENSE.txt", "vendor/xlsx-0.20.3.tgz", "vendor/sheetjs-source.json", "common/yzp_runtime/vendor/cropperjs/cropper.esm.js", "common/yzp_runtime/vendor/cropperjs/cropper.css", "common/yzp_runtime/vendor/cropperjs/LICENSE" }) Copy(path);
         foreach (var module in RuntimeModules) Copy("common/yzp_runtime/" + module + ".js");
         foreach (var path in JsonSerializer.Deserialize<string[]>(Template("frontend-assets.allowlist.json.tpl"))!)
         {
-            var allowed = Components.Any(component => path.StartsWith("components/" + component + "/", StringComparison.Ordinal)) || UniModules.Any(module => path.StartsWith("uni_modules/" + module + "/", StringComparison.Ordinal));
+            var allowed = StaticAssets.Contains(path, StringComparer.Ordinal) || Components.Any(component => path.StartsWith("components/" + component + "/", StringComparison.Ordinal)) || UniModules.Any(module => path.StartsWith("uni_modules/" + module + "/", StringComparison.Ordinal));
             if (!allowed) throw new InvalidOperationException("前端资源清单越过受控组件范围。");
             Copy(path);
         }
@@ -81,8 +91,8 @@ public sealed class FrontendPackager
         var pages = JsonNode.Parse(Template("frontend-pages.json.tpl"))!;
         foreach (var route in generatedRoutes) pages["pages"]!.AsArray().Add(route!.DeepClone());
         Text("pages.json", pages.ToJsonString(JsonOptions) + "\n");
-        Text("common/application.generated.json", JsonSerializer.Serialize(new { projectId = catalog.YzProjectId, name = catalog.YzProjectName, adminTypeId = catalog.YzAdminTypes.FirstOrDefault()?.Id ?? "" }, JsonOptions) + "\n");
-        foreach (var (template, destination) in new[] { ("frontend-App.vue.tpl", "App.vue"), ("frontend-environment.js.tpl", "common/environment.js"), ("frontend-config.js.tpl", "common/application.config.js"), ("frontend-yzp.js.tpl", "common/yzp.js"), ("frontend-login.vue.tpl", "pages/login.vue"), ("frontend-index.vue.tpl", "pages/main/index.vue"), ("frontend-menu.vue.tpl", "pages/main/menu.vue"), ("frontend-left.vue.tpl", "pages/main/left.vue"), ("frontend-top.vue.tpl", "pages/main/top.vue"), ("frontend-my.vue.tpl", "pages/main/my.vue"), ("frontend-manifest.json.tpl", "manifest.json"), ("frontend-index.html.tpl", "index.html"), ("frontend-verify.mjs.tpl", "scripts/verify-frontend.mjs"), ("frontend-README.md.tpl", "README.md") }) Text(destination, Template(template));
+        Text("common/application.generated.json", JsonSerializer.Serialize(new { projectId = catalog.YzProjectId, name = catalog.YzProjectName, adminTypeId = catalog.YzAdminTypes.FirstOrDefault()?.Id ?? "", capabilities = new { platformManagement = false, agentGrants = false } }, JsonOptions) + "\n");
+        foreach (var (template, destination) in new[] { ("frontend-App.vue.tpl", "App.vue"), ("frontend-environment.js.tpl", "common/environment.js"), ("frontend-config.js.tpl", "common/application.config.js"), ("frontend-yzp.js.tpl", "common/yzp.js"), ("frontend-project.js.tpl", "common/project.js"), ("frontend-login.vue.tpl", "pages/login.vue"), ("frontend-index.vue.tpl", "pages/main/index.vue"), ("frontend-main.vue.tpl", "pages/main/main.vue"), ("frontend-change_password.vue.tpl", "pages/main/change_password.vue"), ("frontend-menu.vue.tpl", "pages/main/menu.vue"), ("frontend-left.vue.tpl", "pages/main/left.vue"), ("frontend-top.vue.tpl", "pages/main/top.vue"), ("frontend-my.vue.tpl", "pages/main/my.vue"), ("frontend-manifest.json.tpl", "manifest.json"), ("frontend-index.html.tpl", "index.html"), ("frontend-verify.mjs.tpl", "scripts/verify-frontend.mjs"), ("frontend-README.md.tpl", "README.md") }) Text(destination, Template(template));
         var package = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source, "package.json")))!;
         var dependencies = package["dependencies"]!.DeepClone();
         var required = new Dictionary<string, string> { ["@tinymce/tinymce-vue"] = "6.3.0", ["cap-widget"] = "0.1.50", ["crypto-js"] = "4.2.0", ["xlsx"] = "file:vendor/xlsx-0.20.3.tgz" };
