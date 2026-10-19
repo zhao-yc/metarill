@@ -306,6 +306,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         info.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
         info.Environment["Database__Provider"] = "mysql"; info.Environment["Database__ExpectedDatabase"] = Session.Options.ExpectedDatabase; info.Environment["Database__ConnectionString"] = Session.Options.ConnectionString;
         info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = "true"; info.Environment["Authentication__DevelopmentBootstrap__Username"] = "files-probe"; info.Environment["Authentication__DevelopmentBootstrap__Password"] = password;
+        info.Environment["Ids__WorkerId"] = "852";
         info.Environment["Files__RootDirectory"] = Path.Combine(temporary, "objects"); info.Environment["Files__MaxFileBytes"] = "4096";
         return info;
     }
