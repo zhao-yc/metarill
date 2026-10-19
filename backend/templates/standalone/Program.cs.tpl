@@ -41,6 +41,7 @@ builder.Services.AddSingleton(provider => new SqlRowStore(provider.GetRequiredSe
 builder.Services.AddSingleton(new FileMetadataContext([metadata]));
 builder.Services.AddSingleton(builder.Configuration.GetSection("Files").Get<FileLibraryOptions>() ?? new());
 builder.Services.AddScoped<FileLibraryService>();
+builder.Services.AddScoped<IFileLibraryResolver, SingleDatabaseFileLibraryResolver>();
 builder.Services.AddScoped<IRecordMutationObserver, FileReferenceMutationObserver>();
 builder.Services.AddGeneratedServices();
 builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));

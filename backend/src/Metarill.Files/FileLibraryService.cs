@@ -110,12 +110,13 @@ public sealed class FileLibraryService(SqlRowStore store, FileMetadataContext re
     }
 
     /// <summary>返回可寻址本地流供 ASP.NET Core 启用 Range；绝不代理或重定向远端地址。</summary>
-    public async Task<FileContentHandle> OpenContentAsync(long id, bool publicOnly = false, string? pageId = null, long? recordId = null, CancellationToken cancellationToken = default)
+    public async Task<FileContentHandle> OpenContentAsync(long id, bool publicOnly = false, string? pageId = null, long? recordId = null, CancellationToken cancellationToken = default, string? expectedProjectId = null)
     {
         var row = await RequiredAsync(Files, id, false, cancellationToken);
         if (publicOnly)
         {
-            if (SqlRowStore.Text(row, "status") != "ready" || SqlRowStore.Text(row, "access_mode") != "PUBLIC") throw new UnauthorizedAccessException("文件不存在或不可公开访问。");
+            if (SqlRowStore.Text(row, "status") != "ready" || SqlRowStore.Text(row, "access_mode") != "PUBLIC"
+                || expectedProjectId is not null && SqlRowStore.Text(row, "yz_project_id") != expectedProjectId) throw new UnauthorizedAccessException("文件不存在或不可公开访问。");
         }
         else RequireReadable(row, authorization.RequireActor());
         var path = FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
@@ -274,17 +275,25 @@ public sealed class FileLibraryService(SqlRowStore store, FileMetadataContext re
         if (SqlRowStore.Text(row, "access_mode") != "PUBLIC") RequireOwner(row, actor);
     }
     /// <summary>返回固定本地路由，不把存储键、物理路径或客户端 URL 暴露给前端。</summary>
-    private static FileDescriptor Describe(IReadOnlyDictionary<string, object?> row)
+    private FileDescriptor Describe(IReadOnlyDictionary<string, object?> row)
     {
         var id = SqlRowStore.Id(row); var ready = SqlRowStore.Text(row, "status") == "ready"; var isPublic = SqlRowStore.Text(row, "access_mode") == "PUBLIC";
         var url = ready ? $"/admin/sys/file-library/{(isPublic ? "public-content" : "protected-content")}/{id}" : null;
+        if (ready && isPublic && options.PublicContentProjectId is { } project)
+        {
+            // 提示只标识宿主已发布的项目；公开读取仍按真实行重新检查归属与状态。
+            if (!long.TryParse(project, NumberStyles.None, CultureInfo.InvariantCulture, out var projectId) || projectId <= 0
+                || projectId.ToString(CultureInfo.InvariantCulture) != project) throw new InvalidOperationException("公开文件项目路由配置无效。");
+            url += "?projectId=" + project;
+        }
         return new(id, SqlRowStore.Text(row, "name"), SqlRowStore.Text(row, "content_type"), SqlRowStore.Id(row, "size"), SqlRowStore.Text(row, "access_mode"), SqlRowStore.Text(row, "status"), url, isPublic ? "REDIRECT_URL" : "LOCAL_STREAM", NullableId(row, "folder_id"), SqlRowStore.Text(row, "sha256"));
     }
     /// <summary>只创建可信根目录，拒绝根目录自身为符号链接。</summary>
     private void EnsureRoot()
     {
+        FileValidation.RequireStorageRoot(Root);
         Directory.CreateDirectory(Root);
-        if (File.GetAttributes(Root).HasFlag(FileAttributes.ReparsePoint)) throw new InvalidOperationException("文件根目录不能是符号链接。");
+        FileValidation.RequireStorageRoot(Root);
     }
     /// <summary>物理删除失败不恢复已经失效的数据库记录，留待维护清理。</summary>
     private static bool TryDelete(string path)

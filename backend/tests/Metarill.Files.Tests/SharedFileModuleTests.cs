@@ -30,6 +30,40 @@ public sealed class SharedFileModuleTests
         Assert.Throws<InvalidOperationException>(() => new FileMetadataContext([invalid]));
     }
 
+    [Fact]
+    public async Task Storage_roots_reject_a_link_in_parent_directory()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "metarill-files-parent-" + Guid.NewGuid().ToString("N"));
+        var target = Path.Combine(directory, "target"); var link = Path.Combine(directory, "linked");
+        Directory.CreateDirectory(target);
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                // Windows 目录联接不依赖开发者模式，路径仅经环境变量传递，不拼入脚本。
+                var start = new System.Diagnostics.ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path $env:METARILL_LINK_PATH -Value $env:METARILL_LINK_TARGET | Out-Null" }) start.ArgumentList.Add(argument);
+                start.Environment["METARILL_LINK_PATH"] = link; start.Environment["METARILL_LINK_TARGET"] = target;
+                using var process = System.Diagnostics.Process.Start(start)!;
+                var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync(); await output; await error;
+                Assert.Equal(0, process.ExitCode);
+            }
+            else Directory.CreateSymbolicLink(link, target);
+            Assert.Throws<InvalidOperationException>(() => FileValidation.StoragePath(Path.Combine(link, "project"), new string('a', 32) + ".blob"));
+            Assert.False(Directory.Exists(Path.Combine(target, "project")));
+        }
+        finally
+        {
+            // 先删除联接本身，再清理本次唯一的临时目录；不递归进入联接目标。
+            if (Directory.Exists(link)) Directory.Delete(link, false);
+            var absolute = Path.GetFullPath(directory);
+            if (Path.GetDirectoryName(absolute) != Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()))
+                || !System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(absolute), "^metarill-files-parent-[a-f0-9]{32}$")) throw new InvalidOperationException("文件父目录测试清理范围无效。");
+            if (Directory.Exists(absolute)) Directory.Delete(absolute, true);
+        }
+    }
+
     /// <summary>构造最小合法发布模型，测试不依赖平台磁盘文件或数据库。</summary>
     private static MetadataCatalog Catalog(string project, string page) => new()
     {
@@ -89,6 +123,27 @@ public sealed class SharedFileModuleIntegrationTests
         var oversized = new FileLibraryService(fixture.Store, new([fixture.Registry.Platform, fixture.Registry.Demo]), fixture.Ids,
             new TestAuthorization(fixture.Actor(), fixture.Registry), fixture.Options with { MaxFileBytes = 100L * 1024 * 1024 + 1 });
         await Assert.ThrowsAsync<InvalidOperationException>(() => oversized.PlanUploadAsync(new("too-large-policy.txt", null, 1)));
+    }
+
+    [FilesIntegrationFact]
+    public async Task Public_routing_checks_the_published_project_and_actual_file_row()
+    {
+        await using var fixture = await FilesFixture.CreateAsync();
+        var published = new FileMetadataContext([fixture.Registry.Platform]);
+        var authorization = new TestAuthorization(fixture.Actor(), fixture.Registry);
+        var files = new FileLibraryService(fixture.Store, published, fixture.Ids, authorization,
+            fixture.Options with { PublicContentProjectId = fixture.Actor().ProjectId });
+        var resolver = new SingleDatabaseFileLibraryResolver(files, published, authorization);
+        Assert.Same(files, resolver.RequireCurrent());
+        var file = await fixture.ReadyAsync("public-routing.txt", System.Text.Encoding.UTF8.GetBytes("公开路由归属"), publicly: true);
+        Assert.EndsWith("?projectId=" + fixture.Actor().ProjectId, (await files.ResolveAsync(file.FileId)).Url);
+        var handle = await resolver.OpenPublicAsync(file.FileId, null); await handle.Stream.DisposeAsync();
+        handle = await resolver.OpenPublicAsync(file.FileId, fixture.Actor().ProjectId); await handle.Stream.DisposeAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => resolver.OpenPublicAsync(file.FileId, "999999"));
+        await fixture.Store.UpdateAsync("yz_file_library", file.FileId, new Dictionary<string, object?> { ["yz_project_id"] = 999999L });
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => resolver.OpenPublicAsync(file.FileId, null));
+        var otherActor = new SingleDatabaseFileLibraryResolver(files, published, new TestAuthorization(fixture.Actor(8001, true, "999999"), fixture.Registry));
+        Assert.Throws<UnauthorizedAccessException>(() => otherActor.RequireCurrent());
     }
 
     /// <summary>复现独立宿主使用 SecurityException 拒绝新增但允许修改的授权实现。</summary>

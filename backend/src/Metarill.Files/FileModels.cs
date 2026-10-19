@@ -7,6 +7,8 @@ namespace Metarill.Runtime.Files;
 public sealed record FileLibraryOptions
 {
     public string RootDirectory { get; init; } = ".local/files";
+    /// <summary>多项目宿主为公开URL附带的可信定位提示，不作为访问授权。</summary>
+    public string? PublicContentProjectId { get; init; }
     public long MaxFileBytes { get; init; } = 100L * 1024 * 1024;
     public IReadOnlySet<string> AllowedExtensions { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".txt", ".csv", ".xlsx", ".xls", ".docx", ".doc", ".pptx", ".ppt", ".zip", ".mp3", ".mp4" };
@@ -38,11 +40,21 @@ public static partial class FileValidation
     public static string StoragePath(string rootDirectory, string storageKey)
     {
         if (!StorageKeyPattern().IsMatch(storageKey)) throw new InvalidOperationException("存储键无效。");
-        var root = Path.GetFullPath(rootDirectory);
+        var root = RequireStorageRoot(rootDirectory);
         var path = Path.GetFullPath(Path.Combine(root, storageKey));
         if (Path.GetDirectoryName(path) != root) throw new InvalidOperationException("存储路径超出文件根目录。");
         if (File.Exists(path) && File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint)) throw new InvalidOperationException("文件对象不能是符号链接。");
         return path;
+    }
+
+    /// <summary>逐级检查现存父目录，避免项目子目录经父级链接绕到文件根之外。</summary>
+    public static string RequireStorageRoot(string rootDirectory)
+    {
+        var root = Path.GetFullPath(rootDirectory);
+        for (var current = new DirectoryInfo(root); current is not null; current = current.Parent)
+            if (current.Exists && current.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                throw new InvalidOperationException("文件根目录及父目录不能是符号链接。");
+        return root;
     }
 
     /// <summary>摘要只允许完整 SHA-256 十六进制，不接受客户端摘要作为已核验结果。</summary>
