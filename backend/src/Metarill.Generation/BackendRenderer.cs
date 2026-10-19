@@ -202,6 +202,8 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
         var suffix = page.Source.Id;
+        var names = SelectionNameFilterCompilation.ForPage(model, table, page);
+        var nameKeys = names.ConsumedKeys.Concat(names.Gaps.Select(gap => gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var result = new StringBuilder().AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
             .AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor, string? parentId)").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
@@ -217,7 +219,14 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"        var query = Scope{suffix}(actor, request.ParentId);")
             .AppendLine("        foreach (var filter in request.Filters ?? throw new ArgumentException(\"filters 不能为空。\"))")
             .AppendLine("        {").AppendLine("            switch (filter.Key)").AppendLine("            {");
-        foreach (var column in page.Searchable)
+        // 成功名称谓词与缺口拒绝共用固定键集合，不能落入普通JSON文本LIKE，也不能重复生成switch case。
+        result.Append(SelectionNameFilterCompilation.RenderCases(new(names.Bindings, []), binding =>
+            $"query = Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, entity => entity.{binding.StorageColumn.Property}, value);"));
+        foreach (var gap in names.Gaps.GroupBy(gap => gap.FilterKey, StringComparer.Ordinal))
+            result.AppendLine($"                case {Literal(gap.Key)}:")
+                .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;")
+                .AppendLine($"                    throw new ArgumentException({Literal(string.Join("；", gap.Select(item => item.Reason).Distinct(StringComparer.Ordinal)))});");
+        foreach (var column in page.Searchable.Where(column => !nameKeys.Contains(column.JsonName)))
         {
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
                 .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");

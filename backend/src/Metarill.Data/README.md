@@ -21,3 +21,10 @@ MySQL实现使用 `JSON_SEARCH` 搜索解码后的string成员，避免对包含
 [MySQL 5.7 JSON搜索文档](https://docs.oracle.com/cd/E17952_01/mysql-5.7-en/json-search-functions.html) 与 [JSON属性文档](https://docs.oracle.com/cd/E17952_01/mysql-5.7-en/json-attribute-functions.html) 已列出所用函数，未引入要求8.0的JSON_TABLE。实际隔离库仅验证Server-200的 **MySQL 8.4.11**；5.7仅核实语法所需函数，未实测，不能据此宣布版本验收。其他provider明确拒绝，不借用MySQL SQL。
 
 新增真实测试读取私有 `Metarill.BusinessDatabase`，仅允许解析到Server-200的`metarill_business_test`。由元数据SchemaService创建唯一随机表；测试完成先核对结构指纹、完整受测行、触发器和外部FK，再清理本次表。离线ToSql与未配置时skip不代表真实SQL执行通过；此Data切片不代表生成Query的名称筛选接线已经完成。
+
+
+### 名称比较规则兼容
+
+`Queries.StringNameQuery.ApplyLike`与JSON名称入口共用固定直接映射列校验、`!/%/_`字面转义和独立参数。只用于已编译名称binding，普通文本字段筛选不变。标量用实际列LIKE，避免以Contains/INSTR改变旧LIKE的重音规则；JSON_SEARCH的模式以`CONCAT(LEFT(固定列,0),@pattern)`继承该列实际排序规则，既不硬编码unicode_ci，也不逐请求查询元数据。
+
+已在Server-200 MySQL8.4.11将本轮随机两列依次置于utf8mb4_unicode_ci、utf8mb4_bin、utf8mb4_0900_ai_ci，Cafe/cafe/Café/CAFÉ同四行的生成标量及JSON成员结果均逐项等于参数化列LIKE基线。JSON的decoded成员ANY与字面通配保护是明确的新规则，不能称为旧序列化JSON LIKE全部语义相同。详见[名称筛选接线](../../../docs/original-selection-name-filter.md)。其它字符集、5.7和其它provider未在此修订实测；不接受请求指定collation或SQL。

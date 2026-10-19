@@ -21,7 +21,10 @@ internal static class GenerationCapabilityAudit
             foreach(var column in page.Readable)
                 if(ControlRenderer.Render(model,table,page,column).UnsupportedReason is {} reason)
                     gaps.Add(new(page.Source.Id,column.Source.ColumnName,"detail",reason));
-            foreach(var column in page.Searchable)
+            // 原选择页按辅助名称键搜索；只有同一固定编译计划确认可执行时才解除筛选缺口。
+            var names=SelectionNameFilterCompilation.ForPage(model,table,page);
+            foreach(var gap in names.Gaps)gaps.Add(new(page.Source.Id,gap.Source.Source.ColumnName,"filter",gap.Reason));
+            foreach(var column in page.Searchable.Where(column=>!SelectionNameFilterCompilation.UsesNameInput(model,page,column)&&!SelectionNameFilterCompilation.UsesSourceTextOverride(model,page,column)))
                 if(ControlRenderer.RenderFilter(model,page,column).UnsupportedReason is {} reason)
                     gaps.Add(new(page.Source.Id,column.Source.ColumnName,"filter",reason));
         }

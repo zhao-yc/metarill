@@ -21,11 +21,23 @@ public sealed class JsonArrayNameQueryTests
         Assert.Contains("source_names.`other_names`", sql);
         Assert.Contains("JSON_SEARCH", sql);
         Assert.Contains("JSON_DEPTH", sql);
+        Assert.Contains("CONCAT(LEFT(source_names.`stored_names`, 0), @mt_json_name_", sql);
         Assert.Contains("'!', '$[*]'", sql);
         Assert.DoesNotContain("中文", sql);
         Assert.DoesNotContain("第二关键词", sql);
         Assert.DoesNotContain("JSON_TABLE", sql);
         Assert.Contains("ProjectId", sql);
+    }
+
+    /// <summary>标量名称使用参数化LIKE与原列比较，不改用会改变重音语义的Contains。</summary>
+    [Fact]
+    public void Scalar_name_keeps_fixed_column_like_and_literal_pattern_without_json_or_inline_values()
+    {
+        using var session = Session();
+        var query = StringNameQuery.ApplyLike(session, session.Select<Row>().As("fixed_scalar"), row => row.Names, "Café'_%!");
+        var sql = query.ToSql();
+        Assert.Contains("fixed_scalar.`stored_names` LIKE @mt_scalar_name_", sql); Assert.Contains("ESCAPE '!'", sql);
+        Assert.DoesNotContain("JSON_SEARCH", sql); Assert.DoesNotContain("Café", sql); Assert.DoesNotContain("INSTR", sql, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>方法、常量、忽略列及空关键词都在附加条件前明确拒绝。</summary>
@@ -39,6 +51,9 @@ public sealed class JsonArrayNameQueryTests
         Assert.Throws<ArgumentException>(() => JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, row => "stored_names", "x"));
         Assert.Throws<ArgumentException>(() => JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, row => row.Ignored, "x"));
         Assert.Throws<ArgumentException>(() => JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, row => row.Names, " "));
+        Assert.Throws<ArgumentException>(() => StringNameQuery.ApplyLike(session, query, row => row.Names!.Trim(), "x"));
+        Assert.Throws<ArgumentException>(() => StringNameQuery.ApplyLike(session, query, row => row.Ignored, "x"));
+        Assert.Throws<ArgumentException>(() => StringNameQuery.ApplyLike(session, query, row => row.Names, " "));
         Assert.Equal(before, query.ToSql());
     }
 
@@ -51,6 +66,7 @@ public sealed class JsonArrayNameQueryTests
         var query = session.Select<Row>();
         var before = query.ToSql();
         Assert.Throws<NotSupportedException>(() => JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, row => row.Names, "名称"));
+        Assert.Throws<NotSupportedException>(() => StringNameQuery.ApplyLike(session, query, row => row.Names, "名称"));
         Assert.Equal(before, query.ToSql());
     }
 
