@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "b967df4df00b40479a51597b762b424429aaca45790e9c4d6eec36f50162e85b",
+  "metadataSha256": "4b6a1159eeaf6532bdbbac1c32090b0dbe0b019417d5b0fe53e6d0662c2006a9",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -82,7 +82,7 @@
     },
     {
       "path": "Controllers/YzRolePermissionPage2063264600601714690Controller.g.cs",
-      "sha256": "e10ffbca892986d2b70df1a00ebf91ec3462c8bf30f6c155d9802dd8d820dc32"
+      "sha256": "d28ccc0c8606dbfd908f4589fccdf966d9748cc475ad5b1a06618e8575107a21"
     },
     {
       "path": "DTOs/ConfigButtonPage1870796062470516738Requests.g.cs",
@@ -442,7 +442,7 @@
     },
     {
       "path": "Services/YzRolePermissionService.g.cs",
-      "sha256": "95b3e171e062565eb64c834e5e0afc694aef7afdc920c28c7fca8198066d94e6"
+      "sha256": "aa04cc2c35fa0dff15ff34e65b2534bd97bea9c89c8d243299df6abc6e39ff36"
     },
     {
       "path": "Services/YzRoleService.g.cs",
@@ -550,11 +550,11 @@
     },
     {
       "path": "frontend/pages/yzp/config_button-list-1870796062470516738.vue",
-      "sha256": "5645a63821e25a48a4248a233ff4dd98d929f078463db9f20a4f41ff6a7b72a4"
+      "sha256": "49dcb329efef9d508483080930be4788c088c8b9faabc37e23ef0e321256cc5c"
     },
     {
       "path": "frontend/pages/yzp/config_button-list-7097193256583168.vue",
-      "sha256": "198fe5b2b8a572b01ab004b077bb4860a34cbeec1d80d80c8851a28f4a568f41"
+      "sha256": "45513f04c4c19ac471f028ce39d8646d95e3f0db976f40c89153c276ea18abea"
     },
     {
       "path": "frontend/pages/yzp/config_child-detail-1679390851298631682.vue",
@@ -562,7 +562,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_child-list-1679390851298631682.vue",
-      "sha256": "1ad1a7b05943bf35913aaa8aa11ab4e0cbf1a46126afd5a0f978759c74408c2a"
+      "sha256": "e58d4d7849c7537849120e081643c30de6bb612d0bdde92080157abd12552c26"
     },
     {
       "path": "frontend/pages/yzp/config_column-detail-6217715532627968.vue",
@@ -570,7 +570,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_column-list-6217715532627968.vue",
-      "sha256": "3ec43cfc0a629292d5ffdfdfc2b6bc680541632bc71add2bf53bb7c010775b75"
+      "sha256": "34442f061f560c5babf61cf53ac29fb57bbc2735a26333fba8bf6eb0e332128e"
     },
     {
       "path": "frontend/pages/yzp/config_custom_page-detail-2062361618137833473.vue",
@@ -578,7 +578,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_custom_page-list-2062361618137833473.vue",
-      "sha256": "8e84b30d0e339457b55b5026938d7bcc7b2efdae3369493fb2b0032924eb992c"
+      "sha256": "9880061477eaab140233ea5dd019b267c61124afad3341e0c0324acd8d43d649"
     },
     {
       "path": "frontend/pages/yzp/config_index-detail-2076977531071803393.vue",
@@ -586,7 +586,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_index-list-2076977531071803393.vue",
-      "sha256": "a0e615d0ff5068f6a2f5f2861a35b3423148ace2e0b76cdec85be614cfb2807b"
+      "sha256": "c141ac3ac963e59ed14c4bf5a03cec9885ebc0bc7475885c367d6cdd275be7a9"
     },
     {
       "path": "frontend/pages/yzp/config_index_column-detail-2076977554350190593.vue",
@@ -594,7 +594,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_index_column-list-2076977554350190593.vue",
-      "sha256": "55f52d47743af7f53cae925f9574c5900585d3fab3a66ac3538de01c0a3beff2"
+      "sha256": "3ac6774e90a59409f9d49024aeb0b6e252000a21671de66652762b5467ed833f"
     },
     {
       "path": "frontend/pages/yzp/config_menu-detail-2200000000000099000.vue",
@@ -602,7 +602,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_menu-list-2200000000000099000.vue",
-      "sha256": "1d63c6a38adf659c912c9c574ebad2ebe47f1348ea97c5ec936c3b8a505bdcba"
+      "sha256": "301f713b375b8b4ec7814dd35cfcaf6215c445b3b25133cf205b338085b17e22"
     },
     {
       "path": "frontend/pages/yzp/config_page-detail-1868973685063311361.vue",
@@ -618,15 +618,15 @@
     },
     {
       "path": "frontend/pages/yzp/config_page-list-1868973685063311361.vue",
-      "sha256": "3c1dd72fe766ef20ef9da38a665ca3b3958476f130cb815bb28bb3568470aa90"
+      "sha256": "f1ea1e0157893a97fe9d50098880f2486db52476d7853344fe7db47c99700bfe"
     },
     {
       "path": "frontend/pages/yzp/config_page-list-1869016706289577986.vue",
-      "sha256": "c51d168a19592aafb9656b1c7c74a1fbc5e0264fbe784eddc9f966db2774b8ff"
+      "sha256": "c1848929de5ecba8022100e43b695a709fa378581d45a092c2a2837d7e9fd8cf"
     },
     {
       "path": "frontend/pages/yzp/config_page-list-6191175925956608.vue",
-      "sha256": "d15513cc3357d5d079c63cb8df5afda3147494c7ef4c7ceaa3f51d983fb66d1a"
+      "sha256": "3d1057c20d742de71306d6fbc5b6f1699661586b9b811fa9ecf72e15ca70b6ad"
     },
     {
       "path": "frontend/pages/yzp/config_page_column-detail-6218036784398336.vue",
@@ -634,7 +634,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_page_column-list-6218036784398336.vue",
-      "sha256": "fbf01f8ca5a41d4e52abb2d0a70f1f9e8d1a94c139524b6c21bcc857e9b467fc"
+      "sha256": "c34f060f15175c70c39572c187531127471d3ef8838a09bcc4ee06bee19d0305"
     },
     {
       "path": "frontend/pages/yzp/config_table-detail-6191083005411328.vue",
@@ -642,7 +642,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_table-list-6191083005411328.vue",
-      "sha256": "2fddd1b289d3c010450c3cb9526f4de18637ae108bb6f133d805dc26da32e2ef"
+      "sha256": "3cdc1db41a81f9828541a8c26574702a11038554309fc095967c393fe1f34b2b"
     },
     {
       "path": "frontend/pages/yzp/yz_admin_type-detail-1696799309006348290.vue",
@@ -650,7 +650,7 @@
     },
     {
       "path": "frontend/pages/yzp/yz_admin_type-list-1696799309006348290.vue",
-      "sha256": "dfc8858686923aac0edf209786233bf63206c191aea1b89a67becc92cb338cd8"
+      "sha256": "a95f6451f8e6e1909339838bde94b7f0a10d9e35d96f70a4a673235e0981c872"
     },
     {
       "path": "frontend/pages/yzp/yz_manager-detail-6031906822946816.vue",
@@ -658,7 +658,7 @@
     },
     {
       "path": "frontend/pages/yzp/yz_manager-list-6031906822946816.vue",
-      "sha256": "83d676bddad0506b8f98c09aa79c0c81a734ed5af9e42b81889c35d41f4b6c23"
+      "sha256": "1291369ec4b3031ec9b482de24fa80476c03d56787be529caed5dd2183cfd57e"
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices-detail-6220589291798528.vue",
@@ -666,7 +666,7 @@
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices-list-6220589291798528.vue",
-      "sha256": "a43a68cf06d1d5965cd25b5ad4a47f735e322972fde3bfca026c1af2ddd9b63e"
+      "sha256": "0cf8711a0f02fea709e9b5a5b3efee9bd79528b25bd94aa0157f893972ab7a53"
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices_project-detail-6220608155484160.vue",
@@ -674,7 +674,7 @@
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices_project-list-6220608155484160.vue",
-      "sha256": "112f731df66c17db483bd0f69ece022cc74129c8ca9348e77e17b23a110a3b8a"
+      "sha256": "58527f4048b4167590de0b0eb3476a5c0cd3025b51b578bb8ec9307b355a34fd"
     },
     {
       "path": "frontend/pages/yzp/yz_project-detail-6186303424888832.vue",
@@ -682,7 +682,7 @@
     },
     {
       "path": "frontend/pages/yzp/yz_project-list-6186303424888832.vue",
-      "sha256": "24a9cc664c6dd0b91bf47affbb80a9cca524a95f1b6e2b144707b4aaaa1fcb3a"
+      "sha256": "e8fe71a5093e7ed3830d19a3a38a066789a93f13b5fe1cea39f38645ada44103"
     },
     {
       "path": "frontend/pages/yzp/yz_role-detail-1692532858529329154.vue",
@@ -690,7 +690,7 @@
     },
     {
       "path": "frontend/pages/yzp/yz_role-list-1692532858529329154.vue",
-      "sha256": "5609c6023e100a2054da25d6db6bf35439442c998030f963608f55e854d9af77"
+      "sha256": "e279ccd4497e73641092fea7bfa2faf7a538c583162877b4ffd4d2cfedea6418"
     },
     {
       "path": "frontend/pages/yzp/yz_role_permission-detail-2063264600601714690.vue",
@@ -698,11 +698,11 @@
     },
     {
       "path": "frontend/pages/yzp/yz_role_permission-list-2063264600601714690.vue",
-      "sha256": "579c28090b7dc07b2fadc20a60a94485f56275848aa46f87f493afa3ff913b85"
+      "sha256": "41c2dadec8ae2d70b771346b26a6a3ed59a9bc34d8568618d1ce96ab73d8696d"
     },
     {
       "path": "generation-capabilities.json",
-      "sha256": "c318b28ad514d32b4eb8ad082de1a73d846ef7e7d80b310029dfd6e4d0e48a43"
+      "sha256": "e61c14552669ccb41f174a009c0831ca083d200ced157ec4236a2f4a7950a6c7"
     }
   ]
 }
