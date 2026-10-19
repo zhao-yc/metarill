@@ -50,7 +50,7 @@ public sealed class ConfigMenuPage2200000000000099000Vo
     public string? VisibleScheme { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
-    /// <summary>只投影本页声明可读字段。</summary>
+    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
     public static ConfigMenuPage2200000000000099000Vo FromEntity(ConfigMenu entity) => new()
     {
         InsertTime = entity.InsertTime,

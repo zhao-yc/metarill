@@ -36,7 +36,7 @@ public sealed class YzRolePermissionPage2063264600601714690Vo
     public string? PermissionValues { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
-    /// <summary>只投影本页声明可读字段。</summary>
+    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
     public static YzRolePermissionPage2063264600601714690Vo FromEntity(YzRolePermission entity) => new()
     {
         InsertTime = entity.InsertTime,

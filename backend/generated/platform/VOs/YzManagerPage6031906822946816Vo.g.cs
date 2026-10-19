@@ -68,7 +68,7 @@ public sealed class YzManagerPage6031906822946816Vo
     public long? YzProjectId { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
-    /// <summary>只投影本页声明可读字段。</summary>
+    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
     public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity) => new()
     {
         Name = entity.Name,

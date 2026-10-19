@@ -126,6 +126,17 @@ public sealed class GeneratorTests : IDisposable
         Assert.Equal(["remark"], page.GetProperty("createFields").EnumerateArray().Select(field => field.GetString()!).ToArray());
         Assert.Equal(["id", "remark"], page.GetProperty("updateFields").EnumerateArray().Select(field => field.GetString()!).ToArray());
     }
+    [Fact]
+    public void Constant_display_alias_conflict_rejects_the_entire_generation_batch()
+    {
+        var metadata = Catalog();
+        var name = metadata.ConfigColumns.Single(column => column.ColumnName == "name");
+        name.ControlKind = "ConstList"; name.ControlDetail = "甲|a";
+        metadata.ConfigColumns.Add(new() { Id = "21", ConfigTableId = "1", ColumnName = "name_show", LogicalType = "string" });
+        metadata.ConfigPageColumns.Add(new() { Id = "121", ConfigPageId = "101", ConfigColumnId = "21", IsShow = 1 });
+        Assert.Throws<InvalidOperationException>(() => new CSharpGenerator().Generate(metadata, directory, "Example.App"));
+        Assert.False(Directory.Exists(directory));
+    }
     internal static MetadataCatalog Catalog() => new()
     {
         YzProjectId = "100",

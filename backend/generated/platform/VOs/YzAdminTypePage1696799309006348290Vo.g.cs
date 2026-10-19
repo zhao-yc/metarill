@@ -34,7 +34,7 @@ public sealed class YzAdminTypePage1696799309006348290Vo
     public string? ExactDataManageMatchField { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
-    /// <summary>只投影本页声明可读字段。</summary>
+    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
     public static YzAdminTypePage1696799309006348290Vo FromEntity(YzAdminType entity) => new()
     {
         Name = entity.Name,

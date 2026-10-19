@@ -40,7 +40,7 @@ public sealed class ConfigCustomPagePage2062361618137833473Vo
     public long? YzAdminTypeId { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
-    /// <summary>只投影本页声明可读字段。</summary>
+    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
     public static ConfigCustomPagePage2062361618137833473Vo FromEntity(ConfigCustomPage entity) => new()
     {
         Name = entity.Name,

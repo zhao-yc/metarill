@@ -18,7 +18,7 @@ public sealed class DemoCustomerPage2200000000000100020Vo
     public int? IsEnabled { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
-    /// <summary>只投影本页声明可读字段。</summary>
+    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
     public static DemoCustomerPage2200000000000100020Vo FromEntity(DemoCustomer entity) => new()
     {
         YzProjectId = entity.YzProjectId,

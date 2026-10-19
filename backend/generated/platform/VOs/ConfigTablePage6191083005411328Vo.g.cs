@@ -174,7 +174,7 @@ public sealed class ConfigTablePage6191083005411328Vo
     public string? ScopeKind { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
-    /// <summary>只投影本页声明可读字段。</summary>
+    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
     public static ConfigTablePage6191083005411328Vo FromEntity(ConfigTable entity) => new()
     {
         Name = entity.Name,

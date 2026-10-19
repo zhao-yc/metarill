@@ -57,16 +57,49 @@ internal static class BackendRenderer
         result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}RecordRequest {{ public long Id {{ get; set; }} }}");
         return result.Append(ImportRenderer.Dto(page)).ToString();
     }
-    /// <summary>生成页面可读投影并还原数组控件。</summary>
+    /// <summary>生成页面可读投影、数组控件及原前端使用的常量展示字段。</summary>
     private static string Vo(GenerationModel model, TableModel table, PageModel page)
     {
-        var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Text.Json;").AppendLine("using System.Text.Json.Serialization;").AppendLine($"using {model.Namespace}.Generated.Entities;")
+        var constants = page.Readable.Where(column => column.Source.ControlKind is "ConstList" or "ConstDownList").ToArray();
+        // 展示别名不能覆盖真实业务字段；在写文件前拒绝整个生成批次。
+        foreach (var column in constants)
+            if (page.Readable.Any(candidate => candidate.Property.Equals(column.Property + "Show", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("常量展示字段与页面字段重名：" + column.JsonName + "Show");
+        var result = new StringBuilder(CSharpGenerator.Header).Append(constants.Length == 0 ? "" : "using System.Globalization;\n").AppendLine("using System.Text.Json;").AppendLine("using System.Text.Json.Serialization;").AppendLine($"using {model.Namespace}.Generated.Entities;")
             .AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed class {page.Name}Vo").AppendLine("{");
         foreach (var column in page.Readable)
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]").AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
-        result.AppendLine("    /// <summary>只投影本页声明可读字段。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => new()").AppendLine("    {");
+        foreach (var column in constants)
+            result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName + "Show")})]").AppendLine($"    public string? {column.Property}Show {{ get; init; }}");
+        result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => new()").AppendLine("    {");
         foreach (var column in page.Readable) result.AppendLine(column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
+        foreach (var column in constants) result.AppendLine($"        {column.Property}Show = {ConstantDisplayExpression(column)},");
         return result.AppendLine("    };").AppendLine("}").ToString();
+    }
+    /// <summary>把常量标签预编译为类型匹配的 switch，未知值保留原文、空值保持为空。</summary>
+    private static string ConstantDisplayExpression(ColumnModel column)
+    {
+        var choices = new List<(string Pattern, string Text)>();
+        foreach (var token in column.Source.ControlDetail.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = token.Split('|', 2);
+            var raw = parts.Length == 2 ? parts[1] : parts[0];
+            // 数字控件的空选项表示未选中，不用提示文字替代空数据。
+            if (raw.Length == 0 && column.Type != "string?") continue;
+            var pattern = column.Type switch
+            {
+                "string?" => Literal(raw),
+                "int?" => int.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "long" or "long?" => long.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture) + "L",
+                "decimal?" => decimal.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString("G29", System.Globalization.CultureInfo.InvariantCulture) + "M",
+                _ => throw new InvalidOperationException("常量控件不支持该字段类型：" + column.Source.ColumnName)
+            };
+            if (!choices.Any(choice => choice.Pattern == pattern)) choices.Add((pattern, parts[0]));
+        }
+        var arms = choices.Select(choice => choice.Pattern + " => " + Literal(choice.Text)).ToList();
+        if (column.Type != "long") arms.Insert(0, "null => null");
+        arms.Add("var raw => Convert.ToString(raw, CultureInfo.InvariantCulture)");
+        return "entity." + column.Property + " switch { " + string.Join(", ", arms) + " }";
     }
     /// <summary>生成加入当前事务的强类型数据库操作。</summary>
     private static string Mapper(GenerationModel model, TableModel table)

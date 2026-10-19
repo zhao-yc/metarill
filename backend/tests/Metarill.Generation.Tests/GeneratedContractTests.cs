@@ -25,6 +25,10 @@ public sealed class GeneratedContractTests
             catalog.ConfigColumns.Add(new() { Id = "17", ConfigTableId = "1", ColumnName = "sign_date", LogicalType = "datetime", Name = "签署日期", ControlKind = "date" });
             catalog.ConfigPageColumns.Add(new() { Id = "116", ConfigPageId = "101", ConfigColumnId = "16", IsEdit = 1, IsShow = 1 });
             catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = "101", ConfigColumnId = "17", IsEdit = 1, IsShow = 1 }); catalog.ConfigColumns.Single(column => column.ColumnName == "remark").ControlKind = "FileLibrary";
+            catalog.ConfigColumns.Add(new() { Id = "18", ConfigTableId = "1", ColumnName = "tier", LogicalType = "string", ControlKind = "ConstDownList", ControlDetail = "高\"级|vip,basic" });
+            catalog.ConfigColumns.Add(new() { Id = "19", ConfigTableId = "1", ColumnName = "fee", LogicalType = "decimal", ControlKind = "ConstList", ControlDetail = "一个单位|1.00,同值重复|1" });
+            catalog.ConfigColumns.Add(new() { Id = "20", ConfigTableId = "1", ColumnName = "rank", LogicalType = "int64", ControlKind = "ConstList", ControlDetail = "大整数|9007199254740993" });
+            foreach (var id in new[] { "18", "19", "20" }) catalog.ConfigPageColumns.Add(new() { Id = "1" + id, ConfigPageId = "101", ConfigColumnId = id, IsEdit = 1, IsShow = 1 });
             new CSharpGenerator().Generate(catalog, Path.Combine(root, "generated"), "Example.Contract");
             var repository = FindRepository();
             var dataProject = Environment.GetEnvironmentVariable("METARILL_DATA_PROJECT") ?? Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj");
@@ -68,6 +72,26 @@ public sealed class GeneratedContractTests
             using var serialized = JsonDocument.Parse(JsonSerializer.Serialize(vo, voType, options));
             Assert.Equal(JsonValueKind.Array, serialized.RootElement.GetProperty("remark").ValueKind);
             Assert.Equal("7", serialized.RootElement.GetProperty("remark")[0].GetProperty("fileId").GetString());
+            // 展示字段是只读派生值，原值、未知枚举与空值必须保持独立。
+            entityType.GetProperty("Status")!.SetValue(entity, 1);
+            var display = voType.GetMethod("FromEntity")!.Invoke(null, [entity])!;
+            Assert.Equal("启用", voType.GetProperty("StatusShow")!.GetValue(display));
+            Assert.Equal(1, voType.GetProperty("Status")!.GetValue(display));
+            entityType.GetProperty("Status")!.SetValue(entity, 9);
+            Assert.Equal("9", voType.GetProperty("StatusShow")!.GetValue(voType.GetMethod("FromEntity")!.Invoke(null, [entity])));
+            entityType.GetProperty("Status")!.SetValue(entity, null);
+            Assert.Null(voType.GetProperty("StatusShow")!.GetValue(voType.GetMethod("FromEntity")!.Invoke(null, [entity])));
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize("{\"id\":\"1\",\"statusShow\":\"停用\"}", updateType, options));
+            entityType.GetProperty("Tier")!.SetValue(entity, "vip");
+            entityType.GetProperty("Fee")!.SetValue(entity, 1m);
+            entityType.GetProperty("Rank")!.SetValue(entity, 9007199254740993L);
+            display = voType.GetMethod("FromEntity")!.Invoke(null, [entity])!;
+            Assert.Equal("高\"级", voType.GetProperty("TierShow")!.GetValue(display));
+            Assert.Equal("一个单位", voType.GetProperty("FeeShow")!.GetValue(display));
+            Assert.Equal("大整数", voType.GetProperty("RankShow")!.GetValue(display));
+            entityType.GetProperty("Tier")!.SetValue(entity, "basic");
+            Assert.Equal("basic", voType.GetProperty("TierShow")!.GetValue(voType.GetMethod("FromEntity")!.Invoke(null, [entity])));
+
             var controllerType = assembly.GetType("Example.Contract.Generated.Controllers.CustomerPage101Controller", true)!;
             var authorization = new DeniedAuthorization();
             var controller = Activator.CreateInstance(controllerType, [null, authorization])!;
