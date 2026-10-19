@@ -27563,6 +27563,42 @@
       "indexType": "INDEX",
       "isEnabled": 1,
       "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000900",
+      "configTableId": "2076977530983813120",
+      "indexName": "ix_index_table",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000903",
+      "configTableId": "2076977530983813120",
+      "indexName": "ix_index_project",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000906",
+      "configTableId": "2076977554320920576",
+      "indexName": "ix_index_column_parent",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000910",
+      "configTableId": "2076977554320920576",
+      "indexName": "ix_index_column_project",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
     }
   ],
   "configIndexColumns": [
@@ -27896,6 +27932,87 @@
       "configColumnId": "2200000000000000395",
       "columnName": "delete_no",
       "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000901",
+      "configIndexId": "2200000000000000900",
+      "configColumnId": "2076977821456142336",
+      "columnName": "config_table_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000902",
+      "configIndexId": "2200000000000000900",
+      "configColumnId": "2200000000000000257",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000904",
+      "configIndexId": "2200000000000000903",
+      "configColumnId": "2076977822055927808",
+      "columnName": "yz_project_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000905",
+      "configIndexId": "2200000000000000903",
+      "configColumnId": "2200000000000000257",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000907",
+      "configIndexId": "2200000000000000906",
+      "configColumnId": "2076977805266128896",
+      "columnName": "config_index_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000908",
+      "configIndexId": "2200000000000000906",
+      "configColumnId": "2200000000000000272",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000909",
+      "configIndexId": "2200000000000000906",
+      "configColumnId": "2076977805786222592",
+      "columnName": "sort_no",
+      "sortNo": 20,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000911",
+      "configIndexId": "2200000000000000910",
+      "configColumnId": "2076977806079823872",
+      "columnName": "yz_project_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2200000000000000912",
+      "configIndexId": "2200000000000000910",
+      "configColumnId": "2200000000000000272",
+      "columnName": "delete_no",
+      "sortNo": 10,
       "sortDirection": "ASC",
       "yzProjectId": "1608097412978577409"
     }

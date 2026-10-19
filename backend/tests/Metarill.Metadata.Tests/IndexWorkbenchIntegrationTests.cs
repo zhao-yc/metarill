@@ -91,6 +91,31 @@ public sealed class IndexWorkbenchIntegrationTests
     }
 
     [MetadataIntegrationFact]
+    public async Task Locking_one_index_aggregate_does_not_scan_and_block_another_project()
+    {
+        await using var first = await IndexWorkbenchFixture.CreateAsync();
+        await using var second = await IndexWorkbenchFixture.CreateAsync();
+        await first.Business().SaveAsync(IndexWorkbenchFixture.Payload(await first.Snapshot(), first.Index("yzp_idx_isolated_first")));
+        await second.Business().SaveAsync(IndexWorkbenchFixture.Payload(await second.Snapshot(), second.Index("yzp_idx_isolated_second")));
+        var locked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holding = first.Metadata.Session.InTransactionAsync(async () =>
+        {
+            await first.Snapshot(); locked.SetResult();
+            await release.Task.WaitAsync(TimeSpan.FromSeconds(15)); return true;
+        });
+        await locked.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var independent = second.Snapshot();
+        try
+        {
+            // 两个项目的索引父键和项目清理都应命中自身范围，不等待另一项目的行锁。
+            var snapshot = await independent.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(second.Metadata.TableId.ToString(), snapshot.ConfigTableId);
+        }
+        finally { release.TrySetResult(); await holding; await independent; }
+    }
+
+    [MetadataIntegrationFact]
     public async Task PhysicalColumnOwnershipAndSubmittedNameAreVerified()
     {
         await using var f = await IndexWorkbenchFixture.CreateAsync();
