@@ -39,10 +39,7 @@ public sealed partial class MetadataWorkbenchBusiness
                     ["control_kind"]=row.ControlKind,["control_detail"]=row.ControlDetail,["join_table"]=row.JoinTable,["link_config_table_id"]=row.LinkTableId,["precision"]=row.Precision,["scale"]=row.Scale,
                     ["sort_no"]=maximum,["col_span"]=1,["mobile_list_page_col_span"]=1,["default_value"]="",["insert_time"]=DateTime.UtcNow,["update_time"]=DateTime.UtcNow,["insert_manager_id"]=actor.AccountId,["update_manager_id"]=actor.AccountId
                 };
-                // 发布物理元数据决定必填默认值，客户端不能覆盖ID、项目或审计字段。
-                var table=registry.Platform.ConfigTables.Single(table=>table.TableName=="config_column");
-                foreach(var column in registry.Platform.ConfigColumns.Where(column=>column.ConfigTableId==table.Id&&column.IsDbNotNull==1&&!values.ContainsKey(column.ColumnName)))
-                    values[column.ColumnName]=column.LogicalType switch{"int32" or "int64" or "decimal"=>0,"bool"=>false,_=>""};
+                ConfigurationColumnDefaults.Fill(values,registry.Platform);
                 await store.InsertAsync("config_column",values,cancellationToken);
                 await configurationMutations.BeforeCommitAsync(new RecordMutationContext("6217715532627968","config_column",id,actor.ProjectId,values,false,store.Session.CurrentTransaction!,true),cancellationToken);
                 added.Add(id.ToString(CultureInfo.InvariantCulture));

@@ -32,10 +32,15 @@ public sealed class ConfigurationMutationObserver(SqlRowStore store,MetadataRegi
         {
             var table=(await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
             var existing=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
+            var nextSort=existing.Count==0?0:existing.Max(row=>Convert.ToInt32(row.GetValueOrDefault("sort_no")??0));
             foreach(var (name,label,type) in new[]{("id","标识","int64"),("name","名称","string"),("yz_project_id","项目","int64"),("insert_time","创建时间","datetime"),("update_time","修改时间","datetime"),("insert_manager_id","创建账号","int64"),("update_manager_id","修改账号","int64"),("delete_no","删除时间","datetime")})
             {
                 if(existing.Any(c=>SqlRowStore.Text(c,"column_name")==name))continue;
-                await store.InsertAsync("config_column",new Dictionary<string,object?>{{"id",ids.NextId()},{"config_table_id",context.RecordId},{"column_name",name},{"name",label},{"logical_type",type},{"column_type",type},{"column_length",type=="string"?"255":""},{"is_db_not_null",name=="id"?1:0},{"yz_project_id",project},{"sort_no",existing.Count*10}},cancellationToken);
+                // 系统字段同样使用已发布元模型的必填默认值，并在已有排序后顺序追加。
+                nextSort=checked(nextSort+10);
+                var values=new Dictionary<string,object?>{{"id",ids.NextId()},{"config_table_id",context.RecordId},{"config_table_name",SqlRowStore.Text(table,"name")},{"column_name",name},{"name",label},{"logical_type",type},{"column_type",type},{"column_length",type=="string"?"255":""},{"is_db_not_null",name=="id"?1:0},{"yz_project_id",project},{"sort_no",nextSort}};
+                ConfigurationColumnDefaults.Fill(values,registry.Platform);
+                await store.InsertAsync("config_column",values,cancellationToken);
             }
             var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
             if(pages.Count==0)
