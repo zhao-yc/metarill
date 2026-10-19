@@ -1,3 +1,4 @@
+using System.Text;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -9,9 +10,9 @@ namespace Metarill.Generation.Tests;
 /// <summary>从真实元数据生成 Vue，再执行其实际方法，验证请求和原控件协议而不使用人工模板替身。</summary>
 public sealed class GeneratedUniappTests
 {
-    /// <summary>查询、排序、显示、RTF回传与部分更新在真实生成脚本中共同运行。</summary>
+    /// <summary>原筛选弹层、排序、显示、RTF回传与整entity更新在真实生成脚本中共同运行。</summary>
     [Fact]
-    public async Task Generated_vue_executes_query_display_and_partial_write_contracts()
+    public async Task Generated_vue_executes_original_query_display_and_whole_entity_write_contracts()
     {
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-generated-uniapp");
         var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -20,13 +21,13 @@ public sealed class GeneratedUniappTests
             var result = new CSharpGenerator().Generate(Catalog(), output, "Example.Ui");
             var list = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/customer-list-101.vue"));
             var detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/customer-detail-101.vue"));
-            Assert.Contains("draftFilters.name", list); Assert.Contains("draftFilters.enabled", list); Assert.Contains("type=\"daterange\"", list);
-            Assert.Contains("sortable @sort-change=\"changeSort('name', $event)\"", list);
-            Assert.Contains("openRtf('remark', 'edit')", detail); Assert.DoesNotContain("此控件待移植，当前只读</text></uni-forms-item>", detail);
-            Assert.Contains("access-mode=\"PUBLIC\" accept=\"image,video\" :max-count=\"2\" :max-size-mb=\"3\"", detail);
-            Assert.Contains(":allow-library=\"false\" :crop-images=\"true\"", detail);
-            Assert.Contains("access-mode=\"PROTECTED\"", detail);
-            Assert.Contains("&quot;9007199254740993&quot;", detail);
+            Assert.Contains("filters.name", list); Assert.Contains("filters.enabled", list); Assert.Contains("type='daterange'", list);
+            Assert.Contains("sortable @sort-change=\"nameSortChange\"", list);
+            Assert.Contains("remarkRtfDo('edit')", detail); Assert.DoesNotContain("此控件待移植，当前只读</text></uni-forms-item>", detail);
+            Assert.Contains("access-mode='PUBLIC' accept='image,video' :max-count='2' :max-size-mb='3'", detail);
+            Assert.Contains(":allow-library='false' :crop-images='true'", detail);
+            Assert.Contains("access-mode='PROTECTED'", detail);
+            Assert.Contains("\"value\":\"9007199254740993\"", detail);
             var vo = File.ReadAllText(Path.Combine(output, "VOs/CustomerPage101Vo.g.cs"));
             Assert.Contains("JsonPropertyName(\"statusShow\")", vo); Assert.Contains("JsonPropertyName(\"groupName\")", vo); Assert.DoesNotContain("JsonPropertyName(\"ownerName\")", vo);
             using var capabilities = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "generation-capabilities.json")));
@@ -65,10 +66,10 @@ public sealed class GeneratedUniappTests
             catalog.ConfigColumns.Single(column => column.ColumnName == "attachments").ControlDetail = "{\"accessMode\":null,\"maxCount\":null,\"maxSizeMb\":null}";
             new CSharpGenerator().Generate(catalog, output, "Example.Readonly");
             var detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/customer-detail-101.vue"));
-            Assert.DoesNotContain("openRtf('remark', 'edit')", detail); Assert.Contains("openRtf('remark', 'review')", detail);
+            Assert.Contains("v-if='!remarkReadOnly'", detail); Assert.Contains("remarkRtfDo('review')", detail); Assert.Contains("remark:true",detail);
             Assert.DoesNotContain("@update:modelValue=\"change('attachments', $event)\"", detail);
-            Assert.Contains("access-mode=\"PROTECTED\" accept=\"image,file,video\" :max-count=\"9\" :max-size-mb=\"50\"", detail);
-            Assert.Contains(":readonly=\"true\"", detail);
+            Assert.Contains("access-mode='PROTECTED' accept='image,file,video' :max-count='9' :max-size-mb='50'", detail);
+            Assert.Contains(":readonly='attachmentsReadOnly'", detail); Assert.Contains("attachments:true",detail);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }
@@ -115,6 +116,9 @@ public sealed class GeneratedUniappTests
         Add("23", "attachments", "string", "FileLibrary", "{\"accessMode\":\"PUBLIC\",\"accept\":\"image,video\",\"maxCount\":2,\"maxSizeMb\":3,\"extensions\":[\"PNG\",\".webp\"],\"allowLibrary\":false,\"cropImages\":true}", search: true);
         Add("24", "protected_files", "string", "FileLibrary");
         Add("25", "large_enum", "int64", "ConstList", "大整数|9007199254740993");
+        Add("26", "fee", "decimal", "ConstList", "一个单位|1.00,同值重复|1");
+        Add("27", "rank", "int64", "ConstList", "大整数|9007199254740993");
+        Add("28", "tier", "string", "ConstDownList", "basic");
         catalog.ConfigTables.Add(new() { Id = "2", TableName = "group_item", Name = "分组" });
         catalog.ConfigColumns.Add(new() { Id = "201", ConfigTableId = "2", ColumnName = "id", LogicalType = "id" });
         catalog.ConfigColumns.Add(new() { Id = "202", ConfigTableId = "2", ColumnName = "name", LogicalType = "string" });
@@ -127,7 +131,7 @@ public sealed class GeneratedUniappTests
     /// <summary>由 Node 执行已生成的页面，失败输出断言信息，不连接浏览器或真实业务库。</summary>
     private static async Task RunProbe(string output, [CallerFilePath] string file = "")
     {
-        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding=Encoding.UTF8, StandardErrorEncoding=Encoding.UTF8 };
         start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(file)!, "GeneratedVueBehaviorProbe.mjs")); start.ArgumentList.Add(output);
         using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));

@@ -101,7 +101,7 @@ internal static class OriginalUniappDetailFields
             case "CascadeTree": return Cascade(c, f, ro);
             case "RTF":
                 c.Methods.AppendLine($$$"""
-{{{name}}}RtfDo(action) { if(!['edit','review'].includes(action) || action==='edit' && this.{{{ro}}}) return; const current=this.originalContext(), original=this.entity.{{{name}}}, text=original??'', that=this; uni.navigateTo({url:'/pages/main/rtf/rtf?action='+action,events:{onReceiveRtf(rtf){if(action==='edit' && current() && typeof rtf==='string' && rtf!==text) that.entity.{{{name}}}=rtf;}},success(result){if(current())result.eventChannel.emit('sendRtf',{data:text});}}); },
+{{{name}}}RtfDo(action) { if(!['edit','review'].includes(action) || action==='edit' && this.{{{ro}}}) return; const current=this.originalContext(), original=this.entity.{{{name}}}, text=original??'', that=this; uni.navigateTo({url:'/pages/main/rtf/rtf?action='+action,events:{onReceiveRtf(rtf){that.permissionVersion++;if(action==='edit' && !that.{{{ro}}} && current() && typeof rtf==='string' && rtf!==text) that.entity.{{{name}}}=rtf;}},success(result){if(current())result.eventChannel.emit('sendRtf',{data:text});}}); },
 """);
                 return Hidden(f) + $"<view class='rtf-buttons'><button size='mini' @click=\"{name}RtfDo('review')\">预览</button><button size='mini' v-if='!{ro}' @click=\"{name}RtfDo('edit')\">编辑</button></view><view class='rtf-review' v-html='entity.{name}'></view>";
             case "":
@@ -113,7 +113,12 @@ internal static class OriginalUniappDetailFields
     private static void InitList(OriginalDetailContext c, OriginalDetailField f, string list, bool checkbox)
     {
         var column = f.Column; var endpoint = c.Api + "/findNameId" + GenerationModel.Pascal(Stem(column)) + column.Source.Id;
-        var load = "that.originalRequest({url:"+Js(endpoint)+",data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName)"+(f.ReadOnly?",id:that.entity."+column.JsonName:"")+"},method:'POST',sendSessionId:true,success(res){if(res.code===200){that."+list+"=res.data||[];"+(checkbox?"that."+column.JsonName+"Change();":"")+"}else uni.showModal({showCancel:false,content:res.msg});}});";
+        var relation=checkbox?null:RelationCompilation.ForPage(c.Model,c.Page).SingleOrDefault(item=>item.SourceColumn.Source.Id==column.Source.Id);
+        var context=relation is null?null:ControlRenderer.RelationContext(c.Page,relation,false);
+        var target=context?.TargetParentField is {} parent?"that.entity."+parent:context?.SameParent==true?"that.parent_id":null;
+        var load = context?.UnresolvedTarget==true
+            ? "that."+list+"=[];uni.showModal({showCancel:false,content:'关联目标父范围尚未明确，不能加载候选项'});"
+            : "(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["+Js(column.Source.Id)+"]||0)+1;that._originalOptions["+Js(column.Source.Id)+"]=optionSequence;const optionParent="+(target is null?"null":"String("+target+"??'')")+";that.originalRequest({url:"+Js(endpoint)+",isCurrent:()=>optionSequence===that._originalOptions["+Js(column.Source.Id)+"]&&"+(target is null?"true":"optionParent===String("+target+"??'')")+",data:{parentId:that.parent_id,"+(target is null?"":"targetParentId:optionParent,")+"formParameters:uni.getStorageSync(that.formParametersName)"+(f.ReadOnly?",id:that.entity."+column.JsonName:"")+"},method:'POST',sendSessionId:true,success(res){if(res.code===200){that."+list+"=res.data||[];"+(checkbox?"that."+column.JsonName+"Change();":"")+"}else uni.showModal({showCancel:false,content:res.msg});}});})();";
         if (Enabled(column.Source.Extra, "isAutoPostBackQuery")) c.DynamicInit.AppendLine($"that.{list}=[];" + load); else c.Init.AppendLine(load);
     }
     /// <summary>沿用现有DTO/VO常量类型；长整数保留字符串，小数按decimal解析，不经JavaScript整数转换。</summary>
@@ -144,7 +149,7 @@ internal static class OriginalUniappDetailFields
         else if (!string.IsNullOrWhiteSpace(f.Detail) && !int.TryParse(f.Detail,out limit)) throw new InvalidOperationException("原附件/视频数量必须为整数。");
         if(limit is < 1 or > 100)throw new InvalidOperationException("原上传数量上限无效。");
         c.Methods.AppendLine($$$"""
-{{{name}}}FileSelect(e) { if(this.{{{ro}}})return; const that=this,current=this.originalContext(); yzp.uploadSelectedFiles(e,{cropImages:{{{crop.ToString().ToLowerInvariant()}}}},function(uploadedResults){if(!current() || that.{{{ro}}} || !uploadedResults?.length)return; const old=Array.isArray(that.entity.{{{name}}})?that.entity.{{{name}}}.slice():[];that.entity.{{{name}}}=old.concat(uploadedResults);}); },
+{{{name}}}FileSelect(e) { if(this.{{{ro}}})return; const that=this,current=this.originalContext(); yzp.uploadSelectedFiles(e,{cropImages:{{{crop.ToString().ToLowerInvariant()}}}},function(uploadedResults){that.permissionVersion++;if(!current() || that.{{{ro}}} || !uploadedResults?.length)return; const old=Array.isArray(that.entity.{{{name}}})?that.entity.{{{name}}}.slice():[];that.entity.{{{name}}}=old.concat(uploadedResults);}); },
 """);
         var media = kind == "Video" ? "file-mediatype='video' file-extname='mp4'" : kind == "Upload" ? "file-mediatype='all'" : ":imageStyles='$imageStyles'";
         return $"<uni-file-picker {media} :disabled='{ro}' {(kind == "Image" ? "return-type='object'" : $"limit='{limit}'")} :readonly='{ro}' v-model='entity.{name}' title='{Html(description)}' @select='{name}FileSelect'></uni-file-picker>" + Hidden(f);

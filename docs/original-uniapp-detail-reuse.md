@@ -2,7 +2,7 @@
 
 原始入口为 `backend/yzp/src/main/resources/template/v8/uni/detail.vue`，分支逻辑来自 `UniappService.GenerateDetail`（831—1720 行）及其同文件辅助方法。Metarill 的独立入口为 `OriginalUniappDetailRenderer.Render(model, table, page, children)`；本切片不修改共享 `UniappRenderer`，由主集成切换调用。
 
-`original-detail.vue.tpl` 的整个 `<template>` 块与原模板逐字一致。字段、主子区和按钮占位符按原算法填充，保留原格栅、单个 `uni-forms`、分组 `v-show`、校验、移动导航/更多菜单、按钮位置、自定义动作和原整份 entity 请求。增加的内部边界只处理真实父记录、当前页权限、字符串 ID、请求/弹层迟到、未编辑富文本及保存后真实 ID，不裁剪原请求。
+`original-detail.vue.tpl` 的整个 `<template>` 块与原模板逐字一致。字段、主子区和按钮占位符按原算法填充，保留原格栅、单个 `uni-forms`、分组 `v-show`、校验、移动导航/更多菜单、按钮位置、自定义动作和原整份 entity 请求。增加的内部边界处理真实父记录、当前页权限、字符串 ID、请求/弹层迟到、未编辑富文本及保存后真实 ID，不裁剪原请求。既有详情只有回读字符串 VO.id 与当前 ID 一致才可编辑；错误读取/保存回执不会切换写入对象。合法 decimal 常量沿用数值合同，long 选项保持字符串，未带管道的文本选项保留自身值。
 
 ## 运行时及控件依赖
 
@@ -15,11 +15,11 @@
 
 ## 能力边界与接入
 
-- `List` 使用原 `findNameId{字段去Id/Ids}{稳定列ID}`、POST/formParameters 协议；子页只加明确的 parentId 必要 API 适配。C# 原协议兼容由独立后端切片提供。
+- `List` 使用原 `findNameId{字段去Id/Ids}{稳定列ID}`、POST/formParameters 协议；子页保留来源 parentId，独立目标父只从唯一可读声明外键传 targetParentId；未知/多义映射不请求候选，不退全量。C# 原协议兼容由独立后端切片提供。
 - MultiSelectPage 仅启用既有编译器能证明的冗余子集，原 props/events 和确认关闭行为不变；未知父、隐藏 ID、名称缺列、非冗余等仍拒绝，不放宽打包能力门禁。
 - MultiCheckBoxDatabase、CascadeTree、动态 formParameters 表达式、旧 Image/Upload/Video 上传端点及任意自定义动作的后端完整性，不能由前端移植推定已验收。原前端分支已移植，主集成必须继续使用现有能力门禁并逐项接后端，不用普通文本替换。
 - 非冗余联接/审计展示/级联祖先按原前端只读分支处理，不生成校验或自动保存；这不证明 C# 非冗余查询计划已完成。
-- 主题暂取原平台 `#0ab3ad`，主分支新增 PrimaryColor 后接真实项目值。
+- 主题读取项目 `MetadataCatalog.PrimaryColor`，缺省沿用原平台 `#0ab3ad`。
 
 ## 验证
 

@@ -16,7 +16,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     internal IReadOnlyList<ChildModel> Children { get; } = children;
     internal string Api => "/admin/auto/" + Table.Source.TableName + "/" + Page.Source.Id;
     internal int GridColumns => Math.Max(1, Integer(Page.Source.Extra, "cols", 2) <= 0 ? 2 : Integer(Page.Source.Extra, "cols", 2));
-    internal string PrimaryColor => "#0ab3ad";
+    internal string PrimaryColor => Model.Catalog.PrimaryColor;
     internal StringBuilder Fields { get; } = new();
     internal StringBuilder Defaults { get; } = new();
     internal StringBuilder Rules { get; } = new();

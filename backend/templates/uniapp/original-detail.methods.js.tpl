@@ -13,13 +13,13 @@ originalRequest(options) {
  const current=this.originalContext(),epoch=this._detailEpoch,parent=this.parent_id,identity=this.currentIdentity(),method=String(options.method||'GET').toUpperCase(),route=String(options.url||'').split('?')[0];
  const mutation=route===##api##&&method==='DELETE'||method==='POST'&&[##api##+'/add',##api##+'/update'].includes(route)||method==='POST'&&route.startsWith(##api##+'/copy/');
  if(mutation)this.permissionVersion++;if(mutation&&(this.saving||this.readOnlyCondition))return null;if(mutation)this.saving=true;
- const read=route.startsWith(##api##+'/detail/'),sequence=read?++this._detailRead:0,active=()=>current()&&(!read||sequence===this._detailRead);
+ const read=route.startsWith(##api##+'/detail/'),sequence=read?++this._detailRead:0,active=()=>current()&&(!read||sequence===this._detailRead)&&(typeof options.isCurrent!=='function'||options.isCurrent());
  const complete=options.complete,success=options.success,fail=options.fail;
  const task=yzp.request({...options,isCurrent:active,success:res=>{if(active())success?.call(options,res);},fail:error=>{if(active())fail?.call(options,error);},complete:value=>{if(this._alive&&epoch===this._detailEpoch&&parent===this.parent_id&&identity===this.currentIdentity()){if(mutation)this.saving=false;complete?.call(options,value);}}});
  if(task)this._detailTasks.push(task);else if(mutation)this.saving=false;return task;
 },
 /** 保留原300ms候选/控件准备时序，只有实际VO标识一致才开放子表。 */
-markOriginalRecordReady() {this.recordReady=Boolean(this.id&&String(this.entity.id)===this.id);const current=this.originalContext();setTimeout(()=>{if(current())this.loadEntitySuccess=true;},300);},
+markOriginalRecordReady() {this.recordReady=Boolean(this.id&&originalRecordId(this.entity.id)===this.id);const current=this.originalContext();setTimeout(()=>{if(current())this.loadEntitySuccess=true;},300);},
 /** 已验证多选桥接使用原实体；changes仅用于内部选择状态，不替换整entity请求。 */
 change(field,value) {if(this.readOnlyCondition||!##writable##.includes(field))return;this.entity[field]=value;this.changes[field]=value;},
 /** 原权限刷新始终完成回调；子页复用快照仍由readOnlyCondition核对自身操作。 */

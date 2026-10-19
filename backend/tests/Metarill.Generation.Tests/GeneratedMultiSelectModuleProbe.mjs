@@ -10,7 +10,7 @@ async function moduleAt(path) {
  if (modules.has(path)) return modules.get(path)
  let text
  if (path.endsWith('.vue')) text = (await readFile(path, 'utf8')).match(/<script>([\s\S]*?)<\/script>/)[1]
- else text = 'export default {}; export const createSelectionPageMixin = () => ({}); export const createMultiSelectFieldMixin = () => ({}); export const createRelationOptionsMixin = () => ({});'
+ else text = 'export default {}; export const menuBoolean = () => false; export const createOriginalListOptionsMixin = () => ({}); export const createOriginalSelectionPageMixin = () => ({}); export const createListPageMixin = () => ({}); export const createDetailLayoutMixin = () => ({}); export const createSelectionPageMixin = () => ({}); export const createMultiSelectFieldMixin = () => ({}); export const createRelationOptionsMixin = () => ({});'
  const module = new SourceTextModule(text, { context, identifier: path }); modules.set(path, module); return module
 }
 const pages = (await readdir(join(root, 'pages/yzp'))).filter(path => path.endsWith('.vue'))

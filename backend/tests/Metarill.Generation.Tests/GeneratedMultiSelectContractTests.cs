@@ -1,3 +1,4 @@
+using System.Text;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -22,7 +23,7 @@ public sealed class GeneratedMultiSelectContractTests
             Assert.Contains("string? TargetIds", entity); Assert.Contains("string? TargetNames", entity); Assert.Contains("Optional<JsonElement?> TargetIds", dto); Assert.DoesNotContain("TargetNames {", dto);
             Assert.Contains("JsonElement? TargetNames", vo); Assert.Contains("ReadMultiValue201_25", service); Assert.Contains("relationAuthorization.RequirePagePermission(\"301\", \"list\")", service);
             Assert.Contains("row => new { row.Id, Name = row.Name }", service); Assert.Contains("selected.Distinct().Count() != selected.Length", service); Assert.Contains("if (refreshNames)", service);
-            Assert.Contains("selected-name-field=\"name\"", detail); Assert.Contains(":selectedIds=\"entity.targetIds\"", detail); Assert.Contains("@onPopSelect=\"receiveMultiSelection('targetIds', $event)\"", detail); Assert.Contains("createMultiSelectFieldMixin", detail);
+            Assert.Contains("selected-name-field=\"name\"", detail); Assert.Contains(":selectedIds=\"entity.targetIds\"", detail); Assert.Contains("@onPopSelect=\"onPopSelect25\"", detail); Assert.Contains("createMultiSelectFieldMixin", detail);
             using var capabilities = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "generation-capabilities.json")));
             var subset = Assert.Single(capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray()); Assert.Equal("redundant", subset.GetProperty("storageMode").GetString()); Assert.False(subset.GetProperty("nonRedundantSupported").GetBoolean()); Assert.False(subset.GetProperty("renamePropagationSupported").GetBoolean());
         }
@@ -30,7 +31,7 @@ public sealed class GeneratedMultiSelectContractTests
     }
 
     [Fact]
-    public async Task Actual_generated_detail_vue_preserves_popup_rows_cancellation_and_partial_updates()
+    public async Task Actual_generated_original_detail_vue_preserves_popup_rows_cancellation_and_whole_entity_protocol()
     {
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-multi-vue"); var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
@@ -64,9 +65,9 @@ public sealed class GeneratedMultiSelectContractTests
             new CSharpGenerator().Generate(catalog, output, "Example.MultiModules");
             foreach (var page in new[] { ("source", "201"), ("target", "301") })
             {
-                var list = File.ReadAllText(Path.Combine(output, $"frontend/pages/yzp/relation_{page.Item1}-list-{page.Item2}.vue")); Assert.DoesNotContain("import PageDetail", list); Assert.DoesNotContain("<PageDetail", list);
+                var list = File.ReadAllText(Path.Combine(output, $"frontend/pages/yzp/relation_{page.Item1}-list-{page.Item2}.vue")); Assert.DoesNotContain("-detail-"+page.Item2+".vue",list); Assert.DoesNotContain("<relation_"+page.Item1+"_detail_"+page.Item2,list);
             }
-            var ordinary = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_parent-list-101.vue")); Assert.Contains("import PageDetail", ordinary); Assert.Contains("<PageDetail", ordinary);
+            var ordinary = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_parent-list-101.vue")); Assert.Contains("import relation_parent_detail_101",ordinary);Assert.Contains("<relation_parent_detail_101",ordinary);
             await RunVueProbe(output, "GeneratedMultiSelectModuleProbe.mjs");
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
@@ -75,7 +76,7 @@ public sealed class GeneratedMultiSelectContractTests
     /// <summary>Vue3真实编译生成模板并挂载，不能只手调getter或复制页面行为。</summary>
     private static async Task RunVueProbe(string output, string probe = "GeneratedMultiSelectVueProbe.mjs", [CallerFilePath] string source = "")
     {
-        var start = new ProcessStartInfo("node") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        var start = new ProcessStartInfo("node") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding=Encoding.UTF8, StandardErrorEncoding=Encoding.UTF8 };
         if (probe == "GeneratedMultiSelectModuleProbe.mjs") start.ArgumentList.Add("--experimental-vm-modules");
         start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(source)!, probe)); start.ArgumentList.Add(output);
         using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
@@ -91,7 +92,7 @@ public sealed class GeneratedMultiSelectContractTests
             var result = new ApplicationPackager().Create(Catalog(), output, "Example.MultiStandalone", SourceRoot(), ApplicationPackageMode.BackendOnly); Assert.False(result.FrontendIncluded);
             var program = File.ReadAllText(Path.Combine(output, "backend/Application.Host/Program.cs")); var registration = File.ReadAllText(Path.Combine(output, "backend/generated/GeneratedRegistration.g.cs"));
             Assert.Contains("AddScoped<IRuntimeAuthorization, DevelopmentAuthorization>()", program); Assert.Contains("provider.GetRequiredService<IRuntimeAuthorization>()", registration);
-            var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+            var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding=Encoding.UTF8, StandardErrorEncoding=Encoding.UTF8 };
             foreach (var argument in new[] { "build", "backend/Application.Host/Application.Host.csproj", "--nologo", "--disable-build-servers", "--verbosity", "quiet" }) start.ArgumentList.Add(argument);
             start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
             using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
@@ -142,11 +143,11 @@ public sealed class GeneratedMultiSelectContractTests
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-multi-contract"); var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
         {
-            new CSharpGenerator().Generate(catalog, output, "Example.MultiGap");
-            var detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-detail-201.vue"));
-            Assert.DoesNotContain("createMultiSelectFieldMixin", detail); Assert.Contains("此多选字段待移植", detail);
-            using var gaps = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "generation-capabilities.json")));
-            Assert.Contains(gaps.RootElement.GetProperty("unsupportedControls").EnumerateArray(), item => item.GetProperty("column").GetString() == "target_ids");
+            // 原控件不能换只读占位；证据不足的批次在落盘前拒绝，Full包门禁同样拒绝。
+            var generatedError=Assert.ThrowsAny<Exception>(()=>new CSharpGenerator().Generate(catalog,output,"Example.MultiGap"));
+            Assert.False(Directory.Exists(output));
+            var packageError=Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(catalog,output,"Example.MultiGap",SourceRoot(),ApplicationPackageMode.FullApplication));
+            Assert.Equal(generatedError.Message,packageError.Message);Assert.False(Directory.Exists(output));
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }

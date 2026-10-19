@@ -229,10 +229,17 @@ export default {
         sendSessionId: true,
         success: function (res) {
           if (res.code == 200) {
+            // 既有记录必须由当前请求回读同一字符串ID，错误VO不能成为下一次整entity写入对象。
+            if (!res.data || Array.isArray(res.data) || originalRecordId(res.data.id) !== that.id) {
+              that.recordReady = false;
+              that.loadEntitySuccess = false;
+              uni.showModal({ showCancel: false, content: '详情返回记录与当前页面不一致，请刷新后重试' });
+              return;
+            }
             that.entity = res.data;
             //##get_entity_img_to_ary##
-            that.initLists();
             that.markOriginalRecordReady();
+            that.initLists();
           } else {
             uni.showModal({
               showCancel: false,
@@ -279,6 +286,11 @@ export default {
           method: 'POST',
           success: function (res) {
             if (res.code == 200) {
+              if (!res.data || !originalRecordId(res.data.id) || method === 'update' && originalRecordId(res.data.id) !== that.id) {
+                that.recordReady = false;
+                uni.showModal({ showCancel: false, content: '保存返回记录与当前页面不一致，请重新读取后确认' });
+                return;
+              }
               that.notifyMenuMutation();
               that.id = originalRecordId(res.data.id);
               that.entity = res.data;

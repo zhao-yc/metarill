@@ -72,6 +72,14 @@ public sealed class OriginalUniappDetailTests
         Assert.Contains("<yzp-popup ref=\"selectPageDialog25\"",detail);Assert.Contains("class=\"select-page-dialog-view\"",detail);Assert.Contains(":selectedIds=\"entity.targetIds\"",detail);Assert.Contains("@onPopSelect=\"onPopSelect25\"",detail);Assert.Contains(":parent_id=\"multiTargetParent('targetIds')\"",detail);Assert.Contains("<view class='select-page-input-row'>",detail);Assert.DoesNotContain("yzp-relation-select",detail);
         await Probe(detail,"selection");
     }
+    /// <summary>真实项目主题与统一更新策略在原DOM内生效，旧IsSave不能覆盖明确isUpdate。</summary>
+    [Fact]
+    public void Original_detail_uses_project_color_and_unified_update_policy()
+    {
+        var catalog=Catalog();catalog.PrimaryColor="#137abc";catalog.ConfigPages[0].IsSave=0;catalog.ConfigPages[0].Extra["isUpdate"]=JsonSerializer.SerializeToElement(1);
+        var model=GenerationModel.Create(catalog,"Example.Color");var table=model.Tables.Single();var detail=OriginalUniappDetailRenderer.Render(model,table,table.Pages.Single(),[]);
+        Assert.Contains("primary-color=\"#137abc\"",detail);Assert.Contains("page_is_save:true",detail);Assert.DoesNotContain("#0ab3ad",detail);
+    }
     /// <summary>原非冗余派生项只读，不产生输入/校验和自动保存，未修改后端能力门禁。</summary>
     [Fact]
     public void Original_detail_nonredundant_derived_field_keeps_original_display_only_branch()
