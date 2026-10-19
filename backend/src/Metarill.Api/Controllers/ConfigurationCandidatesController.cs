@@ -12,7 +12,7 @@ public sealed class ConfigurationCandidatesController(ConfigurationCandidatesBus
     /// <summary>表候选支持原控件空对象请求及无请求体调用。</summary>
     [HttpPost("list_control_tables")]
     public async Task<R<object>> Tables(CancellationToken token) => R<object>.Success(await business.TablesAsync(await RequestObject(token), token));
-    /// <summary>单选选择页仅返回当前项目的选择类型页面。</summary>
+    /// <summary>默认单选页，可明确请求多选页；项目与父表归属仍由真实管理员身份校验。</summary>
     [HttpPost("select_page_options")]
     public async Task<R<object>> Pages(CancellationToken token) => R<object>.Success(await business.PagesAsync(await RequestObject(token), token));
     /// <summary>编辑器继承只读字段配置，父表由真实字段推导，不放宽标准页面的 parentId 范围。</summary>

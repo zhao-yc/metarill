@@ -26,7 +26,7 @@
 
 **已有：** [RelationCompilation](../backend/src/Metarill.Generation/RelationCompilation.cs) 可编译明确 List 目标和范围；ForeignValidationRenderer 校验关系记录存在、未删除和同项目。SelectPage 已有简单单选导航。
 
-**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 的大数据搜索/分页浏览器与跨端验收仍待分别补验，type=2 多选页浏览器证据不能替代它。MultiSelectPage、MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
+**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 已另补甲128/乙105项双父范围、三页、字面搜索、保存回读与父切换浏览器实证；超过5000候选浏览器、多选List及跨端仍待分别补验，type=2页不替代这些范围。MultiSelectPage、MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
 
 **原实现证据：** YZP 的 `NonRedundantReadPlanCompiler`、`MixedRelationPropagationCompiler`、运行时 list/selectpage/cascade，以及 `SystemMaintenanceBusiness` 的回填入口。只读引用扫描可识别这些配置声明，不能因扫描命中就宣称对应控件执行能力已移植。
 
@@ -70,7 +70,7 @@
 
 ## 建议推进顺序与发布门槛
 
-1. 主子 Tab/PC 弹层与 type=2 多选页独立包 Web/浏览器已补验；继续远程 List 大数据、文件/导入导出、新页面打开方式和其余业务范围。
+1. 主子 Tab/PC 弹层、type=2 多选页及远程List双父/分页核心Web已补验；继续超过5000候选、多选List、文件/导入导出、新页面打开方式和其余业务范围。
 2. 核验完整包运行时清单，继续正式认证适配、Agent 宿主和本地生成助手安全跟进现有应用。
 3. HTTP/MCP 及独立宿主受管只读反查已开放；平台 CLI、未受管目录、逆向导入、联接派生/传播和维护回填继续分别交付与验收。
 
@@ -101,3 +101,7 @@
 协调者集成三个新切片后，两次189项受管产物及2份清单字节一致，24个手写 partial 摘要不变。type=2 私有父页仅观察原 props/events，API 预置21行形成两页；浏览器实际验证跨页、全选本页、仅看已选、取消不写、确认完整字符串ID及确认前服务端最新名称。只读禁用写入口；选中后精确软删其中一项使确认整体失败，父值保持原21项，没有返回合法子集。首次真实 Vue 渲染发现 computed 未订阅 selectionReady 导致确认永远禁用，从源修复后重新导出 v2，HBuilderX 与浏览器复验成功；失败包和截图保留。
 
 这批 private 父页不是生产 MultiSelectPage 字段接线，21行由 API 预置也不宣称纯界面新建。随机表先按完整计划显式创建，核验21行精确ID/最终字段及恰1条软删后只清理该表，清理后核验不存在；8099/5195已停，临时认证配置删除。独立结构命令另实际反查4张受管表，64位指纹与 executable:false，元数据摘要不变。本地更新完整20项及候选能力2项定向均由协调者实际通过；最初错误 filter 未命中用例的运行不计通过，最终全组合数字以验收台账新批次为准。
+
+## 原生成按钮操作方式（2026-10-19）
+
+已形成可审查的离线请求/CLI prepare桥接切片，但用户确认保留三个原按钮直接对接在线本地助手的操作方式。因此离线文件不作为原按钮最终替代；继续实现真实授权队列、本机明确目录绑定、受控预览/应用与可恢复回执。不能把生成ZIP或预览完成展示为工程已更新，不能隐式扩大所选动作或执行DDL。

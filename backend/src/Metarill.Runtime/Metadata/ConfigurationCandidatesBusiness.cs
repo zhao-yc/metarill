@@ -23,12 +23,16 @@ public sealed class ConfigurationCandidatesBusiness(SqlRowStore store, MetadataR
         return (await store.ReadAsync("config_table", Project(actor), token)).OrderByDescending(row => SqlRowStore.Id(row)).Select(Option).ToArray();
     }
 
-    /// <summary>选择页候选限定当前项目的有效表与 type=1 页面，保留原名称排序和四字段协议。</summary>
+    /// <summary>单选默认type=1，多选明确type=2；两者只返回当前项目有效父表下的页面及原四字段。</summary>
     public async Task<IReadOnlyList<ConfigurationCandidateOption>> PagesAsync(JsonElement request, CancellationToken token = default)
     {
-        MetadataWorkbenchRules.Object(request); var actor = RequireAdministrator();
+        MetadataWorkbenchRules.Object(request, "controlKind"); var actor = RequireAdministrator();
+        var kind = request.TryGetProperty("controlKind", out var value)
+            ? value.ValueKind == JsonValueKind.String ? value.GetString() : throw new InvalidOperationException("选择页控件类型必须是明确字符串。")
+            : "SelectPage";
+        var pageType = kind switch { "SelectPage" => 1, "MultiSelectPage" => 2, _ => throw new InvalidOperationException("仅支持单选或多选择页候选。") };
         var tables = (await store.ReadAsync("config_table", Project(actor), token)).Select(row => SqlRowStore.Id(row)).ToHashSet();
-        return (await store.ReadAsync("config_page", Project(actor), token)).Where(row => MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("type")) == 1 && tables.Contains(SqlRowStore.Id(row, "config_table_id")))
+        return (await store.ReadAsync("config_page", Project(actor), token)).Where(row => MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("type")) == pageType && tables.Contains(SqlRowStore.Id(row, "config_table_id")))
             .OrderBy(row => SqlRowStore.Text(row, "name"), StringComparer.Ordinal).ThenByDescending(row => SqlRowStore.Id(row)).Select(Option).ToArray();
     }
 

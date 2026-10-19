@@ -61,3 +61,27 @@ test('迟到及失败响应不污染新字段，显式控件类型继续使用�
 	state.ensureConfigColumnMeta('')
 	assert.equal(state.fetchedColumnMeta.controlDetail, '')
 })
+
+test('单选和多选择页使用同一专用候选接口并显式绑定类型，迟到结果不能混用', () => {
+  const { state, requests } = fixture()
+  state.entity.controlKind = 'SelectPage'
+  state.ensureConfigPageOptions()
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, '/admin/custom/config_column/select_page_options')
+  assert.equal(requests[0].sendSessionId, true)
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[0].data)), { controlKind: 'SelectPage' })
+  state.entity.controlKind = 'MultiSelectPage'
+  requests[0].success({ code: 200, data: [{ id: '单选页', name: '旧结果', value: '单选页', text: '旧结果' }] })
+  assert.equal(state.configPageOptions.length, 1)
+  requests[0].complete()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].url, '/admin/custom/config_column/select_page_options')
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[1].data)), { controlKind: 'MultiSelectPage' })
+  requests[1].success({ code: 200, data: [{ id: '多选页', name: '多选目标', value: '多选页', text: '多选目标' }] })
+  requests[1].complete()
+  assert.equal(state.loadedConfigPageOptionsControlKind, 'MultiSelectPage')
+  assert.equal(state.configPageOptions[1].id, '多选页')
+  state.ensureConfigPageOptions()
+  assert.equal(requests.length, 2)
+  assert.doesNotMatch(source, /findNameIdConfigPage1676901024972058625/)
+})

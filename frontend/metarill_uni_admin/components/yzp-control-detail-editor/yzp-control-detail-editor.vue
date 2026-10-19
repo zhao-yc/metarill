@@ -428,7 +428,6 @@ const SOURCE_MODE_SELF_TREE = 'selfTree'
 const CONFIG_COLUMN_DETAIL_URL = '/admin/custom/config_column/control_metadata'
 const CONFIG_TABLE_DETAIL_URL = '/admin/auto/config_table/6191083005411328/detail/'
 const CONFIG_TABLE_OPTIONS_URL = '/admin/custom/config_column/list_control_tables'
-const CONFIG_VIEW_OPTIONS_URL = '/admin/auto/config_page_column/6218036784398336/findNameIdConfigPage1676901024972058625'
 const SELECT_PAGE_OPTIONS_URL = '/admin/custom/config_column/select_page_options'
 
 let uidSeed = 0
@@ -832,9 +831,9 @@ export default {
 			const requestedControlKind = this.resolvedControlKind
 			this.isLoadingConfigPageOptions = true
 			yzp.request({
-				// 单选“选择页”使用专用接口；多选择页继续沿用原接口，避免扩大本次改动范围。
-				url: requestedControlKind === SELECT_PAGE ? SELECT_PAGE_OPTIONS_URL : CONFIG_VIEW_OPTIONS_URL,
-				data: {},
+				// 原选择器交互不变，专用入口按控件类型读取候选，不借用有父范围的标准页面。
+				url: SELECT_PAGE_OPTIONS_URL,
+				data: { controlKind: requestedControlKind },
 				sendSessionId: true,
 				method: 'POST',
 				success: (res) => {
