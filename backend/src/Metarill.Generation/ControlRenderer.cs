@@ -30,6 +30,12 @@ internal static class ControlRenderer
             if (context.UnresolvedTarget) return Wrap($"<text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text><text>关联目标父范围尚未明确，当前只读并保留原ID</text>", "关联目标需要独立 targetParentId，当前页没有唯一可读的声明外键。");
             return Wrap(RelationMarkup(model, page, relation, context, "entity", writable ? "readOnlyCondition" : "true", writable ? change : ""));
         }
+        if (column.Source.ControlKind == "MultiSelectPage")
+        {
+            var multi = MultiSelectCompilation.Resolve(model, table, page, column);
+            if (multi.Definition is not { } definition) return Wrap($"<text>{{{{ entity.{column.JsonName} }}}}</text><text>此多选字段待移植，当前只读</text>", multi.Reason);
+            return Wrap($"<uni-easyinput disabled type=\"textarea\" :modelValue=\"multiSelectionText(entity, '{column.JsonName}')\" />" + (writable ? $"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"openMultiSelection('{column.JsonName}')\">({{{{ multiSelectionCount('{column.JsonName}') }}}}){Escape(definition.ButtonText)}</button>" : "") + "<text v-if=\"multiSelectionError\">{{ multiSelectionError }}</text>");
+        }
         if (column.Source.ControlKind == "FileLibrary") return Wrap(FileLibraryMarkup(table, page, column, "entity", writable));
         if (column.Source.ControlKind == "RTF" && column.Type == "string?")
             return Wrap((writable ? $"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"openRtf('{column.JsonName}', 'edit')\">编辑</button>" : "") + $"<button size=\"mini\" @click=\"openRtf('{column.JsonName}', 'review')\">预览</button><rich-text :nodes=\"entity.{column.JsonName} || ''\" />");

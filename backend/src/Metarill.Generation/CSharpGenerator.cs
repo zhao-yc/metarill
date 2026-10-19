@@ -145,9 +145,9 @@ public sealed class CSharpGenerator
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 }
 
-internal sealed record ColumnModel(ColumnMetadata Source, string Property, string JsonName, string Type)
+internal sealed record ColumnModel(ColumnMetadata Source, string Property, string JsonName, string Type, bool IsManagedMultiNames = false)
 {
-    public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"; public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
+    public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && (IsManagedMultiNames || Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"); public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";
 }
 internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<ColumnModel> ListColumns, IReadOnlyList<ColumnModel> DetailColumns);
@@ -160,6 +160,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         var result = new List<TableModel>();
         foreach (var table in catalog.ConfigTables.OrderBy(x => x.TableName, StringComparer.Ordinal))
         {
+            if (table.IsRongyu != 1 && catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Id && column.ControlKind == "MultiSelectPage")) throw new InvalidOperationException("非冗余MultiSelectPage的读计划尚未支持，拒绝生成名称实体写入。");
             if (table.IsFunctionTable != 0 || table.IsView != 0) throw new InvalidOperationException($"首期生成器尚不支持函数表或视图：{table.TableName}");
             var columns = catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id && x.IsVirtualColumn == 0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
                 .Select(x => new ColumnModel(x, Pascal(x.ColumnName), Camel(x.ColumnName), TypeFor(x))).ToArray();
@@ -186,7 +187,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
             result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels));
         }
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
-        return new GenerationModel(catalog, rootNamespace, result);
+        return MultiSelectCompilation.Prepare(new GenerationModel(catalog, rootNamespace, result));
     }
     /// <summary>只编译明确的身份或父记录范围。</summary>
     internal static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)

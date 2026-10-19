@@ -2,6 +2,8 @@
 
 本切片只恢复已存元数据 `config_page.type=2` 的独立选择页。它不启用 `MultiSelectPage` 或 `MultiCheckBoxDatabase` 字段，不承担名称辅助列派生、名称变更传播或非冗余投影；这些字段仍进入生成能力缺口清单。普通列表和已有单选 `select=1` 流程保持原合同。
 
+后续已另行实现 [MultiSelectPage 冗余字段子集](multi-select-field-contract.md)，仅在固定元数据可证明的条件下复用本页协议。该子集不改变本页原支持边界，也不表示非冗余、额外控件范围或完整多值关系已经完成。
+
 ## 旧协议证据
 
 - 旧 v8 `service/yzp/v8/UniappService.java:1099-1158`：弹层嵌入目标生成列表，`type=2` 确认发 `onPopSelect(row[])`；父组件分别按 `item.id` 和真实名称字段映射 ID 数组、名称数组。`onPopClose` 只关闭。

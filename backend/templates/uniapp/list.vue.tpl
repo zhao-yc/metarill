@@ -20,12 +20,7 @@
       <uni-tr v-for="row in records" :key="row.id"><uni-td v-if="multiSelecting"><checkbox :checked="selectionHas(row.id)" :disabled="selectionBusy || readOnlyCondition" @click="toggleSelection(row)" /></uni-td>{{CELLS}}<uni-td v-if="!multiSelecting"><button size="mini" @click="openDetail(row.id)">详情</button></uni-td></uni-tr>
     </uni-table>
     <view><button size="mini" :disabled="pageNo <= 1 || loading" @click="movePage(-1)">上一页</button><text>{{ pageNo }} / {{ pages }}</text><button size="mini" :disabled="pageNo >= pages || loading" @click="movePage(1)">下一页</button></view>
-    <yzp-popup ref="child_detail_popup" type="center" @change="onChildDetailPopupChange">
-      <view class="select-page-dialog-view"><uni-section title="{{TITLE}}" type="line"><view class="section-view child-detail-dialog-view">
-        <PageDetail v-if="childDetailPopupVisible" :key="childDetailPopupKey" :is_props="true" :props_id="childDetailPopupId" :props_parent_id="parentId" :props_parent_page_sn="parent_page_sn" :parentReadOnlyCondition="readOnlyCondition" @onChange="handleChildDetailChange" @onPopClose="closeChildDetailPopup" />
-        <button size="mini" @click="closeChildDetailPopup">关闭</button>
-      </view></uni-section></view>
-    </yzp-popup>
+{{LIST_DETAIL_POPUP}}
   </view>
 </template>
 <script>
@@ -33,7 +28,7 @@ import yzp from '@/common/yzp';
 {{RELATION_IMPORT}}
 {{SELECTION_IMPORT}}
 import utils from '@/common/utils';
-import PageDetail from '@{{DETAIL_ROUTE}}.vue';
+{{LIST_DETAIL_IMPORT}}
 const filterFields = {{FILTER_FIELDS_JSON}};
 const sortFields = {{SORT_FIELDS_JSON}};
 const displayFields = {{DISPLAY_FIELDS_JSON}};
@@ -42,7 +37,7 @@ const rtfFields = {{RTF_FIELDS_JSON}};
 const recordId = value => typeof value === 'string' && !['undefined', 'null'].includes(value.trim()) ? value.trim() : '';
 export default {
   mixins: [{{SELECTION_MIXIN}}{{RELATION_MIXIN}}],
-  components: { PageDetail },
+  components: { {{LIST_DETAIL_COMPONENTS}} },
   props: { parent_id: { type: String, default: '' }, parent_page_sn: { type: String, default: '' }, is_son_page: { type: Boolean, default: false }, child_page_open_type: { type: Number, default: 1 }, parentReadOnlyCondition: { type: Boolean, default: false } },
   data() { return { multiSelecting: {{IS_MULTI_SELECTION}}, permissionsReady: false, permissionVersion: 0, canUpdate: {{CAN_UPDATE}}, childDetailPopupVisible: false, childDetailPopupId: '', childDetailPopupKey: 0, records: [], pageNo: 1, pages: 1, loading: false, loadError: '', parentId: '', selecting: false, options: {}, draftFilters: {}, appliedFilters: {}, orderBy: null, sortField: '', sortDirection: '', filterFields, filterGaps: {{FILTER_GAPS_JSON}}, sortFields,
     sortDirections: [{text: '默认排序', value: ''}, {text: '升序', value: 'ascending'}, {text: '降序', value: 'descending'}], canCreate: {{CAN_CREATE}}, canImport: {{CAN_IMPORT}}, canExport: {{CAN_EXPORT}} }; },
@@ -151,6 +146,8 @@ export default {
     /** 优先显示后端真实别名，再从合法选项映射名称，缺失名称时保留原 ID。 */
     displayValue(row, field) {
       const definition = displayFields[field];
+      // 多选名称仍按原逗号文本展示，HTTP数组与历史JSON文本都不回写实体。
+      if (definition?.multiNames) { const value = definition.alias && row[definition.alias] != null ? row[definition.alias] : row[field]; try { const values = typeof value === 'string' ? JSON.parse(value) : value; if (Array.isArray(values)) return values.map(item => item == null ? '' : String(item)).join('，'); } catch {} return value ?? ''; }
       if (definition?.alias && row[definition.alias] !== undefined && row[definition.alias] !== null && row[definition.alias] !== '') return row[definition.alias];
       if (definition?.optionField && row[field] !== null && row[field] !== undefined) { const option = (this.options[definition.optionField] || []).find(item => String(item.value ?? item.id) === String(row[field])); if (option && (option.text ?? option.name) !== null && (option.text ?? option.name) !== undefined && (option.text ?? option.name) !== '') return option.text ?? option.name; }
       return row[field] ?? '';

@@ -16,7 +16,7 @@
 
 **主子编译与权限：** [ChildrenCompilation](../backend/src/Metarill.Generation/ChildrenCompilation.cs) 已消费 `ConfigChildren`，校验父/子页、同后台归属、唯一父范围和对应外键，拒绝循环、未知配置及不支持的列表类型，按排序和打开方式生成子模块。父详情支持 Tab，打开方式 1 为新页面、2 为 PC 弹层；未取得权限、父记录未保存或回读未就绪时不开放子写入。生成页结合页权限、父只读上下文和已声明可读字段的只读条件限制操作；服务端仍独立验证父记录、项目和 CRUD 权限，前端禁用不替代授权。
 
-**仍缺：** 完整关系名称读计划、详情分组、复杂条件显示/只读、完整表单规则和配置按钮。type=2 独立多选页的跨页草稿、仅看已选和完整确认回读已补齐；这不等于 MultiSelectPage 字段协议已接线。独立包主子 Tab/PC 弹层和多选页 Web/浏览器已有实际证据，真机仍待验收。
+**仍缺：** 完整关系名称读计划、详情分组、复杂条件显示/只读、完整表单规则和配置按钮。type=2 独立多选页的跨页草稿、仅看已选和完整确认回读已补齐；冗余 MultiSelectPage 字段的原弹层与源事务校验已集成源码，完整包仍待新增运行时装配及主线验收。独立包主子 Tab/PC 弹层和多选页 Web/浏览器已有实际证据，真机仍待验收。
 
 **原实现证据：** YZP `service/yzp/v8/UniappService.java` 的 `1421` 附近按 ConfigChild 排序和 childPageOpenType 生成子页面，并传递父记录与只读上下文；`2001` 附近生成排序和筛选组件。`JavaService.java` 的 `1748` 附近及 `V8ControllerRenderer` 的 page 返回还支持独立 statistics。C# 当前有 count，不能据此声称已具备原聚合统计协议。
 
@@ -26,7 +26,7 @@
 
 **已有：** [RelationCompilation](../backend/src/Metarill.Generation/RelationCompilation.cs) 可编译明确 List 目标和范围；ForeignValidationRenderer 校验关系记录存在、未删除和同项目。SelectPage 已有简单单选导航。
 
-**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 已另补甲128/乙105项双父范围、三页、字面搜索、保存回读与父切换浏览器实证；超过5000候选浏览器、多选List及跨端仍待分别补验，type=2页不替代这些范围。MultiSelectPage、MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
+**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 已另补甲128/乙105项双父范围、三页、字面搜索、保存回读与父切换浏览器实证；超过5000候选浏览器、多选List及跨端仍待分别补验，type=2页不替代这些范围。[MultiSelectPage冗余子集](multi-select-field-contract.md)仅对固定目标、可读名称、明确辅助列和可证明父范围接线；额外范围、非冗余及名称传播仍待完成，不能将整个控件标完成。MultiCheckBoxDatabase、CascadeTree、LevelList 等在 [ControlRenderer](../backend/src/Metarill.Generation/ControlRenderer.cs) 仍只读保护。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
 
 **原实现证据：** YZP 的 `NonRedundantReadPlanCompiler`、`MixedRelationPropagationCompiler`、运行时 list/selectpage/cascade，以及 `SystemMaintenanceBusiness` 的回填入口。只读引用扫描可识别这些配置声明，不能因扫描命中就宣称对应控件执行能力已移植。
 

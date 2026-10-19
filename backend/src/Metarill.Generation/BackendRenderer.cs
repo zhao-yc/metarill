@@ -129,11 +129,12 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>生成单对象生命周期与按页面隔离的规则。</summary>
     private static string Service(GenerationModel model, TableModel table)
     {
+        var hasMulti = table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0);
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
             .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
             .AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Mappers;")
-            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; }}")
+            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
             .AppendLine("    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();")
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
             .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }")
@@ -145,7 +146,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
             result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
         result.Append(Preparation(table)); result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
@@ -282,8 +283,9 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
             foreach (var column in page.Writable)
             {
-                if (column.IsJsonArray) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+                var multi = column.Source.ControlKind == "MultiSelectPage" && MultiSelectCompilation.Resolve(model, table, page, column).Definition is not null;
+                if (column.IsJsonArray && !multi) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
                 if (!string.IsNullOrWhiteSpace(column.Source.DefaultValue))
                     result.AppendLine($"        else entity.{column.Property} = {DefaultExpression(column)};");
             }
@@ -305,8 +307,9 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in page.Writable)
             {
-                if (column.IsJsonArray) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+                var multi = column.Source.ControlKind == "MultiSelectPage" && MultiSelectCompilation.Resolve(model, table, page, column).Definition is not null;
+                if (column.IsJsonArray && !multi) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
             }
             result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
@@ -553,7 +556,7 @@ public partial class {{table.Name}}Service
             .AppendLine("        services.AddScoped<GeneratedDatabaseSession>(provider => new((databaseFactory ?? (sp => sp.GetRequiredService<DatabaseSession>()))(provider)));");
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
-                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>()));");
+                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
         return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").ToString();
     }
 }

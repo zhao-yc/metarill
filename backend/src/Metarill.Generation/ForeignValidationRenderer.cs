@@ -32,6 +32,18 @@ internal static class ForeignValidationRenderer
         var number = 0;
         foreach (var column in table.Columns.Where(column => !column.IsSystem && (column.Type is "long?" or "string?")))
         {
+            if (column.Source.ControlKind == "MultiSelectPage")
+            {
+                var multi = MultiSelectCompilation.Resolve(model, table, page, column, forService: true);
+                if (multi.Definition is { } definition)
+                {
+                    var dependency = definition.TargetParentField is null ? null : table.Columns.Single(field => field.JsonName == definition.TargetParentField).Source.ColumnName;
+                    var trigger = dependency is null ? "" : " || submitted.Contains(" + Literal(dependency) + ")";
+                    result.AppendLine($"        if (creating || submitted.Contains({Literal(column.Source.ColumnName)}){trigger}) await ValidateMulti{page.Source.Id}_{column.Source.Id}Async(entity, actor, submitted, creating || submitted.Contains({Literal(column.Source.ColumnName)}), cancellationToken);");
+                }
+                else result.AppendLine($"        if ((creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null) throw new InvalidOperationException({Literal(multi.Reason!)});");
+                continue;
+            }
             var target = Target(model, column);
             var knownRelation = column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" || !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId);
             if (target is null && !knownRelation) continue;

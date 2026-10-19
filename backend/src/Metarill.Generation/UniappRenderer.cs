@@ -25,6 +25,7 @@ internal static class UniappRenderer
             var supported = filters.Where(item => item.Control.UnsupportedReason is null).ToArray();
             var children = childDefinitions.Where(child => child.Parent == page).ToArray();
             var tabs = ChildrenCompilation.Tabs(page);
+            var multi = MultiSelectCompilation.ForPage(model, table, page);
             var stem = table.Source.TableName;
             var listPath = $"pages/yzp/{stem}-list-{page.Source.Id}"; var detailPath = $"pages/yzp/{stem}-detail-{page.Source.Id}";
             var parameters = new Dictionary<string, string>
@@ -41,6 +42,9 @@ internal static class UniappRenderer
                 ["READONLY_FIELD"] = JsonSerializer.Serialize(ChildrenCompilation.ReadonlyField(page)),
                 ["TITLE"] = Escape(page.Source.Name), ["API"] = "/admin/auto/" + stem + "/" + page.Source.Id,
                 ["DETAIL_ROUTE"] = "/" + detailPath,
+                // type=2只选择记录，不会打开CRUD详情；移除静态依赖以允许自选/互选页面。
+                ["LIST_DETAIL_IMPORT"] = SelectionPageRenderer.Enabled(page) ? "" : $"import PageDetail from '@/{detailPath}.vue';",
+                ["LIST_DETAIL_COMPONENTS"] = SelectionPageRenderer.Enabled(page) ? "" : "PageDetail",
                 ["CAN_CREATE"] = (page.Source.IsNew == 1).ToString().ToLowerInvariant(),
                 ["CAN_SAVE"] = (page.Source.IsSave == 1).ToString().ToLowerInvariant(),
                 ["CAN_DELETE"] = (page.Source.IsDelete == 1).ToString().ToLowerInvariant(),
@@ -63,13 +67,14 @@ internal static class UniappRenderer
                 ["RELATION_MIXIN"] = RelationCompilation.ForPage(model, page).Count > 0 ? "createRelationOptionsMixin(" + RelationDefinitions(model, table, page) + ")" : "",
                 ["WRITABLE_FIELDS"] = JsonSerializer.Serialize(page.Writable.Select(column => column.JsonName))
             };
+            parameters["LIST_DETAIL_POPUP"] = SelectionPageRenderer.Enabled(page) ? "" : RenderTemplate("list-detail-popup.vue.tpl", parameters);
             yield return new("frontend/" + listPath + ".vue", RenderTemplate("list.vue.tpl", parameters));
-            var detailParameters = new Dictionary<string, string>(parameters) { ["RELATION_IMPORT"] = "", ["RELATION_MIXIN"] = "", ["SELECTION_IMPORT"] = "", ["SELECTION_MIXIN"] = "" };
+            var detailParameters = new Dictionary<string, string>(parameters) { ["RELATION_IMPORT"] = MultiSelectUiRenderer.Imports(multi), ["RELATION_MIXIN"] = MultiSelectUiRenderer.Mixin(table, page, multi), ["SELECTION_IMPORT"] = "", ["SELECTION_MIXIN"] = "", ["MULTI_COMPONENTS"] = MultiSelectUiRenderer.Components(multi), ["MULTI_POPUPS"] = MultiSelectUiRenderer.Popups(multi) };
             yield return new("frontend/" + detailPath + ".vue", RenderTemplate("detail.vue.tpl", detailParameters));
             routes.Add(new { path = listPath, style = new { navigationBarTitleText = page.Source.Name } });
             routes.Add(new { path = detailPath, style = new { navigationBarTitleText = page.Source.Name } });
         }
-        yield return new("generation-capabilities.json", JsonSerializer.Serialize(new { schemaVersion = 1, unsupportedControls = gaps }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
+        yield return new("generation-capabilities.json", JsonSerializer.Serialize(new { schemaVersion = 1, unsupportedControls = gaps, supportedControlSubsets = model.Tables.SelectMany(table => table.Pages.SelectMany(page => MultiSelectCompilation.ForPage(model, table, page).Select(def => new { controlKind = "MultiSelectPage", tableId = table.Source.Id, columnId = def.Source.Source.Id, pageId = page.Source.Id, targetPageId = def.TargetPage.Source.Id, storageMode = "redundant", extraScopeSupported = false, renamePropagationSupported = false, nonRedundantSupported = false }))) }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
         yield return new("frontend/pages.generated.json", JsonSerializer.Serialize(new { pages = routes }, new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
     }
 
@@ -108,7 +113,9 @@ internal static class UniappRenderer
                 var physical = column.Source.ColumnName[..^3] + "_" + relation.NameColumn.Source.ColumnName;
                 alias = page.Readable.SingleOrDefault(candidate => candidate.Source.ColumnName == physical && candidate.Type == "string?")?.JsonName;
             }
-            return new { alias, optionField = relation?.SourceColumn.JsonName };
+            var multi = column.Source.ControlKind == "MultiSelectPage" ? MultiSelectCompilation.Resolve(model, model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId), page, column).Definition : null;
+            if (multi?.Names is not null) alias = multi.Names.JsonName;
+            return new { alias, optionField = relation?.SourceColumn.JsonName, multiNames = multi is not null };
         }, StringComparer.Ordinal);
     }
 

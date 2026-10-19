@@ -213,7 +213,7 @@ public sealed class GeneratedRelationOptionsMySqlTests
         await command.ExecuteNonQueryAsync();
     }
     /// <summary>真实引用 Core/Data 源码编译生成物，不用替身声明冒充生成项目可编译。</summary>
-    private static async Task<Assembly> BuildGenerated(string directory, [CallerFilePath] string source = "")
+    internal static async Task<Assembly> BuildGenerated(string directory, [CallerFilePath] string source = "")
     {
         var repository = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../../.."));
         var core = SecurityElement.Escape(Path.Combine(repository, "backend/src/Metarill.Core/Metarill.Core.csproj")); var data = SecurityElement.Escape(Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj"));
