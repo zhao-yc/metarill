@@ -32,6 +32,6 @@
 
 默认拒绝匿名 API。仅 Development 环境显式配置账号密码可启用开发会话，项目由包内元数据固定；正式认证通过同程序集 HostCustomization partial 替换。正常启动不执行 DDL，结构预览/执行必须使用显式命令。标准 XLSX 导出与私有票据下载随包提供，复用平台同一个 Metarill.Exports 工程，保留读取前门禁、账号/项目隔离、限额与到期清理。文件、Agent、完整 uni-app 工程不随包提供，不能宣称这些能力已经独立化。
 
-本轮已用独立业务测试库验证包内宿主的 CRUD、复制、部分更新、系统字段拒绝、服务端项目隔离、退出和到期会话失效；显式结构预览无差异且未执行 DDL。自动测试额外验证完整包从自身 Core/Data/Exports 工程编译、敏感值剔除、原子打包，以及无数据库固定投影的真实 HTTP 下载；独立包真实业务库生成页 initExport 尚未验收，这些结果不代表其他数据库和前端设备验收。
+本轮已用独立业务测试库验证包内宿主的 CRUD、复制、部分更新、系统字段拒绝、服务端项目隔离、退出和到期会话失效；显式结构预览无差异且未执行 DDL。自动测试额外验证完整包从自身 Core/Data/Exports 工程编译、敏感值剔除、原子打包，以及无数据库固定投影的真实 HTTP 下载；可选 StandaloneExportMySqlTests 另在严格隔离的 metarill_business_test 库通过唯一随机表验证真实生成页新增、name 筛选导出、长编号文本、超限无部分文件和下载认证，缺少 METARILL_TEST_SETTINGS 时明确跳过；这些结果不代表复杂关系、其他数据库和前端设备验收。
 
 导出 Controller/Service 需与新的 Core/Runtime 同步再生成：Controller 将延迟准备委托交给 `IPageExportService`；服务端传入行数上限，SQL最多读取上限加一条并显式拒绝超限，不静默截断。自定义导出实现未接入新重载时默认拒绝，不提前读取数据库。
