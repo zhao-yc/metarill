@@ -7,6 +7,12 @@ function snapshot(value) {
 	return Object.freeze(copy)
 }
 
+/** 登录和项目上下文先变化、事件尚未发出时也拒绝旧回执；只存内部快照，不进入HTTP请求。 */
+function queryIdentity() {
+	const read = typeof uni !== 'undefined' && typeof uni.getStorageSync === 'function' ? key => uni.getStorageSync(key) : () => null
+	return JSON.stringify(snapshot([read('loginStateId') || '', read('sysParams') || {}]))
+}
+
 /** 子表没有父记录时不能请求全表，数字零仍是有效的父记录标识。 */
 function missingParent(page) {
 	return page.is_son_page && (page.parent_id === null || page.parent_id === undefined || String(page.parent_id).trim() === '')
@@ -34,7 +40,7 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 
 	/** 只在提交查询时读取筛选；编辑但未提交的筛选不影响在途响应和下一页。 */
 	function queryScope(page) {
-		const scope = { orderBy: page.orderBy || {}, filters: page.filters || {},
+		const scope = { identity: queryIdentity(), orderBy: page.orderBy || {}, filters: page.filters || {},
 			parentId: page.parent_id, pageSize: page.page_size, isSonPage: !!page.is_son_page }
 		// 原type=2页也使用相同请求隔离；附加的已选ID必须进入冻结范围及漂移判定。
 		if (typeof additionalData === 'function') scope.additionalData = snapshot(additionalData.call(page) || {})
@@ -46,6 +52,7 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 		const value = state(page)
 		return !value.disposed && value.active === pending && value.sequence === pending.sequence
 			&& page.parent_id === pending.scope.parentId && !!page.is_son_page === pending.scope.isSonPage
+			&& queryIdentity() === pending.scope.identity
 	}
 
 	/** 先让旧回调失效再取消网络，兼容 abort 同步触发 fail/complete 的请求实现。 */
@@ -112,6 +119,7 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 	function load(page, pageNo, append, scope, force = false) {
 		const value = state(page)
 		if (value.disposed) return
+		if (scope.identity !== queryIdentity()) return refresh(page)
 		if (missingParent(page)) {
 			invalidate(page)
 			clearRows(page)

@@ -9,10 +9,10 @@ internal static partial class OriginalUniappListRenderer
     private static string ScriptTop(TableModel table, PageModel page, string detail, bool importDetail, bool selection, bool child)
     {
         var endpoint = "/admin/auto/" + table.Source.TableName + "/" + page.Source.Id;
-        var result = new StringBuilder("import utils from '@/common/utils';\nimport yzp from '@/common/yzp_runtime/yzp-runtime';\nimport project from '@/common/project';\nimport { menuBoolean } from '@/common/yzp_runtime/menuRuntime';\nimport { createListPageMixin } from '@/common/yzp_runtime/listPageRuntime';\n");
+        var result = new StringBuilder("import utils from '@/common/utils';\nimport yzp from '@/common/yzp_runtime/yzp-runtime';\nimport project from '@/common/project';\nimport { menuBoolean } from '@/common/yzp_runtime/menuRuntime';\nimport { createListPageMixin } from '@/common/yzp_runtime/listPageRuntime';\nimport { createOriginalListOptionsMixin } from '@/common/yzp_runtime/originalListOptionsMixin';\n");
         if (importDetail) result.Append("import ").Append(detail).Append(" from '@/pages/yzp/").Append(table.Source.TableName).Append("-detail-").Append(page.Source.Id).AppendLine(".vue';");
         if (selection) result.AppendLine("import { createOriginalSelectionPageMixin } from '@/common/yzp_runtime/originalSelectionPageMixin';");
-        result.Append("export default {mixins:[createListPageMixin({url:").Append(J(endpoint + "/page")).Append(",pageSize:").Append(page.Source.PageSize).Append(",request(options){return yzp.request(options);},onParentChanged(){");
+        result.Append("export default {mixins:[createOriginalListOptionsMixin(),createListPageMixin({url:").Append(J(endpoint + "/page")).Append(",pageSize:").Append(page.Source.PageSize).Append(",request(options){return yzp.request(options);},onParentChanged(){");
         if (!selection) result.Append("if(Array.isArray(this.selectedList)){this.selectedList=[];this.isSelectAll=false;}");
         if (importDetail) result.Append("if(this.closeChildDetailPopup)this.closeChildDetailPopup();");
         result.Append("},onLoaded(){if(this.syncOriginalSelectionRows)this.syncOriginalSelectionRows();else if(this.selectedList){for(const item of this.list)item.isSelect=this.selectedList.some(row=>String(row.id)===String(item.id));this.checkIsAllSelect();}}");

@@ -23,10 +23,11 @@ function fixture(page, props = {}) {
  const uni = { getStorageSync: key => key === 'loginStateId' ? '真实测试会话' : {}, $on(name,fn) { if(!subscriptions.has(name))subscriptions.set(name,new Set());subscriptions.get(name).add(fn) }, $off(name,fn) {subscriptions.get(name)?.delete(fn)}, $emit: (...args)=>events.push(args), showModal: value=>dialogs.push(value), navigateTo: value=>navigations.push(value), stopPullDownRefresh() {} }
  const yzp = { request(options){const request={options,aborted:false};requests.push(request);return{abort(){request.aborted=true}}}, hasPagePermission(){return true}, refreshCurrentPermissions(success){success()}, back(){}, showDetailPageSuccessToast(){}, hasButtonPermission(){return true} }
  const utils={isBlank:v=>v===undefined||v===null||v==='',getTodayDateAry:()=>['2026-10-20','2026-10-20']}
+ const createOriginalListOptionsMixin=exported('originalListOptionsMixin.js','createOriginalListOptionsMixin',{uni,yzp})
  const createListPageMixin=exported('listPageRuntime.js','createListPageMixin',{uni})
  const createSelectionPageMixin=exported('selectionPageMixin.js','createSelectionPageMixin',{uni,yzp})
  const createOriginalSelectionPageMixin=exported('originalSelectionPageMixin.js','createOriginalSelectionPageMixin',{uni,createSelectionPageMixin})
- const imports={'@/common/utils':utils,'@/common/project':{},'@/common/yzp_runtime/yzp-runtime':yzp,'@/common/yzp_runtime/menuRuntime':{menuBoolean:v=>v===true||v==='true'},'@/common/yzp_runtime/listPageRuntime':{createListPageMixin},'@/common/yzp_runtime/originalSelectionPageMixin':{createOriginalSelectionPageMixin}}
+ const imports={'@/common/yzp_runtime/originalListOptionsMixin':{createOriginalListOptionsMixin},'@/common/utils':utils,'@/common/project':{},'@/common/yzp_runtime/yzp-runtime':yzp,'@/common/yzp_runtime/menuRuntime':{menuBoolean:v=>v===true||v==='true'},'@/common/yzp_runtime/listPageRuntime':{createListPageMixin},'@/common/yzp_runtime/originalSelectionPageMixin':{createOriginalSelectionPageMixin}}
  const source=readFileSync(path.join(output,`frontend/pages/yzp/customer-list-${page}.vue`),'utf8'), {descriptor,errors}=parse(source)
  assert.deepEqual(errors,[])
  const template=compile(descriptor.template.content,{mode:'function',onError:error=>{throw error}})

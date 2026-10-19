@@ -72,7 +72,7 @@ internal static partial class OriginalUniappListRenderer
     private static string OriginalOptionsRequest(TableModel table, PageModel page, ColumnModel column, string name)
     {
         var property = column.Property.EndsWith("Ids", StringComparison.Ordinal) ? column.Property[..^3] : column.Property.EndsWith("Id", StringComparison.Ordinal) ? column.Property[..^2] : column.Property;
-        return "yzp.request({url:" + J("/admin/auto/" + table.Source.TableName + "/" + page.Source.Id + "/findNameId" + property + column.Source.Id) + ",sendSessionId:true,method:'POST',success:function(res){if(res.code==200){that." + name + "_list=res.data||[];}else{uni.showModal({showCancel:false,content:res.msg});}}});";
+        return "that." + name + "_list=[];" + (page.Scopes.Any(scope=>scope.Source=="parent") ? "if(that.parent_id){" : "") + "that.originalOptionRequest({url:" + J("/admin/auto/" + table.Source.TableName + "/" + page.Source.Id + "/findNameId" + property + column.Source.Id) + (page.Scopes.Any(scope=>scope.Source=="parent") ? ",data:{parentId:that.parent_id}" : "") + ",sendSessionId:true,method:'POST',success:function(res){if(res.code==200){that." + name + "_list=res.data||[];}else{uni.showModal({showCancel:false,content:res.msg});}}});" + (page.Scopes.Any(scope=>scope.Source=="parent") ? "}" : "");
     }
     /// <summary>常量保留原text/value，长整数字符串不经过浮点转换。</summary>
     private static string ConstantRange(ColumnModel column, string detail) => J(detail.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(option =>

@@ -470,3 +470,17 @@ test('读取查询快照失败会取消旧请求并重置分页版本，保留�
 	assert.equal(f.page.pagination_version, pendingVersion + 1)
 	assert.deepEqual(f.page.list, [{ id: '已确认行' }])
 })
+
+test('登录或项目先变化时拒绝旧列表回执，重试以新身份发起且身份不进入body', () => {
+ for (const change of ['loginStateId','sysParams']) {
+  const f=fixture({pc:true}),storage={loginStateId:'会话甲',sysParams:{yzProjectId:'1'}}
+  globalThis.uni.getStorageSync=key=>storage[key]
+  f.page.getList();const previous=f.calls[0]
+  storage[change]=change==='loginStateId'?'会话乙':{yzProjectId:'2'}
+  previous.options.success({code:200,data:{records:[{id:'旧身份记录'}],pages:1,total:1}});previous.options.complete()
+  assert.deepEqual(f.page.list,[]);assert.equal(previous.options.isCurrent(),false)
+  f.page.retryListRequest();assert.equal(f.calls.length,2)
+  assert.equal(Object.hasOwn(f.calls[1].options.data,'identity'),false)
+  f.succeed(1,[{id:'当前身份记录'}],{pages:1,total:1});assert.equal(f.page.list[0].id,'当前身份记录')
+ }
+})
