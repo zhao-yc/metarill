@@ -4,6 +4,8 @@ public sealed record ColumnSchema(string Name, string StoreType, bool Nullable, 
 public sealed record IndexSchema(string Name, bool Unique, IReadOnlyList<string> Columns);
 public sealed record TableSchema(string Name, IReadOnlyList<ColumnSchema> Columns, string? SnapshotDefinition = null, IReadOnlyList<IndexSchema>? Indexes = null);
 public sealed record DatabaseSchema(string Database, IReadOnlyList<TableSchema> Tables);
+/// <summary>适配器只读反查结果及其结构指纹，不包含可执行变更计划。</summary>
+public sealed record SchemaInspectionSnapshot(string Provider, DatabaseSchema Schema, string Fingerprint);
 public sealed record SchemaChange(string Kind, string Table, string? Column, string Sql);
 public sealed record SchemaChangePlan(string Id, string Provider, string Database, string BeforeFingerprint, string DesiredFingerprint, IReadOnlyList<SchemaChange> Changes);
 public sealed record SchemaApplyResult(string PlanId, string Database, DateTimeOffset StartedAt, DateTimeOffset FinishedAt, bool Succeeded, int AppliedStatements, string? Error);

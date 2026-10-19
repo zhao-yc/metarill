@@ -103,6 +103,13 @@ public sealed class SchemaService(DatabaseSession session, ISchemaChangeJournal?
         return await ReadSchemaAsync(connection, desired.Tables.Select(t => t.Name).ToArray(), cancellationToken);
     }
 
+    /// <summary>结构快照指纹由适配层计算，HTTP/MCP不需要判断数据库品牌或拼接SQL。</summary>
+    public async Task<SchemaInspectionSnapshot> InspectSnapshotAsync(MetadataCatalog catalog, CancellationToken token = default)
+    {
+        var schema = await InspectAsync(catalog, token);
+        return new(session.Provider.Name, schema, MySqlSchemaPlanner.Fingerprint(schema));
+    }
+
     /// <summary>保留有界运行历史，并通过宿主注入的持久化审计写入完整结果。</summary>
     private async Task RecordAsync(SchemaChangePlan plan, SchemaApplyResult result)
     {

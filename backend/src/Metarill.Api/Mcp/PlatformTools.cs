@@ -33,6 +33,10 @@ public sealed class PlatformTools
         var physical=files.ComposePhysical(await metadata.LoadProjectAsync(actor.ProjectId,token));
         return await schemas.Resolve(actor.ProjectId).PreviewAsync(physical,token);
     }
+    [McpServerTool(Name="inspect_database_schema", ReadOnly=true), Description("只读反查当前授权项目的受管表结构与指纹，响应executable=false；不执行DDL或反向导入元数据。")]
+    public static Task<ProjectSchemaInspection> Inspect(JsonElement data, ProjectSchemaInspectionBusiness inspection, CancellationToken token) =>
+        inspection.InspectAsync(data, token);
+
     [McpServerTool(Name="call_generated_page",ReadOnly=false),Description("调用已发布页的强类型服务。operation 为 list/detail/create/update/delete/copy；写操作必须明确 confirmed=true。字段遵循生成 DTO，省略保持，null 清空。")]
     public static async Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,MetadataRegistry registry,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)
     {

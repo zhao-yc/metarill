@@ -194,6 +194,15 @@ public sealed partial class ApiAcceptanceTests
         var mcpPlan=Json(text);
         var httpPlan=Data(await Post(client,"/admin/sys/database/preview",new{projectId=Project}));
         Assert.Equal(httpPlan.GetProperty("desiredFingerprint").GetString(),mcpPlan.GetProperty("desiredFingerprint").GetString());
+        Assert.Contains(tools,tool=>tool.Name=="inspect_database_schema");
+        var inspection=await mcp.CallToolAsync("inspect_database_schema",new Dictionary<string,object?>{{"data",new{}}});
+        Assert.NotEqual(true,inspection.IsError);
+        var inspected=Json(Assert.Single(inspection.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>()).Text);
+        Assert.False(inspected.GetProperty("executable").GetBoolean());
+        var httpInspection=Data(await Post(client,"/admin/sys/database/inspect",new{}));
+        Assert.Equal(httpInspection.GetProperty("snapshot").GetProperty("fingerprint").GetString(),inspected.GetProperty("snapshot").GetProperty("fingerprint").GetString());
+        var invalidInspection=await mcp.CallToolAsync("inspect_database_schema",new Dictionary<string,object?>{{"data",new{sql="SELECT 1"}}});
+        Assert.True(invalidInspection.IsError);
         using var anonymous=factory.CreateClient();using var denied=await anonymous.PostAsJsonAsync("/api/mcp",new{jsonrpc="2.0",id=3,method="tools/list",@params=new{}});Assert.Equal(System.Net.HttpStatusCode.Unauthorized,denied.StatusCode);
     }
     [MySqlApiFact]

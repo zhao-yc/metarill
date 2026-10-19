@@ -65,6 +65,7 @@ builder.Services.AddScoped<RolePermissionBusiness>();
 builder.Services.AddScoped<ConfigurationMutationGuard>();
 builder.Services.AddScoped<IRecordMutationGuard>(sp=>sp.GetRequiredService<ConfigurationMutationGuard>());
 builder.Services.AddScoped<ConfigurationCandidatesBusiness>();
+builder.Services.AddScoped<ProjectSchemaInspectionBusiness>();
 builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver>();
 builder.Services.AddScoped<ConfigurationMutationObserver>();
 builder.Services.AddScoped<MetadataWorkbenchBusiness>();
