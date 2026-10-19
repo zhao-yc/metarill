@@ -42,7 +42,17 @@ public sealed class FrontendPackager
         var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         void Add(string path, byte[] bytes) { CSharpGenerator.SafePath(output, path); if (!files.TryAdd(path, bytes)) throw new InvalidOperationException("独立前端资源路径冲突：" + path); }
         void Text(string path, string value) => Add(path, Encoding.UTF8.GetBytes(value.Replace("\r\n", "\n").Replace('\r', '\n')));
-        void Copy(string relative) => Add(relative, File.ReadAllBytes(CSharpGenerator.SafePath(source, relative)));
+        // 开发者工作副本可能保留CRLF/BOM；只规范受控文本，字体与离线归档必须保持原字节。
+        void Copy(string relative)
+        {
+            var bytes = File.ReadAllBytes(CSharpGenerator.SafePath(source, relative));
+            if (Path.GetExtension(relative) is ".tgz" or ".ttf" or ".woff" or ".woff2") { Add(relative, bytes); return; }
+            string content;
+            try { content = new UTF8Encoding(false, true).GetString(bytes); }
+            catch (DecoderFallbackException error) { throw new InvalidDataException("前端受控文本不是UTF8：" + relative, error); }
+            if (content.StartsWith('\uFEFF')) content = content[1..];
+            Text(relative, content);
+        }
         foreach (var path in new[] { "main.js", "uni.scss", "common/utils.js", "common/yzp.scss", "pages/main/rtf/rtf.vue", "THIRD-PARTY-NOTICES.md", "uni_modules/LICENSE.uni-ui", "licenses/sheetjs.LICENSE", "licenses/sheetjs-dist.LICENSE", "licenses/tinymce-vue.LICENSE.txt", "vendor/xlsx-0.20.3.tgz", "vendor/sheetjs-source.json", "common/yzp_runtime/vendor/cropperjs/cropper.esm.js", "common/yzp_runtime/vendor/cropperjs/cropper.css", "common/yzp_runtime/vendor/cropperjs/LICENSE" }) Copy(path);
         foreach (var module in RuntimeModules) Copy("common/yzp_runtime/" + module + ".js");
         foreach (var path in JsonSerializer.Deserialize<string[]>(Template("frontend-assets.allowlist.json.tpl"))!)

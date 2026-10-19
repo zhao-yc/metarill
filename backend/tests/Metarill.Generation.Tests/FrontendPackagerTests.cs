@@ -46,6 +46,35 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         Assert.NotEqual(0, invalid.Code); Assert.Contains("manifest.appid必须为字符串", invalid.Error);
     }
 
+    /// <summary>真实CRLF/BOM工作副本产生相同LF包，二进制归档不改；开发者转行尾后Node条件编译仍可验证。</summary>
+    [Fact]
+    public async Task CrLf_bom_source_assets_produce_identical_package_and_remain_verifiable_after_customization()
+    {
+        var generated = Path.Combine(root, "newline-generated"); new CSharpGenerator().Generate(Demo(), generated, "Example.Newlines");
+        var first = Path.Combine(root, "newline-first"); var packager = new FrontendPackager();
+        var result = packager.Create(Demo(), Path.Combine(generated, "frontend"), first, SourceRoot());
+        var source = Path.Combine(root, "newline-source");
+        foreach (var relative in result.Files)
+        {
+            var original = Path.Combine(SourceRoot(), "frontend/metarill_uni_admin", relative);
+            if (!File.Exists(original)) continue;
+            var destination = Path.Combine(source, "frontend/metarill_uni_admin", relative); Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            if (Path.GetExtension(relative) is ".tgz" or ".ttf" or ".woff" or ".woff2") File.Copy(original, destination);
+            else File.WriteAllText(destination, File.ReadAllText(original).Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n"), new UTF8Encoding(true));
+        }
+        var second = Path.Combine(root, "newline-second"); packager.Create(Demo(), Path.Combine(generated, "frontend"), second, source);
+        foreach (var relative in result.Files) Assert.Equal(File.ReadAllBytes(Path.Combine(first, relative)), File.ReadAllBytes(Path.Combine(second, relative)));
+        foreach (var relative in new[] { "main.js", "uni_modules/uni-icons/components/uni-icons/uni-icons.vue" })
+        {
+            var path = Path.Combine(second, relative); File.WriteAllText(path, File.ReadAllText(path).Replace("\n", "\r\n"), new UTF8Encoding(false));
+        }
+        var verified = await VerifyFrontendAsync(second);
+        Assert.True(verified.Code == 0, verified.Error); Assert.Contains("闭包检查通过", verified.Output);
+        File.AppendAllText(Path.Combine(second, "main.js"), "\r\n// #ifdef H5\r\n");
+        var unbalanced = await VerifyFrontendAsync(second);
+        Assert.NotEqual(0, unbalanced.Code); Assert.Contains("条件编译指令不配对", unbalanced.Error);
+    }
+
     /// <summary>未知与平台专用控件必须在stage写入前拒绝，错误准确指出页面和控件。</summary>
     [Theory]
     [InlineData("yzp-unknown-control")]

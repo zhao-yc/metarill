@@ -34,13 +34,15 @@ function resolve(specifier, parent) {
 /** 检查器只验证H5/Vue3目标，先按uni-app条件指令排除其他平台互斥声明。 */
 function preprocess(text) {
  const stack = [true], flags = new Set(['H5', 'VUE3']);
- return text.split('\n').map(line => {
+ const lines = text.replace(/\r\n?/g, '\n').split('\n').map(line => {
   const directive = line.match(/^\s*(?:\/\/|<!--|\/\*)\s*#(ifdef|ifndef|endif)\s*(.*?)(?:\s*--> |\s*-->$|\s*\*\/$|$)/);
   if (!directive) return stack.at(-1) ? line : '';
   if (directive[1] === 'endif') { if (stack.length < 2) throw new Error('条件编译指令不配对'); stack.pop(); }
   else { const enabled = directive[2].trim().split(/\s*\|\|\s*/).some(flag => flags.has(flag)); stack.push(stack.at(-1) && (directive[1] === 'ifdef' ? enabled : !enabled)); }
   return '';
- }).join('\n');
+ });
+ if (stack.length !== 1) throw new Error('条件编译指令不配对');
+ return lines.join('\n');
 }
 /** Vue模板与脚本分开检查；不执行第三方DOM组件，也不冒充HBuilderX编译器。 */
 function blocks(file) {
