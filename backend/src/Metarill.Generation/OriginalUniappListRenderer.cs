@@ -51,7 +51,7 @@ internal static partial class OriginalUniappListRenderer
             ["mobile_list"] = Template("original-list-mobile-" + layout + ".vue.tpl").Replace("##list_columns##", mobile, StringComparison.Ordinal),
             ["multi_select_buttons"] = selection ? "<view class=\"multi-select-page-buttons\"><button size=\"mini\" @click=\"toggleSelectedOnly\">{{ showSelectedOnly ? '查看全部' : '仅看已选' }}</button><button type=\"primary\" size=\"mini\" @click=\"sureSelect\">选好了（{{ selectedList.length }}）</button><button size=\"mini\" @click=\"sureClose\">关闭</button></view>" : "",
             ["child_detail_popup"] = canPopup ? Popup(page, detail) : "",
-            ["script_top"] = ScriptTop(model, table, page, detail, canPopup || listEdit, selection, child),
+            ["script_top"] = ScriptTop(model, table, page, detail, canPopup || listEdit, selection, child, filter.OptionFields),
             ["//##other_return_data##"] = data.ToString(),
             ["//##lists_list_and_index##"] = "",
             ["//##const_list_column_ranges##"] = "",

@@ -25,6 +25,9 @@ public sealed class OriginalListTargetParentTests
                 catalog.ConfigPageColumns.Add(new(){Id="2026",ConfigPageId="201",ConfigColumnId="26",IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(scenario=="independent"?1:0)}});
             }
             new CSharpGenerator().Generate(catalog,output,"Example.OriginalListParent");
+            var generated=File.ReadAllText(Path.Combine(output,"frontend/pages/yzp/relation_source-list-201.vue"));
+            Assert.Contains("optionFields:[\"target_list\"]",generated);
+            Assert.Contains("canLoad(){return !!uni.getStorageSync('loginStateId');}",generated);
             var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
             start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(SourceFile())!,"OriginalListTargetParentProbe.mjs"));start.ArgumentList.Add(output);start.ArgumentList.Add(scenario);
             using var process=Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));await process.WaitForExitAsync(timeout.Token);

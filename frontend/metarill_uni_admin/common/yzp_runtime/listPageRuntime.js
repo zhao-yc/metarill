@@ -25,7 +25,7 @@ function count(value) {
 }
 
 /** 创建普通列表与子表共用的状态机；页面仍负责首次加载和自己的交互。 */
-export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onParentChanged, additionalData, emptyResult } = {}) {
+export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onParentChanged, additionalData, emptyResult, canLoad } = {}) {
 	// 请求任务、代次和查询快照不进入 Vue 响应式对象，也不在不同组件间共享。
 	const instances = new WeakMap()
 
@@ -78,6 +78,19 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 		state(page).confirmed = false
 	}
 
+	/** 身份退出仅清理请求与展示范围，不永久销毁实例，也不发出新的请求。 */
+	function resetContext(page) {
+		const value = state(page)
+		if (value.disposed) return
+		invalidate(page)
+		clearRows(page)
+		value.scope = null
+		value.scopeKey = ''
+		value.retry = null
+		page.load_more_status = 'no-more'
+		stopPull(page)
+	}
+
 	/** 失败保留重试入口；没有分页时成功一次便结束追加。 */
 	function status(page) {
 		const value = state(page)
@@ -119,6 +132,7 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 	function load(page, pageNo, append, scope, force = false) {
 		const value = state(page)
 		if (value.disposed) return
+		if (typeof canLoad === 'function' && canLoad.call(page) === false) { resetContext(page); return }
 		if (scope.identity !== queryIdentity()) return refresh(page)
 		if (missingParent(page)) {
 			invalidate(page)
@@ -261,6 +275,8 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 		/** Vue 子表组件销毁入口。 */
 		beforeUnmount() { dispose(this) },
 		methods: {
+			/** 只清理当前身份的旧行、分页、统计与在途请求；下一次登录仍可刷新。 */
+			resetListContext() { resetContext(this) },
 			/** 兼容旧按钮：PC 重取当前已确认页，移动端及查询范围变化从第一页替换。 */
 			getList() { return refresh(this, true) },
 			/** 保存、筛选和按钮刷新复用同一个刷新入口。 */

@@ -484,3 +484,32 @@ test('登录或项目先变化时拒绝旧列表回执，重试以新身份发�
   f.succeed(1,[{id:'当前身份记录'}],{pages:1,total:1});assert.equal(f.page.list[0].id,'当前身份记录')
  }
 })
+
+
+/** logout复用实例，清理必须先让同步abort回调失效，再结束本实例下拉。 */
+test('只清理列表上下文会取消请求并清分页统计，下拉只收尾一次且可再次登录刷新', () => {
+ const f = fixture()
+ f.page.getList(); f.succeed(0, [{ id: '旧记录' }])
+ f.mixin.onPullDownRefresh.call(f.page)
+ const count = f.calls.length, version = f.page.pagination_version
+ f.page.resetListContext()
+ assert.equal(f.calls.length, count); assert.equal(f.calls[1].task.aborts, 1)
+ assert.deepEqual(f.page.list, []); assert.deepEqual(f.page.statistics, {})
+ assert.equal(f.page.page_no, 1); assert.equal(f.page.pages_qty, 0); assert.equal(f.page.rows_qty, 0)
+ assert.equal(f.page.list_error, ''); assert.equal(f.page.load_more_status, 'no-more')
+ assert(f.page.pagination_version > version); assert.equal(f.effects.pulls, 1)
+ f.page.resetListContext(); assert.equal(f.effects.pulls, 1)
+ f.succeed(1, [{ id: '迟到旧记录' }]); assert.deepEqual(f.page.list, [])
+ f.page.refreshData(); assert.equal(f.calls.at(-1).options.data.pageNo, 1)
+ f.succeed(2, [{ id: '新登录记录' }]); assert.equal(f.page.list[0].id, '新登录记录')
+})
+
+test('清理上下文不保留旧失败页重试与冻结范围，新刷新使用当前筛选和第一页', () => {
+ const f = fixture({ pc: true })
+ f.page.getList(); f.succeed(0, [{ id: '第一页' }])
+ f.page.paginationChange({ current: 3 }); f.fail(1)
+ f.page.resetListContext(); f.page.filters = { name: '新身份筛选' }; f.page.loadNextPage()
+ assert.equal(f.calls.at(-1).options.data.pageNo, 1)
+ assert.equal(f.calls.at(-1).options.data.filters.name, '新身份筛选')
+ f.succeed(2, [{ id: '新结果' }]); assert.equal(f.page.page_no, 1); assert.deepEqual(f.page.list, [{ id: '新结果' }])
+})

@@ -28,20 +28,35 @@ export function createSelectionPageMixin(endpoint, requiresParent = false) {
    initializeSelection() {
     this.disposeSelection(); this._selectionGeneration = (this._selectionGeneration || 0) + 1
     this.selectedRows = []; this.selectionReady = false; this.selectionError = ''; this.showSelectedOnly = false
-    this._selectionIdentityHandler = () => { if (this._alive) { this.initializeList({ parentId: this.parentId }); this.loadPage(1) } }
-    for (const event of ['onChangeProject', 'onLogin', 'onLogout']) uni.$on(event, this._selectionIdentityHandler)
+    this._selectionIdentityHandler = () => {
+     if (!this._alive) return
+     if (typeof uni.getStorageSync === 'function' && !uni.getStorageSync('loginStateId')) { this.clearSelectionContext(); return }
+     this.initializeList({ parentId: this.parentId }); this.loadPage(1)
+    }
+    this._selectionLogoutHandler = () => { if (this._alive) this.clearSelectionContext() }
+    for (const event of ['onChangeProject', 'onLogin']) uni.$on(event, this._selectionIdentityHandler)
+    uni.$on('onLogout', this._selectionLogoutHandler)
     try { this.selectedDraftIds = selectedIds(this.selectedIds); this.readSelection(false) }
     catch (error) { this.selectedDraftIds = []; this.selectionError = error.message }
    },
-   /** 身份、父范围和读取序号共同隔离迟到回执；取消不会回传任何选择。 */
+   /** 退出先使回读失效，再清空草稿；保留身份监听以支持组件内再次登录。 */
+   clearSelectionContext() {
+    this._selectionGeneration = (this._selectionGeneration || 0) + 1
+    const previous = this._selectionRequest; this._selectionRequest = null
+    this.selectedDraftIds = []; this.selectedRows = []; this.selectionReady = false; this.selectionError = ''; this.selectionBusy = false; this.showSelectedOnly = false
+    try { previous?.abort?.() } catch (_) { /* 旧回执已按代次失效，取消失败也不能回填。 */ }
+   },
+   /** 真正卸载才解除监听；主动退出不能永久废弃可复用的选择实例。 */
    disposeSelection() {
-    this._selectionGeneration = (this._selectionGeneration || 0) + 1; this._selectionRequest?.abort?.(); this._selectionRequest = null; this.selectionBusy = false
-    for (const event of ['onChangeProject', 'onLogin', 'onLogout']) if (this._selectionIdentityHandler) uni.$off(event, this._selectionIdentityHandler)
-    this._selectionIdentityHandler = null
+    this.clearSelectionContext()
+    for (const event of ['onChangeProject', 'onLogin']) if (this._selectionIdentityHandler) uni.$off(event, this._selectionIdentityHandler)
+    if (this._selectionLogoutHandler) uni.$off('onLogout', this._selectionLogoutHandler)
+    this._selectionIdentityHandler = null; this._selectionLogoutHandler = null
    },
    /** 每次确认都读取全部已选行；任何缺失/越权/软删项整体报错并清空旧名称缓存。 */
    readSelection(confirm) {
     if (!this._alive || confirm && !this.selectionCanConfirm) return
+    if (typeof uni.getStorageSync === 'function' && !uni.getStorageSync('loginStateId')) { this.clearSelectionContext(); return }
     this._selectionRequest?.abort?.(); const generation = this._selectionGeneration = (this._selectionGeneration || 0) + 1
     const ids = this.selectedDraftIds.slice(), identity = this.currentIdentity(), parentId = this.parentId
     const current = () => this._alive && generation === this._selectionGeneration && identity === this.currentIdentity() && parentId === this.parentId
