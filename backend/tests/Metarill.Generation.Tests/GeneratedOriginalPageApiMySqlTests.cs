@@ -20,6 +20,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>实际生成 Controller/DTO/Service 接收原 V8 完整实体及旧候选请求，真实 MySQL 验证只写开放字段。</summary>
+[Collection(GenerationMySqlCollection.Name)]
 public sealed class GeneratedOriginalPageApiMySqlTests
 {
     private const long Project = 9007199254740993L, Parent = 9007199254742001L, First = 9007199254750000L;

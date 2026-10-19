@@ -20,6 +20,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>实际生成HTTP/Service与真实文件观察者共用MySQL事务，不把前端回调当持久化校验。</summary>
+[Collection(GenerationMySqlCollection.Name)]
 public sealed class GeneratedMultiSelectMySqlTests
 {
     private const long Project = 9007199254740993, Parent = 9007199254742001, First = 9007199254750000;

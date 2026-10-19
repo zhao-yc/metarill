@@ -28,6 +28,7 @@ public sealed class StandaloneFilesMySqlFactAttribute : FactAttribute
 }
 
 /// <summary>从真实独立包 HTTP 入口验证文件与生成业务记录的原子引用，不伪装多账号权限验收。</summary>
+[Collection(GenerationMySqlCollection.Name)]
 public sealed class StandaloneFilesMySqlTests(ITestOutputHelper output)
 {
     /// <summary>串联显式结构、实际文件流、生成记录事务与注销状态。</summary>

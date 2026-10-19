@@ -22,6 +22,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>真实生成编译、真实 HTTP 控制器与隔离 MySQL，验证超过 5000 项时完整范围没有旁路。</summary>
+[Collection(GenerationMySqlCollection.Name)]
 public sealed class GeneratedRelationOptionsMySqlTests
 {
     private const long Project = 9007199254740993L;

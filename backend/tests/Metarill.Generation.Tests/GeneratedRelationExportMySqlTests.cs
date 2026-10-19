@@ -19,12 +19,8 @@ using Xunit;
 
 namespace Metarill.Generation.Tests;
 
-/// <summary>本fixture不与同程序集DDL用例并发，避免主动争用同一隔离库的唯一结构锁；外部争用仍明确失败。</summary>
-[CollectionDefinition("关系导出隔离数据库", DisableParallelization = true)]
-public sealed class RelationExportDatabaseCollection { }
-
 /// <summary>实际生成HTTP/Service与随机MySQL三表验证导出名称授权和双父隔离；投影接收器不冒充XLSX文件验收。</summary>
-[Collection("关系导出隔离数据库")]
+[Collection(GenerationMySqlCollection.Name)]
 public sealed class GeneratedRelationExportMySqlTests
 {
     private const long Project = 9007199254740993L, Parent = 9007199254742001L, SourceParent = 9007199254743001L, Target = 9007199254744001L, Row = 9007199254745001L;

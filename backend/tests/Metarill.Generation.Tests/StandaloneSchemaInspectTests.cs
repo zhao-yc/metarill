@@ -19,6 +19,7 @@ public sealed class StandaloneSchemaInspectMySqlFactAttribute : FactAttribute
 }
 
 /// <summary>真实独立命令只读包内受管表；不复用协调者UI表，也不创建或清理固定文件表。</summary>
+[Collection(GenerationMySqlCollection.Name)]
 public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
 {
     private readonly string temporary = Path.Combine(Path.GetTempPath(), "metarill-schema-command", Guid.NewGuid().ToString("N"));

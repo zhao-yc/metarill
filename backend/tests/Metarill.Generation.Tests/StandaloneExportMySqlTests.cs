@@ -24,6 +24,7 @@ public sealed class StandaloneExportMySqlFactAttribute : FactAttribute
 }
 
 /// <summary>只操作随机独占表，从真实生成页新增、筛选并导出，不使用固定投影替身。</summary>
+[Collection(GenerationMySqlCollection.Name)]
 public sealed class StandaloneExportMySqlTests
 {
     [StandaloneExportMySqlFact]
