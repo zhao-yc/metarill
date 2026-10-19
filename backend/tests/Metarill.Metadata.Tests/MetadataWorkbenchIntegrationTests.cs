@@ -40,6 +40,18 @@ public sealed class MetadataWorkbenchIntegrationTests
         var field=catalog.ConfigPageColumns.Single(row=>row.Id==f.FirstFieldId.ToString());Assert.Equal(0,field.IsEdit);Assert.Equal(0,field.IsShow);Assert.Equal(1,field.IsRequired);
         await Assert.ThrowsAsync<MetadataRevisionConflictException>(()=>business.SavePageFieldsAsync(Json(new[]{new{id=f.FirstFieldId.ToString(),isInEdit=1}}),before.Revision));
     }
+    /// <summary>真实项目配置经仓储进入生成目录，空主题回退原默认值，非法主题不得进入模板。</summary>
+    [MetadataIntegrationFact]
+    public async Task Project_name_and_theme_roundtrip_from_the_owned_project_record()
+    {
+        await using var f=await MetadataWorkbenchFixture.CreateAsync();var repository=new MetadataRepository(f.Store,f.Registry);
+        await f.Store.UpdateAsync("yz_project",f.ProjectId,new Dictionary<string,object?>{{"name","测试品牌名称"},{"primary_color","#137abc"}});
+        var catalog=await repository.LoadProjectAsync(f.ProjectId.ToString());Assert.Equal("测试品牌名称",catalog.YzProjectName);Assert.Equal("#137abc",catalog.PrimaryColor);
+        await f.Store.UpdateAsync("yz_project",f.ProjectId,new Dictionary<string,object?>{{"primary_color",null}});
+        Assert.Equal("#0ab3ad",(await repository.LoadProjectAsync(f.ProjectId.ToString())).PrimaryColor);
+        await f.Store.UpdateAsync("yz_project",f.ProjectId,new Dictionary<string,object?>{{"primary_color","red; injected: 1"}});
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>repository.LoadProjectAsync(f.ProjectId.ToString()));
+    }
     /// <summary>排序拒绝跨表组合且支持字符串整数，旧快照不能覆盖新顺序。</summary>
     [MetadataIntegrationFact]
     public async Task Column_order_is_scoped_and_revision_checked()

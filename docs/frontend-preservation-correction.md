@@ -49,6 +49,15 @@
 
 旧简化页面专用的主子、选择、关系和详情探针已逐步换成真实Vue3解析/编译/挂载原完整模板。主子页保留原currentSonItem、ChildList、整entity保存和原parent_id/parent_page_sn路由；换父、卸载、返回事件和nextTick弹窗均隔离旧上下文。type=2保持原工具栏和row[]事件，覆盖稳定顺序、跨页、清空、完整回读/缺项、重试、取消、空父及非法原值。原month枚举、闰月末范围与小数/长整数常量按原类型保留。
 
-本切片原主子/选择/列表/能力门禁定向32/32通过、0跳过，TRX为`.local/original-front-gates-final.trx`对应测试结果；公共前端最近237/237。它们不是MySQL、浏览器、HBuilderX或真机验收，不与其它重叠批次相加。
+本切片原主子/选择/列表/能力门禁定向32/32通过、0跳过，TRX为`backend/tests/Metarill.Generation.Tests/TestResults/original-front-gates-final.trx`对应测试结果；公共前端最近237/237。它们不是MySQL、浏览器、HBuilderX或真机验收，不与其它重叠批次相加。
 
 生成提示、generation-capabilities.json和完整应用导出现在共用同一控件后端缺口审计。原控件布局保留，但未适配能力不能再被描述为“当前只读保护”而继续导出可点击失效的完整应用；FullApplication会明确拒绝，BackendOnly仍需显式选择。缺口必须在后端完成并验收后关闭，不能改原页面做替代控件来绕过。
+
+
+## 原工程主题与构建核验
+
+项目仓储已读取当前项目自己的name/primary_color，生成器沿原主色展开列表/详情，完整独立宿主只替换原uni.scss中的$uni-primary及tabBar.selectedColor，其余样式规则保持。空主色沿原默认值；非法颜色在生成前拒绝。
+
+冻结e6fe956的独立原页面工程已实际完成npm依赖/闭包检查与HBuilderX 5.26 Web发行，命令包含publish web --webHosting false，未上传托管。产物46文件；461个归属文件前后核验仅私有副本manifest.appid按用户提供标识发生变化，生成页面未被手改。证据见.local/original-demo-ui-evidence-20261020-9b1c54f8/验收记录.md及web-build-receipt.json。该构建不代表后续提交或浏览器/真机交互已通过。
+
+项目主题真实MySQL回读1/1、原完整宿主主题下发1/1通过。随包HTTP探针已迁到原mixins/data/computed/生命周期、saveEntity/deleteEntity/getList；通过真实独立宿主HTTP/MySQL完成登录、菜单、整entity新增修改删除、注销失效及文件引用事务1/1（.local/original-standalone-files-http-v2.trx）。测试明确核对保存body仍含原只读/空字段，不裁剪成新payload。Node只提供表单validate公开宿主，不模拟uni-forms规则或DOM，不当浏览器/设备验收。第一次迁移运行因测试导航栈一直只有一页、错误等待原返回首页分支而失败，已保留v1证据；修正探针真实栈后v2通过，未修改页面返回交互。

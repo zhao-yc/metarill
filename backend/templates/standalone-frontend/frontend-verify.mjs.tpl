@@ -87,24 +87,25 @@ async function httpProbe() {
  const baseUrl = process.env.METARILL_FRONTEND_PROBE_URL;
  const url = new URL(baseUrl);
  assert.ok(url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.pathname === '/api', 'HTTP验收只允许本次随机回环宿主');
- const storage = new Map(), events = new Map(), navigation = [], errors = [];
- let route = 'pages/login', outstanding = 0;
+ const storage = new Map(), events = new Map(), navigation = [], errors = [], requests = [];
+ let route = 'pages/login', outstanding = 0; const pageStack = [route];
  const uni = {
   getStorageSync: key => storage.get(key) ?? '', setStorageSync: (key, value) => storage.set(key, value), clearStorageSync: () => storage.clear(), removeStorageSync: key => storage.delete(key),
   showLoading() {}, hideLoading() {}, showToast() {}, hideToast() {},
   showModal(options) { if (options.title === '操作失败') errors.push(options.content); options.success?.({ confirm: true, cancel: false }); },
-  $on(name, callback) { if (!events.has(name)) events.set(name, []); events.get(name).push(callback); }, $off() {}, $emit(name, value) { for (const callback of events.get(name) || []) callback(value); },
-  switchTab(options) { route = options.url.slice(1); navigation.push(options.url); options.success?.({}); }, navigateTo(options) { route = options.url.slice(1); navigation.push(options.url); options.success?.({}); }, reLaunch(options) { route = options.url.slice(1); navigation.push(options.url); options.success?.({}); }, navigateBack() { navigation.push('back'); },
+  $on(name, callback) { if (!events.has(name)) events.set(name, []); events.get(name).push(callback); }, $off(name, callback) { events.set(name, (events.get(name) || []).filter(item => item !== callback)); }, $emit(name, value) { for (const callback of events.get(name) || []) callback(value); },
+  switchTab(options) { route = options.url.slice(1); pageStack.splice(0, pageStack.length, route); navigation.push(options.url); options.success?.({}); }, navigateTo(options) { route = options.url.slice(1); pageStack.push(route); navigation.push(options.url); options.success?.({}); }, reLaunch(options) { route = options.url.slice(1); pageStack.splice(0, pageStack.length, route); navigation.push(options.url); options.success?.({}); }, navigateBack() { if (pageStack.length > 1) pageStack.pop(); route = pageStack.at(-1); navigation.push('back'); },
   request(options) {
    const abort = new AbortController(); outstanding++;
    const method = options.method || 'GET'; const headers = { ...options.header };
+   requests.push({ url: options.url, method, data: options.data == null ? options.data : JSON.parse(JSON.stringify(options.data)) });
    let body;
    if (method !== 'GET' && method !== 'HEAD') { body = JSON.stringify(options.data || {}); headers['Content-Type'] = 'application/json'; }
    fetch(options.url, { method, headers, body, signal: abort.signal }).then(async response => ({ data: await response.json(), statusCode: response.status })).then(result => options.success?.(result), error => options.fail?.({ errMsg: error.message })).finally(() => { outstanding--; options.complete?.({}); });
    return { abort: () => abort.abort() };
   }
  };
- const context = vm.createContext({ console, uni, getApp: () => ({ globalData: { environment: { base_url: baseUrl } } }), getCurrentPages: () => [{ route, options: {} }], setTimeout, clearTimeout, URL, Map, Set, Proxy, Promise, Date });
+ const context = vm.createContext({ console, uni, getApp: () => ({ globalData: { environment: { base_url: baseUrl } } }), getCurrentPages: () => pageStack.map(current => ({ route: current.split('?')[0], options: {} })), setTimeout, clearTimeout, URL, Map, Set, Proxy, Promise, Date });
  const modules = new Map();
  function load(file) {
   if (modules.has(file)) return modules.get(file);
@@ -120,9 +121,22 @@ async function httpProbe() {
  };
  async function component(relative) {
   const module = load(path.join(root, relative)); if (module.status === 'unlinked') await module.link(linker); if (module.status === 'linked') await module.evaluate();
-  const definition = module.namespace.default; const instance = definition.data ? definition.data() : {};
-  Object.assign(instance, Object.fromEntries(Object.entries(definition.methods || {}).map(([name, callback]) => [name, callback.bind(instance)])));
-  return { definition, instance };
+  const definition = module.namespace.default, chain = [];
+  /** 按原Options API顺序合并混入、默认props、data、methods与computed，不给页面补旧简化方法别名。 */
+  function include(option) { for (const mixin of option.mixins || []) include(mixin); chain.push(option); }
+  include(definition);
+  const instance = { $deviceInfo: { is_pc: true }, $emit() {}, $nextTick: callback => Promise.resolve().then(callback), $refs: {} };
+  for (const option of chain) {
+   if (option.props && !Array.isArray(option.props)) for (const [name, prop] of Object.entries(option.props)) instance[name] = prop.default ?? (prop.type === Boolean ? false : undefined);
+   Object.assign(instance, option.data?.call(instance) || {});
+   Object.assign(instance, Object.fromEntries(Object.entries(option.methods || {}).map(([name, callback]) => [name, callback.bind(instance)])));
+  }
+  for (const option of chain) for (const [name, getter] of Object.entries(option.computed || {})) Object.defineProperty(instance, name, { configurable: true, get: getter.bind(instance) });
+  // Node只提供原表单公开validate宿主，不模拟uni-forms校验规则、DOM或设备能力。
+  instance.$refs.entityForm = { validate: async () => instance.entity };
+  const invoke = (name, argument) => { for (const option of chain) option[name]?.call(instance, argument); };
+  invoke('created');
+  return { definition, instance, mount(options = {}) { invoke('onLoad', options); invoke('mounted'); }, dispose() { invoke('onUnload'); invoke('beforeUnmount'); } };
  }
  async function until(check) { for (let attempt = 0; attempt < 200; attempt++) { if (check()) return; await new Promise(resolve => setTimeout(resolve, 25)); } throw new Error('独立前端HTTP流程未完成'); }
  const login = await component('pages/login.vue');
@@ -134,14 +148,20 @@ async function httpProbe() {
  function leaf(nodes) { for (const node of nodes) { if (node.target) return node; const child = leaf(node.children || []); if (child) return child; } }
  const selected = leaf(runtime.getState().menus); assert.ok(selected?.target?.route); await runtime.navigateTo(selected.menu_id); assert.ok(navigation.at(-1).startsWith(selected.target.route));
  const listPath = selected.target.route.split('?')[0].slice(1); const detailPath = listPath.replace('-list-', '-detail-');
- const detail = await component(detailPath + '.vue'); detail.definition.onLoad.call(detail.instance, {});
- const marker = '前端宿主HTTP验收-' + Date.now(); detail.instance.change('name', marker); detail.instance.change('notes', '新增'); detail.instance.save();
- await until(() => detail.instance.id && !detail.instance.saving && outstanding === 0); const id = detail.instance.id; assert.equal(typeof id, 'string');
- detail.instance.change('notes', null); detail.instance.save(); await until(() => !detail.instance.saving && outstanding === 0); assert.equal(detail.instance.entity.notes, null);
- const list = await component(listPath + '.vue'); list.definition.onLoad.call(list.instance, {}); list.instance.loadPage(); await until(() => !list.instance.loading && outstanding === 0); assert.ok(list.instance.records.some(row => row.id === id && row.name === marker));
- detail.instance.remove(); await until(() => navigation.at(-1) === 'back' && outstanding === 0); list.instance.loadPage(); await until(() => !list.instance.loading && outstanding === 0); assert.ok(!list.instance.records.some(row => row.id === id));
+ uni.navigateTo({ url: '/' + detailPath });
+ const detail = await component(detailPath + '.vue'); detail.mount();
+ await until(() => detail.instance.permissionsReady && outstanding === 0); assert.equal(detail.instance.readOnlyCondition, false);
+ const marker = '前端宿主HTTP验收-' + Date.now(); detail.instance.entity.name = marker; detail.instance.entity.notes = '新增'; detail.instance.saveEntity();
+ await until(() => detail.instance.id && detail.instance.recordReady && !detail.instance.saving && outstanding === 0); const id = detail.instance.id; assert.equal(typeof id, 'string');
+ const updateUrl = baseUrl + '/admin/auto/' + path.basename(detailPath).replace(/-detail-/, '/') + '/update';
+ const beforeUpdates = requests.filter(item => item.url === updateUrl).length;
+ detail.instance.entity.notes = null; detail.instance.saveEntity();
+ await until(() => requests.filter(item => item.url === updateUrl).length > beforeUpdates && !detail.instance.saving && outstanding === 0); assert.equal(detail.instance.entity.notes, null);
+ const write = requests.findLast(item => item.url === updateUrl); assert.equal(write.data.id, id); assert.equal(write.data.name, marker); assert.equal(write.data.notes, null); assert.ok(Object.hasOwn(write.data, 'amount'), '必须实际发送原整entity，不能偷偷改为简化payload');
+ const list = await component(listPath + '.vue'); list.mount(); await until(() => list.instance.load_more_status !== 'loading' && outstanding === 0); assert.equal(list.instance.list_error, ''); assert.ok(list.instance.list.some(row => row.id === id && row.name === marker));
+ detail.instance.deleteEntity(); await until(() => navigation.at(-1) === 'back' && outstanding === 0); list.instance.getList(); await until(() => list.instance.load_more_status !== 'loading' && outstanding === 0); assert.equal(list.instance.list_error, ''); assert.ok(!list.instance.list.some(row => row.id === id));
  await new Promise(resolve => yzp.request({ url: '/admin/sys/yz_manager/exit_login', method: 'POST', sendSessionId: true, complete: resolve }));
- list.instance.loadPage(); await until(() => !storage.has('loginStateId') && outstanding === 0); assert.ok(navigation.at(-1).startsWith('/pages/login'));
- runtime.dispose?.(); assert.equal(errors.length, 0, '真实前端流程存在业务错误');
+ list.instance.getList(); await until(() => !storage.has('loginStateId') && outstanding === 0); assert.ok(navigation.at(-1).startsWith('/pages/login'));
+ detail.dispose(); list.dispose(); runtime.dispose?.(); assert.equal(errors.length, 0, '真实前端流程存在业务错误');
  console.log('真实独立宿主：开发登录、菜单、生成list/detail新增修改删除及注销失效通过；未替代浏览器或真机验收。');
 }

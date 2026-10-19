@@ -61,6 +61,13 @@ public sealed class FrontendPackager
             try { content = new UTF8Encoding(false, true).GetString(bytes); }
             catch (DecoderFallbackException error) { throw new InvalidDataException("前端受控文本不是UTF8：" + relative, error); }
             if (content.StartsWith('\uFEFF')) content = content[1..];
+            if (relative == "uni.scss")
+            {
+                // 仅替换原项目主题变量，布局/样式规则保持原样；主色已由元数据入口验证为颜色字面值。
+                var theme = new System.Text.RegularExpressions.Regex(@"(?m)^(\$uni-primary\s*:\s*)[^;\r\n]+(;)");
+                if (theme.Matches(content).Count != 1) throw new InvalidOperationException("原主题变量结构已变化，请先核对主色下发。");
+                content = theme.Replace(content, match => match.Groups[1].Value + catalog.PrimaryColor + match.Groups[2].Value);
+            }
             if (relative == "components/yzp-menu/yzp-menu.vue")
             {
                 // 独立开发宿主尚未提供Agent控制面，显示条件只控制原入口，不授予后台能力。
@@ -93,6 +100,7 @@ public sealed class FrontendPackager
         Add("common/yzp_runtime/page-write-schema.generated.json", File.ReadAllBytes(CSharpGenerator.SafePath(generated, "common/yzp_runtime/page-write-schema.generated.json")));
         var pages = JsonNode.Parse(Template("frontend-pages.json.tpl"))!;
         foreach (var route in generatedRoutes) pages["pages"]!.AsArray().Add(route!.DeepClone());
+        pages["tabBar"]!["selectedColor"] = catalog.PrimaryColor;
         Text("pages.json", pages.ToJsonString(JsonOptions) + "\n");
         Text("common/application.generated.json", JsonSerializer.Serialize(new { projectId = catalog.YzProjectId, name = catalog.YzProjectName, adminTypeId = catalog.YzAdminTypes.FirstOrDefault()?.Id ?? "", capabilities = new { platformManagement = false, agentGrants = false } }, JsonOptions) + "\n");
         foreach (var (template, destination) in new[] { ("frontend-App.vue.tpl", "App.vue"), ("frontend-environment.js.tpl", "common/environment.js"), ("frontend-config.js.tpl", "common/application.config.js"), ("frontend-yzp.js.tpl", "common/yzp.js"), ("frontend-project.js.tpl", "common/project.js"), ("frontend-login.vue.tpl", "pages/login.vue"), ("frontend-index.vue.tpl", "pages/main/index.vue"), ("frontend-main.vue.tpl", "pages/main/main.vue"), ("frontend-change_password.vue.tpl", "pages/main/change_password.vue"), ("frontend-menu.vue.tpl", "pages/main/menu.vue"), ("frontend-left.vue.tpl", "pages/main/left.vue"), ("frontend-top.vue.tpl", "pages/main/top.vue"), ("frontend-my.vue.tpl", "pages/main/my.vue"), ("frontend-manifest.json.tpl", "manifest.json"), ("frontend-index.html.tpl", "index.html"), ("frontend-verify.mjs.tpl", "scripts/verify-frontend.mjs"), ("frontend-README.md.tpl", "README.md") }) Text(destination, Template(template));

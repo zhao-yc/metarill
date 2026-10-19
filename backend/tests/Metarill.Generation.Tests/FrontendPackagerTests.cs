@@ -56,6 +56,18 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         var verified=await VerifyFrontendAsync(Path.Combine(output,"frontend"));Assert.True(verified.Code==0,verified.Error);
     }
 
+    /// <summary>真实原宿主保留全部SCSS规则，只下发项目主色和导航选中色，不复用平台主题。</summary>
+    [Fact]
+    public void Original_host_uses_project_theme_without_rewriting_style_rules()
+    {
+        var catalog=Demo();catalog.PrimaryColor="#137abc";var output=Path.Combine(root,"project-theme");
+        new ApplicationPackager().Create(catalog,output,"Example.ProjectTheme",SourceRoot());
+        var original=File.ReadAllText(Path.Combine(SourceRoot(),"frontend/metarill_uni_admin/uni.scss")).Replace("\r\n","\n");
+        Assert.Equal(original.Replace("$uni-primary: #0ab3ad;","$uni-primary: #137abc;",StringComparison.Ordinal),File.ReadAllText(Path.Combine(output,"frontend/uni.scss")));
+        using var pages=JsonDocument.Parse(File.ReadAllText(Path.Combine(output,"frontend/pages.json")));Assert.Equal("#137abc",pages.RootElement.GetProperty("tabBar").GetProperty("selectedColor").GetString());
+        Assert.Contains("#137abc",File.ReadAllText(Path.Combine(output,"frontend/pages/yzp/demo_customer-detail-2200000000000100020.vue")));
+    }
+
     /// <summary>执行包内原壳生命周期与公共请求适配，避免只有template/style相同但事件和globals已断开的假通过。</summary>
     [Fact]
     public async Task Original_shell_lifecycle_runs_with_original_globals_events_and_server_confirmed_logout()

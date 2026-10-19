@@ -64,9 +64,14 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
             }
             return record;
         }).ToList();
+        // 项目名与主色必须来自同一项目的实际记录，不能把业务项目统一生成为默认名称/平台主题。
+        var projectRow=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",project}},cancellationToken)).SingleOrDefault();
+        var projectName=projectRow is null?"":SqlRowStore.Text(projectRow,"name");
+        var primaryColor=projectRow is null?"":SqlRowStore.Text(projectRow,"primary_color");
         var result=new MetadataCatalog
         {
-            YzProjectId=projectId,YzProjectName=projectId==registry.Platform.YzProjectId?"Metarill":"业务项目",
+            YzProjectId=projectId,YzProjectName=string.IsNullOrWhiteSpace(projectName)?projectId==registry.Platform.YzProjectId?"Metarill":"业务项目":projectName,
+            PrimaryColor=string.IsNullOrWhiteSpace(primaryColor)?"#0ab3ad":primaryColor,
             ConfigTables=await Read<TableMetadata>("config_table"),ConfigColumns=await Read<ColumnMetadata>("config_column"),
             ConfigPages=await Read<PageMetadata>("config_page"),ConfigPageColumns=await Read<PageColumnMetadata>("config_page_column"),
             YzAdminTypes=await Read<AdminTypeMetadata>("yz_admin_type"),ConfigMenus=await Read<MenuMetadata>("config_menu"),
