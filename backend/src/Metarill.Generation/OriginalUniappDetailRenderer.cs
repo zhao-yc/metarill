@@ -46,7 +46,7 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
             ["//##import_child_tables_component##"]="",["//##defined_child_tables_component##"]=c.Components.ToString(),
             ["//##other_return_data##"]=c.Data.ToString(),["//##lists_list_and_index##"]="",["//##const_list_column_ranges##"]="",
             ["//##entity_columns##"]=c.Defaults.ToString(),["//##entity_column_readonly##"]=c.Readonly.ToString(),["//##entity_rules##"]=c.Rules.ToString(),
-            ["//##watch_columns##"]=c.Watches.ToString(),["//##computed_columns##"]=c.Computed.ToString(),["//##computed_buttons##"]="",
+            ["//##watch_columns##"]=c.Watches.ToString(),["//##original_option_watchers##"]=c.OptionWatchers.ToString(),["//##computed_columns##"]=c.Computed.ToString(),["//##computed_buttons##"]="",
             ["//##customer_button_handlers##"]=c.Methods.ToString(),["//##rtf_edit_function##"]="",["//##img_component_events##"]="",["//##lists_select_change##"]="",
             ["//##init_lists##"]=c.Init.ToString(),["//##init_dynamic_lists##"]=c.DynamicInit.ToString(),["//##get_entity_img_to_ary##"]="",
             ["//##refresh_child_tables##"]=string.Join("\n",children.Select(child=>$"this.$refs.ChildList{child.Id}?.refreshData();")),

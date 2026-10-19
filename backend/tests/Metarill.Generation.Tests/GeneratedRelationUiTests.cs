@@ -46,7 +46,7 @@ public sealed class GeneratedRelationUiTests
             // 真实当前记录开放了唯一目标父外键之后，才能明确绑定 entity.parentId，不经过索引等跨层推测。
             catalog.ConfigPageColumns.Add(new() { Id = "2026", ConfigPageId = "201", ConfigColumnId = "26", IsShow = 1, IsEdit = 1 });
             new CSharpGenerator().Generate(catalog, output, "Example.IndependentUi"); detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-detail-201.vue"));
-            Assert.Contains("String(that.entity.parentId??'')",detail);Assert.Contains("targetParentId:optionParent",detail);await RunProbe(output,"independent");
+            Assert.Contains("String(that.entity.parentId??'')",detail);Assert.Contains("targetParentId:optionParent",detail);await RunProbe(output,"independent");await RunProbe(output,"independentReadonly");
             catalog.ConfigColumns.Add(new() { Id = "29", ConfigTableId = "2", ColumnName = "other_parent_id", LogicalType = "int64", LinkConfigTableId = "1" });
             catalog.ConfigPageColumns.Add(new() { Id = "2029", ConfigPageId = "201", ConfigColumnId = "29", IsShow = 1 });
             new CSharpGenerator().Generate(catalog, output, "Example.IndependentUi"); detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-detail-201.vue"));

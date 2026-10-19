@@ -58,6 +58,10 @@ export default {
     //##computed_columns##
     //##computed_buttons##
   },
+  created() {
+    // 独立范围观察不覆盖原AutoPostBack/AutoSave字段watcher，也不改变控件布局。
+    //##original_option_watchers##
+  },
   onUnload() { this.disposeOriginalDetail(); },
   beforeUnmount() { this.disposeOriginalDetail(); },
   mounted: function () {

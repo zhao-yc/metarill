@@ -24,6 +24,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     internal StringBuilder Computed { get; } = new();
     internal StringBuilder Methods { get; } = new();
     internal StringBuilder Watches { get; } = new();
+    internal StringBuilder OptionWatchers { get; } = new();
     internal StringBuilder Data { get; } = new();
     internal StringBuilder Init { get; } = new();
     internal StringBuilder DynamicInit { get; } = new();

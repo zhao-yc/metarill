@@ -118,8 +118,20 @@ internal static class OriginalUniappDetailFields
         var target=context?.TargetParentField is {} parent?"that.entity."+parent:context?.SameParent==true?"that.parent_id":null;
         var load = context?.UnresolvedTarget==true
             ? "that."+list+"=[];uni.showModal({showCancel:false,content:'关联目标父范围尚未明确，不能加载候选项'});"
-            : "(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["+Js(column.Source.Id)+"]||0)+1;that._originalOptions["+Js(column.Source.Id)+"]=optionSequence;const optionParent="+(target is null?"null":"String("+target+"??'')")+";that.originalRequest({url:"+Js(endpoint)+",isCurrent:()=>optionSequence===that._originalOptions["+Js(column.Source.Id)+"]&&"+(target is null?"true":"optionParent===String("+target+"??'')")+",data:{parentId:that.parent_id,"+(target is null?"":"targetParentId:optionParent,")+"formParameters:uni.getStorageSync(that.formParametersName)"+(f.ReadOnly?",id:that.entity."+column.JsonName:"")+"},method:'POST',sendSessionId:true,success(res){if(res.code===200){that."+list+"=res.data||[];"+(checkbox?"that."+column.JsonName+"Change();":"")+"}else uni.showModal({showCancel:false,content:res.msg});}});})();";
-        if (Enabled(column.Source.Extra, "isAutoPostBackQuery")) c.DynamicInit.AppendLine($"that.{list}=[];" + load); else c.Init.AppendLine(load);
+            : "(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["+Js(column.Source.Id)+"]||0)+1;that._originalOptions["+Js(column.Source.Id)+"]=optionSequence;const optionParent="+(target is null?"null":"String("+target+"??'')")+";that.originalRequest({url:"+Js(endpoint)+",isCurrent:()=>optionSequence===that._originalOptions["+Js(column.Source.Id)+"]&&"+(target is null?"true":"optionParent===String("+target+"??'')")+",data:{parentId:that.parent_id,"+(target is null?"":"targetParentId:optionParent,")+"formParameters:uni.getStorageSync(that.formParametersName)"+(f.ReadOnly?",id:that.entity."+column.JsonName:",...(that.readOnlyCondition?{id:that.entity."+column.JsonName+"}:{})")+"},method:'POST',sendSessionId:true,success(res){if(res.code===200){that."+list+"=res.data||[];"+(checkbox?"that."+column.JsonName+"Change();":"")+"}else uni.showModal({showCancel:false,content:res.msg});}});})();";
+        var method="loadOriginalOptions"+column.Source.Id;
+        // 独立父字段即使没有开启旧联动标志，也必须失效原候选缓存；实体的已选ID/名称不被清空。
+        if(context?.TargetParentField is {} targetField)
+        {
+            var key=Js(column.Source.Id);
+            c.OptionWatchers.AppendLine($$$"""
+this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._originalOptions=this._originalOptions||{};const sequence=(this._originalOptions[{{{key}}}]||0)+1;this._originalOptions[{{{key}}}]=sequence;const current=this.originalContext(),parent=this.entity.{{{targetField}}};this.$nextTick(()=>{if(current()&&parent===this.entity.{{{targetField}}}&&sequence===this._originalOptions[{{{key}}}])this.{{{method}}}();});},{flush:'sync'});
+""");
+            var guard="if(!that._alive||!that.permissionsReady||that.id&&!that.recordReady||!/^[1-9][0-9]{0,18}$/.test(optionParent)||optionParent.length===19&&optionParent>'9223372036854775807')return;";
+            load=load.Replace(";that.originalRequest({", ";"+guard+"that.originalRequest({",StringComparison.Ordinal);
+        }
+        c.Methods.AppendLine($"{method}() {{const that=this;that.{list}=[];{load}}},");
+        if (Enabled(column.Source.Extra, "isAutoPostBackQuery")) c.DynamicInit.AppendLine($"that.{method}();"); else c.Init.AppendLine($"that.{method}();");
     }
     /// <summary>沿用现有DTO/VO常量类型；长整数保留字符串，小数按decimal解析，不经JavaScript整数转换。</summary>
     private static object? ConstValue(ColumnModel column, string value) => column.Type switch
