@@ -7,7 +7,12 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
-public sealed record ApplicationPackageResult(IReadOnlyList<string> Files, string MetadataSha256, IReadOnlyList<string> RedactedPaths, IReadOnlyList<string> Warnings);
+public enum ApplicationPackageMode { FullApplication, BackendOnly }
+public sealed record ApplicationPackageResult(IReadOnlyList<string> Files, string MetadataSha256, IReadOnlyList<string> RedactedPaths, IReadOnlyList<string> Warnings)
+{
+    public bool FrontendIncluded { get; init; }
+    public ApplicationPackageMode Mode { get; init; }
+}
 
 /// <summary>将通用基础设施和生成源码装配为独立应用，不读取私有配置，也不连接数据库。</summary>
 public sealed class ApplicationPackager
@@ -18,9 +23,10 @@ public sealed class ApplicationPackager
     { "connstring", "connectionstring", "password", "pwd", "dbpassword", "accesskey", "accesskeyid", "accesskeysecret", "secret", "secretkey", "privatekey", "clientsecret", "apitoken", "accesstoken", "refreshtoken", "token", "apikey", "credentials" };
 
     /// <summary>先在同级临时目录完成整个包，成功后一次移动；既有非空项目永不覆盖。</summary>
-    public ApplicationPackageResult Create(MetadataCatalog catalog, string outputDirectory, string rootNamespace, string sourceRoot)
+    public ApplicationPackageResult Create(MetadataCatalog catalog, string outputDirectory, string rootNamespace, string sourceRoot, ApplicationPackageMode mode = ApplicationPackageMode.FullApplication)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
         var output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputDirectory));
         CSharpGenerator.SafePath(output, ".metarill-package.json");
         if (File.Exists(output) || Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new InvalidOperationException("独立包输出目录必须不存在或为空。");
@@ -48,6 +54,9 @@ public sealed class ApplicationPackager
         Scrub(infrastructureJson, "$.files", redactions);
         var infrastructure = infrastructureJson.Deserialize<MetadataCatalog>(JsonOptions)!;
         MetadataCatalogComposition.MergePhysical(sanitized, infrastructure);
+        var frontend = new FrontendPackager();
+        if (mode == ApplicationPackageMode.FullApplication) frontend.Validate(sanitized);
+        var frontendIncluded = mode == ApplicationPackageMode.FullApplication;
         try
         {
             Directory.CreateDirectory(stage);
@@ -90,15 +99,18 @@ public sealed class ApplicationPackager
             Write(stage, "Directory.Build.props", "<Project>\n  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><LangVersion>latest</LangVersion><Deterministic>true</Deterministic><RestorePackagesWithLockFile>true</RestorePackagesWithLockFile></PropertyGroup>\n</Project>\n");
             Write(stage, "backend/metadata/project.json", json.ToJsonString(JsonOptions) + "\n");
             Write(stage, "backend/metadata/files.json", infrastructureJson.ToJsonString(JsonOptions) + "\n");
-            foreach (var (template, destination) in new[] { ("Program.cs.tpl", "backend/Application.Host/Program.cs"), ("Authentication.cs.tpl", "backend/Application.Host/DevelopmentAuthentication.cs"), ("Host.csproj.tpl", "backend/Application.Host/Application.Host.csproj"), ("README.md.tpl", "README.md"), ("appsettings.example.json.tpl", "backend/Application.Host/appsettings.example.json") })
+            foreach (var (template, destination) in new[] { ("Program.cs.tpl", "backend/Application.Host/Program.cs"), ("Authentication.cs.tpl", "backend/Application.Host/DevelopmentAuthentication.cs"), ("Navigation.cs.tpl", "backend/Application.Host/DevelopmentNavigation.cs"), ("Host.csproj.tpl", "backend/Application.Host/Application.Host.csproj"), ("README.md.tpl", "README.md"), ("appsettings.example.json.tpl", "backend/Application.Host/appsettings.example.json") })
                 Write(stage, destination, Template(template).Replace("{{NAMESPACE}}", rootNamespace));
             Write(stage, ".gitignore", "**/bin/\n**/obj/\n.local/\n**/appsettings.local.json\n**/appsettings.Development.json\n");
+            var warnings = generated.Warnings.Concat(frontendIncluded ? Array.Empty<string>() : new[] { "本包显式选择BackendOnly，不含可运行前端宿主；平台配置前端需单独提供。backend/generated/frontend仅为生成片段。" }).ToArray();
+            if (frontendIncluded) frontend.Create(sanitized, Path.Combine(stage, "backend/generated/frontend"), Path.Combine(stage, "frontend"), source);
+            File.AppendAllText(Path.Combine(stage, "README.md"), "\n## 打包模式\n\n" + (frontendIncluded ? "FullApplication：包含frontend独立uni-app宿主，认证仅为开发用途。具体配置及HBuilderX要求见frontend/README.md。" : warnings.Last()) + "\n", new UTF8Encoding(false));
             var files = Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories).Select(file => new { path = Path.GetRelativePath(stage, file).Replace('\\', '/'), sha256 = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(file))) }).OrderBy(file => file.path, StringComparer.Ordinal).ToArray();
-            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, metadataSha256 = generated.MetadataSha256, files }, JsonOptions) + "\n");
+            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files }, JsonOptions) + "\n");
             // 移动前再次检查输出目录，避免其他进程在打包期间写入后被覆盖。
             if (Directory.Exists(output)) Directory.Delete(output, false);
             Directory.Move(stage, output);
-            return new ApplicationPackageResult(files.Select(file => file.path).Append(".metarill-package.json").ToArray(), generated.MetadataSha256, redactions.Distinct().Order(StringComparer.Ordinal).ToArray(), generated.Warnings);
+            return new ApplicationPackageResult(files.Select(file => file.path).Append(".metarill-package.json").ToArray(), generated.MetadataSha256, redactions.Distinct().Order(StringComparer.Ordinal).ToArray(), warnings) { Mode = mode, FrontendIncluded = frontendIncluded };
         }
         finally
         {

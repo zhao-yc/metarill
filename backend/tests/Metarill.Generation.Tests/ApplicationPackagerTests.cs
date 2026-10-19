@@ -29,7 +29,7 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         var files = Directory.GetFiles(output, "*", SearchOption.AllDirectories);
         Assert.DoesNotContain(files, file => file.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar));
         Assert.DoesNotContain(files, file => file.EndsWith("settings.json"));
-        Assert.All(files, file => Assert.DoesNotContain("\r", File.ReadAllText(file)));
+        Assert.All(files.Where(file => Path.GetExtension(file) is not (".tgz" or ".ttf" or ".woff" or ".woff2")), file => Assert.DoesNotContain("\r", File.ReadAllText(file)));
         var host = File.ReadAllText(Path.Combine(output, "backend/Application.Host/Application.Host.csproj"));
         Assert.DoesNotContain(source, host);
         Assert.DoesNotContain("Metarill.Runtime", host);
@@ -80,7 +80,7 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
     {
         var catalog = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(SourceRoot(), "backend/metadata/platform.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         var output = Path.Combine(temporary, "platform");
-        var result = new ApplicationPackager().Create(catalog, output, "Example.Platform", SourceRoot());
+        var result = new ApplicationPackager().Create(catalog, output, "Example.Platform", SourceRoot(), ApplicationPackageMode.BackendOnly);
         Assert.Contains("backend/metadata/files.json", result.Files);
         Assert.Contains("src/Metarill.Files/licenses/LICENSE.txt", result.Files);
         Assert.Contains("src/Metarill.Files/licenses/THIRD-PARTY-NOTICES.txt", result.Files);

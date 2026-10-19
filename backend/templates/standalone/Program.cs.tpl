@@ -26,6 +26,7 @@ var infrastructure = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllTex
     ?? throw new InvalidOperationException("缺少文件基础元数据。");
 var physicalMetadata = MetadataCatalogComposition.MergePhysical(metadata, infrastructure);
 builder.Services.AddSingleton(metadata);
+builder.Services.AddSingleton<DevelopmentNavigation>();
 builder.Services.AddSingleton(provider => new DatabaseSession(builder.Configuration.GetSection("Database").Get<DatabaseOptions>() ?? new()));
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue<int?>("Ids:WorkerId") ?? 1));
 builder.Services.AddHttpContextAccessor();
@@ -113,6 +114,10 @@ app.MapGet("/api/admin/sys/export/export", async (string exportId, HttpContext c
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     return Results.File(content.Stream, content.ContentType, content.FileName, enableRangeProcessing: true);
 });
+// 导航和权限来自固定发布元数据，不能由客户端项目选择或私有平台配置改变。
+app.MapGet("/api/admin/sys/yz_manager/getMenu", (DevelopmentNavigation navigation, IRuntimeAuthorization authorization) => navigation.Menu(authorization));
+app.MapGet("/api/admin/sys/yz_manager/getCurrentPermissions", (DevelopmentNavigation navigation, IRuntimeAuthorization authorization) => R<object>.Success(navigation.Permissions(authorization)));
+app.MapGet("/api/admin/sys/yz_manager/cap-config", () => R<object>.Success(new { enabled = false, apiEndpoint = "" }));
 app.MapControllers();
 await app.RunAsync();
 

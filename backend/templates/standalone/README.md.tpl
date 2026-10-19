@@ -30,7 +30,7 @@ dotnet run --project backend/Application.Host --urls http://127.0.0.1:5080
 
 开发测试可显式设置 ASPNETCORE_ENVIRONMENT=Development，以及 Authentication__DevelopmentBootstrap__Enabled=true、Username、Password（至少12位），然后启动宿主。账号仅拥有包内项目权限；项目 ID 不能由客户端切换。开发认证使用内存会话、固定到期时间、令牌摘要和登录限流，进程重启会失效；仅用于本地开发，不作为正式账号体系。
 
-POST `/api/admin/sys/yz_manager/login`，JSON 或表单包含 username/password；成功响应 map.loginStateId，后续在 loginStateId 请求头传递令牌（也可 Bearer）。POST `/api/admin/sys/yz_manager/exit_login` 使当前会话失效。通过 SessionLifetimeSeconds 配置 1..86400 秒有效期。
+POST `/api/admin/sys/yz_manager/login`，JSON 或表单包含 username/password；成功响应 map.loginStateId，后续在 loginStateId 请求头传递令牌（也可 Bearer）。POST `/api/admin/sys/yz_manager/exit_login` 使当前会话失效。通过 SessionLifetimeSeconds 配置 1..86400 秒有效期。已登录开发账号可调用 GET `/api/admin/sys/yz_manager/getMenu` 与 `getCurrentPermissions`；菜单只返回包内生成页面及目录，权限仍在每次业务请求验证。自定义页面、平台项目切换及正式生产账号不随包提供。
 
 ## 业务扩展与边界
 
@@ -46,7 +46,7 @@ POST `/api/admin/sys/yz_manager/login`，JSON 或表单包含 username/password�
 
 Exports 配置控制私有目录、有效期及资源上限；默认目录 `.local/exports`，正式部署应提供持久存储且不能映射为静态资源。票据保存在单进程内存，15分钟到期，重启立即失效；后台分钟级清理过期和崩溃遗留文件。多实例需会话亲和或另行接入共享票据，当前不提供跨实例下载保证。可在手写 partial 中替换 IPageExportService，必须实现读取前门禁重载；不支持的实现默认拒绝且不执行准备查询。
 
-backend/generated/frontend 仅为复用已有 uni-app 组件和共享运行时的页面模板，不是完整可独立运行的 uni-app 工程。控件未移植项见 generation-capabilities.json，不能用后端构建代替 Web、小程序或 App 验收。
+FullApplication 模式额外提供 frontend 独立 HBuilderX uni-app Vue3 工程，包含开发登录、服务端菜单和生成 list/detail；按 frontend/README.md 配置公开 API 地址、自己的 AppID 和依赖。默认 AppID 为空，不复用平台标识。BackendOnly 模式明确不包含该宿主；backend/generated/frontend 在两种模式中都只是生成页面片段。平台专用或未知 CustomControl 在完整模式提前拒绝，不能静默替代。控件未移植项仍见 generation-capabilities.json，后端构建或 Node 检查不能替代 Web、小程序或 App 验收。
 
 元数据已删除已知敏感配置键及密码列默认值；发布前仍需审核业务定义中是否存在以非标准名称保存的凭据。包内 .metarill-package.json 记录文件摘要；生成目录 .metarill-generation.json 保护后续生成归属。
 

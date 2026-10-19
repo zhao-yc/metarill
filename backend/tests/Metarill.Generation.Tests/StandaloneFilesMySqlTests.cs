@@ -48,6 +48,7 @@ public sealed class StandaloneFilesMySqlTests(ITestOutputHelper output)
         Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.FileCatalog)).Changes);
         await fixture.StartAsync();
         await fixture.LoginAsync();
+        await fixture.RunFrontendProbeAsync();
 
         // 包内真实旧上传入口必须能加载native依赖并返回可匿名读取的重新编码图片。
         var legacyPng = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEUlEQVR4nGP4z8DwH4QZMBgAoXkL9U3EmgcAAAAASUVORK5CYII=");
@@ -211,6 +212,21 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     public Task SchemaAsync(string operation)
     {
         var info = HostInfo(); info.ArgumentList.Add(operation); return RunAsync(info);
+    }
+
+    /// <summary>使用包内真实前端脚本经HTTP完成开发登录、菜单及生成list/detail CRUD，不传数据库凭据。</summary>
+    public async Task RunFrontendProbeAsync()
+    {
+        var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node") { WorkingDirectory = Path.Combine(Output, "frontend"), CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
+        info.ArgumentList.Add("--experimental-vm-modules"); info.ArgumentList.Add("scripts/verify-frontend.mjs"); info.ArgumentList.Add("--http-probe");
+        info.Environment["METARILL_FRONTEND_PROBE_URL"] = Client.BaseAddress!.ToString().TrimEnd('/') + "/api";
+        info.Environment["METARILL_FRONTEND_PROBE_USERNAME"] = "files-probe"; info.Environment["METARILL_FRONTEND_PROBE_PASSWORD"] = password;
+        using var process = Process.Start(info)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try { await process.WaitForExitAsync(timeout.Token); } catch { if (!process.HasExited) process.Kill(true); throw; }
+        var output = await stdout; var error = await stderr;
+        Assert.True(process.ExitCode == 0, "独立前端脚本HTTP验收失败：" + error.Replace(password, "（已隐藏）"));
+        Assert.Contains("真实独立宿主", output);
     }
 
     /// <summary>随机端口隐藏启动宿主，启动及错误日志不输出连接配置。</summary>

@@ -87,6 +87,11 @@ public sealed partial class ApiAcceptanceTests
             Assert.Contains(zip.Entries,e=>e.FullName.StartsWith("backend/generated/Services/",StringComparison.Ordinal)&&e.FullName.EndsWith(".g.cs",StringComparison.Ordinal));
             Assert.Contains(zip.Entries,e=>e.FullName=="backend/Application.Host/Program.cs");
             Assert.Contains(zip.Entries,e=>e.FullName=="src/Metarill.Data/Metarill.Data.csproj");
+            Assert.Equal("FullApplication",Assert.Single(generated.Headers.GetValues("X-Metarill-Package-Mode")));
+            Assert.Equal("true",Assert.Single(generated.Headers.GetValues("X-Metarill-Frontend-Included")));
+            Assert.Contains(zip.Entries,e=>e.FullName=="frontend/pages/login.vue");
+            using var packageManifest=JsonDocument.Parse(await new StreamReader(zip.GetEntry(".metarill-package.json")!.Open()).ReadToEndAsync());
+            Assert.True(packageManifest.RootElement.GetProperty("frontendIncluded").GetBoolean());
         }
         finally
         {
@@ -97,6 +102,25 @@ public sealed partial class ApiAcceptanceTests
             await using var command=connection.CreateCommand();command.CommandText="DROP TABLE IF EXISTS "+session.Provider.QuoteIdentifier(tableName);await command.ExecuteNonQueryAsync();
         }
     }
+    /// <summary>平台导出由服务端已发布身份选择仅后端模式，保持原能力并明确告知前端缺口。</summary>
+    [MySqlApiFact]
+    public async Task Published_platform_export_explicitly_reports_backend_only()
+    {
+        var(factory,client)=await Login();await using var disposable=factory;using var http=client;
+        var registry=factory.Services.GetRequiredService<Metarill.Runtime.Metadata.MetadataRegistry>();
+        using var response=await client.PostAsJsonAsync("/api/admin/sys/generation/generate",new{projectId=registry.Platform.YzProjectId,rootNamespace="Acceptance.Platform"});
+        Assert.Equal("application/zip",response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("BackendOnly",Assert.Single(response.Headers.GetValues("X-Metarill-Package-Mode")));
+        Assert.Equal("false",Assert.Single(response.Headers.GetValues("X-Metarill-Frontend-Included")));
+        var warnings=JsonSerializer.Deserialize<string[]>(Uri.UnescapeDataString(Assert.Single(response.Headers.GetValues("X-Metarill-Package-Warnings"))))!;
+        Assert.Contains(warnings,warning=>warning.Contains("BackendOnly",StringComparison.Ordinal));
+        using var zip=new System.IO.Compression.ZipArchive(await response.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(zip.Entries,entry=>entry.FullName.StartsWith("frontend/",StringComparison.Ordinal));
+        using var manifest=JsonDocument.Parse(await new StreamReader(zip.GetEntry(".metarill-package.json")!.Open()).ReadToEndAsync());
+        Assert.False(manifest.RootElement.GetProperty("frontendIncluded").GetBoolean());
+        Assert.Equal("BackendOnly",manifest.RootElement.GetProperty("packageMode").GetString());
+    }
+
     [MySqlApiFact]
     public async Task Published_platform_metadata_keeps_its_structural_identity()
     {

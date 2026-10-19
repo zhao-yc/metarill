@@ -44,7 +44,12 @@ public sealed class GenerationController(MetadataRepository metadata,Application
         try
         {
             var sourceRoot=Path.GetFullPath(Path.Combine(Path.GetDirectoryName(registry.PlatformPath)!,"..",".."));
-            packager.Create(catalog,output,request.RootNamespace??"Metarill.Application",sourceRoot);
+            // 平台配置页包含专用控件，显式保留仅后端导出；业务项目默认必须完整通过前端闭包验证。
+            var mode=long.Parse(catalog.YzProjectId)==long.Parse(registry.Platform.YzProjectId)?ApplicationPackageMode.BackendOnly:ApplicationPackageMode.FullApplication;
+            var package=packager.Create(catalog,output,request.RootNamespace??"Metarill.Application",sourceRoot,mode);
+            Response.Headers["X-Metarill-Package-Mode"]=mode.ToString();
+            Response.Headers["X-Metarill-Frontend-Included"]=package.FrontendIncluded?"true":"false";
+            Response.Headers["X-Metarill-Package-Warnings"]=Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(package.Warnings));
             using var stream=new MemoryStream();using(var archive=new ZipArchive(stream,ZipArchiveMode.Create,true))
                 foreach(var path in Directory.EnumerateFiles(output,"*",SearchOption.AllDirectories).Order(StringComparer.Ordinal))
                 {var entry=archive.CreateEntry(Path.GetRelativePath(output,path).Replace('\\','/'));await using var target=entry.Open();await using var source=System.IO.File.OpenRead(path);await source.CopyToAsync(target,cancellationToken);}
