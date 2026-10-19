@@ -56,6 +56,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: 按锁文件安装前端依赖
+        run: npm ci --ignore-scripts --prefix frontend/metarill_uni_admin
       - name: 运行时与Agent协议测试
         run: |
           npm test --prefix frontend/metarill_uni_admin

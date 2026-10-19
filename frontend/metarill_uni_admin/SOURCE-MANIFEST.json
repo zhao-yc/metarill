@@ -1701,6 +1701,16 @@
       "license": "MIT",
       "upstream": "https://github.com/tinymce/tinymce-vue",
       "verifiedAt": "2026-10-19"
+    },
+    {
+      "name": "SheetJS CE / xlsx",
+      "version": "0.20.3",
+      "source": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+      "destination": "vendor/xlsx-0.20.3.tgz",
+      "sha256": "8dc73fc3b00203e72d176e85b50938627c7b086e607c682e8d3c22c02bb99fe8",
+      "license": "Apache-2.0",
+      "verifiedAt": "2026-10-19",
+      "note": "官方原始归档完整保留，替换npm旧版0.18.5以修复已报告两项漏洞；源码和原导入交互未改。"
     }
   ]
 }

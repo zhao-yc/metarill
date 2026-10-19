@@ -13,6 +13,6 @@
     "@tinymce/tinymce-vue": "6.3.0",
     "cap-widget": "0.1.50",
     "crypto-js": "4.2.0",
-    "xlsx": "0.18.5"
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
   }
 }
