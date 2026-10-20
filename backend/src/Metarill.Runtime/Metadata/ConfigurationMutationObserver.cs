@@ -36,36 +36,40 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         if(context.TableName=="config_table")
         {
             var table=(await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
-            var existing=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
-            var nextSort=existing.Count==0?0:existing.Max(row=>Convert.ToInt32(row.GetValueOrDefault("sort_no")??0));
-            foreach(var (name,label,type) in new[]{("id","标识","int64"),("name","名称","string"),("yz_project_id","项目","int64"),("insert_time","创建时间","datetime"),("update_time","修改时间","datetime"),("insert_manager_id","创建账号","int64"),("update_manager_id","修改账号","int64"),("delete_no","删除时间","datetime")})
+            // 默认系统列只属于本次新表创建，普通更新不能补齐有意省略或软删的历史定义。
+            if(context.IsCreate)
             {
-                if(existing.Any(c=>SqlRowStore.Text(c,"column_name")==name))continue;
-                // 系统字段同样使用已发布元模型的必填默认值，并在已有排序后顺序追加。
-                nextSort=checked(nextSort+10);
-                var values=new Dictionary<string,object?>{{"id",ids.NextId()},{"config_table_id",context.RecordId},{"config_table_name",SqlRowStore.Text(table,"name")},{"column_name",name},{"name",label},{"logical_type",type},{"column_type",type},{"column_length",type=="string"?"255":""},{"is_db_not_null",name=="id"?1:0},{"yz_project_id",project},{"sort_no",nextSort}};
-                ConfigurationColumnDefaults.Fill(values,registry.Platform);
-                await store.InsertAsync("config_column",values,cancellationToken);
+                var existing=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
+                var nextSort=existing.Count==0?0:existing.Max(row=>Convert.ToInt32(row.GetValueOrDefault("sort_no")??0));
+                foreach(var (name,label,type) in new[]{("id","标识","int64"),("name","名称","string"),("yz_project_id","项目","int64"),("insert_time","创建时间","datetime"),("update_time","修改时间","datetime"),("insert_manager_id","创建账号","int64"),("update_manager_id","修改账号","int64"),("delete_no","删除时间","datetime")})
+                {
+                    if(existing.Any(c=>SqlRowStore.Text(c,"column_name")==name))continue;
+                    // 系统字段同样使用已发布元模型的必填默认值，并在已有排序后顺序追加。
+                    nextSort=checked(nextSort+10);
+                    var values=new Dictionary<string,object?>{{"id",ids.NextId()},{"config_table_id",context.RecordId},{"config_table_name",SqlRowStore.Text(table,"name")},{"column_name",name},{"name",label},{"logical_type",type},{"column_type",type},{"column_length",type=="string"?"255":""},{"is_db_not_null",name=="id"?1:0},{"yz_project_id",project},{"sort_no",nextSort}};
+                    ConfigurationColumnDefaults.Fill(values,registry.Platform);
+                    await store.InsertAsync("config_column",values,cancellationToken);
+                }
             }
             var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
             if(context.IsCreate||context.SubmittedFields.ContainsKey("table_name"))
                 await SynchronizeTableNameAsync(table,pages,project,cancellationToken);
-            if(pages.Count==0)
+            if(context.IsCreate&&pages.Count==0)
             {
                 var pageId=ids.NextId();var admin=table.GetValueOrDefault("yz_admin_type_id")??(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"yz_project_id",project}},cancellationToken)).FirstOrDefault()?.GetValueOrDefault("id")??throw new InvalidOperationException("请先为当前项目配置后台类型。");
                 await store.InsertAsync("config_page",new Dictionary<string,object?>{{"id",pageId},{"config_table_id",context.RecordId},{"config_table_table_name",SqlRowStore.Text(table,"table_name")},{"name",SqlRowStore.Text(table,"name")},{"yz_project_id",project},{"yz_admin_type_id",admin},{"page_size",20},{"is_new",1},{"is_save",1},{"is_update",1},{"is_delete",1},{"is_search",1},{"is_edit",1},{"where_sql","yz_project_id=@current_yz_project_id"}},cancellationToken);
             }
-            await EnsurePageFields(context.RecordId,project,cancellationToken);
+            await ValidateAndCreatePageFields(context.RecordId,project,context.IsCreate,cancellationToken);
         }
         if(context.TableName=="config_column")
         {
             var column=(await store.ReadAsync("config_column",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
-            await EnsurePageFields(SqlRowStore.Id(column,"config_table_id"),project,cancellationToken);
+            await ValidateAndCreatePageFields(SqlRowStore.Id(column,"config_table_id"),project,context.IsCreate,cancellationToken,newColumnId:context.IsCreate?context.RecordId:null);
         }
         if(context.TableName=="config_page")
         {
             var page=(await store.ReadAsync("config_page",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
-            await EnsurePageFields(SqlRowStore.Id(page,"config_table_id"),project,cancellationToken,context.RecordId);
+            await ValidateAndCreatePageFields(SqlRowStore.Id(page,"config_table_id"),project,context.IsCreate,cancellationToken,pageId:context.RecordId);
         }
     }
     /// <summary>对象规则在生成写入的同一事务里校验；失败回滚刚写入的记录。</summary>
@@ -211,13 +215,15 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             await DeleteRows("config_index","config_table_id",context.RecordId);
         }
     }
-    /// <summary>表或字段变更更新全部所属页，单页变更仅补该页，避免意外污染其他页面配置。</summary>
-    private async Task EnsurePageFields(long tableId,long project,CancellationToken cancellationToken,long? pageId=null)
+    /// <summary>保留原归属/引用校验；只有创建可补映射，新列仅自身、新页仅本页，Update不修历史洞。</summary>
+    private async Task ValidateAndCreatePageFields(long tableId,long project,bool createMissing,CancellationToken cancellationToken,long? pageId=null,long? newColumnId=null)
     {
         var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
         var columns=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
         foreach(var column in columns)RequireProject(column,project);
         var columnIds=columns.Select(column=>SqlRowStore.Id(column)).ToHashSet();
+        if(newColumnId is{} createdId&&(!createMissing||!columnIds.Contains(createdId)))throw new InvalidOperationException("新增页面字段缺少本次活动源列。");
+        var columnsToCreate=newColumnId is{} id?columns.Where(column=>SqlRowStore.Id(column)==id):columns;
         foreach(var page in pages.Where(p=>pageId is null||SqlRowStore.Id(p)==pageId))
         {
             RequireProject(page,project);
@@ -227,7 +233,9 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
                 RequireProject(field,project);
                 if(!columnIds.Contains(SqlRowStore.Id(field,"config_column_id")))throw new InvalidOperationException("页面已有字段不属于当前表，不能自动补充配置。");
             }
-            foreach(var column in columns)
+            // 普通保存只校验；不能复活已软删映射，也不能把其它列自动加入现有页面。
+            if(!createMissing)continue;
+            foreach(var column in columnsToCreate)
             {
                 if(existing.Any(f=>SqlRowStore.Text(f,"config_column_id")==SqlRowStore.Text(column,"id")))continue;
                 var name=SqlRowStore.Text(column,"column_name");var writable=name is not ("id" or "yz_project_id" or "delete_no")&&!name.StartsWith("insert_")&&!name.StartsWith("update_");

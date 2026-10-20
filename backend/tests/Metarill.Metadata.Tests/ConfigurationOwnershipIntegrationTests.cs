@@ -149,7 +149,7 @@ internal sealed class OwnershipFixture:IAsyncDisposable
     public async Task<Dictionary<string,object?>> Row(string table,long id)=>(await Store.ReadAsync(table,new Dictionary<string,object?>{{"id",id}})).Single();
     private Dictionary<string,object?> ColumnValues(string name,long table)=>new(){["name"]=name,["column_name"]=name,["logical_type"]="string",["column_type"]="varchar",["column_length"]="255",["config_table_id"]=table,["yz_project_id"]=Project};
     /// <summary>按发布物理元数据补测试基础字段，只跟踪本fixture创建的主键。</summary>
-    private async Task Add(string table,long id,Dictionary<string,object?> values)
+    internal async Task Add(string table,long id,Dictionary<string,object?> values)
     {
         values["id"]=id;var definition=Registry.Platform.ConfigTables.Single(item=>item.TableName==table);
         foreach(var column in Registry.Platform.ConfigColumns.Where(item=>item.ConfigTableId==definition.Id&&item.IsDbNotNull==1&&!values.ContainsKey(item.ColumnName)))
