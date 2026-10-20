@@ -54,6 +54,12 @@ public sealed class MetadataWorkbenchController(MetadataWorkbenchBusiness busine
     /// <summary>为现有批量字段工作台提供已有列列表。</summary>
     [HttpPost("/api/admin/custom/config_column/workbench_columns")]
     public async Task<R<object>> WorkbenchColumns(CancellationToken cancellationToken) => R<object>.Success(await business.WorkbenchColumnsAsync(await ReadConfigurationRequest(cancellationToken),cancellationToken));
+    /// <summary>原联接字段页面按关系分组读取当前配置候选，保留原JSON协议。</summary>
+    [HttpPost("/api/admin/custom/config_table/join_column_candidates")]
+    public async Task<R<JoinColumnCandidates>> JoinColumnCandidates([FromBody] JsonElement request,CancellationToken token) => R<JoinColumnCandidates>.Success(await business.JoinColumnCandidatesAsync(request,token));
+    /// <summary>仅保存勾选配置，事务及完整候选校验由Business承担，不在HTTP边界改表。</summary>
+    [HttpPost("/api/admin/custom/config_table/save_join_columns")]
+    public async Task<R<object>> SaveJoinColumns([FromBody] JsonElement request,CancellationToken token) => R<object>.Success(await business.SaveJoinColumnsAsync(request,token));
     /// <summary>附加并发版本但不改变既有data数组。</summary>
     private static R<object> Rows(MetadataRowsSnapshot snapshot)
     { var response = R<object>.Success(snapshot.Rows); response.Map["revision"] = snapshot.Revision; return response; }
