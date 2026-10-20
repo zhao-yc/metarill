@@ -13,6 +13,7 @@ using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
 using Xunit;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Metarill.Generation.Tests;
 
@@ -189,6 +190,40 @@ public sealed class FixedParentRelationTests
                 }
             }
             Assert.Equal(0, opens); await Probe(output);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>按真实发布开关走生成DI工厂；不能用手造构造参数或额外开启导出来掩盖漏注入。</summary>
+    [Fact]
+    public async Task Real_generated_registration_injects_bound_authorization_without_export_or_manual_construction()
+    {
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-fixed-parent-di"); var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(Catalog(), Path.Combine(directory, "generated"), "Example.BoundDi");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory); var opens = 0;
+            using var orm = new FreeSqlBuilder().UseConnectionFactory(DataType.MySql, () => new DeniedConnection(() => opens++)).UseAutoSyncStructure(false).Build();
+            using var session = new DatabaseSession(new() { Provider = "mysql", ExpectedDatabase = "metarill_business_test", ConnectionString = "Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;" }, orm);
+            var authorization = new TargetDeniedAuthorization();
+            var registration = assembly.GetType("Example.BoundDi.Generated.GeneratedRegistration", true)!.GetMethod("AddGeneratedServices")!;
+            foreach (var withAuthorization in new[] { true, false })
+            {
+                var services = new ServiceCollection(); services.AddSingleton(session); services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(867));
+                if (withAuthorization) services.AddSingleton<IRuntimeAuthorization>(authorization);
+                registration.Invoke(null, [services, null]);
+                using var provider = services.BuildServiceProvider(); using var scope = provider.CreateScope();
+                foreach (var source in Sources)
+                {
+                    var type = assembly.GetType("Example.BoundDi.Generated.Services." + source.Table + "Service", true)!;
+                    if (!withAuthorization) { Assert.Contains(nameof(IRuntimeAuthorization), Assert.Throws<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService(type)).Message); continue; }
+                    var service = scope.ServiceProvider.GetRequiredService(type); authorization.Requested.Clear();
+                    var method = type.GetMethod("OptionsPage" + source.Page + "_" + source.Column + "Async")!;
+                    await Assert.ThrowsAsync<UnauthorizedAccessException>(() => (Task)method.Invoke(service, [new RelationOptionsPageRequest { ParentId = "9007199254740993" }, authorization.Actor, CancellationToken.None])!);
+                    Assert.Equal(new[] { source.Page + ":list", TargetPage + ":list" }, authorization.Requested);
+                }
+            }
+            Assert.Equal(0, opens);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }

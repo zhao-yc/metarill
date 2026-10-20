@@ -140,7 +140,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>生成单对象生命周期与按页面隔离的规则。</summary>
     private static string Service(GenerationModel model, TableModel table)
     {
-        var hasMulti = table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table);
+        var hasMulti = RequiresRelationAuthorization(model, table);
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
             .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
@@ -601,6 +601,8 @@ public partial class {{table.Name}}Service
 }
 
 """;
+    /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
+    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table);
     /// <summary>生成可独立选择数据库会话的服务注册。</summary>
     private static string Registration(GenerationModel model)
     {
@@ -611,7 +613,7 @@ public partial class {{table.Name}}Service
             .AppendLine("        services.AddScoped<GeneratedDatabaseSession>(provider => new((databaseFactory ?? (sp => sp.GetRequiredService<DatabaseSession>()))(provider)));");
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
-                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0) || ExportRenderer.RequiresAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
+                .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(RequiresRelationAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
         return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").ToString();
     }
 }
