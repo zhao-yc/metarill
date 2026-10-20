@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "651b36ddc4348e7f25501ec3c563f2761c63ceb81e9f51477a0786b11af6765d",
+  "metadataSha256": "e57987426e248c706f755e2ca55638d2f1ab0377dddd291e17556b88815ba59e",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",

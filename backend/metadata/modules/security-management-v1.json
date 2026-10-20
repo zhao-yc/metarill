@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "moduleId": "security-management-v1",
   "sources": {
-    "platformSha256": "663b7270e96150416447a7a63e9d53ec925e9efece5b30e2e1b48b93b3a74b02",
-    "securitySha256": "2645f4785b55784aa4e1c0b5900f3a1f2fcc6f24b64a9456f2f1d111b97c45dd",
+    "platformSha256": "546e235817f1db434eee2b757cad5b929c5938f66cbd9e514ccc07c5e904d899",
+    "securitySha256": "6321e3b413a3bd41cbe04eb150562bc9654f31aedefe36ca5426981c7a8b9541",
     "filesSha256": "e5bac8b7ce7e4bae674d84b904152eff6f55803691382c55fe81dda7d1118bca"
   },
   "files": {
@@ -2482,6 +2482,14 @@
         "isEnabled": 1
       },
       {
+        "id": "2300000000000010000",
+        "configTableId": "2200000000000000306",
+        "indexName": "ix_session_account_active",
+        "isUnique": 0,
+        "indexType": "INDEX",
+        "isEnabled": 1
+      },
+      {
         "id": "900235310779076608",
         "configTableId": "2063264600555577345",
         "indexName": "yzp_idx_role_permission_role_active",
@@ -2521,6 +2529,22 @@
         "configColumnId": "2200000000000000318",
         "columnName": "token_hash",
         "sortNo": 0,
+        "sortDirection": "ASC"
+      },
+      {
+        "id": "2300000000000010001",
+        "configIndexId": "2300000000000010000",
+        "configColumnId": "2200000000000000317",
+        "columnName": "account_id",
+        "sortNo": 0,
+        "sortDirection": "ASC"
+      },
+      {
+        "id": "2300000000000010002",
+        "configIndexId": "2300000000000010000",
+        "configColumnId": "2200000000000000316",
+        "columnName": "delete_no",
+        "sortNo": 10,
         "sortDirection": "ASC"
       },
       {

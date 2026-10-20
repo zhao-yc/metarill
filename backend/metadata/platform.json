@@ -27573,6 +27573,15 @@
       "yzProjectId": "1608097412978577409"
     },
     {
+      "id": "2300000000000010000",
+      "configTableId": "2200000000000000306",
+      "indexName": "ix_session_account_active",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
       "id": "2200000000000000738",
       "configTableId": "2200000000000000323",
       "indexName": "ux_grant_device",
@@ -27796,6 +27805,24 @@
       "configColumnId": "2200000000000000318",
       "columnName": "token_hash",
       "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2300000000000010001",
+      "configIndexId": "2300000000000010000",
+      "configColumnId": "2200000000000000317",
+      "columnName": "account_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "2300000000000010002",
+      "configIndexId": "2300000000000010000",
+      "configColumnId": "2200000000000000316",
+      "columnName": "delete_no",
+      "sortNo": 10,
       "sortDirection": "ASC",
       "yzProjectId": "1608097412978577409"
     },

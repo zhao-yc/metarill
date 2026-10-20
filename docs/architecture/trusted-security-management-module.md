@@ -85,3 +85,11 @@
 可信生成的 pages.generated.json 现包含原 pages/main/set_role_permission 声明：标题、navigationStyle及其他样式直接取同一原 pages.json 的嵌入字节，不维护第二份路由模板。只接受固定可信模型、唯一原路径和当前完整签发快照；普通Generate、业务JSON标记和签发后变更仍不能输出该路由。
 
 原四个前端资产与路由已在同一生成批次中输出并归属，实际可信生成及普通前端门禁组合61/61、零跳过。该结果未启动HBuilderX、HTTP或数据库；FrontendPackager的正式管理包资源装配及Runtime A门禁仍未解除，不能将生成路由存在当作完整包已可启动。
+
+## 初始化配套会话索引及更新清单收口
+
+初始化事务按account_id撤销活动Web会话，平台源补充必要非唯一ix_session_account_active(account_id, delete_no)，安全基础和模块同图派生。首批只完成元数据及离线预览；随后已在固定隔离测试库由正式SchemaService应用一条索引并核验零差异，EXPLAIN命中正确索引。无关账号并发仍待验，不能仅靠本参数计划与功能回归关闭Runtime A。
+
+前述88项筛选覆盖独立Web认证与CLI，但未覆盖实际类名为ApplicationAuthenticationPackageTests的协调partial，不能将那批结果叫完整协调回归。补入真实主类的首批100项为87通过、13失败，暴露新增SecurityRealmMutationGuard.Initialization.cs尚未登记到本地更新器固定运行时清单。修复仅添加该精确路径，另验实际目录升级及相似未登记含点路径拒绝，不放宽通配策略。052452b的旧CI保留：Node助手20通过/9失败、Generation808通过/61失败/12跳过；前端页面261/261仍通过。新组合结果另行记录，不追改原失败。
+
+精确登记初始化协调器运行时路径后，最终组合166/166、零跳过，实际执行类包括ApplicationAuthenticationPackageTests21、LocalGenerationUpdateTests65、原壳保护1、物理合成17、后台配置5、可信模块17、必要partial15、工作台25。Node助手完整29/29，实际目录升级、缺失源码首次创建、未知相似路径拒绝及原事务恢复均通过。原账号MySQL/HTTP3/3验证新的登录事务，夹具按精确所有权清理自有账号/session并查询零残留；没有执行原初始化按钮或真实初始化业务，不称独立管理Full已验收。

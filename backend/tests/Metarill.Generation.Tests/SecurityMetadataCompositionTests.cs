@@ -19,8 +19,8 @@ public sealed class SecurityMetadataCompositionTests
         MetadataValidation.Validate(security);
         Assert.Equal(SecurityTables.Order(StringComparer.Ordinal), security.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal));
         Assert.Equal(128, security.ConfigColumns.Count);
-        Assert.Equal(5, security.ConfigIndexes.Count);
-        Assert.Equal(8, security.ConfigIndexColumns.Count);
+        Assert.Equal(6, security.ConfigIndexes.Count);
+        Assert.Equal(10, security.ConfigIndexColumns.Count);
         Assert.Empty(security.ConfigPages); Assert.Empty(security.ConfigPageColumns);
         Assert.Empty(security.YzAdminTypes); Assert.Empty(security.ConfigMenus); Assert.Empty(security.ConfigCustomPages);
         Assert.Empty(security.ConfigButtons); Assert.Empty(security.ConfigChildren);
@@ -66,7 +66,7 @@ public sealed class SecurityMetadataCompositionTests
         var before = Serialize(application);
         var merged = MetadataCatalogComposition.MergePhysical(application, security);
         Assert.Equal(6, merged.ConfigTables.Count); Assert.Equal(128, merged.ConfigColumns.Count);
-        Assert.Equal(5, merged.ConfigIndexes.Count); Assert.Equal(8, merged.ConfigIndexColumns.Count);
+        Assert.Equal(6, merged.ConfigIndexes.Count); Assert.Equal(10, merged.ConfigIndexColumns.Count);
         Assert.Equal(before, Serialize(application));
         application.ConfigPages.Add(new() { Id = "42", ConfigTableId = security.ConfigTables[0].Id });
         Assert.Throws<InvalidOperationException>(() => MetadataCatalogComposition.MergePhysical(application, security));

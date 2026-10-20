@@ -163,6 +163,8 @@ index('yz_role_permission','yzp_idx_role_permission_role_active',['yz_role_id','
 index('yz_role','yzp_idx_role_admin_active',['yz_admin_type_id','delete_no']);
 index('yz_manager','yzp_idx_manager_admin_active',['yz_admin_type_id','delete_no']);
 index('sys_session','ux_session_token',['token_hash'],true);
+// 账号初始化按账号撤销活动会话，避免锁查询扫描并阻塞无关账号。
+index('sys_session','ix_session_account_active',['account_id','delete_no']);
 index('sys_agent_grant','ux_grant_device',['device_code_hash'],true);
 index('sys_agent_grant','ux_grant_user',['user_code'],true);
 index('sys_agent_task','ux_task_request',['account_id','project_id','request_id'],true);

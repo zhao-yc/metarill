@@ -1,8 +1,8 @@
 # 安全基础物理模型派生
 
-`backend/metadata/security.json` 是从已提交的 `platform.json` 派生出的平台兼容完整物理定义。固定六表为 `yz_project`、`yz_admin_type`、`yz_manager`、`yz_role`、`yz_role_permission`、`sys_session`，不是只含最低认证字段的精简 schema。当前包含 128 个物理字段、5 个既有索引与 8 条索引字段声明；全部沿用源头稳定 ID，不修改 `platform.json` 或 `identifiers.json`。
+`backend/metadata/security.json` 是从已提交的 `platform.json` 派生出的平台兼容完整物理定义。固定六表为 `yz_project`、`yz_admin_type`、`yz_manager`、`yz_role`、`yz_role_permission`、`sys_session`，不是只含最低认证字段的精简 schema。当前包含128个物理字段、6个必要索引与10条索引字段声明；派生器只读取平台稳定ID，不自行分配标识。账号会话索引的新增ID先在平台源及identifiers.json中登记，既有ID保持。
 
-此文件只是后续独立宿主显式结构安装的准备输入。本片未接入 Host、认证、账号初始化、三个手写 Service 守卫或打包器；没有连接或修改数据库，没有下发安全协调运行时，也没有关闭角色运行时能力缺口。主应用与平台的既有结构安装流程不因新增此文件自动改变。
+安全物理模型作为独立宿主显式结构安装输入，正式Web包已使用该模型及共享安全程序集；这不开放普通安全CRUD、原初始化按钮或完整管理包。新增会话索引已在固定隔离测试库经正式预览、执行、核验流程应用；其他数据库仍须各自同步，Runtime A未关闭。
 
 ## 源头与物理边界
 
@@ -33,3 +33,15 @@ node --test tools/metadata/derive-security.test.mjs
 Node 回归实际运行派生 CLI，覆盖六表缺失/替换、必要字段与索引漂移、重复或跨类别 ID、跨表索引、敏感默认值、受控输出、两轮字节稳定和检查不写入。C# 回归调用真实 `MetadataValidation`、`MySqlSchemaPlanner.Compile` 和 `MergePhysical`，对照平台六表的完整结构计划，并验证与 demo/files 合成和冲突拒绝。它们都是离线验证，不代表真实 MySQL 安装、登录、撤权并发或独立 Host 验收。
 
 本片实际结果：Node 11/11；C# 新增 17 项及既有组合 4 项，共 21/21，零跳过，`-warnaserror` 零警告。C# 报告位于本地 `.local/security-physical-metadata-results/security-metadata-composition.trx`，日志不提交。
+
+## 账号会话锁索引
+
+原初始化事务需要按account_id定位活动会话并加锁。单有ux_session_token无法服务该条件，因此从scripts/build-platform-metadata.mjs声明非唯一ix_session_account_active(account_id, delete_no)，随平台、安全基础模型和固定管理模块一起派生。MySQL二级索引已带主键，不重复追加id。
+
+索引与两条索引字段使用全新2300000000000010000至2300000000000010002；1436个既有标识逐值保持，新增三个后共1439个，不重用已放弃的历史临时标识。必要索引校验固定名称、ID、非唯一性、启用状态、字段顺序及ASC方向，缺失或漂移直接拒绝。
+
+已有数据库必须经原“反查→预览→确认执行→核验”流程补索引，再作实际参数EXPLAIN、锁范围与并发验收，之后才能启用初始化入口。离线缺索引模型的差异仅为一条ADD INDEX，重复预览为空，同名反序索引明确冲突；不自动执行DDL或启动同步。代码/元数据存在不证明线上已有索引或锁计划正确。
+
+本批实际测试库先只读核定目标实例，再由正式SchemaService预览，仅一条ADD INDEX；执行一条并记录文件journal，执行后正式预览0差异。独立只读复核索引存在，实际参数EXPLAIN从ALL且无候选索引变为ref并命中ix_session_account_active。前后原17列零行探针均为三表1142，未增加观测权限、初始化账号或进行生产操作。这只是本参数计划和单表结构结果，不代替无关账号并发与完整Runtime A验收。
+
+源头/派生组合28/28；四个既有索引合同加新会话索引合同5/5；真实打包、物理合成、可信管理模块与更新器组合166/166；原账号真实MySQL/HTTP三个用例全部通过并包含夹具自有账号/session清理核查；Node助手真实CLI整链29/29，均零跳过。正规再生成175归属文件、0新手写文件，199现存文件重复生成字节稳定，既有1436标识全部保持。原失败100项中的13失败及旧CI失败单独保留。

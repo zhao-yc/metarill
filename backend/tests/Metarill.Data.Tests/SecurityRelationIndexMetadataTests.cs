@@ -64,6 +64,28 @@ public sealed class SecurityRelationIndexMetadataTests
         var current=desired with{Tables=desired.Tables.Select(table=>table.Name!=target.Table?table:table with{Indexes=table.Indexes!.Select(index=>index.Name!=target.Index?index:index with{Columns=index.Columns.Reverse().ToArray()}).ToArray()}).ToArray()};
         Assert.Throws<InvalidOperationException>(()=>MySqlSchemaPlanner.Compare(current,desired));
     }
+    /// <summary>会话撤销查询需按账号和活动标记定位，离线预览只增加一个非唯一索引且不修改列。</summary>
+    [Fact]
+    public void Account_session_index_has_new_stable_ids_and_one_explicit_additive_schema_change()
+    {
+        var (catalog,root)=Load();var desired=MySqlSchemaPlanner.Compile(catalog,"offline_session_preview");
+        var session=desired.Tables.Single(table=>table.Name=="sys_session");
+        var index=Assert.Single(session.Indexes!,value=>value.Name=="ix_session_account_active");
+        Assert.False(index.Unique);Assert.Equal(new[]{"account_id","delete_no"},index.Columns);
+        var definition=Assert.Single(catalog.ConfigIndexes,value=>Text(value,"indexName")==index.Name);
+        Assert.Equal("2300000000000010000",Text(definition,"id"));
+        using var ids=JsonDocument.Parse(File.ReadAllText(Path.Combine(root,"backend/metadata/identifiers.json")));
+        Assert.Equal("2300000000000010000",ids.RootElement.GetProperty("index:sys_session:ix_session_account_active").GetString());
+        var references=catalog.ConfigIndexColumns.Where(value=>Text(value,"configIndexId")=="2300000000000010000").OrderBy(value=>int.Parse(Text(value,"sortNo"))).ToArray();
+        Assert.Equal(new[]{"2300000000000010001","2300000000000010002"},references.Select(value=>Text(value,"id")));
+        var before=desired with{Tables=desired.Tables.Select(table=>table.Name!="sys_session"?table:table with{Indexes=table.Indexes!.Where(value=>value.Name!=index.Name).ToArray()}).ToArray()};
+        var change=Assert.Single(MySqlSchemaPlanner.Compare(before,desired));
+        Assert.Equal("addIndex",change.Kind);Assert.Equal("sys_session",change.Table);
+        Assert.Equal("ALTER TABLE `sys_session` ADD INDEX `ix_session_account_active` (`account_id`, `delete_no`)",change.Sql);
+        Assert.Empty(MySqlSchemaPlanner.Compare(desired,desired));
+        Assert.Throws<InvalidOperationException>(()=>MySqlSchemaPlanner.Compare(
+            desired with{Tables=desired.Tables.Select(table=>table.Name!="sys_session"?table:table with{Indexes=table.Indexes!.Select(value=>value.Name!=index.Name?value:value with{Columns=["delete_no","account_id"]}).ToArray()}).ToArray()},desired));
+    }
     /// <summary>仓库自身是该冻结平台测试的输入；不依赖原D盘源码或私有数据库配置。</summary>
     private static (MetadataCatalog Catalog,string Root) Load()
     {

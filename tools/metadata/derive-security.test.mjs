@@ -30,7 +30,7 @@ test('派生六表完整物理闭包且不修改平台源，不传播控件和�
   }
   for (const table of actual.configTables) assert.deepEqual(Object.keys(table), ['id', 'tableName', 'isFunctionTable', 'isView']);
   for (const key of ['configPages', 'configPageColumns', 'yzAdminTypes', 'configMenus', 'configCustomPages', 'configButtons', 'configChildren']) assert.deepEqual(actual[key], []);
-  assert.equal(actual.configIndexes.length, 5); assert.equal(actual.configIndexColumns.length, 8);
+  assert.equal(actual.configIndexes.length, 6); assert.equal(actual.configIndexColumns.length, 10);
   assert.ok(!JSON.stringify(actual).includes('sys_agent'));
 });
 
@@ -167,3 +167,22 @@ test('check发现源头物理变更及产物漂移，不修改文件，CLI不接
   assert.throws(() => run(workspace, '--check')); assert.deepEqual(readFileSync(path), Buffer.concat([before, Buffer.from('\n')]));
   for (const args of [['--tables', 'sys_agent_grant'], ['--output', 'outside.json'], ['--check', '--check']]) assert.throws(() => run(workspace, ...args));
 }));
+
+// 活动会话按账号读取必须进入安全物理闭包；不能靠改名、换列或唯一性漂移假装已经有索引。
+test('账号活动会话索引按新稳定标识和有序两列派生，漂移被拒绝', () => {
+  const actual = deriveSecurity(fresh());
+  const index = actual.configIndexes.find(row => row.id === '2300000000000010000');
+  assert.equal(index.indexName, 'ix_session_account_active'); assert.equal(index.isUnique, 0);
+  const fields = actual.configIndexColumns.filter(row => row.configIndexId === index.id).toSorted((left, right) => left.sortNo - right.sortNo);
+  assert.deepEqual(fields.map(row => [row.id, row.columnName, row.sortNo]), [
+    ['2300000000000010001', 'account_id', 0], ['2300000000000010002', 'delete_no', 10],
+  ]);
+  for (const mutate of [
+    input => Object.assign(input.configIndexes.find(row => row.id === index.id), { isUnique: 1, indexType: 'UNIQUE' }),
+    input => input.configIndexColumns.find(row => row.id === '2300000000000010001').sortNo = 20,
+    input => input.configIndexColumns.find(row => row.id === '2300000000000010002').configColumnId = '2200000000000000317',
+  ]) {
+    const input = fresh(); mutate(input);
+    assert.throws(() => deriveSecurity(input), /索引/);
+  }
+});

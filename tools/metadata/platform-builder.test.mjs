@@ -106,11 +106,11 @@ test('结构声明缺字段名或类型时由builder明确拒绝', () => {
 });
 
 // 恢复控件以追加方式进入已发布目录，既有数组顺序、三个完整对象和所有固定标识都不能漂移。
-test('原账号三凭据按已发布尾部顺序重建，保留完整对象和1436固定标识', () => withSandbox(workspace => {
+test('原账号三凭据按已发布尾部顺序重建，保留完整对象和1439固定标识', () => withSandbox(workspace => {
   const restoredIds = ['1679698326770069506', '1679698328187744258', '1679698328317767682'];
   const identifiersPath = join(workspace, 'backend/metadata/identifiers.json');
   const beforeIdentifiers = JSON.parse(readFileSync(identifiersPath, 'utf8'));
-  assert.equal(Object.keys(beforeIdentifiers).length, 1436);
+  assert.equal(Object.keys(beforeIdentifiers).length, 1439);
   const rebuilt = generate(workspace);
   assert.deepEqual(rebuilt.configPageColumns.map(field => field.id), canonical.configPageColumns.map(field => field.id), '全目录页字段ID数组顺序必须保持');
   assert.deepEqual(rebuilt.configPageColumns.slice(-3).map(field => field.id), restoredIds);

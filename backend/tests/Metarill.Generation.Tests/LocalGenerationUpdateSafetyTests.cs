@@ -43,6 +43,22 @@ public sealed partial class LocalGenerationUpdateTests
         Assert.Throws<InvalidOperationException>(() => updater.Preview(target, target, All)); Assert.Throws<InvalidOperationException>(() => updater.Preview(target, Path.Combine(target, "frontend"), All)); Assert.Equal(before, SourceSnapshot(target));
     }
 
+    /// <summary>新增初始化协调器按固定运行时路径升级，其他含点源码路径仍明确拒绝，不扩成通配写入。</summary>
+    [Fact]
+    public void Initialization_coordinator_is_one_explicit_runtime_path_and_unknown_dotted_source_remains_rejected()
+    {
+        var(target,candidate)=Packages(Catalog(),Catalog());const string path="src/Metarill.Security/SecurityRealmMutationGuard.Initialization.cs";
+        var marker=Path.Combine(target,".metarill-package.json");var old=JsonNode.Parse(File.ReadAllText(marker))!;
+        var files=old["files"]!.AsArray();files.Remove(files.Single(file=>file!["path"]!.GetValue<string>()==path));File.Delete(Path.Combine(target,path));File.WriteAllText(marker,old.ToJsonString(Json));
+        var updater=new LocalGenerationUpdater();var plan=updater.Preview(target,candidate,["sync-runtime"]);
+        Assert.True(plan.CanApply);Assert.Contains(plan.Files,file=>file.Path==path&&file.Action=="create");
+        Assert.Equal("committed",updater.Apply(plan,plan.PlanSha256).Status);Assert.Equal(File.ReadAllBytes(Path.Combine(candidate,path)),File.ReadAllBytes(Path.Combine(target,path)));
+        var before=SourceSnapshot(target);var candidateMarker=Path.Combine(candidate,".metarill-package.json");var changed=JsonNode.Parse(File.ReadAllText(candidateMarker))!;
+        const string unknown="src/Metarill.Security/SecurityRealmMutationGuard.Unregistered.cs";
+        changed["files"]!.AsArray().Single(file=>file!["path"]!.GetValue<string>()==path)!["path"]=unknown;
+        File.Move(Path.Combine(candidate,path),Path.Combine(candidate,unknown));File.WriteAllText(candidateMarker,changed.ToJsonString(Json));
+        var error=Assert.Throws<InvalidOperationException>(()=>updater.Preview(target,candidate,["sync-runtime"]));Assert.Contains(unknown,error.Message);Assert.Equal(before,SourceSnapshot(target));
+    }
     /// <summary>项目身份必须来自真实包三层定义，其他项目即使命名空间相同也不能更新。</summary>
     [Fact]
     public void Cross_project_candidates_are_refused_even_when_namespace_and_file_names_match()
