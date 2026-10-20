@@ -126,7 +126,10 @@ internal sealed class OwnershipFixture:IAsyncDisposable
                 await f.Add("yz_admin_type",f.ForeignAdmin,new(){["name"]="他项目后台",["yz_project_id"]=f.ForeignProject});
                 foreach(var id in new[]{f.Table,f.OtherTable})await f.Add("config_table",id,new(){["name"]="归属测试表",["table_name"]="mt_ownership_"+id,["yz_project_id"]=f.Project,["yz_admin_type_id"]=f.Admin});
                 await f.Add("config_column",f.Column,f.ColumnValues("title",f.Table));await f.Add("config_column",f.IndexedColumn,f.ColumnValues("indexed_value",f.Table));await f.Add("config_column",f.OtherColumn,f.ColumnValues("other_value",f.OtherTable));
-                await f.Add("config_page",f.Page,new(){["name"]="归属测试页",["config_table_id"]=f.Table,["yz_project_id"]=f.Project,["yz_admin_type_id"]=f.Admin});
+                // 归属夹具也保留真实源表派生缓存，避免将不完整种子误当普通同外键编辑失败。
+                var pageValues=new Dictionary<string,object?>{["name"]="归属测试页",["config_table_id"]=f.Table,["yz_project_id"]=f.Project,["yz_admin_type_id"]=f.Admin};
+                ConfigurationMaterializedValues.Page(pageValues,await f.Row("config_table",f.Table));
+                await f.Add("config_page",f.Page,pageValues);
                 await f.Add("config_page_column",Ids.NextId(),new(){["name"]="原表页面字段",["config_page_id"]=f.Page,["config_column_id"]=f.Column,["yz_project_id"]=f.Project});
                 await f.Add("config_custom_page",f.CustomPage,new(){["name"]="归属测试自定义页",["page_path"]="pages/custom/ownership_test",["yz_project_id"]=f.Project,["yz_admin_type_id"]=f.Admin});
                 await f.Add("config_menu",f.PageMenu,new(){["name"]="页面菜单",["kind"]="GENERATED_PAGE",["config_page_id"]=f.Page,["yz_admin_type_id"]=f.Admin,["yz_project_id"]=f.Project});
