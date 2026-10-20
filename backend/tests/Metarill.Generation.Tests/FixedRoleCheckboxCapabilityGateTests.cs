@@ -9,7 +9,7 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class FixedRoleCheckboxCapabilityGateTests
 {
-    /// <summary>type=2回读统一VO，详情可读但网格隐藏的角色也会输出；完全隐藏则不误加选择用途缺口。</summary>
+    /// <summary>type=2回读统一VO，详情可读但网格隐藏的角色也会输出；已接入计算名不再误报选择用途缺口。</summary>
     [Theory]
     [InlineData("ordinary",false)] [InlineData("selection",true)]
     [InlineData("detail-only-selection",true)] [InlineData("hidden-selection",false)]
@@ -25,11 +25,11 @@ public sealed class FixedRoleCheckboxCapabilityGateTests
         if(kind=="hidden-selection")HideRole(catalog);
         var model=GenerationModel.Create(catalog,"Example.RoleSelectionGap");var table=model.Tables.Single(item=>item.Source.Id==FixedRoleCheckboxCompilation.ManagerTable);var page=Assert.Single(table.Pages);
         var gaps=RoleGaps(model,page.Source.Id);
-        Assert.Single(gaps,gap=>gap.Usage=="runtime");Assert.Equal(expected,gaps.Any(gap=>gap.Usage=="selection"));
+        Assert.Single(gaps,gap=>gap.Usage=="runtime");Assert.DoesNotContain(gaps,gap=>gap.Usage=="selection");
         Assert.Equal(expected,SelectionPageRenderer.Enabled(page)&&page.Readable.Any(column=>column.Source.Id==FixedRoleCheckboxCompilation.RoleColumn));
-        Assert.DoesNotContain(gaps,gap=>gap.Usage=="export");Assert.Equal(expected?2:1,gaps.Length);
+        Assert.DoesNotContain(gaps,gap=>gap.Usage=="export");Assert.Single(gaps);
         var exception=Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
-        if(expected)Assert.Contains("/yz_role_ids/selection",exception.Message);
+        Assert.Contains("/yz_role_ids/runtime",exception.Message);
     }
 
     /// <summary>坏声明或被移除字段不能抹掉安全服务身份；实际生成仍可编译普通保存，但完整包在写stage前拒绝。</summary>
@@ -70,20 +70,20 @@ public sealed class FixedRoleCheckboxCapabilityGateTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
-    /// <summary>选择端点当前真实编译仍调用无名称参数的VO转换，因此用途缺口不能随Runtime A一起取消。</summary>
+    /// <summary>选择端点真实编译补齐计算名称，但Runtime A独立门禁仍不能随用途完成取消。</summary>
     [Fact]
-    public async Task Readable_role_selection_real_generation_retains_its_separate_usage_gap()
+    public async Task Readable_role_selection_real_generation_projects_names_and_keeps_runtime_gap()
     {
         var catalog=FixedRoleCheckboxTests.Catalog();ManagerPage(catalog).Extra["type"]=JsonSerializer.SerializeToElement(2);
         var model=GenerationModel.Create(catalog,"Example.RoleSelectionProof");var page=model.Tables.Single(item=>item.Source.Id==FixedRoleCheckboxCompilation.ManagerTable).Pages.Single();
-        Assert.Single(RoleGaps(model,page.Source.Id),gap=>gap.Usage=="selection");
+        Assert.DoesNotContain(RoleGaps(model,page.Source.Id),gap=>gap.Usage=="selection");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-role-selection-gate");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);
         try
         {
             var full=Path.Combine(directory,"full");var denied=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,full,"Example.RoleSelectionProof",SourceRoot()));
-            Assert.Contains("/yz_role_ids/selection",denied.Message);Assert.False(Directory.Exists(full));Assert.Empty(Directory.GetDirectories(directory,"full.staging-*"));
+            Assert.Contains("/yz_role_ids/runtime",denied.Message);Assert.False(Directory.Exists(full));Assert.Empty(Directory.GetDirectories(directory,"full.staging-*"));
             var generated=Path.Combine(directory,"generated");new CSharpGenerator().Generate(catalog,generated,"Example.RoleSelectionProof");
-            Assert.Contains("return selected.Select(id => YzManagerPage6031906822946816Vo.FromEntity(rows[id])).ToArray();",File.ReadAllText(Path.Combine(generated,"Services/YzManagerService.g.cs")));
+            Assert.Contains("return await ProjectRoleNames6031906822946816Async(ordered, actor, \"list\", cancellationToken);",File.ReadAllText(Path.Combine(generated,"Services/YzManagerService.g.cs")));
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             Assert.NotNull(assembly.GetType("Example.RoleSelectionProof.Generated.Services.YzManagerService",true)!.GetMethod("SelectionSelected6031906822946816Async"));
             Assert.NotNull(assembly.GetType("Example.RoleSelectionProof.Generated.VOs.YzManagerPage6031906822946816Vo",true)!.GetProperty("YzRoleNames"));

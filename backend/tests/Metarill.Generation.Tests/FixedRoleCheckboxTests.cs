@@ -118,11 +118,11 @@ public sealed class FixedRoleCheckboxTests
         Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
     }
 
-    /// <summary>角色导出缺口严格复用真实开启/列规则；未导出隐藏角色列不误加缺口。</summary>
+    /// <summary>原角色导出为ID数组文本；已证明用途不再误报，关闭与隐藏列仍按元数据保持。</summary>
     [Theory]
     [InlineData("disabled",false)] [InlineData("flag-list",true)] [InlineData("method-list",true)] [InlineData("method-edit",true)]
     [InlineData("list-without-role",false)] [InlineData("edit-without-role",false)] [InlineData("hidden-all",false)] [InlineData("flag-unknown-mode",true)]
-    public void Enabled_role_export_has_its_own_gap_only_when_the_real_export_contains_the_column(string kind,bool expected)
+    public void Original_role_id_export_keeps_its_column_switch_without_a_false_name_gap(string kind,bool expected)
     {
         var catalog=Catalog();var source=catalog.ConfigPages.Single(page=>page.Id==FixedRoleCheckboxCompilation.ManagerPage);
         source.IsExport=kind is "flag-list" or "flag-unknown-mode" or "hidden-all"?1:0;
@@ -134,8 +134,8 @@ public sealed class FixedRoleCheckboxTests
         var model=GenerationModel.Create(catalog,"Example.RoleExportGap");var table=model.Tables.Single(item=>item.Source.Id==FixedRoleCheckboxCompilation.ManagerTable);var page=table.Pages.Single();var role=FixedRoleCheckboxCompilation.ForService(model,table,page)!;
         Assert.Equal(expected,ExportRenderer.IncludesColumn(page,role.Source));
         var gaps=GenerationCapabilityAudit.Collect(model).Where(gap=>gap.PageId==page.Source.Id&&gap.Column=="yz_role_ids").ToArray();
-        Assert.Single(gaps,gap=>gap.Usage=="runtime");Assert.Equal(expected,gaps.Any(gap=>gap.Usage=="export"));
-        if(expected)Assert.Single(gaps,gap=>gap.Usage!="runtime");else Assert.Single(gaps);
+        Assert.Single(gaps,gap=>gap.Usage=="runtime");Assert.DoesNotContain(gaps,gap=>gap.Usage=="export");
+        Assert.Single(gaps);
         Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
     }
 

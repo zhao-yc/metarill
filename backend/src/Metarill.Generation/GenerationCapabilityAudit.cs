@@ -37,19 +37,7 @@ internal static class GenerationCapabilityAudit
             // 账号写协调按固定服务身份保留；字段证明失败或字段被移除不能让尚未验收的服务提前发布。
             if(FixedRoleCheckboxCompilation.RequiresRuntimeCoordination(table,page))
                 gaps.Add(new(page.Source.Id,"yz_role_ids","runtime","MultiCheckBoxDatabase角色最终合并后台校验及撤权协调仍待Runtime A验收。"));
-            if(FixedRoleCheckboxCompilation.ForService(model,table,page) is {} role)
-            {
-                if(ExportRenderer.IncludesColumn(page,role.Source))
-                    gaps.Add(new(page.Source.Id,role.Source.Source.ColumnName,"export","MultiCheckBoxDatabase角色导出尚未接入固定名称投影，不能将ID文本冒充原角色名称。"));
-            }
-            // type=2已选回读输出统一页VO，尚未接入计算角色名称；不能随未来Runtime门禁验收一起放行。
-            if(SelectionPageRenderer.Enabled(page) && FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} selectedRole)
-                gaps.Add(new(page.Source.Id,selectedRole.Source.Source.ColumnName,"selection","MultiCheckBoxDatabase角色已选行回读尚未接入固定名称投影，不能将空名称冒充完整选择回执。"));
-            if(FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} roleAdmin)
-            {
-                if(SelectionPageRenderer.Enabled(page))gaps.Add(new(page.Source.Id,roleAdmin.Source.Source.ColumnName,"selection","固定后台名称尚未接入type=2选择回执。"));
-                if(ExportRenderer.IncludesColumn(page,roleAdmin.Source))gaps.Add(new(page.Source.Id,roleAdmin.Source.Source.ColumnName,"export","固定后台名称导出尚未统一原来源动作的计算投影合同。"));
-            }
+            // 原冗余角色导出本来就是ID数组JSON文本；选择回执与后台名单选导出已有固定投影，不能再以旧假设阻断。
             // 原选择页按辅助名称键搜索；只有同一固定编译计划确认可执行时才解除筛选缺口。
             var names=SelectionNameFilterCompilation.ForPage(model,table,page);
             foreach(var gap in names.Gaps)gaps.Add(new(page.Source.Id,gap.Source.Source.ColumnName,"filter",gap.Reason));

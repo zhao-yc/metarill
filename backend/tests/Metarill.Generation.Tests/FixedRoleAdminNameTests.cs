@@ -96,7 +96,7 @@ public sealed class FixedRoleAdminNameTests
         Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
     }
 
-    /// <summary>未接入的选择/导出用途分别阻断，不改变原角色页关闭的开关或隐藏字段读取范围。</summary>
+    /// <summary>已证明的选择/导出用途不再误报缺口，不改变原角色页关闭的开关或隐藏字段读取范围。</summary>
     [Theory]
     [InlineData("selection",true)] [InlineData("export",true)] [InlineData("hidden-selection",false)] [InlineData("hidden-export",false)]
     public void Enabled_unfinished_uses_keep_precise_gaps(string usage,bool expected)
@@ -105,8 +105,8 @@ public sealed class FixedRoleAdminNameTests
         if(usage.EndsWith("selection",StringComparison.Ordinal))p.Extra["type"]=JsonSerializer.SerializeToElement(2);else p.IsExport=1;
         if(usage.StartsWith("hidden",StringComparison.Ordinal))catalog.ConfigPageColumns.Remove(Field(catalog));
         var (model,table,page)=Model(catalog);var gaps=GenerationCapabilityAudit.Collect(model).Where(item=>item.Column=="yz_admin_type_id").ToArray();
-        Assert.Equal(expected,gaps.Any(item=>item.Usage==(usage.EndsWith("selection",StringComparison.Ordinal)?"selection":"export")));
-        if(expected)Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        Assert.DoesNotContain(gaps,item=>item.Usage is "selection" or "export");
+        if(expected)new FrontendPackager().Validate(catalog);
         else {Assert.Null(FixedRoleAdminNameCompilation.ForPage(model,table,page));Assert.DoesNotContain(ReadProjectionCompilation.ForPage(model,table,page).List.OutputFields,item=>item.JsonName==FixedRoleAdminNameModel.Alias);}
     }
 
@@ -233,14 +233,14 @@ public sealed class FixedRoleAdminNameTests
     /// <summary>严格区分翻译与执行：表达式交真实FreeSql翻译，行仅在内存执行已捕获的固定谓词。</summary>
     public sealed class OfflineRows
     {
-        internal Dictionary<Type,object[]> Data{get;}=new();internal List<string> Commands{get;}=[];internal List<string> Writes{get;}=[];internal bool AllowWrites;internal int Active,MaxConcurrent;
+        internal Dictionary<Type,object[]> Data{get;}=new();internal List<string> Commands{get;}=[];internal List<string> Writes{get;}=[];internal IFreeSql TranslationOrm=null!;internal bool AllowWrites;internal int Active,MaxConcurrent,PredicateDepth;
         internal async Task<T> Complete<T>(object? value){var active=Interlocked.Increment(ref Active);MaxConcurrent=Math.Max(MaxConcurrent,active);try{await Task.Yield();return (T)value!;}finally{Interlocked.Decrement(ref Active);}}
     }
     /// <summary>仅Select交真实FreeSql规划，写替身必须由回滚案例显式开启。</summary>
     public class ReadOrmProxy:DispatchProxy
     {
         private IFreeSql real=null!;private OfflineRows rows=null!;
-        internal void Initialize(IFreeSql value,OfflineRows data){real=value;rows=data;}
+        internal void Initialize(IFreeSql value,OfflineRows data){real=value;rows=data;rows.TranslationOrm=value;}
         protected override object? Invoke(MethodInfo? method,object?[]? args)
         {
             if(method!.Name is "Insert" or "Update" or "Delete")
@@ -261,15 +261,32 @@ public sealed class FixedRoleAdminNameTests
         protected override object? Invoke(MethodInfo? method,object?[]? args)
         {
             args??=[];var lambda=args.OfType<System.Linq.Expressions.LambdaExpression>().FirstOrDefault();
-            if(method!.Name is "ToListAsync" or "CountAsync" or "FirstAsync")
+            if(method!.Name == "Any")
+            {
+                if (rows.PredicateDepth == 0) throw new InvalidOperationException("同步Any只用于内存谓词中模拟同一SQL的固定EXISTS。");
+                IEnumerable<object> data=rows.Data.GetValueOrDefault(entity)??[];
+                foreach(var filter in filters) {var predicate=filter.Compile();data=data.Where(item=>(bool)predicate.DynamicInvoke(item)!);}
+                return data.Any();
+            }
+            if(method.Name is "ToListAsync" or "CountAsync" or "FirstAsync")
             {
                 rows.Commands.Add((string)typeof(ReadQueryProxy).GetMethod(nameof(Sql),BindingFlags.Static|BindingFlags.NonPublic)!.MakeGenericMethod(entity,lambda?.ReturnType??entity).Invoke(null,[real,lambda,method.Name=="CountAsync"])!);
                 IEnumerable<object> data=rows.Data.GetValueOrDefault(entity)??[];foreach(var filter in filters){var predicate=filter.Compile();data=data.Where(item=>(bool)predicate.DynamicInvoke(item)!);}
-                object? result;if(method.Name=="CountAsync")result=data.LongCount();else if(method.Name=="FirstAsync")result=data.FirstOrDefault();else{var type=method.ReturnType.GetGenericArguments()[0];var list=(System.Collections.IList)Activator.CreateInstance(type)!;var project=lambda?.Compile();foreach(var item in data)list.Add(project is null?item:project.DynamicInvoke(item));result=list;}
+                object? result;rows.PredicateDepth++;
+                try {if(method.Name=="CountAsync")result=data.LongCount();else if(method.Name=="FirstAsync")result=data.FirstOrDefault();else{var type=method.ReturnType.GetGenericArguments()[0];var list=(System.Collections.IList)Activator.CreateInstance(type)!;var project=lambda?.Compile();foreach(var item in data)list.Add(project is null?item:project.DynamicInvoke(item));result=list;}}
+                finally {rows.PredicateDepth--;}
                 return typeof(OfflineRows).GetMethod(nameof(OfflineRows.Complete),BindingFlags.Instance|BindingFlags.NonPublic)!.MakeGenericMethod(method.ReturnType.GetGenericArguments()[0]).Invoke(rows,[result]);
             }
             if(method.Name=="Where"&&lambda is not null)filters.Add(lambda);
+            // 翻译使用真实provider，内存谓词仍用原proxy模拟同一SQL中的相关EXISTS；不让ORM反射测试代理私有状态。
+            if(lambda is not null){args=(object?[])args.Clone();for(var i=0;i<args.Length;i++)if(ReferenceEquals(args[i],lambda))args[i]=new SqlProviderVisitor(rows.TranslationOrm).Visit(lambda);}
             var value=method.Invoke(real,args);return method.ReturnType.IsInstanceOfType(self)?self:value;
+        }
+        /// <summary>只在SQL翻译副本替换固定ORM实例，业务过滤表达式和测试数据不改变。</summary>
+        private sealed class SqlProviderVisitor(IFreeSql orm):System.Linq.Expressions.ExpressionVisitor
+        {
+            protected override System.Linq.Expressions.Expression VisitMember(System.Linq.Expressions.MemberExpression node)
+                => node.Type==typeof(IFreeSql)?System.Linq.Expressions.Expression.Constant(orm,typeof(IFreeSql)):base.VisitMember(node);
         }
         /// <summary>只调用真实ToSql，连接工厂始终拒绝打开数据库。</summary>
         private static string Sql<T,TResult>(object query,System.Linq.Expressions.LambdaExpression? select,bool count)where T:class=>count?((FreeSql.ISelect<T>)query).ToSql("count(1)"):select is null?((FreeSql.ISelect<T>)query).ToSql():((FreeSql.ISelect<T>)query).ToSql((System.Linq.Expressions.Expression<Func<T,TResult>>)select);

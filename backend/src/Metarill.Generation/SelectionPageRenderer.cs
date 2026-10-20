@@ -37,12 +37,18 @@ internal static class SelectionPageRenderer
             .AppendLine($"    public async Task<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
             .AppendLine($"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);");
+        // 固定计算名称的实际来源动作仍是本页list；先拒绝再读源行，不借候选的任一动作权限。
+        if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        RequireRoleNameAction{suffix}(actor,\"list\");");
+        else if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        _ = RoleAdminNameScope{suffix}(actor,\"list\");");
+        var projected = FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,"ordered","list",!ManagerCredentialCompilation.IsOriginal(table,page))
+            : FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null ? FixedRoleAdminNameRenderer.ProjectCall(page,"ordered","list") : null;
         return result.AppendLine($"        var query = Query{suffix}(new PageRequest {{ ParentId = request.ParentId, SelectedIds = selected.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToList() }}, actor);")
             .AppendLine("        if (selected.Length == 0) return [];")
             .AppendLine(ManagerCredentialCompilation.IsTable(table) ? $"        var entities = await query.Limit(200).ToListAsync({ManagerCredentialCompilation.ReadProjection(table)}, cancellationToken);" : "        var entities = await query.Limit(200).ToListAsync(cancellationToken);")
             .AppendLine("        if (entities.Count != selected.Length) throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
             .AppendLine("        var rows = entities.ToDictionary(row => row.Id);")
-            .AppendLine($"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id]{(ManagerCredentialCompilation.IsOriginal(table,page) ? FixedRoleCheckboxCompilation.ForPage(model,table,page) is null ? ",false" : ",null,false" : "")})).ToArray();").AppendLine("    }").ToString();
+            .Append(projected is null ? "" : "        var ordered = selected.Select(id => rows[id]).ToArray();\n")
+            .AppendLine(projected is not null ? "        return " + projected + ";" : $"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id]{(ManagerCredentialCompilation.IsOriginal(table,page) ? FixedRoleCheckboxCompilation.ForPage(model,table,page) is null ? ",false" : ",null,false" : "")})).ToArray();").AppendLine("    }").ToString();
     }
 
     /// <summary>回读使用目标页list权限与真实Actor，不借用请求项目或来源控件配置。</summary>

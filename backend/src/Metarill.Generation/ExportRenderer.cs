@@ -15,9 +15,14 @@ internal static class ExportRenderer
     /// <summary>能力门禁复用真实导出开启和列选择规则，未导出该列不产生该用途缺口。</summary>
     internal static bool IncludesColumn(PageModel page, ColumnModel column) => Enabled(page) && Columns(page).Any(candidate => candidate.Source.Id == column.Source.Id);
     /// <summary>关系导出使用与控件相同的固定目标，不按客户端参数选择授权对象。</summary>
-    private static RelationModel[] Relations(GenerationModel model, PageModel page) => RelationCompilation.ForPage(model, page).Where(relation => Columns(page).Contains(relation.SourceColumn)).ToArray();
+    private static RelationModel[] Relations(GenerationModel model, PageModel page) => RelationCompilation.ForPage(model, page)
+        .Where(relation => Columns(page).Contains(relation.SourceColumn) && FixedRoleAdminNameCompilation.Resolve(model,model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId),page,relation.SourceColumn).Definition is null).ToArray();
+    /// <summary>只有原固定声明和实际导出列同时证明时，才使用来源动作的固定投影。</summary>
+    private static bool HasFixedRole(GenerationModel model,TableModel table,PageModel page) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} role && IncludesColumn(page,role.Source);
+    /// <summary>后台名单选输出原辅助名，绝不因普通候选额外要求目标页查询权限。</summary>
+    private static FixedRoleAdminNameModel? FixedAdmin(GenerationModel model,TableModel table,PageModel page) => FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && IncludesColumn(page,admin.Source) ? admin : null;
     /// <summary>含关系名称的导出必须注入真实授权，独立宿主与平台使用同一Service注册合同。</summary>
-    internal static bool RequiresAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => Enabled(page) && Relations(model, page).Length > 0);
+    internal static bool RequiresAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => Enabled(page) && (Relations(model, page).Length > 0 || HasFixedRole(model,table,page) || FixedAdmin(model,table,page) is not null));
     /// <summary>沿用 initExport 返回票据，下载入口由宿主统一承接。</summary>
     public static string Controller(GenerationModel model, PageModel page) => !Enabled(page) ? "" : $$"""
     /// <summary>使用当前页导出权限生成原页面可使用的两分钟下载凭证。</summary>
@@ -34,21 +39,21 @@ internal static class ExportRenderer
     public static string Service(GenerationModel model, TableModel table, PageModel page)
     {
         if (!Enabled(page)) return "";
-        var columns = Columns(page); var relations = Relations(model, page);
+        var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
         var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField));
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
             .AppendLine($"    public async Task<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)")
             .AppendLine("    {")
             .AppendLine("        if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));");
-        if (relations.Length > 0)
+        if (relations.Length > 0 || role || admin is not null)
         {
             result.AppendLine("        var exportAuthorization = relationAuthorization ?? throw new UnauthorizedAccessException(\"关系导出需要宿主真实授权。\");")
                 .AppendLine("        if (exportAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"关系导出身份与当前真实身份不一致。\");")
                 .AppendLine($"        exportAuthorization.RequirePagePermission({Literal(page.Source.Id)}, \"export\");");
             foreach (var targetPage in relations.Select(relation => relation.TargetPage.Source.Id).Distinct(StringComparer.Ordinal))
                 result.AppendLine($"        exportAuthorization.RequirePagePermission({Literal(targetPage)}, \"list\");");
-            result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);");
+            if (relations.Length > 0) result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);");
         }
         result.AppendLine($"        var query = Order{page.Source.Id}(Query{page.Source.Id}(request, actor), request);")
             .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.Name}").AppendLine("        {");
@@ -56,6 +61,7 @@ internal static class ExportRenderer
         foreach (var column in columns.Concat(dependencies).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
         result.AppendLine("        }, cancellationToken);")
             .AppendLine("        if (entities.Count > maxRows) throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
+        if (admin is not null) result.AppendLine("        var adminNames = " + FixedRoleAdminNameRenderer.ProjectCall(page,"entities","export") + ";");
         foreach (var relation in relations)
         {
             var name = relation.SourceColumn.Property; var context = contexts[relation.SourceColumn.Source.Id];
@@ -82,11 +88,11 @@ internal static class ExportRenderer
                 .AppendLine($"            foreach (var row in rows{name}) names{name}[(group{name}.Key, row.Id)] = row.Name;")
                 .AppendLine("        }");
         }
-        result.AppendLine("        var rows = entities.Select(entity => (IReadOnlyList<object?>)new object?[]").AppendLine("        {");
+        result.AppendLine(admin is null ? "        var rows = entities.Select(entity => (IReadOnlyList<object?>)new object?[]" : "        var rows = entities.Select((entity,index) => (IReadOnlyList<object?>)new object?[]").AppendLine("        {");
         foreach (var column in columns)
         {
             var relation = relations.SingleOrDefault(relation => relation.SourceColumn == column);
-            result.AppendLine("            " + ValueExpression(table,page,column, relation) + ",");
+            result.AppendLine("            " + (admin?.Source.Source.Id == column.Source.Id ? "adminNames[index]." + FixedRoleAdminNameModel.Property : ValueExpression(table,page,column, relation)) + ",");
         }
         result.AppendLine("        }).ToArray();")
             .AppendLine($"        return new({Literal(page.Source.Id)}, {Literal(page.Source.Name)}, [{string.Join(", ", columns.Select(column => Literal(string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name)))}], rows);")

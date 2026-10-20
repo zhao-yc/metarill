@@ -25,7 +25,7 @@ internal static class ReadProjectionCompilation
         var list = new Builder(model, table, page, ReadProjectionPurpose.List);
         var detail = new Builder(model, table, page, ReadProjectionPurpose.Detail);
         var selection = new Builder(model, table, page, ReadProjectionPurpose.Selection);
-        list.Base(page.ListColumns); detail.Base(page.DetailColumns); selection.Base(page.ListColumns);
+        list.Base(page.ListColumns); detail.Base(page.DetailColumns); selection.Base(page.ListColumns); selection.FixedSelectionNames();
         list.Buttons(false); detail.Buttons(true); selection.Buttons(false);
         detail.DetailConditions();
         selection.InboundSelections();
@@ -54,6 +54,14 @@ internal static class ReadProjectionCompilation
                 var enabled = settings.Extra.ContainsKey(key) ? GenerationModel.Enabled(settings.Extra, key) : purpose == ReadProjectionPurpose.Detail ? settings.IsEdit == 1 : settings.IsShow == 1;
                 if (enabled && source.IsVirtualColumn != 0) Gap(source.Id, "虚拟字段需要明确读取计划，不能作为物理列选择。");
             }
+        }
+
+        /// <summary>type=2仍回读原公共VO；固定名称只补本页Readable中已证明字段，不借其它页扩大读取。</summary>
+        internal void FixedSelectionNames()
+        {
+            if (!SelectionPageRenderer.Enabled(page)) return;
+            if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} role) Add(role.Source,"原选择回执的固定角色名称");
+            if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin) Add(admin.Source,"原选择回执的固定后台名称");
         }
 
         /// <summary>物理属性和派生展示字段分别登记；每个物理列都必须在当前页可读上限内。</summary>
@@ -103,7 +111,6 @@ internal static class ReadProjectionCompilation
             if(roleAdmin.Declared)
             {
                 if(roleAdmin.Definition is null){Gap(column.Source.Id,roleAdmin.Reason!);return;}
-                if(purpose==ReadProjectionPurpose.Selection && SelectionPageRenderer.Enabled(page)){Gap(column.Source.Id,"固定后台名称尚未接入type=2选择回执。");return;}
                 Output(new(FixedRoleAdminNameModel.Alias,FixedRoleAdminNameModel.Property,column,ReadProjectionOutputKind.RoleAdminName));
                 Reason(column.Source.Id,"原后台名称由当前项目未删除后台的固定ID/name串行批量计算，不写物理列");
                 return;

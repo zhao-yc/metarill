@@ -13,7 +13,7 @@ internal static class FixedRoleAdminNameRenderer
     {
         ValidateActor(actor);
         if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("后台名称要求真实来源身份。");
-        if (operation is not ("list" or "detail" or "create" or "update" or "copy")) throw new UnauthorizedAccessException("后台名称读取动作无效。");
+        if (operation is not ("list" or "detail" or "create" or "update" or "copy" or "export")) throw new UnauthorizedAccessException("后台名称读取动作无效。");
         relationAuthorization.RequirePagePermission("{{page.Source.Id}}",operation);
         if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
         return session.Select<{{def.Admins.Name}}>().Where(admin => admin.DeleteNo == null && admin.YzProjectId == project);
