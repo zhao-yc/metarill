@@ -28,7 +28,7 @@ internal static class RelationCompilation
     {
         var relations = new List<RelationModel>();
         var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(FixedParentRelationCompilation.HasDeclaration) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
-        foreach (var source in candidates.Where(c => c.Source.ControlKind == "List"))
+        foreach (var source in candidates.Where(c => c.Source.ControlKind == "List" && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);

@@ -37,8 +37,17 @@ internal static class ForeignValidationRenderer
             result.AppendLine($"        if (!creating && submitted.Contains({Literal(binding.Storage.Source.ColumnName)}) && !submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) throw new InvalidOperationException(\"派生字段只能随已声明关联重算。\");")
                 .AppendLine($"        if ((creating || submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) && entity.{binding.ForeignKey.Property} is null) {{ entity.{binding.Storage.Property} = null; submitted.Add({Literal(binding.Storage.Source.ColumnName)}); }}");
         var number = 0;
-        foreach (var column in table.Columns.Where(column => !column.IsSystem && (column.Type is "long?" or "string?")))
+        foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared || !column.IsSystem && (column.Type is "long?" or "string?")))
         {
+            var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
+            if (fixedCatalog.Declared)
+            {
+                result.AppendLine($"        if (creating || submitted.Contains({Literal(column.Source.ColumnName)}))");
+                result.AppendLine(fixedCatalog.Definition is not null
+                    ? $"            Metarill.Core.Metadata.TemplateVersionCatalog.RequireSupported(entity.{column.Property});"
+                    : $"            throw new InvalidOperationException({Literal(fixedCatalog.Reason!)});");
+                continue;
+            }
             if (column.Source.ControlKind == "MultiSelectPage")
             {
                 var multi = MultiSelectCompilation.Resolve(model, table, page, column, forService: true);

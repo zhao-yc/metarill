@@ -64,6 +64,7 @@ internal static class BackendRenderer
     /// <summary>生成页面可读投影、数组控件及原前端使用的常量展示字段。</summary>
     private static string Vo(GenerationModel model, TableModel table, PageModel page)
     {
+        var catalogs = FixedOptionCatalogCompilation.ForPage(model, page).Where(item => page.Readable.Contains(item.Source)).ToArray();
         var constants = page.Readable.Where(column => column.Source.ControlKind is "ConstList" or "ConstDownList").ToArray();
         // 展示别名不能覆盖真实业务字段；在写文件前拒绝整个生成批次。
         foreach (var column in constants)
@@ -77,10 +78,13 @@ internal static class BackendRenderer
             if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
         }
+        foreach (var catalog in catalogs)
+            result.AppendLine($"    [JsonPropertyName({Literal(catalog.JsonName)})]").AppendLine($"    public string? {catalog.Property} {{ get; init; }}");
         foreach (var column in constants)
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName + "Show")})]").AppendLine($"    public string? {column.Property}Show {{ get; init; }}");
         result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => new()").AppendLine("    {");
         foreach (var column in page.Readable) result.AppendLine(column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
+        foreach (var catalog in catalogs) result.AppendLine($"        {catalog.Property} = Metarill.Core.Metadata.TemplateVersionCatalog.DisplayName(entity.{catalog.Source.Property}),");
         foreach (var column in constants) result.AppendLine($"        {column.Property}Show = {ConstantDisplayExpression(column)},");
         return result.AppendLine("    };").AppendLine("}").ToString();
     }
@@ -459,7 +463,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"public sealed class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")
             .AppendLine($"    private RuntimeActor Actor(string operation) {{ authorization.RequirePagePermission({Literal(suffix)}, operation); return authorization.RequireActor(); }}")
-            .Append(LegacyPageRequestRenderer.Controller(table, page))
+            .Append(LegacyPageRequestRenderer.Controller(model, table, page))
             .AppendLine("    /// <summary>兼容现有页面明细路由。</summary>").AppendLine("    [HttpGet(\"detail/{id}\")]")
             .AppendLine($"    public async Task<R<{page.Name}Vo>> Detail(long id, [FromQuery] string? parentId, CancellationToken cancellationToken)").AppendLine("    {")
             .AppendLine($"        var record = await service.Detail{suffix}Async(id, parentId, Actor(\"detail\"), cancellationToken);")
@@ -481,6 +485,10 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>").AppendLine("    [HttpPost(\"copy/{id}\")]")
                 .AppendLine($"    public async Task<R<{page.Name}Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Copy{suffix}Async(id, parentId, Actor(\"copy\"), cancellationToken));");
         result.Append(SelectionPageRenderer.Controller(page));
+        foreach (var catalog in FixedOptionCatalogCompilation.ForPage(model, page))
+            result.AppendLine("    /// <summary>原下拉只读取固定C#模板目录，表单上下文不参与授权或查询。</summary>")
+                .AppendLine($"    [HttpPost({Literal(catalog.Endpoint)})] [RequestSizeLimit(16384)]")
+                .AppendLine($"    public R<IReadOnlyList<Metarill.Core.Metadata.TemplateVersionOption>> {catalog.Endpoint}([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] System.Text.Json.JsonElement? request) {{ Actor(\"list\"); if (Request.Query.Count != 0) throw new ArgumentException(\"版本候选不接受query参数。\"); return R<IReadOnlyList<Metarill.Core.Metadata.TemplateVersionOption>>.Success(Metarill.Core.Metadata.TemplateVersionCatalog.ReadOptions(request)); }}");
         foreach (var relation in RelationCompilation.ForPage(model, page))
             result.AppendLine("    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint)})]"))

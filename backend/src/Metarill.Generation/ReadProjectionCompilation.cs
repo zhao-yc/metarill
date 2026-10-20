@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 internal enum ReadProjectionPurpose { List, Detail, Selection }
-internal enum ReadProjectionOutputKind { Physical, ConstantShow }
+internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName }
 internal sealed record ReadProjectionOutput(string JsonName, string Property, ColumnModel Source, ReadProjectionOutputKind Kind, string? ControlDetail = null);
 internal sealed record ReadProjectionDependency(string ColumnId, IReadOnlyList<string> Reasons);
 internal sealed record ReadProjectionGap(string ColumnId, string Reason);
@@ -89,6 +89,15 @@ internal static class ReadProjectionCompilation
                 return;
             }
             var kind = Kind(column);
+            var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
+            if (fixedCatalog.Declared)
+            {
+                if (fixedCatalog.Definition is not { } catalog) { Gap(column.Source.Id, fixedCatalog.Reason!); return; }
+                if (kind != "List") { Gap(column.Source.Id, "固定目录控件覆盖不匹配。"); return; }
+                Output(new(catalog.JsonName, catalog.Property, column, ReadProjectionOutputKind.CatalogName));
+                Reason(column.Source.Id, "名称仅由固定C#模板目录及本用途版本ID计算");
+                return;
+            }
             // 原列表的后缀展示分支先于常量分支；页覆盖只影响显示/筛选，不创建详情选择弹层。
             if (purpose != ReadProjectionPurpose.Detail &&
                 (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) || column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) && kind.Length > 0) && kind != "FileLibrary")

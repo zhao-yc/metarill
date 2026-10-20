@@ -89,9 +89,10 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         if (document.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("原详情" + kind + "配置必须为对象。"); return document.RootElement.Clone();
     }
     internal static string Property(JsonElement value, string key, string fallback = "") => value.TryGetProperty(key, out var item) && item.ValueKind != JsonValueKind.Null ? item.ToString() : fallback;
-    /// <summary>名称列只采用现有元数据声明；没有辅助列时沿用原字段显示，不发明VO属性。</summary>
+    /// <summary>名称列采用现有元数据或已证明目录的计算别名；普通关系缺辅助列仍沿用原ID。</summary>
     internal string DisplayField(ColumnModel column, string nameField = "name")
     {
+        if (FixedOptionCatalogCompilation.Resolve(Model, Page, column).Definition is { } catalog) return catalog.JsonName;
         var stem = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
         var expected = stem + "_" + nameField + (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? "s" : "");
         return Table.Columns.SingleOrDefault(item => item.Source.ColumnName == expected)?.JsonName ?? column.JsonName;

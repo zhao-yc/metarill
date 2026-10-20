@@ -20,6 +20,10 @@ internal static class ControlRenderer
         var wrapper = $"      <uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">";
         ControlResult Wrap(string content, string? reason = null) => new(wrapper + content + "</uni-forms-item>", reason);
         var writable = page.Writable.Contains(column);
+        var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
+        if (fixedCatalog.Declared) return fixedCatalog.Definition is { } known
+            ? Wrap($"<text>{{{{ entity.{known.JsonName} }}}}</text>")
+            : Wrap("", fixedCatalog.Reason);
         // 只读展示也不能把未编译关系伪装成已完成的选择控件。
         if (column.Source.ControlKind == "List" && !RelationCompilation.ForPage(model, page).Any(relation => relation.SourceColumn == column) || column.Source.ControlKind == "SelectPage" && SelectionTarget(model, column) is null)
             return Wrap($"<text>{{{{ entity.{column.JsonName} }}}}</text><text>此关系控件待移植，当前只读</text>", "目标关系尚未完成移植：" + column.Source.ControlKind);
@@ -73,6 +77,8 @@ internal static class ControlRenderer
         var binding = $":modelValue=\"draftFilters.{column.JsonName}\"";
         var change = $"@update:modelValue=\"setFilter('{column.JsonName}', $event)\"";
         ControlResult Wrap(string content) => new($"<uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">{content}</uni-forms-item>");
+        var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
+        if (fixedCatalog.Declared) return fixedCatalog.Definition is not null ? Wrap("<text>受控模板版本候选</text>") : new("", fixedCatalog.Reason);
         if (column.Source.ControlKind is "ConstList" or "ConstDownList") return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(ConstOptions(column))}\" />");
         if (column.Source.ControlKind == "CheckBox" || column.Type == "bool?" && column.Source.ControlKind == "") return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(CheckOptions(column))}\" />");
         if (column.Source.ControlKind == "List" && RelationCompilation.ForPage(model, page).SingleOrDefault(relation => relation.SourceColumn == column) is { } relation)

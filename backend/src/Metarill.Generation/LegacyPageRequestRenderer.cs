@@ -6,10 +6,10 @@ namespace Metarill.Generation;
 internal static class LegacyPageRequestRenderer
 {
     /// <summary>把本页可写、可回显与父范围编译为常量，不从请求接收字段定义。</summary>
-    internal static string Controller(TableModel table, PageModel page)
+    internal static string Controller(GenerationModel model, TableModel table, PageModel page)
     {
         string Array(IEnumerable<string> fields) => "[" + string.Join(", ", fields.Distinct(StringComparer.Ordinal).Select(value => JsonSerializer.Serialize(value))) + "]";
-        var echo = page.Readable.Select(column => column.JsonName).Concat(page.Readable.Where(column => column.Source.ControlKind is "ConstList" or "ConstDownList").Select(column => column.JsonName + "Show"));
+        var echo = page.Readable.Select(column => column.JsonName).Concat(FixedOptionCatalogCompilation.ForPage(model, page).Where(item => page.Readable.Contains(item.Source)).Select(item => item.JsonName)).Concat(page.Readable.Where(column => column.Source.ControlKind is "ConstList" or "ConstDownList").Select(column => column.JsonName + "Show"));
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
         return $$"""
     private static readonly LegacyPageWriteContract LegacyWrite = new({{Array(page.Writable.Select(column => column.JsonName))}}, {{Array(echo)}}, {{Array(page.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column.JsonName))}}, {{(project is null ? "null" : JsonSerializer.Serialize(project.JsonName))}});

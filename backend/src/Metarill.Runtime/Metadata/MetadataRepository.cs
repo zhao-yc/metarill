@@ -66,6 +66,7 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
         }).ToList();
         // 项目名与主色必须来自同一项目的实际记录，不能把业务项目统一生成为默认名称/平台主题。
         var projectRow=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",project}},cancellationToken)).SingleOrDefault();
+        TemplateVersionCatalog.ValidateStoredProjectVersion(projectRow?.GetValueOrDefault("yz_yzp_version_id"));
         var projectName=projectRow is null?"":SqlRowStore.Text(projectRow,"name");
         var primaryColor=projectRow is null?"":SqlRowStore.Text(projectRow,"primary_color");
         var result=new MetadataCatalog

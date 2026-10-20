@@ -138,7 +138,7 @@ internal static partial class OriginalUniappListRenderer
         var field = Field(model, page, column);
         if (kind == "FileLibrary") return ControlRenderer.FileLibraryMarkup(table, page, column, "item", false).Replace(":parent-id=\"parentId\"", ":parent-id=\"parent_id\"", StringComparison.Ordinal);
         if (kind == "CascadeTree") return "<text>{{item." + column.JsonName + "DisplayText}}</text>";
-        if (column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) && kind.Length > 0 || column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal)) return "<text>{{$yzp.relationDisplayText(item." + RelationName(table, column) + ")}}</text>";
+        if (column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) && kind.Length > 0 || column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal)) return "<text>{{$yzp.relationDisplayText(item." + RelationName(model, page, table, column) + ")}}</text>";
         if (kind is "ConstList" or "ConstDownList") return "{{item." + column.JsonName + "Show}}";
         if (kind == "CheckBox") return "{{item." + column.JsonName + " === true || item." + column.JsonName + " === 1 || item." + column.JsonName + " === '1' ? '是' : '否'}}";
         if (kind is "Month" or "month") return "{{item." + column.JsonName + " ? String(item." + column.JsonName + ").slice(0, 7) : ''}}";
@@ -148,8 +148,8 @@ internal static partial class OriginalUniappListRenderer
         return "<text " + (Flag(field.Extra, "isImportant") ? "class='list-column-important'" : "") + ">{{item." + column.JsonName + "}}</text>";
     }
 
-    /// <summary>名称辅助列必须来自现有声明；未声明时保留原ID，不发明列。</summary>
-    private static string RelationName(TableModel table,ColumnModel column)=>SelectionDisplayFieldCompilation.Resolve(table,column).JsonName;
+    /// <summary>名称来自现有辅助列或已证明目录计算别名；普通未声明关系仍保留原ID。</summary>
+    private static string RelationName(GenerationModel model,PageModel page,TableModel table,ColumnModel column)=>FixedOptionCatalogCompilation.Resolve(model,page,column).Definition?.JsonName ?? SelectionDisplayFieldCompilation.Resolve(table,column).JsonName;
     /// <summary>页级控件设置按原规则覆盖字段，空值继承基础配置。</summary>
     private static string Effective(ColumnMetadata column, PageColumnMetadata field, string key, string fallback) => field.Extra.TryGetValue(key, out var value) && value.ValueKind != JsonValueKind.Null && value.ToString().Length > 0 ? value.ToString() : fallback;
     private static PageColumnMetadata Field(GenerationModel model, PageModel page, ColumnModel column) => model.Catalog.ConfigPageColumns.Single(field => field.ConfigPageId == page.Source.Id && field.ConfigColumnId == column.Source.Id);

@@ -22,7 +22,7 @@ internal static partial class OriginalUniappListRenderer
             var kind = Effective(column.Source, field, "controlKind", column.Source.ControlKind);
             var detail = Effective(column.Source, field, "controlDetail", column.Source.ControlDetail);
             var focus = Flag(field.Extra, "isAutoFocus") ? "focus" : "";
-            var inputKey = kind is "SelectPage" or "MultiSelectPage" ? RelationName(table, column) : key;
+            var inputKey = kind is "SelectPage" or "MultiSelectPage" ? RelationName(model, page, table, column) : key;
             var color = Html(model.Catalog.PrimaryColor);
             markup.Append("<uni-forms-item label='").Append(Html(column.Source.Name)).AppendLine("'>");
             if (Text(column.Source.Extra, "filterControlKind") == "CheckBox")
