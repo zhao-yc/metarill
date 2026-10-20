@@ -77,3 +77,4 @@ jobs:
           npm test --prefix frontend/metarill_uni_admin
           npm run check --prefix tools/metarill-agent-cli
           npm test --prefix tools/metarill-agent-cli
+          node --test tools/acceptance/online-helper-browser.test.mjs
