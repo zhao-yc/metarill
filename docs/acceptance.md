@@ -187,9 +187,9 @@ HTTP/MCP 受管结构反查已具备真实管理员/项目/表归属校验，返
 
 用户指出生成业务页不应重写。已确认当前新简化生成模板未完整沿用原YZP页面，前端保真交付尚未达标。此前测试与截图仅保留其具体功能证据，不作原布局/交互一致性验收；纠正源头及检查项见[前端沿用纠偏](frontend-preservation-correction.md)。
 
-## 2026-10-20 原界面、安全核心与独立实例RR批次
+## 2026-10-20 前序原界面、安全核心与独立实例 RR 记录
 
-本节为当前更新，前序失败与计数仍按原批次保留，不合并重复case。在线助手已恢复原首页三按钮与原确认，队列、本机显式preview/apply授权、固定动作/快照、短期票据和journal v3恢复均已集成；日常不要求下载JSON或手动CLI。实际队列/本机CLI/Vue证据见[在线助手](generation-assistant.md)，原按钮至真实已绑定工程的整链浏览器仍待验，应用回执不是服务端独立字节证明。
+本节保留 748 等前序批次，不能作为后文 6dc/f934 新协调核心的同批证据。前序失败与计数仍按原批次保留，不合并重复 case。在线助手已恢复原首页三按钮与原确认，队列、本机显式preview/apply授权、固定动作/快照、短期票据和journal v3恢复均已集成；日常不要求下载JSON或手动CLI。实际队列/本机CLI/Vue证据见[在线助手](generation-assistant.md)，原按钮至真实已绑定工程的整链浏览器仍待验，应用回执不是服务端独立字节证明。
 
 产品冻结f3740cd原账号/角色UI由集成者真实浏览器只读复验：后台名称、角色名称数组、密码掩码、旧密码/盐空回显及启用“是”正确，退出并刷新回登录页。**新增0、保存0**，不证明账号新增/改密或新账号登录；后续74889d5核心提取未重做该UI批次。私有回执`.local/original-manager-ui-86c57ce-20261020/control/browser-readonly-receipt.json`，SHA256 `9fdc6b61ed4d4d7e8a7e0c640219cea54c3b14153d08dc79d0dd6267206f108f`。原复选、名称及密码/启用桥接均由元数据和生成源维护，没有重排DOM/CSS。
 
@@ -211,10 +211,36 @@ HTTP/MCP 受管结构反查已具备真实管理员/项目/表归属校验，返
 
 共享实例原150项仍为147通过/3RR失败；临时17列授权已撤销，管理端核验空、应用三检查MySQL1142，未重启/修改共享采集。成功批次结束后精确移除自有容器、卷、隧道及运行秘密/设置，长期备份按用户规范保留、不公开内容。清理回执为同execution下`cleanup-20261020053813.json`及`date-safe-tunnel-stop.json`；停止时仅单独修正ISO日期读取，已执行v2输入与seal保持，无重Run。
 
-当前仍保留独立生成Host完整安全Runtime门禁、角色selection/export用途Gap和平台5个Custom页面独立宿主门槛；账号原页浏览器完整写入、所有配置入口撤权一致、生产认证/Agent下发与授权浏览器、Tiny Cloud编辑、跨端设备、Java同资源性能和后续多库未据本批完成。
+该前序批次当时仍保留独立生成 Host 完整安全 Runtime 门禁、角色 selection/export 用途 Gap 和平台 5 个 Custom 页面独立宿主门槛；用途边界应由各自后续切片单独验收，本节不提前调整。账号原页浏览器完整写入、所有配置入口撤权一致、生产认证/Agent 下发与授权浏览器、Tiny Cloud 编辑、跨端设备、Java 同资源性能和后续多库未据本批完成。
 
 ## 2026-10-20 原账号凭据HTTP/MySQL后续批次
 
 冻结`9bc46930a79e0841e3467eb2dbdffca5f8044bc9`的非RR Agent完整161/161、零跳过，明确过滤RR三项；RR仍单列此前748冻结的3/3，不能声称同一批164。三项ManagerCredentialHttpMySqlTests通过真实TestServer认证/原完整表单/实际Guard与MySQL：新增生成PBKDF2且wire启用1对应物理0；mask及空salt/oldPassword更新保持摘要，省略角色保持原值；真实登录/注销；非法凭据、废弃字段非空、直接Service提交mask均拒绝并全行hash不变；仅自有账号及其session精确清理零残留。回执`.local/security-manager-agent-mysql-integrated.trx`，SHA256 `1305be1bab58cc1df5a41b73e8b4e56c183d6ac5dea6ee2e7b7be2d66a279b6a`，日志同名。
 
-本批是HTTP/TestServer与真实数据库证据，不是浏览器新增/改密操作；不回写f374只读批次。运行前共享实例及观测权限只读复核仍正确，三项检查仍1142，私有回执`.local/rr-observation-preflight-20261020/manager-http-server-pin.json`；公共文档不公开实例标识或连接。独立宿主Runtime与selection/export、Custom等门槛不因平台HTTP通过而移除。
+本批是HTTP/TestServer与真实数据库证据，不是浏览器新增/改密操作；不回写f374只读批次。运行前共享实例及观测权限只读复核仍正确，三项检查仍1142，私有回执`.local/rr-observation-preflight-20261020/manager-http-server-pin.json`；公共文档不公开实例标识或连接。独立宿主 Runtime 及用途能力门槛不因平台 HTTP 通过而自动移除。
+
+## 2026-10-20 协调核心下沉后的 6dc/f934 分批验收
+
+本节更新新协调核心的阶段实证，保留旧 748 成功、共享 150 项失败和完整 Generation 612 项失败，不追改历史，也不将不同冻结/过滤器的结果累加成一批。上表 23 表、649 列、20 页、665 页字段计数继续按既有平台自举记录保留。
+
+C# 冻结为 `6dc09a4e11f72d46513cddd5a7d8e8428413b723`，Api Release 构建零警告、零错误。主仓库私有证据如下，均实际执行且零失败、零跳过；含 MySQL 的测试工程也含离线合同，工程用例总数不是锁场景总数。
+
+| 范围 | 本批实际结果 | 原始报告（主仓库 `.local/`） |
+| --- | --- | --- |
+| Security 核心 | 13/13 | `security-coordination-core-integrated.trx` |
+| 非 RR Agent | 182/182，排除 RR 三项 | `security-coordination-agent-mysql-integrated.trx` |
+| Metadata | 152/152 | `security-coordination-metadata-mysql-integrated.trx` |
+| API | 71/71 | `security-coordination-api-mysql-integrated.trx` |
+| Compatibility | 29/29 | `security-coordination-compatibility-integrated.trx` |
+| Generation MySql 类定向 | 56/56 | `security-coordination-generation-focused-integrated.trx` |
+| 另一次 Generation Contract 补验 | 14/14 | `security-coordination-generation-contract-integrated.trx` |
+
+Generation 首次过滤器选中的实际数量为 56，另补 Contract 14；不是此前 69 项同一批，也不能因此把旧 612 项完整失败记录写成全绿。汇总 `.local/security-coordination-integrated-receipt.json`，SHA256 `ceef1d5f7d86bf7c3c8569aeb6ee8e06b420931f99ad971df3db95aa77ff12e8`。
+
+随后只合 Node builder 顺序修复，RR 归档冻结为 `f934a87425d0885aab841b7d91ab77bc4017bd62`。集成者在 Server-200 的 P_S ON 新独立临时实例正式初始化两新空库：0/0 表→平台 23 表/业务 4 表及 3 个安全索引。三个 RR 场景实际 3/3、零跳过；21 个真实夹具参数 EXPLAIN 全部命中相应前缀索引、访问 ref，三组 owned 清理零残留，RR 前后结构同字节。具体场景和证据见 [RR 专项](security-realm-rr-validation.md) 的 f934 批次，不用旧 748 结果替代。
+
+贡献 clone `.local/rr-isolated-security-A-20261020/execution/rr-isolated.trx` SHA256 为 `79618b2ce901f0d8bf2a8e4501e89c718934bd86c20064e5b11d9f638bf1e06b`，独立核验汇总 `coordinator-verification.json` SHA256 为 `f92e5c77d264af9cd5006dac5cbe934b87f00b2088833dbfc68f274b3ae539d7`。新 sealed helper 的 Stop/Cleanup 已实际成功，DateKind 字符串停止路径首次正式通过；`cleanup-20261020062213.json` 及独立核验证明自有容器、卷、远端运行 secret、隧道和本机运行 settings/secrets 全清，长期备份按用户规范保留。旧 v2 输入、seal 和执行回执没有改动。
+
+截至本次文档记录，f934 的 CI 为 4/6 成功：两个前端、两个 Linux 已成功，两个 Windows 作业仍在运行，不能称六绿。Linux 完整 Generation 为 603 通过、12 跳过、总数 615；CI 缺私有 DB 配置的跳过不算实际数据库通过，不能替代上述本机 Server-200 证据。后续作业状态需由集成者单独核实更新。
+
+这些结果只完成该阶段实证，不表示独立生成 Host 的正式认证、显式账号初始化、完整安全 Runtime/业务下沉或所有配置写入口已经完成；安全物理模型目前也只是显式派生准备。账号浏览器完整写入、用途能力的独立验收、跨端设备、同条件 Java 性能及后续多库仍须分别取得证据，不据本批关闭门槛。
