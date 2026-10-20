@@ -41,7 +41,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
     private readonly List<long> _permissions = [];
     private readonly List<ServiceProvider> _serviceProviders = [];
 
-    internal static async Task<RoleSecurityFixture> CreateAsync(bool demo = false, bool administrator = false)
+    internal static async Task<RoleSecurityFixture> CreateAsync(bool demo = false, bool administrator = false, bool startHttpHost = true)
     {
         var fixture = new RoleSecurityFixture();
         try
@@ -59,6 +59,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
             await fixture.Store.InsertAsync("yz_manager", new Dictionary<string, object?> { ["id"] = fixture.AccountId, ["name"] = name, ["is_disabled"] = 0, ["password"] = PasswordHasher.Hash("隔离RoleSecurity-Pass855"),
                 ["yz_role_ids"] = JsonSerializer.Serialize(new[] { fixture.RoleId.ToString() }), ["yz_project_id"] = long.Parse(fixture.ProjectId), ["yz_admin_type_id"] = long.Parse((demo?fixture.Registry.Demo:fixture.Registry.Platform).YzAdminTypes[0].Id) });
             fixture.Authentication = new(fixture.Store, Ids, fixture.Registry); fixture.Token = (await fixture.Authentication.LoginAsync(name, "隔离RoleSecurity-Pass855")).Token;
+            if (!startHttpHost) return fixture;
             var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseTestServer();
             builder.Services.AddSingleton(fixture.Session); builder.Services.AddSingleton(fixture.Store); builder.Services.AddSingleton(fixture.Registry); builder.Services.AddSingleton<IIdGenerator>(Ids);
             builder.Services.AddSingleton(fixture.Authentication); builder.Services.AddSingleton<AgentAuthenticationService>(); builder.Services.AddHttpContextAccessor();
@@ -83,15 +84,24 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
     internal static HttpRuntimeAuthorization Authorization(AuthenticatedIdentity identity, MetadataRegistry registry)
     { var context = new DefaultHttpContext(); context.Items[typeof(AuthenticatedIdentity)] = identity; return new(new HttpContextAccessor { HttpContext = context }, registry); }
     /// <summary>直接调用也经实际AddGenerated注册，不以空guards跳过事务安全协议。</summary>
-    internal YzRoleService Service(AuthenticatedIdentity identity)
+    internal YzRoleService Service(AuthenticatedIdentity identity) => Services(identity).GetRequiredService<YzRoleService>();
+    /// <summary>并发用例给每条独立Session创建真实请求scope；产品DI/守卫/生成Service不被替换。</summary>
+    internal IServiceScope RequestScope(AuthenticatedIdentity identity,DatabaseSession? session=null)=>Services(identity,session).CreateScope();
+    /// <summary>额外夹具主键沿现有唯一生成器分配，不复用平台元数据或默认账号。</summary>
+    internal static long NextFixtureId()=>Ids.NextId();
+    /// <summary>复用宿主注册入口，传入Session由调用方负责生命周期，绝不注入空guards。</summary>
+    private ServiceProvider Services(AuthenticatedIdentity identity,DatabaseSession? session=null)
     {
-        var services=new ServiceCollection();services.AddSingleton(Session);services.AddSingleton(Store);services.AddSingleton(Registry);services.AddSingleton<IIdGenerator>(Ids);
+        var current=session??Session;var store=ReferenceEquals(current,Session)?Store:new SqlRowStore(current,Registry.Platform);
+        var services=new ServiceCollection();services.AddSingleton(current);services.AddSingleton(store);services.AddSingleton(Registry);services.AddSingleton<IIdGenerator>(Ids);
         var context=new DefaultHttpContext();context.Items[typeof(AuthenticatedIdentity)]=identity;
-        services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor{HttpContext=context});services.AddScoped<HttpRuntimeAuthorization>();
+        services.AddSingleton<IHttpContextAccessor>(new DirectRequestContext(context));services.AddScoped<HttpRuntimeAuthorization>();
         services.AddScoped<IRuntimeAuthorization>(provider=>provider.GetRequiredService<HttpRuntimeAuthorization>());services.AddSingleton<MetadataRepository>();
-        services.AddRealmWriteCoordination();services.AddGeneratedServices();var provider=services.BuildServiceProvider();_serviceProviders.Add(provider);
-        return provider.GetRequiredService<YzRoleService>();
+        services.AddRealmWriteCoordination();services.AddGeneratedServices();services.AddScoped<RolePermissionBusiness>();
+        var provider=services.BuildServiceProvider();_serviceProviders.Add(provider);return provider;
     }
+    /// <summary>并发直接Service请求不能共享HttpContextAccessor静态AsyncLocal；只隔离已真实认证的请求上下文，不替代授权。</summary>
+    private sealed class DirectRequestContext(HttpContext context):IHttpContextAccessor{public HttpContext? HttpContext{get;set;}=context;}
     internal async Task<HttpResponseMessage> UpdateHttpAsync(object body)
     { using var request = new HttpRequestMessage(HttpMethod.Post, "/api/admin/auto/yz_role/" + RolePage + "/update"); request.Headers.Add("loginStateId", Token); request.Content = JsonContent.Create(body); return await Client.SendAsync(request); }
     internal async Task<Dictionary<string, object?>> RoleAsync() => Assert.Single(await Store.ReadAsync("yz_role", new Dictionary<string, object?> { ["id"] = RoleId }));
@@ -102,7 +112,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
         try
         {
             await using var connection = Session.Provider.CreateConnection(Session.Options); await connection.OpenAsync();
-            var rows = _permissions.Select(id => (Table: "yz_role_permission", Field: "id", Id: id)).Concat(new[] { ("sys_session", "account_id", AccountId), ("yz_manager", "id", AccountId), ("yz_role", "id", RoleId) });
+            var rows = _permissions.Select(id => (Table: "yz_role_permission", Field: "id", Id: id)).Concat(new[] { ("yz_role_permission", "yz_role_id", RoleId), ("sys_session", "account_id", AccountId), ("yz_manager", "id", AccountId), ("yz_role", "id", RoleId) });
             foreach (var (table, field, id) in rows)
             { if (id <= 0) continue; await using var command = connection.CreateCommand(); command.CommandText = "DELETE FROM " + Session.Provider.QuoteIdentifier(table) + " WHERE " + Session.Provider.QuoteIdentifier(field) + "=@id"; var parameter = command.CreateParameter(); parameter.ParameterName = "id"; parameter.Value = id; command.Parameters.Add(parameter); await command.ExecuteNonQueryAsync(); }
         }
