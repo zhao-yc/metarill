@@ -10,6 +10,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>从真实模板装配并启动私有独立宿主；探针控制器只写临时包，不配置或连接数据库。</summary>
+[Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class StandaloneImportErrorTests
 {
     [Fact]
@@ -61,9 +62,8 @@ public sealed class ImportErrorProbeController : ControllerBase
             try
             {
                 using var client = new HttpClient { BaseAddress = new("http://127.0.0.1:" + port), Timeout = TimeSpan.FromSeconds(5) };
-                var ready = false; for (var attempt = 0; attempt < 100 && !server.HasExited; attempt++)
-                { try { using var health = await client.GetAsync("/health"); if (health.IsSuccessStatusCode) { ready = true; break; } } catch (HttpRequestException) { } await Task.Delay(100); }
-                Assert.True(ready, "独立无数据库错误探针宿主未就绪。");
+                // 导入业务请求不重试；仅health启动阶段采用共享的30秒总预算。
+                await StandaloneCorsHttpProbe.EnsureReadyAsync(client,server,serverOut,serverErr,TimeSpan.FromSeconds(30));
                 using var login = await client.PostAsJsonAsync("/api/admin/sys/yz_manager/login", new { username = "import-error-probe", password });
                 Assert.Equal(HttpStatusCode.OK, login.StatusCode); var json = await login.Content.ReadFromJsonAsync<JsonElement>(); client.DefaultRequestHeaders.Add("loginStateId", json.GetProperty("map").GetProperty("loginStateId").GetString());
                 foreach (var (mode, status, message) in new[]

@@ -166,3 +166,10 @@ root亲自通过原登录页、原菜单及原列表的文件选择器上传既�
 原CRUD测试改为明确验证：未知扩展拒绝、该页未发布的系统字段仍拒绝、已发布整entity回显可正常删除，省略与null规则不变。首批失败日志及一次系统回显范围判断错误的诊断保留；最终冻结产品含真实身份后台策略，完整API **71/71**、完整Agent **54/54**，均真实配置Server-200、零失败零跳过。回执 `.local/original-realm-legacy-api-rerun.trx` 与 `.local/principal-realm-agent-mysql-integrated.trx`。这些结果不包含后续角色工作台/锁协调器的未合并切片。
 
 版本目录另一次窄发布被“数据类型不能为空”拒绝：已有逻辑int64但兼容物理ColumnType为空，第一条请求整笔未变，第二条默认值/提示未发送；34行目标和旁观全字段回查一致，项目版本值未动。此问题单独修复，不能以API全套通过宣称live版本元数据或原平台选择器已完成闭环。
+
+
+## 2026-10-20 Windows CI启动探针跟进
+
+`2d917ce` 的远端Linux与前端均通过，Windows Generation为454通过/1失败/11专属验收未配置跳过；唯一失败是 `StandaloneShellAuthenticationTests` 在就绪探测中把HttpClient单次5秒超时当成启动失败。之前两个重量类已通过，本次不能把它们的本机60项结果称为Windows全套通过。
+
+只在测试层，将真实构建/启动宿主的认证、目录和导入类加入现有专用collection；认证、导入、目录及导出health探针复用现有30秒启动总预算和自身进程输出诊断。未修改产品、全局并发、子构建期限或就绪后5秒业务请求，不重试密码、会话、导入、导出和权限业务。实际本机Windows定向58/58零失败零跳过，回执 `.local/standalone-health-budget-integrated.trx`。远端修后批次仍需另外核验。

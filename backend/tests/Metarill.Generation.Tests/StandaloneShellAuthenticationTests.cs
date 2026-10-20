@@ -13,6 +13,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>真实独立包HTTP验证原壳账户操作，不连接数据库、不替用户更改真实密码。</summary>
+[Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class StandaloneShellAuthenticationTests
 {
     /// <summary>改密真实持久化并撤销全部旧session；重启、错误身份、损坏和链接不得回退旧配置密码。</summary>
@@ -129,7 +130,8 @@ public sealed class StandaloneShellAuthenticationTests
         {
             var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();var port=((IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();var info=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet"){WorkingDirectory=host,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};info.ArgumentList.Add(Path.Combine(host,"bin/Debug/net10.0/Application.Host.dll"));info.ArgumentList.Add("--urls");info.ArgumentList.Add("http://127.0.0.1:"+port);info.Environment["ASPNETCORE_ENVIRONMENT"]=environment;info.Environment["Authentication__DevelopmentBootstrap__Enabled"]=enabled?"true":"false";info.Environment["Authentication__DevelopmentBootstrap__Username"]=username;info.Environment["Authentication__DevelopmentBootstrap__Password"]=password;info.Environment["Logging__LogLevel__Default"]="Warning";
             var process=Process.Start(info)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();var client=new HttpClient{BaseAddress=new("http://127.0.0.1:"+port),Timeout=TimeSpan.FromSeconds(5)};var result=new Server(process,client,stdout,stderr);
-            try{for(var attempt=0;attempt<100&&!process.HasExited;attempt++){try{using var health=await client.GetAsync("/health");if(health.IsSuccessStatusCode)return result;}catch(HttpRequestException){}await Task.Delay(100);}throw new InvalidOperationException("临时独立认证宿主未就绪。");}catch{await result.DisposeAsync();throw;}
+            // 仅启动阶段共用有限总预算；就绪后的密码、会话和权限请求保持原5秒期限且不重试。
+            try{await StandaloneCorsHttpProbe.EnsureReadyAsync(client,process,stdout,stderr,TimeSpan.FromSeconds(30));return result;}catch{await result.DisposeAsync();throw;}
         }
         public async ValueTask DisposeAsync(){client.Dispose();if(!process.HasExited)process.Kill(true);await process.WaitForExitAsync();await stdout;await stderr;process.Dispose();}
     }

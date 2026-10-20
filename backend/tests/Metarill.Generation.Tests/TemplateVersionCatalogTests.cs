@@ -14,6 +14,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>固定版本目录在编译、实际生成程序集和真实无DB宿主间保持同一合同。</summary>
+[Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class TemplateVersionCatalogTests
 {
     private const string PageId = "6186303424888832";
@@ -214,7 +215,8 @@ public sealed class TemplateVersionCatalogTests
             info.Environment["ASPNETCORE_ENVIRONMENT"] = "Development"; info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = "true"; info.Environment["Authentication__DevelopmentBootstrap__Username"] = "version-probe"; info.Environment["Authentication__DevelopmentBootstrap__Password"] = password; info.Environment["Logging__LogLevel__Default"] = "Warning";
             info.Environment["Database__ExpectedDatabase"] = "metarill_version_probe"; info.Environment["Database__ConnectionString"] = "Server=127.0.0.1;Port=1;Database=metarill_version_probe;User ID=nonexistent;Password=offline-only;Connection Timeout=1;";
             var process = Process.Start(info)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); var client = new HttpClient { BaseAddress = new("http://127.0.0.1:" + port), Timeout = TimeSpan.FromSeconds(5) }; var server = new Server(process, client, password, stdout, stderr);
-            try { for (var attempt = 0; attempt < 100 && !process.HasExited; attempt++) { try { using var response = await client.GetAsync("/health"); if (response.IsSuccessStatusCode) return server; } catch (HttpRequestException) { } await Task.Delay(100); } throw new InvalidOperationException("临时版本候选宿主未启动。"); }
+            // 版本候选成功、匿名及非法值仍按原业务请求断言；只重试尚未就绪的health。
+            try { await StandaloneCorsHttpProbe.EnsureReadyAsync(client,process,stdout,stderr,TimeSpan.FromSeconds(30)); return server; }
             catch { await server.DisposeAsync(); throw; }
         }
         public async ValueTask DisposeAsync() { client.Dispose(); if (!process.HasExited) process.Kill(true); await process.WaitForExitAsync(); await stdout; await stderr; process.Dispose(); }

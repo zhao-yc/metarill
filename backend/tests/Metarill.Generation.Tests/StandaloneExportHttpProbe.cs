@@ -55,14 +55,8 @@ public sealed class ExportProbeController(IPageExportService exports, IRuntimeAu
         try
         {
             using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(5) };
-            var ready = false;
-            for (var i = 0; i < 100 && !process.HasExited; i++)
-            {
-                try { using var health = await client.GetAsync("/health"); if (health.IsSuccessStatusCode) { ready = true; break; } }
-                catch (HttpRequestException) { }
-                await Task.Delay(100);
-            }
-            Assert.True(ready, "独立包测试宿主未就绪。");
+            // 仅共享启动阶段预算，不重试票据、下载或权限业务操作。
+            await StandaloneCorsHttpProbe.EnsureReadyAsync(client,process,stdout,stderr,TimeSpan.FromSeconds(30));
             using var anonymous = await client.GetAsync("/api/admin/sys/export/export?exportId=unknown");
             Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
             // 公开例外仅限 GET/HEAD 正整数标识，近似路径、错误动词和私有流不能绕过认证。
