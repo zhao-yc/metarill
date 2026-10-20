@@ -149,7 +149,7 @@ internal static partial class OriginalUniappListRenderer
     }
 
     /// <summary>名称来自现有辅助列或已证明目录计算别名；普通未声明关系仍保留原ID。</summary>
-    private static string RelationName(GenerationModel model,PageModel page,TableModel table,ColumnModel column)=>FixedOptionCatalogCompilation.Resolve(model,page,column).Definition?.JsonName ?? (column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null ? FixedRoleCheckboxModel.Alias : SelectionDisplayFieldCompilation.Resolve(table,column).JsonName);
+    private static string RelationName(GenerationModel model,PageModel page,TableModel table,ColumnModel column)=>FixedOptionCatalogCompilation.Resolve(model,page,column).Definition?.JsonName ?? (FixedRoleAdminNameCompilation.Resolve(model,table,page,column).Definition is not null ? FixedRoleAdminNameModel.Alias : column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null ? FixedRoleCheckboxModel.Alias : SelectionDisplayFieldCompilation.Resolve(table,column).JsonName);
     /// <summary>页级控件设置按原规则覆盖字段，空值继承基础配置。</summary>
     private static string Effective(ColumnMetadata column, PageColumnMetadata field, string key, string fallback) => field.Extra.TryGetValue(key, out var value) && value.ValueKind != JsonValueKind.Null && value.ToString().Length > 0 ? value.ToString() : fallback;
     private static PageColumnMetadata Field(GenerationModel model, PageModel page, ColumnModel column) => model.Catalog.ConfigPageColumns.Single(field => field.ConfigPageId == page.Source.Id && field.ConfigColumnId == column.Source.Id);

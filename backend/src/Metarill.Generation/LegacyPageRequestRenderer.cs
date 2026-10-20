@@ -11,6 +11,7 @@ internal static class LegacyPageRequestRenderer
         string Array(IEnumerable<string> fields) => "[" + string.Join(", ", fields.Distinct(StringComparer.Ordinal).Select(value => JsonSerializer.Serialize(value))) + "]";
         var echo = page.Readable.Select(column => column.JsonName).Concat(FixedOptionCatalogCompilation.ForPage(model, page).Where(item => page.Readable.Contains(item.Source)).Select(item => item.JsonName)).Concat(page.Readable.Where(column => column.Source.ControlKind is "ConstList" or "ConstDownList").Select(column => column.JsonName + "Show"));
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleCheckboxModel.Alias);
+        if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleAdminNameModel.Alias);
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
         return $$"""
     private static readonly LegacyPageWriteContract LegacyWrite = new({{Array(page.Writable.Select(column => column.JsonName))}}, {{Array(echo)}}, {{Array(page.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column.JsonName))}}, {{(project is null ? "null" : JsonSerializer.Serialize(project.JsonName))}});

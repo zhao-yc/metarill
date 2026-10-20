@@ -93,6 +93,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     internal string DisplayField(ColumnModel column, string nameField = "name")
     {
         if (FixedOptionCatalogCompilation.Resolve(Model, Page, column).Definition is { } catalog) return catalog.JsonName;
+        if (FixedRoleAdminNameCompilation.Resolve(Model,Table,Page,column).Definition is not null) return FixedRoleAdminNameModel.Alias;
         if (column.Source.ControlKind == "MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(Model,Table,Page,column).Definition is not null) return FixedRoleCheckboxModel.Alias;
         var stem = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
         var expected = stem + "_" + nameField + (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? "s" : "");

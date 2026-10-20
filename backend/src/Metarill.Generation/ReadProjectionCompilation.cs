@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 internal enum ReadProjectionPurpose { List, Detail, Selection }
-internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames }
+internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName }
 internal sealed record ReadProjectionOutput(string JsonName, string Property, ColumnModel Source, ReadProjectionOutputKind Kind, string? ControlDetail = null);
 internal sealed record ReadProjectionDependency(string ColumnId, IReadOnlyList<string> Reasons);
 internal sealed record ReadProjectionGap(string ColumnId, string Reason);
@@ -91,6 +91,15 @@ internal static class ReadProjectionCompilation
             {
                 Output(new(FixedRoleCheckboxModel.Alias,"YzRoleNames",column,ReadProjectionOutputKind.RoleNames));
                 Reason(column.Source.Id,"角色名称由真实后台所属当前项目的固定ID/name查询按原顺序计算，不写物理列");
+                return;
+            }
+            var roleAdmin=FixedRoleAdminNameCompilation.Resolve(model,table,page,column);
+            if(roleAdmin.Declared)
+            {
+                if(roleAdmin.Definition is null){Gap(column.Source.Id,roleAdmin.Reason!);return;}
+                if(purpose==ReadProjectionPurpose.Selection && SelectionPageRenderer.Enabled(page)){Gap(column.Source.Id,"固定后台名称尚未接入type=2选择回执。");return;}
+                Output(new(FixedRoleAdminNameModel.Alias,FixedRoleAdminNameModel.Property,column,ReadProjectionOutputKind.RoleAdminName));
+                Reason(column.Source.Id,"原后台名称由当前项目未删除后台的固定ID/name串行批量计算，不写物理列");
                 return;
             }
             if (!expand || !expanded.Add(column.Source.Id)) return;

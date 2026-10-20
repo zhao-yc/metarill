@@ -20,6 +20,8 @@ internal static class ControlRenderer
         var wrapper = $"      <uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">";
         ControlResult Wrap(string content, string? reason = null) => new(wrapper + content + "</uni-forms-item>", reason);
         var writable = page.Writable.Contains(column);
+        var fixedRoleAdmin=FixedRoleAdminNameCompilation.Resolve(model,table,page,column);
+        if(fixedRoleAdmin.Declared && fixedRoleAdmin.Definition is null) return Wrap("",fixedRoleAdmin.Reason);
         var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
         if (fixedCatalog.Declared) return fixedCatalog.Definition is { } known
             ? Wrap($"<text>{{{{ entity.{known.JsonName} }}}}</text>")
