@@ -67,7 +67,11 @@ public sealed class MaterializedDerivedApiMySqlTests
         foreach(var row in await f.Store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",page}}))await f.Delete(MaterializedDerivedApiFixture.FieldRoute,SqlRowStore.Id(row),page.ToString(CultureInfo.InvariantCulture));
         var moved=MaterializedDerivedApiFixture.Data(await f.Post(MaterializedDerivedApiFixture.PageRoute+"/update",new{id=page.ToString(CultureInfo.InvariantCulture),configTableId=other.ToString(CultureInfo.InvariantCulture)}));
         var otherName=SqlRowStore.Text(await f.Row("config_table",other),"table_name");Assert.Equal(otherName,moved.GetProperty("configTableTableName").GetString());await f.Capture();await AssertPage(f,page,otherName);
-        var active=(await f.Store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",page}})).First();var activeId=SqlRowStore.Id(active);
+        // 普通换表不补任何旧列映射；通过原批量建列HTTP触发本次新列的页映射，不能依赖未开放的字段新增接口。
+        Assert.Empty(await f.Store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",page}}));
+        var movedColumn=Assert.Single(await f.AddColumns(other,"换表后新增 moved_mapping"));
+        var active=Assert.Single(await f.Store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",page},{"config_column_id",movedColumn}}));var activeId=SqlRowStore.Id(active);
+        Assert.Equal(f.Project,SqlRowStore.Id(active,"yz_project_id"));await AssertField(f,activeId,page,movedColumn);
         prior=await f.Snapshot();Assert.Equal(500,(await f.Post(MaterializedDerivedApiFixture.FieldRoute+"/update?parentId="+page,new{id=activeId.ToString(CultureInfo.InvariantCulture),configColumnId=second.ToString(CultureInfo.InvariantCulture)})).GetProperty("code").GetInt32());Assert.Equal(prior,await f.Snapshot());
         var echo=MaterializedDerivedApiFixture.Data(await f.Get(MaterializedDerivedApiFixture.PageRoute+"/detail/"+page));var forged=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(echo.GetRawText())!;forged["configTableTableName"]=JsonSerializer.SerializeToElement("伪造只读回显");
         var echoed=MaterializedDerivedApiFixture.Data(await f.Post(MaterializedDerivedApiFixture.PageRoute+"/update",forged));Assert.Equal(otherName,echoed.GetProperty("configTableTableName").GetString());await AssertPage(f,page,otherName);
