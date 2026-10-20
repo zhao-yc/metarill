@@ -50,11 +50,13 @@ internal static class OriginalUniappDetailFields
     {
         var rules = new List<object>();
         if (f.Required && !f.ReadOnly) rules.Add(new { required = true, errorMessage = f.Column.Source.Name + "为必填项" });
-        if (f.Column.Type == "string?" && f.Column.Source.ControlKind is not ("List" or "CascadeTree") && int.TryParse(f.Column.Source.ColumnLength, out var maximum) && maximum > 0) rules.Add(new { maxLength = maximum, errorMessage = "长度需在{maxLength}个字符以内" });
+        if (f.Column.Type == "string?" && f.Column.Source.ControlKind is not ("List" or "CascadeTree") && int.TryParse(InputLength(c,f), out var maximum) && maximum > 0) rules.Add(new { maxLength = maximum, errorMessage = "长度需在{maxLength}个字符以内" });
         else if (f.Column.Type is "long" or "long?" or "int?") rules.Add(new { pattern = "^-?\\d+$", errorMessage = "只能输入整数" });
         else if (f.Column.Type is "decimal?" or "double?") rules.Add(new { format = "number", errorMessage = "只能输入数字" });
         c.Rules.Append(f.Column.JsonName).Append(":{rules:").Append(Js(rules)).Append("},");
     }
+    /// <summary>凭据物理摘要扩为255，不改变原账号密码输入控件的50字符上限。</summary>
+    private static string InputLength(OriginalDetailContext c,OriginalDetailField f)=>ManagerCredentialCompilation.IsOriginal(c.Table,c.Page)&&ManagerCredentialCompilation.IsPassword(c.Table,f.Column)?"50":f.Column.Source.ColumnLength;
     /// <summary>原只读选择显示为文本，编辑态才挂载原选择控件。</summary>
     private static string Choice(string ro, string display, string control) => $"<text v-if='{ro}'>{{{{{display}}}}}</text><template v-if='!{ro}'>{control}</template>";
     private static string Hidden(OriginalDetailField f) => $"<uni-easyinput style='display: none;' v-model='entity.{f.Column.JsonName}' maxlength='{Html(f.Column.Source.ColumnLength)}' />";
@@ -88,7 +90,7 @@ internal static class OriginalUniappDetailFields
 {{{name}}}Change() { this.{{{name}}}SelectAll=JSON.stringify(this.{{{name}}}List.map(item=>String(item.id)).sort())===JSON.stringify(yzp.relationArray(this.entity.{{{name}}}).map(String).sort()) ? [1] : []; },
 """);
                 return Choice(ro, $"readonlyDisplayText(entity.{c.DisplayField(column)})", $"<view><uni-data-checkbox multiple v-model='{name}SelectAll' :disabled='{ro}' :localdata='$multiCheckboxRange' @change='{name}SelectAllChange' /></view><uni-data-checkbox multiple v-model='entity.{name}' :disabled='{ro}' :localdata='{name}List' @change='{name}Change' />") + Hidden(f);
-            case "TextArea": return $"<uni-easyinput primaryColor=\"{primary}\" :disabled='{ro}' type='textarea' maxlength='{(column.Source.ColumnLength == "max" ? "-1" : Html(column.Source.ColumnLength))}' v-model='entity.{name}' />";
+            case "TextArea": return $"<uni-easyinput primaryColor=\"{primary}\" :disabled='{ro}' type='textarea' maxlength='{(InputLength(c,f) == "max" ? "-1" : Html(InputLength(c,f)))}' v-model='entity.{name}' />";
             case "CustomControl":
                 if (!Regex.IsMatch(f.Detail, "^yzp-[a-z0-9]+(?:-[a-z0-9]+)*$")) throw new InvalidOperationException("原详情自定义组件名称无效。");
                 c.Methods.AppendLine($"receive{column.Source.Id}(newEntity) {{ if(this.{ro}) return; this.entity=newEntity; }},");
@@ -105,7 +107,7 @@ internal static class OriginalUniappDetailFields
 """);
                 return Hidden(f) + $"<view class='rtf-buttons'><button size='mini' @click=\"{name}RtfDo('review')\">预览</button><button size='mini' v-if='!{ro}' @click=\"{name}RtfDo('edit')\">编辑</button></view><view class='rtf-review' v-html='entity.{name}'></view>";
             case "":
-                return $"<uni-easyinput primaryColor=\"{primary}\" v-if='!{ro}' v-model='entity.{name}' {(column.Type == "string?" ? $"maxlength='{(column.Source.ColumnLength == "max" ? "-1" : Html(column.Source.ColumnLength))}'" : "")} {(column.Type is "int?" or "decimal?" or "double?" ? "type='number'" : "")} {(Enabled(c.Page.Source.Extra, "isListEdit") ? "@blur='saveEntity()'" : "")} /><text v-if='{ro}'>{{{{entity.{name}}}}}</text>";
+                return $"<uni-easyinput primaryColor=\"{primary}\" v-if='!{ro}' v-model='entity.{name}' {(column.Type == "string?" ? $"maxlength='{(InputLength(c,f) == "max" ? "-1" : Html(InputLength(c,f)))}'" : "")} {(column.Type is "int?" or "decimal?" or "double?" ? "type='number'" : "")} {(Enabled(c.Page.Source.Extra, "isListEdit") ? "@blur='saveEntity()'" : "")} /><text v-if='{ro}'>{{{{entity.{name}}}}}</text>";
             default: throw new InvalidOperationException("原详情尚无该控件的完整移植分支：" + kind);
         }
     }

@@ -11,7 +11,7 @@ internal static class ImportRenderer
     /// <summary>读取已声明导入策略，默认追加。</summary>
     public static string Mode(PageModel page) => page.Source.Extra.TryGetValue("importMethod", out var value) ? value.ToString() : "";
     /// <summary>父键由页面上下文绑定，不接受 Excel 覆盖。</summary>
-    public static IReadOnlyList<ColumnModel> Columns(PageModel page) => page.Writable.Where(column => !page.Scopes.Any(scope => scope.Source == "parent" && scope.Column == column)).ToArray();
+    public static IReadOnlyList<ColumnModel> Columns(PageModel page) => page.Writable.Where(column => !ManagerCredentialCompilation.IsObsolete(column) && !page.Scopes.Any(scope => scope.Source == "parent" && scope.Column == column)).ToArray();
     /// <summary>生成保留 requestJson 与 parentId 的独立请求契约。</summary>
     public static string Dto(PageModel page) => !Enabled(page) ? "" : $$"""
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

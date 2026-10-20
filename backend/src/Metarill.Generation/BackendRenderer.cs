@@ -50,7 +50,7 @@ internal static partial class BackendRenderer
         {
             result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}{kind}Request").AppendLine("{");
             if (kind == "Update") result.AppendLine("    public long Id { get; set; }");
-            foreach (var column in page.Writable)
+            foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
                 result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
                 if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(CheckboxBooleanJsonConverter))]");
@@ -66,6 +66,7 @@ internal static partial class BackendRenderer
     {
         var role = FixedRoleCheckboxCompilation.ForPage(model,table,page);
         var roleAdmin = FixedRoleAdminNameCompilation.ForPage(model,table,page);
+        var credentials = ManagerCredentialCompilation.IsOriginal(table,page);
         var catalogs = FixedOptionCatalogCompilation.ForPage(model, page).Where(item => page.Readable.Contains(item.Source)).ToArray();
         var constants = page.Readable.Where(column => column.Source.ControlKind is "ConstList" or "ConstDownList").ToArray();
         // 展示别名不能覆盖真实业务字段；在写文件前拒绝整个生成批次。
@@ -76,6 +77,7 @@ internal static partial class BackendRenderer
             .AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed class {page.Name}Vo").AppendLine("{");
         foreach (var column in page.Readable)
         {
+            if (ManagerCredentialCompilation.IsCredential(table,column)) result.AppendLine("    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]");
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
             if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
@@ -86,10 +88,11 @@ internal static partial class BackendRenderer
             .AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => FromEntity(entity,null);");
         if (roleAdmin is not null) result.AppendLine("    [JsonPropertyName(\"yzAdminTypeName\")] public string? YzAdminTypeName { get; init; }")
             .AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => FromEntity(entity,null);");
+        if (credentials && role is not null) result.AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity,JsonElement? roleNames) => FromEntity(entity,roleNames,true);");
         foreach (var column in constants)
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName + "Show")})]").AppendLine($"    public string? {column.Property}Show {{ get; init; }}");
-        result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity{(role is not null ? ",JsonElement? roleNames" : roleAdmin is not null ? ",string? roleAdminName" : "")}) => new()").AppendLine("    {");
-        foreach (var column in page.Readable) result.AppendLine(role?.Source.Source.Id==column.Source.Id ? $"        {column.Property} = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.{column.Property})," : column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
+        result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity{(role is not null ? ",JsonElement? roleNames" : roleAdmin is not null ? ",string? roleAdminName" : "")}{(credentials ? ",bool includeCredentials = true" : "")}) => new()").AppendLine("    {");
+        foreach (var column in page.Readable) result.AppendLine(ManagerCredentialCompilation.Output(table,page,column) is {} credential ? $"        {column.Property} = {credential}," : role?.Source.Source.Id==column.Source.Id ? $"        {column.Property} = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.{column.Property})," : column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
         if (role is not null) result.AppendLine("        YzRoleNames = roleNames,");
         if (roleAdmin is not null) result.AppendLine("        YzAdminTypeName = roleAdminName,");
         foreach (var catalog in catalogs) result.AppendLine($"        {catalog.Property} = Metarill.Core.Metadata.TemplateVersionCatalog.DisplayName(entity.{catalog.Source.Property}),");
@@ -216,6 +219,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             else result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                 .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
         }
+        if (ManagerCredentialCompilation.Unsupported(table,page)) result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>")
             .AppendLine($"    private ISelect<{table.Name}> Query{suffix}(PageRequest request, RuntimeActor actor)").AppendLine("    {")
@@ -234,7 +238,14 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         {
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
                 .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
-            if (column.Type == "DateTime?")
+            if (ManagerCredentialCompilation.IsCredential(table,column))
+            { result.AppendLine("                    ManagerCredentialValue.RequirePublishedPage(false);"); }
+            else if (ManagerCredentialCompilation.IsEnabled(table,page,column))
+            {
+                result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array) { var values = filter.Value.EnumerateArray().Select(ManagerCredentialValue.Filter).ToArray(); query = query.Where(entity => values.Contains(entity.IsDisabled)); break; }")
+                    .AppendLine("                    var value = ManagerCredentialValue.Filter(filter.Value); query = query.Where(entity => entity.IsDisabled == value);");
+            }
+            else if (column.Type == "DateTime?")
             {
                 result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {")
                     .AppendLine("                        var range = PageDateRange.Parse(filter.Value); var start = range.Start; var end = range.End;")
@@ -267,10 +278,10 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))").AppendLine("        {")
             .AppendLine("            var descending = request.OrderBy.Order switch { \"descending\" => true, \"ascending\" => false, _ => throw new ArgumentException(\"排序方向无效。\") };")
             .AppendLine("            return (request.OrderBy.Column ?? request.OrderBy.Field) switch").AppendLine("            {");
-        foreach (var column in page.Sortable)
-            result.AppendLine($"                {Literal(column.JsonName)} => descending ? query.OrderByDescending(entity => entity.{column.Property}).OrderByDescending(entity => entity.Id) : query.OrderBy(entity => entity.{column.Property}).OrderByDescending(entity => entity.Id),");
+        foreach (var column in page.Sortable.Where(column=>!ManagerCredentialCompilation.IsCredential(table,column)))
+            result.AppendLine($"                {Literal(column.JsonName)} => descending ? query.OrderByDescending(entity => {ManagerCredentialCompilation.Order(table,page,column)}).OrderByDescending(entity => entity.Id) : query.OrderBy(entity => {ManagerCredentialCompilation.Order(table,page,column)}).OrderByDescending(entity => entity.Id),");
         result.AppendLine("                _ => throw new ArgumentException(\"页面未开放该排序字段。\")").AppendLine("            };").AppendLine("        }");
-        result.AppendLine("        return query" + string.Concat(fixedQuery.DefaultOrder.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => entity.{item.Column.Property})")) + ";")
+        result.AppendLine("        return query" + string.Concat(fixedQuery.DefaultOrder.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => {ManagerCredentialCompilation.Order(table,page,item.Column)})")) + ";")
             .AppendLine("    }").AppendLine("    /// <summary>分页与统计使用同一条已受限查询。</summary>")
             .AppendLine($"    public async Task<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
             .AppendLine("        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")
@@ -279,7 +290,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine(SelectionPageRenderer.Enabled(page) ? $"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);" : "")
             .AppendLine($"        var query = Query{suffix}(request, actor);").AppendLine("        var total = await query.CountAsync(cancellationToken);")
             .AppendLine($"        var ordered = Order{suffix}(query, request);")
-            .AppendLine("        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);")
+            .AppendLine(ManagerCredentialCompilation.IsTable(table) ? $"        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync({ManagerCredentialCompilation.ReadProjection(table)}, cancellationToken);" : "        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);")
             .AppendLine($"        return new({ProjectResults(model,table,page,"entities","list")}, total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
             .AppendLine("    }").AppendLine("    /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>")
             .AppendLine(SelectionPageRenderer.Enabled(page)
@@ -287,7 +298,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 : $"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
             .AppendLine("    /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>")
             .AppendLine($"    public async Task<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
-            .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);")
+            .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).{(ManagerCredentialCompilation.IsTable(table) ? "ToOneAsync("+ManagerCredentialCompilation.ReadProjection(table)+", cancellationToken)" : "FirstAsync(cancellationToken)")};")
             .AppendLine($"        return entity is null ? null : {RoleResult(model,table,page,"detail")};").AppendLine("    }");
         return result.ToString();
     }
@@ -304,12 +315,12 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .Append(PrepareCall(model, table, page, "Create", "null", "request"))
                 .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken);").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
-            foreach (var column in page.Writable)
+            foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
                 var multi = column.Source.ControlKind == "MultiSelectPage" && MultiSelectCompilation.Resolve(model, table, page, column).Definition is not null;
                 var role = column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null;
                 if (column.IsJsonArray && !multi && !role) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
                 if (!string.IsNullOrWhiteSpace(column.Source.DefaultValue))
                     result.AppendLine($"        else entity.{column.Property} = {DefaultExpression(column)};");
             }
@@ -317,7 +328,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                     .AppendLine($"        entity.{column.Property} = {ScopeValue(column, "parentId")};");
-            result.AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
+            result.AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
                 .Append(WriteCall(page, "Create", "null"))
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");")
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
@@ -332,14 +343,14 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(PlatformColumnTypeCompatibilityCompilation.Capture(model, table, page))
                 .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
-            foreach (var column in page.Writable)
+            foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
                 var multi = column.Source.ControlKind == "MultiSelectPage" && MultiSelectCompilation.Resolve(model, table, page, column).Definition is not null;
                 var role = column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null;
                 if (column.IsJsonArray && !multi && !role) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : $"request.{column.Property}.Value")}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
             }
-            result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
+            result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,false)).Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
             result.Append(WriteCall(page, "Update", "originalScopeValues")).AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");")
@@ -623,8 +634,8 @@ public partial class {{table.Name}}Service
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
     private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>
-    private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,entities)
-        : FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && FixedRoleAdminNameCompilation.Used(page,admin,operation) ? FixedRoleAdminNameRenderer.ProjectCall(page,entities,operation) : $"{entities}.Select({page.Name}Vo.FromEntity).ToArray()";
+    private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,entities,operation != "list" || !ManagerCredentialCompilation.IsOriginal(table,page))
+        : FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && FixedRoleAdminNameCompilation.Used(page,admin,operation) ? FixedRoleAdminNameRenderer.ProjectCall(page,entities,operation) : $"{entities}.Select(entity => {page.Name}Vo.FromEntity(entity{(ManagerCredentialCompilation.IsOriginal(table,page) && operation == "list" ? ",false" : "")})).ToArray()";
     /// <summary>生成可独立选择数据库会话的服务注册。</summary>
     private static string Registration(GenerationModel model)
     {

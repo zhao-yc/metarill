@@ -39,10 +39,10 @@ internal static class SelectionPageRenderer
             .AppendLine($"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);");
         return result.AppendLine($"        var query = Query{suffix}(new PageRequest {{ ParentId = request.ParentId, SelectedIds = selected.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToList() }}, actor);")
             .AppendLine("        if (selected.Length == 0) return [];")
-            .AppendLine("        var entities = await query.Limit(200).ToListAsync(cancellationToken);")
+            .AppendLine(ManagerCredentialCompilation.IsTable(table) ? $"        var entities = await query.Limit(200).ToListAsync({ManagerCredentialCompilation.ReadProjection(table)}, cancellationToken);" : "        var entities = await query.Limit(200).ToListAsync(cancellationToken);")
             .AppendLine("        if (entities.Count != selected.Length) throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
             .AppendLine("        var rows = entities.ToDictionary(row => row.Id);")
-            .AppendLine($"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id])).ToArray();").AppendLine("    }").ToString();
+            .AppendLine($"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id]{(ManagerCredentialCompilation.IsOriginal(table,page) ? FixedRoleCheckboxCompilation.ForPage(model,table,page) is null ? ",false" : ",null,false" : "")})).ToArray();").AppendLine("    }").ToString();
     }
 
     /// <summary>回读使用目标页list权限与真实Actor，不借用请求项目或来源控件配置。</summary>

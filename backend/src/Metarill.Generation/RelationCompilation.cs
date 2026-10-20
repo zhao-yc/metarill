@@ -46,6 +46,7 @@ internal static class RelationCompilation
                 throw new InvalidOperationException("关联目标未声明项目归属或明确的全局范围：" + target.Source.TableName);
             var name = target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
             if (name is null || name.Type != "string?") continue;
+            if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
             var explicitPage = source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             var targetPage = !string.IsNullOrWhiteSpace(explicitPage)
                 ? target.Pages.SingleOrDefault(candidate => candidate.Source.Id == explicitPage) ?? throw new InvalidOperationException("关联目标页不存在或不属于目标表。")

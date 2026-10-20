@@ -159,6 +159,26 @@ public sealed class SecurityRealmWiringTests
         });
     }
 
+    /// <summary>同一真实安全准备和事务内执行实际partial；不把内存传输当作数据库持久化验收。</summary>
+    [Fact]
+    public async Task Manager_partial_hashes_only_explicit_real_password_after_security_preparation()
+    {
+        using var f=new PrincipalRealmFixture(super:false);await Seed(f);Grant(f,"yz_manager");var identity=await f.Identity();
+        using var provider=Services(f,identity);using var scope=provider.CreateScope();var service=scope.ServiceProvider.GetRequiredService<YzManagerService>();var guards=scope.ServiceProvider.GetServices<IRecordMutationGuard>().ToArray();
+        await f.Session.InTransactionAsync(async()=>
+        {
+            var prep=Preparation(f,identity,"yz_manager",RecordMutationOperation.Update,30);foreach(var guard in guards)await guard.BeforeMutationAsync(prep);
+            const string password="新建口令需要至少十二个字符";var entity=new YzManager{Id=30,Password=password};
+            Hook(service,"BeforeSave",entity,identity.Actor,false,new HashSet<string>{"password"});
+            Assert.NotEqual(password,entity.Password);Assert.True(PasswordHasher.Verify(password,entity.Password!));
+            var digest=entity.Password;Hook(service,"BeforeSave",entity,identity.Actor,false);Assert.Equal(digest,entity.Password);
+            entity.Password=null;Assert.Throws<ArgumentException>(()=>Hook(service,"BeforeSave",entity,identity.Actor,false,new HashSet<string>{"password"}));
+            entity.Password="********";Assert.Throws<ArgumentException>(()=>Hook(service,"BeforeSave",entity,identity.Actor,false,new HashSet<string>{"password"}));
+            entity.Password=digest;Assert.Throws<ArgumentException>(()=>Hook(service,"BeforeSave",entity,identity.Actor,false,new HashSet<string>{"password"}));
+            return true;
+        });
+    }
+
     /// <summary>通过真实元数据仓储种子和固定内存记录准备最小安全目录。</summary>
     private static async Task Seed(PrincipalRealmFixture f)
     {
@@ -176,11 +196,11 @@ public sealed class SecurityRealmWiringTests
     /// <summary>从实际AddGenerated注册解析三个手写扩展服务。</summary>
     private static object Resolve(IServiceProvider services,string table)=>table switch{"yz_role"=>services.GetRequiredService<YzRoleService>(),"yz_manager"=>services.GetRequiredService<YzManagerService>(),_=>services.GetRequiredService<YzAdminTypeService>()};
     /// <summary>实体只用于执行产品partial，不冒充Mapper持久化。</summary>
-    private static object Entity(string table,long id)=>table switch{"yz_role"=>new YzRole{Id=id,IsSuper=1},"yz_manager"=>new YzManager{Id=id},_=>new YzAdminType{Id=id}};
+    private static object Entity(string table,long id)=>table switch{"yz_role"=>new YzRole{Id=id,IsSuper=1},"yz_manager"=>new YzManager{Id=id,Password="合法创建账号口令12字符"},_=>new YzAdminType{Id=id}};
     /// <summary>调用编译进真实Service的手写partial，不镜像实现或伪造协调器内部状态。</summary>
-    private static void Hook(object service,string method,object entity,RuntimeActor actor,bool creating)
+    private static void Hook(object service,string method,object entity,RuntimeActor actor,bool creating,ISet<string>? submitted=null)
     {
-        try{service.GetType().GetMethod(method,BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,method=="BeforeSave"?[entity,actor,creating,new HashSet<string>()]:[entity,actor]);}
+        try{service.GetType().GetMethod(method,BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,method=="BeforeSave"?[entity,actor,creating,submitted??new HashSet<string>()]:[entity,actor]);}
         catch(TargetInvocationException error)when(error.InnerException is not null){System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
     }
     /// <summary>固定真实认证上下文供产品HTTP权限适配器消费。</summary>

@@ -52,6 +52,7 @@ internal static class MultiSelectCompilation
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id")) return Gap("目标未声明项目归属或明确全局范围。");
             var name = target.Columns.SingleOrDefault(column => column.Source.ColumnName == Value("nameField", "name"));
             if (name is null || GenerationModel.Enabled(name.Source.Extra, "isJoinColumn") || name.IsJsonArray || name.Type != "string?" && !name.IsId || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
+            if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
             var scopes = GenerationModel.CompileScopes(Value("whereSql"), target.Columns);
             if (scopes.Any(scope => !targetPage.Scopes.Any(allowed => allowed.Column.Source.Id == scope.Column.Source.Id && allowed.Source == scope.Source))) return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
             var ordering = Value("orderBy");

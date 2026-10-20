@@ -4,7 +4,7 @@ namespace Metarill.Generation;
 internal static class FixedRoleCheckboxRenderer
 {
     /// <summary>仅生成固定页面名称投影调用，实体参数不来自HTTP表达式。</summary>
-    internal static string ProjectCall(PageModel page, string entities) => $"await ProjectRoleNames{page.Source.Id}Async({entities}, actor, cancellationToken)";
+    internal static string ProjectCall(PageModel page, string entities, bool credentials=true) => $"await ProjectRoleNames{page.Source.Id}Async({entities}, actor, cancellationToken{(credentials ? "" : ",false")})";
 
     /// <summary>候选仅使用源页动作与真实服务器工作区；表单上下文不能选择项目、表或SQL。</summary>
     internal static string Controller(GenerationModel model, TableModel table, PageModel page) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} def ? $$"""
@@ -51,14 +51,14 @@ internal static class FixedRoleCheckboxRenderer
         return rows.Select(row => { var id = row.Id.ToString(CultureInfo.InvariantCulture); return new RoleCheckboxOption(id,row.Name,id,row.Name); }).ToArray();
     }
     /// <summary>批量读取仅投影角色ID与名称；原数组顺序及缺名位置不随数据库排序变化。</summary>
-    private async Task<{{page.Name}}Vo[]> ProjectRoleNames{{page.Source.Id}}Async(IReadOnlyList<{{table.Name}}> entities, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<{{page.Name}}Vo[]> ProjectRoleNames{{page.Source.Id}}Async(IReadOnlyList<{{table.Name}}> entities, RuntimeActor actor, CancellationToken cancellationToken{{(ManagerCredentialCompilation.IsOriginal(table,page) ? ",bool includeCredentials=true" : "")}})
     {
         _ = RoleOptionsScope{{page.Source.Id}}(actor);
         var selected = RoleCheckboxValue.ProjectionIds(entities.Select(entity => entity.{{def.Source.Property}}));
         var names = new Dictionary<long,string?>();
         foreach (var chunk in selected.Chunk(RoleCheckboxValue.ProjectionBatchSize))
             foreach (var row in await RoleOptionsScope{{page.Source.Id}}(actor).Where(role => chunk.Contains(role.Id)).ToListAsync(role => new { role.Id, role.Name }, cancellationToken)) names[row.Id] = row.Name;
-        return entities.Select(entity => {{page.Name}}Vo.FromEntity(entity,RoleCheckboxValue.ProjectNames(entity.{{def.Source.Property}},names))).ToArray();
+        return entities.Select(entity => {{page.Name}}Vo.FromEntity(entity,RoleCheckboxValue.ProjectNames(entity.{{def.Source.Property}},names){{(ManagerCredentialCompilation.IsOriginal(table,page) ? ",includeCredentials" : "")}})).ToArray();
     }
 
 """;

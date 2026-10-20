@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 internal enum ReadProjectionPurpose { List, Detail, Selection }
-internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName }
+internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName, CredentialEcho }
 internal sealed record ReadProjectionOutput(string JsonName, string Property, ColumnModel Source, ReadProjectionOutputKind Kind, string? ControlDetail = null);
 internal sealed record ReadProjectionDependency(string ColumnId, IReadOnlyList<string> Reasons);
 internal sealed record ReadProjectionGap(string ColumnId, string Reason);
@@ -84,6 +84,12 @@ internal static class ReadProjectionCompilation
                     "ConstList" or "ConstDownList" or "CheckBox" or "List" or "TextArea" or "FileLibrary" or "IntenetImage" or
                     "Base64Image" or "Image" or "MultiImage" or "Upload" or "Video" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "RTF" or "CustomControl"))
             { Gap(column.Source.Id, "控件读取依赖尚未证明：" + Kind(column)); return; }
+            if (ManagerCredentialCompilation.IsCredential(table,column))
+            {
+                if (!ManagerCredentialCompilation.IsOriginal(table,page)) Gap(column.Source.Id,"额外账号页凭据用途尚未证明。");
+                else if (purpose == ReadProjectionPurpose.Detail) Output(new(column.JsonName,column.Property,column,ReadProjectionOutputKind.CredentialEcho));
+                return;
+            }
             physical.TryAdd(column.Source.Id, column);
             Reason(column.Source.Id, reason);
             Output(new(column.JsonName, column.Property, column, ReadProjectionOutputKind.Physical));

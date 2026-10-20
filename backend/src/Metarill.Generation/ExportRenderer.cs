@@ -11,7 +11,7 @@ internal static class ExportRenderer
     /// <summary>未指定时使用列表列，编辑导出明确使用详情列。</summary>
     private static string Mode(PageModel page) => page.Source.Extra.TryGetValue("exportMethod", out var mode) ? mode.ToString() : "";
     /// <summary>定制组件没有通用 Excel 表示，不能自动导出内部配置。</summary>
-    private static IReadOnlyList<ColumnModel> Columns(PageModel page) => (Mode(page) == "edit" ? page.DetailColumns : page.ListColumns).Where(column => column.Source.ControlKind != "CustomControl").ToArray();
+    private static IReadOnlyList<ColumnModel> Columns(PageModel page) => (Mode(page) == "edit" ? page.DetailColumns : page.ListColumns).Where(column => column.Source.ControlKind != "CustomControl" && !ManagerCredentialCompilation.IsObsolete(column) && !(column.Source.ConfigTableId==ManagerCredentialCompilation.TableId&&column.Source.Id==ManagerCredentialCompilation.PasswordId)).ToArray();
     /// <summary>能力门禁复用真实导出开启和列选择规则，未导出该列不产生该用途缺口。</summary>
     internal static bool IncludesColumn(PageModel page, ColumnModel column) => Enabled(page) && Columns(page).Any(candidate => candidate.Source.Id == column.Source.Id);
     /// <summary>关系导出使用与控件相同的固定目标，不按客户端参数选择授权对象。</summary>
@@ -86,7 +86,7 @@ internal static class ExportRenderer
         foreach (var column in columns)
         {
             var relation = relations.SingleOrDefault(relation => relation.SourceColumn == column);
-            result.AppendLine("            " + ValueExpression(column, relation) + ",");
+            result.AppendLine("            " + ValueExpression(table,page,column, relation) + ",");
         }
         result.AppendLine("        }).ToArray();")
             .AppendLine($"        return new({Literal(page.Source.Id)}, {Literal(page.Source.Name)}, [{string.Join(", ", columns.Select(column => Literal(string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name)))}], rows);")
@@ -94,9 +94,10 @@ internal static class ExportRenderer
         return result.ToString();
     }
     /// <summary>关系导出名称，64位整数始终按文本输出避免 Excel 精度损失。</summary>
-    private static string ValueExpression(ColumnModel column, RelationModel? relation)
+    private static string ValueExpression(TableModel table,PageModel page,ColumnModel column, RelationModel? relation)
     {
         var access = "entity." + column.Property;
+        if (ManagerCredentialCompilation.IsEnabled(table,page,column)) return "Metarill.Core.Contracts.ManagerCredentialValue.ToEnabled("+access+")";
         if (relation is not null)
         {
             var id = IdExpression(column, "entity");

@@ -126,7 +126,9 @@ for(const p of pages){
  if(p.whereSql && !/^[a-z_]+\s*=\s*@(?:current_yz_project_id|parent_id|parentId)(?:\s+and\s+[a-z_]+\s*=\s*@(?:current_yz_project_id|parent_id|parentId))*$/i.test(p.whereSql))p.whereSql='yz_project_id=@current_yz_project_id';
  for(const c of byTable.get(t.id)||[]){
   const old=oldFields.get(p.id+':'+c.id);
-  if(c.columnName==='id'||c.columnName==='delete_no'||c.columnName.includes('password')||c.columnName==='salt')continue;
+  // 仅恢复原账号三凭据控件；后端固定协议只写新口令，绝不回显摘要或允许客户端盐。
+  const managerCredential=t.id==='6031906809708544'&&p.id==='6031906822946816'&&['1679698326770069505','1679698328187744257','1679698328317767681'].includes(c.id);
+  if(c.columnName==='id'||c.columnName==='delete_no'||(!managerCredential&&(c.columnName.includes('password')||c.columnName==='salt')))continue;
   pageColumns.push({...old,id:old?.id||id('pagefield:'+p.id+':'+c.id),name:c.name,configPageId:p.id,configColumnId:c.id,columnName:c.columnName,yzProjectId:projectId,sortNo:Number(old?.sortNo||c.sortNo||0),isShow:old?.isShow??old?.isInGrid??1,isEdit:old?.isEdit??old?.isInEdit??(standard.some(s=>s[0]===c.columnName)?0:1),isRequired:old?.isRequired??old?.isMust??c.isDbNotNull});
  }
 }

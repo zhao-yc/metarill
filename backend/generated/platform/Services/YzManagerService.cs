@@ -1,4 +1,5 @@
 using Metarill.Core.Security;
+using Metarill.Core.Contracts;
 using Metarill.Platform.Generated.Entities;
 using Metarill.Runtime.Security;
 namespace Metarill.Platform.Generated.Services;
@@ -10,6 +11,8 @@ public partial class YzManagerService
     partial void BeforeSave(YzManager entity,RuntimeActor actor,bool creating,ISet<string> submittedFields)
     {
         SecurityRealmMutationGuard.RequirePrepared(guards,session.CurrentTransaction,"yz_manager",entity.Id,actor,creating,false);
+        // 原页面提交的新密码只在同一安全事务内生成摘要；省略保持已有摘要。
+        if (creating || submittedFields.Contains("password")) entity.Password=PasswordHasher.Hash(ManagerCredentialValue.Input(entity.Password));
     }
     /// <summary>删除复用真实目标的delete准备，引用和归属由最终协调器统一核验。</summary>
     partial void BeforeDelete(YzManager entity,RuntimeActor actor)
