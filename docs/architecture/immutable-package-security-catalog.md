@@ -18,7 +18,7 @@
 
 2026-10-20，基线`d6d0594307682d19107b791a9cf213daeead6321`，认证/包profile/前端闭包邻近106/106通过，0失败、0跳过，其中固定目录命名用例21项，并加强既有profile闭包，包含真实Full包编译；TRX为私有`.local/immutable-catalog-results/immutable-catalog-neighbor-freeze.trx`，SHA256为`efaad58ab16f88e66e20e003fbbbc5ca712528a22066bdbd01db60b5f6055f9b`。先前16/20批次的4项失败是反射构造异常包装断言，保留原TRX，夹具解包后按原拒绝合同通过。
 
-全LocalGenerationUpdateTests邻近另行运行和记录，不能把106项视作整套更新器或CI全部通过；工厂与typed Payload的manifest字段顺序差异由独立CI切片修复，合并后还需完整再验。本片未访问数据库、HTTP、浏览器或设备，也未证明安全Runtime A已下发。
+准确`LocalGenerationUpdateTests`全类首轮64项为62通过、2失败、0跳过，原TRX`immutable-catalog-updater-freeze.trx`（SHA256 `948239227c42317ea3dc318b17bb19ecfd036e2f1502701e961b24af87644a87`）保留。两项为readonlyCustom/cycle候选夹具手动重建完整模型却未同步新增Binding与摘要，被严格目录校验提前拒绝；仅补夹具同步同一实际project字节摘要、编译Binding及外manifest归属，不改产品或原反向预览/最终具体诊断/字节不变断言。补测这2项及固定目录21项，23/23通过、0跳过，TRX`immutable-catalog-capability-binding-v2.trx`（SHA256 `f317fbbcf1442bc9e12af8e0fe1df72be764a289eef6e133e2264f84006e1b8d`）。未重跑整64，不将重叠用例累计为新验收量。工厂与typed Payload的manifest字段顺序差异由独立CI切片修复，合并后还需完整再验。本片未访问数据库、HTTP、浏览器或设备，也未证明安全Runtime A已下发。
 
 ## 后续安全管理接线边界
 

@@ -40,6 +40,9 @@ public sealed partial class LocalGenerationUpdateTests
     {
         var result = new CSharpGenerator().Generate(catalog, Path.Combine(candidate, "backend/generated"), "Example.LocalUpdate");
         File.WriteAllText(Path.Combine(candidate, "backend/metadata/project.json"), JsonSerializer.Serialize(catalog, Json) + "\n");
+        // 测试重建完整候选时也同步固定目录编译绑定，不能被新摘要门禁提前遮住原能力断言。
+        var securityCatalogSha256=ActualHash(candidate,"backend/metadata/project.json");
+        File.WriteAllText(Path.Combine(candidate,"backend/Application.Host/PackageSecurityCatalogBinding.g.cs"),ApplicationPackager.SecurityCatalogBindingSource("Example.LocalUpdate",securityCatalogSha256));
         var generated = JsonNode.Parse(File.ReadAllText(Path.Combine(candidate, "backend/generated/.metarill-generation.json")))!;
         foreach (var entry in generated["files"]!.AsArray().Where(entry => entry!["path"]!.GetValue<string>().StartsWith("frontend/", StringComparison.Ordinal)))
         {
@@ -52,7 +55,7 @@ public sealed partial class LocalGenerationUpdateTests
         var frontendPath = Path.Combine(candidate, "frontend/.metarill-frontend.json"); var frontend = JsonNode.Parse(File.ReadAllText(frontendPath))!;
         foreach (var entry in frontend["files"]!.AsArray()) entry!["sha256"] = ActualHash(candidate, "frontend/" + entry["path"]!.GetValue<string>());
         File.WriteAllText(frontendPath, frontend.ToJsonString(Json) + "\n");
-        var packagePath = Path.Combine(candidate, ".metarill-package.json"); var package = JsonNode.Parse(File.ReadAllText(packagePath))!; package["metadataSha256"] = result.MetadataSha256; package["warnings"] = JsonSerializer.SerializeToNode(result.Warnings, Json);
+        var packagePath = Path.Combine(candidate, ".metarill-package.json"); var package = JsonNode.Parse(File.ReadAllText(packagePath))!; package["securityCatalogSha256"]=securityCatalogSha256; package["metadataSha256"] = result.MetadataSha256; package["warnings"] = JsonSerializer.SerializeToNode(result.Warnings, Json);
         foreach (var entry in package["files"]!.AsArray()) entry!["sha256"] = ActualHash(candidate, entry["path"]!.GetValue<string>());
         File.WriteAllText(packagePath, package.ToJsonString(Json) + "\n");
         Assert.Equal(result.MetadataSha256, generated["metadataSha256"]!.GetValue<string>());
