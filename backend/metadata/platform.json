@@ -27448,6 +27448,33 @@
       "yzProjectId": "1608097412978577409"
     },
     {
+      "id": "900235310779076608",
+      "configTableId": "2063264600555577345",
+      "indexName": "yzp_idx_role_permission_role_active",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235316722405376",
+      "configTableId": "1692532858499969026",
+      "indexName": "yzp_idx_role_admin_active",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235322581848064",
+      "configTableId": "6031906809708544",
+      "indexName": "yzp_idx_manager_admin_active",
+      "isUnique": 0,
+      "indexType": "INDEX",
+      "isEnabled": 1,
+      "yzProjectId": "1608097412978577409"
+    },
+    {
       "id": "2200000000000000736",
       "configTableId": "2200000000000000306",
       "indexName": "ux_session_token",
@@ -27617,6 +27644,60 @@
       "configColumnId": "1679698326577131521",
       "columnName": "name",
       "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235310800048128",
+      "configIndexId": "900235310779076608",
+      "configColumnId": "2063264600941453314",
+      "columnName": "yz_role_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235310821019648",
+      "configIndexId": "900235310779076608",
+      "configColumnId": "2200000000000000249",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235316734988288",
+      "configIndexId": "900235316722405376",
+      "configColumnId": "1692533179766878209",
+      "columnName": "yz_admin_type_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235316751765504",
+      "configIndexId": "900235316722405376",
+      "configColumnId": "2200000000000000218",
+      "columnName": "delete_no",
+      "sortNo": 10,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235322598625280",
+      "configIndexId": "900235322581848064",
+      "configColumnId": "1679698329655750657",
+      "columnName": "yz_admin_type_id",
+      "sortNo": 0,
+      "sortDirection": "ASC",
+      "yzProjectId": "1608097412978577409"
+    },
+    {
+      "id": "900235322615402496",
+      "configIndexId": "900235322581848064",
+      "configColumnId": "2200000000000000008",
+      "columnName": "delete_no",
+      "sortNo": 10,
       "sortDirection": "ASC",
       "yzProjectId": "1608097412978577409"
     },

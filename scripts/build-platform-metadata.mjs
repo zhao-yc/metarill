@@ -142,6 +142,10 @@ function index(tableName,name,fields,unique=false) {
  cols.forEach((c,i)=>indexColumns.push({id:id('indexfield:'+idx.id+':'+c.id),configIndexId:idx.id,configColumnId:c.id,columnName:c.columnName,sortNo:i*10,sortDirection:'ASC',yzProjectId:projectId}));
 }
 index('yz_manager','ux_manager_name',['name'],true);
+// 安全当前读与删除引用按角色/后台和活动标记定位；不重复追加MySQL二级索引已携带的主键。
+index('yz_role_permission','yzp_idx_role_permission_role_active',['yz_role_id','delete_no']);
+index('yz_role','yzp_idx_role_admin_active',['yz_admin_type_id','delete_no']);
+index('yz_manager','yzp_idx_manager_admin_active',['yz_admin_type_id','delete_no']);
 index('sys_session','ux_session_token',['token_hash'],true);
 index('sys_agent_grant','ux_grant_device',['device_code_hash'],true);
 index('sys_agent_grant','ux_grant_user',['user_code'],true);
