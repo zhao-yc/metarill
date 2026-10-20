@@ -166,7 +166,10 @@ public partial class ConfigCustomPageService
     public Task<ConfigCustomPagePage2062361618137833473Vo> Create2062361618137833473Async(ConfigCustomPagePage2062361618137833473CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        await PrepareMutationAsync("2062361618137833473", RecordMutationOperation.Create, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (request.YzAdminTypeId.IsSpecified) mutationScopeValues["yz_admin_type_id"] = request.YzAdminTypeId.Value;
+        mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
+        await PrepareMutationAsync("2062361618137833473", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents2062361618137833473Async(parentId, actor, cancellationToken);
         var entity = new ConfigCustomPage { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -192,6 +195,7 @@ public partial class ConfigCustomPageService
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u9875\u9762\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (string.IsNullOrWhiteSpace(entity.PagePath)) throw new ArgumentException("\u9875\u9762\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        await ValidateMutationAsync("2062361618137833473", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyConfigCustomPageAsync("2062361618137833473", entity, actor, submitted, false, true, cancellationToken);
         return ConfigCustomPagePage2062361618137833473Vo.FromEntity(entity);
@@ -200,8 +204,12 @@ public partial class ConfigCustomPageService
     public Task<ConfigCustomPagePage2062361618137833473Vo> Update2062361618137833473Async(ConfigCustomPagePage2062361618137833473UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        await PrepareMutationAsync("2062361618137833473", RecordMutationOperation.Update, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (request.YzAdminTypeId.IsSpecified) mutationScopeValues["yz_admin_type_id"] = request.YzAdminTypeId.Value;
+        mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
+        await PrepareMutationAsync("2062361618137833473", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
         var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.PagePath.IsSpecified) { entity.PagePath = request.PagePath.Value; submitted.Add("page_path"); }
@@ -224,6 +232,7 @@ public partial class ConfigCustomPageService
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u9875\u9762\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (string.IsNullOrWhiteSpace(entity.PagePath)) throw new ArgumentException("\u9875\u9762\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        await ValidateMutationAsync("2062361618137833473", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigCustomPageAsync("2062361618137833473", entity, actor, submitted, false, false, cancellationToken);
         return ConfigCustomPagePage2062361618137833473Vo.FromEntity(entity);
@@ -231,21 +240,46 @@ public partial class ConfigCustomPageService
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete2062361618137833473Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
-        await PrepareMutationAsync("2062361618137833473", RecordMutationOperation.Delete, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
+        await PrepareMutationAsync("2062361618137833473", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
         var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
+        await ValidateMutationAsync("2062361618137833473", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
         entity.DeleteNo = DateTime.UtcNow;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigCustomPageAsync("2062361618137833473", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
     }, cancellationToken);
-    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
-    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigCustomPage entity) => guards.Any()
+        ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["yz_project_id"] = entity.YzProjectId,
+            ["yz_admin_type_id"] = entity.YzAdminTypeId,
+        }) : EmptyMutationScope;
+    private static readonly IReadOnlyDictionary<string, object?> EmptyMutationScope = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
+    /// <summary>身份先验证，归属值仅为提示，宿主必须在当前读中验证实际项目和后台。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken, long? targetId = null, IReadOnlyDictionary<string, object?>? scopeValues = null)
     {
         ValidateActor(actor);
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
-        foreach (var guard in guards)
-            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "config_custom_page", operation, actor, transaction), cancellationToken);
+        var preparation = new RecordMutationPreparation(pageId, "config_custom_page", operation, actor, transaction)
+        {
+            TargetId = targetId,
+            ScopeValues = scopeValues is null ? EmptyMutationScope : new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(scopeValues, StringComparer.Ordinal))
+        };
+        foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
+    }
+    /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigCustomPage entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    {
+        if (!guards.Any()) return;
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
+        var validation = new RecordMutationValidation(pageId, "config_custom_page", operation, entity.Id, actor,
+            original ?? EmptyMutationScope, MutationScopeValues(entity), new HashSet<string>(submitted, StringComparer.Ordinal), transaction);
+        foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyConfigCustomPageAsync(string pageId, ConfigCustomPage entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)

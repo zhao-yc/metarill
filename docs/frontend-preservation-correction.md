@@ -173,3 +173,16 @@ root亲自通过原登录页、原菜单及原列表的文件选择器上传既�
 `2d917ce` 的远端Linux与前端均通过，Windows Generation为454通过/1失败/11专属验收未配置跳过；唯一失败是 `StandaloneShellAuthenticationTests` 在就绪探测中把HttpClient单次5秒超时当成启动失败。之前两个重量类已通过，本次不能把它们的本机60项结果称为Windows全套通过。
 
 只在测试层，将真实构建/启动宿主的认证、目录和导入类加入现有专用collection；认证、导入、目录及导出health探针复用现有30秒启动总预算和自身进程输出诊断。未修改产品、全局并发、子构建期限或就绪后5秒业务请求，不重试密码、会话、导入、导出和权限业务。实际本机Windows定向58/58零失败零跳过，回执 `.local/standalone-health-budget-integrated.trx`。远端修后批次仍需另外核验。
+
+## 2026-10-20 原平台版本下拉与工作台身份范围复验
+
+root在冻结 `ccfb935` 的原平台Web发行副本使用原登录、选择设备/项目、项目列表和新增表单，展开原zxz版本下拉：默认值及唯一候选均为 `Metarill C# v1`，提示已同步；未保存项目，关闭后原列表仍为2条。页面标签、位置、样式和事件保持，未用新页面替换。证据 `.local/platform-version-preview-ccfb-41b2bc10/control/state/platform-csharp-version-cua-after-receipt.json`，封存717文件、3个外部工具核对通过。辅助Agent仅负责只读SQL与脱敏日志；没有事前项目SQL投影，不将CUA的未保存观察写成数据库before/after证明。该副本的静态下拉成功与live元数据发布是两项验收，后者当时仍被旧空物理类型阻断。
+
+用户已明确选择沿用原V8页面编辑权限及真实目标后台归属，不增加超级身份门槛，见 `role-assignment-policy-decision.md`。工作台A切片按真实身份后台读取目录、授权与revision，不再以开发工作区项目作为权限归属；同项目其他后台资源过滤。整合后的完整Agent真实MySQL **63/63**、零跳过，证据 `.local/principal-workbench-realm-integrated.trx`。该切片未实现后续稳定锁序与锁后当前读，不以此关闭撤权、并发或角色控件缺口。
+## 2026-10-20 窄范围守卫与旧逻辑类型整合
+
+已将准备阶段目标ID和固定安全归属提示、Mapper写前最终守卫作为兼容合同加入生成器及Core；默认实现不改变旧宿主权限，敏感/非ID范围继续原查询且不进入新上下文。整批导入外层提示早于首父锁，每行仍复用原事务入口；这不是完整预锁协调器。两个独立切片在生成器同一位置合并时，保留锁后原范围与原类型两份快照，均在请求合并及手写钩子之前。正式两轮191项文件/清单一致、24个手写partial不变、API Release 0警告0错误，回执 `.local/original-regeneration-guard-types-71b1fd2/receipt.json`。
+
+整合离线生成守卫/范围/类型26/26、类型及真实观察器44/44，均零跳过，证据 `.local/guard-types-generation-integrated.trx` 和 `.local/guard-types-metadata-integrated.trx`。旧物理int的ID/sort推导保持原规则；显式逻辑类型冲突、未知物理类型和原必填规则继续拒绝，不改原表单。
+
+完整API真实MySQL本批 **70/71**：唯一失败为平台管理员选择业务项目后，角色工作台snapshot被新身份后台限制拒绝，见 `.local/guard-types-api-mysql-integrated.trx`。正在对照原V8区分操作者身份与目标角色后台；不能把先前63项Agent通过或其它API通过冒作该路径兼容，也不将测试改成期待新拒绝。live版本元数据窄发布与角色控件缺口仍单独推进，未据本合同关闭。

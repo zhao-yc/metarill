@@ -291,8 +291,12 @@ public partial class ConfigPageColumnService
     public Task<ConfigPageColumnPage6218036784398336Vo> Update6218036784398336Async(ConfigPageColumnPage6218036784398336UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Update, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (request.ConfigPageId.IsSpecified) mutationScopeValues["config_page_id"] = request.ConfigPageId.Value;
+        if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
+        await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
         var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.IsImportant.IsSpecified) { entity.IsImportant = request.IsImportant.Value; submitted.Add("is_important"); }
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -342,6 +346,7 @@ public partial class ConfigPageColumnService
         if ((submitted.Contains("config_column_id") || submitted.Contains("config_page_id")) && entity.ConfigColumnId is not null)
             await ValidateBound6218036784398336_1676901024774926338Async(entity, actor, cancellationToken);
         if (entity.ConfigPageId != long.Parse(parentId!, CultureInfo.InvariantCulture)) throw new InvalidOperationException("不能修改页面归属字段。");
+        await ValidateMutationAsync("6218036784398336", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigPageColumnAsync("6218036784398336", entity, actor, submitted, false, false, cancellationToken);
         return ConfigPageColumnPage6218036784398336Vo.FromEntity(entity);
@@ -349,25 +354,50 @@ public partial class ConfigPageColumnService
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6218036784398336Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
-        await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Delete, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
+        await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
         var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         if ((true))
             AuthorizeBound6218036784398336_1676901024774926338(actor, false);
         if ((true) && entity.ConfigColumnId is not null)
             await ValidateBound6218036784398336_1676901024774926338Async(entity, actor, cancellationToken);
+        await ValidateMutationAsync("6218036784398336", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
         entity.DeleteNo = DateTime.UtcNow;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigPageColumnAsync("6218036784398336", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
     }, cancellationToken);
-    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
-    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigPageColumn entity) => guards.Any()
+        ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["yz_project_id"] = entity.YzProjectId,
+            ["config_page_id"] = entity.ConfigPageId,
+        }) : EmptyMutationScope;
+    private static readonly IReadOnlyDictionary<string, object?> EmptyMutationScope = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
+    /// <summary>身份先验证，归属值仅为提示，宿主必须在当前读中验证实际项目和后台。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken, long? targetId = null, IReadOnlyDictionary<string, object?>? scopeValues = null)
     {
         ValidateActor(actor);
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
-        foreach (var guard in guards)
-            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "config_page_column", operation, actor, transaction), cancellationToken);
+        var preparation = new RecordMutationPreparation(pageId, "config_page_column", operation, actor, transaction)
+        {
+            TargetId = targetId,
+            ScopeValues = scopeValues is null ? EmptyMutationScope : new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(scopeValues, StringComparer.Ordinal))
+        };
+        foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
+    }
+    /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigPageColumn entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    {
+        if (!guards.Any()) return;
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
+        var validation = new RecordMutationValidation(pageId, "config_page_column", operation, entity.Id, actor,
+            original ?? EmptyMutationScope, MutationScopeValues(entity), new HashSet<string>(submitted, StringComparer.Ordinal), transaction);
+        foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyConfigPageColumnAsync(string pageId, ConfigPageColumn entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)

@@ -128,13 +128,34 @@ public partial class ConfigMenuService
         var entity = await Scope2200000000000099000(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
         return entity is null ? null : ConfigMenuPage2200000000000099000Vo.FromEntity(entity);
     }
-    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
-    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigMenu entity) => guards.Any()
+        ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["yz_project_id"] = entity.YzProjectId,
+            ["yz_admin_type_id"] = entity.YzAdminTypeId,
+        }) : EmptyMutationScope;
+    private static readonly IReadOnlyDictionary<string, object?> EmptyMutationScope = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
+    /// <summary>身份先验证，归属值仅为提示，宿主必须在当前读中验证实际项目和后台。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken, long? targetId = null, IReadOnlyDictionary<string, object?>? scopeValues = null)
     {
         ValidateActor(actor);
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
-        foreach (var guard in guards)
-            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "config_menu", operation, actor, transaction), cancellationToken);
+        var preparation = new RecordMutationPreparation(pageId, "config_menu", operation, actor, transaction)
+        {
+            TargetId = targetId,
+            ScopeValues = scopeValues is null ? EmptyMutationScope : new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(scopeValues, StringComparer.Ordinal))
+        };
+        foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
+    }
+    /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigMenu entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    {
+        if (!guards.Any()) return;
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
+        var validation = new RecordMutationValidation(pageId, "config_menu", operation, entity.Id, actor,
+            original ?? EmptyMutationScope, MutationScopeValues(entity), new HashSet<string>(submitted, StringComparer.Ordinal), transaction);
+        foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyConfigMenuAsync(string pageId, ConfigMenu entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)

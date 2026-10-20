@@ -189,7 +189,9 @@ public partial class YzManagerService
     public Task<YzManagerPage6031906822946816Vo> Create6031906822946816Async(YzManagerPage6031906822946816CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Create, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (request.YzAdminTypeId.IsSpecified) mutationScopeValues["yz_admin_type_id"] = request.YzAdminTypeId.Value;
+        await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents6031906822946816Async(parentId, actor, cancellationToken);
         var entity = new YzManager { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -228,6 +230,7 @@ public partial class YzManagerService
         await ValidateRelations6031906822946816Async(entity, actor, true, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u7528\u6237\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.YzAdminTypeId is null) throw new ArgumentException("\u540E\u53F0\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, true, cancellationToken);
         return YzManagerPage6031906822946816Vo.FromEntity(entity);
@@ -236,8 +239,11 @@ public partial class YzManagerService
     public Task<YzManagerPage6031906822946816Vo> Update6031906822946816Async(YzManagerPage6031906822946816UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
         ArgumentNullException.ThrowIfNull(request);
-        await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Update, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (request.YzAdminTypeId.IsSpecified) mutationScopeValues["yz_admin_type_id"] = request.YzAdminTypeId.Value;
+        await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
         var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.YzRoleIds.IsSpecified && request.YzRoleIds.Value is { } arrayYzRoleIds && arrayYzRoleIds.ValueKind != JsonValueKind.Array) throw new ArgumentException("数组控件只接受数组或 null。");
@@ -273,6 +279,7 @@ public partial class YzManagerService
         await ValidateRelations6031906822946816Async(entity, actor, false, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u7528\u6237\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.YzAdminTypeId is null) throw new ArgumentException("\u540E\u53F0\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, false, cancellationToken);
         return YzManagerPage6031906822946816Vo.FromEntity(entity);
@@ -280,21 +287,46 @@ public partial class YzManagerService
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6031906822946816Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
-        await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Delete, actor, cancellationToken);
+        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+        await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
         var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
+        await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
         entity.DeleteNo = DateTime.UtcNow;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyYzManagerAsync("6031906822946816", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
     }, cancellationToken);
-    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
-    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
+    /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(YzManager entity) => guards.Any()
+        ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["yz_role_ids"] = entity.YzRoleIds,
+            ["yz_admin_type_id"] = entity.YzAdminTypeId,
+            ["yz_project_id"] = entity.YzProjectId,
+        }) : EmptyMutationScope;
+    private static readonly IReadOnlyDictionary<string, object?> EmptyMutationScope = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
+    /// <summary>身份先验证，归属值仅为提示，宿主必须在当前读中验证实际项目和后台。</summary>
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken, long? targetId = null, IReadOnlyDictionary<string, object?>? scopeValues = null)
     {
         ValidateActor(actor);
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
-        foreach (var guard in guards)
-            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "yz_manager", operation, actor, transaction), cancellationToken);
+        var preparation = new RecordMutationPreparation(pageId, "yz_manager", operation, actor, transaction)
+        {
+            TargetId = targetId,
+            ScopeValues = scopeValues is null ? EmptyMutationScope : new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(scopeValues, StringComparer.Ordinal))
+        };
+        foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
+    }
+    /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, YzManager entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    {
+        if (!guards.Any()) return;
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
+        var validation = new RecordMutationValidation(pageId, "yz_manager", operation, entity.Id, actor,
+            original ?? EmptyMutationScope, MutationScopeValues(entity), new HashSet<string>(submitted, StringComparer.Ordinal), transaction);
+        foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
     private async Task NotifyYzManagerAsync(string pageId, YzManager entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
