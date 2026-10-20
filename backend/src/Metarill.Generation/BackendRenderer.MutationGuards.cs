@@ -74,7 +74,7 @@ internal static partial class BackendRenderer
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
     private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, {{table.Name}} entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
     {
-        if (!guards.Any()) return;
+{{(TrustedSecurityServiceCompilation.Applies(model,table) ? "        SecurityRealmMutationGuard.RequirePrepared(guards,session.CurrentTransaction,\""+table.Source.TableName+"\",entity.Id,actor,operation is RecordMutationOperation.Create or RecordMutationOperation.Copy,operation==RecordMutationOperation.Delete);" : "        if (!guards.Any()) return;")}}
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
         var validation = new RecordMutationValidation(pageId, "{{table.Source.TableName}}", operation, entity.Id, actor,
             original ?? EmptyMutationScope, MutationScopeValues(entity), new HashSet<string>(submitted, StringComparer.Ordinal), transaction);

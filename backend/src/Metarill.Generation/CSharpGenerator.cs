@@ -22,7 +22,14 @@ public sealed class CSharpGenerator
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
 
     /// <summary>生成强类型 CRUD 与 uni-app 页面，保护已有手写文件。</summary>
-    public GenerationResult Generate(MetadataCatalog catalog, string outputDirectory, string rootNamespace)
+    public GenerationResult Generate(MetadataCatalog catalog, string outputDirectory, string rootNamespace) => GenerateCore(catalog,outputDirectory,rootNamespace,null);
+
+    /// <summary>仅内部受信模块入口可生成必需安全partial；业务JSON不能选择这个编译上下文。</summary>
+    internal GenerationResult Generate(SecurityManagementModelSet module,string outputDirectory,string rootNamespace) =>
+        GenerateCore(SecurityManagementModuleFactory.RequirePublishedForGeneration(module),outputDirectory,rootNamespace,module);
+
+    /// <summary>两入口共用原子批次、归属及手写保护，可信来源只影响三固定服务的受控渲染。</summary>
+    private static GenerationResult GenerateCore(MetadataCatalog catalog,string outputDirectory,string rootNamespace,SecurityManagementModelSet? module)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         // 生成任务固定自己的元数据快照，避免调用方后续修改混入同一批次。
@@ -30,6 +37,7 @@ public sealed class CSharpGenerator
         ValidateNamespace(rootNamespace);
         MetadataValidation.Validate(catalog);
         var model = GenerationModel.Create(catalog, rootNamespace);
+        if(module is not null)model=TrustedSecurityServiceCompilation.Bind(model,module);
         var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(WriteSchemaRenderer.Render(model)).Select(file => file with { Content = file.Content.Replace("\r\n", "\n").Replace("\r", "\n") }).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
         if (files.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Length) throw new InvalidOperationException("生成路径存在大小写冲突。");
         var output = Path.GetFullPath(outputDirectory);
@@ -154,6 +162,8 @@ internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList
 internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages) { public bool IsGlobal => Source.Extra.TryGetValue("scopeKind", out var scope) && scope.ToString() == "global"; }
 internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace, IReadOnlyList<TableModel> Tables)
 {
+    // 此上下文只由内部factory签发入口建立，不是MetadataCatalog的可序列化字段。
+    internal TrustedSecurityServiceCompilation? TrustedSecurityServices {get;init;}
     /// <summary>把松散元数据编译为不可变生成模型，批次中禁止静默忽略查询范围。</summary>
     public static GenerationModel Create(MetadataCatalog catalog, string rootNamespace)
     {

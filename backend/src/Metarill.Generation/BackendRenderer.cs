@@ -156,20 +156,21 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     private static string Service(GenerationModel model, TableModel table)
     {
         var hasMulti = RequiresRelationAuthorization(model, table);
+        var trustedSecurity=TrustedSecurityServiceCompilation.Applies(model,table);
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
-            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;")
+            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;").Append(trustedSecurity ? "using Metarill.Runtime.Security;\n" : "")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
             .AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Mappers;")
-            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
+            .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; {TrustedSecurityServiceCompilation.GuardsAssignment(model,table)} {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
             .AppendLine("    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();")
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
             .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }")
             .AppendLine("    /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>")
             .AppendLine("    private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException(\"登录身份无效。\"); }")
             .AppendLine("    /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>")
-            .AppendLine($"    partial void BeforeSave({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);")
+            .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeSave({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);")
             .AppendLine("    /// <summary>删除前规则在当前事务内执行。</summary>")
-            .AppendLine($"    partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
+            .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
             result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
@@ -328,7 +329,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                     .AppendLine($"        entity.{column.Property} = {ScopeValue(column, "parentId")};");
-            result.AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
+            result.Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"true","false")).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
                 .Append(WriteCall(page, "Create", "null"))
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");")
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
@@ -350,7 +351,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 if (column.IsJsonArray && !multi && !role) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
                 result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
             }
-            result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,false)).Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
+            result.Append(Audit(table, false)).Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","false")).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,false)).Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
             result.Append(WriteCall(page, "Update", "originalScopeValues")).AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");")
@@ -363,7 +364,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").Append(PrepareCall(model, table, page, "Delete", "id", null))
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
-                .AppendLine("        BeforeDelete(entity, actor);")
+                .Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","true")).AppendLine("        BeforeDelete(entity, actor);")
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, true))
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
                 .Append(WriteCall(page, "Delete", "originalScopeValues", "new HashSet<string>(StringComparer.Ordinal)"));
@@ -620,7 +621,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         return result.ToString();
     }
     /// <summary>生成仅首次创建的业务扩展文件。</summary>
-    private static string HandwrittenService(GenerationModel model, TableModel table) => $$"""
+    private static string HandwrittenService(GenerationModel model, TableModel table) => TrustedSecurityServiceCompilation.Applies(model,table) ? TrustedSecurityServiceCompilation.Template(model,table) : $$"""
 namespace {{model.Namespace}}.Generated.Services;
 
 /// <summary>手写扩展只首次创建。可实现 BeforeSave、BeforeDelete，不会被再生成覆盖。</summary>
