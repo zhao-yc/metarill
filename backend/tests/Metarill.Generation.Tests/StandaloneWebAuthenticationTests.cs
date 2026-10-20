@@ -223,6 +223,9 @@ public sealed class WebAuthenticationPackageFixture:IAsyncLifetime
     internal object Authority()=>New("VerifiedPackageSecurityCatalog",CatalogBytes.ToArray());
     internal object Registry()=>New("ApplicationSecurityRegistry",Authority());
     internal void RegisterCatalog(IServiceCollection services,object authority)=>Invoke(assembly.GetType(Namespace+".Host.ApplicationSecurityCatalogRegistration",true)!,"Add",services,authority);
+    /// <summary>执行实际完整包的正式Web注册，不能由测试重建一份近似DI替代。
+    internal void RegisterCoordination(IServiceCollection services,object mode)=>Invoke(HostType("ApplicationWebSecurityCoordination"),"Add",services,mode);
+    internal Type HostType(string name)=>assembly.GetType(Namespace+".Host."+name,true)!;
     internal object Mode(Dictionary<string,string?> values,string environment)=>Invoke(assembly.GetType(Namespace+".Host.ApplicationAuthenticationMode",true)!,"Read",new ConfigurationBuilder().AddInMemoryCollection(values).Build(),new TestEnvironment{EnvironmentName=environment})!;
     internal T Property<T>(object instance,string name)=>(T)instance.GetType().GetProperty(name,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(instance)!;
     internal object? Invoke(object instance,string name,params object?[] arguments){var type=instance as Type??instance.GetType();var method=type.GetMethod(name,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Static|BindingFlags.Instance)!;try{return method.Invoke(instance is Type?null:instance,arguments);}catch(TargetInvocationException error)when(error.InnerException is not null){ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}}

@@ -68,7 +68,7 @@ builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Con
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<DevelopmentSessions>();
 if(authenticationMode.Development)builder.Services.AddScoped<IRuntimeAuthorization,DevelopmentAuthorization>();
-else builder.Services.AddScoped<IRuntimeAuthorization,ApplicationWebAuthorization>();
+else ApplicationWebSecurityCoordination.Add(builder.Services,authenticationMode);
 // 生成和下载共享同一个票据仓库；先取得资源额度，再执行生成页的有界查询。
 builder.Services.AddSingleton(builder.Configuration.GetSection("Exports").Get<ExportOptions>() ?? new());
 builder.Services.AddSingleton<ExcelPageExportService>();

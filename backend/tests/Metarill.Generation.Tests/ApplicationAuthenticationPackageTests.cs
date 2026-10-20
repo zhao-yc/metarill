@@ -9,7 +9,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>正式Full与既有BackendOnly显式分流；验证物理合成、受管profile和旧项目更新，不启动任何宿主。</summary>
-public sealed class ApplicationAuthenticationPackageTests:IAsyncLifetime
+public sealed partial class ApplicationAuthenticationPackageTests:IAsyncLifetime
 {
     private readonly string root=Path.Combine(Path.GetTempPath(),"metarill-auth-package-contract",Guid.NewGuid().ToString("N"));
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){WriteIndented=true,NewLine="\n"};
@@ -25,7 +25,7 @@ public sealed class ApplicationAuthenticationPackageTests:IAsyncLifetime
         Assert.Contains("Metarill.Security",File.ReadAllText(Path.Combine(full,"backend/Application.Host/Application.Host.csproj")));Assert.DoesNotContain("Metarill.Runtime",File.ReadAllText(Path.Combine(full,"backend/Application.Host/Application.Host.csproj")));
         Assert.Equal(Normalized(File.ReadAllText(Path.Combine(SourceRoot(),"backend/templates/standalone/DevelopmentProgram.cs.tpl")).Replace("{{NAMESPACE}}","Example.ProfileContract")),File.ReadAllText(Path.Combine(backend,"backend/Application.Host/Program.cs")));
         Assert.Equal(Normalized(File.ReadAllText(Path.Combine(SourceRoot(),"backend/templates/standalone/DevelopmentSettings.json.tpl"))),File.ReadAllText(Path.Combine(backend,"backend/Application.Host/appsettings.example.json")));
-        foreach(var path in new[]{"WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","PackageSecurityCatalogBinding.g.cs"}){Assert.True(File.Exists(Path.Combine(full,"backend/Application.Host",path)));Assert.False(File.Exists(Path.Combine(backend,"backend/Application.Host",path)));}
+        foreach(var path in new[]{"WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","PackageSecurityCatalogBinding.g.cs","SessionPolicy.cs","WebSecurityCoordination.cs"}){Assert.True(File.Exists(Path.Combine(full,"backend/Application.Host",path)));Assert.False(File.Exists(Path.Combine(backend,"backend/Application.Host",path)));}
         Assert.False(Directory.Exists(Path.Combine(full,".local")));Assert.DoesNotContain(Directory.EnumerateFiles(full,"*",SearchOption.AllDirectories),path=>path.EndsWith("appsettings.local.json",StringComparison.OrdinalIgnoreCase));
     }
 
@@ -153,7 +153,7 @@ public sealed class ApplicationAuthenticationPackageTests:IAsyncLifetime
     {
         var marker=Marker(directory);var ns=marker["rootNamespace"]!.GetValue<string>();foreach(var pair in new[]{("DevelopmentProgram.cs.tpl","Program.cs"),("DevelopmentNavigation.cs.tpl","DevelopmentNavigation.cs")})File.WriteAllText(Path.Combine(directory,"backend/Application.Host",pair.Item2),Normalized(File.ReadAllText(Path.Combine(SourceRoot(),"backend/templates/standalone",pair.Item1)).Replace("{{NAMESPACE}}",ns)));
         var host=Path.Combine(directory,"backend/Application.Host/Application.Host.csproj");File.WriteAllText(host,File.ReadAllText(host).Replace("<ProjectReference Include=\"../../src/Metarill.Security/Metarill.Security.csproj\" />","").Replace("<ItemGroup><Content Include=\"../metadata/security.json\" Link=\"metadata/security.json\" CopyToOutputDirectory=\"PreserveNewest\" /></ItemGroup>",""));
-        foreach(var path in new[]{"backend/metadata/security.json","backend/Application.Host/WebAuthentication.cs","backend/Application.Host/SecurityInitialization.cs","backend/Application.Host/PackageSecurityCatalog.cs","backend/Application.Host/PackageSecurityCatalogBinding.g.cs"})File.Delete(Path.Combine(directory,path));Directory.Delete(Path.Combine(directory,"src/Metarill.Security"),true);
+        foreach(var path in new[]{"backend/metadata/security.json","backend/Application.Host/WebAuthentication.cs","backend/Application.Host/SecurityInitialization.cs","backend/Application.Host/PackageSecurityCatalog.cs","backend/Application.Host/PackageSecurityCatalogBinding.g.cs","backend/Application.Host/SessionPolicy.cs","backend/Application.Host/WebSecurityCoordination.cs"})File.Delete(Path.Combine(directory,path));Directory.Delete(Path.Combine(directory,"src/Metarill.Security"),true);
         var frontendPath=Path.Combine(directory,"frontend/.metarill-frontend.json");var frontend=JsonNode.Parse(File.ReadAllText(frontendPath))!;frontend["authentication"]="development-only";File.WriteAllText(frontendPath,frontend.ToJsonString(Json)+"\n");marker.AsObject().Remove("authenticationProfile");marker.AsObject().Remove("securityCatalogSha256");var files=marker["files"]!.AsArray();foreach(var row in files.ToArray()){var path=row!["path"]!.GetValue<string>();if(!File.Exists(Path.Combine(directory,path)))files.Remove(row);else row["sha256"]=Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(directory,path))));}File.WriteAllText(Path.Combine(directory,".metarill-package.json"),marker.ToJsonString(Json)+"\n");
     }
     private static JsonNode Marker(string path)=>JsonNode.Parse(File.ReadAllText(Path.Combine(path,".metarill-package.json")))!;
