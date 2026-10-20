@@ -104,3 +104,49 @@ test('结构声明缺字段名或类型时由builder明确拒绝', () => {
     assert.throws(() => generate(workspace), error => error.status === 1 && String(error.stderr).includes('平台结构参考字段不合法。'));
   });
 });
+
+// 恢复控件以追加方式进入已发布目录，既有数组顺序、三个完整对象和所有固定标识都不能漂移。
+test('原账号三凭据按已发布尾部顺序重建，保留完整对象和1432固定标识', () => withSandbox(workspace => {
+  const restoredIds = ['1679698326770069506', '1679698328187744258', '1679698328317767682'];
+  const identifiersPath = join(workspace, 'backend/metadata/identifiers.json');
+  const beforeIdentifiers = JSON.parse(readFileSync(identifiersPath, 'utf8'));
+  assert.equal(Object.keys(beforeIdentifiers).length, 1432);
+  const rebuilt = generate(workspace);
+  assert.deepEqual(rebuilt.configPageColumns.map(field => field.id), canonical.configPageColumns.map(field => field.id), '全目录页字段ID数组顺序必须保持');
+  assert.deepEqual(rebuilt.configPageColumns.slice(-3).map(field => field.id), restoredIds);
+  for (const id of restoredIds) {
+    const actual = rebuilt.configPageColumns.filter(field => field.id === id);
+    const expected = canonical.configPageColumns.filter(field => field.id === id);
+    assert.equal(actual.length, 1); assert.equal(expected.length, 1);
+    assert.deepEqual(actual[0], expected[0], '恢复的原控件必须保留完整声明：' + id);
+  }
+  for (const collection of ['configTables', 'configColumns', 'configIndexes', 'configIndexColumns']) {
+    assert.deepEqual(rebuilt[collection], canonical[collection], '恢复原控件不能改变物理模型：' + collection);
+  }
+  const afterIdentifiers = JSON.parse(readFileSync(identifiersPath, 'utf8'));
+  for (const [key, value] of Object.entries(beforeIdentifiers)) {
+    assert.equal(afterIdentifiers[key], value, '既有固定标识逐值保持：' + key);
+  }
+  // 原builder会从已发布目录登记缺失键；仅准补这三个原ID别名，不是分配新的元数据ID。
+  const added = Object.fromEntries(Object.entries(afterIdentifiers).filter(([key]) => !Object.hasOwn(beforeIdentifiers, key)));
+  assert.deepEqual(added, {
+    'pagefield:6031906822946816:1679698326770069505': '1679698326770069506',
+    'pagefield:6031906822946816:1679698328187744257': '1679698328187744258',
+    'pagefield:6031906822946816:1679698328317767681': '1679698328317767682',
+  });
+}));
+
+// 只修发布顺序，字段内容仍从source推导；禁止为凑摘要而从canonical复制三个对象或忽略差异。
+test('原凭据声明变更仍由source生成且完整目录合同拒绝漂移', () => {
+  for (const id of ['1679698326770069506', '1679698328187744258', '1679698328317767682']) withSandbox(workspace => {
+    const filename = join(workspace, 'backend/metadata/platform-source.json');
+    const source = JSON.parse(readFileSync(filename, 'utf8'));
+    const field = source.configPageColumns.find(field => field.id === id);
+    assert.equal(field.isInEdit, 1); field.isInEdit = 0;
+    writeFileSync(filename, JSON.stringify(source, null, 2) + '\n');
+    const rebuilt = generate(workspace);
+    assert.equal(rebuilt.configPageColumns.find(field => field.id === id).isEdit, 0, '实际消费改变后的原声明');
+    assert.deepEqual(rebuilt.configPageColumns.map(field => field.id), canonical.configPageColumns.map(field => field.id));
+    assert.throws(() => assert.deepEqual(rebuilt.configPageColumns, canonical.configPageColumns), assert.AssertionError);
+  });
+});

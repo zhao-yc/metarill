@@ -119,6 +119,7 @@ const byTable=new Map(tables.map(t=>[t.id,columns.filter(c=>c.configTableId===t.
 const oldFields=new Map(oldPageColumns.map(f=>[f.configPageId+':'+f.configColumnId,f]));
 for(const c of columns){if(c.columnName==='config_second_menu_id'){c.columnName='config_menu_id';c.name='菜单';c.logicalType='int64';}if(c.joinTable==='config_second_menu'){c.joinTable='config_menu';c.linkConfigTableId=menuTable.id;c.linkConfigPageId='2200000000000099000';c.controlDetail=JSON.stringify({table:'config_menu',tableId:menuTable.id,nameField:'name'});}if(c.linkConfigTableId&&!tables.some(t=>t.id===c.linkConfigTableId)){c.linkConfigTableId='';c.linkConfigPageId='';c.controlKind='';c.controlDetail='';}}
 let pageColumns=[];
+const restoredManagerFields=[];
 for(const p of pages){
  const t=tables.find(t=>t.id===p.configTableId);
  p.yzProjectId=projectId;p.yzAdminTypeId=adminId;p.pageSize=Number(p.pageSize||20);
@@ -129,9 +130,12 @@ for(const p of pages){
   // 仅恢复原账号三凭据控件；后端固定协议只写新口令，绝不回显摘要或允许客户端盐。
   const managerCredential=t.id==='6031906809708544'&&p.id==='6031906822946816'&&['1679698326770069505','1679698328187744257','1679698328317767681'].includes(c.id);
   if(c.columnName==='id'||c.columnName==='delete_no'||(!managerCredential&&(c.columnName.includes('password')||c.columnName==='salt')))continue;
-  pageColumns.push({...old,id:old?.id||id('pagefield:'+p.id+':'+c.id),name:c.name,configPageId:p.id,configColumnId:c.id,columnName:c.columnName,yzProjectId:projectId,sortNo:Number(old?.sortNo||c.sortNo||0),isShow:old?.isShow??old?.isInGrid??1,isEdit:old?.isEdit??old?.isInEdit??(standard.some(s=>s[0]===c.columnName)?0:1),isRequired:old?.isRequired??old?.isMust??c.isDbNotNull});
+  const field={...old,id:old?.id||id('pagefield:'+p.id+':'+c.id),name:c.name,configPageId:p.id,configColumnId:c.id,columnName:c.columnName,yzProjectId:projectId,sortNo:Number(old?.sortNo||c.sortNo||0),isShow:old?.isShow??old?.isInGrid??1,isEdit:old?.isEdit??old?.isInEdit??(standard.some(s=>s[0]===c.columnName)?0:1),isRequired:old?.isRequired??old?.isMust??c.isDbNotNull};
+  if(managerCredential)restoredManagerFields.push(field);else pageColumns.push(field);
  }
 }
+// 这三个原账号控件恢复时追加到已发布目录尾部；保留原662项的发布顺序，不按页面重排整个数组。
+pageColumns.push(...restoredManagerFields);
 const finalPageIds=new Set(pages.map(p=>p.id));
 menus=menus.filter(m=>!m.configPageId||finalPageIds.has(m.configPageId));
 menus=menus.map(m=>({...m,yzProjectId:projectId}));
