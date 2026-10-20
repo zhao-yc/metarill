@@ -33,7 +33,11 @@ internal static class GenerationCapabilityAudit
                     gaps.Add(new(page.Source.Id,column.Source.ColumnName,"detail",reason));
             // 固定读取与数组合同已编译不代表身份写协调完成，A验收前仍阻断Full应用发布。
             if(FixedRoleCheckboxCompilation.ForService(model,table,page) is {} role)
+            {
                 gaps.Add(new(page.Source.Id,role.Source.Source.ColumnName,"runtime","MultiCheckBoxDatabase角色最终合并后台校验及撤权协调仍待Runtime A验收。"));
+                if(ExportRenderer.IncludesColumn(page,role.Source))
+                    gaps.Add(new(page.Source.Id,role.Source.Source.ColumnName,"export","MultiCheckBoxDatabase角色导出尚未接入固定名称投影，不能将ID文本冒充原角色名称。"));
+            }
             // 原选择页按辅助名称键搜索；只有同一固定编译计划确认可执行时才解除筛选缺口。
             var names=SelectionNameFilterCompilation.ForPage(model,table,page);
             foreach(var gap in names.Gaps)gaps.Add(new(page.Source.Id,gap.Source.Source.ColumnName,"filter",gap.Reason));

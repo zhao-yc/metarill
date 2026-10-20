@@ -12,6 +12,8 @@ internal static class ExportRenderer
     private static string Mode(PageModel page) => page.Source.Extra.TryGetValue("exportMethod", out var mode) ? mode.ToString() : "";
     /// <summary>定制组件没有通用 Excel 表示，不能自动导出内部配置。</summary>
     private static IReadOnlyList<ColumnModel> Columns(PageModel page) => (Mode(page) == "edit" ? page.DetailColumns : page.ListColumns).Where(column => column.Source.ControlKind != "CustomControl").ToArray();
+    /// <summary>能力门禁复用真实导出开启和列选择规则，未导出该列不产生该用途缺口。</summary>
+    internal static bool IncludesColumn(PageModel page, ColumnModel column) => Enabled(page) && Columns(page).Any(candidate => candidate.Source.Id == column.Source.Id);
     /// <summary>关系导出使用与控件相同的固定目标，不按客户端参数选择授权对象。</summary>
     private static RelationModel[] Relations(GenerationModel model, PageModel page) => RelationCompilation.ForPage(model, page).Where(relation => Columns(page).Contains(relation.SourceColumn)).ToArray();
     /// <summary>含关系名称的导出必须注入真实授权，独立宿主与平台使用同一Service注册合同。</summary>

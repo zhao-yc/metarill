@@ -46,7 +46,7 @@ internal static class FixedRoleCheckboxRenderer
         var query = RoleOptionsScope{{page.Source.Id}}(actor);
         if (selected is not null && (selected.Length > 250 || selected.Any(id => id <= 0))) throw new ArgumentException("角色候选指定项必须为有界正整数。");
         if (selected is not null) { if (selected.Length == 0) return []; query = query.Where(role => selected.Contains(role.Id)); }
-        var rows = await query.OrderBy(role => role.Name).OrderBy(role => role.Id).Limit(5001).ToListAsync(role => new { role.Id, role.Name }, cancellationToken);
+        var rows = await query.OrderBy(role => role.Id).Limit(5001).ToListAsync(role => new { role.Id, role.Name }, cancellationToken);
         if (rows.Count > 5000) throw new InvalidOperationException("角色候选超过5000项，原全选不能返回截断结果。");
         return rows.Select(row => { var id = row.Id.ToString(CultureInfo.InvariantCulture); return new RoleCheckboxOption(id,row.Name,id,row.Name); }).ToArray();
     }

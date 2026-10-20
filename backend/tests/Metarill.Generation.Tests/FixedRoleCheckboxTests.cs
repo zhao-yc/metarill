@@ -118,6 +118,27 @@ public sealed class FixedRoleCheckboxTests
         Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
     }
 
+    /// <summary>角色导出缺口严格复用真实开启/列规则；未导出隐藏角色列不误加缺口。</summary>
+    [Theory]
+    [InlineData("disabled",false)] [InlineData("flag-list",true)] [InlineData("method-list",true)] [InlineData("method-edit",true)]
+    [InlineData("list-without-role",false)] [InlineData("edit-without-role",false)] [InlineData("hidden-all",false)] [InlineData("flag-unknown-mode",true)]
+    public void Enabled_role_export_has_its_own_gap_only_when_the_real_export_contains_the_column(string kind,bool expected)
+    {
+        var catalog=Catalog();var source=catalog.ConfigPages.Single(page=>page.Id==FixedRoleCheckboxCompilation.ManagerPage);
+        source.IsExport=kind is "flag-list" or "flag-unknown-mode" or "hidden-all"?1:0;
+        source.Extra["exportMethod"]=JsonSerializer.SerializeToElement(kind is "method-edit" or "edit-without-role"?"edit":kind is "method-list" or "list-without-role"?"list":kind=="flag-unknown-mode"?"unknown":"");
+        var field=catalog.ConfigPageColumns.Single(item=>item.ConfigColumnId==FixedRoleCheckboxCompilation.RoleColumn);
+        if(kind=="list-without-role"){field.IsShow=0;field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(0);}
+        if(kind=="edit-without-role"){field.IsEdit=0;field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(0);}
+        if(kind=="hidden-all")catalog.ConfigPageColumns.Remove(field);
+        var model=GenerationModel.Create(catalog,"Example.RoleExportGap");var table=model.Tables.Single(item=>item.Source.Id==FixedRoleCheckboxCompilation.ManagerTable);var page=table.Pages.Single();var role=FixedRoleCheckboxCompilation.ForService(model,table,page)!;
+        Assert.Equal(expected,ExportRenderer.IncludesColumn(page,role.Source));
+        var gaps=GenerationCapabilityAudit.Collect(model).Where(gap=>gap.PageId==page.Source.Id&&gap.Column=="yz_role_ids").ToArray();
+        Assert.Single(gaps,gap=>gap.Usage=="runtime");Assert.Equal(expected,gaps.Any(gap=>gap.Usage=="export"));
+        if(expected)Assert.Single(gaps,gap=>gap.Usage!="runtime");else Assert.Single(gaps);
+        Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+    }
+
     /// <summary>实际生成编译、反射DTO/VO/旧请求与原Vue组件，不用字符串断言代替完整程序集。</summary>
     [Fact]
     public async Task Real_generated_code_and_original_checkbox_keep_the_complete_contract()
@@ -222,6 +243,12 @@ public sealed class FixedRoleCheckboxTests
             Assert.Contains("yz_admin_type",sql);Assert.Contains("EXISTS",sql,StringComparison.OrdinalIgnoreCase);
             Assert.Single(System.Text.RegularExpressions.Regex.Matches(sql,"yz_project_id",System.Text.RegularExpressions.RegexOptions.IgnoreCase));
             Assert.DoesNotContain("is_super",sql,StringComparison.OrdinalIgnoreCase);Assert.Equal(0,opens);
+            string? optionsSql=null;
+            orm.Aop.CurdBefore+=(_,args)=>{optionsSql=args.Sql;throw new OfflineSqlCapturedException();};
+            var optionTask=(Task)serviceType.GetMethod("RoleOptions6031906822946816Async")!.Invoke(service,[null,actor,CancellationToken.None])!;
+            Assert.NotNull(await Record.ExceptionAsync(()=>optionTask));Assert.NotNull(optionsSql);Assert.Equal(0,opens);
+            var orderStart=optionsSql.IndexOf("ORDER BY",StringComparison.OrdinalIgnoreCase);Assert.True(orderStart>=0,optionsSql);
+            var ordering=optionsSql[orderStart..];Assert.Contains("id",ordering,StringComparison.OrdinalIgnoreCase);Assert.DoesNotContain("name",ordering,StringComparison.OrdinalIgnoreCase);
         }
         finally{await app.StopAsync();}
     }
@@ -233,6 +260,7 @@ public sealed class FixedRoleCheckboxTests
         using var process=Process.Start(info)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));await process.WaitForExitAsync(timeout.Token);Assert.True(process.ExitCode==0,await stdout+await stderr);
     }
     private sealed class Presence{public Optional<JsonElement?> YzRoleIds{get;set;}}
+    private sealed class OfflineSqlCapturedException:Exception{public OfflineSqlCapturedException():base("离线已捕获SQL，禁止执行命令。") { }}
     private sealed class Authorization(string allowed):IRuntimeAuthorization
     {
         internal RuntimeActor Actor{get;}=new(1,"本机测试",false,"100","1");
