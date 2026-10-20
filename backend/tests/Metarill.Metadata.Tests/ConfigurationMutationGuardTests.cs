@@ -20,7 +20,7 @@ public sealed class ConfigurationMutationGuardTests
         var http = new DefaultHttpContext(); http.Items[typeof(AuthenticatedIdentity)] = new AuthenticatedIdentity(actor, new HashSet<string>(), 1, null);
         var authorization = new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = http }, fixture.Registry);
         var store = new SqlRowStore(fixture.Sessions.Platform, fixture.Registry.Platform);
-        var security = new SecurityRealmMutationGuard(store, fixture.Registry, authorization, new(store, fixture.Registry, new(store, fixture.Registry)));
+        var security = new SecurityRealmMutationGuard(store, fixture.Registry, authorization, new(store, fixture.Registry, new PlatformSecurityCurrentResources(store,new(store,fixture.Registry)), new PlatformSecurityCurrentSessionPolicy(store)));
         var guard = new ConfigurationMutationGuard(store, fixture.Registry, authorization, security);
         var preparation = new RecordMutationPreparation("100", "config_column", RecordMutationOperation.Update, actor, null!);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => guard.BeforeMutationAsync(preparation with { Actor = actor with { AccountId = 9 } }));
@@ -40,7 +40,7 @@ public sealed class ConfigurationMutationGuardTests
         var actor = new RuntimeActor(8015, "准备事务验收", true, fixture.ProjectId.ToString(), "");
         var http = new DefaultHttpContext(); http.Items[typeof(AuthenticatedIdentity)] = new AuthenticatedIdentity(actor, new HashSet<string>(), 1, null);
         var authorization = new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = http }, fixture.Registry);
-        var security = new SecurityRealmMutationGuard(fixture.Store, fixture.Registry, authorization, new(fixture.Store, fixture.Registry, new(fixture.Store, fixture.Registry)));
+        var security = new SecurityRealmMutationGuard(fixture.Store, fixture.Registry, authorization, new(fixture.Store, fixture.Registry, new PlatformSecurityCurrentResources(fixture.Store,new(fixture.Store,fixture.Registry)), new PlatformSecurityCurrentSessionPolicy(fixture.Store)));
         var guard = new ConfigurationMutationGuard(fixture.Store, fixture.Registry, authorization, security);
         var table = fixture.Registry.Platform.ConfigTables.Single(candidate => candidate.TableName == "config_column");
         var page = fixture.Registry.Platform.ConfigPages.First(candidate => candidate.ConfigTableId == table.Id);

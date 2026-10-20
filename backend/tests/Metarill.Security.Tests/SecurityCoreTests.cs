@@ -15,6 +15,7 @@ public sealed class SecurityCoreTests
         Assert.Equal(assembly,typeof(PrincipalRolePolicy).Assembly);
         Assert.Equal(assembly,typeof(PasswordHasher).Assembly);
         Assert.Equal(assembly,typeof(AuthenticatedIdentity).Assembly);
+        Assert.Equal(assembly,typeof(SecurityRealmCurrentReader).Assembly);Assert.Equal(assembly,typeof(SecurityRealmMutationGuard).Assembly);
         var references=assembly.GetReferencedAssemblies().Select(value=>value.Name).ToArray();
         Assert.Contains("Metarill.Core",references);Assert.Contains("Metarill.Data",references);
         Assert.DoesNotContain(references,name=>name is not null&&name.StartsWith("Metarill.",StringComparison.Ordinal)&&name is not ("Metarill.Core" or "Metarill.Data"));

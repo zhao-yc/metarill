@@ -214,7 +214,7 @@ public sealed class SecurityRealmMutationGuardTests
     private static SecurityRealmMutationGuard Guard(PrincipalRealmFixture f,AuthenticatedIdentity identity)
     {
         var context=new DefaultHttpContext();context.Items[typeof(AuthenticatedIdentity)]=identity;var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},f.Registry);
-        return new(f.Store,f.Registry,auth,new(f.Store,f.Registry,new(f.Store,f.Registry)));
+        return new(f.Store,f.Registry,auth,f.CurrentReader());
     }
     private static RecordMutationPreparation Preparation(PrincipalRealmFixture f,AuthenticatedIdentity identity,string table,RecordMutationOperation operation,long? id,Dictionary<string,object?>? hints=null)=>
         new(Page(f,table),table,operation,identity.Actor,f.Session.CurrentTransaction!){TargetId=id,ScopeValues=hints??new()};

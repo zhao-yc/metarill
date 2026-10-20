@@ -82,7 +82,7 @@ public sealed class SecurityRealmCurrentReaderTests
     }
 
     /// <summary>公共调用仍只能由协调器提供真实同事务锁集；测试使用反射避免开放内部锁集构造入口。</summary>
-    private static async Task<AuthenticatedIdentity> Read(PrincipalRealmFixture f,AuthenticatedIdentity identity)
+    internal static async Task<AuthenticatedIdentity> Read(PrincipalRealmFixture f,AuthenticatedIdentity identity,SecurityRealmCurrentReader? suppliedReader=null)
     {
         var projects=new Dictionary<long,Dictionary<string,object?>>();var admins=new Dictionary<long,Dictionary<string,object?>>();
         foreach(var id in new[]{identity.Actor.ProjectId,identity.PrincipalProjectId}.Select(value=>long.Parse(value,CultureInfo.InvariantCulture)).Distinct().Order())
@@ -90,7 +90,7 @@ public sealed class SecurityRealmCurrentReaderTests
         var adminId=long.Parse(identity.PrincipalAdminTypeId,CultureInfo.InvariantCulture);admins[adminId]=(await f.Store.ReadForUpdateAsync("yz_admin_type",new Dictionary<string,object?>{{"id",adminId}})).Single();
         var type=typeof(SecurityRealmCurrentReader).Assembly.GetType("Metarill.Runtime.Security.SecurityRealmLocks",true)!;
         var locks=Activator.CreateInstance(type,f.Session.CurrentTransaction!,projects,admins)!;
-        var reader=new SecurityRealmCurrentReader(f.Store,f.Registry,new(f.Store,f.Registry));
+        var reader=suppliedReader??f.CurrentReader();
         var task=(Task)typeof(SecurityRealmCurrentReader).GetMethod("ReadAsync",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(reader,[identity,locks,CancellationToken.None])!;await task;
         var result=task.GetType().GetProperty("Result")!.GetValue(task)!;return (AuthenticatedIdentity)result.GetType().GetProperty("Identity")!.GetValue(result)!;
     }

@@ -145,8 +145,9 @@ public sealed class RoleAuthorizationSecurityRegressionTests
         await using var f = await RoleSecurityFixture.CreateAsync(); await f.GrantAsync(f.RolePage, "is_all", "is_update", "is_new");
         var identity = await f.IdentityAsync(); Assert.False(identity.Actor.IsAdministrator); Assert.Contains(f.RolePage + ":is_all", identity.Permissions);
         var auth=RoleSecurityFixture.Authorization(identity,f.Registry);var metadata=new MetadataRepository(f.Store,f.Registry);
-        var coordinator=new SecurityRealmMutationGuard(f.Store,f.Registry,auth,new(f.Store,f.Registry,metadata));
-        var business = new RolePermissionBusiness(f.Store,metadata,auth,new SnowflakeIdGenerator(856),f.Registry,coordinator);
+        var currentResources=new PlatformSecurityCurrentResources(f.Store,metadata);
+        var coordinator=new SecurityRealmMutationGuard(f.Store,f.Registry,auth,new(f.Store,f.Registry,currentResources,new PlatformSecurityCurrentSessionPolicy(f.Store)));
+        var business = new RolePermissionBusiness(f.Store,metadata,auth,new SnowflakeIdGenerator(856),f.Registry,coordinator,currentResources);
         // 原工作台is_all仍走revision冲突，不拿后续super变化覆盖这项既有断言。
         var filter=new Dictionary<string,object?>{{"yz_role_id",f.RoleId}};var before=JsonSerializer.Serialize(await f.Store.ReadAsync("yz_role_permission",filter));
         var conflict=await Assert.ThrowsAsync<InvalidOperationException>(() => business.SaveAsync(new(f.RoleId.ToString(), new string('a', 64), new([], new(), []))));

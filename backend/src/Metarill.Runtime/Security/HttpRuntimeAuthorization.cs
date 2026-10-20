@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Http;
 namespace Metarill.Runtime.Security;
 
 /// <summary>权限依据中间件建立的真实身份，页面/项目选择参数本身不授予权限。</summary>
-public sealed class HttpRuntimeAuthorization(IHttpContextAccessor accessor,MetadataRegistry registry) : IRuntimeAuthorization
+public sealed class HttpRuntimeAuthorization(IHttpContextAccessor accessor,MetadataRegistry registry) : IRuntimeAuthorization, ISecurityIdentityAccessor
 {
     public AuthenticatedIdentity RequireIdentity()=>accessor.HttpContext?.Items[typeof(AuthenticatedIdentity)] as AuthenticatedIdentity??throw new UnauthorizedAccessException("登录超时");
     public RuntimeActor RequireActor()=>RequireIdentity().Actor;

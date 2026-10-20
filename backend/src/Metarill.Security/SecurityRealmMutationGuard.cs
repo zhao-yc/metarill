@@ -1,14 +1,12 @@
 using System.Data.Common;
 using System.Globalization;
-using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
-using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Security;
 
 /// <summary>安全表聚合先锁项目、后台，再读取当前身份；平台已接线，实库及并发验收前保留Runtime Gap。</summary>
-public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,MetadataRegistry registry,HttpRuntimeAuthorization authorization,SecurityRealmCurrentReader reader):IRecordMutationGuard
+public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecurityResourceRegistry registry,ISecurityIdentityAccessor authorization,SecurityRealmCurrentReader reader):IRecordMutationGuard
 {
     private static readonly IReadOnlyDictionary<string,string> SafetyTables=new Dictionary<string,string>(StringComparer.Ordinal)
     {
@@ -22,7 +20,7 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,Metadat
         internal List<PreparedWrite> Pending {get;}=[];
     }
     private sealed record PreparedWrite(RecordMutationPreparation Preparation,Dictionary<string,object?>? Original);
-    internal sealed record RolePermissionWriteScope(AuthenticatedIdentity Identity,Dictionary<string,object?> Role,MetadataCatalog Catalog);
+    internal sealed record RolePermissionWriteScope(AuthenticatedIdentity Identity,Dictionary<string,object?> Role,SecurityResourceCatalog Catalog);
 
     /// <summary>只接真实已发布固定安全表；原普通角色授权四写入口关闭，不能从Service旁路工作台。</summary>
     public async Task BeforeMutationAsync(RecordMutationPreparation preparation,CancellationToken cancellationToken=default)
@@ -62,7 +60,7 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,Metadat
     internal async Task<RolePermissionWriteScope> PrepareRolePermissionsAsync(string roleId,CancellationToken token)
     {
         var transaction=store.Session.CurrentTransaction??throw new InvalidOperationException("角色授权保存必须在事务内。");
-        var request=RequireRequest(authorization.RequireActor(),transaction);
+        var request=RequireRequest(authorization.RequireIdentity().Actor,transaction);
         var id=Id(roleId);
         var state=await PrepareLocksAsync(request,"yz_role",id,new Dictionary<string,object?>(),token);
         var current=await reader.ReadAsync(request,state.Locks,token);
@@ -159,10 +157,10 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,Metadat
         if(transaction.Connection is null||!ReferenceEquals(transaction,store.Session.CurrentTransaction))throw new InvalidOperationException("安全协调必须使用写入的同一连接及事务。");
         var request=authorization.RequireIdentity();if(request.Actor!=actor)throw new UnauthorizedAccessException("安全写入身份与当前认证不一致。");return request;
     }
-    private PageMetadata PublishedPage(string pageId,string table)
+    private SecurityPageResource PublishedPage(string pageId,string table)
     {
-        var page=registry.Platform.ConfigPages.Concat(registry.Demo.ConfigPages).SingleOrDefault(page=>page.Id==pageId)??throw new UnauthorizedAccessException("安全写入页面未发布。");
-        if(!SafetyTables.TryGetValue(table,out var tableId)||page.ConfigTableId!=tableId||!registry.Platform.ConfigTables.Concat(registry.Demo.ConfigTables).Any(item=>item.Id==tableId&&item.TableName==table))throw new UnauthorizedAccessException("安全写入页面与固定表不一致。");
+        var page=registry.PublishedCatalogs.SelectMany(catalog=>catalog.Pages).SingleOrDefault(page=>page.Id==pageId)??throw new UnauthorizedAccessException("安全写入页面未发布。");
+        if(!SafetyTables.TryGetValue(table,out var tableId)||page.TableId!=tableId||!registry.PublishedCatalogs.SelectMany(catalog=>catalog.Tables).Any(item=>item.Id==tableId&&item.TableName==table))throw new UnauthorizedAccessException("安全写入页面与固定表不一致。");
         return page;
     }
     private static void RequireSameRequest(AuthenticatedIdentity old,AuthenticatedIdentity current)

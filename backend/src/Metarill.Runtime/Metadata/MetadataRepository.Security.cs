@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Data.Common;
+using Metarill.Data;
 using Metarill.Core.Metadata;
 using Metarill.Runtime.Persistence;
 
@@ -6,6 +8,13 @@ namespace Metarill.Runtime.Metadata;
 
 public sealed partial class MetadataRepository
 {
+    /// <summary>窄适配也核对仓储实际Session，防止宿主误把另库/另事务仓储注册给安全Reader。</summary>
+    internal void RequireSecurityTransaction(DatabaseSession session,DbTransaction transaction)
+    {
+        if(!ReferenceEquals(store.Session,session)||!ReferenceEquals(store.Session.CurrentTransaction,transaction)||transaction.Connection is null)
+            throw new InvalidOperationException("安全元数据仓储必须使用同一当前连接及事务。");
+    }
+
     /// <summary>只在已预锁项目/后台的当前事务读取安全目录；不读取连接、字段明细或整项目配置。</summary>
     internal async Task<MetadataCatalog> LoadRealmForUpdateAsync(long projectId,long adminId,CancellationToken token)
     {

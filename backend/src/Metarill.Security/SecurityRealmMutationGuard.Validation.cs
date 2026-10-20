@@ -1,6 +1,5 @@
 using System.Globalization;
 using Metarill.Core.Contracts;
-using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Runtime.Persistence;
 
@@ -9,12 +8,12 @@ namespace Metarill.Runtime.Security;
 public sealed partial class SecurityRealmMutationGuard
 {
     /// <summary>页面动作和当前身份同源；普通账号不是因为平台配置总门槛而被拒，仍须真实同realm源页动作。</summary>
-    private static void RequireSourceAction(SecurityCurrentPrincipal current,PageMetadata published,RecordMutationOperation operation)
+    private static void RequireSourceAction(SecurityCurrentPrincipal current,SecurityPageResource published,RecordMutationOperation operation)
     {
         var identity=current.Identity;
-        var page=current.Catalog.ConfigPages.SingleOrDefault(page=>page.Id==published.Id&&page.ConfigTableId==published.ConfigTableId&&
-            page.YzAdminTypeId==identity.PrincipalAdminTypeId&&page.YzProjectId==identity.PrincipalProjectId);
-        if(page is null||published.YzAdminTypeId!=identity.PrincipalAdminTypeId||published.YzProjectId!=identity.PrincipalProjectId)throw new UnauthorizedAccessException("安全源页不属于当前身份后台。");
+        var page=current.Catalog.Pages.SingleOrDefault(page=>page.Id==published.Id&&page.TableId==published.TableId&&
+            page.AdminTypeId==identity.PrincipalAdminTypeId&&page.ProjectId==identity.PrincipalProjectId);
+        if(page is null||published.AdminTypeId!=identity.PrincipalAdminTypeId||published.ProjectId!=identity.PrincipalProjectId)throw new UnauthorizedAccessException("安全源页不属于当前身份后台。");
         EnsureEnabled(page,operation);
         if(identity.IsRealmSuper)return;
         var action=Action(operation);
@@ -26,12 +25,12 @@ public sealed partial class SecurityRealmMutationGuard
         var identity=current.Identity;
         if(targetAdmin.ToString(CultureInfo.InvariantCulture)!=identity.PrincipalAdminTypeId)throw new UnauthorizedAccessException("不能管理其他身份后台的角色授权。");
         if(identity.IsRealmSuper)return;
-        var published=new[]{registry.Platform,registry.Demo}.Where(catalog=>catalog.YzProjectId==identity.PrincipalProjectId).ToArray();
-        var roleTables=current.Catalog.ConfigTables.Where(table=>table.TableName=="yz_role").Select(table=>table.Id).ToHashSet(StringComparer.Ordinal);
-        foreach(var page in current.Catalog.ConfigPages.Where(page=>roleTables.Contains(page.ConfigTableId)&&EnabledAction(page,action)))
+        var published=registry.PublishedCatalogs.Where(catalog=>catalog.ProjectId==identity.PrincipalProjectId).ToArray();
+        var roleTables=current.Catalog.Tables.Where(table=>table.TableName=="yz_role").Select(table=>table.Id).ToHashSet(StringComparer.Ordinal);
+        foreach(var page in current.Catalog.Pages.Where(page=>roleTables.Contains(page.TableId)&&EnabledAction(page,action)))
         {
-            if(!published.SelectMany(catalog=>catalog.ConfigPages).Any(fixedPage=>fixedPage.Id==page.Id&&fixedPage.ConfigTableId==page.ConfigTableId&&
-                fixedPage.YzAdminTypeId==identity.PrincipalAdminTypeId&&fixedPage.YzProjectId==identity.PrincipalProjectId))continue;
+            if(!published.SelectMany(catalog=>catalog.Pages).Any(fixedPage=>fixedPage.Id==page.Id&&fixedPage.TableId==page.TableId&&
+                fixedPage.AdminTypeId==identity.PrincipalAdminTypeId&&fixedPage.ProjectId==identity.PrincipalProjectId))continue;
             if(identity.Permissions.Contains(page.Id+":"+action)||identity.Permissions.Contains(page.Id+":is_all"))return;
         }
         throw new UnauthorizedAccessException(action=="is_update"?"缺少当前后台角色配置页的修改权限。":"缺少当前后台角色配置页的操作权限。");
@@ -85,8 +84,11 @@ public sealed partial class SecurityRealmMutationGuard
             if(!state.Locks.Projects.ContainsKey(project))throw Changed();
             if(original is not null&&(deleting||SqlRowStore.Text(original,"yz_project_id")!=project.ToString(CultureInfo.InvariantCulture)))
             {
-                foreach(var table in new[]{"yz_role","config_menu","yz_manager"})
-                    if((await store.ReadForUpdateAsync(table,new Dictionary<string,object?>{{"yz_admin_type_id",validation.RecordId}},token)).Count>0)throw new InvalidOperationException("后台仍有菜单、角色或账号引用，不能直接删除或更换项目。");
+                // 保留原角色→菜单→账号锁序和遇首个引用即拒绝；菜单存储由必要宿主适配提供。
+                if((await store.ReadForUpdateAsync("yz_role",new Dictionary<string,object?>{{"yz_admin_type_id",validation.RecordId}},token)).Count>0||
+                    await reader.HasAdminMenuReferencesForUpdateAsync(state.Locks.Transaction,validation.RecordId,token)||
+                    (await store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"yz_admin_type_id",validation.RecordId}},token)).Count>0)
+                    throw new InvalidOperationException("后台仍有菜单、角色或账号引用，不能直接删除或更换项目。");
             }
         }
     }
@@ -103,16 +105,16 @@ public sealed partial class SecurityRealmMutationGuard
         RecordMutationOperation.Create=>"is_new",RecordMutationOperation.Update=>"is_update",RecordMutationOperation.Delete=>"is_delete",
         RecordMutationOperation.Copy or RecordMutationOperation.Import=>"is_all",_=>throw new InvalidOperationException("安全写入动作无效。")
     };
-    private static bool EnabledAction(PageMetadata page,string action)=>action switch
+    private static bool EnabledAction(SecurityPageResource page,string action)=>action switch
     {
-        "is_new"=>page.IsNew==1,"is_update"=>PageUpdatePolicy.CanUpdate(page),"is_delete"=>page.IsDelete==1,"is_query" or "is_all"=>true,_=>false
+        "is_new"=>page.CanCreate,"is_update"=>page.CanUpdate,"is_delete"=>page.CanDelete,"is_query" or "is_all"=>true,_=>false
     };
-    private static void EnsureEnabled(PageMetadata page,RecordMutationOperation operation)
+    private static void EnsureEnabled(SecurityPageResource page,RecordMutationOperation operation)
     {
         var enabled=operation switch
         {
-            RecordMutationOperation.Create=>page.IsNew==1,RecordMutationOperation.Update=>PageUpdatePolicy.CanUpdate(page),RecordMutationOperation.Delete=>page.IsDelete==1,
-            RecordMutationOperation.Copy=>page.IsCopy==1,RecordMutationOperation.Import=>page.IsImport==1||page.Extra.TryGetValue("importMethod",out var method)&&!string.IsNullOrWhiteSpace(method.ToString()),
+            RecordMutationOperation.Create=>page.CanCreate,RecordMutationOperation.Update=>page.CanUpdate,RecordMutationOperation.Delete=>page.CanDelete,
+            RecordMutationOperation.Copy=>page.CanCopy,RecordMutationOperation.Import=>page.CanImport,
             _=>false
         };
         if(!enabled)throw new UnauthorizedAccessException("当前安全页面未开放此写入操作。");

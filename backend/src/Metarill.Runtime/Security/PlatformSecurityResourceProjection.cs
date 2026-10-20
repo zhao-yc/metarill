@@ -11,7 +11,8 @@ internal static class PlatformSecurityResourceProjection
         catalog.ConfigTables.Select(table=>new SecurityTableResource(table.Id,table.TableName)).ToArray(),
         catalog.ConfigPages.Select(page=>new SecurityPageResource(page.Id,page.ConfigTableId,page.YzProjectId,page.YzAdminTypeId,
             page.IsNew==1,PageUpdatePolicy.CanUpdate(page),page.IsDelete==1,
-            page.IsExport==1||page.Extra.TryGetValue("exportMethod",out var method)&&method.ValueKind==JsonValueKind.String&&method.GetString() is "list" or "edit")).ToArray(),
+            page.IsExport==1||page.Extra.TryGetValue("exportMethod",out var method)&&method.ValueKind==JsonValueKind.String&&method.GetString() is "list" or "edit",
+            page.IsCopy==1,page.IsImport==1||page.Extra.TryGetValue("importMethod",out var import)&&!string.IsNullOrWhiteSpace(import.ToString()))).ToArray(),
         catalog.ConfigMenus.Select(menu=>new SecurityMenuResource(menu.Id,menu.YzProjectId,menu.YzAdminTypeId)).ToArray(),
         catalog.ConfigButtons.Where(button=>button.ValueKind==JsonValueKind.Object&&button.TryGetProperty("id",out _))
             .Select(button=>new SecurityButtonResource(button.GetProperty("id").ToString(),button.TryGetProperty("configPageId",out var page)?page.ToString():"")).ToArray());

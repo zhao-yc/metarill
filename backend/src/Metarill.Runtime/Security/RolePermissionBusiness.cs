@@ -12,7 +12,7 @@ public sealed record RolePermissionGrants(IReadOnlyList<string> MenuIds,Dictiona
 public sealed record RolePermissionSave(string RoleId,string Revision,RolePermissionGrants Grants);
 
 /// <summary>独立保存菜单显示、页面动作和按钮授权，不从菜单推导页面写权限。</summary>
-public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IIdGenerator ids,MetadataRegistry registry,SecurityRealmMutationGuard coordinator)
+public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IIdGenerator ids,MetadataRegistry registry,SecurityRealmMutationGuard coordinator,PlatformSecurityCurrentResources currentResources)
 {
     private static readonly HashSet<string> Actions=["is_query","is_new","is_update","is_delete","is_export","is_all"];
     public async Task<object> RolesAsync(CancellationToken token=default)
@@ -49,7 +49,8 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
             var identity=scope.Identity;var actor=identity.Actor;
             var principal=new PrincipalScope(actor,identity,identity.PrincipalAdminTypeId,identity.PrincipalProjectId);
             var role=scope.Role;
-            var catalog=RealmResources(scope.Catalog,principal);
+            // 必须取回同一适配在本事务锁读的原始目录；revision继续消费完整JSON，不能用瘦投影重算。
+            var catalog=RealmResources(currentResources.RequireLoaded(store.Session,store.Session.CurrentTransaction??throw new InvalidOperationException("角色工作台事务已结束。"),scope.Catalog),principal);
             if(SqlRowStore.Text(role,"is_super")=="1")throw new InvalidOperationException("超级管理员权限由角色属性确定，不能在资源工作台改写。");
             var existing=await Grants(request.RoleId,true,token);
             if(request.Revision!=Revision(role,catalog,existing))throw new InvalidOperationException("YZP_CONFLICT：角色授权或资源目录已变化，请重新读取。");

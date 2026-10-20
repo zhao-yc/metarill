@@ -1,8 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
-using Metarill.Core.Metadata;
 using Metarill.Core.Security;
-using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Security;
@@ -10,11 +8,29 @@ namespace Metarill.Runtime.Security;
 /// <summary>已经按项目、后台稳定预锁的真实记录；工作区项目仅是锁序兼容项，不是授权。</summary>
 internal sealed record SecurityRealmLocks(DbTransaction Transaction,IReadOnlyDictionary<long,Dictionary<string,object?>> Projects,
     IReadOnlyDictionary<long,Dictionary<string,object?>> Admins);
-internal sealed record SecurityCurrentPrincipal(AuthenticatedIdentity Identity,Dictionary<string,object?> Account,MetadataCatalog Catalog);
+internal sealed record SecurityCurrentPrincipal(AuthenticatedIdentity Identity,Dictionary<string,object?> Account,SecurityResourceCatalog Catalog);
 
 /// <summary>锁后身份复核完全使用当前读；不能在Repeatable Read下调用普通认证载入旧快照。</summary>
-public sealed class SecurityRealmCurrentReader(SqlRowStore store,MetadataRegistry registry,MetadataRepository metadata)
+public sealed class SecurityRealmCurrentReader
 {
+    private readonly SqlRowStore store;
+    private readonly ISecurityResourceRegistry registry;
+    private readonly ISecurityCurrentResources resources;
+    private readonly ISecurityCurrentSessionPolicy sessionPolicy;
+    /// <summary>所有宿主适配均为必要依赖；缺失时立即失败，不能在首次当前读后回退发布目录。</summary>
+    public SecurityRealmCurrentReader(SqlRowStore store,ISecurityResourceRegistry registry,ISecurityCurrentResources resources,ISecurityCurrentSessionPolicy sessionPolicy)
+    {
+        this.store=store??throw new ArgumentNullException(nameof(store));this.registry=registry??throw new ArgumentNullException(nameof(registry));
+        this.resources=resources??throw new ArgumentNullException(nameof(resources));this.sessionPolicy=sessionPolicy??throw new ArgumentNullException(nameof(sessionPolicy));
+    }
+
+    /// <summary>后台引用检查复用同一适配，不给共享协调器增加config_*表访问或新的连接。</summary>
+    internal Task<bool> HasAdminMenuReferencesForUpdateAsync(DbTransaction transaction,long adminTypeId,CancellationToken token)
+    {
+        if(!ReferenceEquals(transaction,store.Session.CurrentTransaction)||transaction.Connection is null)
+            throw new InvalidOperationException("安全菜单引用必须使用同一当前连接及事务。");
+        return resources.HasAdminMenuReferencesForUpdateAsync(store.Session,transaction,adminTypeId,token);
+    }
     /// <summary>Agent授权先于会话，之后按操作者、角色、页面授权和固定资源目录的顺序读取。</summary>
     internal async Task<SecurityCurrentPrincipal> ReadAsync(AuthenticatedIdentity request,SecurityRealmLocks locks,CancellationToken token)
     {
@@ -24,11 +40,11 @@ public sealed class SecurityRealmCurrentReader(SqlRowStore store,MetadataRegistr
         if(actor.AccountId<=0||request.SessionId<=0||!Positive(request.PrincipalAdminTypeId,out var adminId)||!Positive(request.PrincipalProjectId,out var projectId)||
             !Positive(actor.ProjectId,out var workspace)||!locks.Admins.ContainsKey(adminId)||!locks.Projects.ContainsKey(projectId)||!locks.Projects.ContainsKey(workspace))throw InvalidIdentity();
         // OAuth撤销/刷新原本先锁sys_agent_grant再锁sys_session，此处必须沿用，不能反序补锁。
-        Dictionary<string,object?>? grant=null;
+        ISecurityLockedAgentGrant? grant=null;
         if(request.GrantId is{} grantId)
         {
             if(grantId<=0)throw InvalidIdentity();
-            grant=(await store.ReadForUpdateAsync("sys_agent_grant",new Dictionary<string,object?>{{"id",grantId}},token)).SingleOrDefault();
+            grant=await sessionPolicy.ReadAgentGrantForUpdateAsync(store.Session,locks.Transaction,grantId,token);
         }
         var session=(await store.ReadForUpdateAsync("sys_session",new Dictionary<string,object?>{{"id",request.SessionId}},token)).SingleOrDefault();
         if(session is null||SqlRowStore.Id(session,"account_id")!=actor.AccountId||!Future(session,"expires_at"))throw InvalidIdentity();
@@ -36,8 +52,7 @@ public sealed class SecurityRealmCurrentReader(SqlRowStore store,MetadataRegistr
         if(kind=="agent")
         {
             if(grant is null||request.GrantId!=OptionalId(session,"grant_id")||SqlRowStore.Text(session,"project_id")!=actor.ProjectId||
-                SqlRowStore.Text(grant,"status")!="approved"||SqlRowStore.Text(grant,"client_id")!=Agent.AgentOAuthService.ClientId||
-                SqlRowStore.Id(grant,"account_id")!=actor.AccountId||SqlRowStore.Text(grant,"project_id")!=actor.ProjectId||!Future(grant,"refresh_expires_at"))throw InvalidIdentity();
+                !grant.IsValidFor(new(request.GrantId!.Value,actor.AccountId,actor.ProjectId)))throw InvalidIdentity();
         }
         else if(kind!="web"||request.GrantId is not null||OptionalId(session,"grant_id") is not null)throw InvalidIdentity();
         var account=(await store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"id",actor.AccountId}},token)).SingleOrDefault();
@@ -48,8 +63,9 @@ public sealed class SecurityRealmCurrentReader(SqlRowStore store,MetadataRegistr
         var roles=await store.ReadForUpdateByIdsAsync("yz_role","id",ids,new Dictionary<string,object?>{{"yz_admin_type_id",adminId}},token);
         var validIds=roles.Select(row=>SqlRowStore.Id(row)).Distinct().Order().ToArray();
         var grants=await store.ReadForUpdateByIdsAsync("yz_role_permission","yz_role_id",validIds,cancellationToken:token);
-        var catalog=await metadata.LoadRealmForUpdateAsync(projectId,adminId,token);
-        var realm=PrincipalRolePolicy.Evaluate(registry,account,admin,projectId,roles,grants,PlatformSecurityResourceProjection.Create(catalog));
+        var catalog=await resources.ReadForUpdateAsync(store.Session,locks.Transaction,projectId,adminId,token)
+            ??throw new InvalidOperationException("当前安全资源适配未返回目录，不能回退发布快照。");
+        var realm=PrincipalRolePolicy.Evaluate(registry,account,admin,projectId,roles,grants,catalog);
         // 不能把认证时的超级标志继续交给文件/手写钩子；发生身份语义变化则刷新整个请求。
         if(realm.IsPlatformAdministrator!=actor.IsAdministrator||realm.IsSuper!=request.IsRealmSuper||kind=="agent"&&!realm.IsPlatformRealm)throw InvalidIdentity();
         var identity=request with{Permissions=realm.Permissions,MenuIds=realm.MenuIds,ButtonIds=realm.ButtonIds};

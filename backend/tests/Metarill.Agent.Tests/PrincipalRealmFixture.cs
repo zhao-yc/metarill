@@ -54,6 +54,8 @@ internal sealed class PrincipalRealmFixture : IDisposable
     { if(!Provider.Rows.TryGetValue(table,out var rows))Provider.Rows[table]=rows=[]; rows.Add(values.ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal)); }
     internal Dictionary<string,object?> Row(string table,long id)=>Provider.Rows[table].Single(row=>SqlRowStore.Id(row)==id);
     internal async Task<AuthenticatedIdentity> Identity(string? project=null)=>await Authentication.AuthenticateAsync(Token,project)??throw new InvalidOperationException("离线身份未建立。");
+    /// <summary>离线测试仍用平台真实同事务适配，不以发布目录或空proof代替当前读取。</summary>
+    internal SecurityRealmCurrentReader CurrentReader()=>new(Store,Registry,new PlatformSecurityCurrentResources(Store,new(Store,Registry)),new PlatformSecurityCurrentSessionPolicy(Store));
     public void Dispose()=>Session.Dispose();
 }
 

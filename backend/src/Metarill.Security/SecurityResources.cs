@@ -17,7 +17,7 @@ public sealed record SecurityTableResource(string Id,string TableName);
 
 /// <summary>页面只携带固定归属和动作开关；具体路由、范围和输入仍由原Service验证。</summary>
 public sealed record SecurityPageResource(string Id,string TableId,string ProjectId,string AdminTypeId,
-    bool CanCreate,bool CanUpdate,bool CanDelete,bool CanExport);
+    bool CanCreate,bool CanUpdate,bool CanDelete,bool CanExport,bool CanCopy=false,bool CanImport=false);
 
 /// <summary>菜单显示授权只以真实项目、后台和已发布ID取交集。</summary>
 public sealed record SecurityMenuResource(string Id,string ProjectId,string AdminTypeId);

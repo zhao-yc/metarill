@@ -22,7 +22,7 @@ public sealed class ConfigurationCandidatesAuthorizationTests
         var authorization = new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = context }, fixture.Registry);
         var store = new SqlRowStore(fixture.Sessions.Platform, fixture.Registry.Platform);
         var metadata = new MetadataRepository(store, fixture.Registry);
-        var security = new SecurityRealmMutationGuard(store, fixture.Registry, authorization, new(store, fixture.Registry, metadata));
+        var security = new SecurityRealmMutationGuard(store, fixture.Registry, authorization, new(store, fixture.Registry, new PlatformSecurityCurrentResources(store,metadata), new PlatformSecurityCurrentSessionPolicy(store)));
         var business = new ConfigurationCandidatesBusiness(store, metadata, fixture.Registry, authorization, new(store, fixture.Registry, authorization, security));
         var empty = JsonSerializer.SerializeToElement(new { }); var id = JsonSerializer.SerializeToElement(new { id = "11" });
         // 虚构连接位于回环无效端口；若鉴权顺序错误，测试会出现连接错误而非权限拒绝。

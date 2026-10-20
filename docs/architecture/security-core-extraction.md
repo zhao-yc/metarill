@@ -2,6 +2,8 @@
 
 本阶段只把平台真实认证与权限决策提取到 `Metarill.Security`，不是独立应用安全运行时下发完成，也不关闭角色能力缺口。
 
+本页记录第一阶段边界；后续Reader/Guard下沉见[安全协调核心提取：第二阶段](security-coordination-extraction.md)。
+
 ## 工程边界
 
 依赖方向为 `Metarill.Runtime → Metarill.Security → Metarill.Core / Metarill.Data`。新工程不依赖平台 Runtime、ASP.NET、Agent、Generation、Files 或 Exports。
