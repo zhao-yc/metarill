@@ -43,7 +43,7 @@ public sealed class {{page.Name}}ImportRequest
         var result = new StringBuilder().AppendLine("    /// <summary>任意行失败时撤销整批；单行复用标准新增或明确字段更新。</summary>")
             .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
-            .AppendLine($"        await PrepareMutationAsync({Literal(page.Source.Id)}, RecordMutationOperation.Import, actor, cancellationToken);")
+            .Append(BackendRenderer.PrepareCall(model, table, page, "Import", "null", null, "request.ParentId"))
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);")
             .AppendLine("        var rowNumber = 0;")

@@ -5,7 +5,7 @@ using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
 /// <summary>生成固定类型访问与页级白名单，运行时不解释元数据。</summary>
-internal static class BackendRenderer
+internal static partial class BackendRenderer
 {
     /// <summary>生成安全的 C# 字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
@@ -164,21 +164,8 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
             result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
-        result.Append(Preparation(table)); result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
+        result.Append(Preparation(model, table)); result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
-    /// <summary>准备守卫在实际事务内、首次父记录或对象锁之前执行，空集合不改变普通业务规则。</summary>
-    private static string Preparation(TableModel table) => $$"""
-    /// <summary>身份先验证，宿主聚合锁先于业务记录锁，观察者仍在写入完成后执行。</summary>
-    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken)
-    {
-        ValidateActor(actor);
-        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
-        foreach (var guard in guards)
-            await guard.BeforeMutationAsync(new RecordMutationPreparation(pageId, "{{table.Source.TableName}}", operation, actor, transaction), cancellationToken);
-    }
-
-""";
-
     /// <summary>新增父键必须对应真实存在且属于当前项目的父记录。</summary>
     private static string ParentValidation(GenerationModel model, TableModel table, PageModel page)
     {
@@ -304,7 +291,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>")
                 .AppendLine($"    public Task<{page.Name}Vo> Create{suffix}Async({page.Name}CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
-                .AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Create, actor, cancellationToken);")
+                .Append(PrepareCall(model, table, page, "Create", "null", "request"))
                 .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken);").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
             foreach (var column in page.Writable)
@@ -320,6 +307,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                     .AppendLine($"        entity.{column.Property} = {ScopeValue(column, "parentId")};");
             result.AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
+                .Append(WriteCall(page, "Create", "null"))
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");")
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);").AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
         }
@@ -328,8 +316,9 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>")
                 .AppendLine($"    public Task<{page.Name}Vo> Update{suffix}Async({page.Name}UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
-                .AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Update, actor, cancellationToken);")
+                .Append(PrepareCall(model, table, page, "Update", "request.Id", "request"))
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(PlatformColumnTypeCompatibilityCompilation.Capture(model, table, page))
                 .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in page.Writable)
@@ -341,18 +330,20 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(Audit(table, false)).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
-            result.AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");")
+            result.Append(WriteCall(page, "Update", "originalScopeValues")).AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");")
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken);").AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");
         }
         if (page.Source.IsDelete == 1)
         {
             result.AppendLine("    /// <summary>先校验数据范围，再在同一事务内删除。</summary>")
                 .AppendLine($"    public Task<bool> Delete{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
-                .AppendLine("    {").AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Delete, actor, cancellationToken);")
+                .AppendLine("    {").Append(PrepareCall(model, table, page, "Delete", "id", null))
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .AppendLine("        BeforeDelete(entity, actor);")
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, true))
-                .Append(BoundRelationValidationRenderer.Call(model, table, page, true, false));
+                .Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
+                .Append(WriteCall(page, "Delete", "originalScopeValues", "new HashSet<string>(StringComparer.Ordinal)"));
             if (table.Columns.Any(x => x.Source.ColumnName == "delete_no"))
                 result.AppendLine("        entity.DeleteNo = DateTime.UtcNow;").AppendLine("        var deleted = await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
             else result.AppendLine("        var deleted = await mapper.DeleteAsync(id, cancellationToken) == 1;"); result.AppendLine($"        if (deleted) await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, new HashSet<string>(), true, true, cancellationToken);").AppendLine("        return deleted;");
@@ -367,15 +358,17 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder().AppendLine("    /// <summary>复制受限记录，创建规则和文件引用仍处于同一事务。</summary>")
             .AppendLine($"    public Task<{page.Name}Vo> Copy{page.Source.Id}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
             .AppendLine("    {")
-            .AppendLine($"        await PrepareMutationAsync({Literal(page.Source.Id)}, RecordMutationOperation.Copy, actor, cancellationToken);")
+            .Append(PrepareCall(model, table, page, "Copy", "id", null))
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
             .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+            .AppendLine("        var originalScopeValues = MutationScopeValues(source);")
             .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};")
             .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
         foreach (var column in table.Columns.Where(column => !column.IsSystem))
             result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
         result.Append(Audit(table, true)).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
             .Append(RequiredValidation(model, table, page, false))
+            .Append(WriteCall(page, "Copy", "originalScopeValues"))
             .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");")
             .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);")
             .AppendLine($"        return {page.Name}Vo.FromEntity(entity);").AppendLine("    }, cancellationToken);");

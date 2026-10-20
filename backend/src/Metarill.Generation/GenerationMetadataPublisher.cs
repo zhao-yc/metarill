@@ -23,7 +23,7 @@ public static class GenerationMetadataPublisher
         var sensitiveColumns = new HashSet<string>(StringComparer.Ordinal);
         foreach (var column in json["configColumns"]?.AsArray() ?? [])
         {
-            if (column is not JsonObject item || !SensitiveKeys.Contains(Normalize(item["columnName"]?.ToString() ?? ""))) continue;
+            if (column is not JsonObject item || !IsSensitiveKey(item["columnName"]?.ToString() ?? "")) continue;
             sensitiveColumns.Add(item["id"]?.ToString() ?? "");
             foreach (var key in new[] { "defaultValue", "initValue" }) if (item[key] is not null) { item[key] = ""; redactions.Add("$.configColumns[" + item["id"] + "]." + key); }
         }
@@ -40,7 +40,7 @@ public static class GenerationMetadataPublisher
             foreach (var property in obj.ToArray())
             {
                 var childPath = path + "." + property.Key;
-                if (SensitiveKeys.Contains(Normalize(property.Key))) { obj.Remove(property.Key); redactions.Add(childPath); }
+                if (IsSensitiveKey(property.Key)) { obj.Remove(property.Key); redactions.Add(childPath); }
                 else if (property.Value is JsonObject or JsonArray) Scrub(property.Value, childPath, redactions);
                 else if (property.Value is JsonValue value && value.TryGetValue<string>(out var content) && content.TrimStart() is [ '{' or '[', .. ])
                 {
@@ -50,6 +50,9 @@ public static class GenerationMetadataPublisher
             }
         else if (node is JsonArray array) for (var i = 0; i < array.Count; i++) if (array[i] is { } item) Scrub(item, path + "[" + i + "]", redactions);
     }
+    /// <summary>生成发布和窄范围守卫共用敏感字段名判定，不以可写或查询声明豁免凭据。</summary>
+    internal static bool IsSensitiveKey(string value) => SensitiveKeys.Contains(Normalize(value));
+
     /// <summary>敏感键忽略分隔符，普通字段名与说明不按内容删除。</summary>
     private static string Normalize(string value) => new(value.Where(char.IsLetterOrDigit).ToArray());
 }
