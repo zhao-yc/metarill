@@ -206,3 +206,19 @@ root在冻结 `ccfb935` 的原平台Web发行副本使用原登录、选择设�
 最终源头 `829ecf0` 正式 platform/demo 两轮生成191项受管文件及清单稳定，24个手写partial摘要保持，包含生成产物的API Release构建0警告0错误；证据 `.local/original-regeneration-final-role-gates-20261020`。主线角色/固定控件/读取关联回归130/130、前端完整260/260，均零跳过。元数据完整离线105通过/22项因无实库配置明确跳过，不把它当数据库验收。证据分别为 `.local/final-role-gates-generation-integrated.trx`、`.local/final-role-gates-frontend.log`、`.local/final-role-gates-metadata-offline-integrated.trx`。
 
 版本发布现场仍保留此前34→37的停止证据；本段只记录源头修复、离线集成及正式生成，不表示三条误增映射已撤销、第二笔默认值/提示已续发，后续单独记录真实执行结果。
+
+## 2026-10-20 版本配置修复与只读补充闭环
+
+用户直接授权四笔精确修复后，在干净冻结 `813f051` 的 Server-200 `metarill_test` 通过原生命周期执行三条误增映射的逻辑删除及第二笔默认值/提示更新，发送4、HTTP成功4、逐笔完整图确认4。三条物理记录保留为墓碑，原墓碑不变；最终37物理/4墓碑/33活动，恢复原活动集合。已成功的第一笔来源配置未重写，项目版本未回填，未执行DDL、seed或硬删除。原GET、实际MetadataRepository、三个候选POST均通过；字符串版本ID精确保持 `2300000000000000001`。本次新会话注销200，并由后续实际请求证明失效。
+
+正式BackendOnly ZIP共268条目，SHA256 `72ca4b73f68f0f892724e21a71832114cba440d2488ec208656ac8db1450c1d4`，无旧Java版本表查询，保留角色缺口提示。原v3私有验收工具因混合路径分隔符误判解包越界而停止，原失败stage、attempt和4笔写入回执完整保留，未重跑。另一个独立只读补充工具规范化目标路径后核对已存ZIP、安全解包并完成独立Release构建（0警告0错误）；最终37行及3个来源列逐值等于四写后快照。补充没有HTTP、登录、数据库写入或宿主启动。最终回执位于贡献clone `.local/version-verification-supplement-v1/evidence-20261020032140-7e407d3117c147a88aa2f3dbaafc4e27/result.json`，SHA256 `796561b76f2624ca4cc9c289a18ee0adc985d7e834467f7a057a297b571da5ba`。本段不将BackendOnly包构建当作完整平台前端/角色验收。
+
+## 2026-10-20 原创建语义与锁后当前读整合
+
+普通新建页及页面换表只校验，不自动补齐历史字段；复制页只复制源页活动字段、按钮和出向子关系，不复活遗漏/软删字段。显式从表建页与新表默认页使用同一内部初始化入口。新增列只给各活动页建立本列映射：页数不超过2时默认显示/编辑，否则仍建映射但隐藏；sort_no默认99且必填、联接列只读、排序缓存保留来源null。8个显式系统列、当前项目范围和直接后台归属仍是C#模型边界，不声称本片完全等同Java所有建表行为。见 `original-page-creation-defaults.md`。
+
+身份聚合与锁后当前读共用同一纯决策；安全写协调器已具备项目/admin预锁、同事务当前身份复核、最终合并角色及归属检查的代码和离线合同。当前尚未注册到宿主、未改变手写角色partial或关闭runtime缺口；最终DI、工作台共用协议及真实RR并发另行验收。
+
+主线完整回归使用核实后的Server-200隔离配置：API71/71、Agent125/125、Metadata150/150、Compatibility29/29，共375项零失败零跳过。各工程也包含纯离线合同，不能把总数冒充375个真实SQL锁案例。证据为 `.local/original-creation-fixtures-{api,metadata,compatibility}-mysql-final.trx` 和 `.local/original-creation-current-realm-agent-mysql-integrated.trx`。此前API70/71和Metadata149/150失败回执保留：分别为旧夹具依赖换表自动补字段、归属种子遗漏真实表名派生缓存；只修正夹具，保留产品校验、原HTTP拒绝和完整图不变断言。
+
+远端 `d6ddf22` 的 pull_request run `39358436796` 三作业通过；同SHA push run `39358433507` 的Linux通过、Windows和frontend失败，不称六项全绿。失败分别是启动预算单元测试的毫秒期限、CLI过期令牌测试在令牌响应前触发请求超时；具体修复及新CI结果另记。
