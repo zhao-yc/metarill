@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Security;
 using System.Text.Json;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
@@ -84,6 +85,60 @@ public sealed class FixedRoleCheckboxTests
     public void Original_option_permission_accepts_any_open_query_create_update(string allowed,bool create,bool update)
     {
         var auth=new Authorization(allowed);Assert.Equal(auth.Actor,RoleCheckboxAuthorization.Require(auth,"p",create,update));
+    }
+
+    /// <summary>两个宿主的权限拒绝可以混合出现；只有元数据实际开放的后续动作可以使候选通过。</summary>
+    [Theory]
+    [InlineData("unauthorized","security")] [InlineData("security","unauthorized")]
+    public void Role_option_permission_mixed_denials_can_reach_an_open_update(string first,string second)
+    {
+        var auth=new PermissionSequenceAuthorization([PermissionDenied(first),PermissionDenied(second),null]);
+        Assert.Equal(auth.Actor,RoleCheckboxAuthorization.Require(auth,"page",true,true));
+        Assert.Equal(new[]{"list","create","update"},auth.Calls); Assert.Equal(1,auth.ActorCalls);
+    }
+
+    /// <summary>全部拒绝保留最后一个明确宿主拒绝类型，统一消息不包含内部异常或inner值。</summary>
+    [Theory]
+    [InlineData("unauthorized","unauthorized")] [InlineData("security","security")]
+    [InlineData("unauthorized","security")] [InlineData("security","unauthorized")]
+    public void Role_option_permission_final_denial_keeps_host_semantics_without_internal_message(string first,string last)
+    {
+        var auth=new PermissionSequenceAuthorization([PermissionDenied(first),PermissionDenied(last)]);
+        var error=Record.Exception(()=>RoleCheckboxAuthorization.Require(auth,"page",true,false));
+        Assert.NotNull(error); Assert.Equal(PermissionDenied(last).GetType(),error.GetType());
+        Assert.Equal("当前页面未授予查询、新增或修改权限。",error.Message);Assert.Null(error.InnerException);
+        Assert.Equal(new[]{"list","create"},auth.Calls);
+    }
+
+    /// <summary>真实身份先于动作循环建立；匿名或身份失败不会被当作一次普通动作拒绝继续尝试。</summary>
+    [Theory]
+    [InlineData("unauthorized")] [InlineData("security")]
+    public void Role_option_permission_missing_identity_never_attempts_page_actions(string kind)
+    {
+        var original=PermissionDenied(kind);var auth=new PermissionSequenceAuthorization([null],original);
+        Assert.Same(original,Record.Exception(()=>RoleCheckboxAuthorization.Require(auth,"page",true,true)));
+        Assert.Empty(auth.Calls);Assert.Equal(1,auth.ActorCalls);
+    }
+
+    /// <summary>未开放新增修改不尝试，不能用页面以外的可写授权替代查询权。</summary>
+    [Theory]
+    [InlineData("unauthorized")] [InlineData("security")]
+    public void Role_option_permission_disabled_actions_remain_untried(string kind)
+    {
+        var auth=new PermissionSequenceAuthorization([PermissionDenied(kind),null]);
+        Assert.Equal(PermissionDenied(kind).GetType(),Record.Exception(()=>RoleCheckboxAuthorization.Require(auth,"page",false,false))!.GetType());
+        Assert.Equal(new[]{"list"},auth.Calls);
+    }
+
+    /// <summary>仅明确permission-denied参与回退；服务、IO和取消异常均保持原对象并停止动作循环。</summary>
+    [Theory]
+    [InlineData("service")] [InlineData("io")] [InlineData("canceled")]
+    public void Role_option_permission_operational_errors_are_not_swallowed(string kind)
+    {
+        Exception original=kind switch{"service"=>new InvalidOperationException("不能吞服务异常"),"io"=>new IOException("不能吞IO异常"),_=>new OperationCanceledException("不能吞取消异常")};
+        var auth=new PermissionSequenceAuthorization([new SecurityException("内部拒绝"),original,null]);
+        Assert.Same(original,Record.Exception(()=>RoleCheckboxAuthorization.Require(auth,"page",true,true)));
+        Assert.Equal(new[]{"list","create"},auth.Calls);
     }
 
     [Fact]
@@ -267,6 +322,16 @@ public sealed class FixedRoleCheckboxTests
         public RuntimeActor RequireActor()=>Actor;
         public void RequirePagePermission(string pageId,string operation){if(allowed=="error")throw new InvalidOperationException("不能吞掉本错误");if(operation!=allowed)throw new UnauthorizedAccessException("无此动作");}
     }
+    /// <summary>仅控制授权接口的返回序列，不复制任何宿主授权规则。</summary>
+    private sealed class PermissionSequenceAuthorization(IReadOnlyList<Exception?> outcomes,Exception? actorFailure=null):IRuntimeAuthorization
+    {
+        internal RuntimeActor Actor{get;}=new(8,"离线授权合同",false,"100","1");
+        internal List<string> Calls{get;}=[];internal int ActorCalls{get;private set;}
+        public RuntimeActor RequireActor(){ActorCalls++;if(actorFailure is not null)throw actorFailure;return Actor;}
+        public void RequirePagePermission(string pageId,string operation){Calls.Add(operation);if(outcomes[Calls.Count-1] is{} error)throw error;}
+    }
+    /// <summary>测试用内部消息只用于证明最终拒绝不会把宿主细节回显。</summary>
+    private static Exception PermissionDenied(string kind)=>kind=="security"?new SecurityException("内部授权详情不应回显"):new UnauthorizedAccessException("内部授权详情不应回显");
     private sealed class RequestAuthorization(IHttpContextAccessor accessor):IRuntimeAuthorization
     {
         public RuntimeActor RequireActor()=>new(1,"离线HTTP",false,"100","1");
