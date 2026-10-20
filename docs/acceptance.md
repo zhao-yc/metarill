@@ -352,3 +352,25 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 本批没有新增RR、观测授权、前端、浏览器或设备验收；共享Business存在和平台实库通过不等于独立Full完整安全Runtime、目录权威/协调器、安全CRUD或Agent下发，五处Custom与原门禁保持。后续SessionPolicy与目录适配的独立结果不提前计入本批；最新CI也不借此声明完成。
 
 根综合回执另保留纠错：旧 `.local/role-permission-core-integrated-receipt.json`（SHA256 `706731774d78c7f26ee897f6b0b668c92b1ea595fb6b6503b0b0025790085750`）曾按VSTest `Counters.notExecuted=0`误记首轮skip；原件未覆盖。新版 `.local/role-permission-core-integrated-v2-receipt.json`（SHA256 `7664b447c31dc217424cf831fbf52bbfa2486875c6ff5a881f314bedf1559e74`）按实际 `UnitTestResult`记录首轮22跳过，并保存原rawCounters和纠错说明；四份TRX及原日志不变。上述计数以真实结果项及原日志为准，不把汇总的旧零值当作已执行。
+
+## 2026-10-20 固定目录、正式协调与三页模块根集成
+
+固定目录源码 `0915392` 已集成为 `b576438`，正式 Web 协调源码 `1b4bb93` 集成为 `255787d`，固定三管理页资产/工厂源码 `b5d7e4f` 集成为 `14cf2542d5364f1fe59ee59aeacbd41112ecfeee`。原页面、样式、交互和权限规则不变；可信模块只准备原三页和显式依赖，尚未接默认 Full 管理 CRUD、工作台或原初始化按钮，Runtime A/三个 partial/五处 Custom/Agent 门禁仍保留。
+
+主协调者实际执行，按冻结和范围分列；重叠批次不相加：
+
+| 源码冻结与范围 | 通过 | 失败 | 跳过 | 私有原始报告 |
+|---|---:|---:|---:|---|
+| b2023bd 固定目录与 CI 修复组合定向 | 206 | 0 | 0 | `.local/immutable-ci-merged-contracts-integrated.trx` |
+| 750dddc 完整 Generation 离线 | 732 | 0 | 11 | `.local/generation-750-full-offline/generation-750-full-offline.trx` |
+| 14cf254 正式 Web/可信模块/物理合成组合 | 152 | 0 | 0 | `.local/web-coordination-trusted-module-integrated/web-coordination-trusted-module-integrated.trx` |
+| 14cf254 元数据 Node 与实际 `--check` | 17 | 0 | 0 | `.local/trusted-security-module-node-integrated.log` |
+| 14cf254 Server-200 全新库两个 Facts | 2 | 0 | 0 | `.local/fresh-install/e2a43246e91c4cae/fresh-install.trx` |
+
+完整 Generation 共743项，耗时16分42秒、`-warnaserror`；11项因移除实库配置而未执行，不算实库通过。该批消除了本机此前14项兼容失败，但不回写8eda两个CI run的原失败结果；随后正式协调与模块另在14cf进行152项组合回归，含实际生成包编译及离线身份/ADO替身，不称152项全部实库。正式远端 CI 以 PR #1 对应提交的实际作业结果为准。
+
+新 Fresh 编号 `e2a43246e91c4cae` 独占创建3个随机空库/1个受限临时账号。两个 Facts 实际全过：Full从0表显式安装10表，普通启动/预览不DDL、二次0差异，正式Web登录、普通账号逐次撤权/禁用、改密撤两个旧会话、重复初始化不重置、进程重启持久身份、注销及文件/业务CRUD保持；平台另例仍23/4表。该例没有发布三管理页，不能据此声称安全CRUD、工作台或独立宿主RR已完成。
+
+脚本清理后，主协调者另经核实的Server-200逐条只读回查：本轮3库剩余0、临时账号0、所有权文件不存在，本机临时配置已删；本轮未新增P_S或PROCESS观测授权。新Fresh的 `result.json`、TRX和 `cleanup-verification.json` SHA256依次为 `85ac27b6116e0722d731f709f447c116ec541fbc54eea985200acc664100b1d0`、`03d0f0447368336db597a157bf43cd5a1799be95dfc842c8113d9f592c6c79e3`、`f969816a1ea738770e80274cc5a52d057ff13ce27bffc7d1bcfd28d91614e266`。
+
+主汇总 `.local/immutable-web-module-integrated-receipt.json` SHA256为 `62dc72224db54939d14bd33252c8da107c65af72200b13856e71496b9e040e7a`，按真实 `UnitTestResult`计数并保留早先失败/跳过；完整Generation TRX摘要为 `d41d4531bd97daad932fc181c08db0d44ae71643df9653feb6dbdbdc4e440cfa`，152项为 `e26f86851bfda01ba599b83b85347c3b8ee7c2b82f5799ac2ee606355914be8a`。三原按钮到绑定工程的真实浏览器、账号页完整写入、新宿主RR、设备、同条件性能及后续数据库仍单列待验，不能用本批构建/HTTP结果代替。

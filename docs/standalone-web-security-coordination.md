@@ -28,3 +28,9 @@
 终轮报告位于独立开发 clone 的 `.local/web-security-coordination/web-coordination-neighbor-v2.trx` / 同名 `.log`；TRX SHA256 为 `46d25b9a3e1ada03c47cff490082cf48d467846fd034698538c9040368d0df55`。本轮没有宣称全量 LocalGenerationUpdate 类通过：基线的两个手工能力候选夹具尚待主线单独合入已审 Binding 同步适配。
 
 本片没有执行 HTTP、MySQL、RR 并发、浏览器或设备验收。RuntimeA、安全 Service 三个手写 partial、5 个平台 Custom 前端依赖与未知声明门禁继续保留，不能将注册完成称作完整安全运行时已经下发。
+
+## 根集成与真实包运行
+
+源码 `1b4bb93` 经独立只读审阅后集成为 `255787d`，随后固定模块准备组合于 `14cf254`。主协调者实际组合回归152/152、零失败/零跳过，包含本片114相关合同和模块/物理组合；不是另一次全量Generation，也不将来源114与根152相加。原始报告为 `.local/web-coordination-trusted-module-integrated/web-coordination-trusted-module-integrated.trx`。
+
+14cf的Server-200新Fresh `e2a43246e91c4cae` 实际2/2、零跳过，通过实际包主进程执行正式Web登录、撤权/禁用、改密及会话、重启持久身份、业务/文件写入；临时三库/账号与配置全部清理并独立核零残留。该普通业务包虽真实使用新的宿主注册，仍未发布三安全管理页或调用其管理写协调；不证明安全CRUD、工作台、Agent或独立宿主RR完成。精确SHA及清理结果见 [根验收记录](acceptance.md)。
