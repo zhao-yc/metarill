@@ -99,6 +99,7 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         var core = Path.Combine(source, "backend/src/Metarill.Core"); Directory.CreateDirectory(core);
         var metadata = Path.Combine(source, "backend/metadata"); Directory.CreateDirectory(metadata);
         File.Copy(Path.Combine(SourceRoot(), "backend/metadata/files.json"), Path.Combine(metadata, "files.json"));
+        File.Copy(Path.Combine(SourceRoot(), "backend/metadata/security.json"), Path.Combine(metadata, "security.json"));
         File.WriteAllText(Path.Combine(core, "Metarill.Core.csproj"), new System.Xml.Linq.XElement("Project", new System.Xml.Linq.XElement("ItemGroup", new System.Xml.Linq.XElement("ProjectReference", new System.Xml.Linq.XAttribute("Include", reference)))).ToString());
         var output = Path.Combine(temporary, "unsafe-app");
         Assert.Throws<InvalidOperationException>(() => new ApplicationPackager().Create(GeneratorTests.Catalog(), output, "Example.Unsafe", source));

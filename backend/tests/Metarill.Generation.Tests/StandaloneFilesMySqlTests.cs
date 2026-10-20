@@ -138,10 +138,12 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     private Task<string>? stdout;
     private Task<string>? stderr;
     private bool cleanupTable;
+    private bool formalWeb;
     private string root = "";
     public DatabaseSession Session { get; private set; } = null!;
     public MetadataCatalog Catalog { get; private set; } = null!;
     public MetadataCatalog FileCatalog { get; private set; } = null!;
+    public MetadataCatalog SecurityCatalog {get;private set;}=null!;
     public string Table { get; private set; } = "";
     public string RecordRoute => $"/api/admin/auto/{Table}/{Catalog.ConfigPages.Single().Id}";
     public string FileRoute => "/api/admin/sys/file-library";
@@ -168,7 +170,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
                 options = settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
                 if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("独立文件验收仅允许 MySQL metarill_business_test。");
             }
-            else { FreshInstallConfiguration.Validate(freshOptions, "package"); options = freshOptions; }
+            else { FreshInstallConfiguration.Validate(freshOptions, "package"); options = freshOptions; fixture.formalWeb=true; }
             fixture.Session = new DatabaseSession(options);
             fixture.root = SourceRoot();
             fixture.Catalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.root, "backend/metadata/demo.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -187,6 +189,8 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
             Assert.False(fixture.Output.StartsWith(fixture.root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             fixture.FileCatalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.Output, "backend/metadata/files.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             Assert.Equal(new[] { "yz_file_library", "yz_file_library_folder", "yz_file_ref" }, fixture.FileCatalog.ConfigTables.Select(t => t.TableName).Order().ToArray());
+            fixture.SecurityCatalog=JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.Output,"backend/metadata/security.json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.Equal(6,fixture.SecurityCatalog.ConfigTables.Count);
             var schema = new SchemaService(fixture.Session);
             fixture.ExistingFileTables = (await schema.InspectAsync(fixture.FileCatalog)).Tables.Select(t => t.Name).Order().ToArray();
             var filePlan = await schema.PreviewAsync(fixture.FileCatalog);
@@ -213,6 +217,13 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     public Task SchemaAsync(string operation)
     {
         var info = HostInfo(); info.ArgumentList.Add(operation); return RunAsync(info);
+    }
+
+    /// <summary>仅专属新空库执行真实Web初始账号命令；密码通过子进程私有环境传入而非命令行。</summary>
+    public async Task InitializeWebSecurityAsync()
+    {
+        if(!formalWeb)throw new InvalidOperationException("正式认证初始化仅用于专属全新随机库。");
+        var info=HostInfo();info.ArgumentList.Add("--initialize-security");info.Environment["Authentication__Bootstrap__Username"]="files-probe";info.Environment["Authentication__Bootstrap__Password"]=password;await RunAsync(info);
     }
 
     /// <summary>使用包内真实前端脚本经HTTP完成开发登录、菜单及生成list/detail CRUD，不传数据库凭据。</summary>
@@ -249,7 +260,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         Assert.Fail("独立文件库宿主未就绪，进程日志未输出以保护环境信息。");
     }
 
-    /// <summary>开发认证固定为服务端单项目账号，不声称覆盖跨 owner 权限。</summary>
+    /// <summary>专属空库使用真实Web账号，既有共享文件fixture仍显式开发模式，不混称跨owner验收。</summary>
     public async Task LoginAsync()
     {
         var login = await SuccessAsync(HttpMethod.Post, "/api/admin/sys/yz_manager/login", new { username = "files-probe", password });
@@ -366,7 +377,8 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         var info = StartInfo(HostDirectory); info.ArgumentList.Add(Path.Combine(HostDirectory, "bin/Debug/net10.0/Application.Host.dll"));
         info.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
         info.Environment["Database__Provider"] = "mysql"; info.Environment["Database__ExpectedDatabase"] = Session.Options.ExpectedDatabase; info.Environment["Database__ConnectionString"] = Session.Options.ConnectionString;
-        info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = "true"; info.Environment["Authentication__DevelopmentBootstrap__Username"] = "files-probe"; info.Environment["Authentication__DevelopmentBootstrap__Password"] = password;
+        info.Environment["Authentication__Mode"] = formalWeb?"Web":"Development";
+        info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = formalWeb?"false":"true"; info.Environment["Authentication__DevelopmentBootstrap__Username"] = "files-probe"; info.Environment["Authentication__DevelopmentBootstrap__Password"] = password;
         info.Environment["Ids__WorkerId"] = "852";
         info.Environment["Files__RootDirectory"] = Path.Combine(temporary, "objects"); info.Environment["Files__MaxFileBytes"] = "4096";
         return info;

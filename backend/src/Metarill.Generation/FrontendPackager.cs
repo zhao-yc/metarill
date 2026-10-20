@@ -124,7 +124,7 @@ public sealed class FrontendPackager
         Text("package.json", JsonSerializer.Serialize(new { name = packageName, version = "0.1.0", @private = true, type = "module", license = "Apache-2.0", scripts = new Dictionary<string, string> { ["test"] = "node --experimental-vm-modules scripts/verify-frontend.mjs" }, dependencies }, JsonOptions) + "\n");
         Text(".gitignore", "node_modules/\nunpackage/\n.hbuilderx/\n*.local.*\n");
         var manifest = files.OrderBy(file => file.Key, StringComparer.Ordinal).Select(file => new { path = file.Key, sha256 = Convert.ToHexStringLower(SHA256.HashData(file.Value)) }).ToArray();
-        Text(".metarill-frontend.json", JsonSerializer.Serialize(new { schemaVersion = 1, projectId = catalog.YzProjectId, authentication = "development-only", files = manifest }, JsonOptions) + "\n");
+        Text(".metarill-frontend.json", JsonSerializer.Serialize(new { schemaVersion = 1, projectId = catalog.YzProjectId, authentication = "web-database-v1", files = manifest }, JsonOptions) + "\n");
         var stage = output + ".staging-" + Guid.NewGuid().ToString("N");
         var preserveStage = false;
         try

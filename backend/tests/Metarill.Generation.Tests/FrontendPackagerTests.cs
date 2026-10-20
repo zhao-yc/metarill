@@ -155,6 +155,23 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         Assert.Equal(ApplicationPackageMode.BackendOnly, backend.Mode); Assert.False(backend.FrontendIncluded);
     }
 
+    /// <summary>只改认证标签和可信后台回执；原登录template/style字节基线不变，Node执行实际打包脚本。</summary>
+    [Fact]
+    public async Task Original_login_preserves_dom_and_uses_server_realm_string_with_development_fallback()
+    {
+        var output=Path.Combine(root,"login-realm");new ApplicationPackager().Create(Demo(),output,"Example.LoginRealm",SourceRoot());
+        var login=File.ReadAllText(Path.Combine(output,"frontend/pages/login.vue")).Replace("\r\n","\n");
+        string SectionHash(string tag)=>Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(System.Text.RegularExpressions.Regex.Match(login,"<"+tag+"[^>]*>[\\s\\S]*?</"+tag+">").Value)));
+        // 两个hash取自09c35c3受控原登录模板，不从本次修改结果刷新基线。
+        Assert.Equal("b214cdf3306232c6cd66d0b0032c4acb0544de92daa3cc1d615a55cf5d674d3b",SectionHash("template"));
+        Assert.Equal("a96c9c4c87d93d346a4006b78be3cb482875090778e142face190cff81ede87b",SectionHash("style"));
+        var info=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node"){WorkingDirectory=output,CreateNoWindow=true,UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
+        info.ArgumentList.Add("--experimental-vm-modules");info.ArgumentList.Add(Path.Combine(SourceRoot(),"backend/tests/Metarill.Generation.Tests/Fixtures/standalone-login-auth-realm.mjs"));info.ArgumentList.Add(Path.Combine(output,"frontend"));
+        using var process=Process.Start(info)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try{await process.WaitForExitAsync(deadline.Token);}catch(Exception interrupted){await SharedSourceBuildGate.StopOwnProcessAsync(process,stdout,stderr,interrupted);throw;}
+        Assert.True(process.ExitCode==0,await stdout+await stderr);
+    }
+
     /// <summary>无根循环和孤儿不能在菜单组装时静默消失，跨后台目标不能误导导航。</summary>
     [Theory]
     [InlineData("orphan")]

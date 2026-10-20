@@ -41,18 +41,26 @@ public sealed class FreshInstallMySqlTests(ITestOutputHelper output)
         await fixture.SchemaAsync("--schema-preview"); Assert.Equal(0L, await CountTablesAsync(fixture.Session));
         var filesBefore = await new SchemaService(fixture.Session).PreviewAsync(fixture.FileCatalog);
         Assert.Equal(3, filesBefore.Changes.Count(change => change.Kind == "createTable"));
+        var securityBefore=await new SchemaService(fixture.Session).PreviewAsync(fixture.SecurityCatalog);
+        Assert.Equal(6,securityBefore.Changes.Count(change=>change.Kind=="createTable"));
         await fixture.SchemaAsync("--schema-apply");
-        Assert.Equal(4L, await CountTablesAsync(fixture.Session));
+        Assert.Equal(10L, await CountTablesAsync(fixture.Session));
         Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.FileCatalog)).Changes);
         Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.Catalog)).Changes);
-        await fixture.SchemaAsync("--schema-apply"); Assert.Equal(4L, await CountTablesAsync(fixture.Session));
+        Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.SecurityCatalog)).Changes);
+        await fixture.SchemaAsync("--schema-apply"); Assert.Equal(10L, await CountTablesAsync(fixture.Session));
+        await fixture.InitializeWebSecurityAsync();
+        var credentials=await ScalarAsync(fixture.Session,"SELECT password FROM yz_manager WHERE name='files-probe'");
+        await fixture.InitializeWebSecurityAsync();Assert.Equal(credentials,await ScalarAsync(fixture.Session,"SELECT password FROM yz_manager WHERE name='files-probe'"));
         await fixture.StartAsync(); await fixture.LoginAsync();
+        var permissions=await fixture.SuccessAsync(HttpMethod.Get,"/api/admin/sys/yz_manager/getCurrentPermissions");Assert.True(permissions.GetProperty("data").GetProperty("isSuper").GetBoolean());
+        var menu=await fixture.SuccessAsync(HttpMethod.Get,"/api/admin/sys/yz_manager/getMenu");Assert.NotEmpty(menu.GetProperty("menu").EnumerateArray());
         var bytes = Encoding.UTF8.GetBytes("全新随机库首次安装后的文件与业务验收");
         var file = await fixture.UploadAsync("fresh-install.txt", bytes);
         var added = await fixture.SuccessAsync(HttpMethod.Post, fixture.RecordRoute + "/add", new { name = "首次安装业务", attachments = new[] { file.ToString() } });
         var record = long.Parse(added.GetProperty("data").GetProperty("id").ToString()); fixture.RecordIds.Add(record);
         await fixture.AssertReferenceAsync(record, file); await fixture.AssertContentAsync(file, bytes, publicly: false);
-        output.WriteLine("独立应用：0表启动/预览均无DDL，显式CLI安装4表，二次无差异，文件引用与下载成功。");
+        output.WriteLine("独立应用：0表启动/预览均无DDL，显式CLI安装10表（业务1+文件3+安全6），二次无差异，真实Web初始化重复不重置、登录/权限/菜单及文件引用/下载成功。");
     }
 
     /// <summary>平台首次安装必须创建完整元数据表、内置元数据和管理员，重复初始化不重置密码。</summary>

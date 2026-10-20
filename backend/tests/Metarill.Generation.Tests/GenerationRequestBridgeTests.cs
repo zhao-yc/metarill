@@ -119,6 +119,6 @@ public sealed partial class LocalGenerationUpdateTests
         const string menu = "frontend/metarill_uni_admin/components/yzp-menu/yzp-menu.vue";
         File.Copy(Path.Combine(SourceRoot(), menu), Path.Combine(source, menu), true);
         foreach (var path in new[] { "global.json", "LICENSE", "Directory.Packages.props" }) File.Copy(Path.Combine(SourceRoot(), path), Path.Combine(source, path));
-        var metadata = Path.Combine(source, "backend/metadata"); Directory.CreateDirectory(metadata); File.Copy(Path.Combine(package, "backend/metadata/files.json"), Path.Combine(metadata, "files.json")); return source;
+        var metadata = Path.Combine(source, "backend/metadata"); Directory.CreateDirectory(metadata); foreach(var name in new[]{"files","security"})File.Copy(Path.Combine(package,"backend/metadata/"+name+".json"),Path.Combine(metadata,name+".json")); return source;
     }
 }

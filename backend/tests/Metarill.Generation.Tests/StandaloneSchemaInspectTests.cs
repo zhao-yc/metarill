@@ -54,7 +54,7 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
         await using var fixture = await PackagedFilesFixture.CreateAsync();
         Assert.Equal(3, fixture.ExistingFileTables.Length); // 固定基础表仅反查复用，本测试不为它们执行DDL。
         await fixture.BuildAsync();
-        var physical = Metarill.Core.Metadata.MetadataCatalogComposition.MergePhysical(fixture.Catalog, fixture.FileCatalog);
+        var physical = Metarill.Core.Metadata.MetadataCatalogComposition.MergePhysical(Metarill.Core.Metadata.MetadataCatalogComposition.MergePhysical(fixture.Catalog, fixture.FileCatalog),fixture.SecurityCatalog);
         var schema = new SchemaService(fixture.Session); var metadata = MetadataSnapshot(fixture.Output);
         var journal = Path.Combine(fixture.HostDirectory, ".local/schema-history.jsonl");
         var before = await CommandAsync(fixture.HostDirectory, fixture.Session.Options, "--schema-inspect");

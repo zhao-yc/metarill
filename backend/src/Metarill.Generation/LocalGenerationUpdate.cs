@@ -125,9 +125,9 @@ public sealed partial class LocalGenerationUpdater
         }
         if (!SameEntries(generated.Values, after.Generated.Files)) throw new InvalidOperationException("生成代码与配置依赖未完整选择，不能更新全局元数据摘要。");
         bytes[GenerationMarker] = Encode(before.Generated with { MetadataSha256 = after.Generated.MetadataSha256, Files = generated.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
-        bytes[FrontendMarker] = Encode(before.Frontend with { Files = frontend.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
+        bytes[FrontendMarker] = Encode(before.Frontend with { Authentication = after.Frontend.Authentication, Files = frontend.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
         foreach (var marker in new[] { GenerationMarker, FrontendMarker }) package[marker] = new(marker, Hash(bytes[marker]));
-        bytes[PackageMarker] = Encode(before.Package with { MetadataSha256 = after.Package.MetadataSha256, Warnings = after.Package.Warnings, Files = package.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
+        bytes[PackageMarker] = Encode(before.Package with { AuthenticationProfile = after.Package.AuthenticationProfile, MetadataSha256 = after.Package.MetadataSha256, Warnings = after.Package.Warnings, Files = package.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
         return bytes;
     }
 

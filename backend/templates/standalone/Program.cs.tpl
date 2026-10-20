@@ -13,6 +13,7 @@ using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
 using Metarill.Data.Schema;
+using Metarill.Runtime.Security;
 using {{NAMESPACE}}.Generated;
 using {{NAMESPACE}}.Host;
 
@@ -20,6 +21,12 @@ using {{NAMESPACE}}.Host;
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 // 在构造Web宿主前拒绝混合、重复或未知结构命令，避免误启动服务或误执行写入。
 string[] schemaCommands = ["--schema-inspect", "--schema-preview", "--schema-apply"];
+var initializeSecurity=args.Contains("--initialize-security",StringComparer.Ordinal);
+if(InvalidSecurityArguments(args))
+{
+    Console.Error.WriteLine("安全初始化必须单独使用--initialize-security，认证凭据只从私有配置或环境读取，不接受命令行字段。");
+    Environment.ExitCode=2;return;
+}
 var requestedSchemaCommands = args.Where(value => value.StartsWith("--schema-", StringComparison.Ordinal)).ToArray();
 if (requestedSchemaCommands.Length > 1 || requestedSchemaCommands.Any(value => !schemaCommands.Contains(value, StringComparer.Ordinal)))
 {
@@ -27,10 +34,11 @@ if (requestedSchemaCommands.Length > 1 || requestedSchemaCommands.Any(value => !
     Environment.ExitCode = 2; return;
 }
 var schemaCommand = requestedSchemaCommands.SingleOrDefault();
-var builder = WebApplication.CreateBuilder(args.Where(value => !schemaCommands.Contains(value, StringComparer.Ordinal)).ToArray());
+var builder = WebApplication.CreateBuilder(args.Where(value => !schemaCommands.Contains(value, StringComparer.Ordinal) && value!="--initialize-security").ToArray());
 builder.Configuration.AddJsonFile("appsettings.local.json", optional: true).AddEnvironmentVariables();
 // 仅显式开发认证启用时允许本机HBuilderX不同端口；不默认开放正式部署来源。
-var developmentCors = builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Authentication:DevelopmentBootstrap:Enabled");
+var authenticationMode=ApplicationAuthenticationMode.Read(builder.Configuration,builder.Environment);
+var developmentCors = authenticationMode.Development;
 if (developmentCors) builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.SetIsOriginAllowed(origin =>
     Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.IsLoopback
     && uri.UserInfo.Length == 0 && uri.AbsolutePath == "/" && uri.Query.Length == 0 && uri.Fragment.Length == 0).AllowAnyHeader().AllowAnyMethod()));
@@ -40,21 +48,33 @@ var metadata = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path
 MetadataValidation.Validate(metadata);
 var infrastructure = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/files.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少文件基础元数据。");
-var physicalMetadata = MetadataCatalogComposition.MergePhysical(metadata, infrastructure);
+var security = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/security.json")), jsonOptions)
+    ?? throw new InvalidOperationException("缺少固定安全基础元数据。");
+// 只组合受控无页面物理模型；与安全CRUD页或保留表名冲突始终拒绝，不降级开发宿主。
+var combinedInfrastructure=MetadataCatalogComposition.MergePhysical(infrastructure,security);
+var physicalMetadata = MetadataCatalogComposition.MergePhysical(metadata, combinedInfrastructure);
 builder.Services.AddSingleton(metadata);
+builder.Services.AddSingleton(authenticationMode);
+builder.Services.AddSingleton<ApplicationSecurityRegistry>();
+builder.Services.AddSingleton<ISecurityResourceRegistry>(provider=>provider.GetRequiredService<ApplicationSecurityRegistry>());
+builder.Services.AddSingleton<ISecuritySessionPolicy>(provider=>provider.GetRequiredService<ApplicationSecurityRegistry>());
+builder.Services.AddScoped<AuthenticationService>();
+builder.Services.AddScoped<ApplicationWebAuthentication>();
+builder.Services.AddScoped<ApplicationSecurityInitialization>();
 builder.Services.AddSingleton<DevelopmentNavigation>();
 builder.Services.AddSingleton(provider => new DatabaseSession(builder.Configuration.GetSection("Database").Get<DatabaseOptions>() ?? new()));
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue<int?>("Ids:WorkerId") ?? 1));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<DevelopmentSessions>();
-builder.Services.AddScoped<IRuntimeAuthorization, DevelopmentAuthorization>();
+if(authenticationMode.Development)builder.Services.AddScoped<IRuntimeAuthorization,DevelopmentAuthorization>();
+else builder.Services.AddScoped<IRuntimeAuthorization,ApplicationWebAuthorization>();
 // 生成和下载共享同一个票据仓库；先取得资源额度，再执行生成页的有界查询。
 builder.Services.AddSingleton(builder.Configuration.GetSection("Exports").Get<ExportOptions>() ?? new());
 builder.Services.AddSingleton<ExcelPageExportService>();
 builder.Services.AddSingleton<IPageExportService>(provider => provider.GetRequiredService<ExcelPageExportService>());
 builder.Services.AddHostedService<ExportCleanupWorker>();
 // 文件基础设施与生成 CRUD 共享同一个 DatabaseSession，引用在原业务事务内同步。
-builder.Services.AddSingleton(provider => new SqlRowStore(provider.GetRequiredService<DatabaseSession>(), infrastructure));
+builder.Services.AddSingleton(provider => new SqlRowStore(provider.GetRequiredService<DatabaseSession>(), combinedInfrastructure));
 builder.Services.AddSingleton(new FileMetadataContext([metadata]));
 builder.Services.AddSingleton(builder.Configuration.GetSection("Files").Get<FileLibraryOptions>() ?? new());
 builder.Services.AddScoped<FileLibraryService>();
@@ -68,9 +88,25 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "local",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
-// 正式宿主在手写 partial 中替换认证、文件或按需扩展导出实现。
+// 保留手写扩展；默认正式Web和显式开发模式的边界已由固定宿主实现。
 HostCustomization.Configure(builder.Services, builder.Configuration, builder.Environment);
 var app = builder.Build();
+if(initializeSecurity)
+{
+    try
+    {
+        if(authenticationMode.Development||!authenticationMode.DatabaseConfigured)throw new InvalidOperationException("安全初始化要求有效Web数据库配置。");
+        using var scope=app.Services.CreateScope();
+        var status=await scope.ServiceProvider.GetRequiredService<ApplicationSecurityInitialization>().InitializeAsync(builder.Configuration,CancellationToken.None);
+        Console.WriteLine(JsonSerializer.Serialize(new {status,credentialsChanged=status=="initialized"},jsonOptions));
+    }
+    catch(Exception error)
+    {
+        // 不把连接异常、参数值或私有Bootstrap配置写入控制台；退出失败且绝不自动重试。
+        Console.Error.WriteLine("安全初始化失败，未重置既有凭据；请核查私有配置、结构及归属。异常类型："+error.GetType().Name);Environment.ExitCode=1;
+    }
+    return;
+}
 if (schemaCommand is not null)
 {
     // 只有显式结构命令进入此分支；普通Web启动不读取或修改数据库结构。
@@ -99,14 +135,23 @@ app.Use(async (context, next) =>
     try
     {
         var path = context.Request.Path;
-        if (path.StartsWithSegments("/api") && path != "/api/admin/sys/yz_manager/login" && !IsPublicFileContent(context.Request) && !ExportDownloadAccess.CanUseGrant(context.Request)) context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
+        if (path.StartsWithSegments("/api") && path != "/api/admin/sys/yz_manager/login" && !IsPublicFileContent(context.Request) && !ExportDownloadAccess.CanUseGrant(context.Request))
+        {
+            if(!authenticationMode.Development)
+            {
+                var identity=await context.RequestServices.GetRequiredService<ApplicationWebAuthentication>().ResolveAsync(DevelopmentSessions.ReadToken(context),context.RequestAborted);
+                if(identity is null)throw new UnauthorizedAccessException();
+                context.Items[typeof(AuthenticatedIdentity)]=identity;
+            }
+            context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
+        }
         await next(context);
     }
     catch (Exception error) when (!context.Response.HasStarted)
     {
         var (status, message) = error switch
         {
-            UnauthorizedAccessException => (401, "请先登录；开发认证仅在 Development 且显式配置后可用。"),
+            UnauthorizedAccessException => (401, "请先登录，或确认应用认证配置。"),
             SecurityException => (403, "没有当前操作权限。"),
             PageImportException { IsInputError: true } => (400, error.Message),
             ArgumentException or JsonException => (400, "请求参数不符合页面定义。"),
@@ -121,28 +166,32 @@ app.Use(async (context, next) =>
 });
 app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new { status = "UP", application = metadata.YzProjectName }));
-app.MapPost("/api/admin/sys/yz_manager/login", async (HttpContext context, DevelopmentSessions sessions) =>
+app.MapPost("/api/admin/sys/yz_manager/login", async (HttpContext context) =>
 {
-    string? username; string? password;
-    if (context.Request.HasFormContentType)
+    var login=await ReadLogin(context.Request);var username=login.Username;var password=login.Password;
+    if(authenticationMode.Development)
     {
-        var form = await context.Request.ReadFormAsync(context.RequestAborted); username = form["username"]; password = form["password"];
+        var token=context.RequestServices.GetRequiredService<DevelopmentSessions>().Login(username,password);
+        if(token is null)throw new UnauthorizedAccessException();
+        var development=R<object>.Success(new {id="1",username,name=username,merchantName=metadata.YzProjectName});development.Map["loginStateId"]=token;return Results.Json(development);
     }
-    else
-    {
-        var request = await context.Request.ReadFromJsonAsync<DevelopmentLogin>(cancellationToken: context.RequestAborted); username = request?.Username; password = request?.Password;
-    }
-    var token = sessions.Login(username, password);
-    if (token is null) return Results.Json(R<object>.Error("账号、密码或开发认证配置无效。", 401), statusCode: 401);
-    var result = R<object>.Success(new { id = "1", username, name = username, merchantName = metadata.YzProjectName }); result.Map["loginStateId"] = token; return Results.Json(result);
+    var logged=await context.RequestServices.GetRequiredService<ApplicationWebAuthentication>().LoginAsync(username,password,context.RequestAborted);
+    var result=R<object>.Success(logged.User);result.Map["loginStateId"]=logged.Token;return Results.Json(result);
 }).RequireRateLimiting("login");
 // 原修改密码页合同保留；POST避免新客户端把密码放进URL，GET仅供旧协议兼容。
-app.MapMethods("/api/admin/sys/yz_manager/edit_password", ["GET","POST"], async(HttpContext context,DevelopmentSessions sessions)=>
+app.MapMethods("/api/admin/sys/yz_manager/edit_password", ["GET","POST"], async(HttpContext context)=>
 {
-    var request=await ReadPasswordChange(context.Request);sessions.ChangePassword(DevelopmentSessions.ReadToken(context),request.OldPwd,request.Pwd);
+    var request=await ReadPasswordChange(context.Request);
+    if(authenticationMode.Development)context.RequestServices.GetRequiredService<DevelopmentSessions>().ChangePassword(DevelopmentSessions.ReadToken(context),request.OldPwd,request.Pwd);
+    else await context.RequestServices.GetRequiredService<ApplicationWebAuthentication>().ChangePasswordAsync(RequireWebIdentity(context),request.OldPwd,request.Pwd,context.RequestAborted);
     context.Response.Headers.CacheControl="private, no-store";return R<string>.Success("修改成功");
 }).RequireRateLimiting("login");
-app.MapPost("/api/admin/sys/yz_manager/exit_login", (HttpContext context, DevelopmentSessions sessions) => { sessions.Logout(DevelopmentSessions.ReadToken(context)); return R<string>.Success("退出成功"); });
+app.MapPost("/api/admin/sys/yz_manager/exit_login", async(HttpContext context) =>
+{
+    if(authenticationMode.Development)context.RequestServices.GetRequiredService<DevelopmentSessions>().Logout(DevelopmentSessions.ReadToken(context));
+    else await context.RequestServices.GetRequiredService<ApplicationWebAuthentication>().LogoutAsync(RequireWebIdentity(context),context.RequestAborted);
+    return R<string>.Success("退出成功");
+});
 // 原 openUrl 无头下载只使用已签发的两分钟凭证；显式认证头继续检查真实账号与项目。
 app.MapMethods("/api/admin/sys/export/export", new[] { "GET", "HEAD" }, async (string exportId, HttpContext context, ExcelPageExportService exports, IRuntimeAuthorization authorization, CancellationToken token) =>
 {
@@ -168,6 +217,32 @@ static bool IsPublicFileContent(HttpRequest request)
         && long.TryParse(path.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0;
 }
 
+// 身份仅取本请求认证中间件产物，不从query或body接收账户、后台或项目。
+static AuthenticatedIdentity RequireWebIdentity(HttpContext context)=>context.Items[typeof(AuthenticatedIdentity)] as AuthenticatedIdentity??throw new UnauthorizedAccessException();
+
+// 在构造配置提供器之前拒绝横线/斜杠形式的命令行秘密；初始化仅一个固定flag，不接受裸key=value或混合参数。
+static bool InvalidSecurityArguments(string[] arguments)=>
+    arguments.Any(value=>value.TrimStart('-','/').StartsWith("Authentication",StringComparison.OrdinalIgnoreCase)||value.TrimStart('-','/').StartsWith("Database",StringComparison.OrdinalIgnoreCase))||
+    arguments.Any(value=>value.StartsWith("--initialize",StringComparison.Ordinal)&&value!="--initialize-security")||
+    arguments.Contains("--initialize-security",StringComparer.Ordinal)&&(arguments.Length!=1||arguments.Count(value=>value=="--initialize-security")!=1);
+
+// 登录保留原URL编码表单/JSON双协议，所有字段有界且不接URL中的秘密或授权上下文。
+static async Task<DevelopmentLogin> ReadLogin(HttpRequest request)
+{
+    if(request.Query.Count!=0)throw new ArgumentException("登录不接受query参数。");
+    var bytes=new byte[4097];var length=0;while(length<bytes.Length){var count=await request.Body.ReadAsync(bytes.AsMemory(length),request.HttpContext.RequestAborted);if(count==0)break;length+=count;}
+    if(length>4096)throw new ArgumentException("登录请求超过限制。");
+    if(request.ContentType?.StartsWith("application/x-www-form-urlencoded",StringComparison.OrdinalIgnoreCase)==true)
+    {
+        var form=Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(System.Text.Encoding.UTF8.GetString(bytes,0,length));
+        if(form.Count!=2||form.Keys.Any(key=>key is not("username" or "password"))||form["username"].Count!=1||form["password"].Count!=1)throw new ArgumentException("登录字段无效。");
+        return new(form["username"].ToString(),form["password"].ToString());
+    }
+    using var json=JsonDocument.Parse(bytes.AsMemory(0,length));var fields=new HashSet<string>(StringComparer.Ordinal);
+    if(json.RootElement.ValueKind!=JsonValueKind.Object||json.RootElement.EnumerateObject().Any(field=>!fields.Add(field.Name)||field.Name is not("username" or "password")||field.Value.ValueKind!=JsonValueKind.String)||fields.Count!=2)throw new ArgumentException("登录字段无效。");
+    return new(json.RootElement.GetProperty("username").GetString(),json.RootElement.GetProperty("password").GetString());
+}
+
 // 请求只允许原oldPwd/pwd两个有界字段；不接账户、项目、路径、配置或任意JSON键。
 static async Task<DevelopmentPasswordChange> ReadPasswordChange(HttpRequest request)
 {
@@ -191,7 +266,7 @@ namespace {{NAMESPACE}}.Host
     {
         /// <summary>调用宿主手写服务注册扩展。</summary>
         public static void Configure(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment) => ConfigureServices(services, configuration, environment);
-        /// <summary>正式认证等实现只写在配套手写 partial 中。</summary>
+        /// <summary>宿主自定义基础设施只写在配套手写partial中，不修改受管认证实现。</summary>
         static partial void ConfigureServices(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment);
     }
     public sealed record DevelopmentLogin(string? Username, string? Password);

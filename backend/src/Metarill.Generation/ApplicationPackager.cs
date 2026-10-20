@@ -24,16 +24,20 @@ public sealed class ApplicationPackager
     internal ApplicationPackager(Action<string, string> publish) => this.publish = publish;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] FoundationProjects = ["Metarill.Core", "Metarill.Data", "Metarill.Exports", "Metarill.Files"];
+    private static readonly string[] WebFoundationProjects = [..FoundationProjects,"Metarill.Security"];
     /// <summary>先在同级临时目录完成整个包，成功后一次移动；既有非空项目永不覆盖。</summary>
     public ApplicationPackageResult Create(MetadataCatalog catalog, string outputDirectory, string rootNamespace, string sourceRoot, ApplicationPackageMode mode = ApplicationPackageMode.FullApplication)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
+        var fullApplication=mode==ApplicationPackageMode.FullApplication;
+        var projects=fullApplication?WebFoundationProjects:FoundationProjects;
+        var authenticationProfile=fullApplication?"web-database-v1":"development-only";
         var output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputDirectory));
         CSharpGenerator.SafePath(output, ".metarill-package.json");
         if (File.Exists(output) || Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new InvalidOperationException("独立包输出目录必须不存在或为空。");
         var source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourceRoot));
-        foreach (var project in FoundationProjects)
+        foreach (var project in projects)
             if (output.StartsWith(Path.Combine(source, "backend", "src", project) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || output.Equals(Path.Combine(source, "backend", "src", project), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("打包目录不能位于基础源码项目内部。");
         var stage = output.TrimEnd(Path.DirectorySeparatorChar) + ".staging-" + Guid.NewGuid().ToString("N");
         var published = GenerationMetadataPublisher.Publish(catalog);
@@ -45,6 +49,14 @@ public sealed class ApplicationPackager
         GenerationMetadataPublisher.Scrub(infrastructureJson, "$.files", redactions);
         var infrastructure = infrastructureJson.Deserialize<MetadataCatalog>(JsonOptions)!;
         MetadataCatalogComposition.MergePhysical(sanitized, infrastructure);
+        JsonNode? securityJson=null;
+        if(fullApplication)
+        {
+            securityJson=JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source,"backend/metadata/security.json")))!;
+            GenerationMetadataPublisher.Scrub(securityJson,"$.security",redactions);
+            var security=securityJson.Deserialize<MetadataCatalog>(JsonOptions)!;
+            MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(sanitized,infrastructure),security);
+        }
         var frontend = new FrontendPackager(publish);
         if (mode == ApplicationPackageMode.FullApplication) frontend.Validate(sanitized);
         var frontendIncluded = mode == ApplicationPackageMode.FullApplication;
@@ -53,7 +65,6 @@ public sealed class ApplicationPackager
         {
             Directory.CreateDirectory(stage);
             var generated = new CSharpGenerator().Generate(sanitized, Path.Combine(stage, "backend/generated"), rootNamespace);
-            var projects = FoundationProjects;
             var packageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var project in projects)
             {
@@ -64,7 +75,7 @@ public sealed class ApplicationPackager
                 foreach (var reference in xml.Descendants("ProjectReference"))
                 {
                     var include = reference.Attribute("Include")?.Value.Replace('\\', '/') ?? "";
-                    if (!FoundationProjects.Any(target => include == "../" + target + "/" + target + ".csproj"))
+                    if (!projects.Any(target => include == "../" + target + "/" + target + ".csproj"))
                         throw new InvalidOperationException("基础项目引用超出独立包边界。");
                 }
                 foreach (var reference in xml.Descendants("PackageReference")) packageIds.Add(reference.Attribute("Include")?.Value ?? throw new InvalidOperationException("NuGet 引用缺少名称。"));
@@ -91,14 +102,19 @@ public sealed class ApplicationPackager
             Write(stage, "Directory.Build.props", "<Project>\n  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><LangVersion>latest</LangVersion><Deterministic>true</Deterministic><RestorePackagesWithLockFile>true</RestorePackagesWithLockFile></PropertyGroup>\n</Project>\n");
             Write(stage, "backend/metadata/project.json", json.ToJsonString(JsonOptions) + "\n");
             Write(stage, "backend/metadata/files.json", infrastructureJson.ToJsonString(JsonOptions) + "\n");
-            foreach (var (template, destination) in new[] { ("Program.cs.tpl", "backend/Application.Host/Program.cs"), ("Authentication.cs.tpl", "backend/Application.Host/DevelopmentAuthentication.cs"), ("PasswordStore.cs.tpl", "backend/Application.Host/DevelopmentPasswordStore.cs"), ("Navigation.cs.tpl", "backend/Application.Host/DevelopmentNavigation.cs"), ("Host.csproj.tpl", "backend/Application.Host/Application.Host.csproj"), ("README.md.tpl", "README.md"), ("appsettings.example.json.tpl", "backend/Application.Host/appsettings.example.json") })
-                Write(stage, destination, Template(template).Replace("{{NAMESPACE}}", rootNamespace));
+            if(securityJson is not null)Write(stage,"backend/metadata/security.json",securityJson.ToJsonString(JsonOptions)+"\n");
+            foreach (var (template, destination) in new[] { (fullApplication?"Program.cs.tpl":"DevelopmentProgram.cs.tpl", "backend/Application.Host/Program.cs"), ("Authentication.cs.tpl", "backend/Application.Host/DevelopmentAuthentication.cs"), ("PasswordStore.cs.tpl", "backend/Application.Host/DevelopmentPasswordStore.cs"), (fullApplication?"Navigation.cs.tpl":"DevelopmentNavigation.cs.tpl", "backend/Application.Host/DevelopmentNavigation.cs"), ("Host.csproj.tpl", "backend/Application.Host/Application.Host.csproj"), (fullApplication?"README.md.tpl":"DevelopmentREADME.md.tpl", "README.md"), (fullApplication?"appsettings.example.json.tpl":"DevelopmentSettings.json.tpl", "backend/Application.Host/appsettings.example.json") })
+                Write(stage, destination, Template(template).Replace("{{NAMESPACE}}", rootNamespace)
+                    .Replace("{{SECURITY_REFERENCE}}",fullApplication?"<ProjectReference Include=\"../../src/Metarill.Security/Metarill.Security.csproj\" />":"")
+                    .Replace("{{SECURITY_CONTENT}}",fullApplication?"<ItemGroup><Content Include=\"../metadata/security.json\" Link=\"metadata/security.json\" CopyToOutputDirectory=\"PreserveNewest\" /></ItemGroup>":""));
+            if(fullApplication)
+                foreach(var name in new[]{"WebAuthentication.cs","SecurityInitialization.cs"})Write(stage,"backend/Application.Host/"+name,Template(name+".tpl").Replace("{{NAMESPACE}}",rootNamespace));
             Write(stage, ".gitignore", "**/bin/\n**/obj/\n.local/\n**/appsettings.local.json\n**/appsettings.Development.json\n");
             var warnings = generated.Warnings.Concat(frontendIncluded ? Array.Empty<string>() : new[] { "本包显式选择BackendOnly，不含可运行前端宿主；平台配置前端需单独提供。backend/generated/frontend仅为生成片段。" }).ToArray();
             if (frontendIncluded) frontend.Create(sanitized, Path.Combine(stage, "backend/generated/frontend"), Path.Combine(stage, "frontend"), source);
-            File.AppendAllText(Path.Combine(stage, "README.md"), "\n## 打包模式\n\n" + (frontendIncluded ? "FullApplication：包含frontend独立uni-app宿主，认证仅为开发用途。具体配置及HBuilderX要求见frontend/README.md。" : warnings.Last()) + "\n", new UTF8Encoding(false));
+            File.AppendAllText(Path.Combine(stage, "README.md"), "\n## 打包模式\n\n" + (frontendIncluded ? "FullApplication：包含frontend独立uni-app宿主与web-database-v1认证，默认Web失败即拒绝；显式开发认证仍仅Development使用。具体初始化、配置及HBuilderX要求见README与frontend/README.md。" : warnings.Last()) + "\n", new UTF8Encoding(false));
             var files = Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories).Select(file => new { path = Path.GetRelativePath(stage, file).Replace('\\', '/'), sha256 = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(file))) }).OrderBy(file => file.path, StringComparer.Ordinal).ToArray();
-            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files }, JsonOptions) + "\n");
+            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), authenticationProfile, frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files }, JsonOptions) + "\n");
             // 移动前再次检查输出目录，避免其他进程在打包期间写入后被覆盖。
             publish(stage, output);
             return new ApplicationPackageResult(files.Select(file => file.path).Append(".metarill-package.json").ToArray(), generated.MetadataSha256, redactions.Distinct().Order(StringComparer.Ordinal).ToArray(), warnings) { Mode = mode, FrontendIncluded = frontendIncluded };

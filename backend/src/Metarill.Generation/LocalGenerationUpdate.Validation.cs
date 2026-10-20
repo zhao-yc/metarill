@@ -8,7 +8,7 @@ namespace Metarill.Generation;
 public sealed partial class LocalGenerationUpdater
 {
     private sealed record UpdateEntry(string Path, string Sha256);
-    private sealed record PackageManifest(int SchemaVersion, string RootNamespace, string PackageMode, bool FrontendIncluded, string[] Warnings, string MetadataSha256, UpdateEntry[] Files);
+    private sealed record PackageManifest(int SchemaVersion, string RootNamespace, string PackageMode, bool FrontendIncluded, string[] Warnings, string MetadataSha256, UpdateEntry[] Files, string? AuthenticationProfile=null);
     private sealed record GeneratedManifest(int Version, string ProjectId, string RootNamespace, string MetadataSha256, UpdateEntry[] Files);
     private sealed record FrontendManifest(int SchemaVersion, string ProjectId, string Authentication, UpdateEntry[] Files);
     private sealed record PackageSnapshot(string Root, PackageManifest Package, GeneratedManifest Generated, FrontendManifest Frontend, MetadataCatalog Metadata, Dictionary<string, UpdateEntry> Entries)
@@ -21,7 +21,7 @@ public sealed partial class LocalGenerationUpdater
     private static readonly HashSet<string> Configuration = new(StringComparer.Ordinal)
     { "backend/metadata/project.json", "frontend/common/application.generated.json", "frontend/pages.json", "frontend/pages.generated.json", "backend/generated/frontend/pages.generated.json" };
     private static readonly HashSet<string> RuntimeFiles = new(StringComparer.Ordinal)
-    { "Directory.Build.props", "Directory.Packages.props", "global.json", "LICENSE", "backend/metadata/files.json", "backend/Application.Host/Program.cs", "backend/Application.Host/DevelopmentAuthentication.cs", "backend/Application.Host/DevelopmentNavigation.cs", "backend/Application.Host/DevelopmentPasswordStore.cs", "backend/Application.Host/Application.Host.csproj",
+    { "Directory.Build.props", "Directory.Packages.props", "global.json", "LICENSE", "backend/metadata/files.json", "backend/metadata/security.json", "backend/Application.Host/WebAuthentication.cs", "backend/Application.Host/SecurityInitialization.cs", "src/Metarill.Security/PrincipalRolePolicy.Evaluation.cs", "src/Metarill.Security/SecurityRealmMutationGuard.Validation.cs", "backend/Application.Host/Program.cs", "backend/Application.Host/DevelopmentAuthentication.cs", "backend/Application.Host/DevelopmentNavigation.cs", "backend/Application.Host/DevelopmentPasswordStore.cs", "backend/Application.Host/Application.Host.csproj",
       "frontend/App.vue", "frontend/main.js", "frontend/uni.scss", "frontend/index.html", "frontend/common/environment.js", "frontend/common/yzp.js", "frontend/common/utils.js", "frontend/common/yzp.scss", "frontend/pages/login.vue", "frontend/pages/main/index.vue", "frontend/pages/main/menu.vue", "frontend/pages/main/left.vue", "frontend/pages/main/top.vue", "frontend/pages/main/my.vue", "frontend/pages/main/rtf/rtf.vue", "frontend/scripts/verify-frontend.mjs", "frontend/package.json", "frontend/package-lock.json", "frontend/THIRD-PARTY-NOTICES.md", "frontend/uni_modules/LICENSE.uni-ui", "frontend/licenses/sheetjs.LICENSE", "frontend/licenses/sheetjs-dist.LICENSE", "frontend/licenses/tinymce-vue.LICENSE.txt", "frontend/vendor/xlsx-0.20.3.tgz", "frontend/vendor/sheetjs-source.json", "frontend/common/yzp_runtime/vendor/cropperjs/cropper.esm.js", "frontend/common/yzp_runtime/vendor/cropperjs/cropper.css", "frontend/common/yzp_runtime/vendor/cropperjs/LICENSE" };
     private static readonly Lazy<HashSet<string>> FrontendAssets = new(() =>
     {
@@ -34,7 +34,8 @@ public sealed partial class LocalGenerationUpdater
     private static PackageSnapshot ReadPackage(string root, bool candidate)
     {
         var package = Decode<PackageManifest>(ReadBytes(root, PackageMarker)); var generated = Decode<GeneratedManifest>(ReadBytes(root, GenerationMarker)); var frontend = Decode<FrontendManifest>(ReadBytes(root, FrontendMarker));
-        if (package.SchemaVersion != 1 || generated.Version != 1 || frontend.SchemaVersion != 1 || frontend.Authentication != "development-only") throw new InvalidOperationException("未知包、生成或前端清单版本，当前更新器不能证明兼容。");
+        if (package.SchemaVersion != 1 || generated.Version != 1 || frontend.SchemaVersion != 1 || frontend.Authentication is not("development-only" or "web-database-v1")) throw new InvalidOperationException("未知包、生成或前端清单版本，当前更新器不能证明兼容。");
+        if(package.AuthenticationProfile is not null && package.AuthenticationProfile!=frontend.Authentication || candidate && frontend.Authentication!="web-database-v1")throw new InvalidOperationException("包认证profile与当前候选宿主不一致。旧开发包不能伪称数据库Web。 ");
         if (package.PackageMode != "FullApplication" || !package.FrontendIncluded) throw new InvalidOperationException("首期已有项目更新只支持FullApplication，BackendOnly需独立适配。");
         if (!Regex.IsMatch(package.RootNamespace ?? "", @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$") || generated.RootNamespace != package.RootNamespace || !ValidHash(package.MetadataSha256) || package.MetadataSha256 != generated.MetadataSha256) throw new InvalidOperationException("namespace或元数据摘要不一致。");
         if (!long.TryParse(generated.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var project) || project <= 0 || project.ToString(CultureInfo.InvariantCulture) != generated.ProjectId || generated.ProjectId != frontend.ProjectId) throw new InvalidOperationException("项目标识不一致或无效。");
@@ -42,6 +43,7 @@ public sealed partial class LocalGenerationUpdater
         var metadata = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/project.json"));
         var infrastructure = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/files.json"));
         MetadataCatalogComposition.MergePhysical(metadata, infrastructure);
+        if(frontend.Authentication=="web-database-v1")MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(metadata,infrastructure),Decode<MetadataCatalog>(ReadBytes(root,"backend/metadata/security.json")));
         MetadataValidation.Validate(metadata);
         if (metadata.YzProjectId != generated.ProjectId || CanonicalHash(metadata) != generated.MetadataSha256) throw new InvalidOperationException("应用元数据与生成清单摘要不一致。");
         if (package.Warnings is null || package.Warnings.Any(warning => warning is null)) throw new InvalidOperationException("包提示列表无效。");
@@ -52,6 +54,7 @@ public sealed partial class LocalGenerationUpdater
             "frontend/App.vue", "frontend/main.js", "frontend/uni.scss", "frontend/index.html", "frontend/manifest.json", "frontend/package.json", "frontend/package-lock.json",
             "frontend/common/application.config.js", "frontend/common/application.generated.json", "frontend/common/environment.js", "frontend/common/yzp.js", "frontend/common/yzp_runtime/yzp-runtime.js", "frontend/pages.json", "frontend/pages.generated.json" }
             .Concat(new[] { "Core", "Data", "Exports", "Files" }.Select(name => "src/Metarill." + name + "/Metarill." + name + ".csproj"));
+        if(frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"backend/metadata/security.json","backend/Application.Host/WebAuthentication.cs","backend/Application.Host/SecurityInitialization.cs","src/Metarill.Security/Metarill.Security.csproj"});
         foreach (var required in bootstrap)
             if (!entries.ContainsKey(required)) throw new InvalidOperationException("完整包缺少必要启动归属：" + required);
         foreach (var entry in generatedEntries.Values)
@@ -104,7 +107,7 @@ public sealed partial class LocalGenerationUpdater
         }
         if (path.StartsWith("frontend/", StringComparison.Ordinal) && package.Generated.Files.Any(entry => entry.Path == path)) return Pages;
         if (RuntimeFiles.Contains(path) || FrontendAssets.Value.Contains(path) || Regex.IsMatch(path, @"^frontend/common/yzp_runtime/[A-Za-z0-9_-]+\.js$")
-            || Regex.IsMatch(path, @"^src/Metarill\.(?:Core|Data|Exports|Files)/(?:[A-Za-z0-9_/-]+\.cs|[A-Za-z0-9_.-]+\.csproj|licenses/(?:LICENSE|THIRD-PARTY-NOTICES)\.txt)$")) return Runtime;
+            || Regex.IsMatch(path, @"^src/Metarill\.(?:Core|Data|Exports|Files|Security)/(?:[A-Za-z0-9_/-]+\.cs|[A-Za-z0-9_.-]+\.csproj|licenses/(?:LICENSE|THIRD-PARTY-NOTICES)\.txt)$")) return Runtime;
         throw new InvalidOperationException("包包含未声明更新策略的路径：" + path);
     }
 

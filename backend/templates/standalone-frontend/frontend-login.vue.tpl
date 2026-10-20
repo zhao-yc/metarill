@@ -54,16 +54,16 @@
 import yzp from '@/common/yzp'
 import application from '@/common/application.generated.json'
 export default {
- data(){return{user_name:'',password:'',loginSubmitting:false,redirectUrl:'',enevName:'独立开发认证',projectName:application.name}},
+ data(){return{user_name:'',password:'',loginSubmitting:false,redirectUrl:'',enevName:'独立应用',projectName:application.name}},
  computed:{loginFormAction(){return getApp().globalData.environment.base_url+'/admin/sys/yz_manager/login'},loginButtonText(){return this.loginSubmitting?'登录中':'登录'}},
  /** 已保存的令牌仍需服务器重新核验，不能只看本地缓存就进入业务页。 */
  onLoad(options){this.redirectUrl=options?.redirect?decodeURIComponent(options.redirect):'';if(uni.getStorageSync('loginStateId'))yzp.request({url:'/admin/sys/yz_manager/getCurrentPermissions',sendSessionId:true,showError:false,success:response=>{if(response.code===200){yzp.saveCurrentPermissions(response.data);yzp.navigateAfterLogin(this.redirectUrl)}}})},
  methods:{
   onUsernameInput(event){this.user_name=event.target.value}, onPasswordInput(event){this.password=event.target.value},
-  /** 保留原生表单与回车交互，开发密码只提交给明确配置的API。 */
+  /** 保留原生表单与回车交互，认证密码只提交给明确配置的API。 */
   submitLoginForm(event){if(this.loginSubmitting||event?.isComposing)return;const form=this.$el?.querySelector('#yzp-login-form');if(form?.requestSubmit)form.requestSubmit();else this.login()},
   /** 服务器签发不透明会话，项目只取包内公开描述，不提供平台项目选择入口。 */
-  login(){if(this.loginSubmitting)return;if(!this.user_name||!this.password){uni.showModal({content:'请输入用户名和密码',showCancel:false});return}this.loginSubmitting=true;yzp.request({url:'/admin/sys/yz_manager/login',method:'POST',data:{username:this.user_name,password:this.password},success:response=>{if(response.code!==200)return;uni.setStorageSync('loginStateId',response.map.loginStateId);uni.setStorageSync('userInfo',response.data);uni.setStorageSync('sysParams',{yzProjectId:application.projectId,yzAdminTypeId:application.adminTypeId});this.password='';uni.$emit('onLoginLoadMenu');uni.$emit('onLoginLoadTop');yzp.navigateAfterLogin(this.redirectUrl)},complete:()=>{this.loginSubmitting=false}})}
+  login(){if(this.loginSubmitting)return;if(!this.user_name||!this.password){uni.showModal({content:'请输入用户名和密码',showCancel:false});return}this.loginSubmitting=true;yzp.request({url:'/admin/sys/yz_manager/login',method:'POST',data:{username:this.user_name,password:this.password},success:response=>{if(response.code!==200)return;uni.setStorageSync('loginStateId',response.map.loginStateId);uni.setStorageSync('userInfo',response.data);uni.setStorageSync('sysParams',{yzProjectId:application.projectId,yzAdminTypeId:typeof response.data?.yzAdminTypeId==='string'&&response.data.yzAdminTypeId.length?response.data.yzAdminTypeId:application.adminTypeId});this.password='';uni.$emit('onLoginLoadMenu');uni.$emit('onLoginLoadTop');yzp.navigateAfterLogin(this.redirectUrl)},complete:()=>{this.loginSubmitting=false}})}
  }
 }
 </script>

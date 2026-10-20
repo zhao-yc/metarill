@@ -1,6 +1,6 @@
 # 独立应用 {{NAMESPACE}}
 
-本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data/Exports/Files 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
+本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data/Exports/Files/Security 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
 
 ## 构建与结构同步
 
@@ -11,7 +11,7 @@ dotnet restore backend/Application.Host/Application.Host.csproj
 dotnet build backend/Application.Host/Application.Host.csproj --no-restore
 ```
 
-SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data/Exports/Files 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
+SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data/Exports/Files/Security 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
 
 通过环境变量设置 Database__Provider=mysql、Database__ConnectionString、Database__ExpectedDatabase，或在宿主目录自行创建已忽略的 appsettings.local.json。不要把真实凭据提交到仓库。
 
@@ -22,15 +22,25 @@ dotnet run --project backend/Application.Host -- --schema-apply
 dotnet run --project backend/Application.Host --urls http://127.0.0.1:5080
 ```
 
-结构同步组合业务 project.json 与从平台源头派生的 files.json（三张文件基础表、字段及完整索引）。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
+FullApplication的web-database-v1结构同步严格组合业务project.json、files.json（三张文件基础表）和security.json（六张认证/权限基础表、128列、5索引）。安全基础表不开放业务CRUD页面；已带安全表CRUD页的应用仍拒绝Full，不会自动降级。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
 
 ## 认证
 
-默认拒绝未经认证的 API；已完成且标记 PUBLIC 的文件内容允许匿名 GET/HEAD，其他文件操作仍须认证。`/health` 仅报告进程状态，不代表数据库或业务验收通过。正式部署应在同程序集手写 partial `HostCustomization.ConfigureServices` 中替换 `IRuntimeAuthorization`，身份和项目必须来自服务端认证。
+FullApplication默认`Authentication:Mode=Web`，使用数据库账号、PBKDF2摘要、持久化会话和本包已发布权限。普通启动不建表、不初始化账号；无数据库配置及匿名请求在打开连接前拒绝，不回退开发账户。`/health`只报告进程状态，不代表数据库或业务验收。已完成且标记PUBLIC的文件内容仍允许匿名GET/HEAD。
 
-开发测试可显式设置 ASPNETCORE_ENVIRONMENT=Development，以及 Authentication__DevelopmentBootstrap__Enabled=true、Username、Password（至少12位），然后启动宿主。账号仅拥有包内项目权限；项目 ID 不能由客户端切换。开发认证使用内存会话、固定到期时间、令牌摘要和登录限流，进程重启会失效；仅用于本地开发，不作为正式账号体系。
+先审核并显式执行前述结构计划，再在宿主私有`appsettings.local.json`或环境配置`Authentication:Bootstrap:Username/Password`（至少12位，最长1024）以及可选`AdminTypeId`。多后台必须明确选择包内后台；单后台可使用唯一声明。不要把凭据传入命令行、URL、日志或仓库。随后只在包根执行：
 
-POST `/api/admin/sys/yz_manager/login`，JSON 或表单包含 username/password；成功响应 map.loginStateId，后续在 loginStateId 请求头传递令牌（也可 Bearer）。POST `/api/admin/sys/yz_manager/exit_login` 使当前会话失效。通过 SessionLifetimeSeconds 配置 1..86400 秒有效期。已登录开发账号可调用 GET `/api/admin/sys/yz_manager/getMenu` 与 `getCurrentPermissions`；菜单只返回包内生成页面及目录，权限仍在每次业务请求验证。自定义页面、平台项目切换及正式生产账号不随包提供。
+```powershell
+dotnet run --project backend/Application.Host -- --initialize-security
+```
+
+该命令只初始化本包项目/后台及新生成长ID的应用管理员角色/账号，**不执行DDL、不导入平台Config/Demo/Agent/设备数据**。重复仅核验并返回unchanged，不重置密码、复活墓碑或补绑既有用户名。并发初始化由真实事务与固定项目主键取锁/唯一冲突保护；冲突失败回滚，不自动重试。初始化需此前已安装六表，缺表直接失败。
+
+POST `/api/admin/sys/yz_manager/login`保留URL编码表单或JSON的username/password及响应`map.loginStateId`。令牌只能在loginStateId或Bearer头传输，不接受query身份。每次请求重读会话、账号和同后台角色，停用、到期或撤权下次请求生效。仅包内真实项目/后台允许登录；本应用后台super使用独立IsRealmSuper，不产生平台管理员身份，不开放包外项目选择或Agent会话。
+
+POST `exit_login`只撤当前会话；`getMenu`/`getCurrentPermissions`沿用原菜单与动作响应。菜单及按钮按真实身份和本包固定发布目录过滤，不能由客户端项目或页面参数授权。`edit_password`保留原GET/POST合同，原页面使用POST JSON `{oldPwd,pwd}`；核验原密码后在同一事务更新PBKDF2并撤该账号旧会话，推荐POST避免URL记录秘密。部署网关也应禁止记录改密query。
+
+可仅在Development显式使用`Authentication:Mode=Development`与`DevelopmentBootstrap:Enabled=true`和私有账号/密码；为兼容此前配置，未写Mode但显式Enabled=true仅Development也采用开发模式。显式Web不会因认证/配置错误回退；Production的Development配置仅拒绝。该开发账户仍为本机内存会话及既有私有摘要，不能当正式账号。BackendOnly继续原development-only宿主与原导出边界，不具备此正式Web能力，不能据其输出称安全Runtime已下发。
 
 Development且显式启用开发认证时，宿主在认证前处理HTTP(S)回环Origin的CORS预检，允许本机HBuilderX不同端口携带loginStateId/JSON头，不开放AllowCredentials。来源允许不产生身份，匿名写仍为401；关闭开发认证或Production均不默认开放，其他Web来源需可信同源网关或自有部署策略。
 
@@ -48,7 +58,7 @@ Development且显式启用开发认证时，宿主在认证前处理HTTP(S)回�
 
 Exports 配置控制私有目录、有效期及资源上限；默认目录 `.local/exports`，正式部署应提供持久存储且不能映射为静态资源。票据保存在单进程内存，15分钟到期，重启立即失效；后台分钟级清理过期和崩溃遗留文件。多实例需会话亲和或另行接入共享票据，当前不提供跨实例下载保证。可在手写 partial 中替换 IPageExportService，必须实现读取前门禁重载；不支持的实现默认拒绝且不执行准备查询。
 
-FullApplication 模式额外提供 frontend 独立 HBuilderX uni-app Vue3 工程，包含开发登录、服务端菜单和生成 list/detail；按 frontend/README.md 配置公开 API 地址、自己的 AppID 和依赖。默认 AppID 为空，不复用平台标识。BackendOnly 模式明确不包含该宿主；backend/generated/frontend 在两种模式中都只是生成页面片段。平台专用或未知 CustomControl 在完整模式提前拒绝，不能静默替代。控件未移植项仍见 generation-capabilities.json，后端构建或 Node 检查不能替代 Web、小程序或 App 验收。
+FullApplication 模式额外提供 frontend 独立 HBuilderX uni-app Vue3 工程，包含原登录界面、正式Web/显式开发模式、服务端菜单和生成list/detail；按 frontend/README.md 配置公开 API 地址、自己的 AppID 和依赖。默认 AppID 为空，不复用平台标识。BackendOnly 模式明确不包含该宿主；backend/generated/frontend 在两种模式中都只是生成页面片段。平台专用或未知 CustomControl 在完整模式提前拒绝，不能静默替代。控件未移植项仍见 generation-capabilities.json，后端构建或 Node 检查不能替代 Web、小程序或 App 验收。
 
 元数据已删除已知敏感配置键及密码列默认值；发布前仍需审核业务定义中是否存在以非标准名称保存的凭据。包内 .metarill-package.json 记录文件摘要；生成目录 .metarill-generation.json 保护后续生成归属。
 
@@ -64,4 +74,4 @@ FullApplication 模式额外提供 frontend 独立 HBuilderX uni-app Vue3 工程
 
 首次实际改密在宿主固定 `.local/development-auth/credentials.json` 创建PBKDF2-SHA256随机盐摘要（600000次），不保存明文，不接受请求指定路径。文件/目录只允许当前运行用户，原子刷盘并拒绝任何祖先/文件链接与过宽权限。摘要绑定项目和显式配置用户名；重启保留新密码，单改原启动Password配置不能覆盖已持久化摘要。状态损坏、已存在目录缺文件或身份不符均拒绝，不回退复活原密码。需要重置时由开发者停止宿主、保留并核查私有状态后实施自己的明确重置流程，本包不提供远程重置后门。
 
-该私有目录不进源码/包清单，也不会由运行时同步写入或恢复。真实使用时随部署者私有配置备份且限制访问，不能公开映射/提交Git；本项目用户约定的重要凭据备份应按项目归档并附说明。此功能只属于显式Development开发账户，不能视为生产认证、账户管理或正式密码策略已交付。
+该私有目录不进源码/包清单，也不会由运行时同步写入或恢复。真实使用时随部署者私有配置备份且限制访问，不能公开映射/提交Git；本项目用户约定的重要凭据备份应按项目归档并附说明。本节私有摘要只属于显式Development开发账户；正式Web凭据独立保存于数据库。源码与离线测试不代替正式数据库、部署、完整安全CRUD或设备验收。

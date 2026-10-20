@@ -1,18 +1,20 @@
 using System.Security;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
+using Metarill.Runtime.Security;
 
 namespace {{NAMESPACE}}.Host;
 
-/// <summary>独立开发宿主导航只面向包内已发布生成页，不包含平台配置、自定义页面或项目切换。</summary>
-internal sealed class DevelopmentNavigation(MetadataCatalog metadata)
+/// <summary>独立应用宿主导航只面向包内已发布生成页，不包含平台配置、自定义页面或项目切换。</summary>
+internal sealed class DevelopmentNavigation(MetadataCatalog metadata,IHttpContextAccessor accessor,ApplicationAuthenticationMode mode)
 {
     /// <summary>菜单显示不代表操作授权，权限仍逐次调用宿主IRuntimeAuthorization核验。</summary>
     public object Permissions(IRuntimeAuthorization authorization)
     {
         var actor = authorization.RequireActor();
         var pages = metadata.ConfigPages.ToDictionary(page => page.Id, page => new[] { ("list", "is_query"), ("create", "is_new"), ("update", "is_update"), ("delete", "is_delete"), ("copy", "is_all"), ("import", "is_all"), ("export", "is_export") }.Where(item => Allowed(authorization, page.Id, item.Item1)).Select(item => item.Item2).Distinct().ToArray());
-        return new { isSuper = actor.IsAdministrator, pagePermissions = pages, buttonPermissions = Array.Empty<string>() };
+        var identity=Identity();
+        return new { isSuper = identity?.IsRealmSuper ?? actor.IsAdministrator, pagePermissions = pages, buttonPermissions = identity?.ButtonIds.ToArray() ?? Array.Empty<string>() };
     }
 
     /// <summary>沿用公共菜单树协议，计数与CRUD路由均使用生成页真实身份。</summary>
@@ -20,7 +22,9 @@ internal sealed class DevelopmentNavigation(MetadataCatalog metadata)
     {
         var actor = authorization.RequireActor();
         if (actor.ProjectId != metadata.YzProjectId) throw new UnauthorizedAccessException();
-        var menus = metadata.ConfigMenus.Where(menu => menu.IsHidden != 1 && menu.Kind is "DIRECTORY" or "GENERATED_PAGE").ToArray();
+        var identity=Identity();
+        var menus = metadata.ConfigMenus.Where(menu => menu.IsHidden != 1 && menu.Kind is "DIRECTORY" or "GENERATED_PAGE")
+            .Where(menu=>identity is null || menu.YzAdminTypeId==identity.PrincipalAdminTypeId && (menu.Kind=="DIRECTORY" || identity.MenuIds.Contains(menu.Id))).ToArray();
         object? Page(MenuMetadata menu, HashSet<string> ancestors)
         {
             if (!ancestors.Add(menu.Id)) throw new InvalidOperationException("菜单存在循环引用。");
@@ -41,6 +45,8 @@ internal sealed class DevelopmentNavigation(MetadataCatalog metadata)
             .Select(page => Page(new MenuMetadata { Id = page.Id, Name = page.Name, Kind = "GENERATED_PAGE", ConfigPageId = page.Id, YzAdminTypeId = page.YzAdminTypeId }, new HashSet<string>())).ToArray();
         return new { code = 200, menu = roots, permissions = Permissions(authorization) };
     }
+    /// <summary>正式模式只取本请求的真实身份；缺失不回退为开发超级账户。</summary>
+    private AuthenticatedIdentity? Identity()=>mode.Development?null:accessor.HttpContext?.Items[typeof(AuthenticatedIdentity)] as AuthenticatedIdentity??throw new UnauthorizedAccessException();
     /// <summary>拒绝项只影响菜单和按钮展示，不把异常当成默认授权。</summary>
     private static bool Allowed(IRuntimeAuthorization authorization, string page, string operation)
     {

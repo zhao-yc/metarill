@@ -1,8 +1,8 @@
 # 独立uni-app前端
 
-本工程复用Metarill/YZP公共请求、菜单、FileLibrary、日期、搜索选择器、Tiny Cloud及uni-ui组件；没有平台配置页面、私有配置、原项目AppID或默认真实账号。后端只有显式Development开发认证，不能据此作为生产账号/权限体系。
+本工程复用Metarill/YZP公共请求、菜单、FileLibrary、日期、搜索选择器、Tiny Cloud及uni-ui组件；没有平台配置页面、私有配置、原项目AppID或默认真实账号。FullApplication后端默认web-database-v1数据库Web认证，仍可显式使用Development开发账户；需先按包根README审核结构计划并独立初始化，源码构建不等于生产验收。
 
-1. 启动包内ASP.NET Core宿主，显式启用开发认证并自行配置用户名/至少12位密码；参数见包根README。推荐API地址`http://127.0.0.1:5080/api`。
+1. 启动包内ASP.NET Core宿主，配置数据库Web认证并显式初始化，或仅在Development显式启用开发账户；参数见包根README。推荐API地址`http://127.0.0.1:5080/api`。
 2. 在`common/application.config.js`设置实际API地址；前后端分离/真机还需后端配置可信`Files:LegacyPublicBaseUrl`，不能把localhost用于手机访问服务器。
 3. 执行`npm ci --ignore-scripts`安装锁定依赖。`npm test`检查路由、脚本、组件和本地依赖闭包，不替代HBuilderX构建或真机验收。
 4. 在HBuilderX导入本frontend目录，自行申请并填写`manifest.json`的DCloud AppID及目标小程序AppID，再使用HBuilderX CLI/界面运行。发行和签名需开发者自己的配置，本包没有宣称已通过HBuilderX发行。
