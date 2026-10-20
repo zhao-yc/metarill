@@ -40,16 +40,34 @@ public sealed class SecurityRealmRrDiagnosticsTests
     [Fact]
     public async Task Instrumentation_off_stops_before_existing_column_permission_checks()
     {
-        var calls=0;var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(0,sql=>{calls++;return Task.CompletedTask;}));
-        Assert.Equal(0,calls);Assert.Contains("@@performance_schema未开启",error.Message,StringComparison.Ordinal);Assert.Contains("不能取得真实锁证据",error.Message,StringComparison.Ordinal);Assert.Contains("尚未创建业务夹具",error.Message,StringComparison.Ordinal);Assert.Null(error.InnerException);
+        var calls=0;var monitorCalls=0;var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(0,sql=>{calls++;return Task.CompletedTask;},()=>{monitorCalls++;return Task.FromResult(1L);}));
+        Assert.Equal(0,calls);Assert.Equal(0,monitorCalls);Assert.Contains("@@performance_schema未开启",error.Message,StringComparison.Ordinal);Assert.Contains("不能取得真实锁证据",error.Message,StringComparison.Ordinal);Assert.Contains("尚未创建业务夹具",error.Message,StringComparison.Ordinal);Assert.Null(error.InnerException);
     }
     /// <summary>仅开启分支继续原三表17列权限检查，不跳过既有诊断，也不以开关ON宣称锁等待成立。</summary>
     [Fact]
     public async Task Instrumentation_on_keeps_all_seventeen_observation_columns()
     {
-        var queries=new List<string>();await SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(1,sql=>{queries.Add(sql);return Task.CompletedTask;});
+        var queries=new List<string>();var stages=new List<string>();await SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(1,sql=>{queries.Add(sql);stages.Add("列"+queries.Count);return Task.CompletedTask;},()=>{stages.Add("当前monitor");return Task.FromResult(1L);});
+        Assert.Equal(new[]{"列1","列2","列3","当前monitor"},stages);
         Assert.Equal(3,queries.Count);Assert.Equal(17,queries.Sum(sql=>sql[..sql.IndexOf(" FROM ",StringComparison.Ordinal)].Count(value=>value==',')+1));
         Assert.Contains("`data_lock_waits`",queries[0]);Assert.Contains("`data_locks`",queries[1]);Assert.Contains("`threads`",queries[2]);Assert.All(queries,sql=>Assert.EndsWith(" WHERE 1=0",sql,StringComparison.Ordinal));
+    }
+
+    /// <summary>开关和列权限通过后，仍要求当前连接精确可观测，不拿空闲锁表空集作证明。</summary>
+    [Theory]
+    [InlineData(0L)][InlineData(2L)]
+    public async Task Current_monitor_thread_must_have_exactly_one_observable_row(long rows)
+    {
+        var columns=0;var monitors=0;var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(1,sql=>{columns++;return Task.CompletedTask;},()=>{monitors++;return Task.FromResult(rows);}));
+        Assert.Equal(3,columns);Assert.Equal(1,monitors);Assert.Contains("必须恰有一条可观测线程",error.Message,StringComparison.Ordinal);Assert.Contains("尚未创建业务夹具",error.Message,StringComparison.Ordinal);
+    }
+    /// <summary>17列检查提前拒绝时，后续monitor检查不能运行或替换原权限失败。</summary>
+    [Fact]
+    public async Task Column_denial_never_runs_current_monitor_check()
+    {
+        var denial=new UnauthorizedAccessException("不可输出的原数据库正文");var monitors=0;
+        var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(1,sql=>throw denial,()=>{monitors++;return Task.FromResult(1L);}));
+        Assert.Equal(0,monitors);Assert.Same(denial,error.InnerException);
     }
 
     /// <summary>三个固定表检查均请求实际列而非SELECT 1；空集查询不读业务行。</summary>

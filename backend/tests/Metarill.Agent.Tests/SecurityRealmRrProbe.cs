@@ -40,16 +40,22 @@ internal sealed class SecurityRealmRrProbe : IAsyncDisposable
                 uuid=reader.GetString(0);version=reader.GetString(1);database=reader.GetString(2);instrumentation=Convert.ToInt32(reader.GetValue(3),CultureInfo.InvariantCulture);
             }
             // 身份reader关闭后先核采集开关，再检查真实17列权限；任一失败都不返回Probe或创建业务夹具。
-            await CheckObservationPrerequisitesAsync(instrumentation,async sql=>{await using var command=connection.CreateCommand();command.CommandText=sql;await using var reader=await command.ExecuteReaderAsync(token);if(await reader.ReadAsync(token))throw new InvalidOperationException("观测权限空集检查意外返回数据。");});
+            await CheckObservationPrerequisitesAsync(instrumentation,
+                async sql=>{await using var command=connection.CreateCommand();command.CommandText=sql;await using var reader=await command.ExecuteReaderAsync(token);if(await reader.ReadAsync(token))throw new InvalidOperationException("观测权限空集检查意外返回数据。");},
+                async()=>{await using var command=connection.CreateCommand();command.CommandText="SELECT COUNT(*) FROM performance_schema.threads WHERE PROCESSLIST_ID=CONNECTION_ID()";return Convert.ToInt64(await command.ExecuteScalarAsync(token),CultureInfo.InvariantCulture);});
             return new(connection,uuid,version,database);
         }
         catch{await connection.DisposeAsync();throw;}
     }
-    /// <summary>列可读不代表采集开启；关闭时在任何业务夹具及列查询前明确停止，不修改共享服务器配置。</summary>
-    internal static async Task CheckObservationPrerequisitesAsync(int instrumentation,Func<string,Task> execute)
+    /// <summary>列可读不代表采集开启；ON后再证明当前monitor线程恰一行，全部检查均早于业务夹具且不修改共享配置。</summary>
+    internal static async Task CheckObservationPrerequisitesAsync(int instrumentation,Func<string,Task> execute,Func<Task<long>> currentMonitorRows)
     {
         if(instrumentation!=1)throw new InvalidOperationException("RR观测前置检查失败：@@performance_schema未开启，关闭时不能取得真实锁证据；尚未创建业务夹具，本测试不修改服务器采集配置。");
         await CheckObservationColumnsAsync(execute);
+        long rows;
+        try{rows=await currentMonitorRows();}
+        catch(Exception error){throw new InvalidOperationException("RR观测前置检查失败：当前monitor线程可观测性检查失败；尚未创建业务夹具。",error);}
+        if(rows!=1)throw new InvalidOperationException("RR观测前置检查失败：当前monitor连接必须恰有一条可观测线程；尚未创建业务夹具。");
     }
     /// <summary>只请求三张固定观测表实际使用的列；WHERE 1=0不读锁行、不修改采集或授权。</summary>
     internal static async Task CheckObservationColumnsAsync(Func<string,Task> execute)
