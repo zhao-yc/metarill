@@ -34,8 +34,36 @@ public sealed class ApplicationAuthenticationPackageTests:IAsyncLifetime
     public void Platform_backend_only_still_exports_while_full_security_page_models_fail_before_stage()
     {
         var platform=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(SourceRoot(),"backend/metadata/platform.json")),Json)!;var backend=Path.Combine(root,"platform-backend");new ApplicationPackager().Create(platform,backend,"Example.PlatformContract",SourceRoot(),ApplicationPackageMode.BackendOnly);Assert.False(File.Exists(Path.Combine(backend,"backend/metadata/security.json")));
-        var full=Path.Combine(root,"platform-full");var error=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(platform,full,"Example.PlatformContract",SourceRoot()));Assert.Contains("基础设施表不能通过业务页面开放",error.Message);Assert.False(Directory.Exists(full));Assert.Empty(Directory.GetDirectories(root,"platform-full.staging-*"));
+        var full=Path.Combine(root,"platform-full");var error=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(platform,full,"Example.PlatformContract",SourceRoot()));Assert.Contains("独立前端缺少已接线的自定义控件",error.Message);Assert.False(Directory.Exists(full));Assert.Empty(Directory.GetDirectories(root,"platform-full.staging-*"));
         var collision=Catalog();collision.ConfigTables[0].TableName="yz_manager";var rejected=Path.Combine(root,"collision");Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(collision,rejected,"Example.BadProfile",SourceRoot()));Assert.False(Directory.Exists(rejected));
+    }
+
+    /// <summary>具体页面门禁提前不豁免物理归属；无其它缺口的原项目页仍禁止通过Full公开安全基础表。</summary>
+    [Fact]
+    public void Full_without_frontend_gaps_still_rejects_security_table_pages_before_stage()
+    {
+        var catalog=TemplateVersionCatalogTests.Catalog();new FrontendPackager().Validate(catalog);
+        var output=Path.Combine(root,"security-page");var error=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,"Example.SecurityPage",SourceRoot()));
+        Assert.Contains("基础设施表不能通过业务页面开放",error.Message);Assert.False(Directory.Exists(output));
+        Assert.False(Directory.Exists(root)&&Directory.EnumerateDirectories(root,"security-page.staging-*").Any());
+    }
+
+    /// <summary>新Full的两层清单与生成归属第一次预览即逐字空操作，不能把profile重排计作提交。</summary>
+    [Fact]
+    public void Factory_full_profile_preview_and_apply_preserve_all_marker_bytes_without_normalization()
+    {
+        var (target,candidate)=Pair();var markers=new[]{".metarill-package.json","frontend/.metarill-frontend.json","backend/generated/.metarill-generation.json"};
+        var before=markers.ToDictionary(path=>path,path=>File.ReadAllBytes(Path.Combine(target,path)),StringComparer.Ordinal);
+        Assert.Equal("web-database-v1",Marker(target)["authenticationProfile"]!.GetValue<string>());
+        var updater=new LocalGenerationUpdater();
+        for(var round=0;round<2;round++)
+        {
+            var plan=updater.Preview(target,candidate,["generate-project-config","sync-runtime","generate-all-page"]);
+            Assert.True(plan.CanApply);Assert.Empty(plan.RequiredActions);Assert.DoesNotContain(plan.Files,file=>file.Action!="preserve");
+            var receipt=updater.Apply(plan,plan.PlanSha256);Assert.Equal("unchanged",receipt.Status);Assert.Equal(0,receipt.WrittenFiles);
+            foreach(var path in markers)Assert.Equal(before[path],File.ReadAllBytes(Path.Combine(target,path)));
+        }
+        Assert.False(Directory.Exists(Path.Combine(target,".local/metarill-updates/transactions")));
     }
 
     /// <summary>旧Full归属读取仍支持，只有显式sync-runtime完整依赖才原子升级profile，AppID/私有配置不动。</summary>

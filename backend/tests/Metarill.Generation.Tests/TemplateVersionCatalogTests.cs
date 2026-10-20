@@ -139,14 +139,14 @@ public sealed class TemplateVersionCatalogTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
-    /// <summary>真实Full包启动与原POST候选不连接数据库；匿名/未知请求仍由实际HTTP边界拒绝。</summary>
+    /// <summary>显式BackendOnly保留原开发宿主的无数据库候选合同；不以项目安全表页面绕过正式Full物理门禁。</summary>
     [Fact]
     public async Task Real_standalone_host_returns_original_candidates_without_database()
     {
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-version-http"); var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
         {
-            var output = Path.Combine(directory, "application"); new ApplicationPackager().Create(Catalog(), output, "Example.VersionHttp", SourceRoot());
+            var output = Path.Combine(directory, "application"); new ApplicationPackager().Create(Catalog(), output, "Example.VersionHttp", SourceRoot(), ApplicationPackageMode.BackendOnly);
             await Build(output); var host = Path.Combine(output, "backend/Application.Host");
             await using var server = await Server.Start(host);
             var endpoint = "/api/admin/auto/yz_project/" + PageId + "/findNameIdYzYzpVersion1669606903854936065";

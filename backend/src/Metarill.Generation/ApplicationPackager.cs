@@ -44,6 +44,9 @@ public sealed class ApplicationPackager
         var redactions = published.RedactedPaths.ToList();
         var sanitized = published.Metadata;
         var json = JsonNode.Parse(JsonSerializer.Serialize(sanitized, JsonOptions))!;
+        var frontend = new FrontendPackager(publish);
+        // 完整包先报告原页面的具体能力缺口；物理合成仍必须在任何stage写入前严格通过。
+        if (fullApplication) frontend.Validate(sanitized);
         // 基础表仅来自已提交的派生模型；先验证物理组合，冲突不产生任何输出。
         var infrastructureJson = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source, "backend/metadata/files.json")))!;
         GenerationMetadataPublisher.Scrub(infrastructureJson, "$.files", redactions);
@@ -57,8 +60,6 @@ public sealed class ApplicationPackager
             var security=securityJson.Deserialize<MetadataCatalog>(JsonOptions)!;
             MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(sanitized,infrastructure),security);
         }
-        var frontend = new FrontendPackager(publish);
-        if (mode == ApplicationPackageMode.FullApplication) frontend.Validate(sanitized);
         var frontendIncluded = mode == ApplicationPackageMode.FullApplication;
         var preserveStage = false;
         try
@@ -114,7 +115,8 @@ public sealed class ApplicationPackager
             if (frontendIncluded) frontend.Create(sanitized, Path.Combine(stage, "backend/generated/frontend"), Path.Combine(stage, "frontend"), source);
             File.AppendAllText(Path.Combine(stage, "README.md"), "\n## 打包模式\n\n" + (frontendIncluded ? "FullApplication：包含frontend独立uni-app宿主与web-database-v1认证，默认Web失败即拒绝；显式开发认证仍仅Development使用。具体初始化、配置及HBuilderX要求见README与frontend/README.md。" : warnings.Last()) + "\n", new UTF8Encoding(false));
             var files = Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories).Select(file => new { path = Path.GetRelativePath(stage, file).Replace('\\', '/'), sha256 = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(file))) }).OrderBy(file => file.path, StringComparer.Ordinal).ToArray();
-            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), authenticationProfile, frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files }, JsonOptions) + "\n");
+            // 与更新器PackageManifest的固定属性顺序一致，原样包预览不能只因profile重排而产生清单写入。
+            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files, authenticationProfile }, JsonOptions) + "\n");
             // 移动前再次检查输出目录，避免其他进程在打包期间写入后被覆盖。
             publish(stage, output);
             return new ApplicationPackageResult(files.Select(file => file.path).Append(".metarill-package.json").ToArray(), generated.MetadataSha256, redactions.Distinct().Order(StringComparer.Ordinal).ToArray(), warnings) { Mode = mode, FrontendIncluded = frontendIncluded };
