@@ -263,8 +263,27 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     /// <summary>专属空库使用真实Web账号，既有共享文件fixture仍显式开发模式，不混称跨owner验收。</summary>
     public async Task LoginAsync()
     {
-        var login = await SuccessAsync(HttpMethod.Post, "/api/admin/sys/yz_manager/login", new { username = "files-probe", password });
-        Client.DefaultRequestHeaders.Add("loginStateId", login.GetProperty("map").GetProperty("loginStateId").GetString());
+        await FreshWebHttp.LoginAsync(Client, "files-probe", password);
+    }
+
+    /// <summary>创建仅指向当前fixture回环地址的客户端；重启后不能复用旧地址或默认管理员令牌。</summary>
+    public HttpClient CreateClient(string? token = null)
+    {
+        var client = new HttpClient { BaseAddress = Client.BaseAddress, Timeout = Client.Timeout };
+        if (token is not null) client.DefaultRequestHeaders.Add("loginStateId", token); return client;
+    }
+    /// <summary>只在专属正式Web场景末尾修改bootstrap本人密码，旧启动配置仍用于重复初始化反例。</summary>
+    public async Task ChangeBootstrapPasswordAsync(string nextPassword)
+    {
+        if (!formalWeb) throw new InvalidOperationException("bootstrap改密合同只允许专属全新库Web模式。");
+        await FreshWebHttp.SendAsync(Client, HttpMethod.Post, "/api/admin/sys/yz_manager/edit_password", new { oldPwd = password, pwd = nextPassword });
+        await FreshWebHttp.SendAsync(Client, HttpMethod.Get, "/api/admin/sys/yz_manager/getCurrentPermissions", expected: HttpStatusCode.Unauthorized);
+    }
+    /// <summary>在原CRUD结束并重启后恢复默认客户端有效凭据，不改写配置密码或认证模式。</summary>
+    public Task<string> LoginWithBootstrapPasswordAsync(string suppliedPassword)
+    {
+        if (!formalWeb) throw new InvalidOperationException("显式bootstrap凭据只允许专属正式Web场景。");
+        return FreshWebHttp.LoginAsync(Client, "files-probe", suppliedPassword);
     }
 
     /// <summary>捕获每个真实上传计划的 ID，便于故障后仍精确清理。</summary>
