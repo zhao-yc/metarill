@@ -200,8 +200,10 @@ HTTP/MCP 受管结构反查已具备真实管理员/项目/表归属校验，返
 | 同冻结Metadata | 152/152，零跳过 | `.local/security-core-metadata-integrated.trx` |
 | 同冻结Compatibility | 29/29，零跳过 | `.local/security-core-compatibility-integrated.trx` |
 | 同冻结定向Generation | 69/69，零跳过，含原14项夹具失败修正后的合同 | `.local/security-manager-generation-focused-integrated.trx` |
-| 最近完整前端批次 | 260/260，零跳过 | `.local/final-role-gates-frontend.log` |
+| 最新已知完整前端批次（独立日志） | 260/260，零跳过 | `.local/manager-name-frontend-full-integrated.log` |
 | 后续9bc4693非RR Agent | 161/161，零跳过，显式排除RR三项；含账号凭据真实HTTP/MySQL 3/3 | `.local/security-manager-agent-mysql-integrated.trx` |
+
+前端日志自身没有Git提交标记，不能把该表中的260项自动归入748的源码批次。上述较新日志SHA256为`f4e4920a685ba99e05ceb7dff5e747bec71d57efac8ea95d2a8bc244e83972bb`；原`.local/final-role-gates-frontend.log`也真实260/260、零跳过，但属此前829阶段的历史记录，不再作为最新批次引用。
 
 旧完整Generation `.local/manager-name-full-generation-integrated.trx`仍为**612总数、610执行、596通过、14失败、2个FreshInstall未执行**；两项缺专属空库配置而明确跳过。原日志保留，后续定向69通过不能追改为完整612全绿，也不把未执行算通过。
 
