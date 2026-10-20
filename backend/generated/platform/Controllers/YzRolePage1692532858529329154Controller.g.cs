@@ -13,7 +13,7 @@ public sealed class YzRolePage1692532858529329154Controller(YzRoleService servic
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("1692532858529329154", operation); return authorization.RequireActor(); }
-    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "sortNo", "yzAdminTypeId", "isSuper", "isBuiltIn", "isScope"], ["name", "sortNo", "yzAdminTypeId", "isSuper", "isBuiltIn", "isScope", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzProjectId", "id"], [], "yzProjectId");
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "sortNo", "yzAdminTypeId", "isSuper", "isBuiltIn", "isScope"], ["name", "sortNo", "yzAdminTypeId", "isSuper", "isBuiltIn", "isScope", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzProjectId", "id", "yzAdminTypeName"], [], "yzProjectId");
     /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
     private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
     {

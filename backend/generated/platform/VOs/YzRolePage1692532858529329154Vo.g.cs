@@ -38,8 +38,10 @@ public sealed class YzRolePage1692532858529329154Vo
     public long? YzProjectId { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
+    [JsonPropertyName("yzAdminTypeName")] public string? YzAdminTypeName { get; init; }
+    public static YzRolePage1692532858529329154Vo FromEntity(YzRole entity) => FromEntity(entity,null);
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static YzRolePage1692532858529329154Vo FromEntity(YzRole entity) => new()
+    public static YzRolePage1692532858529329154Vo FromEntity(YzRole entity,string? roleAdminName) => new()
     {
         Name = entity.Name,
         SortNo = entity.SortNo,
@@ -57,5 +59,6 @@ public sealed class YzRolePage1692532858529329154Vo
         UpdateManagerRealName = entity.UpdateManagerRealName,
         YzProjectId = entity.YzProjectId,
         Id = entity.Id,
+        YzAdminTypeName = roleAdminName,
     };
 }

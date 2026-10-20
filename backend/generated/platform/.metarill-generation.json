@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "b1aedec8b763f22871ed6b501b8b96896756e6aae32f08a4a2d646932d885a43",
+  "metadataSha256": "5868ec09c2ac554ca0851cc1e825aa14b78dc65f8932d5986776d293ee7b68e2",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -78,7 +78,7 @@
     },
     {
       "path": "Controllers/YzRolePage1692532858529329154Controller.g.cs",
-      "sha256": "adb04d64e0a772f79c7965affc7168957169548ad22cb52ade7a8258df08cdab"
+      "sha256": "2666287a11cce92a64a02138233ad082d9af956adb6e3eebba992e98e53e88e5"
     },
     {
       "path": "Controllers/YzRolePermissionPage2063264600601714690Controller.g.cs",
@@ -258,7 +258,7 @@
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "aa3706add3185b3565c40cc8a7dea769e9ba7f75849847036a8f7591157e8253"
+      "sha256": "de7b7b331af136499af1d14f5c9b4b881e0753bc57a6dbd1318bdacd823c6608"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -446,7 +446,7 @@
     },
     {
       "path": "Services/YzRoleService.g.cs",
-      "sha256": "144b7fdc9cf408e065494a28c7799963dc5bdfae9be30fd2760616b6ddf3a6df"
+      "sha256": "87d1cc9b79408e0bce750ed9ee8f999c3bd15346c364b790b42d47244fc1c938"
     },
     {
       "path": "VOs/ConfigButtonPage1870796062470516738Vo.g.cs",
@@ -526,7 +526,7 @@
     },
     {
       "path": "VOs/YzRolePage1692532858529329154Vo.g.cs",
-      "sha256": "03cad8de37ec870b8ccc79e7ef1e7bf7422f93dd0eabb68e7216ad2c33d13f32"
+      "sha256": "7c964036027e4b37fa5d59f0fc604bd955fcd35c9adbcf0a96e63c185e0c33d6"
     },
     {
       "path": "VOs/YzRolePermissionPage2063264600601714690Vo.g.cs",
@@ -686,11 +686,11 @@
     },
     {
       "path": "frontend/pages/yzp/yz_role-detail-1692532858529329154.vue",
-      "sha256": "112b252232cef28c2bce538c8eff7f8558ca6d51db4a5a650d45c94f5b43dc23"
+      "sha256": "fa92d181887917a60697965a139f6d77818d1f43de8ed74bf9c64746880a5261"
     },
     {
       "path": "frontend/pages/yzp/yz_role-list-1692532858529329154.vue",
-      "sha256": "e279ccd4497e73641092fea7bfa2faf7a538c583162877b4ffd4d2cfedea6418"
+      "sha256": "a25886956a9de6f5b3389e1138f48714cd4119de264aa72b234cb2c865f27986"
     },
     {
       "path": "frontend/pages/yzp/yz_role_permission-detail-2063264600601714690.vue",

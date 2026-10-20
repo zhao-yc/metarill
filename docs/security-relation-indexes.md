@@ -51,3 +51,11 @@ Server200的metarill_test已核数据库、hostname和UUID，MySQL8.4.11。SHOW 
 原工作台将非唯一类型保存为NORMAL、序号归一为10/20；统一builder既有声明格式为INDEX、0/10。本次保持builder全局旧格式，三条源与live的ID、列ID、列顺序、非唯一及启用属性一致；不宣称原始JSON全字段相同。Seed按真实ID跳过，不会把归一化/audit值覆盖回源格式。正式Schema预览须从已发布目录读取；元数据保存不代表物理索引已建成。
 
 私有工具首次执行在登录前因混合分隔符的本机父路径比较停止，Save发送数为0；保留原失败事实。两侧绝对路径规范化并使用Windows大小写比较后，离线验证合法混合路径、相邻同名前缀非法及其它父目录非法，重新复核后才执行原唯一prepare。三条实际Save均只发送一次，未知结果无自动重试。
+
+## 2026-10-20 正式结构同步完成
+
+在冻结9594d67、核实Server200的metarill_test实例后，三表逐一通过原database/preview取得实际计划，每表仅1条已审ADD INDEX。集成者审查安全投影SHA `8044ebff2a1b52e6552d10f9a9670ac47375ab8b90147f8c60d8d57a05aff6f4` 后，以新宿主fresh token重复预览并执行原database/apply，发送/成功/完整核验均为3/3/3。
+
+每笔SHOW INDEX确认恰新增原二列ASC非唯一BTREE，PRIMARY及账号ux_manager_name保持；同表二次预览0差异，三条持久审计逐一匹配。所有旧元数据、9个真实ID、既定37行图和装载元数据指纹不变，自有会话注销后实际预览拒绝。没有Seed、其它DDL、重发或业务数据扫描；MySQL DDL隐式提交，不声称事务回滚。最终回执位于贡献clone `.local/security-index-schema-acceptance-v1/apply-20261020042708-40f8af298ec84ba3b9b9a7486b3892fa/final-result.json`，SHA `1074f37d162243bbc494081031db41db0e048516c792a8626785efc28293410e`。
+
+物理索引存在及0差异不等于锁并发或性能达标。后续RR首次验收暴露观测账号缺少performance_schema权限，失败现场保留；专项仍待完整结论。
