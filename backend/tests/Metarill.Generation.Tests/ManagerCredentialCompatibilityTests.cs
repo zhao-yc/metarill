@@ -81,9 +81,9 @@ public sealed class ManagerCredentialCompatibilityTests
         Assert.Contains("ManagerCredentialValue.RequirePublishedPage(false)",BackendRenderer.Render(model).Single(file=>file.Path=="Services/YzManagerService.g.cs").Content);
     }
 
-    /// <summary>真实脚本在独立公开输入副本重建，仅恢复原稳定三个控件，不执行结构同步。</summary>
+    /// <summary>真实脚本重建时分别保留原账号凭据三控件与后台初始化配置密码，不把配置密码误当账号摘要。</summary>
     [Fact]
-    public async Task Source_builder_restores_only_three_original_controls_without_physical_changes()
+    public async Task Source_builder_separates_original_account_credentials_and_admin_configuration_without_physical_changes()
     {
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-manager-builder");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -96,8 +96,14 @@ public sealed class ManagerCredentialCompatibilityTests
             var rebuilt=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(directory,"backend/metadata/platform.json")),Json)!;
             var ids=new[]{"1679698326770069506","1679698328187744258","1679698328317767682"};
             var fields=rebuilt.ConfigPageColumns.Where(field=>rebuilt.ConfigColumns.Single(column=>column.Id==field.ConfigColumnId).ColumnName.Contains("password",StringComparison.Ordinal)||rebuilt.ConfigColumns.Single(column=>column.Id==field.ConfigColumnId).ColumnName=="salt").ToArray();
-            Assert.Equal(ids.Order(),fields.Select(field=>field.Id).Order());Assert.All(fields,field=>Assert.Equal(ManagerCredentialCompilation.PageId,field.ConfigPageId));
-            var physical=MySqlSchemaPlanner.Compile(rebuilt,"offline_credential");rebuilt.ConfigPageColumns.RemoveAll(field=>ids.Contains(field.Id));Assert.Empty(MySqlSchemaPlanner.Compare(physical,MySqlSchemaPlanner.Compile(rebuilt,"offline_credential")));
+            var credentials=fields.Where(field=>field.ConfigPageId==ManagerCredentialCompilation.PageId).ToArray();
+            Assert.Equal(ids.Order(),credentials.Select(field=>field.Id).Order());
+            var configuration=Assert.Single(fields.Except(credentials));
+            Assert.Equal("1696799603148693507",configuration.Id);Assert.Equal("1696799309006348290",configuration.ConfigPageId);
+            Assert.Equal("1696799603148693506",configuration.ConfigColumnId);Assert.Equal(1,configuration.IsEdit);Assert.Equal(1,configuration.IsShow);
+            Assert.Equal(4,fields.Length);
+            var allIds=fields.Select(field=>field.Id).ToHashSet(StringComparer.Ordinal);
+            var physical=MySqlSchemaPlanner.Compile(rebuilt,"offline_credential");rebuilt.ConfigPageColumns.RemoveAll(field=>allIds.Contains(field.Id));Assert.Empty(MySqlSchemaPlanner.Compare(physical,MySqlSchemaPlanner.Compile(rebuilt,"offline_credential")));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

@@ -20,6 +20,12 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
     public Task<List<Dictionary<string, object?>>> ReadAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken);
     /// <summary>只用于种子存在性与开发备份，包含逻辑删除记录；业务查询不得使用此入口。</summary>
     public Task<List<Dictionary<string,object?>>> ReadIncludingDeletedAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken,true);
+    /// <summary>账号初始化按用户名唯一索引检查墓碑冲突；只允许在既有事务中读取，不能用于恢复已删除账号。</summary>
+    public Task<List<Dictionary<string,object?>>> ReadAccountNameForInitializationAsync(string name,CancellationToken cancellationToken=default)
+    {
+        if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");
+        return ReadInternalAsync("yz_manager",new Dictionary<string,object?>{{"name",name}},true,cancellationToken,true);
+    }
     public Task<List<Dictionary<string,object?>>> ReadForUpdateAsync(string table,IReadOnlyDictionary<string,object?> filters,CancellationToken cancellationToken=default)
     {
         if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");

@@ -7,6 +7,17 @@ public static class PasswordHasher
     public static string Hash(string password)
     {
         if(password.Length<12)throw new InvalidOperationException("密码至少需要12个字符。");
+        return Encode(password);
+    }
+    /// <summary>原后台初始化配置允许非空且最长50字符；专用入口保持原验证，仅替换为现有随机盐PBKDF2格式。</summary>
+    internal static string HashInitializationConfiguration(string password)
+    {
+        if(string.IsNullOrWhiteSpace(password)||password.Length>50)throw new ArgumentException("初始化密码必须非空且不超过50字符。");
+        return Encode(password);
+    }
+    /// <summary>编码算法统一，两个入口只区分已有的输入合同。</summary>
+    private static string Encode(string password)
+    {
         var salt=RandomNumberGenerator.GetBytes(24);
         var hash=Rfc2898DeriveBytes.Pbkdf2(password,salt,350000,HashAlgorithmName.SHA256,32);
         return "pbkdf2-sha256$350000$"+Convert.ToBase64String(salt)+"$"+Convert.ToBase64String(hash);

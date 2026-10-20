@@ -17,17 +17,19 @@ public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<strin
 public sealed class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISecurityResourceRegistry registry,ISecuritySessionPolicy sessionPolicy)
 {
     /// <summary>网页登录校验账号状态，令牌仅保存摘要；原始密码与令牌不写日志。</summary>
-    public async Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string username,string password,CancellationToken cancellationToken=default)
-    {
-        var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken)).SingleOrDefault();
-        if(account is null||!AccountActive(account)||!PasswordHasher.Verify(password,SqlRowStore.Text(account,"password")))
-            throw new UnauthorizedAccessException("用户名或密码不正确。");
-        var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,cancellationToken,includePermissions:false) ?? throw new UnauthorizedAccessException("用户名或密码不正确。");
-        var token=PasswordHasher.Token();
-        await store.InsertAsync("sys_session",new Dictionary<string,object?>
-        {{"id",ids.NextId()},{"account_id",SqlRowStore.Id(account)},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",long.Parse(realm.ProjectId,CultureInfo.InvariantCulture)},{"insert_time",DateTime.UtcNow}},cancellationToken);
-        return (PublicAccount(account),token);
-    }
+    public Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string username,string password,CancellationToken cancellationToken=default)=>
+        store.Session.InTransactionAsync(async()=>
+        {
+            // 与账号重置共用用户名唯一索引锁；旧密码验证和会话创建不可跨越已提交重置。
+            var account=(await store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken)).SingleOrDefault();
+            if(account is null||!AccountActive(account)||!PasswordHasher.Verify(password,SqlRowStore.Text(account,"password")))
+                throw new UnauthorizedAccessException("用户名或密码不正确。");
+            var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,cancellationToken,includePermissions:false) ?? throw new UnauthorizedAccessException("用户名或密码不正确。");
+            var token=PasswordHasher.Token();
+            await store.InsertAsync("sys_session",new Dictionary<string,object?>
+            {{"id",ids.NextId()},{"account_id",SqlRowStore.Id(account)},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",long.Parse(realm.ProjectId,CultureInfo.InvariantCulture)},{"insert_time",DateTime.UtcNow}},cancellationToken);
+            return (PublicAccount(account),token);
+        },cancellationToken);
     /// <summary>每次重新验证真实会话、身份后台与角色；宿主扩展只负责非Web会话的附加证明。</summary>
     public async Task<AuthenticatedIdentity?> AuthenticateAsync(string token,string? selectedProject,CancellationToken cancellationToken=default)
     {
