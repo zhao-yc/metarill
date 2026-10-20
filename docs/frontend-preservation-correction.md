@@ -222,3 +222,17 @@ root在冻结 `ccfb935` 的原平台Web发行副本使用原登录、选择设�
 主线完整回归使用核实后的Server-200隔离配置：API71/71、Agent125/125、Metadata150/150、Compatibility29/29，共375项零失败零跳过。各工程也包含纯离线合同，不能把总数冒充375个真实SQL锁案例。证据为 `.local/original-creation-fixtures-{api,metadata,compatibility}-mysql-final.trx` 和 `.local/original-creation-current-realm-agent-mysql-integrated.trx`。此前API70/71和Metadata149/150失败回执保留：分别为旧夹具依赖换表自动补字段、归属种子遗漏真实表名派生缓存；只修正夹具，保留产品校验、原HTTP拒绝和完整图不变断言。
 
 远端 `d6ddf22` 的 pull_request run `39358436796` 三作业通过；同SHA push run `39358433507` 的Linux通过、Windows和frontend失败，不称六项全绿。失败分别是启动预算单元测试的毫秒期限、CLI过期令牌测试在令牌响应前触发请求超时；具体修复及新CI结果另记。
+
+## 2026-10-20 安全写协调正式接线与完整回归
+
+平台实际宿主、三个安全对象的手写partial及角色聚合工作台已使用同一写协调器。实际注册顺序为安全协调器先于配置守卫；普通角色管理遵循用户确认的原V8页面动作权与目标后台规则，不额外要求平台超级管理员。锁后身份、目标最终角色归属与已准备事务上下文均校验，原角色复选页面结构、样式和交互未改。实现与未验边界见 `security-realm-write-coordinator.md`。
+
+冻结源码 `9909c215866b09267076d33e652aefe048ce1ebb` 完整执行API71、Agent142、Metadata150、Compatibility29，合计392项通过、零失败零跳过；各工程同时包含离线合同，不将392冒称392个真实SQL锁案例。回执为 `.local/realm-wiring-{api,agent,metadata,compatibility}-mysql-integrated.trx`。本地助手完整29/29与真实独立宿主1/1通过；此前CI两处毫秒期限竞争仅在测试层修正，未放宽产品期限或增加业务重试，新远端CI须另核。
+
+平台及示例两轮正式生成191项受管文件和清单稳定，API Release为0警告0错误。24个手写partial以新基线核对：其中Manager、Role、Admin三个文件是此次有意接线，另外21个与旧基线保持，重复生成不覆盖任何手写文件；回执 `.local/original-regeneration-coordinator-9909c21/receipt.json`。
+
+平台元数据构建已改为使用仓库内结构参考，不再隐式依赖D盘Java源码。完整重建、负变体与两轮稳定性6项通过，现有23表/649列/20页/662页字段及已发布标识不回退。详细边界见 `platform-metadata-source-protection.md`。
+
+真实RR等锁撤权、锁集变化回滚、跨后台引用并发及最新原页面写入尚未完成；现有索引现场只读比较为三条非唯一ADD INDEX候选，尚未执行DDL。独立包只下发Core/Data/Files/Exports，没有平台三个Runtime扩展；BackendOnly能构建不等于角色完整下发。平台Full另有五个页面的原Custom组件独立宿主接线门槛，实际先被该门槛拒绝，角色Runtime Gap也继续保留，二者不能合并成一个已解决问题。
+
+交付遵循2026-10-20用户更新规范：开发分支仅用于过程审查，最终完成并验证后合入main并推送；当前验收未完，PR保持草稿，不据本检查点宣布全部完成。
