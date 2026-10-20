@@ -27,8 +27,9 @@ internal static class RelationCompilation
     public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page, bool forService = false)
     {
         var relations = new List<RelationModel>();
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(FixedParentRelationCompilation.HasDeclaration) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
-        foreach (var source in candidates.Where(c => c.Source.ControlKind == "List" && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
+        var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage") : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || owner.Source.IsRongyu==0&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);
@@ -40,18 +41,20 @@ internal static class RelationCompilation
                 return string.IsNullOrWhiteSpace(value) ? fallback : value;
             }
             var tableId = Mapped("tableId", source.Source.LinkConfigTableId); var tableName = Mapped("table");
-            var target = model.Tables.SingleOrDefault(t => !string.IsNullOrEmpty(tableId) ? t.Source.Id == tableId : t.Source.TableName == tableName);
+            // 非冗余单选的弹层、导入/导出与辅助接口必须使用同一已证明目标页。
+            var selection=source.Source.ControlKind=="SelectPage"?NonRedundantSelectionCompilation.Resolve(model,owner,page,source):null;
+            var target = selection?.Target ?? model.Tables.SingleOrDefault(t => !string.IsNullOrEmpty(tableId) ? t.Source.Id == tableId : t.Source.TableName == tableName);
             if (target is null) continue; // 保留尚未移植的外部关系配置，能力清单明确列出未接入字段。
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))
                 throw new InvalidOperationException("关联目标未声明项目归属或明确的全局范围：" + target.Source.TableName);
-            var name = target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
+            var name = selection?.Name ?? target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
             if (name is null || name.Type != "string?") continue;
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
             var explicitPage = source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
-            var targetPage = !string.IsNullOrWhiteSpace(explicitPage)
+            var targetPage = selection?.TargetPage ?? (!string.IsNullOrWhiteSpace(explicitPage)
                 ? target.Pages.SingleOrDefault(candidate => candidate.Source.Id == explicitPage) ?? throw new InvalidOperationException("关联目标页不存在或不属于目标表。")
                 : target.Pages.FirstOrDefault(p => p.Source.YzAdminTypeId == page.Source.YzAdminTypeId && !p.Scopes.Any(s => s.Source == "parent"))
-                    ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent"));
+                    ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent")));
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             var scopes = GenerationModel.CompileScopes(Mapped("whereSql"), target.Columns);

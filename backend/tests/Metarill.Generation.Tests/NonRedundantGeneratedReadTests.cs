@@ -77,6 +77,29 @@ internal static class NonRedundantGeneratedFixture
         var source=catalog.ConfigPages.Single(page=>page.Id=="101");var selection=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;selection.Id="102";selection.IsNew=0;selection.IsSave=0;selection.IsDelete=0;selection.IsCopy=0;selection.Extra["type"]=JsonSerializer.SerializeToElement(2);catalog.ConfigPages.Add(selection);
         var fields=catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101").Select(field=>JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!).ToArray();foreach(var field in fields){field.Id="102"+field.Id;field.ConfigPageId="102";catalog.ConfigPageColumns.Add(field);}
     }
+    /// <summary>原单选页与显式派生辅助名；可选同父候选验证实际父范围接线。</summary>
+    internal static void EnableSingleSelection(MetadataCatalog catalog,bool targetParent)
+    {
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="15");source.ControlKind="SelectPage";
+        source.ControlDetail=JsonSerializer.Serialize(new{pageId="201",tableId="2",table=catalog.ConfigTables.Single(table=>table.Id=="2").TableName,nameField="name"});
+        catalog.ConfigPages.Single(page=>page.Id=="201").Extra["type"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        var display=C("111","1","customer_name");display.Extra=new(){{"isJoinColumn",JsonSerializer.SerializeToElement(1)},{"columnFullName",JsonSerializer.SerializeToElement("customer.name")}};catalog.ConfigColumns.Add(display);
+        catalog.ConfigPageColumns.Add(new(){Id="101111",ConfigPageId="101",ConfigColumnId="111",IsEdit=1,IsShow=0});
+        if(targetParent)
+        {
+            var parent=C("27","2","group_id","int64");parent.LinkConfigTableId="3";catalog.ConfigColumns.Add(parent);
+            catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="group_id=@parent_id";
+        }
+    }
+    /// <summary>独立目标父来自本对象物理外键，不借来源parentId；跨父整行导入仍单独保留门槛。</summary>
+    internal static void AddMappedSinglePage(MetadataCatalog catalog)
+    {
+        var source=catalog.ConfigPages.Single(page=>page.Id=="101");var mapped=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;
+        mapped.Id="104";mapped.WhereSql="";mapped.IsImport=0;mapped.Extra.Remove("importMethod");catalog.ConfigPages.Add(mapped);
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101").Select(field=>JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!).ToArray())
+        {field.Id="104"+field.Id;field.ConfigPageId="104";if(field.ConfigColumnId=="19")field.IsEdit=1;catalog.ConfigPageColumns.Add(field);}
+    }
     /// <summary>追加与覆盖分别沿用原导入开关；覆盖页不额外开放普通新增/编辑按钮。</summary>
     internal static void EnableImports(MetadataCatalog catalog)
     {

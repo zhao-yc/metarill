@@ -69,6 +69,10 @@ internal static class ForeignValidationRenderer
                     .AppendLine("        }");
                 continue;
             }
+            if(table.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage")
+            {
+                result.Append(NonRedundantSelectionRenderer.Validate(model,table,page,column));continue;
+            }
             var target = Target(model, column);
             var knownRelation = column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" || !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId);
             if (target is null && !knownRelation) continue;

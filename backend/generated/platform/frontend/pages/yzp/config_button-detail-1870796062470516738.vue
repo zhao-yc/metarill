@@ -69,7 +69,7 @@
       
     </view>
     
-    <yzp-popup ref="selectPageDialog1675765996607209473" type="center" @change="!$event.show && onPopClose1675765996607209473()"><view class="select-page-dialog-view"><OriginalSelection1675765996607209473 v-if="originalSelection1675765996607209473" ref='1675765996607209473' @onPopSelect="onPopSelect1675765996607209473" @onPopClose="onPopClose1675765996607209473" :selectedIds="entity.configPageId" :selectedNames="entity.configPageName" selected-name-field="name" :parent_id="''" :parentReadOnlyCondition="configPageIdReadOnly" /></view></yzp-popup>
+    <yzp-popup ref="selectPageDialog1675765996607209473" type="center" @change="!$event.show && onPopClose1675765996607209473(false)"><view class="select-page-dialog-view"><OriginalSelection1675765996607209473 v-if="originalSelection1675765996607209473" ref='1675765996607209473' @onPopSelect="onPopSelect1675765996607209473" @onPopClose="onPopClose1675765996607209473" :selectedIds="entity.configPageId" :selectedNames="entity.configPageName" selected-name-field="name" :parent_id="''" :parentReadOnlyCondition="configPageIdReadOnly" /></view></yzp-popup>
 
     <view style="height:150px;" v-if="!is_props"></view><view><view class='bottom-buttons' :class="{ 'is-embedded': is_props }"><button type='warn' size="mini" v-if="!readOnlyCondition && page_is_delete && $yzp.hasPagePermission(page_sn,'is_delete')" @click='deleteEntity()'>删除</button><button type='primary' size="mini" v-if="!readOnlyCondition && !page_is_function_table && (id ? page_is_save : page_is_new) && $yzp.hasPagePermission(page_sn,id ? 'is_update' : 'is_new')" @click='saveEntity()'>保存</button><button type='default' size="mini" @click="closeDetail()">关闭</button><button type='primary' size='mini' v-if="page_is_copy && !readOnlyCondition && $yzp.hasPagePermission(page_sn,'is_all')" @click='copyEntity()'>复制</button>
 </view></view>
@@ -293,7 +293,8 @@ runOriginalButton(id) {
 },
 
     openSelect1675765996607209473() { if(this.configPageIdReadOnly)return; this._selection1675765996607209473=this.originalContext();this.originalSelection1675765996607209473=true;this.$nextTick(()=>{if(this._selection1675765996607209473?.())this.$refs.selectPageDialog1675765996607209473.open();}); },
-onPopClose1675765996607209473() { this.originalSelection1675765996607209473=false;this._selection1675765996607209473=null;this.$refs.selectPageDialog1675765996607209473?.close(); },
+// 主动关闭与popup关闭事件分开，真实close会同步发change，不能回调自身形成递归。
+onPopClose1675765996607209473(closePopup=true) { const opened=this.originalSelection1675765996607209473;this.originalSelection1675765996607209473=false;this._selection1675765996607209473=null;if(closePopup&&opened)this.$refs.selectPageDialog1675765996607209473?.close(); },
 onPopSelect1675765996607209473(row) { this.permissionVersion++;if(this.configPageIdReadOnly || !this._selection1675765996607209473?.() || !row || !originalRecordId(row.id))return;this.entity.configPageId=row.id;this.entity.configPageName=row.name; this.onPopClose1675765996607209473(); },
 receive1774021578269784000(newEntity) { if(this.visibleRuleJsonReadOnly) return; this.entity=newEntity; },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },

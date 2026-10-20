@@ -40,6 +40,7 @@ internal static class GeneratedNonRedundantReadCatalog
     private static string NonRedundantQuery(GenerationModel model,TableModel table,PageModel page)
     {
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
+        var names=SelectionNameFilterCompilation.ForPage(model,table,page);var nameKeys=names.ConsumedKeys.Concat(names.Gaps.Select(gap=>gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var outputs="new string[]{"+string.Join(",",plan.Outputs.Select(output=>Literal(output.Storage)))+"}";var dependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
         var result=new StringBuilder().AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
             .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.Compile({Literal(table.Source.Id)},{outputs},{dependencies});")
@@ -50,7 +51,20 @@ internal static class GeneratedNonRedundantReadCatalog
         foreach(var (column,source) in fixedQuery.IdentityScopes)
         {if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(request.ParentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"request.ParentId!")}));");}
         result.AppendLine("        foreach(var filter in request.Filters??throw new ArgumentException(\"filters不能为空。\"))").AppendLine("        {").AppendLine("            switch(filter.Key)").AppendLine("            {");
-        foreach(var column in page.Searchable)
+        // 名称辅助键在SQL分页/统计之前解析；不能把IsIgnore实体列当持久化列查询。
+        foreach(var binding in names.Bindings)
+        {
+            if(binding.Kind!=SelectionNameFilterKind.JoinedScalarLike)throw new InvalidOperationException("非冗余名称筛选缺少固定联接证明。");
+            result.AppendLine($"                case {Literal(binding.FilterKey)}:")
+                .AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;")
+                .AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"名称筛选只接受文本。\");")
+                .AppendLine($"                    result.Add(new({Literal(binding.StorageColumn.Source.ColumnName)},FixedReadComparison.Contains,filter.Value.GetString()!));break;");
+        }
+        foreach(var group in names.Gaps.GroupBy(gap=>gap.FilterKey,StringComparer.Ordinal))
+            result.AppendLine($"                case {Literal(group.Key)}:")
+                .AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;")
+                .AppendLine($"                    throw new ArgumentException({Literal(string.Join("；",group.Select(gap=>gap.Reason).Distinct(StringComparer.Ordinal)))});");
+        foreach(var column in page.Searchable.Where(column=>!nameKeys.Contains(column.JsonName)))
         {
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {").AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString())||filter.Value.ValueKind==JsonValueKind.Array&&filter.Value.GetArrayLength()==0)break;");
             if(column.Type=="DateTime?")

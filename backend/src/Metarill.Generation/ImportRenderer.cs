@@ -124,7 +124,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine($"    private async Task<JsonElement> ImportRelation{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(JsonElement cell, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);");
         var bound = relation.ParentBinding?.Declared == true;
-        if (bound)
+        if (bound || relation.SourceColumn.Source.ControlKind=="SelectPage")
         {
             // 来源已按import授权；固定源父/目标父不能混用，名称匹配前先复用目标授权和服务器推导范围。
             // 无效声明同样走固定RejectBound，绝不回退宽查询；普通未绑定关系保持原合同。

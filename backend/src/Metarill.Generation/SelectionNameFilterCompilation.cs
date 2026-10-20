@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 /// <summary>仅描述实际可证明的名称存储匹配；JSON数组必须由已交付数据库方言按元素匹配。</summary>
-internal enum SelectionNameFilterKind { ScalarLike, JsonArrayAnyLike }
+internal enum SelectionNameFilterKind { ScalarLike, JsonArrayAnyLike, JoinedScalarLike }
 internal sealed record SelectionNameFilterBinding(ColumnModel Source,ColumnModel StorageColumn,string FilterKey,SelectionNameFilterKind Kind);
 internal sealed record SelectionNameFilterGap(ColumnModel Source,string FilterKey,string Reason);
 internal sealed record SelectionNameFilterPlan(IReadOnlyList<SelectionNameFilterBinding> Bindings,IReadOnlyList<SelectionNameFilterGap> Gaps)
@@ -15,7 +15,7 @@ internal sealed record SelectionNameFilterPlan(IReadOnlyList<SelectionNameFilter
 /// <summary>原选择控件名称筛选的固定元数据编译；不接收请求表名/列名/SQL，不连接数据库。</summary>
 internal static class SelectionNameFilterCompilation
 {
-    /// <summary>第一批只支持可读物理字符串名称、已证明的冗余Multi；缺口保留供能力门禁判断。</summary>
+    /// <summary>冗余物理/数组名称与已证明的非冗余单值联接共用原键；缺口保留供完整包门禁判断。</summary>
     internal static SelectionNameFilterPlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
         if(page.Source.ConfigTableId!=table.Source.Id||!model.Tables.Any(candidate=>candidate.Source.Id==table.Source.Id&&candidate.Pages.Any(candidatePage=>candidatePage.Source.Id==page.Source.Id)))throw new ArgumentException("名称筛选页面不属于当前生成表。");
@@ -25,9 +25,9 @@ internal static class SelectionNameFilterCompilation
             var storage=SelectionDisplayFieldCompilation.Resolve(table,source);var key=storage.JsonName;
             void Gap(string reason)=>gaps.Add(new(source,key,"选择页名称筛选尚未支持："+reason));
             if(EffectiveFilterKind(model,page,source)!=source.Source.ControlKind){Gap("页级controlKind改变了名称筛选的存储种类，尚未建立完整证明。");continue;}
-            if(table.Source.IsRongyu!=1){Gap("非冗余名称读计划尚未交付。");continue;}
+            if(table.Source.IsRongyu is not(0 or 1)){Gap("未识别的存储模式不能建立名称谓词。");continue;}
             if(storage.Source.Id==source.Source.Id){Gap("没有独立已声明名称列；ID筛选必须使用独立合同。");continue;}
-            if(storage.Type!="string?"||storage.Source.IsVirtualColumn!=0||GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")||!page.Readable.Any(column=>column.Source.Id==storage.Source.Id)){Gap("辅助名称必须为本页可读的物理字符串列。");continue;}
+            if(storage.Type!="string?"||storage.Source.IsVirtualColumn!=0||!page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")){Gap("辅助名称必须为本页可读的已证明字符串列。");continue;}
             try
             {
                 var settings=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
@@ -40,7 +40,15 @@ internal static class SelectionNameFilterCompilation
                 var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
                 if(name is null||name.Type!="string?"||!targetPage.Readable.Any(column=>column.Source.Id==name.Source.Id)){Gap("目标名称字段不是已开放读取的字符串。");continue;}
                 SelectionNameFilterKind kind;
-                if(source.Source.ControlKind=="MultiSelectPage")
+                if(table.Source.IsRongyu==0)
+                {
+                    var selection=NonRedundantSelectionCompilation.Resolve(model,table,page,source);
+                    if(!NonRedundantSelectionCompilation.IsDisplay(source,storage,selection)){Gap("非冗余名称列没有绑定同一单值外键和目标名称。");continue;}
+                    var read=Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[storage.Source.ColumnName]);
+                    if(read.OutputTypes[storage.Source.ColumnName]!="string"){Gap("非冗余名称计划不是字符串。");continue;}
+                    kind=SelectionNameFilterKind.JoinedScalarLike;
+                }
+                else if(source.Source.ControlKind=="MultiSelectPage")
                 {
                     var known=MultiSelectCompilation.Resolve(model,table,page,source);
                     if(known.Definition is not {} multi||multi.Names?.Source.Id!=storage.Source.Id){Gap(known.Reason??"多选名称辅助列与稳定显示属性不一致。");continue;}
@@ -93,6 +101,7 @@ internal static class SelectionNameFilterCompilation
         var result=new System.Text.StringBuilder();
         foreach(var binding in plan.Bindings)
         {
+            if(binding.Kind==SelectionNameFilterKind.JoinedScalarLike)throw new InvalidOperationException("非冗余名称谓词必须使用固定读取计划，不能查询忽略持久化的实体列。");
             var predicate=binding.Kind==SelectionNameFilterKind.ScalarLike?$"query = Metarill.Data.Queries.StringNameQuery.ApplyLike(session, query, entity => entity.{binding.StorageColumn.Property}, value);":renderJsonPredicate?.Invoke(binding)??throw new InvalidOperationException("JSON数组名称筛选尚未提供数据库方言实现。");
             if(string.IsNullOrWhiteSpace(predicate))throw new InvalidOperationException("名称筛选生成分支不能为空。");
             result.AppendLine("case "+JsonSerializer.Serialize(binding.FilterKey)+": {")
