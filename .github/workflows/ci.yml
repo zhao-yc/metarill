@@ -31,6 +31,8 @@ jobs:
         run: |
           node --test tools/metadata/derive-security.test.mjs
           node tools/metadata/derive-security.mjs --check
+          node --test tools/metadata/derive-security-management.test.mjs
+          node tools/metadata/derive-security-management.mjs --check
       - name: 重新生成并核对提交产物
         shell: pwsh
         run: |
