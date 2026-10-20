@@ -95,7 +95,9 @@ public sealed class SecurityCoordinationExtractionTests
     public async Task Missing_menu_storage_is_not_interpreted_as_no_references()
     {
         using var f=new PrincipalRealmFixture();f.Registry.Platform.ConfigTables.RemoveAll(table=>table.TableName=="config_menu");
-        var adapter=new PlatformSecurityCurrentResources(f.Store,new(f.Store,f.Registry));f.Provider.Commands.Clear();
+        // 仓储构造时已冻结发布白名单；必须在构造前缺失，不能用事后源对象变化伪造缺失能力。
+        var missingStore=new SqlRowStore(f.Session,f.Registry.Platform);
+        var adapter=new PlatformSecurityCurrentResources(missingStore,new(missingStore,f.Registry));f.Provider.Commands.Clear();
         await f.Session.InTransactionAsync(async()=>
         {
             await Assert.ThrowsAsync<InvalidOperationException>(()=>adapter.HasAdminMenuReferencesForUpdateAsync(f.Session,f.Session.CurrentTransaction!,long.Parse(f.PlatformAdmin),CancellationToken.None));return true;
