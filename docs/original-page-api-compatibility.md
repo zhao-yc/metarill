@@ -36,3 +36,10 @@
 
 
 2026-10-20 本普通 clone 验证：Generation 完整 138 项中 136 通过、0 失败、2 项 FreshInstall 专属配置未提供而跳过；这两项不计首次安装验收。定向 14 项含实际生成 HTTP/MySQL/Multi/选项回归全部通过；Agent 实际 MVC schema 1/1、Files 更新开关真实 MySQL 1/1 通过，均零跳过。测试配置的 MySQL 驱动主机解析已核对 Server-200，业务库精确为隔离测试库。私有 TRX 位于 `.local/original-page-api-compat/`，不提交测试配置、日志或夹具。此结果不替代完整原页面 HBuilderX/浏览器或真机验收。
+
+
+## 旧按钮别名的实际MVC路由（2026-10-20）
+
+真实MySQL流程发现config_page/copy_page旧POST入口返回404，原sys/config_button/execute网关仍能工作。原因是三条兼容路由把URL末段命名为MVC保留值action，与Legacy动作的固定必需值冲突；现只改为operation占位名，原URL、请求、数据库按钮白名单、管理员和项目校验均不改。
+
+最小ASP.NET TestServer通过真实MVC端点选择核对8个旧URL；修前5条动态别名404、3条固定/网关匹配，修后8/8通过、0跳过。测试在实际动作执行前停止，不注册数据库或替身Business，因此只声明路由匹配，不替代复制/生成授权或真实事务验收。红/绿证据为.local/original-alias-route-before.trx与original-alias-route-after.trx。

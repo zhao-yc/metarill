@@ -19,9 +19,10 @@ public sealed class CompatibilityButtonController(CompatibilityButtonBusiness bu
         R<CompatibilityButtonResult>.Success(await business.ExecuteAsync(request.ButtonId, request.EntityId, cancellationToken));
 
     // 首页沿用这些直调入口；具体动作仍必须由数据库按钮及服务端白名单共同确认。
-    [HttpPost("api/admin/custom/config_table/{action}")]
-    [HttpPost("api/admin/custom/config_page/{action}")]
-    [HttpPost("api/admin/custom/config_column/{action}")]
+    // action是MVC保留的动作必需值；用operation承载旧URL段，避免copy_page等被误判404。
+    [HttpPost("api/admin/custom/config_table/{operation}")]
+    [HttpPost("api/admin/custom/config_page/{operation}")]
+    [HttpPost("api/admin/custom/config_column/{operation}")]
     [HttpPost("api/admin/custom/index/init_database")]
     [HttpPost("api/admin/custom/index/init_admin")]
     public async Task<R<CompatibilityButtonResult>> Legacy(CancellationToken cancellationToken)
