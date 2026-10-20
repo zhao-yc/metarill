@@ -1,0 +1,106 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, resolve, join, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const fixture = JSON.parse(readFileSync(join(repository, 'tools/metadata/fixtures/platform-published-declarations.json'), 'utf8'));
+const canonical = JSON.parse(readFileSync(join(repository, 'backend/metadata/platform.json'), 'utf8'));
+const normalize = value => Array.isArray(value) ? value.map(normalize) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalize(value[key])])) : value;
+const hash = value => createHash('sha256').update(JSON.stringify(normalize(value))).digest('hex');
+
+// 每次只复制统一builder输入到新临时目录，旧YZP参考路径设为不存在，CI不依赖D盘源码。
+function withSandbox(action) {
+  const workspace = mkdtempSync(join(tmpdir(), 'metarill-platform-builder-'));
+  try {
+    for (const file of ['scripts/build-platform-metadata.mjs', 'tools/metadata/derive-files.mjs',
+      'backend/metadata/platform-source.json', 'backend/metadata/platform-schema-reference.json', 'backend/metadata/platform.json', 'backend/metadata/identifiers.json',
+      'backend/metadata/demo.json', 'backend/metadata/files.json']) {
+      mkdirSync(dirname(join(workspace, file)), { recursive: true }); cpSync(join(repository, file), join(workspace, file));
+    }
+    return action(workspace);
+  } finally {
+    // 递归清理前核实绝对真实路径仍是本次具名前缀的系统临时子目录，绝不从输入计算删除路径。
+    const real = realpathSync(workspace), expectedParent = realpathSync(tmpdir());
+    assert.equal(dirname(real).toLowerCase(), expectedParent.toLowerCase());
+    assert.ok(basename(real).startsWith('metarill-platform-builder-')); rmSync(real, { recursive: true, force: false });
+  }
+}
+
+// 实际执行复制出的builder；没有数据库或应用启动入口，输出仅用于失败诊断。
+function generate(workspace) {
+  execFileSync(process.execPath, [join(workspace, 'scripts/build-platform-metadata.mjs')], {
+    cwd: workspace, env: { ...process.env, YZP_REFERENCE_ROOT: join(workspace, 'missing-legacy-reference') }, encoding: 'utf8',
+  });
+  return JSON.parse(readFileSync(join(workspace, 'backend/metadata/platform.json'), 'utf8'));
+}
+
+// 从实际重建目录中提取冻结发布依赖，hash覆盖精确关系/控件声明及4索引9字段的稳定ID与顺序。
+function protectedPayload(actual) {
+  const records = (collection, expected) => expected.map(reference => {
+    const matched = actual[collection].filter(value => value.id === reference.id); assert.equal(matched.length, 1);
+    return Object.fromEntries(Object.keys(reference).map(key => [key, matched[0][key]]));
+  });
+  return {
+    columns: records('configColumns', fixture.payload.columns), pageColumns: records('configPageColumns', fixture.payload.pageColumns),
+    indexes: records('configIndexes', fixture.payload.indexes), indexColumns: records('configIndexColumns', fixture.payload.indexColumns),
+  };
+}
+function assertProtected(actual) {
+  const payload = protectedPayload(actual); assert.deepEqual(payload, fixture.payload);
+  assert.equal(hash(payload), fixture.protectedDeclarationsSha256);
+}
+
+// 原目录全量重建必须保留当前canonical所有语义；第二次还必须保持UTF8/LF字节和稳定ID清单。
+test('完整builder保留已发布声明且两轮稳定，不依赖原YZP目录', () => withSandbox(workspace => {
+  assertProtected(canonical); const first = generate(workspace); assert.equal(hash(first), hash(canonical), '完整metadata语义摘要必须保留'); assertProtected(first);
+  const files = ['platform.json', 'identifiers.json', 'demo.json'];
+  const before = files.map(file => readFileSync(join(workspace, 'backend/metadata', file)));
+  assert.deepEqual(generate(workspace), first);
+  files.forEach((file, index) => assert.deepEqual(readFileSync(join(workspace, 'backend/metadata', file)), before[index]));
+  execFileSync(process.execPath, [join(workspace, 'tools/metadata/derive-files.mjs'), '--check'], { cwd: workspace, encoding: 'utf8' });
+}));
+
+// 负证明都真实执行错误source生成；冻结合同应捕获回退，不用字符串断言冒充生成行为。
+test('丢失固定父owner声明会被发布合同发现', () => withSandbox(workspace => {
+  const path = join(workspace, 'backend/metadata/platform-source.json'), source = JSON.parse(readFileSync(path, 'utf8'));
+  const column = source.configColumns.find(value => value.id === '1676901024774926338');
+  const detail = JSON.parse(column.controlDetail); delete detail.sourceParentOwnerColumnId; column.controlDetail = JSON.stringify(detail);
+  writeFileSync(path, JSON.stringify(source, null, 2) + '\n'); assert.throws(() => assertProtected(generate(workspace)), assert.AssertionError);
+}));
+
+test('退回旧Custom标签会被发布合同发现', () => withSandbox(workspace => {
+  const path = join(workspace, 'backend/metadata/platform-source.json'), source = JSON.parse(readFileSync(path, 'utf8'));
+  source.configPageColumns.find(value => value.id === '1774021578289803000').controlDetail = 'ButtonVisibleRuleEditor';
+  writeFileSync(path, JSON.stringify(source, null, 2) + '\n'); assert.throws(() => assertProtected(generate(workspace)), assert.AssertionError);
+}));
+
+test('全量builder丢弃既有索引会被发布合同发现', () => withSandbox(workspace => {
+  const path = join(workspace, 'scripts/build-platform-metadata.mjs'), source = readFileSync(path, 'utf8');
+  const declaration = "index('config_index','ix_index_table',['config_table_id','delete_no']);";
+  assert.equal(source.split(declaration).length, 2); writeFileSync(path, source.replace(declaration, ''));
+  assert.throws(() => assertProtected(generate(workspace)), assert.AssertionError);
+}));
+// 原物理补充源漏一列也必须被全目录摘要发现，不能仅保护少数关系后宣称完整自举。
+test('缺失受控结构字段会被完整目录合同发现', () => withSandbox(workspace => {
+  const path = join(workspace, 'backend/metadata/platform-schema-reference.json'), source = JSON.parse(readFileSync(path, 'utf8'));
+  const table = source.tables.find(value => value.tableName === 'config_table');
+  assert.equal(table.columns.filter(value => value.name === 'sql').length, 1);
+  table.columns = table.columns.filter(value => value.name !== 'sql'); writeFileSync(path, JSON.stringify(source, null, 2) + '\n');
+  assert.throws(() => assert.equal(hash(generate(workspace)), hash(canonical)), assert.AssertionError);
+}));
+
+// 缺失name/type不能被JavaScript正则隐式转成字符串后接受，结构源损坏必须在builder中明确拒绝。
+test('结构声明缺字段名或类型时由builder明确拒绝', () => {
+  for (const key of ['name', 'type']) withSandbox(workspace => {
+    const path = join(workspace, 'backend/metadata/platform-schema-reference.json'), source = JSON.parse(readFileSync(path, 'utf8'));
+    const table = source.tables.find(value => value.columns.length > 0); delete table.columns[0][key];
+    writeFileSync(path, JSON.stringify(source, null, 2) + '\n');
+    assert.throws(() => generate(workspace), error => error.status === 1 && String(error.stderr).includes('平台结构参考字段不合法。'));
+  });
+});

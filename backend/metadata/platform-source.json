@@ -3455,7 +3455,7 @@
       "columnTypeShow": "字符",
       "configTableId": "2063264600555577345",
       "configTableName": "角色权限",
-      "controlDetail": "{\"table\": \"config_second_menu\", \"orderBy\": \"\", \"tableId\": \"1763923891442454529\", \"whereSql\": \"\", \"nameField\": \"name\"}",
+      "controlDetail": "{\"table\": \"config_menu\", \"orderBy\": \"\", \"tableId\": \"2200000000000000281\", \"whereSql\": \"\", \"nameField\": \"name\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -3470,7 +3470,9 @@
       "mobileListPageColSpan": 1,
       "mobileListPageColSpanShow": "1",
       "name": "二级菜单",
-      "sortNo": 1000
+      "sortNo": 1000,
+      "linkConfigPageId": "2200000000000099000",
+      "linkConfigTableId": "2200000000000000281"
     },
     {
       "colSpan": 1,
@@ -3480,7 +3482,7 @@
       "columnTypeShow": "字符",
       "configTableId": "2063264600555577345",
       "configTableName": "角色权限",
-      "controlDetail": "{\"table\": \"yz_role\", \"orderBy\": \"\", \"tableId\": \"1763907139337793538\", \"whereSql\": \"\", \"nameField\": \"name\"}",
+      "controlDetail": "{\"table\": \"yz_role\", \"orderBy\": \"\", \"tableId\": \"1692532858499969026\", \"whereSql\": \"\", \"nameField\": \"name\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -3495,7 +3497,9 @@
       "mobileListPageColSpan": 1,
       "mobileListPageColSpanShow": "1",
       "name": "角色",
-      "sortNo": 1000
+      "sortNo": 1000,
+      "linkConfigPageId": "1692532858529329154",
+      "linkConfigTableId": "1692532858499969026"
     },
     {
       "colSpan": 1,
@@ -3805,7 +3809,7 @@
       "columnTypeShow": "字符",
       "configTableId": "2076977554320920576",
       "configTableName": "索引字段",
-      "controlDetail": "{\"table\":\"config_column\",\"tableId\":\"6217714881724416\",\"nameField\":\"name\",\"whereSql\":\"\",\"orderBy\":\"sort_no asc\"}",
+      "controlDetail": "{\"table\": \"config_column\", \"tableId\": \"6217714881724416\", \"nameField\": \"name\", \"whereSql\": \"\", \"orderBy\": \"sort_no asc\", \"sourceParentOwnerColumnId\": \"2076977821456142336\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -5126,7 +5130,8 @@
       "mobileListPageColSpan": 1,
       "mobileListPageColSpanShow": "1",
       "name": "配置表",
-      "sortNo": 80
+      "sortNo": 80,
+      "linkConfigTableId": "6191080026669056"
     },
     {
       "align": "",
@@ -6763,7 +6768,8 @@
       "mobileListPageColSpan": 1,
       "mobileListPageColSpanShow": "1",
       "name": "配置表",
-      "sortNo": 340
+      "sortNo": 340,
+      "linkConfigTableId": "6191080026669056"
     },
     {
       "colSpan": 1,
@@ -7350,7 +7356,7 @@
       "columnTypeShow": "字符",
       "configTableId": "6218035521716224",
       "configTableName": "页面字段",
-      "controlDetail": "{\"table\": \"config_column\", \"orderBy\": \"\", \"tableId\": \"6217714881724416\", \"whereSql\": \"\", \"nameField\": \"name\"}",
+      "controlDetail": "{\"table\": \"config_column\", \"orderBy\": \"\", \"tableId\": \"6217714881724416\", \"whereSql\": \"\", \"nameField\": \"name\", \"sourceParentOwnerColumnId\": \"1671100304320462849\"}",
       "controlKind": "List",
       "controlKindShow": "下拉列表",
       "defaultValue": "",
@@ -7365,7 +7371,9 @@
       "mobileListPageColSpan": 1,
       "mobileListPageColSpanShow": "1",
       "name": "列",
-      "sortNo": 20
+      "sortNo": 20,
+      "linkConfigPageId": "6217715532627968",
+      "linkConfigTableId": "6217714881724416"
     },
     {
       "colSpan": 1,
@@ -7390,7 +7398,8 @@
       "mobileListPageColSpan": 1,
       "mobileListPageColSpanShow": "1",
       "name": "视图",
-      "sortNo": 30
+      "sortNo": 30,
+      "linkConfigTableId": "6191173858623488"
     },
     {
       "colSpan": 1,
@@ -11133,7 +11142,7 @@
       "configColumnSortNo": 95,
       "configPageId": "1870796062470516738",
       "configPageName": "按钮",
-      "controlDetail": "ButtonVisibleRuleEditor",
+      "controlDetail": "yzp-button-visible-rule-editor",
       "id": "1774021578306947000",
       "isAutoFocus": 0,
       "isInEdit": 1,
@@ -15758,7 +15767,7 @@
       "configColumnSortNo": 95,
       "configPageId": "7097193256583168",
       "configPageName": "按钮",
-      "controlDetail": "ButtonVisibleRuleEditor",
+      "controlDetail": "yzp-button-visible-rule-editor",
       "id": "1774021578289803000",
       "isAutoFocus": 0,
       "isInEdit": 1,

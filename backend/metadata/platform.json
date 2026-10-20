@@ -2299,9 +2299,9 @@
       "mobileListPageColSpanShow": "1",
       "name": "二级菜单",
       "sortNo": 1000,
-      "yzProjectId": "1608097412978577409",
-      "linkConfigTableId": "2200000000000000281",
       "linkConfigPageId": "2200000000000099000",
+      "linkConfigTableId": "2200000000000000281",
+      "yzProjectId": "1608097412978577409",
       "logicalType": "int64"
     },
     {
@@ -2328,9 +2328,9 @@
       "mobileListPageColSpanShow": "1",
       "name": "角色",
       "sortNo": 1000,
-      "yzProjectId": "1608097412978577409",
-      "linkConfigTableId": "1692532858499969026",
       "linkConfigPageId": "1692532858529329154",
+      "linkConfigTableId": "1692532858499969026",
+      "yzProjectId": "1608097412978577409",
       "logicalType": "int64"
     },
     {
@@ -3965,8 +3965,8 @@
       "mobileListPageColSpanShow": "1",
       "name": "配置表",
       "sortNo": 80,
-      "yzProjectId": "1608097412978577409",
       "linkConfigTableId": "6191080026669056",
+      "yzProjectId": "1608097412978577409",
       "logicalType": "int64"
     },
     {
@@ -5729,8 +5729,8 @@
       "mobileListPageColSpanShow": "1",
       "name": "配置表",
       "sortNo": 340,
-      "yzProjectId": "1608097412978577409",
       "linkConfigTableId": "6191080026669056",
+      "yzProjectId": "1608097412978577409",
       "logicalType": "int64"
     },
     {
@@ -6380,9 +6380,9 @@
       "mobileListPageColSpanShow": "1",
       "name": "列",
       "sortNo": 20,
-      "yzProjectId": "1608097412978577409",
-      "linkConfigTableId": "6217714881724416",
       "linkConfigPageId": "6217715532627968",
+      "linkConfigTableId": "6217714881724416",
+      "yzProjectId": "1608097412978577409",
       "logicalType": "int64"
     },
     {
@@ -6409,8 +6409,8 @@
       "mobileListPageColSpanShow": "1",
       "name": "视图",
       "sortNo": 30,
-      "yzProjectId": "1608097412978577409",
       "linkConfigTableId": "6191173858623488",
+      "yzProjectId": "1608097412978577409",
       "logicalType": "int64"
     },
     {

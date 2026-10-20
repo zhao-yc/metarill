@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
-const sourceRoot = process.env.YZP_REFERENCE_ROOT || 'D:/svn/yzp';
+// 开源重建只读仓库内受控结构声明，不再从外部旧仓库可选补列。
+const schemaReference = JSON.parse(fs.readFileSync(path.join(root, 'backend/metadata/platform-schema-reference.json'),'utf8'));
+if(schemaReference.schemaVersion!==1||!Array.isArray(schemaReference.tables)||new Set(schemaReference.tables.map(t=>t.tableName)).size!==schemaReference.tables.length)throw new Error('平台结构参考版本或表声明重复。');
 const input = JSON.parse(fs.readFileSync(path.join(root, 'backend/metadata/platform-source.json'),'utf8'));
 const projectId = input.yzProjectId || '1608097412978577409';
 const adminId = input.yzAdminTypes[0].id;
@@ -62,16 +64,15 @@ function addColumn(table,name,label,type='string',nullable=true,length='255') {
  c.logicalType=type;c.isDbNotNull=nullable?0:1;c.columnLength=String(length);c.defaultValue='';return c;
 }
 for(const t of tables) {
- const sqlPath=path.join(sourceRoot,'backend/yzp/src/main/resources/yzp-config/schema',t.tableName+'.sql');
- if(fs.existsSync(sqlPath)){
-  const sql=fs.readFileSync(sqlPath,'utf8');
-  const re=/^\s*\x60([a-zA-Z_][a-zA-Z0-9_]*)\x60\s+([a-zA-Z]+)(?:\(([^)]+)\))?/gm;
-  for(const m of sql.matchAll(re)){
-   if(['config_first_menu_id','config_first_menu_name','parent_menu_id','parent_menu_name','name_2','name_3','name2','name3'].includes(m[1]))continue;
-   if(!columns.some(c=>c.configTableId===t.id&&c.columnName===m[1])){
-    const c=addColumn(t,m[1],m[1],logical({columnName:m[1],columnType:m[2]}),m[1]!=='id',m[3]?.split(',')[0]||(/text/.test(m[2])?'max':'255'));
-    c.columnType=m[2];
-   }
+ const structure=schemaReference.tables.find(reference=>reference.tableName===t.tableName);
+ if(!structure||!Array.isArray(structure.columns)||new Set(structure.columns.map(c=>c.name)).size!==structure.columns.length)throw new Error('平台结构参考缺表或字段声明重复：'+t.tableName);
+ for(const spec of structure.columns){
+  if(typeof spec.name!=='string'||typeof spec.type!=='string'||!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(spec.name)||!/^[a-zA-Z]+$/.test(spec.type)||(spec.length!==null&&typeof spec.length!=='string'))throw new Error('平台结构参考字段不合法。');
+  if(['config_first_menu_id','config_first_menu_name','parent_menu_id','parent_menu_name','name_2','name_3','name2','name3'].includes(spec.name))continue;
+  // 保留原导入位置、字段顺序与addColumn/standard默认策略，不迁移或重解释已发布元数据类型。
+  if(!columns.some(c=>c.configTableId===t.id&&c.columnName===spec.name)){
+   const c=addColumn(t,spec.name,spec.name,logical({columnName:spec.name,columnType:spec.type}),spec.name!=='id',spec.length?.split(',')[0]||(/text/.test(spec.type)?'max':'255'));
+   c.columnType=spec.type;
   }
  }
  for(const [name,label,type,nullable] of standard)addColumn(t,name,label,type,nullable,type==='string'?'100':'');
@@ -155,6 +156,11 @@ index('yz_file_ref','ix_file_scope_record',['yz_project_id','record_id','page_id
 index('yz_file_ref','ix_file_delete',['file_id','delete_no']);
 index('yz_file_library','ix_file_folder',['yz_project_id','folder_id','delete_no']);
 index('yz_file_library_folder','ix_folder_parent',['yz_project_id','parent_folder_id','delete_no']);
+// 保留已发布索引工作台的物理索引；稳定ID由identifiers清单维护，完整重建不能丢失。
+index('config_index','ix_index_table',['config_table_id','delete_no']);
+index('config_index','ix_index_project',['yz_project_id','delete_no']);
+index('config_index_column','ix_index_column_parent',['config_index_id','delete_no','sort_no']);
+index('config_index_column','ix_index_column_project',['yz_project_id','delete_no']);
 catalog.configIndexes=indexes;catalog.configIndexColumns=indexColumns;
 fs.writeFileSync(path.join(root,'backend/metadata/platform.json'),JSON.stringify(catalog,null,2)+'\n');
 const demoProject='2200000000000100000', demoAdmin='2200000000000100001';
