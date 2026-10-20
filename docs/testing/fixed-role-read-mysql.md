@@ -1,6 +1,6 @@
-# 固定角色读取用途的MySQL专项准备
+# 固定角色读取用途的MySQL专项验收
 
-本片只新增测试源码；不修改产品、canonical元数据、账号导出/复制/导入开关，不发布页面或执行DDL。三项实库用例须由主协调者审核后独占运行；源代码准备和离线编译不能算真实SQL/XLSX数据库验收通过。
+本专项只新增测试源码；不修改产品、canonical元数据、账号导出/复制/导入开关，不发布页面或执行DDL。2026-10-20由主协调者在固定源上独占执行，三项真实MySQL用例及两项离线用例共5/5通过，零失败、零跳过。验收范围是原HTTP协议的TestServer、真实MySQL读取及真实XLSX回读，不是浏览器验收。
 
 ## 用例
 
@@ -22,4 +22,34 @@
 
 `Private_role_read_model_really_compiles_without_mutating_canonical` 是离线生成Fact：不读私有配置、不建数据库连接或TestServer，真实生成并编译私有三表程序集，检查读取方法和来源权限接线，核canonical文件SHA及原账号开关未变。另有纯离线pin解析Fact覆盖合成正例与缺失/重复/未知/非法字段；三项真实用例使用 `AgentIntegrationFact`，缺少既有私有配置与平台元数据时明确skip，不把skip计为真实通过。
 
-本片实库三项尚未执行；后续由主协调者记录固定SHA、TRX、实例pin、实际SQL、XLSX断言和精确零残留收据。Runtime A、独立Host、五Custom依赖和原浏览器验收不由本测试准备解除。
+2026-10-20验收的测试源为 `41005f2d71f7e410f199d79a7929983285492e30`，根集成提交为 `4564b6893bdc7454a74b592eb9d9bcf00b96b33f`。主协调者一次运行本类5项：2项离线、3项真实TestServer/MySQL，全部通过，零失败、零跳过；本次文档复核只读取已保存证据，没有重跑测试、数据库请求或服务。
+
+三个实库场景分别创建独立TestServer和自有随机样本，执行原Controller→生成Service→真实MySQL路径：
+
+| 场景 | 本次实际通过的关键断言 | 生成读取SQL计数 |
+| --- | --- | --- |
+| 账号选择回读 | 真实普通账号只有来源query，目标角色页无query；所选行按首次顺序去重，长ID不丢精度，角色数组顺序/重复位置保留，缺失、跨项目及双软删名称为null；凭据不进入SQL/VO，无权请求在源查询前拒绝 | 成功路径2条：来源投影1条、绑定参数的有界名称读取1条 |
+| 角色选择回读 | 真实来源query不借后台页query；同项目活动后台名为string，外项目/软删/缺失为null，错误来源权限与已删源角色拒绝 | 成功路径2条：来源投影1条、绑定参数的后台名称读取1条 |
+| 仅导出权限 | 两来源页仅export，不能借该权限selection；ClosedXML实际回读XLSX，账号角色列保持原IDJSON文本、长ID/数组顺序/重复及null/`[]`，角色后台列为名称或空单元格，不改成角色名称导出 | 账号导出1条；角色导出2条，其中1条读取后台名称 |
+
+上述计数来自生成读取Session的ORM事件，逐请求清空并断言，不能外推成认证、样本建立、清理或全部框架请求的总SQL成本。阴性用例还实际断言越界源行只查询来源一次、无权请求不发生成读取SQL。本专项不是吞吐、并发锁或RR快照验收。
+
+## 原始证据与精确清理
+
+原始证据保留在根工作区的私有 `.local`，不进入Git；以下只记录可复核路径及摘要，不公开实例hostname、UUID或凭据。
+
+- `.local/fixed-role-read-uses-mysql-integrated.trx` / 同名 `.log`：5执行、5通过、0失败、0跳过。TRX SHA256：`a5e84f0f72ad7a412d22ab9a7b819151f29adaea09c7af888a5326f2b5eabd4a`。
+- `.local/fixed-role-read-uses-preflight-20261020/server-pin.json` / `.log`：固定Server-200实例及 `metarill_test`；三张performance_schema观测表的只读权限检查均为MySQL 1142，无GRANT、无新增数据库账号、无请求全局PROCESS。用例只用自身ORM事件，不依赖或增授观测权限。JSON SHA256：`94f6ce9a48d7ab216d88f89e0002109b327ca141dd25e3f8a09c7fc98a06eef1`。
+- `.local/fixed-role-read-uses-verification-20261020/verification.json`：主协调者在测试后另做只读实例pin与精确ID/名称回查，三份完成收据共52行含墓碑全部零残留，无数据库写入或GRANT。SHA256：`88d2a2f6c6465bef8c7c1c1230628798189f98a58531df8adaff3bc75f5bcf38`。
+
+三份原始完成收据均为 `stage=completed`、`completed=true`、`failed=false`，其cleaned计数与登记行数一致，且SHA与独立回查所登记摘要相同：
+
+| 私有收据（相对于 `.local/fixed-role-read-mysql`） | 自有行/已清理 | SHA256 |
+| --- | --- | --- |
+| `2fb08983709e4199/receipt-completed-590c48286aac4dc8843da1004bba3505.json` | 18/18 | `48dda8b5e0ebf3a8e0b9fc23c450590a903ac1404572ab9241a1863ab99e1bd7` |
+| `338ca8bb22d94291/receipt-completed-cc8ce24345e8461da2290ba1fba8ea8f.json` | 17/17 | `90b784216d09afd035ce6e920219dafbb1223e1fa495ff1b94ae73d6c3e848fa` |
+| `f4345c4ca6bd4e4c/receipt-completed-b3c82a4051744821bc6192ad89a3f8c3.json` | 17/17 | `a7d200abff23116a8d07f3175d83c8c503673f26c6e5412de7350ce17b92b200` |
+
+独立回查工具v1曾将收据字符串ID按JSON number读取而失败；原源文件、失败日志保留。v2按规范整数字符串解析后只读核验通过，保留 `verification-v1.log`、`verification-v2.log` 及最终JSON；没有重跑测试、改数据库或把v1失败改写为成功。
+
+平台canonical开关及共享配置元数据未因私有测试模型而改变。本结果只覆盖上述固定读取用途；Runtime A下发、五个Custom前端依赖、新独立Host及原浏览器验收不能因此宣布完成或关闭相关门禁。
