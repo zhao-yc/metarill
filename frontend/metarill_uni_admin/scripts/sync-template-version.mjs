@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 
-/** 仅同步用户确认的原版本下拉默认值，页面结构、事件、样式及其它字段逐字保留。 */
+/** 仅同步用户确认的原版本下拉默认值和提示，页面结构、事件、样式及其它字段逐字保留。 */
 export function mergeTemplateVersionDefault(source, metadata) {
   const columns=metadata.configColumns?.filter(column=>column.id==='1669606903854936065')??[]
   const fields=metadata.configPageColumns?.filter(field=>field.configColumnId==='1669606903854936065'&&field.configPageId==='6186303424888832')??[]
@@ -23,7 +23,14 @@ export function mergeTemplateVersionDefault(source, metadata) {
   const pattern=/(\byzYzpVersionId\s*:\s*)(['"])([0-9]*)\2/g
   const matches=[...source.matchAll(pattern)]
   if(matches.length!==1||!['2104907095303213057',value].includes(matches[0][3])) throw new Error('原下拉默认值不唯一或已被其它来源改动，未覆盖')
-  return source.replace(pattern,(_,prefix,quote)=>prefix+quote+value+quote)
+  const legacyHint='新项目默认 v8；旧项目保留原版本。已有生成目录不能直接切换版本。'
+  const hint=field.hint
+  if(typeof hint!=='string'||!hint.length||hint.length>512) throw new Error('模板版本提示必须为有界文本')
+  const escapedHint=hint.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')
+  const hintPattern=/(<zxz-uni-data-select(?=[^>]*v-model=['"]entity\.yzYzpVersionId['"])[^>]*\/><\/template><view class='input-tips'>)([^<]*)(<\/view>)/g
+  const hints=[...source.matchAll(hintPattern)]
+  if(hints.length!==1||![legacyHint,escapedHint].includes(hints[0][2])) throw new Error('原版本提示不唯一或已被其它来源改动，未覆盖')
+  return source.replace(pattern,(_,prefix,quote)=>prefix+quote+value+quote).replace(hintPattern,(_,prefix,oldHint,suffix)=>prefix+escapedHint+suffix)
 }
 
 /** 读取正式元数据的页级默认值，不复制生成器整页覆盖保留的原平台页面。 */

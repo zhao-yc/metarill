@@ -41,7 +41,7 @@
 </uni-forms-item>
 
 <uni-forms-item label='yzp版本' name='yzYzpVersionId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzYzpVersionIdReadOnly'>{{readonlyDisplayText(entity.yzYzpVersionName)}}</text><template v-if='!yzYzpVersionIdReadOnly'><zxz-uni-data-select v-model='entity.yzYzpVersionId' :localdata='yz_yzp_version_list' filterable :disabled='yzYzpVersionIdReadOnly' dataKey='name' dataValue='id' @change='yz_yzp_versionSelectChange' /></template><view class='input-tips'>新项目默认 v8；旧项目保留原版本。已有生成目录不能直接切换版本。</view>
+<text v-if='yzYzpVersionIdReadOnly'>{{readonlyDisplayText(entity.yzYzpVersionName)}}</text><template v-if='!yzYzpVersionIdReadOnly'><zxz-uni-data-select v-model='entity.yzYzpVersionId' :localdata='yz_yzp_version_list' filterable :disabled='yzYzpVersionIdReadOnly' dataKey='name' dataValue='id' @change='yz_yzp_versionSelectChange' /></template><view class='input-tips'>Metarill C#模板版本，首期仅v1；原Java版本不能直接用于C#生成。</view>
 </uni-forms-item>
 
 <uni-forms-item label='数据库类型' name='dbType' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
