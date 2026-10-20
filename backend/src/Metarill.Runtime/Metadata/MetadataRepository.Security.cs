@@ -8,6 +8,12 @@ namespace Metarill.Runtime.Metadata;
 
 public sealed partial class MetadataRepository
 {
+    /// <summary>普通工作台目录读取也必须核对仓储Session，不能在事务外借错库仓储返回目录。</summary>
+    internal void RequireSecuritySession(DatabaseSession session)
+    {
+        if(!ReferenceEquals(store.Session,session))throw new InvalidOperationException("角色目录仓储必须使用同一Session。");
+    }
+
     /// <summary>窄适配也核对仓储实际Session，防止宿主误把另库/另事务仓储注册给安全Reader。</summary>
     internal void RequireSecurityTransaction(DatabaseSession session,DbTransaction transaction)
     {

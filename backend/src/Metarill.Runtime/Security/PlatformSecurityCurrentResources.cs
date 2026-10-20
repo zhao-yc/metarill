@@ -8,11 +8,22 @@ using Metarill.Runtime.Persistence;
 namespace Metarill.Runtime.Security;
 
 /// <summary>平台当前目录适配与工作台原revision共用一个请求实例；共享核心只得到窄投影。</summary>
-public sealed class PlatformSecurityCurrentResources(SqlRowStore store,MetadataRepository metadata):ISecurityCurrentResources
+public sealed class PlatformSecurityCurrentResources(SqlRowStore store,MetadataRepository metadata):ISecurityCurrentResources,IRolePermissionCatalog
 {
     private sealed record LoadedCatalog(DatabaseSession Session,DbTransaction Transaction,MetadataCatalog Catalog);
     // 弱引用表按对象身份比较；批量CRUD临时投影不因请求缓存而保留全部原目录。
     private readonly ConditionalWeakTable<SecurityResourceCatalog,LoadedCatalog> loaded=new();
+
+    /// <summary>工作台普通读取仍走原完整项目目录，首先证明仓储与调用者使用同一Session。</summary>
+    public Task<MetadataCatalog> ReadAsync(DatabaseSession session,string projectId,CancellationToken cancellationToken)
+    {
+        if(!ReferenceEquals(store.Session,session))throw new InvalidOperationException("角色工作台目录必须使用同一Session。");
+        metadata.RequireSecuritySession(session);
+        return metadata.LoadProjectAsync(projectId,cancellationToken);
+    }
+
+    /// <summary>跨程序集只开放必要目录合同，原CWT引用身份及实际事务证明保持不变。</summary>
+    MetadataCatalog IRolePermissionCatalog.RequireLoaded(DatabaseSession session,DbTransaction transaction,SecurityResourceCatalog resources)=>RequireLoaded(session,transaction,resources);
 
     /// <summary>只缓存本次真实FOR UPDATE目录，引用键不能被等值投影或另一个事务替换。</summary>
     public async Task<SecurityResourceCatalog> ReadForUpdateAsync(DatabaseSession session,DbTransaction transaction,long projectId,long adminTypeId,CancellationToken cancellationToken)

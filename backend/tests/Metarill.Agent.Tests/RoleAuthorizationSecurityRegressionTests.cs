@@ -109,7 +109,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
     private ServiceProvider Services(AuthenticatedIdentity identity,DatabaseSession? session=null)
     {
         var current=session??Session;var store=ReferenceEquals(current,Session)?Store:new SqlRowStore(current,Registry.Platform);
-        var services=new ServiceCollection();services.AddSingleton(current);services.AddSingleton(store);services.AddSingleton(Registry);services.AddSingleton<IIdGenerator>(Ids);
+        var services=new ServiceCollection();services.AddSingleton(current);services.AddSingleton(store);services.AddSingleton(Registry);services.AddSingleton<ISecurityResourceRegistry>(provider=>provider.GetRequiredService<MetadataRegistry>());services.AddSingleton<IIdGenerator>(Ids);
         var context=new DefaultHttpContext();context.Items[typeof(AuthenticatedIdentity)]=identity;
         services.AddSingleton<IHttpContextAccessor>(new DirectRequestContext(context));services.AddScoped<HttpRuntimeAuthorization>();
         services.AddScoped<IRuntimeAuthorization>(provider=>provider.GetRequiredService<HttpRuntimeAuthorization>());services.AddSingleton<MetadataRepository>();
@@ -147,7 +147,7 @@ public sealed class RoleAuthorizationSecurityRegressionTests
         var auth=RoleSecurityFixture.Authorization(identity,f.Registry);var metadata=new MetadataRepository(f.Store,f.Registry);
         var currentResources=new PlatformSecurityCurrentResources(f.Store,metadata);
         var coordinator=new SecurityRealmMutationGuard(f.Store,f.Registry,auth,new(f.Store,f.Registry,currentResources,new PlatformSecurityCurrentSessionPolicy(f.Store)));
-        var business = new RolePermissionBusiness(f.Store,metadata,auth,new SnowflakeIdGenerator(856),f.Registry,coordinator,currentResources);
+        var business = new RolePermissionBusiness(f.Store,currentResources,auth,new SnowflakeIdGenerator(856),f.Registry,coordinator);
         // 原工作台is_all仍走revision冲突，不拿后续super变化覆盖这项既有断言。
         var filter=new Dictionary<string,object?>{{"yz_role_id",f.RoleId}};var before=JsonSerializer.Serialize(await f.Store.ReadAsync("yz_role_permission",filter));
         var conflict=await Assert.ThrowsAsync<InvalidOperationException>(() => business.SaveAsync(new(f.RoleId.ToString(), new string('a', 64), new([], new(), []))));

@@ -13,6 +13,7 @@ public static class RuntimeSecurityServices
         services.AddScoped<ISecurityIdentityAccessor>(provider=>provider.GetRequiredService<HttpRuntimeAuthorization>());
         services.AddScoped<PlatformSecurityCurrentResources>();
         services.AddScoped<ISecurityCurrentResources>(provider=>provider.GetRequiredService<PlatformSecurityCurrentResources>());
+        services.AddScoped<IRolePermissionCatalog>(provider=>provider.GetRequiredService<PlatformSecurityCurrentResources>());
         services.AddScoped<ISecurityCurrentSessionPolicy,PlatformSecurityCurrentSessionPolicy>();
         services.AddScoped<SecurityRealmCurrentReader>(provider=>new(provider.GetRequiredService<Metarill.Runtime.Persistence.SqlRowStore>(),
             provider.GetRequiredService<MetadataRegistry>(),provider.GetRequiredService<ISecurityCurrentResources>(),provider.GetRequiredService<ISecurityCurrentSessionPolicy>()));

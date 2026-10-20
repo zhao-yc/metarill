@@ -197,7 +197,7 @@ public sealed class RolePermissionRealmTests
         var metadata=new MetadataRepository(f.Store,f.Registry);
         var currentResources=new PlatformSecurityCurrentResources(f.Store,metadata);
         var coordinator=new SecurityRealmMutationGuard(f.Store,f.Registry,authorization,new(f.Store,f.Registry,currentResources,new PlatformSecurityCurrentSessionPolicy(f.Store)));
-        return new(f.Store,metadata,authorization,f.Ids,f.Registry,coordinator,currentResources);
+        return new(f.Store,currentResources,authorization,f.Ids,f.Registry,coordinator);
     }
     private static JsonElement Json(object value)=>JsonSerializer.SerializeToElement(value,JsonDefaults.Options);
 }

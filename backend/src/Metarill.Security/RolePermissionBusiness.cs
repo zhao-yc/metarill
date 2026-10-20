@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using Metarill.Core.Security;
 using Metarill.Core.Metadata;
-using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Security;
@@ -12,8 +11,10 @@ public sealed record RolePermissionGrants(IReadOnlyList<string> MenuIds,Dictiona
 public sealed record RolePermissionSave(string RoleId,string Revision,RolePermissionGrants Grants);
 
 /// <summary>独立保存菜单显示、页面动作和按钮授权，不从菜单推导页面写权限。</summary>
-public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IIdGenerator ids,MetadataRegistry registry,SecurityRealmMutationGuard coordinator,PlatformSecurityCurrentResources currentResources)
+public sealed class RolePermissionBusiness(SqlRowStore store,IRolePermissionCatalog resourceCatalog,ISecurityIdentityAccessor authorization,IIdGenerator ids,ISecurityResourceRegistry registry,SecurityRealmMutationGuard coordinator)
 {
+    // 完整目录适配是必要依赖；缺失不能退回发布快照或把未知存储当作空目录。
+    private readonly IRolePermissionCatalog catalogs=resourceCatalog??throw new ArgumentNullException(nameof(resourceCatalog));
     private static readonly HashSet<string> Actions=["is_query","is_new","is_update","is_delete","is_export","is_all"];
     public async Task<object> RolesAsync(CancellationToken token=default)
     {
@@ -50,7 +51,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
             var principal=new PrincipalScope(actor,identity,identity.PrincipalAdminTypeId,identity.PrincipalProjectId);
             var role=scope.Role;
             // 必须取回同一适配在本事务锁读的原始目录；revision继续消费完整JSON，不能用瘦投影重算。
-            var catalog=RealmResources(currentResources.RequireLoaded(store.Session,store.Session.CurrentTransaction??throw new InvalidOperationException("角色工作台事务已结束。"),scope.Catalog),principal);
+            var catalog=RealmResources(catalogs.RequireLoaded(store.Session,store.Session.CurrentTransaction??throw new InvalidOperationException("角色工作台事务已结束。"),scope.Catalog)??throw new InvalidOperationException("角色工作台缺少本事务完整目录。"),principal);
             if(SqlRowStore.Text(role,"is_super")=="1")throw new InvalidOperationException("超级管理员权限由角色属性确定，不能在资源工作台改写。");
             var existing=await Grants(request.RoleId,true,token);
             if(request.Revision!=Revision(role,catalog,existing))throw new InvalidOperationException("YZP_CONFLICT：角色授权或资源目录已变化，请重新读取。");
@@ -96,7 +97,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
     /// <summary>真实账号、后台、项目逐项核对；工作区选择不会切换身份或给跨后台角色授权。</summary>
     private async Task<PrincipalScope> Principal(CancellationToken token)
     {
-        var identity=authorization.RequireIdentity();var actor=authorization.RequireActor();
+        var identity=authorization.RequireIdentity();var actor=identity.Actor;
         if(actor.AccountId<=0||!long.TryParse(identity.PrincipalAdminTypeId,out var adminId)||adminId<=0||
             !long.TryParse(identity.PrincipalProjectId,out var projectId)||projectId<=0||actor.AdminTypeId!=identity.PrincipalAdminTypeId)
             throw new UnauthorizedAccessException("当前身份后台无效。");
@@ -115,11 +116,11 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
     {
         if(action is not ("is_query" or "is_update"))throw new InvalidOperationException("角色工作台动作无效。");
         if(principal.Identity.IsRealmSuper)return;
-        var published=new[]{registry.Platform,registry.Demo}.Where(model=>model.YzProjectId==principal.ProjectId).ToArray();
+        var published=registry.PublishedCatalogs.Where(model=>model.ProjectId==principal.ProjectId).ToArray();
         foreach(var page in catalog.ConfigPages.Where(page=>catalog.RoleTableIds.Contains(page.ConfigTableId)&&PageActions(page).Contains(action)))
         {
-            var fixedPage=published.SelectMany(model=>model.ConfigPages).SingleOrDefault(candidate=>candidate.Id==page.Id&&candidate.ConfigTableId==page.ConfigTableId&&candidate.YzAdminTypeId==principal.AdminTypeId&&candidate.YzProjectId==principal.ProjectId);
-            if(fixedPage is null||!published.SelectMany(model=>model.ConfigTables).Any(table=>table.Id==fixedPage.ConfigTableId&&table.TableName=="yz_role"))continue;
+            var fixedPage=published.SelectMany(model=>model.Pages).SingleOrDefault(candidate=>candidate.Id==page.Id&&candidate.TableId==page.ConfigTableId&&candidate.AdminTypeId==principal.AdminTypeId&&candidate.ProjectId==principal.ProjectId);
+            if(fixedPage is null||!published.SelectMany(model=>model.Tables).Any(table=>table.Id==fixedPage.TableId&&table.TableName=="yz_role"))continue;
             if(principal.Identity.Permissions.Contains(page.Id+":"+action)||principal.Identity.Permissions.Contains(page.Id+":is_all"))return;
         }
         throw new UnauthorizedAccessException(action=="is_query"?"缺少当前后台角色配置页的查询权限。":"缺少当前后台角色配置页的修改权限。");
@@ -128,7 +129,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
     /// <summary>先读身份项目，再筛真实同后台资源；同项目的其他后台也不能混进授权目录。</summary>
     private async Task<RealmCatalog> Catalog(PrincipalScope principal,CancellationToken token)
     {
-        var catalog=await metadata.LoadProjectAsync(principal.ProjectId,token);
+        var catalog=await catalogs.ReadAsync(store.Session,principal.ProjectId,token)??throw new InvalidOperationException("角色工作台完整目录不可用。");
         return RealmResources(catalog,principal);
     }
     /// <summary>普通快照与锁后保存使用同一目录归属筛选，revision解释保持一致。</summary>
@@ -150,7 +151,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
             catalog=new{roleTableIds=catalog.RoleTableIds.Order(StringComparer.Ordinal),menus=catalog.ConfigMenus.OrderBy(menu=>menu.Id,StringComparer.Ordinal),pages=catalog.ConfigPages.OrderBy(page=>page.Id,StringComparer.Ordinal),buttons=catalog.ConfigButtons.OrderBy(button=>button.GetProperty("id").ToString(),StringComparer.Ordinal)},
             rows=rows.OrderBy(row=>SqlRowStore.Id(row)).Select(row=>row.OrderBy(field=>field.Key,StringComparer.Ordinal).ToDictionary(field=>field.Key,field=>field.Value,StringComparer.Ordinal))
         };
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(source,JsonDefaults.Options)))).ToLowerInvariant();
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(source,RolePermissionRevisionJson.Options)))).ToLowerInvariant();
     }
     private static string[] Values(string value){try{return JsonSerializer.Deserialize<string[]>(value)??[];}catch(JsonException){return [];}}
     private static string[] PageActions(PageMetadata page)
