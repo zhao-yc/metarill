@@ -18,6 +18,8 @@ internal static class GenerationCapabilityAudit
         foreach(var table in model.Tables)
         foreach(var page in table.Pages)
         {
+            // 原统计声明的类型和可读边界必须在完整包stage创建之前验证。
+            _=OriginalListStatisticsCompilation.ForPage(model,table,page);
             if (ManagerCredentialCompilation.Gap(table,page) is {} credentialGap) gaps.Add(new(page.Source.Id,"password","detail",credentialGap));
             // 虚拟列在模型物理列过滤前存在；固定目录声明不能因该过滤而从Full门禁静默消失。
             foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==page.Source.Id))

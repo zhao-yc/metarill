@@ -105,7 +105,8 @@ internal static partial class OriginalUniappListRenderer
             {
                 var field = Field(model, page, column); var sum = Integer(field.Extra, "sumKind", 0);
                 result.Append("<uni-td>");
-                if (sum is >= 1 and <= 3) result.Append("<view>").Append(sum == 1 ? "合计:" : sum == 2 ? "全部:" : "平均:").Append("{{statistics.").Append(column.JsonName).Append(".total}}").Append(sum == 1 ? "" : "%").Append("</view>");
+                // 等待响应或切换身份时运行时会清空statistics；只保护属性访问，保留原页脚结构与文案。
+                if (sum is >= 1 and <= 3) result.Append("<view>").Append(sum == 1 ? "合计:" : sum == 2 ? "全部:" : "平均:").Append("{{statistics.").Append(column.JsonName).Append(" && statistics.").Append(column.JsonName).Append(".total}}").Append(sum == 1 ? "" : "%").Append("</view>");
                 result.Append("</uni-td>");
             }
             result.Append("</uni-tr>");

@@ -174,7 +174,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
             result.Append(FixedRoleCheckboxRenderer.Service(model,table,page));
             result.Append(FixedRoleAdminNameRenderer.Service(model,table,page));
             result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
@@ -497,7 +497,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"        var record = await service.Detail{suffix}Async(id, parentId, Actor(\"detail\"), cancellationToken);")
             .AppendLine($"        return record is null ? R<{page.Name}Vo>.Error(\"数据不存在或无权限。\") : R<{page.Name}Vo>.Success(record);").AppendLine("    }")
             .AppendLine("    /// <summary>兼容现有分页响应与分页路由。</summary>").AppendLine("    [HttpPost(\"page\")]")
-            .AppendLine($"    public async Task<R<PageResult<{page.Name}Vo>>> Page([FromBody] PageRequest request, CancellationToken cancellationToken) => R<PageResult<{page.Name}Vo>>.Success(await service.Page{suffix}Async(request, Actor(\"list\"), cancellationToken));")
+            .Append(OriginalListStatisticsCompilation.Controller(page))
             .AppendLine("    /// <summary>数量接口沿用相同页面范围。</summary>").AppendLine("    [HttpPost(\"count\")]")
             .AppendLine($"    public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count{suffix}Async(request, Actor(\"count\"), cancellationToken));");
         if (page.Source.IsNew == 1)
