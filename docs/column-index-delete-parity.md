@@ -17,4 +17,15 @@ C# 保护位于 `ConfigurationMutationObserver.DeleteOwnedMetadata` 的同 Sessi
 
 真实 MySQL 测试源码 `ColumnIndexDeleteMySqlTests` 复用真实 TestServer、认证、生成 Service 和索引工作台，在两个随机元数据项目下建立已登记根表/列/页/索引图。正常新增、禁用、移除索引和删除均经原 HTTP 生命周期；首笔索引保存仅接受工作台返回的精确 index/child ID，并核对预期表、列、名称、真实会话创建/修改账号和项目，完成全字段基线登记；Capture 不认领其它同表索引，缺失、陌生新增或字段漂移即保留现场。禁用和移除前再次核对全部已登记记录，工作台 revision 防止检查后的旧快照覆盖；写后只接受本次明确启用/更新时间或墓碑变化。清理先逐边核验归属，再只移除已跟踪 ID，并复核两随机项目含墓碑零残留，失败则保留现场。测试不改平台既有配置图，不建业务物理表。新增索引图跟踪同时用于既有派生 API fixture，禁止仅凭随机项目自动接受未知根或跨表引用。
 
-本切片只准备和编译实库测试源码，未运行实库或浏览器；无隔离配置时该用例明确跳过，不能记为通过。MCP 覆盖结论来自实际源码同 Service 调用链，本片没有执行新的 MCP 会话实测。本片已实际运行离线 `ConfigurationMaterializedValueTests`：新增 14 项及既有 78 项，共 92/92、零跳过、`-warnaserror` 零警告。API 测试源码 Release 编译零警告/零错误，准确发现该 1 项后因缺少私有数据库配置跳过（0 执行），不计实库通过。日志与 TRX 保存在私有 `.local/column-index-delete-results/`，不提交。
+前序源码准备阶段实际运行离线 `ConfigurationMaterializedValueTests`：新增 14 项及既有 78 项，共 92/92、零跳过、`-warnaserror` 零警告；API 测试源码 Release 编译零警告/零错误。该阶段未提供私有数据库配置，准确发现 1 项后跳过、0 执行，不计实库通过，原日志与 TRX 保存在私有 `.local/column-index-delete-results/`。MCP 覆盖结论来自实际源码同 Service 调用链，本片没有执行新的 MCP 会话实测。
+
+
+## 2fd46f8 真实MySQL集成补验
+
+2026-10-20，主协调者在 Server-200 独立测试库以冻结源 `2fd46f89a081b09d3532ed43381ebffc6ccd55f6` 执行 `ColumnIndexDeleteMySqlTests`，**1/1 通过、零失败、零跳过**（约 11.9 秒）。实际原 HTTP、认证、生成 Service 与索引工作台验证：活动及禁用索引引用都拒绝删列，源列和自有完整元数据图保持不变；工作台显式移除引用后可删列，页面字段联动软删且旧索引子行墓碑保留；整表删除先清自有索引及子行，再删列，两个随机项目已登记图含墓碑零残留。没有执行物理 DDL，也没有改动平台既有配置图。
+
+随后 API **72/72**、Metadata **166/166**、非 RR Agent **187/187** 均零失败、零跳过，Api Release 零警告/零错误。专项 1 项已包含在 API 72 项中，不另累计；这些完整工程包含离线规则/合同用例，不能称每项都执行 SQL。Agent 187 包含此前新增的 5 项固定角色读取用途用例，与早先非 RR 182 是不同冻结批次，不相加或回写旧统计。这批不是新的 RR、MCP 会话、浏览器、性能或设备验收。
+
+原始证据保留于主仓库私有 `.local/column-index-delete-mysql-integrated-v2.trx`（SHA256 `c71ad97a2a37d147d690c637f2fff6a376ac085c6991dcffd704d7cf73de0e97`）、`.local/column-index-delete-{api-full,metadata-full,agent-nonrr}-integrated.trx` 及同名日志；Release 为 `.local/column-index-delete-api-release-integrated.log`。
+
+首轮 `.local/column-index-delete-mysql-integrated.trx` 的 0/1 失败保留：测试错误传 `sortNo=0`，被原解析规则在事务前拒绝，未写索引，不能归为删列产品回归或改成通过。仅测试输入与回执预期随后修为首列正规化的 10。旧 `e959d8a31d0a4292b6c2363531a9c5d5` 夹具由主协调者经专用 Plan→Execute 清理：24 条精确元数据及 1 条会话，22 条原完整快照匹配、25 条锁后指纹匹配，无未知引用，含墓碑零残留，无 DDL 或授权操作。证据在 `.local/column-index-delete-failed-fixture-cleanup-20261020/{plan.json,cleanup.json,plan.log,execute.log}`；`cleanup.json` SHA256 为 `d4ec80b4579905a84c86bba01543d5aec062ebccf0e8e8be0ff4eec90a38886e`。不以该失败现场清理替代后续 v2 的独立成功结果。
