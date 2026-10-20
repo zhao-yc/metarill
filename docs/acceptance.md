@@ -386,3 +386,13 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 随后首次实际确认生成项目配置，页面报 `getStorageSync is not a function`，尚无任务入队。实际HBuilderX产物将明确的 `uni.getStorageSync` 改为按需导入调用，但传给桥接的对象简写仍引用原始全局 `uni`。首页只增加五个明确方法的转接，供编译器转换，保留原模板/样式/确认与三个入口。新回归在修复前6过1失败，修复后7/7；前端完整261/261、零跳过，日志分别为 `.local/online-browser-hbx-api-fix/{bridge-red,bridge-green,frontend-all}.log`。该离线修复结果尚需重新HBuilderX构建和真实三按钮文件应用验证，不能把登录、授权、预览或排队等同于完成。
 
 本轮实际失败、取消截图、独立旧包及预览均保留在私有 `metarill-contrib/online-helper-live-a2e6b522e37e46b9/control`。未改元数据、账号、角色、业务行或数据库结构，未重授锁观测权限。完整安全管理发布、初始化、独立宿主RR、跨端和同条件性能仍待完成。
+
+## 2026-10-20 原按钮实际应用与工作台revision回归
+
+原三按钮已通过真实原前端→OAuth绑定助手→固定C#CLI对独占旧版工程实际应用，主组三请求/一个应用组，26文件写入、0删除，原CLI严格证明事务committed；四保护文件前后摘要相同。第一条完成提示因并发覆盖未被主组DOM记录，后续单独新增一条原配置按钮NoOp补验，545文件摘要保持、同计划再预览0变更、无新增journal，真实完成提示已截图。独立漂移目标被拒且后来编辑保留。本轮grant与网页会话均通过原入口撤销/退出；仅本轮两个服务和Node轮询停止，四封存服务未动。冻结组合及全部证据边界见[原按钮浏览器验收](testing/online-helper-browser-acceptance.md#2026-10-20-原三按钮真实浏览器与本机文件闭环)；不是三提示各自独立截图、迟到身份切换或整个项目完成声明。
+
+5565098的PR/push run `39447794060`、`39447784145` 最终前端2成功、后端4失败；四后端均为同一个Agent反射夹具错误，179通过/1失败/25跳过/205总计，`RolePermissionRevisionCompatibilityTests`调用旧四参数RealmCatalog构造，而新展示字段为第五参数。未执行的后续工程不能算通过，c4六绿不移用于此冻结。修复仅补测试夹具真实构造，并追加展示表名变更不影响原JSON revision的断言，未改变生产revision或权限规则。
+
+本机完整Agent离线结果180通过/0失败/25跳过/205总计，TRX `.local/agent-revision-fixture-fix/agent-revision-fixture-fix.trx` SHA256 `f42d4bad81aa72d3242dec3d4e17ef9700e83795945b49acf484e08b1a09bfff`。再对已钉住的Server-200测试库独占运行全部非RR Agent，实际202/202、零失败/零跳过，含22个真实MySQL场景，其余为离线合同；没有将202全称为实库，未运行3个RR或增加锁观测权限。`.local/agent-workbench-nonrr-current/agent-workbench-nonrr-current.trx` SHA256 `a3789a9e2664700a067ba3cceddee46760dc8f46e40477b9f70500e77b578da8`。
+
+测试后的独立只读实例pin与精确回查，按本轮三份完成收据核52行ID/随机名称含墓碑均无残留；`.local/agent-workbench-nonrr-current/cleanup-verification.json` SHA256 `81140263b6e56e08607e754a1f1699ac2041f961a4e080e727cb2ece0491ce4e`。随后三张performance_schema表仅指定列WHERE1=0检查全部1142，实时确认观测权限仍不可读，本轮未GRANT/REVOKE；`observation-proof.json` SHA256 `94f6ce9a48d7ab216d88f89e0002109b327ca141dd25e3f8a09c7fc98a06eef1`。新提交的远端CI需另收终，不更改556失败历史。

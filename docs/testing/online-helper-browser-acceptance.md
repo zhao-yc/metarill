@@ -64,3 +64,19 @@ node tools/acceptance/online-helper-browser.mjs verify --input <私有plan与evi
 `verifyReceiptStructure` 只检查关联：三动作/UUID、账号/项目/grant/绑定、同快照、1–3 组和精确集合、服务端/本机计数及摘要、committed/NoOp 证明形状、四保护摘要与浏览器外部复核。始终返回 `acceptanceCompleted:false`、`requiresLiveCaptureAndRootReview:true`，不能用手工 JSON、合约替身或本测试当作实际 Apply / HTTP / 浏览器完成。
 
 本轮没有 DB、HTTP、OAuth、服务或浏览器实测，没有更改原三入口、框架门禁、元数据或生成产物。平台 BackendOnly 自举、RuntimeA、三 partial、5 Custom 和 Agent 门禁不因本工具而关闭。最终 Node 内置测试 **8/8 通过，零跳过**，并加入现有 CI Node 测试入口；模块语法检查通过。首轮 7 过 / 1 失败仅为新测试把绑定所需的 `--mode apply` 参数误认为执行 `update apply`，纠正断言后通过，日志分别保留在 `.local/online-helper-browser/runner-offline-first.log` 与 `runner-offline-final.log`，不累计重复次数。
+
+## 2026-10-20 原三按钮真实浏览器与本机文件闭环
+
+本批后端、固定CLI及可信源码绑定为 `d46ac893d4083f0b93cc73a55d03f668d41919a9`；原前端首轮同d46，实际错误修复后前端独立冻结为 `55650980f4d07f60905cf47e157ed050c9683175`。不能把该组合说成556后端全量实测。原uni-app页面、模板、CSS和确认方式保持，修复仅显式转接HBuilderX按需API。
+
+真实浏览器依次完成原账号登录、默认设备/示例项目选择、本轮自有助手授权、原确认取消及三个原按钮分别确认。取消后独占队列任务和组均0。真实项目导出Full候选按单范围预览，三项均明确要求另两项；只读预览没有apply。三个实际UUID分别为 `b2a4d608-c6d1-4ebf-a08d-a6530f5eceef`、`56e64fdc-f6f0-4344-bcfd-19d8bd24e05c`、`200deaa1-490e-4c95-84d4-eff0a496d1e8`，恰好形成一个已确认三动作组 `fbd5027c-8d40-46aa-8e3a-eec6a087ebf1`，发布元数据SHA256 `c0d97d4e5bc2b5bcc7ee4fd380cf0e27dd294be70d0bbcbb275ed577d62844df`。
+
+三个原HTTP查询均200、`status=applied/outcome=applied/applied=true`，同组回执实际写26文件、删0、保留19；固定原C#CLI独立 `apply-status` 返回 `committed`，事务 `4a68538512814678ab64c58231ace9fe`，计划SHA256 `d1a58a6c79ff132bdbbe774d3649234bf06faeefd5d1a9f46cb27b4da22d7a8e`。手写Host扩展、私有配置、DemoCustomerService partial和manifest AppID四文件前后摘要全部相同。
+
+主组真实DOM捕获到“同步运行时完成”“生成全部页面完成”，截图中完成提示与依赖窗有重叠；未宣称主组三提示均被独立截图捕获。另行写明补验计划后，只新增一次原“生成项目配置”请求 `2f4a2c91-b6c5-4bb1-911d-43391ef8d05e`，单独捕获其真实完成提示。该补验是合法NoOp：写0/删0，545个目标文件（包含原事务记录）前后摘要全相同，固定CLI再次preview得到同计划SHA256 `aeb08be45a202f6784739d9eb424c3a991321d2a6e854815a48b26f9a4c54a7f`、0项变更，journal数量仍1。额外请求不计入原三请求，不以没有新journal猜测成功。
+
+独立自有漂移阴性在正常preview之后修改其受管文件；原CLI apply退出1并明确拒绝，后来编辑摘要保持、journal0，不污染正例或自动恢复。离页/切换身份迟到反例尚未现场执行，已有离线测试不移用为浏览器结论。本批并未满足工具要求的“主组三提示各自截图”，没有伪造手工证据让结构校验冒认完整浏览器验收。
+
+私有 `metarill-contrib/online-helper-live-a2e6b522e37e46b9/control/live-integrated-receipt.json` SHA256 `73d223c602e94918d753fa588b2a06d10faf64098de336a29993b044a66ca271` 关联原HTTP、CLI journal、文件摘要、真实截图和失败记录。原CLI logout已撤销本轮grant；原网页再查本连接和绑定均不可用，配置无访问/刷新令牌。原界面退出后实际返回根路由登录页、自己的登录槽已无；首次错误等待custom/login路由的超时保留，未重试注销。仅本轮8088/5202与自己的Node轮询已按PID/路径/启动时间停止，四封存服务未动。队列任务、组、候选、plan、journal、失败与阴性现场保留。
+
+该批是原三按钮到独占工程文件事务的实际闭环，不是业务宿主、独立安全管理CRUD、真机、性能或生产部署验收。没有写元数据、账号、角色、业务行或DDL，没有增加观测权限；完整计划继续进行。
