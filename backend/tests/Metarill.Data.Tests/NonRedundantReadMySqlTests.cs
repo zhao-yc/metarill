@@ -38,6 +38,7 @@ public sealed class NonRedundantReadMySqlTests
             rowsHash=await RowsHash();
             var statistics=await reader.ReadStatisticsAsync(plan,[],["bill_amount"]);Assert.Equal(4,statistics.Total);Assert.Equal(31m,statistics.Sums["bill_amount"]);
             var all=await reader.ReadPageAsync(plan,[],[],1,20);Assert.Equal(4,all.Total);Assert.Equal(4,all.Records.Count);Assert.All(all.Records,row=>Assert.Equal(7,row.Count));
+            var bounded=await reader.ReadRowsAsync(plan,[new("bill_name",FixedReadComparison.IsNotNull)],[new("bill_name")],1);Assert.Equal(first,Convert.ToInt64(Assert.Single(bounded)["id"],CultureInfo.InvariantCulture));
             var unpaged=await reader.ReadPageAsync(plan,[],[],1,0,unpaged:true);Assert.Equal(4,unpaged.Records.Count);
             var hiddenPlan=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["id","name"],["bill_name"]);var hiddenOutput=await reader.ReadPageAsync(hiddenPlan,[new("bill_name",FixedReadComparison.Contains,"%_!")],[],1,10);Assert.Equal(2,Assert.Single(hiddenOutput.Records).Count);
             var selected=await reader.ReadPageAsync(plan,[new("id",FixedReadComparison.In,new object?[]{first.ToString(CultureInfo.InvariantCulture),null})],[],1,10);Assert.Equal(first,Convert.ToInt64(Assert.Single(selected.Records)["id"],CultureInfo.InvariantCulture));Assert.Empty((await reader.ReadPageAsync(plan,[new("id",FixedReadComparison.In,Array.Empty<object?>())],[],1,10)).Records);

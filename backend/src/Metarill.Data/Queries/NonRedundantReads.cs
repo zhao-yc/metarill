@@ -35,6 +35,8 @@ public sealed class NonRedundantReader(DatabaseSession session)
     private readonly MySqlNonRedundantReader mysql=new(session);
     /// <summary>复用适配层完整范围和参数绑定，不扩展页面输出权限。</summary>
     public Task<FixedReadPage> PageAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken token=default,bool unpaged=false,string? projectId=null)=>mysql.ReadPageAsync(plan.MySql,filters,order,page,pageSize,token,unpaged,projectId);
+    /// <summary>有界导出按固定顺序读取原列投影，不发出不需要的COUNT。</summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> RowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken token=default,string? projectId=null)=>mysql.ReadRowsAsync(plan.MySql,filters,order,limit,token,projectId);
     /// <summary>统计不会继承分页或排序。</summary>
     public Task<FixedReadStatistics> StatisticsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<string> sums,CancellationToken token=default,string? projectId=null)=>mysql.ReadStatisticsAsync(plan.MySql,filters,sums,token,projectId);
 }

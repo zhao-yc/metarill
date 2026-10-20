@@ -14,6 +14,14 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     /// <summary>相同SQL范围用于总数与分页，派生值在数据库内先筛选、排序再分页。</summary>
     public async Task<FixedReadPage> ReadPageAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken=default,bool unpaged=false,string? projectId=null)
+        => await ReadAsync(plan,filters,order,page,pageSize,cancellationToken,unpaged,projectId,true);
+    /// <summary>有界导出只读明细，不额外执行分页总数；限制与查询验证仍共用固定读取入口。</summary>
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
+        IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null)
+        => (await ReadAsync(plan,filters,order,1,limit,cancellationToken,false,projectId,false)).Records;
+    /// <summary>分页和有界明细共用结构生成；是否求总数由服务固定用途决定。</summary>
+    private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal)
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(order);
@@ -29,8 +37,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var offset=checked(((long)page-1)*pageSize);
         return await OnConnection(async connection=>
         {
-            await using var count=Command(connection);Bind(count,projectId,filters);count.CommandText="SELECT COUNT(*)"+from;
-            var total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);
+            var total=0L;
+            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);count.CommandText="SELECT COUNT(*)"+from;total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);}
             await using var read=Command(connection);Bind(read,projectId,filters);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             read.CommandText="SELECT "+string.Join(",",plan.Outputs.Select(name=>plan.Expression(name)+" AS "+Q(name)))+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset");
             var records=new List<IReadOnlyDictionary<string,object?>>();await using var reader=await read.ExecuteReaderAsync(cancellationToken);

@@ -18,7 +18,7 @@ internal static class NonRedundantReadCompilation
     /// <summary>完整应用仍另有验收门槛；这里只开放已经接通的单值CRUD读取用途。</summary>
     internal static NonRedundantPagePlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
-        if(table.IsGlobal||page.Source.IsImport==1||page.Source.IsExport==1||ExportRenderer.Enabled(page)||ImportRenderer.Enabled(page))throw new InvalidOperationException("非冗余全局/导入导出读取仍待完整接线。");
+        if(table.IsGlobal||page.Source.IsImport==1||ImportRenderer.Enabled(page))throw new InvalidOperationException("非冗余全局/导入读取仍待完整接线。");
         if(table.Columns.Any(column=>column.Source.ControlKind is "CascadeTree" or "Title" or "Tab" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "SelectPage"||column.IsJsonArray))throw new InvalidOperationException("非冗余多值、级联、布局读取仍待接线。");
         if(page.Searchable.Any(column=>column.Source.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "datetime" or "date" or "time")))throw new InvalidOperationException("非冗余筛选字段类型尚未接线。");
         if(page.Scopes.Any(scope=>!Physical(model,table,scope.Column)))throw new InvalidOperationException("非冗余父范围必须绑定物理外键。");
