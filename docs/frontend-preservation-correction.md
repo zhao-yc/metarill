@@ -109,3 +109,18 @@ platform/demo再次正式生成两轮，175/14个归属产物与两份归属清�
 主线ceb1cc1集中实际固定页面范围和默认排序后，两个config_child名称筛选的原附加项目条件及id desc已证明与实际Query相同，原配置完整保留。主线IR/固定组件/固定Query/权限合同102/102、0失败、0跳过。正式platform/demo两轮191项产物及清单一致，24个手写partial不变；精确剩余4项详情关系Gap，API Release构建0警告0错误。证据为.local/original-fixed-query-integrated-ceb.trx及.local/original-regeneration-ceb1cc1，不与历史批次加总。
 
 平台最新HBuilderX命令仍为publish web --project E:/git/metarill/frontend/metarill_uni_admin --webTitle Metarill --webHosting false，实际成功；155文件、4799996字节，485项受管前端源前后不变，原logo、六页签PNG与新头像均在产物中逐字节核对。回执为.local/platform-web-ceb1cc1-f6518c72。本批仅声明Web构建与上述真实浏览器退出复验，原导入文件选择、复杂关系、真机和同条件性能仍待完成；Tiny Cloud按用户决定继续空key。
+
+
+## 固定父归属与物理派生值整合（2026-10-20）
+
+冻结8ff90cf已整合两处配置字段List的固定单跳父归属，以及原平台3项物理派生缓存写入。原List继续传既有parentId，服务器核实真实索引/页面及所属表后限定候选；原DOM、props、事件和索引普通CRUD关闭状态保持。派生字段从严格DTO/Agent写入白名单排除，原整entity的已知回显继续兼容；写前从真实目标当前读补实体与submitted，使保存回执正确，改名、排序、复制和自动补字段沿原项目锁及事务传播。没有新增DDL、自动历史回填或实时任意JOIN。
+
+主线离线组合130/130及配置派生规则6/6均0失败0跳过；正式platform/demo两轮191项产物/清单一致，24个手写partial不变，API Release构建0警告0错误。证据为.local/original-bound-derived-integrated-8ff.trx、.local/original-derived-metadata-integrated-8ff.trx及.local/original-regeneration-8ff90cf。平台元数据摘要d4122d5b665b9d9a50d5c237ff561f029d71d403182506bb5416f27797ad9088，剩余角色MultiCheckBoxDatabase与旧Java版本List两项Gap；完整包仍不跳过缺口门禁。
+
+本切片的真实MySQL HTTP、两连接锁及后续观察器回滚另行独占验证，当前不能据离线SQL/观察器测试标为已通过。派生当前读与引用传播增加SQL成本，尚无同条件性能结论。详细合同见fixed-parent-column-relations.md与materialized-derived-writes.md。
+
+## 原Excel选择流程的实际补验（2026-10-20）
+
+root在0da47d9冻结完整包通过原导入按钮及真实filechooser选两行Excel，合法批次显示“导入成功2条数据”。原列表从13变15，原姓名筛选“浏览器导入”精确2条，金额0和-88.5、否/是、2024-02-29及空日期均正确。坏批次首行合法、第二行金额“不是数字”，实际返回失败；只读回查两个人名均0行，原14行全部字段不变。当前16物理/15可见/1软删，新增两行均由root确认归属，最终内容SHA-256为3d5e0c60c52e92784efc31b875485f0a30b6a37c9e62ec7443ca8ceaf682c928。
+
+失败界面目前只给通用服务端错误。实际日志只记录HTTP失败而无异常类型/栈，不能把源码推断的转换异常冒作已采集日志；安全行/列提示与意外异常日志正在独立修复。一次会话过期后的导出初始化实际401，未取得两条导出字节，不能记作下载成功；重新登录后的原按钮另起实际批次。浏览器用户目录落盘仍待单独证据。

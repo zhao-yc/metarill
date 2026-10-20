@@ -7,10 +7,6 @@ namespace Metarill.Platform.Generated.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ConfigPageColumnPage6218036784398336CreateRequest
 {
-    [JsonPropertyName("configColumnColumnName")]
-    public Optional<string?> ConfigColumnColumnName { get; set; }
-    [JsonPropertyName("configColumnSortNo")]
-    public Optional<int?> ConfigColumnSortNo { get; set; }
     [JsonPropertyName("isImportant")]
     public Optional<int?> IsImportant { get; set; }
     [JsonPropertyName("name")]
@@ -82,10 +78,6 @@ public sealed class ConfigPageColumnPage6218036784398336CreateRequest
 public sealed class ConfigPageColumnPage6218036784398336UpdateRequest
 {
     public long Id { get; set; }
-    [JsonPropertyName("configColumnColumnName")]
-    public Optional<string?> ConfigColumnColumnName { get; set; }
-    [JsonPropertyName("configColumnSortNo")]
-    public Optional<int?> ConfigColumnSortNo { get; set; }
     [JsonPropertyName("isImportant")]
     public Optional<int?> IsImportant { get; set; }
     [JsonPropertyName("name")]

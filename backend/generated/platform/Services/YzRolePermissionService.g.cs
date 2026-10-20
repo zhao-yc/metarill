@@ -143,7 +143,7 @@ public partial class YzRolePermissionService
         await Task.CompletedTask;
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<ConfigMenu>> OptionsScope2063264600601714690_2063264600681406465Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<ISelect<ConfigMenu>> OptionsScope2063264600601714690_2063264600681406465Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents2063264600601714690Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
@@ -162,7 +162,7 @@ public partial class YzRolePermissionService
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigMenu2063264600681406465/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
-    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
     public async Task<PageResult<GeneratedOption>> OptionsPage2063264600601714690_2063264600681406465Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();
@@ -187,7 +187,7 @@ public partial class YzRolePermissionService
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<YzRole>> OptionsScope2063264600601714690_2063264600941453314Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<ISelect<YzRole>> OptionsScope2063264600601714690_2063264600941453314Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents2063264600601714690Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
@@ -206,7 +206,7 @@ public partial class YzRolePermissionService
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdYzRole2063264600941453314/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
-    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
     public async Task<PageResult<GeneratedOption>> OptionsPage2063264600601714690_2063264600941453314Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();

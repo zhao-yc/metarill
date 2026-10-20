@@ -35,6 +35,8 @@ public partial class ConfigPageService
     private async Task ValidateRelations1868973685063311361Async(ConfigPage entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
+        if (!creating && submitted.Contains("config_table_table_name") && !submitted.Contains("config_table_id")) throw new InvalidOperationException("派生字段只能随已声明关联重算。");
+        if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is null) { entity.ConfigTableTableName = null; submitted.Add("config_table_table_name"); }
         if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is not null)
         {
             var relationIds1 = new[] { entity.ConfigTableId.Value };
@@ -42,6 +44,9 @@ public partial class ConfigPageService
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u914D\u7F6E\u8868");
+            var derivedRows1 = await relationQuery1.ForUpdate().ToListAsync(row => new { row.Id, row.TableName }, cancellationToken);
+            if (derivedRows1.Count != 1 || derivedRows1[0].Id != relationIds1[0]) throw new InvalidOperationException("派生关联已变化、已删除或不属于当前项目。");
+            entity.ConfigTableTableName = derivedRows1[0].TableName; submitted.Add("config_table_table_name");
         }
         if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
         {
@@ -148,7 +153,7 @@ public partial class ConfigPageService
         if (!await sourceParent0.AnyAsync(cancellationToken)) throw new InvalidOperationException("关联父记录不存在、已删除或不属于当前项目。");
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<YzAdminType>> OptionsScope1868973685063311361_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<ISelect<YzAdminType>> OptionsScope1868973685063311361_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents1868973685063311361Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
@@ -166,7 +171,7 @@ public partial class ConfigPageService
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdYzAdminType2200000000000000105/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
-    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
     public async Task<PageResult<GeneratedOption>> OptionsPage1868973685063311361_2200000000000000105Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();
@@ -198,7 +203,6 @@ public partial class ConfigPageService
         var entity = await Scope1868973685063311361(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
-        if (request.ConfigTableTableName.IsSpecified) { entity.ConfigTableTableName = request.ConfigTableTableName.Value; submitted.Add("config_table_table_name"); }
         if (request.OrderBy.IsSpecified) { entity.OrderBy = request.OrderBy.Value; submitted.Add("order_by"); }
         if (request.WhereSql.IsSpecified) { entity.WhereSql = request.WhereSql.Value; submitted.Add("where_sql"); }
         if (request.ExactDataManageMatchField.IsSpecified) { entity.ExactDataManageMatchField = request.ExactDataManageMatchField.Value; submitted.Add("exact_data_manage_match_field"); }
@@ -285,6 +289,8 @@ public partial class ConfigPageService
     private async Task ValidateRelations1869016706289577986Async(ConfigPage entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
+        if (!creating && submitted.Contains("config_table_table_name") && !submitted.Contains("config_table_id")) throw new InvalidOperationException("派生字段只能随已声明关联重算。");
+        if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is null) { entity.ConfigTableTableName = null; submitted.Add("config_table_table_name"); }
         if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is not null)
         {
             var relationIds1 = new[] { entity.ConfigTableId.Value };
@@ -292,6 +298,9 @@ public partial class ConfigPageService
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u914D\u7F6E\u8868");
+            var derivedRows1 = await relationQuery1.ForUpdate().ToListAsync(row => new { row.Id, row.TableName }, cancellationToken);
+            if (derivedRows1.Count != 1 || derivedRows1[0].Id != relationIds1[0]) throw new InvalidOperationException("派生关联已变化、已删除或不属于当前项目。");
+            entity.ConfigTableTableName = derivedRows1[0].TableName; submitted.Add("config_table_table_name");
         }
         if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
         {
@@ -390,7 +399,7 @@ public partial class ConfigPageService
         await Task.CompletedTask;
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<YzAdminType>> OptionsScope1869016706289577986_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<ISelect<YzAdminType>> OptionsScope1869016706289577986_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents1869016706289577986Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
@@ -409,7 +418,7 @@ public partial class ConfigPageService
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdYzAdminType2200000000000000105/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
-    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
     public async Task<PageResult<GeneratedOption>> OptionsPage1869016706289577986_2200000000000000105Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();
@@ -441,7 +450,6 @@ public partial class ConfigPageService
         var entity = await Scope1869016706289577986(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
-        if (request.ConfigTableTableName.IsSpecified) { entity.ConfigTableTableName = request.ConfigTableTableName.Value; submitted.Add("config_table_table_name"); }
         if (request.OrderBy.IsSpecified) { entity.OrderBy = request.OrderBy.Value; submitted.Add("order_by"); }
         if (request.WhereSql.IsSpecified) { entity.WhereSql = request.WhereSql.Value; submitted.Add("where_sql"); }
         if (request.ExactDataManageMatchField.IsSpecified) { entity.ExactDataManageMatchField = request.ExactDataManageMatchField.Value; submitted.Add("exact_data_manage_match_field"); }
@@ -515,6 +523,8 @@ public partial class ConfigPageService
     private async Task ValidateRelations6191175925956608Async(ConfigPage entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
+        if (!creating && submitted.Contains("config_table_table_name") && !submitted.Contains("config_table_id")) throw new InvalidOperationException("派生字段只能随已声明关联重算。");
+        if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is null) { entity.ConfigTableTableName = null; submitted.Add("config_table_table_name"); }
         if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is not null)
         {
             var relationIds1 = new[] { entity.ConfigTableId.Value };
@@ -522,6 +532,9 @@ public partial class ConfigPageService
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u914D\u7F6E\u8868");
+            var derivedRows1 = await relationQuery1.ForUpdate().ToListAsync(row => new { row.Id, row.TableName }, cancellationToken);
+            if (derivedRows1.Count != 1 || derivedRows1[0].Id != relationIds1[0]) throw new InvalidOperationException("派生关联已变化、已删除或不属于当前项目。");
+            entity.ConfigTableTableName = derivedRows1[0].TableName; submitted.Add("config_table_table_name");
         }
         if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
         {
@@ -633,7 +646,7 @@ public partial class ConfigPageService
         await Task.CompletedTask;
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<ConfigTable>> OptionsScope6191175925956608_1671100304320462849Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<ISelect<ConfigTable>> OptionsScope6191175925956608_1671100304320462849Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents6191175925956608Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
@@ -652,7 +665,7 @@ public partial class ConfigPageService
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigTable1671100304320462849/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
-    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
     public async Task<PageResult<GeneratedOption>> OptionsPage6191175925956608_1671100304320462849Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();
@@ -677,7 +690,7 @@ public partial class ConfigPageService
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<YzAdminType>> OptionsScope6191175925956608_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<ISelect<YzAdminType>> OptionsScope6191175925956608_2200000000000000105Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents6191175925956608Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
@@ -696,7 +709,7 @@ public partial class ConfigPageService
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdYzAdminType2200000000000000105/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
-    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
     public async Task<PageResult<GeneratedOption>> OptionsPage6191175925956608_2200000000000000105Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();
@@ -730,7 +743,6 @@ public partial class ConfigPageService
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         entity.IsSave = JsonSerializer.Deserialize<int?>("0", JsonOptions);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
-        if (request.ConfigTableTableName.IsSpecified) { entity.ConfigTableTableName = request.ConfigTableTableName.Value; submitted.Add("config_table_table_name"); }
         if (request.OrderBy.IsSpecified) { entity.OrderBy = request.OrderBy.Value; submitted.Add("order_by"); }
         if (request.WhereSql.IsSpecified) { entity.WhereSql = request.WhereSql.Value; submitted.Add("where_sql"); }
         if (request.ConfigTableId.IsSpecified) { entity.ConfigTableId = request.ConfigTableId.Value; submitted.Add("config_table_id"); }
@@ -818,7 +830,6 @@ public partial class ConfigPageService
         var entity = await Scope6191175925956608(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
-        if (request.ConfigTableTableName.IsSpecified) { entity.ConfigTableTableName = request.ConfigTableTableName.Value; submitted.Add("config_table_table_name"); }
         if (request.OrderBy.IsSpecified) { entity.OrderBy = request.OrderBy.Value; submitted.Add("order_by"); }
         if (request.WhereSql.IsSpecified) { entity.WhereSql = request.WhereSql.Value; submitted.Add("where_sql"); }
         if (request.ConfigTableId.IsSpecified) { entity.ConfigTableId = request.ConfigTableId.Value; submitted.Add("config_table_id"); }

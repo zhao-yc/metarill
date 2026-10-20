@@ -19,9 +19,9 @@ public partial class ConfigPageColumnService
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
     private readonly IEnumerable<IRecordMutationGuard> guards;
-
+    private readonly IRuntimeAuthorization? relationAuthorization;
     /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
-    public ConfigPageColumnService(DatabaseSession session, ConfigPageColumnMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? [];  }
+    public ConfigPageColumnService(DatabaseSession session, ConfigPageColumnMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null, IRuntimeAuthorization? relationAuthorization = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; this.relationAuthorization = relationAuthorization; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -35,6 +35,10 @@ public partial class ConfigPageColumnService
     private async Task ValidateRelations6218036784398336Async(ConfigPageColumn entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
+        if (!creating && submitted.Contains("config_column_column_name") && !submitted.Contains("config_column_id")) throw new InvalidOperationException("派生字段只能随已声明关联重算。");
+        if ((creating || submitted.Contains("config_column_id")) && entity.ConfigColumnId is null) { entity.ConfigColumnColumnName = null; submitted.Add("config_column_column_name"); }
+        if (!creating && submitted.Contains("config_column_sort_no") && !submitted.Contains("config_column_id")) throw new InvalidOperationException("派生字段只能随已声明关联重算。");
+        if ((creating || submitted.Contains("config_column_id")) && entity.ConfigColumnId is null) { entity.ConfigColumnSortNo = null; submitted.Add("config_column_sort_no"); }
         if ((creating || submitted.Contains("config_column_id")) && entity.ConfigColumnId is not null)
         {
             var relationIds1 = new[] { entity.ConfigColumnId.Value };
@@ -42,6 +46,10 @@ public partial class ConfigPageColumnService
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u5217");
+            var derivedRows1 = await relationQuery1.ForUpdate().ToListAsync(row => new { row.Id, row.ColumnName, row.SortNo }, cancellationToken);
+            if (derivedRows1.Count != 1 || derivedRows1[0].Id != relationIds1[0]) throw new InvalidOperationException("派生关联已变化、已删除或不属于当前项目。");
+            entity.ConfigColumnColumnName = derivedRows1[0].ColumnName; submitted.Add("config_column_column_name");
+            entity.ConfigColumnSortNo = derivedRows1[0].SortNo; submitted.Add("config_column_sort_no");
         }
         if ((creating || submitted.Contains("config_page_id")) && entity.ConfigPageId is not null)
         {
@@ -148,7 +156,53 @@ public partial class ConfigPageColumnService
         if (!await sourceParent0.AnyAsync(cancellationToken)) throw new InvalidOperationException("关联父记录不存在、已删除或不属于当前项目。");
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<ConfigPage>> OptionsScope6218036784398336_1676901024972058625Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<ISelect<ConfigColumn>> OptionsScope6218036784398336_1676901024774926338Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
+    {
+        targetParentId = (await ResolveBound6218036784398336_1676901024774926338Async(parentId, targetParentId, actor, locking, requireSourceList, cancellationToken)).ToString(CultureInfo.InvariantCulture);
+        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException("\u5173\u8054\u76EE\u6807\u8303\u56F4\u8981\u6C42\u6709\u6548 targetParentId\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigColumn1676901024774926338/page \u5206\u9875\u5408\u540C\u3002");
+        var query = session.Select<ConfigColumn>();
+        query = query.Where(entity => entity.DeleteNo == null);
+        query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        query = query.Where(entity => entity.ConfigTableId == long.Parse(targetParentId!, CultureInfo.InvariantCulture));
+        // 读取以同句相关范围防换表；写入已持有源父和归属当前读锁，不混入旧一致性快照。
+        if (!locking) query = ApplyBoundScope6218036784398336_1676901024774926338(query, long.Parse(parentId!, NumberStyles.None, CultureInfo.InvariantCulture), actor);
+        return query;
+    }
+    /// <summary>旧数组端点最多 5000 项，超限明确要求使用分页，不返回截断结果。</summary>
+    public async Task<IReadOnlyList<GeneratedOption>> Options6218036784398336_1676901024774926338Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken, string? targetParentId = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var query = await OptionsScope6218036784398336_1676901024774926338Async(request.ParentId, targetParentId, actor, cancellationToken);
+        var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigColumn1676901024774926338/page \u5206\u9875\u67E5\u8BE2\u3002");
+        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
+    public async Task<PageResult<GeneratedOption>> OptionsPage6218036784398336_1676901024774926338Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request); request.Validate();
+        var query = await OptionsScope6218036784398336_1676901024774926338Async(request.ParentId, request.TargetParentId, actor, cancellationToken);
+        if (!string.IsNullOrEmpty(request.Keyword))
+        {
+            var keyword = request.Keyword;
+            query = query.Where(entity => entity.Name != null && entity.Name.Contains(keyword));
+        }
+        var total = await query.CountAsync(cancellationToken);
+        var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Page(request.PageNo, request.PageSize).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        return new(entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+    }
+    /// <summary>已选回读忽略当前关键词，但不得扩大项目、页面或控件范围。</summary>
+    public async Task<IReadOnlyList<GeneratedOption>> OptionsSelected6218036784398336_1676901024774926338Async(RelationOptionsSelectedRequest request, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();
+        var query = await OptionsScope6218036784398336_1676901024774926338Async(request.ParentId, request.TargetParentId, actor, cancellationToken);
+        if (selected.Length == 0) return [];
+        var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
+        return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
+    private async Task<ISelect<ConfigPage>> OptionsScope6218036784398336_1676901024972058625Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents6218036784398336Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
@@ -166,7 +220,7 @@ public partial class ConfigPageColumnService
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigPage1676901024972058625/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
-    /// <summary>关键词参数化，分页和数量基于同一范围，固定按名称及 ID 升序。</summary>
+    /// <summary>关键词参数化，分页和数量基于同一范围；固定声明排序追加主键，其余沿用名称和ID。</summary>
     public async Task<PageResult<GeneratedOption>> OptionsPage6218036784398336_1676901024972058625Async(RelationOptionsPageRequest request, RuntimeActor actor, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();
@@ -190,6 +244,49 @@ public partial class ConfigPageColumnService
         if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
+    /// <summary>未知绑定在任何读取之前拒绝，BackendOnly仍保留可编译的明确失败入口。</summary>
+    private static void RejectBound6218036784398336(string reason) => throw new InvalidOperationException(reason);
+    /// <summary>目标SQL再次关联真实源父与归属表，避免多语句读取间换表而返回旧范围候选。</summary>
+    private ISelect<ConfigColumn> ApplyBoundScope6218036784398336_1676901024774926338(ISelect<ConfigColumn> query, long sourceKey, RuntimeActor actor)
+    {
+        query = query.Where(row => session.Orm.Select<ConfigPage>().Where(parent => parent.Id == sourceKey && parent.ConfigTableId == row.ConfigTableId && parent.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture) && parent.DeleteNo == null).Any());
+        return query.Where(row => session.Orm.Select<ConfigTable>().Where(owner => owner.Id == row.ConfigTableId && owner.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture) && owner.DeleteNo == null).Any());
+    }
+    /// <summary>来源读取与目标读取分别授权；写入已有来源操作门禁，不能把请求Actor当真实授权。</summary>
+    private void AuthorizeBound6218036784398336_1676901024774926338(RuntimeActor actor, bool requireSourceList)
+    {
+        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("固定关系要求真实当前身份。");
+        if (requireSourceList) relationAuthorization.RequirePagePermission("6218036784398336", "list");
+        relationAuthorization.RequirePagePermission("6217715532627968", "list");
+    }
+    /// <summary>固定源父只投影已声明owner字段；显式targetParentId仅作一致性检查，不能选择目标范围。</summary>
+    private async Task<long> ResolveBound6218036784398336_1676901024774926338Async(string? parentId, string? targetParentId, RuntimeActor actor, bool locking, bool requireSourceList, CancellationToken cancellationToken)
+    {
+        AuthorizeBound6218036784398336_1676901024774926338(actor, requireSourceList);
+        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceKey) || sourceKey <= 0) throw new ArgumentException("固定关系要求有效来源parentId。");
+        if (locking && session.CurrentTransaction is null) throw new InvalidOperationException("固定关系写入校验必须加入当前事务。");
+        var sourceQuery = session.Select<ConfigPage>().Where(row => row.Id == sourceKey && row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        sourceQuery = sourceQuery.Where(row => row.DeleteNo == null);
+        if (locking) sourceQuery = sourceQuery.ForUpdate();
+        var sources = await sourceQuery.Limit(1).ToListAsync(row => new { row.Id, OwnerId = row.ConfigTableId }, cancellationToken);
+        var owner = sources.SingleOrDefault()?.OwnerId;
+        if (owner is not {} derived || derived <= 0) throw new InvalidOperationException("来源父不存在、已删除、跨项目或未声明有效归属。");
+        var ownerQuery = session.Select<ConfigTable>().Where(row => row.Id == derived && row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        ownerQuery = ownerQuery.Where(row => row.DeleteNo == null);
+        if (locking) ownerQuery = ownerQuery.ForUpdate();
+        if ((await ownerQuery.Limit(1).ToListAsync(row => row.Id, cancellationToken)).Count != 1) throw new InvalidOperationException("目标父不存在、已删除或不属于当前项目。");
+        if (targetParentId is not null && (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var hinted) || hinted != derived)) throw new ArgumentException("targetParentId与服务器固定归属不一致。");
+        return derived;
+    }
+    /// <summary>最终实体的来源父和关联值必须处于同一固定归属；目标越界时整笔写入回滚。</summary>
+    private async Task ValidateBound6218036784398336_1676901024774926338Async(ConfigPageColumn entity, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        var parentId = Convert.ToString(entity.ConfigPageId, CultureInfo.InvariantCulture);
+        var query = await OptionsScope6218036784398336_1676901024774926338Async(parentId, null, actor, cancellationToken, true, false);
+        var selectedId = entity.ConfigColumnId!.Value;
+        var selected = await query.Where(row => row.Id == selectedId).ForUpdate().Limit(1).ToListAsync(row => row.Id, cancellationToken);
+        if (selected.Count != 1) throw new InvalidOperationException("关联字段不在来源父对应的目标范围内。");
+    }
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
     public Task<ConfigPageColumnPage6218036784398336Vo> Update6218036784398336Async(ConfigPageColumnPage6218036784398336UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
@@ -197,8 +294,6 @@ public partial class ConfigPageColumnService
         await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Update, actor, cancellationToken);
         var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var submitted = new HashSet<string>(StringComparer.Ordinal);
-        if (request.ConfigColumnColumnName.IsSpecified) { entity.ConfigColumnColumnName = request.ConfigColumnColumnName.Value; submitted.Add("config_column_column_name"); }
-        if (request.ConfigColumnSortNo.IsSpecified) { entity.ConfigColumnSortNo = request.ConfigColumnSortNo.Value; submitted.Add("config_column_sort_no"); }
         if (request.IsImportant.IsSpecified) { entity.IsImportant = request.IsImportant.Value; submitted.Add("is_important"); }
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.ConfigColumnId.IsSpecified) { entity.ConfigColumnId = request.ConfigColumnId.Value; submitted.Add("config_column_id"); }
@@ -241,7 +336,11 @@ public partial class ConfigPageColumnService
         entity.UpdateUserName = actor.AccountName;
         submitted.Add("update_user_name");
         BeforeSave(entity, actor, false, submitted);
+        if ((submitted.Contains("config_column_id") || submitted.Contains("config_page_id")))
+            AuthorizeBound6218036784398336_1676901024774926338(actor, false);
         await ValidateRelations6218036784398336Async(entity, actor, false, submitted, cancellationToken);
+        if ((submitted.Contains("config_column_id") || submitted.Contains("config_page_id")) && entity.ConfigColumnId is not null)
+            await ValidateBound6218036784398336_1676901024774926338Async(entity, actor, cancellationToken);
         if (entity.ConfigPageId != long.Parse(parentId!, CultureInfo.InvariantCulture)) throw new InvalidOperationException("不能修改页面归属字段。");
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigPageColumnAsync("6218036784398336", entity, actor, submitted, false, false, cancellationToken);
@@ -253,6 +352,10 @@ public partial class ConfigPageColumnService
         await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Delete, actor, cancellationToken);
         var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         BeforeDelete(entity, actor);
+        if ((true))
+            AuthorizeBound6218036784398336_1676901024774926338(actor, false);
+        if ((true) && entity.ConfigColumnId is not null)
+            await ValidateBound6218036784398336_1676901024774926338Async(entity, actor, cancellationToken);
         entity.DeleteNo = DateTime.UtcNow;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigPageColumnAsync("6218036784398336", entity, actor, new HashSet<string>(), true, true, cancellationToken);

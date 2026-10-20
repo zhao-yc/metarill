@@ -9,8 +9,6 @@ public sealed class ConfigPagePage6191175925956608CreateRequest
 {
     [JsonPropertyName("name")]
     public Optional<string?> Name { get; set; }
-    [JsonPropertyName("configTableTableName")]
-    public Optional<string?> ConfigTableTableName { get; set; }
     [JsonPropertyName("orderBy")]
     public Optional<string?> OrderBy { get; set; }
     [JsonPropertyName("whereSql")]
@@ -114,8 +112,6 @@ public sealed class ConfigPagePage6191175925956608UpdateRequest
     public long Id { get; set; }
     [JsonPropertyName("name")]
     public Optional<string?> Name { get; set; }
-    [JsonPropertyName("configTableTableName")]
-    public Optional<string?> ConfigTableTableName { get; set; }
     [JsonPropertyName("orderBy")]
     public Optional<string?> OrderBy { get; set; }
     [JsonPropertyName("whereSql")]

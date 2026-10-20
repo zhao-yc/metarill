@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "4b6a1159eeaf6532bdbbac1c32090b0dbe0b019417d5b0fe53e6d0662c2006a9",
+  "metadataSha256": "d4122d5b665b9d9a50d5c237ff561f029d71d403182506bb5416f27797ad9088",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -38,19 +38,19 @@
     },
     {
       "path": "Controllers/ConfigPageColumnPage6218036784398336Controller.g.cs",
-      "sha256": "4699de8829710b227e606aff295d5b9f90d8e51b9cf6c5fc34664c19533de8c5"
+      "sha256": "86b588e3cd0cd0b4c43c2bd4ba9b46c713de3a7c399ec0ded4663d16633e7bfb"
     },
     {
       "path": "Controllers/ConfigPagePage1868973685063311361Controller.g.cs",
-      "sha256": "d27c84b1c7d20209901916dce8f88e1a3b6252c0954237d50e95ad2b699d0eff"
+      "sha256": "c17bf4fbff3936abefb8a9bb987254675d9bd76c460a7bc9d7e4a428475e6a43"
     },
     {
       "path": "Controllers/ConfigPagePage1869016706289577986Controller.g.cs",
-      "sha256": "5d05984f9945416e4162e82a2600f485e37d4253966e56cbb58bba4e2ea15edb"
+      "sha256": "25a572149054732c90ea207731e04f316be2da3c6b545e48e1a5fddfab5bba4a"
     },
     {
       "path": "Controllers/ConfigPagePage6191175925956608Controller.g.cs",
-      "sha256": "a1ba64402bc92bcf6d080b55aa29b023d6415a3b463f99f1699d69a1639ebf7d"
+      "sha256": "a5a654921ddf6523895ede8d64afc2c1ebe6f19c8887795bc797d3116e5c34e7"
     },
     {
       "path": "Controllers/ConfigTablePage6191083005411328Controller.g.cs",
@@ -118,19 +118,19 @@
     },
     {
       "path": "DTOs/ConfigPageColumnPage6218036784398336Requests.g.cs",
-      "sha256": "f630e7e510e7f72f95e65b5906abbf2a9b7e876bca17c280162c0a11e81fed5d"
+      "sha256": "f130e6c65ec5241ba3ed42595d7c4e53347d57283a9a74df2b29124e1888614d"
     },
     {
       "path": "DTOs/ConfigPagePage1868973685063311361Requests.g.cs",
-      "sha256": "d6e512d3216605ff37d55a5dd01eac1a6cc5b9112777ebe30233a6c1af005e4d"
+      "sha256": "34d332d044a23ef940d51d88fb563c4fd23ef618eaf7f55e47cb245bfb6de4e9"
     },
     {
       "path": "DTOs/ConfigPagePage1869016706289577986Requests.g.cs",
-      "sha256": "5f906a802e755abf34d97ea8653ca0cf3b9c0ddf2252770bfc41b677febfeb86"
+      "sha256": "0c48311671a5d6fb7bd410e100549e8f4bc964dd803ac6bd149b6c9429ca488f"
     },
     {
       "path": "DTOs/ConfigPagePage6191175925956608Requests.g.cs",
-      "sha256": "1908820576adb3405f5ac3dcf62e360fbb3deeb584359a587bd45b29847ccf05"
+      "sha256": "ecc3bda6502dd02696a3ff879c7abd7f5a60b56e10442e4f3613524b8329fb74"
     },
     {
       "path": "DTOs/ConfigTablePage6191083005411328Requests.g.cs",
@@ -262,7 +262,7 @@
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
-      "sha256": "7858f437bb20d928fd3b732a71b26c7c679c29e70a270293305320336419dc34"
+      "sha256": "62a4fdc5fd43f8c61bbdc85c5b34394727e9501ca9f29d154aa19dcb988a8b57"
     },
     {
       "path": "Mappers/ConfigButtonMapper.g.cs",
@@ -370,15 +370,15 @@
     },
     {
       "path": "Services/ConfigCustomPageService.g.cs",
-      "sha256": "95b50c8d0488efcab8bad83d6a14a3f58b8de96aa7556760e0b733a173250660"
+      "sha256": "98a491c249f37ea7e34308e67555a0bc18e5676593b5bb9aa0ce23cf05daddfe"
     },
     {
       "path": "Services/ConfigIndexColumnService.g.cs",
-      "sha256": "ad015f6984341b868de2f9c94be406b47b3d68aeedf703ca1ddcb41bcfc50661"
+      "sha256": "e5d2b79ea3d65c5efafbdcec9e90522ae44b83d066327e1b16687a2b40f6c40c"
     },
     {
       "path": "Services/ConfigIndexService.g.cs",
-      "sha256": "71f7c6c8e09d99ce41b21afa7832533096d6d638f4ab2b8bcd81a12caff02af1"
+      "sha256": "5ce66bbaeda4db31ffa4c51fbd1719fb694533b8dda9b984b0cfec865a37912b"
     },
     {
       "path": "Services/ConfigMenuService.g.cs",
@@ -386,15 +386,15 @@
     },
     {
       "path": "Services/ConfigPageColumnService.g.cs",
-      "sha256": "986a94c177f6e926f67034d1bc392dd3d7e10738bfc4e6cb999f54337ebaf504"
+      "sha256": "752c25027849a7efd6261d468ac5acf6f14153e739e024d210d7168738aafded"
     },
     {
       "path": "Services/ConfigPageService.g.cs",
-      "sha256": "7d6d5599d1064a07ba4e0d215cbd31642dca4a4018fa46f5e05563adc3a2aa33"
+      "sha256": "b034666cfcf6b05be5243ec7a331f249f47fdcaf59864011b4c73fd7a9269185"
     },
     {
       "path": "Services/ConfigTableService.g.cs",
-      "sha256": "b8569a496c4f1768d8e163fbd150ccfd2f31f83a0f9162c4269bbad8b3aa306d"
+      "sha256": "c6a45e07e7e57f2c8aca1d0c3f62ec8866545359ba4f41752804b29a0cc92196"
     },
     {
       "path": "Services/SysAgentGrantService.g.cs",
@@ -426,15 +426,15 @@
     },
     {
       "path": "Services/YzManagerDevicesProjectService.g.cs",
-      "sha256": "6afefe8bd54214a30d8b5993159b5d2a5b5eb7eb6799475a50badea7ce981502"
+      "sha256": "4060c386dd306ebe09cc96d5015f57ec102073d12d07305e2efb9d8c8d84690c"
     },
     {
       "path": "Services/YzManagerDevicesService.g.cs",
-      "sha256": "5db9f2883c1b9728be93feec3573423c8f476d7fedd3ed6a848ac7dc435cc824"
+      "sha256": "47f7cd194372be7ee0ad637d4fbc6e0a0c768af90f3ab47c36eaef2d55bee919"
     },
     {
       "path": "Services/YzManagerService.g.cs",
-      "sha256": "2832a8e7dcb47e7ae7b0f7368acc80688113adf00e8565bf6b46e99bba221ee1"
+      "sha256": "2392866e61a759a718c4cce3f4bb3e62962ba2af4df5b8628f0c72cd3b6e7120"
     },
     {
       "path": "Services/YzProjectService.g.cs",
@@ -442,11 +442,11 @@
     },
     {
       "path": "Services/YzRolePermissionService.g.cs",
-      "sha256": "aa04cc2c35fa0dff15ff34e65b2534bd97bea9c89c8d243299df6abc6e39ff36"
+      "sha256": "2103a1c06f0610cd75c1923e3b6e0ec159bb55a29cfd7511e19db27f876887a8"
     },
     {
       "path": "Services/YzRoleService.g.cs",
-      "sha256": "67ede93d4232c7d9f665d7e0fa00f1e05822d6fdf11b52b37aeea861cd9fd765"
+      "sha256": "b0ab5d84fb18225883cb73c41adf0af38f92b7cd1df51b43b8068c5ac8be9ce1"
     },
     {
       "path": "VOs/ConfigButtonPage1870796062470516738Vo.g.cs",
@@ -534,7 +534,7 @@
     },
     {
       "path": "frontend/common/yzp_runtime/page-write-schema.generated.json",
-      "sha256": "31f23f58df2618123c5351687074b361dbe8ad00e11fe4add3fcd35a0e093ef4"
+      "sha256": "3679ef6ff6834cb0acd17101a0a1894de27c027085240164bf6e6c104a1137c1"
     },
     {
       "path": "frontend/pages.generated.json",
@@ -590,7 +590,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_index_column-detail-2076977554350190593.vue",
-      "sha256": "f746b00a327827c75b4f84c59fa6ff7f8a2ed82d84b434b825e715982d1c4789"
+      "sha256": "68d27bd351aa0c70b7503d2296fe1da017c8263f92c86c3641d979add1f04064"
     },
     {
       "path": "frontend/pages/yzp/config_index_column-list-2076977554350190593.vue",
@@ -606,15 +606,15 @@
     },
     {
       "path": "frontend/pages/yzp/config_page-detail-1868973685063311361.vue",
-      "sha256": "e0d06e49c7e227682c7eba48ef28146dc9ea81a8cafbc114612e18195ed1b76d"
+      "sha256": "e98b64a51a0cce502c7f4db68aa36eb9e5a7d1de20e9017b67a975d509e1666e"
     },
     {
       "path": "frontend/pages/yzp/config_page-detail-1869016706289577986.vue",
-      "sha256": "6d244ec9af022ff0d11698e0a0b4c88fd33120ca093c845abd5039792e8b8ad0"
+      "sha256": "f994a0f4115bd25fe53a43d023723eb9940e33cca3c7f9bac906644ff16e2a73"
     },
     {
       "path": "frontend/pages/yzp/config_page-detail-6191175925956608.vue",
-      "sha256": "9783b6652ed25b93b98e200da4117188652bf57c53f5735c5f43becdd4b9b0fc"
+      "sha256": "cec619b7983229f6dfab28caee1036492b5358e99f2e12e6af7fed8265d3759e"
     },
     {
       "path": "frontend/pages/yzp/config_page-list-1868973685063311361.vue",
@@ -630,7 +630,7 @@
     },
     {
       "path": "frontend/pages/yzp/config_page_column-detail-6218036784398336.vue",
-      "sha256": "ab8ff1f1d637713e5b576d9d691080bd5fcd45360aa8252366c08cf5e5e74452"
+      "sha256": "0fb5062723e3a19d73f10d3718566425b61f828e23ef7bedc7476a63a82827be"
     },
     {
       "path": "frontend/pages/yzp/config_page_column-list-6218036784398336.vue",
@@ -702,7 +702,7 @@
     },
     {
       "path": "generation-capabilities.json",
-      "sha256": "785fb14ecfe386987e5ac4dcca37ac58658bce8586ed50fff4549d41a49abe0f"
+      "sha256": "d4c599807d4be51c156cdbe1f2a63bca478a5810541508651d34387cb702aa26"
     }
   ]
 }

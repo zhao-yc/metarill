@@ -2,18 +2,6 @@
   "schemaVersion": 1,
   "unsupportedControls": [
     {
-      "pageId": "2076977554350190593",
-      "column": "config_column_id",
-      "usage": "detail",
-      "reason": "\u5173\u8054\u76EE\u6807\u9700\u8981\u72EC\u7ACB targetParentId\uFF0C\u5F53\u524D\u9875\u6CA1\u6709\u552F\u4E00\u53EF\u8BFB\u7684\u58F0\u660E\u5916\u952E\u3002"
-    },
-    {
-      "pageId": "6218036784398336",
-      "column": "config_column_id",
-      "usage": "detail",
-      "reason": "\u76EE\u6807\u5173\u7CFB\u5C1A\u672A\u5B8C\u6210\u79FB\u690D\uFF1AList"
-    },
-    {
       "pageId": "6031906822946816",
       "column": "yz_role_ids",
       "usage": "detail",

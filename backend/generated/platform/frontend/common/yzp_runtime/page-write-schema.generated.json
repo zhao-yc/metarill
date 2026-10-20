@@ -63,7 +63,6 @@
       "route": "/admin/auto/config_page/1868973685063311361",
       "createFields": [
         "name",
-        "configTableTableName",
         "orderBy",
         "whereSql",
         "exactDataManageMatchField",
@@ -115,7 +114,6 @@
       "updateFields": [
         "id",
         "name",
-        "configTableTableName",
         "orderBy",
         "whereSql",
         "exactDataManageMatchField",
@@ -169,7 +167,6 @@
       "route": "/admin/auto/config_page/1869016706289577986",
       "createFields": [
         "name",
-        "configTableTableName",
         "orderBy",
         "whereSql",
         "exactDataManageMatchField",
@@ -213,7 +210,6 @@
       "updateFields": [
         "id",
         "name",
-        "configTableTableName",
         "orderBy",
         "whereSql",
         "exactDataManageMatchField",
@@ -663,7 +659,6 @@
       "route": "/admin/auto/config_page/6191175925956608",
       "createFields": [
         "name",
-        "configTableTableName",
         "orderBy",
         "whereSql",
         "configTableId",
@@ -716,7 +711,6 @@
       "updateFields": [
         "id",
         "name",
-        "configTableTableName",
         "orderBy",
         "whereSql",
         "configTableId",
@@ -874,8 +868,6 @@
     "6218036784398336": {
       "route": "/admin/auto/config_page_column/6218036784398336",
       "createFields": [
-        "configColumnColumnName",
-        "configColumnSortNo",
         "isImportant",
         "name",
         "configColumnId",
@@ -912,8 +904,6 @@
       ],
       "updateFields": [
         "id",
-        "configColumnColumnName",
-        "configColumnSortNo",
         "isImportant",
         "name",
         "configColumnId",
