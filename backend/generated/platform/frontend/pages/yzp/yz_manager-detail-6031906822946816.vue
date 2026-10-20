@@ -8,7 +8,7 @@
 <uni-easyinput primaryColor="#0ab3ad" v-if='!nameReadOnly' v-model='entity.name' maxlength='50'   /><text v-if='nameReadOnly'>{{entity.name}}</text>
 </uni-forms-item>
 <uni-forms-item label='角色' name='yzRoleIds'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzRoleIdsReadOnly'>{{readonlyDisplayText(entity.yzRoleIds)}}</text><template v-if='!yzRoleIdsReadOnly'><view><uni-data-checkbox multiple v-model='yzRoleIdsSelectAll' :disabled='yzRoleIdsReadOnly' :localdata='$multiCheckboxRange' @change='yzRoleIdsSelectAllChange' /></view><uni-data-checkbox multiple v-model='entity.yzRoleIds' :disabled='yzRoleIdsReadOnly' :localdata='yzRoleIdsList' @change='yzRoleIdsChange' /></template><uni-easyinput style='display: none;' v-model='entity.yzRoleIds' maxlength='500' />
+<text v-if='yzRoleIdsReadOnly'>{{readonlyDisplayText(entity.yzRoleNames)}}</text><template v-if='!yzRoleIdsReadOnly'><view><uni-data-checkbox multiple v-model='yzRoleIdsSelectAll' :disabled='yzRoleIdsReadOnly' :localdata='$multiCheckboxRange' @change='yzRoleIdsSelectAllChange' /></view><uni-data-checkbox multiple v-model='entity.yzRoleIds' :disabled='yzRoleIdsReadOnly' :localdata='yzRoleIdsList' @change='yzRoleIdsChange' /></template><uni-easyinput style='display: none;' v-model='entity.yzRoleIds' maxlength='500' />
 </uni-forms-item>
 <uni-forms-item label='真实姓名' name='realName'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!realNameReadOnly' v-model='entity.realName' maxlength='50'   /><text v-if='realNameReadOnly'>{{entity.realName}}</text>

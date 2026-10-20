@@ -199,3 +199,10 @@ root在冻结 `ccfb935` 的原平台Web发行副本使用原登录、选择设�
 在干净冻结d6ddf22、固定Server-200实例和34行逐值旧快照核验后，第一笔原config_column更新业务200，版本声明已成为固定C#目录，旧空物理类型与int64逻辑值均保持。写后核验发现图从34行增加为37行：C#观察器在普通字段更新中误调用全表Ensure，补出db_password、id、delete_no三个页字段，因此在GET前停止。第二笔页默认值/hint未发送，导出未执行，项目版本值未变；仅本次新会话已注销。
 
 原Java的ConfigColumnServiceImpl只在afterAdd为该新列建立页字段。当前C#普通更新补齐历史缺口不符合原联动边界，正在修源头；新增三行仅保留现场，尚未撤销，不能将其静默纳入预期或声称整个窄发布成功。私有证据为贡献clone的 `.local/version-publish-v2` 和 `.local/version-after-diagnostic`，不提交含配置原文的快照。
+## 2026-10-20 原角色复选合同正式再生成
+
+原账号页继续使用原 MultiCheckBoxDatabase 复选、全选、候选 POST 及表单事件；列表和只读详情按原名称数组显示。服务端生成固定候选、精确字符串 ID、数组/旧数组文本与省略/null 合同，以及有界批量名称补充；未新增页面、DOM结构、样式或后台切换事件。固定账号服务的运行时事务协调尚未验收，无论隐藏、改坏或移除角色字段，完整平台包仍由独立 runtime 缺口阻止发布。启用导出或 type=2 选择回执时另列各自未接入的用途缺口，不能借读取合同通过而提前放行。
+
+最终源头 `829ecf0` 正式 platform/demo 两轮生成191项受管文件及清单稳定，24个手写partial摘要保持，包含生成产物的API Release构建0警告0错误；证据 `.local/original-regeneration-final-role-gates-20261020`。主线角色/固定控件/读取关联回归130/130、前端完整260/260，均零跳过。元数据完整离线105通过/22项因无实库配置明确跳过，不把它当数据库验收。证据分别为 `.local/final-role-gates-generation-integrated.trx`、`.local/final-role-gates-frontend.log`、`.local/final-role-gates-metadata-offline-integrated.trx`。
+
+版本发布现场仍保留此前34→37的停止证据；本段只记录源头修复、离线集成及正式生成，不表示三条误增映射已撤销、第二笔默认值/提示已续发，后续单独记录真实执行结果。

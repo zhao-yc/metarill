@@ -13,7 +13,7 @@ public sealed class YzManagerPage6031906822946816Controller(YzManagerService ser
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("6031906822946816", operation); return authorization.RequireActor(); }
-    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "yzRoleIds", "realName", "mobile", "lockIp", "lastLoginTime", "loginIp", "email", "phone", "isDisabled", "notes", "isEditPwd", "editPwdTime", "openid", "avatar", "dingUserid", "dingUnionid", "loginRiseTime", "loginStopTime", "validityTime", "yzAdminTypeId"], ["name", "yzRoleIds", "realName", "mobile", "lockIp", "lastLoginTime", "loginIp", "email", "phone", "isDisabled", "notes", "isEditPwd", "editPwdTime", "openid", "avatar", "dingUserid", "dingUnionid", "loginRiseTime", "loginStopTime", "validityTime", "insertTime", "yzAdminTypeId", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzProjectId", "id"], [], "yzProjectId");
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "yzRoleIds", "realName", "mobile", "lockIp", "lastLoginTime", "loginIp", "email", "phone", "isDisabled", "notes", "isEditPwd", "editPwdTime", "openid", "avatar", "dingUserid", "dingUnionid", "loginRiseTime", "loginStopTime", "validityTime", "yzAdminTypeId"], ["name", "yzRoleIds", "realName", "mobile", "lockIp", "lastLoginTime", "loginIp", "email", "phone", "isDisabled", "notes", "isEditPwd", "editPwdTime", "openid", "avatar", "dingUserid", "dingUnionid", "loginRiseTime", "loginStopTime", "validityTime", "insertTime", "yzAdminTypeId", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzProjectId", "id", "yzRoleNames"], [], "yzProjectId");
     /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
     private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
     {
@@ -60,6 +60,15 @@ public sealed class YzManagerPage6031906822946816Controller(YzManagerService ser
         var actor = Actor("delete");
         var request = LegacyRequest<YzManagerPage6031906822946816RecordRequest>(entity, LegacyPageWriteOperation.Delete, actor, parentId);
         return await service.Delete6031906822946816Async(request.Id, parentId, actor, cancellationToken) ? R<string>.Success("删除成功") : R<string>.Error("删除失败");
+    }
+    /// <summary>原角色复选返回完整有界四字段数组，不按页面截断；后台提示不构成授权。</summary>
+    [HttpPost("findNameIdYzRole1692528723801219073")] [RequestSizeLimit(16384)]
+    public async Task<R<IReadOnlyList<RoleCheckboxOption>>> findNameIdYzRole1692528723801219073([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] System.Text.Json.JsonElement? request, CancellationToken cancellationToken)
+    {
+        var actor = RoleCheckboxAuthorization.Require(authorization,"6031906822946816",true,true);
+        if (Request.Query.Count != 0) throw new ArgumentException("角色候选不接受query参数。");
+        var selected = RoleCheckboxValue.ReadCandidateRequest(request);
+        return R<IReadOnlyList<RoleCheckboxOption>>.Success(await service.RoleOptions6031906822946816Async(selected, actor, cancellationToken));
     }
     /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>
     [HttpPost("findNameIdYzAdminType1679698329655750657")]

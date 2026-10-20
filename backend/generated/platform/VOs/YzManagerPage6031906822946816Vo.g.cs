@@ -68,11 +68,13 @@ public sealed class YzManagerPage6031906822946816Vo
     public long? YzProjectId { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
+    [JsonPropertyName("yzRoleNames")] public JsonElement? YzRoleNames { get; init; }
+    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity) => FromEntity(entity,null);
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity) => new()
+    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity,JsonElement? roleNames) => new()
     {
         Name = entity.Name,
-        YzRoleIds = string.IsNullOrWhiteSpace(entity.YzRoleIds) ? null : JsonSerializer.Deserialize<JsonElement>(entity.YzRoleIds),
+        YzRoleIds = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.YzRoleIds),
         RealName = entity.RealName,
         Mobile = entity.Mobile,
         LockIp = entity.LockIp,
@@ -102,5 +104,6 @@ public sealed class YzManagerPage6031906822946816Vo
         UpdateManagerRealName = entity.UpdateManagerRealName,
         YzProjectId = entity.YzProjectId,
         Id = entity.Id,
+        YzRoleNames = roleNames,
     };
 }

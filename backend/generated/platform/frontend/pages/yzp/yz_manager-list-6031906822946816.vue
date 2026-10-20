@@ -35,7 +35,7 @@
 <uni-th >项目</uni-th>
 </uni-tr>
 <uni-tr :class="clicked_id == item.id ? 'uni-table-tr-clicked' : ''" v-for='(item, index) in list' :key='item.id'><uni-td v-if="page_is_edit" class="buttons"><view><view class='list-action-link' v-if="permissionVersion &gt;= 0 &amp;&amp; page_is_edit &amp;&amp; $yzp.hasPagePermission(page_sn, &apos;is_query&apos;)" @click='toDetail(item.id)'>查看</view></view></uni-td><uni-td><text >{{item.name}}</text></uni-td>
-<uni-td><text>{{$yzp.relationDisplayText(item.yzRoleIds)}}</text></uni-td>
+<uni-td><text>{{$yzp.relationDisplayText(item.yzRoleNames)}}</text></uni-td>
 <uni-td><text >{{item.realName}}</text></uni-td>
 <uni-td><text >{{item.mobile}}</text></uni-td>
 <uni-td>{{item.isDisabled === true || item.isDisabled === 1 || item.isDisabled === '1' ? '是' : '否'}}</uni-td>
@@ -68,7 +68,7 @@
         <uni-list-item clickable v-for='(item, index) in list' :key='item.id' @click='toDetail(item.id)'>
           <template v-slot:body>
             <view class='row'>
-              <view class='row-item'><text>用户名</text><text >{{item.name}}</text></view><view class='row-item'><text>角色</text><text>{{$yzp.relationDisplayText(item.yzRoleIds)}}</text></view><view class='row-item'><text>真实姓名</text><text >{{item.realName}}</text></view><view class='row-item'><text>手机号</text><text >{{item.mobile}}</text></view><view class='row-item'><text>启用</text>{{item.isDisabled === true || item.isDisabled === 1 || item.isDisabled === '1' ? '是' : '否'}}</view><view class='row-item'><text>修改时间</text><text >{{item.updateTime}}</text></view><view class='row-item'><text>创建账号</text><text >{{item.insertManagerId}}</text></view><view class='row-item'><text>修改账号</text><text >{{item.updateManagerId}}</text></view><view class='row-item'><text>创建账号名</text><text >{{item.insertUserName}}</text></view><view class='row-item'><text>修改账号名</text><text >{{item.updateUserName}}</text></view><view class='row-item'><text>创建姓名</text><text >{{item.insertManagerRealName}}</text></view><view class='row-item'><text>修改姓名</text><text >{{item.updateManagerRealName}}</text></view><view class='row-item'><text>项目</text><text >{{item.yzProjectId}}</text></view>
+              <view class='row-item'><text>用户名</text><text >{{item.name}}</text></view><view class='row-item'><text>角色</text><text>{{$yzp.relationDisplayText(item.yzRoleNames)}}</text></view><view class='row-item'><text>真实姓名</text><text >{{item.realName}}</text></view><view class='row-item'><text>手机号</text><text >{{item.mobile}}</text></view><view class='row-item'><text>启用</text>{{item.isDisabled === true || item.isDisabled === 1 || item.isDisabled === '1' ? '是' : '否'}}</view><view class='row-item'><text>修改时间</text><text >{{item.updateTime}}</text></view><view class='row-item'><text>创建账号</text><text >{{item.insertManagerId}}</text></view><view class='row-item'><text>修改账号</text><text >{{item.updateManagerId}}</text></view><view class='row-item'><text>创建账号名</text><text >{{item.insertUserName}}</text></view><view class='row-item'><text>修改账号名</text><text >{{item.updateUserName}}</text></view><view class='row-item'><text>创建姓名</text><text >{{item.insertManagerRealName}}</text></view><view class='row-item'><text>修改姓名</text><text >{{item.updateManagerRealName}}</text></view><view class='row-item'><text>项目</text><text >{{item.yzProjectId}}</text></view>
             </view>
           </template>
         </uni-list-item>

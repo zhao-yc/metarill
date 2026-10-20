@@ -70,7 +70,7 @@
     },
     {
       "path": "Controllers/YzManagerPage6031906822946816Controller.g.cs",
-      "sha256": "26795dcd519fded943fc2b7049234a7fca7b9d354410b1c4bcca7f5efc097bf1"
+      "sha256": "c1208b6dc7b0cb068272d5d5431c775e27d62e59f770b691476d7c37a558170f"
     },
     {
       "path": "Controllers/YzProjectPage6186303424888832Controller.g.cs",
@@ -258,7 +258,7 @@
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "fa1d6bb6a10dfafdb658ebbcee1bd8dcfe01026f47525987c186f1894a37efe6"
+      "sha256": "aa3706add3185b3565c40cc8a7dea769e9ba7f75849847036a8f7591157e8253"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -434,7 +434,7 @@
     },
     {
       "path": "Services/YzManagerService.g.cs",
-      "sha256": "dcb06aa757fdf4e5931d8301899467117f05f07a7601f4c43c1452648ef09cd4"
+      "sha256": "45d0e5b92c22ca06f686b61e1ebb427fcc14016361fddf9d8d613203fb750e46"
     },
     {
       "path": "Services/YzProjectService.g.cs",
@@ -518,7 +518,7 @@
     },
     {
       "path": "VOs/YzManagerPage6031906822946816Vo.g.cs",
-      "sha256": "e842d83f127665b0ea053b788787c205041cd50e9f7faf85c41062c4fd3fe54b"
+      "sha256": "c5d1887a3700b453b1b724e0977217972a3a93fe6729673a04de1b6df036a60b"
     },
     {
       "path": "VOs/YzProjectPage6186303424888832Vo.g.cs",
@@ -654,11 +654,11 @@
     },
     {
       "path": "frontend/pages/yzp/yz_manager-detail-6031906822946816.vue",
-      "sha256": "5e9ce106da5fdbef71de6614ec9f04daa3e67ce5807d4736511bf2c8be05ff2c"
+      "sha256": "8f450b3858dcaaef68bfab067f5231811f26e28597821f1c3de41415368ba9d4"
     },
     {
       "path": "frontend/pages/yzp/yz_manager-list-6031906822946816.vue",
-      "sha256": "1291369ec4b3031ec9b482de24fa80476c03d56787be529caed5dd2183cfd57e"
+      "sha256": "6fcd282220123f83e612ce9907a34fab2388f59d7fb61d45cf1f56e84f156f1f"
     },
     {
       "path": "frontend/pages/yzp/yz_manager_devices-detail-6220589291798528.vue",
@@ -702,7 +702,7 @@
     },
     {
       "path": "generation-capabilities.json",
-      "sha256": "d1451c4a387eba0bc71b3cd84a8240033268796600819d5cbc5efa3080a238aa"
+      "sha256": "5a614dced34cc31e5b7e6f29d554b04959e9409897ca5b557fc86ac69764d9d2"
     }
   ]
 }

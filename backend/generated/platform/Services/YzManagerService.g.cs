@@ -19,9 +19,9 @@ public partial class YzManagerService
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
     private readonly IEnumerable<IRecordMutationGuard> guards;
-
+    private readonly IRuntimeAuthorization? relationAuthorization;
     /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
-    public YzManagerService(DatabaseSession session, YzManagerMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? [];  }
+    public YzManagerService(DatabaseSession session, YzManagerMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null, IRuntimeAuthorization? relationAuthorization = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; this.relationAuthorization = relationAuthorization; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -37,21 +37,16 @@ public partial class YzManagerService
         await Task.CompletedTask;
         if ((creating || submitted.Contains("yz_role_ids")) && entity.YzRoleIds is not null)
         {
-            using var relation1 = JsonDocument.Parse(entity.YzRoleIds);
-            if (relation1.RootElement.ValueKind != JsonValueKind.Array) throw new ArgumentException("多值关联必须为数组。");
-            var relationIds1 = relation1.RootElement.EnumerateArray().Select(value => long.Parse(value.ToString(), CultureInfo.InvariantCulture)).Distinct().ToArray();
-            var relationQuery1 = session.Select<YzRole>().Where(row => relationIds1.Contains(row.Id));
-            relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
-            relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
-            if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u89D2\u8272");
+            var roleIds = RoleCheckboxValue.Parse(entity.YzRoleIds).Distinct().ToArray();
+            if (await RoleOptionsScope6031906822946816(actor).Where(role => roleIds.Contains(role.Id)).CountAsync(cancellationToken) != roleIds.Length) throw new InvalidOperationException("角色不存在、已删除或不在当前工作区真实后台范围。");
         }
         if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
         {
-            var relationIds2 = new[] { entity.YzAdminTypeId.Value };
-            var relationQuery2 = session.Select<YzAdminType>().Where(row => relationIds2.Contains(row.Id));
-            relationQuery2 = relationQuery2.Where(row => row.DeleteNo == null);
-            relationQuery2 = relationQuery2.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
-            if (await relationQuery2.CountAsync(cancellationToken) != relationIds2.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u540E\u53F0\u7C7B\u578B");
+            var relationIds1 = new[] { entity.YzAdminTypeId.Value };
+            var relationQuery1 = session.Select<YzAdminType>().Where(row => relationIds1.Contains(row.Id));
+            relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
+            relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+            if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u540E\u53F0\u7C7B\u578B");
         }
     }
     /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>
@@ -125,7 +120,7 @@ public partial class YzManagerService
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6031906822946816(query, request);
         var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
-        return new(entities.Select(YzManagerPage6031906822946816Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        return new(await ProjectRoleNames6031906822946816Async(entities, actor, cancellationToken), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count6031906822946816Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query6031906822946816(request, actor).CountAsync(cancellationToken);
@@ -133,7 +128,7 @@ public partial class YzManagerService
     public async Task<YzManagerPage6031906822946816Vo?> Detail6031906822946816Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
-        return entity is null ? null : YzManagerPage6031906822946816Vo.FromEntity(entity);
+        return entity is null ? null : (await ProjectRoleNames6031906822946816Async([entity], actor, cancellationToken))[0];
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents6031906822946816Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
@@ -185,6 +180,36 @@ public partial class YzManagerService
         if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
+    /// <summary>当前actor必须与宿主认证一致，读取仍经过原来源页面权限。</summary>
+    private ISelect<YzRole> RoleOptionsScope6031906822946816(RuntimeActor actor)
+    {
+        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("角色候选要求真实当前身份。");
+        if (RoleCheckboxAuthorization.Require(relationAuthorization,"6031906822946816",true,true) != actor) throw new UnauthorizedAccessException("角色读取身份已变化。");
+        if (!long.TryParse(actor.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        // 后台的真实项目是归属事实，不能用角色的兼容项目列扩大或缩小范围。
+        return session.Select<YzRole>().Where(role => role.DeleteNo == null && session.Orm.Select<YzAdminType>()
+            .Where(admin => admin.Id == role.YzAdminTypeId && admin.DeleteNo == null && admin.YzProjectId == project).Any());
+    }
+    /// <summary>全选必须取得完整数组，超过上限明确拒绝；普通超级角色不被额外隐藏。</summary>
+    public async Task<IReadOnlyList<RoleCheckboxOption>> RoleOptions6031906822946816Async(long[]? selected, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        var query = RoleOptionsScope6031906822946816(actor);
+        if (selected is not null && (selected.Length > 250 || selected.Any(id => id <= 0))) throw new ArgumentException("角色候选指定项必须为有界正整数。");
+        if (selected is not null) { if (selected.Length == 0) return []; query = query.Where(role => selected.Contains(role.Id)); }
+        var rows = await query.OrderBy(role => role.Id).Limit(5001).ToListAsync(role => new { role.Id, role.Name }, cancellationToken);
+        if (rows.Count > 5000) throw new InvalidOperationException("角色候选超过5000项，原全选不能返回截断结果。");
+        return rows.Select(row => { var id = row.Id.ToString(CultureInfo.InvariantCulture); return new RoleCheckboxOption(id,row.Name,id,row.Name); }).ToArray();
+    }
+    /// <summary>批量读取仅投影角色ID与名称；原数组顺序及缺名位置不随数据库排序变化。</summary>
+    private async Task<YzManagerPage6031906822946816Vo[]> ProjectRoleNames6031906822946816Async(IReadOnlyList<YzManager> entities, RuntimeActor actor, CancellationToken cancellationToken)
+    {
+        _ = RoleOptionsScope6031906822946816(actor);
+        var selected = RoleCheckboxValue.ProjectionIds(entities.Select(entity => entity.YzRoleIds));
+        var names = new Dictionary<long,string?>();
+        foreach (var chunk in selected.Chunk(RoleCheckboxValue.ProjectionBatchSize))
+            foreach (var row in await RoleOptionsScope6031906822946816(actor).Where(role => chunk.Contains(role.Id)).ToListAsync(role => new { role.Id, role.Name }, cancellationToken)) names[row.Id] = row.Name;
+        return entities.Select(entity => YzManagerPage6031906822946816Vo.FromEntity(entity,RoleCheckboxValue.ProjectNames(entity.YzRoleIds,names))).ToArray();
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<YzManagerPage6031906822946816Vo> Create6031906822946816Async(YzManagerPage6031906822946816CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
@@ -196,8 +221,7 @@ public partial class YzManagerService
         var entity = new YzManager { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
-        if (request.YzRoleIds.IsSpecified && request.YzRoleIds.Value is { } arrayYzRoleIds && arrayYzRoleIds.ValueKind != JsonValueKind.Array) throw new ArgumentException("数组控件只接受数组或 null。");
-        if (request.YzRoleIds.IsSpecified) { entity.YzRoleIds = request.YzRoleIds.Value?.GetRawText(); submitted.Add("yz_role_ids"); }
+        if (request.YzRoleIds.IsSpecified) { entity.YzRoleIds = RoleCheckboxValue.ReadWrite(request.YzRoleIds.Value); submitted.Add("yz_role_ids"); }
         if (request.RealName.IsSpecified) { entity.RealName = request.RealName.Value; submitted.Add("real_name"); }
         if (request.Mobile.IsSpecified) { entity.Mobile = request.Mobile.Value; submitted.Add("mobile"); }
         if (request.LockIp.IsSpecified) { entity.LockIp = request.LockIp.Value; submitted.Add("lock_ip"); }
@@ -233,7 +257,7 @@ public partial class YzManagerService
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, true, cancellationToken);
-        return YzManagerPage6031906822946816Vo.FromEntity(entity);
+        return (await ProjectRoleNames6031906822946816Async([entity], actor, cancellationToken))[0];
     }, cancellationToken);
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
     public Task<YzManagerPage6031906822946816Vo> Update6031906822946816Async(YzManagerPage6031906822946816UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
@@ -246,8 +270,7 @@ public partial class YzManagerService
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
-        if (request.YzRoleIds.IsSpecified && request.YzRoleIds.Value is { } arrayYzRoleIds && arrayYzRoleIds.ValueKind != JsonValueKind.Array) throw new ArgumentException("数组控件只接受数组或 null。");
-        if (request.YzRoleIds.IsSpecified) { entity.YzRoleIds = request.YzRoleIds.Value?.GetRawText(); submitted.Add("yz_role_ids"); }
+        if (request.YzRoleIds.IsSpecified) { entity.YzRoleIds = RoleCheckboxValue.ReadWrite(request.YzRoleIds.Value); submitted.Add("yz_role_ids"); }
         if (request.RealName.IsSpecified) { entity.RealName = request.RealName.Value; submitted.Add("real_name"); }
         if (request.Mobile.IsSpecified) { entity.Mobile = request.Mobile.Value; submitted.Add("mobile"); }
         if (request.LockIp.IsSpecified) { entity.LockIp = request.LockIp.Value; submitted.Add("lock_ip"); }
@@ -282,7 +305,7 @@ public partial class YzManagerService
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, false, cancellationToken);
-        return YzManagerPage6031906822946816Vo.FromEntity(entity);
+        return (await ProjectRoleNames6031906822946816Async([entity], actor, cancellationToken))[0];
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6031906822946816Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
