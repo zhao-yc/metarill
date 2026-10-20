@@ -37,6 +37,12 @@ public sealed class CSharpGenerator
         ValidateNamespace(rootNamespace);
         MetadataValidation.Validate(catalog);
         var model = GenerationModel.Create(catalog, rootNamespace);
+        foreach (var table in catalog.ConfigTables)
+        {
+            var storage = MetadataStoragePolicy.ForTable(catalog, table);
+            if (catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Id && column.IsVirtualColumn == 0 && (!storage.IsPhysical(column) || table.IsRongyu == 0 && MetadataStoragePolicy.IsRelationColumn(column))))
+                throw new InvalidOperationException("非冗余派生字段或关系尚需接通固定读取计划，批次未执行；不能以物理列生成或静默返回空值。");
+        }
         if(module is not null)model=TrustedSecurityServiceCompilation.Bind(model,module);
         var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(TrustedSecurityWorkbenchRenderer.Frontend(model)).Concat(WriteSchemaRenderer.Render(model)).Select(file => file with { Content = file.Content.Replace("\r\n", "\n").Replace("\r", "\n") }).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
         if (files.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Length) throw new InvalidOperationException("生成路径存在大小写冲突。");

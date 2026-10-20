@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Metarill.Core.Security;
+using Metarill.Core.Metadata;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 
@@ -16,7 +17,7 @@ public sealed record IndexWorkbenchSnapshot(string ConfigTableId, string ConfigT
 public sealed class IndexWorkbenchBusiness(SqlRowStore store, HttpRuntimeAuthorization authorization, IIdGenerator ids)
 {
     private sealed record Scope(Dictionary<string, object?> Project, Dictionary<string, object?> Table, List<Dictionary<string, object?>> Columns,
-        List<Dictionary<string, object?>> Indexes, List<Dictionary<string, object?>> IndexColumns);
+        List<Dictionary<string, object?>> Indexes, List<Dictionary<string, object?>> IndexColumns, IReadOnlyList<Dictionary<string,object?>> IndexableColumns);
 
     /// <summary>读取也使用项目到表的固定聚合锁，版本和完整列表来自同一代记录。</summary>
     public Task<IndexWorkbenchSnapshot> SnapshotAsync(JsonElement request, CancellationToken cancellationToken = default)
@@ -36,7 +37,7 @@ public sealed class IndexWorkbenchBusiness(SqlRowStore store, HttpRuntimeAuthori
             if (input.Revision != Revision(scope)) throw new MetadataRevisionConflictException();
             var existing = scope.Indexes.Where(IsManaged).ToDictionary(row => SqlRowStore.Id(row));
             var names = scope.Indexes.Where(row => !IsManaged(row)).Select(row => SqlRowStore.Text(row, "index_name")).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var columns = scope.Columns.Where(IsPhysical).ToDictionary(row => SqlRowStore.Id(row));
+            var columns = scope.IndexableColumns.ToDictionary(row => SqlRowStore.Id(row));
             var byName = columns.Values.ToDictionary(row => SqlRowStore.Text(row, "column_name"), StringComparer.OrdinalIgnoreCase);
             var childRows = scope.IndexColumns.ToDictionary(row => SqlRowStore.Id(row));
             var usedIndexes = new HashSet<long>(); var usedChildren = new HashSet<long>();
@@ -107,16 +108,22 @@ public sealed class IndexWorkbenchBusiness(SqlRowStore store, HttpRuntimeAuthori
         if (columns.Concat(indexes).Concat(children).Any(row => SqlRowStore.Id(row, "yz_project_id") != projectId)) throw new InvalidOperationException("索引聚合包含项目归属不一致的记录。");
         foreach (var column in columns) Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(SqlRowStore.Text(column, "column_name"));
         if (columns.GroupBy(row => SqlRowStore.Text(row, "column_name"), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1)) throw new InvalidOperationException("同表物理列名重复，请先修复元数据。");
-        return new(project, table, columns, indexes, children);
+        return new(project, table, columns, indexes, children, CompileIndexableColumns(table,columns));
     }
     /// <summary>候选只来自显式物理列；虚拟、联接和布局控件不属于可持久化本表字段。</summary>
     private static bool IsPhysical(Dictionary<string, object?> row) => !Flag(row, "is_virtual_column") && !Flag(row, "is_join_column") && SqlRowStore.Text(row, "control_kind") is not ("Title" or "Tab");
+    /// <summary>候选与保存共用完整表的存储计划；同时保留原索引禁止联接/布局的稳定列限制。</summary>
+    internal static IReadOnlyList<Dictionary<string,object?>> CompileIndexableColumns(Dictionary<string,object?> table,IReadOnlyList<Dictionary<string,object?>> rows)
+    {
+        var definition=MetadataRepository.DecodeRow<TableMetadata>(table);var columns=rows.Select(MetadataRepository.DecodeRow<ColumnMetadata>).ToArray();var storage=MetadataStoragePolicy.Compile(definition,columns);var physical=storage.PhysicalColumns.Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
+        return rows.Where(row=>IsPhysical(row)&&physical.Contains(SqlRowStore.Text(row,"id"))).ToArray();
+    }
     private static bool IsManaged(Dictionary<string, object?> row) => IndexWorkbenchRules.Managed(SqlRowStore.Text(row, "index_name"));
     private static bool Flag(IReadOnlyDictionary<string, object?> row, string field) => MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault(field)) != 0;
     /// <summary>响应投影保持原UI形状，系统列同样提供真实ID避免DDL引用悬空。</summary>
     private static IndexWorkbenchSnapshot Snapshot(Scope scope)
     {
-        var options = scope.Columns.Where(IsPhysical).OrderBy(row => Convert.ToInt32(row.GetValueOrDefault("sort_no") ?? 0, CultureInfo.InvariantCulture)).ThenBy(row => SqlRowStore.Id(row))
+        var options = scope.IndexableColumns.OrderBy(row => Convert.ToInt32(row.GetValueOrDefault("sort_no") ?? 0, CultureInfo.InvariantCulture)).ThenBy(row => SqlRowStore.Id(row))
             .Select(row => new IndexColumnOption(SqlRowStore.Text(row, "id"), SqlRowStore.Text(row, "column_name"), SqlRowStore.Text(row, "name") + "（" + SqlRowStore.Text(row, "column_name") + "）", IndexWorkbenchRules.SystemColumn(SqlRowStore.Text(row, "column_name")))).ToArray();
         var indexes = scope.Indexes.Where(IsManaged).OrderBy(row => SqlRowStore.Text(row, "index_name"), StringComparer.Ordinal).ThenBy(row => SqlRowStore.Id(row))
             .Select(row => new IndexWorkbenchIndex(SqlRowStore.Text(row, "id"), SqlRowStore.Text(row, "index_name"), SqlRowStore.Text(row, "index_type"), Convert.ToInt32(row["is_enabled"], CultureInfo.InvariantCulture),

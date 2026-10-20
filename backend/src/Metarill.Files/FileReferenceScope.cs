@@ -14,7 +14,7 @@ internal static class FileReferenceScope
     {
         var result = new List<FileParentScope>();
         if (string.IsNullOrWhiteSpace(page.WhereSql)) return result;
-        var columns = catalog.ConfigColumns.Where(column => column.ConfigTableId == table.Id && column.IsVirtualColumn == 0).ToArray();
+        var columns = MetadataStoragePolicy.ForTable(catalog, table).PhysicalColumns;
         foreach (var clause in Regex.Split(page.WhereSql.Trim(), @"\s+AND\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
         {
             var match = Regex.Match(clause.Trim(), @"^`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*=\s*@(current_yz_project_id|parent_id|parentId)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -27,7 +27,7 @@ internal static class FileReferenceScope
                 ? candidate.Id == column.LinkConfigTableId : candidate.TableName + "_id" == column.ColumnName).ToArray();
             if (parents.Length != 1 || parents[0].IsFunctionTable != 0 || parents[0].IsView != 0) throw Unsupported();
             var parent = parents[0];
-            var parentColumns = catalog.ConfigColumns.Where(candidate => candidate.ConfigTableId == parent.Id && candidate.IsVirtualColumn == 0).ToArray();
+            var parentColumns = MetadataStoragePolicy.ForTable(catalog, parent).PhysicalColumns;
             var id = parentColumns.SingleOrDefault(candidate => candidate.ColumnName == "id");
             var owner = parentColumns.SingleOrDefault(candidate => candidate.ColumnName == "yz_project_id");
             if (id is null || !LongType(id.LogicalType) || owner is null || !IdentityType(owner.LogicalType)) throw Unsupported();

@@ -41,7 +41,7 @@ public sealed partial class MetadataRepository
     }
 
     /// <summary>当前读与普通元数据加载使用相同物理别名和页面开关解释，避免授权分叉。</summary>
-    private static T DecodeRow<T>(Dictionary<string,object?> row)
+    internal static T DecodeRow<T>(Dictionary<string,object?> row)
     {
             var clean=row.Where(p=>p.Value is not null).ToDictionary(p=>MetadataRegistry.Camel(p.Key),p=>p.Value);
             var record=JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(clean,JsonDefaults.Options),JsonDefaults.Options)!;

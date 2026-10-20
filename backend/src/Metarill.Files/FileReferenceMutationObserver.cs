@@ -19,7 +19,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var page = catalog.ConfigPages.Single(p => p.Id == context.PageId);
         var table = catalog.ConfigTables.Single(t => t.Id == page.ConfigTableId);
         if (table.TableName != context.TableName) throw new UnauthorizedAccessException("来源页面与业务表不一致。");
-        var tableColumns = catalog.ConfigColumns.Where(c => c.ConfigTableId == table.Id && c.IsVirtualColumn == 0).ToArray();
+        var tableColumns = registry.PhysicalColumns(catalog, table);
         var fileColumns = tableColumns.Where(c => c.ControlKind.Equals("FileLibrary", StringComparison.OrdinalIgnoreCase)).ToArray();
         var affected = context.IsDelete ? fileColumns : fileColumns.Where(c => context.SubmittedFields.ContainsKey(c.ColumnName)).ToArray();
         if (affected.Length == 0) return;

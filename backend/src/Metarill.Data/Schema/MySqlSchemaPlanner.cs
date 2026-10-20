@@ -20,7 +20,7 @@ public static class MySqlSchemaPlanner
         foreach (var table in catalog.ConfigTables.Where(t => t.IsFunctionTable == 0 && t.IsView == 0))
         {
             if (!names.Add(table.TableName)) throw new InvalidOperationException("同一数据库不能重复定义表名。");
-            var columns = catalog.ConfigColumns.Where(c => c.ConfigTableId == table.Id && c.IsVirtualColumn == 0).Select(CompileColumn).ToArray();
+            var columns = MetadataStoragePolicy.ForTable(catalog, table).PhysicalColumns.Select(CompileColumn).ToArray();
             if (columns.Select(c => c.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != columns.Length)
                 throw new InvalidOperationException("同一表不能重复定义字段名。");
             var id = columns.SingleOrDefault(c => c.Name == "id");

@@ -11,11 +11,10 @@ namespace Metarill.Runtime.Persistence;
 public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrastructure)
 {
     public DatabaseSession Session => session;
-    private IReadOnlyList<ColumnMetadata> Columns(string table)
-    {
-        var definition = infrastructure.ConfigTables.SingleOrDefault(t => t.TableName == table) ?? throw new InvalidOperationException("未登记的基础设施表。");
-        return infrastructure.ConfigColumns.Where(c => c.ConfigTableId == definition.Id && c.IsVirtualColumn == 0).ToArray();
-    }
+    // 发布模型在仓储构造时一次编译，不在每条SQL或每个业务值上重新解释关系元数据。
+    private readonly IReadOnlyDictionary<string,IReadOnlyList<ColumnMetadata>> physicalColumns = infrastructure.ConfigTables.ToDictionary(table=>table.TableName,table=>MetadataStoragePolicy.ForTable(infrastructure,table).PhysicalColumns,StringComparer.Ordinal);
+    /// <summary>只使用构造时已编译的物理字段白名单，未知表不能进入通用仓储。</summary>
+    private IReadOnlyList<ColumnMetadata> Columns(string table) => physicalColumns.TryGetValue(table,out var columns)?columns:throw new InvalidOperationException("未登记的基础设施表。");
     private string Q(string value) => session.Provider.QuoteIdentifier(value);
     public Task<List<Dictionary<string, object?>>> ReadAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken);
     /// <summary>只用于种子存在性与开发备份，包含逻辑删除记录；业务查询不得使用此入口。</summary>

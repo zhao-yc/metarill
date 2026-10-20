@@ -51,7 +51,7 @@ public static class MetadataCatalogComposition
     }
 
     /// <summary>仅按物理字段比较；显示文案、控件和项目标识不会改变数据库结构。</summary>
-    private static string TableDefinition(TableMetadata table) => JsonSerializer.Serialize(new { table.TableName, table.IsFunctionTable, table.IsView }, JsonOptions);
+    private static string TableDefinition(TableMetadata table) => JsonSerializer.Serialize(new { table.TableName, table.IsFunctionTable, table.IsView, table.IsRongyu }, JsonOptions);
     private static string[] Columns(MetadataCatalog catalog, string tableId) => catalog.ConfigColumns.Where(column => column.ConfigTableId == tableId)
         .Select(column => JsonSerializer.Serialize(new { column.Id, column.ConfigTableId, column.ColumnName, column.LogicalType, column.ColumnLength, column.IsDbNotNull, column.IsVirtualColumn, column.Precision, column.Scale, column.DefaultValue }, JsonOptions)).Order(StringComparer.Ordinal).ToArray();
     /// <summary>索引名称、字段标识、顺序和方向均参与一致性检查，不按列表偶然顺序比较。</summary>
