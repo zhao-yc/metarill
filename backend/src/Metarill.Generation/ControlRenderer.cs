@@ -24,6 +24,11 @@ internal static class ControlRenderer
         if (fixedCatalog.Declared) return fixedCatalog.Definition is { } known
             ? Wrap($"<text>{{{{ entity.{known.JsonName} }}}}</text>")
             : Wrap("", fixedCatalog.Reason);
+        if (column.Source.ControlKind == "MultiCheckBoxDatabase")
+        {
+            var fixedRole = FixedRoleCheckboxCompilation.Resolve(model,table,page,column);
+            return fixedRole.Definition is not null ? Wrap("<text>{{ entity.yzRoleNames }}</text>") : Wrap("",fixedRole.Reason);
+        }
         // 只读展示也不能把未编译关系伪装成已完成的选择控件。
         if (column.Source.ControlKind == "List" && !RelationCompilation.ForPage(model, page).Any(relation => relation.SourceColumn == column) || column.Source.ControlKind == "SelectPage" && SelectionTarget(model, column) is null)
             return Wrap($"<text>{{{{ entity.{column.JsonName} }}}}</text><text>此关系控件待移植，当前只读</text>", "目标关系尚未完成移植：" + column.Source.ControlKind);

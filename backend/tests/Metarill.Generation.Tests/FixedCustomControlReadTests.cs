@@ -41,7 +41,7 @@ public sealed class FixedCustomControlReadTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
-    /// <summary>真实平台元数据的五处原控件都能证明读取，而数据库复选与join仍是原独立Gap。</summary>
+    /// <summary>真实平台五处原控件可证明读取；角色读取单独编译后仍保留最终Runtime写协调缺口。</summary>
     [Fact]
     public void Actual_platform_custom_contracts_do_not_clear_unrelated_gaps()
     {
@@ -57,7 +57,7 @@ public sealed class FixedCustomControlReadTests
             Assert.DoesNotContain(ReadProjectionCompilation.ForPage(model, table, page).Detail.Gaps, gap => gap.ColumnId == column.Source.Id);
         }
         var gaps = model.Tables.SelectMany(table => table.Pages.SelectMany(page => ReadProjectionCompilation.ForPage(model, table, page).Detail.Gaps)).ToArray();
-        Assert.Contains(gaps, gap => gap.Reason.Contains("MultiCheckBoxDatabase", StringComparison.Ordinal));
+        Assert.Contains(GenerationCapabilityAudit.Collect(model), gap => gap.Column == "yz_role_ids" && gap.Usage == "runtime" && gap.Reason.Contains("MultiCheckBoxDatabase", StringComparison.Ordinal));
         Assert.Contains(gaps, gap => gap.Reason.Contains("联接", StringComparison.Ordinal));
     }
 

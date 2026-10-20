@@ -25,10 +25,15 @@ internal static class GenerationCapabilityAudit
                 var source=model.Catalog.ConfigColumns.Single(column=>column.Id==field.ConfigColumnId && column.ConfigTableId==table.Source.Id);
                 if(source.IsVirtualColumn!=0 && FixedOptionCatalogCompilation.HasDeclaration(source,field))
                     gaps.Add(new(page.Source.Id,source.ColumnName,"detail","固定版本目录必须使用已声明的非联接物理版本字段。"));
+                if(source.IsVirtualColumn!=0 && FixedRoleCheckboxCompilation.Declared(source,field))
+                    gaps.Add(new(page.Source.Id,source.ColumnName,"detail","MultiCheckBoxDatabase固定角色声明必须使用非联接物理数组字段。"));
             }
             foreach(var column in page.Readable)
                 if(ControlRenderer.Render(model,table,page,column).UnsupportedReason is {} reason)
                     gaps.Add(new(page.Source.Id,column.Source.ColumnName,"detail",reason));
+            // 固定读取与数组合同已编译不代表身份写协调完成，A验收前仍阻断Full应用发布。
+            if(FixedRoleCheckboxCompilation.ForService(model,table,page) is {} role)
+                gaps.Add(new(page.Source.Id,role.Source.Source.ColumnName,"runtime","MultiCheckBoxDatabase角色最终合并后台校验及撤权协调仍待Runtime A验收。"));
             // 原选择页按辅助名称键搜索；只有同一固定编译计划确认可执行时才解除筛选缺口。
             var names=SelectionNameFilterCompilation.ForPage(model,table,page);
             foreach(var gap in names.Gaps)gaps.Add(new(page.Source.Id,gap.Source.Source.ColumnName,"filter",gap.Reason));

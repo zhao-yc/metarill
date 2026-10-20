@@ -60,6 +60,15 @@ internal static class ForeignValidationRenderer
                 else result.AppendLine($"        if ((creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null) throw new InvalidOperationException({Literal(multi.Reason!)});");
                 continue;
             }
+            if (column.Source.ControlKind == "MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null)
+            {
+                result.AppendLine($"        if ((creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null)")
+                    .AppendLine("        {")
+                    .AppendLine($"            var roleIds = RoleCheckboxValue.Parse(entity.{column.Property}).Distinct().ToArray();")
+                    .AppendLine($"            if (await RoleOptionsScope{page.Source.Id}(actor).Where(role => roleIds.Contains(role.Id)).CountAsync(cancellationToken) != roleIds.Length) throw new InvalidOperationException(\"角色不存在、已删除或不在当前工作区真实后台范围。\");")
+                    .AppendLine("        }");
+                continue;
+            }
             var target = Target(model, column);
             var knownRelation = column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" || !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId);
             if (target is null && !knownRelation) continue;

@@ -34,7 +34,7 @@ export function mountGenerated(source,props={},route,{components={}}={}){
  for(const name of new Set([...descriptor.template.content.matchAll(/<([a-z][a-z0-9-]*)/g)].map(match=>match[1]).filter(name=>!['template','uni-forms','yzp-popup'].includes(name))))app.component(name,components[name]||Stub)
  app.component('uni-forms',{props:['modelValue','rules'],methods:{validate(){validationCount++;return valid?Promise.resolve({}):Promise.reject([{key:'name'}])}},render(){return Vue.h('form',{},this.$slots.default?.())}})
  app.component('yzp-popup',{emits:['change'],methods:{open(){this.$emit('change',{show:true})},close(){this.$emit('change',{show:false})}},render(){return Vue.h('popup',{},this.$slots.default?.())}})
- app.config.globalProperties.$deviceInfo={is_pc:true};app.config.globalProperties.$yzp=yzp;app.config.globalProperties.$checkboxRange=[{value:0,text:'否'},{value:1,text:'是'}];app.config.globalProperties.$imageStyles={}
+ app.config.globalProperties.$deviceInfo={is_pc:true};app.config.globalProperties.$yzp=yzp;app.config.globalProperties.$checkboxRange=[{value:0,text:'否'},{value:1,text:'是'}];app.config.globalProperties.$multiCheckboxRange=[{value:1,text:'全选'}];app.config.globalProperties.$imageStyles={}
  app.config.warnHandler=message=>{throw new Error(message)}
  const tree=element('root'),host=app.mount(tree),state=host.$refs.page;state.getOpenerEventChannel=()=>({emit:(...args)=>events.push(args)})
  if(route)component.onLoad?.call(state,route)

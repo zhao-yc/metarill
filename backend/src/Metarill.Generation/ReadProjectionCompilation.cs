@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 internal enum ReadProjectionPurpose { List, Detail, Selection }
-internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName }
+internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames }
 internal sealed record ReadProjectionOutput(string JsonName, string Property, ColumnModel Source, ReadProjectionOutputKind Kind, string? ControlDetail = null);
 internal sealed record ReadProjectionDependency(string ColumnId, IReadOnlyList<string> Reasons);
 internal sealed record ReadProjectionGap(string ColumnId, string Reason);
@@ -72,14 +72,27 @@ internal static class ReadProjectionCompilation
                 if (fixedRead.Contract is null) { Gap(column.Source.Id, fixedRead.Reason!); return; }
                 custom = fixedRead.Contract;
             }
-            if (Kind(column) is "CascadeTree" or "Title" or "Tab" or "MultiCheckBoxDatabase" ||
+            FixedRoleCheckboxModel? fixedRole = null;
+            if (Kind(column) == "MultiCheckBoxDatabase")
+            {
+                var role = FixedRoleCheckboxCompilation.Resolve(model,table,page,column);
+                if (role.Definition is null) { Gap(column.Source.Id,role.Reason!); return; }
+                fixedRole = role.Definition;
+            }
+            if (Kind(column) is "CascadeTree" or "Title" or "Tab" ||
                 purpose == ReadProjectionPurpose.Detail && Kind(column) is not ("" or "date_time" or "date" or "month" or "time" or
                     "ConstList" or "ConstDownList" or "CheckBox" or "List" or "TextArea" or "FileLibrary" or "IntenetImage" or
-                    "Base64Image" or "Image" or "MultiImage" or "Upload" or "Video" or "SelectPage" or "MultiSelectPage" or "RTF" or "CustomControl"))
+                    "Base64Image" or "Image" or "MultiImage" or "Upload" or "Video" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "RTF" or "CustomControl"))
             { Gap(column.Source.Id, "控件读取依赖尚未证明：" + Kind(column)); return; }
             physical.TryAdd(column.Source.Id, column);
             Reason(column.Source.Id, reason);
             Output(new(column.JsonName, column.Property, column, ReadProjectionOutputKind.Physical));
+            if (fixedRole is not null)
+            {
+                Output(new(FixedRoleCheckboxModel.Alias,"YzRoleNames",column,ReadProjectionOutputKind.RoleNames));
+                Reason(column.Source.Id,"角色名称由真实后台所属当前项目的固定ID/name查询按原顺序计算，不写物理列");
+                return;
+            }
             if (!expand || !expanded.Add(column.Source.Id)) return;
             if (custom is not null)
             {
