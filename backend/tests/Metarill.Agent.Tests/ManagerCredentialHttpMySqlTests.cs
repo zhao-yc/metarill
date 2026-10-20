@@ -41,7 +41,8 @@ public sealed class ManagerCredentialHttpMySqlTests
         Assert.True(SqlRowStore.Text(updated, "yz_role_ids") == roleEncoding, "角色省略不能重写或清空旧角色编码。");
         Assert.Equal("原掩码姓名更新", SqlRowStore.Text(updated, "real_name"));
         var page = await f.ManagerAsync(HttpMethod.Post, "/page", new { filters = new { name }, pageNo = 1, pageSize = 20 });
-        var item = Assert.Single(page.GetProperty("data").GetProperty("records").EnumerateArray());
+        var records = page.GetProperty("data").GetProperty("records").EnumerateArray().ToArray();
+        Assert.True(records.Length == 1, "固定名称过滤只返回自有账号，失败时不输出响应实体。"); var item = records[0];
         Assert.Equal(id, item.GetProperty("id").GetString()); Assert.Equal(1, item.GetProperty("isDisabled").GetInt32());
         foreach (var key in new[] { "password", "salt", "oldPassword" }) Assert.False(item.TryGetProperty(key, out _), "列表不能投影凭据字段。");
         using var login = await f.Role.Client.PostAsync("/api/admin/sys/yz_manager/login", new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = name, ["password"] = password }));
@@ -52,7 +53,7 @@ public sealed class ManagerCredentialHttpMySqlTests
         using var logout = await f.Role.Client.SendAsync(logoutRequest); Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         Assert.Equal(200, (await ManagerCredentialHttpFixture.ReadAsync(logout)).GetProperty("code").GetInt32()); Assert.Null(await f.Role.Authentication.AuthenticateAsync(token, null));
         var sessionRows = await f.Role.Store.ReadIncludingDeletedAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = long.Parse(id, CultureInfo.InvariantCulture) });
-        Assert.Single(sessionRows); Assert.NotNull(sessionRows[0]["delete_no"]);
+        Assert.True(sessionRows.Count == 1, "新账号只建立一个会话，失败时不输出会话行。"); Assert.NotNull(sessionRows[0]["delete_no"]);
         await f.CleanupOwnedAsync(); Assert.Equal(1, f.CleanedManagers);
     }
 
@@ -65,11 +66,13 @@ public sealed class ManagerCredentialHttpMySqlTests
         {
             var name = await f.ReserveNameAsync(); var body = await f.OriginalCreateAsync(name, value);
             await f.ManagerAsync(HttpMethod.Post, "/add", body, code: 500);
-            Assert.Empty(await f.Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name }));
+            var rejected = await f.Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name });
+            Assert.True(rejected.Count == 0, "非法新增不得留下账号，失败时不输出账号行。");
         }
         var missingName = await f.ReserveNameAsync(); var missing = await f.OriginalCreateAsync(missingName, null); missing.Remove("password");
         await f.ManagerAsync(HttpMethod.Post, "/add", missing, code: 500);
-        Assert.Empty(await f.Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = missingName }));
+        var missingRows = await f.Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = missingName });
+        Assert.True(missingRows.Count == 0, "缺少口令不得留下账号，失败时不输出账号行。");
         await f.CleanupOwnedAsync(); Assert.Equal(0, f.CleanedManagers);
     }
 

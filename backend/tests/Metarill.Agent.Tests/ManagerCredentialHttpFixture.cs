@@ -36,7 +36,8 @@ internal sealed class ManagerCredentialHttpFixture(RoleSecurityFixture role) : I
     internal async Task<string> ReserveNameAsync()
     {
         var name = "mt_credential_" + Guid.NewGuid().ToString("N")[..16];
-        Assert.Empty(await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name }));
+        var existing = await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name });
+        Assert.True(existing.Count == 0, "随机账号名称必须从未存在，失败时不输出账号行。");
         if (!ownedNames.Add(name)) throw new InvalidOperationException("随机账号名称重复，停止夹具写入。");
         return name;
     }
@@ -70,8 +71,9 @@ internal sealed class ManagerCredentialHttpFixture(RoleSecurityFixture role) : I
     internal async Task<Dictionary<string, object?>> RowAsync(string name)
     {
         if (!ownedNames.Contains(name)) throw new InvalidOperationException("不允许读取未登记账号。");
-        var row = Assert.Single(await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name }));
-        RequireOwned(row, name); return row;
+        var rows = await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name });
+        Assert.True(rows.Count == 1, "自有账号必须恰好一行，失败时不输出账号行。");
+        var row = rows[0]; RequireOwned(row, name); return row;
     }
     internal static string Fingerprint(IReadOnlyDictionary<string, object?> row) => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new SortedDictionary<string, object?>(row.ToDictionary(pair => pair.Key, pair => pair.Value), StringComparer.Ordinal), JsonDefaults.Options)));
     internal static async Task<JsonElement> ReadAsync(HttpResponseMessage response)
@@ -92,11 +94,14 @@ internal sealed class ManagerCredentialHttpFixture(RoleSecurityFixture role) : I
                 await using var command = connection.CreateCommand(); command.CommandText = "DELETE FROM `yz_manager` WHERE `id`=@id AND `name`=@name AND `insert_manager_id`=@creator AND `yz_project_id`=@project";
                 Add(command, "id", id); Add(command, "name", name); Add(command, "creator", Role.AccountId); Add(command, "project", long.Parse(Role.ProjectId, CultureInfo.InvariantCulture));
                 if (await command.ExecuteNonQueryAsync() != 1) throw new InvalidOperationException("自有账号清理范围变化，保留现场停止。");
-                Assert.Empty(await Role.Store.ReadIncludingDeletedAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = id }));
-                Assert.Empty(await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["id"] = id }));
+                var sessionsAfter = await Role.Store.ReadIncludingDeletedAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = id });
+                var managersAfter = await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["id"] = id });
+                Assert.True(sessionsAfter.Count == 0, "自有账号会话清理后必须零残留，失败时不输出会话行。");
+                Assert.True(managersAfter.Count == 0, "自有账号清理后必须零残留，失败时不输出账号行。");
                 CleanedManagers++;
             }
-            Assert.Empty(await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name }));
+            var byNameAfter = await Role.Store.ReadIncludingDeletedAsync("yz_manager", new Dictionary<string, object?> { ["name"] = name });
+            Assert.True(byNameAfter.Count == 0, "自有账号名称清理后必须零残留，失败时不输出账号行。");
             ownedNames.Remove(name);
         }
     }
