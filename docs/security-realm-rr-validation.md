@@ -1,6 +1,6 @@
-# 安全realm真实RR回归准备
+# 安全realm真实RR回归与证据
 
-三个安全关联索引已经由根沿原Schema流程执行并核验。已有真实批次的三个RR用例均未通过，不能关闭角色Runtime Gap；失败原因和临时观测授权撤销回执见下节。本片以f857c681为基线，只增加采集开关前置检查和离线反例，不执行数据库、授权、DDL、Docker、浏览器或共享配置变更。开启观测设施和再次实库验证须由根另行安排，不能用离线开关分支测试代替锁证据。
+三个安全关联索引已经由根沿原Schema流程执行并核验。共享实例早期RR失败及临时授权撤销事实保留；后续74889d5在Server-200独立临时实例实际RR3/3，详见末节，不重启或修改共享实例。原f857前置切片只增加离线反例，不能当作真实锁证据。独立生成Host Runtime及其余发布门槛仍不关闭。
 
 ## 三个真实场景
 
@@ -26,13 +26,13 @@
 
 ## 执行要求
 
-先由根核对现有私有test.settings确实对应Server200，并确认显式索引计划已完成。测试集合DisableParallelization仅限制本程序集，不能代替跨进程独占数据库窗口；不得与API/Metadata/Generation等其他实库套件并发。
+原准备要求先核对私有settings确实对应Server200及显式索引计划；下列命令只展示过滤器形式，不携带隔离配置。共享实例采集关闭，不直接重跑该环境；成功批次使用独立实例私有settings和冻结源码归档，按已审专用helper控制执行与清理。测试集合DisableParallelization仅限制本程序集，不能代替跨进程独占数据库窗口；不得与API/Metadata/Generation等其他实库套件并发。
 
 ```powershell
 & E:/git/metarill/.tools/dotnet/dotnet.exe test backend/tests/Metarill.Agent.Tests/Metarill.Agent.Tests.csproj --no-restore -warnaserror --filter 'FullyQualifiedName~SecurityRealmRrMySqlTests' --logger 'trx;LogFileName=security-realm-rr.trx'
 ```
 
-已有真实批次均未完成RR验收；本次新增采集开关门禁后的实库重跑仍待执行。只有三个真实用例和精确清理均通过，才可报告对应RR边界达标；它们也不单独证明整个角色控件、所有配置写入口或性能无退化。
+本节原准备阶段尚未完成RR验收；采集/权限均满足的独立实例成功批次见末节。只有三个真实用例和精确清理均通过，才可报告对应RR边界达标；它们也不单独证明整个角色控件、所有配置写入口或性能无退化。
 
 
 ## 观测权限与失败诊断
@@ -51,4 +51,28 @@ Probe.Open在采集开关确认为ON后检查data_lock_waits、data_locks和thre
 
 采集开关和17列权限都通过后，Probe仅用已有PROCESSLIST_ID列执行当前连接的线程计数，必须恰为1；否则仍在业务夹具之前拒绝。这个固定查询不增加授权列，不把空闲时允许为空的data_locks/data_lock_waits当作采集开关证据。
 
-新增纯离线分支反例：OFF时列检查和后续monitor回调调用数均为0；ON时按原三表17列→当前monitor顺序执行，当前连接行数0或2均拒绝，列权限失败则不调用后续monitor检查。它们只验证前置检查顺序，不构造真实连接或锁记录，不补写为并发验收成功。下一次真实执行仍须先具备设施开关、精确临时列授权、实际fixture参数计划、真实等待与最终精确清理证据。
+新增纯离线分支反例：OFF时列检查和后续monitor回调调用数均为0；ON时按原三表17列→当前monitor顺序执行，当前连接行数0或2均拒绝，列权限失败则不调用后续monitor检查。它们只验证前置检查顺序，不构造真实连接或锁记录，不补写为并发验收成功。这些门禁继续适用于后续重跑；独立实例成功批次如下，不追改共享实例失败结果。
+
+## 2026-10-20 独立临时实例：实际3/3与精确清理
+
+集成者从冻结`74889d572f5f00a33465ff68003d5d178cb43797`归档、隔离构建并实际执行。辅助Agent只读复核源码断言、TRX、场景回执和初始化快照，没有再次运行RR。Server-200临时实例复用核实的缓存MySQL8.4.11、P_S开启，不复制共享/客户数据、不改正式settings或共享采集。两个新库初始化前均0表，经正式Bootstrap为平台23表/业务4表及3安全索引，初始化后/RR后快照字节相同。
+
+| 场景 | 实际证据 | 参数计划 |
+| --- | --- | --- |
+| 旧快照撤权 | 两连接真实project主键等待；普通快照仍旧；Role Service撤权后Unauthorized，目标全行hash不变 | 5 |
+| 后台变化 | Manager迁移提交后T1明确YZP_CONFLICT；回滚前A锁存在、B锁不存在，无不可解释NULL记录锁；最终全行等T2提交 | 7 |
+| 无关realm锁 | 三条不同业务连接重叠；删除和工作台提交、持久化核验后无关账号/授权X锁仍存在，然后才释放holder | 9 |
+
+TRX total/executed/passed均3，failed/timeout/aborted/未执行均0。**21项actualFixtureIndexPlans的chosen均为对应有效前缀索引，访问ref**；三组先排空事务、按自有主键/角色外键清理并核验零残留。不用Task状态、SQL文本或汇总result单独证明成功。
+
+贡献clone私有目录`.local/rr-isolated-20261020/execution/`保存：
+
+- `rr-isolated.trx`，SHA256 `0da9547bef7692b5c99e742a47dbe8753c87a7db1124428b223fa03aae18d005`。
+- `before-initialize.json`、`after-initialize.json`、`after-rr.json`；后两份同SHA256 `f7dbf41c4d66dad39de953a77ec7ba9e311ec1673fe5946e8037ea994ef4d76e`。
+- `source/.local/security-realm-rr/rr-revocation-*/receipt.json`、`rr-target-admin-change-*/receipt.json`、`rr-unrelated-realm-*/receipt.json`。
+- `cleanup-20261020053813.json`证明自有容器、卷及远端运行秘密移除；本机运行settings/secrets已移除。
+- `date-safe-tunnel-stop.json`证明只停自有隧道：持执行锁，ISO日期按字符串解析，启动时间/exe/命令摘要和唯一监听严格核对；保持已执行v2输入/seal，无重Run。
+
+长期备用文件按用户备份规则保留，不公开账号、实例UUID、连接或备份内容。共享旧150项仍为147通过/3RR失败，临时17列授权撤销后应用三检查1142；共享采集关闭事实不因新实例成功而改写。
+
+只支持本批三个场景，不等于账号原页浏览器完整写入、独立Host安全Runtime、所有配置入口、任意负载死锁或性能达标；角色selection/export和5个Custom页面门槛继续保留。

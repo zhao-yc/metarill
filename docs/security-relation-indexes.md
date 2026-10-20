@@ -10,7 +10,7 @@ Server200的metarill_test已核数据库、hostname和UUID，MySQL8.4.11。SHOW 
 - permission按role IN并ORDER BY id使用PRIMARY全索引遍历，type=index，估算rows=96；同role等值查询type=ALL，估算rows=96。
 - role和manager按后台检查引用均type=ALL，估算rows=47。
 
-这些是特定时点统计和单个同后台角色样本的优化器估算，不是实际耗时、锁范围、死锁或大ID集合验收。不能由源码未声明索引推断现场一定扫描；本次先核了现场索引和计划。添加后的实际计划/并发/性能尚未验证。
+这些是特定时点统计和单个同后台角色样本的优化器估算，不是实际耗时、锁范围、死锁或大ID集合验收。不能由源码未声明索引推断现场一定扫描；本次先核了现场索引和计划。这是添加前历史基线；后续实际计划与RR专项见末节，性能对照仍未验证。
 
 ## 固定源声明
 
@@ -32,7 +32,7 @@ Server200的metarill_test已核数据库、hostname和UUID，MySQL8.4.11。SHOW 
 
 本次使用IndexWorkbenchBusiness既有Snapshot/Save完整聚合生命周期保存三条声明：真实管理员、当前平台项目、每表完整现有托管索引列表与revision必须先核验并保留；不能空数组覆盖其它托管索引。工作台新项省略id，由服务器生成live索引/字段ID；仓库固定种子ID不能伪造成已存在索引ID传入。工作台正整数sortNo会规范化，需按列顺序核验，不能把元数据ID或位置数值混同物理索引定义。
 
-本片先准备不含会话的可审请求；在fresh完整快照、revision和请求复核后才执行下节三笔元数据保存。后续应再从实际已发布目录走SchemaService.PreviewAsync；预览内容、实例/指纹与精确三条ADD INDEX需单独review。Apply是另一操作，MySQL DDL隐式提交，不能声称可事务回滚；本片没有Apply权限、令牌或执行记录。
+本片先准备不含会话的可审请求；在fresh完整快照、revision和请求复核后才执行下节三笔元数据保存。后续应再从实际已发布目录走SchemaService.PreviewAsync；预览内容、实例/指纹与精确三条ADD INDEX需单独review。Apply是另一操作，MySQL DDL隐式提交，不能声称可事务回滚；该元数据准备阶段没有Apply权限、令牌或执行记录，后续正式Apply见末节。
 
 ## 原工作台发布与种子ID一致性
 
@@ -58,4 +58,10 @@ Server200的metarill_test已核数据库、hostname和UUID，MySQL8.4.11。SHOW 
 
 每笔SHOW INDEX确认恰新增原二列ASC非唯一BTREE，PRIMARY及账号ux_manager_name保持；同表二次预览0差异，三条持久审计逐一匹配。所有旧元数据、9个真实ID、既定37行图和装载元数据指纹不变，自有会话注销后实际预览拒绝。没有Seed、其它DDL、重发或业务数据扫描；MySQL DDL隐式提交，不声称事务回滚。最终回执位于贡献clone `.local/security-index-schema-acceptance-v1/apply-20261020042708-40f8af298ec84ba3b9b9a7486b3892fa/final-result.json`，SHA `1074f37d162243bbc494081031db41db0e048516c792a8626785efc28293410e`。
 
-物理索引存在及0差异不等于锁并发或性能达标。后续RR首次验收暴露观测账号缺少performance_schema权限，失败现场保留；专项仍待完整结论。
+物理索引存在及0差异不等于锁并发或性能达标。后续共享实例两批RR分别缺观测权限、采集关闭而失败，现场保留；独立新实例成功证据如下，性能仍待对照。
+
+## 2026-10-20 实际夹具计划与RR专项
+
+冻结74889d5在Server-200独立临时MySQL8.4.11，以正式Bootstrap初始化两个新空库及同一索引源：平台23表、业务4表、3安全索引，不复制共享/客户数据。三个RR场景按实际夹具后台/角色ID先做EXPLAIN，共5+7+9=21项，chosen均是相应`yzp_idx_manager_admin_active`、`yzp_idx_role_admin_active`或`yzp_idx_role_permission_role_active`前缀索引、访问ref，无FORCE INDEX。RR3/3零跳过、三组owned零残留，前后结构同字节，临时实例已精确清理。
+
+TRX/回执/清理见[RR专项](security-realm-rr-validation.md)。共享原三笔DDL保持；临时17列观测授权已撤销、应用三检查1142，没有重启或修改共享采集。索引选择仅支持本批参数/统计，不能承诺任意规模计划、完整锁范围或Java同资源性能。

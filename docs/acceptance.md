@@ -6,22 +6,22 @@
 
 首期 C# 基础与 MySQL 核心纵向闭环可开发、可审查；**完整 YZP 能力、前端跨端及性能验收尚未完成，不作为正式版本发布**。普通数据访问采用 FreeSql；配置、权限、文件等基础设施以同一 DatabaseSession 的参数化命令加入事务。
 
-当前原页面、样式、交互及模板恢复的证据以 [前端恢复与原协议台账](frontend-preservation-correction.md) 为准；下文前序简化页面记录不计为原界面验收。角色规则已按用户确认沿用原V8页面操作权限及目标后台归属，不增加超级身份门槛，见 [角色管理规则](role-assignment-policy-decision.md)。原角色复选读取及同后台工作台入口已恢复，标准安全表写协调已接线且完整实库回归通过，真实RR并发与原页面闭环仍待验收，不能以早期双重平台管理员门禁作为最终实现。
+当前原页面、样式、交互及模板恢复的证据以 [前端恢复与原协议台账](frontend-preservation-correction.md) 为准；下文前序简化页面记录不计为原界面验收。角色规则已按用户确认沿用原V8页面操作权限及目标后台归属，不增加超级身份门槛，见 [角色管理规则](role-assignment-policy-decision.md)。原角色复选读取及同后台工作台入口已恢复，标准安全表写协调已接线且完整实库回归通过，独立实例三个RR场景已验；原账号/角色名称、掩码和启用只读补验，后续凭据HTTP/MySQL三项已验；账号浏览器完整写入及独立宿主安全闭环仍待验，不能以早期双重平台管理员门禁作为最终实现。
 
 | 能力 | 已取得证据 | 剩余边界 |
 | --- | --- | --- |
 | 仓库、许可证与环境 | 独立历史、公开仓库、Apache-2.0；官方 .NET 10.0.402 SDK 校验并安装 | CI 结果另以实际 Actions 为准 |
-| 平台自举 | 23 张表、649 列、20 页、662 个页字段；固定标识清单；重复初始化不复活逻辑删除记录 | 首版不迁移旧业务数据与代码 |
+| 平台自举 | 23 张表、649 列、20 页、665 个页字段；固定标识清单；重复初始化不复活逻辑删除记录 | 首版不迁移旧业务数据与代码 |
 | MySQL 核心流程 | 真实登录→配置表/批量字段→结构预览/执行/二次核验→生成 ZIP→业务 CRUD | 浏览器已验临时表保存、字段配置、结构执行和生成下载；原选择器许可已确认，从零纯界面选择后台、建表及默认字段回读已通过 |
-| 生成与独立应用 | 强类型 DTO/VO/Mapper/Service/Controller；严格字段存在性；受保护 partial；独立应用包真实编译及 MySQL CRUD/复制/事务；FullApplication 已组装独立 uni-app 宿主，平台显式 BackendOnly | 共享导出、本地文件与同库引用事务已验；开发登录/菜单/生成 CRUD 的真实 HTTP 脚本通过；独立包已实测 Web 发行、主子 Tab/PC 弹层和独立多选页浏览器；正式认证、Agent、文件/导入导出/远程关系浏览器及真机未完成 |
-| 菜单、权限 | 单表树、页面归属后台；项目行锁/版本冲突；导航与页操作分权；真实身份后台读取 | 原角色复选读取及同后台工作台入口已恢复；标准安全表协调已接线，RR撤权、锁集变化及原页面写入待验，不把菜单可见当写授权，不以额外平台超级门槛替代原规则 |
+| 生成与独立应用 | 强类型 DTO/VO/Mapper/Service/Controller；严格字段存在性；受保护 partial；独立应用包真实编译及 MySQL CRUD/复制/事务；FullApplication 已组装独立 uni-app 宿主，平台显式 BackendOnly | 共享导出、本地文件与同库引用事务已验；开发登录/菜单/生成 CRUD 的真实 HTTP 脚本通过；独立包已实测 Web 发行、主子 Tab/PC 弹层和独立多选页浏览器；独立宿主正式认证/完整安全协调及Agent未完成；文件、复杂关系导入导出、下载落盘和真机仍缺；原单表导入及服务端XLSX已有实证 |
+| 菜单、权限 | 单表树、页面归属后台；项目行锁/版本冲突；导航与页操作分权；真实身份后台读取；凭据HTTP/MySQL三项 | 原角色复选读取及同后台工作台入口已恢复；平台标准安全表协调已接线，独立实例RR三场景已验；账号原页浏览器完整写入和独立宿主下发仍缺，不把菜单可见当写授权，不以额外平台超级门槛替代原规则 |
 | 配置工作台 | 页面布局、字段批量开关/排序、批量建字段、索引聚合、页面复制/创建、快捷建菜单 | 保存配置不会自动执行 DDL；高级联接、物理视图等尚未移植 |
 | 结构同步与只读反查 | 指纹/短期计划、防漂移/重放、MySQL 锁、结果审计；部分 DDL 失败明确记录；HTTP/MCP 受管结构反查固定 executable:false | 不自动写元数据或执行反查 SQL；独立宿主已提供固定受管模型 --schema-inspect；平台 CLI 选项目、未登记表目录及反向导入仍待完成；不删除未声明结构，不支持索引自动替换/删除、DESC，破坏性变更拒绝 |
 | 文件 | 真实上传/完成/解析/访问、目录操作；业务引用同事务；删除与引用并发保护 | 当前本地存储；平台/已发布示例业务库接线与同库引用事务已通过；原RTF/ImageUpload URL尚不追踪引用生命周期，S3待实现 |
 | 导入导出 | 前端行数据导入整批回滚；真实 XLSX；身份绑定短期下载；读前并发/票据门禁与 SQL 上限 | 复杂控件/关系按能力清单明确拒绝；不静默截断 |
 | MCP | 官方 C# SDK 2.2.0；匿名拒绝；工具列表、结构预览和同 Service 页操作通过真实客户端 | Agent 的 MCP 写操作当前拒绝，写入走带任务保护的能力 API |
 | Agent | 设备码授权、刷新轮换/撤销、能力目录、写确认、持久任务 UUID 去重；实际 CLI 端到端通过 | 人工确认由隔离测试账号模拟协议，尚无真实浏览器授权操作验收 |
-| 前端 | 新 AppID；HBuilderX 完整 Web 发行成功；真实浏览器登录、项目选择、菜单与配置表回读、原选择器纯界面建表；231项运行时测试 | 完整业务写入、小程序/Android/iOS 待验收；Tiny Cloud 按用户决定空key，真实加载/编辑待配置；本机 HBuilderX 预览入口未启动，使用发行产物静态服务验证 |
+| 前端 | 新AppID与HBuilderX Web发行；原登录/导航/单表CRUD/导入、配置表及选择器建表；原账号角色只读补验；最近完整前端260项 | 其余业务及账号浏览器完整写入、小程序/Android/iOS真机待验收；Tiny Cloud 按用户决定空key，真实加载/编辑待配置；本机 HBuilderX 预览入口未启动，使用发行产物静态服务验证 |
 | 性能 | 保留固定类型热点查询/映射；导出实测 LIMIT 上限和满额不读库 | 未完成与 Java YZP 同数据/SQL/索引/并发/资源的对照，不作性能达标结论 |
 | 多数据库 | Provider、逻辑类型、能力、结构计划与平台/业务连接边界 | 目前只实现 MySQL；MariaDB/PostgreSQL/SQL Server/Oracle/SQLite 尚未支持 |
 
@@ -35,8 +35,8 @@ CI 在 Linux / Windows 重新生成、比对提交产物、编译宿主并遍历
 
 ## 待验收顺序
 
-1. 继续完整浏览器业务写入闭环；原选择器许可与接入、新AppID、Web发行均已通过。自有 Tiny Cloud 保持空key，真实编辑按用户要求留待后续。
-2. 主子 Tab/PC 弹层与独立多选页已完成独立包 Web/浏览器核心验收；继续 List 关系大数据、文件/导入导出与其余页面范围，补齐高级联接、生产认证、Agent 宿主和生成助手接线。
+1. 原单表新增/修改/复制/软删及合法/坏批次导入已补验，继续账号浏览器完整写入和其余页面；原选择器许可与接入、新AppID、Web发行均已通过。自有 Tiny Cloud 保持空key，真实编辑按用户要求留待后续。
+2. 主子 Tab/PC 弹层与独立多选页已完成独立包 Web/浏览器核心验收；继续List关系大数据、文件、复杂关系导入导出及下载落盘；补齐高级联接、独立宿主生产认证/安全协调/Agent和已接在线助手的原按钮整链。
 3. 完成 Web、小程序、Android、iOS 真实验收和 Server-200 同资源性能对照，稳定退化阻断发布。
 4. MySQL 首版完整验收后，再依次适配其他数据库；每种分别验证自举、反查/DDL、生成/CRUD、权限/关系、导入导出和事务并发。
 
@@ -186,3 +186,33 @@ HTTP/MCP 受管结构反查已具备真实管理员/项目/表归属校验，返
 ## 前端沿用偏差纠正（2026-10-19）
 
 用户指出生成业务页不应重写。已确认当前新简化生成模板未完整沿用原YZP页面，前端保真交付尚未达标。此前测试与截图仅保留其具体功能证据，不作原布局/交互一致性验收；纠正源头及检查项见[前端沿用纠偏](frontend-preservation-correction.md)。
+
+## 2026-10-20 原界面、安全核心与独立实例RR批次
+
+本节为当前更新，前序失败与计数仍按原批次保留，不合并重复case。在线助手已恢复原首页三按钮与原确认，队列、本机显式preview/apply授权、固定动作/快照、短期票据和journal v3恢复均已集成；日常不要求下载JSON或手动CLI。实际队列/本机CLI/Vue证据见[在线助手](generation-assistant.md)，原按钮至真实已绑定工程的整链浏览器仍待验，应用回执不是服务端独立字节证明。
+
+产品冻结f3740cd原账号/角色UI由集成者真实浏览器只读复验：后台名称、角色名称数组、密码掩码、旧密码/盐空回显及启用“是”正确，退出并刷新回登录页。**新增0、保存0**，不证明账号新增/改密或新账号登录；后续74889d5核心提取未重做该UI批次。私有回执`.local/original-manager-ui-86c57ce-20261020/control/browser-readonly-receipt.json`，SHA256 `9fdc6b61ed4d4d7e8a7e0c640219cea54c3b14153d08dc79d0dd6267206f108f`。原复选、名称及密码/启用桥接均由元数据和生成源维护，没有重排DOM/CSS。
+
+| 批次 | 实际结果 | 私有证据（仓库根相对路径） |
+| --- | --- | --- |
+| 74889d5安全核心 | 13/13，零跳过 | `.local/security-core-security-integrated.trx` |
+| 同冻结API | 71/71，零跳过 | `.local/security-core-api-integrated.trx` |
+| 同冻结Metadata | 152/152，零跳过 | `.local/security-core-metadata-integrated.trx` |
+| 同冻结Compatibility | 29/29，零跳过 | `.local/security-core-compatibility-integrated.trx` |
+| 同冻结定向Generation | 69/69，零跳过，含原14项夹具失败修正后的合同 | `.local/security-manager-generation-focused-integrated.trx` |
+| 最近完整前端批次 | 260/260，零跳过 | `.local/final-role-gates-frontend.log` |
+| 后续9bc4693非RR Agent | 161/161，零跳过，显式排除RR三项；含账号凭据真实HTTP/MySQL 3/3 | `.local/security-manager-agent-mysql-integrated.trx` |
+
+旧完整Generation `.local/manager-name-full-generation-integrated.trx`仍为**612总数、610执行、596通过、14失败、2个FreshInstall未执行**；两项缺专属空库配置而明确跳过。原日志保留，后续定向69通过不能追改为完整612全绿，也不把未执行算通过。
+
+冻结74889d5在Server-200独立临时MySQL实例经正式Bootstrap初始化两个新空库，不复制共享/客户数据：0/0表→平台23表/业务4表及3安全索引，RR前后结构快照同字节。RR三项实际3/3、零跳过：旧快照撤权后拒写且目标不变、后台变化冲突前不补新后台锁、无关锁仍持有时删除/工作台均提交。21个真实夹具参数计划全选正确索引，三组owned清理零残留；执行者为集成者，辅助Agent独立只读复核。贡献clone私有证据`.local/rr-isolated-20261020/execution/rr-isolated.trx`、`before-initialize.json`、`after-initialize.json`、`after-rr.json`及`source/.local/security-realm-rr/*/receipt.json`，详见[RR专项](security-realm-rr-validation.md)。
+
+共享实例原150项仍为147通过/3RR失败；临时17列授权已撤销，管理端核验空、应用三检查MySQL1142，未重启/修改共享采集。成功批次结束后精确移除自有容器、卷、隧道及运行秘密/设置，长期备份按用户规范保留、不公开内容。清理回执为同execution下`cleanup-20261020053813.json`及`date-safe-tunnel-stop.json`；停止时仅单独修正ISO日期读取，已执行v2输入与seal保持，无重Run。
+
+当前仍保留独立生成Host完整安全Runtime门禁、角色selection/export用途Gap和平台5个Custom页面独立宿主门槛；账号原页浏览器完整写入、所有配置入口撤权一致、生产认证/Agent下发与授权浏览器、Tiny Cloud编辑、跨端设备、Java同资源性能和后续多库未据本批完成。
+
+## 2026-10-20 原账号凭据HTTP/MySQL后续批次
+
+冻结`9bc46930a79e0841e3467eb2dbdffca5f8044bc9`的非RR Agent完整161/161、零跳过，明确过滤RR三项；RR仍单列此前748冻结的3/3，不能声称同一批164。三项ManagerCredentialHttpMySqlTests通过真实TestServer认证/原完整表单/实际Guard与MySQL：新增生成PBKDF2且wire启用1对应物理0；mask及空salt/oldPassword更新保持摘要，省略角色保持原值；真实登录/注销；非法凭据、废弃字段非空、直接Service提交mask均拒绝并全行hash不变；仅自有账号及其session精确清理零残留。回执`.local/security-manager-agent-mysql-integrated.trx`，SHA256 `1305be1bab58cc1df5a41b73e8b4e56c183d6ac5dea6ee2e7b7be2d66a279b6a`，日志同名。
+
+本批是HTTP/TestServer与真实数据库证据，不是浏览器新增/改密操作；不回写f374只读批次。运行前共享实例及观测权限只读复核仍正确，三项检查仍1142，私有回执`.local/rr-observation-preflight-20261020/manager-http-server-pin.json`；公共文档不公开实例标识或连接。独立宿主Runtime与selection/export、Custom等门槛不因平台HTTP通过而移除。
