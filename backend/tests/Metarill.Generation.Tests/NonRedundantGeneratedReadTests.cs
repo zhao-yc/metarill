@@ -11,7 +11,7 @@ public sealed class NonRedundantGeneratedReadTests
     [Fact]
     public async Task Official_generation_builds_nonredundant_crud_and_protects_handwritten_partial()
     {
-        var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-generated",Guid.NewGuid().ToString("N"));var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");NonRedundantGeneratedFixture.AddSelectionPage(catalog);catalog.ConfigPages[0].IsExport=1;
+        var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-generated",Guid.NewGuid().ToString("N"));var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");NonRedundantGeneratedFixture.AddSelectionPage(catalog);catalog.ConfigPages[0].IsExport=1;NonRedundantGeneratedFixture.EnableImports(catalog);
         try
         {
             var generated=Path.Combine(root,"generated");var first=new CSharpGenerator().Generate(catalog,generated,"Example.NonRedGenerated");Assert.NotEmpty(first.GeneratedFiles);Assert.DoesNotContain("GeneratedNonRedundantReadCatalog.g.cs",first.GeneratedFiles);Assert.Contains("GeneratedNonRedundantReadCatalog",await File.ReadAllTextAsync(Path.Combine(generated,"GeneratedRegistration.g.cs")));
@@ -25,11 +25,22 @@ public sealed class NonRedundantGeneratedReadTests
     }
     /// <summary>未接线原功能不能以静默退化方式生成；公开完整包仍保留能力门槛。</summary>
     [Theory]
-    [InlineData("import")][InlineData("global")][InlineData("select")][InlineData("filterType")][InlineData("conflictingTarget")][InlineData("effectiveOverride")]
+    [InlineData("customImport")][InlineData("global")][InlineData("select")][InlineData("filterType")][InlineData("conflictingTarget")][InlineData("effectiveOverride")]
     public void Unsupported_usages_still_reject_before_files(string usage)
     {
-        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");var page=catalog.ConfigPages[0];if(usage=="import")page.IsImport=1;else if(usage=="global")catalog.ConfigTables[0].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");else if(usage=="select")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").ControlKind="SelectPage";else if(usage=="filterType")catalog.ConfigColumns.Single(column=>column.Id=="14").LogicalType="json";else if(usage=="conflictingTarget")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").LinkConfigTableId="3";else catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"notes\"}");
+        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");var page=catalog.ConfigPages[0];if(usage=="customImport"){page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("custom");}else if(usage=="global")catalog.ConfigTables[0].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");else if(usage=="select")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").ControlKind="SelectPage";else if(usage=="filterType")catalog.ConfigColumns.Single(column=>column.Id=="14").LogicalType="json";else if(usage=="conflictingTarget")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").LinkConfigTableId="3";else catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"notes\"}");
         var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-reject",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,root,"Example.NonRedGenerated"));Assert.False(Directory.Exists(root));
+    }
+    /// <summary>自动名称即使被标为可编辑，也不能成为物理导入列。</summary>
+    [Fact]
+    public void Nonredundant_import_rejects_conflicting_display_columns_before_files()
+    {
+        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");catalog.ConfigPages[0].IsImport=1;
+        catalog.ConfigColumns.Add(new(){Id="111",ConfigTableId="1",ColumnName="customer_name",Name="客户名称",LogicalType="string",ColumnLength="100"});
+        catalog.ConfigPageColumns.Add(new(){Id="101111",ConfigPageId="101",ConfigColumnId="111",IsEdit=1});
+        var directory=Path.Combine(Path.GetTempPath(),"metarill-nonred-import-physical",Guid.NewGuid().ToString("N"));
+        var error=Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,directory,"Example.NonRedImport"));
+        Assert.Contains("关联显示别名与真实业务字段冲突",error.Message);Assert.False(Directory.Exists(directory));
     }
     /// <summary>选择页不能以未声明项目归属的表形成不受限回读。</summary>
     [Fact]
@@ -65,6 +76,19 @@ internal static class NonRedundantGeneratedFixture
     {
         var source=catalog.ConfigPages.Single(page=>page.Id=="101");var selection=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;selection.Id="102";selection.IsNew=0;selection.IsSave=0;selection.IsDelete=0;selection.IsCopy=0;selection.Extra["type"]=JsonSerializer.SerializeToElement(2);catalog.ConfigPages.Add(selection);
         var fields=catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101").Select(field=>JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!).ToArray();foreach(var field in fields){field.Id="102"+field.Id;field.ConfigPageId="102";catalog.ConfigPageColumns.Add(field);}
+    }
+    /// <summary>追加与覆盖分别沿用原导入开关；覆盖页不额外开放普通新增/编辑按钮。</summary>
+    internal static void EnableImports(MetadataCatalog catalog)
+    {
+        var source=catalog.ConfigPages.Single(page=>page.Id=="101");source.IsImport=1;
+        catalog.ConfigColumns.Single(column=>column.Id=="14").Name="记录名";
+        // 原V8覆盖键按表字段排序选首个可导入列，页面排序不能另换匹配键。
+        catalog.ConfigColumns.Single(column=>column.Id=="14").SortNo=-1;
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="14").SortNo=-1;
+        var overwrite=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;
+        overwrite.Id="103";overwrite.IsNew=0;overwrite.IsSave=0;overwrite.IsDelete=0;overwrite.IsCopy=0;overwrite.IsExport=0;overwrite.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");catalog.ConfigPages.Add(overwrite);
+        var fields=catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101").Select(field=>JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!).ToArray();
+        foreach(var field in fields){field.Id="103"+field.Id;field.ConfigPageId="103";catalog.ConfigPageColumns.Add(field);}
     }
     /// <summary>只声明逻辑类型和长度，具体DDL仍走正式SchemaService。</summary>
     private static ColumnMetadata C(string id,string table,string name,string type="string")=>new(){Id=id,ConfigTableId=table,ColumnName=name,Name=name,LogicalType=type,ColumnLength="100",IsDbNotNull=name=="id"?1:0};
