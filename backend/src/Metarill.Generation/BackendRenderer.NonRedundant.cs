@@ -68,6 +68,7 @@ internal static class GeneratedNonRedundantReadCatalog
             result.AppendLine("                }");
         }
         result.AppendLine("                default:throw new ArgumentException(\"页面未开放该筛选字段：\"+filter.Key);").AppendLine("            }").AppendLine("        }").AppendLine("        if(request.SelectedIds is null)throw new ArgumentException(\"selectedIds不能为空。\");")
+            .AppendLine(SelectionPageRenderer.Enabled(page)?"        if(request.SelectedIds.Count>200||request.PageNo>1000000)throw new ArgumentException(\"多选页最多200个已选项，页码最多1000000。\");":"")
             .AppendLine("        if(request.SelectedIds.Count>0)result.Add(new(\"id\",FixedReadComparison.In,request.SelectedIds.Select(value=>(object?)long.Parse(value,CultureInfo.InvariantCulture)).ToArray()));")
             .AppendLine("        return result;").AppendLine("    }").AppendLine("    /// <summary>请求排序键仍由原页面开放列控制，默认排序保持元数据序列。</summary>").AppendLine($"    private static IReadOnlyList<FixedReadOrder> ReadOrder{suffix}(PageRequest request)").AppendLine("    {")
             .AppendLine("        if(request.OrderBy is not null&&!string.IsNullOrWhiteSpace(request.OrderBy.Order))").AppendLine("        {").AppendLine("            var descending=request.OrderBy.Order switch{\"descending\"=>true,\"ascending\"=>false,_=>throw new ArgumentException(\"排序方向无效。\")};")
@@ -79,10 +80,12 @@ internal static class GeneratedNonRedundantReadCatalog
             .AppendLine("        if(request.PageNo<1||request.PageSize<0||request.PageSize>1000)throw new ArgumentException(\"分页参数无效，每页最多1000条。\");")
             .AppendLine($"        var unpaged=request.PageSize==0&&{(page.Source.PageSize==0).ToString().ToLowerInvariant()};")
             .AppendLine("        if(request.PageSize==0&&(!unpaged||request.PageNo!=1))throw new ArgumentException(\"仅已配置不分页的页面允许pageSize=0，且页码必须为1。\");")
+            .AppendLine(SelectionPageRenderer.Enabled(page)?$"        await ValidateSelectionParents{suffix}Async(request.ParentId,actor,cancellationToken);":"")
             .AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},ReadFilters{suffix}(request,actor),ReadOrder{suffix}(request),request.PageNo,request.PageSize,cancellationToken,unpaged,actor.ProjectId);")
             .AppendLine($"        return new(rows.Records.Select({page.Name}Vo.FromReadRow).ToArray(),rows.Total,unpaged?0:(rows.Total+request.PageSize-1)/request.PageSize,request.PageNo,request.PageSize);").AppendLine("    }")
-            .AppendLine("    /// <summary>数量不读取明细，不依赖请求分页或排序。</summary>").AppendLine($"    public async Task<long> Count{suffix}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>(await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},ReadFilters{suffix}(request,actor),Array.Empty<string>(),cancellationToken,actor.ProjectId)).Total;")
+            .AppendLine("    /// <summary>数量不读取明细，不依赖请求分页或排序。</summary>").AppendLine($"    public async Task<long> Count{suffix}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken) {{ {(SelectionPageRenderer.Enabled(page)?$"await ValidateSelectionParents{suffix}Async(request.ParentId,actor,cancellationToken);":"")} return (await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},ReadFilters{suffix}(request,actor),Array.Empty<string>(),cancellationToken,actor.ProjectId)).Total; }}")
             .AppendLine("    /// <summary>详情及写后回显使用相同真实项目/父范围，不额外授予list权限。</summary>").AppendLine($"    public async Task<{page.Name}Vo?> Detail{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)").AppendLine("    {")
+            .AppendLine(SelectionPageRenderer.Enabled(page)?$"        await ValidateSelectionParents{suffix}Async(parentId,actor,cancellationToken);":"")
             .AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=parentId}},actor);filters.Add(new(\"id\",FixedReadComparison.Equal,id));")
             .AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId);")
             .AppendLine($"        return rows.Records.Count==0?null:{page.Name}Vo.FromReadRow(rows.Records[0]);").AppendLine("    }");

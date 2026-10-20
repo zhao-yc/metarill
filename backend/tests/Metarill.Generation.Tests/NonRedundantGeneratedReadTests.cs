@@ -11,12 +11,12 @@ public sealed class NonRedundantGeneratedReadTests
     [Fact]
     public async Task Official_generation_builds_nonredundant_crud_and_protects_handwritten_partial()
     {
-        var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-generated",Guid.NewGuid().ToString("N"));var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");
+        var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-generated",Guid.NewGuid().ToString("N"));var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");NonRedundantGeneratedFixture.AddSelectionPage(catalog);
         try
         {
             var generated=Path.Combine(root,"generated");var first=new CSharpGenerator().Generate(catalog,generated,"Example.NonRedGenerated");Assert.NotEmpty(first.GeneratedFiles);Assert.DoesNotContain("GeneratedNonRedundantReadCatalog.g.cs",first.GeneratedFiles);Assert.Contains("GeneratedNonRedundantReadCatalog",await File.ReadAllTextAsync(Path.Combine(generated,"GeneratedRegistration.g.cs")));
             var entity=await File.ReadAllTextAsync(Path.Combine(generated,"Entities/MtNrgOfflineOrder.g.cs"));Assert.Contains("Name = \"customer_notes\", IsIgnore = true",entity);Assert.Contains("Name = \"customer_amount\", IsIgnore = true",entity);
-            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtNrgOfflineOrderService.g.cs"));Assert.Contains("GeneratedNonRedundantReadCatalog.Compile",service);Assert.Contains("await Detail101Async(entity.Id,parentId,actor,cancellationToken)",service);Assert.DoesNotContain("entity.CustomerNotes = source.CustomerNotes",service);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtNrgOfflineOrderService.g.cs"));Assert.Contains("GeneratedNonRedundantReadCatalog.Compile",service);Assert.Contains("SelectionSelected102Async",service);Assert.Contains("selectedRows.Records.Count!=selected.Length",service);Assert.DoesNotContain("Query102(",service);Assert.Contains("await Detail101Async(entity.Id,parentId,actor,cancellationToken)",service);Assert.DoesNotContain("entity.CustomerNotes = source.CustomerNotes",service);
             var vo=await File.ReadAllTextAsync(Path.Combine(generated,"VOs/MtNrgOfflineOrderPage101Vo.g.cs"));Assert.Contains("customerName",vo);Assert.DoesNotContain("YzProjectId",vo);Assert.DoesNotContain("GroupId",vo);
             var handwritten=Path.Combine(generated,"Services/MtNrgOfflineOrderService.cs");await File.AppendAllTextAsync(handwritten,"\n// 本次手写保护标记。\n");var before=await File.ReadAllBytesAsync(handwritten);new CSharpGenerator().Generate(catalog,generated,"Example.NonRedGenerated");Assert.Equal(before,await File.ReadAllBytesAsync(handwritten));
             await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
@@ -30,6 +30,12 @@ public sealed class NonRedundantGeneratedReadTests
     {
         var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");var page=catalog.ConfigPages[0];if(usage=="import")page.IsImport=1;else if(usage=="export")page.IsExport=1;else if(usage=="select")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").ControlKind="SelectPage";else if(usage=="filterType")catalog.ConfigColumns.Single(column=>column.Id=="14").LogicalType="json";else if(usage=="conflictingTarget")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").LinkConfigTableId="3";else catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"notes\"}");
         var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-reject",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,root,"Example.NonRedGenerated"));Assert.False(Directory.Exists(root));
+    }
+    /// <summary>选择页不能以未声明项目归属的表形成不受限回读。</summary>
+    [Fact]
+    public void Nonredundant_selection_without_project_scope_rejects_before_writes()
+    {
+        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");NonRedundantGeneratedFixture.AddSelectionPage(catalog);catalog.ConfigColumns.RemoveAll(column=>column.Id=="12");catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="12");var directory=Path.Combine(Path.GetTempPath(),"metarill-nonred-selection-scope",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,directory,"Example.NonRedSelection"));Assert.False(Directory.Exists(directory));
     }
     /// <summary>无有效变化的原页覆盖继续兼容，不能因JSON格式不同拒绝。</summary>
     [Theory]
@@ -53,6 +59,12 @@ internal static class NonRedundantGeneratedFixture
         foreach(var page in catalog.ConfigPages)foreach(var column in catalog.ConfigColumns.Where(column=>column.ConfigTableId==page.ConfigTableId))
         {var visible=column.ColumnName is not("yz_project_id" or "group_id" or "delete_no");catalog.ConfigPageColumns.Add(new(){Id=page.Id+column.Id,ConfigPageId=page.Id,ConfigColumnId=column.Id,IsShow=visible?1:0,IsEdit=visible?1:0,Extra=new(){{"isSearch",JsonSerializer.SerializeToElement(column.ColumnName is "name" or "customer_notes"?1:0)},{"isSort",JsonSerializer.SerializeToElement(visible?1:0)},{"sumKind",JsonSerializer.SerializeToElement(column.ColumnName=="customer_amount"?1:column.ColumnName=="status"?2:0)}}});}
         return catalog;
+    }
+    /// <summary>原type=2独立页只增加读取合同，不启用多值关系字段或改变前端流程。</summary>
+    internal static void AddSelectionPage(MetadataCatalog catalog)
+    {
+        var source=catalog.ConfigPages.Single(page=>page.Id=="101");var selection=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;selection.Id="102";selection.IsNew=0;selection.IsSave=0;selection.IsDelete=0;selection.IsCopy=0;selection.Extra["type"]=JsonSerializer.SerializeToElement(2);catalog.ConfigPages.Add(selection);
+        var fields=catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101").Select(field=>JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!).ToArray();foreach(var field in fields){field.Id="102"+field.Id;field.ConfigPageId="102";catalog.ConfigPageColumns.Add(field);}
     }
     /// <summary>只声明逻辑类型和长度，具体DDL仍走正式SchemaService。</summary>
     private static ColumnMetadata C(string id,string table,string name,string type="string")=>new(){Id=id,ConfigTableId=table,ColumnName=name,Name=name,LogicalType=type,ColumnLength="100",IsDbNotNull=name=="id"?1:0};

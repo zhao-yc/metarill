@@ -37,6 +37,14 @@ internal static class SelectionPageRenderer
             .AppendLine($"    public async Task<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
             .AppendLine($"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);");
+        if(NonRedundantReadCompilation.Requires(model,table))
+            return result.AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=request.ParentId}},actor);")
+                .AppendLine("        if(selected.Length==0)return [];")
+                .AppendLine("        filters.Add(new(\"id\",Metarill.Data.Queries.FixedReadComparison.In,selected.Cast<object?>().ToArray()));")
+                .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<Metarill.Data.Queries.FixedReadOrder>(),1,selected.Length,cancellationToken,projectId:actor.ProjectId);")
+                .AppendLine("        if(selectedRows.Records.Count!=selected.Length)throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
+                .AppendLine("        var rows=selectedRows.Records.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"));")
+                .AppendLine($"        return selected.Select(id=>{page.Name}Vo.FromReadRow(rows[id])).ToArray();").AppendLine("    }").ToString();
         // 固定计算名称的实际来源动作仍是本页list；先拒绝再读源行，不借候选的任一动作权限。
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        RequireRoleNameAction{suffix}(actor,\"list\");");
         else if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        _ = RoleAdminNameScope{suffix}(actor,\"list\");");
