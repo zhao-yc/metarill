@@ -249,7 +249,7 @@ public sealed class GeneratedRelationOptionsMySqlTests
         using (await SharedSourceBuildGate.Shared.EnterAsync())
         {
             using var process = Process.Start(start)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60)); try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60)); try { await process.WaitForExitAsync(timeout.Token); } catch (Exception interrupted) { await SharedSourceBuildGate.StopOwnProcessAsync(process, output, error, interrupted); throw; }
             Assert.True(process.ExitCode == 0, await output + await error);
         }
         return AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(await File.ReadAllBytesAsync(Path.Combine(directory, "bin/Debug/net10.0", assemblyName + ".dll"))));

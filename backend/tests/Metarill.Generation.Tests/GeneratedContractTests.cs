@@ -49,7 +49,7 @@ public sealed class GeneratedContractTests
                 var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                 try { await process.WaitForExitAsync(timeout.Token); }
-                catch { process.Kill(true); throw; }
+                catch (Exception interrupted) { await SharedSourceBuildGate.StopOwnProcessAsync(process, output, error, interrupted); throw; }
                 Assert.True(process.ExitCode == 0, await output.WaitAsync(timeout.Token) + await error.WaitAsync(timeout.Token));
             }
             var assemblyPath = Path.Combine(root, "bin/Debug/net10.0/Metarill.Generated.Contract.dll");

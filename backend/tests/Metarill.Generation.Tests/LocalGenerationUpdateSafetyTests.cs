@@ -231,6 +231,6 @@ public sealed partial class LocalGenerationUpdateTests
         // 只有 CLI build 会改写同根依赖的 obj；其余命令保持原并行行为。
         using var buildLease = await SharedSourceBuildGate.Shared.EnterAsync(arguments.FirstOrDefault());
         using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-        try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; } return (process.ExitCode, await stdout.WaitAsync(timeout.Token) + await stderr.WaitAsync(timeout.Token));
+        try { await process.WaitForExitAsync(timeout.Token); } catch (Exception interrupted) { await SharedSourceBuildGate.StopOwnProcessAsync(process, stdout, stderr, interrupted); throw; } return (process.ExitCode, await stdout.WaitAsync(timeout.Token) + await stderr.WaitAsync(timeout.Token));
     }
 }
