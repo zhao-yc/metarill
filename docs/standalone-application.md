@@ -102,3 +102,14 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 2026-10-20 16:33:10 实际导出成功，产物 `frontend/unpackage/dist/build/web/index.html` 存在。最初 CLI open 未启动，随后隐藏启动 HBuilderX，重新核对 version/help 后才执行发行；原日志保留于 `.local/standalone-web-authentication-{package-integrated,packaged-host-release,hbuilder-publish-integrated}.log`，npm/Node 日志在包根。这次没有启动 HTTP 静态服务或浏览器，不把前端发行称为正式登录 DOM 验收。历史开发认证的浏览器场景仍按原冻结保留；完整 Runtime A/三个 partial、五处 Custom、Agent、正式登录/安全写浏览器、设备和性能均未据此完成。
 
 上述本机回执汇总为 `.local/standalone-web-authentication-integrated-receipt.json`（SHA256 `398b59656f39fa683b78d938ee3ae6688907bbe79604456cc31bd73c9cca3a15`），分列 84、补 1 和 Fresh 2，记录 Web 入口 SHA256 `f33bcf8aeb2b5ae992a69c27d2cda244d3053f639a1eeba087ba8eb93df6a538` 及 46 个静态资产；新增浏览器、设备、RR、完整安全管理交付均明确为 false。
+
+
+## 非冗余标量完整业务包
+
+满足逐页固定读取、既有控件证明及显式项目/后台归属的非冗余业务，可使用默认FullApplication，无需退回BackendOnly。派生名称/联接字段只读，真实关系ID物理写入；默认值、原整表单省略/null、跨父导入及Service最终范围校验沿原协议。缺失/跨项目的表、来源页或候选页会提前拒绝，不能借打包目录或客户端projectId产生身份。
+
+已完成包内基础项目独立构建、原Vue挂载、本地更新后重建及手写保护、专属空库12表正式安装和真实数据库Web认证/原HTTP闭环，详见[非冗余存储](nonredundant-storage.md#普通完整应用包)。专属验收脚本现在运行3项真实场景并创建4个独占随机库；每个Docker命令前检查Server-200，每轮租约绑定MySQL实例指纹，最后按成功创建的精确清单撤销账号/删除随机库并独立反查不存在。碰撞、部分创建、错实例或清理后仍有残留均不能当成清理成功；不清理旧失败样本或既有库。
+
+这不包含新的浏览器、HBuilderX发行、真机或性能结论，也不开放尚未完成的多值、级联、全局目标、平台Custom或完整安全写协调Runtime。
+
+本轮最终离线兼容回归54/54、零跳过，包含显式绑定未知/有效两种实际生成导入合同、候选授权、跨父依赖、完整包独立构建/原Vue及重复更新；租约工具12/12离线通过，保留原创建中断和碰撞覆盖。专属空库3/3真实MySQL、零跳过，四个本轮随机库与临时受限账号由实例绑定租约清理并独立核验，配置凭据文件移除。API离线44通过、31明确跳过；两次正式生成平台199、示例16个文件与修改前逐字节一致，前端未改。旧CI失败及本轮失败记录保留，等待新提交自身CI；浏览器、设备、性能和完整管理Runtime仍未完成。

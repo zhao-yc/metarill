@@ -29,7 +29,7 @@ public sealed class FreshInstallMySqlFactAttribute : FactAttribute
 }
 
 /// <summary>两个场景使用各自独占的随机新库，不把已有基础表复用计作首次安装。</summary>
-public sealed class FreshInstallMySqlTests(ITestOutputHelper output)
+public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
 {
     /// <summary>普通启动和预览都保持0表，包内显式 apply 从零安装文件基础设施及业务表。</summary>
     [FreshInstallMySqlFact]

@@ -23,7 +23,12 @@ internal static class ImportDependencyCompilation
         foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn)))
         {
             var context = ControlRenderer.RelationContext(page, relation, false);
-            if (context.UnresolvedTarget) throw new InvalidOperationException("导入关系缺少可证明的目标父范围。");
+            if (context.UnresolvedTarget)
+            {
+                // 显式绑定的未知声明继续生成原固定拒绝入口；解析器不得抢先失败，也不能改成宽候选查询。
+                if (relation.ParentBinding?.Declared == true) continue;
+                throw new InvalidOperationException("导入关系缺少可证明的目标父范围。");
+            }
             if (context.TargetParentField is null) continue;
             var parent = table.Columns.Single(column => column.JsonName == context.TargetParentField);
             if (!storage.IsPhysical(parent.Source) || parent.IsJsonArray || parent.Type is not ("long?" or "long" or "int?" or "string?"))

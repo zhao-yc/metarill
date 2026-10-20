@@ -19,9 +19,18 @@ internal static class GenerationCapabilityAudit
         foreach(var table in model.Tables)
         foreach(var page in table.Pages)
         {
-            var storage=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);
-            if(model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!storage.IsPhysical(column)||table.Source.IsRongyu==0&&MetadataStoragePolicy.IsRelationColumn(column))))
-                gaps.Add(new(page.Source.Id,"","runtime","非冗余派生字段的普通单值CRUD及type=2回读已接固定读取；完整应用用途、授权与父范围及跨端仍待验收。"));
+            // 完整包只开放正式编译通过的标量非冗余链路；未接线的用途仍逐页报告，不以存储模式一律拒绝。
+            if (NonRedundantReadCompilation.Requires(model, table))
+            {
+                try
+                {
+                    _ = NonRedundantReadCompilation.ForPage(model, table, page);
+                    RequirePublishedRealm(model, table, page);
+                    foreach (var relation in RelationCompilation.ForPage(model, page)) RequirePublishedRealm(model, relation.Target, relation.TargetPage);
+                }
+                catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
+                { gaps.Add(new(page.Source.Id, "", "runtime", "非冗余固定读取未完成：" + error.Message)); }
+            }
             // 原统计声明的类型和可读边界必须在完整包stage创建之前验证。
             _=OriginalListStatisticsCompilation.ForPage(model,table,page);
             if (ManagerCredentialCompilation.Gap(table,page) is {} credentialGap) gaps.Add(new(page.Source.Id,"password","detail",credentialGap));
@@ -52,5 +61,13 @@ internal static class GenerationCapabilityAudit
                     gaps.Add(new(page.Source.Id,column.Source.ColumnName,"filter",reason));
         }
         return gaps;
+    }
+    /// <summary>完整包的正式权限目录按显式项目发布，不能把生成夹具的空项目当成已授权页面。</summary>
+    private static void RequirePublishedRealm(GenerationModel model, TableModel table, PageModel page)
+    {
+        var project = model.Catalog.YzProjectId;
+        if (table.Source.YzProjectId != project || page.Source.YzProjectId != project ||
+            !model.Catalog.YzAdminTypes.Any(admin => admin.Id == page.Source.YzAdminTypeId && admin.YzProjectId == project))
+            throw new InvalidOperationException("非冗余完整应用的本表、来源页及候选页必须明确属于包内项目和后台。");
     }
 }

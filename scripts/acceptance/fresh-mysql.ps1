@@ -38,31 +38,31 @@ function New-FreshOptions([string]$Suffix){
  return @{Provider='mysql';ExpectedDatabase="metarill_fresh_${runId}_$Suffix";ConnectionString=$connection.get_ConnectionString()}
 }
 $oldSettings=$env:METARILL_FRESH_INSTALL_SETTINGS;$oldDotnet=$env:DOTNET_HOST_PATH
-$created=$false;$cleaned=$false;$passed=$false
+$created=$false;$cleaned=$false;$passed=$false;$createdState=$null
 $startedAt=[DateTimeOffset]::UtcNow.ToString('o')
 try{
- $created=$true;Invoke-FreshServer 'create'|Out-Null
- @{RunId=$runId;Database=(New-FreshOptions 'platform');BusinessDatabase=(New-FreshOptions 'business');PackagedDatabase=(New-FreshOptions 'package')}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $settingsPath -Encoding utf8
+ $created=$true;$createdState=Invoke-FreshServer 'create'
+ @{RunId=$runId;Database=(New-FreshOptions 'platform');BusinessDatabase=(New-FreshOptions 'business');PackagedDatabase=(New-FreshOptions 'package');NonRedundantDatabase=(New-FreshOptions 'nonred');InstancePin=$createdState.instance}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $settingsPath -Encoding utf8
  $env:METARILL_FRESH_INSTALL_SETTINGS=$settingsPath;$env:DOTNET_HOST_PATH=$DotnetPath
  & $DotnetPath build (Join-Path $repoRoot 'backend/src/Metarill.Api/Metarill.Api.csproj') --nologo --disable-build-servers --verbosity quiet *> (Join-Path $runDirectory 'build.log')
  if($LASTEXITCODE -ne 0){throw '平台编译失败，请检查本轮私有 build.log。'}
  & $DotnetPath test (Join-Path $repoRoot 'backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj') --nologo --disable-build-servers --filter 'FullyQualifiedName~FreshInstallMySqlTests' --logger 'trx;LogFileName=fresh-install.trx' --results-directory $runDirectory *> (Join-Path $runDirectory 'test.log')
  if($LASTEXITCODE -ne 0){throw '空库真实验收失败，请检查本轮私有 test.log 与 TRX。'}
- # 命令成功不等于场景实际执行，必须明确2项均通过且没有跳过。
+ # 命令成功不等于场景实际执行，必须明确3项均通过且没有跳过。
  [xml]$trx=Get-Content -Raw -LiteralPath (Join-Path $runDirectory 'fresh-install.trx')
  $counters=$trx.TestRun.ResultSummary.Counters
- if([int]$counters.total -ne 2 -or [int]$counters.executed -ne 2 -or [int]$counters.passed -ne 2 -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0){throw '首次安装场景未全部实际通过，不能计为验收成功。'}
+ if([int]$counters.total -ne 3 -or [int]$counters.executed -ne 3 -or [int]$counters.passed -ne 3 -or [int]$counters.failed -ne 0 -or [int]$counters.notExecuted -ne 0){throw '首次安装场景未全部实际通过，不能计为验收成功。'}
  $passed=$true
 }
 finally{
  $env:METARILL_FRESH_INSTALL_SETTINGS=$oldSettings;$env:DOTNET_HOST_PATH=$oldDotnet
- if($created){Invoke-FreshServer 'cleanup'|Out-Null;$cleaned=$true}
+ if($created){$cleanup=Invoke-FreshServer 'cleanup';if(-not $cleanup.cleaned -or -not $cleanup.independentAbsenceVerified -or ($null -ne $createdState -and $cleanup.databaseCount -ne 4)){throw '四库与临时账号清理未通过独立核验。'};$cleanup|ConvertTo-Json -Depth 6|Set-Content -LiteralPath (Join-Path $runDirectory 'cleanup.json') -Encoding utf8;$cleaned=$true}
  if($cleaned -and (Test-Path -LiteralPath $settingsPath)){Remove-Item -LiteralPath $settingsPath}
  $password=$null
- if($cleaned){Write-Output '本轮随机账号与3个随机库已全部清理；未操作既有库。'}
+ if($cleaned){Write-Output '本轮所有权清单内的随机库和临时账号已清理；未操作既有库。'}
 }
 
 if($passed -and $cleaned){
- @{schemaVersion=1;runId=$runId;server='Server-200';address='192.168.31.200';startedAt=$startedAt;completedAt=[DateTimeOffset]::UtcNow.ToString('o');passed=2;failed=0;skipped=0;createdDatabaseCount=3;createdTemporaryAccountCount=1;allTemporaryObjectsCleaned=$true;credentialFileRemoved=(!(Test-Path -LiteralPath $settingsPath))}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $runDirectory 'result.json') -Encoding utf8
+ @{schemaVersion=1;runId=$runId;server='Server-200';address='192.168.31.200';startedAt=$startedAt;completedAt=[DateTimeOffset]::UtcNow.ToString('o');passed=3;failed=0;skipped=0;createdDatabaseCount=4;createdTemporaryAccountCount=1;allTemporaryObjectsCleaned=$true;credentialFileRemoved=(!(Test-Path -LiteralPath $settingsPath))}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $runDirectory 'result.json') -Encoding utf8
  Write-Output "空库验收通过；编号：$runId，测试结果：$runDirectory"
 }

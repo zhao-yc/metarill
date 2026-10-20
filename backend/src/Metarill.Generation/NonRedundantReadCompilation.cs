@@ -15,7 +15,7 @@ internal static class NonRedundantReadCompilation
     internal static bool Requires(GenerationModel model,TableModel table)=>table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
-    /// <summary>完整应用仍另有验收门槛；这里只开放已经接通的单值CRUD读取用途。</summary>
+    /// <summary>只编译已经接通的标量用途；完整包还须通过全部控件、范围及独立宿主验证。</summary>
     internal static NonRedundantPagePlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
         if(table.IsGlobal)throw new InvalidOperationException("非冗余全局读取仍待完整接线。");
