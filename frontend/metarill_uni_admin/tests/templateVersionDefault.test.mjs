@@ -29,3 +29,23 @@ test('未知目录或原页归属变化立即拒绝同步',()=>{
   invalid.configColumns.find(column=>column.id==='1669606903854936065').controlDetail='{"catalog":"unknown","nameField":"name"}'
   assert.throws(()=>mergeTemplateVersionDefault(source,invalid),/已确认/)
 })
+
+
+/** 元数据中的Java/未知默认值及重复或冲突目录不能让同步显示成功。 */
+test('默认值和页覆盖必须匹配受支持的固定目录',()=>{
+  for(const value of ['999','2104907095303213057',2300000000000000001,null]) {
+    const invalid=structuredClone(metadata)
+    invalid.configPageColumns.find(field=>field.id==='1669606903854936066').defaultValue=value
+    assert.throws(()=>mergeTemplateVersionDefault(source,invalid),/受支持/)
+  }
+  for(const change of [
+    value=>{value.configColumns.find(column=>column.id==='1669606903854936065').controlDetail='{"catalog":"unknown","catalog":"metarill-csharp-templates/v1","nameField":"name"}'},
+    value=>{value.configColumns.find(column=>column.id==='1669606903854936065').isJoinColumn=1},
+    value=>{value.configPageColumns.find(field=>field.id==='1669606903854936066').controlKind='SelectPage'},
+    value=>{value.configPageColumns.find(field=>field.id==='1669606903854936066').controlDetail='{"catalog":"unknown","nameField":"name"}'},
+    value=>{value.configPageColumns.find(field=>field.id==='1669606903854936066').controlDetail='{"catalog":'}
+  ]) {
+    const invalid=structuredClone(metadata);change(invalid)
+    assert.throws(()=>mergeTemplateVersionDefault(source,invalid),/已确认/)
+  }
+})

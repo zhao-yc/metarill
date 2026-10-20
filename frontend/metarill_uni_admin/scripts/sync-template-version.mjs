@@ -8,10 +8,18 @@ export function mergeTemplateVersionDefault(source, metadata) {
   const fields=metadata.configPageColumns?.filter(field=>field.configColumnId==='1669606903854936065'&&field.configPageId==='6186303424888832')??[]
   if(columns.length!==1||fields.length!==1) throw new Error('原项目页缺少唯一模板版本声明')
   const column=columns[0], value=fields[0].defaultValue
-  let detail
-  try { detail=JSON.parse(column.controlDetail) } catch { throw new Error('模板目录声明格式无效') }
-  if(column.configTableId!=='1669251289347932162'||column.columnName!=='yz_yzp_version_id'||column.controlKind!=='List'||column.logicalType!=='int64'||column.isVirtualColumn!==0||column.linkConfigTableId||column.linkConfigPageId||detail.catalog!=='metarill-csharp-templates/v1'||detail.nameField!=='name'||Object.keys(detail).length!==2) throw new Error('仅同步已确认的C#模板版本下拉')
-  if(typeof value!=='string'||!/^[1-9][0-9]{0,18}$/.test(value)||BigInt(value)>9223372036854775807n) throw new Error('模板默认版本必须是完整字符串ID')
+  // 当前固定目录与后端TemplateVersionCatalog采用同一稳定v1 ID；新增版本必须成套更新该边界。
+  function validDeclaration(text) {
+    try {
+      const detail=JSON.parse(text)
+      return detail&&typeof detail==='object'&&!Array.isArray(detail)&&Object.keys(detail).length===2
+        &&detail.catalog==='metarill-csharp-templates/v1'&&detail.nameField==='name'
+        &&(text.match(/"(?:\\.|[^"\\])*"\s*:/g)??[]).length===2
+    } catch { return false }
+  }
+  const field=fields[0], overlay=field.controlDetail??''
+  if(column.configTableId!=='1669251289347932162'||column.columnName!=='yz_yzp_version_id'||column.controlKind!=='List'||column.logicalType!=='int64'||column.isVirtualColumn!==0||column.linkConfigTableId||column.linkConfigPageId||[1,'1',true,'true'].includes(column.isJoinColumn)||!validDeclaration(column.controlDetail)||!['',undefined,'List'].includes(field.controlKind)||(overlay!==''&&!validDeclaration(overlay))) throw new Error('仅同步已确认的C#模板版本下拉')
+  if(value!=='2300000000000000001') throw new Error('模板默认版本必须属于受支持的C#固定目录')
   const pattern=/(\byzYzpVersionId\s*:\s*)(['"])([0-9]*)\2/g
   const matches=[...source.matchAll(pattern)]
   if(matches.length!==1||!['2104907095303213057',value].includes(matches[0][3])) throw new Error('原下拉默认值不唯一或已被其它来源改动，未覆盖')
