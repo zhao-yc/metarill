@@ -11,3 +11,5 @@
 账号名称在请求前生成随机 nonce 并确认不存在；清理前必须重新核对 id、name、insert_manager_id 和 yz_project_id，再删除该账号自己的 sys_session 和账号，核实含墓碑零残留。无法证明所有权即停止并保留异常。操作者的角色/授权/会话沿原 RoleSecurityFixture 精确主键清理，不触及默认 test-admin、原平台元数据或37图。测试不生成或备份任何密钥/口令文件。
 
 本轮仅源码/离线编译准备；没有连接 Server200，没有执行这三项真实 MySQL 用例，没有浏览器或人工口令输入验收。缺少明确私有测试配置时按原 AgentIntegrationFact 自动跳过；不得把 skip、编译或 TestServer 设计记为实库通过。待根分配独占数据库窗口后运行本类；该类与安全 RR 组共享非并行集合。
+
+离线准备的实际结果：本克隆 Agent.Tests 项目以 -warnaserror 构建成功，0警告/0错误；移除全部数据库/settings环境后精确发现本类3项，0通过、0失败、3跳过，没有进入数据库夹具。私有构建日志为 .local/manager-credential-http-results/source-build.log，发现TRX为 .local/manager-credential-http-results/credential-http-offline-discovery.trx；这3个skip不计入实库完成数。
