@@ -136,6 +136,25 @@ public sealed class TrustedSecurityWorkbenchTests(TrustedSecurityServiceFixture 
         run.Transport.Commands.Clear();var before=run.Fingerprint();
         await Assert.ThrowsAsync<InvalidOperationException>(()=>run.Call(controller,"Roles",CancellationToken.None));Assert.Empty(run.Transport.Commands);Assert.Equal(before,run.Fingerprint());
     }
+    /// <summary>实际生成的原工作台及依赖与当前原源码逐字一致，重复生成不增加或重排页面。</summary>
+    [Fact]
+    public void Original_frontend_assets_are_embedded_from_existing_sources_and_regenerate_stably()
+    {
+        var directory=Path.Combine(fixture.DirectoryPath,"original-workbench-assets");
+        var first=new CSharpGenerator().Generate(fixture.Models,directory,TrustedSecurityServiceFixture.Namespace);
+        var paths=new[]{"pages/main/set_role_permission.vue","components/yzp-permission-workbench/yzp-permission-workbench.vue","components/yzp-permission-legacy/yzp-permission-legacy.vue","common/yzp_runtime/permissionWorkbench.js"};
+        foreach(var path in paths)
+        {
+            Assert.Contains("frontend/"+path,first.GeneratedFiles);
+            var original=File.ReadAllText(Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"../frontend/metarill_uni_admin",path)).Replace("\r\n","\n").Replace('\r','\n');
+            Assert.Equal(original,File.ReadAllText(Path.Combine(directory,"frontend",path)));
+        }
+        var before=Directory.GetFiles(directory,"*",SearchOption.AllDirectories).ToDictionary(path=>Path.GetRelativePath(directory,path),File.ReadAllText);
+        var second=new CSharpGenerator().Generate(fixture.Models,directory,TrustedSecurityServiceFixture.Namespace);
+        Assert.Equal(first.GeneratedFiles,second.GeneratedFiles);Assert.Empty(second.CreatedHandwrittenFiles);
+        foreach(var file in before)Assert.Equal(file.Value,File.ReadAllText(Path.Combine(directory,file.Key)));
+        var ordinary=GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace);Assert.Empty(TrustedSecurityWorkbenchRenderer.Frontend(ordinary));
+    }
     /// <summary>实例化实际生成适配与同scope共享依赖，不用假Business代替权限判断。</summary>
     private object Controller(TrustedSecurityServiceRun run,IRuntimeAuthorization? other=null)
     {

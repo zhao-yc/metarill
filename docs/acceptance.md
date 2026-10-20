@@ -402,3 +402,9 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 在af13847之后，可信安全管理模块生成原权限工作台三个Controller接口，普通模型不下发；保留原HTTP路由、R封装、字符串角色ID、revision及grants。原身份和正式Web页授权必须同Scoped实例，普通编辑者/同后台super、跨后台拒绝、共享事务和版本冲突保持。没有改前端，也没有放开默认Full、BackendOnly、Runtime A或Agent。
 
 本机实际生成并编译适配，执行真实Web授权类、共享Business和协调器，ADO/ORM传输为离线夹具。最终组合155/155、零失败/零跳过，含20个新工作台用例及partial、候选、生成、凭据和模块相邻合同；不是HTTP/实库批次。14项正式Web DI及更新协调另补验全过：首次筛选器误把两个文件名当类名未匹配，核TRX后按实际WebCoordination_方法前缀补跑，不计零匹配或累计中间15/18/150项。原始报告为 `.local/trusted-workbench-neighbors-v3/trusted-workbench-neighbors-v3.trx`（SHA256 `2f3f53c569d2feda3231603049a389f9ea7269c38821097a66375588e900c9a7`）及 `.local/trusted-workbench-host-coordination/trusted-workbench-host-coordination.trx`；详细现状见[固定管理模块](architecture/trusted-security-management-module.md#原权限工作台三个接口适配)。正式完整宿主、原页面下发及初始化仍待完成。
+
+## 2026-10-21 原工作台资产保真下发
+
+工作台页面、两个原组件及共享状态模块直接作为固定编译资源从现有前端源文件嵌入，只在可信生成入口输出；未修改原前端文件或复写新页面。实际生成输出逐文件与原源码规范LF后的字节一致，重复生成全部内容稳定；普通入口不增加资产，完整管理包仍保留原发布门禁。
+
+主组合101/101、零失败/零跳过（含21个工作台用例），另真实CLI和普通前端打包20/20通过；两个批次不累计重叠次数。报告分别为 `.local/trusted-workbench-original-assets/trusted-workbench-original-assets.trx`、`.local/trusted-workbench-assets-package-regression/trusted-workbench-assets-package-regression.trx`，前者SHA256 `2a98caf4d06606d98cb0ed372cbe890f2c3f450c646cd7a6ba84a79279eeee1d`。本批没有HBuilderX、HTTP、MySQL或浏览器实测，完整管理包自定义路由、Runtime A、初始化仍待完成；来源与边界见[固定管理模块](architecture/trusted-security-management-module.md#原工作台前端资产下发)。

@@ -24,7 +24,7 @@ public sealed class CSharpGenerator
     /// <summary>生成强类型 CRUD 与 uni-app 页面，保护已有手写文件。</summary>
     public GenerationResult Generate(MetadataCatalog catalog, string outputDirectory, string rootNamespace) => GenerateCore(catalog,outputDirectory,rootNamespace,null);
 
-    /// <summary>仅内部受信模块入口可生成必需安全partial；业务JSON不能选择这个编译上下文。</summary>
+    /// <summary>仅内部受信模块入口生成必需安全partial与原工作台；业务JSON不能选择这个编译上下文。</summary>
     internal GenerationResult Generate(SecurityManagementModelSet module,string outputDirectory,string rootNamespace) =>
         GenerateCore(SecurityManagementModuleFactory.RequirePublishedForGeneration(module),outputDirectory,rootNamespace,module);
 
@@ -38,7 +38,7 @@ public sealed class CSharpGenerator
         MetadataValidation.Validate(catalog);
         var model = GenerationModel.Create(catalog, rootNamespace);
         if(module is not null)model=TrustedSecurityServiceCompilation.Bind(model,module);
-        var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(WriteSchemaRenderer.Render(model)).Select(file => file with { Content = file.Content.Replace("\r\n", "\n").Replace("\r", "\n") }).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
+        var files = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(TrustedSecurityWorkbenchRenderer.Frontend(model)).Concat(WriteSchemaRenderer.Render(model)).Select(file => file with { Content = file.Content.Replace("\r\n", "\n").Replace("\r", "\n") }).OrderBy(x => x.Path, StringComparer.Ordinal).ToArray();
         if (files.Select(x => x.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Length) throw new InvalidOperationException("生成路径存在大小写冲突。");
         var output = Path.GetFullPath(outputDirectory);
         RejectLinks(output);
