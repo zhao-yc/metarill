@@ -178,6 +178,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(FixedRoleAdminNameRenderer.Service(model,table,page));
             result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
+        result.Append(TrustedSecurityProjectOptionsRenderer.Service(model,table));
         result.Append(Preparation(model, table)); result.Append(Observer(model, table)); return result.AppendLine("}").ToString();
     }
     /// <summary>新增父键必须对应真实存在且属于当前项目的父记录。</summary>
@@ -520,6 +521,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/selected")})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint + "/selected")})]"))
                 .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
+        result.Append(TrustedSecurityProjectOptionsRenderer.Controller(model,table,page));
         result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(model, page));
         return result.AppendLine("}").ToString();
     }
@@ -631,7 +633,7 @@ public partial class {{table.Name}}Service
 
 """;
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
-    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table);
+    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
     private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>
