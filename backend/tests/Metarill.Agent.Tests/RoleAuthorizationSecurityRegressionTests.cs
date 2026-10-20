@@ -11,6 +11,8 @@ using Metarill.Platform.Generated.Services;
 using Metarill.Runtime;
 using Metarill.Runtime.Agent;
 using Metarill.Runtime.Metadata;
+using Metarill.Runtime.Menus;
+using Microsoft.AspNetCore.RateLimiting;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 using Microsoft.AspNetCore.Builder;
@@ -41,7 +43,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
     private readonly List<long> _permissions = [];
     private readonly List<ServiceProvider> _serviceProviders = [];
 
-    internal static async Task<RoleSecurityFixture> CreateAsync(bool demo = false, bool administrator = false, bool startHttpHost = true)
+    internal static async Task<RoleSecurityFixture> CreateAsync(bool demo = false, bool administrator = false, bool startHttpHost = true, bool includeIdentityEndpoints = false)
     {
         var fixture = new RoleSecurityFixture();
         try
@@ -65,12 +67,26 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
             builder.Services.AddSingleton(fixture.Authentication); builder.Services.AddSingleton<AgentAuthenticationService>(); builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<HttpRuntimeAuthorization>(); builder.Services.AddScoped<IRuntimeAuthorization>(sp => sp.GetRequiredService<HttpRuntimeAuthorization>());
             builder.Services.AddSingleton<MetadataRepository>();
+            if (includeIdentityEndpoints)
+            {
+                // 原登录Controller仍使用产品Authentication与菜单依赖；只补测试宿主缺少的注册。
+                builder.Services.AddScoped<MenuWorkbenchBusiness>();
+                builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter("login", policy =>
+                { policy.PermitLimit = 10; policy.Window = TimeSpan.FromMinutes(1); policy.QueueLimit = 0; }));
+            }
             builder.Services.AddRealmWriteCoordination(); builder.Services.AddGeneratedServices();
             builder.Services.AddControllers().AddApplicationPart(typeof(Metarill.Platform.Generated.Controllers.YzRolePage1692532858529329154Controller).Assembly).AddJsonOptions(o => JsonDefaults.CopyTo(o.JsonSerializerOptions));
             var app = builder.Build();
             // 专用TestServer只检查是否执行，403外观不替代宿主已有R响应约定。
-            app.Use(async (context, next) => { try { await next(); } catch (UnauthorizedAccessException) { context.Response.StatusCode = 403; await context.Response.WriteAsJsonAsync(R<object>.Error("无此操作权限。")); } });
-            app.UseRouting(); app.UseMiddleware<AgentAuthenticationMiddleware>(); app.MapControllers();
+            app.Use(async (context, next) =>
+            {
+                try { await next(); }
+                catch (UnauthorizedAccessException) { context.Response.StatusCode = 403; await context.Response.WriteAsJsonAsync(R<object>.Error("无此操作权限。")); }
+                catch (Exception error) when (includeIdentityEndpoints && error is (ArgumentException or InvalidOperationException or JsonException))
+                { context.Response.StatusCode = 200; await context.Response.WriteAsJsonAsync(R<object>.Error(error.Message)); }
+            });
+            app.UseRouting(); if (includeIdentityEndpoints) app.UseRateLimiter();
+            app.UseMiddleware<AgentAuthenticationMiddleware>(); app.MapControllers();
             fixture._application = app; await app.StartAsync(); fixture.Client = app.GetTestClient(); return fixture;
         }
         catch { await fixture.DisposeAsync(); throw; }
