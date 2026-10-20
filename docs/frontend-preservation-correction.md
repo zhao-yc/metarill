@@ -186,3 +186,16 @@ root在冻结 `ccfb935` 的原平台Web发行副本使用原登录、选择设�
 整合离线生成守卫/范围/类型26/26、类型及真实观察器44/44，均零跳过，证据 `.local/guard-types-generation-integrated.trx` 和 `.local/guard-types-metadata-integrated.trx`。旧物理int的ID/sort推导保持原规则；显式逻辑类型冲突、未知物理类型和原必填规则继续拒绝，不改原表单。
 
 完整API真实MySQL本批 **70/71**：唯一失败为平台管理员选择业务项目后，角色工作台snapshot被新身份后台限制拒绝，见 `.local/guard-types-api-mysql-integrated.trx`。正在对照原V8区分操作者身份与目标角色后台；不能把先前63项Agent通过或其它API通过冒作该路径兼容，也不将测试改成期待新拒绝。live版本元数据窄发布与角色控件缺口仍单独推进，未据本合同关闭。
+## 2026-10-20 按原V8恢复角色工作台入口
+
+原Java工作台的真实调用链明确要求同登录后台，并允许本后台super或角色配置页相应动作权；它没有平台超级管理员这一额外门槛。旧C#API夹具用平台身份跨后台管理业务角色，与原规则不符。已保留原失败TRX，改为同业务后台真实super完成授予查询权、普通账号只读且不能新增、菜单单独不授读、撤权后拒绝的完整链，同时明确平台super选择业务workspace仍不能管理其角色。
+
+工作台分别核对真实操作人链和真实role→admin→project，保同后台限制；query-only可以读取但不能保存，update-only保存回执不额外要求query，避免提交后因回执再鉴权失败。仅已发布真实角色页的开放动作参与普通账号授权。独立贡献53项离线、1项API及4项Agent真实MySQL全部通过，主线整合后完整Agent **72/72**、零失败零跳过，API Release 0警告0错误，回执 `.local/workbench-original-agent-mysql-integrated.trx` 与 `.local/workbench-original-integrated-release.log`。整合后的完整API仍待后续元数据现场收口；没有把5项窄验证称作全71项通过。
+
+本片没有完成锁后当前读或完整普通角色CRUD门禁恢复。迁移暂态角色CRUD拒绝测试已明确标注为暂态，不能将其当作用户确认后的最终策略；角色复选能力缺口仍保留。
+
+## 2026-10-20 live版本窄发布的写后停止与只读诊断
+
+在干净冻结d6ddf22、固定Server-200实例和34行逐值旧快照核验后，第一笔原config_column更新业务200，版本声明已成为固定C#目录，旧空物理类型与int64逻辑值均保持。写后核验发现图从34行增加为37行：C#观察器在普通字段更新中误调用全表Ensure，补出db_password、id、delete_no三个页字段，因此在GET前停止。第二笔页默认值/hint未发送，导出未执行，项目版本值未变；仅本次新会话已注销。
+
+原Java的ConfigColumnServiceImpl只在afterAdd为该新列建立页字段。当前C#普通更新补齐历史缺口不符合原联动边界，正在修源头；新增三行仅保留现场，尚未撤销，不能将其静默纳入预期或声称整个窄发布成功。私有证据为贡献clone的 `.local/version-publish-v2` 和 `.local/version-after-diagnostic`，不提交含配置原文的快照。
