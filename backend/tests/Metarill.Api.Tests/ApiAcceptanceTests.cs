@@ -39,7 +39,7 @@ public sealed partial class ApiAcceptanceTests
         return(factory,client);
     }
     [MySqlApiFact]
-    public async Task Crud_preserves_presence_and_rejects_system_fields()
+    public async Task Crud_preserves_presence_and_protects_system_fields_with_legacy_echoes()
     {
         var(factory,client)=await Login();await using var disposable=factory;using var http=client;
         const string route="/admin/auto/demo_customer/2200000000000100020";var ids=new List<string>();
@@ -47,17 +47,22 @@ public sealed partial class ApiAcceptanceTests
         {
             var added=Data(await Post(client,route+"/add",new{name="接口验收-"+Guid.NewGuid().ToString("N"),notes="省略保留",amount=12.34,isEnabled=1}));
             var id=added.GetProperty("id").GetString()!;ids.Add(id);
-            // 删除仍严格绑定标识 DTO；旧前端完整实体须在公共请求边界裁剪。
-            using var invalidDelete=await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete,"/api"+route){Content=JsonContent.Create(added)});
+            // 旧整entity允许已知只读回显，任意未知扩展字段仍须在删除前拒绝。
+            var forged=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(added.GetRawText())!;forged["notAllowed"]=JsonSerializer.SerializeToElement("不可接受的扩展");
+            using var invalidDelete=await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete,"/api"+route){Content=JsonContent.Create(forged)});
             Assert.Equal(500,(await Body(invalidDelete)).GetProperty("code").GetInt32());
             Assert.Equal(id,Data(await Body(await client.GetAsync("/api"+route+"/detail/"+id))).GetProperty("id").GetString());
             var updated=Data(await Post(client,route+"/update",new{id,amount=45.67}));
             Assert.Equal("省略保留",updated.GetProperty("notes").GetString());
             Assert.Equal(JsonValueKind.Null,Data(await Post(client,route+"/update",new{id,notes=(string?)null})).GetProperty("notes").ValueKind);
+            // 本页没有发布insertManagerId回显，仍按未知请求字段拒绝；不能将所有系统列一概剥离。
             Assert.Equal(500,(await Post(client,route+"/update",new{id,insertManagerId="99"})).GetProperty("code").GetInt32());
+            Assert.Equal(500,(await Post(client,route+"/update",new{id,notAllowed="99"})).GetProperty("code").GetInt32());
             Assert.Equal(500,(await Post(client,route+"/page",new{filters=new{notAllowed="x"}})).GetProperty("code").GetInt32());
             Assert.True(Data(await Post(client,route+"/page",new{pageNo=1,pageSize=20,filters=new{name=added.GetProperty("name").GetString()}})).GetProperty("total").ToString() is{} total&&long.Parse(total)>=1);
             var copy=Data(await Post(client,route+"/copy/"+id,new{}));var copyId=copy.GetProperty("id").GetString()!;Assert.NotEqual(id,copyId);ids.Add(copyId);
+            // 原删除操作提交完整实体仍应成功；先从待清理表移除已删除ID，避免二次删除掩盖前面的断言。
+            Data(await Body(await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete,"/api"+route){Content=JsonContent.Create(copy)})));ids.Remove(copyId);
         }
         finally{foreach(var id in ids)Data(await Body(await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete,"/api"+route){Content=JsonContent.Create(new{id})})));}
         using var anonymous=factory.CreateClient();Assert.Equal(500,(await Body(await anonymous.PostAsJsonAsync("/api"+route+"/page",new{filters=new{}}))).GetProperty("code").GetInt32());
@@ -109,7 +114,7 @@ public sealed partial class ApiAcceptanceTests
         var(factory,client)=await Login();await using var disposable=factory;using var http=client;
         var registry=factory.Services.GetRequiredService<Metarill.Runtime.Metadata.MetadataRegistry>();
         using var response=await client.PostAsJsonAsync("/api/admin/sys/generation/generate",new{projectId=registry.Platform.YzProjectId,rootNamespace="Acceptance.Platform"});
-        Assert.Equal("application/zip",response.Content.Headers.ContentType?.MediaType);
+        Assert.True(response.Content.Headers.ContentType?.MediaType=="application/zip",response.Content.Headers.ContentType?.MediaType=="application/json"?await response.Content.ReadAsStringAsync():"平台导出没有返回ZIP内容类型。");
         Assert.Equal("BackendOnly",Assert.Single(response.Headers.GetValues("X-Metarill-Package-Mode")));
         Assert.Equal("false",Assert.Single(response.Headers.GetValues("X-Metarill-Frontend-Included")));
         var warnings=JsonSerializer.Deserialize<string[]>(Uri.UnescapeDataString(Assert.Single(response.Headers.GetValues("X-Metarill-Package-Warnings"))))!;
