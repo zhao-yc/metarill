@@ -6,7 +6,7 @@ using Metarill.Runtime.Security;
 namespace Metarill.Runtime.Metadata;
 
 /// <summary>平台配置聚合统一先锁真实项目，避免生成 CRUD 先锁对象再等待工作台项目锁。</summary>
-public sealed class ConfigurationMutationGuard(SqlRowStore store, MetadataRegistry registry, HttpRuntimeAuthorization authorization) : IRecordMutationGuard
+public sealed class ConfigurationMutationGuard(SqlRowStore store, MetadataRegistry registry, HttpRuntimeAuthorization authorization, SecurityRealmMutationGuard security) : IRecordMutationGuard
 {
     private static readonly HashSet<string> ConfigurationTables = new(StringComparer.Ordinal)
     {
@@ -22,6 +22,11 @@ public sealed class ConfigurationMutationGuard(SqlRowStore store, MetadataRegist
         var table = registry.Platform.ConfigTables.Single(candidate => candidate.Id == page.ConfigTableId);
         if (table.TableName != preparation.TableName) throw new UnauthorizedAccessException("准备页面与配置表不一致。");
         if (!ConfigurationTables.Contains(table.TableName)) return;
+        if(table.TableName=="yz_admin_type")
+        {
+            // 安全协调器必须排在此守卫前；复用其真实页权和项目/后台锁，不再先锁workspace或加超级门槛。
+            security.RequirePrepared(preparation);return;
+        }
         var actor = authorization.RequireAdministrator();
         if (actor != preparation.Actor) throw new UnauthorizedAccessException("准备身份与当前认证身份不一致。");
         authorization.RequirePagePermission(page.Id, preparation.Operation switch

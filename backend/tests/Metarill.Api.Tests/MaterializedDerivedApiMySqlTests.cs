@@ -143,10 +143,11 @@ public sealed class MaterializedDerivedApiMySqlTests
         await f.SaveEvidence("legacy-alias-receipt",copied);await f.CompleteAsync();
     }
 
-    /// <summary>测试只包装既有唯一守卫；真实身份/项目锁逻辑继续由原守卫执行。</summary>
+    /// <summary>仅在原位置包装配置守卫，保留安全守卫首位及真实身份/项目锁协议。</summary>
     private static void WrapGuard(IServiceCollection services,PreparationProbe probe)
     {
-        var original=Assert.Single(services,descriptor=>descriptor.ServiceType==typeof(IRecordMutationGuard));services.Remove(original);services.AddScoped<IRecordMutationGuard>(provider=>new ObservedGuard(provider.GetRequiredService<ConfigurationMutationGuard>(),probe));
+        var guards=services.Where(descriptor=>descriptor.ServiceType==typeof(IRecordMutationGuard)).ToArray();Assert.Equal(2,guards.Length);
+        var index=services.IndexOf(guards[1]);services[index]=ServiceDescriptor.Scoped<IRecordMutationGuard>(provider=>new ObservedGuard(provider.GetRequiredService<ConfigurationMutationGuard>(),probe));
     }
     private sealed class PreparationProbe{internal string Project="";internal bool Signal;internal OwnStatementTrace? Trace;internal TaskCompletionSource Entered{get;}=new(TaskCreationOptions.RunContinuationsAsynchronously);}
     private sealed class ObservedGuard(ConfigurationMutationGuard inner,PreparationProbe probe):IRecordMutationGuard

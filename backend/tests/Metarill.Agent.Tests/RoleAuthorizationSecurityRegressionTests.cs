@@ -4,6 +4,7 @@ using System.Text.Json;
 using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Data;
+using Metarill.Platform.Generated;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.Mappers;
 using Metarill.Platform.Generated.Services;
@@ -38,6 +39,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
     internal string RolePage => Registry.Platform.ConfigPages.Single(p => p.ConfigTableId == Registry.Platform.ConfigTables.Single(t => t.TableName == "yz_role").Id).Id;
     private WebApplication? _application;
     private readonly List<long> _permissions = [];
+    private readonly List<ServiceProvider> _serviceProviders = [];
 
     internal static async Task<RoleSecurityFixture> CreateAsync(bool demo = false, bool administrator = false)
     {
@@ -61,7 +63,8 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
             builder.Services.AddSingleton(fixture.Session); builder.Services.AddSingleton(fixture.Store); builder.Services.AddSingleton(fixture.Registry); builder.Services.AddSingleton<IIdGenerator>(Ids);
             builder.Services.AddSingleton(fixture.Authentication); builder.Services.AddSingleton<AgentAuthenticationService>(); builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<HttpRuntimeAuthorization>(); builder.Services.AddScoped<IRuntimeAuthorization>(sp => sp.GetRequiredService<HttpRuntimeAuthorization>());
-            builder.Services.AddScoped<YzRoleMapper>(); builder.Services.AddScoped<YzRoleService>(sp => new(fixture.Session, sp.GetRequiredService<YzRoleMapper>(), Ids, []));
+            builder.Services.AddSingleton<MetadataRepository>();
+            builder.Services.AddRealmWriteCoordination(); builder.Services.AddGeneratedServices();
             builder.Services.AddControllers().AddApplicationPart(typeof(Metarill.Platform.Generated.Controllers.YzRolePage1692532858529329154Controller).Assembly).AddJsonOptions(o => JsonDefaults.CopyTo(o.JsonSerializerOptions));
             var app = builder.Build();
             // 专用TestServer只检查是否执行，403外观不替代宿主已有R响应约定。
@@ -79,14 +82,23 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
     internal async Task<AuthenticatedIdentity> IdentityAsync() => await Authentication.AuthenticateAsync(Token, null) ?? throw new InvalidOperationException("测试登录未建立有效身份。");
     internal static HttpRuntimeAuthorization Authorization(AuthenticatedIdentity identity, MetadataRegistry registry)
     { var context = new DefaultHttpContext(); context.Items[typeof(AuthenticatedIdentity)] = identity; return new(new HttpContextAccessor { HttpContext = context }, registry); }
-    internal YzRoleService Service() => new(Session, new YzRoleMapper(Session), Ids, []);
+    /// <summary>直接调用也经实际AddGenerated注册，不以空guards跳过事务安全协议。</summary>
+    internal YzRoleService Service(AuthenticatedIdentity identity)
+    {
+        var services=new ServiceCollection();services.AddSingleton(Session);services.AddSingleton(Store);services.AddSingleton(Registry);services.AddSingleton<IIdGenerator>(Ids);
+        var context=new DefaultHttpContext();context.Items[typeof(AuthenticatedIdentity)]=identity;
+        services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor{HttpContext=context});services.AddScoped<HttpRuntimeAuthorization>();
+        services.AddScoped<IRuntimeAuthorization>(provider=>provider.GetRequiredService<HttpRuntimeAuthorization>());services.AddSingleton<MetadataRepository>();
+        services.AddRealmWriteCoordination();services.AddGeneratedServices();var provider=services.BuildServiceProvider();_serviceProviders.Add(provider);
+        return provider.GetRequiredService<YzRoleService>();
+    }
     internal async Task<HttpResponseMessage> UpdateHttpAsync(object body)
     { using var request = new HttpRequestMessage(HttpMethod.Post, "/api/admin/auto/yz_role/" + RolePage + "/update"); request.Headers.Add("loginStateId", Token); request.Content = JsonContent.Create(body); return await Client.SendAsync(request); }
     internal async Task<Dictionary<string, object?>> RoleAsync() => Assert.Single(await Store.ReadAsync("yz_role", new Dictionary<string, object?> { ["id"] = RoleId }));
     /// <summary>按本用例唯一账号、角色和授权主键清理，绝不按全表或既有项目清理。</summary>
     public async ValueTask DisposeAsync()
     {
-        Client?.Dispose(); if (_application is not null) await _application.DisposeAsync(); if (Session is null) return;
+        Client?.Dispose(); foreach(var provider in _serviceProviders)await provider.DisposeAsync(); if (_application is not null) await _application.DisposeAsync(); if (Session is null) return;
         try
         {
             await using var connection = Session.Provider.CreateConnection(Session.Options); await connection.OpenAsync();
@@ -100,25 +112,25 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
 
 public sealed class RoleAuthorizationSecurityRegressionTests
 {
+    /// <summary>真实普通角色页权限按原V8允许修改super；空guards旁路和无效枚举仍被拒绝。</summary>
     [AgentIntegrationFact]
-    public async Task Transitional_role_crud_gate_stays_closed_while_workbench_checks_original_role_page_draft()
+    public async Task Original_role_page_editor_can_change_super_and_invalid_values_roll_back()
     {
         await using var f = await RoleSecurityFixture.CreateAsync(); await f.GrantAsync(f.RolePage, "is_all", "is_update", "is_new");
         var identity = await f.IdentityAsync(); Assert.False(identity.Actor.IsAdministrator); Assert.Contains(f.RolePage + ":is_all", identity.Permissions);
-        // 迁移中的角色CRUD暂态门禁仍保留；后续按用户确认的原V8规则恢复，不能把此拒绝作为最终策略。
-        Assert.Equal(HttpStatusCode.Forbidden, (await f.UpdateHttpAsync(new { id = f.RoleId.ToString(), isSuper = 1 })).StatusCode);
-        Assert.Equal("0", SqlRowStore.Text(await f.RoleAsync(), "is_super"));
-        var request = JsonSerializer.Deserialize<YzRolePage1692532858529329154UpdateRequest>(JsonSerializer.Serialize(new { id = f.RoleId.ToString(), isSuper = 1 }), JsonDefaults.Options)!;
-        // 手写partial的同一暂态门禁尚未在本工作台切片解除，前后实际角色值必须保持不变。
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service().Update1692532858529329154Async(request, null, identity.Actor, CancellationToken.None));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service().Create1692532858529329154Async(new() { Name = new("不可提权角色"), IsSuper = new(1) }, null, identity.Actor, CancellationToken.None));
-        Assert.Equal("0", SqlRowStore.Text(await f.RoleAsync(), "is_super")); Assert.False((await f.IdentityAsync()).Actor.IsAdministrator);
-        var business = new RolePermissionBusiness(f.Store, new MetadataRepository(f.Store, f.Registry), RoleSecurityFixture.Authorization(identity, f.Registry), new SnowflakeIdGenerator(856), f.Registry);
-        // 原角色页is_all允许工作台修改，但固定陈旧revision仍拒；不再用额外超级门槛替代版本校验。
-        var filter=new Dictionary<string,object?>{{"yz_role_id",f.RoleId}};
-        var before=JsonSerializer.Serialize(await f.Store.ReadAsync("yz_role_permission",filter));
+        var auth=RoleSecurityFixture.Authorization(identity,f.Registry);var metadata=new MetadataRepository(f.Store,f.Registry);
+        var coordinator=new SecurityRealmMutationGuard(f.Store,f.Registry,auth,new(f.Store,f.Registry,metadata));
+        var business = new RolePermissionBusiness(f.Store,metadata,auth,new SnowflakeIdGenerator(856),f.Registry,coordinator);
+        // 原工作台is_all仍走revision冲突，不拿后续super变化覆盖这项既有断言。
+        var filter=new Dictionary<string,object?>{{"yz_role_id",f.RoleId}};var before=JsonSerializer.Serialize(await f.Store.ReadAsync("yz_role_permission",filter));
         var conflict=await Assert.ThrowsAsync<InvalidOperationException>(() => business.SaveAsync(new(f.RoleId.ToString(), new string('a', 64), new([], new(), []))));
         Assert.Contains("YZP_CONFLICT",conflict.Message);Assert.Equal(before,JsonSerializer.Serialize(await f.Store.ReadAsync("yz_role_permission",filter)));
+        Assert.Equal(HttpStatusCode.OK,(await f.UpdateHttpAsync(new{id=f.RoleId.ToString(),isSuper=1})).StatusCode);
+        Assert.Equal("1",SqlRowStore.Text(await f.RoleAsync(),"is_super"));identity=await f.IdentityAsync();Assert.True(identity.Actor.IsAdministrator);
+        var invalid=new YzRolePage1692532858529329154UpdateRequest{Id=f.RoleId,IsSuper=new(2)};
+        await Assert.ThrowsAsync<ArgumentException>(()=>f.Service(identity).Update1692532858529329154Async(invalid,null,identity.Actor,CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(()=>f.Service(identity).Create1692532858529329154Async(new(){Name=new("无效枚举角色"),IsSuper=new(2),YzAdminTypeId=new(long.Parse(identity.PrincipalAdminTypeId))},null,identity.Actor,CancellationToken.None));
+        Assert.Equal("1",SqlRowStore.Text(await f.RoleAsync(),"is_super"));
     }
 
     [AgentIntegrationFact]
@@ -154,7 +166,7 @@ public sealed class RoleAuthorizationSecurityRegressionTests
         Assert.Equal(HttpStatusCode.OK, (await f.UpdateHttpAsync(new { id = f.RoleId.ToString(), sortNo = 20, isSuper = 1 })).StatusCode);
         Assert.Equal("20", SqlRowStore.Text(await f.RoleAsync(), "sort_no"));
         var invalid = new YzRolePage1692532858529329154UpdateRequest { Id = f.RoleId, IsSuper = new(2) };
-        await Assert.ThrowsAsync<ArgumentException>(() => f.Service().Update1692532858529329154Async(invalid, null, identity.Actor, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => f.Service(identity).Update1692532858529329154Async(invalid, null, identity.Actor, CancellationToken.None));
         Assert.Equal("1", SqlRowStore.Text(await f.RoleAsync(), "is_super")); Assert.Equal("20", SqlRowStore.Text(await f.RoleAsync(), "sort_no"));
     }
 }

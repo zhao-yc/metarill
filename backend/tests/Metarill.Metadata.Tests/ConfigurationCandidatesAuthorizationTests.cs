@@ -21,7 +21,9 @@ public sealed class ConfigurationCandidatesAuthorizationTests
         if (authenticated) context.Items[typeof(AuthenticatedIdentity)] = new AuthenticatedIdentity(actor, new HashSet<string>(), 1, agent ? 1 : null);
         var authorization = new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = context }, fixture.Registry);
         var store = new SqlRowStore(fixture.Sessions.Platform, fixture.Registry.Platform);
-        var business = new ConfigurationCandidatesBusiness(store, new(store, fixture.Registry), fixture.Registry, authorization, new(store, fixture.Registry, authorization));
+        var metadata = new MetadataRepository(store, fixture.Registry);
+        var security = new SecurityRealmMutationGuard(store, fixture.Registry, authorization, new(store, fixture.Registry, metadata));
+        var business = new ConfigurationCandidatesBusiness(store, metadata, fixture.Registry, authorization, new(store, fixture.Registry, authorization, security));
         var empty = JsonSerializer.SerializeToElement(new { }); var id = JsonSerializer.SerializeToElement(new { id = "11" });
         // 虚构连接位于回环无效端口；若鉴权顺序错误，测试会出现连接错误而非权限拒绝。
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.TablesAsync(empty));

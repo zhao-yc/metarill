@@ -1,18 +1,20 @@
 using Metarill.Core.Security;
 using Metarill.Platform.Generated.Entities;
+using Metarill.Runtime.Security;
 namespace Metarill.Platform.Generated.Services;
 
-/// <summary>角色属于平台安全配置，普通业务角色不能通过表级CRUD提升为超级管理员。</summary>
+/// <summary>手写安全对象扩展：普通页权、后台归属及引用由统一协调器证明，不追加超级身份门槛。</summary>
 public partial class YzRoleService
 {
+    /// <summary>手写对象规则执行前，必须证明当前操作已沿同事务安全准备入口完成。</summary>
     partial void BeforeSave(YzRole entity,RuntimeActor actor,bool creating,ISet<string> submittedFields)
     {
-        if(!actor.IsAdministrator)throw new UnauthorizedAccessException("角色管理需要平台管理员权限。");
+        SecurityRealmMutationGuard.RequirePrepared(guards,session.CurrentTransaction,"yz_role",entity.Id,actor,creating,false);
         if(entity.IsSuper is not (null or 0 or 1))throw new ArgumentException("超级管理员标志必须为0或1。");
     }
+    /// <summary>删除复用真实目标的delete准备，引用和归属由最终协调器统一核验。</summary>
     partial void BeforeDelete(YzRole entity,RuntimeActor actor)
     {
-        if(!actor.IsAdministrator)throw new UnauthorizedAccessException("角色管理需要平台管理员权限。");
-        if(entity.IsBuiltIn==1)throw new InvalidOperationException("内置角色不能删除。");
+        SecurityRealmMutationGuard.RequirePrepared(guards,session.CurrentTransaction,"yz_role",entity.Id,actor,false,true);
     }
 }

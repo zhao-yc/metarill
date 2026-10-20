@@ -194,7 +194,9 @@ public sealed class RolePermissionRealmTests
     {
         var http=new DefaultHttpContext();http.Items[typeof(AuthenticatedIdentity)]=identity;
         var authorization=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=http},f.Registry);
-        return new(f.Store,new MetadataRepository(f.Store,f.Registry),authorization,f.Ids,f.Registry);
+        var metadata=new MetadataRepository(f.Store,f.Registry);
+        var coordinator=new SecurityRealmMutationGuard(f.Store,f.Registry,authorization,new(f.Store,f.Registry,metadata));
+        return new(f.Store,metadata,authorization,f.Ids,f.Registry,coordinator);
     }
     private static JsonElement Json(object value)=>JsonSerializer.SerializeToElement(value,JsonDefaults.Options);
 }

@@ -7,7 +7,7 @@ using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Security;
 
-/// <summary>安全表聚合先锁项目、后台，再读取当前身份；未完成集成验收前不注册到宿主。</summary>
+/// <summary>安全表聚合先锁项目、后台，再读取当前身份；平台已接线，实库及并发验收前保留Runtime Gap。</summary>
 public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,MetadataRegistry registry,HttpRuntimeAuthorization authorization,SecurityRealmCurrentReader reader):IRecordMutationGuard
 {
     private static readonly IReadOnlyDictionary<string,string> SafetyTables=new Dictionary<string,string>(StringComparer.Ordinal)
@@ -126,6 +126,33 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,Metadat
         if(table=="yz_admin_type"&&!state.Locks.Projects.ContainsKey(Id(SqlRowStore.Text(row,"yz_project_id"))))throw Changed();
         return row;
     }
+
+    /// <summary>显式暴露给本类型静态防漏接检查，仍要求写入使用同一Session当前事务。</summary>
+    private Metarill.Data.DatabaseSession Session => store.Session;
+
+    /// <summary>三个手写平台partial只能沿实际准备状态执行，误构造空guards不能绕过授权和锁协议。</summary>
+    public static void RequirePrepared(IEnumerable<IRecordMutationGuard> guards,DbTransaction? transaction,string table,long recordId,
+        Metarill.Core.Security.RuntimeActor actor,bool creating,bool deleting)
+    {
+        var coordinator=guards.OfType<SecurityRealmMutationGuard>().SingleOrDefault()??throw new InvalidOperationException("安全Service必须注册统一写入协调器。");
+        if(transaction is null||!ReferenceEquals(transaction,coordinator.Session.CurrentTransaction)||!coordinator._states.TryGetValue(transaction,out var state)||recordId<=0)throw Changed();
+        coordinator.RequireRequest(actor,transaction);
+        var pending=state.Pending.LastOrDefault(item=>item.Preparation.TableName==table&&item.Preparation.Actor==actor&&ReferenceEquals(item.Preparation.Transaction,transaction)&&
+            (deleting?item.Preparation.Operation==RecordMutationOperation.Delete&&item.Preparation.TargetId==recordId:
+                creating?item.Preparation.Operation is RecordMutationOperation.Create or RecordMutationOperation.Copy:
+                item.Preparation.Operation==RecordMutationOperation.Update&&item.Preparation.TargetId==recordId));
+        if(pending is null)throw Changed();
+    }
+
+    /// <summary>旧配置守卫处理后台时必须复用本次同一准备对象，若DI反序则在任何旧项目锁前明确失败。</summary>
+    internal void RequirePrepared(RecordMutationPreparation preparation)
+    {
+        RequireRequest(preparation.Actor,preparation.Transaction);
+        if(!_states.TryGetValue(preparation.Transaction,out var state)||!state.Pending.Any(item=>ReferenceEquals(item.Preparation,preparation)))throw Changed();
+    }
+
+    /// <summary>只给原三个固定安全表页面恢复原页权，普通配置、全局目录和原始授权表不借此放行。</summary>
+    internal static bool IsStandardSecurityTable(string tableId,string tableName)=>tableName!="yz_role_permission"&&SafetyTables.TryGetValue(tableName,out var expected)&&tableId==expected;
 
     private AuthenticatedIdentity RequireRequest(Metarill.Core.Security.RuntimeActor actor,DbTransaction transaction)
     {

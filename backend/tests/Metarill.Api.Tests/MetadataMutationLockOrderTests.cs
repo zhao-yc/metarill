@@ -6,7 +6,6 @@ using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace Metarill.Api.Tests;
@@ -19,8 +18,9 @@ public sealed partial class ApiAcceptanceTests
         var guardEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var (factory, client) = await Login(current => current.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<IRecordMutationGuard>();
-            services.AddScoped<IRecordMutationGuard>(provider => new SignallingConfigurationGuard(ActivatorUtilities.CreateInstance<ConfigurationMutationGuard>(provider), guardEntered));
+            // 保留首位安全协调器；只在既有位置包装配置守卫，不以探针改变实际锁序。
+            var guards=services.Where(descriptor=>descriptor.ServiceType==typeof(IRecordMutationGuard)).ToArray();Assert.Equal(2,guards.Length);
+            var index=services.IndexOf(guards[1]);services[index]=ServiceDescriptor.Scoped<IRecordMutationGuard>(provider=>new SignallingConfigurationGuard(provider.GetRequiredService<ConfigurationMutationGuard>(),guardEntered));
         })));
         await using var disposable = factory; using var http = client;
         const string tableRoute = "/admin/auto/config_table/6191083005411328";

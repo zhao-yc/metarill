@@ -34,7 +34,7 @@ public sealed partial class SecurityRealmMutationGuard
                 fixedPage.YzAdminTypeId==identity.PrincipalAdminTypeId&&fixedPage.YzProjectId==identity.PrincipalProjectId))continue;
             if(identity.Permissions.Contains(page.Id+":"+action)||identity.Permissions.Contains(page.Id+":is_all"))return;
         }
-        throw new UnauthorizedAccessException("缺少当前后台角色配置页的操作权限。");
+        throw new UnauthorizedAccessException(action=="is_update"?"缺少当前后台角色配置页的修改权限。":"缺少当前后台角色配置页的操作权限。");
     }
 
     /// <summary>原值来自守卫取得的真实锁行；手写钩子不能伪装准备前已存在的后台或角色值。</summary>

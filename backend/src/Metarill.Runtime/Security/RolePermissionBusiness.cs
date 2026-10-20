@@ -12,7 +12,7 @@ public sealed record RolePermissionGrants(IReadOnlyList<string> MenuIds,Dictiona
 public sealed record RolePermissionSave(string RoleId,string Revision,RolePermissionGrants Grants);
 
 /// <summary>独立保存菜单显示、页面动作和按钮授权，不从菜单推导页面写权限。</summary>
-public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IIdGenerator ids,MetadataRegistry registry)
+public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IIdGenerator ids,MetadataRegistry registry,SecurityRealmMutationGuard coordinator)
 {
     private static readonly HashSet<string> Actions=["is_query","is_new","is_update","is_delete","is_export","is_all"];
     public async Task<object> RolesAsync(CancellationToken token=default)
@@ -42,12 +42,14 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
     /// <summary>聚合锁与版本比较均在实际数据库事务内；先验证整份草稿再写入。</summary>
     public async Task<object> SaveAsync(RolePermissionSave request,CancellationToken token=default)
     {
-        var principal=await Principal(token);var actor=principal.Actor;
+        authorization.RequireIdentity();
         return await store.Session.InTransactionAsync(async()=>
         {
-            await store.ReadForUpdateAsync("yz_project",new Dictionary<string,object?>{{"id",long.Parse(principal.ProjectId)}},token);
-            var role=await Role(request.RoleId,principal,true,token);
-            var catalog=await Catalog(principal,token);RequireRoleAction(principal,catalog,"is_update");
+            var scope=await coordinator.PrepareRolePermissionsAsync(request.RoleId,token);
+            var identity=scope.Identity;var actor=identity.Actor;
+            var principal=new PrincipalScope(actor,identity,identity.PrincipalAdminTypeId,identity.PrincipalProjectId);
+            var role=scope.Role;
+            var catalog=RealmResources(scope.Catalog,principal);
             if(SqlRowStore.Text(role,"is_super")=="1")throw new InvalidOperationException("超级管理员权限由角色属性确定，不能在资源工作台改写。");
             var existing=await Grants(request.RoleId,true,token);
             if(request.Revision!=Revision(role,catalog,existing))throw new InvalidOperationException("YZP_CONFLICT：角色授权或资源目录已变化，请重新读取。");
@@ -126,6 +128,11 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
     private async Task<RealmCatalog> Catalog(PrincipalScope principal,CancellationToken token)
     {
         var catalog=await metadata.LoadProjectAsync(principal.ProjectId,token);
+        return RealmResources(catalog,principal);
+    }
+    /// <summary>普通快照与锁后保存使用同一目录归属筛选，revision解释保持一致。</summary>
+    private static RealmCatalog RealmResources(MetadataCatalog catalog,PrincipalScope principal)
+    {
         var pages=catalog.ConfigPages.Where(page=>page.YzAdminTypeId==principal.AdminTypeId&&page.YzProjectId==principal.ProjectId).ToArray();
         var pageIds=pages.Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         return new(catalog.ConfigMenus.Where(menu=>menu.YzAdminTypeId==principal.AdminTypeId&&menu.YzProjectId==principal.ProjectId).ToArray(),pages,
