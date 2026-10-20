@@ -130,11 +130,13 @@ public sealed class SecurityRealmRrMySqlTests
             Assert.NotNull(Assert.Single(await deleting.Store.ReadIncludingDeletedAsync("yz_role",new Dictionary<string,object?>{{"id",target}},f.Token))["delete_no"]);
             Assert.Single(await writing.Store.ReadAsync("yz_role_permission",new Dictionary<string,object?>{{"yz_role_id",permissionTarget}},f.Token));f.Evidence["bothOperationsCommittedBeforeRelease"]=true;
         }
-        catch
+        catch(Exception error)
         {
-            using var observation=new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            if(deleteConnection.Task.IsCompletedSuccessfully)f.Evidence["deleteWaits"]=await f.Probe.WaitsAsync(await deleteConnection.Task,await held.Task,observation.Token);
-            if(writeConnection.Task.IsCompletedSuccessfully)f.Evidence["workbenchWaits"]=await f.Probe.WaitsAsync(await writeConnection.Task,await held.Task,observation.Token);throw;
+            using var observation=new CancellationTokenSource(TimeSpan.FromSeconds(3));var observations=new List<RealmObservation>();
+            if(deleteConnection.Task.IsCompletedSuccessfully)observations.Add(new("deleteWaits",async()=>await f.Probe.WaitsAsync(await deleteConnection.Task,await held.Task,observation.Token)));
+            if(writeConnection.Task.IsCompletedSuccessfully)observations.Add(new("workbenchWaits",async()=>await f.Probe.WaitsAsync(await writeConnection.Task,await held.Task,observation.Token)));
+            // 观测权限或超时只能追加诊断，绝不能覆盖先发生的业务/断言错误。
+            await SecurityRealmRrDiagnostics.RethrowAfterObservationsAsync(error,f.Evidence,observations);throw;
         }
         finally{release.TrySetResult(true);}
         await holder;
@@ -144,7 +146,7 @@ public sealed class SecurityRealmRrMySqlTests
     /// <summary>失败先保留原异常并排空事务；清理失败与原异常同时报告，不用清理错误覆盖原证据。</summary>
     private static async Task Run(string name,Func<RrCase,Task> action)
     {
-        var f=new RrCase(name);Exception? failure=null;try{await f.Initialize();await action(f);}catch(Exception error){failure=error;f.Evidence["failure"]=new{type=error.GetType().Name,hresult=error.HResult,mysql=(error as MySqlConnector.MySqlException)?.Number};}
+        var f=new RrCase(name);Exception? failure=null;try{await f.Initialize();await action(f);}catch(Exception error){failure=error;f.Evidence["failure"]=SecurityRealmRrDiagnostics.Safe(error);}
         try{await f.DisposeAsync();}catch(Exception cleanup){if(failure is not null)throw new AggregateException(failure,cleanup);throw;}
         if(failure is not null)ExceptionDispatchInfo.Capture(failure).Throw();
     }
@@ -214,6 +216,8 @@ public sealed class SecurityRealmRrMySqlTests
         public async ValueTask DisposeAsync()
         {
             deadline.Cancel();var draining=true;foreach(var task in tasks)try{await task.WaitAsync(TimeSpan.FromSeconds(10));}catch(TimeoutException){draining=false;}catch{if(!task.IsCompleted)draining=false;}
+            // 排空不能吞掉T2等辅助事务的失败；只记录类型、HResult和MySQL号，不保存异常正文。
+            Evidence["taskFaults"]=SecurityRealmRrDiagnostics.TaskFaults(tasks);
             Evidence["owned"]=new{accounts=actors.Select(actor=>actor.AccountId).ToArray(),roles=actors.Select(actor=>actor.RoleId).ToArray(),extra=extras.Select(row=>new{table=row.Table,id=row.Id}).ToArray()};
             if(!draining){Evidence["cleanup"]="事务未排空，保留owned现场，禁止并发清理。";await Save();if(probe is not null)await probe.DisposeAsync();throw new InvalidOperationException("RR业务事务尚未排空，已保留现场。");}
             foreach(var scope in scopes)scope.Dispose();
@@ -229,7 +233,7 @@ public sealed class SecurityRealmRrMySqlTests
                 }
                 Evidence["cleanup"]="仅自有主键/role外键清理完成且零残留核验通过。";
             }
-            catch{Evidence["cleanup"]="自有清理失败，保留记录等待核验。";throw;}
+            catch(Exception cleanup){Evidence["cleanup"]="自有清理失败，保留记录等待核验。";Evidence["cleanupFailure"]=SecurityRealmRrDiagnostics.Safe(cleanup);throw;}
             finally{await Save();cleanupSession?.Dispose();if(probe is not null)await probe.DisposeAsync();deadline.Dispose();}
         }
         /// <summary>先验证随机名称归属，角色授权只删除该owned角色的精确FK；未知名称不删。</summary>

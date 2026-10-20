@@ -32,12 +32,34 @@ internal sealed class SecurityRealmRrProbe : IAsyncDisposable
         var connection=new MySqlConnection(options.ConnectionString);
         try
         {
-            await connection.OpenAsync(token);await using var command=connection.CreateCommand();command.CommandText="SELECT @@server_uuid,VERSION(),DATABASE()";
-            await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token)||reader.GetString(2)!=options.ExpectedDatabase)throw new InvalidOperationException("RR观测连接不是目标隔离库。");
-            return new(connection,reader.GetString(0),reader.GetString(1),reader.GetString(2));
+            await connection.OpenAsync(token);string uuid,version,database;
+            await using(var command=connection.CreateCommand())
+            {
+                command.CommandText="SELECT @@server_uuid,VERSION(),DATABASE()";await using var reader=await command.ExecuteReaderAsync(token);
+                if(!await reader.ReadAsync(token)||reader.GetString(2)!=options.ExpectedDatabase)throw new InvalidOperationException("RR观测连接不是目标隔离库。");
+                uuid=reader.GetString(0);version=reader.GetString(1);database=reader.GetString(2);
+            }
+            // 身份reader关闭后检查真实列权限；失败时Open不返回，调用方尚未创建任何业务夹具。
+            await CheckObservationColumnsAsync(async sql=>{await using var command=connection.CreateCommand();command.CommandText=sql;await using var reader=await command.ExecuteReaderAsync(token);if(await reader.ReadAsync(token))throw new InvalidOperationException("观测权限空集检查意外返回数据。");});
+            return new(connection,uuid,version,database);
         }
         catch{await connection.DisposeAsync();throw;}
     }
+    /// <summary>只请求三张固定观测表实际使用的列；WHERE 1=0不读锁行、不修改采集或授权。</summary>
+    internal static async Task CheckObservationColumnsAsync(Func<string,Task> execute)
+    {
+        foreach(var(table,sql)in ObservationPermissionQueries)
+        {
+            try{await execute(sql);}
+            catch(Exception error){throw new InvalidOperationException("RR观测权限前置检查失败：performance_schema."+table+"所需列不可读取；尚未创建业务夹具。",error);}
+        }
+    }
+    private static readonly (string Table,string Sql)[] ObservationPermissionQueries=
+    [
+        ("data_lock_waits","SELECT `ENGINE`,`REQUESTING_ENGINE_LOCK_ID`,`BLOCKING_ENGINE_LOCK_ID`,`REQUESTING_THREAD_ID`,`BLOCKING_THREAD_ID` FROM `performance_schema`.`data_lock_waits` WHERE 1=0"),
+        ("data_locks","SELECT `ENGINE`,`ENGINE_LOCK_ID`,`THREAD_ID`,`OBJECT_SCHEMA`,`OBJECT_NAME`,`INDEX_NAME`,`LOCK_TYPE`,`LOCK_MODE`,`LOCK_STATUS`,`LOCK_DATA` FROM `performance_schema`.`data_locks` WHERE 1=0"),
+        ("threads","SELECT `THREAD_ID`,`PROCESSLIST_ID` FROM `performance_schema`.`threads` WHERE 1=0")
+    ];
     /// <summary>每条业务事务与观测连接必须同库同实例，并明确断言真实隔离级别，不能假设默认就是RR。</summary>
     internal async Task<ulong> RequireRepeatableReadAsync(DbTransaction transaction,CancellationToken token)
     {

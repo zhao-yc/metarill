@@ -1,6 +1,6 @@
 # 安全realm真实RR回归准备
 
-本片仅新增真实MySQL回归源码和复用夹具接线，已编译不等于运行。未执行数据库读写、DDL、浏览器或压力测试，不关闭角色Runtime Gap。源基线9909c21；后续由根集成者完成关联索引显式预览、执行、核验，再分配Server200独占窗口执行。
+三个安全关联索引已经由根沿原Schema流程执行并核验。RR首轮真实执行结果为3失败、0通过、0跳过，不能关闭角色Runtime Gap；失败原因和清理回执见下节。当前诊断修补以87ca93c为基线，只完成离线编译与纯方法回归，不执行数据库、授权、DDL、浏览器或压力测试。临时列级观测授权、实库重跑及结束后的撤销由根独立安排。
 
 ## 三个真实场景
 
@@ -32,4 +32,13 @@
 & E:/git/metarill/.tools/dotnet/dotnet.exe test backend/tests/Metarill.Agent.Tests/Metarill.Agent.Tests.csproj --no-restore -warnaserror --filter 'FullyQualifiedName~SecurityRealmRrMySqlTests' --logger 'trx;LogFileName=security-realm-rr.trx'
 ```
 
-此命令尚未运行。只有三个真实用例和精确清理均通过，才可报告对应RR边界达标；它们也不单独证明整个角色控件、所有配置写入口或性能无退化。
+首轮已运行但未通过，诊断修补后的实库重跑仍待执行。只有三个真实用例和精确清理均通过，才可报告对应RR边界达标；它们也不单独证明整个角色控件、所有配置写入口或性能无退化。
+
+
+## 观测权限与失败诊断
+
+首次真实执行3项均失败，不能标记RR通过：当前测试principal缺performance_schema.data_lock_waits列SELECT权限。第三项的失败观测又抛出1142，覆盖了更早的业务/断言错误；首项T2观测失败发生在撤权前，项目锁释放后T1接受未撤销的写权限不构成撤权漏洞证据。旧TRX/log/receipt保留，清理回执均完成。
+
+Probe.Open现在先检查data_lock_waits、data_locks和threads实际使用列的SELECT ... WHERE 1=0权限，全部通过后才返回观测器并允许创建业务夹具；不自动GRANT、不切账号、不skip、不重试业务，也不读取观测表行。权限不足以静态中文说明停止，原MySQL号仍作为安全故障元信息保留。临时列级观测授权和完成后的撤销由根按用户明确授权独立办理，本测试不执行授权语句。
+
+第三项先保存原失败类型/HResult/MySQL号，每次补充观测分别捕获并继续，最后重新抛原异常。排空时保存每个Faulted任务的静态故障数组，包含T2等辅助事务；不把预期拒权任务自动改为新的失败。原测试失败与清理失败仍聚合报告，receipt不写异常message、SQL正文、连接或凭据。新增离线回归只证明诊断与权限前置调度，不代表实库权限已具备或RR已通过。
