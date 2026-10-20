@@ -330,6 +330,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .AppendLine($"        await PrepareMutationAsync({Literal(suffix)}, RecordMutationOperation.Update, actor, cancellationToken);")
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .Append(PlatformColumnTypeCompatibilityCompilation.Capture(model, table, page))
                 .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in page.Writable)
             {
@@ -427,6 +428,8 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var column in page.Writable.Where(c => c.Source.IsDbNotNull == 1 || model.Catalog.ConfigPageColumns.Any(f => f.ConfigPageId == page.Source.Id && f.ConfigColumnId == c.Source.Id && (f.IsRequired == 1 || GenerationModel.Enabled(f.Extra, "isMust")))))
         {
             var condition = column.Type == "string?" ? $"string.IsNullOrWhiteSpace(entity.{column.Property})" : $"entity.{column.Property} is null";
+            var compatibility = updating ? PlatformColumnTypeCompatibilityCompilation.Exception(model, table, page, column) : "";
+            if (compatibility.Length != 0) condition = $"({condition}) && !({compatibility})";
             result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");
         }
         return result.ToString();

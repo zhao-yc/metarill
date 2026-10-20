@@ -94,21 +94,12 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         var references=await ValidateColumnReferencesAsync(row,project,token);
         var column=SqlRowStore.Text(row,"column_name");Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(column);
         if((await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId},{"column_name",column}},token)).Count!=1)throw new InvalidOperationException("同表字段名不能重复。");
-        var type=SqlRowStore.Text(row,"logical_type");
-        if(!context.SubmittedFields.ContainsKey("logical_type")||string.IsNullOrWhiteSpace(type))
-        {
-            var physical=SqlRowStore.Text(row,"column_type").ToLowerInvariant();
-            type=physical switch
-            {
-                "bigint" or "int64"=>"int64","int" or "integer" or "tinyint" or "smallint" or "int32"=>"int32",
-                "decimal" or "numeric" or "double" or "float"=>"decimal","date"=>"date","time"=>"time","datetime" or "timestamp"=>"datetime",
-                "bool" or "boolean"=>"bool","json"=>"json","blob" or "binary"=>"binary",_=>"string"
-            };
-        }
-        if(column=="id"||column.EndsWith("_id",StringComparison.Ordinal))type="int64";
-        if(column=="sort_no")type="int32";
-        if(type is not ("int64" or "int32" or "string" or "decimal" or "date" or "time" or "datetime" or "bool" or "json" or "binary"))throw new ArgumentException("字段逻辑类型无效。");
-        await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);
+        var originalType=SqlRowStore.Text(row,"logical_type");
+        var type=Metarill.Core.Metadata.MetadataColumnTypePolicy.Resolve(column,originalType,SqlRowStore.Text(row,"column_type"),context.IsCreate,
+            context.SubmittedFields.ContainsKey("logical_type"),context.SubmittedFields.ContainsKey("column_type"));
+        // 无关配置编辑不能从空物理类型重推逻辑类型，也不追加无效果的类型写入。
+        if(!string.Equals(type,originalType,StringComparison.Ordinal))
+            await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);
         await SynchronizeColumnValuesAsync(row,references,context.SubmittedFields.Keys.ToHashSet(StringComparer.Ordinal),token);
     }
 

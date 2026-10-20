@@ -95,6 +95,111 @@ public sealed class ConfigurationMaterializedValueTests
         var created=Assert.Single(f.Provider.Rows["config_page_column"]);Assert.Equal("source_column",created["config_column_column_name"]);Assert.Equal(10,Convert.ToInt32(created["config_column_sort_no"],CultureInfo.InvariantCulture));
     }
 
+    [Theory]
+    [InlineData("decimal")] [InlineData("int64")] [InlineData("time")] [InlineData("binary")] [InlineData("double")]
+    public async Task Unrelated_column_update_preserves_valid_logical_metadata_without_physical_type(string logical)
+    {
+        using var f=new Fixture();f.Get("config_column",20)["logical_type"]=logical;f.Get("config_column",20)["column_type"]="";
+        await f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_column",20,new Dictionary<string,object?>{{"control_detail","新控件配置"}});
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,new(){["control_detail"]="新控件配置"}));return true;
+        });
+        Assert.Equal(logical,f.Get("config_column",20)["logical_type"]);
+        Assert.DoesNotContain(f.Provider.Commands,sql=>sql.StartsWith("UPDATE `config_column` SET `logical_type`",StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("nvarchar","string")] [InlineData("varchar","string")] [InlineData("text","string")] [InlineData("longtext","string")]
+    [InlineData("bigint","int64")] [InlineData("int","int32")] [InlineData("decimal","decimal")] [InlineData("double","decimal")]
+    [InlineData("date","date")] [InlineData("time","time")] [InlineData("datetime","datetime")] [InlineData("bool","bool")]
+    [InlineData("json","json")] [InlineData("blob","binary")] [InlineData("binary","binary")]
+    public async Task Explicit_known_physical_edit_retains_existing_metadata_mapping(string physical,string expected)
+    {
+        using var f=new Fixture();
+        await f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_column",20,new Dictionary<string,object?>{{"column_type",physical}});
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,new(){["column_type"]=physical}));return true;
+        });
+        Assert.Equal(expected,f.Get("config_column",20)["logical_type"]);
+    }
+
+    [Theory]
+    [InlineData("logical-null")] [InlineData("logical-empty")] [InlineData("logical-invalid")] [InlineData("logical-name-conflict")] [InlineData("logical-id-int32")] [InlineData("logical-sort-conflict")]
+    [InlineData("physical-unknown")] [InlineData("physical-point")] [InlineData("physical-varbinary")] [InlineData("physical-null")] [InlineData("both-unknown")]
+    public async Task Invalid_explicit_types_and_identifier_conflicts_roll_back_the_whole_mutation(string scenario)
+    {
+        using var f=new Fixture();var before=f.Snapshot();var values=new Dictionary<string,object?>();
+        if(scenario.StartsWith("logical",StringComparison.Ordinal))values["logical_type"]=scenario switch{"logical-null"=>null,"logical-empty"=>"","logical-invalid"=>"point","logical-id-int32"=>"int32","logical-sort-conflict"=>"int64",_=>"string"};
+        if(scenario is "logical-name-conflict" or "logical-id-int32")values["column_name"]="account_id";
+        if(scenario=="logical-sort-conflict")values["column_name"]="sort_no";
+        if(scenario.StartsWith("physical",StringComparison.Ordinal)||scenario=="both-unknown")values["column_type"]=scenario switch{"physical-point"=>"point","physical-varbinary"=>"varbinary","physical-null"=>null,_=>"unknown"};
+        if(scenario=="both-unknown")values["logical_type"]="string";
+        await Assert.ThrowsAsync<ArgumentException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_column",20,values);
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,values));return true;
+        }));
+        Assert.Equal(before,f.Snapshot());Assert.Equal(1,f.Provider.Rollbacks);
+    }
+
+    [Fact]
+    public async Task Explicit_logical_type_has_priority_and_tail_failure_still_rolls_back()
+    {
+        using var f=new Fixture();
+        await f.Session.InTransactionAsync(async()=>
+        {
+            var values=new Dictionary<string,object?>{{"column_type","nvarchar"},{"logical_type","double"}};
+            await f.Store.UpdateAsync("config_column",20,values);await f.Observer.BeforeCommitAsync(f.Context("config_column",20,values));return true;
+        });
+        Assert.Equal("double",f.Get("config_column",20)["logical_type"]);var before=f.Snapshot();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Session.InTransactionAsync<bool>(async()=>
+        {
+            var values=new Dictionary<string,object?>{{"column_type","bigint"}};
+            await f.Store.UpdateAsync("config_column",20,values);await f.Observer.BeforeCommitAsync(f.Context("config_column",20,values));
+            throw new InvalidOperationException("模拟后续观察器失败");
+        }));Assert.Equal(before,f.Snapshot());
+        f.Get("config_column",20)["logical_type"]="invalid";
+        await Assert.ThrowsAsync<ArgumentException>(()=>f.Session.InTransactionAsync(async()=>{await f.Observer.BeforeCommitAsync(f.Context("config_column",20,new(){["control_detail"]="不修类型"}));return true;}));
+    }
+
+    [Fact]
+    public async Task Observer_creation_infers_only_missing_logical_metadata_and_rejects_explicit_empty_or_unknown_types()
+    {
+        using var f=new Fixture();f.Get("config_column",20)["logical_type"]=null;f.Get("config_column",20)["column_type"]="decimal";
+        await f.Session.InTransactionAsync(async()=>{await f.Observer.BeforeCommitAsync(f.Context("config_column",20,new(),true));return true;});
+        Assert.Equal("decimal",f.Get("config_column",20)["logical_type"]);
+        foreach(var logical in new string?[]{null,"","invalid"})
+        {
+            var before=f.Snapshot();
+            await Assert.ThrowsAsync<ArgumentException>(()=>f.Session.InTransactionAsync(async()=>
+            {
+                await f.Store.UpdateAsync("config_column",20,new Dictionary<string,object?>{{"logical_type",logical}});
+                await f.Observer.BeforeCommitAsync(f.Context("config_column",20,new(){["logical_type"]=logical},true));return true;
+            }));Assert.Equal(before,f.Snapshot());
+        }
+        var snapshot=f.Snapshot();
+        await Assert.ThrowsAsync<ArgumentException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_column",20,new Dictionary<string,object?>{{"logical_type",null},{"column_type","point"}});
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,new(),true));return true;
+        }));Assert.Equal(snapshot,f.Snapshot());
+    }
+
+    [Theory]
+    [InlineData("client_id","int","int64")] [InlineData("id","int","int64")] [InlineData("sort_no","nvarchar","int32")]
+    public async Task Legacy_creation_without_logical_field_keeps_original_identifier_and_sort_inference(string column,string physical,string expected)
+    {
+        using var f=new Fixture();
+        await f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_column",20,new Dictionary<string,object?>{{"column_name",column},{"column_type",physical},{"logical_type",null}});
+            // 原表单只提交物理类型；logical_type为空是基础设施原行状态，不把它伪装成显式类型请求。
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,new(){["column_name"]=column,["column_type"]=physical},true));return true;
+        });Assert.Equal(expected,f.Get("config_column",20)["logical_type"]);
+    }
+
     private static Dictionary<string,object?> Row(params(string Key,object? Value)[] fields)=>fields.ToDictionary(field=>field.Key,field=>field.Value,StringComparer.Ordinal);
     private sealed class Fixture:IDisposable
     {
