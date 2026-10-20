@@ -70,8 +70,8 @@ public sealed class ConfigurationActionsBusiness(SqlRowStore store, MetadataRegi
             var values=CopyValues(child,ids.NextId(),actor);values["parent_config_page_id"]=pageId;values["parent_config_page_name"]=name;
             await store.InsertAsync("config_child",values,cancellationToken);
         }
-        // 已复制字段先插入，再复用新页联动补缺失列；观察器不会重复已有字段。
-        await PageCreated(pageId,copy,actor,cancellationToken,mapping.Values.Select(Parse).ToHashSet());
+        // 只校验精确副本；源页未配置或已软删的字段不能因复制而重新出现。
+        await PageCreated(pageId,copy,actor,cancellationToken);
         return new("copyPage",pageId.ToString(CultureInfo.InvariantCulture),true,"已复制页面及其字段、按钮和出向子页关系；未复制角色授权。",mapping);
     },cancellationToken);
 
@@ -90,7 +90,7 @@ public sealed class ConfigurationActionsBusiness(SqlRowStore store, MetadataRegi
         values["type"]=0;values["export_method"]="";values["child_place"]="OneWithMany";values["mobile_list_page_style_type"]=2;values["cols"]=2;values["page_size"]=20;
         values["detail_layout"]="{\"version\":1,\"mode\":\"none\",\"groups\":[]}";
         await store.InsertAsync("config_page",values,cancellationToken);
-        await PageCreated(id,values,actor,cancellationToken);
+        await PageCreated(id,values,actor,cancellationToken,initializeFields:true);
         return new("createPage",id.ToString(CultureInfo.InvariantCulture),true,"已创建页面配置及字段，未修改数据库结构。");
     },cancellationToken);
 
@@ -201,20 +201,16 @@ public sealed class ConfigurationActionsBusiness(SqlRowStore store, MetadataRegi
         var raw=SqlRowStore.Text(page,"detail_layout");if(string.IsNullOrWhiteSpace(raw))return new(StringComparer.Ordinal);
         using var json=JsonDocument.Parse(raw);return MetadataWorkbenchRules.Layout(json.RootElement).Groups.Select(group=>group.Key).ToHashSet(StringComparer.Ordinal);
     }
-    /// <summary>新页复用配置Service观察器，同一事务补齐当前页字段且跳过已有引用。</summary>
-    private async Task PageCreated(long id,Dictionary<string,object?> values,RuntimeActor actor,CancellationToken cancellationToken,HashSet<long>? preservedFields=null)
+    /// <summary>所有新页先复用对象校验；只有显式从表建页初始化全字段，复制页保持精确副本。</summary>
+    private async Task PageCreated(long id,Dictionary<string,object?> values,RuntimeActor actor,CancellationToken cancellationToken,bool initializeFields=false)
     {
         await observer.BeforeCommitAsync(new RecordMutationContext("6191175925956608","config_page",id,actor.ProjectId,values,false,store.Session.CurrentTransaction!,true),cancellationToken);
-        var columns=(await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",values["config_table_id"]}},cancellationToken)).ToDictionary(row=>SqlRowStore.Id(row));
-        foreach(var field in await store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",id}},cancellationToken))
+        if(!initializeFields)return;
+        var created=await observer.InitializePageFieldsAsync(id,Parse(actor.ProjectId),cancellationToken);
+        foreach(var fieldId in created)
         {
-            if(preservedFields?.Contains(SqlRowStore.Id(field))==true)continue;
-            var column=columns[SqlRowStore.Id(field,"config_column_id")];var defaults=NewValues(SqlRowStore.Id(field),actor);
-            foreach(var flag in new[]{"is_important","is_in_filter","is_auto_focus","sum_kind","is_must","is_print","is_auto_save_after_change"})defaults[flag]=0;
-            defaults["default_value"]="";
-            if(SqlRowStore.Text(column,"column_name")=="sort_no"){defaults["default_value"]="99";defaults["is_must"]=1;}
-            if(SqlRowStore.Id(column,"is_join_column")==1)defaults["is_read_only"]=1;
-            await store.UpdateAsync("config_page_column",SqlRowStore.Id(field),defaults,cancellationToken);
+            // 只补本次初始化的新字段审计；默认值已经由同一工厂确定，既有复制配置不触碰。
+            if(await store.UpdateAsync("config_page_column",fieldId,NewValues(fieldId,actor),cancellationToken)!=1)throw new InvalidOperationException("页面字段初始化审计写入失败。");
         }
     }
     /// <summary>仅使用发布物理字段定义补默认值，不接受动态客户端列名。</summary>

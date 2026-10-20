@@ -54,12 +54,15 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
             if(context.IsCreate||context.SubmittedFields.ContainsKey("table_name"))
                 await SynchronizeTableNameAsync(table,pages,project,cancellationToken);
+            long? initializedPage=null;
             if(context.IsCreate&&pages.Count==0)
             {
                 var pageId=ids.NextId();var admin=table.GetValueOrDefault("yz_admin_type_id")??(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"yz_project_id",project}},cancellationToken)).FirstOrDefault()?.GetValueOrDefault("id")??throw new InvalidOperationException("请先为当前项目配置后台类型。");
                 await store.InsertAsync("config_page",new Dictionary<string,object?>{{"id",pageId},{"config_table_id",context.RecordId},{"config_table_table_name",SqlRowStore.Text(table,"table_name")},{"name",SqlRowStore.Text(table,"name")},{"yz_project_id",project},{"yz_admin_type_id",admin},{"page_size",20},{"is_new",1},{"is_save",1},{"is_update",1},{"is_delete",1},{"is_search",1},{"is_edit",1},{"where_sql","yz_project_id=@current_yz_project_id"}},cancellationToken);
+                initializedPage=pageId;
             }
-            await ValidateAndCreatePageFields(context.RecordId,project,context.IsCreate,cancellationToken);
+            await ValidateAndCreatePageFields(context.RecordId,project,false,cancellationToken);
+            if(initializedPage is{} defaultPage)await InitializePageFieldsAsync(defaultPage,project,cancellationToken);
         }
         if(context.TableName=="config_column")
         {
@@ -69,7 +72,8 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         if(context.TableName=="config_page")
         {
             var page=(await store.ReadAsync("config_page",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
-            await ValidateAndCreatePageFields(SqlRowStore.Id(page,"config_table_id"),project,context.IsCreate,cancellationToken,pageId:context.RecordId);
+            // 普通新增页与复制页仅校验；从表初始化必须由明确的内部入口单独调用，不能复活源页遗漏字段。
+            await ValidateAndCreatePageFields(SqlRowStore.Id(page,"config_table_id"),project,false,cancellationToken,pageId:context.RecordId);
         }
     }
     /// <summary>对象规则在生成写入的同一事务里校验；失败回滚刚写入的记录。</summary>
@@ -215,11 +219,22 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             await DeleteRows("config_index","config_table_id",context.RecordId);
         }
     }
-    /// <summary>保留原归属/引用校验；只有创建可补映射，新列仅自身、新页仅本页，Update不修历史洞。</summary>
-    private async Task ValidateAndCreatePageFields(long tableId,long project,bool createMissing,CancellationToken cancellationToken,long? pageId=null,long? newColumnId=null)
+    /// <summary>只供新表默认页与显式从表建页初始化；调用者必须已经在同一项目事务内创建目标页。</summary>
+    internal async Task<IReadOnlyList<long>> InitializePageFieldsAsync(long pageId,long project,CancellationToken cancellationToken=default)
     {
-        var pages=await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
-        var columns=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
+        if(store.Session.CurrentTransaction is null)throw new InvalidOperationException("页面字段初始化必须加入创建事务。");
+        await LockProjectAsync(project,cancellationToken);
+        var page=await OwnedRowAsync("config_page",pageId,project,cancellationToken);
+        var table=await OwnedRowAsync("config_table",SqlRowStore.Id(page,"config_table_id"),project,cancellationToken);
+        return await ValidateAndCreatePageFields(SqlRowStore.Id(table),project,true,cancellationToken,pageId:pageId);
+    }
+    /// <summary>保留归属校验；新列仅创建自己的映射，普通页与Update不补历史洞；显式初始化固定show=true。</summary>
+    private async Task<IReadOnlyList<long>> ValidateAndCreatePageFields(long tableId,long project,bool createMissing,CancellationToken cancellationToken,long? pageId=null,long? newColumnId=null)
+    {
+        // 页数必须是项目锁后的活动集合，不能沿用RR旧快照来决定第3页之后的显示默认值。
+        var pages=await store.ReadForUpdateAsync("config_page",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
+        var columns=await store.ReadForUpdateAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId}},cancellationToken);
+        var created=new List<long>();
         foreach(var column in columns)RequireProject(column,project);
         var columnIds=columns.Select(column=>SqlRowStore.Id(column)).ToHashSet();
         if(newColumnId is{} createdId&&(!createMissing||!columnIds.Contains(createdId)))throw new InvalidOperationException("新增页面字段缺少本次活动源列。");
@@ -227,7 +242,7 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         foreach(var page in pages.Where(p=>pageId is null||SqlRowStore.Id(p)==pageId))
         {
             RequireProject(page,project);
-            var existing=await store.ReadAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",SqlRowStore.Id(page)}},cancellationToken);
+            var existing=await store.ReadForUpdateAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",SqlRowStore.Id(page)}},cancellationToken);
             foreach(var field in existing)
             {
                 RequireProject(field,project);
@@ -238,11 +253,11 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             foreach(var column in columnsToCreate)
             {
                 if(existing.Any(f=>SqlRowStore.Text(f,"config_column_id")==SqlRowStore.Text(column,"id")))continue;
-                var name=SqlRowStore.Text(column,"column_name");var writable=name is not ("id" or "yz_project_id" or "delete_no")&&!name.StartsWith("insert_")&&!name.StartsWith("update_");
-                var values=new Dictionary<string,object?>{{"id",ids.NextId()},{"config_page_id",SqlRowStore.Id(page)},{"config_column_id",SqlRowStore.Id(column)},{"column_name",name},{"name",SqlRowStore.Text(column,"name")},{"yz_project_id",project},{"sort_no",column.GetValueOrDefault("sort_no")??0},{"is_edit",writable?1:0},{"is_show",1},{"is_in_edit",writable?1:0},{"is_in_grid",1},{"is_read_only",writable?0:1}};
-                ConfigurationMaterializedValues.PageColumn(values,column);
+                var fieldId=ids.NextId();var values=ConfigurationPageFieldDefaults.BuildPageField(fieldId,page,column,project,newColumnId is null||pages.Count<=2);
                 await store.InsertAsync("config_page_column",values,cancellationToken);
+                created.Add(fieldId);
             }
         }
+        return created;
     }
 }

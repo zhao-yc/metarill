@@ -247,10 +247,10 @@ public sealed class ConfigurationMaterializedValueTests
         Assert.DoesNotContain(f.Provider.Rows["config_page_column"],row=>Convert.ToInt64(row["config_column_id"],CultureInfo.InvariantCulture)==21&&row.GetValueOrDefault("delete_no") is null);
     }
 
-    /// <summary>保留本片明确授权的C#创建正例；新页面仅初始化自己，不修其它既有页面。</summary>
+    /// <summary>新表显式初始化自己的默认页；普通新增页不补字段，不修其它既有页面。</summary>
     [Theory]
     [InlineData("config_table")] [InlineData("config_page")]
-    public async Task CreationOnly_table_and_page_create_keep_current_default_graph(string table)
+    public async Task CreationOnly_table_initializes_default_page_but_ordinary_page_does_not_add_fields(string table)
     {
         using var f=new Fixture();f.Get("config_page_column",40)["delete_no"]=DateTime.UtcNow;var oldField=JsonSerializer.Serialize(f.Get("config_page_column",40));
         var id=table=="config_table"?11L:31L;var values=CreationValues(table,id);
@@ -264,8 +264,7 @@ public sealed class ConfigurationMaterializedValueTests
         }
         else
         {
-            var field=Assert.Single(f.Provider.Rows["config_page_column"],row=>Convert.ToInt64(row["config_page_id"],CultureInfo.InvariantCulture)==31);
-            Assert.Equal(20L,Convert.ToInt64(field["config_column_id"],CultureInfo.InvariantCulture));Assert.Equal("source_column",field["config_column_column_name"]);
+            Assert.DoesNotContain(f.Provider.Rows["config_page_column"],row=>Convert.ToInt64(row["config_page_id"],CultureInfo.InvariantCulture)==31);
         }
         Assert.Equal(oldField,JsonSerializer.Serialize(f.Get("config_page_column",40)));Assert.Single(f.Provider.Rows["config_page_column"],row=>Convert.ToInt64(row["config_page_id"],CultureInfo.InvariantCulture)==30);
     }
@@ -290,6 +289,97 @@ public sealed class ConfigurationMaterializedValueTests
         "config_column"=>Row(("id",id),("yz_project_id",1L),("config_table_id",10L),("column_name","fresh_column"),("name","新列"),("logical_type","string"),("column_type","nvarchar")),
         _=>throw new NotSupportedException("未登记测试类型。")
     };
+
+    /// <summary>原新增列按全部活动页数决定显示，不是只给头两页；软删页不参与数量，旧列洞不补。</summary>
+    [Theory]
+    [InlineData(0,"plain")][InlineData(1,"plain")][InlineData(2,"plain")][InlineData(3,"plain")]
+    [InlineData(0,"sort")][InlineData(1,"sort")][InlineData(2,"sort")][InlineData(3,"sort")]
+    [InlineData(0,"join")][InlineData(1,"join")][InlineData(2,"join")][InlineData(3,"join")]
+    public async Task OriginalCreation_column_defaults_follow_active_page_count_and_fixed_source_rules(int count,string kind)
+    {
+        using var f=new Fixture();f.Provider.Rows["config_page"].Clear();f.Provider.Rows["config_page_column"].Clear();
+        for(var index=0;index<count;index++)f.Add("config_page",CreationValues("config_page",30+index));
+        var deleted=CreationValues("config_page",39);deleted["delete_no"]=DateTime.UtcNow;f.Add("config_page",deleted);
+        var values=CreationValues("config_column",21);values["column_name"]=kind=="sort"?"sort_no":"new_column";values["logical_type"]=kind=="sort"?"int32":"string";values["column_type"]=kind=="sort"?"int":"nvarchar";
+        values["sort_no"]=null;values["is_join_column"]=kind=="join"?1:0;values["default_value"]="源默认不继承";values["is_db_not_null"]=1;values["is_must"]=1;values["is_read_only"]=1;
+        await f.Session.InTransactionAsync(async()=>{await f.Store.InsertAsync("config_column",values);await f.Observer.BeforeCommitAsync(f.Context("config_column",21,values,true));return true;});
+        var fields=f.Provider.Rows["config_page_column"];Assert.Equal(count,fields.Count);
+        Assert.All(fields,field=>{Assert.Equal(21L,SqlRowStore.Id(field,"config_column_id"));Assert.NotEqual(39L,SqlRowStore.Id(field,"config_page_id"));AssertOriginalFieldDefaults(field,count<=2,kind=="join",kind=="sort");Assert.Null(field["config_column_sort_no"]);});
+        Assert.DoesNotContain(fields,field=>SqlRowStore.Id(field,"config_column_id")==20);
+        Assert.Contains(f.Provider.Commands,sql=>sql.Contains("FROM `config_page`",StringComparison.Ordinal)&&sql.EndsWith(" FOR UPDATE",StringComparison.Ordinal));
+    }
+
+    /// <summary>页面配置沿用原show值；主键、审计等名称不会自行改成只读，生成系统字段写保护仍由既有生成器承担。</summary>
+    [Theory]
+    [InlineData("id")][InlineData("yz_project_id")][InlineData("delete_no")][InlineData("insert_time")][InlineData("update_manager_id")]
+    public void OriginalCreation_does_not_invent_readonly_from_system_column_names(string name)
+    {
+        var field=ConfigurationPageFieldDefaults.BuildPageField(40,Row(("id",30L)),Row(("id",20L),("column_name",name),("name","源字段"),("sort_no",null)),1,true);
+        AssertOriginalFieldDefaults(field,true,false,false);Assert.Null(field["config_column_sort_no"]);
+    }
+
+    /// <summary>显式从表建页即使已有三页仍显示全部列；普通列、排序、联接与系统列共用同一固定默认工厂。</summary>
+    [Fact]
+    public async Task OriginalCreation_explicit_from_table_initializes_all_fields_independently_of_page_count()
+    {
+        using var f=new Fixture();AddCreationColumns(f);
+        f.Add("config_page",CreationValues("config_page",31));f.Add("config_page",CreationValues("config_page",32));var before=JsonSerializer.Serialize(f.Provider.Rows["config_page_column"]);
+        var result=await Actions(f).CreatePageAsync("10");var pageId=long.Parse(result.PageId,CultureInfo.InvariantCulture);
+        var fields=f.Provider.Rows["config_page_column"].Where(field=>SqlRowStore.Id(field,"config_page_id")==pageId).ToArray();Assert.Equal(5,fields.Length);
+        Assert.All(fields,field=>{var column=f.Get("config_column",SqlRowStore.Id(field,"config_column_id"));AssertOriginalFieldDefaults(field,true,SqlRowStore.Id(column,"is_join_column")==1,SqlRowStore.Text(column,"column_name")=="sort_no");Assert.Equal(8L,SqlRowStore.Id(field,"insert_manager_id"));});
+        Assert.Null(fields.Single(field=>SqlRowStore.Id(field,"config_column_id")==21)["config_column_sort_no"]);
+        Assert.Equal(before,JsonSerializer.Serialize(f.Provider.Rows["config_page_column"].Where(field=>SqlRowStore.Id(field,"config_page_id")==30)));
+        Assert.Equal("yz_project_id=@current_yz_project_id",f.Get("config_page",pageId)["where_sql"]);
+    }
+
+    /// <summary>复制只认活动源映射，既没有配置的列和软删字段都不能在新页复活；原覆盖配置保留。</summary>
+    [Theory]
+    [InlineData(false)][InlineData(true)]
+    public async Task OriginalCreation_copy_is_an_exact_active_field_copy_without_filling_holes(bool keepActive)
+    {
+        using var f=new Fixture();AddCreationColumns(f);var source=f.Get("config_page_column",40);source["is_in_grid"]=0;source["is_in_edit"]=0;source["is_read_only"]=1;source["is_must"]=1;source["default_value"]="原页覆盖";
+        if(!keepActive)source["delete_no"]=DateTime.UtcNow;
+        f.Add("config_page_column",Row(("id",41L),("yz_project_id",1L),("config_page_id",30L),("config_column_id",21L),("delete_no",DateTime.UtcNow),("default_value","软删不复活")));
+        var original=JsonSerializer.Serialize(f.Provider.Rows["config_page_column"]);var columns=JsonSerializer.Serialize(f.Provider.Rows["config_column"]);var page=JsonSerializer.Serialize(f.Get("config_page",30));
+        var result=await Actions(f).CopyPageAsync("30");var pageId=long.Parse(result.PageId,CultureInfo.InvariantCulture);var fields=f.Provider.Rows["config_page_column"].Where(field=>SqlRowStore.Id(field,"config_page_id")==pageId).ToArray();
+        Assert.Equal(keepActive?1:0,fields.Length);Assert.Equal(keepActive?1:0,result.FieldIds!.Count);
+        if(keepActive){var copy=Assert.Single(fields);foreach(var name in new[]{"is_in_grid","is_in_edit","is_read_only","is_must","default_value"})Assert.Equal(source[name],copy[name]);Assert.Equal("source_column",copy["config_column_column_name"]);}
+        Assert.Equal(original,JsonSerializer.Serialize(f.Provider.Rows["config_page_column"].Where(field=>SqlRowStore.Id(field,"config_page_id")==30)));Assert.Equal(columns,JsonSerializer.Serialize(f.Provider.Rows["config_column"]));Assert.Equal(page,JsonSerializer.Serialize(f.Get("config_page",30)));
+    }
+
+    /// <summary>显式初始化及复制都加入调用事务，尾部失败回滚页、字段和审计，而不是单独提交默认映射。</summary>
+    [Theory]
+    [InlineData(false)][InlineData(true)]
+    public async Task OriginalCreation_explicit_initialization_and_copy_roll_back_on_tail_failure(bool copy)
+    {
+        using var f=new Fixture();AddCreationColumns(f);var before=f.Snapshot();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Session.InTransactionAsync<bool>(async()=>
+        {if(copy)await Actions(f).CopyPageAsync("30");else await Actions(f).CreatePageAsync("10");throw new InvalidOperationException("模拟创建尾部失败");}));
+        Assert.Equal(before,f.Snapshot());Assert.Equal(1,f.Provider.Rollbacks);
+    }
+
+    /// <summary>内部初始化没有独立事务或跨项目旁路，不能被当作普通历史库补齐接口。</summary>
+    [Fact]
+    public async Task OriginalCreation_initializer_requires_the_existing_transaction_and_real_project()
+    {
+        using var f=new Fixture();var before=f.Snapshot();await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Observer.InitializePageFieldsAsync(30,1));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Session.InTransactionAsync(async()=>{await f.Observer.InitializePageFieldsAsync(30,2);return true;}));Assert.Equal(before,f.Snapshot());
+    }
+
+    /// <summary>额外列仅是本机离线传输中的元数据输入，不预制任何页面字段结果。</summary>
+    private static void AddCreationColumns(Fixture f)
+    {
+        foreach(var(id,name,type)in new[]{(21L,"sort_no","int32"),(22L,"joined_name","string"),(23L,"id","int64"),(24L,"insert_time","datetime")})
+        {var values=CreationValues("config_column",id);values["column_name"]=name;values["sort_no"]=null;values["logical_type"]=type;values["is_join_column"]=id==22?1:0;f.Add("config_column",values);}
+    }
+    private static ConfigurationActionsBusiness Actions(Fixture f)=>new(f.Store,f.Registry,new MetadataRepository(f.Store,f.Registry),f.Authorization,f.Ids,f.Observer);
+    /// <summary>断言原字段覆盖值，不用渲染后真假转换掩盖原始null与0的区别。</summary>
+    private static void AssertOriginalFieldDefaults(IReadOnlyDictionary<string,object?> field,bool show,bool join,bool sort)
+    {
+        Flag("is_in_grid",show?1:0);Flag("is_in_edit",show?1:0);Flag("is_read_only",join?1:0);Flag("is_must",sort?1:0);Assert.Equal(sort?"99":"",field["default_value"]);
+        foreach(var key in new[]{"is_important","is_in_filter","is_auto_focus","sum_kind","is_print","is_auto_save_after_change"})Flag(key,0);
+        void Flag(string key,int expected){Assert.True(field.TryGetValue(key,out var value));Assert.NotNull(value);Assert.Equal(expected,Convert.ToInt32(value,CultureInfo.InvariantCulture));}
+    }
 
     private static Dictionary<string,object?> Row(params(string Key,object? Value)[] fields)=>fields.ToDictionary(field=>field.Key,field=>field.Value,StringComparer.Ordinal);
     private sealed class Fixture:IDisposable
