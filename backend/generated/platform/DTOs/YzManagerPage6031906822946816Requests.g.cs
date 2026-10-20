@@ -11,6 +11,8 @@ public sealed class YzManagerPage6031906822946816CreateRequest
     public Optional<string?> Name { get; set; }
     [JsonPropertyName("yzRoleIds")]
     public Optional<JsonElement?> YzRoleIds { get; set; }
+    [JsonPropertyName("password")]
+    public Optional<string?> Password { get; set; }
     [JsonPropertyName("realName")]
     public Optional<string?> RealName { get; set; }
     [JsonPropertyName("mobile")]
@@ -58,6 +60,8 @@ public sealed class YzManagerPage6031906822946816UpdateRequest
     public Optional<string?> Name { get; set; }
     [JsonPropertyName("yzRoleIds")]
     public Optional<JsonElement?> YzRoleIds { get; set; }
+    [JsonPropertyName("password")]
+    public Optional<string?> Password { get; set; }
     [JsonPropertyName("realName")]
     public Optional<string?> RealName { get; set; }
     [JsonPropertyName("mobile")]

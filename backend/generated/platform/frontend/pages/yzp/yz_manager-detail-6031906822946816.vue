@@ -10,6 +10,9 @@
 <uni-forms-item label='角色' name='yzRoleIds'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <text v-if='yzRoleIdsReadOnly'>{{readonlyDisplayText(entity.yzRoleNames)}}</text><template v-if='!yzRoleIdsReadOnly'><view><uni-data-checkbox multiple v-model='yzRoleIdsSelectAll' :disabled='yzRoleIdsReadOnly' :localdata='$multiCheckboxRange' @change='yzRoleIdsSelectAllChange' /></view><uni-data-checkbox multiple v-model='entity.yzRoleIds' :disabled='yzRoleIdsReadOnly' :localdata='yzRoleIdsList' @change='yzRoleIdsChange' /></template><uni-easyinput style='display: none;' v-model='entity.yzRoleIds' maxlength='500' />
 </uni-forms-item>
+<uni-forms-item label='密码' name='password' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!passwordReadOnly' v-model='entity.password' maxlength='50'   /><text v-if='passwordReadOnly'>{{entity.password}}</text>
+</uni-forms-item>
 <uni-forms-item label='真实姓名' name='realName'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!realNameReadOnly' v-model='entity.realName' maxlength='50'   /><text v-if='realNameReadOnly'>{{entity.realName}}</text>
 </uni-forms-item>
@@ -33,6 +36,12 @@
 </uni-forms-item>
 <uni-forms-item label='启用' name='isDisabled'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <text v-if='isDisabledReadOnly'>{{(($checkboxRange || [])[entity.isDisabled==null?0:entity.isDisabled] || {}).text || ''}}</text><template v-if='!isDisabledReadOnly'><uni-data-checkbox :disabled='isDisabledReadOnly' v-model='entity.isDisabled' :localdata='$checkboxRange' /></template>
+</uni-forms-item>
+<uni-forms-item label='密钥' name='salt'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!saltReadOnly' v-model='entity.salt' maxlength='50'   /><text v-if='saltReadOnly'>{{entity.salt}}</text>
+</uni-forms-item>
+<uni-forms-item label='旧密码' name='oldPassword'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
+<uni-easyinput primaryColor="#0ab3ad" v-if='!oldPasswordReadOnly' v-model='entity.oldPassword' maxlength='50'   /><text v-if='oldPasswordReadOnly'>{{entity.oldPassword}}</text>
 </uni-forms-item>
 <uni-forms-item label='备注' name='notes'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!notesReadOnly' v-model='entity.notes' maxlength='50'   /><text v-if='notesReadOnly'>{{entity.notes}}</text>
@@ -109,13 +118,13 @@ export default {
       
       
       entity: {
-        name:"",yzRoleIds:[],realName:"",mobile:"",lockIp:"",lastLoginTime:"",loginIp:"",email:"",phone:"",isDisabled:1,notes:"",isEditPwd:1,editPwdTime:"",openid:"",avatar:"",dingUserid:"",dingUnionid:"",loginRiseTime:"",loginStopTime:"",validityTime:"",insertTime:"",yzAdminTypeId:"",yzProjectId:"",
+        name:"",yzRoleIds:[],password:"",realName:"",mobile:"",lockIp:"",lastLoginTime:"",loginIp:"",email:"",phone:"",isDisabled:1,salt:"",oldPassword:"",notes:"",isEditPwd:1,editPwdTime:"",openid:"",avatar:"",dingUserid:"",dingUnionid:"",loginRiseTime:"",loginStopTime:"",validityTime:"",insertTime:"",yzAdminTypeId:"",yzProjectId:"",
       },
       entity_column_readonly: {
-        name:false,yzRoleIds:false,realName:false,mobile:false,lockIp:false,lastLoginTime:false,loginIp:false,email:false,phone:false,isDisabled:false,notes:false,isEditPwd:false,editPwdTime:false,openid:false,avatar:false,dingUserid:false,dingUnionid:false,loginRiseTime:false,loginStopTime:false,validityTime:false,insertTime:true,yzAdminTypeId:false,yzProjectId:true,
+        name:false,yzRoleIds:false,password:false,realName:false,mobile:false,lockIp:false,lastLoginTime:false,loginIp:false,email:false,phone:false,isDisabled:false,salt:false,oldPassword:false,notes:false,isEditPwd:false,editPwdTime:false,openid:false,avatar:false,dingUserid:false,dingUnionid:false,loginRiseTime:false,loginStopTime:false,validityTime:false,insertTime:true,yzAdminTypeId:false,yzProjectId:true,
       },
       entity_rules: {
-        name:{rules:[{"required":true,"errorMessage":"\u7528\u6237\u540D\u4E3A\u5FC5\u586B\u9879"},{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},yzRoleIds:{rules:[{"maxLength":500,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},realName:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},mobile:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},lockIp:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},lastLoginTime:{rules:[]},loginIp:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},email:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},phone:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isDisabled:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},notes:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isEditPwd:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},editPwdTime:{rules:[]},openid:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},avatar:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},dingUserid:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},dingUnionid:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},loginRiseTime:{rules:[]},loginStopTime:{rules:[]},validityTime:{rules:[]},insertTime:{rules:[]},yzAdminTypeId:{rules:[{"required":true,"errorMessage":"\u540E\u53F0\u7C7B\u578B\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},yzProjectId:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},
+        name:{rules:[{"required":true,"errorMessage":"\u7528\u6237\u540D\u4E3A\u5FC5\u586B\u9879"},{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},yzRoleIds:{rules:[{"maxLength":500,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},password:{rules:[{"required":true,"errorMessage":"\u5BC6\u7801\u4E3A\u5FC5\u586B\u9879"},{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},realName:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},mobile:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},lockIp:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},lastLoginTime:{rules:[]},loginIp:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},email:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},phone:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isDisabled:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},salt:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},oldPassword:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},notes:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},isEditPwd:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},editPwdTime:{rules:[]},openid:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},avatar:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},dingUserid:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},dingUnionid:{rules:[{"maxLength":50,"errorMessage":"\u957F\u5EA6\u9700\u5728{maxLength}\u4E2A\u5B57\u7B26\u4EE5\u5185"}]},loginRiseTime:{rules:[]},loginStopTime:{rules:[]},validityTime:{rules:[]},insertTime:{rules:[]},yzAdminTypeId:{rules:[{"required":true,"errorMessage":"\u540E\u53F0\u7C7B\u578B\u4E3A\u5FC5\u586B\u9879"},{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},yzProjectId:{rules:[{"pattern":"^-?\\d\u002B$","errorMessage":"\u53EA\u80FD\u8F93\u5165\u6574\u6570"}]},
       }
     }
   },
@@ -127,6 +136,7 @@ export default {
   computed: {
     nameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.name; },
 yzRoleIdsReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.yzRoleIds; },
+passwordReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.password; },
 realNameReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.realName; },
 mobileReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.mobile; },
 lockIpReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.lockIp; },
@@ -135,6 +145,8 @@ loginIpReadOnly() { return this.readOnlyCondition || this.entity_column_readonly
 emailReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.email; },
 phoneReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.phone; },
 isDisabledReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isDisabled; },
+saltReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.salt; },
+oldPasswordReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.oldPassword; },
 notesReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.notes; },
 isEditPwdReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.isEditPwd; },
 editPwdTimeReadOnly() { return this.readOnlyCondition || this.entity_column_readonly.editPwdTime; },
@@ -266,7 +278,7 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
     },
     /** 页面/弹层进入使用同一实例边界，旧回调不能写到下一条记录。 */
 beginOriginalDetail(options) {
- this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={name:"",yzRoleIds:[],realName:"",mobile:"",lockIp:"",lastLoginTime:"",loginIp:"",email:"",phone:"",isDisabled:1,notes:"",isEditPwd:1,editPwdTime:"",openid:"",avatar:"",dingUserid:"",dingUnionid:"",loginRiseTime:"",loginStopTime:"",validityTime:"",insertTime:"",yzAdminTypeId:"",yzProjectId:"",};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
+ this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={name:"",yzRoleIds:[],password:"",realName:"",mobile:"",lockIp:"",lastLoginTime:"",loginIp:"",email:"",phone:"",isDisabled:1,salt:"",oldPassword:"",notes:"",isEditPwd:1,editPwdTime:"",openid:"",avatar:"",dingUserid:"",dingUnionid:"",loginRiseTime:"",loginStopTime:"",validityTime:"",insertTime:"",yzAdminTypeId:"",yzProjectId:"",};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
 },
 /** 卸载只取消本详情的任务与订阅，不触发保存或父表刷新。 */
 disposeOriginalDetail() {this._alive=false;this._detailEpoch=(this._detailEpoch||0)+1;(this._detailTasks||[]).forEach(task=>task?.abort?.());this._detailTasks=[];this.disposeMultiSelections?.();},
@@ -287,7 +299,7 @@ originalRequest(options) {
 /** 保留原300ms候选/控件准备时序，只有实际VO标识一致才开放子表。 */
 markOriginalRecordReady() {this.recordReady=Boolean(this.id&&originalRecordId(this.entity.id)===this.id);const current=this.originalContext();setTimeout(()=>{if(current())this.loadEntitySuccess=true;},300);},
 /** 已验证多选桥接使用原实体；changes仅用于内部选择状态，不替换整entity请求。 */
-change(field,value) {if(this.readOnlyCondition||!["name","yzRoleIds","realName","mobile","lockIp","lastLoginTime","loginIp","email","phone","isDisabled","notes","isEditPwd","editPwdTime","openid","avatar","dingUserid","dingUnionid","loginRiseTime","loginStopTime","validityTime","yzAdminTypeId"].includes(field))return;this.entity[field]=value;this.changes[field]=value;},
+change(field,value) {if(this.readOnlyCondition||!["name","yzRoleIds","password","realName","mobile","lockIp","lastLoginTime","loginIp","email","phone","isDisabled","salt","oldPassword","notes","isEditPwd","editPwdTime","openid","avatar","dingUserid","dingUnionid","loginRiseTime","loginStopTime","validityTime","yzAdminTypeId"].includes(field))return;this.entity[field]=value;this.changes[field]=value;},
 /** 原权限刷新始终完成回调；子页复用快照仍由readOnlyCondition核对自身操作。 */
 refreshCurrentPermissions(done) {const epoch=this._detailEpoch,identity=this.currentIdentity();const finish=()=>{if(this._alive&&epoch===this._detailEpoch&&identity===this.currentIdentity()){this.permissionVersion++;done?.();}};yzp.refreshCurrentPermissions(finish,finish);},
 /** 复制沿用POST和原onChange/关闭行为，确认窗口的迟到回调不会写其他记录。 */

@@ -119,15 +119,15 @@ public partial class YzManagerService
         var query = Query6031906822946816(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6031906822946816(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
-        return new(await ProjectRoleNames6031906822946816Async(entities, actor, cancellationToken), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzManager { Name = entity.Name, YzRoleIds = entity.YzRoleIds, RealName = entity.RealName, Mobile = entity.Mobile, LockIp = entity.LockIp, LastLoginTime = entity.LastLoginTime, LoginIp = entity.LoginIp, Email = entity.Email, Phone = entity.Phone, IsDisabled = entity.IsDisabled, Notes = entity.Notes, IsEditPwd = entity.IsEditPwd, EditPwdTime = entity.EditPwdTime, Openid = entity.Openid, Avatar = entity.Avatar, DingUserid = entity.DingUserid, DingUnionid = entity.DingUnionid, LoginRiseTime = entity.LoginRiseTime, LoginStopTime = entity.LoginStopTime, ValidityTime = entity.ValidityTime, InsertTime = entity.InsertTime, YzAdminTypeId = entity.YzAdminTypeId, Id = entity.Id, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, DeleteNo = entity.DeleteNo, YzProjectId = entity.YzProjectId }, cancellationToken);
+        return new(await ProjectRoleNames6031906822946816Async(entities, actor, cancellationToken,false), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count6031906822946816Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query6031906822946816(request, actor).CountAsync(cancellationToken);
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzManagerPage6031906822946816Vo?> Detail6031906822946816Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzManager { Name = entity.Name, YzRoleIds = entity.YzRoleIds, RealName = entity.RealName, Mobile = entity.Mobile, LockIp = entity.LockIp, LastLoginTime = entity.LastLoginTime, LoginIp = entity.LoginIp, Email = entity.Email, Phone = entity.Phone, IsDisabled = entity.IsDisabled, Notes = entity.Notes, IsEditPwd = entity.IsEditPwd, EditPwdTime = entity.EditPwdTime, Openid = entity.Openid, Avatar = entity.Avatar, DingUserid = entity.DingUserid, DingUnionid = entity.DingUnionid, LoginRiseTime = entity.LoginRiseTime, LoginStopTime = entity.LoginStopTime, ValidityTime = entity.ValidityTime, InsertTime = entity.InsertTime, YzAdminTypeId = entity.YzAdminTypeId, Id = entity.Id, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, DeleteNo = entity.DeleteNo, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : (await ProjectRoleNames6031906822946816Async([entity], actor, cancellationToken))[0];
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
@@ -201,14 +201,14 @@ public partial class YzManagerService
         return rows.Select(row => { var id = row.Id.ToString(CultureInfo.InvariantCulture); return new RoleCheckboxOption(id,row.Name,id,row.Name); }).ToArray();
     }
     /// <summary>批量读取仅投影角色ID与名称；原数组顺序及缺名位置不随数据库排序变化。</summary>
-    private async Task<YzManagerPage6031906822946816Vo[]> ProjectRoleNames6031906822946816Async(IReadOnlyList<YzManager> entities, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task<YzManagerPage6031906822946816Vo[]> ProjectRoleNames6031906822946816Async(IReadOnlyList<YzManager> entities, RuntimeActor actor, CancellationToken cancellationToken,bool includeCredentials=true)
     {
         _ = RoleOptionsScope6031906822946816(actor);
         var selected = RoleCheckboxValue.ProjectionIds(entities.Select(entity => entity.YzRoleIds));
         var names = new Dictionary<long,string?>();
         foreach (var chunk in selected.Chunk(RoleCheckboxValue.ProjectionBatchSize))
             foreach (var row in await RoleOptionsScope6031906822946816(actor).Where(role => chunk.Contains(role.Id)).ToListAsync(role => new { role.Id, role.Name }, cancellationToken)) names[row.Id] = row.Name;
-        return entities.Select(entity => YzManagerPage6031906822946816Vo.FromEntity(entity,RoleCheckboxValue.ProjectNames(entity.YzRoleIds,names))).ToArray();
+        return entities.Select(entity => YzManagerPage6031906822946816Vo.FromEntity(entity,RoleCheckboxValue.ProjectNames(entity.YzRoleIds,names),includeCredentials)).ToArray();
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<YzManagerPage6031906822946816Vo> Create6031906822946816Async(YzManagerPage6031906822946816CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
@@ -222,6 +222,7 @@ public partial class YzManagerService
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.YzRoleIds.IsSpecified) { entity.YzRoleIds = RoleCheckboxValue.ReadWrite(request.YzRoleIds.Value); submitted.Add("yz_role_ids"); }
+        if (request.Password.IsSpecified) { entity.Password = ManagerCredentialValue.Input(request.Password.Value); submitted.Add("password"); }
         if (request.RealName.IsSpecified) { entity.RealName = request.RealName.Value; submitted.Add("real_name"); }
         if (request.Mobile.IsSpecified) { entity.Mobile = request.Mobile.Value; submitted.Add("mobile"); }
         if (request.LockIp.IsSpecified) { entity.LockIp = request.LockIp.Value; submitted.Add("lock_ip"); }
@@ -229,7 +230,7 @@ public partial class YzManagerService
         if (request.LoginIp.IsSpecified) { entity.LoginIp = request.LoginIp.Value; submitted.Add("login_ip"); }
         if (request.Email.IsSpecified) { entity.Email = request.Email.Value; submitted.Add("email"); }
         if (request.Phone.IsSpecified) { entity.Phone = request.Phone.Value; submitted.Add("phone"); }
-        if (request.IsDisabled.IsSpecified) { entity.IsDisabled = request.IsDisabled.Value; submitted.Add("is_disabled"); }
+        if (request.IsDisabled.IsSpecified) { entity.IsDisabled = ManagerCredentialValue.ToDisabled(request.IsDisabled.Value); submitted.Add("is_disabled"); }
         if (request.Notes.IsSpecified) { entity.Notes = request.Notes.Value; submitted.Add("notes"); }
         if (request.IsEditPwd.IsSpecified) { entity.IsEditPwd = request.IsEditPwd.Value; submitted.Add("is_edit_pwd"); }
         if (request.EditPwdTime.IsSpecified) { entity.EditPwdTime = request.EditPwdTime.Value; submitted.Add("edit_pwd_time"); }
@@ -251,8 +252,10 @@ public partial class YzManagerService
         entity.UpdateManagerRealName = actor.AccountName;
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
+        ManagerCredentialValue.RequireDigest(entity.Password);
         await ValidateRelations6031906822946816Async(entity, actor, true, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u7528\u6237\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Password)) throw new ArgumentException("\u5BC6\u7801\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.YzAdminTypeId is null) throw new ArgumentException("\u540E\u53F0\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
@@ -271,6 +274,7 @@ public partial class YzManagerService
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.YzRoleIds.IsSpecified) { entity.YzRoleIds = RoleCheckboxValue.ReadWrite(request.YzRoleIds.Value); submitted.Add("yz_role_ids"); }
+        if (request.Password.IsSpecified) { entity.Password = ManagerCredentialValue.Input(request.Password.Value); submitted.Add("password"); }
         if (request.RealName.IsSpecified) { entity.RealName = request.RealName.Value; submitted.Add("real_name"); }
         if (request.Mobile.IsSpecified) { entity.Mobile = request.Mobile.Value; submitted.Add("mobile"); }
         if (request.LockIp.IsSpecified) { entity.LockIp = request.LockIp.Value; submitted.Add("lock_ip"); }
@@ -278,7 +282,7 @@ public partial class YzManagerService
         if (request.LoginIp.IsSpecified) { entity.LoginIp = request.LoginIp.Value; submitted.Add("login_ip"); }
         if (request.Email.IsSpecified) { entity.Email = request.Email.Value; submitted.Add("email"); }
         if (request.Phone.IsSpecified) { entity.Phone = request.Phone.Value; submitted.Add("phone"); }
-        if (request.IsDisabled.IsSpecified) { entity.IsDisabled = request.IsDisabled.Value; submitted.Add("is_disabled"); }
+        if (request.IsDisabled.IsSpecified) { entity.IsDisabled = ManagerCredentialValue.ToDisabled(request.IsDisabled.Value); submitted.Add("is_disabled"); }
         if (request.Notes.IsSpecified) { entity.Notes = request.Notes.Value; submitted.Add("notes"); }
         if (request.IsEditPwd.IsSpecified) { entity.IsEditPwd = request.IsEditPwd.Value; submitted.Add("is_edit_pwd"); }
         if (request.EditPwdTime.IsSpecified) { entity.EditPwdTime = request.EditPwdTime.Value; submitted.Add("edit_pwd_time"); }
@@ -299,8 +303,10 @@ public partial class YzManagerService
         entity.UpdateManagerRealName = actor.AccountName;
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
+        if (submitted.Contains("password")) ManagerCredentialValue.RequireDigest(entity.Password);
         await ValidateRelations6031906822946816Async(entity, actor, false, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u7528\u6237\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Password)) throw new ArgumentException("\u5BC6\u7801\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.YzAdminTypeId is null) throw new ArgumentException("\u540E\u53F0\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");

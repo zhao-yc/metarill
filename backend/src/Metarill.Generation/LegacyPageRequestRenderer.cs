@@ -18,8 +18,7 @@ internal static class LegacyPageRequestRenderer
     /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
     private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
     {
-        {{(ManagerCredentialCompilation.IsOriginal(table,page) ? "entity = ManagerCredentialValue.NormalizeLegacy(entity, operation);" : "")}}
-        var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
+        {{(ManagerCredentialCompilation.IsOriginal(table,page) ? "entity = ManagerCredentialValue.NormalizeLegacy(entity, operation);\n        " : "")}}var payload = LegacyWrite.Normalize(entity, operation, actor.ProjectId, parentId);
         var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>(HttpContext.RequestServices).Value.JsonSerializerOptions;
         return System.Text.Json.JsonSerializer.Deserialize<T>(payload, options) ?? throw new ArgumentException("请求不能为空。");
     }

@@ -10,6 +10,9 @@ public sealed class YzManagerPage6031906822946816Vo
     public string? Name { get; init; }
     [JsonPropertyName("yzRoleIds")]
     public JsonElement? YzRoleIds { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("password")]
+    public string? Password { get; init; }
     [JsonPropertyName("realName")]
     public string? RealName { get; init; }
     [JsonPropertyName("mobile")]
@@ -26,6 +29,12 @@ public sealed class YzManagerPage6031906822946816Vo
     public string? Phone { get; init; }
     [JsonPropertyName("isDisabled")]
     public int? IsDisabled { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("salt")]
+    public string? Salt { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("oldPassword")]
+    public string? OldPassword { get; init; }
     [JsonPropertyName("notes")]
     public string? Notes { get; init; }
     [JsonPropertyName("isEditPwd")]
@@ -70,11 +79,13 @@ public sealed class YzManagerPage6031906822946816Vo
     public long Id { get; init; }
     [JsonPropertyName("yzRoleNames")] public JsonElement? YzRoleNames { get; init; }
     public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity) => FromEntity(entity,null);
+    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity,JsonElement? roleNames) => FromEntity(entity,roleNames,true);
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity,JsonElement? roleNames) => new()
+    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity,JsonElement? roleNames,bool includeCredentials = true) => new()
     {
         Name = entity.Name,
         YzRoleIds = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.YzRoleIds),
+        Password = includeCredentials ? Metarill.Core.Contracts.ManagerCredentialValue.PasswordMask : null,
         RealName = entity.RealName,
         Mobile = entity.Mobile,
         LockIp = entity.LockIp,
@@ -82,7 +93,9 @@ public sealed class YzManagerPage6031906822946816Vo
         LoginIp = entity.LoginIp,
         Email = entity.Email,
         Phone = entity.Phone,
-        IsDisabled = entity.IsDisabled,
+        IsDisabled = Metarill.Core.Contracts.ManagerCredentialValue.ToEnabled(entity.IsDisabled),
+        Salt = includeCredentials ? string.Empty : null,
+        OldPassword = includeCredentials ? string.Empty : null,
         Notes = entity.Notes,
         IsEditPwd = entity.IsEditPwd,
         EditPwdTime = entity.EditPwdTime,
