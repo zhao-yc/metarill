@@ -1,0 +1,42 @@
+# 身份后台与开发工作区
+
+本切片仅完成身份与权限读取策略，不表示管理员角色多选、角色保存守卫或整个角色闭环已经支持。MultiCheckBoxDatabase原能力缺口继续保留；不改元数据、表结构、生成产物、URL、JSON形状或前端交互。
+
+## 原行为依据
+
+原YZP的YzManager / YzRole继承BaseEntity，基础类没有yz_project_id。身份锚点为真实账号的yz_admin_type_id。YzpPermissionService.currentRoles（原源183–189行）只聚合同后台、未删除的角色；同文件223–225行从该后台目录计算超级角色及权限。YzpPermissionWriteGuard.beforeManagerSave（155–188行）合并省略字段并锁旧、新后台，角色必须属于目标后台。这里不复制V7拦截器的全局超级角色放行分支。
+
+IndexControllerSys.findNameIdYzProject的设备项目矩阵属于开发工作区；顶栏sysParams.yzProjectId不改变账号所属后台。本切片不修改设备矩阵实现，也不宣称该独立缺口已完成。
+
+## 共享策略
+
+PrincipalRolePolicy在每次请求中以真实未删除的账号、yz_admin_type、yz_project建立身份链。只有账号角色ID集合中、真实同后台的未删除角色参与超级角色和资源授权计算。账号、角色上的Metarill兼容yz_project_id不作为身份的唯一锚点，不增加任何新列。
+
+RuntimeActor原五参数构造保持不变。AuthenticatedIdentity通过init属性登记PrincipalAdminTypeId、PrincipalProjectId、IsRealmSuper，Actor.ProjectId继续代表本次开发工作区。Actor.IsAdministrator仅代表真实已发布平台后台内的超级角色；业务后台超级角色通过同后台页权限集合授权，不能变成平台、全局配置或Agent审批的管理员。
+
+网页默认项目和新会话的项目来自真实后台所属项目。平台超级账号显式切到业务工作区时，身份后台及平台权限保持有效；普通账号不能用该选择跨身份项目。原权限响应的全局isSuper仍只对平台管理员为真；业务超级账号的同后台权限放在原pagePermissions，不把全局布尔标志设真。
+
+角色查询按真实后台等值过滤，授权资源只接受宿主已发布Platform / Demo目录中同后台的页面、菜单、按钮。其他项目、同项目其他后台及未知资源都不参与权限聚合；尚未加载的动态业务目录没有隐式授权。读取权限仍保留现有的一次授权表查询，未引入逐资源数据库循环；登录及Agent资格复核不读取无用权限表。增加的真实后台/项目核验有查询成本，本轮未做MySQL性能实测，不声称无性能退化。
+
+损坏角色JSON、对象、布尔、浮点、溢出或非规范ID不能通过宽松转换变成角色。角色撤销、软删和超级标志变更在下一请求重新读取；当前请求内并发撤权与写入锁序由后续写守卫切片处理。
+
+## Agent边界
+
+网页人工审批、设备码换取、刷新及访问会话都复用真实身份后台策略。审批再次读取账号和角色，持旧身份快照也不能在撤权后继续批准。直接AuthenticationService的Agent认证同样核对grant状态、账号、固定client、项目、有效期与会话绑定；外层transport仍必须和会话种类匹配。
+
+已有grant没有身份后台快照列。本切片只明确实现：迁入业务后台或后台/项目失效后，原平台批准grant不能继续换取、刷新或访问；不能据此宣称任意两个已发布平台后台之间迁移后的grant精确失效。完整绑定与迁后台并发处理仍需下一切片明确方案，本轮不偷偷新增schema。
+
+## 旧实库fixture纠正
+
+- AgentFixture原角色没有后台ID，账号却是平台后台并以额外账号项目列伪装Demo身份。现在角色和账号均为真实平台后台；原批准Demo测试继续显式选择Demo工作区，不给普通账号额外超级权限。
+- RoleSecurityFixture(demo:true)原绑定平台后台却断言账号项目为Demo即是业务身份。现在使用真实Demo后台，保留普通账号仅声明操作可用、跨后台拒绝及账户到期断言。
+- 原“默认项目来自账号列”的测试更名为“来自真实后台”。业务后台超级角色只使IsRealmSuper为真，Actor.IsAdministrator仍为假。
+- 原Agent能力测试撤销平台超级角色后，曾用跨后台Demo授权行继续取得三项业务能力。该脏授权现在被拒绝，原跨工作区grant拒绝访问；同后台普通授权的正例由真实Demo后台及本轮HTTP测试独立保留。
+
+这些实库fixture仅完成源码修正，本轮没有连接或运行实库。集成方需在独占Server-200写slot下重新执行。
+
+## 验证范围
+
+本轮先用真实AuthenticationService + SqlRowStore的固定离线SQL传输复现四个反例：业务超级角色误成平台管理员、跨后台角色参与聚合、账号兼容项目列改变默认身份、删除后台不使登录失效，原基线4/4失败。修正后扩展到后台/项目缺失、损坏角色值、同后台普通权限、跨后台脏资源、原HTTP权限布尔和Agent审批、撤权、换取、刷新、会话绑定。SQL传输仅解释受控参数化单表命令，不联网，不以此代替真实MySQL事务、锁序、HBuilderX或浏览器验收。
+
+角色工作台当前仍按Actor.ProjectId定位角色目录，角色/账号修改与删除还没有本轮要求的后台聚合锁。两项均作为后续明确缺口保留，不借本读取策略关闭角色控件Gap。

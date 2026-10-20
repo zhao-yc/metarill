@@ -53,10 +53,10 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
             fixture.ProjectId = demo ? fixture.Registry.Demo.YzProjectId : fixture.Registry.Platform.YzProjectId;
             fixture.AccountId = Ids.NextId(); fixture.RoleId = Ids.NextId(); var name = "mt_role_sec_" + Guid.NewGuid().ToString("N")[..16];
             await fixture.Store.InsertAsync("yz_role", new Dictionary<string, object?> { ["id"] = fixture.RoleId, ["name"] = name, ["sort_no"] = 10, ["is_super"] = administrator ? 1 : 0,
-                ["is_built_in"] = 0, ["yz_project_id"] = long.Parse(fixture.ProjectId), ["yz_admin_type_id"] = long.Parse(fixture.Registry.Platform.YzAdminTypes[0].Id) });
+                ["is_built_in"] = 0, ["yz_project_id"] = long.Parse(fixture.ProjectId), ["yz_admin_type_id"] = long.Parse((demo?fixture.Registry.Demo:fixture.Registry.Platform).YzAdminTypes[0].Id) });
             await fixture.Store.InsertAsync("yz_manager", new Dictionary<string, object?> { ["id"] = fixture.AccountId, ["name"] = name, ["is_disabled"] = 0, ["password"] = PasswordHasher.Hash("隔离RoleSecurity-Pass855"),
-                ["yz_role_ids"] = JsonSerializer.Serialize(new[] { fixture.RoleId.ToString() }), ["yz_project_id"] = long.Parse(fixture.ProjectId), ["yz_admin_type_id"] = long.Parse(fixture.Registry.Platform.YzAdminTypes[0].Id) });
-            fixture.Authentication = new(fixture.Store, Ids); fixture.Token = (await fixture.Authentication.LoginAsync(name, "隔离RoleSecurity-Pass855")).Token;
+                ["yz_role_ids"] = JsonSerializer.Serialize(new[] { fixture.RoleId.ToString() }), ["yz_project_id"] = long.Parse(fixture.ProjectId), ["yz_admin_type_id"] = long.Parse((demo?fixture.Registry.Demo:fixture.Registry.Platform).YzAdminTypes[0].Id) });
+            fixture.Authentication = new(fixture.Store, Ids, fixture.Registry); fixture.Token = (await fixture.Authentication.LoginAsync(name, "隔离RoleSecurity-Pass855")).Token;
             var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseTestServer();
             builder.Services.AddSingleton(fixture.Session); builder.Services.AddSingleton(fixture.Store); builder.Services.AddSingleton(fixture.Registry); builder.Services.AddSingleton<IIdGenerator>(Ids);
             builder.Services.AddSingleton(fixture.Authentication); builder.Services.AddSingleton<AgentAuthenticationService>(); builder.Services.AddHttpContextAccessor();
@@ -130,12 +130,12 @@ public sealed class RoleAuthorizationSecurityRegressionTests
     }
 
     [AgentIntegrationFact]
-    public async Task DefaultLoginProjectComesFromAccountForNormalAndAdministratorAccounts()
+    public async Task DefaultLoginProjectComesFromRealAdminForNormalAndRealmSuperAccounts()
     {
         foreach (var administrator in new[] { false, true })
         {
             await using var f = await RoleSecurityFixture.CreateAsync(demo: true, administrator: administrator); var identity = await f.IdentityAsync();
-            Assert.Equal(f.Registry.Demo.YzProjectId, identity.Actor.ProjectId); Assert.Equal(administrator, identity.Actor.IsAdministrator);
+            Assert.Equal(f.Registry.Demo.YzProjectId, identity.Actor.ProjectId); Assert.False(identity.Actor.IsAdministrator); Assert.Equal(administrator, identity.IsRealmSuper); Assert.Equal(f.Registry.Demo.YzAdminTypes[0].Id,identity.PrincipalAdminTypeId);
             var session = Assert.Single(await f.Store.ReadAsync("sys_session", new Dictionary<string, object?> { ["token_hash"] = PasswordHasher.Digest(f.Token) })); Assert.Equal(f.Registry.Demo.YzProjectId, SqlRowStore.Text(session, "project_id"));
             var strict = await new AgentAuthenticationService(f.Store, f.Authentication).AuthenticateAsync(f.Token, "web"); Assert.Equal(f.Registry.Demo.YzProjectId, strict.Identity.Actor.ProjectId);
             await f.Store.UpdateAsync("yz_manager", f.AccountId, new Dictionary<string, object?> { ["validity_time"] = DateTime.UtcNow.AddMinutes(-1) });

@@ -128,8 +128,8 @@ public sealed class AgentOAuthIntegrationTests
         Assert.Equal("object", create.GetProperty("requestSchema").GetProperty("type").GetString());
         Assert.True(create.GetProperty("requestSchema").GetProperty("properties").TryGetProperty("name", out _));
         await f.GrantPermissionAsync(f.DemoPage, "is_query"); await f.Store.UpdateAsync("yz_role", f.RoleId, new Dictionary<string, object?> { ["is_super"] = 0 });
-        directory = (await AgentFixture.ReadAsync(await f.BearerAsync(access, "/api/admin/sys/agent/capabilities"))).GetProperty("data");
-        capabilities = directory.GetProperty("capabilities").EnumerateArray().ToArray(); Assert.Equal(3, capabilities.Length); Assert.All(capabilities, c => Assert.Contains(c.GetProperty("operation").GetString(), new[] { "list", "detail", "count" }));
+        // 平台角色不能凭跨后台Demo授权行取得业务页面权限；撤super后原跨工作区grant立即失效。
+        Assert.Equal(HttpStatusCode.Unauthorized,(await f.BearerAsync(access,"/api/admin/sys/agent/capabilities")).StatusCode);
         var described = await f.BearerAsync(access, "/api/admin/sys/agent/capabilities/" + Uri.EscapeDataString(create.GetProperty("id").GetString()!)); Assert.Equal(HttpStatusCode.Unauthorized, described.StatusCode);
     }
 }

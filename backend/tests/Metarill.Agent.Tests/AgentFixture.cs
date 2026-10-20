@@ -75,15 +75,15 @@ internal sealed class AgentFixture : IAsyncDisposable
             var metadata = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             fixture.Registry = new(metadata, Path.Combine(Path.GetDirectoryName(metadata)!, "demo.json"));
             fixture.Store = new(fixture.Session, fixture.Registry.Platform);
-            fixture.Authentication = new(fixture.Store, Ids);
+            fixture.Authentication = new(fixture.Store, Ids, fixture.Registry);
             fixture.OAuth = new(fixture.Store, fixture.Registry, Ids, new(), fixture.Clock);
             fixture.Tasks = new(fixture.Store, Ids, new(), fixture.Clock);
             fixture.AccountId = Ids.NextId(); fixture.RoleId = Ids.NextId();
             fixture._accounts.Add(fixture.AccountId); fixture._roles.Add(fixture.RoleId);
             var name = "mt_agent_" + Guid.NewGuid().ToString("N")[..16];
-            await fixture.Store.InsertAsync("yz_role", new Dictionary<string, object?> { ["id"] = fixture.RoleId, ["name"] = name, ["is_super"] = administrator ? 1 : 0, ["yz_project_id"] = long.Parse(fixture.DemoProject) });
+            await fixture.Store.InsertAsync("yz_role", new Dictionary<string, object?> { ["id"] = fixture.RoleId, ["name"] = name, ["is_super"] = administrator ? 1 : 0, ["yz_project_id"] = long.Parse(fixture.Registry.Platform.YzProjectId), ["yz_admin_type_id"] = long.Parse(fixture.Registry.Platform.YzAdminTypes[0].Id) });
             await fixture.Store.InsertAsync("yz_manager", new Dictionary<string, object?> { ["id"] = fixture.AccountId, ["name"] = name, ["password"] = PasswordHasher.Hash("虚构测试Password-853"), ["is_disabled"] = 0,
-                ["yz_role_ids"] = JsonSerializer.Serialize(new[] { fixture.RoleId.ToString() }), ["yz_project_id"] = long.Parse(fixture.DemoProject), ["yz_admin_type_id"] = long.Parse(fixture.Registry.Platform.YzAdminTypes[0].Id) });
+                ["yz_role_ids"] = JsonSerializer.Serialize(new[] { fixture.RoleId.ToString() }), ["yz_project_id"] = long.Parse(fixture.Registry.Platform.YzProjectId), ["yz_admin_type_id"] = long.Parse(fixture.Registry.Platform.YzAdminTypes[0].Id) });
             fixture.WebToken = (await fixture.Authentication.LoginAsync(name, "虚构测试Password-853")).Token;
             var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseTestServer();
             Action<IServiceCollection> configure = services =>

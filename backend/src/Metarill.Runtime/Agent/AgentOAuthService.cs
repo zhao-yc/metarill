@@ -177,12 +177,12 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
             throw new UnauthorizedAccessException("设备授权管理需要真实网页登录会话。");
         var account = (await store.ReadAsync("yz_manager", new Dictionary<string, object?> { ["id"] = identity.Actor.AccountId }, cancellationToken)).SingleOrDefault();
         if (account is null || !AuthenticationService.AccountActive(account)) throw new UnauthorizedAccessException("当前账号已失效。");
-        if (administrator)
-        {
-            var roles = ParseIds(SqlRowStore.Text(account, "yz_role_ids"));
-            var current = await store.ReadAsync("yz_role", cancellationToken: cancellationToken);
-            if (!current.Any(role => roles.Contains(SqlRowStore.Text(role, "id")) && SqlRowStore.Text(role, "is_super") == "1")) throw new UnauthorizedAccessException("批准Agent授权需要当前项目管理员权限。");
-        }
+        var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,cancellationToken,includePermissions:false)
+            ?? throw new UnauthorizedAccessException("当前身份后台已失效。");
+        if(realm.AdminTypeId!=identity.PrincipalAdminTypeId || realm.ProjectId!=identity.PrincipalProjectId)
+            throw new UnauthorizedAccessException("当前身份后台已变化，请重新登录。");
+        if(administrator && !realm.IsPlatformAdministrator)
+            throw new UnauthorizedAccessException("批准Agent授权需要平台管理员权限。");
     }
 
     /// <summary>签发短期访问会话，只有摘要进入现有会话表。</summary>
@@ -195,7 +195,14 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
     private async Task InvalidateAccessAsync(long id, CancellationToken token)
     { foreach (var session in await store.ReadForUpdateAsync("sys_session", new Dictionary<string, object?> { ["grant_id"] = id, ["kind"] = "agent" }, token)) await store.UpdateAsync("sys_session", SqlRowStore.Id(session), new Dictionary<string, object?> { ["delete_no"] = _clock.GetUtcNow().UtcDateTime }, token); }
     /// <summary>账号有效期每次签发重新读取，不复制旧Java中不同的启用字段语义。</summary>
-    private async Task<bool> ValidAccountAsync(long id, CancellationToken token) { var account = (await store.ReadAsync("yz_manager", new Dictionary<string, object?> { ["id"] = id }, token)).SingleOrDefault(); return account is not null && AuthenticationService.AccountActive(account); }
+    private async Task<bool> ValidAccountAsync(long id, CancellationToken token)
+    {
+        var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{["id"]=id},token)).SingleOrDefault();
+        if(account is null)return false;
+        var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,token,includePermissions:false);
+        // 本机Agent控制面只由平台身份批准；迁入业务后台后旧grant不能继续换取或刷新凭据。
+        return realm is {IsPlatformRealm:true};
+    }
     /// <summary>项目名只来自已登记的服务端记录。</summary>
     private async Task<string> ProjectNameAsync(string project, CancellationToken token) { var row = (await store.ReadAsync("yz_project", new Dictionary<string, object?> { ["id"] = long.Parse(project, CultureInfo.InvariantCulture) }, token)).SingleOrDefault() ?? throw new UnauthorizedAccessException("项目未登记。"); return SqlRowStore.Text(row, "name"); }
     /// <summary>OAuth响应使用标准snake_case键，不经过业务R封装。</summary>
@@ -205,7 +212,6 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
     private static TokenResult Failure(string code, string message) => new(null, Error(code, message));
     private static AgentOAuthException Error(string code, string message, int status = 400) => new(code, message, status);
     private static DateTime Date(IReadOnlyDictionary<string, object?> row, string name) => row.GetValueOrDefault(name) is { } value ? Convert.ToDateTime(value, CultureInfo.InvariantCulture) : DateTime.MinValue;
-    private static HashSet<string> ParseIds(string source) { try { return JsonSerializer.Deserialize<List<JsonElement>>(source)?.Select(x => x.ToString()).ToHashSet() ?? []; } catch (JsonException) { return []; } }
     private static void RequireClient(string client) { if (client != ClientId) throw Error("invalid_client", "未识别的Agent客户端。"); }
     private static void RequireToken(string? token) { if (token is null || !TokenPattern().IsMatch(token)) throw Error("invalid_request", "授权凭据格式无效。"); }
     private static string NormalizeCode(string value) { var code = (value ?? "").Trim().Replace("-", "").ToUpperInvariant(); if (!UserCodePattern().IsMatch(code)) throw new InvalidOperationException("用户码格式无效。"); return code; }
