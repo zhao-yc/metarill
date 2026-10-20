@@ -21,7 +21,8 @@ public sealed class PlatformPermissionRelationTests
     ];
     private static readonly string[] RemainingGaps =
     [
-        "6031906822946816:yz_role_ids:detail"
+        // 固定角色读取已经证明，仍保留独立的写入协调验收门禁，不能误报为详情控件缺口。
+        "6031906822946816:yz_role_ids:runtime"
     ];
 
     /// <summary>直接验证首次安装源的固定表页关系，不通过放宽编译器或移除原控件消除缺口。</summary>
