@@ -109,7 +109,7 @@ internal static class SecurityManagementModuleFactory
         if (asset.SchemaVersion != 1 || asset.ModuleId != ModuleId || asset.Sources.Count != 3 || !new[]{"platformSha256","securitySha256","filesSha256"}.All(key => asset.Sources.TryGetValue(key,out var sha) && sha.Length==64 && sha.All(char.IsAsciiHexDigitLower))) throw Rejected();
         var catalog = asset.Management;
         if (catalog.YzProjectId != SourceProject || catalog.YzAdminTypes.Count != 1 || catalog.YzAdminTypes[0].Id != SourceAdmin
-            || catalog.ConfigTables.Count != 3 || catalog.ConfigColumns.Count != 69 || catalog.ConfigPages.Count != 3 || catalog.ConfigPageColumns.Count != 62
+            || catalog.ConfigTables.Count != 3 || catalog.ConfigColumns.Count != 69 || catalog.ConfigPages.Count != 3 || catalog.ConfigPageColumns.Count != 63
             || catalog.ConfigTables.Any(table => !Tables.TryGetValue(table.Id,out var name) || table.TableName != name)
             || catalog.ConfigPages.Any(page => !Pages.TryGetValue(page.Id,out var table) || page.ConfigTableId != table || page.YzAdminTypeId != SourceAdmin)
             || catalog.ConfigMenus.Count != 6 || catalog.ConfigCustomPages.Count != 1 || catalog.ConfigButtons.Count != 1 || catalog.ConfigChildren.Count != 0

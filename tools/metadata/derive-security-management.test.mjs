@@ -24,7 +24,7 @@ test('固定三页三表与原控件布局数组逐对象相等，物理基础�
   for(const [key,predicate] of [['configTables',row=>tableIds.includes(row.id)],['configColumns',row=>tableIds.includes(row.configTableId)],
     ['configPages',row=>pageIds.includes(row.id)],['configPageColumns',row=>pageIds.includes(row.configPageId)]])
     assert.deepEqual(result.management[key],source[key].filter(predicate));
-  assert.equal(result.management.configColumns.length,69); assert.equal(result.management.configPageColumns.length,62);
+  assert.equal(result.management.configColumns.length,69); assert.equal(result.management.configPageColumns.length,63);
   assert.equal(result.management.configMenus.length,6); assert.equal(result.management.configButtons.length,1);
   assert.equal(result.management.configButtons[0].sql,'/admin/custom/index/init_admin');
   assert.equal(result.management.configPageColumns.find(field=>field.configColumnId==='1679698328573620226').defaultValue,'1');

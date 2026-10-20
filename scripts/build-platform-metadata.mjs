@@ -10,6 +10,10 @@ const adminId = input.yzAdminTypes[0].id;
 // 维护固定标识清单，增加列或索引不能使已发布种子的其余标识漂移。
 const identifiersPath=path.join(root,'backend/metadata/identifiers.json');
 const identifiers=fs.existsSync(identifiersPath)?JSON.parse(fs.readFileSync(identifiersPath,'utf8')):{};
+// 原后台初始化密码控件已由原YZP元数据核对；只登记原别名，不分配新ID。
+const adminPasswordKey='pagefield:1696799309006348290:1696799603148693506';
+if(identifiers[adminPasswordKey]!==undefined&&identifiers[adminPasswordKey]!=='1696799603148693507')throw new Error('原初始化密码页面字段标识不一致。');
+identifiers[adminPasswordKey]='1696799603148693507';
 for(const target of ['platform','demo']){
  const filename=path.join(root,'backend/metadata',target+'.json');if(!fs.existsSync(filename))continue;
  const previous=JSON.parse(fs.readFileSync(filename,'utf8'));
@@ -120,6 +124,7 @@ const oldFields=new Map(oldPageColumns.map(f=>[f.configPageId+':'+f.configColumn
 for(const c of columns){if(c.columnName==='config_second_menu_id'){c.columnName='config_menu_id';c.name='菜单';c.logicalType='int64';}if(c.joinTable==='config_second_menu'){c.joinTable='config_menu';c.linkConfigTableId=menuTable.id;c.linkConfigPageId='2200000000000099000';c.controlDetail=JSON.stringify({table:'config_menu',tableId:menuTable.id,nameField:'name'});}if(c.linkConfigTableId&&!tables.some(t=>t.id===c.linkConfigTableId)){c.linkConfigTableId='';c.linkConfigPageId='';c.controlKind='';c.controlDetail='';}}
 let pageColumns=[];
 const restoredManagerFields=[];
+const restoredAdminFields=[];
 for(const p of pages){
  const t=tables.find(t=>t.id===p.configTableId);
  p.yzProjectId=projectId;p.yzAdminTypeId=adminId;p.pageSize=Number(p.pageSize||20);
@@ -129,13 +134,18 @@ for(const p of pages){
   const old=oldFields.get(p.id+':'+c.id);
   // 仅恢复原账号三凭据控件；后端固定协议只写新口令，绝不回显摘要或允许客户端盐。
   const managerCredential=t.id==='6031906809708544'&&p.id==='6031906822946816'&&['1679698326770069505','1679698328187744257','1679698328317767681'].includes(c.id);
-  if(c.columnName==='id'||c.columnName==='delete_no'||(!managerCredential&&(c.columnName.includes('password')||c.columnName==='salt')))continue;
+  // 原后台类型密码是初始化配置输入；仅恢复原表/页/列/页字段，不泛化公开其它秘密列。
+  const adminPassword=t.id==='1696799308939239425'&&p.id==='1696799309006348290'&&c.id==='1696799603148693506'&&c.columnName==='password';
+  if(adminPassword&&(!old||old.id!=='1696799603148693507'||[old.defaultValue,old.initValue].some(value=>value!==undefined&&value!==null&&value!=='')))throw new Error('原初始化密码页面字段缺失、身份或空初值声明不符。');
+  if(c.columnName==='id'||c.columnName==='delete_no'||(!managerCredential&&!adminPassword&&(c.columnName.includes('password')||c.columnName==='salt')))continue;
   const field={...old,id:old?.id||id('pagefield:'+p.id+':'+c.id),name:c.name,configPageId:p.id,configColumnId:c.id,columnName:c.columnName,yzProjectId:projectId,sortNo:Number(old?.sortNo||c.sortNo||0),isShow:old?.isShow??old?.isInGrid??1,isEdit:old?.isEdit??old?.isInEdit??(standard.some(s=>s[0]===c.columnName)?0:1),isRequired:old?.isRequired??old?.isMust??c.isDbNotNull};
-  if(managerCredential)restoredManagerFields.push(field);else pageColumns.push(field);
+  if(managerCredential)restoredManagerFields.push(field);else if(adminPassword)restoredAdminFields.push(field);else pageColumns.push(field);
  }
 }
 // 这三个原账号控件恢复时追加到已发布目录尾部；保留原662项的发布顺序，不按页面重排整个数组。
-pageColumns.push(...restoredManagerFields);
+if(restoredAdminFields.length!==1)throw new Error('原后台初始化密码页面字段未完整恢复。');
+// 新恢复字段追加于原三个账号控件前，既有数组相对顺序及三项尾部保持。
+pageColumns.push(...restoredAdminFields,...restoredManagerFields);
 const finalPageIds=new Set(pages.map(p=>p.id));
 menus=menus.filter(m=>!m.configPageId||finalPageIds.has(m.configPageId));
 menus=menus.map(m=>({...m,yzProjectId:projectId}));

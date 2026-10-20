@@ -13,7 +13,7 @@ public sealed class YzAdminTypePage1696799309006348290Controller(YzAdminTypeServ
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("1696799309006348290", operation); return authorization.RequireActor(); }
-    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "userName", "importNo", "exactDataManageMatchField"], ["name", "userName", "yzProjectName", "importNo", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertManagerRealName", "updateManagerRealName", "insertUserName", "updateUserName", "exactDataManageMatchField", "id"], [], "yzProjectId");
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "userName", "password", "importNo", "exactDataManageMatchField"], ["name", "userName", "password", "yzProjectName", "importNo", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertManagerRealName", "updateManagerRealName", "insertUserName", "updateUserName", "exactDataManageMatchField", "id"], [], "yzProjectId");
     /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
     private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
     {

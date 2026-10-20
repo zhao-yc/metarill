@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "moduleId": "security-management-v1",
   "sources": {
-    "platformSha256": "134f64139dea1b05d7b089b2922c32491007d60a71181f1ba834fc026249fb3a",
+    "platformSha256": "663b7270e96150416447a7a63e9d53ec925e9efece5b30e2e1b48b93b3a74b02",
     "securitySha256": "2645f4785b55784aa4e1c0b5900f3a1f2fcc6f24b64a9456f2f1d111b97c45dd",
     "filesSha256": "e5bac8b7ce7e4bae674d84b904152eff6f55803691382c55fe81dda7d1118bca"
   },
@@ -5276,6 +5276,28 @@
         "columnName": "yz_project_id",
         "yzProjectId": "1608097412978577409",
         "sortNo": 340,
+        "isShow": 1,
+        "isEdit": 1,
+        "isRequired": 0
+      },
+      {
+        "configColumnId": "1696799603148693506",
+        "configColumnName": "密码",
+        "configPageId": "1696799309006348290",
+        "configPageName": "后台类型",
+        "defaultValue": "",
+        "id": "1696799603148693507",
+        "isAutoFocus": 0,
+        "isInEdit": 1,
+        "isInFilter": 0,
+        "isInGrid": 1,
+        "isReadOnly": 0,
+        "name": "密码",
+        "sumKind": 0,
+        "sumKindShow": "不统计",
+        "columnName": "password",
+        "yzProjectId": "1608097412978577409",
+        "sortNo": 50,
         "isShow": 1,
         "isEdit": 1,
         "isRequired": 0

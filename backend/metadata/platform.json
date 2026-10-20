@@ -26171,6 +26171,28 @@
       "isRequired": 0
     },
     {
+      "configColumnId": "1696799603148693506",
+      "configColumnName": "密码",
+      "configPageId": "1696799309006348290",
+      "configPageName": "后台类型",
+      "defaultValue": "",
+      "id": "1696799603148693507",
+      "isAutoFocus": 0,
+      "isInEdit": 1,
+      "isInFilter": 0,
+      "isInGrid": 1,
+      "isReadOnly": 0,
+      "name": "密码",
+      "sumKind": 0,
+      "sumKindShow": "不统计",
+      "columnName": "password",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 50,
+      "isShow": 1,
+      "isEdit": 1,
+      "isRequired": 0
+    },
+    {
       "configColumnId": "1679698326770069505",
       "configColumnName": "密码",
       "configPageId": "6031906822946816",

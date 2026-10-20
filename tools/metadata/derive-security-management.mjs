@@ -50,7 +50,7 @@ export function deriveSecurityManagement(platform, security, files, sourceHashes
   const pages = platform.configPages.filter(page => PAGES.has(page.id));
   if (pages.length !== PAGES.size || pages.some(page => PAGES.get(page.id) !== page.configTableId || page.yzAdminTypeId !== ADMIN || page.yzProjectId !== PROJECT)) fail();
   const fields = platform.configPageColumns.filter(field => PAGES.has(field.configPageId));
-  if (fields.length !== 62 || fields.some(field => !columnIds.has(field.configColumnId) || columns.find(column => column.id === field.configColumnId).configTableId !== PAGES.get(field.configPageId) || field.yzProjectId !== PROJECT)) fail();
+  if (fields.length !== 63 || fields.some(field => !columnIds.has(field.configColumnId) || columns.find(column => column.id === field.configColumnId).configTableId !== PAGES.get(field.configPageId) || field.yzProjectId !== PROJECT)) fail();
   // 原 is_edit_pwd 是界面开关，不是秘密；仅实际凭据/连接列禁止初值，保留原开关默认。
   const secretIds = new Set(columns.filter(column => /^(?:password|oldpassword|salt|pwd|secret|token|tokenhash|mysqlconnstr|connectionstring|dbpassword|dbusername|dburl)$/.test(normalize(column.columnName))).map(column => column.id));
   for (const row of [...columns.filter(column => secretIds.has(column.id)), ...fields.filter(field => secretIds.has(field.configColumnId))])

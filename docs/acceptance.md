@@ -408,3 +408,11 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 工作台页面、两个原组件及共享状态模块直接作为固定编译资源从现有前端源文件嵌入，只在可信生成入口输出；未修改原前端文件或复写新页面。实际生成输出逐文件与原源码规范LF后的字节一致，重复生成全部内容稳定；普通入口不增加资产，完整管理包仍保留原发布门禁。
 
 主组合101/101、零失败/零跳过（含21个工作台用例），另真实CLI和普通前端打包20/20通过；两个批次不累计重叠次数。报告分别为 `.local/trusted-workbench-original-assets/trusted-workbench-original-assets.trx`、`.local/trusted-workbench-assets-package-regression/trusted-workbench-assets-package-regression.trx`，前者SHA256 `2a98caf4d06606d98cb0ed372cbe890f2c3f450c646cd7a6ba84a79279eeee1d`。本批没有HBuilderX、HTTP、MySQL或浏览器实测，完整管理包自定义路由、Runtime A、初始化仍待完成；来源与边界见[固定管理模块](architecture/trusted-security-management-module.md#原工作台前端资产下发)。
+
+## 2026-10-21 原初始化配置字段源头恢复
+
+原页面、只读YZP MCP和仓库原source均核对到后台类型密码页字段 `1696799603148693507`；缺口来自builder按password名称泛过滤。已只恢复该原声明与空初值，固定三页由62增至63字段；此前62是删减后的仓库快照，不代表完整原界面。四个原ID别名登记、现有ID值不变，物理模型不变。按C#正常入口再生成平台DTO/VO/Service/Controller及前端写入白名单，初始化配置字段不再被请求构造丢弃。没有修改原页面文件或在线元数据，也未执行初始化。
+
+元数据builder先8过/2失败，修复后27/27和files/security/management三个check通过。新生成组合V1夹具读取不存在属性导致编译失败；V2实际104过/2失败发现原50字符限制缺后端校验，生成源按元数据补齐后V3为106/106、零失败/零跳过。报告 `.local/original-admin-password-field/generation/original-admin-password-field-v3.trx` SHA256 `9daa0d97f979fac5c40f6ca3a69462a302d8f4b0bba79213cc3f952e0fd36df3`，原编译错误与V2失败保留。前端261/261；API44过/28跳过/72总计，元数据144过/22跳过/166总计，无失败、缺实库配置的跳过不算已验。
+
+实际生成175个归属文件、0个新建手写文件，元数据SHA256 `651b36ddc4348e7f25501ec3c563f2761c63ceb81e9f51477a0786b11af6765d`；当前源码重复生成后199个现存文件字节稳定。私有 `.local/original-admin-password-field/integrated-receipt.json` SHA256 `bb107c13402556f2f066ba0c1757f27e33132ebf1c19d4ac1ec4744f45c89cc4` 分列全部失败/通过/跳过和边界。配置密码沿原输入/回读语义，登录账号摘要仍不回显。完整管理包、Runtime A及原初始化账号功能仍待闭环。

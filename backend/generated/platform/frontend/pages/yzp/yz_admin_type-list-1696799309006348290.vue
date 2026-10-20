@@ -20,6 +20,7 @@
 <!-- 操作列可见性与默认查看权限分离，行内按钮按自身规则显示。 --><uni-th align="center" v-if="true" width="">操作</uni-th>
 <uni-th >名称</uni-th>
 <uni-th >用户名</uni-th>
+<uni-th >密码</uni-th>
 <uni-th >yz_project_name</uni-th>
 <uni-th >import_no</uni-th>
 <uni-th >insert_time</uni-th>
@@ -35,6 +36,7 @@
 <uni-tr :class="clicked_id == item.id ? 'uni-table-tr-clicked' : ''" v-for='(item, index) in list' :key='item.id'><uni-td v-if="true" class="buttons"><view><view class='list-action-link' v-if="permissionVersion &gt;= 0 &amp;&amp; page_is_edit &amp;&amp; $yzp.hasPagePermission(page_sn, &apos;is_query&apos;)" @click='toDetail(item.id)'>查看</view>
 <view class='list-action-link' v-if="customerButtonShow1696805746482847746(item)" @click='customerButtonHandler1696805746482847746(item)'>初始化账号</view></view></uni-td><uni-td><text >{{item.name}}</text></uni-td>
 <uni-td><text >{{item.userName}}</text></uni-td>
+<uni-td><text >{{item.password}}</text></uni-td>
 <uni-td><text >{{item.yzProjectName}}</text></uni-td>
 <uni-td><text >{{item.importNo}}</text></uni-td>
 <uni-td><text >{{item.insertTime}}</text></uni-td>
@@ -67,7 +69,7 @@
         <uni-list-item clickable v-for='(item, index) in list' :key='item.id' @click='toDetail(item.id)'>
           <template v-slot:body>
             <view class='row'>
-              <view class='row-item'><text>名称</text><text >{{item.name}}</text></view><view class='row-item'><text>用户名</text><text >{{item.userName}}</text></view><view class='row-item'><text>yz_project_name</text><text >{{item.yzProjectName}}</text></view><view class='row-item'><text>import_no</text><text >{{item.importNo}}</text></view><view class='row-item'><text>insert_time</text><text >{{item.insertTime}}</text></view><view class='row-item'><text>update_time</text><text >{{item.updateTime}}</text></view><view class='row-item'><text>insert_manager_id</text><text >{{item.insertManagerId}}</text></view><view class='row-item'><text>update_manager_id</text><text >{{item.updateManagerId}}</text></view><view class='row-item'><text>insert_manager_real_name</text><text >{{item.insertManagerRealName}}</text></view><view class='row-item'><text>update_manager_real_name</text><text >{{item.updateManagerRealName}}</text></view><view class='row-item'><text>创建账号名</text><text >{{item.insertUserName}}</text></view><view class='row-item'><text>修改账号名</text><text >{{item.updateUserName}}</text></view><view class='row-item'><text>精确数据管理匹配字段</text><text >{{item.exactDataManageMatchField}}</text></view>
+              <view class='row-item'><text>名称</text><text >{{item.name}}</text></view><view class='row-item'><text>用户名</text><text >{{item.userName}}</text></view><view class='row-item'><text>密码</text><text >{{item.password}}</text></view><view class='row-item'><text>yz_project_name</text><text >{{item.yzProjectName}}</text></view><view class='row-item'><text>import_no</text><text >{{item.importNo}}</text></view><view class='row-item'><text>insert_time</text><text >{{item.insertTime}}</text></view><view class='row-item'><text>update_time</text><text >{{item.updateTime}}</text></view><view class='row-item'><text>insert_manager_id</text><text >{{item.insertManagerId}}</text></view><view class='row-item'><text>update_manager_id</text><text >{{item.updateManagerId}}</text></view><view class='row-item'><text>insert_manager_real_name</text><text >{{item.insertManagerRealName}}</text></view><view class='row-item'><text>update_manager_real_name</text><text >{{item.updateManagerRealName}}</text></view><view class='row-item'><text>创建账号名</text><text >{{item.insertUserName}}</text></view><view class='row-item'><text>修改账号名</text><text >{{item.updateUserName}}</text></view><view class='row-item'><text>精确数据管理匹配字段</text><text >{{item.exactDataManageMatchField}}</text></view>
             </view>
           </template>
         </uni-list-item>

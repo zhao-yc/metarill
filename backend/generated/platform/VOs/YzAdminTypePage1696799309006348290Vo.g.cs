@@ -10,6 +10,8 @@ public sealed class YzAdminTypePage1696799309006348290Vo
     public string? Name { get; init; }
     [JsonPropertyName("userName")]
     public string? UserName { get; init; }
+    [JsonPropertyName("password")]
+    public string? Password { get; init; }
     [JsonPropertyName("yzProjectName")]
     public string? YzProjectName { get; init; }
     [JsonPropertyName("importNo")]
@@ -39,6 +41,7 @@ public sealed class YzAdminTypePage1696799309006348290Vo
     {
         Name = entity.Name,
         UserName = entity.UserName,
+        Password = entity.Password,
         YzProjectName = entity.YzProjectName,
         ImportNo = entity.ImportNo,
         InsertTime = entity.InsertTime,

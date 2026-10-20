@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "8287b6e71f28d377450b94da1557d97d67967390873c98b4ed56c02f3b7b565a",
+  "metadataSha256": "651b36ddc4348e7f25501ec3c563f2761c63ceb81e9f51477a0786b11af6765d",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -58,7 +58,7 @@
     },
     {
       "path": "Controllers/YzAdminTypePage1696799309006348290Controller.g.cs",
-      "sha256": "7eb8550a93a18dc540579c6f7909bcf3ba0b7f3fd24c24d368c796b875ade65c"
+      "sha256": "6f30cc5c1af757a825454c24c1e12fa3e7bd5d8eb627ffc01f10c64397f67626"
     },
     {
       "path": "Controllers/YzManagerDevicesPage6220589291798528Controller.g.cs",
@@ -138,7 +138,7 @@
     },
     {
       "path": "DTOs/YzAdminTypePage1696799309006348290Requests.g.cs",
-      "sha256": "909ecd7ded6a3f0a5e44d8ebe0cab9b23dd52e1dde16ec341998984bc0821d2f"
+      "sha256": "d0e94a08f0987a5156e36fb723d6f4a76c09eed6cd8ee49e1723f14cd8f5c8c5"
     },
     {
       "path": "DTOs/YzManagerDevicesPage6220589291798528Requests.g.cs",
@@ -262,7 +262,7 @@
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
-      "sha256": "cd356623749e66a15cc1b96018af53b25d94f9b1f269f2f74ce4966b9ad6867a"
+      "sha256": "aeb0fa9ddcce9b5fb01340cc8f2df5dc93716e7bbfc5f2824e5ce36012e8f715"
     },
     {
       "path": "Mappers/ConfigButtonMapper.g.cs",
@@ -410,7 +410,7 @@
     },
     {
       "path": "Services/YzAdminTypeService.g.cs",
-      "sha256": "8edfa9236f8786af68b2f25a3f31a284297d740126e220c498d27b623718d38e"
+      "sha256": "ab938a23fa5e043b2ea2806198fd240f357c59d87758f90888a65f7e533031a2"
     },
     {
       "path": "Services/YzFileLibraryFolderService.g.cs",
@@ -506,7 +506,7 @@
     },
     {
       "path": "VOs/YzAdminTypePage1696799309006348290Vo.g.cs",
-      "sha256": "e7c72082f44ef122c589b3b3ac26fcb4d69d8699d6fb4b9f7e53697db3e71e53"
+      "sha256": "0ff54e2e01401f4b0d0a9591b64e75495292a60bc3937b99ebcdec2fbb0647ad"
     },
     {
       "path": "VOs/YzManagerDevicesPage6220589291798528Vo.g.cs",
@@ -534,7 +534,7 @@
     },
     {
       "path": "frontend/common/yzp_runtime/page-write-schema.generated.json",
-      "sha256": "e0ddb1e32e966784648f77069b26fe72a987743518abb8571fad9526f1dfa09b"
+      "sha256": "a98455a6aacac1e38218c4843fa72dff1b6f5e5ef498c31edac32b4341dc5c1f"
     },
     {
       "path": "frontend/pages.generated.json",
@@ -646,11 +646,11 @@
     },
     {
       "path": "frontend/pages/yzp/yz_admin_type-detail-1696799309006348290.vue",
-      "sha256": "cb2dc843d2311303bc37db9ccd910c39ee88559dd7a7eeb1f0139764a241bc41"
+      "sha256": "e5617c7397b4ce2976b8ac85b55878df4c5f875bba2cbbb18e9102f05f066384"
     },
     {
       "path": "frontend/pages/yzp/yz_admin_type-list-1696799309006348290.vue",
-      "sha256": "a95f6451f8e6e1909339838bde94b7f0a10d9e35d96f70a4a673235e0981c872"
+      "sha256": "7004e0d3c340caf1c8cd426463a5c9ccd5f5819a131b45ed15e89b046b4a84b3"
     },
     {
       "path": "frontend/pages/yzp/yz_manager-detail-6031906822946816.vue",

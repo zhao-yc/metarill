@@ -116,6 +116,7 @@ public partial class YzAdminTypeService
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.UserName.IsSpecified) { entity.UserName = request.UserName.Value; submitted.Add("user_name"); }
+        if (request.Password.IsSpecified) { entity.Password = request.Password.Value; submitted.Add("password"); }
         if (request.ImportNo.IsSpecified) { entity.ImportNo = request.ImportNo.Value; submitted.Add("import_no"); }
         if (request.ExactDataManageMatchField.IsSpecified) { entity.ExactDataManageMatchField = request.ExactDataManageMatchField.Value; submitted.Add("exact_data_manage_match_field"); }
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
@@ -130,6 +131,8 @@ public partial class YzAdminTypeService
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations1696799309006348290Async(entity, actor, true, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (entity.UserName is { Length: > 50 }) throw new ArgumentException("\u7528\u6237\u540D\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
+        if (entity.Password is { Length: > 50 }) throw new ArgumentException("\u5BC6\u7801\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
         await ValidateMutationAsync("1696799309006348290", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyYzAdminTypeAsync("1696799309006348290", entity, actor, submitted, false, true, cancellationToken);
@@ -147,6 +150,7 @@ public partial class YzAdminTypeService
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.UserName.IsSpecified) { entity.UserName = request.UserName.Value; submitted.Add("user_name"); }
+        if (request.Password.IsSpecified) { entity.Password = request.Password.Value; submitted.Add("password"); }
         if (request.ImportNo.IsSpecified) { entity.ImportNo = request.ImportNo.Value; submitted.Add("import_no"); }
         if (request.ExactDataManageMatchField.IsSpecified) { entity.ExactDataManageMatchField = request.ExactDataManageMatchField.Value; submitted.Add("exact_data_manage_match_field"); }
         entity.UpdateTime = DateTime.UtcNow;
@@ -160,6 +164,8 @@ public partial class YzAdminTypeService
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations1696799309006348290Async(entity, actor, false, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (submitted.Contains("user_name") && entity.UserName is { Length: > 50 }) throw new ArgumentException("\u7528\u6237\u540D\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
+        if (submitted.Contains("password") && entity.Password is { Length: > 50 }) throw new ArgumentException("\u5BC6\u7801\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
         await ValidateMutationAsync("1696799309006348290", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyYzAdminTypeAsync("1696799309006348290", entity, actor, submitted, false, false, cancellationToken);

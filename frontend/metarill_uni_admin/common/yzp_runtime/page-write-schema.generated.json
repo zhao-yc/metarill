@@ -49,6 +49,7 @@
         "exactDataManageMatchField",
         "importNo",
         "name",
+        "password",
         "userName"
       ],
       "updateFields": [
@@ -56,6 +57,7 @@
         "id",
         "importNo",
         "name",
+        "password",
         "userName"
       ]
     },

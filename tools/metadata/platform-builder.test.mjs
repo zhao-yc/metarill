@@ -106,11 +106,11 @@ test('结构声明缺字段名或类型时由builder明确拒绝', () => {
 });
 
 // 恢复控件以追加方式进入已发布目录，既有数组顺序、三个完整对象和所有固定标识都不能漂移。
-test('原账号三凭据按已发布尾部顺序重建，保留完整对象和1432固定标识', () => withSandbox(workspace => {
+test('原账号三凭据按已发布尾部顺序重建，保留完整对象和1436固定标识', () => withSandbox(workspace => {
   const restoredIds = ['1679698326770069506', '1679698328187744258', '1679698328317767682'];
   const identifiersPath = join(workspace, 'backend/metadata/identifiers.json');
   const beforeIdentifiers = JSON.parse(readFileSync(identifiersPath, 'utf8'));
-  assert.equal(Object.keys(beforeIdentifiers).length, 1432);
+  assert.equal(Object.keys(beforeIdentifiers).length, 1436);
   const rebuilt = generate(workspace);
   assert.deepEqual(rebuilt.configPageColumns.map(field => field.id), canonical.configPageColumns.map(field => field.id), '全目录页字段ID数组顺序必须保持');
   assert.deepEqual(rebuilt.configPageColumns.slice(-3).map(field => field.id), restoredIds);
@@ -127,13 +127,15 @@ test('原账号三凭据按已发布尾部顺序重建，保留完整对象和14
   for (const [key, value] of Object.entries(beforeIdentifiers)) {
     assert.equal(afterIdentifiers[key], value, '既有固定标识逐值保持：' + key);
   }
-  // 原builder会从已发布目录登记缺失键；仅准补这三个原ID别名，不是分配新的元数据ID。
+  // 已登记全部四个恢复控件的原别名，重复重建不再补隐式别名或分配任何新ID。
   const added = Object.fromEntries(Object.entries(afterIdentifiers).filter(([key]) => !Object.hasOwn(beforeIdentifiers, key)));
-  assert.deepEqual(added, {
-    'pagefield:6031906822946816:1679698326770069505': '1679698326770069506',
-    'pagefield:6031906822946816:1679698328187744257': '1679698328187744258',
-    'pagefield:6031906822946816:1679698328317767681': '1679698328317767682',
-  });
+  assert.deepEqual(added, {});
+  for(const [key,id] of Object.entries({
+    'pagefield:6031906822946816:1679698326770069505':'1679698326770069506',
+    'pagefield:6031906822946816:1679698328187744257':'1679698328187744258',
+    'pagefield:6031906822946816:1679698328317767681':'1679698328317767682',
+    'pagefield:1696799309006348290:1696799603148693506':'1696799603148693507'
+  }))assert.equal(afterIdentifiers[key],id);
 }));
 
 // 只修发布顺序，字段内容仍从source推导；禁止为凑摘要而从canonical复制三个对象或忽略差异。
@@ -148,5 +150,26 @@ test('原凭据声明变更仍由source生成且完整目录合同拒绝漂移',
     assert.equal(rebuilt.configPageColumns.find(field => field.id === id).isEdit, 0, '实际消费改变后的原声明');
     assert.deepEqual(rebuilt.configPageColumns.map(field => field.id), canonical.configPageColumns.map(field => field.id));
     assert.throws(() => assert.deepEqual(rebuilt.configPageColumns, canonical.configPageColumns), assert.AssertionError);
+  });
+});
+
+// 原后台初始化账号的密码是配置输入控件，不是已保存登录摘要；不能被通用password名称过滤误删。
+test('完整builder保留原后台初始化密码页字段及旧标识和空初值', () => withSandbox(workspace => {
+  const actual=generate(workspace), field=actual.configPageColumns.filter(value=>value.id==='1696799603148693507');
+  assert.equal(field.length,1,'原密码控件不能只留在旧页面，重建后必须仍有元数据');
+  assert.equal(field[0].configPageId,'1696799309006348290');assert.equal(field[0].configColumnId,'1696799603148693506');
+  assert.equal(field[0].name,'密码');assert.equal(field[0].isShow,1);assert.equal(field[0].isEdit,1);assert.equal(field[0].defaultValue,'');
+  assert.deepEqual(actual.configPageColumns.slice(-4).map(value=>value.id),['1696799603148693507','1679698326770069506','1679698328187744258','1679698328317767682']);
+  assert.deepEqual(actual.configPageColumns.filter(value=>value.id!==field[0].id).map(value=>value.id),canonical.configPageColumns.filter(value=>value.id!==field[0].id).map(value=>value.id));
+  for(const key of ['configTables','configColumns','configIndexes','configIndexColumns'])assert.deepEqual(actual[key],canonical[key],'恢复页面声明不能改变物理模型');
+}));
+
+test('原初始化密码页字段缺失或身份及秘密初值漂移不能补成任意新控件', () => {
+  for(const kind of ['missing','id','default'])withSandbox(workspace=>{
+    const path=join(workspace,'backend/metadata/platform-source.json'),source=JSON.parse(readFileSync(path,'utf8'));
+    const field=source.configPageColumns.find(value=>value.id==='1696799603148693507');assert.ok(field);
+    if(kind==='missing')source.configPageColumns=source.configPageColumns.filter(value=>value!==field);
+    if(kind==='id')field.id='9007199254740993';if(kind==='default')field.defaultValue='不得公开的初值';
+    writeFileSync(path,JSON.stringify(source,null,2)+'\n');assert.throws(()=>generate(workspace));
   });
 });

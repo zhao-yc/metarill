@@ -11,6 +11,8 @@ public sealed class YzAdminTypePage1696799309006348290CreateRequest
     public Optional<string?> Name { get; set; }
     [JsonPropertyName("userName")]
     public Optional<string?> UserName { get; set; }
+    [JsonPropertyName("password")]
+    public Optional<string?> Password { get; set; }
     [JsonPropertyName("importNo")]
     public Optional<string?> ImportNo { get; set; }
     [JsonPropertyName("exactDataManageMatchField")]
@@ -24,6 +26,8 @@ public sealed class YzAdminTypePage1696799309006348290UpdateRequest
     public Optional<string?> Name { get; set; }
     [JsonPropertyName("userName")]
     public Optional<string?> UserName { get; set; }
+    [JsonPropertyName("password")]
+    public Optional<string?> Password { get; set; }
     [JsonPropertyName("importNo")]
     public Optional<string?> ImportNo { get; set; }
     [JsonPropertyName("exactDataManageMatchField")]

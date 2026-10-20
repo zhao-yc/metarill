@@ -21,7 +21,8 @@ public sealed class TrustedSecurityManagementModuleTests
         Assert.Equal(before,Serialize(application)); Assert.Equal(10,physical.ConfigTables.Count); Assert.Equal(10,published.ConfigTables.Count);
         Assert.Equal(6,published.ConfigTables.Count(table=>Read("security").ConfigTables.Any(item=>item.Id==table.Id)));
         Assert.Equal(application.ConfigPages.Count,physical.ConfigPages.Count); Assert.Equal(application.ConfigPages.Count+3,published.ConfigPages.Count);
-        Assert.Equal(62,published.ConfigPageColumns.Count(field=>PageIds.Contains(field.ConfigPageId)));
+        Assert.Equal(63,published.ConfigPageColumns.Count(field=>PageIds.Contains(field.ConfigPageId)));
+        var initializationPassword=published.ConfigPageColumns.Single(field=>field.Id=="1696799603148693507");Assert.Equal("1696799603148693506",initializationPassword.ConfigColumnId);Assert.Equal("1696799309006348290",initializationPassword.ConfigPageId);
         Assert.Equal(MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(physical,"module_fixture")),MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(published,"module_fixture")));
         Assert.All(published.ConfigTables,table=>Assert.Equal(application.YzProjectId,table.YzProjectId));
         foreach(var pageId in PageIds)

@@ -451,6 +451,12 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             if (compatibility.Length != 0) condition = $"({condition}) && !({compatibility})";
             result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");
         }
+        // 原后台初始化用户名/密码沿用页面物理长度；只校验本次提交值，省略字段不触及旧配置。
+        if(table.Source.Id=="1696799308939239425"&&table.Source.TableName=="yz_admin_type"&&page.Source.Id=="1696799309006348290")
+            foreach(var column in page.Writable.Where(column=>column.Type=="string?"&&
+                (column.Source.Id=="1696799603022864386"&&column.Source.ColumnName=="user_name"||column.Source.Id=="1696799603148693506"&&column.Source.ColumnName=="password")))
+                if(int.TryParse(column.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var limit)&&limit>0)
+                    result.AppendLine($"        if ({(updating?$"submitted.Contains({Literal(column.Source.ColumnName)}) && ":"")}entity.{column.Property} is {{ Length: > {limit} }}) throw new ArgumentException({Literal(column.Source.Name+"长度不能超过"+limit+"个字符。")});");
         return result.ToString();
     }
     /// <summary>把固定默认值转为安全的类型表达式。</summary>
