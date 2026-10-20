@@ -324,3 +324,21 @@ Server-200 专属全新库 `1ce30f018ba84e4e` 实际 **2/2、零跳过**：Full 
 487 文件独立新包还通过自身 Release `-warnaserror` 零警告/零错误、离线 npm 安装、Node 闭包和 HBuilderX 5.26 Vue3 Web 发行；只在私有验收副本填写已授权 AppID，源模板不改。包与命令/日志见 [独立应用包](standalone-application.md)。该新包未启动 HTTP 服务或进行浏览器操作，发行不替代正式登录 DOM、完整账号/角色写入、RR、设备、性能或部署验收。
 
 综合私有回执 `.local/standalone-web-authentication-integrated-receipt.json` SHA256 `398b59656f39fa683b78d938ee3ae6688907bbe79604456cc31bd73c9cca3a15` 分列 84、补 1、Fresh 2 及所有未验边界；不将这些不同批次替换为一个完整套件通过数。
+
+## 2026-10-20 4af8875 独立Full正式Web顺序补验
+
+本批在测试源码 `3c8ed14d2d8a17f8f7927a4830d0897437a47391` 集成为 `4af8875c411a4e0c03ef2d6596f2d6d055f53f3e` 后独占执行。Server-200专属脚本编号 `228fdfff592c4283`，仍为两个Fresh Facts、三个随机新空库和一个临时受限数据库账号，实际 **2/2、零失败、零跳过**；不替换前节1ce30结果或累计重复运行。平台Fact保持23/4表，Full从0表显式安装10表、二次0差异及原文件CRUD/受保护下载均保留。
+
+Full追加合同在原文件/业务CRUD之后，真实启动该包Web进程并走原HTTP与MySQL：普通query-only账号真实登录、原菜单/页读允许；同一 `POST initExport` 先由bootstrap返回200票据，再由普通账号403，无权新增403且原数据不变。伪客户端项目/后台/超级上下文不能扩权，自己的Agent类型会话被拒；禁用与撤query在下次请求分别401/403。错误旧密码不改摘要，两个原先真实有效的Web令牌改密后均401且该账号活动session归零，新密码登录/旧密码拒绝。
+
+bootstrap本人已改密码不会被原初始化配置重置；真实进程重启后，普通账号改密后签发的原持久令牌仍可读页/回读query权限，退出后401且活动session为0。普通角色、账号及授权为完全自有package库的明确夹具种子，不伪称走了尚未下发的安全管理CRUD。整个场景是顺序HTTP/数据库验收，没有新增RR/并发锁或浏览器DOM结论。
+
+私有 `.local/fresh-install/228fdfff592c4283/` 的证据分别为：
+
+- `result.json` SHA256 `0b5b2a298eae43a5945807bdbd3cbdd47c9a74918b137e036cc334a87a00b3a3`：2通过/0失败/0跳过、3库及1临时数据库账号均已清理、凭据文件已删。
+- `fresh-install.trx` SHA256 `4163824c1602ea1e0f5096fc796036f2f9e59c9b111f1dce693d088a6dd80729`：仍是两个原Fresh方法，另保留 `test.log` 与0警告/0错误的 `build.log`。
+- `cleanup-verification.json` SHA256 `57900dcdcb76eac5936b57a4d954b41f311c74e4c543f83c39156e86593d362d`：独立只读回查剩余库0、账号0、所有权文件不存在；本机 `settings.json` 已不存在。
+
+另一个 `.local/fresh-web-http-integrated.trx` **5/5、零跳过**仅为无端口/无数据库的HttpMessageHandler协议合同，SHA256 `4d17ff10d02c111513cbda63451f35e655fd0475fcff3f0d781708d2e37faa1d`；不将这五项称为实库或并成七项Fresh。完整细项见[正式Web宿主](standalone-web-authentication.md)。
+
+原84+单独1、1ce30两项与487文件HBuilderX发行证据均保持各自冻结与边界。共享Security中的角色工作台Business存在不等于独立宿主已注册完整目录证明/协调器/安全CRUD；Runtime A、三份安全Service手写partial、五处Custom、Agent、浏览器完整账号写入、设备和同条件性能仍按各自未验收门槛处理。
