@@ -142,6 +142,7 @@ public sealed partial class ApiAcceptanceTests
         foreach(var expected in registry.Platform.ConfigTables)Assert.Contains(current.ConfigTables,t=>t.Id==expected.Id&&t.TableName==expected.TableName);
         foreach(var expected in registry.Platform.ConfigColumns)Assert.Contains(current.ConfigColumns,c=>c.Id==expected.Id&&c.ConfigTableId==expected.ConfigTableId&&c.ColumnName==expected.ColumnName);
     }
+    /// <summary>按原V8由同后台真实super授予/撤销，普通账号保持只读，工作区不能扩张角色管理范围。</summary>
     [MySqlApiFact]
     public async Task Resource_permissions_do_not_turn_menu_visibility_into_write_access()
     {
@@ -149,15 +150,24 @@ public sealed partial class ApiAcceptanceTests
         var store=factory.Services.GetRequiredService<Metarill.Runtime.Persistence.SqlRowStore>();
         var ids=factory.Services.GetRequiredService<Metarill.Core.Security.IIdGenerator>();
         var role=ids.NextId();var account=ids.NextId();var username="permission-"+account;var password=Guid.NewGuid().ToString("N");
+        var realmRole=ids.NextId();var realmAccount=ids.NextId();var realmUsername="realm-owner-"+realmAccount;
+        using var realm=factory.CreateClient();
         try
         {
             await store.InsertAsync("yz_role",new Dictionary<string,object?>{{"id",role},{"name","验收只读角色"},{"is_super",0},{"yz_project_id",long.Parse(Project)},{"yz_admin_type_id",2200000000000100001L}});
             await store.InsertAsync("yz_manager",new Dictionary<string,object?>{{"id",account},{"name",username},{"password",Metarill.Runtime.Security.PasswordHasher.Hash(password)},{"yz_role_ids",JsonSerializer.Serialize(new[]{role.ToString()})},{"is_disabled",0},{"yz_project_id",long.Parse(Project)},{"yz_admin_type_id",2200000000000100001L}});
-            var snapshot=Data(await Post(client,"/admin/sys/yzp_permission/snapshot",new{roleId=role.ToString()}));
+            await store.InsertAsync("yz_role",new Dictionary<string,object?>{{"id",realmRole},{"name","验收同后台超级角色"},{"is_super",1},{"yz_project_id",long.Parse(Project)},{"yz_admin_type_id",2200000000000100001L}});
+            await store.InsertAsync("yz_manager",new Dictionary<string,object?>{{"id",realmAccount},{"name",realmUsername},{"password",Metarill.Runtime.Security.PasswordHasher.Hash(password)},{"yz_role_ids",JsonSerializer.Serialize(new[]{realmRole.ToString()})},{"is_disabled",0},{"yz_project_id",long.Parse(Project)},{"yz_admin_type_id",2200000000000100001L}});
+            var realmLogin=await Body(await realm.PostAsync("/api/admin/sys/yz_manager/login",new FormUrlEncodedContent(new Dictionary<string,string>{{"username",realmUsername},{"password",password}})));Data(realmLogin);
+            realm.DefaultRequestHeaders.Add("loginStateId",realmLogin.GetProperty("map").GetProperty("loginStateId").GetString());
+            realm.DefaultRequestHeaders.Add("sysParams",Uri.EscapeDataString(JsonSerializer.Serialize(new{yzProjectId=Project})));
+            // 平台super选择业务workspace仍不能越过原Workbench的真实后台边界。
+            Assert.Equal(500,(await Post(client,"/admin/sys/yzp_permission/snapshot",new{roleId=role.ToString()})).GetProperty("code").GetInt32());
+            var snapshot=Data(await Post(realm,"/admin/sys/yzp_permission/snapshot",new{roleId=role.ToString()}));
             var revision=snapshot.GetProperty("revision").GetString();
             var grants=new{menuIds=new[]{"2200000000000100031"},pagePermissions=new Dictionary<string,string[]>{{"2200000000000100020",["is_query"]}},buttonIds=Array.Empty<string>()};
-            Data(await Post(client,"/admin/sys/yzp_permission/save",new{roleId=role.ToString(),revision,grants}));
-            Assert.Equal(500,(await Post(client,"/admin/sys/yzp_permission/save",new{roleId=role.ToString(),revision,grants})).GetProperty("code").GetInt32());
+            Data(await Post(realm,"/admin/sys/yzp_permission/save",new{roleId=role.ToString(),revision,grants}));
+            Assert.Equal(500,(await Post(realm,"/admin/sys/yzp_permission/save",new{roleId=role.ToString(),revision,grants})).GetProperty("code").GetInt32());
             using var ordinary=factory.CreateClient();
             var login=await Body(await ordinary.PostAsync("/api/admin/sys/yz_manager/login",new FormUrlEncodedContent(new Dictionary<string,string>{{"username",username},{"password",password}})));Data(login);
             ordinary.DefaultRequestHeaders.Add("loginStateId",login.GetProperty("map").GetProperty("loginStateId").GetString());
@@ -168,16 +178,22 @@ public sealed partial class ApiAcceptanceTests
             var state=Data(await Body(await ordinary.GetAsync("/api/admin/sys/yz_manager/getCurrentPermissions")));
             Assert.Contains("is_query",state.GetProperty("pagePermissions").GetProperty("2200000000000100020").EnumerateArray().Select(x=>x.GetString()));
             var noPages=new{menuIds=new[]{"2200000000000100031"},pagePermissions=new Dictionary<string,string[]>(),buttonIds=Array.Empty<string>()};
-            var current=Data(await Post(client,"/admin/sys/yzp_permission/snapshot",new{roleId=role.ToString()}));
-            Data(await Post(client,"/admin/sys/yzp_permission/save",new{roleId=role.ToString(),revision=current.GetProperty("revision").GetString(),grants=noPages}));
+            var current=Data(await Post(realm,"/admin/sys/yzp_permission/snapshot",new{roleId=role.ToString()}));
+            Data(await Post(realm,"/admin/sys/yzp_permission/save",new{roleId=role.ToString(),revision=current.GetProperty("revision").GetString(),grants=noPages}));
             Assert.Equal(500,(await Post(ordinary,"/admin/auto/demo_customer/2200000000000100020/page",new{filters=new{}})).GetProperty("code").GetInt32());
         }
         finally
         {
-            foreach(var permission in await store.ReadAsync("yz_role_permission",new Dictionary<string,object?>{{"yz_role_id",role}}))await store.UpdateAsync("yz_role_permission",Metarill.Runtime.Persistence.SqlRowStore.Id(permission),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
-            foreach(var session in await store.ReadAsync("sys_session",new Dictionary<string,object?>{{"account_id",account}}))await store.UpdateAsync("sys_session",Metarill.Runtime.Persistence.SqlRowStore.Id(session),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
-            await store.UpdateAsync("yz_manager",account,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
-            await store.UpdateAsync("yz_role",role,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            foreach(var ownedRole in new[]{role,realmRole})
+            {
+                foreach(var permission in await store.ReadAsync("yz_role_permission",new Dictionary<string,object?>{{"yz_role_id",ownedRole}}))await store.UpdateAsync("yz_role_permission",Metarill.Runtime.Persistence.SqlRowStore.Id(permission),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+                await store.UpdateAsync("yz_role",ownedRole,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            }
+            foreach(var ownedAccount in new[]{account,realmAccount})
+            {
+                foreach(var session in await store.ReadAsync("sys_session",new Dictionary<string,object?>{{"account_id",ownedAccount}}))await store.UpdateAsync("sys_session",Metarill.Runtime.Persistence.SqlRowStore.Id(session),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+                await store.UpdateAsync("yz_manager",ownedAccount,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            }
         }
     }
     [MySqlApiFact]

@@ -101,20 +101,24 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
 public sealed class RoleAuthorizationSecurityRegressionTests
 {
     [AgentIntegrationFact]
-    public async Task NonAdministratorWithActualRolePageGrantCannotPromoteViaHttpOrService()
+    public async Task Transitional_role_crud_gate_stays_closed_while_workbench_checks_original_role_page_draft()
     {
         await using var f = await RoleSecurityFixture.CreateAsync(); await f.GrantAsync(f.RolePage, "is_all", "is_update", "is_new");
         var identity = await f.IdentityAsync(); Assert.False(identity.Actor.IsAdministrator); Assert.Contains(f.RolePage + ":is_all", identity.Permissions);
-        // 原攻击路径：自己持有角色页写权限，提交isSuper=1；平台门禁应在控制器调用Service前阻断。
+        // 迁移中的角色CRUD暂态门禁仍保留；后续按用户确认的原V8规则恢复，不能把此拒绝作为最终策略。
         Assert.Equal(HttpStatusCode.Forbidden, (await f.UpdateHttpAsync(new { id = f.RoleId.ToString(), isSuper = 1 })).StatusCode);
         Assert.Equal("0", SqlRowStore.Text(await f.RoleAsync(), "is_super"));
         var request = JsonSerializer.Deserialize<YzRolePage1692532858529329154UpdateRequest>(JsonSerializer.Serialize(new { id = f.RoleId.ToString(), isSuper = 1 }), JsonDefaults.Options)!;
-        // 内部入口即使绕过HTTP页鉴权，也必须由手写partial钩子阻止提升。
+        // 手写partial的同一暂态门禁尚未在本工作台切片解除，前后实际角色值必须保持不变。
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service().Update1692532858529329154Async(request, null, identity.Actor, CancellationToken.None));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service().Create1692532858529329154Async(new() { Name = new("不可提权角色"), IsSuper = new(1) }, null, identity.Actor, CancellationToken.None));
         Assert.Equal("0", SqlRowStore.Text(await f.RoleAsync(), "is_super")); Assert.False((await f.IdentityAsync()).Actor.IsAdministrator);
-        var business = new RolePermissionBusiness(f.Store, new MetadataRepository(f.Store, f.Registry), RoleSecurityFixture.Authorization(identity, f.Registry), new SnowflakeIdGenerator(856));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.SaveAsync(new(f.RoleId.ToString(), new string('a', 64), new([], new(), []))));
+        var business = new RolePermissionBusiness(f.Store, new MetadataRepository(f.Store, f.Registry), RoleSecurityFixture.Authorization(identity, f.Registry), new SnowflakeIdGenerator(856), f.Registry);
+        // 原角色页is_all允许工作台修改，但固定陈旧revision仍拒；不再用额外超级门槛替代版本校验。
+        var filter=new Dictionary<string,object?>{{"yz_role_id",f.RoleId}};
+        var before=JsonSerializer.Serialize(await f.Store.ReadAsync("yz_role_permission",filter));
+        var conflict=await Assert.ThrowsAsync<InvalidOperationException>(() => business.SaveAsync(new(f.RoleId.ToString(), new string('a', 64), new([], new(), []))));
+        Assert.Contains("YZP_CONFLICT",conflict.Message);Assert.Equal(before,JsonSerializer.Serialize(await f.Store.ReadAsync("yz_role_permission",filter)));
     }
 
     [AgentIntegrationFact]

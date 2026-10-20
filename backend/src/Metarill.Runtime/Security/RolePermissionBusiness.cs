@@ -12,18 +12,25 @@ public sealed record RolePermissionGrants(IReadOnlyList<string> MenuIds,Dictiona
 public sealed record RolePermissionSave(string RoleId,string Revision,RolePermissionGrants Grants);
 
 /// <summary>独立保存菜单显示、页面动作和按钮授权，不从菜单推导页面写权限。</summary>
-public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IIdGenerator ids)
+public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository metadata,HttpRuntimeAuthorization authorization,IIdGenerator ids,MetadataRegistry registry)
 {
     private static readonly HashSet<string> Actions=["is_query","is_new","is_update","is_delete","is_export","is_all"];
     public async Task<object> RolesAsync(CancellationToken token=default)
     {
-        var principal=Principal();
+        var principal=await Principal(token);
+        if(!principal.Identity.IsRealmSuper)RequireRoleAction(principal,await Catalog(principal,token),"is_query");
         return new{supported=true,roles=(await store.ReadAsync("yz_role",new Dictionary<string,object?>{{"yz_admin_type_id",long.Parse(principal.AdminTypeId)}},token)).Select(r=>new{id=SqlRowStore.Text(r,"id"),name=SqlRowStore.Text(r,"name"),isSuper=SqlRowStore.Text(r,"is_super")=="1"})};
     }
     public async Task<object> SnapshotAsync(string roleId,CancellationToken token=default)
     {
-        var principal=Principal();var role=await Role(roleId,principal.AdminTypeId,false,token);
-        var catalog=await Catalog(principal,token);var rows=await Grants(roleId,false,token);
+        var principal=await Principal(token);var role=await Role(roleId,principal,false,token);
+        var catalog=await Catalog(principal,token);RequireRoleAction(principal,catalog,"is_query");
+        return Snapshot(role,catalog,await Grants(roleId,false,token));
+    }
+    /// <summary>写入口只需原修改动作；内部生成回执不额外要求查询权，避免提交成功后又返回无权。</summary>
+    private static object Snapshot(Dictionary<string,object?> role,RealmCatalog catalog,IReadOnlyList<Dictionary<string,object?>> rows)
+    {
+        var roleId=SqlRowStore.Text(role,"id");
         object[] Tree(string? parent)=>catalog.ConfigMenus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).Select(m=>(object)new{m.Id,m.Name,parentId=m.ParentMenuId,kind=m.Kind,children=Tree(m.Id)}).ToArray();
         var pageGrants=new Dictionary<string,string[]>();
         foreach(var row in rows){var page=SqlRowStore.Text(row,"config_page_id");if(page.Length>0)pageGrants[page]=Values(SqlRowStore.Text(row,"permission_values"));}
@@ -35,14 +42,14 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
     /// <summary>聚合锁与版本比较均在实际数据库事务内；先验证整份草稿再写入。</summary>
     public async Task<object> SaveAsync(RolePermissionSave request,CancellationToken token=default)
     {
-        var principal=Principal();var actor=principal.Actor;
-        await store.Session.InTransactionAsync(async()=>
+        var principal=await Principal(token);var actor=principal.Actor;
+        return await store.Session.InTransactionAsync(async()=>
         {
             await store.ReadForUpdateAsync("yz_project",new Dictionary<string,object?>{{"id",long.Parse(principal.ProjectId)}},token);
-            var role=await Role(request.RoleId,principal.AdminTypeId,true,token);
+            var role=await Role(request.RoleId,principal,true,token);
+            var catalog=await Catalog(principal,token);RequireRoleAction(principal,catalog,"is_update");
             if(SqlRowStore.Text(role,"is_super")=="1")throw new InvalidOperationException("超级管理员权限由角色属性确定，不能在资源工作台改写。");
             var existing=await Grants(request.RoleId,true,token);
-            var catalog=await Catalog(principal,token);
             if(request.Revision!=Revision(role,catalog,existing))throw new InvalidOperationException("YZP_CONFLICT：角色授权或资源目录已变化，请重新读取。");
             if(request.Grants.MenuIds.Count+request.Grants.ButtonIds.Count+request.Grants.PagePermissions.Count>5000)throw new ArgumentException("授权资源数量过多。");
             foreach(var menu in request.Grants.MenuIds)if(!catalog.ConfigMenus.Any(m=>m.Id==menu&&!string.IsNullOrEmpty(m.ParentMenuId)))throw new ArgumentException("菜单授权包含不存在或不可授权的节点。");
@@ -61,32 +68,58 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
             foreach(var menu in request.Grants.MenuIds.Distinct())await Add("config_menu_id",menu,[]);
             foreach(var(page,actions)in request.Grants.PagePermissions.OrderBy(p=>p.Key,StringComparer.Ordinal))if(actions.Length>0)await Add("config_page_id",page,actions.Distinct().Order(StringComparer.Ordinal).ToArray());
             foreach(var button in request.Grants.ButtonIds.Distinct())await Add("config_button_id",button,[]);
-            return true;
+            return Snapshot(role,catalog,await Grants(request.RoleId,true,token));
         },token);
-        return await SnapshotAsync(request.RoleId,token);
     }
-    private async Task<Dictionary<string,object?>> Role(string id,string admin,bool locked,CancellationToken token)
+    /// <summary>请求只定位真实角色；后台和项目从角色及实际后台记录推导，不采用兼容project列。</summary>
+    private async Task<Dictionary<string,object?>> Role(string id,PrincipalScope principal,bool locked,CancellationToken token)
     {
         if(!long.TryParse(id,out var roleId)||roleId<=0)throw new ArgumentException("角色标识无效。");
-        var filters=new Dictionary<string,object?>{{"id",roleId},{"yz_admin_type_id",long.Parse(admin)}};
-        return (locked?await store.ReadForUpdateAsync("yz_role",filters,token):await store.ReadAsync("yz_role",filters,token)).SingleOrDefault()??throw new UnauthorizedAccessException("角色不属于当前身份后台。");
+        var filters=new Dictionary<string,object?>{{"id",roleId}};
+        var role=(locked?await store.ReadForUpdateAsync("yz_role",filters,token):await store.ReadAsync("yz_role",filters,token)).SingleOrDefault();
+        if(role is null||SqlRowStore.Text(role,"yz_admin_type_id")!=principal.AdminTypeId)throw new UnauthorizedAccessException("角色不属于当前身份后台。");
+        var admin=(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"id",long.Parse(SqlRowStore.Text(role,"yz_admin_type_id"))}},token)).SingleOrDefault();
+        if(admin is null||SqlRowStore.Text(admin,"yz_project_id")!=principal.ProjectId)throw new UnauthorizedAccessException("角色所属后台已变化，请重新登录。");
+        return role;
     }
     private Task<List<Dictionary<string,object?>>> Grants(string role,bool locked,CancellationToken token)
     {
         var filters=new Dictionary<string,object?>{{"yz_role_id",long.Parse(role)}};
         return locked?store.ReadForUpdateAsync("yz_role_permission",filters,token):store.ReadAsync("yz_role_permission",filters,token);
     }
-    private sealed record PrincipalScope(RuntimeActor Actor,string AdminTypeId,string ProjectId);
-    private sealed record RealmCatalog(IReadOnlyList<MenuMetadata> ConfigMenus,IReadOnlyList<PageMetadata> ConfigPages,IReadOnlyList<JsonElement> ConfigButtons);
+    private sealed record PrincipalScope(RuntimeActor Actor,AuthenticatedIdentity Identity,string AdminTypeId,string ProjectId);
+    private sealed record RealmCatalog(IReadOnlyList<MenuMetadata> ConfigMenus,IReadOnlyList<PageMetadata> ConfigPages,IReadOnlyList<JsonElement> ConfigButtons,IReadOnlySet<string> RoleTableIds);
 
-    /// <summary>本小片保留既有平台管理员入口；真实身份后台与顶栏工作区不能混用。</summary>
-    private PrincipalScope Principal()
+    /// <summary>真实账号、后台、项目逐项核对；工作区选择不会切换身份或给跨后台角色授权。</summary>
+    private async Task<PrincipalScope> Principal(CancellationToken token)
     {
-        var actor=authorization.RequireAdministrator();var identity=authorization.RequireIdentity();
-        if(!long.TryParse(identity.PrincipalAdminTypeId,out var admin)||admin<=0||
-            !long.TryParse(identity.PrincipalProjectId,out var project)||project<=0||actor.AdminTypeId!=identity.PrincipalAdminTypeId)
+        var identity=authorization.RequireIdentity();var actor=authorization.RequireActor();
+        if(actor.AccountId<=0||!long.TryParse(identity.PrincipalAdminTypeId,out var adminId)||adminId<=0||
+            !long.TryParse(identity.PrincipalProjectId,out var projectId)||projectId<=0||actor.AdminTypeId!=identity.PrincipalAdminTypeId)
             throw new UnauthorizedAccessException("当前身份后台无效。");
-        return new(actor,identity.PrincipalAdminTypeId,identity.PrincipalProjectId);
+        var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"id",actor.AccountId}},token)).SingleOrDefault();
+        if(account is null||!AuthenticationService.AccountActive(account)||SqlRowStore.Text(account,"yz_admin_type_id")!=identity.PrincipalAdminTypeId)
+            throw new UnauthorizedAccessException("当前身份后台已变化，请重新登录。");
+        var admin=(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"id",adminId}},token)).SingleOrDefault();
+        if(admin is null||SqlRowStore.Text(admin,"yz_project_id")!=identity.PrincipalProjectId||
+            (await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",projectId}},token)).Count!=1)
+            throw new UnauthorizedAccessException("当前身份后台或项目不存在。");
+        return new(actor,identity,SqlRowStore.Text(admin,"id"),SqlRowStore.Text(admin,"yz_project_id"));
+    }
+
+    /// <summary>沿用原V8同后台super或角色页动作权；其它页面、未发布页和跨后台脏权限均不能替代。</summary>
+    private void RequireRoleAction(PrincipalScope principal,RealmCatalog catalog,string action)
+    {
+        if(action is not ("is_query" or "is_update"))throw new InvalidOperationException("角色工作台动作无效。");
+        if(principal.Identity.IsRealmSuper)return;
+        var published=new[]{registry.Platform,registry.Demo}.Where(model=>model.YzProjectId==principal.ProjectId).ToArray();
+        foreach(var page in catalog.ConfigPages.Where(page=>catalog.RoleTableIds.Contains(page.ConfigTableId)&&PageActions(page).Contains(action)))
+        {
+            var fixedPage=published.SelectMany(model=>model.ConfigPages).SingleOrDefault(candidate=>candidate.Id==page.Id&&candidate.ConfigTableId==page.ConfigTableId&&candidate.YzAdminTypeId==principal.AdminTypeId&&candidate.YzProjectId==principal.ProjectId);
+            if(fixedPage is null||!published.SelectMany(model=>model.ConfigTables).Any(table=>table.Id==fixedPage.ConfigTableId&&table.TableName=="yz_role"))continue;
+            if(principal.Identity.Permissions.Contains(page.Id+":"+action)||principal.Identity.Permissions.Contains(page.Id+":is_all"))return;
+        }
+        throw new UnauthorizedAccessException(action=="is_query"?"缺少当前后台角色配置页的查询权限。":"缺少当前后台角色配置页的修改权限。");
     }
 
     /// <summary>先读身份项目，再筛真实同后台资源；同项目的其他后台也不能混进授权目录。</summary>
@@ -96,7 +129,8 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
         var pages=catalog.ConfigPages.Where(page=>page.YzAdminTypeId==principal.AdminTypeId&&page.YzProjectId==principal.ProjectId).ToArray();
         var pageIds=pages.Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         return new(catalog.ConfigMenus.Where(menu=>menu.YzAdminTypeId==principal.AdminTypeId&&menu.YzProjectId==principal.ProjectId).ToArray(),pages,
-            catalog.ConfigButtons.Where(button=>button.ValueKind==JsonValueKind.Object&&button.TryGetProperty("configPageId",out var page)&&pageIds.Contains(page.ToString())).ToArray());
+            catalog.ConfigButtons.Where(button=>button.ValueKind==JsonValueKind.Object&&button.TryGetProperty("configPageId",out var page)&&pageIds.Contains(page.ToString())).ToArray(),
+            catalog.ConfigTables.Where(table=>table.TableName=="yz_role").Select(table=>table.Id).ToHashSet(StringComparer.Ordinal));
     }
 
     /// <summary>角色语义、同后台目录及全部源授权共同组成版本；摘要不输出目录原文或SQL。</summary>
@@ -105,7 +139,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,MetadataRepository 
         var source=new
         {
             role=new{id=SqlRowStore.Text(role,"id"),adminTypeId=SqlRowStore.Text(role,"yz_admin_type_id"),isSuper=SqlRowStore.Text(role,"is_super"),isScope=SqlRowStore.Text(role,"is_scope")},
-            catalog=new{menus=catalog.ConfigMenus.OrderBy(menu=>menu.Id,StringComparer.Ordinal),pages=catalog.ConfigPages.OrderBy(page=>page.Id,StringComparer.Ordinal),buttons=catalog.ConfigButtons.OrderBy(button=>button.GetProperty("id").ToString(),StringComparer.Ordinal)},
+            catalog=new{roleTableIds=catalog.RoleTableIds.Order(StringComparer.Ordinal),menus=catalog.ConfigMenus.OrderBy(menu=>menu.Id,StringComparer.Ordinal),pages=catalog.ConfigPages.OrderBy(page=>page.Id,StringComparer.Ordinal),buttons=catalog.ConfigButtons.OrderBy(button=>button.GetProperty("id").ToString(),StringComparer.Ordinal)},
             rows=rows.OrderBy(row=>SqlRowStore.Id(row)).Select(row=>row.OrderBy(field=>field.Key,StringComparer.Ordinal).ToDictionary(field=>field.Key,field=>field.Value,StringComparer.Ordinal))
         };
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(source,JsonDefaults.Options)))).ToLowerInvariant();
