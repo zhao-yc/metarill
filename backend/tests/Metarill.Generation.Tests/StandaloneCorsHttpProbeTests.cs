@@ -7,18 +7,19 @@ namespace Metarill.Generation.Tests;
 /// <summary>测试探针预算本身；实际独立包HTTP仍由ApplicationPackagerTests验证，不能互相替代。</summary>
 public sealed class StandaloneCorsHttpProbeTests
 {
-    /// <summary>由真实HttpClient单次期限取消首个请求，第二个请求仍可在总预算内就绪。</summary>
+    /// <summary>可控模拟首个请求单次超时取消，整体token仍有效；真实宿主HTTP由独立包用例另验。</summary>
     [Fact]
     public async Task Single_http_timeout_does_not_end_the_overall_startup_budget()
     {
         var calls = 0;
-        using var handler = new ProbeHandler(async token =>
+        using var handler = new ProbeHandler(token =>
         {
-            if (Interlocked.Increment(ref calls) == 1) await Task.Delay(TimeSpan.FromSeconds(5), token);
-            return new(HttpStatusCode.OK);
+            Assert.False(token.IsCancellationRequested);
+            if (Interlocked.Increment(ref calls) == 1) return Task.FromCanceled<HttpResponseMessage>(new CancellationToken(canceled: true));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         });
-        using var client = new HttpClient(handler) { BaseAddress = new("http://127.0.0.1:1"), Timeout = TimeSpan.FromMilliseconds(30) };
-        Assert.True(await StandaloneCorsHttpProbe.WaitUntilReadyAsync(client, () => false, TimeSpan.FromSeconds(2)));
+        using var client = new HttpClient(handler) { BaseAddress = new("http://127.0.0.1:1") };
+        Assert.True(await StandaloneCorsHttpProbe.WaitUntilReadyAsync(client, () => false, TimeSpan.FromSeconds(10)));
         Assert.Equal(2, calls);
     }
 

@@ -69,7 +69,11 @@ async function fixture(t) {
         assert.equal(data.grant_type, 'urn:ietf:params:oauth:grant-type:device_code');
         assert.equal(data.device_code, 'test-device-secret');
         if (state.refused) return send({ error: 'access_denied', error_description: 'test-device-secret' }, 400);
-        if (state.slowDown) { state.slowDown = false; return send({ error: 'slow_down' }, 400); }
+        // 真实HTTP返回明确业务错误；不以几十毫秒设备期限与本机网络调度竞争来模拟expired_token。
+        if (state.deviceGrantErrors?.length) {
+          state.deviceGrantErrorTimes.push(performance.now());
+          return send({ error: state.deviceGrantErrors.shift() }, 400);
+        }
         if (state.pending-- > 0) return send({ error: 'authorization_pending' }, 400);
         return send(tokenResponse());
       }
@@ -198,22 +202,29 @@ test('设备授权、CRUD、复制、确认动作与撤销完整闭环', async (
   assert.equal((await invoke('auth', 'status')).error.error, 'not_authorized');
 });
 
-test('授权拒绝、过期与 slow_down 不保存凭据', async (t) => {
+test('授权拒绝、过期与 slow_down 不保存凭据', { timeout: 20_000 }, async (t) => {
   const { state, invoke, store } = await fixture(t);
   state.refused = true;
   assert.equal((await invoke('auth', 'login', '--url', state.baseUrl)).code, 1);
   assert.deepEqual((await store.read()).profiles, {});
   state.refused = false;
-  state.pending = 999;
-  state.deviceExpires = 0.04;
+  state.deviceExpires = 30;
+  state.deviceGrantErrors = ['expired_token'];
+  state.deviceGrantErrorTimes = [];
   const expired = await invoke('auth', 'login', '--url', state.baseUrl);
+  assert.equal(expired.code, 1);
   assert.match(expired.stderr, /expired_token/);
-  state.slowDown = true;
-  state.deviceExpires = 0.04;
+  assert.deepEqual((await store.read()).profiles, {});
+  state.deviceGrantErrors = ['slow_down', 'expired_token'];
+  state.deviceGrantErrorTimes = [];
   const before = state.requests.length;
   const slow = await invoke('auth', 'login', '--url', state.baseUrl);
+  assert.equal(slow.code, 1);
   assert.match(slow.stderr, /expired_token/);
-  assert.equal(state.requests.slice(before).filter((entry) => entry.path.endsWith('/token')).length, 1);
+  assert.equal(state.requests.slice(before).filter((entry) => entry.path.endsWith('/token')).length, 2);
+  // 仍实际等待原5秒退避；第二次服务端过期回应有充分HTTP期限，request_timeout由独立用例保留。
+  assert.equal(state.deviceGrantErrorTimes.length, 2);
+  assert.ok(state.deviceGrantErrorTimes[1] - state.deviceGrantErrorTimes[0] >= 5000);
   assert.deepEqual((await store.read()).profiles, {});
 });
 
