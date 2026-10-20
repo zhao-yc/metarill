@@ -107,7 +107,7 @@ export default {
       yz_yzp_version_list:[],
       dbTypeRange:[{"value":1,"text":"MicroSoftSQL"},{"value":2,"text":"MySQL"},{"value":3,"text":"ORACLE"}],
       entity: {
-        name:'',mysqlConnStr:'',shortName:'',dbName:'',contextRoot:'',x5AdminName:'',eclipseBaseName:'',yzYzpVersionId:'2104907095303213057',dbType:'',isHide:'',dbUrl:'',dbUsername:'',dbPassword:'',primaryColor:'#007aff',isSmall:0,
+        name:'',mysqlConnStr:'',shortName:'',dbName:'',contextRoot:'',x5AdminName:'',eclipseBaseName:'',yzYzpVersionId:'2300000000000000001',dbType:'',isHide:'',dbUrl:'',dbUsername:'',dbPassword:'',primaryColor:'#007aff',isSmall:0,
       },
       entity_column_readonly: {
         name:false,mysqlConnStr:false,shortName:false,dbName:false,contextRoot:false,x5AdminName:false,eclipseBaseName:false,yzYzpVersionId:false,dbType:false,isHide:false,dbUrl:false,dbUsername:false,dbPassword:false,primaryColor:false,isSmall:false,

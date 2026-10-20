@@ -33,6 +33,7 @@ jobs:
             dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/$target.json --output backend/generated/$target --namespace $namespace
             if ($LASTEXITCODE -ne 0) { throw '重新生成失败' }
           }
+          npm run sync:template-version --prefix frontend/metarill_uni_admin
           npm run sync:write-schema --prefix frontend/metarill_uni_admin
           npm run sync:custom-routes --prefix frontend/metarill_uni_admin
           git diff --exit-code -- backend/generated frontend/metarill_uni_admin
