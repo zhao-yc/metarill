@@ -21,7 +21,7 @@ internal static class OriginalListStatisticsCompilation
             var type=column.Type.TrimEnd('?');
             if(!table.Columns.Any(item=>item.Source.Id==column.Source.Id)||column.IsManagedMultiNames||column.Source.IsVirtualColumn!=0||
                 type is not ("decimal" or "int" or "long"))
-                throw new InvalidOperationException("列表统计字段必须是已支持的可读物理数值："+column.Source.ColumnName);
+                throw new InvalidOperationException("列表统计字段必须是已支持的固定数值读取："+column.Source.ColumnName);
             // 启用翻转复用已有SQL显示表达式，不能把DTO显示值与物理值按不同口径统计。
             result.Add(new(column,kind,ManagerCredentialCompilation.Order(table,page,column)));
         }
@@ -31,6 +31,7 @@ internal static class OriginalListStatisticsCompilation
     /// <summary>统计总量使用未分页的同一固定筛选和身份范围；本页统计只折叠已返回的VO。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
+        if(NonRedundantReadCompilation.Requires(model,table))return BackendRenderer.NonRedundantStatistics(model,table,page);
         var definitions=ForPage(model,table,page);if(definitions is null)return "";
         var suffix=page.Source.Id;
         var source=new StringBuilder().AppendLine("    /// <summary>沿原列表统计口径复用页范围和筛选，聚合不继承分页或排序。</summary>")

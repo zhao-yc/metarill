@@ -10,6 +10,7 @@ internal static class LegacyPageRequestRenderer
     {
         string Array(IEnumerable<string> fields) => "[" + string.Join(", ", fields.Distinct(StringComparer.Ordinal).Select(value => JsonSerializer.Serialize(value))) + "]";
         var echo = page.Readable.Select(column => column.JsonName).Concat(FixedOptionCatalogCompilation.ForPage(model, page).Where(item => page.Readable.Contains(item.Source)).Select(item => item.JsonName)).Concat(page.Readable.Where(column => column.Source.ControlKind is "ConstList" or "ConstDownList").Select(column => column.JsonName + "Show"));
+        if(NonRedundantReadCompilation.Requires(model,table))echo=echo.Concat(NonRedundantReadCompilation.ForPage(model,table,page).Outputs.Select(output=>output.JsonName));
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleCheckboxModel.Alias);
         if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleAdminNameModel.Alias);
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");

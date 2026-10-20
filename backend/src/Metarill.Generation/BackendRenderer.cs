@@ -36,8 +36,9 @@ internal static partial class BackendRenderer
             .AppendLine($"public partial class {table.Name}").AppendLine("{");
         foreach (var column in table.Columns)
         {
-            result.AppendLine($"    [Column(Name = {Literal(column.Source.ColumnName)}, IsPrimary = {column.IsId.ToString().ToLowerInvariant()}, IsIdentity = false, IsNullable = {(column.Source.IsDbNotNull == 0 && !column.IsId).ToString().ToLowerInvariant()})]")
-                .AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]")
+            if(NonRedundantReadCompilation.Requires(model,table)&&!NonRedundantReadCompilation.Physical(model,table,column))result.AppendLine($"    [Column(Name = {Literal(column.Source.ColumnName)}, IsIgnore = true)]");
+            else result.AppendLine($"    [Column(Name = {Literal(column.Source.ColumnName)}, IsPrimary = {column.IsId.ToString().ToLowerInvariant()}, IsIdentity = false, IsNullable = {(column.Source.IsDbNotNull == 0 && !column.IsId).ToString().ToLowerInvariant()})]");
+            result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]")
                 .AppendLine($"    public {column.Type} {column.Property} {{ get; set; }}");
         }
         return result.AppendLine("}").ToString();
@@ -65,6 +66,7 @@ internal static partial class BackendRenderer
     /// <summary>生成页面可读投影、数组控件及原前端使用的常量展示字段。</summary>
     private static string Vo(GenerationModel model, TableModel table, PageModel page)
     {
+        if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantVo(model,table,page);
         var role = FixedRoleCheckboxCompilation.ForPage(model,table,page);
         var roleAdmin = FixedRoleAdminNameCompilation.ForPage(model,table,page);
         var credentials = ManagerCredentialCompilation.IsOriginal(table,page);
@@ -159,7 +161,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
         var hasMulti = RequiresRelationAuthorization(model, table);
         var trustedSecurity=TrustedSecurityServiceCompilation.Applies(model,table);
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
-            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;").AppendLine("using Metarill.Data;").Append(trustedSecurity ? "using Metarill.Runtime.Security;\n" : "")
+            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;") .AppendLine("using Metarill.Data;").Append(NonRedundantReadCompilation.Requires(model,table)?"using Metarill.Data.Queries;\n":"").Append(trustedSecurity ? "using Metarill.Runtime.Security;\n" : "")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
             .AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Mappers;")
             .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; {TrustedSecurityServiceCompilation.GuardsAssignment(model,table)} {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
@@ -209,6 +211,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
     }
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
+        if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantQuery(model,table,page);
         var suffix = page.Source.Id;
         var fixedQuery = FixedPageQueryCompilation.For(table, page);
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
@@ -390,7 +393,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("        var originalScopeValues = MutationScopeValues(source);")
             .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};")
             .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
-        foreach (var column in table.Columns.Where(column => !column.IsSystem))
+        foreach (var column in table.Columns.Where(column => !column.IsSystem&&(!NonRedundantReadCompilation.Requires(model,table)||NonRedundantReadCompilation.Physical(model,table,column))))
             result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
         result.Append(Audit(table, true)).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
             .Append(RequiredValidation(model, table, page, false))
@@ -642,7 +645,7 @@ public partial class {{table.Name}}Service
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
     private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
-    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
+    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => NonRedundantReadCompilation.Requires(model,table)?$"await Detail{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>
     private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,entities,operation,operation != "list" || !ManagerCredentialCompilation.IsOriginal(table,page))
         : FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && FixedRoleAdminNameCompilation.Used(page,admin,operation) ? FixedRoleAdminNameRenderer.ProjectCall(page,entities,operation) : ManagerCredentialCompilation.IsOriginal(table,page) ? $"{entities}.Select(entity => {page.Name}Vo.FromEntity(entity,{(operation == "list" ? "false" : "true")})).ToArray()" : $"{entities}.Select({page.Name}Vo.FromEntity).ToArray()";
@@ -657,6 +660,6 @@ public partial class {{table.Name}}Service
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
                 .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(RequiresRelationAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
-        return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").ToString();
+        return result.AppendLine("        return services;").AppendLine("    }").AppendLine("}").Append(model.Tables.Any(table=>NonRedundantReadCompilation.Requires(model,table))?NonRedundantCatalog(model):"").ToString();
     }
 }

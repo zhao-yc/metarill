@@ -21,7 +21,7 @@ internal static class GenerationCapabilityAudit
         {
             var storage=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);
             if(model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!storage.IsPhysical(column)||table.Source.IsRongyu==0&&MetadataStoragePolicy.IsRelationColumn(column))))
-                gaps.Add(new(page.Source.Id,"","runtime","非冗余派生字段或关系尚需固定读取计划，不能作为物理列下发。"));
+                gaps.Add(new(page.Source.Id,"","runtime","非冗余派生字段的普通单值CRUD已接固定读取；完整应用用途、授权与父范围及跨端仍待验收。"));
             // 原统计声明的类型和可读边界必须在完整包stage创建之前验证。
             _=OriginalListStatisticsCompilation.ForPage(model,table,page);
             if (ManagerCredentialCompilation.Gap(table,page) is {} credentialGap) gaps.Add(new(page.Source.Id,"password","detail",credentialGap));
