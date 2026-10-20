@@ -53,3 +53,7 @@
 独立回查工具v1曾将收据字符串ID按JSON number读取而失败；原源文件、失败日志保留。v2按规范整数字符串解析后只读核验通过，保留 `verification-v1.log`、`verification-v2.log` 及最终JSON；没有重跑测试、改数据库或把v1失败改写为成功。
 
 平台canonical开关及共享配置元数据未因私有测试模型而改变。本结果只覆盖上述固定读取用途；Runtime A下发、五个Custom前端依赖、新独立Host及原浏览器验收不能因此宣布完成或关闭相关门禁。
+
+## 与同期 CI 的区别
+
+head `c141bd3f196d7fd5abc34c89e9871d6dee537d94` 的 PR/push 六作业最终均 success，四后端日志每作业九个工程；Generation Linux 为625通过/12跳过、Windows为626通过/11跳过，各637。私有 `.local/ci-c141-final/receipt.json` SHA256：`fe6c6c96519e408d65fc4bcbb0708c56ed7814cc025f7ae02316f4fbb30bec7d`，完整作业与工程计数见 [验收台账](../acceptance.md)。该 CI 不持有私有DB配置，也不包含随后41005f2→4564b68新增的本专项五项；它与上文5/5独占实库批次分开记录，不将skip计为真实数据库通过。

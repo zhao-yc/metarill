@@ -269,4 +269,29 @@ Generation 首次过滤器选中的实际数量为 56，含 MySql 类但不表�
 - `.local/security-read-uses-generation-integrated.trx`：136/136，SHA256 `9aea272f9e7e0a4f208ba5c74c5d0e9d6117dce83f9b75c2cca96818d5afd838`。
 - `.local/security-read-uses-agent-mysql-integrated.trx`：非 RR 182/182，SHA256 `8a7d8dd4dabee490302f6d9b09aa15be2ac87206416963ac9b0e08df3ff1b646`。
 
-运行前 `.local/security-read-uses-server-pin.json` 已实时核验共享实例指纹和三条观测权限检查 1142，未新授权或创建账号。新增 5 个用途合同用例属于离线真实生成 SQL/Excel 证据；新的角色选择/导出专项 MySQL case 尚在准备、未执行，不能将非 RR 182 项回归冒充该新专项实库通过。独立 Host 完整 A 下发及五处平台 Custom 独立宿主门槛仍未关闭，浏览器完整写入、性能和设备验收也不因此完成。
+运行前 `.local/security-read-uses-server-pin.json` 已实时核验共享实例指纹和三条观测权限检查 1142，未新授权或创建账号。上述 d696/e420 冻结当时新增的 5 个用途合同用例属于离线真实生成 SQL/Excel 证据，不能将非 RR 182 项回归冒充后续专项实库通过；新的角色选择/导出 MySQL 专项已在随后 4564b68 冻结单独完成，见下节。独立 Host 完整 A 下发及五处平台 Custom 独立宿主门槛仍未关闭，浏览器完整写入、性能和设备验收也不因此完成。
+
+## 2026-10-20 c141 最终 CI 与固定读取用途实库专项
+
+两组 CI 同属 head `c141bd3f196d7fd5abc34c89e9871d6dee537d94`：[PR run 39382659610](https://github.com/zhao-yc/metarill/actions/runs/39382659610) 最终更新时间 `2026-10-20T07:13:59Z`，[push run 39382654037](https://github.com/zhao-yc/metarill/actions/runs/39382654037) 为 `2026-10-20T07:12:10Z`，两组各 Linux、Windows、frontend 共六个作业全部 success。主协调者已读取四个后端作业原始结果行，每作业九个测试工程；私有汇总 `.local/ci-c141-final/receipt.json` SHA256：`fe6c6c96519e408d65fc4bcbb0708c56ed7814cc025f7ae02316f4fbb30bec7d`。
+
+| c141 CI 工程/平台（单作业计数） | 通过 | 跳过 | 总数 |
+| --- | --- | --- | --- |
+| Generation / Linux | 625 | 12 | 637 |
+| Generation / Windows | 626 | 11 | 637 |
+| Agent | 163 | 22 | 185 |
+| Security | 13 | 0 | 13 |
+| Data | 41 | 4 | 45 |
+| Compatibility | 18 | 11 | 29 |
+| API | 44 | 27 | 71 |
+| Metadata | 130 | 22 | 152 |
+| Files | 38 | 17 | 55 |
+| Exports | 28 | 0 | 28 |
+
+该 CI 不持有私有数据库配置，跳过仍不算实库；它不包含随后 `41005f2d71f7e410f199d79a7929983285492e30` 新增、根合为 `4564b6893bdc7454a74b592eb9d9bcf00b96b33f` 的专项测试，不能将两批混为一批或回写 f934 的 615 项历史统计。
+
+4564b68 的 `FixedRoleReadUseMySqlTests` 由主协调者独占执行 **5/5，零失败、零跳过**：两项离线，三项真实 TestServer/普通账号认证/MySQL 场景分别覆盖账号选择、角色选择、仅导出权限与原 IDJSON/后台名称的真实 XLSX 回读。生成读取 ORM 成功路径分别为账号选择 2 条、角色选择 2 条、账号导出 1 条/角色导出 2 条 SQL，不含认证/建样本/清理成本，不作性能验收。原始 `.local/fixed-role-read-uses-mysql-integrated.trx` SHA256：`a5e84f0f72ad7a412d22ab9a7b819151f29adaea09c7af888a5326f2b5eabd4a`，同名日志保留。
+
+三份完成收据登记及清理 18/17/17 行；主协调者随后另行只读固定实例与全部 **52 个精确 ID/名称含墓碑零残留**，`.local/fixed-role-read-uses-verification-20261020/verification.json` SHA256：`88d2a2f6c6465bef8c7c1c1230628798189f98a58531df8adaff3bc75f5bcf38`。独立回查 v1 曾误按 number 解析规范字符串 ID 而失败，v2 只修解析并只读通过；两版源/日志保留，没有重跑测试或改数据库。原预检三张观测表均 1142，本专项无 GRANT、不依赖观测权限。完整收据摘要和边界见 [固定角色读取用途 MySQL 专项](testing/fixed-role-read-mysql.md)。
+
+平台原开关、canonical/shared 配置元数据及原 DOM/CSS/事件不变；三个实库场景不算浏览器验收，也不解除独立 Host 完整 A 下发、五处 Custom 前端依赖或新 Host 的门禁。账号浏览器完整写入、RR、性能、跨端设备与新 Host 仍按各自冻结及证据单列。
