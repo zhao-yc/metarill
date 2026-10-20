@@ -13,6 +13,11 @@ internal static class FixedRoleCheckboxCompilation
     internal const string ManagerTable = "6031906809708544", ManagerPage = "6031906822946816", RoleColumn = "1692528723801219073";
     internal const string RoleTable = "1692532858499969026", RolePage = "1692532858529329154", AdminTable = "1696799308939239425";
 
+    /// <summary>待验收的账号写协调属于固定安全表服务，不能因隐藏、改坏或删除角色字段声明而取消发布门禁。</summary>
+    internal static bool RequiresRuntimeCoordination(TableModel table, PageModel page) => table.Source.Id == ManagerTable && table.Source.TableName == "yz_manager"
+        && (page.Source.Id == ManagerPage || page.Source.IsNew == 1 || Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source)
+            || page.Source.IsDelete == 1 || page.Source.IsCopy == 1 || ImportRenderer.Enabled(page));
+
     /// <summary>来源或页覆盖有角色复选声明时均受审，虚拟字段不能借模型物理过滤逃过门禁。</summary>
     internal static bool Declared(Metarill.Core.Metadata.ColumnMetadata source, Metarill.Core.Metadata.PageColumnMetadata? field = null) => source.ControlKind == "MultiCheckBoxDatabase"
         || field?.Extra.GetValueOrDefault("controlKind").ToString() == "MultiCheckBoxDatabase";

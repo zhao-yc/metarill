@@ -11,7 +11,7 @@ internal sealed record GenerationCapabilityGap(
 /// <summary>原UI分支恢复后，控件存在不等于后端完成；生成提示和完整包门禁共用同一缺口事实。</summary>
 internal static class GenerationCapabilityAudit
 {
-    /// <summary>只审计当前页实际读取/筛选的固定字段，结果不受客户端请求影响。</summary>
+    /// <summary>审计实际读取用途与固定安全服务依赖，结果不受客户端请求影响。</summary>
     internal static IReadOnlyList<GenerationCapabilityGap> Collect(GenerationModel model)
     {
         var gaps=new List<GenerationCapabilityGap>();
@@ -31,13 +31,17 @@ internal static class GenerationCapabilityAudit
             foreach(var column in page.Readable)
                 if(ControlRenderer.Render(model,table,page,column).UnsupportedReason is {} reason)
                     gaps.Add(new(page.Source.Id,column.Source.ColumnName,"detail",reason));
-            // 固定读取与数组合同已编译不代表身份写协调完成，A验收前仍阻断Full应用发布。
+            // 账号写协调按固定服务身份保留；字段证明失败或字段被移除不能让尚未验收的服务提前发布。
+            if(FixedRoleCheckboxCompilation.RequiresRuntimeCoordination(table,page))
+                gaps.Add(new(page.Source.Id,"yz_role_ids","runtime","MultiCheckBoxDatabase角色最终合并后台校验及撤权协调仍待Runtime A验收。"));
             if(FixedRoleCheckboxCompilation.ForService(model,table,page) is {} role)
             {
-                gaps.Add(new(page.Source.Id,role.Source.Source.ColumnName,"runtime","MultiCheckBoxDatabase角色最终合并后台校验及撤权协调仍待Runtime A验收。"));
                 if(ExportRenderer.IncludesColumn(page,role.Source))
                     gaps.Add(new(page.Source.Id,role.Source.Source.ColumnName,"export","MultiCheckBoxDatabase角色导出尚未接入固定名称投影，不能将ID文本冒充原角色名称。"));
             }
+            // type=2已选回读输出统一页VO，尚未接入计算角色名称；不能随未来Runtime门禁验收一起放行。
+            if(SelectionPageRenderer.Enabled(page) && FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} selectedRole)
+                gaps.Add(new(page.Source.Id,selectedRole.Source.Source.ColumnName,"selection","MultiCheckBoxDatabase角色已选行回读尚未接入固定名称投影，不能将空名称冒充完整选择回执。"));
             // 原选择页按辅助名称键搜索；只有同一固定编译计划确认可执行时才解除筛选缺口。
             var names=SelectionNameFilterCompilation.ForPage(model,table,page);
             foreach(var gap in names.Gaps)gaps.Add(new(page.Source.Id,gap.Source.Source.ColumnName,"filter",gap.Reason));
