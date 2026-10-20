@@ -31,6 +31,19 @@ internal static class TrustedSecurityWorkbenchRenderer
             yield return new("frontend/"+path,reader.ReadToEnd());
         }
     }
+    /// <summary>路由样式同样取原pages.json中的唯一原声明，不能只复制页面却遗漏真实导航注册。</summary>
+    internal static IEnumerable<object> Routes(GenerationModel model)
+    {
+        if(model.TrustedSecurityServices is null)yield break;
+        _=RequireManagement(model);
+        using var stream=typeof(CSharpGenerator).Assembly.GetManifestResourceStream("Metarill.Generation.SecurityWorkbench.RouteCatalog.json")??throw Rejected();
+        using var document=JsonDocument.Parse(stream);
+        var candidates=document.RootElement.GetProperty("pages").EnumerateArray().Where(page=>page.GetProperty("path").GetString()=="pages/main/set_role_permission").ToArray();
+        if(candidates.Length!=1)throw Rejected();
+        var route=candidates[0];var style=route.GetProperty("style");
+        if(style.GetProperty("navigationBarTitleText").GetString()!="设置角色权限"||style.GetProperty("navigationStyle").GetString()!="custom")throw Rejected();
+        yield return route.Clone();
+    }
     /// <summary>前后端消费同一个签发快照和固定页归属，不能分别提供可变目录。</summary>
     private static Metarill.Core.Metadata.PageMetadata RequireManagement(GenerationModel model)
     {

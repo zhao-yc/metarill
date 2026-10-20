@@ -155,6 +155,36 @@ public sealed class TrustedSecurityWorkbenchTests(TrustedSecurityServiceFixture 
         foreach(var file in before)Assert.Equal(file.Value,File.ReadAllText(Path.Combine(directory,file.Key)));
         var ordinary=GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace);Assert.Empty(TrustedSecurityWorkbenchRenderer.Frontend(ordinary));
     }
+    /// <summary>实际可信生成包含原工作台唯一路由及完整样式，普通生成仍不发布自定义工作台。</summary>
+    [Fact]
+    public void Trusted_generated_routes_keep_original_workbench_registration_and_ordinary_gate()
+    {
+        var directory=Path.Combine(fixture.DirectoryPath,"original-workbench-routes");
+        new CSharpGenerator().Generate(fixture.Models,directory,TrustedSecurityServiceFixture.Namespace);
+        using var generated=JsonDocument.Parse(File.ReadAllText(Path.Combine(directory,"frontend/pages.generated.json")));
+        var actual=Assert.Single(generated.RootElement.GetProperty("pages").EnumerateArray(),page=>page.GetProperty("path").GetString()=="pages/main/set_role_permission");
+        using var original=JsonDocument.Parse(File.ReadAllText(Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"../frontend/metarill_uni_admin/pages.json")));
+        var expected=Assert.Single(original.RootElement.GetProperty("pages").EnumerateArray(),page=>page.GetProperty("path").GetString()=="pages/main/set_role_permission");
+        Assert.Equal(JsonSerializer.Serialize(expected),JsonSerializer.Serialize(actual));
+        var ordinary=GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace);
+        Assert.Empty(TrustedSecurityWorkbenchRenderer.Routes(ordinary));
+        var regular=UniappRenderer.Render(ordinary).Single(file=>file.Path=="frontend/pages.generated.json");
+        using var regularRoutes=JsonDocument.Parse(regular.Content);
+        Assert.DoesNotContain(regularRoutes.RootElement.GetProperty("pages").EnumerateArray(),page=>page.GetProperty("path").GetString()=="pages/main/set_role_permission");
+        Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(fixture.Models.Published));
+    }
+
+    /// <summary>签发后改变页路径或后台的模型不能只通过资源输出绕过完整快照校验。</summary>
+    [Theory]
+    [InlineData("path")][InlineData("admin")][InlineData("namespace")]
+    public void Changed_issued_model_cannot_emit_workbench_routes(string change)
+    {
+        var model=TrustedSecurityServiceCompilation.Bind(GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace),fixture.Models);
+        if(change=="path")model.Catalog.ConfigCustomPages[0].PagePath="pages/custom/changed";
+        if(change=="admin")model.Catalog.ConfigCustomPages[0].YzAdminTypeId="42";
+        if(change=="namespace")model=model with{Namespace="Other.Host"};
+        Assert.Throws<InvalidOperationException>(()=>TrustedSecurityWorkbenchRenderer.Routes(model).ToArray());
+    }
     /// <summary>实例化实际生成适配与同scope共享依赖，不用假Business代替权限判断。</summary>
     private object Controller(TrustedSecurityServiceRun run,IRuntimeAuthorization? other=null)
     {
