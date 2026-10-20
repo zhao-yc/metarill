@@ -13,7 +13,7 @@
 | 仓库、许可证与环境 | 独立历史、公开仓库、Apache-2.0；官方 .NET 10.0.402 SDK 校验并安装 | CI 结果另以实际 Actions 为准 |
 | 平台自举 | 23 张表、649 列、20 页、665 个页字段；固定标识清单；重复初始化不复活逻辑删除记录 | 首版不迁移旧业务数据与代码 |
 | MySQL 核心流程 | 真实登录→配置表/批量字段→结构预览/执行/二次核验→生成 ZIP→业务 CRUD | 浏览器已验临时表保存、字段配置、结构执行和生成下载；原选择器许可已确认，从零纯界面选择后台、建表及默认字段回读已通过 |
-| 生成与独立应用 | 强类型 DTO/VO/Mapper/Service/Controller；严格字段存在性；受保护 partial；独立应用包真实编译及 MySQL CRUD/复制/事务；FullApplication 已组装独立 uni-app 宿主，平台显式 BackendOnly | 共享导出、本地文件与同库引用事务已验；开发登录/菜单/生成 CRUD 的真实 HTTP 脚本通过；独立包已实测 Web 发行、主子 Tab/PC 弹层和独立多选页浏览器；独立宿主正式认证/完整安全协调及Agent未完成；文件、复杂关系导入导出、下载落盘和真机仍缺；原单表导入及服务端XLSX已有实证 |
+| 生成与独立应用 | 强类型 DTO/VO/Mapper/Service/Controller；严格字段存在性；受保护 partial；独立应用包真实编译及 MySQL CRUD/复制/事务；FullApplication 已组装独立 uni-app 宿主，默认数据库 Web 认证与显式安全初始化已真实全新库验收，平台显式 BackendOnly 保留开发模式 | 共享导出、本地文件与同库引用事务已验；历史开发登录/菜单/生成 CRUD 的真实 HTTP 脚本通过；独立包已实测 Web 发行、主子 Tab/PC 弹层和独立多选页浏览器；完整安全 Runtime A/三个手写 partial、五处平台 Custom、Agent及正式 Web 浏览器仍未完成；文件、复杂关系导入导出、下载落盘和真机仍缺；原单表导入及服务端XLSX已有实证 |
 | 菜单、权限 | 单表树、页面归属后台；项目行锁/版本冲突；导航与页操作分权；真实身份后台读取；凭据HTTP/MySQL三项 | 原角色复选读取及同后台工作台入口已恢复；平台标准安全表协调已接线，独立实例RR三场景已验；账号原页浏览器完整写入和独立宿主下发仍缺，不把菜单可见当写授权，不以额外平台超级门槛替代原规则 |
 | 配置工作台 | 页面布局、字段批量开关/排序、批量建字段、索引聚合、页面复制/创建、快捷建菜单；原 V8 索引引用拒绝删列及整表回滚已真实 MySQL 补验 | 保存配置不会自动执行 DDL；高级联接、物理视图等尚未移植 |
 | 结构同步与只读反查 | 指纹/短期计划、防漂移/重放、MySQL 锁、结果审计；部分 DDL 失败明确记录；HTTP/MCP 受管结构反查固定 executable:false | 不自动写元数据或执行反查 SQL；独立宿主已提供固定受管模型 --schema-inspect；平台 CLI 选项目、未登记表目录及反向导入仍待完成；不删除未声明结构，不支持索引自动替换/删除、DESC，破坏性变更拒绝 |
@@ -36,7 +36,7 @@ CI 在 Linux / Windows 重新生成、比对提交产物、编译宿主并遍历
 ## 待验收顺序
 
 1. 原单表新增/修改/复制/软删及合法/坏批次导入已补验，继续账号浏览器完整写入和其余页面；原选择器许可与接入、新AppID、Web发行均已通过。自有 Tiny Cloud 保持空key，真实编辑按用户要求留待后续。
-2. 主子 Tab/PC 弹层与独立多选页已完成独立包 Web/浏览器核心验收；继续List关系大数据、文件、复杂关系导入导出及下载落盘；补齐高级联接、独立宿主生产认证/安全协调/Agent和已接在线助手的原按钮整链。
+2. 主子 Tab/PC 弹层与独立多选页已完成独立包 Web/浏览器核心验收；继续List关系大数据、文件、复杂关系导入导出及下载落盘；补齐高级联接、独立宿主完整安全协调/Agent和已接在线助手的原按钮整链；数据库 Web 与显式初始化已有下述新实库证据，正式登录浏览器及安全写仍须补验。
 3. 完成 Web、小程序、Android、iOS 真实验收和 Server-200 同资源性能对照，稳定退化阻断发布。
 4. MySQL 首版完整验收后，再依次适配其他数据库；每种分别验证自举、反查/DDL、生成/CRUD、权限/关系、导入导出和事务并发。
 
@@ -311,3 +311,16 @@ Generation 首次过滤器选中的实际数量为 56，含 MySql 类但不表�
 专项 1 项已包含在 API 72 中，不重复累计；完整工程同时包含离线规则/合同测试，不把每项皆称为 SQL 场景。非 RR 187 包含此前 5 项固定角色读取用途，与早先非 RR 182 分开保留，不相加。Api Release 零警告/零错误；本批没有重跑 RR、浏览器、性能或设备验收，也不据此改变独立 Host 的阶段边界。
 
 原始回执为私有 `.local/column-index-delete-mysql-integrated-v2.trx`、`.local/column-index-delete-{api-full,metadata-full,agent-nonrr}-integrated.trx` 及同名日志，Release 日志为 `.local/column-index-delete-api-release-integrated.log`。首轮专项 0/1 是夹具 `sortNo=0` 在工作台事务前被输入规则拒绝，原 TRX/log 保留，未写索引；测试输入/回执修为 10 后独立 v2 才通过。旧夹具的专用 Plan→Execute 清理回执在 `.local/column-index-delete-failed-fixture-cleanup-20261020/`：24 元数据加 1 会话，22 原快照、25 锁后指纹均匹配，无未知引用，含墓碑零残留，无 DDL/授权操作。失败与清理均未计为通过项。
+
+
+## 2026-10-20 独立Full正式Web与全新库补验
+
+独立 Full 的 `web-database-v1` 已接通数据库账号、PBKDF2、持久化 Web 会话和单独 `--initialize-security`；普通启动不 DDL/初始化，无配置或无效身份不回退开发账号。BackendOnly 仍为原 development-only，安全 CRUD/三份手写 partial、完整 Runtime A、五处 Custom 和 Agent 不据此解除门禁。此前开发认证的浏览器证据不能移用为正式 Web 登录验收。
+
+主协调者 `.local/standalone-web-authentication-integrated.trx` 实际 **84/84、零失败、零跳过**；正确真实类名的 CLI 准备/拒绝 scope 覆盖用例随后单独 **1/1、零跳过**，见 `.local/standalone-web-authentication-cli-bridge-integrated.trx`。首个错误类名过滤未匹配不计通过，首批仍是 84；此两批是本机替身、包、脚本和真实 CLI 进程，不称全部实库，也没有把旧 updater 64 项的 63/1 历史改成全绿。
+
+Server-200 专属全新库 `1ce30f018ba84e4e` 实际 **2/2、零跳过**：Full 从 0 表显式安装 10 表（本单业务表＋文件 3＋安全 6），重复无差异，真实 Web 模式初始化两次摘要保持，再真实 HTTP 登录/菜单/权限和文件引用/受保护下载；另平台初始化仍是平台 23 表、业务库 4 表，重复不重置并能登录。私有 `.local/fresh-install/1ce30f018ba84e4e/{result.json,fresh-install.trx}` SHA256 分别为 `65d3138a2c39c109dc6efe79a8f813d34b6c6741dadaec3f857a27db936cc4ee`、`5cb836e32baedf60d9b48c8fac8ddfb9a0440159a08dd0e4ee12e775a0781610`。脚本清理后另行只读回查三库/临时账号为 0、所有权文件不存在，`cleanup-verification.json` SHA256 `3aa97f1cd6910503e8a29271f4a6011c4328ef9a0dc9feb50abe5ec089eb5063`；本机凭据文件已删，不保留可用测试身份。
+
+487 文件独立新包还通过自身 Release `-warnaserror` 零警告/零错误、离线 npm 安装、Node 闭包和 HBuilderX 5.26 Vue3 Web 发行；只在私有验收副本填写已授权 AppID，源模板不改。包与命令/日志见 [独立应用包](standalone-application.md)。该新包未启动 HTTP 服务或进行浏览器操作，发行不替代正式登录 DOM、完整账号/角色写入、RR、设备、性能或部署验收。
+
+综合私有回执 `.local/standalone-web-authentication-integrated-receipt.json` SHA256 `398b59656f39fa683b78d938ee3ae6688907bbe79604456cc31bd73c9cca3a15` 分列 84、补 1、Fresh 2 及所有未验边界；不将这些不同批次替换为一个完整套件通过数。

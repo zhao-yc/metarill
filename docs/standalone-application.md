@@ -1,6 +1,6 @@
 # 独立应用包与前端宿主
 
-独立包将项目元数据、生成强类型后端、Core/Data/Exports/Files 源码及 ASP.NET Core 宿主放入同一目录。普通 CRUD 和文件、导出不依赖在线 Metarill 平台。MySQL 结构仍从元数据显式预览、执行和核验，普通启动不执行 DDL。
+独立包将项目元数据、生成强类型后端、Core/Data/Exports/Files 源码及 ASP.NET Core 宿主放入同一目录；当前 FullApplication 另含 Security 源码和数据库 Web 认证，BackendOnly 保留原 development-only 宿主。普通 CRUD 和文件、导出不依赖在线 Metarill 平台。MySQL 结构仍从元数据显式预览、执行和核验，普通启动不执行 DDL 或账号初始化。
 
 ## 两种显式模式
 
@@ -22,13 +22,21 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 生成前端默认 DCloud AppID 与小程序 AppID 为空。开发者须自行配置 `frontend/common/application.config.js` 的 API 地址，安装锁定依赖，在 HBuilderX 填写自己项目的 AppID。分离端口与真机上传还需设置后端可信 `Files:LegacyPublicBaseUrl`，不从请求 Host 推断公开地址。具体操作见包内 README。
 
-## 开发认证
+## 数据库Web认证与显式初始化
+
+当前新 FullApplication 的认证 profile 为 `web-database-v1`，默认使用数据库账号、PBKDF2 摘要及持久化 Web 会话；缺配置、匿名或无效令牌明确拒绝，不回退开发账号。原登录、菜单、权限、注销和自助改密 URL/响应继续使用原协议；本应用后台 super 不产生平台管理员身份，也没有 Agent/设备控制面。
+
+结构计划组合业务 `project.json`、文件三表 `files.json` 与安全六表 `security.json`。先审核并显式执行结构计划，再从宿主私有配置或环境提供 `Authentication:Bootstrap`，单独执行 `dotnet run --project backend/Application.Host -- --initialize-security`。该命令不执行 DDL，只初始化本包项目/后台及新生成长 ID 的管理员角色/账号；重复不重置摘要、不复活墓碑或补绑既有账号。多后台必须明确选择包内后台，凭据不放入命令行、URL、源码或日志。普通启动不执行这一步。
+
+六表是兼容平台的物理定义，不开放安全表业务 CRUD。完整安全写协调、三个手写安全 Service partial 与角色工作台下发仍待后续独立适配；共享 Security 工程随包不等于完整 Runtime A 已下发。安全表带业务页、五处平台 Custom 及其它未支持能力仍按既有门禁拒绝，不自动降级。详细配置和边界见 [独立完整包数据库Web认证](standalone-web-authentication.md)。
+
+## 显式Development开发认证（兼容保留）
 
 仅 Development 环境且显式启用 `Authentication:DevelopmentBootstrap` 才能使用开发账号；用户名、至少12位的密码由开发者私有配置，没有默认真实账号密码。服务端固定包内单项目，签发内存不透明会话，每次 API 验证；客户端项目选择和 query 令牌不产生身份。菜单与权限查询也受相同认证约束。
 
 独立宿主仅在 Development 且显式启用开发认证时允许 HTTP(S) 回环 Origin 的本机跨端口预检；不允许外域或带路径、用户信息、query、fragment 的 Origin，也不设置 AllowCredentials。CORS 在认证前执行，因此真实预检可通过，匿名业务写仍返回401。关闭开发认证或 Production 不默认开放；其他Web来源需可信同源网关或自有部署策略。
 
-这不是生产账号系统。正式项目须在手写 partial `HostCustomization.ConfigureServices` 中接入自己的 `IRuntimeAuthorization`，不能把开发管理员直接作为生产认证。
+本节开发账号不属于数据库 Web 账号体系，不能把开发管理员当正式身份。当前 Full 已提供上述默认 Web 模式；有自定义认证需求时仍可在手写 partial `HostCustomization.ConfigureServices` 明确适配自己的 `IRuntimeAuthorization`，并自行验证扩展合同。BackendOnly 保留本节原开发宿主，不自动获得 Web 能力。
 
 ## 重新生成与验收
 
@@ -36,7 +44,7 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 `npm test` 在 Node 24 检查 H5/Vue3 条件编译后的真实 JavaScript 语法、ES/CommonJS 导入、生成路由及组件文件闭包。真实隔离 MySQL 测试从打包结果构建宿主、显式结构同步，执行生成登录/菜单/list/detail 脚本到实际 HTTP 接口，并验证新增、显式 null、读取、删除及注销失效；这仍不是浏览器 DOM、HBuilderX 发行、小程序、Android 或 iOS 验收。Excel/DOM 第三方组件只在此脚本中检查依赖闭包，不声称已在 Node 模拟完整执行。
 
-旧 ImageUpload/RTF URL 沿用公开上传协议，尚不具备 FileLibrary 字段的引用阻删生命周期。Agent、复杂自定义 SQL、平台设计器和正式账号体系不在当前独立前端宿主范围内。
+旧 ImageUpload/RTF URL 沿用公开上传协议，尚不具备 FileLibrary 字段的引用阻删生命周期。Agent、复杂自定义 SQL、平台设计器和完整账号/角色管理写入不在当前独立宿主已验收范围内；已接通的正式 Web 登录与初始化不解除这些门禁。
 
 ## 独立生成包 Web 与主子浏览器验收（2026-10-19）
 
@@ -58,7 +66,7 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/generated-ui-8
 
 ## 独立宿主只读结构反查
 
-在独立包根目录运行 `dotnet run --project backend/Application.Host -- --schema-inspect`。该命令固定读取包内 `project.json` 与 `files.json` 合并的 physical metadata，以及部署者的私有 `Database` 配置，复用 `SchemaService.InspectSnapshotAsync`。标准输出是单一 JSON：`executable:false`、`provider`、`databaseSchema` 和 `fingerprint`；`databaseSchema` 包含实际受管表、列、索引与 SHOW CREATE 快照，不包含业务行数据。
+在独立包根目录运行 `dotnet run --project backend/Application.Host -- --schema-inspect`。该命令固定读取包内物理模型与部署者的私有 `Database` 配置，复用 `SchemaService.InspectSnapshotAsync`；当前 Full 合并 `project.json`、`files.json` 和 `security.json`，BackendOnly 保留原业务/文件两份模型。标准输出是单一 JSON：`executable:false`、`provider`、`databaseSchema` 和 `fingerprint`；`databaseSchema` 包含实际受管表、列、索引与 SHOW CREATE 快照，不包含业务行数据。
 
 命令不创建执行计划、不保存元数据或执行历史、不执行 DDL，也不启动 HTTP/后台服务。普通 Web 启动不因该能力读取或修改结构。`--schema-inspect`、`--schema-preview`、`--schema-apply` 互斥，不可重复；混用、赋值变体或未知 `--schema-*` 参数在构造宿主前明确拒绝。预期库和连接实际目标不一致时拒绝，不回退到其它数据库。
 
@@ -77,3 +85,20 @@ v2 浏览器在两页执行全选本页、跨页补选、仅看已选及取消�
 ## 远程 List 关系包 Web 补验（2026-10-19）
 
 452文件独立包另经HBuilderX实际发行及浏览器，甲128/乙105候选三页加载、非首屏已选名称、字面关键字搜索、关系保存和父范围切换已实际通过，详见[关系候选合同](relation-options.md)。初始样本由隔离库私有工具预置，不冒充纯界面新增；仍未验证超过5000候选浏览器、多选List或真机。浏览器注销后8100/5197服务停止，完整模型只读结构预览0差异，全部239项样本和两张随机表精确核验清理、临时认证配置删除，既有文件基础结构保持。
+
+
+## 正式Web宿主与全新安装补验（2026-10-20）
+
+源切片 `fc27127980686d3e8dfdb945e899a70ea5fe096e` 已集成。主协调者定向报告 `.local/standalone-web-authentication-integrated.trx` 为 **84/84、零跳过**（SHA256 `b93803167695df07ae636baa5da5e7dcfaffda6aabddcc544550c348036a29c4`）；随后按真实类名 `LocalGenerationUpdateTests.Cli_offline_prepare_uses_real_process_and_rejects_scope_override` 补跑 **1/1、零跳过**，单独报告 `.local/standalone-web-authentication-cli-bridge-integrated.trx` SHA256 `ea41baa9ee9836238f954d84468a8b6540b09201067f2108224338823482d2ef`。此前用文件名作类名的过滤器未匹配，不计通过，也不把首批回写为 85。上述是本机包、脚本、替身及真实 CLI 进程证据，不是 84 项实库。原更新器 64 项的 63 过/1 失败与修后单项补绿仍保留，不改成完整 64 全绿。
+
+专属全新库批次 `1ce30f018ba84e4e` 的两个 Fact 实际 **2/2、零跳过**：独立 Full 普通启动/预览保持 0 表，显式安装 **10 表（本单业务表＋文件 3＋安全 6）**，二次无差异；正式 `Authentication:Mode=Web`、开发 Bootstrap 关闭，显式安全初始化重复不重置摘要，再完成真实 HTTP 登录、菜单/权限、上传、生成业务记录的同事务文件引用和受保护下载。平台场景单独证明平台 **23 表**、业务库 **4 表**，重复初始化及真实登录/菜单/权限；不能把这两个场景的表数混算。`result.json` SHA256 `65d3138a2c39c109dc6efe79a8f813d34b6c6741dadaec3f857a27db936cc4ee`、`fresh-install.trx` SHA256 `5cb836e32baedf60d9b48c8fac8ddfb9a0440159a08dd0e4ee12e775a0781610`，均在主仓库私有 `.local/fresh-install/1ce30f018ba84e4e/`。脚本清理后，独立只读 `cleanup-verification.json`（SHA256 `3aa97f1cd6910503e8a29271f4a6011c4328ef9a0dc9feb50abe5ec089eb5063`）确认三随机库、临时账号均为 0、所有权文件不存在；本机凭据配置亦已删除。
+
+另一私有新目录 `.local/standalone-web-authentication-package-integrated` 真实导出 **487 文件** Full 包：包自身 `Release -warnaserror` 零警告/零错误，离线 `npm ci` 与随包 Node 闭包通过。只在该私有前端副本填写已授权 AppID，配置前后/源 manifest 摘要在 `.local/standalone-web-authentication-package-configuration.json`，不修改出厂模板。HBuilderX 5.26 Vue3 实际命令为：
+
+```powershell
+D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web-authentication-package-integrated/frontend --webTitle Metarill正式认证独立包验收 --webHosting false
+```
+
+2026-10-20 16:33:10 实际导出成功，产物 `frontend/unpackage/dist/build/web/index.html` 存在。最初 CLI open 未启动，随后隐藏启动 HBuilderX，重新核对 version/help 后才执行发行；原日志保留于 `.local/standalone-web-authentication-{package-integrated,packaged-host-release,hbuilder-publish-integrated}.log`，npm/Node 日志在包根。这次没有启动 HTTP 静态服务或浏览器，不把前端发行称为正式登录 DOM 验收。历史开发认证的浏览器场景仍按原冻结保留；完整 Runtime A/三个 partial、五处 Custom、Agent、正式登录/安全写浏览器、设备和性能均未据此完成。
+
+上述本机回执汇总为 `.local/standalone-web-authentication-integrated-receipt.json`（SHA256 `398b59656f39fa683b78d938ee3ae6688907bbe79604456cc31bd73c9cca3a15`），分列 84、补 1 和 Fresh 2，记录 Web 入口 SHA256 `f33bcf8aeb2b5ae992a69c27d2cda244d3053f639a1eeba087ba8eb93df6a538` 及 46 个静态资产；新增浏览器、设备、RR、完整安全管理交付均明确为 false。
