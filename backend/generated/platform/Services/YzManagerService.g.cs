@@ -120,7 +120,7 @@ public partial class YzManagerService
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6031906822946816(query, request);
         var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzManager { Name = entity.Name, YzRoleIds = entity.YzRoleIds, RealName = entity.RealName, Mobile = entity.Mobile, LockIp = entity.LockIp, LastLoginTime = entity.LastLoginTime, LoginIp = entity.LoginIp, Email = entity.Email, Phone = entity.Phone, IsDisabled = entity.IsDisabled, Notes = entity.Notes, IsEditPwd = entity.IsEditPwd, EditPwdTime = entity.EditPwdTime, Openid = entity.Openid, Avatar = entity.Avatar, DingUserid = entity.DingUserid, DingUnionid = entity.DingUnionid, LoginRiseTime = entity.LoginRiseTime, LoginStopTime = entity.LoginStopTime, ValidityTime = entity.ValidityTime, InsertTime = entity.InsertTime, YzAdminTypeId = entity.YzAdminTypeId, Id = entity.Id, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, DeleteNo = entity.DeleteNo, YzProjectId = entity.YzProjectId }, cancellationToken);
-        return new(await ProjectRoleNames6031906822946816Async(entities, actor, cancellationToken,false), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        return new(await ProjectRoleNames6031906822946816Async(entities, actor, "list", cancellationToken,false), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count6031906822946816Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query6031906822946816(request, actor).CountAsync(cancellationToken);
@@ -128,7 +128,7 @@ public partial class YzManagerService
     public async Task<YzManagerPage6031906822946816Vo?> Detail6031906822946816Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzManager { Name = entity.Name, YzRoleIds = entity.YzRoleIds, RealName = entity.RealName, Mobile = entity.Mobile, LockIp = entity.LockIp, LastLoginTime = entity.LastLoginTime, LoginIp = entity.LoginIp, Email = entity.Email, Phone = entity.Phone, IsDisabled = entity.IsDisabled, Notes = entity.Notes, IsEditPwd = entity.IsEditPwd, EditPwdTime = entity.EditPwdTime, Openid = entity.Openid, Avatar = entity.Avatar, DingUserid = entity.DingUserid, DingUnionid = entity.DingUnionid, LoginRiseTime = entity.LoginRiseTime, LoginStopTime = entity.LoginStopTime, ValidityTime = entity.ValidityTime, InsertTime = entity.InsertTime, YzAdminTypeId = entity.YzAdminTypeId, Id = entity.Id, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, DeleteNo = entity.DeleteNo, YzProjectId = entity.YzProjectId }, cancellationToken);
-        return entity is null ? null : (await ProjectRoleNames6031906822946816Async([entity], actor, cancellationToken))[0];
+        return entity is null ? null : (await ProjectRoleNames6031906822946816Async([entity], actor, "detail", cancellationToken))[0];
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents6031906822946816Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
@@ -181,14 +181,20 @@ public partial class YzManagerService
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
     /// <summary>当前actor必须与宿主认证一致，读取仍经过原来源页面权限。</summary>
-    private ISelect<YzRole> RoleOptionsScope6031906822946816(RuntimeActor actor)
+    private ISelect<YzRole> RoleNameScope6031906822946816(RuntimeActor actor)
     {
+        ValidateActor(actor);
         if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("角色候选要求真实当前身份。");
-        if (RoleCheckboxAuthorization.Require(relationAuthorization,"6031906822946816",true,true) != actor) throw new UnauthorizedAccessException("角色读取身份已变化。");
         if (!long.TryParse(actor.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
         // 后台的真实项目是归属事实，不能用角色的兼容项目列扩大或缩小范围。
         return session.Select<YzRole>().Where(role => role.DeleteNo == null && session.Orm.Select<YzAdminType>()
             .Where(admin => admin.Id == role.YzAdminTypeId && admin.DeleteNo == null && admin.YzProjectId == project).Any());
+    }
+    /// <summary>候选沿用原查询/新增/修改任一授权；最终关系校验也保留此原入口合同。</summary>
+    private ISelect<YzRole> RoleOptionsScope6031906822946816(RuntimeActor actor)
+    {
+        if (relationAuthorization is null || RoleCheckboxAuthorization.Require(relationAuthorization,"6031906822946816",true,true) != actor) throw new UnauthorizedAccessException("角色读取身份已变化。");
+        return RoleNameScope6031906822946816(actor);
     }
     /// <summary>全选必须取得完整数组，超过上限明确拒绝；普通超级角色不被额外隐藏。</summary>
     public async Task<IReadOnlyList<RoleCheckboxOption>> RoleOptions6031906822946816Async(long[]? selected, RuntimeActor actor, CancellationToken cancellationToken)
@@ -200,14 +206,25 @@ public partial class YzManagerService
         if (rows.Count > 5000) throw new InvalidOperationException("角色候选超过5000项，原全选不能返回截断结果。");
         return rows.Select(row => { var id = row.Id.ToString(CultureInfo.InvariantCulture); return new RoleCheckboxOption(id,row.Name,id,row.Name); }).ToArray();
     }
-    /// <summary>批量读取仅投影角色ID与名称；原数组顺序及缺名位置不随数据库排序变化。</summary>
-    private async Task<YzManagerPage6031906822946816Vo[]> ProjectRoleNames6031906822946816Async(IReadOnlyList<YzManager> entities, RuntimeActor actor, CancellationToken cancellationToken,bool includeCredentials=true)
+    /// <summary>名称投影必须通过实际来源动作；不能借候选的新增/修改权限读取列表或选择确认。</summary>
+    private void RequireRoleNameAction6031906822946816(RuntimeActor actor,string operation)
     {
-        _ = RoleOptionsScope6031906822946816(actor);
+        _ = RoleNameScope6031906822946816(actor);
+        if (operation is not ("list" or "detail" or "create" or "update" or "copy")) throw new UnauthorizedAccessException("角色名称读取动作无效。");
+        relationAuthorization!.RequirePagePermission("6031906822946816",operation);
+    }
+    /// <summary>批量读取仅投影角色ID与名称；原数组顺序及缺名位置不随数据库排序变化。</summary>
+    private async Task<YzManagerPage6031906822946816Vo[]> ProjectRoleNames6031906822946816Async(IReadOnlyList<YzManager> entities, RuntimeActor actor, string operation, CancellationToken cancellationToken,bool includeCredentials=true)
+    {
+        RequireRoleNameAction6031906822946816(actor,operation);
         var selected = RoleCheckboxValue.ProjectionIds(entities.Select(entity => entity.YzRoleIds));
         var names = new Dictionary<long,string?>();
         foreach (var chunk in selected.Chunk(RoleCheckboxValue.ProjectionBatchSize))
-            foreach (var row in await RoleOptionsScope6031906822946816(actor).Where(role => chunk.Contains(role.Id)).ToListAsync(role => new { role.Id, role.Name }, cancellationToken)) names[row.Id] = row.Name;
+        {
+            // 每批重新核对当前来源权限，不用此前候选成功或前一批结果代替当前授权。
+            RequireRoleNameAction6031906822946816(actor,operation);
+            foreach (var row in await RoleNameScope6031906822946816(actor).Where(role => chunk.Contains(role.Id)).ToListAsync(role => new { role.Id, role.Name }, cancellationToken)) names[row.Id] = row.Name;
+        }
         return entities.Select(entity => YzManagerPage6031906822946816Vo.FromEntity(entity,RoleCheckboxValue.ProjectNames(entity.YzRoleIds,names),includeCredentials)).ToArray();
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
@@ -260,7 +277,7 @@ public partial class YzManagerService
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, true, cancellationToken);
-        return (await ProjectRoleNames6031906822946816Async([entity], actor, cancellationToken))[0];
+        return (await ProjectRoleNames6031906822946816Async([entity], actor, "create", cancellationToken))[0];
     }, cancellationToken);
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
     public Task<YzManagerPage6031906822946816Vo> Update6031906822946816Async(YzManagerPage6031906822946816UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
@@ -311,7 +328,7 @@ public partial class YzManagerService
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, false, cancellationToken);
-        return (await ProjectRoleNames6031906822946816Async([entity], actor, cancellationToken))[0];
+        return (await ProjectRoleNames6031906822946816Async([entity], actor, "update", cancellationToken))[0];
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6031906822946816Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
