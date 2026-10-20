@@ -16,6 +16,10 @@
 
 用例以真实生成Full包编译后的类型执行：篡改字节/BOM/CRLF、clone隔离、同scope DI/同Session实际事务、伪造和旧proof、固定realm及menu引用；本机ADO连接/事务替身不执行config SQL，不证明MySQL锁/RR。包更新用例验证单Config按钮原子更新、候选绑定拒绝、旧Web包一次双动作升级，以及HostCustomization、手写Service partial和AppID的字节保留。
 
-2026-10-20，基线`d6d0594307682d19107b791a9cf213daeead6321`，认证/包profile/前端闭包邻近106/106通过，0失败、0跳过，包含新增21项固定目录与配置更新用例以及真实Full包编译；TRX为私有`.local/immutable-catalog-results/immutable-catalog-neighbor-freeze.trx`，SHA256为`efaad58ab16f88e66e20e003fbbbc5ca712528a22066bdbd01db60b5f6055f9b`。先前16/20批次的4项失败是反射构造异常包装断言，保留原TRX，夹具解包后按原拒绝合同通过。
+2026-10-20，基线`d6d0594307682d19107b791a9cf213daeead6321`，认证/包profile/前端闭包邻近106/106通过，0失败、0跳过，其中固定目录命名用例21项，并加强既有profile闭包，包含真实Full包编译；TRX为私有`.local/immutable-catalog-results/immutable-catalog-neighbor-freeze.trx`，SHA256为`efaad58ab16f88e66e20e003fbbbc5ca712528a22066bdbd01db60b5f6055f9b`。先前16/20批次的4项失败是反射构造异常包装断言，保留原TRX，夹具解包后按原拒绝合同通过。
 
 全LocalGenerationUpdateTests邻近另行运行和记录，不能把106项视作整套更新器或CI全部通过；工厂与typed Payload的manifest字段顺序差异由独立CI切片修复，合并后还需完整再验。本片未访问数据库、HTTP、浏览器或设备，也未证明安全Runtime A已下发。
+
+## 后续安全管理接线边界
+
+当前菜单引用适配要求目标后台已经由包目录发布。若后续原后台页允许新增同项目但尚未发布的后台再删除，不能把该后台直接当成包外realm，也不能将未知后台解释为无菜单引用：须先在同事务锁读真实后台并证明项目归属，再由完整冻结目录判断菜单引用。本片尚未开放安全CRUD，保留当前未知realm拒绝用例；该动态后台场景留待Runtime A接线时按原规则验收。
