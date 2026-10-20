@@ -1,7 +1,5 @@
 using System.Globalization;
 using System.Text.Json;
-using Metarill.Core.Metadata;
-using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Security;
@@ -15,8 +13,8 @@ public static partial class PrincipalRolePolicy
 {
     private static readonly HashSet<string> Actions = ["is_query", "is_new", "is_update", "is_delete", "is_export", "is_all"];
 
-    /// <summary>每次请求读取真实后台链和本后台角色；授权目录仅使用宿主已发布的两个固定模型。</summary>
-    public static async Task<PrincipalRoleRealm?> LoadAsync(SqlRowStore store, MetadataRegistry registry,
+    /// <summary>每次请求读取真实后台链和本后台角色；授权目录仅使用宿主已发布的固定资源投影。</summary>
+    public static async Task<PrincipalRoleRealm?> LoadAsync(SqlRowStore store, ISecurityResourceRegistry registry,
         IReadOnlyDictionary<string,object?> account, CancellationToken token=default, bool includePermissions=true)
     {
         if (!AuthenticationService.AccountActive(account) || account.GetValueOrDefault("delete_no") is not null ||
@@ -32,11 +30,11 @@ public static partial class PrincipalRolePolicy
     }
 
     /// <summary>操作表保留现有is_all语义，具体生成路由和Service仍负责页面开关及数据范围。</summary>
-    private static HashSet<string> PageActions(PageMetadata page)
+    private static HashSet<string> PageActions(SecurityPageResource page)
     {
         var result=new HashSet<string>(StringComparer.Ordinal){"is_query","is_all"};
-        if(page.IsNew==1)result.Add("is_new");if(PageUpdatePolicy.CanUpdate(page))result.Add("is_update");if(page.IsDelete==1)result.Add("is_delete");
-        if(page.IsExport==1 || page.Extra.TryGetValue("exportMethod",out var method) && method.ValueKind==JsonValueKind.String && method.GetString() is "list" or "edit")result.Add("is_export");
+        if(page.CanCreate)result.Add("is_new");if(page.CanUpdate)result.Add("is_update");if(page.CanDelete)result.Add("is_delete");
+        if(page.CanExport)result.Add("is_export");
         return result;
     }
     /// <summary>损坏、对象、浮点或非规范角色ID整体按无角色处理，不能借字符串转换提权。</summary>

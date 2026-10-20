@@ -58,7 +58,7 @@ internal sealed class RoleSecurityFixture : IAsyncDisposable
                 ["is_built_in"] = 0, ["yz_project_id"] = long.Parse(fixture.ProjectId), ["yz_admin_type_id"] = long.Parse((demo?fixture.Registry.Demo:fixture.Registry.Platform).YzAdminTypes[0].Id) });
             await fixture.Store.InsertAsync("yz_manager", new Dictionary<string, object?> { ["id"] = fixture.AccountId, ["name"] = name, ["is_disabled"] = 0, ["password"] = PasswordHasher.Hash("隔离RoleSecurity-Pass855"),
                 ["yz_role_ids"] = JsonSerializer.Serialize(new[] { fixture.RoleId.ToString() }), ["yz_project_id"] = long.Parse(fixture.ProjectId), ["yz_admin_type_id"] = long.Parse((demo?fixture.Registry.Demo:fixture.Registry.Platform).YzAdminTypes[0].Id) });
-            fixture.Authentication = new(fixture.Store, Ids, fixture.Registry); fixture.Token = (await fixture.Authentication.LoginAsync(name, "隔离RoleSecurity-Pass855")).Token;
+            fixture.Authentication = new(fixture.Store, Ids, fixture.Registry,new PlatformSecuritySessionPolicy(fixture.Store)); fixture.Token = (await fixture.Authentication.LoginAsync(name, "隔离RoleSecurity-Pass855")).Token;
             if (!startHttpHost) return fixture;
             var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseTestServer();
             builder.Services.AddSingleton(fixture.Session); builder.Services.AddSingleton(fixture.Store); builder.Services.AddSingleton(fixture.Registry); builder.Services.AddSingleton<IIdGenerator>(Ids);

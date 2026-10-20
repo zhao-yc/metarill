@@ -11,6 +11,7 @@ public static class PasswordHasher
         var hash=Rfc2898DeriveBytes.Pbkdf2(password,salt,350000,HashAlgorithmName.SHA256,32);
         return "pbkdf2-sha256$350000$"+Convert.ToBase64String(salt)+"$"+Convert.ToBase64String(hash);
     }
+    /// <summary>沿用已保存摘要格式与固定时间比较，迁移工程不会重算旧密码。</summary>
     public static bool Verify(string password,string encoded)
     {
         try
@@ -22,6 +23,8 @@ public static class PasswordHasher
         }
         catch(FormatException){return false;}
     }
+    /// <summary>会话原令牌只交给调用者，数据库持久化它的摘要。</summary>
     public static string Token()=>Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+    /// <summary>复用现有SHA256令牌摘要协议，不引入新的密钥或存储副本。</summary>
     public static string Digest(string token)=>Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
 }

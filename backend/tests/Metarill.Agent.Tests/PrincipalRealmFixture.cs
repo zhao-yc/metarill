@@ -41,7 +41,7 @@ internal sealed class PrincipalRealmFixture : IDisposable
         var backend=Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../.."));
         Registry=new(Path.Combine(backend,"metadata/platform.json"),Path.Combine(backend,"metadata/demo.json"));
         Session=new(new(){ExpectedDatabase="offline",ConnectionString="offline"},Provider.Orm,Provider);
-        Store=new(Session,Registry.Platform); Authentication=new(Store,Ids,Registry); OAuth=new(Store,Registry,Ids,new());
+        Store=new(Session,Registry.Platform); Authentication=new(Store,Ids,Registry,new PlatformSecuritySessionPolicy(Store)); OAuth=new(Store,Registry,Ids,new());
         Add("yz_project",("id",long.Parse(PlatformProject)),("name","平台")); Add("yz_project",("id",long.Parse(DemoProject)),("name","示例"));
         Add("yz_admin_type",("id",long.Parse(PlatformAdmin)),("yz_project_id",long.Parse(PlatformProject)));
         Add("yz_admin_type",("id",long.Parse(DemoAdmin)),("yz_project_id",long.Parse(DemoProject)));

@@ -32,6 +32,8 @@ var registry=new MetadataRegistry(Path.Combine(root,"backend","metadata","platfo
 var platformOptions=builder.Configuration.GetSection("Metarill:Database").Get<DatabaseOptions>()??throw new InvalidOperationException("请配置 Metarill:Database。");
 var businessOptions=builder.Configuration.GetSection("Metarill:BusinessDatabase").Get<DatabaseOptions>()??throw new InvalidOperationException("请配置 Metarill:BusinessDatabase。");
 builder.Services.AddSingleton(registry);
+builder.Services.AddSingleton<ISecurityResourceRegistry>(sp=>sp.GetRequiredService<MetadataRegistry>());
+builder.Services.AddSingleton<ISecuritySessionPolicy,PlatformSecuritySessionPolicy>();
 builder.Services.AddSingleton(_=>new TargetDatabaseSessions(platformOptions,businessOptions,registry,builder.Configuration.GetSection("Metarill:ProjectDatabases").Get<Dictionary<string,DatabaseOptions>>()));
 builder.Services.AddSingleton<DatabaseSession>(sp=>sp.GetRequiredService<TargetDatabaseSessions>().Platform);
 builder.Services.AddSingleton(sp=>new SqlRowStore(sp.GetRequiredService<DatabaseSession>(),registry.Platform));

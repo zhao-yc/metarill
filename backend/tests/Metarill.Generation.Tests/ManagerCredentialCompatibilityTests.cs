@@ -121,7 +121,7 @@ public sealed class ManagerCredentialCompatibilityTests
             var transport=JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(Path.Combine(directory,"generated/frontend/common/yzp_runtime/page-write-schema.generated.json")));
             var sent=transport.GetProperty("pages").GetProperty(page.Source.Id).GetProperty("updateFields").EnumerateArray().Select(item=>item.GetString()).ToArray();
             Assert.Contains("password",sent);Assert.Contains("salt",sent);Assert.Contains("oldPassword",sent);
-            var agentSchema=typeof(Metarill.Runtime.Security.PasswordHasher).Assembly.GetType("Metarill.Runtime.Agent.AgentJsonSchema",true)!;
+            var agentSchema=typeof(Metarill.Runtime.Metadata.MetadataRegistry).Assembly.GetType("Metarill.Runtime.Agent.AgentJsonSchema",true)!;
             var machine=(Dictionary<string,object?>)agentSchema.GetMethod("Create",BindingFlags.Public|BindingFlags.Static)!.Invoke(null,[request,0])!;
             var machineFields=Assert.IsType<Dictionary<string,object?>>(machine["properties"]);Assert.True(machineFields.ContainsKey("password"));Assert.False(machineFields.ContainsKey("salt"));Assert.False(machineFields.ContainsKey("oldPassword"));Assert.Equal(false,machine["additionalProperties"]);
             var controllerType=assembly.GetType(root+"Controllers.YzManagerPage6031906822946816Controller",true)!;

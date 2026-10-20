@@ -49,7 +49,7 @@ public sealed class SecurityRealmCurrentReader(SqlRowStore store,MetadataRegistr
         var validIds=roles.Select(row=>SqlRowStore.Id(row)).Distinct().Order().ToArray();
         var grants=await store.ReadForUpdateByIdsAsync("yz_role_permission","yz_role_id",validIds,cancellationToken:token);
         var catalog=await metadata.LoadRealmForUpdateAsync(projectId,adminId,token);
-        var realm=PrincipalRolePolicy.Evaluate(registry,account,admin,projectId,roles,grants,catalog);
+        var realm=PrincipalRolePolicy.Evaluate(registry,account,admin,projectId,roles,grants,PlatformSecurityResourceProjection.Create(catalog));
         // 不能把认证时的超级标志继续交给文件/手写钩子；发生身份语义变化则刷新整个请求。
         if(realm.IsPlatformAdministrator!=actor.IsAdministrator||realm.IsSuper!=request.IsRealmSuper||kind=="agent"&&!realm.IsPlatformRealm)throw InvalidIdentity();
         var identity=request with{Permissions=realm.Permissions,MenuIds=realm.MenuIds,ButtonIds=realm.ButtonIds};
