@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "d4122d5b665b9d9a50d5c237ff561f029d71d403182506bb5416f27797ad9088",
+  "metadataSha256": "b1aedec8b763f22871ed6b501b8b96896756e6aae32f08a4a2d646932d885a43",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -74,7 +74,7 @@
     },
     {
       "path": "Controllers/YzProjectPage6186303424888832Controller.g.cs",
-      "sha256": "c4cde684cf89bb60dc83829325a123c7198870f8fb278f75e9aebdeef49f53ab"
+      "sha256": "ca2db143dc147552beec3bb42746bb1439c139cd99f5b5d5b95d7b1d7310be58"
     },
     {
       "path": "Controllers/YzRolePage1692532858529329154Controller.g.cs",
@@ -258,7 +258,7 @@
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "a90fc1a92a022aeaa68db72cb8948ac1f17d96e81e5c9c19913ab22d3a0095fb"
+      "sha256": "fa1d6bb6a10dfafdb658ebbcee1bd8dcfe01026f47525987c186f1894a37efe6"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -438,7 +438,7 @@
     },
     {
       "path": "Services/YzProjectService.g.cs",
-      "sha256": "650eb3e4ecdd03548a5991da043fc936b267996c93b616da40cdb669abb25792"
+      "sha256": "98075a563bd29618167dc06fb1bed505be7c6838145c9242819ed990c29f6926"
     },
     {
       "path": "Services/YzRolePermissionService.g.cs",
@@ -522,7 +522,7 @@
     },
     {
       "path": "VOs/YzProjectPage6186303424888832Vo.g.cs",
-      "sha256": "46171ad8e4232a6b135bc4a4cdca49fa30ea5e824ebebef3da46cc7ea890c26d"
+      "sha256": "2178efb172c5bd631f7296b46708f5f9ea86f87b3990e6ca9ed11d889ad977ce"
     },
     {
       "path": "VOs/YzRolePage1692532858529329154Vo.g.cs",
@@ -678,11 +678,11 @@
     },
     {
       "path": "frontend/pages/yzp/yz_project-detail-6186303424888832.vue",
-      "sha256": "a4ae544de9cecc77e8aef8b38e0493657220cf97c97c6815a95ef75da63d7000"
+      "sha256": "0d9952ed7c3c334902572eeeb832917d966bb0d90036217996c8086cf4d0362b"
     },
     {
       "path": "frontend/pages/yzp/yz_project-list-6186303424888832.vue",
-      "sha256": "e8fe71a5093e7ed3830d19a3a38a066789a93f13b5fe1cea39f38645ada44103"
+      "sha256": "89fa69fc70f76734a28f49d2b32e1b210e5386e1289048f29696db169a427dda"
     },
     {
       "path": "frontend/pages/yzp/yz_role-detail-1692532858529329154.vue",
@@ -702,7 +702,7 @@
     },
     {
       "path": "generation-capabilities.json",
-      "sha256": "d4c599807d4be51c156cdbe1f2a63bca478a5810541508651d34387cb702aa26"
+      "sha256": "d1451c4a387eba0bc71b3cd84a8240033268796600819d5cbc5efa3080a238aa"
     }
   ]
 }

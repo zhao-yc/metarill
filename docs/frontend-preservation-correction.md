@@ -135,3 +135,14 @@ root在0da47d9冻结完整包通过原导入按钮及真实filechooser选两行E
 新会话重新登录后，root原姓名筛选“浏览器导入”2条并点击原导出。真实日志已核initExport200和下载GET200；仅复制该次服务端既有xlsx，无重新请求API或修改文件，6902字节、SHA-256为2717b7400e43438fd4be65883aac82ca03f63729676d5f803d5fb4ef8d67933a。工作表A1:F3的6个原表头、两个人名/项目/备注、数值0/-88.5、原生FALSE/TRUE、2024-02-29/空日期与数据库一致，无公式。证据为新包control/state/export-after-import-fresh-analysis.json及final-import-readonly-receipt-v1.json；浏览器用户目录落盘仍未验证，未借用旧一行文件冒充此两行批次。
 
 用户已确认“yzp版本”原下拉改接Metarill C#模板版本目录，首期一个版本；控件位置及交互保留。该项仍在接线设计，不把确认本身当作已实现。
+
+
+## 2026-10-20 固定C#版本目录整合与正式再生成
+
+用户确认后，原项目版本下拉已接固定 `Metarill C# v1` 目录，保留候选旧POST、字符串ID、zxz控件和原事件。既有项目null不回填，显式Java/未知版本拒绝生成；名称由可信目录计算，只剥离已证明的只读回显。原平台详情页遗留Java默认ID通过元数据同步入口替换，仅一处初始化值变化，页面DOM/样式/事件其余字节保留。虚拟来源或页覆盖声明不能绕过Full门禁。
+
+正式platform/demo两轮生成191项受管文件及清单一致，24个手写partial不变，包含产物的API Release构建0警告0错误；平台元数据摘要 `b1aedec8b763f22871ed6b501b8b96896756e6aae32f08a4a2d646932d885a43`。证据 `.local/original-regeneration-catalog-20261020`。最新能力清单仅余角色 `MultiCheckBoxDatabase` 一项；完整平台包继续由缺口门禁阻止，BackendOnly不能冒充完整交付。
+
+当前主线目录/导入/父关系相关离线整合61/61、前端完整259/259均零跳过。API真实MySQL整合首批71项中69通过，派生字段真实HTTP、尾部失败回滚、双连接锁序与旧复制别名四项全部通过；两项失败证据保留于 `.local/original-catalog-derived-api-final.trx`。其中CRUD旧测试仍要求整entity删除失败，需与已恢复的原协议修正；平台仅后端导出报“原详情自定义组件名称无效”，正核对实库元数据，尚未称API全通过。安全导入的新发行副本另外封存，真实浏览器精确行列提示待复验，不能借旧generic提示的验收结果代替。
+
+Windows CI上次两项独立包进程超时已通过仅测试层的重量类隔离及启动总预算修正，本机Windows定向60/60零跳过；原构建60秒期限和全部业务HTTP断言保持。GitHub新批次仍须实际核验，未将旧Windows失败改写为通过。

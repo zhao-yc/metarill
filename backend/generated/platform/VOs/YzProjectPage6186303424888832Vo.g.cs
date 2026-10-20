@@ -55,6 +55,8 @@ public sealed class YzProjectPage6186303424888832Vo
     public long? YzProjectId { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
+    [JsonPropertyName("yzYzpVersionName")]
+    public string? YzYzpVersionName { get; init; }
     [JsonPropertyName("dbTypeShow")]
     public string? DbTypeShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
@@ -84,6 +86,7 @@ public sealed class YzProjectPage6186303424888832Vo
         UpdateManagerRealName = entity.UpdateManagerRealName,
         YzProjectId = entity.YzProjectId,
         Id = entity.Id,
+        YzYzpVersionName = Metarill.Core.Metadata.TemplateVersionCatalog.DisplayName(entity.YzYzpVersionId),
         DbTypeShow = entity.DbType switch { null => null, 1 => "MicroSoftSQL", 2 => "MySQL", 3 => "ORACLE", var raw => Convert.ToString(raw, CultureInfo.InvariantCulture) },
     };
 }

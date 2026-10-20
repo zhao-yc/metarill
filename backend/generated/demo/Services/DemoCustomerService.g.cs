@@ -149,7 +149,7 @@ public partial class DemoCustomerService
     {
         ArgumentNullException.ThrowIfNull(request);
         await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Import, actor, cancellationToken);
-        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw new ArgumentException("requestJson 必须为 Excel 解析后的行数组。");
+        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);
         await ValidateParents2200000000000100020Async(request.ParentId, actor, cancellationToken);
         var rowNumber = 0;
         foreach (var row in request.RequestJson.EnumerateArray())
@@ -161,9 +161,13 @@ public partial class DemoCustomerService
                 var create = JsonSerializer.Deserialize<DemoCustomerPage2200000000000100020CreateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;
                 await Create2200000000000100020Async(create, request.ParentId, actor, cancellationToken);
             }
-            catch (Exception error) when (error is not OperationCanceledException)
+            catch (PageImportException error) when (error.IsInputError)
             {
-                throw new InvalidOperationException($"第{rowNumber}行：{error.Message}", error);
+                throw error.AtRow(rowNumber);
+            }
+            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException)
+            {
+                throw PageImportException.Execution(rowNumber, error);
             }
         }
         return $"导入成功{rowNumber}条数据";
@@ -172,34 +176,87 @@ public partial class DemoCustomerService
     private async Task<Dictionary<string, JsonElement>> ParseImport2200000000000100020Async(JsonElement row, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
-        if (row.ValueKind != JsonValueKind.Object) throw new ArgumentException("每行必须为中文标题到单元格值的对象。");
+        if (row.ValueKind != JsonValueKind.Object) throw PageImportException.Input(PageImportError.RowObject);
         var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var cell in row.EnumerateObject())
         {
-            if (!seen.Add(cell.Name)) throw new ArgumentException("导入标题重复：" + cell.Name);
-            try
+            if (!seen.Add(cell.Name)) throw PageImportException.Input(PageImportError.DuplicateHeader);
+            switch (cell.Name)
             {
-                switch (cell.Name)
+                case "\u540D\u79F0":
                 {
-                    case "\u540D\u79F0":
-                        values["name"] = cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString());
-                        break;
-                    case "\u5907\u6CE8":
-                        values["notes"] = cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString());
-                        break;
-                    case "\u91D1\u989D":
-                        values["amount"] = cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone();
-                        break;
-                    case "\u542F\u7528":
-                        values["isEnabled"] = cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone();
-                        break;
-                    default: throw new ArgumentException("未开放或未知的导入列：" + cell.Name);
+                    try
+                    {
+                        var normalized = cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString());
+                        _ = JsonSerializer.Deserialize<string?>(normalized.GetRawText(), JsonOptions);
+                        values["name"] = normalized;
+                    }
+                    catch (PageImportException error) when (error.IsInputError)
+                    {
+                        throw PageImportException.Input(error.Code!.Value, error.RowNumber, "\u540D\u79F0", error);
+                    }
+                    catch (Exception error) when (error is JsonException or FormatException or OverflowException)
+                    {
+                        throw PageImportException.Input(PageImportError.Number, columnName: "\u540D\u79F0", inner: error);
+                    }
+                    break;
                 }
-            }
-            catch (Exception error) when (error is not OperationCanceledException)
-            {
-                throw new ArgumentException($"列{cell.Name}：{error.Message}", error);
+                case "\u5907\u6CE8":
+                {
+                    try
+                    {
+                        var normalized = cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString());
+                        _ = JsonSerializer.Deserialize<string?>(normalized.GetRawText(), JsonOptions);
+                        values["notes"] = normalized;
+                    }
+                    catch (PageImportException error) when (error.IsInputError)
+                    {
+                        throw PageImportException.Input(error.Code!.Value, error.RowNumber, "\u5907\u6CE8", error);
+                    }
+                    catch (Exception error) when (error is JsonException or FormatException or OverflowException)
+                    {
+                        throw PageImportException.Input(PageImportError.Number, columnName: "\u5907\u6CE8", inner: error);
+                    }
+                    break;
+                }
+                case "\u91D1\u989D":
+                {
+                    try
+                    {
+                        var normalized = cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone();
+                        _ = JsonSerializer.Deserialize<decimal?>(normalized.GetRawText(), JsonOptions);
+                        values["amount"] = normalized;
+                    }
+                    catch (PageImportException error) when (error.IsInputError)
+                    {
+                        throw PageImportException.Input(error.Code!.Value, error.RowNumber, "\u91D1\u989D", error);
+                    }
+                    catch (Exception error) when (error is JsonException or FormatException or OverflowException)
+                    {
+                        throw PageImportException.Input(PageImportError.Number, columnName: "\u91D1\u989D", inner: error);
+                    }
+                    break;
+                }
+                case "\u542F\u7528":
+                {
+                    try
+                    {
+                        var normalized = cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone();
+                        _ = JsonSerializer.Deserialize<int?>(normalized.GetRawText(), JsonOptions);
+                        values["isEnabled"] = normalized;
+                    }
+                    catch (PageImportException error) when (error.IsInputError)
+                    {
+                        throw PageImportException.Input(error.Code!.Value, error.RowNumber, "\u542F\u7528", error);
+                    }
+                    catch (Exception error) when (error is JsonException or FormatException or OverflowException)
+                    {
+                        throw PageImportException.Input(PageImportError.Number, columnName: "\u542F\u7528", inner: error);
+                    }
+                    break;
+                }
+                default: throw PageImportException.Input(PageImportError.UnknownHeader);
             }
         }
         return values;

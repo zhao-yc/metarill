@@ -26,8 +26,8 @@
 <uni-easyinput primaryColor="#0ab3ad" v-if='!eclipseBaseNameReadOnly' v-model='entity.eclipseBaseName' maxlength='255'   /><text v-if='eclipseBaseNameReadOnly'>{{entity.eclipseBaseName}}</text>
 </uni-forms-item>
 <uni-forms-item label='yzp版本' name='yzYzpVersionId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzYzpVersionIdReadOnly'>{{readonlyDisplayText(entity.yzYzpVersionId)}}</text><template v-if='!yzYzpVersionIdReadOnly'><zxz-uni-data-select v-model='entity.yzYzpVersionId' :localdata='yz_yzp_version_list' filterable :disabled='yzYzpVersionIdReadOnly' dataKey='name' dataValue='id' @change='yzYzpVersionIdDetailChange' /></template>
-<view class='input-tips'>新项目默认 v8；旧项目保留原版本。已有生成目录不能直接切换版本。</view>
+<text v-if='yzYzpVersionIdReadOnly'>{{readonlyDisplayText(entity.yzYzpVersionName)}}</text><template v-if='!yzYzpVersionIdReadOnly'><zxz-uni-data-select v-model='entity.yzYzpVersionId' :localdata='yz_yzp_version_list' filterable :disabled='yzYzpVersionIdReadOnly' dataKey='name' dataValue='id' @change='yz_yzp_versionSelectChange' /></template>
+<view class='input-tips'>Metarill C#模板版本，首期仅v1；原Java版本不能直接用于C#生成。</view>
 </uni-forms-item>
 <uni-forms-item label='数据库类型' name='dbType' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <text v-if='dbTypeReadOnly'>{{entity.dbTypeShow}}</text><template v-if='!dbTypeReadOnly'><uni-data-checkbox :disabled='dbTypeReadOnly' v-model='entity.dbType' :localdata='dbTypeRange' /></template>
@@ -90,7 +90,7 @@ export default {
       
       
       entity: {
-        name:"",mysqlConnStr:"",shortName:"",dbName:"",contextRoot:"",x5AdminName:"",eclipseBaseName:"",yzYzpVersionId:"2104907095303213057",dbType:"",isHide:"",dbUrl:"",dbUsername:"",primaryColor:"#007aff",isSmall:0,yzProjectId:"",
+        name:"",mysqlConnStr:"",shortName:"",dbName:"",contextRoot:"",x5AdminName:"",eclipseBaseName:"",yzYzpVersionId:"2300000000000000001",dbType:"",isHide:"",dbUrl:"",dbUsername:"",primaryColor:"#007aff",isSmall:0,yzProjectId:"",
       },
       entity_column_readonly: {
         name:false,mysqlConnStr:false,shortName:false,dbName:false,contextRoot:false,x5AdminName:false,eclipseBaseName:false,yzYzpVersionId:false,dbType:false,isHide:false,dbUrl:false,dbUsername:false,primaryColor:false,isSmall:false,yzProjectId:true,
@@ -241,7 +241,7 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
     },
     /** 页面/弹层进入使用同一实例边界，旧回调不能写到下一条记录。 */
 beginOriginalDetail(options) {
- this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={name:"",mysqlConnStr:"",shortName:"",dbName:"",contextRoot:"",x5AdminName:"",eclipseBaseName:"",yzYzpVersionId:"2104907095303213057",dbType:"",isHide:"",dbUrl:"",dbUsername:"",primaryColor:"#007aff",isSmall:0,yzProjectId:"",};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
+ this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={name:"",mysqlConnStr:"",shortName:"",dbName:"",contextRoot:"",x5AdminName:"",eclipseBaseName:"",yzYzpVersionId:"2300000000000000001",dbType:"",isHide:"",dbUrl:"",dbUsername:"",primaryColor:"#007aff",isSmall:0,yzProjectId:"",};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
 },
 /** 卸载只取消本详情的任务与订阅，不触发保存或父表刷新。 */
 disposeOriginalDetail() {this._alive=false;this._detailEpoch=(this._detailEpoch||0)+1;(this._detailTasks||[]).forEach(task=>task?.abort?.());this._detailTasks=[];this.disposeMultiSelections?.();},
@@ -279,7 +279,7 @@ runOriginalButton(id) {
 },
 
     loadOriginalOptions1669606903854936065() {const that=this;that.yz_yzp_version_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["1669606903854936065"]||0)+1;that._originalOptions["1669606903854936065"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/yz_project/6186303424888832/findNameIdYzYzpVersion1669606903854936065",isCurrent:()=>optionSequence===that._originalOptions["1669606903854936065"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.yzYzpVersionId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_yzp_version_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
-yzYzpVersionIdDetailChange(item) { if(this.yzYzpVersionIdReadOnly) return; this.entity.yzYzpVersionId=item ? item.id : '';  },
+yz_yzp_versionSelectChange(item) { if(this.yzYzpVersionIdReadOnly) return; this.entity.yzYzpVersionId=item ? item.id : ''; this.entity.yzYzpVersionName=item ? item.name : ''; },
 customerButtonHandler1696360770502291457() { this.runOriginalButton("1696360770502291457"); },
 customerButtonHandler2069009428958547968() { this.runOriginalButton("2069009428958547968"); },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },

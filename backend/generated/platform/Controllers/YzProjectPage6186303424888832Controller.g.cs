@@ -13,7 +13,7 @@ public sealed class YzProjectPage6186303424888832Controller(YzProjectService ser
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("6186303424888832", operation); return authorization.RequireActor(); }
-    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "mysqlConnStr", "shortName", "dbName", "contextRoot", "x5AdminName", "eclipseBaseName", "yzYzpVersionId", "dbType", "isHide", "dbUrl", "dbUsername", "primaryColor", "isSmall"], ["name", "mysqlConnStr", "shortName", "dbName", "contextRoot", "x5AdminName", "eclipseBaseName", "yzYzpVersionId", "dbType", "isHide", "dbUrl", "dbUsername", "primaryColor", "isSmall", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzProjectId", "id", "dbTypeShow"], [], "yzProjectId");
+    private static readonly LegacyPageWriteContract LegacyWrite = new(["name", "mysqlConnStr", "shortName", "dbName", "contextRoot", "x5AdminName", "eclipseBaseName", "yzYzpVersionId", "dbType", "isHide", "dbUrl", "dbUsername", "primaryColor", "isSmall"], ["name", "mysqlConnStr", "shortName", "dbName", "contextRoot", "x5AdminName", "eclipseBaseName", "yzYzpVersionId", "dbType", "isHide", "dbUrl", "dbUsername", "primaryColor", "isSmall", "insertTime", "updateTime", "insertManagerId", "updateManagerId", "insertUserName", "updateUserName", "insertManagerRealName", "updateManagerRealName", "yzProjectId", "id", "yzYzpVersionName", "dbTypeShow"], [], "yzProjectId");
     /// <summary>先核验真实身份，再剥离只读回显；使用宿主原 JSON 设置保留日期、ID 与 Optional 语义。</summary>
     private T LegacyRequest<T>(System.Text.Json.JsonElement entity, LegacyPageWriteOperation operation, RuntimeActor actor, string? parentId)
     {
@@ -64,4 +64,7 @@ public sealed class YzProjectPage6186303424888832Controller(YzProjectService ser
     /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>
     [HttpPost("copy/{id}")]
     public async Task<R<YzProjectPage6186303424888832Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<YzProjectPage6186303424888832Vo>.Success(await service.Copy6186303424888832Async(id, parentId, Actor("copy"), cancellationToken));
+    /// <summary>原下拉只读取固定C#模板目录，表单上下文不参与授权或查询。</summary>
+    [HttpPost("findNameIdYzYzpVersion1669606903854936065")] [RequestSizeLimit(16384)]
+    public R<IReadOnlyList<Metarill.Core.Metadata.TemplateVersionOption>> findNameIdYzYzpVersion1669606903854936065([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] System.Text.Json.JsonElement? request) { Actor("list"); if (Request.Query.Count != 0) throw new ArgumentException("版本候选不接受query参数。"); return R<IReadOnlyList<Metarill.Core.Metadata.TemplateVersionOption>>.Success(Metarill.Core.Metadata.TemplateVersionCatalog.ReadOptions(request)); }
 }

@@ -35,10 +35,8 @@ public partial class YzProjectService
     private async Task ValidateRelations6186303424888832Async(YzProject entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
-        if ((creating || submitted.Contains("yz_yzp_version_id")) && entity.YzYzpVersionId is not null)
-        {
-            throw new InvalidOperationException("\u5173\u8054\u76EE\u6807\u5C1A\u672A\u79FB\u690D\uFF1Ayzp\u7248\u672C");
-        }
+        if (creating || submitted.Contains("yz_yzp_version_id"))
+            Metarill.Core.Metadata.TemplateVersionCatalog.RequireSupported(entity.YzYzpVersionId);
     }
     /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>
     private async Task ValidateParents6186303424888832Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
