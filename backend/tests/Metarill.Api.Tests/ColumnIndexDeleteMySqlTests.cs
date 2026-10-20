@@ -71,7 +71,8 @@ public sealed class ColumnIndexDeleteMySqlTests
         {
             configTableId=Text(table),revision=snapshot.GetProperty("revision").GetString(),
             indexes=new[]{new{id,indexName="yzp_idx_delete_guard",indexType="NORMAL",isEnabled=enabled,
-                columns=new[]{new{id=child,configColumnId=Text(column),columnName="indexed_value",sortNo=0,sortDirection="ASC"}}}}
+                // 工作台要求正整数序号，并将首列固定正规化为10。
+                columns=new[]{new{id=child,configColumnId=Text(column),columnName="indexed_value",sortNo=10,sortDirection="ASC"}}}}
         }));
         await f.RegisterIndexSave(saved,table,column,"yzp_idx_delete_guard",enabled);
     }

@@ -158,14 +158,14 @@ internal sealed class MaterializedDerivedApiFixture:IAsyncDisposable
         var index=indexes[0];var children=index.GetProperty("columns").EnumerateArray().ToArray();
         if(children.Length!=1||index.GetProperty("indexName").GetString()!=name||index.GetProperty("indexType").GetString()!="NORMAL"||index.GetProperty("isEnabled").GetInt32()!=enabled)throw new InvalidOperationException("索引回执定义不匹配，保留现场。");
         var id=Id(index);var child=Id(children[0]);
-        if(id<=0||child<=0||children[0].GetProperty("configColumnId").GetString()!=column.ToString(CultureInfo.InvariantCulture)||children[0].GetProperty("columnName").GetString()!="indexed_value"||children[0].GetProperty("sortNo").GetInt32()!=0||children[0].GetProperty("sortDirection").GetString()!="ASC")throw new InvalidOperationException("索引字段回执不匹配，保留现场。");
+        if(id<=0||child<=0||children[0].GetProperty("configColumnId").GetString()!=column.ToString(CultureInfo.InvariantCulture)||children[0].GetProperty("columnName").GetString()!="indexed_value"||children[0].GetProperty("sortNo").GetInt32()!=10||children[0].GetProperty("sortDirection").GetString()!="ASC")throw new InvalidOperationException("索引字段回执不匹配，保留现场。");
         var proof=(Table:table,Column:column,Child:child,Name:name);
         if(registeredIndexes.TryGetValue(id,out var previous)&&previous!=proof||registeredIndexes.Any(pair=>pair.Key!=id&&(pair.Value.Table==table||pair.Value.Child==child)))throw new InvalidOperationException("索引回执身份发生变化，保留现场。");
         await SaveEvidence("index-receipt-"+id.ToString(CultureInfo.InvariantCulture),new{id,child,table,column,name,enabled,creator=creatorId,project=Project,receipt});
         var indexRow=await ExactIndexRow("config_index",id);var childRow=await ExactIndexRow("config_index_column",child);
         RequireIndexOwner(indexRow);RequireIndexOwner(childRow);
         if(SqlRowStore.Id(indexRow,"config_table_id")!=table||SqlRowStore.Text(indexRow,"index_name")!=name||SqlRowStore.Text(indexRow,"index_type")!="NORMAL"||Convert.ToInt32(indexRow["is_enabled"],CultureInfo.InvariantCulture)!=enabled||indexRow.GetValueOrDefault("delete_no") is not null
-            ||SqlRowStore.Id(childRow,"config_index_id")!=id||SqlRowStore.Id(childRow,"config_column_id")!=column||SqlRowStore.Text(childRow,"column_name")!="indexed_value"||SqlRowStore.Text(childRow,"config_index_index_name")!=name||Convert.ToInt32(childRow["sort_no"],CultureInfo.InvariantCulture)!=0||SqlRowStore.Text(childRow,"sort_direction")!="ASC"||childRow.GetValueOrDefault("delete_no") is not null)throw new InvalidOperationException("索引实际定义与已知回执不一致，保留现场。");
+            ||SqlRowStore.Id(childRow,"config_index_id")!=id||SqlRowStore.Id(childRow,"config_column_id")!=column||SqlRowStore.Text(childRow,"column_name")!="indexed_value"||SqlRowStore.Text(childRow,"config_index_index_name")!=name||Convert.ToInt32(childRow["sort_no"],CultureInfo.InvariantCulture)!=10||SqlRowStore.Text(childRow,"sort_direction")!="ASC"||childRow.GetValueOrDefault("delete_no") is not null)throw new InvalidOperationException("索引实际定义与已知回执不一致，保留现场。");
         // 禁用只允许启用值和服务端更新时间变化；不能把其它完整字段修改当作测试自有写入。
         RequireKnownIndexChange("config_index",id,indexRow,["is_enabled","update_time"]);
         RequireKnownIndexChange("config_index_column",child,childRow,["update_time"]);
