@@ -19,8 +19,13 @@ internal static class GenerationCapabilityAudit
         foreach(var page in table.Pages)
         {
             // 虚拟列在模型物理列过滤前存在；固定目录声明不能因该过滤而从Full门禁静默消失。
-            foreach(var source in model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id && column.IsVirtualColumn!=0 && FixedOptionCatalogCompilation.HasDeclaration(column)))
-                gaps.Add(new(page.Source.Id,source.ColumnName,"detail","固定版本目录必须使用已声明的非联接物理版本字段。"));
+            foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==page.Source.Id))
+            {
+                // GenerationModel已验证同页字段的同表归属；这里只审实际声明，不能从其它页借覆盖。
+                var source=model.Catalog.ConfigColumns.Single(column=>column.Id==field.ConfigColumnId && column.ConfigTableId==table.Source.Id);
+                if(source.IsVirtualColumn!=0 && FixedOptionCatalogCompilation.HasDeclaration(source,field))
+                    gaps.Add(new(page.Source.Id,source.ColumnName,"detail","固定版本目录必须使用已声明的非联接物理版本字段。"));
+            }
             foreach(var column in page.Readable)
                 if(ControlRenderer.Render(model,table,page,column).UnsupportedReason is {} reason)
                     gaps.Add(new(page.Source.Id,column.Source.ColumnName,"detail",reason));

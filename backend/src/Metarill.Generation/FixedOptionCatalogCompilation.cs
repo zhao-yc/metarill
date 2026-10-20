@@ -17,6 +17,9 @@ internal static class FixedOptionCatalogCompilation
     /// <summary>声明存放在既有control_detail真实列，损坏声明也不能退回普通表查询。</summary>
     internal static bool HasDeclaration(ColumnModel column) => HasDeclaration(column.Source);
     internal static bool HasDeclaration(ColumnMetadata column) => HasCatalog(column.ControlDetail);
+    /// <summary>同一真实页字段的来源或覆盖声明均需受审，不能因虚拟列先过滤而漏掉覆盖。</summary>
+    internal static bool HasDeclaration(ColumnMetadata column, PageColumnMetadata? field) => HasDeclaration(column) || HasCatalog(PageOverlay(field));
+    private static string PageOverlay(PageColumnMetadata? field) => field?.Extra.GetValueOrDefault("controlDetail").ToString() ?? "";
     private static bool HasCatalog(string text)
     {
         try { using var document = JsonDocument.Parse(text); return document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("catalog", out _); }
@@ -27,8 +30,8 @@ internal static class FixedOptionCatalogCompilation
     internal static FixedOptionCatalogResult Resolve(GenerationModel model, PageModel page, ColumnModel source)
     {
         var field = model.Catalog.ConfigPageColumns.SingleOrDefault(item => item.ConfigPageId == page.Source.Id && item.ConfigColumnId == source.Source.Id);
-        var overlay = field?.Extra.GetValueOrDefault("controlDetail").ToString() ?? "";
-        if (!HasDeclaration(source) && !HasCatalog(overlay)) return new(false, null, null);
+        var overlay = PageOverlay(field);
+        if (!HasDeclaration(source.Source, field)) return new(false, null, null);
         FixedOptionCatalogResult Gap(string reason) => new(true, null, "固定版本目录尚未证明：" + reason);
         if (source.Source.IsVirtualColumn != 0 || GenerationModel.Enabled(source.Source.Extra, "isJoinColumn")) return Gap("目录源必须为非联接的物理版本字段。");
         if (!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId) || !string.IsNullOrWhiteSpace(source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString())) return Gap("固定目录不能同时声明关联表或关联页面。");
