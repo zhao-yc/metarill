@@ -205,7 +205,12 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
                 await store.UpdateAsync(table,SqlRowStore.Id(row),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
         }
         if(context.TableName=="config_custom_page")await DeleteRows("config_menu","config_custom_page_id",context.RecordId);
-        if(context.TableName=="config_column"){await DeleteRows("config_page_column","config_column_id",context.RecordId);await DeleteRows("config_index_column","config_column_id",context.RecordId);}
+        if(context.TableName=="config_column")
+        {
+            // 与原V8一致：活动索引字段本身就是引用，不因父索引禁用、软删或缺失而放行。
+            await RequireColumnNotIndexedAsync(context.RecordId,token);
+            await DeleteRows("config_page_column","config_column_id",context.RecordId);
+        }
         var pageIds=context.TableName=="config_page"?new[]{context.RecordId}:context.TableName=="config_table"?(await store.ReadAsync("config_page",new Dictionary<string,object?>{{"config_table_id",context.RecordId},{"yz_project_id",long.Parse(context.ProjectId)}},token)).Select(r=>SqlRowStore.Id(r)).ToArray():[];
         foreach(var pageId in pageIds)
         {
@@ -214,11 +219,36 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         }
         if(context.TableName=="config_table")
         {
-            await DeleteRows("config_page","config_table_id",context.RecordId);await DeleteRows("config_column","config_table_id",context.RecordId);
-            foreach(var index in await store.ReadAsync("config_index",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},token))await DeleteRows("config_index_column","config_index_id",SqlRowStore.Id(index));
-            await DeleteRows("config_index","config_table_id",context.RecordId);
+            var project=long.Parse(context.ProjectId);
+            // 整表删除先解除本表自有索引，再逐列使用同一规则；不能借table上下文跳过残存外部引用。
+            // 先读全部直接从属再核归属，项目条件不能隐藏既有的跨项目损坏引用。
+            var indexes=await store.ReadForUpdateAsync("config_index",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},token);
+            foreach(var index in indexes)RequireProject(index,project);
+            foreach(var index in indexes.OrderBy(row=>SqlRowStore.Id(row)))
+            {
+                var indexId=SqlRowStore.Id(index);
+                var fields=await store.ReadForUpdateAsync("config_index_column",new Dictionary<string,object?>{{"config_index_id",indexId}},token);
+                foreach(var field in fields)RequireProject(field,project);
+                foreach(var field in fields.OrderBy(row=>SqlRowStore.Id(row)))
+                    await store.UpdateAsync("config_index_column",SqlRowStore.Id(field),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+                await store.UpdateAsync("config_index",indexId,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+            }
+            var columns=await store.ReadForUpdateAsync("config_column",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},token);
+            foreach(var column in columns)RequireProject(column,project);
+            foreach(var column in columns.OrderBy(row=>SqlRowStore.Id(row)))await RequireColumnNotIndexedAsync(SqlRowStore.Id(column),token);
+            foreach(var column in columns.OrderBy(row=>SqlRowStore.Id(row)))
+                await store.UpdateAsync("config_column",SqlRowStore.Id(column),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+            await DeleteRows("config_page","config_table_id",context.RecordId);
         }
     }
+    /// <summary>在同一事务的项目锁后当前读活动引用；不级联删索引，不用父索引状态隐藏悬空引用。</summary>
+    private async Task RequireColumnNotIndexedAsync(long columnId,CancellationToken token)
+    {
+        // 仓储按已发布列生成参数化WHERE、活动行过滤及FOR UPDATE；原事务失败时包括源软删一起回滚。
+        var references=await store.ReadForUpdateAsync("config_index_column",new Dictionary<string,object?>{{"config_column_id",columnId}},token);
+        if(references.Count!=0)throw new InvalidOperationException("字段已被索引引用，请先调整或删除该索引。");
+    }
+
     /// <summary>只供新表默认页与显式从表建页初始化；调用者必须已经在同一项目事务内创建目标页。</summary>
     internal async Task<IReadOnlyList<long>> InitializePageFieldsAsync(long pageId,long project,CancellationToken cancellationToken=default)
     {

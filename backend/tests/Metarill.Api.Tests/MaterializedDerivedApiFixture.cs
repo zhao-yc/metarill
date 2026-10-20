@@ -27,12 +27,14 @@ internal sealed class MaterializedDerivedApiFixture:IAsyncDisposable
     internal const string ColumnRoute="/admin/auto/config_column/6217715532627968";
     internal const string TableRoute="/admin/auto/config_table/6191083005411328";
     private static readonly SnowflakeIdGenerator Ids=new(828);
-    private static readonly string[] Tables=["config_page_column","config_page","config_column","config_table","yz_admin_type","yz_project"];
+    private static readonly string[] Tables=["config_index_column","config_index","config_page_column","config_page","config_column","config_table","yz_admin_type","yz_project"];
     private readonly HashSet<(string Table,long Id,long Project)> owned=[];
     private readonly HashSet<long> roots=[];
+    private readonly Dictionary<long,(long Table,long Column,long Child,string Name)> registeredIndexes=[];
+    private readonly Dictionary<(string Table,long Id),Dictionary<string,object?>> registeredIndexRows=[];
     private readonly HashSet<string> expectedNames=new(StringComparer.Ordinal);
     private readonly string? priorSettings=Environment.GetEnvironmentVariable("METARILL_SETTINGS");
-    private string tokenHash="";private long sessionId;private bool cleaned;
+    private string tokenHash="";private long sessionId;private long creatorId;private bool cleaned;
     internal string Evidence{get;}=Path.Combine(Repository(),".local/derived-mysql/runs",Guid.NewGuid().ToString("N"));
     internal string Marker{get;}="mt_der_"+Guid.NewGuid().ToString("N")[..12];
     internal long Project{get;}=Ids.NextId();internal long ForeignProject{get;}=Ids.NextId();
@@ -69,7 +71,8 @@ internal sealed class MaterializedDerivedApiFixture:IAsyncDisposable
             using var loginResponse=await f.Client.PostAsync("/api/admin/sys/yz_manager/login",new FormUrlEncodedContent(new Dictionary<string,string>{{"username",bootstrap.GetProperty("Username").GetString()!},{"password",bootstrap.GetProperty("Password").GetString()!}}));
             var login=await Body(loginResponse);Data(login);var token=login.GetProperty("map").GetProperty("loginStateId").GetString()!;f.tokenHash=PasswordHasher.Digest(token);
             f.Client.DefaultRequestHeaders.Add("loginStateId",token);
-            f.sessionId=SqlRowStore.Id((await f.Store.ReadAsync("sys_session",new Dictionary<string,object?>{{"token_hash",f.tokenHash}})).Single());
+            var ownSession=(await f.Store.ReadAsync("sys_session",new Dictionary<string,object?>{{"token_hash",f.tokenHash}})).Single();
+            f.sessionId=SqlRowStore.Id(ownSession);f.creatorId=SqlRowStore.Id(ownSession,"account_id");
             await f.AddSeed("yz_project",f.Project,f.Project,new(){["name"]=f.Marker});
             await f.AddSeed("yz_project",f.ForeignProject,f.ForeignProject,new(){["name"]=f.Marker+"_foreign"});
             await f.AddSeed("yz_admin_type",f.Admin,f.Project,new(){["name"]="派生验收后台",["yz_project_id"]=f.Project});
@@ -132,6 +135,12 @@ internal sealed class MaterializedDerivedApiFixture:IAsyncDisposable
         {
             var tables=await Rows("config_table",project);foreach(var row in tables){if(!roots.Contains(SqlRowStore.Id(row))||!expectedNames.Contains(SqlRowStore.Text(row,"table_name")))throw new InvalidOperationException("发现未登记根表，保留现场。");owned.Add(("config_table",SqlRowStore.Id(row),project));}
             var columns=await Rows("config_column",project);foreach(var row in columns){if(!tables.Any(table=>SqlRowStore.Id(table)==SqlRowStore.Id(row,"config_table_id")))throw new InvalidOperationException("字段来源不属于自有根表。");owned.Add(("config_column",SqlRowStore.Id(row),project));}
+            // 索引只接受已显式登记的工作台回执，合法同表但未登记的第三方记录也必须保留现场。
+            var indexes=await Rows("config_index",project);
+            foreach(var row in indexes)RequireRegisteredIndexRow("config_index",row,project);
+            var indexFields=await Rows("config_index_column",project);
+            foreach(var row in indexFields)RequireRegisteredIndexRow("config_index_column",row,project);
+            if(project==Project&&registeredIndexRows.Keys.Any(key=>!(key.Table=="config_index"?indexes:indexFields).Any(row=>SqlRowStore.Id(row)==key.Id)))throw new InvalidOperationException("已登记索引记录缺失，保留现场。");
             var pages=await Rows("config_page",project);foreach(var row in pages){if(!tables.Any(table=>SqlRowStore.Id(table)==SqlRowStore.Id(row,"config_table_id")))throw new InvalidOperationException("页面来源不属于自有根表。");owned.Add(("config_page",SqlRowStore.Id(row),project));}
             foreach(var row in await Rows("config_page_column",project))
             {
@@ -141,6 +150,73 @@ internal sealed class MaterializedDerivedApiFixture:IAsyncDisposable
         }
         await FlushLedger("captured");
     }
+    /// <summary>首笔回执只登记固定自有索引；后续同一ID的已知写入必须保持原完整记录除明确变更字段外字节等价。</summary>
+    internal async Task RegisterIndexSave(JsonElement receipt,long table,long column,string name,int enabled)
+    {
+        if(!roots.Contains(table)||receipt.GetProperty("configTableId").GetString()!=table.ToString(CultureInfo.InvariantCulture))throw new InvalidOperationException("索引回执所属表不匹配，保留现场。");
+        var indexes=receipt.GetProperty("indexes").EnumerateArray().ToArray();if(indexes.Length!=1)throw new InvalidOperationException("索引回执数量异常，保留现场。");
+        var index=indexes[0];var children=index.GetProperty("columns").EnumerateArray().ToArray();
+        if(children.Length!=1||index.GetProperty("indexName").GetString()!=name||index.GetProperty("indexType").GetString()!="NORMAL"||index.GetProperty("isEnabled").GetInt32()!=enabled)throw new InvalidOperationException("索引回执定义不匹配，保留现场。");
+        var id=Id(index);var child=Id(children[0]);
+        if(id<=0||child<=0||children[0].GetProperty("configColumnId").GetString()!=column.ToString(CultureInfo.InvariantCulture)||children[0].GetProperty("columnName").GetString()!="indexed_value"||children[0].GetProperty("sortNo").GetInt32()!=0||children[0].GetProperty("sortDirection").GetString()!="ASC")throw new InvalidOperationException("索引字段回执不匹配，保留现场。");
+        var proof=(Table:table,Column:column,Child:child,Name:name);
+        if(registeredIndexes.TryGetValue(id,out var previous)&&previous!=proof||registeredIndexes.Any(pair=>pair.Key!=id&&(pair.Value.Table==table||pair.Value.Child==child)))throw new InvalidOperationException("索引回执身份发生变化，保留现场。");
+        await SaveEvidence("index-receipt-"+id.ToString(CultureInfo.InvariantCulture),new{id,child,table,column,name,enabled,creator=creatorId,project=Project,receipt});
+        var indexRow=await ExactIndexRow("config_index",id);var childRow=await ExactIndexRow("config_index_column",child);
+        RequireIndexOwner(indexRow);RequireIndexOwner(childRow);
+        if(SqlRowStore.Id(indexRow,"config_table_id")!=table||SqlRowStore.Text(indexRow,"index_name")!=name||SqlRowStore.Text(indexRow,"index_type")!="NORMAL"||Convert.ToInt32(indexRow["is_enabled"],CultureInfo.InvariantCulture)!=enabled||indexRow.GetValueOrDefault("delete_no") is not null
+            ||SqlRowStore.Id(childRow,"config_index_id")!=id||SqlRowStore.Id(childRow,"config_column_id")!=column||SqlRowStore.Text(childRow,"column_name")!="indexed_value"||SqlRowStore.Text(childRow,"config_index_index_name")!=name||Convert.ToInt32(childRow["sort_no"],CultureInfo.InvariantCulture)!=0||SqlRowStore.Text(childRow,"sort_direction")!="ASC"||childRow.GetValueOrDefault("delete_no") is not null)throw new InvalidOperationException("索引实际定义与已知回执不一致，保留现场。");
+        // 禁用只允许启用值和服务端更新时间变化；不能把其它完整字段修改当作测试自有写入。
+        RequireKnownIndexChange("config_index",id,indexRow,["is_enabled","update_time"]);
+        RequireKnownIndexChange("config_index_column",child,childRow,["update_time"]);
+        registeredIndexes[id]=proof;RegisterIndexRow("config_index",id,indexRow);RegisterIndexRow("config_index_column",child,childRow);
+        await FlushLedger("index-registered");
+    }
+
+    /// <summary>只接受已知工作台移除或整表删除的墓碑变化；调用前必须已通过Capture完整核验。</summary>
+    internal async Task RegisterIndexDelete(long table,bool workbench)
+    {
+        foreach(var pair in registeredIndexes.Where(pair=>pair.Value.Table==table))
+        {
+            foreach(var item in new[]{("config_index",pair.Key),("config_index_column",pair.Value.Child)})
+            {
+                var row=await ExactIndexRow(item.Item1,item.Item2);RequireIndexOwner(row);
+                if(row.GetValueOrDefault("delete_no") is null)throw new InvalidOperationException("自有索引删除未产生预期墓碑，保留现场。");
+                RequireKnownIndexChange(item.Item1,item.Item2,row,workbench?["delete_no","update_time"]:["delete_no"]);
+                RegisterIndexRow(item.Item1,item.Item2,row);
+            }
+        }
+        await FlushLedger("index-delete-registered");
+    }
+
+    /// <summary>读取精确索引ID且只输出固定失败说明，不由断言格式化完整元数据行。</summary>
+    private async Task<Dictionary<string,object?>> ExactIndexRow(string table,long id)
+    {
+        var rows=await Store.ReadIncludingDeletedAsync(table,new Dictionary<string,object?>{{"id",id}});
+        if(rows.Count!=1)throw new InvalidOperationException("已登记索引记录数量不一致，保留现场。");return rows[0];
+    }
+    /// <summary>创建归属必须来自实际登录会话及固定随机项目，不能从回执或项目名猜测所有者。</summary>
+    private void RequireIndexOwner(IReadOnlyDictionary<string,object?> row)
+    {
+        if(SqlRowStore.Id(row,"yz_project_id")!=Project||SqlRowStore.Id(row,"insert_manager_id")!=creatorId||SqlRowStore.Id(row,"update_manager_id")!=creatorId)throw new InvalidOperationException("索引创建或修改归属不匹配，保留现场。");
+    }
+    /// <summary>Capture不自动认领任何索引；完整字段漂移即停止后续修改与清理。</summary>
+    private void RequireRegisteredIndexRow(string table,Dictionary<string,object?> row,long project)
+    {
+        var id=SqlRowStore.Id(row);
+        if(project!=Project||!registeredIndexRows.TryGetValue((table,id),out var expected)||IndexFingerprint(expected)!=IndexFingerprint(row))throw new InvalidOperationException("发现未登记或已变化的索引记录，保留现场。");
+        RequireIndexOwner(row);
+        if(!owned.Contains((table,id,project)))throw new InvalidOperationException("索引尚未完成显式登记，保留现场。");
+    }
+    /// <summary>只有明确预期的字段可以在本次原HTTP写入后改变；其它字段维持完整基线。</summary>
+    private void RequireKnownIndexChange(string table,long id,Dictionary<string,object?> row,string[] changed)
+    {
+        if(registeredIndexRows.TryGetValue((table,id),out var expected)&&IndexFingerprint(expected,changed)!=IndexFingerprint(row,changed))throw new InvalidOperationException("索引出现本次写入以外的变化，保留现场。");
+    }
+    /// <summary>只有完整验证后才将精确记录纳入清理账本，未知同表节点不会被自动接收。</summary>
+    private void RegisterIndexRow(string table,long id,Dictionary<string,object?> row){registeredIndexRows[(table,id)]=new(row,StringComparer.Ordinal);owned.Add((table,id,Project));}
+    /// <summary>按稳定键序比较完整字段，仅已知HTTP动作可以排除本次明确变更的键。</summary>
+    private static string IndexFingerprint(IReadOnlyDictionary<string,object?> row,string[]? ignored=null)=>JsonSerializer.Serialize(row.Where(pair=>ignored is null||!ignored.Contains(pair.Key,StringComparer.Ordinal)).OrderBy(pair=>pair.Key,StringComparer.Ordinal).ToDictionary(pair=>pair.Key,pair=>pair.Value));
     private Task<List<Dictionary<string,object?>>> Rows(string table,long project)=>Store.ReadIncludingDeletedAsync(table,new Dictionary<string,object?>{{"yz_project_id",project}});
     internal void AllowRename(string name)=>expectedNames.Add(name);
     internal async Task<string> Snapshot()
@@ -150,7 +226,7 @@ internal sealed class MaterializedDerivedApiFixture:IAsyncDisposable
         return JsonSerializer.Serialize(result);
     }
     internal async Task SaveEvidence(string name,object value)=>await Durable(Path.Combine(Evidence,name+".json"),JsonSerializer.Serialize(value));
-    private async Task FlushLedger(string state)=>await SaveEvidence("ledger",new{state,marker=Marker,project=Project,foreignProject=ForeignProject,roots=roots.Order().ToArray(),owned=owned.OrderBy(item=>item.Table,StringComparer.Ordinal).ThenBy(item=>item.Id).Select(item=>new{table=item.Table,id=item.Id,project=item.Project}).ToArray(),expectedTableNames=expectedNames.Order(StringComparer.Ordinal).ToArray(),sessionId});
+    private async Task FlushLedger(string state)=>await SaveEvidence("ledger",new{state,marker=Marker,project=Project,foreignProject=ForeignProject,roots=roots.Order().ToArray(),owned=owned.OrderBy(item=>item.Table,StringComparer.Ordinal).ThenBy(item=>item.Id).Select(item=>new{table=item.Table,id=item.Id,project=item.Project}).ToArray(),expectedTableNames=expectedNames.Order(StringComparer.Ordinal).ToArray(),registeredIndexes=registeredIndexes.OrderBy(pair=>pair.Key).Select(pair=>new{id=pair.Key,table=pair.Value.Table,column=pair.Value.Column,child=pair.Value.Child,name=pair.Value.Name,creator=creatorId,project=Project}).ToArray(),sessionId});
     private static async Task Durable(string path,string value){await using var file=new FileStream(path,FileMode.Create,FileAccess.Write,FileShare.Read);await file.WriteAsync(Encoding.UTF8.GetBytes(value));await file.FlushAsync();file.Flush(true);}
 
     /// <summary>只有成功验收才启动精确清理；清理前重新核验全部ID及归属图，未知记录即停止并保留现场。</summary>

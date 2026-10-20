@@ -381,6 +381,133 @@ public sealed class ConfigurationMaterializedValueTests
         void Flag(string key,int expected){Assert.True(field.TryGetValue(key,out var value));Assert.NotNull(value);Assert.Equal(expected,Convert.ToInt32(value,CultureInfo.InvariantCulture));}
     }
 
+    /// <summary>真实仓储与观察器拒绝活动child，不按父索引状态、开关或存在性缩小原V8规则。</summary>
+    [Theory]
+    [InlineData("active")][InlineData("disabled")][InlineData("deleted-index")][InlineData("missing-index")]
+    public async Task IndexDeleteParity_active_child_blocks_and_rolls_back_source_and_related_metadata(string state)
+    {
+        using var f=new Fixture();AddDeleteIndex(f,state);var before=f.Snapshot();DbTransaction? expectedTransaction=null;
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            expectedTransaction=f.Session.CurrentTransaction;
+            await f.Store.UpdateAsync("config_table",10,new Dictionary<string,object?>{{"name","不得部分保留"}});
+            await f.Store.UpdateAsync("config_column",20,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            await f.Observer.BeforeCommitAsync(new("offline","config_column",20,"1",new Dictionary<string,object?>(),true,expectedTransaction!));return true;
+        }));
+        Assert.Equal(before,f.Snapshot());Assert.Equal(1,f.Provider.Rollbacks);
+        var read=Assert.Single(f.Provider.Reads,command=>command.Sql.Contains("FROM `config_index_column`",StringComparison.Ordinal));
+        Assert.Contains("`delete_no` IS NULL",read.Sql);Assert.Contains("`config_column_id`=@p0",read.Sql);Assert.EndsWith(" FOR UPDATE",read.Sql);
+        Assert.DoesNotContain("`config_column_id`=20",read.Sql);Assert.DoesNotContain("JOIN",read.Sql,StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(20L,read.Values["p0"]);Assert.Same(expectedTransaction,read.Transaction);
+        Assert.True(f.Provider.Commands.FindIndex(sql=>sql.Contains("FROM `yz_project`",StringComparison.Ordinal))<f.Provider.Commands.IndexOf(read.Sql));
+        Assert.DoesNotContain(f.Provider.Commands,sql=>sql.StartsWith("UPDATE `config_index_column`",StringComparison.Ordinal)||sql.StartsWith("UPDATE `config_page_column`",StringComparison.Ordinal));
+    }
+
+    /// <summary>只看活动且引用本列的child；墓碑不复活，也不改与当前列无关的索引。</summary>
+    [Theory]
+    [InlineData("none")][InlineData("deleted-child")][InlineData("other-column")]
+    public async Task IndexDeleteParity_no_active_reference_allows_column_and_page_mapping_delete(string state)
+    {
+        using var f=new Fixture();if(state!="none")AddDeleteIndex(f,"active");
+        if(state=="deleted-child")f.Get("config_index_column",60)["delete_no"]=DateTime.UtcNow;
+        if(state=="other-column")f.Get("config_index_column",60)["config_column_id"]=21L;
+        var indexes=JsonSerializer.Serialize(f.Provider.Rows.GetValueOrDefault("config_index_column"));
+        await f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_column",20,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            await f.Observer.BeforeCommitAsync(new("offline","config_column",20,"1",new Dictionary<string,object?>(),true,f.Session.CurrentTransaction!));return true;
+        });
+        Assert.NotNull(f.Get("config_column",20)["delete_no"]);Assert.NotNull(f.Get("config_page_column",40)["delete_no"]);
+        Assert.Equal(indexes,JsonSerializer.Serialize(f.Provider.Rows.GetValueOrDefault("config_index_column")));
+        Assert.DoesNotContain(f.Provider.Commands,sql=>sql.StartsWith("UPDATE `config_index_column`",StringComparison.Ordinal));
+    }
+
+    /// <summary>整表合法聚合先删本表索引及字段，再逐列检查；SQL顺序不是MySQL实际锁顺序证明。</summary>
+    [Fact]
+    public async Task IndexDeleteParity_table_removes_own_indexes_before_checking_each_column()
+    {
+        using var f=new Fixture();AddDeleteIndex(f,"active");
+        await f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_table",10,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            await f.Observer.BeforeCommitAsync(new("offline","config_table",10,"1",new Dictionary<string,object?>(),true,f.Session.CurrentTransaction!));return true;
+        });
+        foreach(var(table,id)in new[]{("config_index_column",60L),("config_index",50L),("config_column",20L),("config_page",30L),("config_page_column",40L)})Assert.NotNull(f.Get(table,id)["delete_no"]);
+        var childDelete=f.Provider.Commands.FindIndex(sql=>sql.StartsWith("UPDATE `config_index_column`",StringComparison.Ordinal));
+        var indexDelete=f.Provider.Commands.FindIndex(sql=>sql.StartsWith("UPDATE `config_index`",StringComparison.Ordinal));
+        var referenceRead=f.Provider.Commands.FindIndex(sql=>sql.Contains("FROM `config_index_column`",StringComparison.Ordinal)&&sql.Contains("`config_column_id`=",StringComparison.Ordinal));
+        var columnDelete=f.Provider.Commands.FindIndex(sql=>sql.StartsWith("UPDATE `config_column`",StringComparison.Ordinal));
+        Assert.True(childDelete>=0&&childDelete<indexDelete&&indexDelete<referenceRead&&referenceRead<columnDelete);
+        Assert.All(f.Provider.Reads.Where(read=>read.Sql.Contains("FROM `config_index",StringComparison.Ordinal)||read.Sql.Contains("FROM `config_column`",StringComparison.Ordinal)),read=>Assert.EndsWith(" FOR UPDATE",read.Sql));
+    }
+
+    /// <summary>table上下文不是删除引用的特权，残存其它索引或悬空child须连前面已清理的自有索引一起回滚。</summary>
+    [Theory]
+    [InlineData(false)][InlineData(true)]
+    public async Task IndexDeleteParity_table_with_remaining_external_or_orphan_child_rolls_back(bool orphan)
+    {
+        using var f=new Fixture();AddDeleteIndex(f,"active");
+        if(!orphan)f.Add("config_index",Row(("id",51L),("yz_project_id",1L),("config_table_id",11L),("is_enabled",1)));
+        f.Add("config_index_column",Row(("id",61L),("yz_project_id",1L),("config_index_id",51L),("config_column_id",20L)));
+        var before=f.Snapshot();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_table",10,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            await f.Observer.BeforeCommitAsync(new("offline","config_table",10,"1",new Dictionary<string,object?>(),true,f.Session.CurrentTransaction!));return true;
+        }));
+        Assert.Equal(before,f.Snapshot());Assert.Equal(1,f.Provider.Rollbacks);
+        Assert.Contains(f.Provider.Commands,sql=>sql.StartsWith("UPDATE `config_index_column`",StringComparison.Ordinal));
+        Assert.DoesNotContain(f.Provider.Commands,sql=>sql.StartsWith("UPDATE `config_column`",StringComparison.Ordinal));
+    }
+
+    /// <summary>全部直接从属都须证明本项目归属，不能用查询过滤隐藏foreign行后提交悬空活动引用。</summary>
+    [Theory]
+    [InlineData("index")][InlineData("column")][InlineData("child-other-column")]
+    public async Task IndexDeleteParity_table_rejects_foreign_direct_dependents_without_partial_write(string kind)
+    {
+        using var f=new Fixture();AddDeleteIndex(f,"active");
+        if(kind=="index")f.Get("config_index",50)["yz_project_id"]=2L;
+        else if(kind=="column")f.Get("config_column",20)["yz_project_id"]=2L;
+        else
+        {
+            f.Get("config_index_column",60)["yz_project_id"]=2L;
+            f.Get("config_index_column",60)["config_column_id"]=999L;
+        }
+        var before=f.Snapshot();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            await f.Store.UpdateAsync("config_table",10,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}});
+            await f.Observer.BeforeCommitAsync(new("offline","config_table",10,"1",new Dictionary<string,object?>(),true,f.Session.CurrentTransaction!));return true;
+        }));
+        Assert.Equal(before,f.Snapshot());Assert.Equal(1,f.Provider.Rollbacks);
+        var table=kind=="index"?"config_index":kind=="column"?"config_column":"config_index_column";
+        var reads=f.Provider.Reads.Where(read=>read.Sql.Contains("FROM `"+table+"`",StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(reads);Assert.All(reads,read=>{Assert.DoesNotContain("`yz_project_id`=",read.Sql);Assert.EndsWith(" FOR UPDATE",read.Sql);});
+        Assert.DoesNotContain(f.Provider.Commands,sql=>sql.StartsWith("UPDATE `"+table+"`",StringComparison.Ordinal));
+    }
+
+    /// <summary>所有入口必须使用实际写事务；另一个Session的事务不能借观察器完成删除联动。</summary>
+    [Fact]
+    public async Task IndexDeleteParity_rejects_a_transaction_from_another_session_before_reading_references()
+    {
+        using var f=new Fixture();using var other=new Fixture();
+        await other.Session.InTransactionAsync(async()=>
+        {
+            await f.Session.InTransactionAsync(async()=>
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Observer.BeforeCommitAsync(new("offline","config_column",20,"1",new Dictionary<string,object?>(),true,other.Session.CurrentTransaction!)));return true;
+            });return true;
+        });
+        Assert.DoesNotContain(f.Provider.Commands,sql=>sql.Contains("config_index_column",StringComparison.Ordinal));
+    }
+
+    /// <summary>仅建立离线参数化仓储的数据输入，不伪造观察器执行后的结果。</summary>
+    private static void AddDeleteIndex(Fixture f,string state)
+    {
+        if(state!="missing-index")f.Add("config_index",Row(("id",50L),("yz_project_id",1L),("config_table_id",10L),("is_enabled",state=="disabled"?0:1),("delete_no",state=="deleted-index"?DateTime.UtcNow:null)));
+        f.Add("config_index_column",Row(("id",60L),("yz_project_id",1L),("config_index_id",50L),("config_column_id",20L)));
+    }
+
     private static Dictionary<string,object?> Row(params(string Key,object? Value)[] fields)=>fields.ToDictionary(field=>field.Key,field=>field.Value,StringComparer.Ordinal);
     private sealed class Fixture:IDisposable
     {
@@ -407,10 +534,11 @@ public sealed class ConfigurationMaterializedValueTests
     /// <summary>仅解释SqlRowStore固定生成的参数化单表命令；不支持任意SQL，也不建立网络连接。</summary>
     private sealed class MemoryProvider:IDatabaseProvider
     {
-        internal Dictionary<string,List<Dictionary<string,object?>>> Rows{get;set;}=new(StringComparer.Ordinal);internal List<string> Commands{get;}=[];internal int Rollbacks;
+        internal Dictionary<string,List<Dictionary<string,object?>>> Rows{get;set;}=new(StringComparer.Ordinal);internal List<string> Commands{get;}=[];internal List<(string Sql,Dictionary<string,object?> Values,DbTransaction? Transaction)> Reads{get;}=[];internal int Rollbacks;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new MemoryConnection(this);public string QuoteIdentifier(string id)=>new MySqlDatabaseProvider().QuoteIdentifier(id);public string ParameterPlaceholder(string name)=>"@"+name;public string BuildSelectForUpdate(string sql)=>new MySqlDatabaseProvider().BuildSelectForUpdate(sql);
-        internal DbDataReader Read(string sql,DbParameterCollection parameters)
+        internal DbDataReader Read(string sql,DbParameterCollection parameters,DbTransaction? transaction)
         {
+            Reads.Add((sql,parameters.Cast<DbParameter>().ToDictionary(parameter=>parameter.ParameterName,parameter=>parameter.Value),transaction));
             Commands.Add(sql);var match=Regex.Match(sql,@"^SELECT (.+) FROM `([^`]+)`(?: WHERE (.*?))?(?: FOR UPDATE)?$");if(!match.Success)throw new NotSupportedException(sql);
             var names=match.Groups[1].Value.Split(',').Select(value=>value.Trim('`')).ToArray();var data=new DataTable();foreach(var name in names)data.Columns.Add(name,typeof(object));
             foreach(var row in Rows.GetValueOrDefault(match.Groups[2].Value)??[])
@@ -447,6 +575,6 @@ public sealed class ConfigurationMaterializedValueTests
     }
     private sealed class MemoryCommand(MemoryProvider provider,MemoryConnection connection):DbCommand
     {
-        private readonly MySqlCommand parameters=new();[System.Diagnostics.CodeAnalysis.AllowNull]public override string CommandText{get;set;}="";public override int CommandTimeout{get;set;}public override CommandType CommandType{get;set;}public override bool DesignTimeVisible{get;set;}public override UpdateRowSource UpdatedRowSource{get;set;}protected override DbConnection? DbConnection{get;set;}=connection;protected override DbTransaction? DbTransaction{get;set;}protected override DbParameterCollection DbParameterCollection=>parameters.Parameters;public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override object? ExecuteScalar()=>throw new NotSupportedException();public override int ExecuteNonQuery()=>provider.Write(CommandText,Parameters);protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)=>provider.Read(CommandText,Parameters);
+        private readonly MySqlCommand parameters=new();[System.Diagnostics.CodeAnalysis.AllowNull]public override string CommandText{get;set;}="";public override int CommandTimeout{get;set;}public override CommandType CommandType{get;set;}public override bool DesignTimeVisible{get;set;}public override UpdateRowSource UpdatedRowSource{get;set;}protected override DbConnection? DbConnection{get;set;}=connection;protected override DbTransaction? DbTransaction{get;set;}protected override DbParameterCollection DbParameterCollection=>parameters.Parameters;public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override object? ExecuteScalar()=>throw new NotSupportedException();public override int ExecuteNonQuery()=>provider.Write(CommandText,Parameters);protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)=>provider.Read(CommandText,Parameters,DbTransaction);
     }
 }
