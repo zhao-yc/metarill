@@ -25,7 +25,23 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");
         return ReadInternalAsync(table,filters,true,cancellationToken);
     }
-    private async Task<List<Dictionary<string, object?>>> ReadInternalAsync(string table,IReadOnlyDictionary<string,object?>? filters,bool forUpdate,CancellationToken cancellationToken,bool includeDeleted=false)
+    /// <summary>锁后安全复核只按已登记的整数ID集合读取；空集不查询，超限或损坏集合不截断。</summary>
+    public Task<List<Dictionary<string,object?>>> ReadForUpdateByIdsAsync(string table, string idColumn, IReadOnlyCollection<long> ids,
+        IReadOnlyDictionary<string,object?>? filters=null, CancellationToken cancellationToken=default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (session.CurrentTransaction is null) throw new InvalidOperationException("锁查询必须在事务内。");
+        ArgumentNullException.ThrowIfNull(ids);
+        if (ids.Count > 1000 || ids.Any(id => id <= 0) || ids.Distinct().Count() != ids.Count) throw new ArgumentException("锁查询要求最多1000个不重复的正整数ID。");
+        var column = Columns(table).SingleOrDefault(column => column.ColumnName == idColumn);
+        if (column is null || column.LogicalType is not ("id" or "int64") || idColumn != "id" && !idColumn.EndsWith("_id", StringComparison.Ordinal))
+            throw new InvalidOperationException("锁查询只能使用已登记的整数ID字段。");
+        if (!Columns(table).Any(column => column.ColumnName == "id" && column.LogicalType is "id" or "int64"))
+            throw new InvalidOperationException("集合锁查询必须有已登记的整数主键。");
+        if (ids.Count == 0) return Task.FromResult(new List<Dictionary<string,object?>>());
+        return ReadInternalAsync(table, filters, true, cancellationToken, idColumn: idColumn, ids: ids.Order().ToArray());
+    }
+    private async Task<List<Dictionary<string, object?>>> ReadInternalAsync(string table,IReadOnlyDictionary<string,object?>? filters,bool forUpdate,CancellationToken cancellationToken,bool includeDeleted=false, string? idColumn=null, IReadOnlyList<long>? ids=null)
     {
         var columns = Columns(table); var allowed = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.Ordinal);
         return await CommandAsync(async command =>
@@ -39,7 +55,15 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
                     if (value is null) conditions.Add(Q(key) + " IS NULL");
                     else { var name = "p" + command.Parameters.Count; conditions.Add(Q(key) + "=" + AddParameter(command, name, value)); }
                 }
+            if (idColumn is not null)
+            {
+                // 字段与数值分别经过发布白名单及正整数集合校验，所有ID仍作为驱动参数。
+                if (ids is null || ids.Count == 0) throw new InvalidOperationException("集合锁查询不能退化为全表读取。");
+                conditions.Add(Q(idColumn) + " IN (" + string.Join(",", ids.Select(id => AddParameter(command, "p" + command.Parameters.Count, id))) + ")");
+            }
             command.CommandText = "SELECT " + string.Join(",", columns.Select(c => Q(c.ColumnName))) + " FROM " + Q(table) + (conditions.Count == 0 ? "" : " WHERE " + string.Join(" AND ", conditions));
+            // 固定查询返回顺序；物理取锁仍依赖项目/后台预锁，不能把ORDER BY或IN参数当取锁证明。
+            if (idColumn is not null) command.CommandText += " ORDER BY " + Q("id");
             if(forUpdate)command.CommandText=session.Provider.BuildSelectForUpdate(command.CommandText);
             var result = new List<Dictionary<string, object?>>();
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);

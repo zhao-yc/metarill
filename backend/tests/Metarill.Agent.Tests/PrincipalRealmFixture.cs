@@ -75,6 +75,8 @@ internal sealed class RealmMemoryProvider : IDatabaseProvider
         {
             var accepted=true;foreach(Match condition in Regex.Matches(match.Groups[3].Value,@"\x60([^\x60]+)\x60( IS NULL|=@([a-zA-Z0-9_]+))"))
                 accepted &= Equal(row.GetValueOrDefault(condition.Groups[1].Value),condition.Groups[2].Value==" IS NULL"?null:parameters[condition.Groups[3].Value].Value);
+            foreach(Match set in Regex.Matches(match.Groups[3].Value,@"\x60([^\x60]+)\x60 IN \((@[a-zA-Z0-9_]+(?:,@[a-zA-Z0-9_]+)*)\)"))
+                accepted &= set.Groups[2].Value.Split(',').Any(parameter => Equal(row.GetValueOrDefault(set.Groups[1].Value), parameters[parameter.TrimStart('@')].Value));
             if(accepted)data.Rows.Add(names.Select(name=>row.GetValueOrDefault(name)??DBNull.Value).ToArray());
         }
         return data.CreateDataReader();
