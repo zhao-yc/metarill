@@ -239,7 +239,15 @@ export default {
 			if (this.generationAssistant) return this.generationAssistant;
 			const context = () => JSON.stringify([uni.getStorageSync('loginStateId'), uni.getStorageSync('sysParams')]);
 			const original = context();
-			this.generationAssistant = createGenerationAssistantBridge({ yzp, uni,
+			// HBuilderX只转换明确的uni.方法调用，不能把原始全局uni对象直接传入桥接。
+			const assistantApi = {
+				getStorageSync: key => uni.getStorageSync(key),
+				setStorageSync: (key, value) => uni.setStorageSync(key, value),
+				showModal: options => uni.showModal(options),
+				showToast: options => uni.showToast(options),
+				showActionSheet: options => uni.showActionSheet(options)
+			};
+			this.generationAssistant = createGenerationAssistantBridge({ yzp, uni: assistantApi,
 				projectId: String((uni.getStorageSync('sysParams') || {}).yzProjectId || ''),
 				isCurrent: () => this.homeVisible && context() === original });
 			return this.generationAssistant;

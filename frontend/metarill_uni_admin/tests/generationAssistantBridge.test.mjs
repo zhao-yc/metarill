@@ -54,3 +54,20 @@ test('在线接线保持原首页模板和样式逐字节不变',async()=>{
  assert.equal(digest(source.slice(source.indexOf('<template>'),source.indexOf('</template>')+'</template>'.length)),'1ef8c7d17c6be09567640af5c08e16a77ed7b91793bf05224591dc9fbf277379');
  assert.equal(digest(source.slice(source.indexOf('<style'))),'37c10b5c6ecdca8436199becfe769590384a71153d059a8a91c8dc3ee07ef7b5');
 });
+
+/** HBuilderX按uni.方法按需导入；对象简写uni不会被转换，须验证桥接不依赖空全局对象。 */
+test('首页在HBuilderX按需API编译后仍可恢复和投递原按钮',async()=>{
+ const source=await readFile(new URL('../pages/main/main.vue',import.meta.url),'utf8')
+ for(const [method,action] of [['generateProjectConfig','generate-project-config'],['syncRuntime','sync-runtime'],['generateAllView','generate-all-page']]) {
+  const f=fixture()
+  const context={uni:{},compiledUni:f.uni,yzp:f.yzp,createGenerationAssistantBridge:options=>createGenerationAssistantBridge({...options,schedule:f.options.schedule,cancelSchedule:f.options.cancelSchedule,newRequestId:()=>id})}
+  const script=source.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/^import .*;\s*$/gm,'').replace('export default','globalThis.component=').replace(/\buni\.(getStorageSync|setStorageSync|showModal|showToast|showActionSheet)\b/g,'compiledUni.$1')
+  vm.runInNewContext(script,context)
+  const component=Object.assign(context.component.data(),context.component.methods,{homeVisible:true})
+  assert.doesNotThrow(()=>component.enterHome())
+  component[method]();f.dialogs.at(-1).success({confirm:true});f.bindings();await turn()
+  assert.equal(f.requests.at(-1).url,generationAssistantActions[action])
+  f.requests.at(-1).success({code:200,data:view(action,'applied')});await turn()
+  assert.equal(f.errors.length,0);assert.equal(f.toasts.filter(item=>item.icon==='success').length,1)
+ }
+})

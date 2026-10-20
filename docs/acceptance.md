@@ -374,3 +374,15 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 脚本清理后，主协调者另经核实的Server-200逐条只读回查：本轮3库剩余0、临时账号0、所有权文件不存在，本机临时配置已删；本轮未新增P_S或PROCESS观测授权。新Fresh的 `result.json`、TRX和 `cleanup-verification.json` SHA256依次为 `85ac27b6116e0722d731f709f447c116ec541fbc54eea985200acc664100b1d0`、`03d0f0447368336db597a157bf43cd5a1799be95dfc842c8113d9f592c6c79e3`、`f969816a1ea738770e80274cc5a52d057ff13ce27bffc7d1bcfd28d91614e266`。
 
 主汇总 `.local/immutable-web-module-integrated-receipt.json` SHA256为 `62dc72224db54939d14bd33252c8da107c65af72200b13856e71496b9e040e7a`，按真实 `UnitTestResult`计数并保留早先失败/跳过；完整Generation TRX摘要为 `d41d4531bd97daad932fc181c08db0d44ae71643df9653feb6dbdbdc4e440cfa`，152项为 `e26f86851bfda01ba599b83b85347c3b8ee7c2b82f5799ac2ee606355914be8a`。三原按钮到绑定工程的真实浏览器、账号页完整写入、新宿主RR、设备、同条件性能及后续数据库仍单列待验，不能用本批构建/HTTP结果代替。
+
+## 2026-10-20 三页准备回归及原首页真实按钮排障
+
+根冻结 `6677829` 的权限拒绝兼容为22/22，`d46ac893d4083f0b93cc73a55d03f668d41919a9` 三 partial 组合87/87，`e44d719b200a63da63abd19f86c7fd86ff073f09` 隐藏项目候选组合80/80、原工作台规则53/53，均零失败/零跳过。各批有重叠，不累计；它们使用真实生成编译、共享规则及离线身份/ADO合同，不宣称完整HTTP或数据库管理页验收。原始报告分别位于 `.local/{role-option-permission-denials,trusted-security-partials,trusted-admin-project-options,role-workbench-original-parity}-integrated/`；SHA256依次为 `941eafd10e8bbcf4778d2cf17c47e8a8db562c8cf399fa66882d97f69611da00`、`ecaceef380a0401a23b3b34f9bf9ed1a89c0c916f329d2ce11f9038c102f1bd1`、`ed5233100586f82b1191de33d0bd1ab75adbb82fbfbac3980f43c36d6231a87c`、`0796a0789eda91dee124bcbcb0ac0c23df65242ba599dfd5f3e006736bd7e1f7`。
+
+此前冻结 `c4abff4223e4ed583275e5154aec2f75ec2cf32e` 的 PR/push CI run `39411918626`、`39411909726` 已分别三作业成功，合计6/6；每个后端作业9个测试工程均无失败，缺私有配置的用例仍跳过。私有 `.local/ci-c4abff4-final/receipt.json` SHA256 `bc015690c8736ed5f86ee0d1b6752edf7579548007cf57f105e019ae238a9c7f`。该结果只对应c4，不能挪作以上后续提交的远端CI结论；8eda原失败记录保留。
+
+真实Ego浏览器使用固定d46后端/CLI与原管理前端，完成原登录、设备/项目选择、首页及本轮自有助手应用授权。原会话只读导出的Full ZIP为4,422,749字节，SHA256 `91c589e4336f2cc5a8a926bcb447965c1be9457c88975e5cab2e1d43edda9ebc`；正规896旧包的487文件目标严格身份检查通过。真实导出候选的三个单范围预览均提示需要其他两个范围；没有手工修改受管生成文件制造差异。首次原确认取消后，独占队列仅一个本轮绑定，任务及组文件均0。
+
+随后首次实际确认生成项目配置，页面报 `getStorageSync is not a function`，尚无任务入队。实际HBuilderX产物将明确的 `uni.getStorageSync` 改为按需导入调用，但传给桥接的对象简写仍引用原始全局 `uni`。首页只增加五个明确方法的转接，供编译器转换，保留原模板/样式/确认与三个入口。新回归在修复前6过1失败，修复后7/7；前端完整261/261、零跳过，日志分别为 `.local/online-browser-hbx-api-fix/{bridge-red,bridge-green,frontend-all}.log`。该离线修复结果尚需重新HBuilderX构建和真实三按钮文件应用验证，不能把登录、授权、预览或排队等同于完成。
+
+本轮实际失败、取消截图、独立旧包及预览均保留在私有 `metarill-contrib/online-helper-live-a2e6b522e37e46b9/control`。未改元数据、账号、角色、业务行或数据库结构，未重授锁观测权限。完整安全管理发布、初始化、独立宿主RR、跨端和同条件性能仍待完成。
