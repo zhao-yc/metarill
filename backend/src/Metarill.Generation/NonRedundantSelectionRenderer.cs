@@ -14,7 +14,6 @@ internal static class NonRedundantSelectionRenderer
         var parent=page.Scopes.FirstOrDefault(scope=>scope.Source=="parent").Column;
         var target=context.TargetParentField is null?null:table.Columns.Single(column=>column.JsonName==context.TargetParentField);
         if(target is not null&&!NonRedundantReadCompilation.Physical(model,table,target))throw new InvalidOperationException("单选目标父必须绑定物理外键。");
-        if(ImportRenderer.Enabled(page)&&target is not null)throw new InvalidOperationException("非冗余单选跨父导入需按整行依赖解析，当前不能借来源parentId替代。");
         var trigger="creating || submitted.Contains("+JsonSerializer.Serialize(source.Source.ColumnName)+")"+(target is null?"":" || submitted.Contains("+JsonSerializer.Serialize(target.Source.ColumnName)+")");
         var suffix=page.Source.Id+"_"+source.Source.Id;
         return $$"""

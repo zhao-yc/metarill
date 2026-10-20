@@ -92,13 +92,25 @@ internal static class NonRedundantGeneratedFixture
             catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="group_id=@parent_id";
         }
     }
-    /// <summary>独立目标父来自本对象物理外键，不借来源parentId；跨父整行导入仍单独保留门槛。</summary>
+    /// <summary>独立目标父来自本对象物理外键，不借来源parentId；整行导入通过独立开关启用。</summary>
     internal static void AddMappedSinglePage(MetadataCatalog catalog)
     {
         var source=catalog.ConfigPages.Single(page=>page.Id=="101");var mapped=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;
         mapped.Id="104";mapped.WhereSql="";mapped.IsImport=0;mapped.Extra.Remove("importMethod");catalog.ConfigPages.Add(mapped);
         foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101").Select(field=>JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!).ToArray())
         {field.Id="104"+field.Id;field.ConfigPageId="104";if(field.ConfigColumnId=="19")field.IsEdit=1;catalog.ConfigPageColumns.Add(field);}
+    }
+    /// <summary>跨父追加与覆盖保持同一Excel接口，目标父来自整行或锁定原对象。</summary>
+    internal static void EnableMappedImports(MetadataCatalog catalog)
+    {
+        var group=catalog.ConfigColumns.Single(column=>column.Id=="19");group.ControlKind="List";group.DefaultValue="71";
+        group.ControlDetail=JsonSerializer.Serialize(new{tableId="3",table=catalog.ConfigTables.Single(table=>table.Id=="3").TableName,nameField="name"});
+        var source=catalog.ConfigPages.Single(page=>page.Id=="104");source.IsImport=1;
+        var overwrite=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;
+        overwrite.Id="105";overwrite.IsNew=0;overwrite.IsSave=0;overwrite.IsDelete=0;overwrite.IsCopy=0;overwrite.IsExport=0;
+        overwrite.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");catalog.ConfigPages.Add(overwrite);
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="104").Select(field=>JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!).ToArray())
+        {field.Id="105"+field.Id;field.ConfigPageId="105";catalog.ConfigPageColumns.Add(field);}
     }
     /// <summary>追加与覆盖分别沿用原导入开关；覆盖页不额外开放普通新增/编辑按钮。</summary>
     internal static void EnableImports(MetadataCatalog catalog)

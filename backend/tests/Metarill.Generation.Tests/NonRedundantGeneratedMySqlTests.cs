@@ -40,7 +40,7 @@ public sealed class NonRedundantGeneratedMySqlTests
         if(options.Provider!="mysql"||options.ExpectedDatabase!="metarill_business_test"||connection.Database!="metarill_business_test"||connection.Server!="deve-server.yinzon.com"||connection.Port!=3306)throw new InvalidOperationException("生成读取专项仅允许指定隔离业务库。");
         using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")??throw new InvalidOperationException("缺少实例pin。")));
         await using(var c=new MySqlConnection(options.ConnectionString)){await c.OpenAsync();await using var q=c.CreateCommand();q.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var r=await q.ExecuteReaderAsync();Assert.True(await r.ReadAsync()&&r.GetString(0)==options.ExpectedDatabase&&r.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&r.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例不符，未创建样本。");}
-        var nonce=Guid.NewGuid().ToString("N");var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_"+nonce[..10]);catalog.ConfigPages[0].PageSize=0;if(singleSelection)NonRedundantGeneratedFixture.EnableSingleSelection(catalog,true);NonRedundantGeneratedFixture.AddSelectionPage(catalog);catalog.ConfigPages[0].IsExport=1;NonRedundantGeneratedFixture.EnableImports(catalog);if(singleSelection)NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var directory=Path.Combine(Path.GetTempPath(),"metarill-nonred-generated-mysql",nonce);var evidence=Path.Combine(Root(),".local/nonredundant-generated/mysql-"+nonce);Directory.CreateDirectory(evidence);
+        var nonce=Guid.NewGuid().ToString("N");var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_"+nonce[..10]);catalog.ConfigPages[0].PageSize=0;if(singleSelection)NonRedundantGeneratedFixture.EnableSingleSelection(catalog,true);NonRedundantGeneratedFixture.AddSelectionPage(catalog);catalog.ConfigPages[0].IsExport=1;NonRedundantGeneratedFixture.EnableImports(catalog);if(singleSelection){NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);NonRedundantGeneratedFixture.EnableMappedImports(catalog);}var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var directory=Path.Combine(Path.GetTempPath(),"metarill-nonred-generated-mysql",nonce);var evidence=Path.Combine(Root(),".local/nonredundant-generated/mysql-"+nonce);Directory.CreateDirectory(evidence);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var store=new SqlRowStore(session,catalog);var created=false;var verified=false;string? fingerprint=null;string? rowsHash=null;WebApplication? app=null;Exception? primaryFailure=null;
         const long first=9007199254741001,second=9007199254741002;var ownIds=new List<long>{first,second,first+2,first+3,first+4,first+5,first+6};
         try
@@ -80,7 +80,11 @@ public sealed class NonRedundantGeneratedMySqlTests
             using(var deletion=new HttpRequestMessage(HttpMethod.Delete,endpoint+"?parentId=71"){Content=JsonContent.Create(new{id=copyId.ToString(CultureInfo.InvariantCulture)})})using(var response=await client.SendAsync(deletion))Assert.Equal(200,(await Json(response)).GetProperty("code").GetInt32());
             var beforeFailures=await RowsHash();foreach(var invalid in new[]{"103","104"})Assert.Equal(500,(await Post("/add?parentId=71",new{name="拒绝外部关系",customerId=invalid})).GetProperty("code").GetInt32());observer.Fail=true;Assert.Equal(500,(await Post("/add?parentId=71",new{name="提交前必须回滚",customerId="101"})).GetProperty("code").GetInt32());observer.Fail=false;Assert.Equal(beforeFailures,await RowsHash());
             await NonRedundantGeneratedImportProbe.VerifyAsync(client,endpoint,store,names[0],authorization,observer,ownIds,RowsHash);
-            if(singleSelection)await NonRedundantSingleSelectionMySqlProbe.VerifyMappedParentAsync(client,endpoint,ownIds,RowsHash);
+            if(singleSelection)
+            {
+                await NonRedundantSingleSelectionMySqlProbe.VerifyMappedParentAsync(client,endpoint,ownIds,RowsHash);
+                await NonRedundantCrossParentImportProbe.VerifyAsync(client,endpoint,store,names[0],authorization,observer,ownIds,RowsHash);
+            }
             var finalRows=await store.ReadIncludingDeletedAsync(names[0]);Assert.Equal(ownIds.Order(),finalRows.Select(item=>SqlRowStore.Id(item)).Order());Assert.NotNull(finalRows.Single(item=>SqlRowStore.Id(item)==copyId)["delete_no"]);rowsHash=await RowsHash();Assert.Empty((await schema.PreviewAsync(catalog)).Changes);verified=true;await Receipt("verified",false);
             async Task<JsonElement> Post(string route,object request){using var response=await client.PostAsJsonAsync(endpoint+route,request);Assert.True(response.IsSuccessStatusCode,"HTTP读取专项返回非业务状态，未输出响应正文。");return await Json(response);}
         }
@@ -126,7 +130,7 @@ internal sealed class NonRedGeneratedAuthorization:IRuntimeAuthorization
     /// <summary>测试身份固定来自服务端，不读取客户端项目字段。</summary>
     public RuntimeActor RequireActor()=>new(1,"生成专项操作者",false,"54","5");
     /// <summary>验证来源页和目标页动作，拒权时在生成控制器入口失败。</summary>
-    public void RequirePagePermission(string page,string operation){if(page is not("101" or "102" or "103" or "104" or "201" or "301")||Denied==operation&&(DeniedPage is null||DeniedPage==page))throw new UnauthorizedAccessException("专项拒权。");}
+    public void RequirePagePermission(string page,string operation){if(page is not("101" or "102" or "103" or "104" or "105" or "201" or "301")||Denied==operation&&(DeniedPage is null||DeniedPage==page))throw new UnauthorizedAccessException("专项拒权。");}
 }
 /// <summary>真实写入发生后、事务提交前注入故障，确认同一事务没有留下半次创建。</summary>
 internal sealed class NonRedRollbackObserver:IRecordMutationObserver

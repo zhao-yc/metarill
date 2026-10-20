@@ -463,7 +463,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         return result.ToString();
     }
     /// <summary>把固定默认值转为安全的类型表达式。</summary>
-    private static string DefaultExpression(ColumnModel column)
+    internal static string DefaultExpression(ColumnModel column)
     {
         if (column.Type == "string?") return Literal(column.Source.DefaultValue);
         try

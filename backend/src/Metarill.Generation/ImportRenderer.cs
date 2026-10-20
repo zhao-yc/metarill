@@ -36,6 +36,8 @@ public sealed partial class {{page.Name}}ImportRequest
         if (!Enabled(page)) return "";
         if (Mode(page) == "custom") throw new InvalidOperationException("定制导入需要手写 Business 入口，不能自动生成普通导入。");
         var columns = Columns(page);
+        var dependency = ImportDependencyCompilation.ForPage(model, table, page);
+        var contextual = dependency.Contextual;
         if (columns.Select(Header).Distinct(StringComparer.Ordinal).Count() != columns.Count) throw new InvalidOperationException("导入列中文标题重复，无法明确解析。");
         var overwrite = Mode(page) == "OverWriteByFirstColumn";
         if (overwrite && columns.Count > 0 && columns[0].IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
@@ -47,16 +49,22 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);")
             .AppendLine("        var rowNumber = 0;")
-            .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {")
-            .AppendLine($"                var values = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor, cancellationToken);");
+            .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {");
+        if (contextual && overwrite) result.AppendLine($"                {table.Name}? importExisting = null;");
+        // 覆盖先匹配并锁定原对象，再解析其余列；旧父与默认值只作候选上下文，不作为提交字段。
+        var parsed = contextual && overwrite ? "keyValues" : "values";
+        var initialContext = contextual ? ", null, " + (overwrite ? "true" : "false") : "";
+        result.AppendLine($"                var {parsed} = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor{initialContext}, cancellationToken);");
         if (overwrite)
         {
             var first = table.Columns.First(column => columns.Contains(column));
-            result.AppendLine($"                if (!values.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null) throw new ArgumentException(\"覆盖匹配字段不能为空。\");")
+            result.AppendLine($"                if (!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null) throw new ArgumentException(\"覆盖匹配字段不能为空。\");")
                 .AppendLine($"                var key = JsonSerializer.Deserialize<{first.BoundaryType}>(matchValue.GetRawText(), JsonOptions);")
                 .AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync(cancellationToken);")
-                .AppendLine("                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");")
-                .AppendLine("                if (existing.Count == 1)").AppendLine("                {")
+                .AppendLine("                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
+            if(contextual)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];")
+                .AppendLine($"                var values = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor, importExisting, false, cancellationToken);");
+            result.AppendLine("                if (existing.Count == 1)").AppendLine("                {")
                 .AppendLine("                    values[\"id\"] = JsonSerializer.SerializeToElement(existing[0].Id);")
                 .AppendLine($"                    var update = JsonSerializer.Deserialize<{page.Name}UpdateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;")
                 .AppendLine($"                    await Update{page.Source.Id}Async(update, request.ParentId, actor, cancellationToken);")
@@ -70,23 +78,44 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }").AppendLine("        }")
             .AppendLine("        return $\"导入成功{rowNumber}条数据\";").AppendLine("    }, cancellationToken);")
             .AppendLine("    /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>")
-            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+table.Name+"? existing, bool keyOnly":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;")
             .AppendLine("        if (row.ValueKind != JsonValueKind.Object) throw PageImportException.Input(PageImportError.RowObject);")
             .AppendLine("        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);")
-            .AppendLine("        var seen = new HashSet<string>(StringComparer.Ordinal);")
-            .AppendLine("        foreach (var cell in row.EnumerateObject())").AppendLine("        {")
-            .AppendLine("            if (!seen.Add(cell.Name)) throw PageImportException.Input(PageImportError.DuplicateHeader);")
-            .AppendLine("            switch (cell.Name)").AppendLine("            {");
+            .AppendLine("        var seen = new HashSet<string>(StringComparer.Ordinal);");
+        if (contextual)
+        {
+            result.AppendLine("        var relationContext = new Dictionary<string, JsonElement>(StringComparer.Ordinal);");
+            foreach(var parent in dependency.Parents.Values.DistinctBy(parent=>parent.Source.Id))
+            {
+                var fallback=string.IsNullOrWhiteSpace(parent.Source.DefaultValue)?$"default({parent.Type})":BackendRenderer.DefaultExpression(parent);
+                var value="existing is null ? "+fallback+" : existing."+parent.Property;
+                if(parent.Source.ColumnName=="yz_project_id")value=ScopeValue(parent,"actor.ProjectId");
+                else if(page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==parent.Source.Id))value=ScopeValue(parent,"parentId!");
+                result.AppendLine($"        relationContext[{Literal(parent.JsonName)}] = JsonSerializer.SerializeToElement({value}, JsonOptions);");
+            }
+            result.AppendLine("        // 先验证整行标题，再按固定拓扑顺序解析，JSON属性顺序不决定目标父。")
+                .AppendLine("        foreach (var header in row.EnumerateObject())")
+                .AppendLine("        {")
+                .AppendLine("            if (!seen.Add(header.Name)) throw PageImportException.Input(PageImportError.DuplicateHeader);")
+                .AppendLine("            if (header.Name is not ("+string.Join(" or ",columns.Select(column=>Literal(Header(column))))+")) throw PageImportException.Input(PageImportError.UnknownHeader);")
+                .AppendLine("        }");
+            var order=string.Join(", ",dependency.Order.Select((column,index)=>Literal(Header(column))+" => "+index));
+            result.AppendLine("        foreach (var cell in row.EnumerateObject().OrderBy(cell => cell.Name switch { "+order+", _ => int.MaxValue }))").AppendLine("        {");
+        }
+        else result.AppendLine("        foreach (var cell in row.EnumerateObject())").AppendLine("        {")
+            .AppendLine("            if (!seen.Add(cell.Name)) throw PageImportException.Input(PageImportError.DuplicateHeader);");
+        result.AppendLine("            switch (cell.Name)").AppendLine("            {");
         foreach (var column in columns)
         {
             result.AppendLine($"                case {Literal(Header(column))}:").AppendLine("                {");
+            if(contextual&&!dependency.MatchFields.Contains(column.Source.Id))result.AppendLine("                    if (keyOnly) break;");
             var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(candidate => candidate.SourceColumn == column);
             if (relation is not null)
             {
                 // 数据库和授权异常不能被当成单元格类型错误；只为明确的无匹配分类补上已发布标题。
                 result.AppendLine("                    try").AppendLine("                    {")
-                    .AppendLine($"                        values[{Literal(column.JsonName)}] = await ImportRelation{page.Source.Id}_{column.Source.Id}Async(cell.Value, parentId, actor, cancellationToken);")
+                    .AppendLine($"                        values[{Literal(column.JsonName)}] = await ImportRelation{page.Source.Id}_{column.Source.Id}Async(cell.Value, parentId, actor{(contextual?", relationContext":"")}, cancellationToken);")
                     .AppendLine("                    }").AppendLine("                    catch (PageImportException error) when (error.IsInputError)").AppendLine("                    {")
                     .AppendLine($"                        throw PageImportException.Input(error.Code!.Value, error.RowNumber, {Literal(Header(column))}, error);")
                     .AppendLine("                    }");
@@ -110,25 +139,28 @@ public sealed partial class {{page.Name}}ImportRequest
                     .AppendLine($"                        throw PageImportException.Input(PageImportError.{ErrorKind(column)}, columnName: {Literal(Header(column))}, inner: error);")
                     .AppendLine("                    }");
             }
+            if(contextual&&dependency.Parents.Values.Any(parent=>parent.Source.Id==column.Source.Id))result.AppendLine($"                    relationContext[{Literal(column.JsonName)}] = values[{Literal(column.JsonName)}];");
             result.AppendLine("                    break;").AppendLine("                }");
         }
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
             .AppendLine("            }").AppendLine("        }").AppendLine("        return values;").AppendLine("    }");
-        foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(relation, page));
+        foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(relation, page, dependency));
         return result.ToString();
     }
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>
-    private static string RelationResolver(RelationModel relation, PageModel page)
+    private static string RelationResolver(RelationModel relation, PageModel page, ImportDependencyPlan dependency)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>Excel 关系名称必须唯一落在已授权候选范围，数字 ID 也核对归属。</summary>")
-            .AppendLine($"    private async Task<JsonElement> ImportRelation{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(JsonElement cell, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task<JsonElement> ImportRelation{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(JsonElement cell, string? parentId, RuntimeActor actor{(dependency.Contextual?", IReadOnlyDictionary<string, JsonElement> relationContext":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);");
         var bound = relation.ParentBinding?.Declared == true;
-        if (bound || relation.SourceColumn.Source.ControlKind=="SelectPage")
+        var mapped = dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
+        if (bound || relation.SourceColumn.Source.ControlKind=="SelectPage" || mapped is not null)
         {
             // 来源已按import授权；固定源父/目标父不能混用，名称匹配前先复用目标授权和服务器推导范围。
             // 无效声明同样走固定RejectBound，绝不回退宽查询；普通未绑定关系保持原合同。
-            result.AppendLine($"        var query = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(parentId, null, actor, cancellationToken, false, false);");
+            if(mapped is not null)result.AppendLine($"        if (!relationContext.TryGetValue({Literal(mapped.JsonName)}, out var targetParent) || targetParent.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(targetParent.ToString())) throw PageImportException.Input(PageImportError.Relation);");
+            result.AppendLine($"        var query = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(parentId, {(mapped is null?"null":"targetParent.ToString()")}, actor, cancellationToken, false, false);");
         }
         else
         {

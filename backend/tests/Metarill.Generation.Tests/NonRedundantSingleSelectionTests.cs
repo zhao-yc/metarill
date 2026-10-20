@@ -19,7 +19,7 @@ public sealed class NonRedundantSingleSelectionTests
     [InlineData(true,true)]
     public async Task Original_single_selection_compiles_and_executes_fixed_name_contract(bool parent,bool mapped)
     {
-        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrs_offline");NonRedundantGeneratedFixture.EnableSingleSelection(catalog,parent);NonRedundantGeneratedFixture.AddSelectionPage(catalog);NonRedundantGeneratedFixture.EnableImports(catalog);catalog.ConfigPages[0].IsExport=1;if(mapped)NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);
+        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrs_offline");NonRedundantGeneratedFixture.EnableSingleSelection(catalog,parent);NonRedundantGeneratedFixture.AddSelectionPage(catalog);NonRedundantGeneratedFixture.EnableImports(catalog);catalog.ConfigPages[0].IsExport=1;if(mapped){NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);NonRedundantGeneratedFixture.EnableMappedImports(catalog);}
         var model=GenerationModel.Create(catalog,"Example.NonRedSingle");var table=model.Tables.Single(table=>table.Source.Id=="1");var page=table.Pages.Single(page=>page.Source.Id=="101");
         var names=SelectionNameFilterCompilation.ForPage(model,table,page);Assert.Empty(names.Gaps);var binding=Assert.Single(names.Bindings);Assert.Equal("customerName",binding.FilterKey);Assert.Equal(SelectionNameFilterKind.JoinedScalarLike,binding.Kind);Assert.Throws<InvalidOperationException>(()=>SelectionNameFilterCompilation.RenderCases(names));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-nonred-single");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var generated=Path.Combine(directory,"generated");
@@ -34,14 +34,19 @@ public sealed class NonRedundantSingleSelectionTests
             foreach(var value in new[]{JsonSerializer.SerializeToElement(1),JsonSerializer.SerializeToElement(true),JsonSerializer.SerializeToElement(new[]{"A"})})
             {request.Filters["customerName"]=value;Assert.IsType<ArgumentException>(Assert.Throws<TargetInvocationException>(()=>filters.Invoke(null,[request,actor])).InnerException);}
             request.Filters["customerName"]=JsonSerializer.SerializeToElement<object?>(null);Assert.DoesNotContain(Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(filters.Invoke(null,[request,actor])),filter=>filter.Field=="customer_name");
-            if(mapped)Assert.NotNull(type.GetMethod("Create104Async"));
+            if(mapped)
+            {
+                Assert.NotNull(type.GetMethod("Import104Async"));Assert.NotNull(type.GetMethod("Import105Async"));
+                var mappedPage=table.Pages.Single(page=>page.Source.Id=="104");var dependency=ImportDependencyCompilation.ForPage(model,table,mappedPage);
+                Assert.Equal("19",dependency.Parents["15"].Source.Id);Assert.True(dependency.Order.ToList().FindIndex(column=>column.Source.Id=="19")<dependency.Order.ToList().FindIndex(column=>column.Source.Id=="15"));Assert.Equal(new[]{"14"},dependency.MatchFields);
+            }
             await Probe(generated,parent);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>错误目标、辅助名、覆盖或未知父不能生成半可用单选应用。</summary>
     [Theory]
-    [InlineData("pageType")][InlineData("path")][InlineData("nameType")][InlineData("targetHidden")][InlineData("scope")][InlineData("nameOverride")][InlineData("foreignTarget")][InlineData("crossImport")][InlineData("arrayName")]
+    [InlineData("pageType")][InlineData("path")][InlineData("nameType")][InlineData("targetHidden")][InlineData("scope")][InlineData("nameOverride")][InlineData("foreignTarget")][InlineData("arrayName")]
     public void Invalid_single_selection_rejects_before_writing_files(string scenario)
     {
         var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrs_offline");NonRedundantGeneratedFixture.EnableSingleSelection(catalog,true);
@@ -53,7 +58,6 @@ public sealed class NonRedundantSingleSelectionTests
         if(scenario=="scope")catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail="{\"pageId\":\"201\",\"nameField\":\"name\",\"whereSql\":\"name=@parent_id\"}";
         if(scenario=="nameOverride")catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"notes\"}");
         if(scenario=="foreignTarget")catalog.ConfigColumns.Single(column=>column.Id=="15").LinkConfigTableId="3";
-        if(scenario=="crossImport"){NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);catalog.ConfigPages.Single(page=>page.Id=="104").IsImport=1;}
         var directory=Path.Combine(Path.GetTempPath(),"metarill-nonred-single-reject",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,directory,"Example.NonRedSingle"));Assert.False(Directory.Exists(directory));
     }
     /// <summary>开启非冗余不能意外放宽其它未定义的存储模式。</summary>
