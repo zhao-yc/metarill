@@ -10,10 +10,10 @@ public interface ISecurityIdentityAccessor
     AuthenticatedIdentity RequireIdentity();
 }
 
-/// <summary>当前目录与菜单引用必须从指定真实连接及事务读取；不能以已发布快照或缺表充当空结果。</summary>
+/// <summary>目录与菜单引用必须绑定指定真实Session/事务；平台须当前锁读，独立包仅可显式提供编译摘要绑定的不可变权威，不能回退发布列表或把缺表当空。</summary>
 public interface ISecurityCurrentResources
 {
-    /// <summary>在项目/后台已经预锁后读取当前资源；适配失败或空返回不得回退发布目录。</summary>
+    /// <summary>在项目/后台已预锁后读取平台当前资源或显式不可变权威证明；两者都核实际事务，失败/空结果不得回退发布目录。</summary>
     Task<SecurityResourceCatalog> ReadForUpdateAsync(DatabaseSession session,DbTransaction transaction,long projectId,long adminTypeId,CancellationToken cancellationToken);
     /// <summary>沿既有后台引用锁序读取真实菜单引用，未知存储或缺少适配必须明确失败。</summary>
     Task<bool> HasAdminMenuReferencesForUpdateAsync(DatabaseSession session,DbTransaction transaction,long adminTypeId,CancellationToken cancellationToken);

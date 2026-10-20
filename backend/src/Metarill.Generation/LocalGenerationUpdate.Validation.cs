@@ -8,7 +8,7 @@ namespace Metarill.Generation;
 public sealed partial class LocalGenerationUpdater
 {
     private sealed record UpdateEntry(string Path, string Sha256);
-    private sealed record PackageManifest(int SchemaVersion, string RootNamespace, string PackageMode, bool FrontendIncluded, string[] Warnings, string MetadataSha256, UpdateEntry[] Files, string? AuthenticationProfile=null);
+    private sealed record PackageManifest(int SchemaVersion, string RootNamespace, string PackageMode, bool FrontendIncluded, string[] Warnings, string MetadataSha256, UpdateEntry[] Files, string? AuthenticationProfile=null,string? SecurityCatalogSha256=null);
     private sealed record GeneratedManifest(int Version, string ProjectId, string RootNamespace, string MetadataSha256, UpdateEntry[] Files);
     private sealed record FrontendManifest(int SchemaVersion, string ProjectId, string Authentication, UpdateEntry[] Files);
     private sealed record PackageSnapshot(string Root, PackageManifest Package, GeneratedManifest Generated, FrontendManifest Frontend, MetadataCatalog Metadata, Dictionary<string, UpdateEntry> Entries)
@@ -18,10 +18,12 @@ public sealed partial class LocalGenerationUpdater
     // 固定原壳骨架只能在完全缺失时首次创建；已有字节始终属于开发者，不包含AppID/API配置或私有凭据。
     private static readonly HashSet<string> FirstCreateFrontend = new(StringComparer.Ordinal)
     { "frontend/App.vue", "frontend/main.js", "frontend/pages/main/index.vue", "frontend/pages/main/main.vue", "frontend/pages/main/left.vue", "frontend/pages/main/top.vue", "frontend/pages/main/menu.vue", "frontend/pages/main/my.vue", "frontend/pages/main/change_password.vue", "frontend/common/project.js", "frontend/static/logo.png" };
+    private const string SecurityCatalogBindingPath="backend/Application.Host/PackageSecurityCatalogBinding.g.cs";
+    private const string SecurityCatalogRuntimePath="backend/Application.Host/PackageSecurityCatalog.cs";
     private static readonly HashSet<string> Configuration = new(StringComparer.Ordinal)
-    { "backend/metadata/project.json", "frontend/common/application.generated.json", "frontend/pages.json", "frontend/pages.generated.json", "backend/generated/frontend/pages.generated.json" };
+    { "backend/metadata/project.json", SecurityCatalogBindingPath, "frontend/common/application.generated.json", "frontend/pages.json", "frontend/pages.generated.json", "backend/generated/frontend/pages.generated.json" };
     private static readonly HashSet<string> RuntimeFiles = new(StringComparer.Ordinal)
-    { "Directory.Build.props", "Directory.Packages.props", "global.json", "LICENSE", "backend/metadata/files.json", "backend/metadata/security.json", "backend/Application.Host/WebAuthentication.cs", "backend/Application.Host/SecurityInitialization.cs", "src/Metarill.Security/PrincipalRolePolicy.Evaluation.cs", "src/Metarill.Security/SecurityRealmMutationGuard.Validation.cs", "backend/Application.Host/Program.cs", "backend/Application.Host/DevelopmentAuthentication.cs", "backend/Application.Host/DevelopmentNavigation.cs", "backend/Application.Host/DevelopmentPasswordStore.cs", "backend/Application.Host/Application.Host.csproj",
+    { SecurityCatalogRuntimePath, "Directory.Build.props", "Directory.Packages.props", "global.json", "LICENSE", "backend/metadata/files.json", "backend/metadata/security.json", "backend/Application.Host/WebAuthentication.cs", "backend/Application.Host/SecurityInitialization.cs", "src/Metarill.Security/PrincipalRolePolicy.Evaluation.cs", "src/Metarill.Security/SecurityRealmMutationGuard.Validation.cs", "backend/Application.Host/Program.cs", "backend/Application.Host/DevelopmentAuthentication.cs", "backend/Application.Host/DevelopmentNavigation.cs", "backend/Application.Host/DevelopmentPasswordStore.cs", "backend/Application.Host/Application.Host.csproj",
       "frontend/App.vue", "frontend/main.js", "frontend/uni.scss", "frontend/index.html", "frontend/common/environment.js", "frontend/common/yzp.js", "frontend/common/utils.js", "frontend/common/yzp.scss", "frontend/pages/login.vue", "frontend/pages/main/index.vue", "frontend/pages/main/menu.vue", "frontend/pages/main/left.vue", "frontend/pages/main/top.vue", "frontend/pages/main/my.vue", "frontend/pages/main/rtf/rtf.vue", "frontend/scripts/verify-frontend.mjs", "frontend/package.json", "frontend/package-lock.json", "frontend/THIRD-PARTY-NOTICES.md", "frontend/uni_modules/LICENSE.uni-ui", "frontend/licenses/sheetjs.LICENSE", "frontend/licenses/sheetjs-dist.LICENSE", "frontend/licenses/tinymce-vue.LICENSE.txt", "frontend/vendor/xlsx-0.20.3.tgz", "frontend/vendor/sheetjs-source.json", "frontend/common/yzp_runtime/vendor/cropperjs/cropper.esm.js", "frontend/common/yzp_runtime/vendor/cropperjs/cropper.css", "frontend/common/yzp_runtime/vendor/cropperjs/LICENSE" };
     private static readonly Lazy<HashSet<string>> FrontendAssets = new(() =>
     {
@@ -40,6 +42,13 @@ public sealed partial class LocalGenerationUpdater
         if (!Regex.IsMatch(package.RootNamespace ?? "", @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$") || generated.RootNamespace != package.RootNamespace || !ValidHash(package.MetadataSha256) || package.MetadataSha256 != generated.MetadataSha256) throw new InvalidOperationException("namespace或元数据摘要不一致。");
         if (!long.TryParse(generated.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var project) || project <= 0 || project.ToString(CultureInfo.InvariantCulture) != generated.ProjectId || generated.ProjectId != frontend.ProjectId) throw new InvalidOperationException("项目标识不一致或无效。");
         var entries = Entries(package.Files); var generatedEntries = Entries(generated.Files); var frontendEntries = Entries(frontend.Files);
+        // 首次旧目标允许尚无proof；当前候选必须同时拥有编译绑定与固定实现，不能由manifest自报代替。
+        if(frontend.Authentication=="web-database-v1"&&(candidate||package.SecurityCatalogSha256 is not null))
+        {
+            var actual=Hash(ReadBytes(root,"backend/metadata/project.json"));
+            if(package.SecurityCatalogSha256!=actual||!entries.ContainsKey(SecurityCatalogBindingPath)||!entries.ContainsKey(SecurityCatalogRuntimePath))throw new InvalidOperationException("固定目录编译摘要或完整归属缺失、不一致。");
+            if(candidate&&Hash(ReadBytes(root,SecurityCatalogBindingPath))!=Hash(System.Text.Encoding.UTF8.GetBytes(ApplicationPackager.SecurityCatalogBindingSource(package.RootNamespace,actual))))throw new InvalidOperationException("固定目录编译绑定源码不匹配当前候选。");
+        }
         var metadata = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/project.json"));
         var infrastructure = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/files.json"));
         MetadataCatalogComposition.MergePhysical(metadata, infrastructure);

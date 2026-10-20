@@ -44,6 +44,8 @@ public sealed class ApplicationPackager
         var redactions = published.RedactedPaths.ToList();
         var sanitized = published.Metadata;
         var json = JsonNode.Parse(JsonSerializer.Serialize(sanitized, JsonOptions))!;
+        var projectText=json.ToJsonString(JsonOptions)+"\n";
+        var securityCatalogSha256=fullApplication?Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(projectText))):null;
         var frontend = new FrontendPackager(publish);
         // 完整包先报告原页面的具体能力缺口；物理合成仍必须在任何stage写入前严格通过。
         if (fullApplication) frontend.Validate(sanitized);
@@ -101,7 +103,7 @@ public sealed class ApplicationPackager
             Write(stage, "global.json", File.ReadAllText(CSharpGenerator.SafePath(source, "global.json")));
             Write(stage, "LICENSE", File.ReadAllText(CSharpGenerator.SafePath(source, "LICENSE")));
             Write(stage, "Directory.Build.props", "<Project>\n  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><LangVersion>latest</LangVersion><Deterministic>true</Deterministic><RestorePackagesWithLockFile>true</RestorePackagesWithLockFile></PropertyGroup>\n</Project>\n");
-            Write(stage, "backend/metadata/project.json", json.ToJsonString(JsonOptions) + "\n");
+            Write(stage, "backend/metadata/project.json", projectText);
             Write(stage, "backend/metadata/files.json", infrastructureJson.ToJsonString(JsonOptions) + "\n");
             if(securityJson is not null)Write(stage,"backend/metadata/security.json",securityJson.ToJsonString(JsonOptions)+"\n");
             foreach (var (template, destination) in new[] { (fullApplication?"Program.cs.tpl":"DevelopmentProgram.cs.tpl", "backend/Application.Host/Program.cs"), ("Authentication.cs.tpl", "backend/Application.Host/DevelopmentAuthentication.cs"), ("PasswordStore.cs.tpl", "backend/Application.Host/DevelopmentPasswordStore.cs"), (fullApplication?"Navigation.cs.tpl":"DevelopmentNavigation.cs.tpl", "backend/Application.Host/DevelopmentNavigation.cs"), ("Host.csproj.tpl", "backend/Application.Host/Application.Host.csproj"), (fullApplication?"README.md.tpl":"DevelopmentREADME.md.tpl", "README.md"), (fullApplication?"appsettings.example.json.tpl":"DevelopmentSettings.json.tpl", "backend/Application.Host/appsettings.example.json") })
@@ -109,14 +111,15 @@ public sealed class ApplicationPackager
                     .Replace("{{SECURITY_REFERENCE}}",fullApplication?"<ProjectReference Include=\"../../src/Metarill.Security/Metarill.Security.csproj\" />":"")
                     .Replace("{{SECURITY_CONTENT}}",fullApplication?"<ItemGroup><Content Include=\"../metadata/security.json\" Link=\"metadata/security.json\" CopyToOutputDirectory=\"PreserveNewest\" /></ItemGroup>":""));
             if(fullApplication)
-                foreach(var name in new[]{"WebAuthentication.cs","SecurityInitialization.cs"})Write(stage,"backend/Application.Host/"+name,Template(name+".tpl").Replace("{{NAMESPACE}}",rootNamespace));
+                foreach(var name in new[]{"WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs"})Write(stage,"backend/Application.Host/"+name,Template(name+".tpl").Replace("{{NAMESPACE}}",rootNamespace));
+            if(fullApplication)Write(stage,"backend/Application.Host/PackageSecurityCatalogBinding.g.cs",SecurityCatalogBindingSource(rootNamespace,securityCatalogSha256!));
             Write(stage, ".gitignore", "**/bin/\n**/obj/\n.local/\n**/appsettings.local.json\n**/appsettings.Development.json\n");
             var warnings = generated.Warnings.Concat(frontendIncluded ? Array.Empty<string>() : new[] { "本包显式选择BackendOnly，不含可运行前端宿主；平台配置前端需单独提供。backend/generated/frontend仅为生成片段。" }).ToArray();
             if (frontendIncluded) frontend.Create(sanitized, Path.Combine(stage, "backend/generated/frontend"), Path.Combine(stage, "frontend"), source);
             File.AppendAllText(Path.Combine(stage, "README.md"), "\n## 打包模式\n\n" + (frontendIncluded ? "FullApplication：包含frontend独立uni-app宿主与web-database-v1认证，默认Web失败即拒绝；显式开发认证仍仅Development使用。具体初始化、配置及HBuilderX要求见README与frontend/README.md。" : warnings.Last()) + "\n", new UTF8Encoding(false));
             var files = Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories).Select(file => new { path = Path.GetRelativePath(stage, file).Replace('\\', '/'), sha256 = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(file))) }).OrderBy(file => file.path, StringComparer.Ordinal).ToArray();
             // 与更新器PackageManifest的固定属性顺序一致，原样包预览不能只因profile重排而产生清单写入。
-            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files, authenticationProfile }, JsonOptions) + "\n");
+            Write(stage, ".metarill-package.json", JsonSerializer.Serialize(new { schemaVersion = 1, rootNamespace, packageMode = mode.ToString(), frontendIncluded, warnings, metadataSha256 = generated.MetadataSha256, files, authenticationProfile, securityCatalogSha256 }, JsonOptions) + "\n");
             // 移动前再次检查输出目录，避免其他进程在打包期间写入后被覆盖。
             publish(stage, output);
             return new ApplicationPackageResult(files.Select(file => file.path).Append(".metarill-package.json").ToArray(), generated.MetadataSha256, redactions.Distinct().Order(StringComparer.Ordinal).ToArray(), warnings) { Mode = mode, FrontendIncluded = frontendIncluded };
@@ -131,6 +134,9 @@ public sealed class ApplicationPackager
             if (!preserveStage && Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output) && Path.GetFileName(stage).StartsWith(Path.GetFileName(output) + ".staging-", StringComparison.Ordinal)) Directory.Delete(stage, true);
         }
     }
+    /// <summary>配置绑定只生成编译常量；更新器复用同一固定模板核验候选，不能信任manifest自报摘要。</summary>
+    internal static string SecurityCatalogBindingSource(string rootNamespace,string sha256)=>Template("PackageSecurityCatalogBinding.g.cs.tpl").Replace("{{NAMESPACE}}",rootNamespace).Replace("{{PACKAGE_CATALOG_SHA256}}",sha256).Replace("\r\n","\n").Replace('\r','\n');
+
     /// <summary>仅枚举基础源码、工程和固定许可证，拒绝链接，跳过环境文件和构建目录。</summary>
     private static IEnumerable<string> EnumerateSources(string directory)
     {

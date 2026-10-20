@@ -26,7 +26,7 @@ namespace Metarill.Generation.Tests;
 
 /// <summary>真实Full包编译后直接执行其认证模板；数据库命令由本地ADO替身处理，不启动HTTP或数据库。</summary>
 [Collection(StandaloneProcessBudgetCollection.Name)]
-public sealed class StandaloneWebAuthenticationTests(WebAuthenticationPackageFixture package):IClassFixture<WebAuthenticationPackageFixture>
+public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPackageFixture package):IClassFixture<WebAuthenticationPackageFixture>
 {
     private const string Username="web-offline-owner",Password="离线初始Password2026!",NextPassword="离线更新Password2026!";
     /// <summary>默认/显式Web不使用开发凭据，无配置和畸形令牌在解析数据库服务前拒绝。</summary>
@@ -40,10 +40,10 @@ public sealed class StandaloneWebAuthenticationTests(WebAuthenticationPackageFix
         var settings=Settings();settings["Authentication:Mode"]=mode;settings["Authentication:DevelopmentBootstrap:Enabled"]=development.ToString();
         var selected=package.Mode(settings,environment);Assert.Equal(expectedDevelopment,package.Property<bool>(selected,"Development"));Assert.False(package.Property<bool>(selected,"DatabaseConfigured"));
         var services=new ServiceCollection();var resolutions=0;services.AddSingleton<AuthenticationService>(_=>{resolutions++;throw new InvalidOperationException("不应解析数据库认证");});using var provider=services.BuildServiceProvider();
-        var registry=package.Registry(package.Metadata);var web=package.New("ApplicationWebAuthentication",provider,selected,registry);
+        var registry=package.Registry();var web=package.New("ApplicationWebAuthentication",provider,selected,registry);
         foreach(var token in new[]{"", "short",new string('x',201),new string('a',64)})Assert.Null(await package.Call(web,"ResolveAsync",token,CancellationToken.None));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>package.Call(web,"LoginAsync",Username,Password,CancellationToken.None));Assert.Equal(0,resolutions);
-        var context=new HttpContextAccessor{HttpContext=new DefaultHttpContext()};var authorization=(IRuntimeAuthorization)package.New("ApplicationWebAuthorization",context,package.Metadata);Assert.Throws<UnauthorizedAccessException>(()=>authorization.RequireActor());
+        var context=new HttpContextAccessor{HttpContext=new DefaultHttpContext()};var authorization=(IRuntimeAuthorization)package.New("ApplicationWebAuthorization",context,package.Authority());Assert.Throws<UnauthorizedAccessException>(()=>authorization.RequireActor());
         settings["Authentication:Mode"]="unknown";Assert.Throws<InvalidOperationException>(()=>package.Mode(settings,environment));
     }
 
@@ -52,7 +52,7 @@ public sealed class StandaloneWebAuthenticationTests(WebAuthenticationPackageFix
     [InlineData("empty")] [InlineData("short")] [InlineData("nothex")] [InlineData("uppercase")] [InlineData("length63")] [InlineData("length65")]
     public async Task Malformed_web_tokens_with_database_configuration_never_resolve_database(string kind)
     {
-        var configured=package.Mode(new(){["Database:ConnectionString"]="offline",["Database:ExpectedDatabase"]="offline"},"Production");var resolutions=0;var services=new ServiceCollection();services.AddSingleton<AuthenticationService>(_=>{resolutions++;throw new InvalidOperationException("不应解析数据库");});using var provider=services.BuildServiceProvider();var web=package.New("ApplicationWebAuthentication",provider,configured,package.Registry(package.Metadata));
+        var configured=package.Mode(new(){["Database:ConnectionString"]="offline",["Database:ExpectedDatabase"]="offline"},"Production");var resolutions=0;var services=new ServiceCollection();services.AddSingleton<AuthenticationService>(_=>{resolutions++;throw new InvalidOperationException("不应解析数据库");});using var provider=services.BuildServiceProvider();var web=package.New("ApplicationWebAuthentication",provider,configured,package.Registry());
         var token=kind switch{"empty"=>"","short"=>"short","nothex"=>new string('g',64),"uppercase"=>new string('A',64),"length63"=>new string('a',63),_=>new string('a',65)};Assert.Null(await package.Call(web,"ResolveAsync",token,CancellationToken.None));Assert.Equal(0,resolutions);
     }
 
@@ -63,7 +63,7 @@ public sealed class StandaloneWebAuthenticationTests(WebAuthenticationPackageFix
         var settings=Settings();settings["Authentication:Mode"]="Web";settings["Authentication:DevelopmentBootstrap:Enabled"]="true";settings["Database:ConnectionString"]="invalid-private-test";settings["Database:ExpectedDatabase"]="offline";
         var selected=package.Mode(settings,"Development");Assert.False(package.Property<bool>(selected,"Development"));Assert.True(package.Property<bool>(selected,"DatabaseConfigured"));
         var resolutions=0;var services=new ServiceCollection();services.AddSingleton<SqlRowStore>(_=>{resolutions++;throw new InvalidOperationException("预设配置失败");});using var provider=services.BuildServiceProvider();
-        var web=package.New("ApplicationWebAuthentication",provider,selected,package.Registry(package.Metadata));await Assert.ThrowsAsync<InvalidOperationException>(()=>package.Call(web,"LoginAsync",Username,Password,CancellationToken.None));Assert.Equal(1,resolutions);
+        var web=package.New("ApplicationWebAuthentication",provider,selected,package.Registry());await Assert.ThrowsAsync<InvalidOperationException>(()=>package.Call(web,"LoginAsync",Username,Password,CancellationToken.None));Assert.Equal(1,resolutions);
     }
 
     /// <summary>实际模板初始化与共享认证执行持久会话协议；业务super不产生平台身份，撤权下一次解析生效。</summary>
@@ -188,13 +188,13 @@ public sealed class StandaloneWebAuthenticationTests(WebAuthenticationPackageFix
         internal OfflineApplication(WebAuthenticationPackageFixture fixture,MetadataCatalog? catalog=null)
         {
             package=fixture;metadata=catalog??fixture.Metadata;var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="offline"},Provider.Orm,Provider);var store=new SqlRowStore(session,fixture.Security);
-            var registry=fixture.Registry(metadata);Mode=fixture.Mode(new(){["Database:ConnectionString"]="offline",["Database:ExpectedDatabase"]="offline"},"Production");
+            var registry=fixture.Registry();Mode=fixture.Mode(new(){["Database:ConnectionString"]="offline",["Database:ExpectedDatabase"]="offline"},"Production");
             var registrations=new ServiceCollection();registrations.AddSingleton(session);registrations.AddSingleton(store);registrations.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(877));registrations.AddSingleton<ISecurityResourceRegistry>((ISecurityResourceRegistry)registry);registrations.AddSingleton<ISecuritySessionPolicy>((ISecuritySessionPolicy)registry);registrations.AddScoped<AuthenticationService>();services=registrations.BuildServiceProvider();Web=fixture.New("ApplicationWebAuthentication",services,Mode,registry);
         }
         internal async Task<string> Initialize(Dictionary<string,string?> settings)=>(string)(await package.Call(package.New("ApplicationSecurityInitialization",services.GetRequiredService<SqlRowStore>(),services.GetRequiredService<IIdGenerator>(),metadata),"InitializeAsync",new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),CancellationToken.None))!;
         internal async Task<(Dictionary<string,object?> User,string Token)> Login(string password){var result=(await package.Call(Web,"LoginAsync",Username,password,CancellationToken.None))!;return((Dictionary<string,object?>)result.GetType().GetField("Item1")!.GetValue(result)!,(string)result.GetType().GetField("Item2")!.GetValue(result)!);}
         internal async Task<AuthenticatedIdentity?> Resolve(string token)=>(AuthenticatedIdentity?)await package.Call(Web,"ResolveAsync",token,CancellationToken.None);
-        internal IRuntimeAuthorization Authorize(AuthenticatedIdentity identity){Accessor.HttpContext!.Items[typeof(AuthenticatedIdentity)]=identity;return(IRuntimeAuthorization)package.New("ApplicationWebAuthorization",Accessor,metadata);}
+        internal IRuntimeAuthorization Authorize(AuthenticatedIdentity identity){Accessor.HttpContext!.Items[typeof(AuthenticatedIdentity)]=identity;return(IRuntimeAuthorization)package.New("ApplicationWebAuthorization",Accessor,package.Authority());}
         internal string Snapshot()=>JsonSerializer.Serialize(Provider.Rows);
         internal void Add(string table,params(string Name,object? Value)[] values){if(!Provider.Rows.TryGetValue(table,out var rows))Provider.Rows[table]=rows=[];rows.Add(values.ToDictionary(pair=>pair.Name,pair=>pair.Value));}
         public void Dispose()=>services.Dispose();
@@ -205,16 +205,24 @@ public sealed class StandaloneWebAuthenticationTests(WebAuthenticationPackageFix
 public sealed class WebAuthenticationPackageFixture:IAsyncLifetime
 {
     internal const string Namespace="Example.PackagedWebAuthentication";private readonly string root=Path.Combine(Path.GetTempPath(),"metarill-web-auth-source",Guid.NewGuid().ToString("N"));private Assembly assembly=null!;
-    internal MetadataCatalog Metadata{get;private set;}=null!;internal MetadataCatalog Security{get;private set;}=null!;
+    internal MetadataCatalog Metadata{get;private set;}=null!;internal MetadataCatalog Security{get;private set;}=null!;internal byte[] CatalogBytes{get;private set;}=[];
     public async Task InitializeAsync()
     {
         var source=SourceRoot();var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);Metadata=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(source,"backend/metadata/demo.json")),json)!;Security=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(source,"backend/metadata/security.json")),json)!;
-        new ApplicationPackager().Create(Metadata,root,Namespace,source);var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet"){WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};foreach(var arg in new[]{"build","backend/Application.Host/Application.Host.csproj","--nologo","--disable-build-servers","--verbosity","quiet","-warnaserror"})start.ArgumentList.Add(arg);
+        new ApplicationPackager().Create(Metadata,root,Namespace,source);CatalogBytes=await File.ReadAllBytesAsync(Path.Combine(root,"backend/metadata/project.json"));var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet"){WorkingDirectory=root,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};foreach(var arg in new[]{"build","backend/Application.Host/Application.Host.csproj","--nologo","--disable-build-servers","--verbosity","quiet","-warnaserror"})start.ArgumentList.Add(arg);
         using(await SharedSourceBuildGate.Shared.EnterAsync()){using var process=Process.Start(start)!;var output=process.StandardOutput.ReadToEndAsync();var error=process.StandardError.ReadToEndAsync();using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(90));try{await process.WaitForExitAsync(deadline.Token);}catch(Exception interrupted){await SharedSourceBuildGate.StopOwnProcessAsync(process,output,error,interrupted);throw;}Assert.True(process.ExitCode==0,await output+await error);}
         assembly=AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(await File.ReadAllBytesAsync(Path.Combine(root,"backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"))));
     }
-    internal object New(string type,params object?[] arguments)=>Activator.CreateInstance(assembly.GetType(Namespace+".Host."+type,true)!,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance,null,arguments,CultureInfo.InvariantCulture)!;
-    internal object Registry(MetadataCatalog metadata)=>New("ApplicationSecurityRegistry",metadata);
+    /// <summary>反射只用于调用真实包类型，构造异常保留原始产品异常而不让包装影响合同断言。</summary>
+    internal object New(string type,params object?[] arguments)
+    {
+        try{return Activator.CreateInstance(assembly.GetType(Namespace+".Host."+type,true)!,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance,null,arguments,CultureInfo.InvariantCulture)!;}
+        catch(TargetInvocationException error)when(error.InnerException is not null){ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
+    }
+    /// <summary>认证始终使用真实编译包字节；替代目录仅用于既有Initializer输入反例，不冒充编译权威。</summary>
+    internal object Authority()=>New("VerifiedPackageSecurityCatalog",CatalogBytes.ToArray());
+    internal object Registry()=>New("ApplicationSecurityRegistry",Authority());
+    internal void RegisterCatalog(IServiceCollection services,object authority)=>Invoke(assembly.GetType(Namespace+".Host.ApplicationSecurityCatalogRegistration",true)!,"Add",services,authority);
     internal object Mode(Dictionary<string,string?> values,string environment)=>Invoke(assembly.GetType(Namespace+".Host.ApplicationAuthenticationMode",true)!,"Read",new ConfigurationBuilder().AddInMemoryCollection(values).Build(),new TestEnvironment{EnvironmentName=environment})!;
     internal T Property<T>(object instance,string name)=>(T)instance.GetType().GetProperty(name,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(instance)!;
     internal object? Invoke(object instance,string name,params object?[] arguments){var type=instance as Type??instance.GetType();var method=type.GetMethod(name,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Static|BindingFlags.Instance)!;try{return method.Invoke(instance is Type?null:instance,arguments);}catch(TargetInvocationException error)when(error.InnerException is not null){ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}}

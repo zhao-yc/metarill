@@ -43,9 +43,9 @@ if (developmentCors) builder.Services.AddCors(options => options.AddDefaultPolic
     Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.IsLoopback
     && uri.UserInfo.Length == 0 && uri.AbsolutePath == "/" && uri.Query.Length == 0 && uri.Fragment.Length == 0).AllowAnyHeader().AllowAnyMethod()));
 var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-var metadata = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/project.json")), jsonOptions)
-    ?? throw new InvalidOperationException("缺少应用元数据。");
-MetadataValidation.Validate(metadata);
+// 固定目录先核编译摘要并私有冻结；可变DI副本不能改变安全目录权威。
+var verifiedCatalog=VerifiedPackageSecurityCatalog.Load(Path.Combine(AppContext.BaseDirectory,"metadata/project.json"));
+var metadata=verifiedCatalog.Clone();
 var infrastructure = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/files.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少文件基础元数据。");
 var security = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/security.json")), jsonOptions)
@@ -54,6 +54,7 @@ var security = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path
 var combinedInfrastructure=MetadataCatalogComposition.MergePhysical(infrastructure,security);
 var physicalMetadata = MetadataCatalogComposition.MergePhysical(metadata, combinedInfrastructure);
 builder.Services.AddSingleton(metadata);
+ApplicationSecurityCatalogRegistration.Add(builder.Services,verifiedCatalog);
 builder.Services.AddSingleton(authenticationMode);
 builder.Services.AddSingleton<ApplicationSecurityRegistry>();
 builder.Services.AddSingleton<ISecurityResourceRegistry>(provider=>provider.GetRequiredService<ApplicationSecurityRegistry>());
