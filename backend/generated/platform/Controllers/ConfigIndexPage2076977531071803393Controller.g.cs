@@ -9,7 +9,7 @@ using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [Route("api/admin/auto/config_index/2076977531071803393")]
-public sealed class ConfigIndexPage2076977531071803393Controller(ConfigIndexService service, IRuntimeAuthorization authorization) : ControllerBase
+public sealed partial class ConfigIndexPage2076977531071803393Controller(ConfigIndexService service, IRuntimeAuthorization authorization) : ControllerBase
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("2076977531071803393", operation); return authorization.RequireActor(); }

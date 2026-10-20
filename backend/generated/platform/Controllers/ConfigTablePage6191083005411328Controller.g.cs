@@ -9,7 +9,7 @@ using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [Route("api/admin/auto/config_table/6191083005411328")]
-public sealed class ConfigTablePage6191083005411328Controller(ConfigTableService service, IRuntimeAuthorization authorization) : ControllerBase
+public sealed partial class ConfigTablePage6191083005411328Controller(ConfigTableService service, IRuntimeAuthorization authorization) : ControllerBase
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("6191083005411328", operation); return authorization.RequireActor(); }

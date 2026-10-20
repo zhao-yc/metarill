@@ -39,3 +39,12 @@
 导出 Controller/Service 需与新的 Core/Runtime 同步再生成：Controller 将延迟准备委托交给 `IPageExportService`；服务端传入行数上限，SQL最多读取上限加一条并显式拒绝超限，不静默截断。自定义导出实现未接入新重载时默认拒绝，不提前读取数据库。
 
 文件基础设施独立包：`node tools/metadata/derive-files.mjs` 从 `backend/metadata/platform.json` 生成 `backend/metadata/files.json`，`--check` 只核对漂移，CI 在生成前执行核对。修改文件基础表元数据后必须重新派生并一并提交，不手写第二套结构。独立包携带 Core/Data/Exports/Files 源码、文件基础元数据、共享文件 Controller 和观察者；结构 CLI 合并物理模型，正常启动不自动建表。相同基础物理定义仅在无业务页面暴露时去重；保留表名及标识冲突提前失败。
+
+
+## 生成类型的手写扩展
+
+Entity、页级DTO/VO、Mapper、Service、Controller及导入请求均支持同程序集`partial`。生成的`.g.cs`继续归元数据所有；在同一命名空间另建`.Extension.cs`编写方法，重复生成与本地页面更新保留这些非归属文件。Service原手写壳仍只首次创建，继续实现`BeforeSave`、`BeforeDelete`；不再生成空转Business。
+
+页级DTO/VO、Mapper、Controller保留`sealed`，`partial`只拆分同一个类型；手写文件不要重复生成属性、基类或主构造函数。Mapper/Controller的主构造函数仍仅由生成文件声明，其他分部可访问其参数及生成的private成员。Controller辅助方法加`[NonAction]`，公开业务动作仍需明确路由和权限；DTO/VO扩展属性会影响JSON协议，辅助值按需使用`[JsonIgnore]`，实体非持久化属性需明确`[Column(IsIgnore=true)]`。不通过手改生成属性调整数据库或标准接口。
+
+已生成工程跟进时更新生成器、重新生成并编译；无需SQL迁移或元数据回填。公开完整包的其他能力门槛不因partial声明解除。

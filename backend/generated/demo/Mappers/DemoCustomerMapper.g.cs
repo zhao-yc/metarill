@@ -6,7 +6,7 @@ using Metarill.Demo.Generated.Entities;
 namespace Metarill.Demo.Generated.Mappers;
 
 /// <summary>固定类型持久化，当前事务由 DatabaseSession 自动附加。</summary>
-public sealed class DemoCustomerMapper(DatabaseSession session)
+public sealed partial class DemoCustomerMapper(DatabaseSession session)
 {
     /// <summary>创建仅包含未删除记录的查询起点。</summary>
     public ISelect<DemoCustomer> Query() => session.Select<DemoCustomer>().Where(entity => entity.DeleteNo == null);

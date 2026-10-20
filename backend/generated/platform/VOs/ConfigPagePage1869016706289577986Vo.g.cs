@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class ConfigPagePage1869016706289577986Vo
+public sealed partial class ConfigPagePage1869016706289577986Vo
 {
     [JsonPropertyName("name")]
     public string? Name { get; init; }

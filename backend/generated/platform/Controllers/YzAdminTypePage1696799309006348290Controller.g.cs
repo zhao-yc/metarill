@@ -9,7 +9,7 @@ using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [Route("api/admin/auto/yz_admin_type/1696799309006348290")]
-public sealed class YzAdminTypePage1696799309006348290Controller(YzAdminTypeService service, IRuntimeAuthorization authorization) : ControllerBase
+public sealed partial class YzAdminTypePage1696799309006348290Controller(YzAdminTypeService service, IRuntimeAuthorization authorization) : ControllerBase
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("1696799309006348290", operation); return authorization.RequireActor(); }

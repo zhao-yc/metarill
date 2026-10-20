@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class ConfigPageColumnPage6218036784398336Vo
+public sealed partial class ConfigPageColumnPage6218036784398336Vo
 {
     [JsonPropertyName("configColumnColumnName")]
     public string? ConfigColumnColumnName { get; init; }

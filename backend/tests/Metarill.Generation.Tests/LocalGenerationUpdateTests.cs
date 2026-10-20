@@ -40,15 +40,35 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
 
     /// <summary>metadata影响代码与路由时必须显式选择依赖动作，不把单范围静默扩成完整包。</summary>
     [Fact]
-    public void Metadata_changes_require_explicit_scope_dependency_and_update_both_frontend_copies()
+    public async Task Metadata_changes_require_explicit_scope_dependency_and_update_both_frontend_copies()
     {
         var next = Catalog(); next.ConfigColumns.Single(column => column.ColumnName == "name").Name = "新名称标签";
         var (target, candidate) = Packages(Catalog(), next); var updater = new LocalGenerationUpdater();
+        // 用户扩展位于同一程序集但不登记为生成归属，原按钮的页面更新不得覆盖它们。
+        var generated=GenerationModel.Create(next,"Example.LocalUpdate").Tables.Single();var page=generated.Pages.First();
+        var extensions=new Dictionary<string,string>
+        {
+            [$"backend/generated/Mappers/{generated.Name}Mapper.Extension.cs"]=$"namespace Example.LocalUpdate.Generated.Mappers; public partial class {generated.Name}Mapper {{ public string ExtensionDatabase()=>session.Options.ExpectedDatabase; }}",
+            [$"backend/generated/DTOs/{page.Name}UpdateRequest.Extension.cs"]=$"namespace Example.LocalUpdate.Generated.DTOs; public partial class {page.Name}UpdateRequest {{ public bool ExtensionNameSpecified()=>Name.IsSpecified; }}",
+            [$"backend/generated/VOs/{page.Name}Vo.Extension.cs"]=$"namespace Example.LocalUpdate.Generated.VOs; public partial class {page.Name}Vo {{ public string ExtensionLabel()=>Name?.Trim()??string.Empty; }}",
+            [$"backend/generated/Controllers/{page.Name}Controller.Extension.cs"]=$"namespace Example.LocalUpdate.Generated.Controllers; public partial class {page.Name}Controller {{ [Microsoft.AspNetCore.Mvc.NonAction] public Metarill.Core.Security.RuntimeActor ExtensionAuthorize()=>Actor(\"list\"); }}"
+        };
+        foreach(var (path,content) in extensions)File.WriteAllText(Path.Combine(target,path),content);
+        var preserved=extensions.Keys.ToDictionary(path=>path,path=>File.ReadAllBytes(Path.Combine(target,path)));
         var preview = updater.Preview(target, candidate, ["generate-all-page"]); Assert.False(preview.CanApply); Assert.Contains("generate-project-config", preview.RequiredActions); Assert.Throws<InvalidOperationException>(() => updater.Apply(preview, preview.PlanSha256));
         var ready = updater.Preview(target, candidate, ["generate-project-config", "generate-all-page"]); Assert.True(ready.CanApply); updater.Apply(ready, ready.PlanSha256);
+        foreach(var (path,bytes) in preserved){Assert.Equal(bytes,File.ReadAllBytes(Path.Combine(target,path)));Assert.DoesNotContain(ready.Files,file=>file.Path==path&&file.Action!="preserve");}
         var live = File.ReadAllBytes(Path.Combine(target, "frontend/pages/yzp/demo_customer-detail-2200000000000100020.vue"));
         Assert.Equal(live, File.ReadAllBytes(Path.Combine(target, "backend/generated/frontend/pages/yzp/demo_customer-detail-2200000000000100020.vue")));
         Assert.Contains("新名称标签", System.Text.Encoding.UTF8.GetString(live)); Assert.True(updater.Preview(target, candidate, All).CanApply);
+        // 编译实际更新后的生成源码及四种手写分部，不能只验证标记文件被保留。
+        var compile=Path.Combine(root,"updated-partial-compile");var generatedRoot=Path.Combine(target,"backend/generated");
+        foreach(var file in Directory.EnumerateFiles(generatedRoot,"*.cs",SearchOption.AllDirectories))
+        {
+            var destination=Path.Combine(compile,"generated",Path.GetRelativePath(generatedRoot,file));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);File.Copy(file,destination);
+        }
+        await GeneratedRelationOptionsMySqlTests.BuildGenerated(compile);
     }
 
     /// <summary>运行时只更新已登记公共代码；候选摘要也必须同步，文件漂移不允许冒充框架版本。</summary>

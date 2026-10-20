@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class ConfigChildPage1679390851298631682Vo
+public sealed partial class ConfigChildPage1679390851298631682Vo
 {
     [JsonPropertyName("parentConfigPageId")]
     public long? ParentConfigPageId { get; init; }

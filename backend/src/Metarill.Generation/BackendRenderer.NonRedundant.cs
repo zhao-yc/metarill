@@ -26,7 +26,7 @@ internal static class GeneratedNonRedundantReadCatalog
     private static string NonRedundantVo(GenerationModel model,TableModel table,PageModel page)
     {
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var constants=page.Readable.Where(column=>column.Source.ControlKind is "ConstList" or "ConstDownList").ToArray();
-        var result=new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json.Serialization;").AppendLine("using Metarill.Data.Queries;").AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed class {page.Name}Vo").AppendLine("{");
+        var result=new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json.Serialization;").AppendLine("using Metarill.Data.Queries;").AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed partial class {page.Name}Vo").AppendLine("{");
         foreach(var output in plan.Outputs)
         {result.AppendLine($"    [JsonPropertyName({Literal(output.JsonName)})]");if(page.Readable.Any(column=>column.JsonName==output.JsonName&&Checkbox(column)))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");result.AppendLine($"    public {output.Type} {output.Property} {{get;init;}}");}
         foreach(var column in constants)

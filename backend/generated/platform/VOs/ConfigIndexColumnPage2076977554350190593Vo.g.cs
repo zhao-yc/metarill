@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class ConfigIndexColumnPage2076977554350190593Vo
+public sealed partial class ConfigIndexColumnPage2076977554350190593Vo
 {
     [JsonPropertyName("configIndexId")]
     public long? ConfigIndexId { get; init; }

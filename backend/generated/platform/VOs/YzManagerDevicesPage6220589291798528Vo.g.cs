@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class YzManagerDevicesPage6220589291798528Vo
+public sealed partial class YzManagerDevicesPage6220589291798528Vo
 {
     [JsonPropertyName("yzManagerId")]
     public long? YzManagerId { get; init; }

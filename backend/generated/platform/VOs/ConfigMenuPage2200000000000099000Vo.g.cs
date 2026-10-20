@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class ConfigMenuPage2200000000000099000Vo
+public sealed partial class ConfigMenuPage2200000000000099000Vo
 {
     [JsonPropertyName("insertTime")]
     public DateTime? InsertTime { get; init; }

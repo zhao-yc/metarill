@@ -9,7 +9,7 @@ using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [Route("api/admin/auto/config_button/1870796062470516738")]
-public sealed class ConfigButtonPage1870796062470516738Controller(ConfigButtonService service, IRuntimeAuthorization authorization) : ControllerBase
+public sealed partial class ConfigButtonPage1870796062470516738Controller(ConfigButtonService service, IRuntimeAuthorization authorization) : ControllerBase
 {
     /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>
     private RuntimeActor Actor(string operation) { authorization.RequirePagePermission("1870796062470516738", operation); return authorization.RequireActor(); }

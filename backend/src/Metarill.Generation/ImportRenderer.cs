@@ -15,7 +15,7 @@ internal static class ImportRenderer
     /// <summary>生成保留 requestJson 与 parentId 的独立请求契约。</summary>
     public static string Dto(PageModel page) => !Enabled(page) ? "" : $$"""
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class {{page.Name}}ImportRequest
+public sealed partial class {{page.Name}}ImportRequest
 {
     public JsonElement RequestJson { get; set; }
     public string? ParentId { get; set; }

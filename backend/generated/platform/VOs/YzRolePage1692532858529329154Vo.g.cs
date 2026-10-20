@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class YzRolePage1692532858529329154Vo
+public sealed partial class YzRolePage1692532858529329154Vo
 {
     [JsonPropertyName("name")]
     public string? Name { get; init; }

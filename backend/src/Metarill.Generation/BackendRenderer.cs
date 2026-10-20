@@ -50,7 +50,7 @@ internal static partial class BackendRenderer
             .AppendLine($"namespace {model.Namespace}.Generated.DTOs;");
         foreach (var kind in new[] { "Create", "Update" })
         {
-            result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}{kind}Request").AppendLine("{");
+            result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed partial class {page.Name}{kind}Request").AppendLine("{");
             if (kind == "Update") result.AppendLine("    public long Id { get; set; }");
             foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
@@ -60,7 +60,7 @@ internal static partial class BackendRenderer
             }
             result.AppendLine("}");
         }
-        result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed class {page.Name}RecordRequest {{ public long Id {{ get; set; }} }}");
+        result.AppendLine("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]").AppendLine($"public sealed partial class {page.Name}RecordRequest {{ public long Id {{ get; set; }} }}");
         return result.Append(ImportRenderer.Dto(page)).ToString();
     }
     /// <summary>生成页面可读投影、数组控件及原前端使用的常量展示字段。</summary>
@@ -77,7 +77,7 @@ internal static partial class BackendRenderer
             if (page.Readable.Any(candidate => candidate.Property.Equals(column.Property + "Show", StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException("常量展示字段与页面字段重名：" + column.JsonName + "Show");
         var result = new StringBuilder(CSharpGenerator.Header).Append(constants.Length == 0 ? "" : "using System.Globalization;\n").AppendLine("using System.Text.Json;").AppendLine("using System.Text.Json.Serialization;").AppendLine($"using {model.Namespace}.Generated.Entities;")
-            .AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed class {page.Name}Vo").AppendLine("{");
+            .AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed partial class {page.Name}Vo").AppendLine("{");
         foreach (var column in page.Readable)
         {
             if (ManagerCredentialCompilation.IsCredential(table,column)) result.AppendLine("    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]");
@@ -140,7 +140,7 @@ using {{model.Namespace}}.Generated.Entities;
 namespace {{model.Namespace}}.Generated.Mappers;
 
 /// <summary>固定类型持久化，当前事务由 DatabaseSession 自动附加。</summary>
-public sealed class {{table.Name}}Mapper(DatabaseSession session)
+public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
 {
     /// <summary>创建仅包含未删除记录的查询起点。</summary>
     public ISelect<{{table.Name}}> Query() => session.Select<{{table.Name}}>(){{(deleted is not null ? $".Where(entity => entity.{deleted.Property} == null)" : "")}};
@@ -491,7 +491,7 @@ public sealed class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "").AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Services;")
             .AppendLine($"namespace {model.Namespace}.Generated.Controllers;").AppendLine("[ApiController]")
             .AppendLine($"[Route({Literal("api/admin/auto/" + table.Source.TableName + "/" + suffix)})]")
-            .AppendLine($"public sealed class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization) : ControllerBase").AppendLine("{")
+            .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")
             .AppendLine($"    private RuntimeActor Actor(string operation) {{ authorization.RequirePagePermission({Literal(suffix)}, operation); return authorization.RequireActor(); }}")
             .Append(LegacyPageRequestRenderer.Controller(model, table, page))

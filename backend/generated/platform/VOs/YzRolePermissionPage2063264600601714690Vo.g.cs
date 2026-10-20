@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
-public sealed class YzRolePermissionPage2063264600601714690Vo
+public sealed partial class YzRolePermissionPage2063264600601714690Vo
 {
     [JsonPropertyName("insertTime")]
     public DateTime? InsertTime { get; init; }

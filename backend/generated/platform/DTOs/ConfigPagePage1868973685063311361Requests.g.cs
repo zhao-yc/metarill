@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using Metarill.Core.Contracts;
 namespace Metarill.Platform.Generated.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class ConfigPagePage1868973685063311361CreateRequest
+public sealed partial class ConfigPagePage1868973685063311361CreateRequest
 {
     [JsonPropertyName("name")]
     public Optional<string?> Name { get; set; }
@@ -105,7 +105,7 @@ public sealed class ConfigPagePage1868973685063311361CreateRequest
     public Optional<long?> YzAdminTypeId { get; set; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class ConfigPagePage1868973685063311361UpdateRequest
+public sealed partial class ConfigPagePage1868973685063311361UpdateRequest
 {
     public long Id { get; set; }
     [JsonPropertyName("name")]
@@ -206,4 +206,4 @@ public sealed class ConfigPagePage1868973685063311361UpdateRequest
     public Optional<long?> YzAdminTypeId { get; set; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class ConfigPagePage1868973685063311361RecordRequest { public long Id { get; set; } }
+public sealed partial class ConfigPagePage1868973685063311361RecordRequest { public long Id { get; set; } }

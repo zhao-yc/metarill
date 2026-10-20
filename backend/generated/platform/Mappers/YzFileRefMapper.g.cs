@@ -6,7 +6,7 @@ using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.Mappers;
 
 /// <summary>固定类型持久化，当前事务由 DatabaseSession 自动附加。</summary>
-public sealed class YzFileRefMapper(DatabaseSession session)
+public sealed partial class YzFileRefMapper(DatabaseSession session)
 {
     /// <summary>创建仅包含未删除记录的查询起点。</summary>
     public ISelect<YzFileRef> Query() => session.Select<YzFileRef>().Where(entity => entity.DeleteNo == null);

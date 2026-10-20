@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using Metarill.Core.Contracts;
 namespace Metarill.Demo.Generated.DTOs;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class DemoCustomerPage2200000000000100020CreateRequest
+public sealed partial class DemoCustomerPage2200000000000100020CreateRequest
 {
     [JsonPropertyName("name")]
     public Optional<string?> Name { get; set; }
@@ -17,7 +17,7 @@ public sealed class DemoCustomerPage2200000000000100020CreateRequest
     public Optional<int?> IsEnabled { get; set; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class DemoCustomerPage2200000000000100020UpdateRequest
+public sealed partial class DemoCustomerPage2200000000000100020UpdateRequest
 {
     public long Id { get; set; }
     [JsonPropertyName("name")]
@@ -30,9 +30,9 @@ public sealed class DemoCustomerPage2200000000000100020UpdateRequest
     public Optional<int?> IsEnabled { get; set; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class DemoCustomerPage2200000000000100020RecordRequest { public long Id { get; set; } }
+public sealed partial class DemoCustomerPage2200000000000100020RecordRequest { public long Id { get; set; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class DemoCustomerPage2200000000000100020ImportRequest
+public sealed partial class DemoCustomerPage2200000000000100020ImportRequest
 {
     public JsonElement RequestJson { get; set; }
     public string? ParentId { get; set; }

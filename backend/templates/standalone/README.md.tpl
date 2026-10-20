@@ -75,3 +75,11 @@ FullApplication 模式额外提供 frontend 独立 HBuilderX uni-app Vue3 工程
 首次实际改密在宿主固定 `.local/development-auth/credentials.json` 创建PBKDF2-SHA256随机盐摘要（600000次），不保存明文，不接受请求指定路径。文件/目录只允许当前运行用户，原子刷盘并拒绝任何祖先/文件链接与过宽权限。摘要绑定项目和显式配置用户名；重启保留新密码，单改原启动Password配置不能覆盖已持久化摘要。状态损坏、已存在目录缺文件或身份不符均拒绝，不回退复活原密码。需要重置时由开发者停止宿主、保留并核查私有状态后实施自己的明确重置流程，本包不提供远程重置后门。
 
 该私有目录不进源码/包清单，也不会由运行时同步写入或恢复。真实使用时随部署者私有配置备份且限制访问，不能公开映射/提交Git；本项目用户约定的重要凭据备份应按项目归档并附说明。本节私有摘要只属于显式Development开发账户；正式Web凭据独立保存于数据库。源码与离线测试不代替正式数据库、部署、完整安全CRUD或设备验收。
+
+## 生成类型的手写扩展
+
+Entity、页级DTO/VO、Mapper、Service、Controller及导入请求均支持同程序集`partial`。生成的`.g.cs`继续归元数据所有；在同一命名空间另建`.Extension.cs`编写方法，重复生成与本地页面更新保留这些非归属文件。Service原手写壳仍只首次创建，继续实现`BeforeSave`、`BeforeDelete`；不再生成空转Business。
+
+页级DTO/VO、Mapper、Controller保留`sealed`，`partial`只拆分同一个类型；手写文件不要重复生成属性、基类或主构造函数。Mapper/Controller的主构造函数仍仅由生成文件声明，其他分部可访问其参数及生成的private成员。Controller辅助方法加`[NonAction]`，公开业务动作仍需明确路由和权限；DTO/VO扩展属性会影响JSON协议，辅助值按需使用`[JsonIgnore]`，实体非持久化属性需明确`[Column(IsIgnore=true)]`。不通过手改生成属性调整数据库或标准接口。
+
+已生成工程跟进时更新生成器、重新生成并编译；无需SQL迁移或元数据回填。公开完整包的其他能力门槛不因partial声明解除。
