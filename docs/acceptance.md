@@ -342,3 +342,13 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 另一个 `.local/fresh-web-http-integrated.trx` **5/5、零跳过**仅为无端口/无数据库的HttpMessageHandler协议合同，SHA256 `4d17ff10d02c111513cbda63451f35e655fd0475fcff3f0d781708d2e37faa1d`；不将这五项称为实库或并成七项Fresh。完整细项见[正式Web宿主](standalone-web-authentication.md)。
 
 原84+单独1、1ce30两项与487文件HBuilderX发行证据均保持各自冻结与边界。共享Security中的角色工作台Business存在不等于独立宿主已注册完整目录证明/协调器/安全CRUD；Runtime A、三份安全Service手写partial、五处Custom、Agent、浏览器完整账号写入、设备和同条件性能仍按各自未验收门槛处理。
+
+## 2026-10-20 d6 工作台核心提取根集成回归
+
+`RolePermissionBusiness`由源码 `4d4ec20729c342712655dd7d5621f531a76e4e6e` 提取至共享Security，根冻结 `d6d0594307682d19107b791a9cf213daeead6321` 的实际集成结果为：Security13/13、Full/profile8/8、Agent非RR v2完整195/195，全部零失败/零跳过；Api Release零警告/零错误。Agent195中包含22个真实MySQL用例，同时也有离线合同，不把195项全称为实库场景。
+
+首Agent因漏平台元数据环境路径，真实为173通过/22跳过/0失败，原报告保留；仅补22的命令自动审批超时未启动，不计执行。最终固定简单filter重跑完整195才零跳过通过，不累计重复。原始 `.local/role-permission-core-{security,agent-nonrr,agent-nonrr-v2,profile}-integrated.trx` 及同名日志、`.local/role-permission-core-api-release-integrated.log` 分批保留，完整合同与边界见[工作台核心提取](role-permission-core-extraction.md)。
+
+本批没有新增RR、观测授权、前端、浏览器或设备验收；共享Business存在和平台实库通过不等于独立Full完整安全Runtime、目录权威/协调器、安全CRUD或Agent下发，五处Custom与原门禁保持。后续SessionPolicy与目录适配的独立结果不提前计入本批；最新CI也不借此声明完成。
+
+根综合回执另保留纠错：旧 `.local/role-permission-core-integrated-receipt.json`（SHA256 `706731774d78c7f26ee897f6b0b668c92b1ea595fb6b6503b0b0025790085750`）曾按VSTest `Counters.notExecuted=0`误记首轮skip；原件未覆盖。新版 `.local/role-permission-core-integrated-v2-receipt.json`（SHA256 `7664b447c31dc217424cf831fbf52bbfa2486875c6ff5a881f314bedf1559e74`）按实际 `UnitTestResult`记录首轮22跳过，并保存原rawCounters和纠错说明；四份TRX及原日志不变。上述计数以真实结果项及原日志为准，不把汇总的旧零值当作已执行。
