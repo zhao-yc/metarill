@@ -26,7 +26,7 @@ public sealed class FixedParentRelationTests
 
     /// <summary>声明按稳定字段ID闭合全部边，客户端上下文不能替换目标父。</summary>
     [Fact]
-    public void Both_published_bindings_close_all_explicit_edges_and_keep_only_two_other_gaps()
+    public void Both_published_bindings_close_all_explicit_edges_and_keep_the_role_gap()
     {
         var catalog = Catalog(); var before = JsonSerializer.Serialize(catalog); var model = GenerationModel.Create(catalog, "Example.FixedParent");
         foreach (var source in Sources)
@@ -42,7 +42,7 @@ public sealed class FixedParentRelationTests
             Assert.True(context.ServerDerivedTargetParent); Assert.False(context.UnresolvedTarget); Assert.Null(context.TargetParentField); Assert.False(context.SameParent);
             Assert.Equal(TargetPage, relation.TargetPage.Source.Id);
         }
-        Assert.Equal(2, GenerationCapabilityAudit.Collect(model).Count); Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+        Assert.Single(GenerationCapabilityAudit.Collect(model)); Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
         Assert.Equal(before, JsonSerializer.Serialize(catalog));
     }
 
