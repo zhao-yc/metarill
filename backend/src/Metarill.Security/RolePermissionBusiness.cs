@@ -29,14 +29,15 @@ public sealed class RolePermissionBusiness(SqlRowStore store,IRolePermissionCata
         return Snapshot(role,catalog,await Grants(roleId,false,token));
     }
     /// <summary>写入口只需原修改动作；内部生成回执不额外要求查询权，避免提交成功后又返回无权。</summary>
+    // 原页面展示字段只从真实目录派生；TableNames不进入既有revision预像。
     private static object Snapshot(Dictionary<string,object?> role,RealmCatalog catalog,IReadOnlyList<Dictionary<string,object?>> rows)
     {
         var roleId=SqlRowStore.Text(role,"id");
-        object[] Tree(string? parent)=>catalog.ConfigMenus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).Select(m=>(object)new{m.Id,m.Name,parentId=m.ParentMenuId,kind=m.Kind,children=Tree(m.Id)}).ToArray();
+        object[] Tree(string? parent)=>catalog.ConfigMenus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).Select(m=>(object)new{m.Id,m.Name,parentId=m.ParentMenuId,kind=m.Kind,targetPageId=m.ConfigPageId,children=Tree(m.Id)}).ToArray();
         var pageGrants=new Dictionary<string,string[]>();
         foreach(var row in rows){var page=SqlRowStore.Text(row,"config_page_id");if(page.Length>0)pageGrants[page]=Values(SqlRowStore.Text(row,"permission_values"));}
         return new{supported=true,mode="RESOURCE",roleId,roleName=SqlRowStore.Text(role,"name"),revision=Revision(role,catalog,rows),isSuper=SqlRowStore.Text(role,"is_super")=="1",issues=Array.Empty<string>(),
-            catalog=new{issues=Array.Empty<string>(),menus=new{roots=Tree(null)},pages=catalog.ConfigPages.Select(p=>new{p.Id,p.Name,actions=PageActions(p)}),
+            catalog=new{issues=Array.Empty<string>(),menus=new{roots=Tree(null)},pages=catalog.ConfigPages.Select(p=>new{p.Id,p.Name,tableId=p.ConfigTableId,tableName=catalog.TableNames[p.ConfigTableId],actions=PageActions(p)}),
                 buttons=catalog.ConfigButtons.Select(b=>new{id=b.GetProperty("id").ToString(),name=b.TryGetProperty("name",out var name)?name.ToString():"",pageId=b.TryGetProperty("configPageId",out var page)?page.ToString():""})},
             grants=new RolePermissionGrants(rows.Select(r=>SqlRowStore.Text(r,"config_menu_id")).Where(x=>x.Length>0).Distinct().ToArray(),pageGrants,rows.Select(r=>SqlRowStore.Text(r,"config_button_id")).Where(x=>x.Length>0).Distinct().ToArray())};
     }
@@ -52,7 +53,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,IRolePermissionCata
             var role=scope.Role;
             // 必须取回同一适配在本事务锁读的原始目录；revision继续消费完整JSON，不能用瘦投影重算。
             var catalog=RealmResources(catalogs.RequireLoaded(store.Session,store.Session.CurrentTransaction??throw new InvalidOperationException("角色工作台事务已结束。"),scope.Catalog)??throw new InvalidOperationException("角色工作台缺少本事务完整目录。"),principal);
-            if(SqlRowStore.Text(role,"is_super")=="1")throw new InvalidOperationException("超级管理员权限由角色属性确定，不能在资源工作台改写。");
+            // 原工作台可编辑super角色的资源草稿；这里只写授权行，不改角色超级属性或操作者角色。
             var existing=await Grants(request.RoleId,true,token);
             if(request.Revision!=Revision(role,catalog,existing))throw new InvalidOperationException("YZP_CONFLICT：角色授权或资源目录已变化，请重新读取。");
             if(request.Grants.MenuIds.Count+request.Grants.ButtonIds.Count+request.Grants.PagePermissions.Count>5000)throw new ArgumentException("授权资源数量过多。");
@@ -92,7 +93,7 @@ public sealed class RolePermissionBusiness(SqlRowStore store,IRolePermissionCata
         return locked?store.ReadForUpdateAsync("yz_role_permission",filters,token):store.ReadAsync("yz_role_permission",filters,token);
     }
     private sealed record PrincipalScope(RuntimeActor Actor,AuthenticatedIdentity Identity,string AdminTypeId,string ProjectId);
-    private sealed record RealmCatalog(IReadOnlyList<MenuMetadata> ConfigMenus,IReadOnlyList<PageMetadata> ConfigPages,IReadOnlyList<JsonElement> ConfigButtons,IReadOnlySet<string> RoleTableIds);
+    private sealed record RealmCatalog(IReadOnlyList<MenuMetadata> ConfigMenus,IReadOnlyList<PageMetadata> ConfigPages,IReadOnlyList<JsonElement> ConfigButtons,IReadOnlySet<string> RoleTableIds,IReadOnlyDictionary<string,string> TableNames);
 
     /// <summary>真实账号、后台、项目逐项核对；工作区选择不会切换身份或给跨后台角色授权。</summary>
     private async Task<PrincipalScope> Principal(CancellationToken token)
@@ -139,7 +140,8 @@ public sealed class RolePermissionBusiness(SqlRowStore store,IRolePermissionCata
         var pageIds=pages.Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         return new(catalog.ConfigMenus.Where(menu=>menu.YzAdminTypeId==principal.AdminTypeId&&menu.YzProjectId==principal.ProjectId).ToArray(),pages,
             catalog.ConfigButtons.Where(button=>button.ValueKind==JsonValueKind.Object&&button.TryGetProperty("configPageId",out var page)&&pageIds.Contains(page.ToString())).ToArray(),
-            catalog.ConfigTables.Where(table=>table.TableName=="yz_role").Select(table=>table.Id).ToHashSet(StringComparer.Ordinal));
+            catalog.ConfigTables.Where(table=>table.TableName=="yz_role").Select(table=>table.Id).ToHashSet(StringComparer.Ordinal),
+            catalog.ConfigTables.ToDictionary(table=>table.Id,table=>table.TableName,StringComparer.Ordinal));
     }
 
     /// <summary>角色语义、同后台目录及全部源授权共同组成版本；摘要不输出目录原文或SQL。</summary>

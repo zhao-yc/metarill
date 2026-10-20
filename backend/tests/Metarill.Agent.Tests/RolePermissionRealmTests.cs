@@ -174,6 +174,58 @@ public sealed class RolePermissionRealmTests
         using var f=new PrincipalRealmFixture();await Seed(f);var identity=await f.Identity(f.DemoProject);f.Account["yz_admin_type_id"]=long.Parse(f.DemoAdmin);
         var business=Business(f,identity);await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>business.SnapshotAsync("13"));
     }
+    /// <summary>原页面依赖真实目标页和表名，长ID不能经数字转换或从菜单路由猜测。</summary>
+    [Fact]
+    public async Task Snapshot_restores_original_menu_target_and_page_table_fields()
+    {
+        using var f=new PrincipalRealmFixture();await Seed(f);
+        const string root="9007199254740993",child="9007199254740994";
+        var roleTable=f.Registry.Platform.ConfigTables.Single(table=>table.TableName=="yz_role");
+        var rolePage=f.Registry.Platform.ConfigPages.First(page=>page.ConfigTableId==roleTable.Id&&page.YzAdminTypeId==f.PlatformAdmin);
+        f.Add("config_menu",("id",long.Parse(root)),("name","固定测试目录"),("kind","DIRECTORY"),("yz_admin_type_id",long.Parse(f.PlatformAdmin)),("yz_project_id",long.Parse(f.PlatformProject)));
+        f.Add("config_menu",("id",long.Parse(child)),("name","固定角色入口"),("kind","GENERATED_PAGE"),("parent_menu_id",long.Parse(root)),("config_page_id",long.Parse(rolePage.Id)),("yz_admin_type_id",long.Parse(f.PlatformAdmin)),("yz_project_id",long.Parse(f.PlatformProject)));
+        var snapshot=Json(await Business(f,await f.Identity()).SnapshotAsync("13"));var catalog=snapshot.GetProperty("catalog");
+        var menu=catalog.GetProperty("menus").GetProperty("roots").EnumerateArray().Single(item=>item.GetProperty("id").GetString()==root).GetProperty("children")[0];
+        Assert.Equal(child,menu.GetProperty("id").GetString());Assert.Equal(rolePage.Id,menu.GetProperty("targetPageId").GetString());
+        var page=catalog.GetProperty("pages").EnumerateArray().Single(item=>item.GetProperty("id").GetString()==rolePage.Id);
+        Assert.Equal(roleTable.Id,page.GetProperty("tableId").GetString());Assert.Equal(roleTable.TableName,page.GetProperty("tableName").GetString());
+        Assert.Equal(snapshot.GetProperty("revision").GetString(),Json(await Business(f,await f.Identity()).SnapshotAsync("13")).GetProperty("revision").GetString());
+    }
+    /// <summary>原编辑权可保存super角色资源，资源草稿既不改超级属性，也不把目标角色赋给操作者。</summary>
+    [Theory]
+    [InlineData("is_update")][InlineData("is_all")]
+    public async Task Ordinary_editor_can_save_super_role_resources_without_becoming_super(string action)
+    {
+        using var f=new PrincipalRealmFixture(super:false);await Seed(f);GrantRolePage(f,"is_query",action);f.Row("yz_role",13)["is_super"]=1;
+        var identity=await f.Identity();Assert.False(identity.IsRealmSuper);Assert.False(identity.Actor.IsAdministrator);
+        var roleBefore=Fingerprint(f.Row("yz_role",13));var accountBefore=Fingerprint(f.Account);var business=Business(f,identity);
+        var snapshot=Json(await business.SnapshotAsync("13"));var page=f.Registry.Platform.ConfigPages[0].Id;
+        var saved=Json(await business.SaveAsync(new("13",snapshot.GetProperty("revision").GetString()!,new([],new(){[page]=["is_query"]},[]))));
+        Assert.Equal("13",saved.GetProperty("roleId").GetString());Assert.True(saved.GetProperty("isSuper").GetBoolean());
+        Assert.Equal(roleBefore,Fingerprint(f.Row("yz_role",13)));Assert.Equal(accountBefore,Fingerprint(f.Account));
+        var target=f.Provider.Rows["yz_role_permission"].Where(row=>SqlRowStore.Text(row,"yz_role_id")=="13").ToArray();Assert.True(target.Length==1,"仅应新增目标角色的一笔资源授权。");Assert.Equal(page,SqlRowStore.Text(target[0],"config_page_id"));
+        var after=await f.Identity();Assert.False(after.IsRealmSuper);Assert.False(after.Actor.IsAdministrator);
+    }
+    /// <summary>恢复目标super草稿写入不能绕过真实后台、当前修改权、旧版本及动作白名单。</summary>
+    [Theory]
+    [InlineData("foreign-realm")][InlineData("query-only")][InlineData("old-revision")][InlineData("invalid-action")]
+    public async Task Super_role_resource_mutations_keep_original_denials_and_atomicity(string scenario)
+    {
+        using var f=new PrincipalRealmFixture(super:false);await Seed(f);GrantRolePage(f,"is_query","is_update");f.Row("yz_role",13)["is_super"]=1;
+        var business=Business(f,await f.Identity());var snapshot=Json(await business.SnapshotAsync("13"));
+        if(scenario=="query-only")f.Row("yz_role_permission",71)["permission_values"]=JsonSerializer.Serialize(new[]{"is_query"});
+        if(scenario=="old-revision")f.Row("yz_role",13)["is_scope"]=1;
+        var before=Fingerprint(f.Provider.Rows);var page=f.Registry.Platform.ConfigPages[0].Id;
+        var request=new RolePermissionSave(scenario=="foreign-realm"?"12":"13",snapshot.GetProperty("revision").GetString()!,new([],new(){[page]=[scenario=="invalid-action"?"is_super":"is_query"]},[]));
+        var businessIdentity=await f.Identity();
+        Task Save()=>Business(f,businessIdentity).SaveAsync(request);
+        if(scenario is "foreign-realm" or "query-only")await Assert.ThrowsAsync<UnauthorizedAccessException>(Save);
+        else if(scenario=="old-revision")await Assert.ThrowsAsync<InvalidOperationException>(Save);
+        else await Assert.ThrowsAsync<ArgumentException>(Save);
+        Assert.Equal(before,Fingerprint(f.Provider.Rows));Assert.Equal("1",SqlRowStore.Text(f.Row("yz_role",13),"is_super"));Assert.False((await f.Identity()).IsRealmSuper);
+    }
+    /// <summary>只比较完整状态摘要，失败输出不格式化账号或会话原始行。</summary>
+    private static string Fingerprint(object value)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
     /// <summary>授权字段是服务器固定角色页，账号仍保普通身份，不把夹具改超级角色绕过入口。</summary>
     private static void GrantRolePage(PrincipalRealmFixture f,params string[] actions)
     {
