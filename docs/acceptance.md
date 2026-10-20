@@ -232,15 +232,41 @@ C# 冻结为 `6dc09a4e11f72d46513cddd5a7d8e8428413b723`，Api Release 构建零�
 | Metadata | 152/152 | `security-coordination-metadata-mysql-integrated.trx` |
 | API | 71/71 | `security-coordination-api-mysql-integrated.trx` |
 | Compatibility | 29/29 | `security-coordination-compatibility-integrated.trx` |
-| Generation MySql 类定向 | 56/56 | `security-coordination-generation-focused-integrated.trx` |
+| Generation 定向（含 MySql 类） | 56/56 | `security-coordination-generation-focused-integrated.trx` |
 | 另一次 Generation Contract 补验 | 14/14 | `security-coordination-generation-contract-integrated.trx` |
 
-Generation 首次过滤器选中的实际数量为 56，另补 Contract 14；不是此前 69 项同一批，也不能因此把旧 612 项完整失败记录写成全绿。汇总 `.local/security-coordination-integrated-receipt.json`，SHA256 `ceef1d5f7d86bf7c3c8569aeb6ee8e06b420931f99ad971df3db95aa77ff12e8`。
+Generation 首次过滤器选中的实际数量为 56，含 MySql 类但不表示 56 项全为实库动作；另补 Contract 14，不是此前 69 项同一批，也不能因此把旧 612 项完整失败记录写成全绿。汇总 `.local/security-coordination-integrated-receipt.json`，SHA256 `ceef1d5f7d86bf7c3c8569aeb6ee8e06b420931f99ad971df3db95aa77ff12e8`。
 
 随后只合 Node builder 顺序修复，RR 归档冻结为 `f934a87425d0885aab841b7d91ab77bc4017bd62`。集成者在 Server-200 的 P_S ON 新独立临时实例正式初始化两新空库：0/0 表→平台 23 表/业务 4 表及 3 个安全索引。三个 RR 场景实际 3/3、零跳过；21 个真实夹具参数 EXPLAIN 全部命中相应前缀索引、访问 ref，三组 owned 清理零残留，RR 前后结构同字节。具体场景和证据见 [RR 专项](security-realm-rr-validation.md) 的 f934 批次，不用旧 748 结果替代。
 
 贡献 clone `.local/rr-isolated-security-A-20261020/execution/rr-isolated.trx` SHA256 为 `79618b2ce901f0d8bf2a8e4501e89c718934bd86c20064e5b11d9f638bf1e06b`，独立核验汇总 `coordinator-verification.json` SHA256 为 `f92e5c77d264af9cd5006dac5cbe934b87f00b2088833dbfc68f274b3ae539d7`。新 sealed helper 的 Stop/Cleanup 已实际成功，DateKind 字符串停止路径首次正式通过；`cleanup-20261020062213.json` 及独立核验证明自有容器、卷、远端运行 secret、隧道和本机运行 settings/secrets 全清，长期备份按用户规范保留。旧 v2 输入、seal 和执行回执没有改动。
 
-截至本次文档记录，f934 的 CI 为 4/6 成功：两个前端、两个 Linux 已成功，两个 Windows 作业仍在运行，不能称六绿。Linux 完整 Generation 为 603 通过、12 跳过、总数 615；CI 缺私有 DB 配置的跳过不算实际数据库通过，不能替代上述本机 Server-200 证据。后续作业状态需由集成者单独核实更新。
+此前记录的 f934 CI 4/6 是运行中快照；现集成者核对 [PR run 39378960357](https://github.com/zhao-yc/metarill/actions/runs/39378960357)（最终更新时间 `2026-10-20T06:32:13Z`）与 [push run 39378955800](https://github.com/zhao-yc/metarill/actions/runs/39378955800)（`2026-10-20T06:29:26Z`）均为 head `f934a87425d0885aab841b7d91ab77bc4017bd62`，两个前端、两个 Linux、两个 Windows 共 **6/6 作业最终成功**。CI 缺私有 DB 配置的跳过不算实际数据库通过，不能替代上述 Server-200 证据；这组 CI 只属于 f934，不自动验证随后 d696/e420/edadf 用途切片。
 
 这些结果只完成该阶段实证，不表示独立生成 Host 的正式认证、显式账号初始化、完整安全 Runtime/业务下沉或所有配置写入口已经完成；安全物理模型目前也只是显式派生准备。账号浏览器完整写入、用途能力的独立验收、跨端设备、同条件 Java 性能及后续多库仍须分别取得证据，不据本批关闭门槛。
+
+## f934 最终 CI 原始计数与随后角色用途切片
+
+集成者读取两 run 最终状态及四个后端作业原始结果行，私有汇总 `.local/ci-f934-final/receipt.json` SHA256 为 `c0ec5c22971f2f638ec3d43a016d2b2c817b74c3cb21bbedc2d85b190a93631d`。Linux 两作业计数相同，Windows 两作业计数相同；下表按单个相应作业记录，不叠加成实库场景数。
+
+| CI 工程/平台 | 通过 | 跳过 | 总数 |
+| --- | --- | --- | --- |
+| Generation / Linux | 603 | 12 | 615 |
+| Generation / Windows | 604 | 11 | 615 |
+| Agent | 163 | 22 | 185 |
+| Security | 13 | 0 | 13 |
+| Data | 41 | 4 | 45 |
+| Compatibility | 18 | 11 | 29 |
+| API | 44 | 27 | 71 |
+| Metadata | 130 | 22 | 152 |
+| Files | 38 | 17 | 55 |
+| Exports | 28 | 0 | 28 |
+
+平台固定角色/后台名称的 selection 与 export 用途随后已接线：源码提交 `d6967d96d1464cf3acc10b90cd7d66eca11bb1e4`，正式生成提交 `e4209a139103d60da43452ec66e63b92cd458b65`，合同说明集成点 `edadf60719907fbc687326889d6f85313a7a5ebf`。不再把该固定图的两种用途列为当前未接线 Gap；未知配置及独立宿主门槛仍按真实编译结果拒绝。原角色数组导出保持 ID JSON 文本协议，不转换成角色名称拼接。
+
+主仓库 `.local/security-read-uses-regeneration-integrated/receipt.json`（SHA256 `a8ba9b8572374269802ee26435108a97d532503a4d0081e9c9f6d36fa2fe140e`）证明两轮 191 个受管文件与清单字节稳定、24 个手写 partial 不变，Api Release 零警告/零错误。另有两份实际测试报告，均零失败、零跳过：
+
+- `.local/security-read-uses-generation-integrated.trx`：136/136，SHA256 `9aea272f9e7e0a4f208ba5c74c5d0e9d6117dce83f9b75c2cca96818d5afd838`。
+- `.local/security-read-uses-agent-mysql-integrated.trx`：非 RR 182/182，SHA256 `8a7d8dd4dabee490302f6d9b09aa15be2ac87206416963ac9b0e08df3ff1b646`。
+
+运行前 `.local/security-read-uses-server-pin.json` 已实时核验共享实例指纹和三条观测权限检查 1142，未新授权或创建账号。新增 5 个用途合同用例属于离线真实生成 SQL/Excel 证据；新的角色选择/导出专项 MySQL case 尚在准备、未执行，不能将非 RR 182 项回归冒充该新专项实库通过。独立 Host 完整 A 下发及五处平台 Custom 独立宿主门槛仍未关闭，浏览器完整写入、性能和设备验收也不因此完成。
