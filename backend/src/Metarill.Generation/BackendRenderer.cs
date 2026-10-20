@@ -25,6 +25,7 @@ internal static partial class BackendRenderer
                 yield return new($"Controllers/{page.Name}Controller.g.cs", Controller(model, table, page));
             }
         }
+        foreach(var file in TrustedSecurityWorkbenchRenderer.Render(model))yield return file;
         yield return new("GeneratedRegistration.g.cs", Registration(model)); yield return new("VOs/GeneratedOption.g.cs", CSharpGenerator.Header + $"namespace {model.Namespace}.Generated.VOs;\npublic sealed record GeneratedOption(long Id, string? Name, long Value, string? Text);\n");
     }
     /// <summary>根据物理字段生成持久化实体。</summary>

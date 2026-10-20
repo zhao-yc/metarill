@@ -28,7 +28,7 @@ public sealed class CSharpGenerator
     internal GenerationResult Generate(SecurityManagementModelSet module,string outputDirectory,string rootNamespace) =>
         GenerateCore(SecurityManagementModuleFactory.RequirePublishedForGeneration(module),outputDirectory,rootNamespace,module);
 
-    /// <summary>两入口共用原子批次、归属及手写保护，可信来源只影响三固定服务的受控渲染。</summary>
+    /// <summary>两入口共用原子批次、归属及手写保护，可信来源只启用固定安全服务和原工作台的受控渲染。</summary>
     private static GenerationResult GenerateCore(MetadataCatalog catalog,string outputDirectory,string rootNamespace,SecurityManagementModelSet? module)
     {
         ArgumentNullException.ThrowIfNull(catalog);

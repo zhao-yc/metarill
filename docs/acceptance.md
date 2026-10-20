@@ -396,3 +396,9 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 本机完整Agent离线结果180通过/0失败/25跳过/205总计，TRX `.local/agent-revision-fixture-fix/agent-revision-fixture-fix.trx` SHA256 `f42d4bad81aa72d3242dec3d4e17ef9700e83795945b49acf484e08b1a09bfff`。再对已钉住的Server-200测试库独占运行全部非RR Agent，实际202/202、零失败/零跳过，含22个真实MySQL场景，其余为离线合同；没有将202全称为实库，未运行3个RR或增加锁观测权限。`.local/agent-workbench-nonrr-current/agent-workbench-nonrr-current.trx` SHA256 `a3789a9e2664700a067ba3cceddee46760dc8f46e40477b9f70500e77b578da8`。
 
 测试后的独立只读实例pin与精确回查，按本轮三份完成收据核52行ID/随机名称含墓碑均无残留；`.local/agent-workbench-nonrr-current/cleanup-verification.json` SHA256 `81140263b6e56e08607e754a1f1699ac2041f961a4e080e727cb2ece0491ce4e`。随后三张performance_schema表仅指定列WHERE1=0检查全部1142，实时确认观测权限仍不可读，本轮未GRANT/REVOKE；`observation-proof.json` SHA256 `94f6ce9a48d7ab216d88f89e0002109b327ca141dd25e3f8a09c7fc98a06eef1`。新提交的远端CI需另收终，不更改556失败历史。
+
+## 可信工作台原接口模板准备
+
+在af13847之后，可信安全管理模块生成原权限工作台三个Controller接口，普通模型不下发；保留原HTTP路由、R封装、字符串角色ID、revision及grants。原身份和正式Web页授权必须同Scoped实例，普通编辑者/同后台super、跨后台拒绝、共享事务和版本冲突保持。没有改前端，也没有放开默认Full、BackendOnly、Runtime A或Agent。
+
+本机实际生成并编译适配，执行真实Web授权类、共享Business和协调器，ADO/ORM传输为离线夹具。最终组合155/155、零失败/零跳过，含20个新工作台用例及partial、候选、生成、凭据和模块相邻合同；不是HTTP/实库批次。14项正式Web DI及更新协调另补验全过：首次筛选器误把两个文件名当类名未匹配，核TRX后按实际WebCoordination_方法前缀补跑，不计零匹配或累计中间15/18/150项。原始报告为 `.local/trusted-workbench-neighbors-v3/trusted-workbench-neighbors-v3.trx`（SHA256 `2f3f53c569d2feda3231603049a389f9ea7269c38821097a66375588e900c9a7`）及 `.local/trusted-workbench-host-coordination/trusted-workbench-host-coordination.trx`；详细现状见[固定管理模块](architecture/trusted-security-management-module.md#原权限工作台三个接口适配)。正式完整宿主、原页面下发及初始化仍待完成。
