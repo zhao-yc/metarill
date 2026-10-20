@@ -45,10 +45,13 @@ public sealed class GeneratedMutationGuardMySqlTests
             var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
             foreach (var argument in new[] { "build", "Guard.csproj", "--nologo", "--verbosity", "quiet", "--disable-build-servers" }) start.ArgumentList.Add(argument);
             start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
-            using var process = Process.Start(start)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
-            Assert.True(process.ExitCode == 0, await output + await error);
+            using (await SharedSourceBuildGate.Shared.EnterAsync())
+            {
+                using var process = Process.Start(start)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
+                Assert.True(process.ExitCode == 0, await output + await error);
+            }
             using var image = new MemoryStream(await File.ReadAllBytesAsync(Path.Combine(directory, "bin/Debug/net10.0", assemblyName + ".dll")));
             var assembly = AssemblyLoadContext.Default.LoadFromStream(image);
             var name = string.Concat(table.TableName.Split('_').Select(part => char.ToUpperInvariant(part[0]) + part[1..]));

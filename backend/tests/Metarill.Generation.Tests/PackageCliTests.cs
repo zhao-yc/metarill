@@ -38,6 +38,8 @@ public sealed class PackageCliTests : IAsyncDisposable
     {
         var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = workingDirectory, CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
         foreach (var argument in arguments) info.ArgumentList.Add(argument);
+        // 只有 CLI build 会改写同根依赖的 obj；其余命令保持原并行行为。
+        using var buildLease = await SharedSourceBuildGate.Shared.EnterAsync(arguments.FirstOrDefault());
         using var process = Process.Start(info)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
         return (process.ExitCode, await stdout.WaitAsync(timeout.Token) + await stderr.WaitAsync(timeout.Token));

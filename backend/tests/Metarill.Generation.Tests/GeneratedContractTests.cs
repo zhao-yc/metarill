@@ -43,12 +43,15 @@ public sealed class GeneratedContractTests
             var dotnet = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
             var start = new ProcessStartInfo(dotnet) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = root };
             start.ArgumentList.Add("build"); start.ArgumentList.Add("Contract.csproj"); start.ArgumentList.Add("--nologo"); start.ArgumentList.Add("--verbosity"); start.ArgumentList.Add("quiet"); start.ArgumentList.Add("--disable-build-servers"); start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
-            using var process = Process.Start(start)!;
-            var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            try { await process.WaitForExitAsync(timeout.Token); }
-            catch { process.Kill(true); throw; }
-            Assert.True(process.ExitCode == 0, await output.WaitAsync(timeout.Token) + await error.WaitAsync(timeout.Token));
+            using (await SharedSourceBuildGate.Shared.EnterAsync())
+            {
+                using var process = Process.Start(start)!;
+                var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                try { await process.WaitForExitAsync(timeout.Token); }
+                catch { process.Kill(true); throw; }
+                Assert.True(process.ExitCode == 0, await output.WaitAsync(timeout.Token) + await error.WaitAsync(timeout.Token));
+            }
             var assemblyPath = Path.Combine(root, "bin/Debug/net10.0/Metarill.Generated.Contract.dll");
             using var image = new MemoryStream(File.ReadAllBytes(assemblyPath));
             var assembly = AssemblyLoadContext.Default.LoadFromStream(image);
