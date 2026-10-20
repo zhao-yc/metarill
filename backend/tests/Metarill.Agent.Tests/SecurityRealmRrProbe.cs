@@ -32,18 +32,24 @@ internal sealed class SecurityRealmRrProbe : IAsyncDisposable
         var connection=new MySqlConnection(options.ConnectionString);
         try
         {
-            await connection.OpenAsync(token);string uuid,version,database;
+            await connection.OpenAsync(token);string uuid,version,database;int instrumentation;
             await using(var command=connection.CreateCommand())
             {
-                command.CommandText="SELECT @@server_uuid,VERSION(),DATABASE()";await using var reader=await command.ExecuteReaderAsync(token);
+                command.CommandText="SELECT @@server_uuid,VERSION(),DATABASE(),@@performance_schema";await using var reader=await command.ExecuteReaderAsync(token);
                 if(!await reader.ReadAsync(token)||reader.GetString(2)!=options.ExpectedDatabase)throw new InvalidOperationException("RR观测连接不是目标隔离库。");
-                uuid=reader.GetString(0);version=reader.GetString(1);database=reader.GetString(2);
+                uuid=reader.GetString(0);version=reader.GetString(1);database=reader.GetString(2);instrumentation=Convert.ToInt32(reader.GetValue(3),CultureInfo.InvariantCulture);
             }
-            // 身份reader关闭后检查真实列权限；失败时Open不返回，调用方尚未创建任何业务夹具。
-            await CheckObservationColumnsAsync(async sql=>{await using var command=connection.CreateCommand();command.CommandText=sql;await using var reader=await command.ExecuteReaderAsync(token);if(await reader.ReadAsync(token))throw new InvalidOperationException("观测权限空集检查意外返回数据。");});
+            // 身份reader关闭后先核采集开关，再检查真实17列权限；任一失败都不返回Probe或创建业务夹具。
+            await CheckObservationPrerequisitesAsync(instrumentation,async sql=>{await using var command=connection.CreateCommand();command.CommandText=sql;await using var reader=await command.ExecuteReaderAsync(token);if(await reader.ReadAsync(token))throw new InvalidOperationException("观测权限空集检查意外返回数据。");});
             return new(connection,uuid,version,database);
         }
         catch{await connection.DisposeAsync();throw;}
+    }
+    /// <summary>列可读不代表采集开启；关闭时在任何业务夹具及列查询前明确停止，不修改共享服务器配置。</summary>
+    internal static async Task CheckObservationPrerequisitesAsync(int instrumentation,Func<string,Task> execute)
+    {
+        if(instrumentation!=1)throw new InvalidOperationException("RR观测前置检查失败：@@performance_schema未开启，关闭时不能取得真实锁证据；尚未创建业务夹具，本测试不修改服务器采集配置。");
+        await CheckObservationColumnsAsync(execute);
     }
     /// <summary>只请求三张固定观测表实际使用的列；WHERE 1=0不读锁行、不修改采集或授权。</summary>
     internal static async Task CheckObservationColumnsAsync(Func<string,Task> execute)

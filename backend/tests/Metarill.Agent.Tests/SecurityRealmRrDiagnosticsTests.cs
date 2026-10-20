@@ -36,6 +36,22 @@ public sealed class SecurityRealmRrDiagnosticsTests
         var faults=SecurityRealmRrDiagnostics.TaskFaults(tasks);Assert.Equal(new[]{0,2},faults.Select(fault=>fault.TaskIndex));Assert.Single(faults[0].Failures);Assert.Equal(2,faults[1].Failures.Count);
         Assert.Equal(new[]{nameof(TimeoutException),nameof(UnauthorizedAccessException)},faults[1].Failures.Select(failure=>failure.Type));Assert.All(faults.SelectMany(fault=>fault.Failures),failure=>Assert.NotEqual(0,failure.HResult));Assert.DoesNotContain("秘密",JsonSerializer.Serialize(faults),StringComparison.Ordinal);
     }
+    /// <summary>真实Open共用此前置调度；开关关闭时即使列授权可用也不会查询列或进入业务夹具。</summary>
+    [Fact]
+    public async Task Instrumentation_off_stops_before_existing_column_permission_checks()
+    {
+        var calls=0;var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(0,sql=>{calls++;return Task.CompletedTask;}));
+        Assert.Equal(0,calls);Assert.Contains("@@performance_schema未开启",error.Message,StringComparison.Ordinal);Assert.Contains("不能取得真实锁证据",error.Message,StringComparison.Ordinal);Assert.Contains("尚未创建业务夹具",error.Message,StringComparison.Ordinal);Assert.Null(error.InnerException);
+    }
+    /// <summary>仅开启分支继续原三表17列权限检查，不跳过既有诊断，也不以开关ON宣称锁等待成立。</summary>
+    [Fact]
+    public async Task Instrumentation_on_keeps_all_seventeen_observation_columns()
+    {
+        var queries=new List<string>();await SecurityRealmRrProbe.CheckObservationPrerequisitesAsync(1,sql=>{queries.Add(sql);return Task.CompletedTask;});
+        Assert.Equal(3,queries.Count);Assert.Equal(17,queries.Sum(sql=>sql[..sql.IndexOf(" FROM ",StringComparison.Ordinal)].Count(value=>value==',')+1));
+        Assert.Contains("`data_lock_waits`",queries[0]);Assert.Contains("`data_locks`",queries[1]);Assert.Contains("`threads`",queries[2]);Assert.All(queries,sql=>Assert.EndsWith(" WHERE 1=0",sql,StringComparison.Ordinal));
+    }
+
     /// <summary>三个固定表检查均请求实际列而非SELECT 1；空集查询不读业务行。</summary>
     [Fact]
     public async Task Column_permission_preflight_checks_all_three_fixed_tables_with_empty_results()
