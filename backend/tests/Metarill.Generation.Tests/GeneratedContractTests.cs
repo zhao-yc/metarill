@@ -132,7 +132,7 @@ public sealed class GeneratedContractTests
             Assert.Equal("甲", converted["name"].GetString()); Assert.Equal(1, converted["status"].GetInt32());
             Assert.Equal(JsonValueKind.Array, converted["remark"].ValueKind); Assert.Equal(new DateTime(2026, 10, 18, 9, 10, 11), converted["signDate"].GetDateTime());
             using var forbidden = JsonDocument.Parse("{\"insertManagerId\":\"99\"}");
-            await Assert.ThrowsAsync<ArgumentException>(() => (Task)parser.Invoke(parserInstance, [forbidden.RootElement, null, actor, CancellationToken.None])!);
+            Assert.Equal(PageImportError.UnknownHeader, (await Assert.ThrowsAsync<PageImportException>(() => (Task)parser.Invoke(parserInstance, [forbidden.RootElement, null, actor, CancellationToken.None])!)).Code);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

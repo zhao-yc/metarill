@@ -44,7 +44,7 @@ public sealed class {{page.Name}}ImportRequest
             .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
             .AppendLine($"        await PrepareMutationAsync({Literal(page.Source.Id)}, RecordMutationOperation.Import, actor, cancellationToken);")
-            .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"requestJson 必须为 Excel 解析后的行数组。\");")
+            .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);")
             .AppendLine("        var rowNumber = 0;")
             .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {")
@@ -64,33 +64,55 @@ public sealed class {{page.Name}}ImportRequest
         }
         result.AppendLine($"                var create = JsonSerializer.Deserialize<{page.Name}CreateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;")
             .AppendLine($"                await Create{page.Source.Id}Async(create, request.ParentId, actor, cancellationToken);")
-            .AppendLine("            }").AppendLine("            catch (Exception error) when (error is not OperationCanceledException)").AppendLine("            {")
-            .AppendLine("                throw new InvalidOperationException($\"第{rowNumber}行：{error.Message}\", error);").AppendLine("            }").AppendLine("        }")
+            .AppendLine("            }").AppendLine("            catch (PageImportException error) when (error.IsInputError)").AppendLine("            {")
+            .AppendLine("                throw error.AtRow(rowNumber);").AppendLine("            }")
+            .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException)").AppendLine("            {")
+            .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }").AppendLine("        }")
             .AppendLine("        return $\"导入成功{rowNumber}条数据\";").AppendLine("    }, cancellationToken);")
             .AppendLine("    /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>")
             .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;")
-            .AppendLine("        if (row.ValueKind != JsonValueKind.Object) throw new ArgumentException(\"每行必须为中文标题到单元格值的对象。\");")
+            .AppendLine("        if (row.ValueKind != JsonValueKind.Object) throw PageImportException.Input(PageImportError.RowObject);")
             .AppendLine("        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);")
             .AppendLine("        var seen = new HashSet<string>(StringComparer.Ordinal);")
             .AppendLine("        foreach (var cell in row.EnumerateObject())").AppendLine("        {")
-            .AppendLine("            if (!seen.Add(cell.Name)) throw new ArgumentException(\"导入标题重复：\" + cell.Name);")
-            .AppendLine("            try").AppendLine("            {").AppendLine("                switch (cell.Name)").AppendLine("                {");
+            .AppendLine("            if (!seen.Add(cell.Name)) throw PageImportException.Input(PageImportError.DuplicateHeader);")
+            .AppendLine("            switch (cell.Name)").AppendLine("            {");
         foreach (var column in columns)
         {
-            result.AppendLine($"                    case {Literal(Header(column))}:");
+            result.AppendLine($"                case {Literal(Header(column))}:").AppendLine("                {");
             var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(candidate => candidate.SourceColumn == column);
             if (relation is not null)
-                result.AppendLine($"                        values[{Literal(column.JsonName)}] = await ImportRelation{page.Source.Id}_{column.Source.Id}Async(cell.Value, parentId, actor, cancellationToken);");
+            {
+                // 数据库和授权异常不能被当成单元格类型错误；只为明确的无匹配分类补上已发布标题。
+                result.AppendLine("                    try").AppendLine("                    {")
+                    .AppendLine($"                        values[{Literal(column.JsonName)}] = await ImportRelation{page.Source.Id}_{column.Source.Id}Async(cell.Value, parentId, actor, cancellationToken);")
+                    .AppendLine("                    }").AppendLine("                    catch (PageImportException error) when (error.IsInputError)").AppendLine("                    {")
+                    .AppendLine($"                        throw PageImportException.Input(error.Code!.Value, error.RowNumber, {Literal(Header(column))}, error);")
+                    .AppendLine("                    }");
+            }
             else if (column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CascadeTree")
-                result.AppendLine("                        throw new ArgumentException(\"此关系控件尚无安全的导入候选规则。\");");
-            else result.AppendLine($"                        values[{Literal(column.JsonName)}] = {CellExpression(column)};");
-            result.AppendLine("                        break;");
+            {
+                result.AppendLine("                    throw new NotSupportedException(\"此关系控件尚无安全的导入候选规则。\");").AppendLine("                }");
+                continue;
+            }
+            else
+            {
+                // 先在本列内用与DTO一致的类型/JSON选项核验，避免整DTO反序列化后只剩属性路径、丢中文列名。
+                result.AppendLine("                    try").AppendLine("                    {")
+                    .AppendLine($"                        var normalized = {CellExpression(column)};")
+                    .AppendLine($"                        _ = JsonSerializer.Deserialize<{column.BoundaryType}>(normalized.GetRawText(), JsonOptions);");
+                if (column.IsJsonArray) result.AppendLine("                        if (normalized.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null)) throw PageImportException.Input(PageImportError.Array);");
+                result.AppendLine($"                        values[{Literal(column.JsonName)}] = normalized;")
+                    .AppendLine("                    }").AppendLine("                    catch (PageImportException error) when (error.IsInputError)").AppendLine("                    {")
+                    .AppendLine($"                        throw PageImportException.Input(error.Code!.Value, error.RowNumber, {Literal(Header(column))}, error);")
+                    .AppendLine("                    }").AppendLine("                    catch (Exception error) when (error is JsonException or FormatException or OverflowException)").AppendLine("                    {")
+                    .AppendLine($"                        throw PageImportException.Input(PageImportError.{ErrorKind(column)}, columnName: {Literal(Header(column))}, inner: error);")
+                    .AppendLine("                    }");
+            }
+            result.AppendLine("                    break;").AppendLine("                }");
         }
-        result.AppendLine("                    default: throw new ArgumentException(\"未开放或未知的导入列：\" + cell.Name);")
-            .AppendLine("                }").AppendLine("            }")
-            .AppendLine("            catch (Exception error) when (error is not OperationCanceledException)")
-            .AppendLine("            {").AppendLine("                throw new ArgumentException($\"列{cell.Name}：{error.Message}\", error);")
+        result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
             .AppendLine("            }").AppendLine("        }").AppendLine("        return values;").AppendLine("    }");
         foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(relation, page));
         return result.ToString();
@@ -100,21 +122,32 @@ public sealed class {{page.Name}}ImportRequest
     {
         var result = new StringBuilder().AppendLine("    /// <summary>Excel 关系名称必须唯一落在已授权候选范围，数字 ID 也核对归属。</summary>")
             .AppendLine($"    private async Task<JsonElement> ImportRelation{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(JsonElement cell, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
-            .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);")
-            .AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
-        if (relation.Target.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
-        var project = relation.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
-        if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project")))
-            result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
-        foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(scope => scope.Source == "parent"))
-            result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"关系候选要求父记录上下文。\");")
-                .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
+            .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);");
+        var bound = relation.ParentBinding?.Declared == true;
+        if (bound)
+        {
+            // 来源已按import授权；固定源父/目标父不能混用，名称匹配前先复用目标授权和服务器推导范围。
+            // 无效声明同样走固定RejectBound，绝不回退宽查询；普通未绑定关系保持原合同。
+            result.AppendLine($"        var query = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(parentId, null, actor, cancellationToken, false, false);");
+        }
+        else
+        {
+            result.AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
+            if (relation.Target.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
+            var project = relation.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
+            if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project")))
+                result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+            foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(scope => scope.Source == "parent"))
+                result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"关系候选要求父记录上下文。\");")
+                    .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
+        }
         result.AppendLine("        if (cell.ValueKind == JsonValueKind.Number)").AppendLine("        {")
-            .AppendLine("            var id = cell.GetInt64(); query = query.Where(entity => entity.Id == id);").AppendLine("        }")
+            .AppendLine("            long id; try { id = cell.GetInt64(); } catch (Exception error) when (error is FormatException or OverflowException) { throw PageImportException.Input(PageImportError.Number, inner: error); }")
+            .AppendLine("            query = query.Where(entity => entity.Id == id);").AppendLine("        }")
             .AppendLine("        else").AppendLine("        {").AppendLine("            var name = cell.ToString().Trim();")
             .AppendLine($"            query = query.Where(entity => entity.{relation.NameColumn.Property} == name);").AppendLine("        }")
-            .AppendLine("        var candidates = await query.Limit(2).ToListAsync(cancellationToken);")
-            .AppendLine("        if (candidates.Count != 1) throw new ArgumentException(\"关系名称无匹配或重名，请修正后导入。\");")
+            .AppendLine(bound ? "        var candidates = await query.Limit(2).ToListAsync(entity => new { entity.Id }, cancellationToken);" : "        var candidates = await query.Limit(2).ToListAsync(cancellationToken);")
+            .AppendLine("        if (candidates.Count != 1) throw PageImportException.Input(PageImportError.Relation);")
             .AppendLine("        return JsonSerializer.SerializeToElement(candidates[0].Id.ToString(CultureInfo.InvariantCulture));").AppendLine("    }");
         return result.ToString();
     }
@@ -128,14 +161,16 @@ public sealed class {{page.Name}}ImportRequest
             var cases = choices.SelectMany(pair => new[] { pair[0], pair[1] }.Distinct().Select(label => (label, value: pair[1]))).GroupBy(pair => pair.label, StringComparer.Ordinal).Select(group => group.First());
             return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.ToString() switch { "
                 + string.Join(", ", cases.Select(pair => Literal(pair.label) + " => " + (column.Type == "string?" ? "JsonSerializer.SerializeToElement(" + Literal(pair.value) + ")" : "JsonSerializer.SerializeToElement(JsonSerializer.Deserialize<" + column.Type + ">(" + Literal(JsonSerializer.Serialize(pair.value)) + ", JsonOptions))")))
-                + ", _ => throw new ArgumentException(\"常量名称或值未在选项中声明。\") }";
+                + ", _ => throw PageImportException.Input(PageImportError.Constant) }";
         }
         if (column.IsJsonArray) return "cell.Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(cell.Value.GetString()) ? JsonSerializer.Deserialize<JsonElement>(cell.Value.GetString()!) : cell.Value.Clone()";
         if (column.Type == "string?") return "cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString())";
-        if (column.Type == "bool?") return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.ToString().ToLowerInvariant() switch { \"1\" or \"true\" or \"是\" or \"男\" => JsonSerializer.SerializeToElement(true), \"0\" or \"false\" or \"否\" or \"女\" => JsonSerializer.SerializeToElement(false), _ => throw new ArgumentException(\"布尔值无效。\") }";
+        if (column.Type == "bool?") return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.ToString().ToLowerInvariant() switch { \"1\" or \"true\" or \"是\" or \"男\" => JsonSerializer.SerializeToElement(true), \"0\" or \"false\" or \"否\" or \"女\" => JsonSerializer.SerializeToElement(false), _ => throw PageImportException.Input(PageImportError.Boolean) }";
         if (column.Type == "DateTime?") return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(DateTime.Parse(cell.Value.ToString(), CultureInfo.InvariantCulture))";
         return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone()";
     }
+    /// <summary>类型错误只映射固定公开分类，原异常消息不进入返回值。</summary>
+    private static string ErrorKind(ColumnModel column) => column.Source.ControlKind is "ConstList" or "ConstDownList" ? "Constant" : column.IsJsonArray ? "Array" : column.Type switch { "bool?" => "Boolean", "DateTime?" => "DateTime", _ => "Number" };
     /// <summary>Excel 使用中文标题，空标题回退为稳定字段名。</summary>
     private static string Header(ColumnModel column) => string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name;
     /// <summary>安全生成 C# 字符串字面量。</summary>

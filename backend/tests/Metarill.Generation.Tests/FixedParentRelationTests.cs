@@ -228,6 +228,55 @@ public sealed class FixedParentRelationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>私有夹具启用导入/新增后实际编译；目标授权先于名称匹配，未知声明不能回退独立宽查询。</summary>
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public async Task Compiled_bound_import_uses_server_parent_and_target_permission_before_name_lookup(bool unknown)
+    {
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-fixed-parent-import"); var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var catalog = Catalog();
+            // 仅临时元数据开启生成方法所需开关，生产索引页CRUD保持全部禁用。
+            foreach (var source in Sources) { var page = catalog.ConfigPages.Single(page => page.Id == source.Page); page.IsImport = 1; page.IsNew = 1; }
+            if (unknown)
+            {
+                var column = catalog.ConfigColumns.Single(column => column.Id == Sources[1].Column); var definition = JsonNode.Parse(column.ControlDetail)!;
+                definition[FixedParentRelationCompilation.Declaration] = "unpublished-owner"; column.ControlDetail = definition.ToJsonString();
+                Assert.Contains(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, "Example.BoundImport")), gap => gap.PageId == Sources[1].Page && gap.Column == "config_column_id");
+            }
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.BoundImport");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory); var opens = 0;
+            using var orm = new FreeSqlBuilder().UseConnectionFactory(DataType.MySql, () => new DeniedConnection(() => opens++)).UseAutoSyncStructure(false).Build();
+            using var session = new DatabaseSession(new() { Provider = "mysql", ExpectedDatabase = "metarill_business_test", ConnectionString = "Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;" }, orm);
+            var authorization = new TargetDeniedAuthorization(); var services = new ServiceCollection(); services.AddSingleton(session); services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(868)); services.AddSingleton<IRuntimeAuthorization>(authorization);
+            assembly.GetType("Example.BoundImport.Generated.GeneratedRegistration", true)!.GetMethod("AddGeneratedServices")!.Invoke(null, [services, null]);
+            using var provider = services.BuildServiceProvider(); using var scope = provider.CreateScope();
+            foreach (var source in Sources.Where(source => !unknown || source == Sources[1]))
+            {
+                var type = assembly.GetType("Example.BoundImport.Generated.Services." + source.Table + "Service", true)!; var service = scope.ServiceProvider.GetRequiredService(type);
+                var header = catalog.ConfigColumns.Single(column => column.Id == source.Column).Name;
+                var row = JsonSerializer.SerializeToElement(new Dictionary<string, string> { [header] = "固定候选名称" }); authorization.Requested.Clear();
+                var parse = type.GetMethod("ParseImport" + source.Page + "Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                Task Parse() => (Task)parse.Invoke(service, [row, "9007199254740993", authorization.Actor, CancellationToken.None])!;
+                if (unknown) { Assert.Contains("固定源父", (await Assert.ThrowsAsync<InvalidOperationException>(Parse)).Message); Assert.Empty(authorization.Requested); }
+                else
+                {
+                    await Assert.ThrowsAsync<UnauthorizedAccessException>(Parse); Assert.Equal(new[] { TargetPage + ":list" }, authorization.Requested);
+                    var generated = await File.ReadAllTextAsync(Path.Combine(directory, "generated/Services", source.Table + "Service.g.cs"));
+                    Assert.Contains("OptionsScope" + source.Page + "_" + source.Column + "Async(parentId, null, actor, cancellationToken, false, false)", generated);
+                    var sourceAuthorization = new TargetDeniedAuthorization(source.Page);
+                    var controller = Activator.CreateInstance(assembly.GetType("Example.BoundImport.Generated.Controllers." + source.Table + "Page" + source.Page + "Controller", true)!, [null, sourceAuthorization])!;
+                    var request = Activator.CreateInstance(assembly.GetType("Example.BoundImport.Generated.DTOs." + source.Table + "Page" + source.Page + "ImportRequest", true)!)!;
+                    await Assert.ThrowsAsync<UnauthorizedAccessException>(() => (Task)controller.GetType().GetMethod("Import")!.Invoke(controller, [request, CancellationToken.None])!);
+                    Assert.Equal(new[] { source.Page + ":import" }, sourceAuthorization.Requested);
+                }
+            }
+            Assert.Equal(0, opens);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>实际FreeSql解析生成的相关子查询，不执行SQL，也不以字符串拼接模拟翻译。</summary>
     private static string Sql<T>(object query) where T : class => ((ISelect<T>)query).ToSql();
 

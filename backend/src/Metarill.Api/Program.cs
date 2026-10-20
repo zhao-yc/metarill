@@ -117,6 +117,18 @@ app.Use(async(context,next)=>
         context.Response.StatusCode=context.Request.Headers.Authorization.ToString().StartsWith("Bearer ",StringComparison.OrdinalIgnoreCase)||context.Request.Path.StartsWithSegments("/api/mcp")?401:200;
         await context.Response.WriteAsJsonAsync(R<object>.Error(exception.Message=="登录超时"?"登录超时":"无权执行此操作。"),context.RequestAborted);
     }
+    catch(PageImportException exception)
+    {
+        if(context.Response.HasStarted)throw;
+        // 仅固定导入输入分类可展示；内部执行失败保留异常链及追踪标识，不输出原异常正文。
+        var message=exception.Message;
+        if(!exception.IsInputError)
+        {
+            context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Metarill.Api").LogError(exception,"导入执行失败，追踪标识 {TraceId}",context.TraceIdentifier);
+            message="操作失败，请查看服务端日志。";
+        }
+        context.Response.StatusCode=200;await context.Response.WriteAsJsonAsync(R<object>.Error(message),context.RequestAborted);
+    }
     catch(Exception exception)when(exception is InvalidOperationException or ArgumentException or NotSupportedException or JsonException)
     {
         if(context.Response.HasStarted)throw;

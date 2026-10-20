@@ -108,10 +108,13 @@ app.Use(async (context, next) =>
         {
             UnauthorizedAccessException => (401, "请先登录；开发认证仅在 Development 且显式配置后可用。"),
             SecurityException => (403, "没有当前操作权限。"),
+            PageImportException { IsInputError: true } => (400, error.Message),
             ArgumentException or JsonException => (400, "请求参数不符合页面定义。"),
             NotSupportedException => (501, "此能力需要宿主实现，目前不可用。"),
             _ => (500, "操作失败，请由应用管理员核查服务端状态。")
         };
+        // 可修正的导入输入不是服务器意外；内部执行失败保留异常链与追踪标识，响应不泄露细节。
+        if (status == 500) context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Metarill.Application").LogError(error, "请求处理失败，追踪标识 {TraceId}", context.TraceIdentifier);
         context.Response.Clear(); context.Response.StatusCode = status;
         await context.Response.WriteAsJsonAsync(R<object>.Error(message, status));
     }
