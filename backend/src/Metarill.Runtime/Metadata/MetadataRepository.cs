@@ -4,7 +4,7 @@ using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Metadata;
 
-public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry registry)
+public sealed partial class MetadataRepository(SqlRowStore store, MetadataRegistry registry)
 {
     /// <summary>种子只补缺失记录，重复初始化不能覆盖用户已经编辑的元数据。</summary>
     public async Task SeedAsync(MetadataCatalog catalog,CancellationToken cancellationToken=default)
@@ -48,22 +48,7 @@ public sealed class MetadataRepository(SqlRowStore store, MetadataRegistry regis
     {
         if(!long.TryParse(projectId,out var project))throw new InvalidOperationException("项目标识无效。");
         var filters=new Dictionary<string,object?>{{"yz_project_id",project}};
-        async Task<List<T>> Read<T>(string table)=> (await store.ReadAsync(table,filters,cancellationToken)).Select(row=>
-        {
-            var clean=row.Where(p=>p.Value is not null).ToDictionary(p=>MetadataRegistry.Camel(p.Key),p=>p.Value);
-            var record=JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(clean,JsonDefaults.Options),JsonDefaults.Options)!;
-            // 物理配置沿用UI别名，加载时同步Core规范，避免显示开关与生成行为分离。
-            if(record is PageMetadata page)page.IsSave=MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("is_edit"))==1&&MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("is_update"))==1?1:0;
-            if(record is PageColumnMetadata field)
-            {
-                if(row.TryGetValue("is_in_edit",out var edit))field.IsEdit=MetadataWorkbenchRules.StoredFlag(edit);
-                if(row.TryGetValue("is_in_grid",out var show))field.IsShow=MetadataWorkbenchRules.StoredFlag(show);
-                if(row.TryGetValue("is_must",out var required))field.IsRequired=MetadataWorkbenchRules.StoredFlag(required);
-                foreach(var(alias,physical)in MetadataWorkbenchRules.PageFlags)
-                    if(row.TryGetValue(physical,out var value))field.Extra[alias]=JsonSerializer.SerializeToElement(MetadataWorkbenchRules.StoredFlag(value));
-            }
-            return record;
-        }).ToList();
+        async Task<List<T>> Read<T>(string table)=> (await store.ReadAsync(table,filters,cancellationToken)).Select(DecodeRow<T>).ToList();
         // 项目名与主色必须来自同一项目的实际记录，不能把业务项目统一生成为默认名称/平台主题。
         var projectRow=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",project}},cancellationToken)).SingleOrDefault();
         TemplateVersionCatalog.ValidateStoredProjectVersion(projectRow?.GetValueOrDefault("yz_yzp_version_id"));
