@@ -8,6 +8,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>仅已证明的冗余字段启用原弹层；额外范围、未知父和非冗余不能变绿。</summary>
+[Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class GeneratedMultiSelectContractTests
 {
     [Fact]

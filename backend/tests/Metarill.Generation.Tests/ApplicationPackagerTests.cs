@@ -7,6 +7,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>独立包必须包含真实基础工程、可编译宿主和脱敏后的单一元数据来源。</summary>
+[Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class ApplicationPackagerTests : IAsyncLifetime
 {
     private readonly string temporary = Path.Combine(Path.GetTempPath(), "metarill-package-tests", Guid.NewGuid().ToString("N"));
