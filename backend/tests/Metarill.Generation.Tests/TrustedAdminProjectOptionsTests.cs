@@ -33,7 +33,20 @@ public sealed class TrustedAdminProjectOptionsTests(TrustedSecurityServiceFixtur
         var source=trusted.Tables.Single(table=>table.Source.Id==admin.Source.Id);var plan=TrustedSecurityProjectOptionsCompilation.ForTable(trusted,source);
         Assert.NotNull(plan);Assert.Empty(plan.Project.Pages);Assert.DoesNotContain(plan.Page.DetailColumns,column=>column==plan.Column);Assert.DoesNotContain(plan.Page.Writable,column=>column==plan.Column);
         var original=UniappRenderer.Render(normal).ToDictionary(file=>file.Path,file=>file.Content);var current=UniappRenderer.Render(trusted).ToDictionary(file=>file.Path,file=>file.Content);
-        Assert.Equal(original.Keys.Order(),current.Keys.Order());foreach(var file in original)Assert.Equal(file.Value,current[file.Key]);
+        Assert.Equal(original.Keys.Order(),current.Keys.Order());
+        foreach(var file in original.Where(file=>file.Key!="frontend/pages.generated.json"))Assert.Equal(file.Value,current[file.Key]);
+        // 可信模块另有原权限工作台路由；隐藏项目候选不能改变其余原路由或增加项目CRUD页。
+        using(var before=JsonDocument.Parse(original["frontend/pages.generated.json"]))
+        using(var after=JsonDocument.Parse(current["frontend/pages.generated.json"]))
+        using(var sourceRoutes=JsonDocument.Parse(File.ReadAllText(Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"../frontend/metarill_uni_admin/pages.json"))))
+        {
+            var baseRoutes=before.RootElement.GetProperty("pages").EnumerateArray().ToArray();var actual=after.RootElement.GetProperty("pages").EnumerateArray().ToArray();
+            Assert.Equal(baseRoutes.Length+1,actual.Length);
+            for(var index=0;index<baseRoutes.Length;index++)Assert.Equal(JsonSerializer.Serialize(baseRoutes[index]),JsonSerializer.Serialize(actual[index]));
+            var workbench=Assert.Single(actual,page=>page.GetProperty("path").GetString()=="pages/main/set_role_permission");
+            var expected=Assert.Single(sourceRoutes.RootElement.GetProperty("pages").EnumerateArray(),page=>page.GetProperty("path").GetString()=="pages/main/set_role_permission");
+            Assert.Equal(JsonSerializer.Serialize(expected),JsonSerializer.Serialize(workbench));
+        }
         Assert.Contains(GenerationCapabilityAudit.Collect(trusted),gap=>gap.Usage=="runtime");Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(trusted.Catalog));
         var request=fixture.Type("Generated.DTOs.YzAdminTypePage"+Page+"CreateRequest");Assert.Null(request.GetProperty("YzProjectId"));
         Assert.Contains("provider.GetRequiredService<IRuntimeAuthorization>()",File.ReadAllText(Path.Combine(fixture.DirectoryPath,"generated/GeneratedRegistration.g.cs")));
