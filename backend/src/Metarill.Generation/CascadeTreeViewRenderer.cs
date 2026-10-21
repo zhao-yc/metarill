@@ -13,6 +13,14 @@ internal static class CascadeTreeViewRenderer
         foreach(var plan in plans)if(table.Columns.Any(column=>column.Property.Equals(plan.Source.Property+"DisplayText",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException("级联显示别名与物理字段冲突。");
         return plans;
     }
+    /// <summary>原级联ID隐式授权同前缀叶子名称；只使用已声明受管物理列，不扩大其它隐藏列。</summary>
+    internal static IReadOnlyList<ColumnModel> Names(GenerationModel model,TableModel table,PageModel page)=>ForPage(model,table,page)
+        .Where(plan=>plan.Source.Type is "string?" or "long?").Select(plan=>Name(table,plan.Source)).OfType<ColumnModel>().DistinctBy(column=>column.Source.Id).ToArray();
+    /// <summary>名称归属复用写入规则，不能把任意名称字段或虚拟属性当叶子名称。</summary>
+    internal static ColumnModel? Name(TableModel table,ColumnModel source)=>source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)
+        ?CascadeTreeWriteCompilation.ManagedNames(table).SingleOrDefault(column=>column.Source.ColumnName==source.Source.ColumnName[..^3]+"_name"):null;
+    /// <summary>只补原页面隐式名称，不将它加入Writable、页面布局或搜索列。</summary>
+    internal static IReadOnlyList<ColumnModel> ImplicitNames(GenerationModel model,TableModel table,PageModel page)=>Names(model,table,page).Where(name=>!page.Readable.Any(column=>column.Source.Id==name.Source.Id)).ToArray();
     /// <summary>沿原JSON键输出完整路径；只能由后端装饰，不能进入写DTO。</summary>
     internal static string Vo(GenerationModel model,TableModel table,PageModel page)=>string.Concat(ForPage(model,table,page).Select(plan=>$"    [JsonPropertyName({Literal(plan.Source.JsonName+"DisplayText")})] public string? {plan.Source.Property}DisplayText {{ get; set; }}\n"));
     /// <summary>结果只来自已授权来源页，目标继续应用项目/软删/固定条件，不增加目标列表操作门槛。</summary>

@@ -14,6 +14,7 @@ internal static class LegacyPageRequestRenderer
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleCheckboxModel.Alias);
         if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleAdminNameModel.Alias);
         echo=echo.Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.JsonName+"DisplayText"));
+        echo=echo.Concat(CascadeTreeViewRenderer.ImplicitNames(model,table,page).Select(name=>name.JsonName));
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
         return $$"""
     private static readonly LegacyPageWriteContract LegacyWrite = new({{Array(ManagerCredentialCompilation.Writable(table,page).Select(column => column.JsonName))}}, {{Array(echo)}}, {{Array(page.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column.JsonName))}}, {{(project is null ? "null" : JsonSerializer.Serialize(project.JsonName))}});

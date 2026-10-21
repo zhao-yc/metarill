@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 internal enum ReadProjectionPurpose { List, Detail, Selection }
-internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName, CredentialEcho }
+internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName, CredentialEcho, CascadeDisplayText }
 internal sealed record ReadProjectionOutput(string JsonName, string Property, ColumnModel Source, ReadProjectionOutputKind Kind, string? ControlDetail = null);
 internal sealed record ReadProjectionDependency(string ColumnId, IReadOnlyList<string> Reasons);
 internal sealed record ReadProjectionGap(string ColumnId, string Reason);
@@ -69,8 +69,24 @@ internal static class ReadProjectionCompilation
         {
             if (!table.Columns.Any(candidate => candidate.Source.Id == column.Source.Id) || !page.Readable.Any(candidate => candidate.Source.Id == column.Source.Id))
             { Gap(column.Source.Id, "读取依赖不属于本页已声明可读字段：" + column.JsonName); return; }
-            if (column.Source.IsVirtualColumn != 0 || GenerationModel.Enabled(column.Source.Extra, "isJoinColumn"))
+            if (column.Source.IsVirtualColumn != 0 || (GenerationModel.Enabled(column.Source.Extra, "isJoinColumn")&&!column.IsManagedCascadeName))
             { Gap(column.Source.Id, "联接或虚拟字段缺少固定读取计划：" + column.JsonName); return; }
+            if(Kind(column)=="CascadeTree")
+            {
+                var resolved=CascadeTreeReadCompilation.Resolve(model,table,page,column);var name=CascadeTreeViewRenderer.Name(table,column);
+                if(column.Source.ControlKind!="CascadeTree"||resolved.Definition is null||name is null||column.Type is not("string?" or "long?"))
+                {Gap(column.Source.Id,resolved.Reason??"级联隐式名称缺少固定物理读取合同。");return;}
+                // 用途IR复用实际VO别名检查，不能把会被正式生成拒绝的图标成可编译。
+                try{_ = CascadeTreeViewRenderer.ForPage(model,table,page);}
+                catch(InvalidOperationException error){Gap(column.Source.Id,error.Message);return;}
+                // 原级联控件明确依赖此名称，只有同前缀托管列可绕过独立页面字段要求。
+                physical.TryAdd(column.Source.Id,column);physical.TryAdd(name.Source.Id,name);
+                Reason(column.Source.Id,reason);Reason(name.Source.Id,"原级联叶子隐式名称："+column.JsonName);
+                Output(new(column.JsonName,column.Property,column,ReadProjectionOutputKind.Physical));
+                Output(new(name.JsonName,name.Property,name,ReadProjectionOutputKind.Physical));
+                Output(new(column.JsonName+"DisplayText",column.Property+"DisplayText",column,ReadProjectionOutputKind.CascadeDisplayText));
+                return;
+            }
             FixedCustomControlReadContract? custom = null;
             if (Kind(column) == "CustomControl")
             {
@@ -87,7 +103,7 @@ internal static class ReadProjectionCompilation
                 if (role.Definition is null) { Gap(column.Source.Id,role.Reason!); return; }
                 fixedRole = role.Definition;
             }
-            if (Kind(column) is "CascadeTree" or "Title" or "Tab" ||
+            if (Kind(column) is "Title" or "Tab" ||
                 purpose == ReadProjectionPurpose.Detail && Kind(column) is not ("" or "date_time" or "date" or "month" or "time" or
                     "ConstList" or "ConstDownList" or "CheckBox" or "List" or "TextArea" or "FileLibrary" or "IntenetImage" or
                     "Base64Image" or "Image" or "MultiImage" or "Upload" or "Video" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "RTF" or "CustomControl"))

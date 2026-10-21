@@ -39,13 +39,15 @@ public sealed class CascadeTreeWriteMySqlTests
             await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例pin不符，未创建样本。");
         }
-        foreach(var parentType in new[]{"int64","string"})await Exercise(options,parentType);
+        foreach(var parentType in new[]{"int64","string"})foreach(var implicitName in new[]{false,true})await Exercise(options,parentType,implicitName);
     }
 
     /// <summary>两个物理父键模式各自使用新的随机两表，精确清理并另起连接核验。</summary>
-    private static async Task Exercise(DatabaseOptions options,string parentType)
+    private static async Task Exercise(DatabaseOptions options,string parentType,bool implicitName)
     {
         var nonce=Guid.NewGuid().ToString("N");var prefix="mt_caw_"+nonce[..12];var catalog=CascadeTreeWriteTests.Catalog(prefix,parentType,parentType);catalog.ConfigColumns.Single(column=>column.Id=="25").DefaultValue=First.ToString(CultureInfo.InvariantCulture);
+        // 不另配名称页面字段时，原响应仍应携带受管叶子名称；真实写入链与回显必须一致。
+        if(implicitName)catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="26");
         // 同表父字段也复用原级联，修改父关系不得形成新环。
         var parentDefinition=catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail;var parentField=catalog.ConfigColumns.Single(column=>column.Id=="35");parentField.ControlKind="CascadeTree";parentField.ControlDetail=parentDefinition;
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="parent_"+prefix+"_tree_name",LogicalType="string",ColumnLength="10",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1)}});catalog.ConfigPageColumns.Add(new(){Id="3008",ConfigPageId="301",ConfigColumnId="38"});
@@ -53,7 +55,7 @@ public sealed class CascadeTreeWriteMySqlTests
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-write-mysql");var directory=Path.Combine(boundary,nonce);WebApplication? app=null;var created=false;var verified=false;
         var pause=new PauseObserver();var snapshot=new SnapshotGuard(options,prefix);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();
-        await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,parentType,names,database=options.ExpectedDatabase,verified=false}));
+        await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,parentType,implicitName,names,database=options.ExpectedDatabase,verified=false}));
         try
         {
             Assert.Empty((await schema.InspectAsync(catalog)).Tables);var plan=await schema.PreviewAsync(catalog);Assert.Equal(2,plan.Changes.Count);created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);
