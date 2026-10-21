@@ -20,7 +20,7 @@ internal static class ControlRenderer
         var wrapper = $"      <uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">";
         ControlResult Wrap(string content, string? reason = null) => new(wrapper + content + "</uni-forms-item>", reason);
         var writable = page.Writable.Contains(column);
-        if(column.Source.ControlKind=="CascadeTree")return Wrap("",CascadeTreeReadCompilation.Resolve(model,table,page,column).Reason??CascadeTreeWriteCompilation.Resolve(model,table,page,column).Reason??"CascadeTree候选、路径、最终写入、路径展示及精确/后代筛选已接线；级联导入导出和其余范围仍待完成。");
+        if(column.Source.ControlKind=="CascadeTree")return Wrap("",CascadeTreeReadCompilation.Resolve(model,table,page,column).Reason??CascadeTreeWriteCompilation.Resolve(model,table,page,column).Reason??"CascadeTree候选、路径、最终写入、路径展示及精确/后代筛选已接线；固定子集的级联导入导出已接线；其他模式及完整应用验收仍待完成。");
         var fixedRoleAdmin=FixedRoleAdminNameCompilation.Resolve(model,table,page,column);
         if(fixedRoleAdmin.Declared && fixedRoleAdmin.Definition is null) return Wrap("",fixedRoleAdmin.Reason);
         var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);

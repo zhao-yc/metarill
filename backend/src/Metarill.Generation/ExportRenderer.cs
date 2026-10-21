@@ -123,10 +123,12 @@ internal static class ExportRenderer
                 .AppendLine($"            foreach (var row in rows{name}) names{name}[(group{name}.Key, row.Id)] = row.Name;")
                 .AppendLine("        }");
         }
+        result.Append(CascadeTreeExcelRenderer.Export(model,table,page,columns));
         result.AppendLine(admin is null ? "        var rows = entities.Select(entity => (IReadOnlyList<object?>)new object?[]" : "        var rows = entities.Select((entity,index) => (IReadOnlyList<object?>)new object?[]").AppendLine("        {");
         foreach (var column in columns)
         {
             var relation = relations.SingleOrDefault(relation => relation.SourceColumn == column);
+            if(column.Source.ControlKind=="CascadeTree"){result.AppendLine($"            ExcelCascade{column.Property}(entity),");continue;}
             result.AppendLine("            " + (admin?.Source.Source.Id == column.Source.Id ? "adminNames[index]." + FixedRoleAdminNameModel.Property : ValueExpression(table,page,column, relation)) + ",");
         }
         result.AppendLine("        }).ToArray();")

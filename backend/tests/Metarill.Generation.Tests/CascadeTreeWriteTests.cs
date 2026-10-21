@@ -23,7 +23,7 @@ public sealed class CascadeTreeWriteTests
         try
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.CascadeWrite");
-            var service=File.ReadAllText(Path.Combine(directory,"generated/Services/WriteSourceService.g.cs"));Assert.Contains("CascadeReader201_25(actor,true,false).PathAsync",service);Assert.Contains("submitted.Add(\"tree_name\")",service);Assert.DoesNotContain("物理派生写入尚未证明：tree_name",service);
+            var service=File.ReadAllText(Path.Combine(directory,"generated/Services/WriteSourceService.g.cs"));Assert.Contains("CascadeReader201_25(actor,true,false,requireTargetList).PathAsync",service);Assert.Contains("submitted.Add(\"tree_name\")",service);Assert.DoesNotContain("物理派生写入尚未证明：tree_name",service);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);var request=assembly.GetType("Example.CascadeWrite.Generated.DTOs.WriteSourcePage201CreateRequest",true)!;Assert.Null(request.GetProperty("TreeName"));
             Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize("{\"treeName\":\"伪造名称\"}",request,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             var hand=Path.Combine(directory,"generated/Services/WriteSourceService.cs");var bytes=File.ReadAllBytes(hand);new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.CascadeWrite");Assert.Equal(bytes,File.ReadAllBytes(hand));Assert.Equal(before,JsonSerializer.Serialize(catalog));

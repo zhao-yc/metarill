@@ -55,7 +55,7 @@ public sealed class CascadeTreeGraphReader(SelfTreeReader pathReader,
     }
 
     /// <summary>批量回读只缓存本次请求；坏关联输出空路径，身份、SQL与取消错误仍向上传递。</summary>
-    public async Task<IReadOnlyDictionary<long,string>> DisplayAsync(IReadOnlyList<long> selected,CancellationToken cancellationToken=default)
+    public async Task<IReadOnlyDictionary<long,CascadeTreePath?>> PathsAsync(IReadOnlyList<long> selected,CancellationToken cancellationToken=default)
     {
         var cache=new Dictionary<long,CascadeTreeNode?>();var frontier=selected.Distinct().ToArray();
         for(var depth=0;depth<SelfTreeReader.MaximumDepth&&frontier.Length>0;depth++)
@@ -77,13 +77,16 @@ public sealed class CascadeTreeGraphReader(SelfTreeReader pathReader,
             frontier=next.ToArray();
         }
         var reader=new SelfTreeReader((id,_)=>Task.FromResult(cache.GetValueOrDefault(id)),(_,_,_)=>throw new InvalidOperationException("路径回读不枚举候选。"),(_,_)=>throw new InvalidOperationException("路径回读不枚举候选。"),joiner);
-        var result=new Dictionary<long,string>();
+        var result=new Dictionary<long,CascadeTreePath?>();
         foreach(var id in selected.Distinct())
         {
-            try{result[id]=(await reader.PathAsync(id,cancellationToken)).DisplayText;}catch(InvalidOperationException){result[id]="";}
+            try{result[id]=await reader.PathAsync(id,cancellationToken);}catch(InvalidOperationException){result[id]=null;}
         }
         return result;
     }
+    /// <summary>列表保留原空路径显示，Excel另检验可无损反查的完整节点链。</summary>
+    public async Task<IReadOnlyDictionary<long,string>> DisplayAsync(IReadOnlyList<long> selected,CancellationToken cancellationToken=default)=>
+        (await PathsAsync(selected,cancellationToken)).ToDictionary(pair=>pair.Key,pair=>pair.Value?.DisplayText??"");
     /// <summary>内部节点只使用正整数父键，根兼容NULL和空文本。</summary>
     private static long? Parent(string? value)
     {if(string.IsNullOrWhiteSpace(value))return null;if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0)throw new InvalidOperationException("级联父键无效。");return id;}

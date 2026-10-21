@@ -38,7 +38,7 @@ public sealed partial class {{page.Name}}ImportRequest
         var columns = Columns(page);
         var dependency = ImportDependencyCompilation.ForPage(model, table, page);
         var contextual = dependency.Contextual;
-        var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page);
+        var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page)||CascadeTreeExcelRenderer.OperationAware(model,table,page);
         if (columns.Select(Header).Distinct(StringComparer.Ordinal).Count() != columns.Count) throw new InvalidOperationException("导入列中文标题重复，无法明确解析。");
         var overwrite = Mode(page) == "OverWriteByFirstColumn";
         if (overwrite && columns.Count > 0 && columns[0].IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
@@ -112,7 +112,14 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine($"                case {Literal(Header(column))}:").AppendLine("                {");
             if(contextual&&!dependency.MatchFields.Contains(column.Source.Id))result.AppendLine("                    if (keyOnly) break;");
             var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(candidate => candidate.SourceColumn == column);
-            if (relation is not null)
+            if(column.Source.ControlKind=="CascadeTree")
+            {
+                result.AppendLine("                    try").AppendLine("                    {")
+                    .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportCascade{page.Source.Id}_{column.Source.Id}Async(cell.Value,actor,cancellationToken);")
+                    .AppendLine("                    }").AppendLine("                    catch(PageImportException error) when(error.IsInputError)").AppendLine("                    {")
+                    .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);").AppendLine("                    }");
+            }
+            else if (relation is not null)
             {
                 // 数据库和授权异常不能被当成单元格类型错误；只为明确的无匹配分类补上已发布标题。
                 result.AppendLine("                    try").AppendLine("                    {")
@@ -146,6 +153,7 @@ public sealed partial class {{page.Name}}ImportRequest
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
             .AppendLine("            }").AppendLine("        }").AppendLine("        return values;").AppendLine("    }");
         foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(relation, page, dependency));
+        foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))result.Append(CascadeTreeExcelRenderer.Import(model,table,page,source));
         return result.ToString();
     }
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>
