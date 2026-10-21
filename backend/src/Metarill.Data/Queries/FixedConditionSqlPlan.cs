@@ -45,6 +45,19 @@ public sealed class FixedConditionSqlPlan
         var clause=Render(session.Provider,variables,parameterPrefix,session.Provider.QuoteIdentifier);
         return clause.Sql.Length==0?query:query.Where(clause.Sql,clause.Parameters);
     }
+    private static readonly IReadOnlyDictionary<string,object?> EmptyVariables=new Dictionary<string,object?>();
+    /// <summary>页面常量计划不接受上下文变量，复用不可变空槽，避免请求提供身份覆盖。</summary>
+    public ISelect<T> ApplyConstants<T>(ISelect<T> query,DatabaseSession session,string parameterPrefix)where T:class
+    {
+        var clause=RenderConstants(session.Provider,parameterPrefix,session.Provider.QuoteIdentifier);
+        return clause.Sql.Length==0?query:query.Where(clause.Sql,clause.Parameters);
+    }
+    /// <summary>非冗余适配器只能传已编译字段表达式，保留NULL与原LIKE的SQL语义。</summary>
+    internal Clause RenderConstants(IDatabaseProvider provider,string prefix,Func<string,string> expression)
+    {
+        if(Variables.Count!=0)throw new InvalidOperationException("常量页面计划不能包含上下文变量。");
+        return Render(provider,EmptyVariables,prefix,expression);
+    }
     internal sealed record Clause(string Sql,[property:JsonIgnore] IReadOnlyDictionary<string,object?> Parameters);
     /// <summary>物理或固定联接表达式由适配器提供；此入口不接受客户端SQL、列名或操作符。</summary>
     internal Clause Render(IDatabaseProvider provider,IReadOnlyDictionary<string,object?> variables,string parameterPrefix,Func<string,string> expression)

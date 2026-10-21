@@ -12,11 +12,13 @@ public sealed class NonRedundantApplicationPackageTests
 {
     /// <summary>完整包带正式Web认证、原页面和读取运行时；实际构建包内项目并执行包内原Vue协议。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Full_application_builds_from_its_own_foundations_and_keeps_original_pages(bool files)
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public async Task Full_application_builds_from_its_own_foundations_and_keeps_original_pages(bool files,bool conditions)
     {
-        var catalog=NonRedundantApplicationFixture.Catalog("mt_nrs_offline",files);var model=GenerationModel.Create(catalog,"Example.NonRedPackage");Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var catalog=NonRedundantApplicationFixture.Catalog("mt_nrs_offline",files,conditions);var model=GenerationModel.Create(catalog,"Example.NonRedPackage");Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-nonred-application");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(directory,"application");
         try
         {
@@ -24,7 +26,7 @@ public sealed class NonRedundantApplicationPackageTests
             Assert.True(File.Exists(Path.Combine(output,"src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.cs")));Assert.True(File.Exists(Path.Combine(output,"backend/metadata/security.json")));
             Assert.True(File.Exists(Path.Combine(output,"frontend/pages/yzp/mt_nrs_offline_order-list-101.vue")));
             var handwritten=Path.Combine(output,"backend/generated/Services/MtNrsOfflineOrderService.cs");await File.AppendAllTextAsync(handwritten,"\n// 完整包手写扩展保护标记。\n");var protectedBytes=await File.ReadAllBytesAsync(handwritten);
-            var next=NonRedundantApplicationFixture.Catalog("mt_nrs_offline",files);next.ConfigColumns.Single(column=>column.Id=="14").Name="更新后的记录名";var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(next,candidate,model.Namespace,NonRedundantApplicationFixture.Root());
+            var next=NonRedundantApplicationFixture.Catalog("mt_nrs_offline",files,conditions);next.ConfigColumns.Single(column=>column.Id=="14").Name="更新后的记录名";var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(next,candidate,model.Namespace,NonRedundantApplicationFixture.Root());
             var updater=new LocalGenerationUpdater();var plan=updater.Preview(output,candidate,["generate-project-config","sync-runtime","generate-all-page"]);Assert.True(plan.CanApply);Assert.Equal("committed",updater.Apply(plan,plan.PlanSha256).Status);Assert.Equal(protectedBytes,await File.ReadAllBytesAsync(handwritten));
             Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(output,"frontend/pages/yzp/mt_nrs_offline_order-list-101.vue")),await File.ReadAllBytesAsync(Path.Combine(output,"backend/generated/frontend/pages/yzp/mt_nrs_offline_order-list-101.vue")));
             var repeated=updater.Preview(output,candidate,["generate-project-config","sync-runtime","generate-all-page"]);Assert.True(repeated.CanApply);Assert.Equal("unchanged",updater.Apply(repeated,repeated.PlanSha256).Status);
@@ -55,13 +57,19 @@ public sealed class NonRedundantApplicationPackageTests
 internal static class NonRedundantApplicationFixture
 {
     /// <summary>单选、type=2回读、同父与独立目标父、追加和覆盖都由元数据生成；菜单属于包内后台。</summary>
-    internal static MetadataCatalog Catalog(string prefix,bool files=false)
+    internal static MetadataCatalog Catalog(string prefix,bool files=false,bool conditions=false)
     {
         var catalog=NonRedundantGeneratedFixture.Catalog(prefix);NonRedundantGeneratedFixture.EnableSingleSelection(catalog,true);NonRedundantGeneratedFixture.AddSelectionPage(catalog);catalog.ConfigPages[0].IsExport=1;NonRedundantGeneratedFixture.EnableImports(catalog);NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);NonRedundantGeneratedFixture.EnableMappedImports(catalog);
         if(files)
         {
             catalog.ConfigColumns.Add(new(){Id="112",ConfigTableId="1",ColumnName="attachments",Name="附件",LogicalType="string",ColumnLength="max",ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\",\"maxCount\":3}"});
             foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))catalog.ConfigPageColumns.Add(new(){Id=page.Id+"112",ConfigPageId=page.Id,ConfigColumnId="112",IsShow=1,IsEdit=page.Id=="102"?0:1});
+        }
+        // 页面常量必须进入包内生成Service和同版数据运行时，重复更新不能丢失。
+        if(conditions)
+        {
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))page.WhereSql+=(string.IsNullOrWhiteSpace(page.WhereSql)?"":" AND ")+"status IN (1,2,NULL)";
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND amount>=10";
         }
         foreach(var record in catalog.ConfigTables.Cast<MetadataRecord>().Concat(catalog.ConfigColumns).Concat(catalog.ConfigPages).Concat(catalog.ConfigPageColumns))record.YzProjectId=catalog.YzProjectId;
         catalog.YzAdminTypes[0].Name="独立非冗余后台";

@@ -41,7 +41,7 @@ internal static class SelectionPageRenderer
             return result.AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=request.ParentId}},actor);")
                 .AppendLine("        if(selected.Length==0)return [];")
                 .AppendLine("        filters.Add(new(\"id\",Metarill.Data.Queries.FixedReadComparison.In,selected.Cast<object?>().ToArray()));")
-                .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<Metarill.Data.Queries.FixedReadOrder>(),1,selected.Length,cancellationToken,projectId:actor.ProjectId);")
+                .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<Metarill.Data.Queries.FixedReadOrder>(),1,selected.Length,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)});")
                 .AppendLine("        if(selectedRows.Records.Count!=selected.Length)throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
                 .AppendLine("        var rows=selectedRows.Records.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"));")
                 .AppendLine($"        return selected.Select(id=>{page.Name}Vo.FromReadRow(rows[id])).ToArray();").AppendLine("    }").ToString();

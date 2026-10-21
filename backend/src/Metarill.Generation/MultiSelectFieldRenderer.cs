@@ -16,6 +16,7 @@ internal static class MultiSelectFieldRenderer
         foreach (var def in MultiSelectCompilation.ForService(model, table, page))
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
+            result.Append(FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix));
             result.AppendLine("    /// <summary>保留旧JSON文本字节，数组请求持久化为JSON文本；不接受对象或其它标量。</summary>")
                 .AppendLine($"    private static string? ReadMultiValue{suffix}(JsonElement? value)").AppendLine("    {")
                 .AppendLine("        if (value is null || value.Value.ValueKind == JsonValueKind.Null) return null;")
@@ -55,6 +56,8 @@ internal static class MultiSelectFieldRenderer
             var targetProject = def.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
             if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");
             foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
+            result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix));
+            if(def.TargetPage.Condition is not null)result.AppendLine("        query=query.ForUpdate();");
             result.AppendLine($"        var rows = await query.Limit(200).ToListAsync(row => new {{ row.Id{(def.Names is null ? "" : ", Name = row." + def.Name.Property)} }}, cancellationToken);")
                 .AppendLine("        if (rows.Count != selected.Length) throw new InvalidOperationException(\"多选项不存在、已删除或不在目标页范围，源记录未保存。\");");
             if (def.Names is not null)

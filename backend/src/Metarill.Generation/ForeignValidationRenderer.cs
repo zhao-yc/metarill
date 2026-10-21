@@ -37,7 +37,7 @@ internal static class ForeignValidationRenderer
         foreach (var binding in derived)
             result.AppendLine($"        if (!creating && submitted.Contains({Literal(binding.Storage.Source.ColumnName)}) && !submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) throw new InvalidOperationException(\"派生字段只能随已声明关联重算。\");")
                 .AppendLine($"        if ((creating || submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) && entity.{binding.ForeignKey.Property} is null) {{ entity.{binding.Storage.Property} = null; submitted.Add({Literal(binding.Storage.Source.ColumnName)}); }}");
-        var constantRelations = RelationCompilation.ForPage(model, page).Where(relation => relation.Conditions is not null).ToDictionary(relation => relation.SourceColumn.Source.Id);
+        var constantRelations = RelationCompilation.ForPage(model, page).Where(relation => relation.Conditions is not null || relation.TargetPage.Condition is not null).ToDictionary(relation => relation.SourceColumn.Source.Id);
         var number = 0;
         foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared || !column.IsSystem && (column.Type is "long?" or "string?")))
         {

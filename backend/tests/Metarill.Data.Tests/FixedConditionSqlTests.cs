@@ -7,7 +7,7 @@ using Xunit;
 namespace Metarill.Data.Tests;
 
 /// <summary>实际ORM解析固定条件；仅验证编译和绑定，不能替代真实数据库或正式候选入口。</summary>
-public sealed class FixedConditionSqlTests
+public sealed partial class FixedConditionSqlTests
 {
     private static Dictionary<string,string> Types()=>new(){{"id","int64"},{"name","string"},{"status","int32"},{"amount","decimal"},{"enabled","bool"},{"at","datetime"},{"duration","time"},{"ratio","double"}};
     /// <summary>元数据和运行时值均为参数；外层已有约束继续AND，源字面量与高位ID不进入SQL文本。</summary>

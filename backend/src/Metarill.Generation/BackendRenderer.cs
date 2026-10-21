@@ -216,7 +216,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var fixedQuery = FixedPageQueryCompilation.For(table, page);
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
         var nameKeys = names.ConsumedKeys.Concat(names.Gaps.Select(gap => gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
-        var result = new StringBuilder().AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
+        var result = new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix)).AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
             .AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor, string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
         foreach (var (column, source) in fixedQuery.IdentityScopes)
@@ -225,7 +225,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                 .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
         }
-        result.Append(ExactDataManageCompilation.Query(model,table,page));
+        result.Append(FixedPageConditionCompilation.Apply(page,"PageCondition"+suffix,"page_"+suffix)).Append(ExactDataManageCompilation.Query(model,table,page));
         if (ManagerCredentialCompilation.Unsupported(table,page)) result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>")
@@ -585,6 +585,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
+            result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix));
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
                 .AppendLine($"    private async Task<ISelect<{relation.Target.Name}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)})")
                 .AppendLine("    {");
@@ -619,7 +620,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
-            result.Append(RelationConditionsCompilation.Apply(relation, suffix));
+            result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix)).Append(RelationConditionsCompilation.Apply(relation, suffix));
             if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")
             {
                 foreach (var flag in relation.Target.Columns.Where(column => column.Source.ColumnName is "is_virtual_column" or "is_join_column"))
@@ -679,7 +680,7 @@ public partial class {{table.Name}}Service
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
     private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
-    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => NonRedundantReadCompilation.Requires(model,table)?$"await {(ExactDataManageCompilation.Declared(page) && operation is "create" or "update" or "copy"?"MutationResult":"Detail")}{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
+    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => NonRedundantReadCompilation.Requires(model,table)?$"await {((ExactDataManageCompilation.Declared(page) || page.Condition is not null) && operation is "create" or "update" or "copy"?"MutationResult":"Detail")}{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>
     private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,entities,operation,operation != "list" || !ManagerCredentialCompilation.IsOriginal(table,page))
         : FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && FixedRoleAdminNameCompilation.Used(page,admin,operation) ? FixedRoleAdminNameRenderer.ProjectCall(page,entities,operation) : ManagerCredentialCompilation.IsOriginal(table,page) ? $"{entities}.Select(entity => {page.Name}Vo.FromEntity(entity,{(operation == "list" ? "false" : "true")})).ToArray()" : $"{entities}.Select({page.Name}Vo.FromEntity).ToArray()";

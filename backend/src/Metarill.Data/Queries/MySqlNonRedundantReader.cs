@@ -13,15 +13,15 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
 {
     /// <summary>相同SQL范围用于总数与分页，派生值在数据库内先筛选、排序再分页。</summary>
     public async Task<FixedReadPage> ReadPageAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken=default,bool unpaged=false,string? projectId=null)
-        => await ReadAsync(plan,filters,order,page,pageSize,cancellationToken,unpaged,projectId,true);
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken=default,bool unpaged=false,string? projectId=null,FixedConditionSqlPlan? condition=null)
+        => await ReadAsync(plan,filters,order,page,pageSize,cancellationToken,unpaged,projectId,true,condition);
     /// <summary>有界导出只读明细，不额外执行分页总数；限制与查询验证仍共用固定读取入口。</summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null)
-        => (await ReadAsync(plan,filters,order,1,limit,cancellationToken,false,projectId,false)).Records;
+        IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
+        => (await ReadAsync(plan,filters,order,1,limit,cancellationToken,false,projectId,false,condition)).Records;
     /// <summary>分页和有界明细共用结构生成；是否求总数由服务固定用途决定。</summary>
     private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal)
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition)
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(order);
@@ -32,14 +32,15 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var clauses=filters.Select((filter,index)=>Filter(plan,filter,index)).ToArray();
         var orders=order.Select(item=>plan.Expression(item.Field)+(item.Descending?" DESC":" ASC")).ToList();
         if(!order.Any(item=>item.Field.Equals("id",StringComparison.OrdinalIgnoreCase)))orders.Add(plan.Expression("id")+" DESC");
-        var where=string.Join(" AND ",new[]{plan.Scope}.Concat(clauses).Where(part=>part.Length>0));
+        var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",plan.Expression);
+        var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(clauses).Where(part=>part.Length>0));
         var from=plan.From+(where.Length==0?"":" WHERE "+where);
         var offset=checked(((long)page-1)*pageSize);
         return await OnConnection(async connection=>
         {
             var total=0L;
-            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);count.CommandText="SELECT COUNT(*)"+from;total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);}
-            await using var read=Command(connection);Bind(read,projectId,filters);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
+            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+from;total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);}
+            await using var read=Command(connection);Bind(read,projectId,filters);BindCondition(read,conditionClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             read.CommandText="SELECT "+string.Join(",",plan.Outputs.Select(name=>plan.Expression(name)+" AS "+Q(name)))+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset");
             var records=new List<IReadOnlyDictionary<string,object?>>();await using var reader=await read.ExecuteReaderAsync(cancellationToken);
             while(await reader.ReadAsync(cancellationToken))
@@ -49,7 +50,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     }
     /// <summary>数值派生表达式在同一完整过滤范围内汇总，不先分页或对当前页记录求和。</summary>
     public async Task<FixedReadStatistics> ReadStatisticsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<string> sumFields,CancellationToken cancellationToken=default,string? projectId=null)
+        IReadOnlyList<string> sumFields,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(sumFields);
@@ -57,11 +58,12 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(fields.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=fields.Length)throw new InvalidOperationException("统计字段重复。");
         foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();
-        var where=string.Join(" AND ",new[]{plan.Scope}.Concat(filters.Select((filter,index)=>Filter(plan,filter,index))).Where(part=>part.Length>0));
+        var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",plan.Expression);
+        var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(filters.Select((filter,index)=>Filter(plan,filter,index))).Where(part=>part.Length>0));
         var sql="SELECT COUNT(*) AS total"+string.Concat(fields.Select((field,index)=>",SUM("+plan.Expression(field)+") AS sum_"+index))+plan.From+(where.Length==0?"":" WHERE "+where);
         return await OnConnection(async connection=>
         {
-            await using var command=Command(connection);Bind(command,projectId,filters);command.CommandText=sql;
+            await using var command=Command(connection);Bind(command,projectId,filters);BindCondition(command,conditionClause);command.CommandText=sql;
             await using var reader=await command.ExecuteReaderAsync(cancellationToken);if(!await reader.ReadAsync(cancellationToken))throw new InvalidOperationException("固定统计未返回结果。");
             var total=reader.GetInt64(0);var sums=new Dictionary<string,decimal?>(StringComparer.OrdinalIgnoreCase);
             for(var index=0;index<fields.Length;index++)sums.Add(fields[index],await reader.IsDBNullAsync(index+1,cancellationToken)?null:Convert.ToDecimal(reader.GetValue(index+1),System.Globalization.CultureInfo.InvariantCulture));
@@ -110,6 +112,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }
+    /// <summary>固定页面条件的常量参数与用户筛选分别命名，所有COUNT/明细/统计共用同一绑定。</summary>
+    private static void BindCondition(DbCommand command,FixedConditionSqlPlan.Clause? condition)
+    {if(condition is not null)foreach(var pair in condition.Parameters)Add(command,pair.Key,pair.Value??DBNull.Value);}
     /// <summary>结构与业务值分离，根及目标共用同一发布项目绑定。</summary>
     private static void Bind(DbCommand command,string projectId,IReadOnlyList<FixedReadFilter> filters)
     {

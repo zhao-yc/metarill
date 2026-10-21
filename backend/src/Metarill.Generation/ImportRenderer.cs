@@ -156,7 +156,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);");
         var bound = relation.ParentBinding?.Declared == true;
         var mapped = dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
-        if (bound || relation.Conditions is not null || relation.SourceColumn.Source.ControlKind=="SelectPage" || mapped is not null)
+        if (bound || relation.Conditions is not null || relation.TargetPage.Condition is not null || relation.SourceColumn.Source.ControlKind=="SelectPage" || mapped is not null)
         {
             // 来源已按import授权；固定源父/目标父不能混用，名称匹配前先复用目标授权和服务器推导范围。
             // 无效声明同样走固定RejectBound，绝不回退宽查询；普通未绑定关系保持原合同。

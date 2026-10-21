@@ -159,7 +159,10 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
     public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && (IsManagedMultiNames || Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"); public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";
 }
-internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<ColumnModel> ListColumns, IReadOnlyList<ColumnModel> DetailColumns);
+internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<ColumnModel> ListColumns, IReadOnlyList<ColumnModel> DetailColumns)
+{
+    internal FixedPageCondition? Condition {get;init;}
+}
 internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages) { public bool IsGlobal => Source.Extra.TryGetValue("scopeKind", out var scope) && scope.ToString() == "global"; }
 internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace, IReadOnlyList<TableModel> Tables)
 {
@@ -191,14 +194,14 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 var writable = pageColumns.Where(c => !c.IsSystem && !Enabled(c.Source.Extra, "isJoinColumn") && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
                 var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch") || Enabled(f.Extra, "isInFilter"))).ToArray();
                 var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort") || Enabled(c.Source.Extra, "isSort"))).ToArray();
-                var scopes = CompileScopes(page.WhereSql, columns);
+                var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,page.WhereSql);
                 ValidateOrderBy(page.OrderBy, columns);
-                pageModels.Add(new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()));
+                pageModels.Add(new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()){Condition=condition});
             }
             result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels));
         }
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
-        return MultiSelectCompilation.Prepare(new GenerationModel(catalog, rootNamespace, result));
+        return FixedPageConditionCompilation.ValidateFinal(MultiSelectCompilation.Prepare(new GenerationModel(catalog, rootNamespace, result)));
     }
     /// <summary>只编译明确的身份或父记录范围。</summary>
     internal static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)

@@ -36,11 +36,20 @@ internal static class FixedPageQueryCompilation
         try
         {
             var allowed = target.IdentityScopes.Select(scope => (scope.Column.Source.Id, scope.Source)).ToHashSet();
-            // CompileScopes只允许已声明列AND等值绑定；project与parent即使值碰巧相同也不能互换。
-            var requested = GenerationModel.CompileScopes(definition.WhereSql, target.Table.Columns);
-            if (requested.Any(scope => !allowed.Contains((scope.Column.Source.Id, scope.Source))))
+            // 附加项必须逐项已被目标页实际执行；不把来源控件的更窄条件偷换成宽目标页。
+            var requested=Metarill.Core.Metadata.FixedConditionPlan.Compile(definition.WhereSql,target.Table.Columns.Select(column=>column.Source.ColumnName));
+            var constants=target.Page.Condition?.Syntax.Terms.Select(FixedPageConditionCompilation.Term).ToHashSet(StringComparer.Ordinal)??new HashSet<string>(StringComparer.Ordinal);
+            foreach(var term in requested.Terms)
             {
-                reason = "选择控件附加范围未被目标固定查询约束。"; return false;
+                if(term.Values.Any(value=>value.Kind==Metarill.Core.Metadata.FixedConditionValueKind.Variable))
+                {
+                    if(term.Comparison!=Metarill.Core.Metadata.FixedConditionComparison.Equal||term.Values.Count!=1)throw new InvalidOperationException("未证明的附加变量。");
+                    var source=term.Values[0].Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"project":term.Values[0].Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase)||term.Values[0].Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)?"parent":"";
+                    var field=target.Table.Columns.Single(column=>column.Source.ColumnName==term.Field);
+                    if(!allowed.Contains((field.Source.Id,source))){reason="选择控件附加范围未被目标固定查询约束。";return false;}
+                }
+                else if(!constants.Contains(FixedPageConditionCompilation.Term(term)))
+                {reason="选择控件附加范围未被目标固定查询约束。";return false;}
             }
             if (!string.IsNullOrWhiteSpace(definition.OrderBy) &&
                 !EffectiveOrder(target.Table, definition.OrderBy).Select(item => (item.Column.Source.Id, item.Descending))
@@ -50,7 +59,7 @@ internal static class FixedPageQueryCompilation
             }
             reason = null; return true;
         }
-        catch (InvalidOperationException)
+        catch (Exception error) when(error is InvalidOperationException or ArgumentException)
         {
             reason = "选择控件附加范围或排序超出已支持的固定语法。"; return false;
         }
