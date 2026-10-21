@@ -27,4 +27,24 @@ yzp.customButtonHandler = function (res, that, isAutoCloseAfterAction, type) {
 	return result;
 };
 
+/** 保留原退出确认；服务器撤销成功后清理当前身份，迟到响应不能清除后来登录的身份。 */
+yzp.exitLogin = function () {
+ const session = uni.getStorageSync('loginStateId');
+ const isCurrent = () => uni.getStorageSync('loginStateId') === session;
+ const finish = () => {
+  if (!isCurrent()) return;
+  yzp.clearLoginStorage();
+  uni.$emit('onLogout');
+  uni.reLaunch({ url: '/pages/login' });
+ };
+ uni.showModal({ content: '您确认要退出登录吗？', success: confirmation => {
+  if (!confirmation.confirm || !isCurrent()) return;
+  if (!session) { finish(); return; }
+  yzp.request({ url: '/admin/sys/yz_manager/exit_login', method: 'POST', sendSessionId: true,
+   data: {}, showLoading: false, isCurrent,
+   success: response => { if (response.code === 200) finish(); }
+  });
+ } });
+};
+
 export default yzp;
