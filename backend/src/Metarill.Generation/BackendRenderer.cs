@@ -217,7 +217,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
         var nameKeys = names.ConsumedKeys.Concat(names.Gaps.Select(gap => gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var result = new StringBuilder().AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
-            .AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor, string? parentId)").AppendLine("    {")
+            .AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor, string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
         foreach (var (column, source) in fixedQuery.IdentityScopes)
         {
@@ -225,12 +225,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                 .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
         }
+        result.Append(ExactDataManageCompilation.Query(model,table,page));
         if (ManagerCredentialCompilation.Unsupported(table,page)) result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>")
-            .AppendLine($"    private ISelect<{table.Name}> Query{suffix}(PageRequest request, RuntimeActor actor)").AppendLine("    {")
+            .AppendLine($"    private ISelect<{table.Name}> Query{suffix}(PageRequest request, RuntimeActor actor{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {")
             .AppendLine("        ArgumentNullException.ThrowIfNull(request);")
-            .AppendLine($"        var query = Scope{suffix}(actor, request.ParentId);")
+            .AppendLine($"        var query = Scope{suffix}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"authorizationOperation")});")
             .AppendLine("        foreach (var filter in request.Filters ?? throw new ArgumentException(\"filters 不能为空。\"))")
             .AppendLine("        {").AppendLine("            switch (filter.Key)").AppendLine("            {");
         // 成功名称谓词与缺口拒绝共用固定键集合，不能落入普通JSON文本LIKE，也不能重复生成switch case。
@@ -314,11 +315,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var suffix = page.Source.Id;
         var result = new StringBuilder();
         var importFiles = ImportRenderer.Enabled(page) && HasPhysicalFileColumns(model, table);
+        var operationAwareImport = ImportRenderer.Enabled(page) && (HasPhysicalFileColumns(model,table)||ExactDataManageCompilation.Declared(page));
         if (page.Source.IsNew == 1 || ImportRenderer.Enabled(page))
         {
             result.AppendLine("    /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>")
-                .AppendLine(MutationEntry(table,page,"Create",importFiles))
+                .AppendLine(MutationEntry(table,page,"Create",operationAwareImport))
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
+                .Append(ExactDataManageCompilation.MutationAuthorization(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"create\"":"\"create\""))
                 .Append(PrepareCall(model, table, page, "Create", "null", "request"))
                 .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken);").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
@@ -343,10 +346,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source) || (ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) == "OverWriteByFirstColumn"))
         {
             result.AppendLine("    /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>")
-                .AppendLine(MutationEntry(table,page,"Update",importFiles))
+                .AppendLine(MutationEntry(table,page,"Update",operationAwareImport))
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(PrepareCall(model, table, page, "Update", "request.Id", "request"))
-                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(PlatformColumnTypeCompatibilityCompilation.Capture(model, table, page))
                 .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
@@ -368,7 +371,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>先校验数据范围，再在同一事务内删除。</summary>")
                 .AppendLine($"    public Task<bool> Delete{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").Append(PrepareCall(model, table, page, "Delete", "id", null))
-                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"delete\"")}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","true")).AppendLine("        BeforeDelete(entity, actor);")
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, true))
@@ -390,7 +393,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    {")
             .Append(PrepareCall(model, table, page, "Copy", "id", null))
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
-            .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+            .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"copy\"")}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
             .AppendLine("        var originalScopeValues = MutationScopeValues(source);")
             .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};")
             .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
@@ -658,9 +661,9 @@ public partial class {{table.Name}}Service
 
 """;
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
-    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
+    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
-    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => NonRedundantReadCompilation.Requires(model,table)?$"await Detail{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
+    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => NonRedundantReadCompilation.Requires(model,table)?$"await {(ExactDataManageCompilation.Declared(page) && operation is "create" or "update" or "copy"?"MutationResult":"Detail")}{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>
     private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,entities,operation,operation != "list" || !ManagerCredentialCompilation.IsOriginal(table,page))
         : FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && FixedRoleAdminNameCompilation.Used(page,admin,operation) ? FixedRoleAdminNameRenderer.ProjectCall(page,entities,operation) : ManagerCredentialCompilation.IsOriginal(table,page) ? $"{entities}.Select(entity => {page.Name}Vo.FromEntity(entity,{(operation == "list" ? "false" : "true")})).ToArray()" : $"{entities}.Select({page.Name}Vo.FromEntity).ToArray()";

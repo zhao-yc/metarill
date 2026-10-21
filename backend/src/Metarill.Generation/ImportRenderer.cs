@@ -38,7 +38,7 @@ public sealed partial class {{page.Name}}ImportRequest
         var columns = Columns(page);
         var dependency = ImportDependencyCompilation.ForPage(model, table, page);
         var contextual = dependency.Contextual;
-        var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table);
+        var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page);
         if (columns.Select(Header).Distinct(StringComparer.Ordinal).Count() != columns.Count) throw new InvalidOperationException("导入列中文标题重复，无法明确解析。");
         var overwrite = Mode(page) == "OverWriteByFirstColumn";
         if (overwrite && columns.Count > 0 && columns[0].IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
@@ -61,7 +61,7 @@ public sealed partial class {{page.Name}}ImportRequest
             var first = table.Columns.First(column => columns.Contains(column));
             result.AppendLine($"                if (!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null) throw new ArgumentException(\"覆盖匹配字段不能为空。\");")
                 .AppendLine($"                var key = JsonSerializer.Deserialize<{first.BoundaryType}>(matchValue.GetRawText(), JsonOptions);")
-                .AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync(cancellationToken);")
+                .AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync(cancellationToken);")
                 .AppendLine("                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
             if(contextual)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];")
                 .AppendLine($"                var values = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor, importExisting, false, cancellationToken);");

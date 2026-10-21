@@ -63,6 +63,7 @@ public static partial class PrincipalRolePolicy
             // is_all是当前动作的另一条有效来源；任一普通角色确实授予当前动作即可解除精确限制。
             if((scopedGrants.Contains(key)||scopedGrants.Contains(all))&&!unrestrictedGrants.Contains(key)&&!unrestrictedGrants.Contains(all))exactPermissions.Add(key);
         }
-        return new(adminText,projectText,super,platformRealm,platform,roleIds,permissions,grantedMenus,grantedButtons){ExactDataManagePermissions=exactPermissions};
+        var match=exactPermissions.Count==0?(Field:"",Value:(System.Text.Json.JsonElement?)null):ExactDataManageIdentity.Capture(admin,account,registry.ExactDataManageManagerField(projectText,adminText));
+        return new(adminText,projectText,super,platformRealm,platform,roleIds,permissions,grantedMenus,grantedButtons){ExactDataManagePermissions=exactPermissions,ExactDataManageMatchField=match.Field,ExactDataManageMatchValue=match.Value};
     }
 }

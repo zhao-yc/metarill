@@ -1,11 +1,13 @@
 namespace Metarill.Runtime.Security;
 
-/// <summary>宿主提供已发布安全资源，不包含连接、字段配置、SQL或平台编辑能力。</summary>
+/// <summary>宿主提供认证所需的窄发布声明，不包含连接、SQL或平台编辑能力。</summary>
 public interface ISecurityResourceRegistry
 {
     IReadOnlyList<SecurityResourceCatalog> PublishedCatalogs { get; }
     /// <summary>只有宿主声明的真实平台后台可产生平台管理员身份。</summary>
     bool IsPlatformRealm(string projectId,string adminTypeId);
+    /// <summary>新宿主只声明固定计划中唯一账号匹配字段；null保留旧宿主的后台行兼容路径，空字符串表示计划未配置。</summary>
+    string? ExactDataManageManagerField(string projectId,string adminTypeId)=>null;
 }
 
 /// <summary>普通认证和锁后决策共用的窄资源投影；调用方负责使用正确的已发布或当前读来源。</summary>

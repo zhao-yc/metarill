@@ -9,6 +9,8 @@ public interface IRuntimeAuthorization
     /// <summary>仅真实宿主证明当前身份同项目、同后台的超级角色；旧授权器缺省不提供此特权。</summary>
     bool IsCurrentRealmSuper() => false;
     void RequirePagePermission(string pageId, string operation);
+    /// <summary>配置了精确范围的生成入口必须由真实宿主提供决策；旧实现不能缺省声明无限制。</summary>
+    ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)=>throw new NotSupportedException("当前授权器尚未接入精确数据管理。");
 }
 public interface IIdGenerator { long NextId(); }
 

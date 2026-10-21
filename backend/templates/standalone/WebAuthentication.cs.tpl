@@ -31,6 +31,8 @@ internal sealed class ApplicationSecurityRegistry(VerifiedPackageSecurityCatalog
     internal string ProjectName=>catalog.ProjectName;
     internal bool ContainsAdmin(string id)=>catalog.ContainsAdmin(id);
     public IReadOnlyList<SecurityResourceCatalog> PublishedCatalogs=>catalog.PublishedCatalogs;
+    /// <summary>使用同一可信发布目录的匹配字段，不依赖数据库初始化外的手工操作。</summary>
+    public string? ExactDataManageManagerField(string projectId,string adminTypeId)=>catalog.ExactDataManageManagerField(projectId,adminTypeId);
     /// <summary>普通应用不能声明自己是平台，不能借业务super切换包外项目。</summary>
     public bool IsPlatformRealm(string projectId,string adminTypeId)=>false;
     /// <summary>本宿主没有OAuth/设备控制面，任何Agent会话均不能作为Web身份。</summary>
@@ -130,6 +132,11 @@ internal sealed class ApplicationWebAuthorization(IHttpContextAccessor accessor,
     {
         var identity=RequireIdentity();return identity.GrantId is null&&identity.IsRealmSuper&&!identity.Actor.IsAdministrator&&identity.PrincipalProjectId==catalog.ProjectId&&catalog.ContainsAdmin(identity.PrincipalAdminTypeId)
             &&identity.Actor.ProjectId==identity.PrincipalProjectId&&identity.Actor.AdminTypeId==identity.PrincipalAdminTypeId;
+    }
+    /// <summary>先复用当前真实页面授权，再提供固定计划所需的窄匹配值。</summary>
+    public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
+    {
+        RequirePagePermission(pageId,operation);return ExactDataManageIdentity.Resolve(RequireIdentity(),pageId,operation,managerField);
     }
     public void RequirePagePermission(string pageId,string operation)
     {

@@ -64,14 +64,14 @@ internal static class ExportRenderer
             NonRedundantReads.Compile(model.Catalog,table.Source.Id,names,plan.Dependencies);
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
             result.Insert(0,$"    /// <summary>导出只读取原列及必要依赖，普通请求不重编译元数据。</summary>\n    private static readonly Metarill.Data.Queries.NonRedundantReadPlan ExportReadPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.Compile({Literal(table.Source.Id)},{outputs},{fixedDependencies});\n");
-            result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync(ExportReadPlan{page.Source.Id},ReadFilters{page.Source.Id}(request,actor),ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId);")
+            result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync(ExportReadPlan{page.Source.Id},ReadFilters{page.Source.Id}(request,actor{ExactDataManageCompilation.Argument(page,"\"export\"")}),ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId);")
                 .AppendLine($"        var entities=rawRows.Select(row=>new {table.Name}").AppendLine("        {");
             foreach(var column in projection)result.AppendLine($"            {column.Property}=Metarill.Data.Queries.NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)}),");
             result.AppendLine("        }).ToList();").AppendLine("        if(entities.Count>maxRows)throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         }
         else
         {
-        result.AppendLine($"        var query = Order{page.Source.Id}(Query{page.Source.Id}(request, actor), request);")
+        result.AppendLine($"        var query = Order{page.Source.Id}(Query{page.Source.Id}(request, actor{ExactDataManageCompilation.Argument(page,"\"export\"")}), request);")
             .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.Name}").AppendLine("        {");
         // 目标父依赖只在已有可读字段中取固定列，不因此增加导出的表头或VO字段。
         foreach (var column in columns.Concat(dependencies).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");

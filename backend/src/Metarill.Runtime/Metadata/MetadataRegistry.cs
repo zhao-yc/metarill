@@ -21,6 +21,14 @@ public sealed class MetadataRegistry : ISecurityResourceRegistry
     /// <summary>真实平台身份继续要求发布项目和发布后台同时匹配。</summary>
     bool ISecurityResourceRegistry.IsPlatformRealm(string projectId,string adminTypeId)=>
         projectId==Platform.YzProjectId&&Platform.YzAdminTypes.Any(item=>item.Id==adminTypeId);
+    /// <summary>账号匹配字段来自当前发布模型，与生成SQL固定声明一致，不读取客户端字段或任意后台新值。</summary>
+    string? ISecurityResourceRegistry.ExactDataManageManagerField(string projectId,string adminTypeId)
+    {
+        var catalog=new[]{Platform,Demo}.SingleOrDefault(catalog=>catalog.YzProjectId==projectId);
+        var admin=catalog?.YzAdminTypes.SingleOrDefault(admin=>admin.Id==adminTypeId);if(admin is null)return null;
+        if(!admin.Extra.TryGetValue("exactDataManageMatchField",out var value)||value.ValueKind==JsonValueKind.Null)return "";
+        return value.ValueKind==JsonValueKind.String?value.GetString():throw new NotSupportedException("已发布后台匹配字段声明无效。");
+    }
     public static MetadataCatalog Load(string path)
     {
         var metadata = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(path), JsonDefaults.Options) ?? throw new InvalidOperationException("元数据文件为空。");

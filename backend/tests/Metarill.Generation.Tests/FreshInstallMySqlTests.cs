@@ -282,14 +282,40 @@ internal sealed class FreshHost : IAsyncDisposable
     private readonly Process process;
     private readonly Task<string> stdout;
     private readonly Task<string> stderr;
+    private readonly string? evidenceDirectory;
+    private readonly string[] secrets;
     public HttpClient Client { get; }
-    private FreshHost(Process process, Uri address) { this.process = process; stdout = process.StandardOutput.ReadToEndAsync(); stderr = process.StandardError.ReadToEndAsync(); Client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(15) }; }
+    /// <summary>限制日志落点，并提取子进程配置的秘密供停止后脱敏。</summary>
+    private FreshHost(ProcessStartInfo info, Uri address)
+    {
+        if (info.Environment.TryGetValue("METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY", out var directory) && !string.IsNullOrWhiteSpace(directory))
+        {
+            var root = Path.GetFullPath(Path.Combine(NonRedundantApplicationFixture.Root(), ".local")) + Path.DirectorySeparatorChar;
+            var resolved = Path.GetFullPath(directory);
+            if (!resolved.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(resolved)) throw new InvalidOperationException("宿主日志只允许现有私有验收目录。");
+            evidenceDirectory = resolved;
+        }
+        var values = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var pair in info.Environment.Where(pair => Regex.IsMatch(pair.Key, "password|token|secret|connectionstring|api.?key", RegexOptions.IgnoreCase)))
+        {
+            if (string.IsNullOrWhiteSpace(pair.Value)) continue;
+            values.Add(pair.Value);
+            if (!pair.Key.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase)) continue;
+            var connection = new DbConnectionStringBuilder { ConnectionString = pair.Value };
+            foreach (string key in connection.Keys)
+                if (Regex.IsMatch(key, "password|pwd|token|secret", RegexOptions.IgnoreCase) && connection[key] is string value && value.Length > 0) values.Add(value);
+        }
+        secrets = values.OrderByDescending(value => value.Length).ToArray();
+        // 配置校验在启动之前完成，避免无效日志目录留下孤儿宿主。
+        process = Process.Start(info)!; stdout = process.StandardOutput.ReadToEndAsync(); stderr = process.StandardError.ReadToEndAsync();
+        Client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(15) };
+    }
     /// <summary>取得临时端口并启动实际平台二进制，等待健康响应。</summary>
     public static async Task<FreshHost> StartAsync(ProcessStartInfo info, string health)
     {
         var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
         var address = new Uri($"http://127.0.0.1:{port}"); info.ArgumentList.Add("--urls"); info.ArgumentList.Add(address.ToString());
-        var host = new FreshHost(Process.Start(info)!, address);
+        var host = new FreshHost(info, address);
         for (var attempt = 0; attempt < 150 && !host.process.HasExited; attempt++)
         {
             try { using var response = await host.Client.GetAsync(health); if (response.IsSuccessStatusCode) return host; } catch (HttpRequestException) { }
@@ -298,5 +324,23 @@ internal sealed class FreshHost : IAsyncDisposable
         await host.DisposeAsync(); throw new InvalidOperationException("首次安装验收宿主未就绪，日志不回显配置。");
     }
     /// <summary>退出宿主后等待日志管道结束，释放DLL占用。</summary>
-    public async ValueTask DisposeAsync() { if (!process.HasExited) process.Kill(true); await process.WaitForExitAsync(); await stdout; await stderr; process.Dispose(); Client.Dispose(); }
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (!process.HasExited) process.Kill(true);
+            await process.WaitForExitAsync(); var outText = await stdout; var errText = await stderr;
+            if (evidenceDirectory is null) return;
+            var id = Guid.NewGuid().ToString("N");
+            await File.WriteAllTextAsync(Path.Combine(evidenceDirectory, "host-" + id + ".stdout.log"), Redact(outText));
+            await File.WriteAllTextAsync(Path.Combine(evidenceDirectory, "host-" + id + ".stderr.log"), Redact(errText));
+        }
+        finally { process.Dispose(); Client.Dispose(); }
+    }
+    /// <summary>保留诊断信息，移除配置秘密和请求中的登录、下载凭证。</summary>
+    private string Redact(string value)
+    {
+        foreach (var secret in secrets) value = value.Replace(secret, "[已脱敏]", StringComparison.Ordinal);
+        return Regex.Replace(value, @"((?:loginStateId|access_token|refresh_token|exportId|Authorization)\s*[=:]\s*)[^\s&""<>]+", "$1[已脱敏]", RegexOptions.IgnoreCase);
+    }
 }

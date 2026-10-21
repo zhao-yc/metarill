@@ -11,6 +11,9 @@ public sealed record PrincipalRoleRealm(string AdminTypeId, string ProjectId, bo
     /// <summary>逐页面/动作的有效授权全部来自is_scope角色时记录；只保留决策，不代表查询已经执行记录过滤。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlySet<string> ExactDataManagePermissions {get;init;}=new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>真实后台仅声明一项账号匹配值，永不参与HTTP或会话序列化。</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string ExactDataManageMatchField {get;init;}="";
+    [System.Text.Json.Serialization.JsonIgnore] public System.Text.Json.JsonElement? ExactDataManageMatchValue {get;init;}
 }
 
 /// <summary>Web认证与Agent复核共用同一身份后台策略，不把客户端工作区或账号兼容项目列当授权。</summary>

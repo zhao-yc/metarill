@@ -61,12 +61,13 @@ internal static class GeneratedNonRedundantReadCatalog
         var outputs="new string[]{"+string.Join(",",plan.Outputs.Select(output=>Literal(output.Storage)))+"}";var dependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
         var result=new StringBuilder().AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
             .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.Compile({Literal(table.Source.Id)},{outputs},{dependencies});")
-            .AppendLine("    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor,string? parentId)").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
+            .AppendLine("    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor,string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
         {if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        query=query.Where(entity=>entity.{column.Property}=={ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")});");}
-        result.AppendLine("        return query;").AppendLine("    }").AppendLine("    /// <summary>身份与父范围是服务附加的AND条件，请求筛选不能覆盖。</summary>").AppendLine($"    private static List<FixedReadFilter> ReadFilters{suffix}(PageRequest request,RuntimeActor actor)").AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);ValidateActor(actor);var result=new List<FixedReadFilter>();");
+        result.Append(ExactDataManageCompilation.Query(model,table,page)).AppendLine("        return query;").AppendLine("    }").AppendLine("    /// <summary>身份与父范围是服务附加的AND条件，请求筛选不能覆盖。</summary>").AppendLine($"    private {(ExactDataManageCompilation.Declared(page)?"":"static ")}List<FixedReadFilter> ReadFilters{suffix}(PageRequest request,RuntimeActor actor{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);ValidateActor(actor);var result=new List<FixedReadFilter>();");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
         {if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(request.ParentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"request.ParentId!")}));");}
+        result.Append(ExactDataManageCompilation.ReadFilter(model,table,page));
         result.AppendLine("        foreach(var filter in request.Filters??throw new ArgumentException(\"filters不能为空。\"))").AppendLine("        {").AppendLine("            switch(filter.Key)").AppendLine("            {");
         // 名称辅助键在SQL分页/统计之前解析；不能把IsIgnore实体列当持久化列查询。
         foreach(var binding in names.Bindings)
@@ -120,6 +121,21 @@ internal static class GeneratedNonRedundantReadCatalog
             .AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=parentId}},actor);filters.Add(new(\"id\",FixedReadComparison.Equal,id));")
             .AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId);")
             .AppendLine($"        return rows.Records.Count==0?null:{page.Name}Vo.FromReadRow(rows.Records[0]);").AppendLine("    }");
+        if(ExactDataManageCompilation.Declared(page))
+        {
+            result.AppendLine("    /// <summary>只供已授权且已写入的对象回显；固定主键/项目/父与实际事务，不能由HTTP选择此入口。</summary>")
+                .AppendLine($"    private async Task<{page.Name}Vo?> MutationResult{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)")
+                .AppendLine("    {")
+                .AppendLine("        ValidateActor(actor);if(session.CurrentTransaction is null)throw new InvalidOperationException(\"写后回显必须使用实际写入事务。\");")
+                .AppendLine("        var filters=new List<FixedReadFilter>{new(\"id\",FixedReadComparison.Equal,id)};");
+            foreach(var (column,source) in fixedQuery.IdentityScopes)
+            {
+                if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");
+                result.AppendLine($"        filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")}));");
+            }
+            result.AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId);")
+                .AppendLine($"        return rows.Records.Count==0?null:{page.Name}Vo.FromReadRow(rows.Records[0]);").AppendLine("    }");
+        }
         return result.ToString();
     }
     /// <summary>原map.statistics及百分比口径保持，统计谓词使用未分页的同一读取范围。</summary>

@@ -15,6 +15,11 @@ public sealed class HttpRuntimeAuthorization(IHttpContextAccessor accessor,Metad
         var identity=RequireIdentity();return identity.GrantId is null&&identity.IsRealmSuper&&!string.IsNullOrWhiteSpace(identity.PrincipalAdminTypeId)
             &&identity.Actor.ProjectId==identity.PrincipalProjectId&&identity.Actor.AdminTypeId==identity.PrincipalAdminTypeId;
     }
+    /// <summary>先复用当前真实页面授权，再提供固定计划所需的窄匹配值。</summary>
+    public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
+    {
+        RequirePagePermission(pageId,operation);return ExactDataManageIdentity.Resolve(RequireIdentity(),pageId,operation,managerField);
+    }
     public void RequirePagePermission(string pageId,string operation)
     {
         var identity=RequireIdentity();var page=registry.FindPage(pageId)??throw new UnauthorizedAccessException("页面未登记。");

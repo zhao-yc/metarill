@@ -48,6 +48,14 @@ internal sealed class VerifiedPackageSecurityCatalog
     internal MetadataCatalog Clone()=>JsonSerializer.Deserialize<MetadataCatalog>(frozen,Json)??throw new InvalidOperationException("应用固定目录无效。");
     /// <summary>后台必须为本项目声明的规范长ID，不接受客户端补充身份范围。</summary>
     internal bool ContainsAdmin(string id)=>Positive(id)&&catalog.YzAdminTypes.Any(admin=>admin.Id==id&&admin.YzProjectId==ProjectId);
+    /// <summary>仅从已验证固定摘要的私有模型读取后台账号匹配字段，新应用不需要手工补写安全库配置。</summary>
+    internal string? ExactDataManageManagerField(string projectId,string adminTypeId)
+    {
+        if(projectId!=ProjectId||!ContainsAdmin(adminTypeId))return null;
+        var admin=catalog.YzAdminTypes.Single(admin=>admin.Id==adminTypeId);
+        if(!admin.Extra.TryGetValue("exactDataManageMatchField",out var value)||value.ValueKind==JsonValueKind.Null)return "";
+        return value.ValueKind==JsonValueKind.String?value.GetString():throw new NotSupportedException("已发布后台匹配字段声明无效。");
+    }
     /// <summary>Realm来自真实锁后身份；既不是客户端工作区，也不允许包外后台进入目录证明。</summary>
     internal void RequireRealm(long project,long admin)
     {
