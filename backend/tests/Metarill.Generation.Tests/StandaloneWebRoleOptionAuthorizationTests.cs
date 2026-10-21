@@ -44,6 +44,26 @@ public sealed partial class StandaloneWebAuthenticationTests
         Assert.Throws<SecurityException>(()=>RoleCheckboxAuthorization.Require(RealRoleOptionAuthorization(identity),page.Id,true,true));
     }
 
+    /// <summary>实际Full授权类只承认包内当前Web后台的超级身份；错项目、错后台、Agent或缺身份均不得获得特权。</summary>
+    [Theory]
+    [InlineData("valid",true)][InlineData("ordinary",false)][InlineData("project",false)][InlineData("admin",false)]
+    [InlineData("selected",false)][InlineData("grant",false)][InlineData("platform",false)]
+    public void File_super_proof_uses_current_published_web_realm(string scenario,bool expected)
+    {
+        var identity=RoleOptionIdentity(new HashSet<string>()) with{IsRealmSuper=true};
+        identity=scenario switch
+        {
+            "ordinary"=>identity with{IsRealmSuper=false},
+            "project"=>identity with{PrincipalProjectId="42",Actor=identity.Actor with{ProjectId="42"}},
+            "admin"=>identity with{PrincipalAdminTypeId="42",Actor=identity.Actor with{AdminTypeId="42"}},
+            "selected"=>identity with{Actor=identity.Actor with{ProjectId="42"}},
+            "grant"=>identity with{GrantId=123},
+            "platform"=>identity with{Actor=identity.Actor with{IsAdministrator=true}},_=>identity
+        };
+        Assert.Equal(expected,RealRoleOptionAuthorization(identity).IsCurrentRealmSuper());
+        Assert.Throws<UnauthorizedAccessException>(()=>RealRoleOptionAuthorization(null).IsCurrentRealmSuper());
+    }
+
     /// <summary>身份仅是当前测试请求输入；真正执行的权限实现来自固定完整包程序集。</summary>
     private AuthenticatedIdentity RoleOptionIdentity(IReadOnlySet<string> permissions)
     {

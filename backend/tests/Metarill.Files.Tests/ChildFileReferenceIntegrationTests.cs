@@ -37,11 +37,17 @@ public sealed class ChildFileReferenceIntegrationTests
         Assert.Equal(before, await SnapshotAsync(fixture, record));
         await ApplyAsync(fixture, record, new Dictionary<string, object?> { ["attachments"] = null });
         Assert.Empty(await fixture.ReferencesAsync(record));
-        await ApplyAsync(fixture, record, new Dictionary<string, object?> { ["attachments"] = value });
+        // 原V8解绑历史不能再次借首次绑定例外；拒绝后字段及引用均保持清空。
+        var cleared = await SnapshotAsync(fixture, record);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ApplyAsync(fixture, record, new Dictionary<string, object?> { ["attachments"] = value }));
+        Assert.Equal(cleared, await SnapshotAsync(fixture, record));
+        var replacement = await fixture.ReadyAsync("child-replacement.txt", Encoding.UTF8.GetBytes("新的首次绑定文件"));
+        await ApplyAsync(fixture, record, new Dictionary<string, object?> { ["attachments"] = JsonSerializer.Serialize(new[] { replacement.FileId.ToString() }) });
         await ApplyAsync(fixture, record, new Dictionary<string, object?> { ["delete_no"] = DateTime.UtcNow }, deleting: true);
         Assert.Empty(await fixture.ReferencesAsync(record));
         Assert.NotNull((await fixture.Store.ReadIncludingDeletedAsync(fixture.TableName, new Dictionary<string, object?> { ["id"] = record })).Single()["delete_no"]);
         Assert.True((await fixture.Service().DeleteAsync(file.FileId)).StorageRemoved);
+        Assert.True((await fixture.Service().DeleteAsync(replacement.FileId)).StorageRemoved);
     }
 
     [FilesIntegrationFact]
@@ -182,6 +188,28 @@ public sealed class ChildFileReferenceIntegrationTests
         Assert.Single(await fixture.ReferencesAsync(record));
         // 父在子提交后被另一个合法事务删除；后续文件提交仍重新核验，不宣称永久关系约束。
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ApplyAsync(fixture, record, new Dictionary<string, object?> { ["attachments"] = value }));
+    }
+
+    /// <summary>同批两行复用文件时，第二行必须看见本事务刚建的父、业务行和引用，而非另开连接只读到旧状态。</summary>
+    [FilesIntegrationFact]
+    public async Task Reused_file_reads_own_uncommitted_parent_record_and_reference_in_same_transaction()
+    {
+        await using var fixture=await FilesFixture.CreateAsync(childScope:true);
+        var file=await fixture.ReadyAsync("same-batch.txt",Encoding.UTF8.GetBytes("同事务重复引用"));
+        var value=JsonSerializer.Serialize(new[]{file.FileId.ToString()});
+        await fixture.Session.InTransactionAsync(async()=>
+        {
+            var parent=await ParentAsync(fixture);
+            for(var index=0;index<2;index++)
+            {
+                var record=await fixture.RecordAsync(parent:parent);
+                await ApplyAsync(fixture,record,new Dictionary<string,object?>{{"attachments",value}},creating:true);
+            }
+            return true;
+        });
+        var references=await fixture.Store.ReadAsync("yz_file_ref",new Dictionary<string,object?>{{"file_id",file.FileId}});
+        Assert.Equal(2,references.Count);Assert.Equal(2,references.Select(row=>SqlRowStore.Id(row,"record_id")).Distinct().Count());
+        Assert.Equal("ready",(await fixture.Service().ResolveAsync(file.FileId)).Status);
     }
 
     /// <summary>测试数据通过元数据存储写入，结构只由FilesFixture的SchemaService建立。</summary>

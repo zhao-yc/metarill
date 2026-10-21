@@ -6,6 +6,8 @@ public sealed record RuntimeActor(long AccountId, string AccountName, bool IsAdm
 public interface IRuntimeAuthorization
 {
     RuntimeActor RequireActor();
+    /// <summary>仅真实宿主证明当前身份同项目、同后台的超级角色；旧授权器缺省不提供此特权。</summary>
+    bool IsCurrentRealmSuper() => false;
     void RequirePagePermission(string pageId, string operation);
 }
 public interface IIdGenerator { long NextId(); }

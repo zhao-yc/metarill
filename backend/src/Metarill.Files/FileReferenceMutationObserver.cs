@@ -73,9 +73,13 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
             foreach (var fileId in requested[column.ColumnName])
             {
                 var row = files[fileId];
-                var alreadyAttached = current.Any(r => SqlRowStore.Id(r, "file_id") == fileId && SqlRowStore.Text(r, "field_name") == column.ColumnName);
-                if (!actor.IsAdministrator && SqlRowStore.Id(row, "owner_id") != actor.AccountId && !alreadyAttached)
-                    throw new UnauthorizedAccessException("不能通过猜测标识引用其他人的文件。");
+                // 原V8仅首次绑定允许就绪保护文件上传者免记录读取；解绑历史不能恢复首次绑定例外。
+                if(!actor.IsAdministrator&&!authorization.IsCurrentRealmSuper()&&SqlRowStore.Text(row,"access_mode")!="PUBLIC")
+                {
+                    var firstOwned=SqlRowStore.Id(row,"owner_id")==actor.AccountId&&!await HasReferenceHistoryAsync(context,fileId,cancellationToken);
+                    if(!firstOwned&&!await FileReferenceReadAuthorization.CanReadAsync(store,registry,authorization,fileId,actor,cancellationToken))
+                        throw new UnauthorizedAccessException("没有引用文件的当前业务记录读取权限。");
+                }
                 if (SqlRowStore.Text(row, "access_mode") != policy.AccessMode || SqlRowStore.Id(row, "size") > policy.MaximumBytes || !policy.Extensions.Contains(Path.GetExtension(SqlRowStore.Text(row, "name"))))
                     throw new InvalidOperationException("文件不符合当前控件的访问级别、大小或扩展名规则。");
             }
@@ -90,6 +94,14 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
                     ["record_id"] = context.RecordId, ["field_name"] = field, ["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture),
                     ["insert_time"] = DateTime.UtcNow, ["insert_manager_id"] = actor.AccountId
                 }, cancellationToken);
+    }
+
+    /// <summary>文件行锁已持有，再以同事务当前读核对含墓碑引用历史；不使用RR快照或忽略已解绑记录。</summary>
+    private async Task<bool> HasReferenceHistoryAsync(RecordMutationContext context,long fileId,CancellationToken token)
+    {
+        var provider=store.Session.Provider;await using var command=context.Transaction.Connection!.CreateCommand();command.Transaction=context.Transaction;
+        command.CommandText=provider.BuildSelectForUpdate("SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier("yz_file_ref")+" WHERE "+provider.QuoteIdentifier("file_id")+"="+Parameter(command,"history_file",fileId));
+        return await command.ExecuteScalarAsync(token) is not null;
     }
 
     /// <summary>保留导入/复制的原页动作；真实身份和页权仍逐次核验，矛盾状态及未知枚举不能转成其它动作。</summary>

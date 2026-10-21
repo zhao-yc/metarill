@@ -38,12 +38,18 @@ public sealed class FileLibraryIntegrationTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ResolveAsync(plan.FileId));
         var uploaded = await service.UploadAsync(plan.FileId, new MemoryStream(bytes));
         Assert.Equal("uploaded", uploaded.Status); Assert.Null(uploaded.Url);
+        Assert.NotNull((await service.ResolveAsync(plan.FileId)).Url);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002)).OpenContentAsync(plan.FileId));
+        await using(var draft=(await service.OpenContentAsync(plan.FileId)).Stream)Assert.Equal(bytes.Length,draft.Length);
         var ready = await service.CompleteAsync(plan.FileId);
         Assert.Equal("ready", ready.Status); Assert.Equal("text/plain", ready.MimeType);
         Assert.StartsWith("/admin/sys/file-library/protected-content/", ready.Url);
         Assert.DoesNotContain(".blob", JsonSerializer.Serialize(ready));
         Assert.Equal(ready.Sha256, (await service.CompleteAsync(plan.FileId)).Sha256);
-        var privateFile = await service.OpenContentAsync(plan.FileId);
+        // 原V8就绪上传者不能只凭所有权读取；本生命周期用同项目管理员检查寻址/Range。
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ResolveAsync(plan.FileId));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId));
+        var privateFile = await fixture.Service(fixture.Actor(administrator:true)).OpenContentAsync(plan.FileId);
         await using (privateFile.Stream)
         {
             Assert.True(privateFile.Stream.CanSeek); privateFile.Stream.Position = 3;

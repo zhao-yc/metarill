@@ -41,7 +41,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
             new Dictionary<string, string>(), new Dictionary<string, string>(), DateTimeOffset.UtcNow.AddMinutes(30)));
     }, cancellationToken);
 
-    /// <summary>持有文件记录锁完成有界流写入和摘要核验，上传成功仍须显式完成后才可读取。</summary>
+    /// <summary>持有文件记录锁完成有界流写入和摘要核验，上传后为私有草稿，显式完成后才可绑定或公开。</summary>
     public async Task<FileDescriptor> UploadAsync(long id, Stream body, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(body);
@@ -106,11 +106,11 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         return Describe(row);
     }, cancellationToken);
 
-    /// <summary>受保护文件核对同项目所有者/管理员或当前真实引用与记录页权；客户端标识不授予权限。</summary>
+    /// <summary>受保护文件按草稿/就绪状态核对当前身份及真实引用；客户端标识不授予权限。</summary>
     public async Task<FileDescriptor> ResolveAsync(long id, string? pageId = null, long? recordId = null, CancellationToken cancellationToken = default)
     {
         var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, false, cancellationToken);
-        await RequireReadableAsync(row, actor, cancellationToken); return Describe(row);
+        await RequireReadableAsync(row, actor, cancellationToken); return Describe(row, allowProtectedDraft: true);
     }
 
     /// <summary>返回可寻址本地流供 ASP.NET Core 启用 Range；绝不代理或重定向远端地址。</summary>
@@ -147,7 +147,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     {
         var actor = authorization.RequireActor(); var filters = OwnedFilters(actor);
         filters["folder_id"] = folderId;
-        return (await store.ReadAsync(Files, filters, cancellationToken)).OrderByDescending(x => SqlRowStore.Id(x)).Select(Describe).ToArray();
+        return (await store.ReadAsync(Files, filters, cancellationToken)).OrderByDescending(x => SqlRowStore.Id(x)).Select(row=>Describe(row)).ToArray();
     }
 
     /// <summary>创建目录时锁定父目录，防止与父目录删除发生竞态。</summary>
@@ -272,19 +272,30 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if (SqlRowStore.Text(row, "yz_project_id") != actor.ProjectId || !actor.IsAdministrator && SqlRowStore.Id(row, "owner_id") != actor.AccountId)
             throw new UnauthorizedAccessException("文件或目录不存在或不可访问。");
     }
-    /// <summary>公开状态和授权读取规则统一处理，未完成对象不可解析。</summary>
+    /// <summary>已上传草稿仅上传者或当前超级身份可读；就绪保护文件按真实业务引用读取，所有权不作为永久授权。</summary>
     private async Task RequireReadableAsync(IReadOnlyDictionary<string, object?> row, RuntimeActor actor, CancellationToken token)
     {
-        if (SqlRowStore.Text(row, "status") != "ready" || SqlRowStore.Text(row, "yz_project_id") != actor.ProjectId) throw new UnauthorizedAccessException("文件不存在或不可访问。");
-        if (SqlRowStore.Text(row, "access_mode") == "PUBLIC" || actor.IsAdministrator || SqlRowStore.Id(row,"owner_id")==actor.AccountId) return;
+        var status=SqlRowStore.Text(row,"status");var mode=SqlRowStore.Text(row,"access_mode");
+        if(SqlRowStore.Text(row,"yz_project_id")!=actor.ProjectId||status is not ("uploaded" or "ready")||mode is not ("PUBLIC" or "PROTECTED"))throw new UnauthorizedAccessException("文件不存在或不可访问。");
+        if(mode=="PUBLIC")
+        {
+            if(status=="ready")return;
+            throw new UnauthorizedAccessException("公开文件尚未完成上传。");
+        }
+        if(actor.IsAdministrator||authorization.IsCurrentRealmSuper())return;
+        if(status=="uploaded")
+        {
+            if(SqlRowStore.Id(row,"owner_id")==actor.AccountId)return;
+            throw new UnauthorizedAccessException("没有该文件草稿的读取权限。");
+        }
         if(await FileReferenceReadAuthorization.CanReadAsync(store,registry,authorization,SqlRowStore.Id(row),actor,token))return;
         throw new UnauthorizedAccessException("没有当前文件的业务记录读取权限。");
     }
     /// <summary>返回固定本地路由，不把存储键、物理路径或客户端 URL 暴露给前端。</summary>
-    private FileDescriptor Describe(IReadOnlyDictionary<string, object?> row)
+    private FileDescriptor Describe(IReadOnlyDictionary<string, object?> row, bool allowProtectedDraft = false)
     {
         var id = SqlRowStore.Id(row); var ready = SqlRowStore.Text(row, "status") == "ready"; var isPublic = SqlRowStore.Text(row, "access_mode") == "PUBLIC";
-        var url = ready ? $"/admin/sys/file-library/{(isPublic ? "public-content" : "protected-content")}/{id}" : null;
+        var url = ready || allowProtectedDraft && !isPublic && SqlRowStore.Text(row,"status")=="uploaded" ? $"/admin/sys/file-library/{(isPublic ? "public-content" : "protected-content")}/{id}" : null;
         if (ready && isPublic && options.PublicContentProjectId is { } project)
         {
             // 提示只标识宿主已发布的项目；公开读取仍按真实行重新检查归属与状态。

@@ -125,6 +125,12 @@ internal sealed class ApplicationWebAuthorization(IHttpContextAccessor accessor,
 {
     public AuthenticatedIdentity RequireIdentity()=>accessor.HttpContext?.Items[typeof(AuthenticatedIdentity)] as AuthenticatedIdentity??throw new UnauthorizedAccessException();
     public RuntimeActor RequireActor()=>RequireIdentity().Actor;
+    /// <summary>超级角色必须来自本次真实Web身份并匹配当前项目及后台，不能由工作区选择或Agent声明扩权。</summary>
+    public bool IsCurrentRealmSuper()
+    {
+        var identity=RequireIdentity();return identity.GrantId is null&&identity.IsRealmSuper&&!identity.Actor.IsAdministrator&&identity.PrincipalProjectId==catalog.ProjectId&&catalog.ContainsAdmin(identity.PrincipalAdminTypeId)
+            &&identity.Actor.ProjectId==identity.PrincipalProjectId&&identity.Actor.AdminTypeId==identity.PrincipalAdminTypeId;
+    }
     public void RequirePagePermission(string pageId,string operation)
     {
         var identity=RequireIdentity();var page=catalog.PublishedCatalogs.SelectMany(item=>item.Pages).SingleOrDefault(item=>item.Id==pageId)??throw new SecurityException();
