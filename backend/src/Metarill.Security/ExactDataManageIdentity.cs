@@ -19,7 +19,15 @@ public static class ExactDataManageIdentity
     public static ExactDataManageValues Resolve(AuthenticatedIdentity identity,string pageId,string operation,string managerField)
     {
         var action=operation switch{"list" or "detail" or "count" or "options"=>"is_query","create"=>"is_new","update"=>"is_update","delete"=>"is_delete","export"=>"is_export","copy" or "import"=>"is_all",_=>throw new UnauthorizedAccessException("操作类型无效。")};
-        if(!identity.ExactDataManagePermissions.Contains(pageId+":"+action))return ExactDataManageValues.Unrestricted;
+        return ResolveRequired(identity,identity.ExactDataManagePermissions.Contains(pageId+":"+action),managerField);
+    }
+    /// <summary>文件使用直接/真实父子来源的独立决策，旧身份兼容原直接页合同。</summary>
+    public static ExactDataManageValues ResolveFileSource(AuthenticatedIdentity identity,string pageId,string managerField)=>
+        ResolveRequired(identity,(identity.FileExactDataManagePermissions??identity.ExactDataManagePermissions).Contains(pageId+":is_query"),managerField);
+    /// <summary>只有服务端明确需要范围时读取同后台窄值；缺配置不匹配，冲突声明明确拒绝。</summary>
+    private static ExactDataManageValues ResolveRequired(AuthenticatedIdentity identity,bool required,string managerField)
+    {
+        if(!required)return ExactDataManageValues.Unrestricted;
         var expected=ExactDataManageValues.Field(managerField);
         if(expected.Length==0)return new(true,null);
         if(identity.Actor.ProjectId!=identity.PrincipalProjectId||identity.Actor.AdminTypeId!=identity.PrincipalAdminTypeId||identity.ExactDataManageMatchField!=expected)

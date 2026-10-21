@@ -10,14 +10,18 @@ public sealed class MetadataRegistry : ISecurityResourceRegistry
     public MetadataCatalog Platform { get; }
     public MetadataCatalog Demo { get; }
     public string PlatformPath { get; }
+    private readonly IReadOnlyList<PagePermissionInheritanceLink> platformInheritance;
+    private readonly IReadOnlyList<PagePermissionInheritanceLink> demoInheritance;
     public MetadataRegistry(string platformPath, string demoPath)
     {
         PlatformPath = Path.GetFullPath(platformPath);
         Platform = Load(platformPath); Demo = Load(demoPath);
+        // 固定继承关系在发布目录加载时编译，普通认证不重复解析控件JSON。
+        platformInheritance=PagePermissionInheritance.Compile(Platform);demoInheritance=PagePermissionInheritance.Compile(Demo);
     }
     /// <summary>共享认证只看到固定资源投影；平台原始目录仍由本仓储保管。</summary>
     IReadOnlyList<SecurityResourceCatalog> ISecurityResourceRegistry.PublishedCatalogs=>
-        [PlatformSecurityResourceProjection.Create(Platform),PlatformSecurityResourceProjection.Create(Demo)];
+        [PlatformSecurityResourceProjection.Create(Platform,platformInheritance),PlatformSecurityResourceProjection.Create(Demo,demoInheritance)];
     /// <summary>真实平台身份继续要求发布项目和发布后台同时匹配。</summary>
     bool ISecurityResourceRegistry.IsPlatformRealm(string projectId,string adminTypeId)=>
         projectId==Platform.YzProjectId&&Platform.YzAdminTypes.Any(item=>item.Id==adminTypeId);

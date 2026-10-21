@@ -35,7 +35,7 @@ public static partial class PrincipalRolePolicy
         var permissions=new HashSet<string>(StringComparer.Ordinal);var grantedMenus=new HashSet<string>(StringComparer.Ordinal);var grantedButtons=new HashSet<string>(StringComparer.Ordinal);
         if (super)
         {
-            foreach(var page in pages.Values)foreach(var action in PageActions(page))permissions.Add(page.Id+":"+action);
+            foreach(var page in pages.Values)foreach(var action in PageActions(page).Intersect(PageActions(publishedPages[page.Id]),StringComparer.Ordinal))permissions.Add(page.Id+":"+action);
             grantedMenus.UnionWith(menus);grantedButtons.UnionWith(buttons);
         }
         // 保留单次授权表读取，不增加逐页面/菜单查询；仅实际同后台角色的已发布资源参与聚合。
@@ -46,7 +46,7 @@ public static partial class PrincipalRolePolicy
             var menu=SqlRowStore.Text(row,"config_menu_id");if(menus.Contains(menu))grantedMenus.Add(menu);
             var button=SqlRowStore.Text(row,"config_button_id");if(buttons.Contains(button))grantedButtons.Add(button);
             var pageId=SqlRowStore.Text(row,"config_page_id");if(!pages.TryGetValue(pageId,out var definition))continue;
-            var enabled=PageActions(definition);
+            var enabled=PageActions(definition);enabled.IntersectWith(PageActions(publishedPages[pageId]));
             foreach(var action in PermissionValues(SqlRowStore.Text(row,"permission_values")))
             {
                 if(!enabled.Contains(action))continue;var key=pageId+":"+action;permissions.Add(key);
@@ -54,16 +54,9 @@ public static partial class PrincipalRolePolicy
                 (scopeRoleIds.Contains(SqlRowStore.Text(row,"yz_role_id"))?scopedGrants:unrestrictedGrants).Add(key);
             }
         }
-        var exactPermissions=new HashSet<string>(StringComparer.Ordinal);
-        if(!super)
-        foreach(var page in pages.Values)
-        foreach(var action in PageActions(page))
-        {
-            var key=page.Id+":"+action;var all=page.Id+":is_all";
-            // is_all是当前动作的另一条有效来源；任一普通角色确实授予当前动作即可解除精确限制。
-            if((scopedGrants.Contains(key)||scopedGrants.Contains(all))&&!unrestrictedGrants.Contains(key)&&!unrestrictedGrants.Contains(all))exactPermissions.Add(key);
-        }
-        var match=exactPermissions.Count==0?(Field:"",Value:(System.Text.Json.JsonElement?)null):ExactDataManageIdentity.Capture(admin,account,registry.ExactDataManageManagerField(projectText,adminText));
-        return new(adminText,projectText,super,platformRealm,platform,roleIds,permissions,grantedMenus,grantedButtons){ExactDataManagePermissions=exactPermissions,ExactDataManageMatchField=match.Field,ExactDataManageMatchValue=match.Value};
+        var inherited=ApplyInheritance(pages,publishedPages,catalogs,currentCatalog,permissions,scopedGrants,unrestrictedGrants,super);
+        var exactPermissions=inherited.Exact;
+        var match=exactPermissions.Count==0&&inherited.FileExact.Count==0?(Field:"",Value:(System.Text.Json.JsonElement?)null):ExactDataManageIdentity.Capture(admin,account,registry.ExactDataManageManagerField(projectText,adminText));
+        return new(adminText,projectText,super,platformRealm,platform,roleIds,permissions,grantedMenus,grantedButtons){ExactDataManagePermissions=exactPermissions,InheritedAllPermissions=inherited.InheritedAll,FileQueryPermissions=inherited.FileQueries,FileExactDataManagePermissions=inherited.FileExact,ExactDataManageMatchField=match.Field,ExactDataManageMatchValue=match.Value};
     }
 }

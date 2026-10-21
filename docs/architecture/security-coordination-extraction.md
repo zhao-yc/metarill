@@ -60,3 +60,13 @@ Generation 首次过滤器实际选中 56 项，含 MySql 类但不表示 56 项
 平台固定角色/后台名称的 selection 与 export 用途已由源码 `d6967d96d1464cf3acc10b90cd7d66eca11bb1e4` 接线，正式产物提交为 `e4209a139103d60da43452ec66e63b92cd458b65`，合同说明更新集成点为 `edadf60719907fbc687326889d6f85313a7a5ebf`。两轮 191 个受管文件与归属清单字节稳定，24 个手写 partial 不变，Api Release 零警告/零错误；原角色多值导出仍按原协议输出 ID 数组 JSON 文本，不改成名称拼接。
 
 主仓库 `.local/security-read-uses-generation-integrated.trx` 136/136 与 `.local/security-read-uses-agent-mysql-integrated.trx` 非 RR 182/182 均零跳过。前者包含新增 5 个用途合同，证据是离线真实生成 SQL 和 Excel；新角色选择/导出专项 MySQL case 仍在准备、尚未执行，不能由既有非 RR Agent 实库回归替代。运行前已只读核验共享实例指纹及三条观测权限检查 1142，没有新授权。独立 Host 完整 A 下发和五处平台 Custom 独立宿主门槛仍未关闭；此处只更新平台用途接线状态。
+
+## 继承目录的增量当前读（2026-10-21）
+
+后续继承接线在平台资源适配中补取固定选择列、当前后台页面字段及真实父子关系。只查已发布选择列 ID、当前页 ID 和实际项目范围，空 ID 集合不发送查询；共享安全工程只接收编译后的窄关系，不接收控件 JSON、SQL 或整目录。
+
+本阶段的配置读取顺序为 config_table → config_page → config_column → config_menu → config_page_column → config_child → config_button；所有实际查询继续复用同一当前连接和事务并使用 FOR UPDATE。前序项目/后台预锁及 grant→session→账号→角色→授权仍保留。这里增加了最多三类批量查询，不沿用最初提取阶段“SQL 数量不增加”的结论。
+
+固定关系在目录加载时编译，事务内当前关系必须与发布关系、页面归属及开关取交集。新增离线 Reader 回归验证实际重绑会撤销旧继承、不授予未发布目标，恢复原配置后重新生效；原引用身份、同 Session/事务缓存证明继续验证。普通查询和文件来源分别聚合，文件排除选择引用来源。
+
+此前归档冻结上的 MySQL/RR 成绩保持历史证据，本次未重授锁观测权限，新增配置锁和全部继承组合的 RR/性能结论仍须单独验证。正式完整包的顺序 Web/MySQL 场景不替代该并发门槛。

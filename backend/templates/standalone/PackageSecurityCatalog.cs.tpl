@@ -19,6 +19,7 @@ internal sealed class VerifiedPackageSecurityCatalog
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private readonly byte[] frozen;
     private readonly MetadataCatalog catalog;
+    private readonly IReadOnlyList<PagePermissionInheritanceLink> inheritance;
     internal object Generation {get;}=new();
     internal string ProjectId=>catalog.YzProjectId;
     internal string ProjectName=>catalog.YzProjectName;
@@ -35,6 +36,7 @@ internal sealed class VerifiedPackageSecurityCatalog
         catch(DecoderFallbackException){throw new InvalidOperationException("应用固定目录必须是规范UTF8/LF。");}
         catalog=Clone();MetadataValidation.Validate(catalog);
         if(!Positive(ProjectId)||catalog.YzAdminTypes.Any(admin=>!Positive(admin.Id)||admin.YzProjectId!=ProjectId))throw new InvalidOperationException("应用固定目录的项目或后台归属无效。");
+        inheritance=PagePermissionInheritance.Compile(catalog);
         PublishedCatalogs=Array.AsReadOnly(new[]{ProjectResources(null)});
     }
     /// <summary>固定文件路径有大小上限，启动只读取一次；不读取自报摘要或热重载配置。</summary>
@@ -71,7 +73,8 @@ internal sealed class VerifiedPackageSecurityCatalog
                 page.IsExport==1||page.Extra.TryGetValue("exportMethod",out var export)&&export.ToString() is "list" or "edit",page.IsCopy==1,page.IsImport==1||page.Extra.TryGetValue("importMethod",out var import)&&!string.IsNullOrWhiteSpace(import.ToString()))).ToArray()),
             Array.AsReadOnly(catalog.ConfigMenus.Where(menu=>menu.YzProjectId==ProjectId&&(admin is null||menu.YzAdminTypeId==admin)).Select(menu=>new SecurityMenuResource(menu.Id,menu.YzProjectId,menu.YzAdminTypeId)).ToArray()),
             Array.AsReadOnly(catalog.ConfigButtons.Where(button=>button.ValueKind==JsonValueKind.Object&&button.TryGetProperty("id",out _)&&button.TryGetProperty("configPageId",out var page)&&ids.Contains(page.ToString()))
-                .Select(button=>new SecurityButtonResource(button.GetProperty("id").ToString(),button.GetProperty("configPageId").ToString())).ToArray()));
+                .Select(button=>new SecurityButtonResource(button.GetProperty("id").ToString(),button.GetProperty("configPageId").ToString())).ToArray()))
+        {Inheritance=Array.AsReadOnly(inheritance.Where(link=>ids.Contains(link.SourcePageId)&&ids.Contains(link.TargetPageId)).ToArray())};
     }
     /// <summary>菜单引用只来自冻结完整目录，不按发布投影缺失推断无引用。</summary>
     internal bool HasMenus(string admin)=>catalog.ConfigMenus.Any(menu=>menu.YzProjectId==ProjectId&&menu.YzAdminTypeId==admin);

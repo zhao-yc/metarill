@@ -24,6 +24,7 @@ internal static class ExactDataManageMySqlProbe
         catalog.YzAdminTypes.Single(admin=>admin.Id==page.YzAdminTypeId).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
         var name=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName=="name");
         foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101"&&field.ConfigColumnId==name.Id))field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        InheritedFilePermissionMySqlProbe.Configure(catalog);
     }
     /// <summary>所有安全行及记录都属于外层已验证租约；finally恢复既有流程所需状态，原失败由外层保留。</summary>
     internal static async Task VerifyAsync(HttpClient ordinary,HttpClient super,DatabaseSession session,MetadataCatalog catalog,MetadataCatalog files,SqlRowStore security,long role,long manager,long permission,long readableFile)
@@ -38,10 +39,14 @@ internal static class ExactDataManageMySqlProbe
             await FreshWebHttp.SendAsync(super,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(a),name=nameA});await FreshWebHttp.SendAsync(super,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(b),name=nameB});
             // 新应用只靠已发布元数据，不手工补写后台匹配字段。
             await security.UpdateAsync("yz_role",role,Row("is_scope",1));await security.UpdateAsync("yz_role_permission",permission,Row("permission_values","[\"is_all\"]"));
+            // 普通角色只授其它页不解除来源精确限制；目标页自己的新范围不干扰原导出显示。
+            await security.InsertAsync("yz_role",Row("id",normalRole,"yz_project_id",54L,"yz_admin_type_id",5L,"name",prefix,"is_super",0,"is_scope",0,"is_built_in",0));createdRole=true;
+            await security.InsertAsync("yz_role_permission",Row("id",normalPermission,"yz_role_id",normalRole,"yz_project_id",54L,"config_page_id",101L,"permission_values","[]"));createdPermission=true;
+            await security.UpdateAsync("yz_manager",manager,Row("yz_role_ids",JsonSerializer.Serialize(new[]{Text(role),Text(normalRole)})));
             // 导出关系名称仍经真实目标页权限，不能因专项范围测试绕过原依赖。
             foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId!="1"))
             {
-                var key=ids.NextId();await security.InsertAsync("yz_role_permission",Row("id",key,"yz_role_id",role,"yz_project_id",54L,"config_page_id",long.Parse(page.Id,CultureInfo.InvariantCulture),"permission_values","[\"is_query\"]"));extraPermissions.Add(key);
+                var key=ids.NextId();await security.InsertAsync("yz_role_permission",Row("id",key,"yz_role_id",normalRole,"yz_project_id",54L,"config_page_id",long.Parse(page.Id,CultureInfo.InvariantCulture),"permission_values","[\"is_query\"]"));extraPermissions.Add(key);
             }
             stage="scalar-read-file";await Match(nameA);await Page(1);await Detail(a,true);await Detail(b,false);await File(true);await FileList(true);Assert.Equal(new[]{nameA},await Export());
             stage="array-pagination";await Match(JsonSerializer.Serialize(new[]{nameA,nameB}));var first=await Page(2,1,1);var second=await Page(2,2,1);Assert.Equal(new[]{Text(a),Text(b)}.Order(StringComparer.Ordinal),first.Concat(second).Order(StringComparer.Ordinal));await File(true);
@@ -51,9 +56,7 @@ internal static class ExactDataManageMySqlProbe
             foreach(var value in new[]{"[{}]","["}){await Match(value);await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/page",Request(),HttpStatusCode.BadRequest);await File(false);}
             stage="literal-value";await Match("missing' OR 1=1 --");await Page(0);await File(false);
             stage="mixed-query";await Match(nameA);
-            await security.InsertAsync("yz_role",Row("id",normalRole,"yz_project_id",54L,"yz_admin_type_id",5L,"name",prefix,"is_super",0,"is_scope",0,"is_built_in",0));createdRole=true;
-            await security.InsertAsync("yz_role_permission",Row("id",normalPermission,"yz_role_id",normalRole,"yz_project_id",54L,"config_page_id",101L,"permission_values","[\"is_query\"]"));createdPermission=true;
-            await security.UpdateAsync("yz_manager",manager,Row("yz_role_ids",JsonSerializer.Serialize(new[]{Text(role),Text(normalRole)})));await Page(2);Assert.Equal(new[]{nameA},await Export());await File(true);
+            await Normal("[\"is_query\"]");await Page(2);Assert.Equal(new[]{nameA},await Export());await File(true);
             stage="mixed-export";await Normal("[\"is_export\"]");await Page(1);Assert.Equal(new[]{nameA,nameB}.Order(StringComparer.Ordinal),(await Export()).Order(StringComparer.Ordinal));
             stage="mixed-update";await Normal("[\"is_update\"]");await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(b),status=2});Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(table,Row("id",b))),"status"));await Detail(b,false);
             stage="scoped-update-reject";await Normal("[]");await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(b),status=1},HttpStatusCode.InternalServerError);Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(table,Row("id",b))),"status"));
@@ -70,6 +73,7 @@ internal static class ExactDataManageMySqlProbe
             Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(table,Row("id",a))),"status"));Assert.Single(await business.ReadAsync(table,Row("name",nameA)));
             stage="next-request-role-and-value";await Normal("[]");await Match(nameB);await Page(1);await File(false);await FileList(false);await Match(nameA);await File(true);
             await security.UpdateAsync("yz_role",role,Row("is_scope",0));await Page(2);await security.UpdateAsync("yz_role",role,Row("is_scope",1));await Page(1);
+            stage="inherited-files";await InheritedFilePermissionMySqlProbe.VerifyAsync(ordinary,super,session,catalog,security,role,manager,normalRole,normalPermission,extraPermissions);
         }
         catch(Exception error){throw new InvalidOperationException("精确管理正式Web/实库阶段失败："+stage,error);}
         finally

@@ -16,7 +16,7 @@ using Xunit;
 
 namespace Metarill.Agent.Tests;
 
-/// <summary>真实协调核心接既有离线SQL传输，证明平台窄适配不改变事务、目录revision或锁序；不代替MySQL/RR。</summary>
+/// <summary>真实协调核心接既有离线SQL传输，证明平台窄适配保持事务与目录revision，并以明确范围补齐继承读取锁序；不代替MySQL/RR。</summary>
 public sealed class SecurityCoordinationExtractionTests
 {
     /// <summary>下沉的是实际Reader与Guard，锁集合、准备状态和工作台Prepare没有新增公共入口。</summary>
@@ -61,7 +61,13 @@ public sealed class SecurityCoordinationExtractionTests
             var clone=snapshot with{};Assert.True(snapshot.Equals(clone));
             Assert.Throws<InvalidOperationException>(()=>RequireLoaded(adapter,f.Session,previous,clone));
             Assert.Throws<InvalidOperationException>(()=>RequireLoaded(new(f.Store,metadata),f.Session,previous,snapshot));
-            Assert.Equal(new[]{"config_table","config_page","config_menu","config_button"},f.Provider.Commands.Select(Table));Assert.All(f.Provider.Commands,sql=>Assert.EndsWith(" FOR UPDATE",sql));
+            // 继承读取补上固定选择列、当前页字段与真实父子行；顺序、范围及原事务证明仍严格检查。
+            Assert.Equal(new[]{"config_table","config_page","config_column","config_menu","config_page_column","config_child","config_button"},f.Provider.Commands.Select(Table));Assert.All(f.Provider.Commands,sql=>Assert.EndsWith(" FOR UPDATE",sql));
+            var columns=f.Provider.Commands.Single(sql=>Table(sql)=="config_column");Assert.Contains("`id` IN (",columns);Assert.Contains("`yz_project_id`=@",columns);
+            var fields=f.Provider.Commands.Single(sql=>Table(sql)=="config_page_column");Assert.Contains("`config_page_id` IN (",fields);Assert.Contains("`yz_project_id`=@",fields);
+            var children=f.Provider.Commands.Single(sql=>Table(sql)=="config_child");Assert.Contains("`parent_config_page_id` IN (",children);Assert.Contains("`yz_project_id`=@",children);
+            var declared=f.Registry.Platform.ConfigColumns.Where(column=>column.ControlKind is "SelectPage" or "MultiSelectPage").Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
+            Assert.All(catalog.ConfigColumns,column=>Assert.Contains(column.Id,declared));Assert.All(catalog.ConfigPageColumns,field=>Assert.Contains(catalog.ConfigPages,page=>page.Id==field.ConfigPageId));
             return true;
         });
         Assert.Throws<InvalidOperationException>(()=>RequireLoaded(adapter,f.Session,previous!,snapshot!));
@@ -70,6 +76,38 @@ public sealed class SecurityCoordinationExtractionTests
             Assert.Throws<InvalidOperationException>(()=>RequireLoaded(adapter,f.Session,previous!,snapshot!));
             Assert.Throws<InvalidOperationException>(()=>RequireLoaded(adapter,f.Session,f.Session.CurrentTransaction!,snapshot!));return Task.FromResult(true);
         });
+    }
+
+    /// <summary>固定关系在加载时编译，锁后必须消费当前覆盖；未发布重绑不能继续借旧源页授权目标。</summary>
+    [Fact]
+    public async Task Current_selection_rebinding_revokes_the_published_inherited_permission()
+    {
+        var boundary=Path.GetFullPath(Path.Combine(Path.GetTempPath(),"metarill-current-inheritance"))+Path.DirectorySeparatorChar;
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(Path.Combine(directory,"metadata"));
+        try
+        {
+            using(var original=new PrincipalRealmFixture())
+            {
+                var catalog=original.Registry.Platform;var table=catalog.ConfigTables.Single(table=>table.TableName=="yz_role");var admin=original.PlatformAdmin;var project=original.PlatformProject;
+                foreach(var id in new[]{"93001","93002","93005"})catalog.ConfigPages.Add(new(){Id=id,Name="当前继承"+id,ConfigTableId=table.Id,YzProjectId=project,YzAdminTypeId=admin});
+                catalog.ConfigColumns.Add(new(){Id="93003",ConfigTableId=table.Id,YzProjectId=project,ColumnName="inheritance_test_id",LogicalType="int64",ControlKind="SelectPage",ControlDetail="{\"pageId\":\"93002\"}"});
+                catalog.ConfigPageColumns.Add(new(){Id="93004",ConfigPageId="93001",ConfigColumnId="93003",YzProjectId=project});
+                var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);await File.WriteAllTextAsync(Path.Combine(directory,"metadata/platform.json"),JsonSerializer.Serialize(catalog,json));await File.WriteAllTextAsync(Path.Combine(directory,"metadata/demo.json"),JsonSerializer.Serialize(original.Registry.Demo,json));
+            }
+            using var f=new PrincipalRealmFixture(super:false,file:Path.Combine(directory,"tests/Fake/Source.cs"));var metadata=new MetadataRepository(f.Store,f.Registry);await metadata.SeedAsync(f.Registry.Platform);
+            f.Add("yz_role_permission",("id",991L),("yz_role_id",10L),("config_page_id",93001L),("permission_values","[\"is_query\"]"));var identity=await f.Identity();Assert.Contains("93002:is_query",identity.Permissions);Assert.DoesNotContain("93002:is_query",identity.FileQueryPermissions!);
+            await f.Session.InTransactionAsync(async()=>
+            {
+                var first=await SecurityRealmCurrentReaderTests.Read(f,identity);Assert.Contains("93002:is_query",first.Permissions);
+                f.Row("config_page_column",93004)["control_detail"]="{\"pageId\":\"93005\"}";
+                var rebound=await SecurityRealmCurrentReaderTests.Read(f,identity);Assert.Contains("93001:is_query",rebound.Permissions);Assert.DoesNotContain("93002:is_query",rebound.Permissions);Assert.DoesNotContain("93005:is_query",rebound.Permissions);Assert.Contains("93002:is_query",first.Permissions);
+                f.Row("config_page_column",93004)["control_detail"]="";var restored=await SecurityRealmCurrentReaderTests.Read(f,identity);Assert.Contains("93002:is_query",restored.Permissions);return true;
+            });
+        }
+        finally
+        {
+            var target=Path.GetFullPath(directory);if(!target.StartsWith(boundary,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("继承测试临时目录越界。");if(Directory.Exists(target))Directory.Delete(target,true);
+        }
     }
 
     /// <summary>错误Session、仓储和grant适配在任何读取前失败，不借另库或另事务上下文取得目录。</summary>

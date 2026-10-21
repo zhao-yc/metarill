@@ -20,7 +20,17 @@ public sealed class HttpRuntimeAuthorization(IHttpContextAccessor accessor,Metad
     {
         RequirePagePermission(pageId,operation);return ExactDataManageIdentity.Resolve(RequireIdentity(),pageId,operation,managerField);
     }
-    public void RequirePagePermission(string pageId,string operation)
+    /// <summary>文件来源查询不接受仅由选择页引用继承的权限。</summary>
+    public void RequireFileSourcePagePermission(string pageId)=>RequirePagePermissionCore(pageId,"detail",true);
+    /// <summary>先校验独立文件来源，再解析该来源自己的精确范围。</summary>
+    public ExactDataManageValues ResolveFileSourceExactDataManage(string pageId,string managerField)
+    {
+        RequireFileSourcePagePermission(pageId);return ExactDataManageIdentity.ResolveFileSource(RequireIdentity(),pageId,managerField);
+    }
+    /// <summary>普通生成页保留原调用，授权用途只由宿主方法选择，不从HTTP接收。</summary>
+    public void RequirePagePermission(string pageId,string operation)=>RequirePagePermissionCore(pageId,operation,false);
+    /// <summary>同一项目/后台及动作检查使用用途对应的真实来源集合。</summary>
+    private void RequirePagePermissionCore(string pageId,string operation,bool fileSource)
     {
         var identity=RequireIdentity();var page=registry.FindPage(pageId)??throw new UnauthorizedAccessException("页面未登记。");
         if(identity.Actor.IsAdministrator)return;
@@ -30,7 +40,8 @@ public sealed class HttpRuntimeAuthorization(IHttpContextAccessor accessor,Metad
         if(table?.Extra.TryGetValue("scopeKind",out var scope)==true&&scope.GetString()=="global")throw new UnauthorizedAccessException("全局目录需要管理员权限。");
         if((!safety&&page.YzProjectId!=identity.Actor.ProjectId)||page.YzProjectId!=identity.PrincipalProjectId||page.YzAdminTypeId!=identity.PrincipalAdminTypeId)throw new UnauthorizedAccessException("无此页面访问权限。");
         var action=operation switch{"list" or "detail" or "count" or "options"=>"is_query","create"=>"is_new","update"=>"is_update","delete"=>"is_delete","export"=>"is_export","copy" or "import"=>"is_all",_=>throw new UnauthorizedAccessException("操作类型无效。")};
-        if(!identity.Permissions.Contains(pageId+":"+action)&&!identity.Permissions.Contains(pageId+":is_all"))throw new UnauthorizedAccessException("无此操作权限。");
+        var permissions=fileSource?identity.FileQueryPermissions??identity.Permissions:identity.Permissions;
+        if(!permissions.Contains(pageId+":"+action)&&!permissions.Contains(pageId+":is_all")&&!(action=="is_all"&&!fileSource&&identity.InheritedAllPermissions.Contains(pageId+":is_all")))throw new UnauthorizedAccessException("无此操作权限。");
     }
     public RuntimeActor RequireAdministrator()
     {

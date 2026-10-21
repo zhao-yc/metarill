@@ -22,7 +22,7 @@ internal static class FileReferenceReadAuthorization
             var physical=registry.PhysicalColumns(catalog,table);
             var fields=physical.Where(column=>column.ControlKind=="FileLibrary"&&catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==column.Id&&Readable(field))).ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);
             if(fields.Count==0)continue;
-            try{authorization.RequirePagePermission(page.Id,"detail");}
+            try{authorization.RequireFileSourcePagePermission(page.Id);}
             catch(Exception denied)when(denied is UnauthorizedAccessException or SecurityException){continue;}
             IReadOnlyList<FileParentScope> scopes;ExactFileScope? exact;
             try{scopes=FileReferenceScope.Compile(catalog,table,page);exact=ExactScope(catalog,physical,page,authorization);}
@@ -68,7 +68,7 @@ internal static class FileReferenceReadAuthorization
         var field=ExactDataManageValues.Field(Configured(page));if(field.Length==0)return null;
         var column=physical.SingleOrDefault(column=>ExactDataManageValues.Field(column.ColumnName)==field)??throw new NotSupportedException("文件来源页精确范围没有固定物理字段证明。");
         var admin=catalog.YzAdminTypes.SingleOrDefault(admin=>admin.Id==page.YzAdminTypeId)??throw new NotSupportedException("文件来源页后台未发布。");
-        var scope=authorization.ResolveExactDataManage(page.Id,"detail",ExactDataManageValues.Field(Configured(admin)));
+        var scope=authorization.ResolveFileSourceExactDataManage(page.Id,ExactDataManageValues.Field(Configured(admin)));
         return scope.IsRequired?new(column,scope.ReadLogical(column.LogicalType)):null;
         /// <summary>损坏声明不能静默解释为未配置。</summary>
         static string Configured(MetadataRecord record)=>!record.Extra.TryGetValue("exactDataManageMatchField",out var value)||value.ValueKind==JsonValueKind.Null?"":value.ValueKind==JsonValueKind.String?value.GetString()??"":throw new NotSupportedException("精确管理字段声明无效。");

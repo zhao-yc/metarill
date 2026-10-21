@@ -13,6 +13,12 @@ public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<strin
     /// <summary>本次真实认证的逐动作范围决策，不输出到HTTP或会话持久化，后续记录计划必须显式消费。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlySet<string> ExactDataManagePermissions {get;init;}=new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>继承的全功能来源只供复制/导入使用，不能绕过来源页标准动作开关。</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public IReadOnlySet<string> InheritedAllPermissions {get;init;}=new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>文件来源仅聚合直接/真实父子查询；null兼容旧直接页身份，正式认证始终提供独立集合。</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public IReadOnlySet<string>? FileQueryPermissions {get;init;}
+    /// <summary>独立保留文件来源查询的范围决策，不能借选择页普通角色取消限制。</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public IReadOnlySet<string>? FileExactDataManagePermissions {get;init;}
     /// <summary>真实后台仅声明一项账号匹配值，永不参与HTTP或会话序列化。</summary>
     [System.Text.Json.Serialization.JsonIgnore] public string ExactDataManageMatchField {get;init;}="";
     [System.Text.Json.Serialization.JsonIgnore] public System.Text.Json.JsonElement? ExactDataManageMatchValue {get;init;}
@@ -60,7 +66,7 @@ public sealed class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISe
         }
         else if(grantId is not null)return null;
         var actor=new RuntimeActor(SqlRowStore.Id(account),SqlRowStore.Text(account,"name"),realm.IsPlatformAdministrator,project,realm.AdminTypeId);
-        return new(actor,realm.Permissions,SqlRowStore.Id(session),grantId){PrincipalAdminTypeId=realm.AdminTypeId,PrincipalProjectId=realm.ProjectId,IsRealmSuper=realm.IsSuper,ExactDataManagePermissions=realm.ExactDataManagePermissions,ExactDataManageMatchField=realm.ExactDataManageMatchField,ExactDataManageMatchValue=realm.ExactDataManageMatchValue,MenuIds=realm.MenuIds,ButtonIds=realm.ButtonIds};
+        return new(actor,realm.Permissions,SqlRowStore.Id(session),grantId){PrincipalAdminTypeId=realm.AdminTypeId,PrincipalProjectId=realm.ProjectId,IsRealmSuper=realm.IsSuper,ExactDataManagePermissions=realm.ExactDataManagePermissions,InheritedAllPermissions=realm.InheritedAllPermissions,FileQueryPermissions=realm.FileQueryPermissions,FileExactDataManagePermissions=realm.FileExactDataManagePermissions,ExactDataManageMatchField=realm.ExactDataManageMatchField,ExactDataManageMatchValue=realm.ExactDataManageMatchValue,MenuIds=realm.MenuIds,ButtonIds=realm.ButtonIds};
     }
     /// <summary>有效期与登录起止时间在每次请求重新检查，停用立即生效。</summary>
     public static bool AccountActive(IReadOnlyDictionary<string,object?> account)

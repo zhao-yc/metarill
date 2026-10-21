@@ -21,7 +21,7 @@ public sealed partial class MetadataRepository
             throw new InvalidOperationException("安全元数据仓储必须使用同一当前连接及事务。");
     }
 
-    /// <summary>只在已预锁项目/后台的当前事务读取安全目录；不读取连接、字段明细或整项目配置。</summary>
+    /// <summary>只在已预锁项目/后台的当前事务读取安全目录；补取继承所需配置后只向共享认证投影窄关系，不读取连接或整项目配置。</summary>
     internal async Task<MetadataCatalog> LoadRealmForUpdateAsync(long projectId,long adminId,CancellationToken token)
     {
         if(store.Session.CurrentTransaction is null)throw new InvalidOperationException("安全目录当前读必须加入写入事务。");
@@ -31,13 +31,19 @@ public sealed partial class MetadataRepository
         var realm=new Dictionary<string,object?>{{"yz_project_id",projectId},{"yz_admin_type_id",adminId}};
         var tables=await store.ReadForUpdateByIdsAsync("config_table","id",tableIds,project,token);
         var pages=await store.ReadForUpdateAsync("config_page",realm,token);
+        // 只锁已发布选择列及当前后台页的引用，不从任意新字段授予继承。
+        var selectionIds=catalogs.SelectMany(catalog=>catalog.ConfigColumns).Where(column=>column.ControlKind is "SelectPage" or "MultiSelectPage").Select(column=>long.Parse(column.Id,System.Globalization.CultureInfo.InvariantCulture)).Distinct().ToArray();
+        var columns=await store.ReadForUpdateByIdsAsync("config_column","id",selectionIds,project,token);
         var menus=await store.ReadForUpdateAsync("config_menu",realm,token);
         if(pages.Count>1000||menus.Count>1000)throw new InvalidOperationException("安全目录超过1000项，请拆分后台配置后重试。");
         var pageIds=pages.Select(row=>SqlRowStore.Id(row)).Distinct().ToArray();
+        var fields=await store.ReadForUpdateByIdsAsync("config_page_column","config_page_id",pageIds,project,token);
+        var children=await store.ReadForUpdateByIdsAsync("config_child","parent_config_page_id",pageIds,project,token);
+        if(fields.Count>50000||children.Count>10000)throw new InvalidOperationException("安全继承目录超过容量，请缩小后台配置后重试。");
         var buttons=await store.ReadForUpdateByIdsAsync("config_button","config_page_id",pageIds,project,token);
         if(buttons.Count>5000)throw new InvalidOperationException("安全按钮目录超过5000项，请缩小后台配置后重试。");
         return new(){YzProjectId=projectId.ToString(System.Globalization.CultureInfo.InvariantCulture),ConfigTables=tables.Select(DecodeRow<TableMetadata>).ToList(),
-            ConfigPages=pages.Select(DecodeRow<PageMetadata>).ToList(),ConfigMenus=menus.Select(DecodeRow<MenuMetadata>).ToList(),ConfigButtons=buttons.Select(DecodeRow<JsonElement>).ToList()};
+            ConfigPages=pages.Select(DecodeRow<PageMetadata>).ToList(),ConfigColumns=columns.Select(DecodeRow<ColumnMetadata>).ToList(),ConfigPageColumns=fields.Select(DecodeRow<PageColumnMetadata>).ToList(),ConfigChildren=children.Select(DecodeRow<JsonElement>).ToList(),ConfigMenus=menus.Select(DecodeRow<MenuMetadata>).ToList(),ConfigButtons=buttons.Select(DecodeRow<JsonElement>).ToList()};
     }
 
     /// <summary>当前读与普通元数据加载使用相同物理别名和页面开关解释，避免授权分叉。</summary>

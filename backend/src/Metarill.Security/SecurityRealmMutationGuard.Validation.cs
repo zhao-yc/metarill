@@ -17,7 +17,7 @@ public sealed partial class SecurityRealmMutationGuard
         EnsureEnabled(page,operation);
         if(identity.IsRealmSuper)return;
         var action=Action(operation);
-        if(!identity.Permissions.Contains(page.Id+":"+action)&&!identity.Permissions.Contains(page.Id+":is_all"))throw new UnauthorizedAccessException("缺少安全源页的当前操作权限。");
+        if(!identity.Permissions.Contains(page.Id+":"+action)&&!identity.Permissions.Contains(page.Id+":is_all")&&!(action=="is_all"&&identity.InheritedAllPermissions.Contains(page.Id+":is_all")))throw new UnauthorizedAccessException("缺少安全源页的当前操作权限。");
     }
     /// <summary>角色标准写原本就调用PermissionAccess；账号和后台路径不能复用此同后台角色约束。</summary>
     private void RequireRoleAction(SecurityCurrentPrincipal current,long targetAdmin,string action)

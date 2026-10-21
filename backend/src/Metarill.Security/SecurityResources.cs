@@ -1,3 +1,5 @@
+using Metarill.Core.Metadata;
+
 namespace Metarill.Runtime.Security;
 
 /// <summary>宿主提供认证所需的窄发布声明，不包含连接、SQL或平台编辑能力。</summary>
@@ -12,7 +14,11 @@ public interface ISecurityResourceRegistry
 
 /// <summary>普通认证和锁后决策共用的窄资源投影；调用方负责使用正确的已发布或当前读来源。</summary>
 public sealed record SecurityResourceCatalog(string ProjectId,IReadOnlyList<SecurityTableResource> Tables,
-    IReadOnlyList<SecurityPageResource> Pages,IReadOnlyList<SecurityMenuResource> Menus,IReadOnlyList<SecurityButtonResource> Buttons);
+    IReadOnlyList<SecurityPageResource> Pages,IReadOnlyList<SecurityMenuResource> Menus,IReadOnlyList<SecurityButtonResource> Buttons)
+{
+    /// <summary>仅宿主从可信目录编译的同后台关系；旧宿主未声明时不提供继承。</summary>
+    public IReadOnlyList<PagePermissionInheritanceLink> Inheritance {get;init;}=[];
+}
 
 /// <summary>表身份只用于与已发布物理表交集，不携带字段、连接或查询定义。</summary>
 public sealed record SecurityTableResource(string Id,string TableName);
