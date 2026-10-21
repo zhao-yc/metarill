@@ -87,3 +87,11 @@ metarill update recover --target E:\应用 --transaction active中的事务ID --
 生成器现将原 List 控件及页级覆盖中的常量条件编译到固定 Service；新增、复制、明确更新及导入共用实际候选范围。已有使用该配置的项目应由同版工具生成完整候选，通过原助手一起更新 Core/Metadata/FixedConditionPlan、Core/Contracts/ExactNumericValue、Data/Queries/FixedConditionSqlPlan 与生成 Service，再构建宿主验证；不能只复制新 Service，也不应删除其它条件的拒绝检查。原手写 partial、前端及更新路径策略不变，无 SQL 或物理结构迁移。普通项目无该配置时应保持再生成逐字稳定。
 
 本轮正式生成包验证旧候选与写入协议、默认/钩子/复制、导入回滚和物理目标父依赖。页面扩展 WhereSql、表单/账号变量、单选/多选额外范围和原浏览器仍须完整接入或验收，不能按本节宣称全部条件已支持。
+
+## 本对象表单依赖的配套更新（2026-10-21）
+
+使用List联动条件的工程须同版同步Core/Contracts/FixedConditionFormValue、R、RelationOptionsRequest及Data/Queries/FixedConditionSqlPlan，再更新生成Service/Controller并构建。新增文件仍在已有单点.cs运行时路径策略内，不放宽任意路径覆盖。原表名缓存和平铺槽由后端兼容，不改前端页面、样式、交互或原生成模板；客户端请求值也不能代替真实写入实体及锁定原记录。
+
+新生成计划包含全部导入依赖、源逻辑类型核验、依赖变更重验和导出名称缓存隔离；不能只替换运行时DLL或删除旧门禁。完整包已验证助手预览/应用、重复应用不变、手写partial保护和包内独立restore/build。无SQL、平台元数据或现有业务表结构迁移。跨对象/账号变量、页面扩展范围及单选/多选附加条件仍按未完成边界处理，真实浏览器、跨端和同条件性能另验。
+
+手写扩展若在更新中修改候选外键、联动依赖或目标父，须登记实际数据库字段名（例如 `submittedFields.Add("allowed")`）；不登记且与锁定原值不同将拒绝保存。仅从提交集合移除字段却保留修改后的实体值，也不能用于其它关联校验。已有正确登记的扩展无需迁移，创建/复制整体插入的语义不变。真实反例已先复现“钩子未登记仍返回成功”，随后在两种存储模式下验证拒绝及正常登记可保存。

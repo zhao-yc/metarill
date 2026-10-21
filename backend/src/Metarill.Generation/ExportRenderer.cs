@@ -42,7 +42,7 @@ internal static class ExportRenderer
         if (!Enabled(page)) return "";
         var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
-        var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField));
+        var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).DistinctBy(column=>column.Source.Id);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
             .AppendLine($"    public async Task<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)")
             .AppendLine("    {")
@@ -94,6 +94,24 @@ internal static class ExportRenderer
                 continue;
             }
             var sourceId = IdExpression(relation.SourceColumn, "entity");
+            if(RelationConditionsCompilation.HasForms(relation))
+            {
+                // 相同FK在不同实际表单依赖下不能借用缓存名称；隐藏依赖不增加导出表头。
+                var fields=relation.Conditions!.Forms.Select(binding=>binding.Column).DistinctBy(column=>column.Source.Id).ToArray();
+                var key=string.Join(", ",fields.Select(column=>"entity."+column.Property));
+                var formScopeAuthorization=relation.ParentBinding?.Binding is not null?", false, false":"";
+                result.AppendLine($"        string CacheKey{name}({table.Name} entity) => JsonSerializer.Serialize(new object?[] {{ TargetParent{name}(entity), {key} }}, JsonOptions);")
+                    .AppendLine($"        foreach(var group{name} in entities.Where(entity=>entity.{name} is not null).GroupBy(CacheKey{name}))")
+                    .AppendLine("        {")
+                    .AppendLine($"            var context{name}=group{name}.First();")
+                    .AppendLine($"            var ids{name}=group{name}.Select(entity=>{sourceId}).Distinct().ToArray();")
+                    .AppendLine($"            var query{name}=await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId,TargetParent{name}(context{name}),actor,cancellationToken{formScopeAuthorization},formValues: {RelationConditionsCompilation.EntityValues(relation,"context"+name)});")
+                    .AppendLine($"            var rows{name}=await query{name}.Where(entity=>ids{name}.Contains(entity.Id)).ToListAsync(entity=>new {{ entity.Id,Name=entity.{relation.NameColumn.Property} }},cancellationToken);")
+                    .AppendLine($"            foreach(var row in rows{name})names{name}[(CacheKey{name}(context{name}),row.Id)]=row.Name;")
+                    .AppendLine("        }");
+                continue;
+            }
+
             // 导出已验证来源export权限；固定绑定只需重新验证目标读取，不额外要求来源list权限。
             var scopeAuthorization = relation.ParentBinding?.Binding is not null ? ", false, false" : "";
             result.AppendLine("        // 按真实目标父分组隔离名称缓存；相同ID不能借用另一父范围的名称。")
@@ -124,7 +142,7 @@ internal static class ExportRenderer
         if (relation is not null)
         {
             var id = IdExpression(column, "entity");
-            return $"{access} is null ? null : names{column.Property}.GetValueOrDefault((TargetParent{column.Property}(entity), {id})) ?? Convert.ToString({access}, CultureInfo.InvariantCulture)";
+            return $"{access} is null ? null : names{column.Property}.GetValueOrDefault(({(RelationConditionsCompilation.HasForms(relation)?"CacheKey":"TargetParent")}{column.Property}(entity), {id})) ?? Convert.ToString({access}, CultureInfo.InvariantCulture)";
         }
         if (column.Type == "long") return access + ".ToString(CultureInfo.InvariantCulture)";
         if (column.Type == "long?") return access + "?.ToString(CultureInfo.InvariantCulture)";

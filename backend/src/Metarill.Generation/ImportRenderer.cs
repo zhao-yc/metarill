@@ -87,7 +87,7 @@ public sealed partial class {{page.Name}}ImportRequest
         if (contextual)
         {
             result.AppendLine("        var relationContext = new Dictionary<string, JsonElement>(StringComparer.Ordinal);");
-            foreach(var parent in dependency.Parents.Values.DistinctBy(parent=>parent.Source.Id))
+            foreach(var parent in dependency.ContextValues)
             {
                 var fallback=string.IsNullOrWhiteSpace(parent.Source.DefaultValue)?$"default({parent.Type})":BackendRenderer.DefaultExpression(parent);
                 var value="existing is null ? "+fallback+" : existing."+parent.Property;
@@ -140,7 +140,7 @@ public sealed partial class {{page.Name}}ImportRequest
                     .AppendLine($"                        throw PageImportException.Input(PageImportError.{ErrorKind(column)}, columnName: {Literal(Header(column))}, inner: error);")
                     .AppendLine("                    }");
             }
-            if(contextual&&dependency.Parents.Values.Any(parent=>parent.Source.Id==column.Source.Id))result.AppendLine($"                    relationContext[{Literal(column.JsonName)}] = values[{Literal(column.JsonName)}];");
+            if(contextual&&dependency.ContextValues.Any(parent=>parent.Source.Id==column.Source.Id))result.AppendLine($"                    relationContext[{Literal(column.JsonName)}] = values[{Literal(column.JsonName)}];");
             result.AppendLine("                    break;").AppendLine("                }");
         }
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
@@ -161,7 +161,7 @@ public sealed partial class {{page.Name}}ImportRequest
             // 来源已按import授权；固定源父/目标父不能混用，名称匹配前先复用目标授权和服务器推导范围。
             // 无效声明同样走固定RejectBound，绝不回退宽查询；普通未绑定关系保持原合同。
             if(mapped is not null)result.AppendLine($"        if (!relationContext.TryGetValue({Literal(mapped.JsonName)}, out var targetParent) || targetParent.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(targetParent.ToString())) throw PageImportException.Input(PageImportError.Relation);");
-            result.AppendLine($"        var query = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(parentId, {(mapped is null?"null":"targetParent.ToString()")}, actor, cancellationToken, false, false);");
+            result.AppendLine($"        var query = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(parentId, {(mapped is null?"null":"targetParent.ToString()")}, actor, cancellationToken, false, false{RelationConditionsCompilation.ImportArgument(relation)});");
         }
         else
         {

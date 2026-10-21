@@ -11,6 +11,9 @@ public sealed record R<T>(int Code, string? Msg, T? Data, Dictionary<string, obj
 
 public sealed class PageRequest
 {
+    /// <summary>保留旧候选的表单槽；普通列表不会将其解释成查询或身份。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public System.Text.Json.JsonElement? FormParameters { get; set; }
     public int PageNo { get; set; } = 1;
     public int PageSize { get; set; } = 20;
     public Dictionary<string, System.Text.Json.JsonElement> Filters { get; set; } = [];

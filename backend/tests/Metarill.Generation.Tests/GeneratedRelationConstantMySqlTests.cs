@@ -1,4 +1,7 @@
 using System.Globalization;
+using ClosedXML.Excel;
+using Metarill.Core.Exports;
+using Metarill.Runtime.Exports;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
@@ -22,7 +25,15 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
 {
     /// <summary>真实生成编译和HTTP/MySQL覆盖常量候选、默认值、钩子、复制、导入与事务回滚，保持旧接口和前端。</summary>
     [StandaloneExportMySqlFact]
-    public async Task Constant_relation_conditions_share_candidate_selected_write_copy_and_import_scope()
+    public Task Constant_relation_conditions_share_candidate_selected_write_copy_and_import_scope()=>RunListConditions(false);
+    /// <summary>原表单槽、最终实体、默认及覆盖导入依赖和真实Excel名称缓存共用固定计划。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Form_relation_conditions_share_real_entity_import_and_export_context()=>RunListConditions(true);
+    /// <summary>非冗余源表使用同一真实表单、导入、导出和锁定链路，不以独立编译代替数据库验证。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Nonredundant_form_relation_conditions_share_real_entity_import_and_export_context()=>RunListConditions(true,true);
+    /// <summary>两类条件分别独占样本，继承原常量、当前读和并发验收，失败回执不改写。</summary>
+    private async Task RunListConditions(bool form,bool nonRedundant=false)
     {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options=settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
@@ -35,7 +46,8 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
             await pinned.OpenAsync();await using var command=pinned.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();
             if(!await reader.ReadAsync()||reader.GetString(0)!=options.ExpectedDatabase||reader.GetString(1)!=pin.RootElement.GetProperty("expectedHostname").GetString()||reader.GetString(2)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("隔离实例pin不符。");
         }
-        var nonce=Guid.NewGuid().ToString("N");var prefix="mt_rc_"+nonce[..12];var catalog=RelationOptionsContractTests.Catalog(prefix);
+        var nonce=Guid.NewGuid().ToString("N");var prefix=(form?"mt_rf_":"mt_rc_")+nonce[..12];var catalog=RelationOptionsContractTests.Catalog(prefix);
+        if(nonRedundant)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
         var source=catalog.ConfigPages.Single(page=>page.Id=="201");source.IsCopy=1;source.IsImport=1;
         catalog.ConfigColumns.Single(column=>column.Id=="22").Name="记录名";
         var foreign=catalog.ConfigColumns.Single(column=>column.Id=="25");foreign.Name="目标";foreign.DefaultValue=(First+2).ToString(CultureInfo.InvariantCulture);
@@ -45,7 +57,21 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
         catalog.ConfigPageColumns.AddRange([new(){Id="20222",ConfigPageId="202",ConfigColumnId="22"},new(){Id="20225",ConfigPageId="202",ConfigColumnId="25"},new(){Id="20226",ConfigPageId="202",ConfigColumnId="26"}]);
         catalog.ConfigColumns.Single(column=>column.Id=="26").Name="父ID";
         foreign.SortNo=-5;catalog.ConfigColumns.Single(column=>column.Id=="26").SortNo=5;
-        var evidence=Path.Combine(repository,".local/fixed-conditions/constant-mysql-"+nonce);Directory.CreateDirectory(evidence);
+        var sourceCamel=Pascal(prefix+"_source");sourceCamel=char.ToLowerInvariant(sourceCamel[0])+sourceCamel[1..];
+        if(form)
+        {
+            catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-10;
+            catalog.ConfigColumns.AddRange([new(){Id="27",ConfigTableId="2",ColumnName="allowed",LogicalType="string",Name="分类",DefaultValue="A AND B, C"},new(){Id="28",ConfigTableId="2",ColumnName="minimum",LogicalType="int64",Name="最小ID",DefaultValue=First.ToString(CultureInfo.InvariantCulture)}]);
+            foreach(var id in new[]{"27","28"})catalog.ConfigColumns.Single(column=>column.Id==id).Extra["isAutoPostBack"]=JsonSerializer.SerializeToElement(1);
+            foreach(var pageId in new[]{"203","204"})
+            {
+                var page=new Metarill.Core.Metadata.PageMetadata{Id=pageId,ConfigTableId="2",Name="表单联动",WhereSql=source.WhereSql,IsImport=1,IsCopy=1,IsExport=pageId=="203"?1:0};
+                if(pageId=="204")page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");catalog.ConfigPages.Add(page);
+                foreach(var fieldId in new[]{"22","25","27","28"})catalog.ConfigPageColumns.Add(new(){Id=pageId+fieldId,ConfigPageId=pageId,ConfigColumnId=fieldId,IsShow=fieldId is "27" or "28"?0:1});
+                catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==pageId&&field.ConfigColumnId=="25").Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=$"parent_id=@parentId AND yz_project_id=@current_yz_project_id AND alias=@formParameters.{sourceCamel}.allowed AND id>=@formParameters.minimum AND name LIKE '允许%'"}));
+            }
+        }
+        var evidence=Path.Combine(repository,(form?".local/form-conditions/form-mysql-":".local/fixed-conditions/constant-mysql-")+nonce);Directory.CreateDirectory(evidence);
         await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,names=catalog.ConfigTables.Select(table=>table.TableName),instancePinned=true,verified=false}));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-relation-constant-mysql");var directory=Path.Combine(boundary,nonce);
         WebApplication? app=null;var created=false;var verified=false;
@@ -58,6 +84,7 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
             // 已存在的失败关系只用于验证复制必须重新检查，不能因为原记录可读就绕过候选。
             await Execute(session,"INSERT INTO "+session.Provider.QuoteIdentifier(prefix+"_source")+" (id,name,yz_project_id,parent_id,target_id) VALUES (@id,'旧不合法关系',@project,@parent,@target)",("id",First+9000),("project",Project),("parent",Parent),("target",First+2));
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ConstantMySql");
+            var formHook=form?"if(entity.Name==\"联动钩子\"||entity.Name==\"联动登记\"){entity.Allowed=\"别的分类\";submittedFields.Add(\"allowed\");} if(entity.Name==\"联动未登记\"){entity.Allowed=\"别的分类\";} if(entity.Name==\"联动未登记外键\"){entity.TargetId="+(First+2).ToString(CultureInfo.InvariantCulture)+"L;}":"";
             await File.WriteAllTextAsync(Path.Combine(directory,"ConstantHook.cs"),$$"""
 using Metarill.Core.Security;
 namespace Example.ConstantMySql.Generated.Services;
@@ -70,6 +97,7 @@ public partial class {{Pascal(prefix+"_source")}}Service
         {
             entity.TargetId={{First+2}}L;submittedFields.Add("target_id");
         }
+        {{formHook}}
     }
 }
 """);
@@ -77,6 +105,7 @@ public partial class {{Pascal(prefix+"_source")}}Service
             var builder=WebApplication.CreateBuilder(new WebApplicationOptions{EnvironmentName="Development"});builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:"+port);
             var snapshotGuard=new ConstantSnapshotGuard(options,prefix);var pauseObserver=new ConstantPauseObserver();
             builder.Services.AddSingleton<IRecordMutationGuard>(snapshotGuard);builder.Services.AddSingleton<IRecordMutationObserver>(pauseObserver);
+            var exports=new ExcelPageExportService(new ExportOptions{RootDirectory=Path.Combine(directory,"private-exports"),MaxRows=100});builder.Services.AddSingleton<IPageExportService>(exports);
             builder.Services.AddHttpContextAccessor();builder.Services.AddSingleton(session);builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(859));
             builder.Services.AddScoped<IRuntimeAuthorization>(provider=>new ConstantAuthorization(provider.GetRequiredService<IHttpContextAccessor>()));
             assembly.GetType("Example.ConstantMySql.Generated.GeneratedRegistration",true)!.GetMethod("AddGeneratedServices")!.Invoke(null,[builder.Services,null]);
@@ -123,6 +152,50 @@ public partial class {{Pascal(prefix+"_source")}}Service
             Assert.Equal(200,(await Send(independentPage+"/importDatas202",new{requestJson=new[]{new Dictionary<string,object?>{{"目标","允许乙"},{"父ID",Parent.ToString()},{"记录名","乱序合法导入"}}}})).GetProperty("code").GetInt32());
             var independentCount=await Count();Assert.Equal(500,(await Send(independentPage+"/importDatas202",new{requestJson=new[]{new Dictionary<string,object?>{{"目标","允许乙"},{"父ID",(Parent+1).ToString()},{"记录名","错误父导入"}}}})).GetProperty("code").GetInt32());Assert.Equal(independentCount,await Count());
             client.DefaultRequestHeaders.Remove("denyTarget");
+            if(form)
+            {
+                var formPage="/api/admin/auto/"+prefix+"_source/203";var formOptions=formPage+"/findNameIdTarget25";
+                var values=new Dictionary<string,object?>{{sourceCamel,new{allowed="A AND B, C"}},{"minimum",First.ToString()},{"current_yz_project_id",(Project+1).ToString()},{"sql","1=1"}};
+                var candidates=Data(await Send(formOptions,new{parentId=Parent.ToString(),formParameters=values})).EnumerateArray().ToArray();Assert.Equal(new[]{First.ToString(),(First+1).ToString()},candidates.Select(Id).Order());
+                Assert.Equal("2",Data(await Send(formOptions+"/page",new{parentId=Parent.ToString(),formParameters=values,pageSize=1})).GetProperty("total").ToString());
+                foreach(var originalSlot in new object[]{new Dictionary<string,object?>{{sourceCamel,new{allowed="A AND B, C",minimum=First.ToString()}}},new{allowed="A AND B, C",minimum=First.ToString()}})
+                    Assert.Equal(2,Data(await Send(formOptions,new{parentId=Parent.ToString(),formParameters=originalSlot})).GetArrayLength());
+                Assert.Single(Data(await Send(formOptions,new{parentId=Parent.ToString(),formParameters=values,id=First.ToString()})).EnumerateArray());
+                Assert.Equal(500,(await Send(formOptions+"/selected",new{parentId=Parent.ToString(),formParameters=values,selectedIds=new[]{(First+2).ToString()}})).GetProperty("code").GetInt32());
+                foreach(var invalid in new object?[]{null,new{},new Dictionary<string,object?>{{sourceCamel,new{allowed=new[]{"A"}}},{"minimum",First.ToString()}},new Dictionary<string,object?>{{sourceCamel,new{allowed="A AND B, C"}},{"minimum",JsonSerializer.Deserialize<JsonElement>("1e-100")}}})
+                    Assert.Equal(500,(await Send(formOptions,new{parentId=Parent.ToString(),formParameters=invalid})).GetProperty("code").GetInt32());
+                var injection=new Dictionary<string,object?>{{sourceCamel,new{allowed="%' OR 1=1 --"}},{"minimum",First.ToString()}};
+                Assert.Empty(Data(await Send(formOptions,new{parentId=Parent.ToString(),formParameters=injection})).EnumerateArray());
+                var main=Data(await Send(formPage+"/add?parentId="+Parent,new{name="联动甲",targetId=First.ToString(),allowed="A AND B, C",minimum=First.ToString()}));var mainId=main.GetProperty("id").GetString();
+                // 未登记的手写变化不持久化，不能拿它验证另一字段后留下不匹配的实际记录。
+                Assert.Equal(500,(await Send(formPage+"/update?parentId="+Parent,new{id=mainId,name="联动未登记",targetId=(First+2).ToString()})).GetProperty("code").GetInt32());
+                Assert.Equal(500,(await Send(formPage+"/update?parentId="+Parent,new{id=mainId,name="联动未登记外键",allowed="别的分类"})).GetProperty("code").GetInt32());
+                foreach(var change in new object[]{new{id=mainId,allowed="别的分类"},new{id=mainId,minimum=(First+1).ToString()}})Assert.Equal(500,(await Send(formPage+"/update?parentId="+Parent,change)).GetProperty("code").GetInt32());
+                var unchanged=Data(await Get(formPage+"/detail/"+mainId+"?parentId="+Parent));Assert.Equal("A AND B, C",unchanged.GetProperty("allowed").GetString());Assert.Equal(First.ToString(),unchanged.GetProperty("minimum").GetString());
+                Data(await Send(formPage+"/update?parentId="+Parent,new{id=mainId,name="联动登记",targetId=(First+2).ToString()}));
+                Assert.Equal("别的分类",Data(await Get(formPage+"/detail/"+mainId+"?parentId="+Parent)).GetProperty("allowed").GetString());
+                Data(await Send(formPage+"/update?parentId="+Parent,new{id=mainId,name="联动甲",targetId=First.ToString(),allowed="A AND B, C"}));
+                Data(await Send(formPage+"/add?parentId="+Parent,new{name="联动默认",targetId=First.ToString()}));
+                Data(await Send(formPage+"/add?parentId="+Parent,new{name="联动乙",targetId=(First+2).ToString(),allowed="别的分类"}));
+                var countBeforeHook=await Count();Assert.Equal(500,(await Send(formPage+"/add?parentId="+Parent,new{name="联动钩子",targetId=First.ToString()})).GetProperty("code").GetInt32());Assert.Equal(countBeforeHook,await Count());
+                var shuffled=new[]{new Dictionary<string,object?>{{"目标","允许乙"},{"最小ID",First.ToString()},{"分类","A AND B, C"},{"记录名","乱序联动导入"}}};
+                Assert.Equal(200,(await Send(formPage+"/importDatas203",new{parentId=Parent.ToString(),requestJson=shuffled})).GetProperty("code").GetInt32());
+                var importCount=await Count();Assert.Equal(500,(await Send(formPage+"/importDatas203",new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","首行需回滚"},{"目标","允许甲"},{"分类","A AND B, C"}},new Dictionary<string,object?>{{"目标","允许排除"},{"分类","A AND B, C"},{"记录名","后行越界"}}}})).GetProperty("code").GetInt32());Assert.Equal(importCount,await Count());
+                var overwrite="/api/admin/auto/"+prefix+"_source/204/importDatas204";
+                Assert.Equal(200,(await Send(overwrite,new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","联动甲"},{"目标","允许乙"}}}})).GetProperty("code").GetInt32());
+                Assert.Equal(500,(await Send(overwrite,new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","联动甲"},{"分类","别的分类"}}}})).GetProperty("code").GetInt32());
+                Data(await Send(formPage+"/copy/"+mainId+"?parentId="+Parent,new{}));
+                // 已存在的不同联动上下文共享同一FK，导出不能借用另一组的名称缓存。
+                await Execute(session,"INSERT INTO "+session.Provider.QuoteIdentifier(prefix+"_source")+" (id,name,yz_project_id,parent_id,target_id,allowed,minimum) VALUES (@id,'导出隔离坏',@project,@parent,@target,'别的分类',@minimum)",("id",First+9100),("project",Project),("parent",Parent),("target",First),("minimum",First));
+                var ticket=Data(await Send(formPage+"/initExport",new{parentId=Parent.ToString()})).GetString()!;var download=await exports.OpenDownloadAsync(ticket);
+                using(download.Stream)using(var workbook=new XLWorkbook(download.Stream))
+                {
+                    var sheet=workbook.Worksheet(1);var headers=sheet.Row(1).CellsUsed().ToDictionary(cell=>cell.GetString(),cell=>cell.Address.ColumnNumber);Assert.DoesNotContain("分类",headers.Keys);Assert.DoesNotContain("最小ID",headers.Keys);
+                    var names=sheet.RowsUsed().Skip(1).ToDictionary(row=>row.Cell(headers["记录名"]).GetString()+"#"+row.RowNumber(),row=>row.Cell(headers["目标"]).GetString());
+                    Assert.Equal(First.ToString(),names.Single(pair=>pair.Key.StartsWith("导出隔离坏#",StringComparison.Ordinal)).Value);
+                    Assert.Equal("允许甲",names.Single(pair=>pair.Key.StartsWith("联动默认#",StringComparison.Ordinal)).Value);Assert.Equal("允许排除",names.Single(pair=>pair.Key.StartsWith("联动乙#",StringComparison.Ordinal)).Value);
+                }
+            }
             // RR已建立旧快照后，候选变为合法应按当前读成功；父被删除则必须按当前读拒绝。
             await Execute(session,"UPDATE "+session.Provider.QuoteIdentifier(prefix+"_target")+" SET alias='快照旧值' WHERE id=@id",("id",First));
             snapshotGuard.Mode="candidate-current";Data(await Send(endpoint+"/add?parentId="+Parent,new{name="RR当前合法",targetId=First.ToString()}));
@@ -151,7 +224,7 @@ public partial class {{Pascal(prefix+"_source")}}Service
             Assert.Equal("1",Data(await Send(candidate+"/page",new{parentId=Parent.ToString(),pageSize=10})).GetProperty("total").ToString());
             Assert.Equal(500,(await Send(candidate+"/selected",new{parentId=Parent.ToString(),selectedIds=new[]{First.ToString()}})).GetProperty("code").GetInt32());
             verified=true;
-            await File.WriteAllTextAsync(Path.Combine(evidence,"receipt.json"),JsonSerializer.Serialize(new{nonce,verified=true,generatedCompiled=true,httpExecuted=true,mysqlExecuted=true,constantConditions=true,defaultAndHookChecked=true,parentDependencyUpdateChecked=true,parentDependencyImportChecked=true,copyChecked=true,importBatchRollback=true,repeatableReadCurrentChecked=true,independentLockWaitChecked=true,browserExecuted=false,deviceExecuted=false}));
+            await File.WriteAllTextAsync(Path.Combine(evidence,"receipt.json"),JsonSerializer.Serialize(new{nonce,verified=true,generatedCompiled=true,httpExecuted=true,mysqlExecuted=true,constantConditions=true,formConditions=form,nonRedundant,unmarkedHookChecked=form,registeredHookChecked=form,realExcelExecuted=form,defaultAndHookChecked=true,parentDependencyUpdateChecked=true,parentDependencyImportChecked=true,copyChecked=true,importBatchRollback=true,repeatableReadCurrentChecked=true,independentLockWaitChecked=true,browserExecuted=false,deviceExecuted=false}));
 
             /// <summary>所有读取/写入经过真实HTTP入口，失败时保留TRX而不回显数据库凭据。</summary>
             async Task<JsonElement> Send(string path,object body){using var response=await client.PostAsJsonAsync(path,body);Assert.Equal(HttpStatusCode.OK,response.StatusCode);return await response.Content.ReadFromJsonAsync<JsonElement>();}

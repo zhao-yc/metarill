@@ -37,6 +37,8 @@ public sealed class FixedConditionSqlPlan
         }
         return new(result.AsReadOnly(),Array.AsReadOnly(syntax.Variables.ToArray()));
     }
+    /// <summary>表单依赖先按发布的源字段类型绑定，再由目标条件复核，避免源int32借目标int64放宽范围。</summary>
+    public static object? BindScalar(object? value,string logicalType)=>Scalar(value,Type(logicalType));
     /// <summary>条件总是作为原查询的AND追加，值用命名参数绑定；调用方仍须先建立真实身份和对象范围。</summary>
     public ISelect<T> Apply<T>(ISelect<T> query,DatabaseSession session,IReadOnlyDictionary<string,object?> variables,string parameterPrefix)where T:class
     {

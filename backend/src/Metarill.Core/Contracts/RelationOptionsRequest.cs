@@ -26,10 +26,10 @@ public sealed class RelationOptionsLegacyRequest
         var value = Id.Value;
         if (value is null || value.Value.ValueKind == System.Text.Json.JsonValueKind.Null
             || value.Value.ValueKind == System.Text.Json.JsonValueKind.String && string.IsNullOrWhiteSpace(value.Value.GetString()))
-            return new() { ParentId = ParentId, TargetParentId = TargetParentId };
+            return new() { ParentId = ParentId, TargetParentId = TargetParentId, FormParameters = FormParameters?.Clone() };
         var text = value.Value.ValueKind is System.Text.Json.JsonValueKind.String or System.Text.Json.JsonValueKind.Number ? value.Value.ToString() : null;
         if (!long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number <= 0) throw new ArgumentException("只读关联 ID 必须为正整数文本。");
-        return new() { SelectedIds = [number.ToString(CultureInfo.InvariantCulture)], ParentId = ParentId, TargetParentId = TargetParentId };
+        return new() { SelectedIds = [number.ToString(CultureInfo.InvariantCulture)], ParentId = ParentId, TargetParentId = TargetParentId, FormParameters = FormParameters?.Clone() };
     }
 
     /// <summary>旧入口不解释筛选、排序或已选状态；这些请求必须使用明确的新合同。</summary>
@@ -40,7 +40,7 @@ public sealed class RelationOptionsLegacyRequest
     }
     /// <summary>转为既有 Service 合同，不传递未知配置或扩大查询范围。</summary>
     public PageRequest ToPageRequest()
-    { Validate(); return new PageRequest { ParentId = ParentId, PageNo = PageNo, PageSize = PageSize }; }
+    { Validate(); return new PageRequest { ParentId = ParentId, PageNo = PageNo, PageSize = PageSize, FormParameters = FormParameters?.Clone() }; }
 }
 
 /// <summary>固定关系候选分页，不接受表名、列名、SQL、排序或客户端项目。</summary>
@@ -52,6 +52,9 @@ public sealed class RelationOptionsPageRequest
     public string? Keyword { get; set; }
     public string? ParentId { get; set; }
     public string? TargetParentId { get; set; }
+    /// <summary>沿用原表单槽；只有生成计划声明的叶值进入固定参数。</summary>
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public System.Text.Json.JsonElement? FormParameters { get; set; }
 
     /// <summary>限制单次查询和偏移，关键词始终作为数据进入强类型表达式。</summary>
     public void Validate()
@@ -68,6 +71,9 @@ public sealed class RelationOptionsSelectedRequest
     public List<string> SelectedIds { get; set; } = [];
     public string? ParentId { get; set; }
     public string? TargetParentId { get; set; }
+    /// <summary>已选回读与候选使用同一表单上下文，不扩大行范围。</summary>
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public System.Text.Json.JsonElement? FormParameters { get; set; }
 
     /// <summary>先限制原始数量再去重，不允许表达式、负数或超出整型范围的 ID。</summary>
     public long[] ParseIds()

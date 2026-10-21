@@ -57,7 +57,7 @@ internal static class RelationCompilation
                     ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent")));
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
-            var (scopes, conditions) = RelationConditionsCompilation.Compile(model, target, Mapped("whereSql"));
+            var (scopes, conditions) = RelationConditionsCompilation.Compile(model, owner, page, target, Mapped("whereSql"));
             if (conditions is not null && ForeignValidationRenderer.Target(model,source)?.Source.Id != target.Source.Id)
                 throw new InvalidOperationException("常量候选必须与外键及显示来源的固定目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
