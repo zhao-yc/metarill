@@ -3,6 +3,7 @@ using Xunit;
 
 namespace Metarill.Files.Tests;
 
+[Collection(FilesIntegrationCollection.Name)]
 public sealed class LegacyPublicImportTests
 {
     /// <summary>只有服务端兼容入口公开导入；普通无控件上传计划仍为受保护，失败导入不残留计划。</summary>

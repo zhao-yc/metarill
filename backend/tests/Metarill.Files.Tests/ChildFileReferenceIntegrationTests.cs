@@ -9,6 +9,7 @@ using Xunit;
 namespace Metarill.Files.Tests;
 
 /// <summary>仅Server-200真实MySQL：父子记录、上传与引用共同验证，不把范围解析单测当事务验收。</summary>
+[Collection(FilesIntegrationCollection.Name)]
 public sealed class ChildFileReferenceIntegrationTests
 {
     [FilesIntegrationFact]

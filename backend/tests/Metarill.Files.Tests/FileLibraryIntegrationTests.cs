@@ -7,6 +7,7 @@ using Xunit;
 
 namespace Metarill.Files.Tests;
 
+[Collection(FilesIntegrationCollection.Name)]
 public sealed class FileLibraryIntegrationTests
 {
     /// <summary>旧 isUpdate=0 不能被 IsSave 默认值重新开启文件上传；显式允许后仍使用原真实控件规则。</summary>

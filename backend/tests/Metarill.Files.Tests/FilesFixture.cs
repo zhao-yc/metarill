@@ -138,9 +138,10 @@ internal sealed class FilesFixture : IAsyncDisposable
     /// <summary>清理范围只包含当前fixture创建的唯一ID和随机临时表。</summary>
     public async ValueTask DisposeAsync()
     {
+        var cleaned=false;
         try
         {
-            if (Session is null) return;
+            if (Session is null) {cleaned=true;return;}
             await using var connection = Session.Provider.CreateConnection(Session.Options); await connection.OpenAsync();
             foreach (var id in FileIds)
             {
@@ -149,7 +150,7 @@ internal sealed class FilesFixture : IAsyncDisposable
             }
             foreach (var id in RecordIds) await ExecuteAsync(connection, "DELETE FROM `yz_file_ref` WHERE `record_id`=@id", id);
             foreach (var id in FolderIds) await ExecuteAsync(connection, "DELETE FROM `yz_file_library_folder` WHERE `id`=@id", id);
-            if (string.IsNullOrEmpty(TableName)) return;
+            if (string.IsNullOrEmpty(TableName)) {cleaned=true;return;}
             if (!TableName.StartsWith("mt_test_files_", StringComparison.Ordinal)) throw new InvalidOperationException("临时表清理范围错误。");
             await using var drop = connection.CreateCommand();
             if (createdTables.Contains(TableName)) { drop.CommandText = "DROP TABLE IF EXISTS " + Session.Provider.QuoteIdentifier(TableName); await drop.ExecuteNonQueryAsync(); }
@@ -158,15 +159,35 @@ internal sealed class FilesFixture : IAsyncDisposable
                 if (ParentTableName != TableName + "_parent") throw new InvalidOperationException("父表清理范围错误。");
                 drop.CommandText = "DROP TABLE IF EXISTS " + Session.Provider.QuoteIdentifier(ParentTableName); await drop.ExecuteNonQueryAsync();
             }
+            cleaned=true;
+        }
+        catch(Exception error)
+        {
+            try{await PersistCleanupRecoveryAsync(error);}
+            catch(Exception evidence){throw new AggregateException("测试清理与恢复清单保存同时失败，首因保留。",error,evidence);}
+            throw;
         }
         finally
         {
             Session?.Dispose();
             var local = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), ".local")) + Path.DirectorySeparatorChar;
             var target = Path.GetFullPath(DirectoryPath);
-            if (target.StartsWith(local, StringComparison.OrdinalIgnoreCase) && Directory.Exists(target)) Directory.Delete(target, true);
+            if (cleaned && target.StartsWith(local, StringComparison.OrdinalIgnoreCase) && Directory.Exists(target)) Directory.Delete(target, true);
         }
     }
+    /// <summary>清理失败保留本夹具明确拥有的ID和表名，禁止记录连接串、文件内容或原始SQL异常正文。</summary>
+    private async Task PersistCleanupRecoveryAsync(Exception error)
+    {
+        if(string.IsNullOrEmpty(DirectoryPath))return;
+        var local=Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(),".local"))+Path.DirectorySeparatorChar;
+        var target=Path.GetFullPath(DirectoryPath);
+        if(!target.StartsWith(local,StringComparison.OrdinalIgnoreCase)||!Directory.Exists(target))throw new InvalidOperationException("测试恢复清单目录越界或不存在。");
+        var recovery=new{schemaVersion=1,database=Session.Options.ExpectedDatabase,table=TableName,parentTable=ParentTableName,
+            createdTables=createdTables.Order(StringComparer.Ordinal).ToArray(),fileIds=FileIds.ToArray(),folderIds=FolderIds.ToArray(),recordIds=RecordIds.ToArray(),
+            errorType=error.GetType().FullName,errorNumber=(error as MySqlConnector.MySqlException)?.Number,createdAtUtc=DateTimeOffset.UtcNow};
+        await File.WriteAllTextAsync(Path.Combine(target,"cleanup-recovery.json"),JsonSerializer.Serialize(recovery,new JsonSerializerOptions{WriteIndented=true})+"\n");
+    }
+    /// <summary>只清理列表中明确登记的单个ID，所有值仍通过驱动参数绑定。</summary>
     private static async Task ExecuteAsync(DbConnection connection, string sql, long id)
     {
         await using var command = connection.CreateCommand(); command.CommandText = sql;

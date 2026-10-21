@@ -74,6 +74,7 @@ public sealed class SharedFileModuleTests
     };
 }
 
+[Collection(FilesIntegrationCollection.Name)]
 public sealed class SharedFileModuleIntegrationTests
 {
     [FilesIntegrationFact]

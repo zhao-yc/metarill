@@ -8,6 +8,7 @@ using Xunit;
 namespace Metarill.Files.Tests;
 
 /// <summary>对照原V8文件库真实目录与浏览规则，不把所有权当成项目共享目录或可读文件的唯一边界。</summary>
+[Collection(FilesIntegrationCollection.Name)]
 public sealed class OriginalFileManagementTests
 {
     /// <summary>项目成员看到完整父子树并能整理项目目录；同级重名仍拒绝，不能借显示层级跨项目。</summary>
