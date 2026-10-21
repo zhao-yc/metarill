@@ -3,7 +3,15 @@ using Xunit;
 
 namespace Metarill.Generation.Tests;
 
+/// <summary>子进程生命周期断言独占测试集合，避免无关独立包编译的资源争用改变就绪握手；不放宽超时或生产互斥。</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class BuildProcessLifecycleCollection
+{
+    public const string Name = "构建子进程生命周期隔离";
+}
+
 /// <summary>不启动构建或访问数据库，验证共享源码构建的排队、异常和取消边界。</summary>
+[Collection(BuildProcessLifecycleCollection.Name)]
 public sealed class SharedSourceBuildGateTests
 {
     /// <summary>前一个构建未退出时不能进入第二个构建，普通 CLI 命令仍可立即执行。</summary>
