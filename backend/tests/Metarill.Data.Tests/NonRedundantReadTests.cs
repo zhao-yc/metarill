@@ -63,6 +63,27 @@ public sealed class NonRedundantReadTests
         var reader=new MySqlNonRedundantReader(session);var fields=kind=="name"?new[]{"name"}:new[]{"bill_amount","BILL_AMOUNT"};
         await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadStatisticsAsync(Plan(Catalog("mt_read_root","mt_read_party")),[],fields));
     }
+    /// <summary>匹配终点不能借普通别名转换为凭据、数组或虚拟值。</summary>
+    [Theory]
+    [InlineData("password")][InlineData("file")][InlineData("array")][InlineData("json")][InlineData("virtual")][InlineData("cycle")][InlineData("stringKey")][InlineData("missingOwner")]
+    public void Match_plan_rejects_unproven_terminal_fields(string kind)
+    {
+        var catalog=Catalog("mt_read_root","mt_read_party");var target=catalog.ConfigColumns.Single(column=>column.Id=="22");var field=catalog.ConfigColumns.Single(column=>column.Id=="18");
+        if(kind=="password"){target.ColumnName="password";field.Extra["columnFullName"]=JsonSerializer.SerializeToElement("bill.password");}
+        if(kind=="file")target.ControlKind="FileLibrary";if(kind=="array")target.ControlKind="MultiSelectPage";if(kind=="json")target.LogicalType="json";if(kind=="virtual")target.IsVirtualColumn=1;
+        if(kind=="cycle")field.Extra["columnFullName"]=JsonSerializer.SerializeToElement("parent.grand_label");
+        if(kind=="stringKey")catalog.ConfigColumns.Single(column=>column.Id=="15").LogicalType="string";
+        if(kind=="missingOwner")catalog.ConfigColumns.RemoveAll(column=>column.Id=="23");
+        Assert.ThrowsAny<Exception>(()=>NonRedundantReads.CompileMatch(catalog,"1","grand_label"));
+    }
+    /// <summary>自动名称、跨级路径和小数终点由发布目录固定，不要求客户端提交路径。</summary>
+    [Theory]
+    [InlineData("bill_name","string")][InlineData("grand_label","string")][InlineData("bill_amount","decimal")]
+    public void Match_plan_proves_single_value_paths(string field,string type)
+    {
+        var catalog=Catalog("mt_read_root","mt_read_party");var plan=NonRedundantReads.CompileMatch(catalog,"1",field);Assert.Equal(type,Assert.Single(plan.OutputTypes).Value);
+        catalog.ConfigColumns.Single(column=>column.Id=="22").ControlKind="FileLibrary";Assert.Equal(type,plan.OutputTypes[field]);
+    }
     /// <summary>固定用途字段包含同目标不同角色、自关联与跨级派生。</summary>
     internal static MySqlNonRedundantReadPlan Plan(MetadataCatalog catalog)=>MySqlNonRedundantReadCompiler.Compile(catalog,"1",["id","name","bill_name","ship_name","grand_label","parent_name","bill_amount"]);
     /// <summary>由元数据定义两个隔离实体表，派生名称不注册物理列。</summary>

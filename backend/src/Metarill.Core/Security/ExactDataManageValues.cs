@@ -9,6 +9,10 @@ namespace Metarill.Core.Security;
 public sealed record ExactDataManageValues([property:JsonIgnore] bool IsRequired,[property:JsonIgnore] JsonElement? MatchValue)
 {
     public static ExactDataManageValues Unrestricted {get;}=new(false,null);
+    private static readonly HashSet<string> SensitiveKeys = new(StringComparer.OrdinalIgnoreCase)
+    { "connstring", "connectionstring", "password", "pwd", "dbpassword", "accesskey", "accesskeyid", "accesskeysecret", "secret", "secretkey", "privatekey", "clientsecret", "apitoken", "accesstoken", "refreshtoken", "token", "apikey", "credentials" };
+    /// <summary>发布脱敏和固定匹配计划共用凭据字段判定，间接联接不能绕过相同规则。</summary>
+    public static bool IsSensitiveField(string value)=>SensitiveKeys.Contains(new string(value.Where(char.IsLetterOrDigit).ToArray()));
     /// <summary>单值或原JSON数组按目标列类型转换；空值/空数组不匹配，错误不退化为无限制。</summary>
     public T[] Read<T>()
     {

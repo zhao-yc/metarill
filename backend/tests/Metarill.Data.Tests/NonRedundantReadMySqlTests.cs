@@ -1,4 +1,5 @@
 using System.Globalization;
+using FreeSql.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Metarill.Core.Metadata;
@@ -54,6 +55,7 @@ public sealed class NonRedundantReadMySqlTests
             await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync<int>(async()=>
             {Assert.Equal(1,await store.UpdateAsync(names[1],101,new Dictionary<string,object?>{{"name","事务内名称"},{"amount",30.25m}}));var current=await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Equal,"事务内名称")],[],1,10);Assert.Equal(first,Convert.ToInt64(Assert.Single(current.Records)["id"],CultureInfo.InvariantCulture));Assert.Equal(51m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);throw new InvalidOperationException("读取事务尾部测试故障。");}));
             Assert.Equal(rowsHash,await RowsHash());Assert.Equal(31m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);Assert.Null((await reader.ReadStatisticsAsync(plan,[new("id",FixedReadComparison.Equal,-1L)],["bill_amount"])).Sums["bill_amount"]);Assert.Equal(1,(await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Contains,"%_!")],[],1,10)).Total);
+            await VerifyDerivedLocksAsync(options,catalog,first,second);
             // 编译结果不继续持有可变元数据：修改源名称不能改变已发布的SQL。
             var sourceColumn=catalog.ConfigColumns.Single(column=>column.Id=="22");sourceColumn.ColumnName="not_a_real_column";
             try{Assert.Equal(4,(await reader.ReadPageAsync(plan,[],[],1,20)).Total);}finally{sourceColumn.ColumnName="name";}
@@ -77,6 +79,58 @@ public sealed class NonRedundantReadMySqlTests
         Task Source(long id,string name,long? bill,long? ship,long? parent,bool deleted=false,bool foreign=false)=>store.InsertAsync(names[0],new Dictionary<string,object?>{{"id",id},{"name",name},{"bill_id",bill},{"ship_id",ship},{"parent_id",parent},{"yz_project_id",foreign?project+1:project},{"delete_no",deleted?new DateTime(2026,1,1):null}});
         async Task<string> RowsHash(){var rows=new List<object>();foreach(var name in names)rows.Add((await store.ReadIncludingDeletedAsync(name)).OrderBy(row=>SqlRowStore.Id(row)).ToArray());return Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(rows)));}
         Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,names,instanceVerified=true,fingerprint,rowsHash,verified,cleaned,independentTableAbsenceChecked=cleaned,generatedHttpExecuted=false,browserExecuted=false,grantAttempted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
+    }
+    /// <summary>双连接证明关联锁、无关目标可写、提交释放及RR旧快照不能保留已失效匹配；不申请观测权限。</summary>
+    private static async Task VerifyDerivedLocksAsync(DatabaseOptions options,MetadataCatalog catalog,long first,long second)
+    {
+        using var session=new DatabaseSession(options);var store=new SqlRowStore(session,catalog);var party=catalog.ConfigTables.Single(table=>table.Id=="2").TableName;var source=catalog.ConfigTables.Single(table=>table.Id=="1").TableName;
+        var project=long.Parse(catalog.YzProjectId,CultureInfo.InvariantCulture);var plan=NonRedundantReads.CompileMatch(catalog,"1","bill_name");
+        var originals=(await store.ReadAsync(party)).Where(row=>SqlRowStore.Id(row) is 101 or 102).ToDictionary(row=>SqlRowStore.Id(row),row=>row["name"]);
+        await using var other=new MySqlConnection(options.ConnectionString);await other.OpenAsync();
+        await using(var setup=other.CreateCommand()){setup.CommandText="SET SESSION innodb_lock_wait_timeout=1";await setup.ExecuteNonQueryAsync();}
+        try
+        {
+            Assert.Throws<InvalidOperationException>(()=>ExactDataManageSql.ApplyDerived(Query(),session,plan,"bill_name","mt_lock",[originals[101]],catalog.YzProjectId));
+            await session.InTransactionAsync(async()=>
+            {
+                var query=ExactDataManageSql.ApplyDerived(Query(),session,plan,"bill_name","mt_lock",[originals[101]],catalog.YzProjectId).Where(row=>row.Id==first).ForUpdate();
+                var sql=query.ToSql();Assert.DoesNotContain((string)originals[101]!,sql);Assert.Contains("EXISTS",sql,StringComparison.OrdinalIgnoreCase);
+                Assert.Equal(first,(await query.FirstAsync())!.Id);
+                // 匹配计划只锁bill来源，无关目标必须真实写成功。
+                Assert.Equal(1,await Rename(102,"独立目标仍可修改"));
+                var blocked=await Assert.ThrowsAsync<MySqlException>(()=>Rename(101,"锁期间不得修改"));Assert.Equal(1205,blocked.Number);
+                Assert.Null(await ExactDataManageSql.ApplyDerived(Query(),session,plan,"bill_name","mt_lock",["' OR 1=1 --"],catalog.YzProjectId).Where(row=>row.Id==second).ForUpdate().FirstAsync());
+                Assert.Null(await ExactDataManageSql.ApplyDerived(Query(),session,plan,"bill_name","mt_lock",[],catalog.YzProjectId).Where(row=>row.Id==first).ForUpdate().FirstAsync());return true;
+            });
+            // 跨两级的匹配必须锁住每一级真实目标，不能只锁终点或首个外键。
+            var chained=NonRedundantReads.CompileMatch(catalog,"1","grand_label");
+            await session.InTransactionAsync(async()=>
+            {
+                Assert.Equal(first,(await ExactDataManageSql.ApplyDerived(Query(),session,chained,"grand_label","mt_chain",["独立目标仍可修改"],catalog.YzProjectId).Where(row=>row.Id==first).ForUpdate().FirstAsync())!.Id);
+                foreach(var target in new long[]{101,102}){var blocked=await Assert.ThrowsAsync<MySqlException>(()=>Rename(target,"链路锁期间不得修改"));Assert.Equal(1205,blocked.Number);}return true;
+            });
+            Assert.Equal(1,await Rename(101,"提交后关联已改变"));
+            await session.InTransactionAsync(async()=>
+            {
+                await using(var isolation=session.CurrentTransaction!.Connection!.CreateCommand()){isolation.Transaction=session.CurrentTransaction;isolation.CommandText="SELECT @@transaction_isolation";Assert.Equal("REPEATABLE-READ",await isolation.ExecuteScalarAsync());}
+                var old=await new NonRedundantReader(session).PageAsync(plan,[new("id",FixedReadComparison.Equal,first)],[],1,1);Assert.Equal("提交后关联已改变",Assert.Single(old.Records)["bill_name"]);
+                Assert.Equal(1,await Rename(101,"快照后新匹配"));
+                Assert.Null(await ExactDataManageSql.ApplyDerived(Query(),session,plan,"bill_name","mt_lock",["提交后关联已改变"],catalog.YzProjectId).Where(row=>row.Id==first).ForUpdate().FirstAsync());
+                Assert.Equal(first,(await ExactDataManageSql.ApplyDerived(Query(),session,plan,"bill_name","mt_lock",["快照后新匹配"],catalog.YzProjectId).Where(row=>row.Id==first).ForUpdate().FirstAsync())!.Id);return true;
+            });
+        }
+        finally{foreach(var row in originals)Assert.Equal(1,await Rename(row.Key,(string)row.Value!));}
+        /// <summary>外层保留真实项目及固定主键；随机表名只来自本用例元数据。</summary>
+        FreeSql.ISelect<MatchingRoot> Query()=>session.Select<MatchingRoot>().AsTable((_,_)=>source).Where(row=>row.YzProjectId==project);
+        /// <summary>独立连接只更新本轮自有两条目标，不读取其它库。</summary>
+        async Task<int> Rename(long id,string name){await using var command=other.CreateCommand();command.CommandText="UPDATE "+session.Provider.QuoteIdentifier(party)+" SET name=@name WHERE id=@id";command.Parameters.AddWithValue("name",name);command.Parameters.AddWithValue("id",id);return await command.ExecuteNonQueryAsync();}
+    }
+    /// <summary>仅用于适配层外层映射，业务实体仍由元数据生成。</summary>
+    [Table(DisableSyncStructure=true)]
+    private sealed class MatchingRoot
+    {
+        [Column(Name="id",IsPrimary=true)] public long Id{get;set;}
+        [Column(Name="yz_project_id")] public long YzProjectId{get;set;}
     }
     /// <summary>按测试源码所在clone写入私有收据，不输出凭据。</summary>
     private static string Root([System.Runtime.CompilerServices.CallerFilePath]string file="")=>Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../../.."));

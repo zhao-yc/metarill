@@ -18,6 +18,8 @@ internal static class GeneratedNonRedundantReadCatalog
     private static readonly Metarill.Core.Metadata.MetadataCatalog Snapshot=System.Text.Json.JsonSerializer.Deserialize<Metarill.Core.Metadata.MetadataCatalog>({{Literal(metadata)}},new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
     /// <summary>只在各页静态初始化时调用，普通请求执行已固定的SQL计划。</summary>
     internal static Metarill.Data.Queries.NonRedundantReadPlan Compile(string tableId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.Compile(Snapshot,tableId,outputs,dependencies);
+    /// <summary>匹配字段只编译一次；主记录和实际关联来源由专用写入计划锁定。</summary>
+    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMatch(string tableId,string field)=>Metarill.Data.Queries.NonRedundantReads.CompileMatch(Snapshot,tableId,field);
 }
 
 """;
@@ -59,7 +61,11 @@ internal static class GeneratedNonRedundantReadCatalog
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
         var names=SelectionNameFilterCompilation.ForPage(model,table,page);var nameKeys=names.ConsumedKeys.Concat(names.Gaps.Select(gap=>gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var outputs="new string[]{"+string.Join(",",plan.Outputs.Select(output=>Literal(output.Storage)))+"}";var dependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
-        var result=new StringBuilder().AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
+        var result=new StringBuilder();
+        if(ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true} exact)
+            result.AppendLine("    /// <summary>匹配计划只含当前范围所需路径，避免锁住无关输出关系。</summary>")
+                .AppendLine($"    private static readonly NonRedundantReadPlan ExactReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileMatch({Literal(table.Source.Id)},{Literal(exact.Column.Source.ColumnName)});");
+        result.AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
             .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.Compile({Literal(table.Source.Id)},{outputs},{dependencies});")
             .AppendLine("    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor,string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
         foreach(var (column,source) in fixedQuery.IdentityScopes)

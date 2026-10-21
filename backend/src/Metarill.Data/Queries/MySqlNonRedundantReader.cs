@@ -84,6 +84,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             "int32" when value is string text&&int.TryParse(text,System.Globalization.NumberStyles.Integer,culture,out var number)=>number,
             "decimal" when value is decimal or int or long=>Convert.ToDecimal(value,culture),
             "decimal" when value is string text&&decimal.TryParse(text,System.Globalization.NumberStyles.AllowLeadingSign|System.Globalization.NumberStyles.AllowDecimalPoint,culture,out var number)=>number,
+            "double" when value is double or float or decimal or int or long && double.IsFinite(Convert.ToDouble(value,culture))=>Convert.ToDouble(value,culture),
+            "double" when value is string text&&double.TryParse(text,System.Globalization.NumberStyles.Float,culture,out var real)&&double.IsFinite(real)=>real,
             "string" when value is string=>value,
             "bool" when value is bool=>value,
             "datetime" or "date" when value is DateTime=>value,

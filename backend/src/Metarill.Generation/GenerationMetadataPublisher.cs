@@ -10,8 +10,6 @@ public sealed record PublishedGenerationMetadata(MetadataCatalog Metadata, IRead
 public static class GenerationMetadataPublisher
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
-    private static readonly HashSet<string> SensitiveKeys = new(StringComparer.OrdinalIgnoreCase)
-    { "connstring", "connectionstring", "password", "pwd", "dbpassword", "accesskey", "accesskeyid", "accesskeysecret", "secret", "secretkey", "privatekey", "clientsecret", "apitoken", "accesstoken", "refreshtoken", "token", "apikey", "credentials" };
 
     /// <summary>复制完整元数据后清除敏感配置与密码默认值，字段定义和原始输入保持不变。</summary>
     public static PublishedGenerationMetadata Publish(MetadataCatalog catalog)
@@ -51,8 +49,6 @@ public static class GenerationMetadataPublisher
         else if (node is JsonArray array) for (var i = 0; i < array.Count; i++) if (array[i] is { } item) Scrub(item, path + "[" + i + "]", redactions);
     }
     /// <summary>生成发布和窄范围守卫共用敏感字段名判定，不以可写或查询声明豁免凭据。</summary>
-    internal static bool IsSensitiveKey(string value) => SensitiveKeys.Contains(Normalize(value));
+    internal static bool IsSensitiveKey(string value) => Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value);
 
-    /// <summary>敏感键忽略分隔符，普通字段名与说明不按内容删除。</summary>
-    private static string Normalize(string value) => new(value.Where(char.IsLetterOrDigit).ToArray());
 }

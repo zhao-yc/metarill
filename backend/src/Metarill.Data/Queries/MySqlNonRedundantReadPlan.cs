@@ -34,10 +34,16 @@ public static class MySqlNonRedundantReadCompiler
         var builder=new Builder(catalog,tableId);
         return builder.Compile(outputNames,dependencies??[]);
     }
+    /// <summary>先完整验证目录，再以专用用途编译单一匹配字段；最终物理列必须仍为非凭据标量。</summary>
+    public static MySqlNonRedundantReadPlan CompileMatch(MetadataCatalog catalog,string tableId,string field)
+    {
+        Compile(catalog,tableId,[field]);return new Builder(catalog,tableId,true).Compile([field],[]);
+    }
     /// <summary>构造时消费元数据，最终只保留不可变的表达式文本、类型和项目范围。</summary>
     private sealed class Builder
     {
         private readonly MetadataCatalog catalog;
+        private readonly bool matching;
         private readonly Dictionary<string,TableMetadata> tables;
         private readonly Dictionary<string,Dictionary<string,ColumnMetadata>> columns;
         private readonly Dictionary<string,MetadataStoragePlan> storage;
@@ -45,9 +51,9 @@ public static class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> aliases=new(StringComparer.Ordinal);
         private readonly List<string> joins=[];
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
-        internal Builder(MetadataCatalog catalog,string tableId)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false)
         {
-            this.catalog=catalog;
+            this.catalog=catalog;this.matching=matching;
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
             if(root.IsRongyu!=0||root.IsFunctionTable!=0||root.IsView!=0)throw new InvalidOperationException("固定非冗余读取源必须是非冗余实体表。");
@@ -76,25 +82,33 @@ public static class MySqlNonRedundantReadCompiler
                 if(column is not null)
                 {
                     var kind=storage[table.Id].Kind(column);
-                    if(kind==MetadataFieldStorage.Physical)return(alias+"."+Q(column.ColumnName),column.LogicalType);
+                    if(kind==MetadataFieldStorage.Physical)
+                    {
+                        if(matching)
+                        {
+                            if(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||column.LogicalType=="json")throw new NotSupportedException("精确管理匹配路径只能使用非凭据单值列。");
+                            Metarill.Core.Security.ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
+                        }
+                        return(alias+"."+Q(column.ColumnName),column.LogicalType);
+                    }
                     if(kind==MetadataFieldStorage.Join)
                     {
                         var path=Text(column,"columnFullName").Split('.');if(path.Length<2||path.Any(string.IsNullOrWhiteSpace))throw new InvalidOperationException("联接字段缺少有效来源路径。");
                         var current=table;var currentAlias=alias;
                         foreach(var segment in path[..^1])
-                        {MetadataValidation.RequireIdentifier(segment);var relation=columns[current.Id].GetValueOrDefault(segment+"_id")??columns[current.Id].GetValueOrDefault(segment)??throw new InvalidOperationException("联接路径关系不存在。");var target=Target(relation);var id=Resolve(current,currentAlias,relation.ColumnName);currentAlias=Join(currentAlias,relation,target,id.Sql);current=target;}
+                        {MetadataValidation.RequireIdentifier(segment);var relation=columns[current.Id].GetValueOrDefault(segment+"_id")??columns[current.Id].GetValueOrDefault(segment)??throw new InvalidOperationException("联接路径关系不存在。");var target=Target(relation);var id=Resolve(current,currentAlias,relation.ColumnName);currentAlias=Join(currentAlias,relation,target,id.Sql,id.Type);current=target;}
                         return Resolve(current,currentAlias,path[^1]);
                     }
                     if(kind is MetadataFieldStorage.Virtual or MetadataFieldStorage.Layout)throw new NotSupportedException("当前单值计划不支持虚拟或布局读取字段。");
                     if(name is "insert_manager_real_name" or "update_manager_real_name")
-                    {var relation=Column(table,name.Replace("_real_name","_id",StringComparison.Ordinal));var target=tables.Values.SingleOrDefault(item=>item.TableName=="yz_manager")??throw new InvalidOperationException("缺少固定管理员基础设施元数据。");ValidateTarget(target);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql),"real_name");}
+                    {var relation=Column(table,name.Replace("_real_name","_id",StringComparison.Ordinal));var target=tables.Values.SingleOrDefault(item=>item.TableName=="yz_manager")??throw new InvalidOperationException("缺少固定管理员基础设施元数据。");ValidateTarget(target);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql,id.Type),"real_name");}
                 }
                 foreach(var relation in columns[table.Id].Values.Where(MetadataStoragePolicy.IsRelationColumn))
                 {
                     var definition=Definition(relation);var display=Value(definition,"nameField");if(display.Length==0)display="name";
                     var auxiliary=relation.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&display!="id"?relation.ColumnName[..^3]+"_"+display:"";
                     if(!name.Equals(auxiliary,StringComparison.OrdinalIgnoreCase))continue;
-                    var target=Target(relation);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql),display);
+                    var target=Target(relation);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql,id.Type),display);
                 }
                 throw new NotSupportedException("字段不是已支持的物理列或单值派生关系："+name);
             }
@@ -120,8 +134,9 @@ public static class MySqlNonRedundantReadCompiler
             var key=Column(target,"id");if(key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage[target.Id].IsPhysical(key))throw new InvalidOperationException("关联目标必须使用非空int64物理主键。");
         }
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
-        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source)
+        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType)
         {
+            if(matching&&sourceType!="int64")throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var path=ownerAlias+":"+relation.Id;
             if(aliases.TryGetValue(path,out var existing))return existing;
             var alias="r"+aliases.Count;aliases.Add(path,alias);var scope=Scope(target,alias);
@@ -130,6 +145,7 @@ public static class MySqlNonRedundantReadCompiler
         /// <summary>范围字段必须是真实物理列；项目值固定绑定，不让筛选覆盖。</summary>
         private string Scope(TableMetadata table,string alias)
         {
+            if(matching&&!columns[table.Id].ContainsKey("yz_project_id"))throw new NotSupportedException("精确管理关联必须声明真实项目列。");
             var predicates=new List<string>();foreach(var name in new[]{"delete_no","yz_project_id"})
             {
                 if(!columns[table.Id].TryGetValue(name,out var column))continue;

@@ -58,6 +58,29 @@ public sealed class ExactDataManageGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>隐藏派生匹配参与实际生成程序集的读取过滤及私有锁计划，不进入本页VO。</summary>
+    [Fact]
+    public async Task Derived_match_compiles_as_hidden_read_dependency_and_separate_lock_plan()
+    {
+        var catalog=Catalog(true);catalog.ConfigPages.Single(page=>page.Id=="101").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("customer_notes");
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="16")){field.IsShow=0;field.IsEdit=0;field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(0);field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(0);}
+        var model=GenerationModel.Create(catalog,"Example.DerivedScope");var table=model.Tables.Single(table=>table.Source.Id=="1");var page=table.Pages.Single(page=>page.Source.Id=="101");
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-exact-scope");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="metarill_business_test",ConnectionString="Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;"});
+            var actor=new RuntimeActor(1,"离线派生范围",false,catalog.YzProjectId,page.Source.YzAdminTypeId);var authorization=new Authorization(actor);
+            var type=assembly.GetType(model.Namespace+".Generated.Services."+table.Name+"Service",true)!;var mapper=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Mappers."+table.Name+"Mapper",true)!,[session]);
+            var service=Activator.CreateInstance(type,[session,mapper,new SnowflakeIdGenerator(862),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
+            var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("ExactReadPlan101",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));Assert.Equal("string",Assert.Single(plan.OutputTypes).Value);Assert.Equal("customer_notes",Assert.Single(plan.OutputTypes).Key);
+            var filters=(List<FixedReadFilter>)type.GetMethod("ReadFilters101",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[new PageRequest{ParentId="71"},actor,"export"])!;
+            Assert.Single(filters,filter=>filter.Field=="customer_notes"&&filter.Comparison==FixedReadComparison.In);Assert.Equal("export",authorization.LastOperation);
+            var vo=assembly.GetType(model.Namespace+".Generated.VOs."+page.Name+"Vo",true)!;Assert.Null(vo.GetProperty("CustomerNotes"));
+            var error=Assert.Throws<TargetInvocationException>(()=>type.GetMethod("Scope101",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[actor,"71","update"]));Assert.IsType<InvalidOperationException>(error.InnerException);Assert.Contains("真实写事务",error.InnerException!.Message);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
     /// <summary>未配置精确字段的旧页面不增加授权依赖、参数或调用；源元数据不变。</summary>
     [Fact]
     public void Existing_unconfigured_pages_keep_the_original_service_contract()
