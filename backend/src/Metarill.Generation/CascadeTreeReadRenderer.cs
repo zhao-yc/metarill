@@ -28,7 +28,7 @@ internal static class CascadeTreeReadRenderer
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
         var result=new StringBuilder();
-        foreach(var plan in CascadeTreeReadCompilation.ForPage(model,table,page))
+        foreach(var plan in CascadeTreeReadCompilation.ForService(model,table,page))
         {
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;
             string ParentValue(string expression)=>parent.Type=="string?"?expression+"?.ToString(CultureInfo.InvariantCulture)":expression;
@@ -37,9 +37,9 @@ internal static class CascadeTreeReadRenderer
             var ordering=string.Join("",plan.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"));
             result.Append(FixedPageConditionCompilation.Declaration(plan.TargetPage,"CascadeCondition"+suffix));
             result.AppendLine("    /// <summary>固定候选范围使用真实身份，普通调用与路径每一跳共用权限和SQL条件。</summary>")
-                .AppendLine($"    private ISelect<{target.Name}> CascadeScope{suffix}(RuntimeActor actor)")
+                .AppendLine($"    private ISelect<{target.Name}> CascadeScope{suffix}(RuntimeActor actor,bool requireSourceList=true)")
                 .AppendLine("    {").AppendLine("        ValidateActor(actor);")
-                .AppendLine($"        if(relationAuthorization is null || relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"级联读取要求当前真实授权身份。\"); relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"list\");relationAuthorization.RequirePagePermission({Literal(plan.TargetPage.Source.Id)},\"list\");")
+                .AppendLine($"        if(relationAuthorization is null || relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"级联读取要求当前真实授权身份。\"); if(requireSourceList)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"list\");relationAuthorization.RequirePagePermission({Literal(plan.TargetPage.Source.Id)},\"list\");")
                 .AppendLine($"        var query=session.Select<{target.Name}>();");
             if(FixedPageQueryCompilation.SoftDeleteColumn(target) is{} deleted)result.AppendLine($"        query=query.Where(row=>row.{deleted.Property}==null);");
             var scopes=plan.TargetPage.Scopes.ToList();var project=target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
@@ -47,8 +47,8 @@ internal static class CascadeTreeReadRenderer
             foreach(var (column,_) in scopes)result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={(column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")});");
             result.Append(FixedPageConditionCompilation.Apply(plan.TargetPage,"CascadeCondition"+suffix,"cascade_"+suffix)).AppendLine("        return query;").AppendLine("    }");
             result.AppendLine("    /// <summary>只投影树结构必需三列，候选有界且不加载整表。</summary>")
-                .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor) => new(")
-                .AppendLine($"        async (id,ct)=>{{var row=await CascadeScope{suffix}(actor).Where(row=>row.Id==id).FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{NodeParent("row."+parent.Property)});}},")
+                .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor,bool locking=false,bool requireSourceList=true) => new(")
+                .AppendLine($"        async (id,ct)=>{{var query=CascadeScope{suffix}(actor,requireSourceList).Where(row=>row.Id==id);if(locking)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{NodeParent("row."+parent.Property)});}},")
                 .AppendLine($"        async (parentId,limit,ct)=>{{var query=CascadeScope{suffix}(actor);var parentKey={ParentValue("parentId")};query=parentId is null?query.Where(row=>row.{parent.Property}==null{(parent.Type=="string?"?$"||row.{parent.Property}==\"\"":"")}):query.Where(row=>row.{parent.Property}==parentKey);var rows=await query{ordering}.Limit(limit).ToListAsync({projection},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{NodeParent("row."+parent.Property)})).ToArray();}},")
                 .AppendLine(parent.Type=="string?"
                     ? $"        async (ids,ct)=>{{var keys=ids.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray();var rows=await CascadeScope{suffix}(actor).Where(row=>keys.Contains(row.{parent.Property}!)).Distinct().ToListAsync(row=>row.{parent.Property},ct);return rows.Select(text=>long.Parse(text!,CultureInfo.InvariantCulture)).ToHashSet();}},"

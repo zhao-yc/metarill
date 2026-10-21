@@ -31,15 +31,16 @@ internal static class ForeignValidationRenderer
             .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;");
         var derived = MaterializedDerivedWriteCompilation.ForTable(model, table);
+        var cascadeNames=CascadeTreeWriteCompilation.ForService(model,table,page).Select(plan=>plan.Name.Source.Id).ToHashSet(StringComparer.Ordinal);
         // 未证明的派生值不能借默认值、复制或手写钩子的submitted集合绕过严格DTO。
-        foreach (var storage in table.Columns.Where(column => GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !derived.Any(binding => binding.Storage.Source.Id == column.Source.Id)))
+        foreach (var storage in table.Columns.Where(column => GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !derived.Any(binding => binding.Storage.Source.Id == column.Source.Id)&&!cascadeNames.Contains(column.Source.Id)))
             result.AppendLine($"        if (creating ? entity.{storage.Property} is not null : submitted.Contains({Literal(storage.Source.ColumnName)})) throw new InvalidOperationException({Literal("物理派生写入尚未证明：" + storage.Source.ColumnName)});");
         foreach (var binding in derived)
             result.AppendLine($"        if (!creating && submitted.Contains({Literal(binding.Storage.Source.ColumnName)}) && !submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) throw new InvalidOperationException(\"派生字段只能随已声明关联重算。\");")
                 .AppendLine($"        if ((creating || submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) && entity.{binding.ForeignKey.Property} is null) {{ entity.{binding.Storage.Property} = null; submitted.Add({Literal(binding.Storage.Source.ColumnName)}); }}");
         var constantRelations = RelationCompilation.ForPage(model, page).Where(relation => relation.Conditions is not null || relation.TargetPage.Condition is not null).ToDictionary(relation => relation.SourceColumn.Source.Id);
         var number = 0;
-        foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared || !column.IsSystem && (column.Type is "long?" or "string?")))
+        foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared || !column.IsSystem && (column.Source.ControlKind=="CascadeTree" || column.Type is "long?" or "string?")))
         {
             var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
             if (fixedCatalog.Declared)
@@ -50,6 +51,7 @@ internal static class ForeignValidationRenderer
                     : $"            throw new InvalidOperationException({Literal(fixedCatalog.Reason!)});");
                 continue;
             }
+            if(column.Source.ControlKind=="CascadeTree"){result.Append(CascadeTreeWriteRenderer.Validation(model,table,page,column));continue;}
             if (column.Source.ControlKind == "MultiSelectPage")
             {
                 var multi = MultiSelectCompilation.Resolve(model, table, page, column, forService: true);

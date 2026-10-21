@@ -45,7 +45,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         var span = Integer(column.Source.Extra, "colSpan", 1); span = Math.Min(GridColumns, Math.Max(span, 1));
         var derived=Derived(column);
         // 原冗余页面按页级只读标志生成原输入/校验；派生列的服务端写保护不能改变原DOM。
-        var originalJoinInput = Table.Source.IsRongyu == 1 && Enabled(column.Source.Extra, "isJoinColumn") && !column.IsSystem;
+        var originalJoinInput = Table.Source.IsRongyu == 1 && (Enabled(column.Source.Extra, "isJoinColumn")||column.IsManagedCascadeName) && !column.IsSystem;
         var readOnly = derived || (originalJoinInput ? Enabled(settings.Extra, "isReadOnly") : !Page.Writable.Any(item => item.Source.Id == column.Source.Id));
         return new(column, settings, detail, @default, readOnly, !derived && (settings.IsRequired == 1 || Enabled(settings.Extra, "isMust")), Text(settings.Extra, "detailGroupKey"), span,derived);
     }

@@ -12,6 +12,9 @@ internal static class CascadeTreeReadCompilation
     internal static IReadOnlyList<CascadeTreeReadModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>page.Readable.Concat(page.Searchable).DistinctBy(column=>column.Source.Id).Where(column=>column.Source.ControlKind=="CascadeTree")
         .Select(column=>Resolve(model,table,page,column).Definition).OfType<CascadeTreeReadModel>().ToArray();
 
+    /// <summary>服务隐藏关联也需要固定读取计划，仅用于最终写入校验，不新增公开端点。</summary>
+    internal static IReadOnlyList<CascadeTreeReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CascadeTreeReadModel>().ToArray();
+
     /// <summary>目标页必须唯一且明确可读；模糊范围不能退化为表级宽查询。</summary>
     internal static CascadeTreeReadResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
