@@ -53,7 +53,7 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
         var nonce=Guid.NewGuid().ToString("N");var ids=new SnowflakeIdGenerator(946);var project=ids.NextId();var admin=ids.NextId();var foreignAdmin=ids.NextId();var editorRole=ids.NextId();var foreignRole=ids.NextId();var editor=ids.NextId();
         var name="mt_trusted_"+nonce[..20];var password="Metarill-"+nonce;var evidence=Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"../.local/trusted-security-runtime/mysql-"+nonce);Directory.CreateDirectory(evidence);
         var race=concurrencyCase is null?null:new ManagementRaceProbe(nonce);object? concurrencyReceipt=null;
-        var fixture=new TrustedSecurityServiceFixture();WebApplication? host=null;var seeded=false;var verified=false;long? createdManager=null,createdRole=null;
+        var fixture=new TrustedSecurityServiceFixture();WebApplication? host=null;var seeded=false;var verified=false;long? createdManager=null,createdRole=null,navigationGrant=null;
         using var session=new DatabaseSession(options);
         // 每轮发布目录使用全新项目/后台，既不复用平台身份，也不修改既有发布元数据。
         var original=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"metadata/demo.json")),Json)!;
@@ -85,10 +85,16 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
                 await Seed("yz_role",("id",editorRole),("name",name+"_editor"),("yz_admin_type_id",admin),("yz_project_id",project),("is_super",0),("permission_mode","RESOURCE"));
                 await Seed("yz_role",("id",foreignRole),("name",name+"_foreign"),("yz_admin_type_id",foreignAdmin),("yz_project_id",project),("is_super",0),("permission_mode","RESOURCE"));
                 await Seed("yz_manager",("id",editor),("name",name),("real_name","自有普通编辑者"),("password",PasswordHasher.Hash(password)),("yz_admin_type_id",admin),("yz_project_id",project),("yz_role_ids",JsonSerializer.Serialize(new[]{editorRole.ToString(CultureInfo.InvariantCulture)})),("is_disabled",0));
-                foreach(var page in new[]{ManagerPage,RolePage,AdminPage})await Seed("yz_role_permission",("id",ids.NextId()),("yz_role_id",editorRole),("config_page_id",long.Parse(page,CultureInfo.InvariantCulture)),("permission_values","[\"is_all\"]"),("yz_project_id",project));return true;
+                foreach(var page in new[]{ManagerPage,RolePage,AdminPage})await Seed("yz_role_permission",("id",ids.NextId()),("yz_role_id",editorRole),("config_page_id",long.Parse(page,CultureInfo.InvariantCulture)),("permission_values","[\"is_all\"]"),("yz_project_id",project));
+                if(concurrencyCase is null)
+                {
+                    navigationGrant=ids.NextId();var custom=fixture.Catalog.ConfigMenus.Single(menu=>menu.Kind=="CUSTOM_PAGE");
+                    await Seed("yz_role_permission",("id",navigationGrant.Value),("yz_role_id",editorRole),("config_menu_id",long.Parse(custom.Id,CultureInfo.InvariantCulture)),("permission_values","[]"),("yz_project_id",project));
+                }
+                return true;
             });seeded=true;
             new CSharpGenerator().Generate(fixture.Models,Path.Combine(fixture.DirectoryPath,"generated"),TrustedSecurityServiceFixture.Namespace);Directory.CreateDirectory(Path.Combine(fixture.DirectoryPath,"host"));
-            foreach(var file in new[]{"PackageSecurityCatalog.cs","WebAuthentication.cs","SessionPolicy.cs","WebSecurityCoordination.cs"})await File.WriteAllTextAsync(Path.Combine(fixture.DirectoryPath,"host",file),File.ReadAllText(Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"templates/standalone",file+".tpl")).Replace("{{NAMESPACE}}",TrustedSecurityServiceFixture.Namespace));
+            foreach(var file in new[]{"PackageSecurityCatalog.cs","WebAuthentication.cs","SessionPolicy.cs","WebSecurityCoordination.cs","Navigation.cs"})await File.WriteAllTextAsync(Path.Combine(fixture.DirectoryPath,"host",file),File.ReadAllText(Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"templates/standalone",file+".tpl")).Replace("{{NAMESPACE}}",TrustedSecurityServiceFixture.Namespace));
             await File.WriteAllTextAsync(Path.Combine(fixture.DirectoryPath,"host/PackageSecurityCatalogBinding.g.cs"),ApplicationPackager.SecurityCatalogBindingSource(TrustedSecurityServiceFixture.Namespace,Convert.ToHexStringLower(SHA256.HashData(fixture.CatalogBytes))));
             var build=await TrustedSecurityServiceFixture.Build(fixture.DirectoryPath);Assert.True(build.ExitCode==0,build.Output);fixture.Assembly=AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(await File.ReadAllBytesAsync(build.AssemblyPath)));
             object New(string type,params object?[] args)=>Activator.CreateInstance(fixture.Type("Host."+type),BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,args,null)!;
@@ -117,6 +123,8 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
                 catch(SecurityException){context.Response.StatusCode=403;await context.Response.WriteAsJsonAsync(R<string>.Error("原页权拒绝",403));}
                 catch(Exception e)when(e is ArgumentException or InvalidOperationException){race?.RecordFailure(context,e);context.Response.StatusCode=400;await context.Response.WriteAsJsonAsync(R<string>.Error("样本请求拒绝",400));}
             });
+            // 使用正式导航模板及当前请求页权；不以测试端点重写导航算法。
+            host.MapGet("/api/admin/sys/yz_manager/getMenu",(HttpContext context)=>Results.Json(TrustedSecurityServiceFixture.Invoke(New("DevelopmentNavigation",fixture.Catalog,context.RequestServices.GetRequiredService<IHttpContextAccessor>(),mode),"Menu",context.RequestServices.GetRequiredService<IRuntimeAuthorization>())));
             host.MapPost("/login",async(HttpContext context)=>
             {
                 var form=await context.Request.ReadFormAsync();var result=((Dictionary<string,object?> User,string Token))(await Call(context.RequestServices.GetRequiredService(fixture.Type("Host.ApplicationWebAuthentication")),"LoginAsync",form["username"].ToString(),form["password"].ToString(),context.RequestAborted))!;return Results.Json(new{token=result.Token});
@@ -124,8 +132,10 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
             host.MapPost("/logout",async(HttpContext context)=>{await Call(context.RequestServices.GetRequiredService(fixture.Type("Host.ApplicationWebAuthentication")),"LogoutAsync",(AuthenticatedIdentity)context.Items[typeof(AuthenticatedIdentity)]!,context.RequestAborted);return Results.Ok();});
             host.MapControllers();await host.StartAsync();var address=Assert.Single(host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses);using var client=new HttpClient{BaseAddress=new(address),Timeout=TimeSpan.FromSeconds(20)};
             using(var anonymous=await client.PostAsJsonAsync(Route("yz_role",RolePage)+"/page",new{}))Assert.Equal(HttpStatusCode.Unauthorized,anonymous.StatusCode);
+            using(var anonymousMenu=await client.GetAsync("/api/admin/sys/yz_manager/getMenu"))Assert.Equal(HttpStatusCode.Unauthorized,anonymousMenu.StatusCode);
             var token=await Login(name,password);client.DefaultRequestHeaders.Add("loginStateId",token);
             var identityCheck=await new AuthenticationService(store,ids,(ISecurityResourceRegistry)registry,(ISecuritySessionPolicy)registry).AuthenticateAsync(token,project.ToString(CultureInfo.InvariantCulture));Assert.NotNull(identityCheck);Assert.False(identityCheck.IsRealmSuper);Assert.False(identityCheck.Actor.IsAdministrator);
+            if(concurrencyCase is null)await TrustedSecurityNavigationMySqlProbe.VerifyAsync(client,store,fixture.Catalog,editorRole,navigationGrant!.Value);
             var role=await Post(Route("yz_role",RolePage)+"/add",new{name=name+"_createdrole",sortNo=10,isSuper=1,yzAdminTypeId=admin.ToString(CultureInfo.InvariantCulture)});createdRole=long.Parse(role.GetProperty("data").GetProperty("id").GetString()!,CultureInfo.InvariantCulture);
             var created=await Post(Route("yz_manager",ManagerPage)+"/add",new{name=name+"_new",realName="原表单创建",password,isDisabled=1,yzAdminTypeId=admin.ToString(CultureInfo.InvariantCulture),yzRoleIds=new[]{editorRole.ToString(CultureInfo.InvariantCulture)}});createdManager=long.Parse(created.GetProperty("data").GetProperty("id").GetString()!,CultureInfo.InvariantCulture);Assert.Equal("********",created.GetProperty("data").GetProperty("password").GetString());
             var row=await OwnedManager();var digest=SqlRowStore.Text(row,"password");Assert.True(PasswordHasher.Verify(password,digest));Assert.Equal("0",SqlRowStore.Text(row,"is_disabled"));

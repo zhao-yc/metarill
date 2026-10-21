@@ -5,7 +5,7 @@ using Metarill.Runtime.Security;
 
 namespace {{NAMESPACE}}.Host;
 
-/// <summary>独立应用宿主导航只面向包内已发布生成页，不包含平台配置、自定义页面或项目切换。</summary>
+/// <summary>独立应用宿主导航只面向包内已发布生成页和自定义页；菜单展示不授予页面接口权限。</summary>
 internal sealed class DevelopmentNavigation(MetadataCatalog metadata,IHttpContextAccessor accessor,ApplicationAuthenticationMode mode)
 {
     /// <summary>菜单显示不代表操作授权，权限仍逐次调用宿主IRuntimeAuthorization核验。</summary>
@@ -23,7 +23,7 @@ internal sealed class DevelopmentNavigation(MetadataCatalog metadata,IHttpContex
         var actor = authorization.RequireActor();
         if (actor.ProjectId != metadata.YzProjectId) throw new UnauthorizedAccessException();
         var identity=Identity();
-        var menus = metadata.ConfigMenus.Where(menu => menu.IsHidden != 1 && menu.Kind is "DIRECTORY" or "GENERATED_PAGE")
+        var menus = metadata.ConfigMenus.Where(menu => menu.YzProjectId==metadata.YzProjectId && menu.IsHidden != 1 && menu.Kind is "DIRECTORY" or "GENERATED_PAGE" or "CUSTOM_PAGE")
             .Where(menu=>identity is null || menu.YzAdminTypeId==identity.PrincipalAdminTypeId && (menu.Kind=="DIRECTORY" || identity.MenuIds.Contains(menu.Id))).ToArray();
         object? Page(MenuMetadata menu, HashSet<string> ancestors)
         {
@@ -34,8 +34,18 @@ internal sealed class DevelopmentNavigation(MetadataCatalog metadata,IHttpContex
                 if (menu.Kind == "GENERATED_PAGE" && (page is null || !Allowed(authorization, page.Id, "list"))) return null;
                 var table = page is null ? null : metadata.ConfigTables.Single(candidate => candidate.Id == page.ConfigTableId);
                 var route = table is null ? null : "/pages/yzp/" + table.TableName + "-list-" + page!.Id;
+                object? target=table is null?null:new {pageId=page!.Id,tableId=table.Id,tableName=table.TableName,route,countEndpoint="/admin/auto/"+table.TableName+"/"+page.Id+"/count"};
+                if(menu.Kind=="CUSTOM_PAGE")
+                {
+                    // 自定义入口沿用真实菜单授权；目标必须仍属于相同的发布项目与后台，不能借配置跳到外部地址。
+                    var custom=metadata.ConfigCustomPages.SingleOrDefault(candidate=>candidate.Id==menu.ConfigCustomPageId&&candidate.YzProjectId==metadata.YzProjectId&&candidate.YzAdminTypeId==menu.YzAdminTypeId);
+                    if(custom is null)return null;
+                    var path=custom.PagePath.TrimStart('/');
+                    if(!System.Text.RegularExpressions.Regex.IsMatch(path,"^pages/[a-zA-Z0-9_/-]+$")||path.Contains(".."))throw new InvalidOperationException("自定义页面路由无效。");
+                    target=new {route="/"+path,pageId=custom.Id};
+                }
                 return new { menu_id = menu.Id, text = menu.Name, icon = menu.IconName ?? "", projectId = metadata.YzProjectId, adminTypeId = menu.YzAdminTypeId, nodeType = menu.Kind, isShowCount = menu.IsShowCount == 1,
-                    target = table is null ? null : new { pageId = page!.Id, tableId = table.Id, tableName = table.TableName, route, countEndpoint = "/admin/auto/" + table.TableName + "/" + page.Id + "/count" },
+                    target,
                     children = menus.Where(candidate => candidate.ParentMenuId == menu.Id).OrderBy(candidate => candidate.SortNo).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).Select(candidate => Page(candidate, ancestors)).Where(node => node is not null).ToArray() };
             }
             finally { ancestors.Remove(menu.Id); }
