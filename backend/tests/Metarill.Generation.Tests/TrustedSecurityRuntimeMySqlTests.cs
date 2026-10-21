@@ -52,6 +52,7 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
         }
         var nonce=Guid.NewGuid().ToString("N");var ids=new SnowflakeIdGenerator(946);var project=ids.NextId();var admin=ids.NextId();var foreignAdmin=ids.NextId();var editorRole=ids.NextId();var foreignRole=ids.NextId();var editor=ids.NextId();
         var name="mt_trusted_"+nonce[..20];var password="Metarill-"+nonce;var evidence=Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"../.local/trusted-security-runtime/mysql-"+nonce);Directory.CreateDirectory(evidence);
+        var browserSeconds=concurrencyCase is null?TrustedManagementBrowserLease.ReadSeconds(Environment.GetEnvironmentVariable("METARILL_MANAGEMENT_BROWSER_LEASE_SECONDS")):null;string? browserLeaseStatus=null;
         var race=concurrencyCase is null?null:new ManagementRaceProbe(nonce);object? concurrencyReceipt=null;
         var fixture=new TrustedSecurityServiceFixture();WebApplication? host=null;TrustedManagementProgram? program=null;var seeded=false;var verified=false;long? createdManager=null,createdRole=null,navigationGrant=null;
         using var session=new DatabaseSession(options);
@@ -90,6 +91,12 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
                 {
                     navigationGrant=ids.NextId();var custom=fixture.Catalog.ConfigMenus.Single(menu=>menu.Kind=="CUSTOM_PAGE");
                     await Seed("yz_role_permission",("id",navigationGrant.Value),("yz_role_id",editorRole),("config_menu_id",long.Parse(custom.Id,CultureInfo.InvariantCulture)),("permission_values","[]"),("yz_project_id",project));
+                    if(browserSeconds is not null)
+                    {
+                        // 只给原已授权三管理页补导航可见权，默认HTTP回归和其余项目不受影响。
+                        var entries=fixture.Catalog.ConfigMenus.Where(menu=>menu.Kind=="GENERATED_PAGE"&&menu.ConfigPageId is ManagerPage or RolePage or AdminPage).ToArray();Assert.Equal(3,entries.Length);
+                        foreach(var entry in entries)await Seed("yz_role_permission",("id",ids.NextId()),("yz_role_id",editorRole),("config_menu_id",long.Parse(entry.Id,CultureInfo.InvariantCulture)),("permission_values","[]"),("yz_project_id",project));
+                    }
                 }
                 return true;
             });seeded=true;
@@ -139,6 +146,7 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
             var token=await Login(name,password);client.DefaultRequestHeaders.Add("loginStateId",token);
             var identityCheck=await new AuthenticationService(store,ids,(ISecurityResourceRegistry)registry,(ISecuritySessionPolicy)registry).AuthenticateAsync(token,project.ToString(CultureInfo.InvariantCulture));Assert.NotNull(identityCheck);Assert.False(identityCheck.IsRealmSuper);Assert.False(identityCheck.Actor.IsAdministrator);
             if(concurrencyCase is null)await TrustedSecurityNavigationMySqlProbe.VerifyAsync(client,store,fixture.Catalog,editorRole,navigationGrant!.Value);
+            if(browserSeconds is {} leaseSeconds)browserLeaseStatus=await TrustedManagementBrowserLease.WaitAsync(fixture,program!,name,password,evidence,leaseSeconds);
             var role=await Post(Route("yz_role",RolePage)+"/add",new{name=name+"_createdrole",sortNo=10,isSuper=1,yzAdminTypeId=admin.ToString(CultureInfo.InvariantCulture)});createdRole=long.Parse(role.GetProperty("data").GetProperty("id").GetString()!,CultureInfo.InvariantCulture);
             var created=await Post(Route("yz_manager",ManagerPage)+"/add",new{name=name+"_new",realName="原表单创建",password,isDisabled=1,yzAdminTypeId=admin.ToString(CultureInfo.InvariantCulture),yzRoleIds=new[]{editorRole.ToString(CultureInfo.InvariantCulture)}});createdManager=long.Parse(created.GetProperty("data").GetProperty("id").GetString()!,CultureInfo.InvariantCulture);Assert.Equal("********",created.GetProperty("data").GetProperty("password").GetString());
             var row=await OwnedManager();var digest=SqlRowStore.Text(row,"password");Assert.True(PasswordHasher.Verify(password,digest));Assert.Equal("0",SqlRowStore.Text(row,"is_disabled"));
@@ -188,7 +196,7 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
         // 样本只在已有事务内写入当前随机项目，口令和连接不进入收据。
         Task Seed(string table,params(string Key,object? Value)[] values)=>store.InsertAsync(table,values.ToDictionary(x=>x.Key,x=>x.Value));
         // 私有证据只记录自有标识及验收边界，不记录会话令牌或业务行。
-        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,concurrencyCase,concurrencyReceipt,raceProbe=race?.Diagnostics,project,admin,foreignAdmin,editorRole,foreignRole,editor,createdManager,createdRole,verified,cleaned,persistedWebIdentity=true,fullProgramExecuted=program is not null,generatedControllers=true,productionCoordinationRegistration=true,initializationExecuted=false,ddlExecuted=false,permissionsGranted=false,defaultFullGateRemoved=false},Json)+"\n");
+        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,concurrencyCase,concurrencyReceipt,raceProbe=race?.Diagnostics,browserLeaseStatus,project,admin,foreignAdmin,editorRole,foreignRole,editor,createdManager,createdRole,verified,cleaned,persistedWebIdentity=true,fullProgramExecuted=program is not null,generatedControllers=true,productionCoordinationRegistration=true,initializationExecuted=false,ddlExecuted=false,permissionsGranted=false,defaultFullGateRemoved=false},Json)+"\n");
     }
     /// <summary>反射只穿过实际生成程序集边界，保留原异常与异步结果，不实现授权替身。</summary>
     private static async Task<object?> Call(object target,string method,params object?[] args){var task=(Task)TrustedSecurityServiceFixture.Invoke(target,method,args)!;await task;return task.GetType().GetProperty("Result")?.GetValue(task);}
