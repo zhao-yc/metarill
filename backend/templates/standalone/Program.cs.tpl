@@ -50,9 +50,9 @@ var infrastructure = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllTex
     ?? throw new InvalidOperationException("缺少文件基础元数据。");
 var security = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/security.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少固定安全基础元数据。");
-// 只组合受控无页面物理模型；与安全CRUD页或保留表名冲突始终拒绝，不降级开发宿主。
+// 基础设施仍严格合成；生成注册类只允许编译绑定的固定管理页进入本应用物理图，不读取业务JSON特权标记。
 var combinedInfrastructure=MetadataCatalogComposition.MergePhysical(infrastructure,security);
-var physicalMetadata = MetadataCatalogComposition.MergePhysical(metadata, combinedInfrastructure);
+var physicalMetadata = GeneratedRegistration.ComposePhysicalMetadata(metadata, infrastructure, security);
 builder.Services.AddSingleton(metadata);
 ApplicationSecurityCatalogRegistration.Add(builder.Services,verifiedCatalog);
 builder.Services.AddSingleton(authenticationMode);
@@ -154,6 +154,8 @@ app.Use(async (context, next) =>
         {
             UnauthorizedAccessException => (401, "请先登录，或确认应用认证配置。"),
             SecurityException => (403, "没有当前操作权限。"),
+            // 已知业务版本冲突沿原工作台提示返回，其他InvalidOperationException仍作为内部错误隐藏。
+            InvalidOperationException when error.Message.StartsWith("YZP_CONFLICT：",StringComparison.Ordinal) => (400,error.Message),
             PageImportException { IsInputError: true } => (400, error.Message),
             ArgumentException or JsonException => (400, "请求参数不符合页面定义。"),
             NotSupportedException => (501, "此能力需要宿主实现，目前不可用。"),

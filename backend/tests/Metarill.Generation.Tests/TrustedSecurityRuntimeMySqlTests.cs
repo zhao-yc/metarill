@@ -53,7 +53,7 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
         var nonce=Guid.NewGuid().ToString("N");var ids=new SnowflakeIdGenerator(946);var project=ids.NextId();var admin=ids.NextId();var foreignAdmin=ids.NextId();var editorRole=ids.NextId();var foreignRole=ids.NextId();var editor=ids.NextId();
         var name="mt_trusted_"+nonce[..20];var password="Metarill-"+nonce;var evidence=Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"../.local/trusted-security-runtime/mysql-"+nonce);Directory.CreateDirectory(evidence);
         var race=concurrencyCase is null?null:new ManagementRaceProbe(nonce);object? concurrencyReceipt=null;
-        var fixture=new TrustedSecurityServiceFixture();WebApplication? host=null;var seeded=false;var verified=false;long? createdManager=null,createdRole=null,navigationGrant=null;
+        var fixture=new TrustedSecurityServiceFixture();WebApplication? host=null;TrustedManagementProgram? program=null;var seeded=false;var verified=false;long? createdManager=null,createdRole=null,navigationGrant=null;
         using var session=new DatabaseSession(options);
         // 每轮发布目录使用全新项目/后台，既不复用平台身份，也不修改既有发布元数据。
         var original=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"metadata/demo.json")),Json)!;
@@ -130,7 +130,10 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
                 var form=await context.Request.ReadFormAsync();var result=((Dictionary<string,object?> User,string Token))(await Call(context.RequestServices.GetRequiredService(fixture.Type("Host.ApplicationWebAuthentication")),"LoginAsync",form["username"].ToString(),form["password"].ToString(),context.RequestAborted))!;return Results.Json(new{token=result.Token});
             });
             host.MapPost("/logout",async(HttpContext context)=>{await Call(context.RequestServices.GetRequiredService(fixture.Type("Host.ApplicationWebAuthentication")),"LogoutAsync",(AuthenticatedIdentity)context.Items[typeof(AuthenticatedIdentity)]!,context.RequestAborted);return Results.Ok();});
-            host.MapControllers();await host.StartAsync();var address=Assert.Single(host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses);using var client=new HttpClient{BaseAddress=new(address),Timeout=TimeSpan.FromSeconds(20)};
+            host.MapControllers();string address;
+            if(concurrencyCase is null){program=await TrustedManagementProgram.StartAsync(fixture,options,evidence);address=program.Address;}
+            else{await host.StartAsync();address=Assert.Single(host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses);}
+            using var client=new HttpClient{BaseAddress=new(address),Timeout=TimeSpan.FromSeconds(20)};
             using(var anonymous=await client.PostAsJsonAsync(Route("yz_role",RolePage)+"/page",new{}))Assert.Equal(HttpStatusCode.Unauthorized,anonymous.StatusCode);
             using(var anonymousMenu=await client.GetAsync("/api/admin/sys/yz_manager/getMenu"))Assert.Equal(HttpStatusCode.Unauthorized,anonymousMenu.StatusCode);
             var token=await Login(name,password);client.DefaultRequestHeaders.Add("loginStateId",token);
@@ -159,17 +162,18 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
             await Post(Route("yz_manager",ManagerPage)+"/update",new{id=createdManager.ToString(),yzRoleIds=new[]{createdRole.ToString()}});var childToken=await Login(name+"_new",password);var childIdentity=await new AuthenticationService(store,ids,(ISecurityResourceRegistry)registry,(ISecuritySessionPolicy)registry).AuthenticateAsync(childToken,project.ToString(CultureInfo.InvariantCulture));Assert.NotNull(childIdentity);Assert.True(childIdentity.IsRealmSuper);Assert.False(childIdentity.Actor.IsAdministrator);
             var self=(await Post(workbench+"/snapshot",new{roleId=editorRole.ToString(CultureInfo.InvariantCulture)})).GetProperty("data");await Post(workbench+"/save",new RolePermissionSave(editorRole.ToString(CultureInfo.InvariantCulture),self.GetProperty("revision").GetString()!,new([],new(),[])));
             using(var denied=await client.PostAsJsonAsync(Route("yz_role",RolePage)+"/page",new{}))Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
-            using(var logout=await client.PostAsync("/logout",null))Assert.True(logout.IsSuccessStatusCode);using(var revoked=await client.PostAsJsonAsync(Route("yz_role",RolePage)+"/page",new{}))Assert.Equal(HttpStatusCode.Unauthorized,revoked.StatusCode);
+            using(var logout=await client.PostAsync(concurrencyCase is null?"/api/admin/sys/yz_manager/exit_login":"/logout",null))Assert.True(logout.IsSuccessStatusCode);using(var revoked=await client.PostAsJsonAsync(Route("yz_role",RolePage)+"/page",new{}))Assert.Equal(HttpStatusCode.Unauthorized,revoked.StatusCode);
             verified=true;await Receipt("verified",false);
 
-            async Task<string> Login(string username,string secret){using var response=await client.PostAsync("/login",new FormUrlEncodedContent(new Dictionary<string,string>{{"username",username},{"password",secret}}));Assert.Equal(HttpStatusCode.OK,response.StatusCode);using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync());return json.RootElement.GetProperty("token").GetString()!;}
+            async Task<string> Login(string username,string secret){using var response=await client.PostAsync(concurrencyCase is null?"/api/admin/sys/yz_manager/login":"/login",new FormUrlEncodedContent(new Dictionary<string,string>{{"username",username},{"password",secret}}));Assert.Equal(HttpStatusCode.OK,response.StatusCode);using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync());return concurrencyCase is null?json.RootElement.GetProperty("map").GetProperty("loginStateId").GetString()!:json.RootElement.GetProperty("token").GetString()!;}
             async Task<JsonElement> Post(string url,object body){using var response=await client.PostAsJsonAsync(url,body);Assert.True(response.IsSuccessStatusCode,"真实生成HTTP未成功，响应实体不输出。状态："+(int)response.StatusCode);using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(200,json.RootElement.GetProperty("code").GetInt32());return json.RootElement.Clone();}
-            async Task Rejected(string url,object body){using var response=await client.PostAsJsonAsync(url,body);Assert.Equal(HttpStatusCode.BadRequest,response.StatusCode);}
+            async Task Rejected(string url,object body){using var response=await client.PostAsJsonAsync(url,body);Assert.Equal(HttpStatusCode.BadRequest,response.StatusCode);if(url=="/api/admin/sys/yzp_permission/save"){using var failure=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(400,failure.RootElement.GetProperty("code").GetInt32());Assert.StartsWith("YZP_CONFLICT：",failure.RootElement.GetProperty("msg").GetString());}}
             async Task<Dictionary<string,object?>> OwnedManager()=>Assert.Single(await store.ReadIncludingDeletedAsync("yz_manager",new Dictionary<string,object?>{{"id",createdManager}}));
         }
         finally
         {
             race?.ReleaseAll();
+            if(program is not null)await program.DisposeAsync();
             if(host is not null){await host.StopAsync();await host.DisposeAsync();}
             if(seeded)
             {
@@ -184,7 +188,7 @@ public sealed partial class TrustedSecurityRuntimeMySqlTests
         // 样本只在已有事务内写入当前随机项目，口令和连接不进入收据。
         Task Seed(string table,params(string Key,object? Value)[] values)=>store.InsertAsync(table,values.ToDictionary(x=>x.Key,x=>x.Value));
         // 私有证据只记录自有标识及验收边界，不记录会话令牌或业务行。
-        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,concurrencyCase,concurrencyReceipt,raceProbe=race?.Diagnostics,project,admin,foreignAdmin,editorRole,foreignRole,editor,createdManager,createdRole,verified,cleaned,persistedWebIdentity=true,generatedControllers=true,productionCoordinationRegistration=true,initializationExecuted=false,ddlExecuted=false,permissionsGranted=false,defaultFullGateRemoved=false},Json)+"\n");
+        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,concurrencyCase,concurrencyReceipt,raceProbe=race?.Diagnostics,project,admin,foreignAdmin,editorRole,foreignRole,editor,createdManager,createdRole,verified,cleaned,persistedWebIdentity=true,fullProgramExecuted=program is not null,generatedControllers=true,productionCoordinationRegistration=true,initializationExecuted=false,ddlExecuted=false,permissionsGranted=false,defaultFullGateRemoved=false},Json)+"\n");
     }
     /// <summary>反射只穿过实际生成程序集边界，保留原异常与异步结果，不实现授权替身。</summary>
     private static async Task<object?> Call(object target,string method,params object?[] args){var task=(Task)TrustedSecurityServiceFixture.Invoke(target,method,args)!;await task;return task.GetType().GetProperty("Result")?.GetValue(task);}

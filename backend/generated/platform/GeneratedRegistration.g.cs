@@ -60,4 +60,10 @@ public static class GeneratedRegistration
         services.AddScoped<Services.YzRolePermissionService>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.YzRolePermissionMapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>()));
         return services;
     }
+    /// <summary>只为结构命令建立物理模型，不修改发布页面、输入对象或数据库。</summary>
+    public static Metarill.Core.Metadata.MetadataCatalog ComposePhysicalMetadata(Metarill.Core.Metadata.MetadataCatalog application,Metarill.Core.Metadata.MetadataCatalog files,Metarill.Core.Metadata.MetadataCatalog security)
+    {
+        System.ArgumentNullException.ThrowIfNull(application);System.ArgumentNullException.ThrowIfNull(files);System.ArgumentNullException.ThrowIfNull(security);
+        return Metarill.Core.Metadata.MetadataCatalogComposition.MergePhysical(Metarill.Core.Metadata.MetadataCatalogComposition.MergePhysical(application,files),security);
+    }
 }
