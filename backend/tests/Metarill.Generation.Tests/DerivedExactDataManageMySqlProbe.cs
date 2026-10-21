@@ -59,6 +59,13 @@ internal static class DerivedExactDataManageMySqlProbe
             await FreshWebHttp.SendAsync(ordinary,HttpMethod.Delete,route+"?parentId=71",new{id=copied});Assert.Empty(await business.ReadAsync(order,Row("id",long.Parse(copied,CultureInfo.InvariantCulture))));
             stage="scoped-import-overwrite";await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/importDatas106",new{parentId="71",requestJson=new[]{Row("记录名",nameA,"status",1)}});Assert.Equal(1,SqlRowStore.Id(Assert.Single(await business.ReadAsync(order,Row("id",a))),"status"));Assert.Single(await business.ReadAsync(order,Row("name",nameA)));
             stage="actual-target-change";await business.UpdateAsync(party,101,Row("notes",matchA+"新"));await Page([]);await FileAccess(false);await Match(matchA+"新");await Page([a]);await FileAccess(true);
+            // 正式生成写入允许离开筛选页；引用仍提交，但普通来源读取必须立即收紧。
+            stage="fixed-page-condition-and-derived-file-scope";
+            await FreshWebHttp.SendAsync(super,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(a),name="隐藏文件记录",attachments=new[]{Text(file)}});
+            Assert.Equal("隐藏文件记录",Assert.Single(await business.ReadAsync(order,Row("id",a)))["name"]);
+            var keptReference=Assert.Single(await library.ReadAsync("yz_file_ref",Row("file_id",file)));Assert.Equal(a,SqlRowStore.Id(keptReference,"record_id"));Assert.Equal(106L,SqlRowStore.Id(keptReference,"page_id"));
+            await Page([]);await FileAccess(false);
+            await business.UpdateAsync(order,a,Row("name",nameA));await Page([a]);await FileAccess(true);
             stage="deleted-or-foreign-target";
             foreach(var bad in new[]{Row("delete_no",DateTime.UtcNow),Row("yz_project_id",55L)})
             {await business.UpdateAsync(party,101,bad);await Page([]);await FileAccess(false);await business.UpdateAsync(party,101,bad.Keys.ToDictionary(key=>key,key=>oldTargets[101].GetValueOrDefault(key),StringComparer.Ordinal));}

@@ -1,41 +1,57 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
+using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
 
 namespace Metarill.Runtime.Files;
 
 internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata Project, bool HasSoftDelete);
 
-/// <summary>文件引用只解释与生成页一致的项目/父键等值子集，不执行配置SQL。</summary>
+internal sealed record FilePageScope(IReadOnlyList<FileParentScope> Parents,FixedConditionSqlPlan? Condition,IReadOnlyList<string> ConditionFields);
+
+/// <summary>发布时固定项目/父等值及物理标量常量，与生成页面共用条件AST和数据类型绑定。</summary>
 internal static class FileReferenceScope
 {
-    /// <summary>父定义绑定发布模型中的真实外键；未知字段、复杂条件或未声明归属均拒绝。</summary>
-    internal static IReadOnlyList<FileParentScope> Compile(MetadataCatalog catalog, TableMetadata table, PageMetadata page)
+    /// <summary>兼容父范围编译调用；生产观察者和读取器消费发布时缓存的完整计划。</summary>
+    internal static IReadOnlyList<FileParentScope> Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>CompilePage(catalog,table,page).Parents;
+    /// <summary>未知变量/数组/派生/凭据条件整体拒绝；不会只保留已知父项而丢弃其它限制。</summary>
+    internal static FilePageScope CompilePage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
-        var result = new List<FileParentScope>();
-        if (string.IsNullOrWhiteSpace(page.WhereSql)) return result;
-        var columns = MetadataStoragePolicy.ForTable(catalog, table).PhysicalColumns;
-        foreach (var clause in Regex.Split(page.WhereSql.Trim(), @"\s+AND\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        try
         {
-            var match = Regex.Match(clause.Trim(), @"^`?([a-zA-Z_][a-zA-Z0-9_]*)`?\s*=\s*@(current_yz_project_id|parent_id|parentId)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (!match.Success) throw Unsupported();
-            var column = columns.SingleOrDefault(candidate => candidate.ColumnName == match.Groups[1].Value.ToLowerInvariant()) ?? throw Unsupported();
-            var project = match.Groups[2].Value.Equals("current_yz_project_id", StringComparison.OrdinalIgnoreCase);
-            if ((column.ColumnName == "yz_project_id") != project || !IdentityType(column.LogicalType)) throw Unsupported();
-            if (project) continue;
-            var parents = catalog.ConfigTables.Where(candidate => !string.IsNullOrWhiteSpace(column.LinkConfigTableId)
-                ? candidate.Id == column.LinkConfigTableId : candidate.TableName + "_id" == column.ColumnName).ToArray();
-            if (parents.Length != 1 || parents[0].IsFunctionTable != 0 || parents[0].IsView != 0) throw Unsupported();
-            var parent = parents[0];
-            var parentColumns = MetadataStoragePolicy.ForTable(catalog, parent).PhysicalColumns;
-            var id = parentColumns.SingleOrDefault(candidate => candidate.ColumnName == "id");
-            var owner = parentColumns.SingleOrDefault(candidate => candidate.ColumnName == "yz_project_id");
-            if (id is null || !LongType(id.LogicalType) || owner is null || !IdentityType(owner.LogicalType)) throw Unsupported();
-            var deleted = parentColumns.SingleOrDefault(candidate => candidate.ColumnName == "delete_no");
-            if (deleted is not null && (deleted.LogicalType.ToLowerInvariant() is not ("datetime" or "timestamp") || deleted.IsDbNotNull != 0)) throw Unsupported();
-            result.Add(new(column, parent, owner, deleted is not null));
+            var result=new List<FileParentScope>();var constants=new List<FixedConditionTerm>();
+            var columns=MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns;
+            var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+            foreach(var term in syntax.Terms)
+            {
+                var column=columns.Single(candidate=>candidate.ColumnName==term.Field);
+                var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
+                if(variables.Length==0)
+                {
+                    var multiNames=columns.Any(source=>source.ControlKind=="MultiSelectPage"&&source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)&&column.ColumnName==source.ColumnName[..^4]+"_names");
+                    var credential=table.Id=="6031906809708544"&&table.TableName=="yz_manager"&&column.ColumnName is "password" or "salt" or "old_password";
+                    if(column.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||multiNames||credential)throw Unsupported();
+                    constants.Add(term);continue;
+                }
+                if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)throw Unsupported();
+                var variable=variables[0].Text;
+                var project=variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
+                if(!project&&!variable.Equals("parent_id",StringComparison.OrdinalIgnoreCase)&&!variable.Equals("parentId",StringComparison.OrdinalIgnoreCase))throw Unsupported();
+                if((column.ColumnName=="yz_project_id")!=project||!IdentityType(column.LogicalType))throw Unsupported();
+                if(project)continue;
+                var parents=catalog.ConfigTables.Where(candidate=>!string.IsNullOrWhiteSpace(column.LinkConfigTableId)?candidate.Id==column.LinkConfigTableId:candidate.TableName+"_id"==column.ColumnName).ToArray();
+                if(parents.Length!=1||parents[0].IsFunctionTable!=0||parents[0].IsView!=0)throw Unsupported();
+                var parent=parents[0];var parentColumns=MetadataStoragePolicy.ForTable(catalog,parent).PhysicalColumns;
+                var id=parentColumns.SingleOrDefault(candidate=>candidate.ColumnName=="id");var owner=parentColumns.SingleOrDefault(candidate=>candidate.ColumnName=="yz_project_id");
+                if(id is null||!LongType(id.LogicalType)||owner is null||!IdentityType(owner.LogicalType))throw Unsupported();
+                var deleted=parentColumns.SingleOrDefault(candidate=>candidate.ColumnName=="delete_no");
+                if(deleted is not null&&(deleted.LogicalType.ToLowerInvariant() is not("datetime" or "timestamp")||deleted.IsDbNotNull!=0))throw Unsupported();
+                result.Add(new(column,parent,owner,deleted is not null));
+            }
+            var fields=constants.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
+            var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>columns.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
+            return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields));
         }
-        return result;
+        catch(Exception invalid)when(invalid is ArgumentException or InvalidOperationException){throw Unsupported();}
     }
 
     /// <summary>实际父键必须是可表示的正整数，不能把null、浮点或表达式解释为记录身份。</summary>

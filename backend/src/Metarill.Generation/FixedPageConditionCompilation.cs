@@ -53,12 +53,7 @@ internal static class FixedPageConditionCompilation
         return model;
     }
     /// <summary>按已经解析的节点规范化，字符串中的AND、引号和逗号保持原值，绝不按文本分割SQL。</summary>
-    internal static string Term(FixedConditionTerm term)
-    {
-        var operation=term.Comparison switch{FixedConditionComparison.Equal=>"=",FixedConditionComparison.NotEqual=>"<>",FixedConditionComparison.Greater=>">",FixedConditionComparison.GreaterOrEqual=>">=",FixedConditionComparison.Less=>"<",FixedConditionComparison.LessOrEqual=>"<=",FixedConditionComparison.Like=>" LIKE ",FixedConditionComparison.In=>" IN ",FixedConditionComparison.IsNull=>" IS NULL",FixedConditionComparison.IsNotNull=>" IS NOT NULL",_=>throw Rejected()};
-        string Value(FixedConditionValue value)=>value.Kind switch{FixedConditionValueKind.String=>"'"+value.Text.Replace("'","''",StringComparison.Ordinal)+"'",FixedConditionValueKind.Number=>value.Text,FixedConditionValueKind.Boolean=>value.Text,FixedConditionValueKind.Null=>"NULL",FixedConditionValueKind.Variable=>"@"+value.Text,_=>throw Rejected()};
-        return term.Field+operation+(term.Comparison is FixedConditionComparison.IsNull or FixedConditionComparison.IsNotNull?"":term.Comparison==FixedConditionComparison.In?"("+string.Join(",",term.Values.Select(Value))+")":Value(term.Values.Single()));
-    }
+    internal static string Term(FixedConditionTerm term)=>term.ToDefinition();
     /// <summary>固定条件只在类型装载时编译，普通请求绑定参数而不解释元数据。</summary>
     internal static string Declaration(PageModel page,string name)
     {

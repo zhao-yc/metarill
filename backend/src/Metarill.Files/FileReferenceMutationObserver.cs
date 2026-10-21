@@ -29,7 +29,8 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         if (actor.ProjectId != context.ProjectId || catalog.YzProjectId != actor.ProjectId || context.RecordId <= 0)
             throw new UnauthorizedAccessException("文件引用项目范围无效。");
         authorization.RequirePagePermission(page.Id, AuthorizationAction(context));
-        var parents = FileReferenceScope.Compile(catalog, table, page);
+        // 标准Service已按写前范围授权；写后允许离页，仅复用完整计划及真实父锁，不以新值重做页面筛选。
+        var parents = registry.PageScope(catalog,page).Parents;
         var record = await LockRecordAsync(context, tableColumns, cancellationToken);
         await LockParentsAsync(context, parents, record, cancellationToken);
         var requested = new Dictionary<string, IReadOnlyList<long>>(StringComparer.Ordinal);

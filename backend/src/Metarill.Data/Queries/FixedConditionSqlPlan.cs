@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -51,6 +52,17 @@ public sealed class FixedConditionSqlPlan
     {
         var clause=RenderConstants(session.Provider,parameterPrefix,session.Provider.QuoteIdentifier);
         return clause.Sql.Length==0?query:query.Where(clause.Sql,clause.Parameters);
+    }
+    /// <summary>向适配器自建命令绑定已发布常量，返回固定字段谓词；不接受外部SQL或变量。</summary>
+    public string BindConstants(DbCommand command,DatabaseSession session,string parameterPrefix)
+    {
+        ArgumentNullException.ThrowIfNull(command);ArgumentNullException.ThrowIfNull(session);
+        var clause=RenderConstants(session.Provider,parameterPrefix,session.Provider.QuoteIdentifier);
+        var existing=command.Parameters.Cast<DbParameter>().Select(parameter=>parameter.ParameterName.TrimStart('@',':','?')).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if(clause.Parameters.Keys.Any(existing.Contains))throw new ArgumentException("固定条件参数与命令已有参数冲突。");
+        foreach(var pair in clause.Parameters)
+        {var parameter=command.CreateParameter();parameter.ParameterName=pair.Key;parameter.Value=pair.Value??DBNull.Value;command.Parameters.Add(parameter);}
+        return clause.Sql;
     }
     /// <summary>非冗余适配器只能传已编译字段表达式，保留NULL与原LIKE的SQL语义。</summary>
     internal Clause RenderConstants(IDatabaseProvider provider,string prefix,Func<string,string> expression)

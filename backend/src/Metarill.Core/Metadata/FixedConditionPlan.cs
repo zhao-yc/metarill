@@ -25,6 +25,14 @@ public sealed class FixedConditionTerm
     public string Field {get;}
     public FixedConditionComparison Comparison {get;}
     [JsonIgnore] public IReadOnlyList<FixedConditionValue> Values {get;}
+    /// <summary>将已解析节点恢复为规范元数据定义；生成器和发布运行时共用，不作为可执行SQL。
+    /// 字符串标点只保留为字面量，数据库执行仍须经类型计划和参数绑定。</summary>
+    public string ToDefinition()
+    {
+        var operation=Comparison switch{FixedConditionComparison.Equal=>"=",FixedConditionComparison.NotEqual=>"<>",FixedConditionComparison.Greater=>">",FixedConditionComparison.GreaterOrEqual=>">=",FixedConditionComparison.Less=>"<",FixedConditionComparison.LessOrEqual=>"<=",FixedConditionComparison.Like=>" LIKE ",FixedConditionComparison.In=>" IN ",FixedConditionComparison.IsNull=>" IS NULL",FixedConditionComparison.IsNotNull=>" IS NOT NULL",_=>throw new ArgumentException("固定条件节点无法格式化。")};
+        string Value(FixedConditionValue value)=>value.Kind switch{FixedConditionValueKind.String=>"'"+value.Text.Replace("'","''",StringComparison.Ordinal)+"'",FixedConditionValueKind.Number=>value.Text,FixedConditionValueKind.Boolean=>value.Text,FixedConditionValueKind.Null=>"NULL",FixedConditionValueKind.Variable=>"@"+value.Text,_=>throw new ArgumentException("固定条件节点无法格式化。")};
+        return Field+operation+(Comparison is FixedConditionComparison.IsNull or FixedConditionComparison.IsNotNull?"":Comparison==FixedConditionComparison.In?"("+string.Join(",",Values.Select(Value))+")":Value(Values.Single()));
+    }
 }
 
 /// <summary>原V8结构化候选条件的固定AND计划；在生成/发布时解析，普通请求不解释配置SQL。</summary>

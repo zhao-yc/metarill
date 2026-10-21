@@ -29,6 +29,8 @@ public sealed partial class FreshInstallMySqlTests
         await using(var connection=new MySqlConnection(options.ConnectionString))
         {await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.GetProperty("hostname").GetString()&&reader.GetString(2)==pin.GetProperty("serverUuid").GetString(),"专属空库实例pin不符。");}
         var catalog=NonRedundantApplicationFixture.Catalog("mt_nrp_"+run,true);var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-nonred-fresh");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var outputDirectory=Path.Combine(directory,"application");var evidence=Path.Combine(root,".local/nonredundant-application/fresh-"+run);Directory.CreateDirectory(evidence);
+        // 同一原页面条件同时进入生成CRUD、物理文件来源与派生精确管理的文件计划。
+        catalog.ConfigPages.Single(page=>page.Id=="101").WhereSql+=" AND name<>'隐藏文件记录' AND id>0";
         ExactDataManageMySqlProbe.Configure(catalog);DerivedExactDataManageMySqlProbe.Configure(catalog);
         var password=Guid.NewGuid().ToString("N");var username="nonred-owner";FreshHost? host=null;var passed=false;Exception? primaryFailure=null;
         try
@@ -86,7 +88,7 @@ public sealed partial class FreshInstallMySqlTests
             var library=new SqlRowStore(session,files);var reference=Assert.Single(await library.ReadAsync("yz_file_ref",Row("file_id",protectedFile)));var fileRecord=SqlRowStore.Id(reference,"record_id");var storedFileRecord=Assert.Single(await store.ReadAsync(order,Row("id",fileRecord)));
             await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,"/api/admin/sys/file-library/resolve",new{fileIds=new[]{protectedFile.ToString(CultureInfo.InvariantCulture)},pageId="101",recordId=fileRecord.ToString(CultureInfo.InvariantCulture)});
             // 构造仅在本轮独占新库内的旧坏引用：真实字段、父范围或软删任一失配均不能凭引用行放行。
-            foreach(var bad in new[]{Row("attachments",null),Row("group_id",73L),Row("delete_no",DateTime.UtcNow)})
+            foreach(var bad in new[]{Row("attachments",null),Row("group_id",73L),Row("delete_no",DateTime.UtcNow),Row("name","隐藏文件记录")})
             {
                 await store.UpdateAsync(order,fileRecord,bad);
                 using(var denied=await ordinary.GetAsync("/api/admin/sys/file-library/protected-content/"+protectedFile))Assert.Equal(HttpStatusCode.Unauthorized,denied.StatusCode);

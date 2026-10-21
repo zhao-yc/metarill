@@ -19,4 +19,23 @@ public sealed partial class FixedConditionSqlTests
     {
         using var session=Session();var query=session.Select<Row>();var before=query.ToSql();Assert.Throws<InvalidOperationException>(()=>Compile("id=@actor").ApplyConstants(query,session,"page"));Assert.Equal(before,query.ToSql());
     }
+    /// <summary>自建命令仅接规范谓词及驱动参数，字符串与高位ID不能进入SQL正文。</summary>
+    [Fact]
+    public void Constant_command_binding_preserves_values_and_sql_null()
+    {
+        using var session=Session();using var command=new MySqlConnector.MySqlCommand();
+        var sql=Compile("name='A AND B,O''Neil' AND id IN(NULL,9007199254740993)").BindConstants(command,session,"file_page");
+        Assert.Contains("NULL",sql);Assert.DoesNotContain("O'Neil",sql);Assert.DoesNotContain("9007199254740993",sql);
+        Assert.Equal(2,command.Parameters.Count);Assert.Contains(command.Parameters.Cast<System.Data.Common.DbParameter>(),p=>Equals(p.Value,"A AND B,O'Neil"));Assert.Contains(command.Parameters.Cast<System.Data.Common.DbParameter>(),p=>Equals(p.Value,9007199254740993L));
+    }
+    /// <summary>变量或参数重名在修改命令前拒绝，不能吞掉条件或覆盖调用方身份参数。</summary>
+    [Theory]
+    [InlineData(true)][InlineData(false)]
+    public void Constant_command_binding_rejects_variables_or_existing_parameter_without_mutation(bool variable)
+    {
+        using var session=Session();using var command=new MySqlConnector.MySqlCommand("SELECT 1");command.Parameters.AddWithValue("@PAGE_0",17L);
+        if(variable)Assert.Throws<InvalidOperationException>(()=>Compile("id=@actor").BindConstants(command,session,"page"));
+        else Assert.Throws<ArgumentException>(()=>Compile("id=9007199254740993").BindConstants(command,session,"page"));
+        Assert.Equal("SELECT 1",command.CommandText);Assert.Equal(17L,Assert.Single(command.Parameters.Cast<System.Data.Common.DbParameter>()).Value);
+    }
 }

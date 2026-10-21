@@ -25,15 +25,15 @@ internal static class FileReferenceReadAuthorization
             if(fields.Count==0)continue;
             try{authorization.RequireFileSourcePagePermission(page.Id);}
             catch(Exception denied)when(denied is UnauthorizedAccessException or SecurityException){continue;}
-            IReadOnlyList<FileParentScope> scopes;ExactFileScope? exact;
-            try{scopes=FileReferenceScope.Compile(catalog,table,page);exact=ExactScope(registry,catalog,physical,page,authorization);}
+            FilePageScope scope;IReadOnlyList<FileParentScope> scopes;ExactFileScope? exact;
+            try{scope=registry.PageScope(catalog,page);scopes=scope.Parents;exact=ExactScope(registry,catalog,physical,page,authorization);}
             catch(Exception denied)when(denied is NotSupportedException or ArgumentException or UnauthorizedAccessException or SecurityException){continue;}
             var references=await store.ReadAsync("yz_file_ref",new Dictionary<string,object?>{{"file_id",fileId},{"page_id",FileReferenceScope.PositiveId(page.Id)},{"yz_project_id",project}},token);
             foreach(var reference in references)
             {
                 var name=SqlRowStore.Text(reference,"field_name");if(!fields.TryGetValue(name,out var field))continue;
                 var recordId=SqlRowStore.Id(reference,"record_id");if(recordId<=0)continue;
-                var record=await ReadRecordAsync(store,table,physical,field,scopes,exact,registry.DerivedExactPlan(catalog,page,field),recordId,project,token);if(record is null)continue;
+                var record=await ReadRecordAsync(store,table,physical,field,scope,exact,registry.DerivedExactPlan(catalog,page,field),recordId,project,token);if(record is null)continue;
                 try
                 {
                     IReadOnlyList<long> actual;
@@ -79,8 +79,9 @@ internal static class FileReferenceReadAuthorization
     }
 
     /// <summary>只投影必要列；观察者内复用真实事务以读取本批刚写的记录，独立请求才创建自有连接。</summary>
-    private static async Task<Dictionary<string,object?>?> ReadRecordAsync(SqlRowStore store,TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,IReadOnlyList<FileParentScope> scopes,ExactFileScope? exact,NonRedundantReadPlan? derivedPlan,long record,long project,CancellationToken token)
+    private static async Task<Dictionary<string,object?>?> ReadRecordAsync(SqlRowStore store,TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,FilePageScope scope,ExactFileScope? exact,NonRedundantReadPlan? derivedPlan,long record,long project,CancellationToken token)
     {
+        var scopes=scope.Parents;
         if(exact is not null&&exact.Values.Count==0)return null;
         var id=columns.SingleOrDefault(column=>column.ColumnName=="id");if(id is null)return null;
         var owner=columns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
@@ -89,7 +90,7 @@ internal static class FileReferenceReadAuthorization
         {
             if(derivedPlan is null)return null;
             var filters=new List<FixedReadFilter>{new("id",FixedReadComparison.Equal,record),new(exact.Column.ColumnName,FixedReadComparison.In,exact.Values)};
-            var rows=await new NonRedundantReader(store.Session).RowsAsync(derivedPlan,filters,[],1,token,project.ToString(CultureInfo.InvariantCulture));
+            var rows=await new NonRedundantReader(store.Session).RowsAsync(derivedPlan,filters,[],1,token,project.ToString(CultureInfo.InvariantCulture),scope.Condition);
             return rows.Count==0?null:rows[0].ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
         }
         var names=new[]{field.ColumnName,"id"}.Concat(owner is null?Array.Empty<string>():[owner.ColumnName]).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
@@ -102,6 +103,7 @@ internal static class FileReferenceReadAuthorization
         if(owner is not null)query+=" AND "+provider.QuoteIdentifier(owner.ColumnName)+"="+Parameter(command,store,"project_id",FileReferenceScope.IdentityValue(owner,project));
         if(columns.Any(column=>column.ColumnName=="delete_no"))query+=" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL";
         if(exact is not null)query+=" AND "+provider.QuoteIdentifier(exact.Column.ColumnName)+" IN ("+string.Join(",",exact.Values.Select((value,index)=>Parameter(command,store,"exact_"+index,value!)))+")";
+        if(scope.Condition is not null)query+=" AND "+scope.Condition.BindConstants(command,store.Session,"file_page");
         command.CommandText=query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
     }
     /// <summary>父身份从实际记录读取，复用当前事务可看见本批刚建父；父仍须有效且同项目。</summary>
