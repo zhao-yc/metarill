@@ -5,7 +5,7 @@ namespace Metarill.Generation;
 
 internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target, PageModel TargetPage, ColumnModel NameColumn, string Endpoint,
     IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents,
-    FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null)
+    FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null, RelationConditionModel? Conditions = null)
 {
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
@@ -57,7 +57,9 @@ internal static class RelationCompilation
                     ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent")));
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
-            var scopes = GenerationModel.CompileScopes(Mapped("whereSql"), target.Columns);
+            var (scopes, conditions) = RelationConditionsCompilation.Compile(model, target, Mapped("whereSql"));
+            if (conditions is not null && ForeignValidationRenderer.Target(model,source)?.Source.Id != target.Source.Id)
+                throw new InvalidOperationException("常量候选必须与外键及显示来源的固定目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
@@ -67,7 +69,7 @@ internal static class RelationCompilation
                 try { var order = GenerationModel.ValidateOrderBy(Mapped("orderBy"), target.Columns).ToList(); if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false)); ordering = order; }
                 catch (InvalidOperationException) { binding = new(true, null, "固定归属候选排序不能安全编译。"); }
             }
-            relations.Add(new RelationModel(source, target, targetPage, name, "findNameId" + target.Name + source.Source.Id, scopes, sourceParents, targetParents, binding, ordering));
+            relations.Add(new RelationModel(source, target, targetPage, name, "findNameId" + target.Name + source.Source.Id, scopes, sourceParents, targetParents, binding, ordering, conditions));
         }
         return relations;
     }

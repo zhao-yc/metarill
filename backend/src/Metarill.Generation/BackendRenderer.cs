@@ -568,17 +568,22 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         for (var index = 0; index < sourceParents.Count; index++) Parent(sourceParents[index], "sourceParentKey", "sourceParent" + index);
         if (sourceParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
         result.AppendLine("    }");
-        /// <summary>父定义来自固定元数据，来源与目标分别验证同项目及软删，不取写锁。</summary>
-        void Parent(TableModel parent, string key, string variable)
+        /// <summary>候选按固定父定义无锁验证；常量关系写入使用同事务当前读锁。</summary>
+        void Parent(TableModel parent, string key, string variable, bool current = false)
         {
             var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
             result.AppendLine($"        var {variable} = session.Select<{parent.Name}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
-            result.AppendLine($"        if (!await {variable}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\");");
+            if (current)
+                result.AppendLine($"        if (locking) {{ if ((await {variable}.ForUpdate().Limit(1).ToListAsync(entity => new {{ entity.Id }}, cancellationToken)).Count != 1) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\"); }}")
+                    .AppendLine($"        else if (!await {variable}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\");");
+            else
+                result.AppendLine($"        if (!await {variable}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\");");
         }
         foreach (var relation in relations)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
+            result.Append(RelationConditionsCompilation.Declaration(relation, suffix));
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
                 .AppendLine($"    private async Task<ISelect<{relation.Target.Name}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)")
                 .AppendLine("    {");
@@ -587,6 +592,15 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if (relation.ParentBinding.Binding is null) result.AppendLine($"        RejectBound{page.Source.Id}({Literal(relation.ParentBinding.Reason!)});");
                 else result.AppendLine($"        targetParentId = (await ResolveBound{suffix}Async(parentId, targetParentId, actor, locking, requireSourceList, cancellationToken)).ToString(CultureInfo.InvariantCulture);");
             }
+            else if (relation.Conditions is not null && relation.SourceParents.Count > 0)
+            {
+                // 常量关系的写入必须读取真实父当前值；普通候选仍复用无锁验证，不改变旧项目产物。
+                result.AppendLine($"        if (!locking) await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
+                    .AppendLine("        else").AppendLine("        {").AppendLine("        ValidateActor(actor);")
+                    .AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
+                for (var index = 0; index < relation.SourceParents.Count; index++) Parent(relation.SourceParents[index], "sourceParentKey", "sourceParent" + index, true);
+                result.AppendLine("        }");
+            }
             else result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);");
             var sameParent = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
             if (relation.TargetParents.Count > 0)
@@ -594,7 +608,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
                 if (relation.ParentBinding?.Binding is null)
-                    for (var index = 0; index < relation.TargetParents.Count; index++) Parent(relation.TargetParents[index], "targetParentKey", "targetParent" + index);
+                    for (var index = 0; index < relation.TargetParents.Count; index++) Parent(relation.TargetParents[index], "targetParentKey", "targetParent" + index, relation.Conditions is not null);
             }
             else result.AppendLine("        if (targetParentId is not null) throw new ArgumentException(\"当前关联不使用 targetParentId。\");");
             if (relation.SourceParents.Count == 0 && relation.TargetParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
@@ -604,6 +618,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
+            result.Append(RelationConditionsCompilation.Apply(relation, suffix));
             if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")
             {
                 foreach (var flag in relation.Target.Columns.Where(column => column.Source.ColumnName is "is_virtual_column" or "is_join_column"))

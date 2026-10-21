@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -36,6 +37,7 @@ internal static class ForeignValidationRenderer
         foreach (var binding in derived)
             result.AppendLine($"        if (!creating && submitted.Contains({Literal(binding.Storage.Source.ColumnName)}) && !submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) throw new InvalidOperationException(\"派生字段只能随已声明关联重算。\");")
                 .AppendLine($"        if ((creating || submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) && entity.{binding.ForeignKey.Property} is null) {{ entity.{binding.Storage.Property} = null; submitted.Add({Literal(binding.Storage.Source.ColumnName)}); }}");
+        var constantRelations = RelationCompilation.ForPage(model, page).Where(relation => relation.Conditions is not null).ToDictionary(relation => relation.SourceColumn.Source.Id);
         var number = 0;
         foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared || !column.IsSystem && (column.Type is "long?" or "string?")))
         {
@@ -74,10 +76,14 @@ internal static class ForeignValidationRenderer
                 result.Append(NonRedundantSelectionRenderer.Validate(model,table,page,column));continue;
             }
             var target = Target(model, column);
+            var constantRelation = constantRelations.GetValueOrDefault(column.Source.Id);
             var knownRelation = column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" || !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId);
             if (target is null && !knownRelation) continue;
             number++;
-            result.AppendLine($"        if ((creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null)").AppendLine("        {");
+            var constantDependency = constantRelation is null ? null : ControlRenderer.RelationContext(page,constantRelation,false).TargetParentField;
+            var constantDependencyColumn = constantDependency is null ? null : table.Columns.Single(field=>field.JsonName==constantDependency);
+            var constantTrigger = "creating || submitted.Contains("+Literal(column.Source.ColumnName)+")"+(constantDependencyColumn is null?"":" || submitted.Contains("+Literal(constantDependencyColumn.Source.ColumnName)+")");
+            result.AppendLine($"        if (({constantTrigger}) && entity.{column.Property} is not null)").AppendLine("        {");
             if (target is null)
                 result.AppendLine($"            throw new InvalidOperationException({Literal("关联目标尚未移植：" + column.Source.Name)});");
             else
@@ -88,15 +94,20 @@ internal static class ForeignValidationRenderer
                         .AppendLine($"            var relationIds{number} = relation{number}.RootElement.EnumerateArray().Select(value => long.Parse(value.ToString(), CultureInfo.InvariantCulture)).Distinct().ToArray();");
                 else
                     result.AppendLine($"            var relationIds{number} = new[] {{ {IdExpression(column)} }};");
-                result.AppendLine($"            var relationQuery{number} = session.Select<{target.Name}>().Where(row => relationIds{number}.Contains(row.Id));");
+                if (constantRelation is not null) result.Append(RelationConditionsCompilation.WriteQuery(model,table,page,constantRelation,number.ToString(CultureInfo.InvariantCulture)));
+                else result.AppendLine($"            var relationQuery{number} = session.Select<{target.Name}>().Where(row => relationIds{number}.Contains(row.Id));");
                 if (target.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"            relationQuery{number} = relationQuery{number}.Where(row => row.DeleteNo == null);");
                 var project = target.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == "yz_project_id");
                 if (project is not null && !target.IsGlobal)
                     result.AppendLine($"            relationQuery{number} = relationQuery{number}.Where(row => row.{project.Property} == {ProjectExpression(project)});");
                 else if (project is null && !target.IsGlobal)
                     result.AppendLine($"            if (relationIds{number}.Length != 0) throw new InvalidOperationException(\"关联目标未声明项目归属，需要明确访问规则。\");");
-                result.AppendLine($"            if (await relationQuery{number}.CountAsync(cancellationToken) != relationIds{number}.Length) throw new InvalidOperationException({Literal("关联记录不存在、已删除或不属于当前项目：" + column.Source.Name)});");
+                if (constantRelation is null)
+                    result.AppendLine($"            if (await relationQuery{number}.CountAsync(cancellationToken) != relationIds{number}.Length) throw new InvalidOperationException({Literal("关联记录不存在、已删除或不属于当前项目：" + column.Source.Name)});");
                 var assignments = derived.Where(binding => binding.ForeignKey.Source.Id == column.Source.Id).ToArray();
+                if (constantRelation is not null && assignments.Length == 0)
+                    result.AppendLine($"            var lockedRelation{number} = await relationQuery{number}.ForUpdate().ToListAsync(row => new {{ row.Id }}, cancellationToken);")
+                        .AppendLine($"            if (lockedRelation{number}.Count != relationIds{number}.Length) throw new InvalidOperationException(\"关联记录已离开当前固定候选范围。\");");
                 if (assignments.Length > 0)
                 {
                     // 保留同项目活动COUNT预检，再加一次窄当前读；两个页面字段缓存共用此查询。

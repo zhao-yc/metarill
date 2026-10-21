@@ -41,7 +41,7 @@ public sealed class RelationOptionsContractTests
         Assert.Throws<InvalidOperationException>(() => Compile(catalog));
         column.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("301");
         catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["controlDetail"] = JsonSerializer.SerializeToElement("{\"whereSql\":\"name like '%foo%'\"}");
-        Assert.Throws<InvalidOperationException>(() => Compile(catalog));
+        Assert.Contains("OptionsCondition201_25.Apply", Compile(catalog));
     }
 
     [Fact]

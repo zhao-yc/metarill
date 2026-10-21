@@ -81,3 +81,9 @@ metarill update recover --target E:\应用 --transaction active中的事务ID --
 ## 共用数值转换与条件基础文件（2026-10-21）
 
 新增 Core/Contracts/ExactNumericValue、Core/Metadata/FixedConditionPlan 和 Data/Queries/FixedConditionSqlPlan 均属于既有单点 .cs 运行时路径策略，不扩大任意文件覆盖。数值消费者与共用文件须一起 sync-runtime，再编译；仅复制消费者会缺少类型依赖。扩展条件仍未接入 Service/Controller，不能通过手改生成物或删除拒绝检查宣称升级完成。无 SQL、平台元数据或原前端迁移。
+
+## List 常量条件的配套更新（2026-10-21）
+
+生成器现将原 List 控件及页级覆盖中的常量条件编译到固定 Service；新增、复制、明确更新及导入共用实际候选范围。已有使用该配置的项目应由同版工具生成完整候选，通过原助手一起更新 Core/Metadata/FixedConditionPlan、Core/Contracts/ExactNumericValue、Data/Queries/FixedConditionSqlPlan 与生成 Service，再构建宿主验证；不能只复制新 Service，也不应删除其它条件的拒绝检查。原手写 partial、前端及更新路径策略不变，无 SQL 或物理结构迁移。普通项目无该配置时应保持再生成逐字稳定。
+
+本轮正式生成包验证旧候选与写入协议、默认/钩子/复制、导入回滚和物理目标父依赖。页面扩展 WhereSql、表单/账号变量、单选/多选额外范围和原浏览器仍须完整接入或验收，不能按本节宣称全部条件已支持。
