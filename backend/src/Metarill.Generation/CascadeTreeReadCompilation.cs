@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Metarill.Generation;
 
-internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order);
+internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact);
 internal sealed record CascadeTreeReadResult(CascadeTreeReadModel? Definition,string? Reason);
 
 /// <summary>将原自关联级联定义编译为固定实体和可读页面；未覆盖场景保留完整能力门禁。</summary>
@@ -44,7 +44,7 @@ internal static class CascadeTreeReadCompilation
             if(ordering.Any(item=>!Physical(item.Column)))return Gap("排序字段不是可排序物理标量。");
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
-            return new(new(source,target,candidates[0],name,parent,joiner,ordering),null);
+            return new(new(source,target,candidates[0],name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact"),null);
         }
         catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException){return Gap("定义无法安全编译："+error.Message);}
     }

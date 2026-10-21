@@ -41,18 +41,24 @@ public sealed class DatabaseSession : IDisposable
     public IDelete<T> Delete<T>() where T : class => Orm.Delete<T>().WithTransaction(CurrentTransaction);
 
     /// <summary>完整业务流程开启事务；内层 Service 加入同一事务，任何内层失败均阻止外层提交。</summary>
-    public async Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default)
+    public Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default)=>ExecuteTransactionAsync(action,false,cancellationToken);
+
+    /// <summary>固定图分批读取与来源查询共享一个快照；外层事务不满足条件时明确拒绝。</summary>
+    public Task<T> InReadSnapshotAsync<T>(Func<Task<T>> action,CancellationToken cancellationToken=default)=>ExecuteTransactionAsync(action,true,cancellationToken);
+
+    /// <summary>读快照与业务事务共用取消、回滚标记、嵌套和异步上下文边界。</summary>
+    private async Task<T> ExecuteTransactionAsync<T>(Func<Task<T>> action,bool readSnapshot,CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
         cancellationToken.ThrowIfCancellationRequested();
         if (_transaction.Value is { } parent)
         {
-            try { return await action(); }
+            try { if(readSnapshot)await Provider.EnsureReadSnapshotAsync(parent.Transaction,cancellationToken);return await action(); }
             catch { parent.RollbackOnly = true; throw; }
         }
         await using var connection = Provider.CreateConnection(Options);
         await connection.OpenAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var transaction = readSnapshot?await Provider.BeginReadSnapshotAsync(connection,cancellationToken):await connection.BeginTransactionAsync(cancellationToken);
         var current = new TransactionScope(transaction);
         _transaction.Value = current;
         try

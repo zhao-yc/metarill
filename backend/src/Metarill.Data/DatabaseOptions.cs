@@ -24,6 +24,10 @@ public interface IDatabaseProvider
     void Validate(DatabaseOptions options);
     string QuoteIdentifier(string identifier);
     string ParameterPlaceholder(string name);
+    /// <summary>读取快照由适配器建立，未验收的提供程序不能静默降级。</summary>
+    ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken cancellationToken=default)=>throw new NotSupportedException("当前数据库尚未实现一致读取事务。");
+    /// <summary>加入外层事务前验证隔离能力，不擅自改变业务事务级别。</summary>
+    Task EnsureReadSnapshotAsync(DbTransaction transaction,CancellationToken cancellationToken=default)=>throw new NotSupportedException("当前数据库尚未实现一致读取事务验证。");
     /// <summary>适配器显式提供事务锁定读取；未实现的数据库不能静默降级。</summary>
     string BuildSelectForUpdate(string selectSql) => throw new NotSupportedException("当前数据库尚未实现锁定读取。");
 }
@@ -48,6 +52,18 @@ public static class DatabaseProviders
 public sealed class MySqlDatabaseProvider : IDatabaseProvider
 {
     public string Name => "mysql";
+    /// <summary>显式RR避免部署库默认隔离级别改变后分批图读取混入多个版本。</summary>
+    public ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken cancellationToken=default)=>connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead,cancellationToken);
+    /// <summary>明确级别直接检查；本会话默认事务的Unspecified再查询同连接默认级别。</summary>
+    public async Task EnsureReadSnapshotAsync(DbTransaction transaction,CancellationToken cancellationToken=default)
+    {
+        var isolation=transaction.IsolationLevel;
+        if(isolation is System.Data.IsolationLevel.RepeatableRead or System.Data.IsolationLevel.Serializable)return;
+        if(isolation!=System.Data.IsolationLevel.Unspecified)throw new InvalidOperationException("外层事务隔离级别不能保证固定图读快照。");
+        await using var command=transaction.Connection!.CreateCommand();command.Transaction=transaction;command.CommandText="SELECT @@transaction_isolation";
+        var actual=Convert.ToString(await command.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);
+        if(actual is not("REPEATABLE-READ" or "SERIALIZABLE"))throw new InvalidOperationException("外层默认事务不能保证固定图读快照。");
+    }
     /// <summary>按 MySQL 方言引用经过白名单校验的单段名称。</summary>
     public string QuoteIdentifier(string identifier) => Schema.MySqlSchemaPlanner.Quote(identifier);
     /// <summary>参数只接受安全名称，值始终通过 DbParameter 传递。</summary>

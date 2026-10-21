@@ -27,7 +27,7 @@ public sealed class CascadeTreeWriteTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);var request=assembly.GetType("Example.CascadeWrite.Generated.DTOs.WriteSourcePage201CreateRequest",true)!;Assert.Null(request.GetProperty("TreeName"));
             Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize("{\"treeName\":\"伪造名称\"}",request,new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             var hand=Path.Combine(directory,"generated/Services/WriteSourceService.cs");var bytes=File.ReadAllBytes(hand);new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.CascadeWrite");Assert.Equal(bytes,File.ReadAllBytes(hand));Assert.Equal(before,JsonSerializer.Serialize(catalog));
-            Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason.Contains("展示、后代筛选和导入导出"));
+            Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason.Contains("级联导入导出"));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

@@ -20,7 +20,7 @@ internal static class ControlRenderer
         var wrapper = $"      <uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">";
         ControlResult Wrap(string content, string? reason = null) => new(wrapper + content + "</uni-forms-item>", reason);
         var writable = page.Writable.Contains(column);
-        if(column.Source.ControlKind=="CascadeTree")return Wrap("",CascadeTreeReadCompilation.Resolve(model,table,page,column).Reason??CascadeTreeWriteCompilation.Resolve(model,table,page,column).Reason??"CascadeTree候选、路径及最终写入已接线；展示、后代筛选和导入导出仍待完成。");
+        if(column.Source.ControlKind=="CascadeTree")return Wrap("",CascadeTreeReadCompilation.Resolve(model,table,page,column).Reason??CascadeTreeWriteCompilation.Resolve(model,table,page,column).Reason??"CascadeTree候选、路径、最终写入、路径展示及精确/后代筛选已接线；级联导入导出和其余范围仍待完成。");
         var fixedRoleAdmin=FixedRoleAdminNameCompilation.Resolve(model,table,page,column);
         if(fixedRoleAdmin.Declared && fixedRoleAdmin.Definition is null) return Wrap("",fixedRoleAdmin.Reason);
         var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
@@ -87,6 +87,14 @@ internal static class ControlRenderer
         ControlResult Wrap(string content) => new($"<uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">{content}</uni-forms-item>");
         var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
         if (fixedCatalog.Declared) return fixedCatalog.Definition is not null ? Wrap("<text>受控模板版本候选</text>") : new("", fixedCatalog.Reason);
+        if(column.Source.ControlKind=="CascadeTree")
+        {
+            var table=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var plan=CascadeTreeReadCompilation.Resolve(model,table,page,column);
+            if(plan.Definition is null||column.Type is not("string?" or "long?")||!column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))return new("",plan.Reason??"级联筛选字段类型未支持。");
+            var field=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id);var overlay=field.Extra.GetValueOrDefault("controlDetail").ToString();var definition=string.IsNullOrWhiteSpace(overlay)?column.Source.ControlDetail:overlay;
+            var api="/admin/auto/"+table.Source.TableName+"/"+page.Source.Id;
+            return Wrap($"<yzp-cascade-tree :value=\"draftFilters.{column.JsonName}\" :definition='{Escape(definition)}' request-url=\"{api}/cascadeTreeOptions{column.Source.Id}\" path-request-url=\"{api}/cascadeTreePath{column.Source.Id}\" leaf-id-property=\"{column.JsonName}\" leaf-name-property=\"{GenerationModel.Camel(column.Source.ColumnName[..^3]+"_name")}\" @input=\"setFilter('{column.JsonName}', $event)\" />");
+        }
         if (column.Source.ControlKind is "ConstList" or "ConstDownList") return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(ConstOptions(column))}\" />");
         if (column.Source.ControlKind == "CheckBox" || column.Type == "bool?" && column.Source.ControlKind == "") return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(CheckOptions(column))}\" />");
         if (column.Source.ControlKind == "List" && RelationCompilation.ForPage(model, page).SingleOrDefault(relation => relation.SourceColumn == column) is { } relation)

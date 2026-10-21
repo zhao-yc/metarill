@@ -85,6 +85,7 @@ internal static partial class BackendRenderer
             if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
         }
+        result.Append(CascadeTreeViewRenderer.Vo(model,table,page));
         foreach (var catalog in catalogs)
             result.AppendLine($"    [JsonPropertyName({Literal(catalog.JsonName)})]").AppendLine($"    public string? {catalog.Property} {{ get; init; }}");
         if (role is not null) result.AppendLine("    [JsonPropertyName(\"yzRoleNames\")] public JsonElement? YzRoleNames { get; init; }")
@@ -179,6 +180,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
             result.Append(CascadeTreeReadRenderer.Service(model,table,page));
             result.Append(CascadeTreeWriteRenderer.Service(model,table,page));
+            result.Append(CascadeTreeViewRenderer.Service(model,table,page));
             result.Append(FixedRoleCheckboxRenderer.Service(model,table,page));
             result.Append(FixedRoleAdminNameRenderer.Service(model,table,page));
             result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
@@ -231,7 +233,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (ManagerCredentialCompilation.Unsupported(table,page)) result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>")
-            .AppendLine($"    private ISelect<{table.Name}> Query{suffix}(PageRequest request, RuntimeActor actor{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {")
+            .AppendLine($"    private {(CascadeTreeQueryCompilation.Async(page)?$"async Task<ISelect<{table.Name}>>":$"ISelect<{table.Name}>")} Query{suffix}(PageRequest request, RuntimeActor actor{(CascadeTreeQueryCompilation.Async(page)?", CancellationToken cancellationToken":"")}{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {")
             .AppendLine("        ArgumentNullException.ThrowIfNull(request);")
             .AppendLine($"        var query = Scope{suffix}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"authorizationOperation")});")
             .AppendLine("        foreach (var filter in request.Filters ?? throw new ArgumentException(\"filters 不能为空。\"))")
@@ -247,7 +249,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
                 .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
-            if (ManagerCredentialCompilation.IsCredential(table,column))
+            if(column.Source.ControlKind=="CascadeTree")result.Append(CascadeTreeViewRenderer.Filter(model,table,page,column));
+            else if (ManagerCredentialCompilation.IsCredential(table,column))
             { result.AppendLine("                    ManagerCredentialValue.RequirePublishedPage(false);"); }
             else if (ManagerCredentialCompilation.IsEnabled(table,page,column))
             {
@@ -292,23 +295,23 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         result.AppendLine("                _ => throw new ArgumentException(\"页面未开放该排序字段。\")").AppendLine("            };").AppendLine("        }");
         result.AppendLine("        return query" + string.Concat(fixedQuery.DefaultOrder.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => {ManagerCredentialCompilation.Order(table,page,item.Column)})")) + ";")
             .AppendLine("    }").AppendLine("    /// <summary>分页与统计使用同一条已受限查询。</summary>")
-            .AppendLine($"    public async Task<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
+            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => session.InReadSnapshotAsync<PageResult<{page.Name}Vo>>(async () =>":"")}").AppendLine("    {")
             .AppendLine("        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")
             .AppendLine($"        var unpaged = request.PageSize == 0 && {(page.Source.PageSize == 0).ToString().ToLowerInvariant()};")
             .AppendLine("        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException(\"仅已配置不分页的页面允许 pageSize=0，且页码必须为1。\");")
             .AppendLine(SelectionPageRenderer.Enabled(page) ? $"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);" : "")
-            .AppendLine($"        var query = Query{suffix}(request, actor);").AppendLine("        var total = await query.CountAsync(cancellationToken);")
+            .AppendLine($"        var query = {CascadeTreeQueryCompilation.Call(page)};").AppendLine("        var total = await query.CountAsync(cancellationToken);")
             .AppendLine($"        var ordered = Order{suffix}(query, request);")
             .AppendLine(ManagerCredentialCompilation.IsTable(table) ? $"        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync({ManagerCredentialCompilation.ReadProjection(table)}, cancellationToken);" : "        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);")
             .AppendLine($"        return new({ProjectResults(model,table,page,"entities","list")}, total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
-            .AppendLine("    }").AppendLine("    /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>")
-            .AppendLine(SelectionPageRenderer.Enabled(page)
-                ? $"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) {{ await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken); return await Query{suffix}(request, actor).CountAsync(cancellationToken); }}"
-                : $"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
+            .AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").AppendLine("    /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>")
+            .AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"    public Task<long> Count{suffix}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InReadSnapshotAsync(async()=>{{{(SelectionPageRenderer.Enabled(page)?$"await ValidateSelectionParents{suffix}Async(request.ParentId,actor,cancellationToken);":"")}return await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken);}},cancellationToken);":SelectionPageRenderer.Enabled(page)
+                ? $"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) {{ await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken); return await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken); }}"
+                : CascadeTreeQueryCompilation.Async(page)?$"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken);":$"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
             .AppendLine("    /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>")
-            .AppendLine($"    public async Task<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)").AppendLine("    {")
+            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => session.InReadSnapshotAsync<{page.Name}Vo?>(async () =>":"")}").AppendLine("    {")
             .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).{(ManagerCredentialCompilation.IsTable(table) ? "ToOneAsync("+ManagerCredentialCompilation.ReadProjection(table)+", cancellationToken)" : "FirstAsync(cancellationToken)")};")
-            .AppendLine($"        return entity is null ? null : {RoleResult(model,table,page,"detail")};").AppendLine("    }");
+            .AppendLine($"        return entity is null ? null : {RoleResult(model,table,page,"detail")};").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }");
         return result.ToString();
     }
     /// <summary>生成新增、部分更新和逻辑删除事务。</summary>
@@ -512,7 +515,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "").AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Services;")
             .AppendLine($"namespace {model.Namespace}.Generated.Controllers;").AppendLine("[ApiController]")
             .AppendLine($"[Route({Literal("api/admin/auto/" + table.Source.TableName + "/" + suffix)})]")
-            .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization) : ControllerBase").AppendLine("{")
+            .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization{(CascadeTreeQueryCompilation.Snapshot(model,table,page)?", Metarill.Data.DatabaseSession readSession":"")}) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")
             .AppendLine($"    private RuntimeActor Actor(string operation) {{ authorization.RequirePagePermission({Literal(suffix)}, operation); return authorization.RequireActor(); }}")
             .Append(LegacyPageRequestRenderer.Controller(model, table, page))
@@ -521,7 +524,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"        var record = await service.Detail{suffix}Async(id, parentId, Actor(\"detail\"), cancellationToken);")
             .AppendLine($"        return record is null ? R<{page.Name}Vo>.Error(\"数据不存在或无权限。\") : R<{page.Name}Vo>.Success(record);").AppendLine("    }")
             .AppendLine("    /// <summary>兼容现有分页响应与分页路由。</summary>").AppendLine("    [HttpPost(\"page\")]")
-            .Append(OriginalListStatisticsCompilation.Controller(page))
+            .Append(OriginalListStatisticsCompilation.Controller(page,CascadeTreeQueryCompilation.Snapshot(model,table,page)))
             .AppendLine("    /// <summary>数量接口沿用相同页面范围。</summary>").AppendLine("    [HttpPost(\"count\")]")
             .AppendLine($"    public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count{suffix}Async(request, Actor(\"count\"), cancellationToken));");
         if (page.Source.IsNew == 1)
@@ -683,10 +686,18 @@ public partial class {{table.Name}}Service
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
     private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Count>0) || table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
-    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation) => NonRedundantReadCompilation.Requires(model,table)?$"await {((ExactDataManageCompilation.Declared(page) || page.Condition is not null) && operation is "create" or "update" or "copy"?"MutationResult":"Detail")}{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
+    private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation)
+    {
+        var expression=NonRedundantReadCompilation.Requires(model,table)?$"await {((ExactDataManageCompilation.Declared(page) || page.Condition is not null) && operation is "create" or "update" or "copy"?"MutationResult":"Detail")}{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
+        return CascadeTreeViewRenderer.One(model,table,page,expression,operation);
+    }
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>
-    private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,entities,operation,operation != "list" || !ManagerCredentialCompilation.IsOriginal(table,page))
+    private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation)
+    {
+        var expression=FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,entities,operation,operation != "list" || !ManagerCredentialCompilation.IsOriginal(table,page))
         : FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && FixedRoleAdminNameCompilation.Used(page,admin,operation) ? FixedRoleAdminNameRenderer.ProjectCall(page,entities,operation) : ManagerCredentialCompilation.IsOriginal(table,page) ? $"{entities}.Select(entity => {page.Name}Vo.FromEntity(entity,{(operation == "list" ? "false" : "true")})).ToArray()" : $"{entities}.Select({page.Name}Vo.FromEntity).ToArray()";
+        return CascadeTreeViewRenderer.Decorate(model,table,page,expression,entities);
+    }
     /// <summary>生成可独立选择数据库会话的服务注册。</summary>
     private static string Registration(GenerationModel model)
     {

@@ -44,7 +44,7 @@ internal static class ExportRenderer
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
         var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).DistinctBy(column=>column.Source.Id);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
-            .AppendLine($"    public async Task<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)")
+            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?" => session.InReadSnapshotAsync<Metarill.Core.Exports.PageExportRequest>(async () =>":"")}")
             .AppendLine("    {")
             .AppendLine("        if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));");
         if (relations.Length > 0 || role || admin is not null)
@@ -71,7 +71,7 @@ internal static class ExportRenderer
         }
         else
         {
-        result.AppendLine($"        var query = Order{page.Source.Id}(Query{page.Source.Id}(request, actor{ExactDataManageCompilation.Argument(page,"\"export\"")}), request);")
+        result.AppendLine($"        var query = Order{page.Source.Id}({CascadeTreeQueryCompilation.Call(page,extra:ExactDataManageCompilation.Argument(page,"\"export\""))}, request);")
             .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.Name}").AppendLine("        {");
         // 目标父依赖只在已有可读字段中取固定列，不因此增加导出的表头或VO字段。
         foreach (var column in columns.Concat(dependencies).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
@@ -131,7 +131,7 @@ internal static class ExportRenderer
         }
         result.AppendLine("        }).ToArray();")
             .AppendLine($"        return new({Literal(page.Source.Id)}, {Literal(page.Source.Name)}, [{string.Join(", ", columns.Select(column => Literal(string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name)))}], rows);")
-            .AppendLine("    }");
+            .AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }");
         return result.ToString();
     }
     /// <summary>关系导出名称，64位整数始终按文本输出避免 Excel 精度损失。</summary>

@@ -34,7 +34,7 @@ internal static class SelectionPageRenderer
             result.AppendLine($"        if (!await parent{number}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"多选页父记录不存在、已删除或不属于当前项目。\");");
         }
         result.AppendLine("    }").AppendLine("    /// <summary>多选确认前重新读取本页完整可见行，任何失效项整体拒绝。</summary>")
-            .AppendLine($"    public async Task<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken)")
+            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => session.InReadSnapshotAsync<IReadOnlyList<{page.Name}Vo>>(async () =>":"")}")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
             .AppendLine($"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);");
         if(NonRedundantReadCompilation.Requires(model,table))
@@ -44,19 +44,20 @@ internal static class SelectionPageRenderer
                 .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<Metarill.Data.Queries.FixedReadOrder>(),1,selected.Length,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)});")
                 .AppendLine("        if(selectedRows.Records.Count!=selected.Length)throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
                 .AppendLine("        var rows=selectedRows.Records.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"));")
-                .AppendLine($"        return selected.Select(id=>{page.Name}Vo.FromReadRow(rows[id])).ToArray();").AppendLine("    }").ToString();
+                .AppendLine($"        return selected.Select(id=>{page.Name}Vo.FromReadRow(rows[id])).ToArray();").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").ToString();
         // 固定计算名称的实际来源动作仍是本页list；先拒绝再读源行，不借候选的任一动作权限。
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        RequireRoleNameAction{suffix}(actor,\"list\");");
         else if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        _ = RoleAdminNameScope{suffix}(actor,\"list\");");
         var projected = FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,"ordered","list",!ManagerCredentialCompilation.IsOriginal(table,page))
             : FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null ? FixedRoleAdminNameRenderer.ProjectCall(page,"ordered","list") : null;
-        return result.AppendLine($"        var query = Query{suffix}(new PageRequest {{ ParentId = request.ParentId, SelectedIds = selected.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToList() }}, actor);")
+        if(projected is null&&CascadeTreeViewRenderer.ForPage(model,table,page).Count>0)projected=CascadeTreeViewRenderer.Decorate(model,table,page,$"ordered.Select({page.Name}Vo.FromEntity).ToArray()","ordered");
+        return result.AppendLine($"        var query = {CascadeTreeQueryCompilation.Call(page,$"new PageRequest {{ ParentId = request.ParentId, SelectedIds = selected.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToList() }}")};")
             .AppendLine("        if (selected.Length == 0) return [];")
             .AppendLine(ManagerCredentialCompilation.IsTable(table) ? $"        var entities = await query.Limit(200).ToListAsync({ManagerCredentialCompilation.ReadProjection(table)}, cancellationToken);" : "        var entities = await query.Limit(200).ToListAsync(cancellationToken);")
             .AppendLine("        if (entities.Count != selected.Length) throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
             .AppendLine("        var rows = entities.ToDictionary(row => row.Id);")
             .Append(projected is null ? "" : "        var ordered = selected.Select(id => rows[id]).ToArray();\n")
-            .AppendLine(projected is not null ? "        return " + projected + ";" : $"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id]{(ManagerCredentialCompilation.IsOriginal(table,page) ? FixedRoleCheckboxCompilation.ForPage(model,table,page) is null ? ",false" : ",null,false" : "")})).ToArray();").AppendLine("    }").ToString();
+            .AppendLine(projected is not null ? "        return " + projected + ";" : $"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id]{(ManagerCredentialCompilation.IsOriginal(table,page) ? FixedRoleCheckboxCompilation.ForPage(model,table,page) is null ? ",false" : ",null,false" : "")})).ToArray();").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").ToString();
     }
 
     /// <summary>回读使用目标页list权限与真实Actor，不借用请求项目或来源控件配置。</summary>
