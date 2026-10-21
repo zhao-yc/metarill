@@ -117,14 +117,14 @@ public sealed class CSharpGenerator
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
     /// <summary>在渲染前拒绝无效或保留关键字命名空间。</summary>
-    private static void ValidateNamespace(string value)
+    internal static void ValidateNamespace(string value)
     {
         if (!Regex.IsMatch(value, "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$") || value.Split('.').Any(x => Keywords.Contains(x)))
             throw new InvalidOperationException("C# 根命名空间无效。");
     }
     private static readonly HashSet<string> Keywords = ["class", "namespace", "public", "private", "internal", "void", "string", "int", "long", "event", "base", "this", "new", "return", "using", "default", "object", "dynamic", "record", "struct", "interface", "enum", "delegate", "bool", "decimal", "double", "float", "short", "byte", "char", "null", "true", "false", "var", "params", "ref", "out", "in", "is", "as", "switch", "case", "operator", "readonly", "static", "sealed", "abstract", "protected", "override", "virtual", "partial", "async", "await", "try", "catch", "finally", "throw", "if", "else", "for", "foreach", "while", "do", "break", "continue", "get", "set", "value", "required", "init"];
     /// <summary>按稳定次序编码元数据以计算归属摘要。</summary>
-    private static byte[] CanonicalMetadata(MetadataCatalog catalog)
+    internal static byte[] CanonicalMetadata(MetadataCatalog catalog)
     {
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(catalog, JsonOptions));
         using var stream = new MemoryStream();

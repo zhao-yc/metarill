@@ -47,6 +47,41 @@ public sealed class FrontendPackager
         Validate(catalog);
         var output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputDirectory)); CSharpGenerator.SafePath(output, ".metarill-frontend.json");
         if (File.Exists(output) || Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new InvalidOperationException("独立前端输出目录必须为空，不能覆盖手写宿主或配置。");
+        var files=BuildFiles(catalog,generatedFrontend,output,sourceRoot,null);
+        var stage = output + ".staging-" + Guid.NewGuid().ToString("N");
+        var preserveStage = false;
+        try
+        {
+            foreach (var (relative, bytes) in files.OrderBy(file => file.Key, StringComparer.Ordinal)) { var path = CSharpGenerator.SafePath(stage, relative); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllBytes(path, bytes); }
+            publish(stage, output);
+        }
+        catch (PackagePublicationException) { preserveStage = true; throw; }
+        finally { if (!preserveStage && Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output)) Directory.Delete(stage, true); }
+        return new(files.Keys.Order(StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>只准备工厂签发管理模块的前端资源，不写目录、不发布应用、不解除后端缺口。</summary>
+    internal FrontendAssetPlan PrepareSecurityManagement(SecurityManagementModelSet module,string generatedFrontend,string sourceRoot)
+    {
+        var catalog=SecurityManagementModuleFactory.RequirePublishedForGeneration(module);
+        MetadataValidation.Validate(catalog);ValidateMenus(catalog);
+        var generated=Path.GetFullPath(generatedFrontend);
+        using var manifest=JsonDocument.Parse(File.ReadAllText(CSharpGenerator.SafePath(Path.GetDirectoryName(generated)!,".metarill-generation.json")));
+        var declaration=manifest.RootElement;var rootNamespace=declaration.GetProperty("rootNamespace").GetString()!;
+        CSharpGenerator.ValidateNamespace(rootNamespace);
+        var expected=Convert.ToHexStringLower(SHA256.HashData(CSharpGenerator.CanonicalMetadata(catalog)));
+        if(declaration.GetProperty("version").GetInt32()!=1||declaration.GetProperty("projectId").GetString()!=catalog.YzProjectId||declaration.GetProperty("metadataSha256").GetString()!=expected)throw new InvalidOperationException("管理前端生成归属不匹配，未准备资源。");
+        var model=TrustedSecurityServiceCompilation.Bind(GenerationModel.Create(catalog,rootNamespace),module);
+        var custom=catalog.ConfigCustomPages.Single(page=>page.Id=="2062363000000000002");
+        if(catalog.ConfigCustomPages.Any(page=>page.Id!=custom.Id)||catalog.ConfigMenus.Any(menu=>menu.Kind is not("DIRECTORY" or "GENERATED_PAGE")&&!(menu.Kind=="CUSTOM_PAGE"&&menu.ConfigCustomPageId==custom.Id&&menu.YzAdminTypeId==custom.YzAdminTypeId)))throw new InvalidOperationException("管理前端存在未接线的自定义或外部入口。");
+        if(model.Tables.SelectMany(table=>table.Pages).SelectMany(page=>page.DetailColumns).Any(column=>column.Source.ControlKind=="CustomControl"))throw new InvalidOperationException("管理前端存在未接线的自定义控件。");
+        var boundary=Path.Combine(generated,".frontend-assets-plan");
+        return new(BuildFiles(catalog,generated,boundary,sourceRoot,model),module.PendingAdapters,GenerationCapabilityAudit.Collect(model));
+    }
+
+    /// <summary>先建立完整资源图；普通发布和内部管理准备共用复制、依赖、路由与摘要规则。</summary>
+    private static Dictionary<string,byte[]> BuildFiles(MetadataCatalog catalog,string generatedFrontend,string output,string sourceRoot,GenerationModel? trustedModel)
+    {
         var source = CSharpGenerator.SafePath(Path.GetFullPath(sourceRoot), "frontend/metarill_uni_admin");
         var generated = Path.GetFullPath(generatedFrontend); CSharpGenerator.SafePath(generated, "pages.generated.json");
         var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -88,14 +123,27 @@ public sealed class FrontendPackager
         }
         var generatedRoutes = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(generated, "pages.generated.json")))!["pages"]!.AsArray();
         var expected = catalog.ConfigPages.SelectMany(page => new[] { "list", "detail" }.Select(kind => "pages/yzp/" + catalog.ConfigTables.Single(table => table.Id == page.ConfigTableId).TableName + "-" + kind + "-" + page.Id)).ToHashSet(StringComparer.Ordinal);
+        var trustedRoutes=trustedModel is null?new Dictionary<string,JsonNode>(StringComparer.Ordinal):TrustedSecurityWorkbenchRenderer.Routes(trustedModel).Select(route=>JsonSerializer.SerializeToNode(route)!).ToDictionary(route=>route["path"]!.GetValue<string>(),StringComparer.Ordinal);
+        foreach(var path in trustedRoutes.Keys)if(!expected.Add(path))throw new InvalidOperationException("管理工作台路由与业务页面冲突。");
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var route in generatedRoutes)
         {
             var path = route?["path"]?.GetValue<string>() ?? "";
             if (!expected.Contains(path) || !seen.Add(path)) throw new InvalidOperationException("生成前端路由不属于当前元数据或有重复：" + path);
+            if(trustedRoutes.TryGetValue(path,out var expectedRoute)&&!JsonNode.DeepEquals(route,expectedRoute))throw new InvalidOperationException("管理工作台的原路由样式已变化。");
             Add(path + ".vue", File.ReadAllBytes(CSharpGenerator.SafePath(generated, path + ".vue")));
         }
         if (!expected.SetEquals(seen)) throw new InvalidOperationException("生成前端缺少当前项目的list/detail路由。");
+        if(trustedModel is not null)
+        {
+            foreach(var file in TrustedSecurityWorkbenchRenderer.Frontend(trustedModel))
+            {
+                var relative=file.Path["frontend/".Length..];var actual=File.ReadAllText(CSharpGenerator.SafePath(generated,relative));var content=file.Content.Replace("\r\n","\n").Replace('\r','\n');
+                if(actual!=content)throw new InvalidOperationException("管理工作台原资源与生成快照不符："+relative);
+                if(relative=="pages/main/set_role_permission.vue")continue;
+                Text(relative,content);
+            }
+        }
         Add("pages.generated.json", File.ReadAllBytes(CSharpGenerator.SafePath(generated, "pages.generated.json")));
         Add("common/yzp_runtime/page-write-schema.generated.json", File.ReadAllBytes(CSharpGenerator.SafePath(generated, "common/yzp_runtime/page-write-schema.generated.json")));
         var pages = JsonNode.Parse(Template("frontend-pages.json.tpl"))!;
@@ -125,16 +173,7 @@ public sealed class FrontendPackager
         Text(".gitignore", "node_modules/\nunpackage/\n.hbuilderx/\n*.local.*\n");
         var manifest = files.OrderBy(file => file.Key, StringComparer.Ordinal).Select(file => new { path = file.Key, sha256 = Convert.ToHexStringLower(SHA256.HashData(file.Value)) }).ToArray();
         Text(".metarill-frontend.json", JsonSerializer.Serialize(new { schemaVersion = 1, projectId = catalog.YzProjectId, authentication = "web-database-v1", files = manifest }, JsonOptions) + "\n");
-        var stage = output + ".staging-" + Guid.NewGuid().ToString("N");
-        var preserveStage = false;
-        try
-        {
-            foreach (var (relative, bytes) in files.OrderBy(file => file.Key, StringComparer.Ordinal)) { var path = CSharpGenerator.SafePath(stage, relative); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllBytes(path, bytes); }
-            publish(stage, output);
-        }
-        catch (PackagePublicationException) { preserveStage = true; throw; }
-        finally { if (!preserveStage && Directory.Exists(stage) && Path.GetDirectoryName(stage) == Path.GetDirectoryName(output)) Directory.Delete(stage, true); }
-        return new(files.Keys.Order(StringComparer.Ordinal).ToArray());
+        return files;
     }
 
     /// <summary>离线包不依赖平台菜单Business，仍须提前拒绝孤儿、跨后台目标、环与过深树。</summary>
