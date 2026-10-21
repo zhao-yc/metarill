@@ -28,7 +28,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var actor = authorization.RequireActor();
         if (actor.ProjectId != context.ProjectId || catalog.YzProjectId != actor.ProjectId || context.RecordId <= 0)
             throw new UnauthorizedAccessException("文件引用项目范围无效。");
-        authorization.RequirePagePermission(page.Id, context.IsDelete ? "delete" : context.IsCreate ? "create" : "update");
+        authorization.RequirePagePermission(page.Id, AuthorizationAction(context));
         var parents = FileReferenceScope.Compile(catalog, table, page);
         var record = await LockRecordAsync(context, tableColumns, cancellationToken);
         await LockParentsAsync(context, parents, record, cancellationToken);
@@ -90,6 +90,22 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
                     ["record_id"] = context.RecordId, ["field_name"] = field, ["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture),
                     ["insert_time"] = DateTime.UtcNow, ["insert_manager_id"] = actor.AccountId
                 }, cancellationToken);
+    }
+
+    /// <summary>保留导入/复制的原页动作；真实身份和页权仍逐次核验，矛盾状态及未知枚举不能转成其它动作。</summary>
+    internal static string AuthorizationAction(RecordMutationContext context)
+    {
+        if(context.IsDelete&&context.IsCreate)throw new UnauthorizedAccessException("文件变更状态矛盾。");
+        return context.AuthorizationOperation switch
+        {
+            null => context.IsDelete ? "delete" : context.IsCreate ? "create" : "update",
+            RecordMutationOperation.Import when !context.IsDelete => "import",
+            RecordMutationOperation.Copy when context.IsCreate&&!context.IsDelete => "copy",
+            RecordMutationOperation.Create when context.IsCreate&&!context.IsDelete => "create",
+            RecordMutationOperation.Update when !context.IsCreate&&!context.IsDelete => "update",
+            RecordMutationOperation.Delete when context.IsDelete => "delete",
+            _ => throw new UnauthorizedAccessException("文件变更操作与实际记录状态不一致。")
+        };
     }
 
     /// <summary>父键只取已锁源记录；父锁在文件/引用之前取得，当前读拒绝并发删除后的父行。</summary>

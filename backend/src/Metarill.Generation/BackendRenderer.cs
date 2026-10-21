@@ -313,10 +313,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     {
         var suffix = page.Source.Id;
         var result = new StringBuilder();
+        var importFiles = ImportRenderer.Enabled(page) && HasPhysicalFileColumns(model, table);
         if (page.Source.IsNew == 1 || ImportRenderer.Enabled(page))
         {
             result.AppendLine("    /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>")
-                .AppendLine($"    public Task<{page.Name}Vo> Create{suffix}Async({page.Name}CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
+                .AppendLine(MutationEntry(table,page,"Create",importFiles))
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(PrepareCall(model, table, page, "Create", "null", "request"))
                 .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken);").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
@@ -337,12 +338,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"true","false")).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
                 .Append(WriteCall(page, "Create", "null"))
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");")
-                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
+                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
         }
         if (Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source) || (ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) == "OverWriteByFirstColumn"))
         {
             result.AppendLine("    /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>")
-                .AppendLine($"    public Task<{page.Name}Vo> Update{suffix}Async({page.Name}UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
+                .AppendLine(MutationEntry(table,page,"Update",importFiles))
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(PrepareCall(model, table, page, "Update", "request.Id", "request"))
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
@@ -360,7 +361,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
             result.Append(WriteCall(page, "Update", "originalScopeValues")).AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");")
-                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken);").AppendLine($"        return {RoleResult(model,table,page,"update")};").AppendLine("    }, cancellationToken);");
+                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"update")};").AppendLine("    }, cancellationToken);");
         }
         if (page.Source.IsDelete == 1)
         {
@@ -399,21 +400,35 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .Append(RequiredValidation(model, table, page, false))
             .Append(WriteCall(page, "Copy", "originalScopeValues"))
             .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");")
-            .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken);")
+            .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation.Copy":"")});")
             .AppendLine($"        return {RoleResult(model,table,page,"copy")};").AppendLine("    }, cancellationToken);");
         return result.ToString();
     }
+    /// <summary>只有真实物理文件列需要保留导入/复制的原授权动作。</summary>
+    internal static bool HasPhysicalFileColumns(GenerationModel model, TableModel table) => table.Columns.Any(column =>
+        column.Source.ControlKind == "FileLibrary" && MetadataStoragePolicy.ForTable(model.Catalog, table.Source).IsPhysical(column.Source));
+
+    /// <summary>公开签名保持原样；只有编译出的私有导入路径能携带导入来源，客户端不能选择操作。</summary>
+    private static string MutationEntry(TableModel table, PageModel page, string action, bool importFiles)
+    {
+        var signature = $"    public Task<{page.Name}Vo> {action}{page.Source.Id}Async({page.Name}{action}Request request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)";
+        if(!importFiles)return signature+" => session.InTransactionAsync(async () =>";
+        return signature+$" => {action}{page.Source.Id}CoreAsync(request, parentId, actor, null, cancellationToken);\n"
+            +"    /// <summary>真实对象写入及观察者共用同一事务，原入口操作仅由生成代码传入。</summary>\n"
+            +$"    private Task<{page.Name}Vo> {action}{page.Source.Id}CoreAsync({page.Name}{action}Request request, string? parentId, RuntimeActor actor, RecordMutationOperation? authorizationOperation, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>";
+    }
+
     /// <summary>观察者在数据库事务内执行，异常会让本次对象写入一同回滚。</summary>
     private static string Observer(GenerationModel model, TableModel table)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>")
-            .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation? authorizationOperation = null":"")})")
             .AppendLine("    {").AppendLine("        var values = new Dictionary<string, object?>").AppendLine("        {");
         foreach (var column in table.Columns) result.AppendLine($"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},");
         result.AppendLine("        };")
             .AppendLine("        if (!allFields) values = values.Where(item => item.Key == \"id\" || submitted.Contains(item.Key)).ToDictionary(item => item.Key, item => item.Value);")
             .AppendLine("        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException(\"写入观察者要求当前事务。\");")
-            .AppendLine($"        var context = new RecordMutationContext(pageId, {Literal(table.Source.TableName)}, entity.Id, {ProjectExpression(table)}, values, deleting, transaction, IsCreate: allFields && !deleting);")
+            .AppendLine($"        var context = new RecordMutationContext(pageId, {Literal(table.Source.TableName)}, entity.Id, {ProjectExpression(table)}, values, deleting, transaction, IsCreate: allFields && !deleting){(HasPhysicalFileColumns(model,table)?" { AuthorizationOperation = authorizationOperation }":"")};")
             .AppendLine("        foreach (var observer in observers) await observer.BeforeCommitAsync(context, cancellationToken);")
             .AppendLine("    }");
         return result.ToString();

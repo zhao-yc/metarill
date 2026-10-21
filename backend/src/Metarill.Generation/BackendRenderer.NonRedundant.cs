@@ -26,15 +26,32 @@ internal static class GeneratedNonRedundantReadCatalog
     private static string NonRedundantVo(GenerationModel model,TableModel table,PageModel page)
     {
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var constants=page.Readable.Where(column=>column.Source.ControlKind is "ConstList" or "ConstDownList").ToArray();
-        var result=new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json.Serialization;").AppendLine("using Metarill.Data.Queries;").AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed partial class {page.Name}Vo").AppendLine("{");
+        var result=new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using System.Text.Json.Serialization;").AppendLine("using Metarill.Data.Queries;").AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine($"namespace {model.Namespace}.Generated.VOs;").AppendLine($"public sealed partial class {page.Name}Vo").AppendLine("{");
         foreach(var output in plan.Outputs)
-        {result.AppendLine($"    [JsonPropertyName({Literal(output.JsonName)})]");if(page.Readable.Any(column=>column.JsonName==output.JsonName&&Checkbox(column)))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");result.AppendLine($"    public {output.Type} {output.Property} {{get;init;}}");}
+        {
+            var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
+            result.AppendLine($"    [JsonPropertyName({Literal(output.JsonName)})]");
+            if(column is not null&&Checkbox(column))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            // 物理存储仍是字符串；原接口文件值保持JSON数组或null，不能向前端返回二次编码字符串。
+            result.AppendLine($"    public {(column?.IsJsonArray==true?column.BoundaryType:output.Type)} {output.Property} {{get;init;}}");
+        }
         foreach(var column in constants)
         {if(plan.Outputs.Any(output=>output.Property.Equals(column.Property+"Show",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException("常量显示别名冲突。");result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName+"Show")})] public string? {column.Property}Show {{get;init;}}");}
         result.AppendLine("    /// <summary>固定SQL结果不扩充本页授权字段，驱动值按生成类型投影。</summary>").AppendLine($"    public static {page.Name}Vo FromReadRow(IReadOnlyDictionary<string,object?> row)=>new()").AppendLine("    {");
-        foreach(var output in plan.Outputs)result.AppendLine($"        {output.Property}=NonRedundantReads.Value<{output.Type}>(row,{Literal(output.Storage)}),");
+        foreach(var output in plan.Outputs)
+        {
+            var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
+            var value=$"NonRedundantReads.Value<{output.Type}>(row,{Literal(output.Storage)})";
+            if(column?.IsJsonArray==true)value=$"ReadFileValue(row,{Literal(output.Storage)})";
+            result.AppendLine($"        {output.Property}={value},");
+        }
         foreach(var column in constants)result.AppendLine($"        {column.Property}Show={ConstantDisplayExpression(column).Replace("entity."+column.Property,$"NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)})",StringComparison.Ordinal)},");
-        return result.AppendLine("    };").AppendLine("}").ToString();
+        result.AppendLine("    };");
+        if(page.Readable.Any(column=>column.IsJsonArray))result.AppendLine("    /// <summary>沿原VO恢复数据库JSON文本，null保持空值，避免二次编码文件ID数组。</summary>")
+            .AppendLine("    private static JsonElement? ReadFileValue(IReadOnlyDictionary<string,object?> row,string storage)")
+            .AppendLine("    {").AppendLine("        var json=NonRedundantReads.Value<string?>(row,storage);")
+            .AppendLine("        return string.IsNullOrWhiteSpace(json)?null:JsonSerializer.Deserialize<JsonElement>(json);").AppendLine("    }");
+        return result.AppendLine("}").ToString();
     }
     /// <summary>保留原物理范围给更新/删除锁定，读取使用另一个预编译计划，不对联接结果申请对象写锁。</summary>
     private static string NonRedundantQuery(GenerationModel model,TableModel table,PageModel page)

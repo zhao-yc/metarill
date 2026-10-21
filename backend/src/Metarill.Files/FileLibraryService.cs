@@ -106,11 +106,11 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         return Describe(row);
     }, cancellationToken);
 
-    /// <summary>受保护文件首期只向同项目所有者或管理员解析；提供页或记录标识不会自动提权。</summary>
+    /// <summary>受保护文件核对同项目所有者/管理员或当前真实引用与记录页权；客户端标识不授予权限。</summary>
     public async Task<FileDescriptor> ResolveAsync(long id, string? pageId = null, long? recordId = null, CancellationToken cancellationToken = default)
     {
         var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, false, cancellationToken);
-        RequireReadable(row, actor); return Describe(row);
+        await RequireReadableAsync(row, actor, cancellationToken); return Describe(row);
     }
 
     /// <summary>返回可寻址本地流供 ASP.NET Core 启用 Range；绝不代理或重定向远端地址。</summary>
@@ -122,7 +122,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
             if (SqlRowStore.Text(row, "status") != "ready" || SqlRowStore.Text(row, "access_mode") != "PUBLIC"
                 || expectedProjectId is not null && SqlRowStore.Text(row, "yz_project_id") != expectedProjectId) throw new UnauthorizedAccessException("文件不存在或不可公开访问。");
         }
-        else RequireReadable(row, authorization.RequireActor());
+        else await RequireReadableAsync(row, authorization.RequireActor(), cancellationToken);
         var path = FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
         if (stream.Length != SqlRowStore.Id(row, "size")) { await stream.DisposeAsync(); throw new InvalidOperationException("文件对象大小异常。"); }
@@ -273,10 +273,12 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
             throw new UnauthorizedAccessException("文件或目录不存在或不可访问。");
     }
     /// <summary>公开状态和授权读取规则统一处理，未完成对象不可解析。</summary>
-    private static void RequireReadable(IReadOnlyDictionary<string, object?> row, RuntimeActor actor)
+    private async Task RequireReadableAsync(IReadOnlyDictionary<string, object?> row, RuntimeActor actor, CancellationToken token)
     {
         if (SqlRowStore.Text(row, "status") != "ready" || SqlRowStore.Text(row, "yz_project_id") != actor.ProjectId) throw new UnauthorizedAccessException("文件不存在或不可访问。");
-        if (SqlRowStore.Text(row, "access_mode") != "PUBLIC") RequireOwner(row, actor);
+        if (SqlRowStore.Text(row, "access_mode") == "PUBLIC" || actor.IsAdministrator || SqlRowStore.Id(row,"owner_id")==actor.AccountId) return;
+        if(await FileReferenceReadAuthorization.CanReadAsync(store,registry,authorization,SqlRowStore.Id(row),actor,token))return;
+        throw new UnauthorizedAccessException("没有当前文件的业务记录读取权限。");
     }
     /// <summary>返回固定本地路由，不把存储键、物理路径或客户端 URL 暴露给前端。</summary>
     private FileDescriptor Describe(IReadOnlyDictionary<string, object?> row)

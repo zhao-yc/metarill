@@ -38,6 +38,7 @@ public sealed partial class {{page.Name}}ImportRequest
         var columns = Columns(page);
         var dependency = ImportDependencyCompilation.ForPage(model, table, page);
         var contextual = dependency.Contextual;
+        var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table);
         if (columns.Select(Header).Distinct(StringComparer.Ordinal).Count() != columns.Count) throw new InvalidOperationException("导入列中文标题重复，无法明确解析。");
         var overwrite = Mode(page) == "OverWriteByFirstColumn";
         if (overwrite && columns.Count > 0 && columns[0].IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
@@ -67,11 +68,11 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine("                if (existing.Count == 1)").AppendLine("                {")
                 .AppendLine("                    values[\"id\"] = JsonSerializer.SerializeToElement(existing[0].Id);")
                 .AppendLine($"                    var update = JsonSerializer.Deserialize<{page.Name}UpdateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;")
-                .AppendLine($"                    await Update{page.Source.Id}Async(update, request.ParentId, actor, cancellationToken);")
+                .AppendLine($"                    await Update{page.Source.Id}{(fileImport?"Core":"")}Async(update, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
                 .AppendLine("                    continue;").AppendLine("                }");
         }
         result.AppendLine($"                var create = JsonSerializer.Deserialize<{page.Name}CreateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;")
-            .AppendLine($"                await Create{page.Source.Id}Async(create, request.ParentId, actor, cancellationToken);")
+            .AppendLine($"                await Create{page.Source.Id}{(fileImport?"Core":"")}Async(create, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
             .AppendLine("            }").AppendLine("            catch (PageImportException error) when (error.IsInputError)").AppendLine("            {")
             .AppendLine("                throw error.AtRow(rowNumber);").AppendLine("            }")
             .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException)").AppendLine("            {")

@@ -15,7 +15,7 @@ internal static class FreshWebHttp
         using var request = new HttpRequestMessage(method, route);
         if (body is not null) request.Content = body as HttpContent ?? JsonContent.Create(body);
         using var response = await client.SendAsync(request);
-        Assert.True(response.StatusCode == expected, "独立Web请求HTTP状态不符，正文与凭据不回显。");
+        Assert.True(response.StatusCode == expected, "独立Web请求HTTP状态不符：实际"+(int)response.StatusCode+"，预期"+(int)expected+"；正文与凭据不回显。");
         JsonElement json;
         try { json = await response.Content.ReadFromJsonAsync<JsonElement>(); }
         catch (JsonException) { throw new InvalidOperationException("独立Web响应不是统一JSON，正文不回显。"); }

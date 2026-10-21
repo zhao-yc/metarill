@@ -416,3 +416,13 @@ bootstrap本人已改密码不会被原初始化配置重置；真实进程重�
 元数据builder先8过/2失败，修复后27/27和files/security/management三个check通过。新生成组合V1夹具读取不存在属性导致编译失败；V2实际104过/2失败发现原50字符限制缺后端校验，生成源按元数据补齐后V3为106/106、零失败/零跳过。报告 `.local/original-admin-password-field/generation/original-admin-password-field-v3.trx` SHA256 `9daa0d97f979fac5c40f6ca3a69462a302d8f4b0bba79213cc3f952e0fd36df3`，原编译错误与V2失败保留。前端261/261；API44过/28跳过/72总计，元数据144过/22跳过/166总计，无失败、缺实库配置的跳过不算已验。
 
 实际生成175个归属文件、0个新建手写文件，元数据SHA256 `651b36ddc4348e7f25501ec3c563f2761c63ceb81e9f51477a0786b11af6765d`；当前源码重复生成后199个现存文件字节稳定。私有 `.local/original-admin-password-field/integrated-receipt.json` SHA256 `bb107c13402556f2f066ba0c1757f27e33132ebf1c19d4ac1ec4744f45c89cc4` 分列全部失败/通过/跳过和边界。配置密码沿原输入/回读语义，登录账号摘要仍不回显。完整管理包、Runtime A及原初始化账号功能仍待闭环。
+
+## 2026-10-21 非冗余物理文件与原文件操作
+
+本轮保持原页面和控件，恢复含固定联接读取的非冗余表物理FileLibrary字段；存储仍为JSON文本，DTO/VO回显数组/null。生成Service通过私有入口保留import/copy原动作，文件引用与业务写入同一事务。保护文件为非所有者补上当前页查询权、真实有效引用、记录文件值及父归属核验，解析与流读取共用；既有所有者路径保持，原V8全部状态/后台super/目录策略仍待对齐，详见[文件验收边界](nonredundant-files.md)。
+
+完整生成器943通过/16跳过/959总计，完整Files模块59通过/17跳过/76总计，API44通过/31跳过/75总计，均零失败；三份报告分别为私有`.local/nonredundant-files/all-generation.trx`、`files-module-first.trx`和`api.trx`。缺少专用实库配置的跳过不计已验收，不累计重叠小筛选次数。正式CLI连续两轮生成，平台199/演示16个文件字节稳定，前端及提交的生成产物均无差异。
+
+Server-200四个专属随机空库、一个受限临时账号下三项实际MySQL测试3/3、零跳过：平台、原文件完整包、非冗余正式完整包。后者经Production/Web原认证，实测上传完成、原生数组/长ID回显、省略/清空/null、复制/删除、仅导入页新增、跨页删除引用、第二行错误整批回滚、XLSX、query-only真实引用读取及撤权；字段清空、坏父及软删记录均拒读。最终运行`eb58c60fe8d043b5`四库/账号均按实例租约清理，独立反查不存在，临时settings已移除。前两次`0950f93cc0184311`和`d4901ed183aa4b36`均为2通过/1失败，分别暴露导入误要求普通更新权、普通查询者缺引用读取路径，已修复；旧TRX及清理回执保留，不改写为成功。总收据`.local/nonredundant-files/integrated-receipt.json` SHA256 `c07d5a413b102efea3d4013ca95509151d86792bca3a44a85b282268a4b0c75b`。
+
+此前a1ddd提交PR CI前端通过，Windows后端938通过/1失败/16跳过，Linux后端937通过/1失败/17跳过；二者同为缺失联接拒绝用例的旧错误文案断言，本轮已修正且完整回归通过，新提交CI另收终。本轮不构成浏览器、真机、同条件性能、多数据库、初始化或完整管理包的完成声明。

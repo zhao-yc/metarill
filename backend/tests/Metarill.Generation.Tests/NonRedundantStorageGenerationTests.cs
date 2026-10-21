@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Metarill.Generation.Tests;
 
-/// <summary>读取尚未实现时必须在写文件前拒绝，不以物理列或空回显伪装非冗余已支持。</summary>
+/// <summary>未证明的派生路径必须在写文件前拒绝，不以物理列或空回显伪装该路径已支持。</summary>
 public sealed class NonRedundantStorageGenerationTests
 {
     /// <summary>新输出不留stage；既有输出及手写文件均不因能力拒绝被改写。</summary>
@@ -23,7 +23,7 @@ public sealed class NonRedundantStorageGenerationTests
     [Fact]
     public void Full_frontend_reports_the_missing_derived_read_before_packaging()
     {
-        var catalog=Catalog();var model=GenerationModel.Create(catalog,"Example.Nonred");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Usage=="runtime"&&gap.Reason.Contains("非冗余派生字段",StringComparison.Ordinal));var error=Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));Assert.Contains("非冗余派生字段",error.Message);
+        var catalog=Catalog();var model=GenerationModel.Create(catalog,"Example.Nonred");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Usage=="runtime"&&gap.Reason.Contains("非冗余固定读取",StringComparison.Ordinal));var error=Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));Assert.Contains("非冗余固定读取",error.Message);
     }
     /// <summary>未声明派生项的普通非冗余业务列依旧生成，不扩大到一律拒绝表模式。</summary>
     [Fact]
