@@ -10,6 +10,9 @@ public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<strin
     public string PrincipalAdminTypeId {get;init;}="";
     public string PrincipalProjectId {get;init;}="";
     public bool IsRealmSuper {get;init;}
+    /// <summary>本次真实认证的逐动作范围决策，不输出到HTTP或会话持久化，后续记录计划必须显式消费。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlySet<string> ExactDataManagePermissions {get;init;}=new HashSet<string>(StringComparer.Ordinal);
     public IReadOnlySet<string> MenuIds {get;init;}=new HashSet<string>();
     public IReadOnlySet<string> ButtonIds {get;init;}=new HashSet<string>();
 }
@@ -54,7 +57,7 @@ public sealed class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISe
         }
         else if(grantId is not null)return null;
         var actor=new RuntimeActor(SqlRowStore.Id(account),SqlRowStore.Text(account,"name"),realm.IsPlatformAdministrator,project,realm.AdminTypeId);
-        return new(actor,realm.Permissions,SqlRowStore.Id(session),grantId){PrincipalAdminTypeId=realm.AdminTypeId,PrincipalProjectId=realm.ProjectId,IsRealmSuper=realm.IsSuper,MenuIds=realm.MenuIds,ButtonIds=realm.ButtonIds};
+        return new(actor,realm.Permissions,SqlRowStore.Id(session),grantId){PrincipalAdminTypeId=realm.AdminTypeId,PrincipalProjectId=realm.ProjectId,IsRealmSuper=realm.IsSuper,ExactDataManagePermissions=realm.ExactDataManagePermissions,MenuIds=realm.MenuIds,ButtonIds=realm.ButtonIds};
     }
     /// <summary>有效期与登录起止时间在每次请求重新检查，停用立即生效。</summary>
     public static bool AccountActive(IReadOnlyDictionary<string,object?> account)

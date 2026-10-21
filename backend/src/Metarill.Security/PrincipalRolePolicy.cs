@@ -6,7 +6,12 @@ namespace Metarill.Runtime.Security;
 
 /// <summary>真实账号所属后台与开发工作区分开；后台、项目和角色均来自当前未删除记录。</summary>
 public sealed record PrincipalRoleRealm(string AdminTypeId, string ProjectId, bool IsSuper, bool IsPlatformRealm, bool IsPlatformAdministrator,
-    IReadOnlySet<string> RoleIds, IReadOnlySet<string> Permissions, IReadOnlySet<string> MenuIds, IReadOnlySet<string> ButtonIds);
+    IReadOnlySet<string> RoleIds, IReadOnlySet<string> Permissions, IReadOnlySet<string> MenuIds, IReadOnlySet<string> ButtonIds)
+{
+    /// <summary>逐页面/动作的有效授权全部来自is_scope角色时记录；只保留决策，不代表查询已经执行记录过滤。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlySet<string> ExactDataManagePermissions {get;init;}=new HashSet<string>(StringComparer.Ordinal);
+}
 
 /// <summary>Web认证与Agent复核共用同一身份后台策略，不把客户端工作区或账号兼容项目列当授权。</summary>
 public static partial class PrincipalRolePolicy

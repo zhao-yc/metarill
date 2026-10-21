@@ -23,6 +23,29 @@ namespace Metarill.Agent.Tests;
 /// <summary>真实认证/授权与HTTP管线共用固定离线SQL传输；不冒充MySQL或浏览器验收。</summary>
 public sealed class PrincipalRoleRealmTests
 {
+    /// <summary>执行真实认证类，SQL为离线夹具；范围角色变化在下次认证刷新，旧身份对象不被原地修改。</summary>
+    [Fact]
+    public async Task Exact_scope_decision_is_preserved_and_refreshed_with_actual_authentication()
+    {
+        using var f=new PrincipalRealmFixture(business:true,super:false);f.Role["is_scope"]=1;
+        f.Add("yz_role_permission",("id",87L),("yz_role_id",10L),("config_page_id",long.Parse(f.DemoPage)),("permission_values","[\"is_query\"]"));
+        var original=await f.Identity();Assert.Contains(f.DemoPage+":is_query",original.ExactDataManagePermissions);
+        f.Role["is_scope"]=0;var unrestricted=await f.Identity();Assert.Empty(unrestricted.ExactDataManagePermissions);
+        Assert.Contains(f.DemoPage+":is_query",original.ExactDataManagePermissions);
+        f.Role["is_scope"]=1;Assert.Contains(f.DemoPage+":is_query",(await f.Identity()).ExactDataManagePermissions);
+        f.Role["is_super"]=1;Assert.Empty((await f.Identity()).ExactDataManagePermissions);
+    }
+    /// <summary>普通角色仅拥有新增权不能取消查询的范围，改为查询权才解除，不增加页面原动作。</summary>
+    [Fact]
+    public async Task Mixed_roles_relax_only_the_effective_action_in_real_authentication()
+    {
+        using var f=new PrincipalRealmFixture(business:true,super:false);f.Role["is_scope"]=1;f.Account["yz_role_ids"]="[\"10\",\"11\"]";
+        f.Add("yz_role",("id",11L),("yz_admin_type_id",long.Parse(f.DemoAdmin)),("is_scope",0),("is_super",0));
+        f.Add("yz_role_permission",("id",87L),("yz_role_id",10L),("config_page_id",long.Parse(f.DemoPage)),("permission_values","[\"is_query\"]"));
+        f.Add("yz_role_permission",("id",88L),("yz_role_id",11L),("config_page_id",long.Parse(f.DemoPage)),("permission_values","[\"is_new\"]"));
+        var exact=await f.Identity();Assert.Contains(f.DemoPage+":is_query",exact.ExactDataManagePermissions);Assert.Contains(f.DemoPage+":is_new",exact.Permissions);
+        f.Row("yz_role_permission",88)["permission_values"]="[\"is_query\"]";var mixed=await f.Identity();Assert.Empty(mixed.ExactDataManagePermissions);Assert.DoesNotContain(f.DemoPage+":is_new",mixed.Permissions);
+    }
     [Fact]
     public async Task Business_super_is_not_a_platform_administrator()
     {
