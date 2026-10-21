@@ -176,7 +176,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         {
             if (table.IsRongyu != 1 && catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Id && column.ControlKind == "MultiSelectPage")) throw new InvalidOperationException("非冗余MultiSelectPage的读计划尚未支持，拒绝生成名称实体写入。");
             if (table.IsFunctionTable != 0 || table.IsView != 0) throw new InvalidOperationException($"首期生成器尚不支持函数表或视图：{table.TableName}");
-            var columns = catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id && x.IsVirtualColumn == 0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
+            var columns = CascadeTreeStorageColumns.Expand(table,catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id)).Where(x=>x.IsVirtualColumn==0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
                 .Select(x => new ColumnModel(x, Pascal(x.ColumnName), Camel(x.ColumnName), TypeFor(x))).ToArray();
             if (columns.Count(x => x.IsId && x.Type == "long") != 1) throw new InvalidOperationException($"表 {table.TableName} 必须声明 long 类型 id 主键。");
             if (columns.Select(x => x.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count() != columns.Length) throw new InvalidOperationException("字段在 C# 命名转换后冲突。");

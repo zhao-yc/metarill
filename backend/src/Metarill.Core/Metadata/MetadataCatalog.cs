@@ -112,6 +112,7 @@ public static class MetadataValidation
         foreach (var column in columns.Values)
         {
             RequireIdentifier(column.ColumnName);
+            if(column.Id.StartsWith(CascadeTreeStorageColumns.ReservedIdPrefix,StringComparison.Ordinal))throw new InvalidOperationException("显式配置字段不能占用级联派生列的保留标识。");
             if (!tables.ContainsKey(column.ConfigTableId)) throw new InvalidOperationException("字段引用不存在的表。");
         }
         foreach (var page in pages.Values)

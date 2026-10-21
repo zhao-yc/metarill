@@ -66,7 +66,7 @@ public sealed class CascadeTreeReadTests
     public async Task Fixed_generated_endpoints_compile_with_physical_projections_and_keep_full_application_gate(string parentType)
     {
         var catalog=Catalog("cascade",parentType);var original=JsonSerializer.Serialize(catalog);var model=GenerationModel.Create(catalog,"Example.Cascade");var table=model.Tables.Single(t=>t.Source.Id=="2");var page=Assert.Single(table.Pages);
-        Assert.Single(CascadeTreeReadCompilation.ForPage(model,table,page));Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason.Contains("CascadeTree写入尚未支持"));
+        Assert.Single(CascadeTreeReadCompilation.ForPage(model,table,page));Assert.Single(CascadeTreeWriteCompilation.ForService(model,table,page));Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason.Contains("CascadeTree")&&gap.Reason.Contains("完整应用"));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-compile");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {

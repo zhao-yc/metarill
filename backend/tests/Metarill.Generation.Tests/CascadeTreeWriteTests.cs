@@ -38,7 +38,7 @@ public sealed class CascadeTreeWriteTests
     {
         foreach(var change in new Action<MetadataCatalog>[]
         {
-            catalog=>{catalog.ConfigColumns.RemoveAll(column=>column.Id=="26");catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="26");},
+            catalog=>catalog.ConfigColumns.Single(column=>column.Id=="26").IsVirtualColumn=1,
             catalog=>catalog.ConfigColumns.Single(column=>column.Id=="25").LinkConfigTableId="2",
             catalog=>catalog.ConfigColumns.Single(column=>column.Id=="26").LogicalType="int64"
         })
@@ -78,7 +78,7 @@ public sealed class CascadeTreeWriteTests
         var model=GenerationModel.Create(catalog,"Example.CascadeWrite");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(table.Pages);var gap=CascadeTreeWriteCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="25"));Assert.Null(gap.Definition);Assert.Contains("同表非父字段",gap.Reason);
     }
 
-    /// <summary>可供公开级联UI使用的物理名称列必须在元数据中明确存在，不能暗中改表。</summary>
+    /// <summary>本夹具保留显式名称配置，自动派生另有专项；生成本身不修改数据库。</summary>
     internal static MetadataCatalog Catalog(string prefix="write",string sourceType="string",string parentType="int64")
     {
         var catalog=CascadeTreeReadTests.Catalog(prefix,parentType);var source=catalog.ConfigColumns.Single(column=>column.Id=="25");source.LogicalType=sourceType;source.LinkConfigTableId="3";

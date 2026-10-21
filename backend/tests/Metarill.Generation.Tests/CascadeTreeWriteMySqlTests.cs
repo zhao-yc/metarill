@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -39,15 +40,16 @@ public sealed class CascadeTreeWriteMySqlTests
             await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例pin不符，未创建样本。");
         }
-        foreach(var parentType in new[]{"int64","string"})foreach(var implicitName in new[]{false,true})await Exercise(options,parentType,implicitName);
+        foreach(var parentType in new[]{"int64","string"})foreach(var nameMode in new[]{"explicit","hidden","automatic"})await Exercise(options,parentType,nameMode);
     }
 
     /// <summary>两个物理父键模式各自使用新的随机两表，精确清理并另起连接核验。</summary>
-    private static async Task Exercise(DatabaseOptions options,string parentType,bool implicitName)
+    private static async Task Exercise(DatabaseOptions options,string parentType,string nameMode)
     {
         var nonce=Guid.NewGuid().ToString("N");var prefix="mt_caw_"+nonce[..12];var catalog=CascadeTreeWriteTests.Catalog(prefix,parentType,parentType);catalog.ConfigColumns.Single(column=>column.Id=="25").DefaultValue=First.ToString(CultureInfo.InvariantCulture);
         // 不另配名称页面字段时，原响应仍应携带受管叶子名称；真实写入链与回显必须一致。
-        if(implicitName)catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="26");
+        if(nameMode!="explicit")catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="26");
+        if(nameMode=="automatic"){catalog.ConfigColumns.RemoveAll(column=>column.Id=="26");if(parentType=="string")catalog.ConfigColumns.Single(column=>column.Id=="25").ColumnLength="64";}
         // 同表父字段也复用原级联，修改父关系不得形成新环。
         var parentDefinition=catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail;var parentField=catalog.ConfigColumns.Single(column=>column.Id=="35");parentField.ControlKind="CascadeTree";parentField.ControlDetail=parentDefinition;
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="parent_"+prefix+"_tree_name",LogicalType="string",ColumnLength="10",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1)}});catalog.ConfigPageColumns.Add(new(){Id="3008",ConfigPageId="301",ConfigColumnId="38"});
@@ -55,10 +57,21 @@ public sealed class CascadeTreeWriteMySqlTests
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-write-mysql");var directory=Path.Combine(boundary,nonce);WebApplication? app=null;var created=false;var verified=false;
         var pause=new PauseObserver();var snapshot=new SnapshotGuard(options,prefix);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();
-        await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,parentType,implicitName,names,database=options.ExpectedDatabase,verified=false}));
+        await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,parentType,nameMode,names,database=options.ExpectedDatabase,verified=false}));
         try
         {
-            Assert.Empty((await schema.InspectAsync(catalog)).Tables);var plan=await schema.PreviewAsync(catalog);Assert.Equal(2,plan.Changes.Count);created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);
+            Assert.Empty((await schema.InspectAsync(catalog)).Tables);
+            if(nameMode=="automatic")
+            {
+                // 先建没有级联含义的旧表与自有行；预览不改表，显式应用后数据保留且名称仍为NULL。
+                var previous=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog))!;previous.ConfigColumns.Single(column=>column.Id=="25").ControlKind="";
+                var initial=await schema.PreviewAsync(previous);Assert.Equal(2,initial.Changes.Count);created=true;Assert.True((await schema.ApplyAsync(initial)).Succeeded);
+                var sourceTable=session.Provider.QuoteIdentifier(prefix+"_source");await Execute(session,"INSERT INTO "+sourceTable+" (id,yz_project_id,name,tree_id) VALUES (@id,@project,@name,@tree)",("id",First+90),("project",Project),("name","结构前记录"),("tree",parentType=="string"?(object)First.ToString(CultureInfo.InvariantCulture):First));
+                var plan=await schema.PreviewAsync(catalog);var change=Assert.Single(plan.Changes);Assert.Equal("addColumn",change.Kind);Assert.Equal("tree_name",change.Column);Assert.DoesNotContain((await schema.InspectAsync(previous)).Tables.Single(table=>table.Name==prefix+"_source").Columns,column=>column.Name=="tree_name");
+                Assert.True((await schema.ApplyAsync(plan)).Succeeded);Assert.Empty((await schema.PreviewAsync(catalog)).Changes);
+                var row=Assert.Single(await new Metarill.Runtime.Persistence.SqlRowStore(session,catalog).ReadIncludingDeletedAsync(prefix+"_source"));Assert.Equal("结构前记录",row["name"]);Assert.Null(row["tree_name"]);await Execute(session,"DELETE FROM "+sourceTable+" WHERE id=@id",("id",First+90));
+            }
+            else{var plan=await schema.PreviewAsync(catalog);Assert.Equal(2,plan.Changes.Count);created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);}
             var tree=prefix+"_tree";var parentColumn="parent_"+prefix+"_tree_id";
             async Task Seed(long id,string name,long? parent,long project=Project,int status=1,DateTime? deleted=null)
             {
@@ -141,7 +154,7 @@ public partial class {{typeName}}Service
             snapshot.Mode="hide-parent";Assert.Equal(500,(await Write("update",new{id,treeId=(First+1).ToString()})).GetProperty("code").GetInt32());await Execute(session,"UPDATE `"+tree+"` SET status=1 WHERE id=@id",("id",First));
             Assert.Equal(500,(await Write("update",new{id,name="提交前失败",treeId=(First+3).ToString()})).GetProperty("code").GetInt32());
             var detail=await Detail();Assert.Equal((First+1).ToString(),detail.GetProperty("treeId").ToString());Assert.Equal("当前新名",detail.GetProperty("treeName").GetString());Assert.NotEqual("提交前失败",detail.GetProperty("name").GetString());
-            await Execute(session,"UPDATE `"+tree+"` SET name=@name WHERE id=@id",("name","超过十个字符的叶子名称不能保存"),("id",First+3));Assert.Equal(500,(await Write("update",new{id,treeId=(First+3).ToString()})).GetProperty("code").GetInt32());
+            await Execute(session,"UPDATE `"+tree+"` SET name=@name WHERE id=@id",("name",new string('长',81)),("id",First+3));Assert.Equal(500,(await Write("update",new{id,treeId=(First+3).ToString()})).GetProperty("code").GetInt32());
             // 校验后至源提交期间祖先行锁保留，不使用全局观测权限。
             var pending=Write("update",new{id,name="并发持锁",treeId=(First+1).ToString()});
             try
@@ -163,7 +176,7 @@ public partial class {{typeName}}Service
             using(var response=await client.PostAsJsonAsync(hierarchy,new Dictionary<string,object?>{{"id",(First+3).ToString()},{parentJson,null}}))Assert.Equal(200,JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync()).GetProperty("code").GetInt32());
 
             verified=true;
-            await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,parentType,verified,originalProtocol=true,realMySql=true,realGeneratedHttp=true,fixedTestActor=true,browser=false,fullControl=false,writeAndNames=true,currentReadAndParentLock=true}));
+            await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,parentType,nameMode,verified,originalProtocol=true,realMySql=true,realGeneratedHttp=true,fixedTestActor=true,browser=false,fullControl=false,writeAndNames=true,currentReadAndParentLock=true}));
         }
         finally
         {

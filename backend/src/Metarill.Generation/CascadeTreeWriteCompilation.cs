@@ -33,7 +33,7 @@ internal static class CascadeTreeWriteCompilation
         if(source.Type is not("string?" or "long?") || !source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal) || source.IsSystem || GenerationModel.Enabled(source.Source.Extra,"isJoinColumn"))return Gap("叶子必须是字符串或int64物理_id列。");
         if(source.Source.LinkConfigTableId.Length>0&&source.Source.LinkConfigTableId!=plan.Target.Source.Id)return Gap("叶子声明关联表与级联目标不一致。");
         var name=ManagedNames(table).SingleOrDefault(column=>column.Source.ColumnName==source.Source.ColumnName[..^3]+"_name");
-        if(name is null)return Gap("必须明确声明物理字符串名称列，生成器不暗中增加数据库列。");
+        if(name is null)return Gap("名称列必须为有效物理字符串；缺省selfTree名称由共用存储计划派生，显式冲突不能覆盖。");
         return new(new(plan,name),null);
     }
 }

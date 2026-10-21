@@ -44,18 +44,19 @@ public sealed class CascadeTreeExcelMySqlTests
             await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例pin不符，未创建样本。");
         }
-        foreach(var parentType in new[]{"int64","string"})await Exercise(options,parentType);
+        foreach(var parentType in new[]{"int64","string"})foreach(var automaticName in new[]{false,true})await Exercise(options,parentType,automaticName);
     }
 
     /// <summary>两个物理父键模式各自使用新的随机两表，精确清理并另起连接核验。</summary>
-    private static async Task Exercise(DatabaseOptions options,string parentType)
+    private static async Task Exercise(DatabaseOptions options,string parentType,bool automaticName)
     {
         var nonce=Guid.NewGuid().ToString("N");var prefix="mt_cex_"+nonce[..12];var catalog=CascadeTreeExcelTests.Catalog(prefix,parentType,parentType);catalog.ConfigColumns.Single(column=>column.Id=="25").DefaultValue=First.ToString(CultureInfo.InvariantCulture);
+        if(automaticName){catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="26");catalog.ConfigColumns.RemoveAll(column=>column.Id=="26");}
         var root=Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??throw new InvalidOperationException("缺少仓库路径。");var evidence=Path.Combine(root,".local/cascade-excel/mysql-"+nonce);Directory.CreateDirectory(evidence);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-excel-mysql");var directory=Path.Combine(boundary,nonce);WebApplication? app=null;var created=false;var verified=false;
         var observer=new ImportObserver();
         using var session=new DatabaseSession(options);var schema=new SchemaService(session);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();
-        await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,parentType,names,database=options.ExpectedDatabase,verified=false}));
+        await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,parentType,automaticName,names,database=options.ExpectedDatabase,verified=false}));
         try
         {
             Assert.Empty((await schema.InspectAsync(catalog)).Tables);var plan=await schema.PreviewAsync(catalog);Assert.Equal(2,plan.Changes.Count);created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);
@@ -128,7 +129,7 @@ public partial class {{sourceType}}Service
             }
             finally{observer.Release.TrySetResult();await pending;}Assert.Equal(200,(await pending).GetProperty("code").GetInt32());await Execute(session,"UPDATE "+session.Provider.QuoteIdentifier(tree)+" SET name='提交后新名' WHERE id=@id",("id",First+2));
             verified=true;
-            await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,parentType,verified,originalProtocol=true,realMySql=true,realGeneratedHttp=true,fixedTestActor=true,browser=false,fullControl=false,fullPathExcel=true,importOnlyPermissions=true,roundtripAndRollback=true}));
+            await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,parentType,automaticName,verified,originalProtocol=true,realMySql=true,realGeneratedHttp=true,fixedTestActor=true,browser=false,fullControl=false,fullPathExcel=true,importOnlyPermissions=true,roundtripAndRollback=true}));
         }
         finally
         {

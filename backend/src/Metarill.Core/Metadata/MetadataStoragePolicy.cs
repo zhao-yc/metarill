@@ -32,7 +32,7 @@ public static class MetadataStoragePolicy
     /// <summary>冗余模式继续沿原虚拟标志；非冗余只在实体表生效，不修改输入元数据。</summary>
     public static MetadataStoragePlan Compile(TableMetadata table,IEnumerable<ColumnMetadata> tableColumns)
     {
-        ArgumentNullException.ThrowIfNull(table);ArgumentNullException.ThrowIfNull(tableColumns);var columns=tableColumns.ToArray();
+        ArgumentNullException.ThrowIfNull(table);ArgumentNullException.ThrowIfNull(tableColumns);var columns=CascadeTreeStorageColumns.Expand(table,tableColumns).ToArray();
         if(columns.Any(column=>column.ConfigTableId!=table.Id)||columns.Select(column=>column.Id).Distinct(StringComparer.Ordinal).Count()!=columns.Length)throw new InvalidOperationException("存储计划的字段归属不一致或ID重复。");
         var nonredundant=table.IsRongyu==0&&table.IsFunctionTable==0&&table.IsView==0;var managed=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if(nonredundant)
