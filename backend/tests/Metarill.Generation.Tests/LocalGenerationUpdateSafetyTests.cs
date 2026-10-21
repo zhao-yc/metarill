@@ -43,11 +43,13 @@ public sealed partial class LocalGenerationUpdateTests
         Assert.Throws<InvalidOperationException>(() => updater.Preview(target, target, All)); Assert.Throws<InvalidOperationException>(() => updater.Preview(target, Path.Combine(target, "frontend"), All)); Assert.Equal(before, SourceSnapshot(target));
     }
 
-    /// <summary>新增初始化协调器按固定运行时路径升级，其他含点源码路径仍明确拒绝，不扩成通配写入。</summary>
-    [Fact]
-    public void Initialization_coordinator_is_one_explicit_runtime_path_and_unknown_dotted_source_remains_rejected()
+    /// <summary>初始化及文件浏览partial按固定运行时路径升级，其他含点源码仍拒绝，不扩成通配写入。</summary>
+    [Theory]
+    [InlineData("src/Metarill.Security/SecurityRealmMutationGuard.Initialization.cs")]
+    [InlineData("src/Metarill.Files/FileLibraryService.Browsing.cs")]
+    public void Explicit_runtime_partial_is_upgraded_and_unknown_dotted_source_remains_rejected(string path)
     {
-        var(target,candidate)=Packages(Catalog(),Catalog());const string path="src/Metarill.Security/SecurityRealmMutationGuard.Initialization.cs";
+        var(target,candidate)=Packages(Catalog(),Catalog());
         var marker=Path.Combine(target,".metarill-package.json");var old=JsonNode.Parse(File.ReadAllText(marker))!;
         var files=old["files"]!.AsArray();files.Remove(files.Single(file=>file!["path"]!.GetValue<string>()==path));File.Delete(Path.Combine(target,path));File.WriteAllText(marker,old.ToJsonString(Json));
         var updater=new LocalGenerationUpdater();var plan=updater.Preview(target,candidate,["sync-runtime"]);

@@ -14,7 +14,7 @@ namespace Metarill.Generation.Tests;
 internal static class NonRedundantFileStateMySqlProbe
 {
     /// <summary>临时调整本轮唯一角色授权并逐项恢复；所有样本都由外层实例绑定租约清理。</summary>
-    internal static async Task VerifyAsync(HttpClient owner,HttpClient super,DatabaseSession session,MetadataCatalog catalog,MetadataCatalog files,SqlRowStore security,long permission,long readableFile)
+    internal static async Task<long> VerifyAsync(HttpClient owner,HttpClient super,DatabaseSession session,MetadataCatalog catalog,MetadataCatalog files,SqlRowStore security,long permission,long readableFile)
     {
         var original=Assert.Single(await security.ReadAsync("yz_role_permission",Values("id",permission)));
         var root=catalog.ConfigTables.Single(table=>table.Id=="1").TableName;var route="/api/admin/auto/"+root+"/101";
@@ -77,6 +77,7 @@ internal static class NonRedundantFileStateMySqlProbe
             await FreshWebHttp.SendAsync(owner,HttpMethod.Post,"/api/admin/sys/file-library/complete",new{fileId=batchFile});
             await FreshWebHttp.SendAsync(owner,HttpMethod.Post,route+"/importDatas101",new{parentId="71",requestJson=new[]{new Dictionary<string,object?>{{"记录名","同批附件甲"},{"附件",new[]{batchFile}}},new Dictionary<string,object?>{{"记录名","同批附件乙"},{"附件",new[]{batchFile}}}}});
             var batchRefs=await library.ReadAsync("yz_file_ref",Values("file_id",long.Parse(batchFile,CultureInfo.InvariantCulture)));Assert.Equal(2,batchRefs.Count);Assert.Equal(2,batchRefs.Select(row=>SqlRowStore.Id(row,"record_id")).Distinct().Count());
+            return fileId;
         }
         finally{await security.UpdateAsync("yz_role_permission",permission,Values("permission_values",original["permission_values"]));}
         /// <summary>变更仅针对本轮新空库内唯一页授权，正式认证下一请求重新读取。</summary>

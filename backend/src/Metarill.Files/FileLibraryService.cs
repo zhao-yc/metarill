@@ -27,7 +27,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if (legacyPublic) policy = policy with { AccessMode = "PUBLIC" };
         if (request.SizeBytes < 0 || request.SizeBytes > policy.MaximumBytes) throw new InvalidOperationException("文件大小超过服务端或控件上限。");
         if (!policy.Extensions.Contains(Path.GetExtension(request.OriginalName))) throw new InvalidOperationException("文件扩展名不在允许范围。");
-        if (request.FolderId is { } folder) RequireOwner(await RequiredAsync(Folders, folder, true, cancellationToken), actor);
+        if (request.FolderId is { } folder) RequireProject(await RequiredAsync(Folders, folder, true, cancellationToken), actor);
         var id = ids.NextId();
         var now = DateTime.UtcNow;
         await store.InsertAsync(Files, new Dictionary<string, object?>
@@ -126,7 +126,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         var path = FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
         if (stream.Length != SqlRowStore.Id(row, "size")) { await stream.DisposeAsync(); throw new InvalidOperationException("文件对象大小异常。"); }
-        return new FileContentHandle(stream, FileValidation.ContentType(SqlRowStore.Text(row, "name")), SqlRowStore.Text(row, "name"), stream.Length, SqlRowStore.Text(row, "sha256"));
+        return new FileContentHandle(stream, string.IsNullOrWhiteSpace(SqlRowStore.Text(row,"content_type"))?"application/octet-stream":SqlRowStore.Text(row,"content_type"), SqlRowStore.Text(row, "name"), stream.Length, SqlRowStore.Text(row, "sha256"));
     }
 
     /// <summary>删除前锁定文件并确认无有效引用；数据库先失效，磁盘清理失败明确返回。</summary>
@@ -134,7 +134,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     {
         var path = await store.Session.InTransactionAsync(async () =>
         {
-            var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, true, cancellationToken); RequireOwner(row, actor);
+            var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, true, cancellationToken); RequireDeleteOwner(row, actor);
             if ((await store.ReadForUpdateAsync(References, new Dictionary<string, object?> { ["file_id"] = id }, cancellationToken)).Count > 0) throw new InvalidOperationException("文件仍被业务记录引用，不能删除。");
             await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "deleted", ["delete_no"] = DateTime.UtcNow }, cancellationToken);
             return FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
@@ -142,49 +142,45 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         return new FileDeleteResult(id, TryDelete(path));
     }
 
-    /// <summary>文件列表仅包含当前项目且归本人所有；管理员可查看当前项目。</summary>
-    public async Task<IReadOnlyList<FileDescriptor>> ListAsync(long? folderId = null, CancellationToken cancellationToken = default)
-    {
-        var actor = authorization.RequireActor(); var filters = OwnedFilters(actor);
-        filters["folder_id"] = folderId;
-        return (await store.ReadAsync(Files, filters, cancellationToken)).OrderByDescending(x => SqlRowStore.Id(x)).Select(row=>Describe(row)).ToArray();
-    }
+    /// <summary>Service兼容入口也按真实读取过滤；原HTTP入口另复核控件访问级别。</summary>
+    public Task<IReadOnlyList<FileDescriptor>> ListAsync(long? folderId = null, CancellationToken cancellationToken = default)
+        => ListVisibleCoreAsync(null,null,folderId,false,cancellationToken);
 
     /// <summary>创建目录时锁定父目录，防止与父目录删除发生竞态。</summary>
     public Task<FileFolder> CreateFolderAsync(string name, long? parentId = null, CancellationToken cancellationToken = default) => store.Session.InTransactionAsync(async () =>
     {
-        var actor = authorization.RequireActor(); FileValidation.RequireName(name);
-        if (name.Length > 100) throw new InvalidOperationException("目录名称最多100字符。");
-        if (parentId is { } parent) RequireOwner(await RequiredAsync(Folders, parent, true, cancellationToken), actor);
+        var actor = authorization.RequireActor(); name=DisplayName(name,100);
+        await LockFolderScopeAsync(actor,cancellationToken);
+        if (parentId is { } parent) RequireProject(await RequiredAsync(Folders, parent, true, cancellationToken), actor);
+        await RequireSiblingNameAsync(actor,parentId,name,null,cancellationToken);
         var id = ids.NextId();
         await store.InsertAsync(Folders, new Dictionary<string, object?> { ["id"] = id, ["name"] = name, ["parent_folder_id"] = parentId, ["owner_id"] = actor.AccountId, ["yz_project_id"] = Project(actor), ["insert_time"] = DateTime.UtcNow }, cancellationToken);
         return new FileFolder(id, name, parentId);
     }, cancellationToken);
 
-    /// <summary>目录树按同项目所有权过滤，不把客户端指定目录作为权限。</summary>
+    /// <summary>缺省返回完整项目共享树；显式父ID仅作为Service调用的展示筛选，不授予权限。</summary>
     public async Task<IReadOnlyList<FileFolder>> ListFoldersAsync(long? parentId = null, CancellationToken cancellationToken = default)
     {
-        var actor = authorization.RequireActor(); var filters = OwnedFilters(actor); filters["parent_folder_id"] = parentId;
-        return (await store.ReadAsync(Folders, filters, cancellationToken)).Select(r => new FileFolder(SqlRowStore.Id(r), SqlRowStore.Text(r, "name"), NullableId(r, "parent_folder_id"))).ToArray();
+        var tree=await ListFolderTreeAsync(null,cancellationToken);
+        return parentId is null?tree:tree.Where(folder=>folder.ParentFolderId==parentId).ToArray();
     }
 
     /// <summary>首期只删除空目录，不提供隐式递归删除。</summary>
     public async Task DeleteFolderAsync(long id, CancellationToken cancellationToken = default) => await store.Session.InTransactionAsync(async () =>
     {
-        var actor = authorization.RequireActor(); RequireOwner(await RequiredAsync(Folders, id, true, cancellationToken), actor);
-        if ((await store.ReadForUpdateAsync(Folders, new Dictionary<string, object?> { ["parent_folder_id"] = id }, cancellationToken)).Count > 0 ||
-            (await store.ReadForUpdateAsync(Files, new Dictionary<string, object?> { ["folder_id"] = id }, cancellationToken)).Count > 0)
+        var actor = authorization.RequireActor();await LockFolderScopeAsync(actor,cancellationToken);RequireProject(await RequiredAsync(Folders, id, true, cancellationToken), actor);
+        if ((await store.ReadForUpdateAsync(Folders, new Dictionary<string, object?> { ["parent_folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Count > 0 ||
+            (await store.ReadForUpdateAsync(Files, new Dictionary<string, object?> { ["folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Any(row=>SqlRowStore.Text(row,"status")!="deleted"))
             throw new InvalidOperationException("目录不为空，不能删除。");
         await store.UpdateAsync(Folders, id, new Dictionary<string, object?> { ["delete_no"] = DateTime.UtcNow }, cancellationToken);
         return true;
     }, cancellationToken);
 
-    /// <summary>显示名可修改，扩展名保持原类型以避免把已上传内容重新解释成可执行类型。</summary>
+    /// <summary>按原读取权修改展示名，存储键、已验证MIME、内容及历史引用均不改变。</summary>
     public Task RenameAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
-        FileValidation.RequireName(name);
-        var actor=authorization.RequireActor();var row=await RequiredAsync(Files,id,true,token);RequireOwner(row,actor);
-        if(!string.Equals(Path.GetExtension(name),Path.GetExtension(SqlRowStore.Text(row,"name")),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("更名时不能改变文件扩展名。");
+        name=DisplayName(name,255);
+        var actor=authorization.RequireActor();var row=await RequiredAsync(Files,id,true,token);await RequireReadableAsync(row,actor,token);
         await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"name",name},{"update_time",DateTime.UtcNow}},token);return true;
     },token);
 
@@ -192,31 +188,33 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     public Task MoveAsync(long id,long? targetFolderId,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
         var actor=authorization.RequireActor();
-        if(targetFolderId is{} folder)RequireOwner(await RequiredAsync(Folders,folder,true,token),actor);
-        RequireOwner(await RequiredAsync(Files,id,true,token),actor);
+        if(targetFolderId is{} folder)RequireProject(await RequiredAsync(Folders,folder,true,token),actor);
+        await RequireReadableAsync(await RequiredAsync(Files,id,true,token),actor,token);
         await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"folder_id",targetFolderId},{"update_time",DateTime.UtcNow}},token);return true;
     },token);
 
     /// <summary>目录更名只修改显示字段，保留原有项目及所有者。</summary>
     public Task RenameFolderAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
-        FileValidation.RequireName(name);if(name.Length>100)throw new ArgumentException("目录名称最多100字符。");
-        RequireOwner(await RequiredAsync(Folders,id,true,token),authorization.RequireActor());
+        name=DisplayName(name,100);var actor=authorization.RequireActor();await LockFolderScopeAsync(actor,token);
+        var row=await RequiredAsync(Folders,id,true,token);RequireProject(row,actor);await RequireSiblingNameAsync(actor,NullableId(row,"parent_folder_id"),name,id,token);
         await store.UpdateAsync(Folders,id,new Dictionary<string,object?>{{"name",name}},token);return true;
     },token);
 
-    /// <summary>目录移动串行锁定项目，遍历父链拒绝环；不能跨所有者或跨项目移动。</summary>
+    /// <summary>项目共享目录移动按固定范围锁检查父链及同级重名；跨项目或循环始终拒绝。</summary>
     public Task MoveFolderAsync(long id,long? parentId,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
         var actor=authorization.RequireActor();
         await LockFolderScopeAsync(actor,token);
-        RequireOwner(await RequiredAsync(Folders,id,true,token),actor);
+        var source=await RequiredAsync(Folders,id,true,token);RequireProject(source,actor);
+        if(parentId==NullableId(source,"parent_folder_id"))return true;
         var seen=new HashSet<long>{id};var current=parentId;
         while(current is{} parent)
         {
             if(!seen.Add(parent))throw new InvalidOperationException("目录不能移动到自身或子目录。");
-            var ancestor=await RequiredAsync(Folders,parent,true,token);RequireOwner(ancestor,actor);current=NullableId(ancestor,"parent_folder_id");
+            var ancestor=await RequiredAsync(Folders,parent,true,token);RequireProject(ancestor,actor);current=NullableId(ancestor,"parent_folder_id");
         }
+        await RequireSiblingNameAsync(actor,parentId,SqlRowStore.Text(source,"name"),id,token);
         await store.UpdateAsync(Folders,id,new Dictionary<string,object?>{{"parent_folder_id",parentId}},token);return true;
     },token);
 
@@ -266,10 +264,10 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         return rows.SingleOrDefault() ?? throw new UnauthorizedAccessException("文件或目录不存在或不可访问。");
     }
 
-    /// <summary>项目和所有者均来自服务端身份，管理员也必须在当前项目中操作。</summary>
+    /// <summary>上传/完成只认实际上传者及当前项目，超级读取身份不能代替别人的上传所有权。</summary>
     private static void RequireOwner(IReadOnlyDictionary<string, object?> row, RuntimeActor actor)
     {
-        if (SqlRowStore.Text(row, "yz_project_id") != actor.ProjectId || !actor.IsAdministrator && SqlRowStore.Id(row, "owner_id") != actor.AccountId)
+        if (SqlRowStore.Text(row, "yz_project_id") != actor.ProjectId || SqlRowStore.Id(row, "owner_id") != actor.AccountId)
             throw new UnauthorizedAccessException("文件或目录不存在或不可访问。");
     }
     /// <summary>已上传草稿仅上传者或当前超级身份可读；就绪保护文件按真实业务引用读取，所有权不作为永久授权。</summary>
@@ -321,13 +319,6 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     }
     /// <summary>数据库项目字段采用 bigint，HTTP 层仍使用字符串。</summary>
     private static long Project(RuntimeActor actor) => long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
-    /// <summary>基础设施列表统一施加项目和所有权条件。</summary>
-    private static Dictionary<string, object?> OwnedFilters(RuntimeActor actor)
-    {
-        var result = new Dictionary<string, object?> { ["yz_project_id"] = Project(actor) };
-        if (!actor.IsAdministrator) result["owner_id"] = actor.AccountId;
-        return result;
-    }
     /// <summary>读取可空关联键，不把空值转换成零标识。</summary>
     private static long? NullableId(IReadOnlyDictionary<string, object?> row, string field) => row.GetValueOrDefault(field) is null ? null : SqlRowStore.Id(row, field);
 }

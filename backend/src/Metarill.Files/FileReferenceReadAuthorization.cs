@@ -35,7 +35,10 @@ internal static class FileReferenceReadAuthorization
                 var record=await ReadRecordAsync(store,table,physical,field,scopes,recordId,project,token);if(record is null)continue;
                 try
                 {
-                    if(!FileValidation.ParseFileIds(record.GetValueOrDefault(field.ColumnName)).Contains(fileId))continue;
+                    IReadOnlyList<long> actual;
+                    try{actual=FileValidation.ParseFileIds(record.GetValueOrDefault(field.ColumnName));}
+                    catch(InvalidOperationException){continue;} // 仅把损坏的存储文件值作为拒权，不吞数据库或连接错误。
+                    if(!actual.Contains(fileId))continue;
                     var parents=scopes.Select(scope=>(Scope:scope,Id:FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
                     if(parents.Select(parent=>parent.Id).Distinct().Skip(1).Any())continue;
                     var valid=true;

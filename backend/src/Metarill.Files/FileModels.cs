@@ -18,10 +18,18 @@ public sealed record FileLibraryOptions
 public sealed record FileUploadRequest(string OriginalName, string? MimeType, long SizeBytes, string? ConfigColumnId = null, long? FolderId = null, string? Sha256 = null);
 public sealed record LocalUploadPlan(string ProviderCode, string UploadMode, string UploadUrl, IReadOnlyDictionary<string, string> Headers, IReadOnlyDictionary<string, string> FormData, DateTimeOffset ExpireAt);
 public sealed record FileUploadPlan(long FileId, LocalUploadPlan Plan);
-public sealed record FileDescriptor(long FileId, string OriginalName, string MimeType, long SizeBytes, string AccessMode, string Status, string? Url, string Mode, long? FolderId, string? Sha256);
+public sealed record FileDescriptor(long FileId, string OriginalName, string MimeType, long SizeBytes, string AccessMode, string Status, string? Url, string Mode, long? FolderId, string? Sha256)
+{
+    /// <summary>原列表/完成对象使用id，解析对象使用fileId；保留既有构造函数并兼容两种原读取位置。</summary>
+    public long Id => FileId;
+}
 public sealed record FileContentHandle(Stream Stream, string ContentType, string Name, long Length, string Sha256);
 public sealed record FileDeleteResult(long FileId, bool StorageRemoved);
-public sealed record FileFolder(long Id, string Name, long? ParentFolderId);
+public sealed record FileFolder(long Id, string Name, [property:System.Text.Json.Serialization.JsonPropertyName("parentId")] long? ParentFolderId)
+{
+    /// <summary>目录展示数量由当前文件浏览规则派生，不写入目录表。</summary>
+    public long FileCount { get; init; }
+}
 
 /// <summary>文件安全规则不接受客户端对象键、磁盘路径或远端 URL。</summary>
 public static partial class FileValidation

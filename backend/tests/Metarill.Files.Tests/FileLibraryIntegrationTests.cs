@@ -58,7 +58,8 @@ public sealed class FileLibraryIntegrationTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002)).OpenContentAsync(plan.FileId, false, fixture.PageId, 123));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002, true, "999999")).ResolveAsync(plan.FileId));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId, true));
-        Assert.Contains(await service.ListAsync(folder.Id), f => f.FileId == plan.FileId);
+        Assert.DoesNotContain(await service.ListAsync(folder.Id), f => f.FileId == plan.FileId);
+        Assert.Contains(await fixture.Service(fixture.Actor(administrator:true)).ListAsync(folder.Id), f => f.FileId == plan.FileId);
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteFolderAsync(folder.Id));
         Assert.True((await service.DeleteAsync(plan.FileId)).StorageRemoved);
         await service.DeleteFolderAsync(folder.Id);

@@ -20,12 +20,11 @@ public sealed class FileLibraryController(IFileLibraryResolver resolver):Control
 {
     // 只有需要认证的动作才解析当前项目，公开内容允许在无登录身份时定位。
     private FileLibraryService Files => resolver.RequireCurrent();
-    /// <summary>只列当前项目内有权限的文件，名称搜索不改变所有权边界。</summary>
+    /// <summary>沿原字段访问级别及真实读取权浏览，搜索按原规则跨目录。</summary>
     [HttpPost("list")]
     public async Task<R<object>> List(FileListRequest request,CancellationToken token)
     {
-        var rows=await Files.ListAsync(Id(request.FolderId),token);
-        return R<object>.Success(rows.Where(r=>string.IsNullOrWhiteSpace(request.Keyword)||r.OriginalName.Contains(request.Keyword,StringComparison.OrdinalIgnoreCase)));
+        return R<object>.Success(await Files.ListAccessibleAsync(request.ConfigColumnId,request.Keyword,Id(request.FolderId),token));
     }
     [HttpPost("upload-plan")]public async Task<R<FileUploadPlan>> Plan(FilePlanRequest request,CancellationToken token)=>R<FileUploadPlan>.Success(await Files.PlanUploadAsync(new FileUploadRequest(request.OriginalName,request.MimeType,request.SizeBytes,request.ConfigColumnId,Id(request.FolderId),request.Sha256),token));
     /// <summary>仅接受单个名为 file 的 multipart 文件，不把上传者的路径或 MIME 当作可信信息。</summary>
@@ -61,13 +60,17 @@ public sealed class FileLibraryController(IFileLibraryResolver resolver):Control
         Response.Headers.CacheControl="private, no-store";
         return File(handle.Stream,handle.ContentType,handle.Name,enableRangeProcessing:true);
     }
-    [HttpDelete("{id:long}")]public async Task<R<FileDeleteResult>> Delete(long id,CancellationToken token)=>R<FileDeleteResult>.Success(await Files.DeleteAsync(id,token));
-    [HttpPut("{id:long}/name")]public async Task<R<object>> Rename(long id,RenameFileRequest request,CancellationToken token){await Files.RenameAsync(id,request.Name,token);return R<object>.Success();}
-    [HttpPost("move")]public async Task<R<object>> Move(MoveFileRequest request,CancellationToken token){await Files.MoveAsync(request.FileId,Id(request.TargetFolderId),token);return R<object>.Success();}
-    [HttpPost("folders/list")]public async Task<R<object>> Folders(FolderListRequest request,CancellationToken token)=>R<object>.Success(await Files.ListFoldersAsync(Id(request.ParentId),token));
-    [HttpPost("folders")]public async Task<R<FileFolder>> CreateFolder(CreateFolderRequest request,CancellationToken token)=>R<FileFolder>.Success(await Files.CreateFolderAsync(request.Name,Id(request.ParentId),token));
-    [HttpPut("folders/{id:long}")]public async Task<R<object>> RenameFolder(long id,RenameFileRequest request,CancellationToken token){await Files.RenameFolderAsync(id,request.Name,token);return R<object>.Success();}
-    [HttpPut("folders/{id:long}/move")]public async Task<R<object>> MoveFolder(long id,MoveFolderRequest request,CancellationToken token){await Files.MoveFolderAsync(id,Id(request.TargetParentId),token);return R<object>.Success();}
-    [HttpDelete("folders/{id:long}")]public async Task<R<object>> DeleteFolder(long id,CancellationToken token){await Files.DeleteFolderAsync(id,token);return R<object>.Success();}
+    [HttpDelete("{id:long}")]public async Task<R<string>> Delete(long id,CancellationToken token)
+    {
+        var result=await Files.DeleteAsync(id,token);
+        return result.StorageRemoved?R<string>.Success("删除成功"):R<string>.Error("文件记录已失效，物理对象清理失败。");
+    }
+    [HttpPut("{id:long}/name")]public async Task<R<FileDescriptor>> Rename(long id,RenameFileRequest request,CancellationToken token)=>R<FileDescriptor>.Success(await Files.RenameWithResultAsync(id,request.Name,token));
+    [HttpPost("move")]public async Task<R<object>> Move(MoveFileRequest request,CancellationToken token){await Files.MoveAsync(request.FileId,Id(request.TargetFolderId),token);return R<object>.Success("移动成功");}
+    [HttpPost("folders/list")]public async Task<R<object>> Folders([FromBody(EmptyBodyBehavior=Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] FolderListRequest? request,CancellationToken token)=>R<object>.Success(await Files.ListFolderTreeAsync(request?.ConfigColumnId,token));
+    [HttpPost("folders")]public async Task<R<FileFolder>> CreateFolder(CreateFolderRequest request,CancellationToken token)=>R<FileFolder>.Success(await Files.CreateLibraryFolderAsync(request.Name,Id(request.ParentId),request.ConfigColumnId,token));
+    [HttpPut("folders/{id:long}")]public async Task<R<FileFolder>> RenameFolder(long id,RenameFileRequest request,CancellationToken token)=>R<FileFolder>.Success(await Files.RenameFolderWithResultAsync(id,request.Name,token));
+    [HttpPut("folders/{id:long}/move")]public async Task<R<FileFolder>> MoveFolder(long id,MoveFolderRequest request,CancellationToken token)=>R<FileFolder>.Success(await Files.MoveFolderWithResultAsync(id,Id(request.TargetParentId),token));
+    [HttpDelete("folders/{id:long}")]public async Task<R<string>> DeleteFolder(long id,CancellationToken token){await Files.DeleteFolderAsync(id,token);return R<string>.Success("删除成功");}
     private static long? Id(string? value)=>string.IsNullOrWhiteSpace(value)?null:long.TryParse(value,out var id)&&id>0?id:throw new ArgumentException("文件或目录标识格式不正确。");
 }

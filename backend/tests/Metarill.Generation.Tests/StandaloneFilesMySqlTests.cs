@@ -112,7 +112,7 @@ public sealed class StandaloneFilesMySqlTests(ITestOutputHelper output)
         Assert.Equal(0L, await fixture.ActiveReferencesAsync(record));
         Assert.Equal("ready", await fixture.ScalarAsync("SELECT `status` FROM `yz_file_library` WHERE `id`=@id", privateFile));
         var deleted = await fixture.SuccessAsync(HttpMethod.Delete, fixture.FileRoute + "/" + privateFile);
-        Assert.True(deleted.GetProperty("data").GetProperty("storageRemoved").GetBoolean());
+        Assert.Equal("删除成功",deleted.GetProperty("data").GetString());
         using var unavailable = await fixture.Client.GetAsync(fixture.ContentPath(privateFile, false));
         Assert.Equal(HttpStatusCode.Unauthorized, unavailable.StatusCode);
         var logoutProbe = await fixture.UploadAsync("logout-private.txt", bytes);
