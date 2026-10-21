@@ -28,14 +28,17 @@ namespace Metarill.Generation.Tests;
 
 /// <summary>可信生成管理页、正式Web身份与共享协调器的实库HTTP闭环；不放开默认Full门禁。</summary>
 [Collection(GenerationMySqlCollection.Name)]
-public sealed class TrustedSecurityRuntimeMySqlTests
+public sealed partial class TrustedSecurityRuntimeMySqlTests
 {
     private const string ManagerPage="6031906822946816",RolePage="1692532858529329154",AdminPage="1696799309006348290";
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){WriteIndented=true,NewLine="\n"};
 
     /// <summary>普通编辑身份创建和修改账号/超级角色，工作台按原revision保存，撤权下个请求生效，失败不改行。</summary>
     [StandaloneExportMySqlFact]
-    public async Task Generated_management_http_uses_persisted_web_identity_and_current_realm_guards()
+    public Task Generated_management_http_uses_persisted_web_identity_and_current_realm_guards()=>RunManagementAsync(null);
+
+    /// <summary>各场景共用真实身份、生成程序集与严格自有项目清理，不用并发测试替代原单请求回归。</summary>
+    private async Task RunManagementAsync(string? concurrencyCase)
     {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options=settings.RootElement.GetProperty("Metarill").GetProperty("Database").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
@@ -49,6 +52,7 @@ public sealed class TrustedSecurityRuntimeMySqlTests
         }
         var nonce=Guid.NewGuid().ToString("N");var ids=new SnowflakeIdGenerator(946);var project=ids.NextId();var admin=ids.NextId();var foreignAdmin=ids.NextId();var editorRole=ids.NextId();var foreignRole=ids.NextId();var editor=ids.NextId();
         var name="mt_trusted_"+nonce[..20];var password="Metarill-"+nonce;var evidence=Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"../.local/trusted-security-runtime/mysql-"+nonce);Directory.CreateDirectory(evidence);
+        var race=concurrencyCase is null?null:new ManagementRaceProbe(nonce);object? concurrencyReceipt=null;
         var fixture=new TrustedSecurityServiceFixture();WebApplication? host=null;var seeded=false;var verified=false;long? createdManager=null,createdRole=null;
         using var session=new DatabaseSession(options);
         // 每轮发布目录使用全新项目/后台，既不复用平台身份，也不修改既有发布元数据。
@@ -94,6 +98,8 @@ public sealed class TrustedSecurityRuntimeMySqlTests
             TrustedSecurityServiceFixture.Invoke(fixture.Type("Host.ApplicationSecurityCatalogRegistration"),"Add",builder.Services,authority);TrustedSecurityServiceFixture.Invoke(fixture.Type("Host.ApplicationWebSecurityCoordination"),"Add",builder.Services,mode);
             TrustedSecurityServiceFixture.Invoke(fixture.Type("Generated.GeneratedRegistration"),"AddGeneratedServices",builder.Services,null);
             builder.Services.AddControllers().AddApplicationPart(fixture.Assembly).AddJsonOptions(o=>o.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));host=builder.Build();
+            // 仅并发夹具把同一实际请求置于RR外层事务，认证读取仍执行原实现。
+            if(race is not null)host.Use((context,next)=>race.InTransactionAsync(context,next,session));
             // 夹具仅承载回环HTTP；身份解析、登录和注销直接执行实际宿主模板，不注入身份/页权替身。
             host.Use(async(context,next)=>
             {
@@ -103,12 +109,13 @@ public sealed class TrustedSecurityRuntimeMySqlTests
                     {
                         var identity=(AuthenticatedIdentity?)await Call(context.RequestServices.GetRequiredService(fixture.Type("Host.ApplicationWebAuthentication")),"ResolveAsync",context.Request.Headers["loginStateId"].ToString(),context.RequestAborted);
                         if(identity is null)throw new UnauthorizedAccessException();context.Items[typeof(AuthenticatedIdentity)]=identity;
+                        if(race is not null)await race.AfterAuthenticationAsync(context,session,store,editorRole,createdManager);
                     }
                     await next(context);
                 }
                 catch(UnauthorizedAccessException){context.Response.StatusCode=401;await context.Response.WriteAsJsonAsync(R<string>.Error("真实身份拒绝",401));}
                 catch(SecurityException){context.Response.StatusCode=403;await context.Response.WriteAsJsonAsync(R<string>.Error("原页权拒绝",403));}
-                catch(Exception e)when(e is ArgumentException or InvalidOperationException){context.Response.StatusCode=400;await context.Response.WriteAsJsonAsync(R<string>.Error("样本请求拒绝",400));}
+                catch(Exception e)when(e is ArgumentException or InvalidOperationException){race?.RecordFailure(context,e);context.Response.StatusCode=400;await context.Response.WriteAsJsonAsync(R<string>.Error("样本请求拒绝",400));}
             });
             host.MapPost("/login",async(HttpContext context)=>
             {
@@ -122,6 +129,11 @@ public sealed class TrustedSecurityRuntimeMySqlTests
             var role=await Post(Route("yz_role",RolePage)+"/add",new{name=name+"_createdrole",sortNo=10,isSuper=1,yzAdminTypeId=admin.ToString(CultureInfo.InvariantCulture)});createdRole=long.Parse(role.GetProperty("data").GetProperty("id").GetString()!,CultureInfo.InvariantCulture);
             var created=await Post(Route("yz_manager",ManagerPage)+"/add",new{name=name+"_new",realName="原表单创建",password,isDisabled=1,yzAdminTypeId=admin.ToString(CultureInfo.InvariantCulture),yzRoleIds=new[]{editorRole.ToString(CultureInfo.InvariantCulture)}});createdManager=long.Parse(created.GetProperty("data").GetProperty("id").GetString()!,CultureInfo.InvariantCulture);Assert.Equal("********",created.GetProperty("data").GetProperty("password").GetString());
             var row=await OwnedManager();var digest=SqlRowStore.Text(row,"password");Assert.True(PasswordHasher.Verify(password,digest));Assert.Equal("0",SqlRowStore.Text(row,"is_disabled"));
+            if(concurrencyCase is not null)
+            {
+                concurrencyReceipt=await RunConcurrencyAsync(concurrencyCase,race!,client,store,session,options,ids,project,admin,foreignAdmin,editorRole,foreignRole,createdManager!.Value,createdRole!.Value,name);
+                verified=true;await Receipt("verified",false);return;
+            }
             await Post(Route("yz_manager",ManagerPage)+"/update",new{id=createdManager.ToString(),realName="省略口令保留摘要"});Assert.True(digest==SqlRowStore.Text(await OwnedManager(),"password"),"省略口令不能刷新摘要。");
             var before=Fingerprint(await OwnedManager());await Rejected(Route("yz_manager",ManagerPage)+"/update",new{id=createdManager.ToString(),password=(string?)null,realName="失败不得保存"});Assert.Equal(before,Fingerprint(await OwnedManager()));
             await Rejected(Route("yz_manager",ManagerPage)+"/update",new{id=createdManager.ToString(),yzRoleIds=new[]{foreignRole.ToString(CultureInfo.InvariantCulture)},realName="跨后台不得保存"});Assert.Equal(before,Fingerprint(await OwnedManager()));
@@ -147,6 +159,7 @@ public sealed class TrustedSecurityRuntimeMySqlTests
         }
         finally
         {
+            race?.ReleaseAll();
             if(host is not null){await host.StopAsync();await host.DisposeAsync();}
             if(seeded)
             {
@@ -161,7 +174,7 @@ public sealed class TrustedSecurityRuntimeMySqlTests
         // 样本只在已有事务内写入当前随机项目，口令和连接不进入收据。
         Task Seed(string table,params(string Key,object? Value)[] values)=>store.InsertAsync(table,values.ToDictionary(x=>x.Key,x=>x.Value));
         // 私有证据只记录自有标识及验收边界，不记录会话令牌或业务行。
-        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,project,admin,foreignAdmin,editorRole,foreignRole,editor,createdManager,createdRole,verified,cleaned,persistedWebIdentity=true,generatedControllers=true,productionCoordinationRegistration=true,initializationExecuted=false,ddlExecuted=false,permissionsGranted=false,defaultFullGateRemoved=false},Json)+"\n");
+        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,concurrencyCase,concurrencyReceipt,raceProbe=race?.Diagnostics,project,admin,foreignAdmin,editorRole,foreignRole,editor,createdManager,createdRole,verified,cleaned,persistedWebIdentity=true,generatedControllers=true,productionCoordinationRegistration=true,initializationExecuted=false,ddlExecuted=false,permissionsGranted=false,defaultFullGateRemoved=false},Json)+"\n");
     }
     /// <summary>反射只穿过实际生成程序集边界，保留原异常与异步结果，不实现授权替身。</summary>
     private static async Task<object?> Call(object target,string method,params object?[] args){var task=(Task)TrustedSecurityServiceFixture.Invoke(target,method,args)!;await task;return task.GetType().GetProperty("Result")?.GetValue(task);}
