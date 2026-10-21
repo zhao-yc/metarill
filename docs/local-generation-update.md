@@ -77,3 +77,7 @@ metarill update recover --target E:\应用 --transaction active中的事务ID --
 ## 派生匹配运行时与 Service 配套更新（2026-10-21）
 
 已登记非冗余单值匹配列使用新固定计划。已有工程需以同版工具生成候选，并通过原本机助手更新 Data/Files 运行时、生成 Service 与目录，再编译固定宿主；前端操作、手写 partial 和现有更新流程保持。全部源码仍在已有固定运行时路径内，不放宽任意文件覆盖策略。无需 SQL 或物理表迁移。完整包用例验证实际预览/应用、重复应用不变、手写扩展保护及包内独立编译。
+
+## 共用数值转换与条件基础文件（2026-10-21）
+
+新增 Core/Contracts/ExactNumericValue、Core/Metadata/FixedConditionPlan 和 Data/Queries/FixedConditionSqlPlan 均属于既有单点 .cs 运行时路径策略，不扩大任意文件覆盖。数值消费者与共用文件须一起 sync-runtime，再编译；仅复制消费者会缺少类型依赖。扩展条件仍未接入 Service/Controller，不能通过手改生成物或删除拒绝检查宣称升级完成。无 SQL、平台元数据或原前端迁移。

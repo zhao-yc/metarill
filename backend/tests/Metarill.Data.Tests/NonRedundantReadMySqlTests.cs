@@ -56,6 +56,7 @@ public sealed class NonRedundantReadMySqlTests
             {Assert.Equal(1,await store.UpdateAsync(names[1],101,new Dictionary<string,object?>{{"name","事务内名称"},{"amount",30.25m}}));var current=await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Equal,"事务内名称")],[],1,10);Assert.Equal(first,Convert.ToInt64(Assert.Single(current.Records)["id"],CultureInfo.InvariantCulture));Assert.Equal(51m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);throw new InvalidOperationException("读取事务尾部测试故障。");}));
             Assert.Equal(rowsHash,await RowsHash());Assert.Equal(31m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);Assert.Null((await reader.ReadStatisticsAsync(plan,[new("id",FixedReadComparison.Equal,-1L)],["bill_amount"])).Sums["bill_amount"]);Assert.Equal(1,(await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Contains,"%_!")],[],1,10)).Total);
             await VerifyDerivedLocksAsync(options,catalog,first,second);
+            await VerifyFixedConditionsAsync(options,catalog,first,second);
             // 编译结果不继续持有可变元数据：修改源名称不能改变已发布的SQL。
             var sourceColumn=catalog.ConfigColumns.Single(column=>column.Id=="22");sourceColumn.ColumnName="not_a_real_column";
             try{Assert.Equal(4,(await reader.ReadPageAsync(plan,[],[],1,20)).Total);}finally{sourceColumn.ColumnName="name";}
@@ -79,6 +80,28 @@ public sealed class NonRedundantReadMySqlTests
         Task Source(long id,string name,long? bill,long? ship,long? parent,bool deleted=false,bool foreign=false)=>store.InsertAsync(names[0],new Dictionary<string,object?>{{"id",id},{"name",name},{"bill_id",bill},{"ship_id",ship},{"parent_id",parent},{"yz_project_id",foreign?project+1:project},{"delete_no",deleted?new DateTime(2026,1,1):null}});
         async Task<string> RowsHash(){var rows=new List<object>();foreach(var name in names)rows.Add((await store.ReadIncludingDeletedAsync(name)).OrderBy(row=>SqlRowStore.Id(row)).ToArray());return Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(rows)));}
         Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,names,instanceVerified=true,fingerprint,rowsHash,verified,cleaned,independentTableAbsenceChecked=cleaned,generatedHttpExecuted=false,browserExecuted=false,grantAttempted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
+    }
+    /// <summary>在本轮已拥有的两表内实际执行绑定SQL，覆盖高位ID、LIKE、IN、NULL及双类型项目列；不代表正式候选API。</summary>
+    private static async Task VerifyFixedConditionsAsync(DatabaseOptions options,MetadataCatalog catalog,long first,long second)
+    {
+        using var session=new DatabaseSession(options);
+        var variables=new Dictionary<string,object?>{{"current_yz_project_id",catalog.YzProjectId},{"parent_id",second.ToString(CultureInfo.InvariantCulture)},{"formParameters.allowed","第_条"},{"formParameters.nullValue",null},{"minimum",first},{"maximum",second+1}};
+        var root=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var query=Query(root,"name LIKE @formParameters.allowed AND id IN(9007199254741001,@parent_id)");var sql=query.ToSql();Assert.DoesNotContain("第_条",sql);Assert.DoesNotContain("9007199254741001",sql);Assert.Equal(new[]{first,second},(await query.ToListAsync(row=>row.Id)).Order());Assert.Equal(2,await query.CountAsync());
+        Assert.Empty(await Query(root,"parent_id=@formParameters.nullValue").ToListAsync(row=>row.Id));Assert.Equal(second,Assert.Single(await Query(root,"parent_id IS NULL AND id=@parent_id").ToListAsync(row=>row.Id)));
+        Assert.Equal(second,Assert.Single(await Query(root,"id IN(NULL,@parent_id)").ToListAsync(row=>row.Id)));
+        Assert.Equal(second,Assert.Single(await Query(root,"id>@minimum AND id<>@minimum AND id<@maximum").ToListAsync(row=>row.Id)));
+        Assert.Empty(await Query(root,"name='第一条'' OR 1=1 --'").ToListAsync(row=>row.Id));
+        variables["formParameters.allowed"]="%' OR 1=1 --";Assert.Empty(await Query(root,"name LIKE @formParameters.allowed").ToListAsync(row=>row.Id));
+        var target=catalog.ConfigTables.Single(table=>table.Id=="2");Assert.Equal(new long[]{101,102},(await Query(target,"amount>=10.25 AND amount<21 AND amount IN(10.25,20.75)").ToListAsync(row=>row.Id)).Order());
+        var baseline=session.Select<MatchingRoot>().AsTable((_,_)=>root.TableName);var before=baseline.ToSql();var missing=Plan(root,"id=@missing");Assert.Throws<ArgumentException>(()=>missing.Apply(baseline,session,variables,"fixed_db"));Assert.Equal(before,baseline.ToSql());
+        /// <summary>来源与字段类型只取已核验随机元数据，变量是测试显式构造的窄上下文。</summary>
+        FixedConditionSqlPlan Plan(TableMetadata table,string condition)
+        {
+            var fields=MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns.ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.Ordinal);
+            return FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile("yz_project_id=@current_yz_project_id AND delete_no IS NULL AND "+condition,fields.Keys),fields);
+        }
+        FreeSql.ISelect<MatchingRoot> Query(TableMetadata table,string condition)=>Plan(table,condition).Apply(session.Select<MatchingRoot>().AsTable((_,_)=>table.TableName),session,variables,"fixed_db");
     }
     /// <summary>双连接证明关联锁、无关目标可写、提交释放及RR旧快照不能保留已失效匹配；不申请观测权限。</summary>
     private static async Task VerifyDerivedLocksAsync(DatabaseOptions options,MetadataCatalog catalog,long first,long second)

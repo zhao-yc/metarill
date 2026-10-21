@@ -63,8 +63,8 @@ public sealed record ExactDataManageValues([property:JsonIgnore] bool IsRequired
         if(type==typeof(string))result=text;
         else if(type==typeof(long)&&long.TryParse(text,NumberStyles.Integer,CultureInfo.InvariantCulture,out var wide))result=wide;
         else if(type==typeof(int)&&int.TryParse(text,NumberStyles.Integer,CultureInfo.InvariantCulture,out var integer))result=integer;
-        else if(type==typeof(decimal)&&decimal.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out var number))result=number;
-        else if(type==typeof(double)&&double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out var real)&&double.IsFinite(real))result=real;
+        else if(type==typeof(decimal)&&Metarill.Core.Contracts.ExactNumericValue.TryDecimal(text,out var number))result=number;
+        else if(type==typeof(double)&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(text,out var real))result=real;
         else if(type==typeof(bool)&&(text is "1" or "0"||bool.TryParse(text,out _)))result=text=="1"||text!="0"&&bool.Parse(text);
         else if(type==typeof(DateTime)&&DateTime.TryParse(text,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out var date))result=date;
         else throw Invalid();

@@ -26,6 +26,9 @@ internal static class DerivedExactDataManageMySqlProbe
             if(field.ConfigColumnId=="16"){field.IsShow=0;field.IsEdit=0;field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(0);field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(0);}
             catalog.ConfigPageColumns.Add(field);
         }
+        var numeric=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(page))!;numeric.Id="107";numeric.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("customer_amount");catalog.ConfigPages.Add(numeric);
+        foreach(var originalField in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="106").ToArray())
+        {var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(originalField))!;copy.Id="107"+copy.Id;copy.ConfigPageId="107";catalog.ConfigPageColumns.Add(copy);}
     }
     /// <summary>只改本轮已拥有的账号、角色和随机业务行；每个阶段检查实际结果，最后恢复原流程状态。</summary>
     internal static async Task VerifyAsync(HttpClient ordinary,HttpClient super,DatabaseSession session,MetadataCatalog catalog,MetadataCatalog files,SqlRowStore security,long role,long manager,long file)
@@ -62,6 +65,20 @@ internal static class DerivedExactDataManageMySqlProbe
             await Page([a]);await FileAccess(true);
             stage="permission-revocation";await security.UpdateAsync("yz_role_permission",permission,Row("permission_values","[]"));await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/page",Request(),HttpStatusCode.Forbidden);await FileAccess(false);
             await security.UpdateAsync("yz_role_permission",permission,Row("permission_values","[\"is_all\"]"));await Page([a]);await FileAccess(true);
+            stage="numeric-exact-representation";var numericRoute="/api/admin/auto/"+order+"/107";
+            await FreshWebHttp.SendAsync(super,HttpMethod.Post,numericRoute+"/update?parentId=71",new{id=Text(a),attachments=new[]{Text(file)}});
+            await security.UpdateAsync("yz_role_permission",permission,Row("config_page_id",107L));await Match("1e1");
+            var numericPage=await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,numericRoute+"/page",Request());Assert.Equal("1",numericPage.GetProperty("data").GetProperty("total").ToString());Assert.Equal(Text(a),Assert.Single(numericPage.GetProperty("data").GetProperty("records").EnumerateArray()).GetProperty("id").GetString());await FileAccess(true);
+            await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,numericRoute+"/update?parentId=71",new{id=Text(a),status=2});Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(order,Row("id",a))),"status"));
+            foreach(var malformed in new[]{"10.0000000000000000000000000000001","1e-100"})
+            {
+                if(malformed=="1e-100")await business.UpdateAsync(party,101,Row("amount",0m));
+                await Match(malformed);await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,numericRoute+"/page",Request(),HttpStatusCode.BadRequest);await FileAccess(false);
+                await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,numericRoute+"/update?parentId=71",new{id=Text(a),status=1},HttpStatusCode.BadRequest);Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(order,Row("id",a))),"status"));
+            }
+            await business.UpdateAsync(party,101,Row("amount",oldTargets[101]["amount"]));await Match("10.0000");await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,numericRoute+"/page",Request());await FileAccess(true);
+            await security.UpdateAsync("yz_role_permission",permission,Row("config_page_id",106L));await Match(matchA+"新");await FreshWebHttp.SendAsync(super,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(a),attachments=new[]{Text(file)}});await Page([a]);await FileAccess(true);
+
             /// <summary>只核当前视图正式SQL输出，隐藏依赖不出现在响应中，total和count在分页前一致。</summary>
             async Task Page(long[] expected)
             {
@@ -83,7 +100,7 @@ internal static class DerivedExactDataManageMySqlProbe
         catch(Exception error){throw new InvalidOperationException("派生精确管理正式Web/实库阶段失败："+stage,error);}
         finally
         {
-            foreach(var row in oldTargets)await business.UpdateAsync(party,row.Key,Row("notes",row.Value.GetValueOrDefault("notes"),"delete_no",row.Value.GetValueOrDefault("delete_no"),"yz_project_id",row.Value["yz_project_id"]));
+            foreach(var row in oldTargets)await business.UpdateAsync(party,row.Key,Row("notes",row.Value.GetValueOrDefault("notes"),"amount",row.Value.GetValueOrDefault("amount"),"delete_no",row.Value.GetValueOrDefault("delete_no"),"yz_project_id",row.Value["yz_project_id"]));
             await security.UpdateAsync("yz_manager",manager,Row("real_name",oldManager.GetValueOrDefault("real_name"),"yz_role_ids",oldManager["yz_role_ids"]));await security.UpdateAsync("yz_role",role,Row("is_scope",oldRole.GetValueOrDefault("is_scope")));
             if(createdPermission)await security.UpdateAsync("yz_role_permission",permission,Row("delete_no",DateTime.UtcNow));if(createdTarget)await security.UpdateAsync("yz_role_permission",targetPermission,Row("delete_no",DateTime.UtcNow));if(createdRole)await security.UpdateAsync("yz_role",normalRole,Row("delete_no",DateTime.UtcNow));
             await FreshWebHttp.SendAsync(super,HttpMethod.Post,originalRoute+"/update?parentId=71",Row("id",Text(a),"name",oldA["name"],"status",oldA.GetValueOrDefault("status"),"customerId",oldA.GetValueOrDefault("customer_id"),"attachments",JsonSerializer.Deserialize<JsonElement>((string)oldA["attachments"]!)));
