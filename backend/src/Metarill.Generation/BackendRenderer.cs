@@ -474,9 +474,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static string RequiredValidation(GenerationModel model, TableModel table, PageModel page, bool updating)
     {
         var result = new StringBuilder();
-        foreach (var column in page.Writable.Where(c => c.Source.IsDbNotNull == 1 || model.Catalog.ConfigPageColumns.Any(f => f.ConfigPageId == page.Source.Id && f.ConfigColumnId == c.Source.Id && (f.IsRequired == 1 || GenerationModel.Enabled(f.Extra, "isMust")))))
+        foreach (var column in page.Writable)
         {
-            var condition = column.Type == "string?" ? $"string.IsNullOrWhiteSpace(entity.{column.Property})" : $"entity.{column.Property} is null";
+            // 页面必填只来自原显式可写字段；表单隐式级ID不能重新开放只读字段的必填规则。
+            var required=page.DeclaredWritable.Any(item=>item.Source.Id==column.Source.Id)&&model.Catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id&&(field.IsRequired==1||GenerationModel.Enabled(field.Extra,"isMust")));
+            if(!required&&column.Source.IsDbNotNull!=1)continue;
+            // 数据库NOT NULL只拒绝null；原页面必填另拒绝空白文本或空多选。
+            var condition=required&&column.IsJsonArray?$"Metarill.Core.Contracts.RequiredFieldValue.IsEmptyArray(entity.{column.Property})":required&&column.Type=="string?"?$"string.IsNullOrWhiteSpace(entity.{column.Property})":$"entity.{column.Property} is null";
             var compatibility = updating ? PlatformColumnTypeCompatibilityCompilation.Exception(model, table, page, column) : "";
             if (compatibility.Length != 0) condition = $"({condition}) && !({compatibility})";
             result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");

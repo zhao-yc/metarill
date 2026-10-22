@@ -20,7 +20,7 @@
 
 **仍缺：** 完整关系名称读计划、详情分组、复杂条件显示/只读、完整表单规则和配置按钮。type=2 独立多选页的跨页草稿、仅看已选和完整确认回读已补齐；冗余 MultiSelectPage 字段的原弹层与源事务校验已集成源码，完整包已加入新运行时资产，并补验原字段弹层的跨页草稿、取消、完整确认、保存/整页回读、父切换失效及空数组保存；限已证明的冗余子集。独立包主子 Tab/PC 弹层和多选页 Web/浏览器已有实际证据，真机仍待验收。
 
-**原实现证据：** YZP `service/yzp/v8/UniappService.java` 的 `1421` 附近按 ConfigChild 排序和 childPageOpenType 生成子页面，并传递父记录与只读上下文；`2001` 附近生成排序和筛选组件。`JavaService.java` 的 `1748` 附近及 `V8ControllerRenderer` 的 page 返回还支持独立 statistics。C# 当前有 count，不能据此声称已具备原聚合统计协议。
+**原实现证据：** YZP `service/yzp/v8/UniappService.java` 的 `1421` 附近按 ConfigChild 排序和 childPageOpenType 生成子页面，并传递父记录与只读上下文；`2001` 附近生成排序和筛选组件。`JavaService.java` 的 `1748` 附近及 `V8ControllerRenderer` 的 page 返回还支持独立 statistics。后续[原列表统计](list-statistics.md)已接原`map.statistics`、完整筛选范围SUM与等于2百分比口径；以该固定合同及其专项为准，复杂未支持表达式仍拒绝，不能扩称任意聚合均已完成。
 
 **界面验收范围：** 独立生成样板已实际验证筛选/排序、父子 Tab/PC 弹层 CRUD、子刷新保留父脏字段、父保存前不挂载子表、父只读和最终回读；type=2 页另验两页21项草稿/取消/全选/仅看已选/完整确认。新页面打开方式、复杂父范围和导出复用筛选的浏览器验收仍待完成；伪造 parentId 由真实 HTTP 权限用例验证，不冒充浏览器操作。平台继承页与离线再生成页分别验收。
 
@@ -28,11 +28,11 @@
 
 **已有：** [RelationCompilation](../backend/src/Metarill.Generation/RelationCompilation.cs) 可编译明确 List 目标和范围；ForeignValidationRenderer 校验关系记录存在、未删除和同项目。SelectPage 已有简单单选导航。
 
-**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 已另补甲128/乙105项双父范围、三页、字面搜索、保存回读与父切换浏览器实证；超过5000候选浏览器、多选List及跨端仍待分别补验，type=2页不替代这些范围。[MultiSelectPage冗余子集](multi-select-field-contract.md)仅对固定目标、可读名称、明确辅助列和可证明父范围接线；额外范围、非冗余及名称传播仍待完成，不能将整个控件标完成。原账号固定MultiCheckBoxDatabase已恢复原复选DOM、事件、POST、数组及名称投影，见[固定合同](fixed-role-checkbox.md)；未知实例继续拒绝。CascadeTree、LevelList等未支持能力仍受统一完整包门禁约束，保留原控件不等于已经可用。没有原非冗余读计划、冗余/非冗余混用传播与维护回填。当前 `supportsNonRedundant=false` 是能力声明，不是功能完成。平台仍保留三个 isJoinColumn 字段定义，保留定义不等于通用派生和反向传播已经实现。
+**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 已另补甲128/乙105项双父范围、三页、字面搜索、保存回读与父切换浏览器实证；超过5000候选浏览器、多选List及跨端仍待分别补验，type=2页不替代这些范围。[MultiSelectPage冗余子集](multi-select-field-contract.md)仅对固定目标、可读名称、明确辅助列和可证明父范围接线；额外范围、非冗余及名称传播仍待完成，不能将整个控件标完成。原账号固定MultiCheckBoxDatabase已恢复原复选DOM、事件、POST、数组及名称投影，见[固定合同](fixed-role-checkbox.md)；未知实例继续拒绝。CascadeTree的普通冗余selfTree与固定独立crossTable链，已按文末各合同接通读取、保存、展示及筛选；selfTree的Excel已接线，crossTable仅模板边界与空单元格已接线，非空路径策略仍待确认。FullApplication对未支持用途的门禁保持，不能把原控件资产存在视为完整验收。2026-10-22只读盘点原Java生成器、模板及前端common/components，LevelList仅命中ControlKinds.java第31行的预留枚举，未找到对应原执行分支；它不作为已实现原功能的完成证据，也不据此凭空新增页面或交互。[非冗余存储](nonredundant-storage.md)已接普通标量固定读取、单值List/SelectPage、type=2回读、普通/跨父导入导出及物理文件子集；多值、级联、全局/复杂联接、冗余/非冗余混合传播与维护回填仍待完成。平台`supportsNonRedundant=false`仍是完整能力门槛声明，不能据此否认已证明的固定子集，也不能以这些子集解除整体门禁。
 
 **原实现证据：** YZP 的 `NonRedundantReadPlanCompiler`、`MixedRelationPropagationCompiler`、运行时 list/selectpage/cascade，以及 `SystemMaintenanceBusiness` 的回填入口。只读引用扫描可识别这些配置声明，不能因扫描命中就宣称对应控件执行能力已移植。
 
-**待实际界面验收：** 核验已实现的 List 候选关键字分页、单选/多选与名称回读，覆盖超过 5000 条、已选但不在当前页、删除/越权目标和稀疏更新；之后再单独实现级联和派生读/传播，验证更新与删除事务、关系名称导入以及多值分页不倍增。原生 SQL 保留方言边界，不自动猜译。
+**待实际界面验收：** 核验已实现的 List 候选关键字分页、单选/多选与名称回读，覆盖超过 5000 条、已选但不在当前页、删除/越权目标和稀疏更新；已接线的级联与派生读按各自固定合同验收，继续补全未接线组合和传播，验证更新与删除事务、关系名称导入以及多值分页不倍增。原生 SQL 保留方言边界，不自动猜译。
 
 ## 三、配置候选、字段引用和工作台断链
 
@@ -351,3 +351,14 @@ Data170/170、相关组合162/162，零跳过，前序14和5重叠不累加。�
 独立BackendOnly包移除仓库定位环境变量后从包内基础源码实际构建成功，生成导入含空值准备与非空门禁；Full未完成用途原子拒绝，无输出。215正式产物两轮逐字相同、24手写partial不变，原前端/共享模板/平台元数据/现有产物无diff，最终源码与回归摘要一致。独立只读累计核零：跨表Excel20、筛选24、写68、读88、来源父范围66、读取84、写入226、展示76、Excel124、同表49个随机表名，共825，包含失败未建表表名，不代表本轮新DROP825张表；无新增观测权或重复旧DROP。
 
 已有C#应用更新生成器并再生成Service/Controller后构建，无本批DDL/回填。非空路径决定、其它原目标/完整浏览器/跨端/同条件性能/整体MySQL首版及其它数据库仍待完成；不合main或生产部署，新提交CI另核。
+
+
+## 同页混合控件与必填校验（2026-10-22）
+
+修复三处真实生成HTTP/MySQL反例：数据库NOT NULL不再被误当作NotBlank，页面必填多选不再接受空数组，只读字段不再因隐式级ID被重新要求页面必填。页面必填只来自原显式可写快照，物理非空仍独立检查；更新省略保留、默认值和失败回滚保持。原跨表末级必填仍绑定末级，部分根选择不冒充完整必填。详见[同页混合与必填合同](cascade-mixed-required-contract.md)。
+
+四种来源/父键组合实际生成编译；真实MySQL/生成HTTP两种同型键验证跨表已存名、自树当前名、多选同页的保存、改名后差异、混合筛选、选择确认与复制。修复前500/200/500错误响应与失败TRX保留；修复后定向6项通过，随后Generation.Tests全部回归（仅排除专用新库FreshInstallMySqlTests）1168/1168、Data全量174/174，均零失败零跳过；专项与全量不累加，不宣称全部后端测试项目或专用空库已在本批重跑。
+
+独立BackendOnly包内检查器源码摘要一致、生成Service实际引用，移除仓库定位环境变量后从包内Core构建成功；未完成用途Full原子拒绝且无输出。正式215个产物两轮及修改前逐字相同，24手写partial不变；原前端/共享模板/平台元数据无diff，最终501份源码/测试与回归摘要一致。11组累计923个随机表名独立新连接核零，含失败未建表表名，不是本轮新DROP923张表；用户授权六张旧失败表另核零，未重复DROP或新增观测权限。
+
+已有C#应用同版更新Core与生成器后再生成Service并构建；无本批DDL/回填，缺辅助列仍按跨表保存合同显式同步。非空跨表Excel策略、其它级联/非冗余/传播、用途SQL整体裁剪、完整管理Runtime与初始化确认、原浏览器/跨端、同条件性能、完整MySQL首版及后续数据库仍待完成。不合并main或部署生产，新提交自身CI另核。
