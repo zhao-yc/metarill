@@ -39,8 +39,12 @@ public sealed class DatabaseCheckboxMySqlTests
     [StandaloneExportMySqlFact]
     public Task Original_source_parent_is_validated_for_options_mutations_and_excel()=>Verify(true,false,true);
 
+    /// <summary>联接标记名称缓存仍落物理列，沿原复选全流程重新派生，不能客户端覆盖。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Redundant_joined_name_cache_keeps_original_checkbox_transactions()=>Verify(false,false,false,true);
+
     /// <summary>实例pin通过后才创建随机三表，失败证据不覆盖，清理前检查结构与本任务行集。</summary>
-    private static async Task Verify(bool nonRedundant,bool automatic,bool sourceParent=false)
+    private static async Task Verify(bool nonRedundant,bool automatic,bool sourceParent=false,bool joinedCache=false)
     {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options=settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
@@ -50,6 +54,7 @@ public sealed class DatabaseCheckboxMySqlTests
         {await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例不匹配，未创建样本。");}
         var nonce=Guid.NewGuid().ToString("N");var prefix="mt_cb_"+nonce[..12];var catalog=DatabaseCheckboxGenerationTests.Catalog(nonRedundant,automatic,prefix);
         if(!automatic)catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="27").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        if(joinedCache){var cache=catalog.ConfigColumns.Single(column=>column.Id=="27");cache.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("target.name");}
         var page=catalog.ConfigPages.Single(item=>item.Id=="201");page.WhereSql="yz_project_id=@current_yz_project_id";page.IsCopy=1;page.IsImport=1;page.IsExport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
         catalog.ConfigPageColumns.Add(new(){Id="2004",ConfigPageId="201",ConfigColumnId="26",IsShow=1,IsEdit=1});
         catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail="第一段不执行;第二段不执行;parent_id=@formParameters.parentId;name desc";
@@ -148,7 +153,7 @@ public sealed class DatabaseCheckboxMySqlTests
             }
             await TestDirectoryCleanup.DeleteAsync(directory,boundary);
         }
-        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,prefix,tables,ownIds,targetIds,fingerprint,instanceVerified=true,nonRedundant,automatic,sourceParent,cleaned,fixedTestAuthorization=true,browserExecuted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
+        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,prefix,tables,ownIds,targetIds,fingerprint,instanceVerified=true,nonRedundant,automatic,sourceParent,joinedCache,cleaned,fixedTestAuthorization=true,browserExecuted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
     }
     private static string?[] Names(JsonElement row)=>row.GetProperty("targetNames").ValueKind==JsonValueKind.Null?[]:row.GetProperty("targetNames").EnumerateArray().Select(item=>item.ValueKind==JsonValueKind.Null?null:item.GetString()).ToArray();
     private static JsonElement Success(JsonElement value){Assert.True(value.GetProperty("code").GetInt32()==200,value.GetRawText());return value.GetProperty("data");}

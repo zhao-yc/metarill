@@ -64,7 +64,7 @@ internal static class DatabaseCheckboxCompilation
             var order=GenerationModel.ValidateOrderBy(definition.OrderBy.Length>0?definition.OrderBy:"name asc",target.Columns).ToList();
             if(order.Any(item=>!NonRedundantReadCompilation.Physical(model,target,item.Column)||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
             var names=SelectionDisplayFieldCompilation.Resolve(table,source);
-            if(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&(GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||!NonRedundantReadCompilation.Physical(model,table,names)))return Gap("冗余模式需要明确普通名称数组列，非冗余使用只读联接或自动名称。");
+            if(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
             if(table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
             return new(new(source,target,name,names,scopes,conditions,order,parents,sourceParent),null);
         }

@@ -26,12 +26,23 @@ public sealed class GeneratedMultiSelectMySqlTests
     private const long Project = 9007199254740993, Parent = 9007199254742001, First = 9007199254750000;
 
     [StandaloneExportMySqlFact]
-    public async Task Source_transaction_derives_names_and_rejects_every_partial_scope_or_permission_failure_without_file_changes()
+    public Task Source_transaction_derives_names_and_rejects_every_partial_scope_or_permission_failure_without_file_changes()=>VerifyAsync(false);
+    /// <summary>原多选在明确物理联接缓存上复验文件引用、整个来源事务与复制保护。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Joined_name_cache_uses_original_popup_scope_and_full_source_transaction()=>VerifyAsync(true);
+    /// <summary>普通及联接缓存复用相同原协议验收，实际样本分别隔离。</summary>
+    private static async Task VerifyAsync(bool joinedCache)
     {
         using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options = settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
         if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("多选验收只允许明确的隔离MySQL业务测试库。");
+        if(joinedCache)
+        {
+            using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")??throw new InvalidOperationException("联接缓存验收缺少实例pin。")));
+            await using var connection=new MySqlConnector.MySqlConnection(options.ConnectionString);await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例不匹配，未创建联接样本。");
+        }
         using var session = new DatabaseSession(options); var prefix = "mt_multi_" + Guid.NewGuid().ToString("N")[..12]; var catalog = GeneratedMultiSelectContractTests.Catalog(prefix);
+        if(joinedCache){var cache=catalog.ConfigColumns.Single(column=>column.Id=="27");cache.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("target.name");}
         var page = catalog.ConfigPages.Single(page => page.Id == "201"); page.WhereSql = "yz_project_id=@current_yz_project_id"; page.IsCopy = 1;
         catalog.ConfigPageColumns.Add(new() { Id = "2004", ConfigPageId = "201", ConfigColumnId = "26", IsShow = 1, IsEdit = 1 });
         catalog.ConfigColumns.Add(new() { Id = "29", ConfigTableId = "2", ColumnName = "attachments", LogicalType = "string", ColumnLength = "max", ControlKind = "FileLibrary", ControlDetail = "{\"accessMode\":\"PROTECTED\",\"maxCount\":3}" });
@@ -62,7 +73,25 @@ public sealed class GeneratedMultiSelectMySqlTests
             foreach (var id in fileIds) await store.InsertAsync("yz_file_library", new Dictionary<string, object?> { ["id"] = id, ["name"] = prefix + ".txt", ["content_type"] = "text/plain", ["size"] = 1L, ["storage_key"] = Guid.NewGuid().ToString("N") + ".blob", ["access_mode"] = "PROTECTED", ["status"] = "ready", ["owner_id"] = 859L, ["yz_project_id"] = Project });
             await Execute(session, "INSERT INTO " + Q(session, prefix + "_parent") + " (id,name,yz_project_id) VALUES (@p,'父甲',@project),(@other,'父乙',@project),(@foreign,'外项目父',@foreignProject)", ("p", Parent), ("other", Parent + 1), ("foreign", Parent + 2), ("project", Project), ("foreignProject", Project + 1));
             await Execute(session, "INSERT INTO " + Q(session, prefix + "_target") + " (id,name,parent_id,yz_project_id,delete_no) VALUES (@one,'目标甲',@p,@project,NULL),(@two,'目标乙',@p,@project,NULL),(@other,'另一父目标',@otherParent,@project,NULL),(@foreign,'外项目目标',@p,@foreignProject,NULL),(@deleted,'已删目标',@p,@project,@now)", ("one", First), ("two", First + 1), ("other", First + 2), ("foreign", First + 3), ("deleted", First + 4), ("p", Parent), ("otherParent", Parent + 1), ("project", Project), ("foreignProject", Project + 1), ("now", DateTime.UtcNow));
-            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.MultiProbe"); var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.MultiProbe");
+            var sourceType=GenerationModel.Pascal(prefix+"_source");
+            if(joinedCache)await File.WriteAllTextAsync(Path.Combine(directory,"generated/Services/"+sourceType+".CacheProbe.cs"),$$"""
+using Metarill.Core.Security;
+using Example.MultiProbe.Generated.Entities;
+namespace Example.MultiProbe.Generated.Services;
+/// <summary>仅本次临时验收的手写partial故障探针，不进入正式模板。</summary>
+public partial class {{sourceType}}Service
+{
+    public static int JoinedProbeMode {get;set;}
+    partial void BeforeSave({{sourceType}} entity,RuntimeActor actor,bool creating,ISet<string> submittedFields)
+    {
+        if(creating)return;
+        if(JoinedProbeMode is 1 or 2){entity.TargetNames="[\"不能持久化的名称\"]";if(JoinedProbeMode==2)submittedFields.Add("target_names");}
+        if(JoinedProbeMode==3)entity.ParentId={{Parent+1}}L;
+    }
+}
+""");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" }); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:" + port);
             builder.Services.AddHttpContextAccessor(); builder.Services.AddSingleton(session); builder.Services.AddSingleton<IIdGenerator>(ids);
@@ -77,6 +106,17 @@ public sealed class GeneratedMultiSelectMySqlTests
             Assert.Equal(selected, created.GetProperty("targetIds").EnumerateArray().Select(value => value.GetString())); Assert.Equal(new[] { "目标乙", "目标甲" }, created.GetProperty("targetNames").EnumerateArray().Select(value => value.GetString()));
             Assert.Single(await store.ReadAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = long.Parse(record) }));
             async Task<string> Snapshot() => JsonSerializer.Serialize(new { Source = await rows.ReadIncludingDeletedAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) }), Refs = (await store.ReadIncludingDeletedAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = long.Parse(record) })).OrderBy(row => Convert.ToInt64(row["id"])).ToArray() });
+            if(joinedCache)
+            {
+                var mode=assembly.GetType("Example.MultiProbe.Generated.Services."+sourceType+"Service",true)!.GetProperty("JoinedProbeMode")!;
+                try
+                {
+                    var original=await Snapshot();mode.SetValue(null,1);Assert.Equal(500,(await Post(client,endpoint+"/update",new{id=record,name="未登记缓存不保存"})).GetProperty("code").GetInt32());Assert.Equal(original,await Snapshot());
+                    mode.SetValue(null,2);var corrected=Data(await Post(client,endpoint+"/update",new{id=record}));Assert.Equal(new[]{"目标乙","目标甲"},corrected.GetProperty("targetNames").EnumerateArray().Select(item=>item.GetString()));
+                    original=await Snapshot();mode.SetValue(null,3);Assert.Equal(500,(await Post(client,endpoint+"/update",new{id=record,targetIds=new[]{(First+2).ToString()}})).GetProperty("code").GetInt32());Assert.Equal(original,await Snapshot());
+                }
+                finally{mode.SetValue(null,0);}
+            }
             var hiddenEndpoint = "/api/admin/auto/" + prefix + "_source/202";
             var before = await Snapshot(); Data(await Post(client, endpoint + "/update", new { id = record, targetNames = new[] { "客户端伪造" } })); Assert.Equal(before, await Snapshot());
             // 原详情整实体回传辅助名称，HTTP只剥离回显；IDs仍由同一源事务重新验证并派生名称。

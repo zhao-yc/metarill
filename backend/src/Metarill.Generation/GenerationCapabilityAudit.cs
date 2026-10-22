@@ -32,6 +32,9 @@ internal static class GenerationCapabilityAudit
                 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
                 { gaps.Add(new(page.Source.Id, "", "runtime", "非冗余固定读取未完成：" + error.Message)); }
             }
+            // 带联接标记的多选缓存即使隐藏来源字段，也必须有明确完整的内部写入证明。
+            foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==1&&column.Source.ControlKind=="MultiSelectPage"))
+            {var proof=MultiSelectCompilation.Resolve(model,table,page,source,forService:true);if(proof.Definition is null)gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime",proof.Reason!));}
             // 隐藏复选仍参与复制／默认值／依赖变化，不能通过隐藏控件绕过整表写入证明。
             foreach(var source in table.Columns.Where(column=>DatabaseCheckboxCompilation.Generic(table,column)))
             {

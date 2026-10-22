@@ -74,9 +74,10 @@ internal static class MultiSelectCompilation
             if (!name.IsId)
             {
                 var nameField = name.Source.ColumnName; var auxiliary = source.Source.ColumnName[..^4] + "_" + (nameField.EndsWith('s') ? nameField : nameField + "s");
-                names = table.Source.IsRongyu==0 ? SelectionDisplayFieldCompilation.Resolve(table,source) : table.Columns.SingleOrDefault(column => column.Source.ColumnName == auxiliary && column.Type == "string?" && !column.IsSystem && !GenerationModel.Enabled(column.Source.Extra, "isJoinColumn"));
+                names = table.Source.IsRongyu==0 ? SelectionDisplayFieldCompilation.Resolve(table,source) : table.Columns.SingleOrDefault(column => column.Source.ColumnName == auxiliary && column.Type == "string?" && !column.IsSystem);
                 if(names is not null&&table.Source.IsRongyu==0&&(names.Source.Id==source.Source.Id||names.Type!="string?"||!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")))return Gap("非冗余名称必须为只读联接或自动派生属性。");
                 if (names is null) return Gap((table.Source.IsRongyu==0?"非冗余名称联接列尚未明确声明：":"冗余名称辅助列尚未明确声明：") + auxiliary);
+                if(table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))return Gap("冗余名称缓存没有绑定同一来源ID和目标标量路径。");
                 if (!forService && table.Source.IsRongyu==1 && !page.Readable.Any(column => column.Source.Id == names.Source.Id)) return Gap("冗余名称辅助列未在来源页开放读取。");
             }
             if(table.Source.IsRongyu==0)
