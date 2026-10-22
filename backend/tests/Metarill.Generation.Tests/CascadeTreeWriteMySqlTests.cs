@@ -188,7 +188,14 @@ public partial class {{typeName}}Service
             await Seed(First+200,"分支",null);await Seed(First+201,"枝叶",First+200);stateBefore=await TreeState();Assert.Equal(500,(await TreeWrite("update",new(){{"id",(First+200).ToString()},{parentJson,(First+162).ToString()}})).GetProperty("code").GetInt32());Assert.Equal(stateBefore,await TreeState());
             if(nameMode=="automatic")
             {
-                for(var index=0;index<1305;index++)await Seed(First+1000+index,"宽叶",First+200,status:index==1304?0:1);await Seed(First+5000,"隐藏孙",First+2304,status:0);
+                // 等量参数化分批准备样本，避免1305次连接往返；末页隐藏节点、ID及后续锁断言均不变。
+                foreach(var batch in Enumerable.Range(0,1305).Chunk(250))
+                {
+                    var values=new List<string>();var parameters=new List<(string Name,object? Value)>{("name","宽叶"),("project",Project),("parent",parentType=="string"?(object)(First+200).ToString(CultureInfo.InvariantCulture):First+200),("secret","不应进入响应")};
+                    foreach(var index in batch){values.Add($"(@id_{index},@name,@project,@parent,@status_{index},@secret)");parameters.Add(("id_"+index,First+1000+index));parameters.Add(("status_"+index,index==1304?0:1));}
+                    await Execute(session,"INSERT INTO "+session.Provider.QuoteIdentifier(tree)+" (id,name,yz_project_id,"+session.Provider.QuoteIdentifier(parentColumn)+",status,secret) VALUES "+string.Join(",",values),parameters.ToArray());
+                }
+                await Seed(First+5000,"隐藏孙",First+2304,status:0);
                 stateBefore=await TreeState();Assert.Equal(500,(await TreeWrite("update",new(){{"id",(First+200).ToString()},{parentJson,(First+161).ToString()}})).GetProperty("code").GetInt32());Assert.Equal(stateBefore,await TreeState());
                 Data(await TreeWrite("update",new(){{"id",(First+200).ToString()},{parentJson,(First+160).ToString()}}));
                 // 拓扑锁包括末尾且被页面条件隐藏的节点，不能在通知前提前释放。

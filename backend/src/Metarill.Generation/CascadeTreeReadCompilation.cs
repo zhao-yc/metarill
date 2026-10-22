@@ -27,7 +27,8 @@ internal static class CascadeTreeReadCompilation
             if(Text(root,"sourceMode","crossTable")!="selfTree")return Gap("跨表级联仍待接线。");
             if(!root.TryGetProperty("selfTree",out var tree))return Gap("缺少selfTree定义。");ValidateObject(tree);
             if(new[]{"whereSql","sql","where","pageId"}.Any(key=>root.TryGetProperty(key,out _)||tree.TryGetProperty(key,out _)))return Gap("额外查询范围或目标页映射尚未接线，不能忽略后回退宽查询。");
-            if(table.Source.IsRongyu!=1 || page.Scopes.Any(scope=>scope.Source=="parent"))return Gap("非冗余或来源父范围仍待接线。");
+            // 来源父范围由标准Scope/ValidateParents及导入Core约束；候选只查询独立固定目标树。
+            if(table.Source.IsRongyu!=1)return Gap("非冗余来源仍待接线。");
             var target=model.Tables.SingleOrDefault(candidate=>candidate.Source.TableName==Text(tree,"table"));
             if(target is null || target.Source.IsRongyu!=1 || ManagerCredentialCompilation.IsTable(target) || TrustedSecurityServiceCompilation.Applies(model,target))return Gap("目标必须是已声明的普通冗余表。");
             if(Text(tree,"idField","id")!="id" || Text(tree,"rootMode","blank")!="blank")return Gap("只支持主键id与blank根模式。");
