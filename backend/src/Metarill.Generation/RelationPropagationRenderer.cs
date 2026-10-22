@@ -29,9 +29,10 @@ internal static class GeneratedRelationMutation
     /// <summary>通知观察者前传播，异常由同一外层事务回滚；自身被刷新字段补回实体以保证VO一致。</summary>
     internal static string Notify(GenerationModel model,TableModel table,string project)
     {
-        var bindings=RelationPropagationCompilation.Bindings(model);if(!bindings.Any(binding=>binding.Target.Source.Id==table.Source.Id))return "";
-        var text=$"        var relationPatch=await new Metarill.Data.Relations.RelationMutationPropagator(session).AfterMutationAsync(global::{model.Namespace}.Generated.GeneratedRelationMutation.Plan, {JsonSerializer.Serialize(table.Source.TableName)},entity.Id,{project},new HashSet<string>(submitted,StringComparer.Ordinal),deleting||allFields,cancellationToken);\n";
-        foreach(var cache in bindings.Where(binding=>binding.Source.Source.Id==table.Source.Id).Select(binding=>binding.Cache).DistinctBy(cache=>cache.Source.Id))text+=$"        if(relationPatch.ContainsKey({JsonSerializer.Serialize(cache.Source.ColumnName)})){{entity.{cache.Property}=Metarill.Data.Queries.NonRedundantReads.Value<{cache.Type}>(relationPatch,{JsonSerializer.Serialize(cache.Source.ColumnName)});submitted.Add({JsonSerializer.Serialize(cache.Source.ColumnName)});}}\n";
+        var bindings=RelationPropagationCompilation.Bindings(model);var catalog=MixedRelationPropagationCompilation.ForModel(model);if(!bindings.Any(binding=>binding.Target.Source.Id==table.Source.Id)&&!catalog.MixedTargets.Contains(table.Source.TableName)&&!catalog.MixedSourceColumns.ContainsKey(table.Source.TableName))return "";
+        var text=$"        var relationPatch=await new Metarill.Data.Relations.ProjectRelationMutationPropagator(session).AfterMutationAsync(global::{model.Namespace}.Generated.GeneratedRelationMaintenance.Catalog, {JsonSerializer.Serialize(table.Source.TableName)},entity.Id,{project},new HashSet<string>(submitted,StringComparer.Ordinal),deleting||allFields,!deleting,cancellationToken);\n";
+        var caches=bindings.Where(binding=>binding.Source.Source.Id==table.Source.Id).Select(binding=>binding.Cache).Concat(catalog.MixedSourceColumns.GetValueOrDefault(table.Source.TableName,[]).Select(name=>table.Columns.Single(column=>column.Source.ColumnName==name))).DistinctBy(cache=>cache.Source.Id);
+        foreach(var cache in caches)text+=$"        if(relationPatch.ContainsKey({JsonSerializer.Serialize(cache.Source.ColumnName)})){{entity.{cache.Property}=Metarill.Data.Queries.NonRedundantReads.Value<{cache.Type}>(relationPatch,{JsonSerializer.Serialize(cache.Source.ColumnName)});submitted.Add({JsonSerializer.Serialize(cache.Source.ColumnName)});}}\n";
         return text;
     }
 }

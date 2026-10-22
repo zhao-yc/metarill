@@ -34,3 +34,7 @@
 原测试夹具把原DELETE接口误写POST造成的三轮失败和一次不存在的理论属性编译失败均保留；修正夹具后冻结源码完成上述最终回归。私有原始证据在`.local/relation-propagation/`，未将环境配置、原始日志或数据提交开源仓库。完整命令为`dotnet test backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~MultiPageNameCacheTests|FullyQualifiedName~RedundantMultiNameCacheTests|FullyQualifiedName~GeneratedMultiSelectContractTests|FullyQualifiedName~GeneratedMultiSelectMySqlTests|FullyQualifiedName~DatabaseCheckbox|FullyQualifiedName~NonRedundantMultiSelection|FullyQualifiedName~PageConditionGenerationTests|FullyQualifiedName~SelfNamePropagationMySqlTests|FullyQualifiedName~RelationPropagationGenerationTests"`及`dotnet test backend/tests/Metarill.Data.Tests/Metarill.Data.Tests.csproj -c Release --no-restore`；实库运行须按测试约定提供私有测试配置及实例pin。
 
 R0中间节点／混合链、单值复杂派生、全局／非字符串目标、级联其余组合、完整父／候选条件变化语义及原维护入口回填继续B21／B22；控制项profile只为本已证明绑定标记renamePropagationSupported。正式身份／浏览器、专用空库组合、跨端及同条件性能仍待验收，不以固定授权器／Node或构建替代。
+
+## 后续B31固定混合传播
+
+固定R1→R0→R1、双角色、中间外键切换／删除、后续物理副本及普通多值统一事务队列已完成B31；原维护根缓存改变也继续向下游传播。详见[混合传播专项](mixed-relation-name-propagation.md)。本文件B29原验证记录保留，不能将后续固定范围扩张为B21整体或原浏览器验收；其余复杂依赖仍待补齐。

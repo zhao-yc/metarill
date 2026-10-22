@@ -26,7 +26,11 @@ public sealed class RelationMaintenanceCatalog
     public IReadOnlyDictionary<string,IReadOnlyList<string>> Buttons{get;}
     internal IReadOnlyDictionary<string,MaintenanceTable> Plans{get;}
     internal RelationMutationPlan Propagation{get;}
-    private RelationMaintenanceCatalog(MetadataCatalog catalog,RelationCacheDefinition[] definitions)
+    internal MixedRelationMutationPlan Mixed{get;}
+    /// <summary>生成器据此只挂载已证明的目标和来源实体补丁，公开投影不包含SQL。</summary>
+    public IReadOnlyList<string> MixedTargets=>Mixed.Targets;
+    public IReadOnlyDictionary<string,IReadOnlyList<string>> MixedSourceColumns=>Mixed.SourceColumns;
+    private RelationMaintenanceCatalog(MetadataCatalog catalog,RelationCacheDefinition[] definitions,IReadOnlySet<string> excluded)
     {
         MetadataValidation.Validate(catalog);if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("维护回填尚未完成该方言验收。");ProjectId=catalog.YzProjectId;
         if(!long.TryParse(ProjectId,out var project)||project<=0)throw new InvalidOperationException("维护发布项目标识无效。");
@@ -64,17 +68,18 @@ public sealed class RelationMaintenanceCatalog
                     results.Add(new(field.ColumnName,path,foreign,origin.Table,origin.Column,companions.GetValueOrDefault(field.ColumnName)));
                 }
                 var required=read.PhysicalReferences.Concat(fields.Select(field=>new MySqlPhysicalReference(table.TableName,MySqlSchemaPlanner.CompileColumn(field)))).DistinctBy(item=>(item.Table,item.Column.Name)).ToArray();
-                read=new(read.From,read.ProjectId,read.Scope,read.Expressions.ToDictionary(),read.Types.ToDictionary(),read.Outputs.ToArray(),read.ArrayNamePredicates.ToDictionary(),read.MultiProjections.ToDictionary(),read.ArrayIdPredicates.ToDictionary(),Array.AsReadOnly(required),read.Origins);
+                read=new(read.From,read.ProjectId,read.Scope,read.Expressions.ToDictionary(),read.Types.ToDictionary(),read.Outputs.ToArray(),read.ArrayNamePredicates.ToDictionary(),read.MultiProjections.ToDictionary(),read.ArrayIdPredicates.ToDictionary(),Array.AsReadOnly(required),read.Origins,read.Reverse);
                 var multiples=bindings.GroupBy(item=>item.ForeignColumnId).Select(group=>new MaintenanceMultiple(all.Values.Single(column=>column.Id==group.Key).ColumnName,all.Values.Single(column=>column.Id==group.Key).ControlKind=="MultiSelectPage"?200:5000,Array.AsReadOnly(group.Select(item=>all.Values.Single(column=>column.Id==item.CacheColumnId).ColumnName).ToArray()))).ToArray();
                 plans.Add(table.Id,new(option,projectColumn.LogicalType,all.ContainsKey("delete_no"),Array.AsReadOnly(results.ToArray()),Array.AsReadOnly(multiples),read,null));
             }
             catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException or JsonException){plans.Add(table.Id,new(option,"",false,[],[],null,"当前表回填计划未通过发布校验："+error.Message));}
         }
         Plans=new ReadOnlyDictionary<string,MaintenanceTable>(plans);Tables=Array.AsReadOnly(plans.Values.Select(item=>item.Option).ToArray());
-        Fingerprint=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{catalog,definitions}))));
+        Mixed=MixedRelationMutationPlan.Compile(catalog,Plans,excluded);
+        Fingerprint=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{catalog,definitions,excluded=excluded.Order(StringComparer.Ordinal)}))));
     }
     /// <summary>输入只在编译时使用；后续编辑或重排目录不会改变当前宿主的维护权威。</summary>
-    public static RelationMaintenanceCatalog Compile(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition>? multiple=null)=>new(catalog,(multiple??[]).ToArray());
+    public static RelationMaintenanceCatalog Compile(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition>? multiple=null,IReadOnlyList<string>? excludedMixedConsumers=null)=>new(catalog,(multiple??[]).ToArray(),(excludedMixedConsumers??[]).ToFrozenSet(StringComparer.Ordinal));
     /// <summary>沿现有扩展开关，不把任意非空字符串当作联接声明。</summary>
     private static bool Enabled(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");
 }

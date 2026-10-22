@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Frozen;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Data.Relations;
@@ -8,6 +9,7 @@ namespace Metarill.Data.Queries;
 /// <summary>多值投影只持有编译后的标识符与固定范围，执行阶段不再读取元数据。</summary>
 internal sealed record MySqlPhysicalReference(string Table,Metarill.Data.Schema.ColumnSchema Column);
 internal sealed record MySqlValueOrigin(string Table,string Column);
+internal sealed record MySqlReverseProjection(string TargetTable,string From,string ForeignExpression,string ForeignType,IReadOnlyDictionary<string,IReadOnlySet<string>> Outputs);
 
 internal sealed record MySqlMultiProjection(string SourceExpression,string TargetTable,string TargetName,string TargetScope);
 
@@ -15,8 +17,9 @@ internal sealed record MySqlMultiProjection(string SourceExpression,string Targe
 public sealed class MySqlNonRedundantReadPlan
 {
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
-        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins)
-    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; Origins=origins; }
+        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null)
+    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; Origins=origins; Reverse=reverse??[]; }
+    internal IReadOnlyList<MySqlReverseProjection> Reverse {get;}
     internal IReadOnlyList<MySqlPhysicalReference> PhysicalReferences {get;}
     internal IReadOnlyDictionary<string,MySqlValueOrigin> Origins {get;}
     internal string From { get; }
@@ -68,6 +71,9 @@ public static class MySqlNonRedundantReadCompiler
         private readonly IReadOnlyList<RelationCacheDefinition> refreshMultiples;
         private readonly Dictionary<(string,string),MySqlPhysicalReference> references=new();
         private MySqlValueOrigin? origin;
+        private string output="";
+        private readonly Dictionary<string,(string Table,string From,string Foreign,string Type)> reverse=new(StringComparer.Ordinal);
+        private readonly Dictionary<string,Dictionary<string,HashSet<string>>> aliasFields=new(StringComparer.Ordinal);
         private readonly bool deferCascadeNames;
         private IReadOnlySet<string> queryDependencies=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string,TableMetadata> tables;
@@ -99,8 +105,8 @@ public static class MySqlNonRedundantReadCompiler
             var expressions=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);var types=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
             var origins=new Dictionary<string,MySqlValueOrigin>(StringComparer.Ordinal);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
-            {origin=null;var resolved=Resolve(root,"b",name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;}
-            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins));
+            {output=name;origin=null;var resolved=Resolve(root,"b",name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;}
+            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()));
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -150,7 +156,7 @@ public static class MySqlNonRedundantReadCompiler
                             Metarill.Core.Security.ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
                         }
                         if(refreshFields is not null&&alias!="b"&&(column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.LogicalType is "json" or "binary"))throw new NotSupportedException("维护派生文件或数组路径需要独立事务合同，未执行部分回填。");
-                        Use(table,column);origin=new(table.TableName,column.ColumnName);
+                        Use(table,column);Touch(alias,column.ColumnName);origin=new(table.TableName,column.ColumnName);
                         var expression=alias+"."+Q(column.ColumnName);
                         if(alias=="b"&&column.ControlKind=="MultiCheckBoxDatabase"&&column.ColumnName.EndsWith("_ids",StringComparison.Ordinal))
                         {
@@ -239,8 +245,9 @@ public static class MySqlNonRedundantReadCompiler
         {
             if(matching&&sourceType!="int64")throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var path=ownerAlias+":"+relation.Id;
-            if(aliases.TryGetValue(path,out var existing))return existing;
-            var alias="r"+aliases.Count;aliases.Add(path,alias);var scope=Scope(target,alias);
+            if(aliases.TryGetValue(path,out var existing)){Scope(target,existing);Touch(existing,"id");return existing;}
+            var alias="r"+aliases.Count;aliases.Add(path,alias);var prefix=" FROM "+Q(root.TableName)+" b"+string.Concat(joins);var scope=Scope(target,alias);
+            if(refreshFields is not null){Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));}
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
             var equality=refreshFields is not null&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
             joins.Add(" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+equality+(scope.Length==0?"":" AND "+scope));return alias;
@@ -255,7 +262,7 @@ public static class MySqlNonRedundantReadCompiler
                 if(!storage[table.Id].IsPhysical(column))throw new InvalidOperationException("范围字段必须为物理列。");
                 if(name=="delete_no"&&column.LogicalType!="datetime"||name=="yz_project_id"&&column.LogicalType is not("int64" or "string"))throw new InvalidOperationException("范围字段类型不匹配。");
                 if(name=="yz_project_id"&&(!long.TryParse(catalog.YzProjectId,out var project)||project<=0))throw new InvalidOperationException("项目标识无效。");
-                Use(table,column);
+                Use(table,column);Touch(alias,column.ColumnName);
                 predicates.Add(alias+"."+Q(name)+(name=="delete_no"?" IS NULL":column.LogicalType=="int64"?"=@project_scope_number":"=@project_scope_text"));
             }
             return string.Join(" AND ",predicates);
@@ -269,6 +276,11 @@ public static class MySqlNonRedundantReadCompiler
         }
         /// <summary>仅维护根投影把指定的物理副本当作派生值，不改变目标R1缓存的正常读取语义。</summary>
         private MetadataFieldStorage Kind(TableMetadata table,string alias,ColumnMetadata column)=>alias=="b"&&table.Id==root.Id&&refreshFields?.Contains(column.ColumnName)==true?MetadataFieldStorage.Join:storage[table.Id].Kind(column);
+        /// <summary>每个输出分别登记目标字段依赖，复用别名也不能丢失第二个缓存的传播条件。</summary>
+        private void Touch(string alias,string field)
+        {
+            if(refreshFields is null)return;if(!aliasFields.TryGetValue(alias,out var fields))aliasFields[alias]=fields=new(StringComparer.Ordinal);if(!fields.TryGetValue(output,out var names))fields[output]=names=new(StringComparer.Ordinal);names.Add(field);
+        }
         /// <summary>记录实际依赖的物理列，执行回填前一次校验，不能因缺表而写一半。</summary>
         private void Use(TableMetadata table,ColumnMetadata column){if(refreshFields is not null)references.TryAdd((table.TableName,column.ColumnName),new(table.TableName,Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(column)));}
     }

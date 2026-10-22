@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using Metarill.Data.Queries;
 namespace Metarill.Data.Relations;
+internal sealed record RelationRowPatch(long Id,IReadOnlyDictionary<string,object?> Values);
 
 /// <summary>维护只执行已发布的整表计划，不接收字段、SQL、连接或项目覆盖。</summary>
 public sealed class RelationMaintenanceExecutor(DatabaseSession session)
@@ -23,28 +24,37 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         while(true)
         {
             token.ThrowIfCancellationRequested();var rows=await Sources(table,catalog.ProjectId,after,transaction,token);if(rows.Count==0)break;after=(long)rows[^1]["id"]!;
-            foreach(var row in rows)foreach(var multiple in table.Multiples)if(row[multiple.Foreign] is{} raw)
+            foreach(var patch in await RefreshLockedAsync(table,rows,catalog.ProjectId,null,token))
             {
-                try{using var document=JsonDocument.Parse(Convert.ToString(raw,CultureInfo.InvariantCulture)!);if(document.RootElement.ValueKind==JsonValueKind.Array&&document.RootElement.GetArrayLength()>multiple.MaximumItems)throw new InvalidOperationException("历史多值记录超过发布预算，本次回填未截断数据。");}catch(JsonException){} // 坏历史ID仅按原空集合显示，禁止修补源ID。
-            }
-            var ids=rows.Select(row=>(long)row["id"]!).ToArray();var projected=(await new MySqlNonRedundantReader(session).ReadPageAsync(plan,[new("id",FixedReadComparison.In,ids.Cast<object?>().ToArray())],[new("id")],1,128,token,projectId:catalog.ProjectId,currentRead:true)).Records;
-            if(projected.Count!=rows.Count||!projected.Select(row=>(long)row["id"]!).Order().SequenceEqual(ids.Order()))throw new InvalidOperationException("回填来源锁与读取范围不一致，拒绝提交。");
-            foreach(var values in projected)
-            {
-                var id=(long)values["id"]!;var before=rows.Single(row=>(long)row["id"]! ==id);var patch=new Dictionary<string,object?>(StringComparer.Ordinal);
-                foreach(var field in table.Fields)
-                {
-                    var empty=table.Multiples.Any(multiple=>multiple.Caches.Contains(field.Name)&&before[multiple.Foreign] is null);var value=empty?null:values[field.Name];if(!Equals(before[field.Name],value))patch[field.Name]=value;
-                }
-                if(patch.Count==0)continue;await Update(table,id,catalog.ProjectId,patch,transaction,token);foreach(var field in patch.Keys.Select(name=>table.Fields.Single(item=>item.Name==name)).Select(field=>field.DisplayOf??field.Name).Distinct(StringComparer.Ordinal))counts[field]++;
-                // 回填可能影响下游已发布多值副本；同一事务内部刷新，失败不留下部分修复。
-                await new RelationMutationPropagator(session).AfterMutationAsync(catalog.Propagation,table.Option.TableName,id,catalog.ProjectId,new HashSet<string>(patch.Keys,StringComparer.Ordinal),false,token);
+                foreach(var field in patch.Values.Keys.Select(name=>table.Fields.Single(item=>item.Name==name)).Select(field=>field.DisplayOf??field.Name).Distinct(StringComparer.Ordinal))counts[field]++;
+                await new ProjectRelationMutationPropagator(session).AfterMutationAsync(catalog,table.Option.TableName,patch.Id,catalog.ProjectId,new HashSet<string>(patch.Values.Keys,StringComparer.Ordinal),false,false,token);
             }
         }
         var details=table.Fields.Where(field=>field.DisplayOf is null).Select(field=>{var display=table.Fields.SingleOrDefault(item=>item.DisplayOf==field.Name);return new MaintenanceColumnResult(field.Name,field.Path,field.Relation,field.TargetTable,field.TargetColumn,checked((int)counts[field.Name]),display?.Name,display is null?null:display.Path.Split('.')[^1]);}).ToArray();return new(table.Option.Id,table.Option.RawName,table.Option.TableName,details.Length,checked((int)counts.Values.Sum()),Array.AsReadOnly(details));
     }
+    /// <summary>调用方已锁来源后统一执行当前读取，只写本次事件允许的派生列，返回实际变化供同事务队列继续传播。</summary>
+    internal async Task<IReadOnlyList<RelationRowPatch>> RefreshLockedAsync(MaintenanceTable table,IReadOnlyList<Dictionary<string,object?>> rows,string projectId,IReadOnlySet<string>? allowed,CancellationToken token)
+    {
+        if(rows.Count==0)return [];var transaction=session.CurrentTransaction??throw new InvalidOperationException("派生刷新缺少当前事务。");var plan=table.Read!;var patches=new List<RelationRowPatch>();
+            foreach(var row in rows)foreach(var multiple in table.Multiples)if(row[multiple.Foreign] is{} raw)
+            {
+                try{using var document=JsonDocument.Parse(Convert.ToString(raw,CultureInfo.InvariantCulture)!);if(document.RootElement.ValueKind==JsonValueKind.Array&&document.RootElement.GetArrayLength()>multiple.MaximumItems)throw new InvalidOperationException("历史多值记录超过发布预算，本次回填未截断数据。");}catch(JsonException){} // 坏历史ID仅按原空集合显示，禁止修补源ID。
+            }
+            var ids=rows.Select(row=>(long)row["id"]!).ToArray();var projected=(await new MySqlNonRedundantReader(session).ReadPageAsync(plan,[new("id",FixedReadComparison.In,ids.Cast<object?>().ToArray())],[new("id")],1,128,token,projectId:projectId,currentRead:true)).Records;
+            if(projected.Count!=rows.Count||!projected.Select(row=>(long)row["id"]!).Order().SequenceEqual(ids.Order()))throw new InvalidOperationException("回填来源锁与读取范围不一致，拒绝提交。");
+            foreach(var values in projected)
+            {
+                var id=(long)values["id"]!;var before=rows.Single(row=>(long)row["id"]! ==id);var patch=new Dictionary<string,object?>(StringComparer.Ordinal);
+                foreach(var field in table.Fields.Where(field=>allowed is null||allowed.Contains(field.Name)))
+                {
+                    var empty=table.Multiples.Any(multiple=>multiple.Caches.Contains(field.Name)&&before[multiple.Foreign] is null);var value=empty?null:values[field.Name];if(!Equals(before[field.Name],value))patch[field.Name]=value;
+                }
+                if(patch.Count==0)continue;await Update(table,id,projectId,patch,transaction,token);patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(patch)));
+            }
+        return patches.AsReadOnly();
+    }
     /// <summary>先获取事务内元数据锁，再核库名、InnoDB、完整依赖列类型和主键；没有DDL或结构自动修复。</summary>
-    private async Task ValidatePhysical(MySqlNonRedundantReadPlan plan,DbTransaction transaction,CancellationToken token)
+    internal async Task ValidatePhysical(MySqlNonRedundantReadPlan plan,DbTransaction transaction,CancellationToken token)
     {
         await using(var identity=Command(transaction)){identity.CommandText="SELECT DATABASE()";if(Convert.ToString(await identity.ExecuteScalarAsync(token),CultureInfo.InvariantCulture)!=session.Options.ExpectedDatabase)throw new InvalidOperationException("维护连接与已配置目标库不一致。");}
         foreach(var group in plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal))
@@ -58,9 +68,9 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         }
     }
     /// <summary>来源按真实项目、活动记录和主键分批取写锁，不先读旧RR快照。</summary>
-    private async Task<List<Dictionary<string,object?>>> Sources(MaintenanceTable table,string project,long after,DbTransaction transaction,CancellationToken token)
+    internal async Task<List<Dictionary<string,object?>>> Sources(MaintenanceTable table,string project,long after,DbTransaction transaction,CancellationToken token,IReadOnlyList<long>? ids=null)
     {
-        var fields=new[]{"id"}.Concat(table.Fields.Select(field=>field.Name)).Concat(table.Multiples.Select(multiple=>multiple.Foreign)).Distinct(StringComparer.Ordinal).ToArray();await using var command=Command(transaction);command.CommandText="SELECT "+string.Join(",",fields.Select(Q))+" FROM "+Q(table.Option.TableName)+" WHERE "+Scope(table)+" AND `id`>@after ORDER BY `id` LIMIT 128 FOR UPDATE";Add(command,"project",Project(table,project));Add(command,"after",after);var rows=new List<Dictionary<string,object?>>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token)){var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<fields.Length;index++)row.Add(fields[index],await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));rows.Add(row);}return rows;
+        var fields=new[]{"id"}.Concat(table.Fields.Select(field=>field.Name)).Concat(table.Multiples.Select(multiple=>multiple.Foreign)).Distinct(StringComparer.Ordinal).ToArray();await using var command=Command(transaction);command.CommandText="SELECT "+string.Join(",",fields.Select(Q))+" FROM "+Q(table.Option.TableName)+" WHERE "+Scope(table)+" AND `id`>@after"+(ids is null?"":" AND `id` IN ("+string.Join(",",Enumerable.Range(0,ids.Count).Select(index=>"@owned"+index))+")")+" ORDER BY `id` LIMIT 128 FOR UPDATE";Add(command,"project",Project(table,project));Add(command,"after",after);if(ids is not null)for(var index=0;index<ids.Count;index++)Add(command,"owned"+index,ids[index]);var rows=new List<Dictionary<string,object?>>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token)){var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<fields.Length;index++)row.Add(fields[index],await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));rows.Add(row);}return rows;
     }
     /// <summary>精确写回已锁来源的派生列，主键、业务字段和审计ID／时间不进入SET。</summary>
     private async Task Update(MaintenanceTable table,long id,string project,IReadOnlyDictionary<string,object?> patch,DbTransaction transaction,CancellationToken token)

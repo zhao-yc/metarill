@@ -7,13 +7,13 @@ namespace Metarill.Data.Relations;
 internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
 {
     /// <summary>只返回原变动实体自身被刷新字段，生成服务据此保持写回执与同事务数据库一致。</summary>
-    public async Task<IReadOnlyDictionary<string,object?>> AfterMutationAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token=default)
+    public async Task<IReadOnlyDictionary<string,object?>> AfterMutationAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token=default,Action<string,long,IReadOnlyDictionary<string,object?>>? onChanged=null)
     {
-        try{return await RunAsync(plan,table,id,projectId,changed,allFields,token);}
+        try{return await RunAsync(plan,table,id,projectId,changed,allFields,token,onChanged);}
         catch(MySqlConnector.MySqlException error)when(error.Number is 1213 or 1205){throw new InvalidOperationException("名称传播遇到并发冲突，当前操作不提交，请重试。",error);}
     }
     /// <summary>外层事务统一负责回滚，不重试可能带有业务副作用的整个Service。</summary>
-    private async Task<IReadOnlyDictionary<string,object?>> RunAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token=default)
+    private async Task<IReadOnlyDictionary<string,object?>> RunAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token,Action<string,long,IReadOnlyDictionary<string,object?>>? onChanged)
     {
         if(session.Options.Provider!="mysql")throw new NotSupportedException("该方言尚未完成关系传播验收。");var transaction=session.CurrentTransaction??throw new InvalidOperationException("关系传播要求当前业务事务。");if(id<=0||string.IsNullOrWhiteSpace(projectId))throw new ArgumentException("关系传播缺少真实记录或项目。");
         var origin=new Dictionary<string,object?>(StringComparer.Ordinal);var pending=new Queue<(string Table,long Id,HashSet<string> Fields,bool All)>();pending.Enqueue((table,id,new(changed,StringComparer.Ordinal),allFields));
@@ -36,7 +36,7 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
                             object? value=binding.Multiple?row.Foreign is null?null:JsonSerializer.Serialize(members.Select(member=>member is null?null:values.GetValueOrDefault((member.Value,binding.Value))).ToArray()):members.FirstOrDefault() is{} key?values.GetValueOrDefault((key,binding.Value)):null;
                             if(!Same(row.Values.GetValueOrDefault(binding.Cache),value))patch[binding.Cache]=value;
                         }
-                        if(patch.Count==0)continue;await Update(peers[0].Source,row.Id,patch,transaction,projectId,token);if(group.Key.Name==table&&row.Id==id)foreach(var item in patch)origin[item.Key]=item.Value;pending.Enqueue((group.Key.Name,row.Id,new(patch.Keys,StringComparer.Ordinal),false));
+                        if(patch.Count==0)continue;await Update(peers[0].Source,row.Id,patch,transaction,projectId,token);if(group.Key.Name==table&&row.Id==id)foreach(var item in patch)origin[item.Key]=item.Value;onChanged?.Invoke(group.Key.Name,row.Id,patch);pending.Enqueue((group.Key.Name,row.Id,new(patch.Keys,StringComparer.Ordinal),false));
                     }
                 }
             }

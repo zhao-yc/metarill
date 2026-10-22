@@ -43,7 +43,7 @@
 | B04 | ✅ 已完成 | 主子与多选已证明子集 | 主子 Tab／PC 弹层、type=2 独立多选及冗余 MultiSelectPage 固定子集已有包、接口及分批浏览器证据。 | [独立应用](standalone-application.md)、[多选字段](multi-select-field-contract.md) |
 | B05 | ✅ 已完成 | 远程 List 已证明子集 | 原选择器分页、搜索、已选回读、双父范围及 128／105 候选浏览器操作；不含全部多选与超大候选。 | [关系候选](relation-options.md) |
 | B06 | ✅ 已完成 | 平台安全写协调固定范围 | 平台账号／角色／后台及权限工作台复用协调器，有实库、RR、回滚证据；独立管理包另列。 | [安全协调器](security-realm-write-coordinator.md)、[RR专项](security-realm-rr-validation.md) |
-| B07 | ✅ 已完成 | 文件库基础与同事务引用 | 平台按业务项目定位数据库，独立应用本地文件库、上传／下载、引用阻删与回滚已在固定场景实测。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
+| B07 | ✅ 已完成 | 文件库基础与同事务引用 | 平台按业务项目定位数据库，独立应用本地文件库、上传／下载、引用阻删与回滚已在固定场景实测；带文件字段的物理删除缺口见B32。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
 | B08 | ✅ 已完成 | 普通 Excel 与基础统计 | 原可写列边界、普通导入导出、失败回滚，及物理数值 SUM／原百分比合同已接通；不含所有复杂关系与浏览器下载。 | [统计](list-statistics.md)、[导入错误](import-validation-errors.md)、[Excel边界](cross-table-excel-empty-contract.md) |
 | B09 | 🟡 部分完成 | 非冗余关系存储 | 普通固定标量、单值、type=2、物理文件已有；固定非冗余 MultiSelectPage 已完成（B16），固定 selfTree（B24）及数据库复选（B25）已完成；其他多值、级联、全局及复杂联接继续实施。 | [非冗余存储](nonredundant-storage.md)、[非冗余文件](nonredundant-files.md) |
 | B10 | 🟡 部分完成 | 原级联控件完整能力 | selfTree 普通冗余与 crossTable 固定链已有读取、写入、展示、筛选；同页混合和来源单层参与已验。重复来源层位、共享辅助列及复杂父范围组合仍缺。 | [级联同页与必填](cascade-mixed-required-contract.md)，`393dc41`；[来源图](cross-table-source-graph-contract.md)，`b97ce89` |
@@ -63,9 +63,9 @@
 | B17 | 🟡 部分完成 | 其他多值控件与多选派生名称 | 通用复选固定名称已完成 B25，两类控件的明确联接物理缓存已完成 B26；自动冗余缓存固定子集已完成 B27；派生／非字符串名称、复杂联接及未证明组合继续。 | [复选专项](database-checkbox-relations.md)、[多选剩余范围](nonredundant-multi-select.md) |
 | B18 | 🟡 部分完成 | 非冗余 selfTree | 固定后端的 ID 存储、实时名称／路径、筛选／统计／Excel、当前读与同表图已验；固定完整包子集已完成 B24。来源父范围、混合控件及原浏览器／正式宿主组合继续补齐。 | [自树专项](nonredundant-self-tree.md)、[原树读取](cascade-tree-read-contract.md) |
 | B19 | 🟡 部分完成 | crossTable 剩余组合与非冗余链 | 冗余固定链及来源单层参与已验；非冗余、重复来源层位、共享辅助列和复杂父范围仍缺，Excel 策略另按 B14。 | [来源图](cross-table-source-graph-contract.md)、[主框架审计](framework-gap-audit.md) |
-| B20 | 🟡 部分完成 | 复杂联接与全局／派生名称 | 已有固定单值多级路径；补与多值／级联混用、全局目标、复杂派生名称及各读取用途一致性。 | [非冗余存储](nonredundant-storage.md) |
-| B21 | 🟡 部分完成 | 名称变更与混合存储传播 | B29已完成固定多值物理名称的目标改名／软删／物理删、同源多缓存及自关联同事务更新；非冗余中间节点、混合链与其余复杂依赖继续。 | [传播专项](relation-name-propagation.md)、[主框架审计](framework-gap-audit.md) |
-| B22 | 🟡 部分完成 | 原维护入口回填 | B30固定后端已完成：原POST、真实Web／按钮约束、宿主库、物理预检、R0中间／多值及辅助显示、整批回滚与Full更新保护；原浏览器、独立完整维护前端及其余复杂路径继续。 | [回填专项](relation-maintenance.md)、[主框架审计](framework-gap-audit.md) |
+| B20 | 🟡 部分完成 | 复杂联接与全局／派生名称 | 已有固定单值多级路径；B31完成固定R1→R0→R1及后续副本与普通多值统一传播；其余多值／级联、全局目标、复杂派生名称及各读取用途继续。 | [非冗余存储](nonredundant-storage.md) |
+| B21 | 🟡 部分完成 | 名称变更与混合存储传播 | B29已完成固定多值物理名称的目标改名／软删／物理删、同源多缓存及自关联同事务更新；B31完成固定非冗余中间节点、双角色及下游／普通多值混合链；其余复杂依赖继续。 | [传播专项](relation-name-propagation.md)、[主框架审计](framework-gap-audit.md) |
+| B22 | 🟡 部分完成 | 原维护入口回填 | B30固定后端已完成：原POST、真实Web／按钮约束、宿主库、物理预检、R0中间／多值及辅助显示、整批回滚与Full更新保护；B31补固定回填向下游混合传播；原浏览器、独立完整维护前端及其余复杂路径继续。 | [回填专项](relation-maintenance.md)、[主框架审计](framework-gap-audit.md) |
 | B23 | 🧪 待验收 | 复杂关系原浏览器与正式宿主组合 | 补本轮各子项的原页面现场操作、正式身份、完整包和专用空库交叉矩阵；Node／固定授权器 HTTP 不替代。 | [前端纠偏](frontend-preservation-correction.md)、[全新安装](fresh-install-acceptance.md) |
 | B24 | ✅ 已完成 | 固定非冗余 selfTree 后端／完整包 | 只存所选ID、图名称／路径、筛选统计、Excel、当前读、同表后端、原Vue、独立目标Full包及手写保护已验；仅本固定范围，B18／B23其它组合继续。 | [自树专项](nonredundant-self-tree.md)，2026-10-22；冻结源码 `003b18c2818c` |
 | B25 | ✅ 已完成 | 数据库复选固定物理名称后端／完整包 | 原复选／全选、来源动作、真实父与表单条件、冗余／非冗余读写、成员／名称筛选、Excel、回滚、原 Vue、Full 包及手写保护已验；仅本固定范围，B17／B23其余组合继续。 | [复选专项](database-checkbox-relations.md)，2026-10-23；冻结源码 `0332f6b133ca` |
@@ -74,6 +74,9 @@
 | B28 | ✅ 已完成 | 同表多页多选名称缓存一致性后端／完整包 | 根定义／多个名称页／仅ID页共享缓存计划；原页级显示、隐藏保护、CRUD／复制、手写规则、真实目标锁、原Vue与Full更新保护通过。目标反向传播／回填仍属B21／B22。 | [跨页缓存专项](multi-page-name-cache.md)，2026-10-23；冻结源码 `c872130c4a3c` |
 | B29 | ✅ 已完成 | 固定多值名称反向传播后端／完整包 | 普通多选／数据库复选静态计划、目标改名／软删／物理删、同源多缓存、自关联回执、5000项、冲突整笔回滚、Full包及手写保护通过；仅此固定子集。 | [传播专项](relation-name-propagation.md)，2026-10-23；冻结源码 `9be81b80a034` |
 | B30 | ✅ 已完成 | 原维护回填固定后端／完整包 | 原控制器、冻结计划／脱敏、原登录与按钮规则、物理预检、单值／R0中间／多值及ID辅助显示、跨批整体回滚、Full更新与手写保护通过；仅此固定后端范围。 | [回填专项](relation-maintenance.md)，2026-10-23；冻结源码 `2b2a65e1f467` |
+| B31 | ✅ 已完成 | 固定R1→R0→R1混合名称传播 | 单值双角色、R0中间切换／删除、后续副本、普通多值及维护下游、旧RR／131来源／真实锁环与Full更新通过；数据262、原API9、生成组合152分别零失败零跳过。仅固定范围，B21保持部分完成。 | [混合传播专项](mixed-relation-name-propagation.md)，2026-10-23；冻结源码 `c55b605da5a4` |
+| B32 | ⬜ 待开发 | 带文件字段的物理删除一致性 | 本轮实库发现既有文件观察器在物理删除后无法读取原行，整笔拒绝；补删除前真实记录／父范围证明、同事务解绑及回滚验收。软删除含文件已验子集不覆盖本项。 | [混合传播专项·剩余](mixed-relation-name-propagation.md) |
+
 
 
 ## 三、独立应用、初始化、助手与 Agent
@@ -103,7 +106,7 @@
 | V07 | 🧪 待验收 | iOS | 实际构建、真机和核心操作验收未完成；Web 通过不替代。 | [前端验收](frontend-acceptance.md) |
 | V08 | 🧪 待验收 | Java／C# 同条件性能 | 固定数据、SQL、索引和资源，对照延迟、吞吐及资源占用，稳定退化阻断发布；尚未完成。 | [主框架审计·发布门槛](framework-gap-audit.md) |
 | V09 | 🟡 部分完成 | 用途读取计划与 SQL 投影 | 已有用途 IR 及固定读取接线；完整 SQL 投影裁剪与同条件性能仍未完成，不能以 IR 存在代表已优化。 | [读取投影](read-projection-compilation.md)、[主框架审计](framework-gap-audit.md) |
-| V10 | 🧪 待验收 | 最终版本整体回归与 CI | 分批测试不相加为全量；最终产品基线须重新完成适用后端、前端、专用空库及远端 CI。盘点时 ef946fd 的两路 CI 仍在运行。 | [验收台账](acceptance.md)、[CI预算修复](testing/standalone-probe-budget.md) |
+| V10 | 🧪 待验收 | 最终版本整体回归与 CI | 分批测试不相加为全量；最终产品基线须重新完成适用后端、前端、专用空库及远端 CI。最终交付SHA仍须核对远端CI，固定子集回归不等于整体完成。 | [验收台账](acceptance.md)、[CI预算修复](testing/standalone-probe-budget.md) |
 | V11 | 🧪 待验收 | MySQL 首版总验收 | 完成上列首期缺口和必要确认，核对源码／包／数据库／原界面一致后才能标完成；当前尚未通过。 | [主框架审计](framework-gap-audit.md)、[PR #1](https://github.com/zhao-yc/metarill/pull/1) |
 
 ## 五、后续数据库（MySQL 首版完整验收后逐批推进）
@@ -122,6 +125,7 @@
 
 | 日期 | 变更 | 依据 |
 | --- | --- | --- |
+| 2026-10-23 | B31固定混合传播完成；数据262、原API9、生成组合152分别零失败零跳过；131来源跨批、旧RR／锁环、回填下游、Full包与215文件稳定。B21仍部分完成，新记B32物理删除含文件缺口，原失败保留。 | [混合传播专项](mixed-relation-name-propagation.md) |
 | 2026-10-23 | B30原维护固定后端完成，B22保持部分完成；最终扩大248、数据256、原API9分别零失败零跳过；配置职责／脱敏、跨批回滚及215文件稳定，原失败／跳过保留。 | [回填专项](relation-maintenance.md) |
 | 2026-10-23 | B29固定多值名称传播完成；最终组合138、数据245分别通过，零失败零跳过；真实锁环回滚、自关联与5000项、Full包及两轮215文件稳定。B11／B21改为部分完成，B22未完成，原失败保留。 | [传播专项](relation-name-propagation.md) |
 | 2026-10-23 | B28固定同表多页缓存完成；最终组合128、数据217分别通过，均零失败零跳过；真实目标锁、原Vue、Full包与两轮215文件稳定。基线及换行失败保留，B21／B22未完成。 | [跨页缓存专项](multi-page-name-cache.md) |
