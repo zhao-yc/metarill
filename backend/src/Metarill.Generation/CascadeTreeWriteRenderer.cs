@@ -10,6 +10,15 @@ internal static class CascadeTreeWriteRenderer
     /// <summary>不依赖页面可见性；未知级联不能按普通字符串或宽外键规则放行。</summary>
     internal static string Validation(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
+        // 跨表保存未接线时，各级辅助ID/名称也必须闭合，不能只检查末级而留下部分数据。
+        if(CrossTableReadCompilation.Resolve(model,table,page,source).Definition is{} cross)
+        {
+            var names=cross.Levels.SelectMany(level=>new[]{level.Prefix+"_id",level.Prefix+"_name"}).ToHashSet(StringComparer.Ordinal);
+            var fields=table.Columns.Where(column=>!column.IsSystem&&names.Contains(column.Source.ColumnName)).ToArray();
+            var crossTrigger="creating||"+string.Join("||",fields.Select(column=>"submitted.Contains("+Literal(column.Source.ColumnName)+")"));
+            var populated=string.Join("||",fields.Select(column=>"!string.IsNullOrEmpty(Convert.ToString(entity."+column.Property+",CultureInfo.InvariantCulture))"));
+            return $"        if(({crossTrigger})&&({populated}))throw new InvalidOperationException(\"跨表级联保存及逐级字段维护尚未接线，不能单独写入受管ID或名称。\");\n";
+        }
         var result=CascadeTreeWriteCompilation.Resolve(model,table,page,source);
         if(result.Definition is not{} plan)return $"        if((creating||submitted.Contains({Literal(source.Source.ColumnName)}))&&entity.{source.Property} is not null)throw new InvalidOperationException({Literal(result.Reason!)});\n";
         var merged=CascadeTreeMergedWriteRenderer.Applies(table,plan);var trigger=merged?CascadeTreeMergedWriteRenderer.Trigger(table,plan):$"creating||submitted.Contains({Literal(source.Source.ColumnName)})||submitted.Contains({Literal(plan.Name.Source.ColumnName)})";

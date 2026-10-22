@@ -22,7 +22,7 @@ internal static class CascadeTreeReadRenderer
                 .AppendLine($"    [HttpPost(\"cascadeTreePath{plan.Source.Source.Id}\")]")
                 .AppendLine($"    public async Task<R<Metarill.Core.Cascades.CascadeTreePath>> CascadePath{plan.Source.Source.Id}([FromBody] CascadeTreePathRequest request,CancellationToken cancellationToken) => R<Metarill.Core.Cascades.CascadeTreePath>.Success(await service.CascadePath{suffix}Async(request,Actor(\"list\"),cancellationToken));");
         }
-        return result.ToString();
+        return result.Append(CrossTableReadRenderer.Controller(model,table,page)).ToString();
     }
     /// <summary>编译固定范围、最小投影和按层读取，拒绝动态目标。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
@@ -61,6 +61,6 @@ internal static class CascadeTreeReadRenderer
                 .AppendLine("    /// <summary>空路径也执行来源和目标权限检查。</summary>")
                 .AppendLine($"    public Task<Metarill.Core.Cascades.CascadeTreePath> CascadePath{suffix}Async(CascadeTreePathRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InTransactionAsync(async()=>{{var leaf=request.ParseLeaf();_=CascadeScope{suffix}(actor);return await CascadeReader{suffix}(actor).PathAsync(leaf,cancellationToken);}},cancellationToken);");
         }
-        return result.ToString();
+        return result.Append(CrossTableReadRenderer.Service(model,table,page)).ToString();
     }
 }

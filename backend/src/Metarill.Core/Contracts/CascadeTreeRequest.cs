@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace Metarill.Core.Contracts;
 
-/// <summary>原自关联级联请求；目标和排序只能由生成期定义。</summary>
+/// <summary>原级联请求；各模式按固定生成计划解析，目标和排序只能由生成期定义。</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CascadeTreeOptionsRequest
 {
