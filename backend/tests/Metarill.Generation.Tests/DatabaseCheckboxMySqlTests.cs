@@ -47,8 +47,12 @@ public sealed class DatabaseCheckboxMySqlTests
     [StandaloneExportMySqlFact]
     public Task Redundant_automatic_name_cache_keeps_original_checkbox_transactions()=>Verify(false,true);
 
+    /// <summary>5000项原复选的目标改名／软删，只更新名称并保持ID、事务和原候选合同。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Checkbox_target_mutations_propagate_without_truncating_full_selection()=>Verify(false,true,false,false,true);
+
     /// <summary>实例pin通过后才创建随机三表，失败证据不覆盖，清理前检查结构与本任务行集。</summary>
-    private static async Task Verify(bool nonRedundant,bool automatic,bool sourceParent=false,bool joinedCache=false)
+    private static async Task Verify(bool nonRedundant,bool automatic,bool sourceParent=false,bool joinedCache=false,bool propagation=false)
     {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options=settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
@@ -65,6 +69,7 @@ public sealed class DatabaseCheckboxMySqlTests
         if(sourceParent){page.WhereSql+=" AND parent_id=@parentId";catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail="头;头;parent_id=@parentId;name desc";}
         // 原复选使用自己的条件，不把绑定页的另一个页面条件偷换成候选范围。
         catalog.ConfigPages.Single(item=>item.Id=="301").WhereSql="yz_project_id=@current_yz_project_id AND name='此目标页面没有开放这些行'";
+        if(propagation){var write=JsonSerializer.Deserialize<Metarill.Core.Metadata.PageMetadata>(JsonSerializer.Serialize(catalog.ConfigPages.Single(item=>item.Id=="301")))!;write.Id="302";write.WhereSql="yz_project_id=@current_yz_project_id";catalog.ConfigPages.Add(write);foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="301").ToArray()){var copy=JsonSerializer.Deserialize<Metarill.Core.Metadata.PageColumnMetadata>(JsonSerializer.Serialize(field))!;copy.Id="prop_"+field.Id;copy.ConfigPageId="302";catalog.ConfigPageColumns.Add(copy);}}
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-mysql");var directory=Path.Combine(boundary,nonce);var evidence=Path.Combine(Root(),".local/database-checkbox/http-"+nonce);Directory.CreateDirectory(evidence);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var rows=new SqlRowStore(session,catalog);
         var tables=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var ownIds=new HashSet<long>();var targetIds=new HashSet<long>();var authorization=new Authorization();var observer=new FailureObserver();WebApplication? app=null;var created=false;string? fingerprint=null;
@@ -137,6 +142,14 @@ public sealed class DatabaseCheckboxMySqlTests
             targetIds.UnionWith(Enumerable.Range(0,4998).Select(index=>bulkStart+index));var full=Success(await Post("/findNameIdTarget25",new{formParameters=new{parentId=Parent.ToString()}}));Assert.Equal(5000,full.GetArrayLength());
             var fullIds=full.EnumerateArray().Select(item=>item.GetProperty("id").GetString()!).ToArray();var fullRow=Success(await Post("/add",new{name="完整全选",parentId=Parent.ToString(),targetIds=fullIds}));ownIds.Add(long.Parse(fullRow.GetProperty("id").GetString()!));Assert.Equal(5000,fullRow.GetProperty("targetIds").GetArrayLength());
             var overflowId=bulkStart+4998;await rows.InsertAsync(prefix+"_target",new Dictionary<string,object?>{{"id",overflowId},{"name","全选溢出"},{"parent_id",Parent},{"yz_project_id",Project}});targetIds.Add(overflowId);Assert.Equal(500,(await Post("/findNameIdTarget25",new{formParameters=new{parentId=Parent.ToString()}})).GetProperty("code").GetInt32());Assert.Single(Success(await Post("/findNameIdTarget25",new{formParameters=new{parentId=Parent.ToString()},id=new[]{bulkStart.ToString()}})).EnumerateArray());
+            if(propagation)
+            {
+                var targetEndpoint="/api/admin/auto/"+prefix+"_target/302";var fullKey=long.Parse(fullRow.GetProperty("id").GetString()!);var position=Array.IndexOf(fullIds,bulkStart.ToString(CultureInfo.InvariantCulture));Assert.True(position>=0);
+                async Task<JsonElement> TargetPost(string text){using var response=await client.PostAsJsonAsync(targetEndpoint+"/update",new{id=bulkStart,name=text});return JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync());}
+                Success(await TargetPost("全选传播新名"));var propagated=(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",fullKey}})).Single();Assert.Equal(fullIds,JsonSerializer.Deserialize<string[]>((string)propagated["target_ids"]!));var names=JsonSerializer.Deserialize<string?[]>((string)propagated["target_names"]!)!;Assert.Equal(5000,names.Length);Assert.Equal("全选传播新名",names[position]);
+                var beforePropagation=JsonSerializer.Serialize(new{source=await rows.ReadIncludingDeletedAsync(prefix+"_source"),target=await rows.ReadIncludingDeletedAsync(prefix+"_target")});observer.Fail=true;Assert.Equal(500,(await TargetPost("不能提交的传播" )).GetProperty("code").GetInt32());observer.Fail=false;Assert.Equal(beforePropagation,JsonSerializer.Serialize(new{source=await rows.ReadIncludingDeletedAsync(prefix+"_source"),target=await rows.ReadIncludingDeletedAsync(prefix+"_target")}));
+                using(var response=await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete,targetEndpoint){Content=JsonContent.Create(new{id=bulkStart})}))Success(JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync()));propagated=(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",fullKey}})).Single();Assert.Equal(fullIds,JsonSerializer.Deserialize<string[]>((string)propagated["target_ids"]!));names=JsonSerializer.Deserialize<string?[]>((string)propagated["target_names"]!)!;Assert.Equal(5000,names.Length);Assert.Null(names[position]);
+            }
             Assert.Empty((await schema.PreviewAsync(catalog)).Changes);await Receipt("verified",false);
             async Task<JsonElement> Post(string route,object body){using var response=await client.PostAsJsonAsync(endpoint+route,body);return JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync());}
             async Task<string> Hash()=>Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes((await rows.ReadIncludingDeletedAsync(prefix+"_source")).OrderBy(row=>SqlRowStore.Id(row)).ToArray())));

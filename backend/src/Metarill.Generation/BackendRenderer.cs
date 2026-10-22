@@ -442,7 +442,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>")
             .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation? authorizationOperation = null":"")})")
-            .AppendLine("    {").AppendLine("        var values = new Dictionary<string, object?>").AppendLine("        {");
+            .AppendLine("    {").Append(RelationPropagationRenderer.Notify(model,table,ProjectExpression(table))).AppendLine("        var values = new Dictionary<string, object?>").AppendLine("        {");
         foreach (var column in table.Columns) result.AppendLine($"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},");
         result.AppendLine("        };")
             .AppendLine("        if (!allFields) values = values.Where(item => item.Key == \"id\" || submitted.Contains(item.Key)).ToDictionary(item => item.Key, item => item.Value);")
@@ -723,6 +723,6 @@ public partial class {{table.Name}}Service
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
                 .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(RequiresRelationAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
-        return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table=>NonRedundantReadCompilation.Requires(model,table))?NonRedundantCatalog(model):"").ToString();
+        return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table=>NonRedundantReadCompilation.Requires(model,table))?NonRedundantCatalog(model):"").Append(RelationPropagationRenderer.Catalog(model)).ToString();
     }
 }

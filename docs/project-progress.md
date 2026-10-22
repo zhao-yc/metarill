@@ -47,7 +47,7 @@
 | B08 | ✅ 已完成 | 普通 Excel 与基础统计 | 原可写列边界、普通导入导出、失败回滚，及物理数值 SUM／原百分比合同已接通；不含所有复杂关系与浏览器下载。 | [统计](list-statistics.md)、[导入错误](import-validation-errors.md)、[Excel边界](cross-table-excel-empty-contract.md) |
 | B09 | 🟡 部分完成 | 非冗余关系存储 | 普通固定标量、单值、type=2、物理文件已有；固定非冗余 MultiSelectPage 已完成（B16），固定 selfTree（B24）及数据库复选（B25）已完成；其他多值、级联、全局及复杂联接继续实施。 | [非冗余存储](nonredundant-storage.md)、[非冗余文件](nonredundant-files.md) |
 | B10 | 🟡 部分完成 | 原级联控件完整能力 | selfTree 普通冗余与 crossTable 固定链已有读取、写入、展示、筛选；同页混合和来源单层参与已验。重复来源层位、共享辅助列及复杂父范围组合仍缺。 | [级联同页与必填](cascade-mixed-required-contract.md)，`393dc41`；[来源图](cross-table-source-graph-contract.md)，`b97ce89` |
-| B11 | ⬜ 待开发 | 关系名称传播与维护回填 | 补冗余／非冗余混合名称传播、目标更新／删除影响和维护回填，验证事务与并发。 | [非冗余存储](nonredundant-storage.md)、[主框架审计](framework-gap-audit.md) |
+| B11 | 🟡 部分完成 | 关系名称传播与维护回填 | B29已完成固定多值物理名称的目标改名／删除传播及事务并发；冗余／非冗余混合链、复杂派生与原维护回填继续。 | [非冗余存储](nonredundant-storage.md)、[主框架审计](framework-gap-audit.md) |
 | B12 | 🟡 部分完成 | 完整页面配置能力 | 补齐并验收详情分组、复杂条件显示／只读、完整表单规则及配置按钮；不能以原组件存在判为完成。 | [主框架审计·列表详情](framework-gap-audit.md) |
 | B13 | 🟡 部分完成 | 复杂文件与云存储 | 基础文件已接；补复杂关系／派生文件、全部配置组合及 S3 等云存储完整矩阵。 | [非冗余文件](nonredundant-files.md)、[原文件管理](original-file-management.md)、[主框架审计](framework-gap-audit.md) |
 | B14 | ⏳ 待确认 | 跨表级联非空路径 Excel | 空单元格、可写列边界已完成；非空路径的旧回退语义与无损往返存在冲突，等待选择后接通完整导入导出。 | [待确认策略](cross-table-excel-policy-decision.md)、[已完成空值范围](cross-table-excel-empty-contract.md) |
@@ -64,7 +64,7 @@
 | B18 | 🟡 部分完成 | 非冗余 selfTree | 固定后端的 ID 存储、实时名称／路径、筛选／统计／Excel、当前读与同表图已验；固定完整包子集已完成 B24。来源父范围、混合控件及原浏览器／正式宿主组合继续补齐。 | [自树专项](nonredundant-self-tree.md)、[原树读取](cascade-tree-read-contract.md) |
 | B19 | 🟡 部分完成 | crossTable 剩余组合与非冗余链 | 冗余固定链及来源单层参与已验；非冗余、重复来源层位、共享辅助列和复杂父范围仍缺，Excel 策略另按 B14。 | [来源图](cross-table-source-graph-contract.md)、[主框架审计](framework-gap-audit.md) |
 | B20 | 🟡 部分完成 | 复杂联接与全局／派生名称 | 已有固定单值多级路径；补与多值／级联混用、全局目标、复杂派生名称及各读取用途一致性。 | [非冗余存储](nonredundant-storage.md) |
-| B21 | ⬜ 待开发 | 名称变更与混合存储传播 | 源多页缓存前置一致性已见B28；仍需从已发布关系图传播目标改名、外键变化与删除，涵盖非冗余中间节点和冗余消费者的同事务更新。 | [主框架审计](framework-gap-audit.md) |
+| B21 | 🟡 部分完成 | 名称变更与混合存储传播 | B29已完成固定多值物理名称的目标改名／软删／物理删、同源多缓存及自关联同事务更新；非冗余中间节点、混合链与其余复杂依赖继续。 | [传播专项](relation-name-propagation.md)、[主框架审计](framework-gap-audit.md) |
 | B22 | ⬜ 待开发 | 原维护入口回填 | 按原确认与接口接回联接字段回填，校验元数据／物理列、权限、目标库、并发和整批回滚。 | [主框架审计](framework-gap-audit.md) |
 | B23 | 🧪 待验收 | 复杂关系原浏览器与正式宿主组合 | 补本轮各子项的原页面现场操作、正式身份、完整包和专用空库交叉矩阵；Node／固定授权器 HTTP 不替代。 | [前端纠偏](frontend-preservation-correction.md)、[全新安装](fresh-install-acceptance.md) |
 | B24 | ✅ 已完成 | 固定非冗余 selfTree 后端／完整包 | 只存所选ID、图名称／路径、筛选统计、Excel、当前读、同表后端、原Vue、独立目标Full包及手写保护已验；仅本固定范围，B18／B23其它组合继续。 | [自树专项](nonredundant-self-tree.md)，2026-10-22；冻结源码 `003b18c2818c` |
@@ -72,6 +72,7 @@
 | B26 | ✅ 已完成 | 明确多值联接名称缓存后端／完整包 | MultiSelectPage／数据库复选的同一来源路径证明、物理缓存、只读DTO、名称重算、手写登记／父范围保护、元素筛选、原Vue、Full包及更新保护已验；自动缓存和传播／回填继续。 | [缓存专项](redundant-multi-name-cache.md)，2026-10-23；冻结源码 `4137531dac6b` |
 | B27 | ✅ 已完成 | 冗余多值自动名称缓存后端／完整包 | 统一结构／存储／生成计划、隐式只读数组VO、原整entity回显、隐藏输出保护、事务／Excel、原Vue、Full包及更新保护已验；历史回填和传播仍属B22／B21。 | [自动缓存专项](automatic-multi-name-cache.md)，2026-10-23；冻结源码 `c91c24d515a2` |
 | B28 | ✅ 已完成 | 同表多页多选名称缓存一致性后端／完整包 | 根定义／多个名称页／仅ID页共享缓存计划；原页级显示、隐藏保护、CRUD／复制、手写规则、真实目标锁、原Vue与Full更新保护通过。目标反向传播／回填仍属B21／B22。 | [跨页缓存专项](multi-page-name-cache.md)，2026-10-23；冻结源码 `c872130c4a3c` |
+| B29 | ✅ 已完成 | 固定多值名称反向传播后端／完整包 | 普通多选／数据库复选静态计划、目标改名／软删／物理删、同源多缓存、自关联回执、5000项、冲突整笔回滚、Full包及手写保护通过；仅此固定子集。 | [传播专项](relation-name-propagation.md)，2026-10-23；冻结源码 `9be81b80a034` |
 
 
 ## 三、独立应用、初始化、助手与 Agent
@@ -120,6 +121,7 @@
 
 | 日期 | 变更 | 依据 |
 | --- | --- | --- |
+| 2026-10-23 | B29固定多值名称传播完成；最终组合138、数据245分别通过，零失败零跳过；真实锁环回滚、自关联与5000项、Full包及两轮215文件稳定。B11／B21改为部分完成，B22未完成，原失败保留。 | [传播专项](relation-name-propagation.md) |
 | 2026-10-23 | B28固定同表多页缓存完成；最终组合128、数据217分别通过，均零失败零跳过；真实目标锁、原Vue、Full包与两轮215文件稳定。基线及换行失败保留，B21／B22未完成。 | [跨页缓存专项](multi-page-name-cache.md) |
 | 2026-10-23 | B27自动冗余多值缓存固定范围完成；组合83、数据217分别通过，均零失败零跳过；两轮215文件与原前端保持。首轮1处断言错误保留，传播／回填继续。 | [自动缓存专项](automatic-multi-name-cache.md) |
 | 2026-10-23 | B26明确多值联接缓存完成，B17保持部分完成；组合75、数据195分别通过，均零失败零跳过；原前端及两轮215文件保持，原失败保留。 | [缓存专项](redundant-multi-name-cache.md) |

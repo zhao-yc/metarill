@@ -26,7 +26,7 @@ public sealed class GeneratedMultiSelectContractTests
             Assert.Contains("row => new { row.Id, Name = row.Name }", service); Assert.Contains("selected.Distinct().Count() != selected.Length", service); Assert.Contains("if (refreshNames)", service);
             Assert.Contains("selected-name-field=\"name\"", detail); Assert.Contains(":selectedIds=\"entity.targetIds\"", detail); Assert.Contains("@onPopSelect=\"onPopSelect25\"", detail); Assert.Contains("createMultiSelectFieldMixin", detail);
             using var capabilities = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "generation-capabilities.json")));
-            var subset = Assert.Single(capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray()); Assert.Equal("redundant", subset.GetProperty("storageMode").GetString()); Assert.False(subset.GetProperty("nonRedundantSupported").GetBoolean()); Assert.False(subset.GetProperty("renamePropagationSupported").GetBoolean());
+            var subset = Assert.Single(capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray()); Assert.Equal("redundant", subset.GetProperty("storageMode").GetString()); Assert.False(subset.GetProperty("nonRedundantSupported").GetBoolean()); Assert.True(subset.GetProperty("renamePropagationSupported").GetBoolean());
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }

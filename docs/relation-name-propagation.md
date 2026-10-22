@@ -1,0 +1,36 @@
+# 固定多值名称传播
+
+状态：B29固定后端／生成链路已完成（2026-10-23）。冻结源码 `9be81b80a034`，1138个源码／测试／元数据／模板／前端文件。普通冗余MultiSelectPage与数据库复选的物理字符串名称采用发布关系计划；不是整个B21、复杂联接或维护回填完成。
+
+## 静态计划与事务
+
+生成器使用同一来源写入证明，编译稳定表／字段ID，Core/Data验证项目归属、主键、真实项目列、物理缓存、精确路径、标量类型及字段依赖。生成项目只保留一份静态计划，执行阶段不再解析请求元数据或接受SQL。平台固定配置缓存继续其已有专用协调器，不重复挂通用传播。
+
+目标新增、显式提交名称、逻辑／物理删除后，在原Service事务内、通知观察者之前，从消费者真实外键反查活动记录。消费者与目标分别限制当前项目；按主键分批当前锁读，一组来源IDs的多个名称缓存共用目标查询，只写派生列，不改ID、业务值、审计字段或调用消费者Service／钩子。传播异常与文件引用／目标变更共同回滚。
+
+多值顺序保持；数值历史ID精确解析，缺失／删除／越界目标的名称位置为null，原ID不修补；坏JSON无法证明引用时不纳入反查。5000项复选不截断，超发布数组预算明确拒绝。自关联自身缓存补回原实体，写回执与数据库一致。
+
+并发反向传播可能与来源事务形成锁环；MySQL死锁／锁超时明确失败、由外层事务回滚并提示重试，不引入全局串行化或自动重试业务钩子。测试只在本任务随机表上用NOWAIT确认锁，不新增PROCESS或全局锁观测权限。
+
+## 原页面与升级
+
+原页面、布局、样式、组件、弹层及/api接口不变。名称传播属于已授权目标变更的内部一致性更新，不借消费者页面动作权限或回填按钮执行；不会扩大公开DTO/VO。原手写partial保持首次创建／再生成保护。
+
+已有正确物理缓存无需DDL。同版更新生成器与Data，通过原在线助手正规再生成所有受影响Service及GeneratedRegistration，完整包同步同版Foundation。不能只替换某个目标Service留下没有同版项目计划的混合产物。缺少自动缓存列仍按B27审查结构差异、显式执行、核验后再生成；旧记录不会在启动自动回填。
+
+## 验证与剩余
+
+| 验证 | 最终结果 | 范围与证据 |
+| --- | --- | --- |
+| 扩大生成／HTTP组合 | 138/138，零失败零跳过 | 多页缓存、两类控件、冗余／非冗余相邻功能、固定条件、自关联、传播与完整包；不是整个生成测试工程全量。 |
+| 数据层全量 | 245/245，零失败零跳过 | 包括28项传播静态计划验证；与组合批次分别记录，不累加成单次结果。 |
+| 真实HTTP | 目标改名／软删／物理删、5000项与事务通过 | 同源多名称缓存同步；消费者页面动作被拒绝仍仅内部更新派生列；其他项目、软删来源、坏JSON和ID前缀保持；尾部观察者故障与文件引用整笔回滚。 |
+| 自关联 | 显式／自动缓存均通过 | 返回实体与同事务缓存一致；物理删除保留原ID数组并产生null名称位置。 |
+| 真实并发 | 两轮锁环均通过 | 独立NOWAIT确认目标锁；本次目标被选为死锁受害者，HTTP明确失败，目标／缓存一致回滚；不授全局观测权限。 |
+| Full完整包 | 包内源码构建与更新保护通过 | 多选／复选两种完整应用从Foundation源码restore/build；原执行器逐字相同，手写partial不覆盖。 |
+| 正式生成 | 两轮共215文件逐字稳定 | 189归属输出＋2清单＋24手写；CLI／API Release零警告零错误，原前端／模板／元数据与正式产物无diff。 |
+| 样本清理 | 独立核验通过 | 8轮复选、2轮非冗余多选、4轮自关联；另10轮原多选三表及其文件记录／引用只读后验均不存在，不补DROP／DELETE。 |
+
+原测试夹具把原DELETE接口误写POST造成的三轮失败和一次不存在的理论属性编译失败均保留；修正夹具后冻结源码完成上述最终回归。私有原始证据在`.local/relation-propagation/`，未将环境配置、原始日志或数据提交开源仓库。完整命令为`dotnet test backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~MultiPageNameCacheTests|FullyQualifiedName~RedundantMultiNameCacheTests|FullyQualifiedName~GeneratedMultiSelectContractTests|FullyQualifiedName~GeneratedMultiSelectMySqlTests|FullyQualifiedName~DatabaseCheckbox|FullyQualifiedName~NonRedundantMultiSelection|FullyQualifiedName~PageConditionGenerationTests|FullyQualifiedName~SelfNamePropagationMySqlTests|FullyQualifiedName~RelationPropagationGenerationTests"`及`dotnet test backend/tests/Metarill.Data.Tests/Metarill.Data.Tests.csproj -c Release --no-restore`；实库运行须按测试约定提供私有测试配置及实例pin。
+
+R0中间节点／混合链、单值复杂派生、全局／非字符串目标、级联其余组合、完整父／候选条件变化语义及原维护入口回填继续B21／B22；控制项profile只为本已证明绑定标记renamePropagationSupported。正式身份／浏览器、专用空库组合、跨端及同条件性能仍待验收，不以固定授权器／Node或构建替代。
