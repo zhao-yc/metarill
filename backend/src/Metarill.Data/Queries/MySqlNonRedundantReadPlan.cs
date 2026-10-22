@@ -11,12 +11,13 @@ internal sealed record MySqlMultiProjection(string SourceExpression,string Targe
 public sealed class MySqlNonRedundantReadPlan
 {
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
-        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections)
-    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); }
+        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates)
+    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); }
     internal string From { get; }
     internal string Scope { get; }
     internal string ProjectId { get; }
     internal IReadOnlyDictionary<string,string> ArrayNamePredicates {get;}
+    internal IReadOnlyDictionary<string,string> ArrayIdPredicates {get;}
     internal IReadOnlyDictionary<string,MySqlMultiProjection> MultiProjections {get;}
     internal IReadOnlyDictionary<string,string> Expressions { get; }
     internal IReadOnlyDictionary<string,string> Types { get; }
@@ -58,6 +59,7 @@ public static class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> aliases=new(StringComparer.Ordinal);
         private readonly List<string> joins=[];
         private readonly Dictionary<string,string> multiPredicates=new(StringComparer.Ordinal);
+        private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
         internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false)
@@ -79,7 +81,7 @@ public static class MySqlNonRedundantReadCompiler
             var expressions=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);var types=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
             {var resolved=Resolve(root,"b",name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);}
-            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase));
+            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase));
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -103,7 +105,7 @@ public static class MySqlNonRedundantReadCompiler
                     return ("NULL","string");
                 }
                 // 多值显示先识别明确的_ids关系，聚合留在相关子查询内，不扩张根结果的基数。
-                foreach(var multi in columns[table.Id].Values.Where(item=>item.ControlKind=="MultiSelectPage"&&item.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
+                foreach(var multi in columns[table.Id].Values.Where(item=>item.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"&&item.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
                 {
                     var display=Value(Definition(multi),"nameField");if(display.Length==0)display="name";
                     var auxiliary=multi.ColumnName[..^4]+"_"+(display.EndsWith('s')?display:display+"s");
@@ -122,7 +124,13 @@ public static class MySqlNonRedundantReadCompiler
                             if(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||column.LogicalType=="json")throw new NotSupportedException("精确管理匹配路径只能使用非凭据单值列。");
                             Metarill.Core.Security.ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
                         }
-                        return(alias+"."+Q(column.ColumnName),column.LogicalType);
+                        var expression=alias+"."+Q(column.ColumnName);
+                        if(alias=="b"&&column.ControlKind=="MultiCheckBoxDatabase"&&column.ColumnName.EndsWith("_ids",StringComparison.Ordinal))
+                        {
+                            if(column.LogicalType!="string")throw new NotSupportedException("数据库复选必须以字符串保存JSON ID数组。");
+                            idPredicates[expression]=ArrayMember(Array(expression),"{parameter}");
+                        }
+                        return(expression,column.LogicalType);
                     }
                     if(kind==MetadataFieldStorage.Join)
                     {
@@ -164,14 +172,20 @@ public static class MySqlNonRedundantReadCompiler
             if(!storage[target.Id].IsPhysical(value)||value.LogicalType!="string"||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的物理字符串标量。");
             var source=owner+"."+Q(relation.ColumnName);
             // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
-            var array="CASE WHEN JSON_VALID("+source+") THEN CASE WHEN JSON_TYPE("+source+")='ARRAY' THEN "+source+" ELSE JSON_ARRAY() END ELSE JSON_ARRAY() END";
+            var array=Array(source);
             var targetScope=Scope(target,"multi_value");
-            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG(multi_value."+Q(display)+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON CAST(multi_value.`id` AS CHAR)=multi_ids.member_id"+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
+            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG(multi_value."+Q(display)+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(relation.ControlKind=="MultiCheckBoxDatabase"?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope);
             // 名称筛选直接对目标做EXISTS，不先聚合整份名称数组，也不把根记录JOIN成多行。
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(targetScope.Length==0?"":" AND "+targetScope)+" AND multi_value."+Q(display)+" LIKE {parameter} ESCAPE '!')";
+            if(relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(targetScope.Length==0?"":" AND "+targetScope)+" AND multi_value."+Q(display)+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             return(expression,"string");
         }
+        /// <summary>坏历史JSON不能使整页SQL失败，源数据不在读取时修补。</summary>
+        private static string Array(string source)=>"CASE WHEN JSON_VALID("+source+") THEN CASE WHEN JSON_TYPE("+source+")='ARRAY' THEN "+source+" ELSE '[]' END ELSE '[]' END";
+        /// <summary>同时匹配旧数值／字符串ID，二进制比较避免尾空格或子串误命中；表达式只来自固定计划。</summary>
+        // 验收库8.4.11中WHERE EXISTS的JSON_TABLE漏判多来源行；有界标量查询保持逐行相关执行。
+        private static string ArrayMember(string array,string parameter)=>"((SELECT 1 FROM JSON_TABLE("+array+", '$[*]' COLUMNS(member_id VARCHAR(32) PATH '$' NULL ON ERROR)) checkbox_ids WHERE CAST(checkbox_ids.member_id AS BINARY)=CAST("+parameter+" AS BINARY) LIMIT 1) IS NOT NULL)";
         /// <summary>按原优先级解析明确单值关系，所有目标必须在同项目内。</summary>
         private TableMetadata Target(ColumnMetadata relation)
         {
@@ -222,6 +236,7 @@ public static class MySqlNonRedundantReadCompiler
     /// <summary>控件定义仅作结构解析；旧式或重复JSON键必须明确拒绝。</summary>
     private static JsonElement Definition(ColumnMetadata column)
     {
+        if(column.ControlKind=="MultiCheckBoxDatabase")return DatabaseCheckboxDefinition.Parse(column.ControlDetail).ReadDefinition(column);
         if(string.IsNullOrWhiteSpace(column.ControlDetail))return JsonSerializer.SerializeToElement(new{});
         using var document=JsonDocument.Parse(column.ControlDetail);var root=document.RootElement;
         if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Select(property=>property.Name).Distinct(StringComparer.Ordinal).Count()!=root.EnumerateObject().Count())throw new InvalidOperationException("控件定义必须是无重复键JSON对象。");

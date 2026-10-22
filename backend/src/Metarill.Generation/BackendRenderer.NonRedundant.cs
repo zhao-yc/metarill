@@ -45,7 +45,7 @@ internal static class GeneratedNonRedundantReadCatalog
         {
             var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
             var value=$"NonRedundantReads.Value<{output.Type}>(row,{Literal(output.Storage)})";
-            if(output.IsJsonArray)value=$"ReadFileValue(row,{Literal(output.Storage)})";
+            if(output.IsJsonArray)value=column is not null&&DatabaseCheckboxCompilation.Generic(table,column)?$"Metarill.Core.Contracts.DatabaseCheckboxValue.ProjectIds(NonRedundantReads.Value<string?>(row,{Literal(output.Storage)}))":$"ReadFileValue(row,{Literal(output.Storage)})";
             result.AppendLine($"        {output.Property}={value},");
         }
         foreach(var column in constants)result.AppendLine($"        {column.Property}Show={ConstantDisplayExpression(column).Replace("entity."+column.Property,$"NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)})",StringComparison.Ordinal)},");
@@ -92,7 +92,9 @@ internal static class GeneratedNonRedundantReadCatalog
         foreach(var column in page.Searchable.Where(column=>!nameKeys.Contains(column.JsonName)))
         {
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {").AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString())||filter.Value.ValueKind==JsonValueKind.Array&&filter.Value.GetArrayLength()==0)break;");
-            if(column.Source.ControlKind=="CascadeTree")result.AppendLine("                    break;");
+            if(DatabaseCheckboxCompilation.Generic(table,column))result.AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasId,Metarill.Core.Contracts.DatabaseCheckboxValue.ReadId(filter.Value)));break;");
+            else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayAnyContains,filter.Value.GetString()!));break;");
+            else if(column.Source.ControlKind=="CascadeTree")result.AppendLine("                    break;");
             else if(column.Type=="DateTime?")
                 result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{var range=PageDateRange.Parse(filter.Value);result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.GreaterOrEqual,range.Start));result.Add(new({Literal(column.Source.ColumnName)},range.EndExclusive?FixedReadComparison.Less:FixedReadComparison.LessOrEqual,range.End));break;}}")
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,DateTime.Parse(filter.Value.GetString()!,CultureInfo.InvariantCulture)));break;");

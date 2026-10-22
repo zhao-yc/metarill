@@ -32,6 +32,14 @@ internal static class GenerationCapabilityAudit
                 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
                 { gaps.Add(new(page.Source.Id, "", "runtime", "非冗余固定读取未完成：" + error.Message)); }
             }
+            // 隐藏复选仍参与复制／默认值／依赖变化，不能通过隐藏控件绕过整表写入证明。
+            foreach(var source in table.Columns.Where(column=>DatabaseCheckboxCompilation.Generic(table,column)))
+            {
+                var checkbox=DatabaseCheckboxCompilation.Resolve(model,table,page,source);
+                if(checkbox.Definition is not{} definition){gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime",checkbox.Reason!));continue;}
+                try{RequirePublishedRealm(model,table,page);if(definition.Target.Source.YzProjectId!=model.Catalog.YzProjectId||definition.Name.Source.YzProjectId!=model.Catalog.YzProjectId)throw new InvalidOperationException("复选目标表及名称必须明确属于包内项目。");}
+                catch(InvalidOperationException error){gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime",error.Message));}
+            }
             // 原统计声明的类型和可读边界必须在完整包stage创建之前验证。
             _=OriginalListStatisticsCompilation.ForPage(model,table,page);
             if (ManagerCredentialCompilation.Gap(table,page) is {} credentialGap) gaps.Add(new(page.Source.Id,"password","detail",credentialGap));

@@ -29,6 +29,15 @@ public sealed class JsonArrayNameQueryTests
         Assert.Contains("ProjectId", sql);
     }
 
+    /// <summary>复选成员保留真实别名及独立绑定，只用有界相关标量，不复发WHERE EXISTS跨行漏判。</summary>
+    [Fact]
+    public void Checkbox_member_uses_mapped_bounded_scalar_and_separate_exact_parameters()
+    {
+        using var session=Session();var query=JsonArrayNameQuery.ApplyJsonArrayHasId(session,session.Select<Row>().As("checkbox_source"),row=>row.Names,9007199254740993);
+        var sql=query.ToSql();Assert.Contains("checkbox_source.`stored_names`",sql);Assert.Contains("JSON_TABLE",sql);Assert.Contains("LIMIT 1",sql);Assert.Contains("IS NOT NULL",sql);Assert.DoesNotContain("EXISTS",sql);Assert.DoesNotContain("9007199254740993",sql);Assert.DoesNotContain("LIKE",sql);
+        Assert.Throws<ArgumentException>(()=>JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,row=>row.Ignored,1));Assert.Throws<ArgumentException>(()=>JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,row=>row.Names,0));
+    }
+
     /// <summary>标量名称使用参数化LIKE与原列比较，不改用会改变重音语义的Contains。</summary>
     [Fact]
     public void Scalar_name_keeps_fixed_column_like_and_literal_pattern_without_json_or_inline_values()

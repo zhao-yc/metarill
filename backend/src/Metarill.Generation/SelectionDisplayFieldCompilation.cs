@@ -24,7 +24,7 @@ internal static class SelectionDisplayFieldCompilation
         var expected=column.EndsWith("_ids",StringComparison.Ordinal)?column[..^4]+"_"+(display.EndsWith('s')?display:display+"s"):column.EndsWith("_id",StringComparison.Ordinal)?column[..^3]+"_"+display:column;
         var declared=table.Columns.SingleOrDefault(candidate=>candidate.Source.ColumnName==expected);
         if(declared is not null)return declared;
-        if(table.Source.IsRongyu!=0||source.Source.ControlKind!="MultiSelectPage")return source;
+        if(table.Source.IsRongyu!=0||source.Source.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))return source;
         // 非冗余自动名称只属于生成投影，不能为了显示创建数据库列或写回配置元数据。
         var metadata=new Metarill.Core.Metadata.ColumnMetadata{Id=source.Source.Id+"_display",ConfigTableId=table.Source.Id,ColumnName=expected,LogicalType="string",ColumnLength="max",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement(column[..^4]+"."+display)}};
         return new(metadata,GenerationModel.Pascal(expected),GenerationModel.Camel(expected),"string?",IsManagedMultiNames:true);

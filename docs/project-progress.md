@@ -1,6 +1,6 @@
 # Metarill 实施进度表
 
-更新日期：2026-10-22。首次盘点的产品代码基线：`ef946fd`，分支：`codex/initial-platform`。
+更新日期：2026-10-23。首次盘点的产品代码基线：`ef946fd`，分支：`codex/initial-platform`。
 
 当前阶段：C# 主干和 MySQL 普通业务闭环已跑通，正在补齐复杂功能与完成原前端、独立应用和首版验收；尚未达到完整替代 YZP 的发布标准。本表是后续任务的统一进度入口，详细过程、失败和证据继续保留在专项文档中。
 
@@ -45,7 +45,7 @@
 | B06 | ✅ 已完成 | 平台安全写协调固定范围 | 平台账号／角色／后台及权限工作台复用协调器，有实库、RR、回滚证据；独立管理包另列。 | [安全协调器](security-realm-write-coordinator.md)、[RR专项](security-realm-rr-validation.md) |
 | B07 | ✅ 已完成 | 文件库基础与同事务引用 | 平台按业务项目定位数据库，独立应用本地文件库、上传／下载、引用阻删与回滚已在固定场景实测。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
 | B08 | ✅ 已完成 | 普通 Excel 与基础统计 | 原可写列边界、普通导入导出、失败回滚，及物理数值 SUM／原百分比合同已接通；不含所有复杂关系与浏览器下载。 | [统计](list-statistics.md)、[导入错误](import-validation-errors.md)、[Excel边界](cross-table-excel-empty-contract.md) |
-| B09 | 🟡 部分完成 | 非冗余关系存储 | 普通固定标量、单值、type=2、物理文件已有；固定非冗余 MultiSelectPage 已完成（B16），selfTree 正在收口（B18／B24）；其他多值、级联、全局及复杂联接继续实施。 | [非冗余存储](nonredundant-storage.md)、[非冗余文件](nonredundant-files.md) |
+| B09 | 🟡 部分完成 | 非冗余关系存储 | 普通固定标量、单值、type=2、物理文件已有；固定非冗余 MultiSelectPage 已完成（B16），固定 selfTree（B24）及数据库复选（B25）已完成；其他多值、级联、全局及复杂联接继续实施。 | [非冗余存储](nonredundant-storage.md)、[非冗余文件](nonredundant-files.md) |
 | B10 | 🟡 部分完成 | 原级联控件完整能力 | selfTree 普通冗余与 crossTable 固定链已有读取、写入、展示、筛选；同页混合和来源单层参与已验。重复来源层位、共享辅助列及复杂父范围组合仍缺。 | [级联同页与必填](cascade-mixed-required-contract.md)，`393dc41`；[来源图](cross-table-source-graph-contract.md)，`b97ce89` |
 | B11 | ⬜ 待开发 | 关系名称传播与维护回填 | 补冗余／非冗余混合名称传播、目标更新／删除影响和维护回填，验证事务与并发。 | [非冗余存储](nonredundant-storage.md)、[主框架审计](framework-gap-audit.md) |
 | B12 | 🟡 部分完成 | 完整页面配置能力 | 补齐并验收详情分组、复杂条件显示／只读、完整表单规则及配置按钮；不能以原组件存在判为完成。 | [主框架审计·列表详情](framework-gap-audit.md) |
@@ -60,7 +60,7 @@
 | 编号 | 状态 | 工作项 | 已完成范围／下一步与剩余范围 | 验收依据／代码基线 |
 | --- | --- | --- | --- | --- |
 | B16 | ✅ 已完成 | 非冗余 MultiSelectPage 固定后端／生成链路 | 固定字符串名称、显式／自动数组、分页前筛选、CRUD／当前回显、Excel、原 Vue 协议、Full 包与更新保护通过；仅此后端／生成固定子集，不含 B17 和 B23。 | [多选专项](nonredundant-multi-select.md)，2026-10-22；源码快照 `2de892abb36b` |
-| B17 | ⬜ 待开发 | 其他多值控件与多选派生名称 | 通用 MultiCheckBoxDatabase、派生／非字符串多选名称、复杂联接和未证明覆盖；不以 B16 代替。 | [多选剩余范围](nonredundant-multi-select.md) |
+| B17 | 🟡 部分完成 | 其他多值控件与多选派生名称 | 通用 MultiCheckBoxDatabase 固定物理名称、冗余普通缓存列及非冗余显式／自动名称已完成 B25；联接标记／自动冗余缓存、派生／非字符串名称、复杂联接及未证明组合继续。 | [复选专项](database-checkbox-relations.md)、[多选剩余范围](nonredundant-multi-select.md) |
 | B18 | 🟡 部分完成 | 非冗余 selfTree | 固定后端的 ID 存储、实时名称／路径、筛选／统计／Excel、当前读与同表图已验；固定完整包子集已完成 B24。来源父范围、混合控件及原浏览器／正式宿主组合继续补齐。 | [自树专项](nonredundant-self-tree.md)、[原树读取](cascade-tree-read-contract.md) |
 | B19 | 🟡 部分完成 | crossTable 剩余组合与非冗余链 | 冗余固定链及来源单层参与已验；非冗余、重复来源层位、共享辅助列和复杂父范围仍缺，Excel 策略另按 B14。 | [来源图](cross-table-source-graph-contract.md)、[主框架审计](framework-gap-audit.md) |
 | B20 | 🟡 部分完成 | 复杂联接与全局／派生名称 | 已有固定单值多级路径；补与多值／级联混用、全局目标、复杂派生名称及各读取用途一致性。 | [非冗余存储](nonredundant-storage.md) |
@@ -68,6 +68,7 @@
 | B22 | ⬜ 待开发 | 原维护入口回填 | 按原确认与接口接回联接字段回填，校验元数据／物理列、权限、目标库、并发和整批回滚。 | [主框架审计](framework-gap-audit.md) |
 | B23 | 🧪 待验收 | 复杂关系原浏览器与正式宿主组合 | 补本轮各子项的原页面现场操作、正式身份、完整包和专用空库交叉矩阵；Node／固定授权器 HTTP 不替代。 | [前端纠偏](frontend-preservation-correction.md)、[全新安装](fresh-install-acceptance.md) |
 | B24 | ✅ 已完成 | 固定非冗余 selfTree 后端／完整包 | 只存所选ID、图名称／路径、筛选统计、Excel、当前读、同表后端、原Vue、独立目标Full包及手写保护已验；仅本固定范围，B18／B23其它组合继续。 | [自树专项](nonredundant-self-tree.md)，2026-10-22；冻结源码 `003b18c2818c` |
+| B25 | ✅ 已完成 | 数据库复选固定物理名称后端／完整包 | 原复选／全选、来源动作、真实父与表单条件、冗余／非冗余读写、成员／名称筛选、Excel、回滚、原 Vue、Full 包及手写保护已验；仅本固定范围，B17／B23其余组合继续。 | [复选专项](database-checkbox-relations.md)，2026-10-23；冻结源码 `0332f6b133ca` |
 
 ## 三、独立应用、初始化、助手与 Agent
 
@@ -115,6 +116,7 @@
 
 | 日期 | 变更 | 依据 |
 | --- | --- | --- |
+| 2026-10-23 | B25固定数据库复选完成，B17保持部分完成；主组合111、来源父1、数据全量195、相邻51分别通过，均零失败零跳过；两轮215文件稳定，各批次不累加。 | [复选专项](database-checkbox-relations.md) |
 | 2026-10-22 | B24固定非冗余selfTree完成，B18保持部分完成；最终生成组合44、数据全量185、相邻原Vue7均通过，前端273及HBuilderX通过；各批次不相加。 | [自树专项](nonredundant-self-tree.md) |
 | 2026-10-22 | 启动复杂关系模块，拆分 B16—B23；B16固定链路完成：生成全量1195通过；最终纯文本编码修正后数据183、定向14复验通过，不累加批次；其余B17—B23仍未完成。 | [多选专项](nonredundant-multi-select.md) |
 | 2026-10-22 | 建立统一进度表；逐项区分已验子集、缺失功能和待验收门槛；在 README 与开发约定登记后续更新要求。 | 只读盘点产品基线 ef946fd、现有专项与验收台账；本次仅文档整理，未新增产品验收结论。 |

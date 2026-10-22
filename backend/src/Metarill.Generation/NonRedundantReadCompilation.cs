@@ -22,10 +22,12 @@ internal static class NonRedundantReadCompilation
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿原FileLibrary事务写入；其它多值、派生文件及布局仍须独立编译。
-        if(table.Columns.Any(column=>column.Source.ControlKind is "Title" or "Tab" or "MultiCheckBoxDatabase" || column.IsJsonArray && (column.Source.ControlKind is not ("FileLibrary" or "MultiSelectPage") && !column.IsManagedMultiNames || column.Source.ControlKind=="FileLibrary"&&!Physical(model,table,column))))throw new InvalidOperationException("非冗余多值、级联、布局或派生文件读取仍待接线。");
+        if(table.Columns.Any(column=>column.Source.ControlKind is "Title" or "Tab" || column.IsJsonArray && (column.Source.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase") && !column.IsManagedMultiNames || column.Source.ControlKind=="FileLibrary"&&!Physical(model,table,column))))throw new InvalidOperationException("非冗余多值、级联、布局或派生文件读取仍待接线。");
         if(page.Searchable.Any(column=>column.Source.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "datetime" or "date" or "time")))throw new InvalidOperationException("非冗余筛选字段类型尚未接线。");
         if(page.Scopes.Any(scope=>!Physical(model,table,scope.Column)))throw new InvalidOperationException("非冗余父范围必须绑定物理外键。");
         if(ManagerCredentialCompilation.IsTable(table)||FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null||FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null||FixedOptionCatalogCompilation.ForPage(model,page).Count!=0)throw new InvalidOperationException("非冗余固定安全模块及目录读取尚需独立验收。");
+        foreach(var checkbox in table.Columns.Where(column=>column.Source.ControlKind=="MultiCheckBoxDatabase"))
+            if(DatabaseCheckboxCompilation.Resolve(model,table,page,checkbox).Definition is null)throw new InvalidOperationException("非冗余数据库复选缺少已证明的字段与候选范围。");
         foreach(var multi in table.Columns.Where(column=>column.Source.ControlKind=="MultiSelectPage"))
             if(MultiSelectCompilation.Resolve(model,table,page,multi,forService:true).Definition is null)throw new InvalidOperationException("非冗余多选缺少已证明的字段与候选范围。");
         foreach(var tree in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"))
@@ -36,7 +38,7 @@ internal static class NonRedundantReadCompilation
         }
         foreach(var relation in table.Columns.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
-            if(relation.Source.ControlKind=="CascadeTree")continue;
+            if(relation.Source.ControlKind is "CascadeTree" or "MultiCheckBoxDatabase")continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联写入缺少已接通的明确目标。");ValidateTargetDeclarations(model,relation,target);
             if(target.IsGlobal)throw new InvalidOperationException("全局关联读取尚需完整接线。");
         }
@@ -45,6 +47,8 @@ internal static class NonRedundantReadCompilation
         foreach(var name in CascadeTreeViewRenderer.ImplicitNames(model,table,page))outputs.Add(new(name.Source.ColumnName,name.Property,name.JsonName,name.Type));
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null))
             if(!outputs.Any(output=>output.Storage==multi.Names!.Source.ColumnName))outputs.Add(new(multi.Names!.Source.ColumnName,multi.Names.Property,multi.Names.JsonName,"string?",true));
+        foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>page.Readable.Any(field=>field.Source.Id==def.Source.Source.Id)))
+            if(!outputs.Any(output=>output.Storage==checkbox.Names.Source.ColumnName))outputs.Add(new(checkbox.Names.Source.ColumnName,checkbox.Names.Property,checkbox.Names.JsonName,"string?",true));
         foreach(var relation in page.Readable.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
             if(relation.Source.ControlKind is not("List" or "SelectPage"))continue;

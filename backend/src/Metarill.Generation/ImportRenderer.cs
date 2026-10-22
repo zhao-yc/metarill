@@ -9,7 +9,7 @@ internal static class ImportRenderer
     /// <summary>普通导入由页面开关启用，定制导入必须另行实现明确业务入口。</summary>
     public static bool Enabled(PageModel page) => page.Source.IsImport == 1 || !string.IsNullOrWhiteSpace(Mode(page));
     /// <summary>只有私有生成导入调用携带真实动作，客户端不能绕过多选或级联的目标权限。</summary>
-    internal static bool RelationOperationAware(GenerationModel model,TableModel table,PageModel page)=>CascadeTreeExcelRenderer.OperationAware(model,table,page)||Enabled(page)&&table.Source.IsRongyu==0&&MultiSelectCompilation.ForService(model,table,page).Count>0;
+    internal static bool RelationOperationAware(GenerationModel model,TableModel table,PageModel page)=>Enabled(page)&&DatabaseCheckboxCompilation.ForService(model,table,page).Count>0||CascadeTreeExcelRenderer.OperationAware(model,table,page)||Enabled(page)&&table.Source.IsRongyu==0&&MultiSelectCompilation.ForService(model,table,page).Count>0;
     /// <summary>读取已声明导入策略，默认追加。</summary>
     public static string Mode(PageModel page) => page.Source.Extra.TryGetValue("importMethod", out var value) ? value.ToString() : "";
     /// <summary>Excel只取原显式编辑列；父键由页面上下文绑定，不接受覆盖。</summary>
@@ -120,7 +120,16 @@ public sealed partial class {{page.Name}}ImportRequest
             if(contextual&&!dependency.MatchFields.Contains(column.Source.Id))result.AppendLine("                    if (keyOnly) break;");
             var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(candidate => candidate.SourceColumn == column);
             var multi=MultiSelectCompilation.ForPage(model,table,page).SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id);
-            if(multi is not null)
+            var checkbox=DatabaseCheckboxCompilation.ForPage(model,table,page).SingleOrDefault(def=>def.Source.Source.Id==column.Source.Id);
+            if(checkbox is not null)
+            {
+                result.AppendLine("                    try{")
+                    .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportCheckbox{page.Source.Id}_{column.Source.Id}Async(cell.Value,parentId,actor{(contextual?",relationContext":"")},cancellationToken);")
+                    .AppendLine("                    }catch(PageImportException error)when(error.IsInputError){")
+                    .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);")
+                    .AppendLine("                    }");
+            }
+            else if(multi is not null)
             {
                 result.AppendLine("                    try").AppendLine("                    {")
                     .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportMulti{page.Source.Id}_{column.Source.Id}Async(cell.Value,parentId,actor{(contextual?", relationContext":"")},cancellationToken);")
@@ -169,6 +178,7 @@ public sealed partial class {{page.Name}}ImportRequest
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
             .AppendLine("            }").AppendLine("        }").AppendLine("        return values;").AppendLine("    }");
         foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(relation, page, dependency));
+        foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))result.Append(DatabaseCheckboxExcelRenderer.Import(table,page,checkbox,dependency));
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))result.Append(CascadeTreeExcelRenderer.Import(model,table,page,source));
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))result.Append(MultiSelectExcelRenderer.Import(model,table,page,multi,dependency));
         return result.ToString();

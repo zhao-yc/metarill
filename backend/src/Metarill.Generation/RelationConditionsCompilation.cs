@@ -134,6 +134,7 @@ internal static class RelationConditionsCompilation
             var targetParent=ControlRenderer.RelationContext(page,relation,false).TargetParentField;
             if(targetParent is not null)result.Add(table.Columns.Single(column=>column.JsonName==targetParent));
         }
+        foreach(var checkbox in DatabaseCheckboxCompilation.ForService(model,table,page)){result.Add(checkbox.Source);result.AddRange(checkbox.Dependencies);if(table.Source.IsRongyu==1)result.Add(checkbox.Names);}
         return result.DistinctBy(column=>column.Source.Id).ToArray();
     }
     /// <summary>真实物理父键按原字符串ID协议格式化，空值保持空值。</summary>

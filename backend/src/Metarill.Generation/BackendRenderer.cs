@@ -98,7 +98,7 @@ internal static partial class BackendRenderer
         foreach (var column in constants)
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName + "Show")})]").AppendLine($"    public string? {column.Property}Show {{ get; init; }}");
         result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity{(role is not null ? ",JsonElement? roleNames" : roleAdmin is not null ? ",string? roleAdminName" : "")}{(credentials ? ",bool includeCredentials = true" : "")}) => new()").AppendLine("    {");
-        foreach (var column in page.Readable) result.AppendLine(ManagerCredentialCompilation.Output(table,page,column) is {} credential ? $"        {column.Property} = {credential}," : role?.Source.Source.Id==column.Source.Id ? $"        {column.Property} = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.{column.Property})," : column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
+        foreach (var column in page.Readable) result.AppendLine(ManagerCredentialCompilation.Output(table,page,column) is {} credential ? $"        {column.Property} = {credential}," : role?.Source.Source.Id==column.Source.Id ? $"        {column.Property} = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.{column.Property})," : DatabaseCheckboxCompilation.Generic(table,column) ? $"        {column.Property} = Metarill.Core.Contracts.DatabaseCheckboxValue.ProjectIds(entity.{column.Property})," : column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
         foreach(var name in CascadeTreeViewRenderer.ImplicitNames(model,table,page))result.AppendLine($"        {name.Property} = entity.{name.Property},");
         if (role is not null) result.AppendLine("        YzRoleNames = roleNames,");
         if (roleAdmin is not null) result.AppendLine("        YzAdminTypeName = roleAdminName,");
@@ -180,7 +180,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(Query(model, table, page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
             result.Append(CascadeTreeReadRenderer.Service(model,table,page));
             result.Append(CascadeTreeWriteRenderer.Service(model,table,page));
             result.Append(CascadeTreeViewRenderer.Service(model,table,page));
@@ -252,7 +252,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
                 .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
-            if(column.Source.ControlKind=="CascadeTree")result.Append(CascadeTreeViewRenderer.Filter(model,table,page,column));
+            if(DatabaseCheckboxCompilation.Generic(table,column)&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is not null)result.AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,entity=>entity.{column.Property},DatabaseCheckboxValue.ReadId(filter.Value));");
+            else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session,query,entity=>entity.{column.Property},filter.Value.GetString()!);");
+            else if(column.Source.ControlKind=="CascadeTree")result.Append(CascadeTreeViewRenderer.Filter(model,table,page,column));
             else if (ManagerCredentialCompilation.IsCredential(table,column))
             { result.AppendLine("                    ManagerCredentialValue.RequirePublishedPage(false);"); }
             else if (ManagerCredentialCompilation.IsEnabled(table,page,column))
@@ -337,8 +339,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             {
                 var multi = column.Source.ControlKind == "MultiSelectPage" && MultiSelectCompilation.Resolve(model, table, page, column).Definition is not null;
                 var role = column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null;
+                var databaseCheckbox=DatabaseCheckboxCompilation.Generic(table,column)&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is not null;
                 if (column.IsJsonArray && !multi && !role) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : databaseCheckbox ? $"DatabaseCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
                 if (!string.IsNullOrWhiteSpace(column.Source.DefaultValue))
                     result.AppendLine($"        else entity.{column.Property} = {DefaultExpression(column)};");
             }
@@ -366,8 +369,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             {
                 var multi = column.Source.ControlKind == "MultiSelectPage" && MultiSelectCompilation.Resolve(model, table, page, column).Definition is not null;
                 var role = column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null;
+                var databaseCheckbox=DatabaseCheckboxCompilation.Generic(table,column)&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is not null;
                 if (column.IsJsonArray && !multi && !role) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
-                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
+                result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : databaseCheckbox ? $"DatabaseCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
             }
             result.Append(Audit(table, false)).Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","false")).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(RelationConditionsCompilation.ValidateMutation(model,table,page)).Append(ManagerCredentialCompilation.DigestCall(table,false)).Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", authorizationOperation":"")});").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
@@ -548,7 +552,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"    public async Task<R<{page.Name}Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Copy{suffix}Async(id, parentId, Actor(\"copy\"), cancellationToken));");
         result.Append(SelectionPageRenderer.Controller(page));
         result.Append(CascadeTreeReadRenderer.Controller(model,table,page));
-        result.Append(FixedRoleCheckboxRenderer.Controller(model,table,page));
+        result.Append(FixedRoleCheckboxRenderer.Controller(model,table,page)); result.Append(DatabaseCheckboxRenderer.Controller(model,table,page));
         foreach (var catalog in FixedOptionCatalogCompilation.ForPage(model, page))
             result.AppendLine("    /// <summary>原下拉只读取固定C#模板目录，表单上下文不参与授权或查询。</summary>")
                 .AppendLine($"    [HttpPost({Literal(catalog.Endpoint)})] [RequestSizeLimit(16384)]")
@@ -691,7 +695,7 @@ public partial class {{table.Name}}Service
 
 """;
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
-    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Count>0 || CrossTableReadCompilation.ForService(model,table,page).Count>0) || table.Pages.Any(page => MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
+    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Count>0 || CrossTableReadCompilation.ForService(model,table,page).Count>0) || table.Pages.Any(page => DatabaseCheckboxCompilation.ForService(model,table,page).Count>0 || MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
     private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation)
     {

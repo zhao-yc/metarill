@@ -45,6 +45,8 @@ internal static class ImportDependencyCompilation
             if(!storage.IsPhysical(parent.Source)||parent.IsJsonArray)throw new InvalidOperationException("多选导入目标父必须为物理外键。");
             parents.Add(multi.Source.Source.Id,parent);dependencies.Add(multi.Source.Source.Id,[parent]);
         }
+        foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))
+        {var fields=(checkbox.Conditions?.Forms.Select(binding=>binding.Column)??[]).DistinctBy(column=>column.Source.Id).ToArray();if(fields.Length>0)dependencies.Add(checkbox.Source.Source.Id,fields);}
         if(dependencies.Count==0)return new(columns,parents,new HashSet<string>(StringComparer.Ordinal),dependencies);
         var available=columns.ToDictionary(column=>column.Source.Id,StringComparer.Ordinal);var order=new List<ColumnModel>();var state=new Dictionary<string,int>(StringComparer.Ordinal);
         foreach(var column in columns)Visit(column);

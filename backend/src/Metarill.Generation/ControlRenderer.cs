@@ -30,6 +30,7 @@ internal static class ControlRenderer
             : Wrap("", fixedCatalog.Reason);
         if (column.Source.ControlKind == "MultiCheckBoxDatabase")
         {
+            if(DatabaseCheckboxCompilation.Generic(table,column)){var generic=DatabaseCheckboxCompilation.Resolve(model,table,page,column);return generic.Definition is not null?Wrap(""):Wrap("",generic.Reason);}
             var fixedRole = FixedRoleCheckboxCompilation.Resolve(model,table,page,column);
             return fixedRole.Definition is not null ? Wrap("<text>{{ entity.yzRoleNames }}</text>") : Wrap("",fixedRole.Reason);
         }
@@ -88,6 +89,11 @@ internal static class ControlRenderer
         ControlResult Wrap(string content) => new($"<uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">{content}</uni-forms-item>");
         var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
         if (fixedCatalog.Declared) return fixedCatalog.Definition is not null ? Wrap("<text>受控模板版本候选</text>") : new("", fixedCatalog.Reason);
+        if(column.Source.ControlKind=="MultiCheckBoxDatabase")
+        {
+            var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var resolved=DatabaseCheckboxCompilation.Resolve(model,owner,page,column);
+            return resolved.Definition is not null?Wrap(""):new("",resolved.Reason);
+        }
         if(column.Source.ControlKind=="CascadeTree")
         {
             var table=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var plan=CascadeTreeReadCompilation.Resolve(model,table,page,column);

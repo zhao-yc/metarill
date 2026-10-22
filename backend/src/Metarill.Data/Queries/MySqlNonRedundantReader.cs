@@ -2,7 +2,7 @@ using System.Data.Common;
 
 namespace Metarill.Data.Queries;
 
-public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains }
+public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains, JsonArrayHasId }
 public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison,object? Value=null);
 public sealed record FixedReadOrder(string Field,bool Descending=false);
 public sealed record FixedReadPage(long Total,IReadOnlyList<IReadOnlyDictionary<string,object?>> Records);
@@ -100,6 +100,12 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     private static FixedReadFilter Prepare(MySqlNonRedundantReadPlan plan,FixedReadFilter filter)
     {
         plan.Expression(filter.Field);var value=filter.Value;
+        if(filter.Comparison==FixedReadComparison.JsonArrayHasId)
+        {
+            var text=value is string or long or int?Convert.ToString(value,System.Globalization.CultureInfo.InvariantCulture):null;
+            if(!plan.ArrayIdPredicates.ContainsKey(filter.Field)||text is null||!long.TryParse(text,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(System.Globalization.CultureInfo.InvariantCulture))throw new InvalidOperationException("数组成员筛选只接受已编译的复选字段和规范正整数ID。");
+            return filter with{Value=text};
+        }
         if(filter.Comparison==FixedReadComparison.In)
         {if(value is not IReadOnlyList<object?> items)throw new InvalidOperationException("集合筛选必须使用明确标量列表。");return filter with{Value=Array.AsReadOnly(items.Select(item=>Prepare(plan,new(filter.Field,FixedReadComparison.Equal,item)).Value).ToArray())};}
         if(value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)return filter;
@@ -133,6 +139,10 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(value is not(null or string or long or int or decimal or double or float or bool or DateTime or DateTimeOffset or TimeSpan))throw new InvalidOperationException("固定筛选值必须是受支持的标量。");
         if(filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)
         {if(value is not null)throw new InvalidOperationException("空值筛选不能同时带值。");return expression+(filter.Comparison==FixedReadComparison.IsNull?" IS NULL":" IS NOT NULL");}
+        if(filter.Comparison==FixedReadComparison.JsonArrayHasId)
+        {
+            if(value is not string||!plan.ArrayIdPredicates.TryGetValue(filter.Field,out var idPredicate))throw new InvalidOperationException("数组成员筛选缺少固定字段与ID。");return idPredicate.Replace("{parameter}",parameter,StringComparison.Ordinal);
+        }
         if(filter.Comparison==FixedReadComparison.JsonArrayAnyContains)
         {
             if(value is not string||!plan.ArrayNamePredicates.TryGetValue(filter.Field,out var arrayPredicate))throw new InvalidOperationException("数组名称筛选只接受已编译多值关系与文本。");

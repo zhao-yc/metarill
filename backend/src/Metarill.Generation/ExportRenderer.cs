@@ -42,14 +42,14 @@ internal static class ExportRenderer
     public static string Service(GenerationModel model, TableModel table, PageModel page)
     {
         if (!Enabled(page)) return "";
-        var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);
+        var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);var checkboxes=table.Source.IsRongyu==0?DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>IncludesColumn(page,def.Source)).ToArray():[];
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
-        var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).DistinctBy(column=>column.Source.Id);
+        var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).Concat(checkboxes.SelectMany(def=>def.Dependencies)).DistinctBy(column=>column.Source.Id);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
             .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?" => session.InReadSnapshotAsync<Metarill.Core.Exports.PageExportRequest>(async () =>":"")}")
             .AppendLine("    {")
             .AppendLine("        if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));");
-        if (relations.Length > 0 || multis.Count>0 || role || admin is not null)
+        if (relations.Length > 0 || multis.Count>0 || checkboxes.Length>0 || role || admin is not null)
         {
             result.AppendLine("        var exportAuthorization = relationAuthorization ?? throw new UnauthorizedAccessException(\"关系导出需要宿主真实授权。\");")
                 .AppendLine("        if (exportAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"关系导出身份与当前真实身份不一致。\");")
@@ -81,6 +81,7 @@ internal static class ExportRenderer
             .AppendLine("        if (entities.Count > maxRows) throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         }
         foreach(var multi in multis)result.AppendLine($"        var multiNames{multi.Source.Source.Id}=rawRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"),row=>Metarill.Data.Queries.NonRedundantReads.Value<string?>(row,{Literal(multi.Names!.Source.ColumnName)}));");
+        foreach(var checkbox in checkboxes)result.AppendLine($"        var checkboxNames{checkbox.Source.Source.Id}=await ExportCheckbox{page.Source.Id}_{checkbox.Source.Source.Id}Async(entities,actor,cancellationToken);");
         if (admin is not null) result.AppendLine("        var adminNames = " + FixedRoleAdminNameRenderer.ProjectCall(page,"entities","export") + ";");
         foreach (var relation in relations)
         {
@@ -132,12 +133,14 @@ internal static class ExportRenderer
         {
             var relation = relations.SingleOrDefault(relation => relation.SourceColumn == column);
             if(multis.SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id) is{} multi){result.AppendLine($"            multiNames{multi.Source.Source.Id}[entity.Id],");continue;}
+            if(checkboxes.SingleOrDefault(def=>def.Source.Source.Id==column.Source.Id) is{} checkbox){result.AppendLine($"            checkboxNames{checkbox.Source.Source.Id}[entity.Id],");continue;}
             if(column.Source.ControlKind=="CascadeTree"){result.AppendLine($"            ExcelCascade{column.Property}(entity),");continue;}
             result.AppendLine("            " + (admin?.Source.Source.Id == column.Source.Id ? "adminNames[index]." + FixedRoleAdminNameModel.Property : ValueExpression(table,page,column, relation)) + ",");
         }
         result.AppendLine("        }).ToArray();")
             .AppendLine($"        return new({Literal(page.Source.Id)}, {Literal(page.Source.Name)}, [{string.Join(", ", columns.Select(column => Literal(string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name)))}], rows);")
             .AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }");
+        foreach(var checkbox in checkboxes)result.Append(DatabaseCheckboxExcelRenderer.Export(table,page,checkbox));
         return result.ToString();
     }
     /// <summary>关系导出名称，64位整数始终按文本输出避免 Excel 精度损失。</summary>
