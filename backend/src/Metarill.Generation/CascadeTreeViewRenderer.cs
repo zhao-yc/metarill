@@ -31,6 +31,8 @@ internal static class CascadeTreeViewRenderer
     /// <summary>原节点对象转换为固定ID集合；名称仅回显，未证明定义不能降级为字符串LIKE。</summary>
     internal static string Filter(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
+        // 原跨表只匹配已存层级ID，不能套用目标图或后代展开。
+        if(source.IsFixedCrossTableFilter&&CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross)return CrossTableFilterRenderer.Filter(cross,page);
         var resolved=CascadeTreeReadCompilation.Resolve(model,table,page,source);
         if(resolved.Definition is not{} plan||source.Type is not("string?" or "long?")||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))return $"                    throw new ArgumentException({Literal(resolved.Reason??"级联筛选字段类型尚未支持。")});\n";
         var suffix=page.Source.Id+"_"+source.Source.Id;var key=source.JsonName;var name=GenerationModel.Camel(source.Source.ColumnName[..^3]+"_name");
@@ -41,7 +43,7 @@ internal static class CascadeTreeViewRenderer
     /// <summary>批量查询固定三列，逐父批和主键游标保证宽树不受候选500项上限截断。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
-        var result=new StringBuilder(CrossTableDisplayRenderer.Service(model,table,page));
+        var result=new StringBuilder(CrossTableDisplayRenderer.Service(model,table,page)+CrossTableFilterRenderer.Service(model,table,page));
         foreach(var plan in CascadeTreeReadCompilation.ForService(model,table,page))
         {
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;

@@ -90,7 +90,7 @@ internal static class ControlRenderer
         if(column.Source.ControlKind=="CascadeTree")
         {
             var table=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var plan=CascadeTreeReadCompilation.Resolve(model,table,page,column);
-            if(plan.Definition is null||column.Type is not("string?" or "long?")||!column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))return new("",CrossTableReadCompilation.CapabilityReason(model,table,page,column)??plan.Reason??"级联筛选字段类型未支持。");
+            if((plan.Definition is null&&(!column.IsFixedCrossTableFilter||CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is null))||column.Type is not("string?" or "long?")||!column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))return new("",CrossTableReadCompilation.CapabilityReason(model,table,page,column)??plan.Reason??"级联筛选字段类型未支持。");
             var field=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id);var overlay=field.Extra.GetValueOrDefault("controlDetail").ToString();var definition=string.IsNullOrWhiteSpace(overlay)?column.Source.ControlDetail:overlay;
             var api="/admin/auto/"+table.Source.TableName+"/"+page.Source.Id;
             return Wrap($"<yzp-cascade-tree :value=\"draftFilters.{column.JsonName}\" :definition='{Escape(definition)}' request-url=\"{api}/cascadeTreeOptions{column.Source.Id}\" path-request-url=\"{api}/cascadeTreePath{column.Source.Id}\" leaf-id-property=\"{column.JsonName}\" leaf-name-property=\"{GenerationModel.Camel(column.Source.ColumnName[..^3]+"_name")}\" @input=\"setFilter('{column.JsonName}', $event)\" />");

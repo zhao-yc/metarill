@@ -156,6 +156,8 @@ public sealed class CSharpGenerator
 
 internal sealed record ColumnModel(ColumnMetadata Source, string Property, string JsonName, string Type, bool IsManagedMultiNames = false, bool IsManagedCascadeName = false)
 {
+    /// <summary>只有最终编译证明的跨表来源筛选可省去异步目标读取。</summary>
+    public bool IsFixedCrossTableFilter {get;init;}
     public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && (IsManagedMultiNames || Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"); public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";
 }
@@ -201,7 +203,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
             result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels));
         }
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
-        return FixedPageConditionCompilation.ValidateFinal(CrossTableWriteCompilation.Prepare(CascadeTreeWriteCompilation.Prepare(MultiSelectCompilation.Prepare(new GenerationModel(catalog, rootNamespace, result)))));
+        return FixedPageConditionCompilation.ValidateFinal(CrossTableFilterCompilation.Prepare(CrossTableWriteCompilation.Prepare(CascadeTreeWriteCompilation.Prepare(MultiSelectCompilation.Prepare(new GenerationModel(catalog, rootNamespace, result))))));
     }
     /// <summary>只编译明确的身份或父记录范围。</summary>
     internal static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)

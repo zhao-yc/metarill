@@ -13,7 +13,7 @@ internal static class CrossTableReadCompilation
     /// <summary>固定读取计划在服务内共用，不因隐藏列增加外部端点。</summary>
     internal static IReadOnlyList<CrossTableReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CrossTableReadModel>().ToArray();
     /// <summary>完整包继续报告未完成的保存、展示、筛选与辅助列；读接口存在不代表完整控件可发布。</summary>
-    internal static string? CapabilityReason(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>Resolve(model,table,page,column).Definition is null?null:"CascadeTree跨表候选/路径已接线；已证明的各级保存及已存名称展示独立接线，筛选和导入导出及完整应用验收仍待完成。";
+    internal static string? CapabilityReason(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>Resolve(model,table,page,column).Definition is null?null:"CascadeTree跨表候选/路径已接线；已证明的各级保存、已存名称展示及来源筛选独立接线，导入导出及完整应用验收仍待完成。";
     /// <summary>逐级验证唯一可读目标页、父键指向、名称与稳定排序，任何一步不明就拒绝整个链。</summary>
     internal static CrossTableReadResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
