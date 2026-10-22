@@ -107,7 +107,7 @@ public static class MySqlSchemaPlanner
     public static string Fingerprint(DatabaseSchema schema)
     {
         var normalized = new DatabaseSchema(schema.Database, schema.Tables.OrderBy(t => t.Name, StringComparer.Ordinal)
-            .Select(t => new TableSchema(t.Name, t.Columns.OrderBy(c => c.Name, StringComparer.Ordinal).ToArray(), t.SnapshotDefinition, t.Indexes?.OrderBy(i => i.Name, StringComparer.Ordinal).ToArray())).ToArray());
+            .Select(t => new TableSchema(t.Name, t.Columns.Select(column=>column with{DefaultSql=CanonicalDefault(column)}).OrderBy(c => c.Name, StringComparer.Ordinal).ToArray(), t.SnapshotDefinition, t.Indexes?.OrderBy(i => i.Name, StringComparer.Ordinal).ToArray())).ToArray());
         return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(normalized))).ToLowerInvariant();
     }
 
@@ -120,7 +120,16 @@ public static class MySqlSchemaPlanner
 
     internal static bool Equivalent(ColumnSchema actual, ColumnSchema expected) =>
         actual.StoreType == expected.StoreType && actual.Nullable == expected.Nullable && actual.PrimaryKey == expected.PrimaryKey
-        && actual.DefaultSql == expected.DefaultSql && !actual.Generated;
+        && CanonicalDefault(actual) == CanonicalDefault(expected) && !actual.Generated;
+
+    /// <summary>MySQL为DECIMAL补齐小数位；仅精确文本归一，不使用数值舍入或修改声明。</summary>
+    private static string? CanonicalDefault(ColumnSchema column)
+    {
+        var value=column.DefaultSql;
+        if(value is null||!System.Text.RegularExpressions.Regex.IsMatch(column.StoreType,@"^decimal[(][0-9]+,[0-9]+[)]$")||!System.Text.RegularExpressions.Regex.IsMatch(value,@"^[+-]?[0-9]+(?:[.][0-9]+)?$"))return value;
+        var negative=value[0]=='-';var parts=value.TrimStart('+','-').Split('.',2);var integer=parts[0].TrimStart('0');if(integer.Length==0)integer="0";var fraction=parts.Length==2?parts[1].TrimEnd('0'):"";
+        return (negative&&(integer!="0"||fraction.Length>0)?"-":"")+integer+(fraction.Length==0?"":"."+fraction);
+    }
 
     private static string Definition(ColumnSchema column) => $"{Quote(column.Name)} {column.StoreType} {(column.Nullable ? "NULL" : "NOT NULL")}" +
         (column.DefaultSql is null ? "" : $" DEFAULT {column.DefaultSql}") + (column.PrimaryKey ? " PRIMARY KEY" : "");

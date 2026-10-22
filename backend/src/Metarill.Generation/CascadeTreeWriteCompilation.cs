@@ -29,7 +29,6 @@ internal static class CascadeTreeWriteCompilation
         CascadeTreeWriteResult Gap(string text)=>new(null,"CascadeTree写入尚未支持："+text);
         var read=CascadeTreeReadCompilation.Resolve(model,table,page,source);
         if(read.Definition is not{} plan)return Gap(read.Reason??"未证明的读取范围。");
-        if(plan.Target.Source.Id==table.Source.Id&&plan.Parent.Source.Id!=source.Source.Id)return Gap("同表非父字段的合并实体范围仍待接线，不能读取旧实体后放行新值。");
         if(source.Type is not("string?" or "long?") || !source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal) || source.IsSystem || GenerationModel.Enabled(source.Source.Extra,"isJoinColumn"))return Gap("叶子必须是字符串或int64物理_id列。");
         if(source.Source.LinkConfigTableId.Length>0&&source.Source.LinkConfigTableId!=plan.Target.Source.Id)return Gap("叶子声明关联表与级联目标不一致。");
         var name=ManagedNames(table).SingleOrDefault(column=>column.Source.ColumnName==source.Source.ColumnName[..^3]+"_name");

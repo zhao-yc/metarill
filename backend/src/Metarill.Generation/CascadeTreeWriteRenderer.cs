@@ -12,7 +12,8 @@ internal static class CascadeTreeWriteRenderer
     {
         var result=CascadeTreeWriteCompilation.Resolve(model,table,page,source);
         if(result.Definition is not{} plan)return $"        if((creating||submitted.Contains({Literal(source.Source.ColumnName)}))&&entity.{source.Property} is not null)throw new InvalidOperationException({Literal(result.Reason!)});\n";
-        return $"        if(creating||submitted.Contains({Literal(source.Source.ColumnName)})||submitted.Contains({Literal(plan.Name.Source.ColumnName)}))await ValidateCascade{page.Source.Id}_{source.Source.Id}Async(entity,actor,submitted,cancellationToken{(CascadeTreeExcelRenderer.OperationAware(model,table,page)?", cascadeOperation != RecordMutationOperation.Import":"")});\n";
+        var merged=CascadeTreeMergedWriteRenderer.Applies(table,plan);var trigger=merged?CascadeTreeMergedWriteRenderer.Trigger(table,plan):$"creating||submitted.Contains({Literal(source.Source.ColumnName)})||submitted.Contains({Literal(plan.Name.Source.ColumnName)})";
+        return $"        if({trigger})await ValidateCascade{page.Source.Id}_{source.Source.Id}Async(entity,actor,submitted,cancellationToken{(CascadeTreeExcelRenderer.OperationAware(model,table,page)?", cascadeOperation != RecordMutationOperation.Import":"")}{(merged?", creating:creating":"")});\n";
     }
 
     /// <summary>原名称回显可在HTTP边界忽略，内部严格DTO无此字段，服务从当前真实节点计算。</summary>
@@ -21,6 +22,7 @@ internal static class CascadeTreeWriteRenderer
         var result=new StringBuilder();
         foreach(var plan in CascadeTreeWriteCompilation.ForService(model,table,page))
         {
+            if(CascadeTreeMergedWriteRenderer.Applies(table,plan)){result.Append(CascadeTreeMergedWriteRenderer.Service(table,page,plan));continue;}
             var source=plan.Read.Source;var name=plan.Name;var suffix=page.Source.Id+"_"+source.Source.Id;
             result.AppendLine("    /// <summary>只在关联被提交、复制/新增或规则显式刷新时维护名称，省略保持原值。</summary>")
                 .AppendLine($"    private async Task ValidateCascade{suffix}Async({table.Name} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true)")

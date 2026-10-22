@@ -107,6 +107,30 @@ public sealed class SchemaPlannerTests
         Assert.NotEqual(MySqlSchemaPlanner.Fingerprint(before), MySqlSchemaPlanner.Fingerprint(new("test_db", [new("test_record", [a], "index_a")])));
     }
 
+    /// <summary>保留65位精度，DECIMAL补零只改变显示，不产生伪DDL或指纹差异。</summary>
+    [Theory]
+    [InlineData("1","1.00")]
+    [InlineData("-1.20","-001.2000")]
+    [InlineData("0","-0.000")]
+    [InlineData("+000123.4500","123.45")]
+    [InlineData("123456789012345678901234567890123.010000","123456789012345678901234567890123.01")]
+    public void Decimal_default_formatting_is_equivalent_without_precision_loss(string first,string second)
+    {
+        DatabaseSchema Schema(string value)=>new("test_db",[new("sample",[new("amount","decimal(65,30)",true,DefaultSql:value)])]);
+        Assert.Empty(MySqlSchemaPlanner.Compare(Schema(first),Schema(second)));Assert.Equal(MySqlSchemaPlanner.Fingerprint(Schema(first)),MySqlSchemaPlanner.Fingerprint(Schema(second)));
+    }
+    /// <summary>真实金额变化、舍入差异、文本格式与缺省状态仍须保留差异。</summary>
+    [Theory]
+    [InlineData("decimal(8,2)","1","2")]
+    [InlineData("decimal(8,2)","0.014","0.01")]
+    [InlineData("varchar(50)","'1'","'1.00'")]
+    [InlineData("decimal(8,2)",null,"0")]
+    public void Canonical_defaults_keep_real_changes_visible(string type,string? first,string second)
+    {
+        DatabaseSchema Schema(string? value)=>new("test_db",[new("sample",[new("amount",type,true,DefaultSql:value)])]);
+        Assert.Single(MySqlSchemaPlanner.Compare(Schema(first),Schema(second)));Assert.NotEqual(MySqlSchemaPlanner.Fingerprint(Schema(first)),MySqlSchemaPlanner.Fingerprint(Schema(second)));
+    }
+
     [Fact]
     public void Defaults_are_literals_and_never_raw_sql()
     {

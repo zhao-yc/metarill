@@ -16,7 +16,7 @@ public sealed class CascadeTreeReadTests
         var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var valid=JsonSerializer.Deserialize<CascadeTreeOptionsRequest>("{\"levelKey\":\"selfTree-1\",\"selectedPath\":{\"parentId\":\"9007199254740993\"}}",json)!;
         Assert.Equal(9007199254740993L,valid.ParseParent());
-        foreach(var extra in new[]{"table","sql","projectId","orderBy"})Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize<CascadeTreePathRequest>("{\""+extra+"\":\"secret\"}",json));
+        foreach(var extra in new[]{"table","sql","projectId","orderBy","structureOnly","requireTargetList"})Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize<CascadeTreePathRequest>("{\""+extra+"\":\"secret\"}",json));
         foreach(var path in new[]{"{\"parentId\":\"1\",\"parentId\":\"2\"}","{\"table\":\"secret\"}","[]","{\"parentId\":0}","{\"parentId\":\"1 OR 1=1\"}","{\"parentId\":1.0}"})
             Assert.Throws<ArgumentException>(()=>new CascadeTreeOptionsRequest{LevelKey="selfTree-0",SelectedPath=JsonSerializer.Deserialize<JsonElement>(path)}.ParseParent());
         foreach(var level in new[]{"selfTree-64","selfTree--1","crossTree-1","selfTree-1 OR 1=1"})Assert.Throws<ArgumentException>(()=>new CascadeTreeOptionsRequest{LevelKey=level,SelectedPath=JsonSerializer.Deserialize<JsonElement>("{}")}.ParseParent());

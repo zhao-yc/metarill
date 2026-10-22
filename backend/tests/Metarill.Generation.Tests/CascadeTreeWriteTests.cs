@@ -69,13 +69,13 @@ public sealed class CascadeTreeWriteTests
         var rejected=CascadeTreeWriteCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="25"));Assert.Contains("CascadeTree写入尚未支持",rejected.Reason);Assert.Contains(JsonSerializer.Serialize(rejected.Reason),ForeignValidationRenderer.Render(model,table,page));
     }
 
-    /// <summary>同表另一个关系字段涉及被改实体的合并范围，未接线前不能按旧数据库快照放行。</summary>
+    /// <summary>同表另一个关系字段由事务内最终状态校验，不再以旧数据库快照放行。</summary>
     [Fact]
-    public void Same_table_non_parent_relation_remains_an_explicit_gap()
+    public void Same_table_non_parent_relation_has_a_final_storage_validation_plan()
     {
         var catalog=Catalog();var source=catalog.ConfigColumns.Single(column=>column.Id=="25");source.LinkConfigTableId="2";source.ControlDetail=JsonSerializer.Serialize(new{sourceMode="selfTree",selfTree=new{table="write_source",parentField="other_parent_id"}});
         catalog.ConfigColumns.Add(new(){Id="27",ConfigTableId="2",ColumnName="other_parent_id",LogicalType="int64",LinkConfigTableId="2"});catalog.ConfigPageColumns.Add(new(){Id="2007",ConfigPageId="201",ConfigColumnId="27"});
-        var model=GenerationModel.Create(catalog,"Example.CascadeWrite");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(table.Pages);var gap=CascadeTreeWriteCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="25"));Assert.Null(gap.Definition);Assert.Contains("同表非父字段",gap.Reason);
+        var model=GenerationModel.Create(catalog,"Example.CascadeWrite");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(table.Pages);var gap=CascadeTreeWriteCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="25"));Assert.NotNull(gap.Definition);Assert.True(CascadeTreeMergedWriteRenderer.Applies(table,gap.Definition!));Assert.Contains("ValidateStoredCascade201_25Async",CascadeTreeMergedWriteRenderer.After(model,table,page,false));
     }
 
     /// <summary>本夹具保留显式名称配置，自动派生另有专项；生成本身不修改数据库。</summary>
