@@ -10,6 +10,7 @@ internal static class CascadeTreeExcelRenderer
     /// <summary>解析原单元格并只返回叶子ID；受管名称留给最终Service当前读维护。</summary>
     internal static string Import(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
+        if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is not null)return CrossTableExcelRenderer.Import(page,source);
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;
         if(plan is null)return $"    private Task<JsonElement> ImportCascade{page.Source.Id}_{source.Source.Id}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)=>throw new NotSupportedException(\"级联导入范围尚未证明。\");\n";
         var read=plan.Read;var suffix=page.Source.Id+"_"+source.Source.Id;var target=read.Target;var parent=read.Parent;var name=read.Name;

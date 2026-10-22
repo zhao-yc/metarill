@@ -10,8 +10,13 @@ internal static class ImportRenderer
     public static bool Enabled(PageModel page) => page.Source.IsImport == 1 || !string.IsNullOrWhiteSpace(Mode(page));
     /// <summary>读取已声明导入策略，默认追加。</summary>
     public static string Mode(PageModel page) => page.Source.Extra.TryGetValue("importMethod", out var value) ? value.ToString() : "";
-    /// <summary>父键由页面上下文绑定，不接受 Excel 覆盖。</summary>
-    public static IReadOnlyList<ColumnModel> Columns(PageModel page) => page.Writable.Where(column => !ManagerCredentialCompilation.IsObsolete(column) && !page.Scopes.Any(scope => scope.Source == "parent" && scope.Column == column)).ToArray();
+    /// <summary>Excel只取原显式编辑列；父键由页面上下文绑定，不接受覆盖。</summary>
+    public static IReadOnlyList<ColumnModel> Columns(PageModel page)
+    {
+        // 普通表单Writable含隐式级联ID，不能因此向用户模板追加未配置字段。
+        var declared=page.DeclaredWritable.Select(column=>column.Source.Id).ToHashSet(StringComparer.Ordinal);
+        return page.Writable.Where(column=>declared.Contains(column.Source.Id)&&!ManagerCredentialCompilation.IsObsolete(column)&&!page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column==column)).ToArray();
+    }
     /// <summary>生成保留 requestJson 与 parentId 的独立请求契约。</summary>
     public static string Dto(PageModel page) => !Enabled(page) ? "" : $$"""
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -116,6 +121,7 @@ public sealed partial class {{page.Name}}ImportRequest
             {
                 result.AppendLine("                    try").AppendLine("                    {")
                     .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportCascade{page.Source.Id}_{column.Source.Id}Async(cell.Value,actor,cancellationToken);")
+                    .Append(CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is{} cross?CrossTableExcelRenderer.PrepareIds(cross,columns):"")
                     .AppendLine("                    }").AppendLine("                    catch(PageImportException error) when(error.IsInputError)").AppendLine("                    {")
                     .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);").AppendLine("                    }");
             }
@@ -213,7 +219,7 @@ public sealed partial class {{page.Name}}ImportRequest
     /// <summary>类型错误只映射固定公开分类，原异常消息不进入返回值。</summary>
     private static string ErrorKind(ColumnModel column) => column.Source.ControlKind is "ConstList" or "ConstDownList" ? "Constant" : column.IsJsonArray ? "Array" : column.Type switch { "bool?" => "Boolean", "DateTime?" => "DateTime", _ => "Number" };
     /// <summary>Excel 使用中文标题，空标题回退为稳定字段名。</summary>
-    private static string Header(ColumnModel column) => string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name;
+    internal static string Header(ColumnModel column) => string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name;
     /// <summary>安全生成 C# 字符串字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
     /// <summary>关系候选参数只由真实身份或父记录上下文转换。</summary>

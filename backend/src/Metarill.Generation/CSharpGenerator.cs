@@ -163,6 +163,8 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
 }
 internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<ColumnModel> ListColumns, IReadOnlyList<ColumnModel> DetailColumns)
 {
+    /// <summary>保存模型扩展前的显式可写列，隐式表单字段不能改变原Excel合同。</summary>
+    internal IReadOnlyList<ColumnModel> DeclaredWritable {get;init;} = Writable.ToArray();
     internal FixedPageCondition? Condition {get;init;}
 }
 internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages) { public bool IsGlobal => Source.Extra.TryGetValue("scopeKind", out var scope) && scope.ToString() == "global"; }
