@@ -50,7 +50,7 @@ internal static class SelectionPageRenderer
         else if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        _ = RoleAdminNameScope{suffix}(actor,\"list\");");
         var projected = FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null ? FixedRoleCheckboxRenderer.ProjectCall(page,"ordered","list",!ManagerCredentialCompilation.IsOriginal(table,page))
             : FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null ? FixedRoleAdminNameRenderer.ProjectCall(page,"ordered","list") : null;
-        if(projected is null&&CascadeTreeViewRenderer.ForPage(model,table,page).Count>0)projected=CascadeTreeViewRenderer.Decorate(model,table,page,$"ordered.Select({page.Name}Vo.FromEntity).ToArray()","ordered");
+        if(projected is null&&(CascadeTreeViewRenderer.ForPage(model,table,page).Count>0||CrossTableDisplayRenderer.ForPage(model,table,page).Count>0))projected=CascadeTreeViewRenderer.Decorate(model,table,page,$"ordered.Select({page.Name}Vo.FromEntity).ToArray()","ordered");
         return result.AppendLine($"        var query = {CascadeTreeQueryCompilation.Call(page,$"new PageRequest {{ ParentId = request.ParentId, SelectedIds = selected.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToList() }}")};")
             .AppendLine("        if (selected.Length == 0) return [];")
             .AppendLine(ManagerCredentialCompilation.IsTable(table) ? $"        var entities = await query.Limit(200).ToListAsync({ManagerCredentialCompilation.ReadProjection(table)}, cancellationToken);" : "        var entities = await query.Limit(200).ToListAsync(cancellationToken);")

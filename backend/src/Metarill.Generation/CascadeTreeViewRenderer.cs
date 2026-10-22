@@ -22,11 +22,11 @@ internal static class CascadeTreeViewRenderer
     /// <summary>只补原页面隐式名称，不将它加入Writable、页面布局或搜索列。</summary>
     internal static IReadOnlyList<ColumnModel> ImplicitNames(GenerationModel model,TableModel table,PageModel page)=>Names(model,table,page).Where(name=>!page.Readable.Any(column=>column.Source.Id==name.Source.Id)).ToArray();
     /// <summary>沿原JSON键输出完整路径；只能由后端装饰，不能进入写DTO。</summary>
-    internal static string Vo(GenerationModel model,TableModel table,PageModel page)=>string.Concat(ForPage(model,table,page).Select(plan=>$"    [JsonPropertyName({Literal(plan.Source.JsonName+"DisplayText")})] public string? {plan.Source.Property}DisplayText {{ get; set; }}\n"));
+    internal static string Vo(GenerationModel model,TableModel table,PageModel page)=>string.Concat(ForPage(model,table,page).Select(plan=>$"    [JsonPropertyName({Literal(plan.Source.JsonName+"DisplayText")})] public string? {plan.Source.Property}DisplayText {{ get; set; }}\n"))+CrossTableDisplayRenderer.Vo(model,table,page);
     /// <summary>结果只来自已授权来源页，目标继续应用项目/软删/固定条件，不增加目标列表操作门槛。</summary>
-    internal static string Decorate(GenerationModel model,TableModel table,PageModel page,string expression,string entities)=>ForPage(model,table,page).Count==0?expression:$"await DecorateCascade{page.Source.Id}Async({expression}, {entities}, actor, cancellationToken)";
+    internal static string Decorate(GenerationModel model,TableModel table,PageModel page,string expression,string entities)=>CrossTableDisplayRenderer.Decorate(model,table,page,ForPage(model,table,page).Count==0?expression:$"await DecorateCascade{page.Source.Id}Async({expression}, {entities}, actor, cancellationToken)",entities);
     /// <summary>写响应使用当前读保持已验证的新名称；普通详情沿读取快照投影。</summary>
-    internal static string One(GenerationModel model,TableModel table,PageModel page,string expression,string operation)=>ForPage(model,table,page).Count==0?expression:$"(await DecorateCascade{page.Source.Id}Async(new[] {{ {expression} }}, new[] {{ entity }}, actor, cancellationToken, {(operation is "create" or "update" or "copy"?"true":"false")}))[0]";
+    internal static string One(GenerationModel model,TableModel table,PageModel page,string expression,string operation)=>CrossTableDisplayRenderer.One(model,table,page,ForPage(model,table,page).Count==0?expression:$"(await DecorateCascade{page.Source.Id}Async(new[] {{ {expression} }}, new[] {{ entity }}, actor, cancellationToken, {(operation is "create" or "update" or "copy"?"true":"false")}))[0]");
 
     /// <summary>原节点对象转换为固定ID集合；名称仅回显，未证明定义不能降级为字符串LIKE。</summary>
     internal static string Filter(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
@@ -41,7 +41,7 @@ internal static class CascadeTreeViewRenderer
     /// <summary>批量查询固定三列，逐父批和主键游标保证宽树不受候选500项上限截断。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
-        var result=new StringBuilder();
+        var result=new StringBuilder(CrossTableDisplayRenderer.Service(model,table,page));
         foreach(var plan in CascadeTreeReadCompilation.ForService(model,table,page))
         {
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;

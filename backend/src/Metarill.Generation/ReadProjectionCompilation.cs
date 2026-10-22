@@ -73,6 +73,23 @@ internal static class ReadProjectionCompilation
             { Gap(column.Source.Id, "联接或虚拟字段缺少固定读取计划：" + column.JsonName); return; }
             if(Kind(column)=="CascadeTree")
             {
+                if(CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is{} cross)
+                {
+                    try{_ = CrossTableDisplayRenderer.ForPage(model,table,page);}
+                    catch(InvalidOperationException error){Gap(column.Source.Id,error.Message);return;}
+                    physical.TryAdd(column.Source.Id,column);Reason(column.Source.Id,reason);Output(new(column.JsonName,column.Property,column,ReadProjectionOutputKind.Physical));
+                    foreach(var level in cross.Levels)
+                    {
+                        var label=level.Name;if(!page.Readable.Any(candidate=>candidate.Source.Id==label.Source.Id)){Gap(label.Source.Id,"跨表显示名称不属于当前页读取合同。");return;}
+                        physical.TryAdd(label.Source.Id,label);Reason(label.Source.Id,"原跨表已存层级名称："+column.JsonName);Output(new(label.JsonName,label.Property,label,ReadProjectionOutputKind.Physical));
+                    }
+                    if(purpose!=ReadProjectionPurpose.List)foreach(var level in cross.Levels)
+                    {
+                        var id=level.Id;if(!page.Readable.Any(candidate=>candidate.Source.Id==id.Source.Id)){Gap(id.Source.Id,"跨表控件级ID不属于当前页读取合同。");return;}
+                        physical.TryAdd(id.Source.Id,id);Reason(id.Source.Id,"原跨表详情与选择确认的隐式级ID："+column.JsonName);Output(new(id.JsonName,id.Property,id,ReadProjectionOutputKind.Physical));
+                    }
+                    Output(new(column.JsonName+"DisplayText",column.Property+"DisplayText",column,ReadProjectionOutputKind.CascadeDisplayText));return;
+                }
                 var resolved=CascadeTreeReadCompilation.Resolve(model,table,page,column);var name=CascadeTreeViewRenderer.Name(table,column);
                 if(column.Source.ControlKind!="CascadeTree"||resolved.Definition is null||name is null||column.Type is not("string?" or "long?"))
                 {Gap(column.Source.Id,resolved.Reason??"级联隐式名称缺少固定物理读取合同。");return;}
