@@ -55,22 +55,8 @@ internal static class CascadeTreeMergedWriteRenderer
         var refresh=creating||submitted.Contains({{Literal(source.Source.ColumnName)}})||submitted.Contains({{Literal(name.Source.ColumnName)}});
         var stored=await session.Select<{{table.Name}}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(cancellationToken);
         if(stored is null||stored.{{source.Property}}!=entity.{{source.Property}}{{identity}}||(creating||submitted.Contains({{Literal(parent.Source.ColumnName)}}))&&stored.{{parent.Property}}!=entity.{{parent.Property}})throw new InvalidOperationException("级联关联ID或归属在存储后发生变化，未提交。");
-        // 父键改变时检查来源节点自身的拓扑，即使书签为空或指向别的树也不能造环。
-        if(creating||submitted.Contains({{Literal(parent.Source.ColumnName)}}))
-        {
-            var parentText=Convert.ToString(stored.{{parent.Property}},CultureInfo.InvariantCulture);
-            if(!string.IsNullOrWhiteSpace(parentText))
-            {
-                if(!long.TryParse(parentText,NumberStyles.None,CultureInfo.InvariantCulture,out var parentId)||parentId<=0)throw new ArgumentException("级联父ID无效。");
-                var structuralReader=new Metarill.Core.Cascades.SelfTreeReader(async(key,ct)=>
-                {
-                    var row=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.Id==key).ForUpdate().FirstAsync(row=>new {{table.Name}}{Id=row.Id,{{parent.Property}}=row.{{parent.Property}}},ct);
-                    return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,null,Convert.ToString(row.{{parent.Property}},CultureInfo.InvariantCulture));
-                },(_,_,_)=>throw new InvalidOperationException("拓扑校验不枚举候选。"),(_,_)=>throw new InvalidOperationException("拓扑校验不枚举候选。"),"/");
-                var parentPath=await structuralReader.PathAsync(parentId,cancellationToken);
-                if(parentPath.Path.Count>=Metarill.Core.Cascades.SelfTreeReader.MaximumDepth||parentPath.Path.Any(node=>node.Id==stored.Id.ToString(CultureInfo.InvariantCulture)))throw new InvalidOperationException("级联父路径存在循环或超过64层。");
-            }
-        }
+        // 改父必须验证完整分支，不能把后代推过64层，也不能因书签为空漏掉约束。
+        if(creating||submitted.Contains({{Literal(parent.Source.ColumnName)}}))_ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync(stored.Id,false,cancellationToken);
         var text=Convert.ToString(stored.{{source.Property}},CultureInfo.InvariantCulture);string? actualName;
         if(string.IsNullOrWhiteSpace(text))actualName={{storedEmptyName}};
         else

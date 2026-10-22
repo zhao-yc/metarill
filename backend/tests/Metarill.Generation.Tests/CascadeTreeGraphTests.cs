@@ -14,6 +14,16 @@ public sealed class CascadeTreeGraphTests
         Assert.Equal(9007199254740993L,CascadeTreeGraphReader.FilterId(Read("{\"treeId\":\"9007199254740993\",\"treeName\":\"任意回显\"}"),"treeId","treeName"));Assert.Null(CascadeTreeGraphReader.FilterId(Read("{}"),"treeId","treeName"));
         foreach(var text in new[]{"{\"treeId\":\"1\",\"treeId\":\"2\"}","{\"treeId\":\"1\",\"projectId\":\"2\"}","{\"treeId\":\"1 OR 1=1\"}","[1]","\"1\""})Assert.Throws<ArgumentException>(()=>CascadeTreeGraphReader.FilterId(Read(text),"treeId","treeName"));
     }
+    /// <summary>绝对深度包含已有祖先，末尾游标页的一条后代也不能在宽树迁移时漏掉。</summary>
+    [Fact]
+    public async Task Wide_last_page_descendant_uses_absolute_depth_budget()
+    {
+        var ancestors=Enumerable.Range(1,62).Select(id=>new CascadeTreeNode(id,"祖先",id==1?null:(id-1).ToString()));
+        var nodes=ancestors.Concat([new CascadeTreeNode(1000,"分支","62")]).Concat(Enumerable.Range(2000,1205).Select(id=>new CascadeTreeNode(id,"叶","1000"))).ToArray();
+        Assert.Equal(1206,(await Graph(nodes).FilterIdsAsync(1000,false)).Count);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>Graph(nodes.Concat([new CascadeTreeNode(5000,"最末孙","3204")]).ToArray()).FilterIdsAsync(1000,false));
+    }
+
     /// <summary>同祖先多行只按批读取一次，不产生每行完整路径的N+1查询。</summary>
     [Fact]
     public async Task Display_batches_shared_ancestors_and_does_not_return_partial_or_broken_paths()

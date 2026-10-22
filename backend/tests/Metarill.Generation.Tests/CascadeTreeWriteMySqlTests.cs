@@ -50,12 +50,15 @@ public sealed class CascadeTreeWriteMySqlTests
         // 不另配名称页面字段时，原响应仍应携带受管叶子名称；真实写入链与回显必须一致。
         if(nameMode!="explicit")catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="26");
         if(nameMode=="automatic"){catalog.ConfigColumns.RemoveAll(column=>column.Id=="26");if(parentType=="string")catalog.ConfigColumns.Single(column=>column.Id=="25").ColumnLength="64";}
+        catalog.ConfigPages.Single(page=>page.Id=="301").IsCopy=1;
+        // 目标页不开放状态写入，新增节点通过隐藏字段的元数据默认值进入原页面范围。
+        catalog.ConfigColumns.Single(column=>column.Id=="37").DefaultValue="1";
         // 同表父字段也复用原级联，修改父关系不得形成新环。
         var parentDefinition=catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail;var parentField=catalog.ConfigColumns.Single(column=>column.Id=="35");parentField.ControlKind="CascadeTree";parentField.ControlDetail=parentDefinition;
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="parent_"+prefix+"_tree_name",LogicalType="string",ColumnLength="10",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1)}});catalog.ConfigPageColumns.Add(new(){Id="3008",ConfigPageId="301",ConfigColumnId="38"});
         var root=Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??throw new InvalidOperationException("缺少仓库路径。");var evidence=Path.Combine(root,".local/cascade-write/mysql-"+nonce);Directory.CreateDirectory(evidence);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-write-mysql");var directory=Path.Combine(boundary,nonce);WebApplication? app=null;var created=false;var verified=false;
-        var pause=new PauseObserver();var snapshot=new SnapshotGuard(options,prefix);
+        var topologyPause=new TopologyPauseObserver();var pause=new PauseObserver();var snapshot=new SnapshotGuard(options,prefix);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();
         await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,parentType,nameMode,names,database=options.ExpectedDatabase,verified=false}));
         try
@@ -98,7 +101,7 @@ public partial class {{typeName}}Service
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();var port=((IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();
             var builder=WebApplication.CreateBuilder(new WebApplicationOptions{EnvironmentName="Development"});builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:"+port);
-            builder.Services.AddSingleton<IRecordMutationObserver>(pause);builder.Services.AddSingleton<IRecordMutationGuard>(snapshot);builder.Services.AddHttpContextAccessor();builder.Services.AddSingleton(session);builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(944));builder.Services.AddScoped<IRuntimeAuthorization>(provider=>new ProbeAuthorization(provider.GetRequiredService<IHttpContextAccessor>()));
+            builder.Services.AddSingleton<IRecordMutationObserver>(pause);builder.Services.AddSingleton<IRecordMutationObserver>(topologyPause);builder.Services.AddSingleton<IRecordMutationGuard>(snapshot);builder.Services.AddHttpContextAccessor();builder.Services.AddSingleton(session);builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(944));builder.Services.AddScoped<IRuntimeAuthorization>(provider=>new ProbeAuthorization(provider.GetRequiredService<IHttpContextAccessor>()));
             assembly.GetType("Example.CascadeWriteProbe.Generated.GeneratedRegistration",true)!.GetMethod("AddGeneratedServices")!.Invoke(null,[builder.Services,null]);
             builder.Services.AddControllers().AddApplicationPart(assembly).AddJsonOptions(config=>config.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));app=builder.Build();
             app.Use(async(context,next)=>{try{await next();}catch(Exception error)when(error is ArgumentException or UnauthorizedAccessException or InvalidOperationException){context.Response.StatusCode=400;await context.Response.WriteAsJsonAsync(R<string>.Error(error.Message));}});app.MapControllers();await app.StartAsync();
@@ -175,12 +178,36 @@ public partial class {{typeName}}Service
             using(var response=await client.PostAsJsonAsync(hierarchy,new Dictionary<string,object?>{{"id",(First+3).ToString()},{parentJson,(First+2).ToString()}}))Assert.Equal(200,JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync()).GetProperty("code").GetInt32());
             using(var response=await client.PostAsJsonAsync(hierarchy,new Dictionary<string,object?>{{"id",(First+3).ToString()},{parentJson,null}}))Assert.Equal(200,JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync()).GetProperty("code").GetInt32());
 
+            // 直接父控件覆盖新增、迁父、复制的64/65层，并检查完整宽子树而不是候选前500项。
+            async Task<JsonElement> TreeWrite(string action,Dictionary<string,object?> body)=>JsonSerializer.Deserialize<JsonElement>(await(await client.PostAsJsonAsync("/api/admin/auto/"+prefix+"_tree/301/"+action,body)).Content.ReadAsStringAsync());
+            async Task<string> TreeState(){using var independent=new DatabaseSession(options);return JsonSerializer.Serialize((await new Metarill.Runtime.Persistence.SqlRowStore(independent,catalog).ReadIncludingDeletedAsync(tree)).OrderBy(row=>Metarill.Runtime.Persistence.SqlRowStore.Id(row)));}
+            for(var level=0;level<64;level++)await Seed(First+100+level,"层"+level,level==0?null:First+99+level);
+            var deep=Data(await TreeWrite("add",new(){{"name","新64"},{parentJson,(First+162).ToString()}}));var deepId=deep.GetProperty("id").GetString()!;var stateBefore=await TreeState();
+            Assert.Equal(500,(await TreeWrite("add",new(){{"name","拒65"},{parentJson,(First+163).ToString()}})).GetProperty("code").GetInt32());Assert.Equal(stateBefore,await TreeState());
+            Data(await TreeWrite("copy/"+deepId,new()));await Seed(First+180,"坏65",First+163);stateBefore=await TreeState();Assert.Equal(500,(await TreeWrite("copy/"+(First+180).ToString(),new())).GetProperty("code").GetInt32());Assert.Equal(stateBefore,await TreeState());await Execute(session,"DELETE FROM "+session.Provider.QuoteIdentifier(tree)+" WHERE id=@id",("id",First+180));
+            await Seed(First+200,"分支",null);await Seed(First+201,"枝叶",First+200);stateBefore=await TreeState();Assert.Equal(500,(await TreeWrite("update",new(){{"id",(First+200).ToString()},{parentJson,(First+162).ToString()}})).GetProperty("code").GetInt32());Assert.Equal(stateBefore,await TreeState());
+            if(nameMode=="automatic")
+            {
+                for(var index=0;index<1305;index++)await Seed(First+1000+index,"宽叶",First+200,status:index==1304?0:1);await Seed(First+5000,"隐藏孙",First+2304,status:0);
+                stateBefore=await TreeState();Assert.Equal(500,(await TreeWrite("update",new(){{"id",(First+200).ToString()},{parentJson,(First+161).ToString()}})).GetProperty("code").GetInt32());Assert.Equal(stateBefore,await TreeState());
+                Data(await TreeWrite("update",new(){{"id",(First+200).ToString()},{parentJson,(First+160).ToString()}}));
+                // 拓扑锁包括末尾且被页面条件隐藏的节点，不能在通知前提前释放。
+                var holding=TreeWrite("update",new(){{"id",(First+200).ToString()},{"name","子树锁持有"},{parentJson,(First+160).ToString()}});
+                try
+                {
+                    await topologyPause.Entered.Task.WaitAsync(TimeSpan.FromSeconds(20));await using var independent=new MySqlConnection(options.ConnectionString);await independent.OpenAsync();await using(var timeout=independent.CreateCommand()){timeout.CommandText="SET SESSION innodb_lock_wait_timeout=1";await timeout.ExecuteNonQueryAsync();}await using var transaction=await independent.BeginTransactionAsync();await using var update=independent.CreateCommand();update.Transaction=transaction;update.CommandText="UPDATE "+session.Provider.QuoteIdentifier(tree)+" SET name=@name WHERE id=@id";update.Parameters.AddWithValue("name","竞争末叶");update.Parameters.AddWithValue("id",First+2304);var error=await Assert.ThrowsAsync<MySqlException>(()=>update.ExecuteNonQueryAsync());Assert.Equal(1205,error.Number);await transaction.RollbackAsync();
+                }
+                finally{topologyPause.Release.TrySetResult();await holding;}Assert.Equal(200,(await holding).GetProperty("code").GetInt32());await Execute(session,"UPDATE "+session.Provider.QuoteIdentifier(tree)+" SET name=@name WHERE id=@id",("name","末叶新名"),("id",First+2304));
+                stateBefore=await TreeState();Assert.Equal(500,(await TreeWrite("update",new(){{"id",(First+200).ToString()},{"name","提交前失败"},{parentJson,null}})).GetProperty("code").GetInt32());Assert.Equal(stateBefore,await TreeState());
+            }
+            Data(await TreeWrite("update",new(){{"id",(First+200).ToString()},{parentJson,null}}));
+
             verified=true;
             await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,parentType,nameMode,verified,originalProtocol=true,realMySql=true,realGeneratedHttp=true,fixedTestActor=true,browser=false,fullControl=false,writeAndNames=true,currentReadAndParentLock=true}));
         }
         finally
         {
-            pause.Release.TrySetResult();
+            topologyPause.Release.TrySetResult();pause.Release.TrySetResult();
             if(app is not null){await app.StopAsync();await app.DisposeAsync();}
             if(created)
             {
@@ -193,6 +220,13 @@ public partial class {{typeName}}Service
         }
     }
 
+    /// <summary>独立于原来源写入暂停，在树分支最终拓扑校验后的观察者阶段持有所有后代锁。</summary>
+    private sealed class TopologyPauseObserver:IRecordMutationObserver
+    {
+        public TaskCompletionSource Entered{get;}=new(TaskCreationOptions.RunContinuationsAsynchronously);public TaskCompletionSource Release{get;}=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>仅固定样本标记触发，有界等待避免测试遗留事务。</summary>
+        public async Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken=default){if(context.SubmittedFields.TryGetValue("name",out var value)&&Equals(value,"子树锁持有")){Entered.TrySetResult();await Release.Task.WaitAsync(TimeSpan.FromSeconds(25),cancellationToken);}}
+    }
     /// <summary>真实RR事务先建立旧快照，再由独立连接修改当前叶子或祖先状态。</summary>
     private sealed class SnapshotGuard(DatabaseOptions options,string prefix):IRecordMutationGuard
     {

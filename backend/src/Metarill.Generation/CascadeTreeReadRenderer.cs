@@ -30,7 +30,7 @@ internal static class CascadeTreeReadRenderer
         var result=new StringBuilder();
         foreach(var plan in CascadeTreeReadCompilation.ForService(model,table,page))
         {
-            var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;var sameRow=target.Source.Id==table.Source.Id&&parent.Source.Id!=plan.Source.Source.Id;
+            var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;var sameRow=target.Source.Id==table.Source.Id;
             string ParentValue(string expression)=>parent.Type=="string?"?expression+"?.ToString(CultureInfo.InvariantCulture)":expression;
             string NodeParent(string expression)=>parent.Type=="string?"?expression:expression+"?.ToString(CultureInfo.InvariantCulture)";
             var projection=$"row => new {target.Name} {{ Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property} }}";
@@ -47,6 +47,7 @@ internal static class CascadeTreeReadRenderer
             foreach(var (column,_) in scopes)result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={(column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")});");
             if(sameRow&&plan.TargetPage.Condition is not null)result.AppendLine("        if(!structureOnly)");
             result.Append(FixedPageConditionCompilation.Apply(plan.TargetPage,"CascadeCondition"+suffix,"cascade_"+suffix)).AppendLine("        return query;").AppendLine("    }");
+            if(sameRow)result.Append(CascadeTreeTopologyRenderer.Service(table,page,plan));
             result.AppendLine("    /// <summary>只投影树结构必需三列，候选有界且不加载整表。</summary>")
                 .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true) => new(")
                 .AppendLine($"        async (id,ct)=>{{var query=CascadeScope{suffix}(actor,requireSourceList,requireTargetList).Where(row=>row.Id==id);if(locking)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{NodeParent("row."+parent.Property)});}},")
