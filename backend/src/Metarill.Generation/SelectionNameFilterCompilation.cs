@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 /// <summary>仅描述实际可证明的名称存储匹配；JSON数组必须由已交付数据库方言按元素匹配。</summary>
-internal enum SelectionNameFilterKind { ScalarLike, JsonArrayAnyLike, JoinedScalarLike }
+internal enum SelectionNameFilterKind { ScalarLike, JsonArrayAnyLike, JoinedScalarLike, JoinedJsonArrayAnyLike }
 internal sealed record SelectionNameFilterBinding(ColumnModel Source,ColumnModel StorageColumn,string FilterKey,SelectionNameFilterKind Kind);
 internal sealed record SelectionNameFilterGap(ColumnModel Source,string FilterKey,string Reason);
 internal sealed record SelectionNameFilterPlan(IReadOnlyList<SelectionNameFilterBinding> Bindings,IReadOnlyList<SelectionNameFilterGap> Gaps)
@@ -27,7 +27,7 @@ internal static class SelectionNameFilterCompilation
             if(EffectiveFilterKind(model,page,source)!=source.Source.ControlKind){Gap("页级controlKind改变了名称筛选的存储种类，尚未建立完整证明。");continue;}
             if(table.Source.IsRongyu is not(0 or 1)){Gap("未识别的存储模式不能建立名称谓词。");continue;}
             if(storage.Source.Id==source.Source.Id){Gap("没有独立已声明名称列；ID筛选必须使用独立合同。");continue;}
-            if(storage.Type!="string?"||storage.Source.IsVirtualColumn!=0||!page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")){Gap("辅助名称必须为本页可读的已证明字符串列。");continue;}
+            if(storage.Type!="string?"||storage.Source.IsVirtualColumn!=0||!(page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||table.Source.IsRongyu==0&&source.Source.ControlKind=="MultiSelectPage"&&storage.IsManagedMultiNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id))||table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")){Gap("辅助名称必须为本页可读的已证明字符串列。");continue;}
             try
             {
                 var settings=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
@@ -42,11 +42,21 @@ internal static class SelectionNameFilterCompilation
                 SelectionNameFilterKind kind;
                 if(table.Source.IsRongyu==0)
                 {
+                    if(source.Source.ControlKind=="MultiSelectPage")
+                    {
+                        var known=MultiSelectCompilation.Resolve(model,table,page,source);
+                        if(known.Definition?.Names?.Source.Id!=storage.Source.Id){Gap(known.Reason??"非冗余多选名称未绑定同一关系。");continue;}
+                        Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[storage.Source.ColumnName]);
+                        kind=SelectionNameFilterKind.JoinedJsonArrayAnyLike;
+                    }
+                    else
+                    {
                     var selection=NonRedundantSelectionCompilation.Resolve(model,table,page,source);
                     if(!NonRedundantSelectionCompilation.IsDisplay(source,storage,selection)){Gap("非冗余名称列没有绑定同一单值外键和目标名称。");continue;}
                     var read=Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[storage.Source.ColumnName]);
                     if(read.OutputTypes[storage.Source.ColumnName]!="string"){Gap("非冗余名称计划不是字符串。");continue;}
                     kind=SelectionNameFilterKind.JoinedScalarLike;
+                    }
                 }
                 else if(source.Source.ControlKind=="MultiSelectPage")
                 {
@@ -101,7 +111,7 @@ internal static class SelectionNameFilterCompilation
         var result=new System.Text.StringBuilder();
         foreach(var binding in plan.Bindings)
         {
-            if(binding.Kind==SelectionNameFilterKind.JoinedScalarLike)throw new InvalidOperationException("非冗余名称谓词必须使用固定读取计划，不能查询忽略持久化的实体列。");
+            if(binding.Kind is SelectionNameFilterKind.JoinedScalarLike or SelectionNameFilterKind.JoinedJsonArrayAnyLike)throw new InvalidOperationException("非冗余名称谓词必须使用固定读取计划，不能查询忽略持久化的实体列。");
             var predicate=binding.Kind==SelectionNameFilterKind.ScalarLike?$"query = Metarill.Data.Queries.StringNameQuery.ApplyLike(session, query, entity => entity.{binding.StorageColumn.Property}, value);":renderJsonPredicate?.Invoke(binding)??throw new InvalidOperationException("JSON数组名称筛选尚未提供数据库方言实现。");
             if(string.IsNullOrWhiteSpace(predicate))throw new InvalidOperationException("名称筛选生成分支不能为空。");
             result.AppendLine("case "+JsonSerializer.Serialize(binding.FilterKey)+": {")

@@ -2,27 +2,30 @@ using System.Data.Common;
 
 namespace Metarill.Data.Queries;
 
-public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In }
+public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains }
 public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison,object? Value=null);
 public sealed record FixedReadOrder(string Field,bool Descending=false);
 public sealed record FixedReadPage(long Total,IReadOnlyList<IReadOnlyDictionary<string,object?>> Records);
 public sealed record FixedReadStatistics(long Total,IReadOnlyDictionary<string,decimal?> Sums);
 
-/// <summary>执行固定单值读计划；调用方仍须先建立原页面授权和父对象读取范围。</summary>
+/// <summary>执行固定单值及多选读计划；调用方仍须先建立原页面授权和父对象读取范围。</summary>
 public sealed class MySqlNonRedundantReader(DatabaseSession session)
 {
+    // 名称数组也是原Excel的纯文本单元格；保持中文与标点可读，对外HTTP仍由宿主JSON编码。
+    private static readonly System.Text.Json.JsonSerializerOptions MultiNamesJson=new(){Encoder=System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping};
     /// <summary>相同SQL范围用于总数与分页，派生值在数据库内先筛选、排序再分页。</summary>
     public async Task<FixedReadPage> ReadPageAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken=default,bool unpaged=false,string? projectId=null,FixedConditionSqlPlan? condition=null)
-        => await ReadAsync(plan,filters,order,page,pageSize,cancellationToken,unpaged,projectId,true,condition);
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken=default,bool unpaged=false,string? projectId=null,FixedConditionSqlPlan? condition=null,bool currentRead=false)
+        => await ReadAsync(plan,filters,order,page,pageSize,cancellationToken,unpaged,projectId,true,condition,currentRead);
     /// <summary>有界导出只读明细，不额外执行分页总数；限制与查询验证仍共用固定读取入口。</summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
         => (await ReadAsync(plan,filters,order,1,limit,cancellationToken,false,projectId,false,condition)).Records;
     /// <summary>分页和有界明细共用结构生成；是否求总数由服务固定用途决定。</summary>
     private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition)
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false)
     {
+        if(currentRead&&session.CurrentTransaction is null)throw new InvalidOperationException("当前读必须加入真实业务事务。");
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(order);
         if(page<1||pageSize<0||pageSize==0&&!unpaged||unpaged&&(page!=1||pageSize!=0))throw new ArgumentOutOfRangeException(nameof(page));
@@ -41,12 +44,35 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             var total=0L;
             if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+from;total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);}
             await using var read=Command(connection);Bind(read,projectId,filters);BindCondition(read,conditionClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
-            read.CommandText="SELECT "+string.Join(",",plan.Outputs.Select(name=>plan.Expression(name)+" AS "+Q(name)))+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset");
-            var records=new List<IReadOnlyDictionary<string,object?>>();await using var reader=await read.ExecuteReaderAsync(cancellationToken);
-            while(await reader.ReadAsync(cancellationToken))
-            {var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var i=0;i<reader.FieldCount;i++)row.Add(reader.GetName(i),await reader.IsDBNullAsync(i,cancellationToken)?null:reader.GetValue(i));records.Add(new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row));}
-            return new FixedReadPage(total,records.AsReadOnly());
+            // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
+            var multis=plan.Outputs.Where(plan.MultiProjections.ContainsKey).ToArray();var hidden=new Dictionary<string,string>(StringComparer.Ordinal);var projection=plan.Outputs.Select(name=>(plan.MultiProjections.ContainsKey(name)?"NULL":plan.Expression(name))+" AS "+Q(name)).ToList();
+            var ordinal=0;foreach(var name in multis){string alias;do{alias="metarill_multi_input_"+ordinal++;}while(plan.Outputs.Contains(alias,StringComparer.OrdinalIgnoreCase));hidden.Add(name,alias);projection.Add(plan.MultiProjections[name].SourceExpression+" AS "+Q(alias));}
+            read.CommandText="SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(currentRead?" FOR SHARE":"");
+            var records=new List<Dictionary<string,object?>>();
+            await using(var reader=await read.ExecuteReaderAsync(cancellationToken))
+                while(await reader.ReadAsync(cancellationToken))
+                {var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var i=0;i<reader.FieldCount;i++)row.Add(reader.GetName(i),await reader.IsDBNullAsync(i,cancellationToken)?null:reader.GetValue(i));records.Add(row);}
+            foreach(var name in multis)await PopulateMultiAsync(connection,plan.MultiProjections[name],name,hidden[name],records,projectId,currentRead,cancellationToken);
+            return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());
         },cancellationToken);
+    }
+    /// <summary>每个关系按页合并ID、分批主键读取名称；写回执使用目标当前锁读，不能被旧RR快照覆盖。</summary>
+    private async Task PopulateMultiAsync(DbConnection connection,MySqlMultiProjection projection,string output,string hidden,IReadOnlyList<Dictionary<string,object?>> rows,string projectId,bool currentRead,CancellationToken token)
+    {
+        var members=rows.Select(row=>MultiMembers(row[hidden])).ToArray();var ids=members.SelectMany(items=>items).Where(id=>id is not null).Select(id=>long.TryParse(id,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var key)&&key>0&&key.ToString(System.Globalization.CultureInfo.InvariantCulture)==id?(long?)key:null).OfType<long>().Distinct().Order().ToArray();
+        var names=new Dictionary<string,string?>(StringComparer.Ordinal);
+        foreach(var batch in ids.Chunk(200))
+        {
+            await using var command=Command(connection);Bind(command,projectId,[]);for(var index=0;index<batch.Length;index++)Add(command,"multi_id_"+index,batch[index]);
+            command.CommandText="SELECT multi_value.`id`,multi_value."+projection.TargetName+" FROM "+projection.TargetTable+" multi_value WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":"");
+            await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))names.Add(reader.GetInt64(0).ToString(System.Globalization.CultureInfo.InvariantCulture),await reader.IsDBNullAsync(1,token)?null:reader.GetString(1));
+        }
+        for(var index=0;index<rows.Count;index++){rows[index][output]=System.Text.Json.JsonSerializer.Serialize(members[index].Select(id=>id is null?null:names.GetValueOrDefault(id)).ToArray(),MultiNamesJson);rows[index].Remove(hidden);}
+    }
+    /// <summary>只读取历史数组的顺序和值，损坏或非数组保持原空集合显示，不修补源存储。</summary>
+    private static string?[] MultiMembers(object? value)
+    {
+        if(value is null)return [];try{using var doc=System.Text.Json.JsonDocument.Parse(Convert.ToString(value,System.Globalization.CultureInfo.InvariantCulture)!);return doc.RootElement.ValueKind==System.Text.Json.JsonValueKind.Array?doc.RootElement.EnumerateArray().Select(item=>item.ValueKind is System.Text.Json.JsonValueKind.String?item.GetString():item.ValueKind==System.Text.Json.JsonValueKind.Number?item.GetRawText():null).ToArray():[];}catch(System.Text.Json.JsonException){return [];}
     }
     /// <summary>数值派生表达式在同一完整过滤范围内汇总，不先分页或对当前页记录求和。</summary>
     public async Task<FixedReadStatistics> ReadStatisticsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
@@ -107,6 +133,12 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(value is not(null or string or long or int or decimal or double or float or bool or DateTime or DateTimeOffset or TimeSpan))throw new InvalidOperationException("固定筛选值必须是受支持的标量。");
         if(filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)
         {if(value is not null)throw new InvalidOperationException("空值筛选不能同时带值。");return expression+(filter.Comparison==FixedReadComparison.IsNull?" IS NULL":" IS NOT NULL");}
+        if(filter.Comparison==FixedReadComparison.JsonArrayAnyContains)
+        {
+            if(value is not string||!plan.ArrayNamePredicates.TryGetValue(filter.Field,out var arrayPredicate))throw new InvalidOperationException("数组名称筛选只接受已编译多值关系与文本。");
+            // 元素匹配不能退化为序列化JSON文本LIKE；根COUNT、分页及统计仍使用同一EXISTS。
+            return arrayPredicate.Replace("{parameter}",parameter,StringComparison.Ordinal);
+        }
         if(filter.Comparison==FixedReadComparison.Contains)
         {if(value is not string||plan.Types[filter.Field]!="string")throw new InvalidOperationException("字面包含仅适用于文本字段。");return expression+" LIKE "+parameter+" ESCAPE '!'";}
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
@@ -120,7 +152,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     {
         Add(command,"project_scope_text",projectId);Add(command,"project_scope_number",long.Parse(projectId,System.Globalization.CultureInfo.InvariantCulture));
         for(var i=0;i<filters.Count;i++)
-        {var filter=filters[i];if(filter.Comparison==FixedReadComparison.In){var items=(IReadOnlyList<object?>)filter.Value!;for(var item=0;item<items.Count;item++)if(items[item] is {} memberValue)Add(command,"filter_"+i+"_"+item,memberValue);continue;}if(filter.Value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)continue;var value=filter.Comparison==FixedReadComparison.Contains?"%"+((string)filter.Value).Replace("!","!!",StringComparison.Ordinal).Replace("%","!%",StringComparison.Ordinal).Replace("_","!_",StringComparison.Ordinal)+"%":filter.Value;Add(command,"filter_"+i,value);}
+        {var filter=filters[i];if(filter.Comparison==FixedReadComparison.In){var items=(IReadOnlyList<object?>)filter.Value!;for(var item=0;item<items.Count;item++)if(items[item] is {} memberValue)Add(command,"filter_"+i+"_"+item,memberValue);continue;}if(filter.Value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)continue;var value=filter.Comparison is FixedReadComparison.Contains or FixedReadComparison.JsonArrayAnyContains?"%"+((string)filter.Value).Replace("!","!!",StringComparison.Ordinal).Replace("%","!%",StringComparison.Ordinal).Replace("_","!_",StringComparison.Ordinal)+"%":filter.Value;Add(command,"filter_"+i,value);}
     }
     /// <summary>执行项目必须来自宿主已认证Actor；这里仅做类型校验，不授予页面权限。</summary>
     private static string ValidateProject(string projectId)

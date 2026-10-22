@@ -54,7 +54,8 @@ export function createMultiSelectFieldMixin(definitions) {
     if (!Array.isArray(rows) || rows.length > 200 || rows.some(row => !row || typeof row.id !== 'string' || !/^[1-9][0-9]{0,18}$/.test(row.id) || row.id.length === 19 && row.id > '9223372036854775807' || (!Object.prototype.hasOwnProperty.call(row, def.nameField) || row[def.nameField] !== null && typeof row[def.nameField] !== 'string')) || new Set(rows.map(row => row.id)).size !== rows.length) { this.multiSelectionError = '选择页回调必须是完整且不重复的字符串ID行数组。'; return }
     const ids = rows.map(row => row.id), names = rows.map(row => row[def.nameField] === null ? null : String(row[def.nameField]))
     this.change(field, ids); this.changes[field] = ids.slice()
-    if (def.namesField && def.redundant) this.entity[def.namesField] = names
+    // 原V8确认后立即更新可见名称；非冗余也只作显示，后端不会持久化辅助名。
+    if (def.namesField) this.entity[def.namesField] = names
     this.multiSelectionError = ''
    },
    /** 原onPopClose和外部关闭都只销毁草稿，不修改ID/名称或触发保存。 */

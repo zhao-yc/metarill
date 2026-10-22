@@ -178,7 +178,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         var result = new List<TableModel>();
         foreach (var table in catalog.ConfigTables.OrderBy(x => x.TableName, StringComparer.Ordinal))
         {
-            if (table.IsRongyu != 1 && catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Id && column.ControlKind == "MultiSelectPage")) throw new InvalidOperationException("非冗余MultiSelectPage的读计划尚未支持，拒绝生成名称实体写入。");
+            if (table.IsRongyu is not (0 or 1) && catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Id && column.ControlKind == "MultiSelectPage")) throw new InvalidOperationException("未识别的多选存储模式。");
             if (table.IsFunctionTable != 0 || table.IsView != 0) throw new InvalidOperationException($"首期生成器尚不支持函数表或视图：{table.TableName}");
             var columns = CascadeTreeStorageColumns.Expand(table,catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id)).Where(x=>x.IsVirtualColumn==0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
                 .Select(x => new ColumnModel(x, Pascal(x.ColumnName), Camel(x.ColumnName), TypeFor(x))).ToArray();

@@ -4,15 +4,20 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Data.Queries;
 
+/// <summary>多值投影只持有编译后的标识符与固定范围，执行阶段不再读取元数据。</summary>
+internal sealed record MySqlMultiProjection(string SourceExpression,string TargetTable,string TargetName,string TargetScope);
+
 /// <summary>只由已发布元数据编译的单值读取计划，不提供SQL反序列化或任意表达式入口。</summary>
 public sealed class MySqlNonRedundantReadPlan
 {
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
-        Dictionary<string,string> types, string[] outputs)
-    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); }
+        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections)
+    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); }
     internal string From { get; }
     internal string Scope { get; }
     internal string ProjectId { get; }
+    internal IReadOnlyDictionary<string,string> ArrayNamePredicates {get;}
+    internal IReadOnlyDictionary<string,MySqlMultiProjection> MultiProjections {get;}
     internal IReadOnlyDictionary<string,string> Expressions { get; }
     internal IReadOnlyDictionary<string,string> Types { get; }
     public IReadOnlyList<string> Outputs { get; }
@@ -20,7 +25,7 @@ public sealed class MySqlNonRedundantReadPlan
     internal string Expression(string name)=>Expressions.TryGetValue(name,out var expression)?expression:throw new InvalidOperationException("读取字段未编译："+name);
 }
 
-/// <summary>首批实现单值关系与联接链；多值、级联和虚拟表达式继续由完整生成门槛阻止。</summary>
+/// <summary>编译单值联接与固定多选名称计划；未证明的级联和虚拟表达式继续明确拒绝。</summary>
 public static class MySqlNonRedundantReadCompiler
 {
     /// <summary>输出由生成用途指定；依赖独立编译，不擅自扩成整表读取或读取权限。</summary>
@@ -50,6 +55,8 @@ public static class MySqlNonRedundantReadCompiler
         private readonly TableMetadata root;
         private readonly Dictionary<string,string> aliases=new(StringComparer.Ordinal);
         private readonly List<string> joins=[];
+        private readonly Dictionary<string,string> multiPredicates=new(StringComparer.Ordinal);
+        private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
         internal Builder(MetadataCatalog catalog,string tableId,bool matching=false)
         {
@@ -69,7 +76,7 @@ public static class MySqlNonRedundantReadCompiler
             var expressions=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);var types=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
             {var resolved=Resolve(root,"b",name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);}
-            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray());
+            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase));
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -79,6 +86,16 @@ public static class MySqlNonRedundantReadCompiler
             try
             {
                 var column=columns[table.Id].GetValueOrDefault(name);
+                // 多值显示先识别明确的_ids关系，聚合留在相关子查询内，不扩张根结果的基数。
+                foreach(var multi in columns[table.Id].Values.Where(item=>item.ControlKind=="MultiSelectPage"&&item.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
+                {
+                    var display=Value(Definition(multi),"nameField");if(display.Length==0)display="name";
+                    var auxiliary=multi.ColumnName[..^4]+"_"+(display.EndsWith('s')?display:display+"s");
+                    if(display=="id"||!name.Equals(auxiliary,StringComparison.OrdinalIgnoreCase))continue;
+                    if(matching)throw new NotSupportedException("精确管理匹配不能使用多值派生名称。");
+                    if(column is not null&&(storage[table.Id].Kind(column)!=MetadataFieldStorage.Join||Text(column,"columnFullName")!=multi.ColumnName[..^4]+"."+display&&Text(column,"columnFullName")!=multi.ColumnName+"."+display))throw new InvalidOperationException("多值显示字段必须声明同一关系与名称路径。");
+                    return MultiDisplay(table,alias,multi,display);
+                }
                 if(column is not null)
                 {
                     var kind=storage[table.Id].Kind(column);
@@ -113,6 +130,31 @@ public static class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("字段不是已支持的物理列或单值派生关系："+name);
             }
             finally{resolving.Remove(key);}
+        }
+        /// <summary>仅编译明确多选的物理ID与名称；窗口聚合按原数组顺序保留缺失目标的null位置。</summary>
+        private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display)
+        {
+            if(!storage[table.Id].IsPhysical(relation)||relation.LogicalType!="string")throw new NotSupportedException("多值关系必须以物理字符串列存储JSON ID数组。");
+            var definition=Definition(relation);TableMetadata? target=null;
+            var id=Value(definition,"tableId");if(id.Length>0)target=tables.GetValueOrDefault(id);
+            var pageId=Value(definition,"pageId");if(target is null&&pageId.Length>0)target=PageTarget(pageId);
+            if(target is null&&relation.LinkConfigTableId.Length>0)target=tables.GetValueOrDefault(relation.LinkConfigTableId);
+            if(target is null&&Text(relation,"linkConfigPageId").Length>0)target=PageTarget(Text(relation,"linkConfigPageId"));
+            if(target is null){var targetName=Value(definition,"table");if(targetName.Length==0)targetName=Text(relation,"joinTable");target=tables.Values.SingleOrDefault(item=>item.TableName==targetName);}
+            if(target is null)throw new InvalidOperationException("多值关联缺少同项目目标。");ValidateTarget(target);
+            if(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||Value(definition,"table") is {Length:>0} declared&&declared!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linkedPage&&PageTarget(linkedPage)?.Id!=target.Id)throw new InvalidOperationException("多值关系的目标声明缺失或相互矛盾。");
+            if(relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id)throw new InvalidOperationException("多值关系目标声明不一致。");
+            var value=Column(target,display);
+            if(!storage[target.Id].IsPhysical(value)||value.LogicalType!="string"||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的物理字符串标量。");
+            var source=owner+"."+Q(relation.ColumnName);
+            // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
+            var array="CASE WHEN JSON_VALID("+source+") THEN CASE WHEN JSON_TYPE("+source+")='ARRAY' THEN "+source+" ELSE JSON_ARRAY() END ELSE JSON_ARRAY() END";
+            var targetScope=Scope(target,"multi_value");
+            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG(multi_value."+Q(display)+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON CAST(multi_value.`id` AS CHAR)=multi_ids.member_id"+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
+            multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope);
+            // 名称筛选直接对目标做EXISTS，不先聚合整份名称数组，也不把根记录JOIN成多行。
+            multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(targetScope.Length==0?"":" AND "+targetScope)+" AND multi_value."+Q(display)+" LIKE {parameter} ESCAPE '!')";
+            return(expression,"string");
         }
         /// <summary>按原优先级解析明确单值关系，所有目标必须在同项目内。</summary>
         private TableMetadata Target(ColumnMetadata relation)

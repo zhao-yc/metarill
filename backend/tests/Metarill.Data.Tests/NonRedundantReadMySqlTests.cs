@@ -24,7 +24,7 @@ public sealed class NonRedundantReadMySqlTests
         using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")??throw new InvalidOperationException("缺少实例pin。")));
         await using(var connection=new MySqlConnection(options.ConnectionString))
         {await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var r=await command.ExecuteReaderAsync();Assert.True(await r.ReadAsync()&&r.GetString(0)==options.ExpectedDatabase&&r.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&r.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例身份不匹配，未创建任何样本。");}
-        var nonce=Guid.NewGuid().ToString("N");var catalog=NonRedundantReadTests.Catalog("mt_nrr_root_"+nonce[..12],"mt_nrr_party_"+nonce[..12]);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var evidence=Path.Combine(Root(),".local/nonredundant-read/mysql-"+nonce);Directory.CreateDirectory(evidence);
+        var nonce=Guid.NewGuid().ToString("N");var catalog=NonRedundantReadTests.Catalog("mt_nrr_root_"+nonce[..12],"mt_nrr_party_"+nonce[..12]);catalog.ConfigColumns.Add(new(){Id="120",ConfigTableId="1",ColumnName="party_ids",LogicalType="string",ColumnLength="max",ControlKind="MultiSelectPage",LinkConfigTableId="2",ControlDetail="{\"tableId\":\"2\",\"nameField\":\"name\"}"});var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var evidence=Path.Combine(Root(),".local/nonredundant-read/mysql-"+nonce);Directory.CreateDirectory(evidence);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var store=new SqlRowStore(session,catalog);var reader=new MySqlNonRedundantReader(session);var plan=NonRedundantReadTests.Plan(catalog);
         const long first=9007199254741001,second=9007199254741002;var project=long.Parse(catalog.YzProjectId,CultureInfo.InvariantCulture);var created=false;var verified=false;string? fingerprint=null;string? rowsHash=null;
         try
@@ -55,6 +55,7 @@ public sealed class NonRedundantReadMySqlTests
             await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync<int>(async()=>
             {Assert.Equal(1,await store.UpdateAsync(names[1],101,new Dictionary<string,object?>{{"name","事务内名称"},{"amount",30.25m}}));var current=await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Equal,"事务内名称")],[],1,10);Assert.Equal(first,Convert.ToInt64(Assert.Single(current.Records)["id"],CultureInfo.InvariantCulture));Assert.Equal(51m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);throw new InvalidOperationException("读取事务尾部测试故障。");}));
             Assert.Equal(rowsHash,await RowsHash());Assert.Equal(31m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);Assert.Null((await reader.ReadStatisticsAsync(plan,[new("id",FixedReadComparison.Equal,-1L)],["bill_amount"])).Sums["bill_amount"]);Assert.Equal(1,(await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Contains,"%_!")],[],1,10)).Total);
+            await VerifyMultiReadsAsync(session,store,catalog,first,second);
             await VerifyDerivedLocksAsync(options,catalog,first,second);
             await VerifyFixedConditionsAsync(options,catalog,first,second);
             // 编译结果不继续持有可变元数据：修改源名称不能改变已发布的SQL。
@@ -80,6 +81,48 @@ public sealed class NonRedundantReadMySqlTests
         Task Source(long id,string name,long? bill,long? ship,long? parent,bool deleted=false,bool foreign=false)=>store.InsertAsync(names[0],new Dictionary<string,object?>{{"id",id},{"name",name},{"bill_id",bill},{"ship_id",ship},{"parent_id",parent},{"yz_project_id",foreign?project+1:project},{"delete_no",deleted?new DateTime(2026,1,1):null}});
         async Task<string> RowsHash(){var rows=new List<object>();foreach(var name in names)rows.Add((await store.ReadIncludingDeletedAsync(name)).OrderBy(row=>SqlRowStore.Id(row)).ToArray());return Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(rows)));}
         Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,names,instanceVerified=true,fingerprint,rowsHash,verified,cleaned,independentTableAbsenceChecked=cleaned,generatedHttpExecuted=false,browserExecuted=false,grantAttempted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
+    }
+    /// <summary>复用本轮独占两表，真实SQL验证多值顺序、缺失占位、分页前EXISTS及事务内实时名称；全部变更故意回滚。</summary>
+    private static async Task VerifyMultiReadsAsync(DatabaseSession session,SqlRowStore store,MetadataCatalog catalog,long first,long second)
+    {
+        var root=catalog.ConfigTables.Single(table=>table.Id=="1").TableName;var target=catalog.ConfigTables.Single(table=>table.Id=="2").TableName;
+        var plan=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["id","party_ids","party_names"],["bill_amount"]);var reader=new MySqlNonRedundantReader(session);
+        var oldName=(await store.ReadAsync(target,new Dictionary<string,object?>{{"id",101L}})).Single()["name"];
+        await using var external=new MySqlConnection(session.Options.ConnectionString);await external.OpenAsync();var externalChanged=false;
+        try
+        {
+        var marker=await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync<int>(async()=>
+        {
+            Assert.Equal(1,await store.UpdateAsync(root,first,new Dictionary<string,object?>{{"party_ids","[\"102\",\"101\",\"999\",\"103\",\"104\"]"}}));
+            Assert.Equal(1,await store.UpdateAsync(root,second,new Dictionary<string,object?>{{"party_ids","[\"101\"]"}}));
+            var all=await reader.ReadPageAsync(plan,[],[],1,20);Assert.Equal(4,all.Total);Assert.Equal(4,all.Records.Count);
+            var row=all.Records.Single(item=>Convert.ToInt64(item["id"],CultureInfo.InvariantCulture)==first);
+            Assert.Contains("B候选",(string)row["party_names"]!);Assert.Contains("A%_!'中文",(string)row["party_names"]!);
+            using(var values=JsonDocument.Parse((string)row["party_names"]!)){Assert.Equal(5,values.RootElement.GetArrayLength());Assert.Equal("B候选",values.RootElement[0].GetString());Assert.Equal("A%_!'中文",values.RootElement[1].GetString());foreach(var index in new[]{2,3,4})Assert.Equal(JsonValueKind.Null,values.RootElement[index].ValueKind);}
+            Assert.Equal(1,await RenameExternal("快照后已提交名称"));externalChanged=true;
+            var snapshot=Assert.Single((await reader.ReadPageAsync(plan,[new("id",FixedReadComparison.Equal,first)],[],1,1)).Records);using(var names=JsonDocument.Parse((string)snapshot["party_names"]!))Assert.Equal("A%_!'中文",names.RootElement[1].GetString());
+            var current=Assert.Single((await reader.ReadPageAsync(plan,[new("id",FixedReadComparison.Equal,first)],[],1,1,currentRead:true)).Records);using(var names=JsonDocument.Parse((string)current["party_names"]!))Assert.Equal("快照后已提交名称",names.RootElement[1].GetString());
+            var filters=new[]{new FixedReadFilter("party_names",FixedReadComparison.JsonArrayAnyContains,"%_!")};
+            var page=await reader.ReadPageAsync(plan,filters,[new("id")],2,1);Assert.Equal(2,page.Total);Assert.Equal(second,Convert.ToInt64(Assert.Single(page.Records)["id"],CultureInfo.InvariantCulture));
+            var statistics=await reader.ReadStatisticsAsync(plan,filters,["bill_amount"]);Assert.Equal(2,statistics.Total);Assert.Equal(31m,statistics.Sums["bill_amount"]);
+            Assert.Empty((await reader.ReadPageAsync(plan,[new("party_names",FixedReadComparison.JsonArrayAnyContains,"' OR 1=1 --")],[],1,10)).Records);
+            // 名称改动立即影响同事务读取，不向来源表写入任何名称副本。
+            Assert.Equal(1,await store.UpdateAsync(target,101,new Dictionary<string,object?>{{"name","实时改名"}}));
+            Assert.Equal(0,(await reader.ReadPageAsync(plan,filters,[],1,10)).Total);Assert.Equal(2,(await reader.ReadPageAsync(plan,[new("party_names",FixedReadComparison.JsonArrayAnyContains,"实时改名")],[],1,10)).Total);
+            foreach(var value in new string?[]{null,"[]","not-json","{}","null"})
+            {
+                Assert.Equal(1,await store.UpdateAsync(root,first,new Dictionary<string,object?>{{"party_ids",value}}));
+                var empty=Assert.Single((await reader.ReadPageAsync(plan,[new("id",FixedReadComparison.Equal,first)],[],1,1)).Records);
+                using var names=JsonDocument.Parse((string)empty["party_names"]!);Assert.Equal(0,names.RootElement.GetArrayLength());
+            }
+            throw new InvalidOperationException("多值读专项故意回滚。");
+        }));
+        Assert.Equal("多值读专项故意回滚。",marker.Message);
+        Assert.All((await reader.ReadPageAsync(plan,[],[],1,20)).Records,row=>Assert.Null(row["party_ids"]));
+        }
+        finally{if(externalChanged)Assert.Equal(1,await RenameExternal((string)oldName!));}
+        /// <summary>独立连接只改本轮唯一目标，验证快照竞争后恢复原值，不改变权限或数据库隔离级别。</summary>
+        async Task<int> RenameExternal(string value){await using var command=external.CreateCommand();command.CommandText="UPDATE "+session.Provider.QuoteIdentifier(target)+" SET name=@name WHERE id=@id";command.Parameters.AddWithValue("name",value);command.Parameters.AddWithValue("id",101L);return await command.ExecuteNonQueryAsync();}
     }
     /// <summary>在本轮已拥有的两表内实际执行绑定SQL，覆盖高位ID、LIKE、IN、NULL及双类型项目列；不代表正式候选API。</summary>
     private static async Task VerifyFixedConditionsAsync(DatabaseOptions options,MetadataCatalog catalog,long first,long second)

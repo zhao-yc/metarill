@@ -22,8 +22,10 @@ internal static class ExportRenderer
     private static bool HasFixedRole(GenerationModel model,TableModel table,PageModel page) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} role && IncludesColumn(page,role.Source);
     /// <summary>后台名单选输出原辅助名，绝不因普通候选额外要求目标页查询权限。</summary>
     private static FixedRoleAdminNameModel? FixedAdmin(GenerationModel model,TableModel table,PageModel page) => FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && IncludesColumn(page,admin.Source) ? admin : null;
+    /// <summary>非冗余多选导出使用来源已存ID派生的原名称数组，不另读客户端目标。</summary>
+    private static IReadOnlyList<MultiSelectModel> MultiNames(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu==0?MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null&&IncludesColumn(page,multi.Source)).ToArray():[];
     /// <summary>含关系名称的导出必须注入真实授权，独立宿主与平台使用同一Service注册合同。</summary>
-    internal static bool RequiresAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => Enabled(page) && (Relations(model, page).Length > 0 || HasFixedRole(model,table,page) || FixedAdmin(model,table,page) is not null));
+    internal static bool RequiresAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => Enabled(page) && (Relations(model, page).Length > 0 || MultiNames(model,table,page).Count>0 || HasFixedRole(model,table,page) || FixedAdmin(model,table,page) is not null));
     /// <summary>沿用 initExport 返回票据，下载入口由宿主统一承接。</summary>
     public static string Controller(GenerationModel model, PageModel page) => !Enabled(page) ? "" : $$"""
     /// <summary>使用当前页导出权限生成原页面可使用的两分钟下载凭证。</summary>
@@ -40,14 +42,14 @@ internal static class ExportRenderer
     public static string Service(GenerationModel model, TableModel table, PageModel page)
     {
         if (!Enabled(page)) return "";
-        var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);
+        var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
         var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).DistinctBy(column=>column.Source.Id);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
             .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?" => session.InReadSnapshotAsync<Metarill.Core.Exports.PageExportRequest>(async () =>":"")}")
             .AppendLine("    {")
             .AppendLine("        if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));");
-        if (relations.Length > 0 || role || admin is not null)
+        if (relations.Length > 0 || multis.Count>0 || role || admin is not null)
         {
             result.AppendLine("        var exportAuthorization = relationAuthorization ?? throw new UnauthorizedAccessException(\"关系导出需要宿主真实授权。\");")
                 .AppendLine("        if (exportAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"关系导出身份与当前真实身份不一致。\");")
@@ -59,7 +61,7 @@ internal static class ExportRenderer
         if(NonRedundantReadCompilation.Requires(model,table))
         {
             var projection=columns.Concat(dependencies).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
-            var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).ToArray();
+            var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).Concat(multis.Select(multi=>multi.Names!.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
             // 实际导出用途另编译窄投影，不能复用整页可读集合读取未导出列。
             NonRedundantReads.Compile(model.Catalog,table.Source.Id,names,plan.Dependencies);
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
@@ -78,6 +80,7 @@ internal static class ExportRenderer
         result.AppendLine("        }, cancellationToken);")
             .AppendLine("        if (entities.Count > maxRows) throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         }
+        foreach(var multi in multis)result.AppendLine($"        var multiNames{multi.Source.Source.Id}=rawRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"),row=>Metarill.Data.Queries.NonRedundantReads.Value<string?>(row,{Literal(multi.Names!.Source.ColumnName)}));");
         if (admin is not null) result.AppendLine("        var adminNames = " + FixedRoleAdminNameRenderer.ProjectCall(page,"entities","export") + ";");
         foreach (var relation in relations)
         {
@@ -128,6 +131,7 @@ internal static class ExportRenderer
         foreach (var column in columns)
         {
             var relation = relations.SingleOrDefault(relation => relation.SourceColumn == column);
+            if(multis.SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id) is{} multi){result.AppendLine($"            multiNames{multi.Source.Source.Id}[entity.Id],");continue;}
             if(column.Source.ControlKind=="CascadeTree"){result.AppendLine($"            ExcelCascade{column.Property}(entity),");continue;}
             result.AppendLine("            " + (admin?.Source.Source.Id == column.Source.Id ? "adminNames[index]." + FixedRoleAdminNameModel.Property : ValueExpression(table,page,column, relation)) + ",");
         }

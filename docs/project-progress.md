@@ -22,7 +22,7 @@
 | --- | --- | --- | --- | --- |
 | A01 | ✅ 已完成 | C# 工程与分层 | ASP.NET Core、FreeSql、Service 普通业务及按需 Business；数据库差异集中在基础设施。 | [架构](architecture.md)、[验收台账](acceptance.md) |
 | A02 | ✅ 已完成 | 强类型代码生成 | Entity、DTO/VO、Mapper、Service、Controller 及页面生成主链已接通。 | [验收台账](acceptance.md) |
-| A03 | ✅ 已完成 | partial 与重复生成保护 | 同程序集生成／手写分离；215 个正式输出两轮稳定、24 个手写 partial 保持。仅对应已验模型。 | [主框架审计末尾批次](framework-gap-audit.md)，`b97ce89` |
+| A03 | ✅ 已完成 | partial 与重复生成保护 | 同程序集生成／手写分离；189 个归属输出、2 份清单及24个手写文件（合计215文件）两轮稳定，手写 partial 保持。仅对应已验模型。 | [主框架审计末尾批次](framework-gap-audit.md)，`b97ce89` |
 | A04 | ✅ 已完成 | 菜单与页面归属优化 | 单表树菜单、页面直接归属后台类型，修正原角色权限页关联引用。 | [架构](architecture.md)、[权限引用](platform-permission-references.md) |
 | A05 | ✅ 已完成 | 原接口基础兼容 | `/api`、原业务路由、R、分页、字符串 ID、省略与显式 null 的基础合同；复杂功能另列。 | [接口合同](integration-contracts.md)、[原页兼容](original-page-api-compatibility.md) |
 | A06 | ✅ 已完成 | MySQL 普通纵向闭环 | 登录→配置表字段→结构预览／执行／核验→生成→普通业务 CRUD 已实际跑通。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
@@ -45,13 +45,28 @@
 | B06 | ✅ 已完成 | 平台安全写协调固定范围 | 平台账号／角色／后台及权限工作台复用协调器，有实库、RR、回滚证据；独立管理包另列。 | [安全协调器](security-realm-write-coordinator.md)、[RR专项](security-realm-rr-validation.md) |
 | B07 | ✅ 已完成 | 文件库基础与同事务引用 | 平台按业务项目定位数据库，独立应用本地文件库、上传／下载、引用阻删与回滚已在固定场景实测。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
 | B08 | ✅ 已完成 | 普通 Excel 与基础统计 | 原可写列边界、普通导入导出、失败回滚，及物理数值 SUM／原百分比合同已接通；不含所有复杂关系与浏览器下载。 | [统计](list-statistics.md)、[导入错误](import-validation-errors.md)、[Excel边界](cross-table-excel-empty-contract.md) |
-| B09 | 🟡 部分完成 | 非冗余关系存储 | 普通固定标量、单值 List／SelectPage、type=2 回读、普通／跨父导入导出及物理文件子集已接；多值、级联、全局及复杂联接未齐。 | [非冗余存储](nonredundant-storage.md)、[非冗余文件](nonredundant-files.md) |
+| B09 | 🟡 部分完成 | 非冗余关系存储 | 普通固定标量、单值、type=2、物理文件已有；正在补非冗余 MultiSelectPage 的读取、CRUD、Excel 和打包（B16）；其他多值、级联、全局及复杂联接继续实施。 | [非冗余存储](nonredundant-storage.md)、[非冗余文件](nonredundant-files.md) |
 | B10 | 🟡 部分完成 | 原级联控件完整能力 | selfTree 普通冗余与 crossTable 固定链已有读取、写入、展示、筛选；同页混合和来源单层参与已验。重复来源层位、共享辅助列及复杂父范围组合仍缺。 | [级联同页与必填](cascade-mixed-required-contract.md)，`393dc41`；[来源图](cross-table-source-graph-contract.md)，`b97ce89` |
 | B11 | ⬜ 待开发 | 关系名称传播与维护回填 | 补冗余／非冗余混合名称传播、目标更新／删除影响和维护回填，验证事务与并发。 | [非冗余存储](nonredundant-storage.md)、[主框架审计](framework-gap-audit.md) |
 | B12 | 🟡 部分完成 | 完整页面配置能力 | 补齐并验收详情分组、复杂条件显示／只读、完整表单规则及配置按钮；不能以原组件存在判为完成。 | [主框架审计·列表详情](framework-gap-audit.md) |
 | B13 | 🟡 部分完成 | 复杂文件与云存储 | 基础文件已接；补复杂关系／派生文件、全部配置组合及 S3 等云存储完整矩阵。 | [非冗余文件](nonredundant-files.md)、[原文件管理](original-file-management.md)、[主框架审计](framework-gap-audit.md) |
 | B14 | ⏳ 待确认 | 跨表级联非空路径 Excel | 空单元格、可写列边界已完成；非空路径的旧回退语义与无损往返存在冲突，等待选择后接通完整导入导出。 | [待确认策略](cross-table-excel-policy-decision.md)、[已完成空值范围](cross-table-excel-empty-contract.md) |
 | B15 | ⏳ 待配置 | Tiny Cloud 实际富文本 | 已按自有 Tiny Cloud 保留原交互并接入配置；API key 按用户要求暂空。配置后验真实加载、编辑、保存和上传。 | [Tiny Cloud](tiny-cloud.md) |
+
+### 本轮复杂关系细分（B09／B10／B11）
+
+以下条目按功能及验证层次拆分，完成固定子集不会将汇总行整项打勾。
+
+| 编号 | 状态 | 工作项 | 已完成范围／下一步与剩余范围 | 验收依据／代码基线 |
+| --- | --- | --- | --- | --- |
+| B16 | ✅ 已完成 | 非冗余 MultiSelectPage 固定后端／生成链路 | 固定字符串名称、显式／自动数组、分页前筛选、CRUD／当前回显、Excel、原 Vue 协议、Full 包与更新保护通过；仅此后端／生成固定子集，不含 B17 和 B23。 | [多选专项](nonredundant-multi-select.md)，2026-10-22；源码快照 `2de892abb36b` |
+| B17 | ⬜ 待开发 | 其他多值控件与多选派生名称 | 通用 MultiCheckBoxDatabase、派生／非字符串多选名称、复杂联接和未证明覆盖；不以 B16 代替。 | [多选剩余范围](nonredundant-multi-select.md) |
+| B18 | ⬜ 待开发 | 非冗余 selfTree | 只存所选 ID、实时名称和路径、原候选／保存／筛选／Excel，以及当前锁和同表图验证。 | [存储合同](nonredundant-storage.md)、[原树读取](cascade-tree-read-contract.md) |
+| B19 | 🟡 部分完成 | crossTable 剩余组合与非冗余链 | 冗余固定链及来源单层参与已验；非冗余、重复来源层位、共享辅助列和复杂父范围仍缺，Excel 策略另按 B14。 | [来源图](cross-table-source-graph-contract.md)、[主框架审计](framework-gap-audit.md) |
+| B20 | 🟡 部分完成 | 复杂联接与全局／派生名称 | 已有固定单值多级路径；补与多值／级联混用、全局目标、复杂派生名称及各读取用途一致性。 | [非冗余存储](nonredundant-storage.md) |
+| B21 | ⬜ 待开发 | 名称变更与混合存储传播 | 从已发布关系图传播目标改名、外键变化与删除，涵盖非冗余中间节点和冗余消费者的同事务更新。 | [主框架审计](framework-gap-audit.md) |
+| B22 | ⬜ 待开发 | 原维护入口回填 | 按原确认与接口接回联接字段回填，校验元数据／物理列、权限、目标库、并发和整批回滚。 | [主框架审计](framework-gap-audit.md) |
+| B23 | 🧪 待验收 | 复杂关系原浏览器与正式宿主组合 | 补本轮各子项的原页面现场操作、正式身份、完整包和专用空库交叉矩阵；Node／固定授权器 HTTP 不替代。 | [前端纠偏](frontend-preservation-correction.md)、[全新安装](fresh-install-acceptance.md) |
 
 ## 三、独立应用、初始化、助手与 Agent
 
@@ -99,4 +114,5 @@
 
 | 日期 | 变更 | 依据 |
 | --- | --- | --- |
+| 2026-10-22 | 启动复杂关系模块，拆分 B16—B23；B16固定链路完成：生成全量1195通过；最终纯文本编码修正后数据183、定向14复验通过，不累加批次；其余B17—B23仍未完成。 | [多选专项](nonredundant-multi-select.md) |
 | 2026-10-22 | 建立统一进度表；逐项区分已验子集、缺失功能和待验收门槛；在 README 与开发约定登记后续更新要求。 | 只读盘点产品基线 ef946fd、现有专项与验收台账；本次仅文档整理，未新增产品验收结论。 |

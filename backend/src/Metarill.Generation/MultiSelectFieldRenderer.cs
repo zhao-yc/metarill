@@ -28,11 +28,11 @@ internal static class MultiSelectFieldRenderer
                 .AppendLine("    /// <summary>非法历史JSON在写入口明确拒绝，不通过500HTML掩盖业务错误。</summary>")
                 .AppendLine($"    private static JsonDocument ParseMultiDocument{suffix}(string text) {{ try {{ return JsonDocument.Parse(text); }} catch (JsonException error) {{ throw new ArgumentException(\"多选字段JSON无效。\", error); }} }}")
                 .AppendLine("    /// <summary>来源字段省略不刷新名称；显式提交在同一事务内校验目标list权限及所有ID。</summary>")
-                .AppendLine($"    private async Task ValidateMulti{suffix}Async({table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool refreshNames, CancellationToken cancellationToken)").AppendLine("    {")
+                .AppendLine($"    private async Task ValidateMulti{suffix}Async({table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool refreshNames, CancellationToken cancellationToken, RecordMutationOperation? authorizationOperation = null)").AppendLine("    {")
                 .AppendLine("        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"多选字段要求真实当前身份。\");")
-                .AppendLine($"        relationAuthorization.RequirePagePermission({Literal(def.TargetPage.Source.Id)}, \"list\");")
+                .AppendLine($"        if(authorizationOperation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)}, \"import\");else relationAuthorization.RequirePagePermission({Literal(def.TargetPage.Source.Id)}, \"list\");")
                 .AppendLine($"        if (entity.{def.Source.Property} is null)").AppendLine("        {");
-            if (def.Names is not null) result.AppendLine($"            if (refreshNames) {{ entity.{def.Names.Property} = null; submitted.Add({Literal(def.Names.Source.ColumnName)}); }}");
+            if (def.Names is not null && table.Source.IsRongyu==1) result.AppendLine($"            if (refreshNames) {{ entity.{def.Names.Property} = null; submitted.Add({Literal(def.Names.Source.ColumnName)}); }}");
             result.AppendLine("            return;").AppendLine("        }")
                 .AppendLine($"        using var values = ParseMultiDocument{suffix}(entity.{def.Source.Property});")
                 .AppendLine("        if (values.RootElement.ValueKind != JsonValueKind.Array || values.RootElement.GetArrayLength() > 200) throw new ArgumentException(\"多选字段最多200个字符串ID。\");")
@@ -57,10 +57,10 @@ internal static class MultiSelectFieldRenderer
             if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");
             foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
             result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix));
-            if(def.TargetPage.Condition is not null)result.AppendLine("        query=query.ForUpdate();");
-            result.AppendLine($"        var rows = await query.Limit(200).ToListAsync(row => new {{ row.Id{(def.Names is null ? "" : ", Name = row." + def.Name.Property)} }}, cancellationToken);")
+            if(def.TargetPage.Condition is not null||table.Source.IsRongyu==0)result.AppendLine("        query=query.ForUpdate();");
+            result.AppendLine($"        var rows = await query.Limit(200).ToListAsync(row => new {{ row.Id{(def.Names is null || table.Source.IsRongyu==0 ? "" : ", Name = row." + def.Name.Property)} }}, cancellationToken);")
                 .AppendLine("        if (rows.Count != selected.Length) throw new InvalidOperationException(\"多选项不存在、已删除或不在目标页范围，源记录未保存。\");");
-            if (def.Names is not null)
+            if (def.Names is not null && table.Source.IsRongyu==1)
                 result.AppendLine("        var names = rows.ToDictionary(row => row.Id, row => row.Name);")
                     .AppendLine($"        if (refreshNames) {{ entity.{def.Names.Property} = JsonSerializer.Serialize(selected.Select(id => names[id]).ToArray()); submitted.Add({Literal(def.Names.Source.ColumnName)}); }}");
             result.AppendLine("    }");

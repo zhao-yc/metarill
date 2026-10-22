@@ -7,7 +7,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText);
 internal sealed record MultiSelectResult(MultiSelectModel? Definition, string? Reason);
 
-/// <summary>只编译可证明的冗余多选字段；未覆盖的范围、存储和派生不能静默标为支持。</summary>
+/// <summary>编译可证明的冗余与非冗余多选；未覆盖的范围和派生名称不能静默标为支持。</summary>
 internal static class MultiSelectCompilation
 {
     /// <summary>辅助名称只读且使用HTTP数组，实体仍保持原JSON文本存储。</summary>
@@ -35,7 +35,7 @@ internal static class MultiSelectCompilation
     internal static MultiSelectResult Resolve(GenerationModel model, TableModel table, PageModel page, ColumnModel source, bool forService = false)
     {
         MultiSelectResult Gap(string reason) => new(null, "MultiSelectPage尚未支持：" + reason);
-        if (table.Source.IsRongyu != 1) return Gap("非冗余名称读计划与传播尚未接入，名称不得写入实体。");
+        if (table.Source.IsRongyu is not (0 or 1)) return Gap("未识别的多选存储模式。");
         if (source.Type != "string?" || !source.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal)) return Gap("字段必须为已声明的字符串_ids存储。");
         if (!forService && !page.Readable.Any(column => column.Source.Id == source.Source.Id)) return Gap("来源页未开放ID字段，无法形成完整字段合同。");
         try
@@ -74,9 +74,18 @@ internal static class MultiSelectCompilation
             if (!name.IsId)
             {
                 var nameField = name.Source.ColumnName; var auxiliary = source.Source.ColumnName[..^4] + "_" + (nameField.EndsWith('s') ? nameField : nameField + "s");
-                names = table.Columns.SingleOrDefault(column => column.Source.ColumnName == auxiliary && column.Type == "string?" && !column.IsSystem && !GenerationModel.Enabled(column.Source.Extra, "isJoinColumn"));
-                if (names is null) return Gap("冗余名称辅助列尚未明确声明：" + auxiliary);
-                if (!forService && !page.Readable.Any(column => column.Source.Id == names.Source.Id)) return Gap("冗余名称辅助列未在来源页开放读取。");
+                names = table.Source.IsRongyu==0 ? SelectionDisplayFieldCompilation.Resolve(table,source) : table.Columns.SingleOrDefault(column => column.Source.ColumnName == auxiliary && column.Type == "string?" && !column.IsSystem && !GenerationModel.Enabled(column.Source.Extra, "isJoinColumn"));
+                if(names is not null&&table.Source.IsRongyu==0&&(names.Source.Id==source.Source.Id||names.Type!="string?"||!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")))return Gap("非冗余名称必须为只读联接或自动派生属性。");
+                if (names is null) return Gap((table.Source.IsRongyu==0?"非冗余名称联接列尚未明确声明：":"冗余名称辅助列尚未明确声明：") + auxiliary);
+                if (!forService && table.Source.IsRongyu==1 && !page.Readable.Any(column => column.Source.Id == names.Source.Id)) return Gap("冗余名称辅助列未在来源页开放读取。");
+            }
+            if(table.Source.IsRongyu==0)
+            {
+                var baselineName=Scalar(root,"nameField");if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
+                if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id||baselineName!=name.Source.ColumnName)return Gap("页级目标或名称覆盖尚未绑定同一非冗余读取计划。");
+                if(!NonRedundantReadCompilation.Physical(model,table,source)||!NonRedundantReadCompilation.Physical(model,target,name)||target.IsGlobal)return Gap("非冗余多选要求同项目物理ID和标量名称。");
+                if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
+                if(names is not null)Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
             }
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择")), null);
         }

@@ -39,6 +39,12 @@ internal static class ImportDependencyCompilation
             fields.AddRange(relation.Conditions?.Forms.Select(binding=>binding.Column)??[]);
             if(fields.Count>0)dependencies.Add(relation.SourceColumn.Source.Id,fields.DistinctBy(column=>column.Source.Id).ToArray());
         }
+        foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)&&multi.TargetParentField is not null))
+        {
+            var parent=table.Columns.Single(column=>column.JsonName==multi.TargetParentField);
+            if(!storage.IsPhysical(parent.Source)||parent.IsJsonArray)throw new InvalidOperationException("多选导入目标父必须为物理外键。");
+            parents.Add(multi.Source.Source.Id,parent);dependencies.Add(multi.Source.Source.Id,[parent]);
+        }
         if(dependencies.Count==0)return new(columns,parents,new HashSet<string>(StringComparer.Ordinal),dependencies);
         var available=columns.ToDictionary(column=>column.Source.Id,StringComparer.Ordinal);var order=new List<ColumnModel>();var state=new Dictionary<string,int>(StringComparer.Ordinal);
         foreach(var column in columns)Visit(column);

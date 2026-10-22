@@ -20,7 +20,7 @@ internal static class UniappRenderer
         }
         // 固定可信模块才附带原自定义工作台路由；普通业务目录不能自报标记获得入口。
         routes.AddRange(TrustedSecurityWorkbenchRenderer.Routes(model));
-        var subsets=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForPage(model,table,page).Select(def=>new{controlKind="MultiSelectPage",tableId=table.Source.Id,columnId=def.Source.Source.Id,pageId=page.Source.Id,targetPageId=def.TargetPage.Source.Id,storageMode="redundant",extraScopeSupported=false,renamePropagationSupported=false,nonRedundantSupported=false})));
+        var subsets=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForPage(model,table,page).Select(def=>new{controlKind="MultiSelectPage",tableId=table.Source.Id,columnId=def.Source.Source.Id,pageId=page.Source.Id,targetPageId=def.TargetPage.Source.Id,storageMode=table.Source.IsRongyu==0?"nonRedundant":"redundant",extraScopeSupported=false,renamePropagationSupported=false,nonRedundantSupported=table.Source.IsRongyu==0})));
         yield return new("generation-capabilities.json",JsonSerializer.Serialize(new{schemaVersion=1,unsupportedControls=gaps,supportedControlSubsets=subsets},Options)+"\n");
         yield return new("frontend/pages.generated.json",JsonSerializer.Serialize(new{pages=routes},Options)+"\n");
     }

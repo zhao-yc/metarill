@@ -8,6 +8,8 @@ internal static class ImportRenderer
 {
     /// <summary>普通导入由页面开关启用，定制导入必须另行实现明确业务入口。</summary>
     public static bool Enabled(PageModel page) => page.Source.IsImport == 1 || !string.IsNullOrWhiteSpace(Mode(page));
+    /// <summary>只有私有生成导入调用携带真实动作，客户端不能绕过多选或级联的目标权限。</summary>
+    internal static bool RelationOperationAware(GenerationModel model,TableModel table,PageModel page)=>CascadeTreeExcelRenderer.OperationAware(model,table,page)||Enabled(page)&&table.Source.IsRongyu==0&&MultiSelectCompilation.ForService(model,table,page).Count>0;
     /// <summary>读取已声明导入策略，默认追加。</summary>
     public static string Mode(PageModel page) => page.Source.Extra.TryGetValue("importMethod", out var value) ? value.ToString() : "";
     /// <summary>Excel只取原显式编辑列；父键由页面上下文绑定，不接受覆盖。</summary>
@@ -43,7 +45,7 @@ public sealed partial class {{page.Name}}ImportRequest
         var columns = Columns(page);
         var dependency = ImportDependencyCompilation.ForPage(model, table, page);
         var contextual = dependency.Contextual;
-        var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page)||CascadeTreeExcelRenderer.OperationAware(model,table,page);
+        var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page)||ImportRenderer.RelationOperationAware(model,table,page);
         if (columns.Select(Header).Distinct(StringComparer.Ordinal).Count() != columns.Count) throw new InvalidOperationException("导入列中文标题重复，无法明确解析。");
         var overwrite = Mode(page) == "OverWriteByFirstColumn";
         if (overwrite && columns.Count > 0 && columns[0].IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
@@ -117,7 +119,15 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine($"                case {Literal(Header(column))}:").AppendLine("                {");
             if(contextual&&!dependency.MatchFields.Contains(column.Source.Id))result.AppendLine("                    if (keyOnly) break;");
             var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(candidate => candidate.SourceColumn == column);
-            if(column.Source.ControlKind=="CascadeTree")
+            var multi=MultiSelectCompilation.ForPage(model,table,page).SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id);
+            if(multi is not null)
+            {
+                result.AppendLine("                    try").AppendLine("                    {")
+                    .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportMulti{page.Source.Id}_{column.Source.Id}Async(cell.Value,parentId,actor{(contextual?", relationContext":"")},cancellationToken);")
+                    .AppendLine("                    }").AppendLine("                    catch(PageImportException error) when(error.IsInputError)").AppendLine("                    {")
+                    .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);").AppendLine("                    }");
+            }
+            else if(column.Source.ControlKind=="CascadeTree")
             {
                 result.AppendLine("                    try").AppendLine("                    {")
                     .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportCascade{page.Source.Id}_{column.Source.Id}Async(cell.Value,actor,cancellationToken);")
@@ -160,6 +170,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("            }").AppendLine("        }").AppendLine("        return values;").AppendLine("    }");
         foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(relation, page, dependency));
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))result.Append(CascadeTreeExcelRenderer.Import(model,table,page,source));
+        foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))result.Append(MultiSelectExcelRenderer.Import(model,table,page,multi,dependency));
         return result.ToString();
     }
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>

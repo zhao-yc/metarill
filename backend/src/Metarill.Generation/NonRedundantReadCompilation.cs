@@ -5,10 +5,10 @@ using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
-internal sealed record NonRedundantOutput(string Storage,string Property,string JsonName,string Type);
+internal sealed record NonRedundantOutput(string Storage,string Property,string JsonName,string Type,bool IsJsonArray=false);
 internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Outputs,IReadOnlyList<string> Dependencies);
 
-/// <summary>生成侧提前证明单值用途及物理写边界；数据库表达式由数据适配器编译。</summary>
+/// <summary>生成侧提前证明单值／固定多选用途和物理写边界；数据库表达式由数据适配器编译。</summary>
 internal static class NonRedundantReadCompilation
 {
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
@@ -22,17 +22,21 @@ internal static class NonRedundantReadCompilation
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿原FileLibrary事务写入；其它多值、派生文件及布局仍须独立编译。
-        if(table.Columns.Any(column=>column.Source.ControlKind is "CascadeTree" or "Title" or "Tab" or "MultiSelectPage" or "MultiCheckBoxDatabase" || column.IsJsonArray && (column.Source.ControlKind != "FileLibrary" || !Physical(model,table,column))))throw new InvalidOperationException("非冗余多值、级联、布局或派生文件读取仍待接线。");
+        if(table.Columns.Any(column=>column.Source.ControlKind is "CascadeTree" or "Title" or "Tab" or "MultiCheckBoxDatabase" || column.IsJsonArray && (column.Source.ControlKind is not ("FileLibrary" or "MultiSelectPage") && !column.IsManagedMultiNames || column.Source.ControlKind=="FileLibrary"&&!Physical(model,table,column))))throw new InvalidOperationException("非冗余多值、级联、布局或派生文件读取仍待接线。");
         if(page.Searchable.Any(column=>column.Source.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "datetime" or "date" or "time")))throw new InvalidOperationException("非冗余筛选字段类型尚未接线。");
         if(page.Scopes.Any(scope=>!Physical(model,table,scope.Column)))throw new InvalidOperationException("非冗余父范围必须绑定物理外键。");
         if(ManagerCredentialCompilation.IsTable(table)||FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null||FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null||FixedOptionCatalogCompilation.ForPage(model,page).Count!=0)throw new InvalidOperationException("非冗余固定安全模块及目录读取尚需独立验收。");
+        foreach(var multi in table.Columns.Where(column=>column.Source.ControlKind=="MultiSelectPage"))
+            if(MultiSelectCompilation.Resolve(model,table,page,multi,forService:true).Definition is null)throw new InvalidOperationException("非冗余多选缺少已证明的字段与候选范围。");
         foreach(var relation in table.Columns.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联写入缺少已接通的明确目标。");ValidateTargetDeclarations(model,relation,target);
             if(target.IsGlobal)throw new InvalidOperationException("全局关联读取尚需完整接线。");
         }
         foreach(var selection in table.Columns.Where(column=>column.Source.ControlKind=="SelectPage"))NonRedundantSelectionCompilation.Resolve(model,table,page,selection);
-        var outputs=page.Readable.Select(column=>new NonRedundantOutput(column.Source.ColumnName,column.Property,column.JsonName,column.Type)).ToList();
+        var outputs=page.Readable.Select(column=>new NonRedundantOutput(column.Source.ColumnName,column.Property,column.JsonName,column.Type,column.IsJsonArray)).ToList();
+        foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null))
+            if(!outputs.Any(output=>output.Storage==multi.Names!.Source.ColumnName))outputs.Add(new(multi.Names!.Source.ColumnName,multi.Names.Property,multi.Names.JsonName,"string?",true));
         foreach(var relation in page.Readable.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
             if(relation.Source.ControlKind is not("List" or "SelectPage"))continue;

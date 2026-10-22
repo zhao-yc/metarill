@@ -35,7 +35,7 @@ internal static class GeneratedNonRedundantReadCatalog
             result.AppendLine($"    [JsonPropertyName({Literal(output.JsonName)})]");
             if(column is not null&&Checkbox(column))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             // 物理存储仍是字符串；原接口文件值保持JSON数组或null，不能向前端返回二次编码字符串。
-            result.AppendLine($"    public {(column?.IsJsonArray==true?column.BoundaryType:output.Type)} {output.Property} {{get;init;}}");
+            result.AppendLine($"    public {(output.IsJsonArray?"JsonElement?":output.Type)} {output.Property} {{get;init;}}");
         }
         foreach(var column in constants)
         {if(plan.Outputs.Any(output=>output.Property.Equals(column.Property+"Show",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException("常量显示别名冲突。");result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName+"Show")})] public string? {column.Property}Show {{get;init;}}");}
@@ -44,12 +44,12 @@ internal static class GeneratedNonRedundantReadCatalog
         {
             var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
             var value=$"NonRedundantReads.Value<{output.Type}>(row,{Literal(output.Storage)})";
-            if(column?.IsJsonArray==true)value=$"ReadFileValue(row,{Literal(output.Storage)})";
+            if(output.IsJsonArray)value=$"ReadFileValue(row,{Literal(output.Storage)})";
             result.AppendLine($"        {output.Property}={value},");
         }
         foreach(var column in constants)result.AppendLine($"        {column.Property}Show={ConstantDisplayExpression(column).Replace("entity."+column.Property,$"NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)})",StringComparison.Ordinal)},");
         result.AppendLine("    };");
-        if(page.Readable.Any(column=>column.IsJsonArray))result.AppendLine("    /// <summary>沿原VO恢复数据库JSON文本，null保持空值，避免二次编码文件ID数组。</summary>")
+        if(plan.Outputs.Any(output=>output.IsJsonArray))result.AppendLine("    /// <summary>沿原VO恢复数据库JSON文本，null保持空值，避免二次编码文件ID数组。</summary>")
             .AppendLine("    private static JsonElement? ReadFileValue(IReadOnlyDictionary<string,object?> row,string storage)")
             .AppendLine("    {").AppendLine("        var json=NonRedundantReads.Value<string?>(row,storage);")
             .AppendLine("        return string.IsNullOrWhiteSpace(json)?null:JsonSerializer.Deserialize<JsonElement>(json);").AppendLine("    }");
@@ -78,11 +78,11 @@ internal static class GeneratedNonRedundantReadCatalog
         // 名称辅助键在SQL分页/统计之前解析；不能把IsIgnore实体列当持久化列查询。
         foreach(var binding in names.Bindings)
         {
-            if(binding.Kind!=SelectionNameFilterKind.JoinedScalarLike)throw new InvalidOperationException("非冗余名称筛选缺少固定联接证明。");
+            if(binding.Kind is not(SelectionNameFilterKind.JoinedScalarLike or SelectionNameFilterKind.JoinedJsonArrayAnyLike))throw new InvalidOperationException("非冗余名称筛选缺少固定联接证明。");
             result.AppendLine($"                case {Literal(binding.FilterKey)}:")
                 .AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;")
                 .AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"名称筛选只接受文本。\");")
-                .AppendLine($"                    result.Add(new({Literal(binding.StorageColumn.Source.ColumnName)},FixedReadComparison.Contains,filter.Value.GetString()!));break;");
+                .AppendLine($"                    result.Add(new({Literal(binding.StorageColumn.Source.ColumnName)},FixedReadComparison.{(binding.Kind==SelectionNameFilterKind.JoinedJsonArrayAnyLike?"JsonArrayAnyContains":"Contains")},filter.Value.GetString()!));break;");
         }
         foreach(var group in names.Gaps.GroupBy(gap=>gap.FilterKey,StringComparer.Ordinal))
             result.AppendLine($"                case {Literal(group.Key)}:")
@@ -122,10 +122,12 @@ internal static class GeneratedNonRedundantReadCatalog
             .AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},ReadFilters{suffix}(request,actor),ReadOrder{suffix}(request),request.PageNo,request.PageSize,cancellationToken,unpaged,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});")
             .AppendLine($"        return new(rows.Records.Select({page.Name}Vo.FromReadRow).ToArray(),rows.Total,unpaged?0:(rows.Total+request.PageSize-1)/request.PageSize,request.PageNo,request.PageSize);").AppendLine("    }")
             .AppendLine("    /// <summary>数量不读取明细，不依赖请求分页或排序。</summary>").AppendLine($"    public async Task<long> Count{suffix}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken) {{ {(SelectionPageRenderer.Enabled(page)?$"await ValidateSelectionParents{suffix}Async(request.ParentId,actor,cancellationToken);":"")} return (await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},ReadFilters{suffix}(request,actor),Array.Empty<string>(),cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)})).Total; }}")
-            .AppendLine("    /// <summary>详情及写后回显使用相同真实项目/父范围，不额外授予list权限。</summary>").AppendLine($"    public async Task<{page.Name}Vo?> Detail{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)").AppendLine("    {")
+            .AppendLine("    /// <summary>详情及写后回显使用相同真实项目/父范围，不额外授予list权限。</summary>").AppendLine($"    public Task<{page.Name}Vo?> Detail{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)=>ReadDetail{suffix}Async(id,parentId,actor,cancellationToken,false);")
+            .AppendLine("    /// <summary>私有写后当前读不暴露HTTP开关，防止旧事务快照覆盖已经验证的名称。</summary>")
+            .AppendLine($"    private async Task<{page.Name}Vo?> ReadDetail{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken,bool currentRead)").AppendLine("    {")
             .AppendLine(SelectionPageRenderer.Enabled(page)?$"        await ValidateSelectionParents{suffix}Async(parentId,actor,cancellationToken);":"")
             .AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=parentId}},actor);filters.Add(new(\"id\",FixedReadComparison.Equal,id));")
-            .AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)});")
+            .AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)},currentRead:currentRead);")
             .AppendLine($"        return rows.Records.Count==0?null:{page.Name}Vo.FromReadRow(rows.Records[0]);").AppendLine("    }");
         if(ExactDataManageCompilation.Declared(page)||page.Condition is not null)
         {
@@ -139,7 +141,7 @@ internal static class GeneratedNonRedundantReadCatalog
                 if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");
                 result.AppendLine($"        filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")}));");
             }
-            result.AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId);")
+            result.AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId,currentRead:true);")
                 .AppendLine($"        return rows.Records.Count==0?null:{page.Name}Vo.FromReadRow(rows.Records[0]);").AppendLine("    }");
         }
         return result.ToString();

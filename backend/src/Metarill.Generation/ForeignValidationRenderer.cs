@@ -28,13 +28,14 @@ internal static class ForeignValidationRenderer
     public static string Render(GenerationModel model, TableModel table, PageModel page)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
-            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(CascadeTreeExcelRenderer.OperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")})")
+            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")})")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;");
         var crossFields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id.Source.Id,level.Name.Source.Id}).ToHashSet(StringComparer.Ordinal);
         var derived = MaterializedDerivedWriteCompilation.ForTable(model, table).Where(binding=>!crossFields.Contains(binding.Storage.Source.Id)).ToArray();
         var cascadeNames=CascadeTreeWriteCompilation.ForService(model,table,page).Select(plan=>plan.Name.Source.Id).Concat(crossFields).ToHashSet(StringComparer.Ordinal);
+        var multiReadNames=table.Source.IsRongyu==0?MultiSelectCompilation.ForService(model,table,page).Where(multi=>multi.Names is not null).Select(multi=>multi.Names!.Source.Id).ToHashSet(StringComparer.Ordinal):new HashSet<string>(StringComparer.Ordinal);
         // 未证明的派生值不能借默认值、复制或手写钩子的submitted集合绕过严格DTO。
-        foreach (var storage in table.Columns.Where(column => GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !derived.Any(binding => binding.Storage.Source.Id == column.Source.Id)&&!cascadeNames.Contains(column.Source.Id)))
+        foreach (var storage in table.Columns.Where(column => GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !multiReadNames.Contains(column.Source.Id) && !derived.Any(binding => binding.Storage.Source.Id == column.Source.Id)&&!cascadeNames.Contains(column.Source.Id)))
             result.AppendLine($"        if (creating ? entity.{storage.Property} is not null : submitted.Contains({Literal(storage.Source.ColumnName)})) throw new InvalidOperationException({Literal("物理派生写入尚未证明：" + storage.Source.ColumnName)});");
         foreach (var binding in derived)
             result.AppendLine($"        if (!creating && submitted.Contains({Literal(binding.Storage.Source.ColumnName)}) && !submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) throw new InvalidOperationException(\"派生字段只能随已声明关联重算。\");")
@@ -61,7 +62,7 @@ internal static class ForeignValidationRenderer
                 {
                     var dependency = definition.TargetParentField is null ? null : table.Columns.Single(field => field.JsonName == definition.TargetParentField).Source.ColumnName;
                     var trigger = dependency is null ? "" : " || submitted.Contains(" + Literal(dependency) + ")";
-                    result.AppendLine($"        if (creating || submitted.Contains({Literal(column.Source.ColumnName)}){trigger}) await ValidateMulti{page.Source.Id}_{column.Source.Id}Async(entity, actor, submitted, creating || submitted.Contains({Literal(column.Source.ColumnName)}), cancellationToken);");
+                    result.AppendLine($"        if (creating || submitted.Contains({Literal(column.Source.ColumnName)}){trigger}) await ValidateMulti{page.Source.Id}_{column.Source.Id}Async(entity, actor, submitted, creating || submitted.Contains({Literal(column.Source.ColumnName)}), cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", cascadeOperation":"")});");
                 }
                 else result.AppendLine($"        if ((creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null) throw new InvalidOperationException({Literal(multi.Reason!)});");
                 continue;
