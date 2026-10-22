@@ -14,6 +14,7 @@ internal static class LegacyPageRequestRenderer
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleCheckboxModel.Alias);
         if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) echo = echo.Append(FixedRoleAdminNameModel.Alias);
         echo=echo.Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Where(plan=>page.Readable.Any(column=>column.Source.Id==plan.Source.Source.Id)).Select(plan=>plan.Source.JsonName+"DisplayText"));
+        echo=echo.Concat(MultiNameStorageCompilation.ImplicitNames(model,table,page).Select(name=>name.JsonName));
         echo=echo.Concat(CascadeTreeViewRenderer.ImplicitNames(model,table,page).Select(name=>name.JsonName));
         echo=echo.Concat(CrossTableDisplayRenderer.ForPage(model,table,page).Select(plan=>plan.Read.Source.JsonName+"DisplayText"));
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");

@@ -30,8 +30,11 @@ public sealed class GeneratedMultiSelectMySqlTests
     /// <summary>原多选在明确物理联接缓存上复验文件引用、整个来源事务与复制保护。</summary>
     [StandaloneExportMySqlFact]
     public Task Joined_name_cache_uses_original_popup_scope_and_full_source_transaction()=>VerifyAsync(true);
+    /// <summary>自动缓存不依赖显式页面名称字段，仍验证整个来源事务及文件引用。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Automatic_name_cache_uses_original_popup_and_transaction()=>VerifyAsync(true,true);
     /// <summary>普通及联接缓存复用相同原协议验收，实际样本分别隔离。</summary>
-    private static async Task VerifyAsync(bool joinedCache)
+    private static async Task VerifyAsync(bool joinedCache,bool automatic=false)
     {
         using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options = settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
@@ -56,6 +59,7 @@ public sealed class GeneratedMultiSelectMySqlTests
         catalog.ConfigPageColumns.Add(new() { Id = "id_name_25", ConfigPageId = "203", ConfigColumnId = "25", IsShow = 1, IsEdit = 1, Extra = new() { ["controlDetail"] = JsonSerializer.SerializeToElement("{\"nameField\":\"id\"}") } });
         catalog.ConfigPageColumns.Add(new() { Id = "id_name_26", ConfigPageId = "203", ConfigColumnId = "26", IsShow = 1, IsEdit = 1 });
         catalog.ConfigPageColumns.Add(new() { Id = "id_name_29", ConfigPageId = "203", ConfigColumnId = "29", IsShow = 1, IsEdit = 1 });
+        if(automatic)RedundantMultiNameCacheTests.RemoveCache(catalog);
         var filesPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../metadata/files.json"));
         if (!File.Exists(filesPath)) filesPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "backend/metadata/files.json"));
         var files = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(filesPath), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -125,7 +129,7 @@ public partial class {{sourceType}}Service
             // 省略IDs不刷新历史名称；客户端无法只写辅助名称。
             await Execute(session, "UPDATE " + Q(session, prefix + "_source") + " SET target_names=@names WHERE id=@id", ("names", "[\"历史名称\"]"), ("id", long.Parse(record)));
             Data(await Post(client, endpoint + "/update", new { id = record, name = "只改来源名称" })); Assert.Equal("[\"历史名称\"]", (await rows.ReadAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) })).Single()["target_names"]);
-            var hidden = Data(await Post(client, hiddenEndpoint + "/update", new { id = record, name = "隐藏ID页普通保存" })); Assert.False(hidden.TryGetProperty("targetIds", out _));
+            var hidden = Data(await Post(client, hiddenEndpoint + "/update", new { id = record, name = "隐藏ID页普通保存" })); Assert.False(hidden.TryGetProperty("targetIds", out _));if(automatic)Assert.False(hidden.TryGetProperty("targetNames",out _));
             Assert.Equal("[\"历史名称\"]", (await rows.ReadAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) })).Single()["target_names"]);
             before = await Snapshot(); Assert.Equal(500, (await Post(client, hiddenEndpoint + "/update", new { id = record, parentId = (Parent + 1).ToString(), attachments = new[] { fileIds[1].ToString() } })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot());
             var encoded = " [ \"" + First + "\" ] "; var legacy = Data(await Post(client, endpoint + "/update", new { id = record, targetIds = encoded })); Assert.Equal(JsonValueKind.Array, legacy.GetProperty("targetIds").ValueKind); Assert.Equal(encoded, (await rows.ReadAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) })).Single()["target_ids"]);

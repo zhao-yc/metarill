@@ -142,7 +142,7 @@ public sealed class GeneratedMultiSelectContractTests
         if (kind == "scope") catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail = "{\"pageId\":\"301\",\"whereSql\":\"name='unproved'\"}";
         if (kind == "name") catalog.ConfigPageColumns.RemoveAll(field => field.ConfigPageId == "301" && field.ConfigColumnId == "32");
         if (kind == "parent") catalog.ConfigPages.Single(page => page.Id == "201").WhereSql = "yz_project_id=@current_yz_project_id";
-        if (kind == "names") catalog.ConfigColumns.RemoveAll(column => column.Id == "27");
+        if (kind == "names") catalog.ConfigColumns.Single(column => column.Id == "27").IsVirtualColumn=1;
         if (kind == "names") catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "27");
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-multi-contract"); var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try

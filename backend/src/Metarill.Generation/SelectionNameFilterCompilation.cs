@@ -27,7 +27,7 @@ internal static class SelectionNameFilterCompilation
             if(EffectiveFilterKind(model,page,source)!=source.Source.ControlKind){Gap("页级controlKind改变了名称筛选的存储种类，尚未建立完整证明。");continue;}
             if(table.Source.IsRongyu is not(0 or 1)){Gap("未识别的存储模式不能建立名称谓词。");continue;}
             if(storage.Source.Id==source.Source.Id){Gap("没有独立已声明名称列；ID筛选必须使用独立合同。");continue;}
-            if(storage.Type!="string?"||storage.Source.IsVirtualColumn!=0||!(page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||table.Source.IsRongyu==0&&source.Source.ControlKind=="MultiSelectPage"&&storage.IsManagedMultiNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id))||table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&!storage.IsManagedMultiNames){Gap("辅助名称必须为本页可读的已证明字符串列。");continue;}
+            if(storage.Type!="string?"||storage.Source.IsVirtualColumn!=0||!(page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||table.Source.IsRongyu==1&&storage.IsManagedMultiNames&&MultiNameStorageCompilation.IsImplicit(model,storage)&&page.Readable.Any(column=>column.Source.Id==source.Source.Id)||table.Source.IsRongyu==0&&source.Source.ControlKind=="MultiSelectPage"&&storage.IsManagedMultiNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id))||table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&!storage.IsManagedMultiNames){Gap("辅助名称必须为本页可读的已证明字符串列。");continue;}
             try
             {
                 var settings=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);

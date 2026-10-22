@@ -85,6 +85,8 @@ internal static partial class BackendRenderer
             if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
         }
+        foreach(var name in MultiNameStorageCompilation.ImplicitNames(model,table,page))
+            result.AppendLine($"    [JsonPropertyName({Literal(name.JsonName)})] public JsonElement? {name.Property} {{ get; init; }}");
         foreach(var name in CascadeTreeViewRenderer.ImplicitNames(model,table,page))
             result.AppendLine($"    [JsonPropertyName({Literal(name.JsonName)})] public string? {name.Property} {{ get; init; }}");
         result.Append(CascadeTreeViewRenderer.Vo(model,table,page));
@@ -99,6 +101,7 @@ internal static partial class BackendRenderer
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName + "Show")})]").AppendLine($"    public string? {column.Property}Show {{ get; init; }}");
         result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity{(role is not null ? ",JsonElement? roleNames" : roleAdmin is not null ? ",string? roleAdminName" : "")}{(credentials ? ",bool includeCredentials = true" : "")}) => new()").AppendLine("    {");
         foreach (var column in page.Readable) result.AppendLine(ManagerCredentialCompilation.Output(table,page,column) is {} credential ? $"        {column.Property} = {credential}," : role?.Source.Source.Id==column.Source.Id ? $"        {column.Property} = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.{column.Property})," : DatabaseCheckboxCompilation.Generic(table,column) ? $"        {column.Property} = Metarill.Core.Contracts.DatabaseCheckboxValue.ProjectIds(entity.{column.Property})," : column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
+        foreach(var name in MultiNameStorageCompilation.ImplicitNames(model,table,page))result.AppendLine($"        {name.Property} = string.IsNullOrWhiteSpace(entity.{name.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{name.Property}),");
         foreach(var name in CascadeTreeViewRenderer.ImplicitNames(model,table,page))result.AppendLine($"        {name.Property} = entity.{name.Property},");
         if (role is not null) result.AppendLine("        YzRoleNames = roleNames,");
         if (roleAdmin is not null) result.AppendLine("        YzAdminTypeName = roleAdminName,");

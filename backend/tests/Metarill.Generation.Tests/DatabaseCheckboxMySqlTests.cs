@@ -43,6 +43,10 @@ public sealed class DatabaseCheckboxMySqlTests
     [StandaloneExportMySqlFact]
     public Task Redundant_joined_name_cache_keeps_original_checkbox_transactions()=>Verify(false,false,false,true);
 
+    /// <summary>仅声明IDs也使用结构计划中的自动物理缓存，回显剥离和事务规则保持。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Redundant_automatic_name_cache_keeps_original_checkbox_transactions()=>Verify(false,true);
+
     /// <summary>实例pin通过后才创建随机三表，失败证据不覆盖，清理前检查结构与本任务行集。</summary>
     private static async Task Verify(bool nonRedundant,bool automatic,bool sourceParent=false,bool joinedCache=false)
     {

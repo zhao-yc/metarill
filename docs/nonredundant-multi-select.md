@@ -57,9 +57,9 @@ Excel 沿原 JSON 名称数组。整行按已编译物理父依赖解析，属�
 
 1. 同版更新生成器与 Core／Data，保留私有配置、AppID、手写 partial 和自定义宿主。
 2. 从元数据正规再生成受影响 Entity、DTO/VO、Service、Controller；同步原前端运行时 `multiSelectFieldMixin.js`。通过原本地助手预览、审查依赖后应用，不手改生成页。
-3. 只复用已物理存储的 ID 列；自动名称无新增 DDL、回填或元数据写入。新建关系或修正原配置时仍须先改元数据，再预览、执行与核验结构。
+3. 本节非冗余 R0 只复用已物理存储的 ID 列；自动名称无新增 DDL、回填或元数据写入。新建关系或修正原配置时仍须先改元数据，再预览、执行与核验结构。
 4. 构建并验证原列表／详情、名称筛选、保存／复制、导入导出、父范围、撤权和回滚；完整包按新 profile 再装配。
 
 ## 尚未完成
 
-通用 `MultiCheckBoxDatabase` 固定物理名称子集已交付 [B25](database-checkbox-relations.md)；明确联接物理缓存已交付 [B26](redundant-multi-name-cache.md)；自动冗余缓存、派生／非字符串多选名称、未证明的页级覆盖、全局目标、多值参与复杂联接、非冗余级联的其余范围（[固定selfTree](nonredundant-self-tree.md)已单独交付）、混合冗余传播、维护回填、完整原浏览器／跨端、专用全新库及同条件性能继续分别实施。不能将此固定子集写成整个复杂关系模块完成。
+通用 `MultiCheckBoxDatabase` 固定物理名称子集已交付 [B25](database-checkbox-relations.md)；明确联接物理缓存已交付 [B26](redundant-multi-name-cache.md)；自动冗余缓存固定子集已交付 [B27](automatic-multi-name-cache.md)；派生／非字符串多选名称、未证明的页级覆盖、全局目标、多值参与复杂联接、非冗余级联的其余范围（[固定selfTree](nonredundant-self-tree.md)已单独交付）、混合冗余传播、维护回填、完整原浏览器／跨端、专用全新库及同条件性能继续分别实施。不能将此固定子集写成整个复杂关系模块完成。
