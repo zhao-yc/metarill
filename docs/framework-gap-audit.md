@@ -28,7 +28,7 @@
 
 **已有：** [RelationCompilation](../backend/src/Metarill.Generation/RelationCompilation.cs) 可编译明确 List 目标和范围；ForeignValidationRenderer 校验关系记录存在、未删除和同项目。SelectPage 已有简单单选导航。
 
-**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 已另补甲128/乙105项双父范围、三页、字面搜索、保存回读与父切换浏览器实证；超过5000候选浏览器、多选List及跨端仍待分别补验，type=2页不替代这些范围。[MultiSelectPage冗余子集](multi-select-field-contract.md)仅对固定目标、可读名称、明确辅助列和可证明父范围接线；额外范围、非冗余及名称传播仍待完成，不能将整个控件标完成。原账号固定MultiCheckBoxDatabase已恢复原复选DOM、事件、POST、数组及名称投影，见[固定合同](fixed-role-checkbox.md)；未知实例继续拒绝。CascadeTree的普通冗余selfTree与固定独立crossTable链，已按文末各合同接通读取、保存、展示及筛选；selfTree的Excel已接线，crossTable仅模板边界与空单元格已接线，非空路径策略仍待确认。FullApplication对未支持用途的门禁保持，不能把原控件资产存在视为完整验收。2026-10-22只读盘点原Java生成器、模板及前端common/components，LevelList仅命中ControlKinds.java第31行的预留枚举，未找到对应原执行分支；它不作为已实现原功能的完成证据，也不据此凭空新增页面或交互。[非冗余存储](nonredundant-storage.md)已接普通标量固定读取、单值List/SelectPage、type=2回读、普通/跨父导入导出及物理文件子集；多值、级联、全局/复杂联接、冗余/非冗余混合传播与维护回填仍待完成。平台`supportsNonRedundant=false`仍是完整能力门槛声明，不能据此否认已证明的固定子集，也不能以这些子集解除整体门禁。
+**缺口：** RelationCompilation 仍只编译 List。本次后端已增加固定 `/page` 关键字分页与 `/selected` 有界回读，旧数组超过 5000 项整体错误；两种父范围分别验证，详见 [关系候选合同](relation-options.md)。新生成 List 已通过原 zxz 选择器的可选远程模式接入分页/已选回读；当前页标签按固定 selected 分批读取，未知双父保留原ID只读提示。同ID跨不同目标父组时保守保留原ID，不借用另一组成功回读的标签；该双父缓存/标签串用 P2 已修复，关系 UI 子任务 Node 回归 229/229。未再生成的旧页面仍可能调用旧数组；独立包关系 wrapper、两个相关 runtime 及 selectionPageMixin 均已进入明确资产清单，随包闭包检查和 HBuilderX 通过。远程 List 已另补甲128/乙105项双父范围、三页、字面搜索、保存回读与父切换浏览器实证；超过5000候选浏览器、多选List及跨端仍待分别补验，type=2页不替代这些范围。[MultiSelectPage冗余子集](multi-select-field-contract.md)仅对固定目标、可读名称、明确辅助列和可证明父范围接线；额外范围、非冗余及名称传播仍待完成，不能将整个控件标完成。原账号固定MultiCheckBoxDatabase已恢复原复选DOM、事件、POST、数组及名称投影，见[固定合同](fixed-role-checkbox.md)；未知实例继续拒绝。CascadeTree的普通冗余selfTree、固定独立crossTable链与单个来源目标层位，已按文末各合同接通读取、保存、展示及筛选；selfTree的Excel已接线，crossTable仅模板边界与空单元格已接线，非空路径策略仍待确认。FullApplication对未支持用途的门禁保持，不能把原控件资产存在视为完整验收。2026-10-22只读盘点原Java生成器、模板及前端common/components，LevelList仅命中ControlKinds.java第31行的预留枚举，未找到对应原执行分支；它不作为已实现原功能的完成证据，也不据此凭空新增页面或交互。[非冗余存储](nonredundant-storage.md)已接普通标量固定读取、单值List/SelectPage、type=2回读、普通/跨父导入导出及物理文件子集；多值、级联、全局/复杂联接、冗余/非冗余混合传播与维护回填仍待完成。平台`supportsNonRedundant=false`仍是完整能力门槛声明，不能据此否认已证明的固定子集，也不能以这些子集解除整体门禁。
 
 **原实现证据：** YZP 的 `NonRedundantReadPlanCompiler`、`MixedRelationPropagationCompiler`、运行时 list/selectpage/cascade，以及 `SystemMaintenanceBusiness` 的回填入口。只读引用扫描可识别这些配置声明，不能因扫描命中就宣称对应控件执行能力已移植。
 
@@ -362,3 +362,14 @@ Data170/170、相关组合162/162，零跳过，前序14和5重叠不累加。�
 独立BackendOnly包内检查器源码摘要一致、生成Service实际引用，移除仓库定位环境变量后从包内Core构建成功；未完成用途Full原子拒绝且无输出。正式215个产物两轮及修改前逐字相同，24手写partial不变；原前端/共享模板/平台元数据无diff，最终501份源码/测试与回归摘要一致。11组累计923个随机表名独立新连接核零，含失败未建表表名，不是本轮新DROP923张表；用户授权六张旧失败表另核零，未重复DROP或新增观测权限。
 
 已有C#应用同版更新Core与生成器后再生成Service并构建；无本批DDL/回填，缺辅助列仍按跨表保存合同显式同步。非空跨表Excel策略、其它级联/非冗余/传播、用途SQL整体裁剪、完整管理Runtime与初始化确认、原浏览器/跨端、同条件性能、完整MySQL首版及后续数据库仍待完成。不合并main或部署生产，新提交自身CI另核。
+
+
+## 来源表参与跨表链（2026-10-22）
+
+普通冗余固定链中来源恰好参与一个目标层位现接通写前准备与正常Mapper后最终SQL核验，根/中/末级均由元数据生成。私有来源覆盖只准备本次授权实体的名称/父键，不进入HTTP候选/路径，不用内存条件代替真实SQL。写后、通知前当前读核对实际各级ID/名称/身份范围及最终路径，失效整笔回滚，不补修复DML。图依赖变化会复核，省略级联ID保留已存名称；非空重选沿目标list，清空不增加门槛。来源重复层位、共享辅助字段等仍有明确拒绝。见[来源图合同](cross-table-source-graph-contract.md)。
+
+最终相关147/147零失败零跳过，包含三层位×四种键实际生成编译、重复层位拒绝及六个真实HTTP/MySQL三表样本。验证自身改名、父键协同、不一致/隐藏范围、数据库字符比较与舍入、私有标志/新自身拒绝、通知前失败及尾部回滚、独立UPDATE1205/释放、复制/选择确认和撤权/清空。首次宿主CS9007未入库；首个实库失败为测试误把普通保存回显当作库内舍入，保留原回显0.015后新增独立会话直读0.02的断言，失败/清理原件保留，不改产品响应协议或弱化范围规则。Core/Data及Data测试与393dc41逐项一致，174/174沿用该已验证基线，本批未冒称重跑。
+
+独立BackendOnly包移除仓库定位环境变量后从包内源码实际构建成功，生成服务包含来源覆盖和最终图核验；未完成用途Full原子拒绝无输出。215正式产物两次及修改前逐字一致，24手写partial不变，原前端/共享模板/平台元数据无diff，最终503份源码/测试与回归摘要一致。12系列累计1045个随机表名独立核零，来源图39个，含历史失败未建表表名，不代表本轮新DROP1045张表。授权六张旧失败表另核零，未重复DROP或增加观测权限。
+
+已有C#应用更新生成器并再生成Service后构建，无本批DDL/回填或前端变化；缺辅助列仍按跨表保存合同先显式同步。来源重复角色、复杂父范围/辅助列、非冗余/传播、非空路径Excel策略、用途SQL整体裁剪、完整管理Runtime与初始化确认、原浏览器/跨端、同条件性能、完整MySQL首版及后续数据库继续实施。不合并main或生产部署，新提交CI另核。

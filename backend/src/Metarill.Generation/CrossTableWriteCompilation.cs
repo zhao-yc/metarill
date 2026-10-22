@@ -9,11 +9,11 @@ internal static class CrossTableWriteCompilation
 {
     /// <summary>隐藏控件也在默认值、复制和钩子更新后执行，不能靠页面隐藏绕过规则。</summary>
     internal static IReadOnlyList<CrossTableWriteModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CrossTableWriteModel>().ToArray();
-    /// <summary>只开放已证明的独立目标链，冲突列、系统字段及共享辅助列保留写门禁。</summary>
+    /// <summary>来源目标重叠由写后图状态协调；冲突列、系统字段及共享辅助列保留写门禁。</summary>
     internal static CrossTableWriteResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         CrossTableWriteResult Gap(string reason)=>new(null,"跨表级联写入尚未支持："+reason);var read=CrossTableReadCompilation.Resolve(model,table,page,source);if(read.Definition is not{} plan)return Gap(read.Reason??"未证明读取链。");
-        if(plan.Levels.Any(level=>level.Target.Source.Id==table.Source.Id))return Gap("同表目标需要最终图状态协调。");var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var result=new List<CrossTableWriteLevel>();
+        if(plan.Levels.Count(level=>level.Target.Source.Id==table.Source.Id)>1)return Gap("来源表重复层位仍需组合验证。");var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var result=new List<CrossTableWriteLevel>();
         foreach(var level in plan.Levels)
         {
             var id=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_id");var name=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_name");
