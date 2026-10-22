@@ -723,6 +723,6 @@ public partial class {{table.Name}}Service
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
                 .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(RequiresRelationAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
-        return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table=>NonRedundantReadCompilation.Requires(model,table))?NonRedundantCatalog(model):"").Append(RelationPropagationRenderer.Catalog(model)).ToString();
+        return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table=>NonRedundantReadCompilation.Requires(model,table))?NonRedundantCatalog(model):"").Append(RelationPropagationRenderer.Catalog(model)).Append(RelationMaintenanceRenderer.Catalog(model)).ToString();
     }
 }

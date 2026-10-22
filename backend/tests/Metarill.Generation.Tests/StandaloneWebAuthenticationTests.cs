@@ -87,6 +87,13 @@ public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPa
         await package.Call(f.Web,"LogoutAsync",granted,CancellationToken.None);Assert.Null(await f.Resolve(first.Token));
     }
 
+    /// <summary>原维护登录后可用规则直接消费实际完整包的Web身份，不额外要求平台或业务超级角色；本测试使用内存数据库。</summary>
+    [Fact]
+    public async Task Maintenance_uses_compiled_host_identity_and_original_login_button_policy()
+    {
+        using var f=new OfflineApplication(package);await f.Initialize(Settings());var login=await f.Login(Password);f.Provider.Rows["yz_role"][0]["is_super"]=0;var identity=await f.Resolve(login.Token);Assert.NotNull(identity);Assert.False(identity.IsRealmSuper);Assert.Empty(identity.Permissions);var accessor=(ISecurityIdentityAccessor)f.Authorize(identity);var business=new Metarill.Runtime.Maintenance.SystemMaintenanceBusiness(f.Session,package.Maintenance(),accessor);var opens=f.Provider.Opens;var tables=business.Tables();Assert.NotEmpty(tables);Assert.Equal(opens,f.Provider.Opens);f.Accessor.HttpContext!.Items[typeof(AuthenticatedIdentity)]=identity with{GrantId=12};Assert.Throws<UnauthorizedAccessException>(()=>business.Tables());f.Accessor.HttpContext.Items.Remove(typeof(AuthenticatedIdentity));Assert.Throws<UnauthorizedAccessException>(()=>business.Tables());
+    }
+
     /// <summary>Agent、包外真实realm、停用/过期/删除或错误密码不能成为本应用Web身份。</summary>
     [Theory]
     [InlineData("agent")] [InlineData("outside-project")] [InlineData("outside-admin")] [InlineData("disabled")] [InlineData("expired")] [InlineData("deleted")]
@@ -195,6 +202,7 @@ public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPa
         internal async Task<(Dictionary<string,object?> User,string Token)> Login(string password){var result=(await package.Call(Web,"LoginAsync",Username,password,CancellationToken.None))!;return((Dictionary<string,object?>)result.GetType().GetField("Item1")!.GetValue(result)!,(string)result.GetType().GetField("Item2")!.GetValue(result)!);}
         internal async Task<AuthenticatedIdentity?> Resolve(string token)=>(AuthenticatedIdentity?)await package.Call(Web,"ResolveAsync",token,CancellationToken.None);
         internal IRuntimeAuthorization Authorize(AuthenticatedIdentity identity){Accessor.HttpContext!.Items[typeof(AuthenticatedIdentity)]=identity;return(IRuntimeAuthorization)package.New("ApplicationWebAuthorization",Accessor,package.Authority());}
+        internal DatabaseSession Session=>services.GetRequiredService<DatabaseSession>();
         internal string Snapshot()=>JsonSerializer.Serialize(Provider.Rows);
         internal void Add(string table,params(string Name,object? Value)[] values){if(!Provider.Rows.TryGetValue(table,out var rows))Provider.Rows[table]=rows=[];rows.Add(values.ToDictionary(pair=>pair.Name,pair=>pair.Value));}
         public void Dispose()=>services.Dispose();
@@ -221,6 +229,7 @@ public sealed class WebAuthenticationPackageFixture:IAsyncLifetime
     }
     /// <summary>认证始终使用真实编译包字节；替代目录仅用于既有Initializer输入反例，不冒充编译权威。</summary>
     internal object Authority()=>New("VerifiedPackageSecurityCatalog",CatalogBytes.ToArray());
+    internal Metarill.Data.Relations.RelationMaintenanceCatalog Maintenance()=>(Metarill.Data.Relations.RelationMaintenanceCatalog)assembly.GetType(Namespace+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null)!;
     internal object Registry()=>New("ApplicationSecurityRegistry",Authority());
     internal void RegisterCatalog(IServiceCollection services,object authority)=>Invoke(assembly.GetType(Namespace+".Host.ApplicationSecurityCatalogRegistration",true)!,"Add",services,authority);
     /// <summary>执行实际完整包的正式Web注册，不能由测试重建一份近似DI替代。</summary>

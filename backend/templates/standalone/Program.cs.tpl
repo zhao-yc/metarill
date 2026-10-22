@@ -82,6 +82,8 @@ builder.Services.AddScoped<FileLibraryService>();
 builder.Services.AddScoped<IFileLibraryResolver, SingleDatabaseFileLibraryResolver>();
 builder.Services.AddScoped<IRecordMutationObserver, FileReferenceMutationObserver>();
 builder.Services.AddGeneratedServices();
+// 原维护只接已发布宿主目录与同一业务库；显式开发认证不伪造真实Web身份。
+builder.Services.AddScoped<Metarill.Runtime.Maintenance.SystemMaintenanceBusiness>(provider=>new(provider.GetRequiredService<DatabaseSession>(),GeneratedRelationMaintenance.Catalog,provider.GetService<ISecurityIdentityAccessor>()??throw new UnauthorizedAccessException("维护操作需要真实Web身份。")));
 builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
 builder.Services.AddRateLimiter(options =>
 {

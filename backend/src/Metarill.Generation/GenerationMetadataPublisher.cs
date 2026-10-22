@@ -31,6 +31,18 @@ public static class GenerationMetadataPublisher
         return new(json.Deserialize<MetadataCatalog>(Json)!, redactions.Distinct().Order(StringComparer.Ordinal).ToArray());
     }
 
+    /// <summary>关系执行目录先脱敏，再去掉品牌、菜单及布局；纯配置更新不因此强制更新后端生成代码。</summary>
+    internal static MetadataCatalog ForRelations(MetadataCatalog catalog)
+    {
+        var published=Publish(catalog).Metadata;
+        published.YzProjectName="Metarill";published.PrimaryColor="#0ab3ad";
+        published.ConfigMenus=[];published.ConfigCustomPages=[];published.ConfigPageColumns=[];published.ConfigChildren=[];published.ConfigIndexes=[];published.ConfigIndexColumns=[];
+        published.ConfigPages=published.ConfigPages.Select(page=>new PageMetadata{Id=page.Id,ConfigTableId=page.ConfigTableId,YzProjectId=page.YzProjectId,YzAdminTypeId=page.YzAdminTypeId}).ToList();
+        published.YzAdminTypes=published.YzAdminTypes.Select(admin=>new AdminTypeMetadata{Id=admin.Id,YzProjectId=admin.YzProjectId}).ToList();
+        published.ConfigButtons=published.ConfigButtons.Where(button=>button.TryGetProperty("sql",out var path)&&path.ValueKind==JsonValueKind.String&&path.GetString() is "/admin/sys/system_maintenance/tables" or "/admin/sys/system_maintenance/backfill_join_columns").Select(button=>JsonSerializer.SerializeToElement(new{id=button.GetProperty("id").ToString(),sql=button.GetProperty("sql").GetString()})).ToList();
+        return published;
+    }
+
     /// <summary>递归清理敏感键及嵌套JSON字符串；配置中的普通SQL定义只作为数据保留，不执行。</summary>
     internal static void Scrub(JsonNode node, string path, List<string> redactions)
     {

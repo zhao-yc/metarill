@@ -7,7 +7,7 @@ internal static class RelationPropagationRenderer
     /// <summary>静态初始化只编译一次，快照是局部变量，不提供在线改写计划入口。</summary>
     internal static string Catalog(GenerationModel model)
     {
-        var bindings=RelationPropagationCompilation.Bindings(model);if(bindings.Count==0)return "";var options=new JsonSerializerOptions(JsonSerializerDefaults.Web);var metadata=JsonSerializer.Serialize(model.Catalog,options);var definitions=JsonSerializer.Serialize(RelationPropagationCompilation.Definitions(bindings),options);
+        var bindings=RelationPropagationCompilation.Bindings(model);if(bindings.Count==0)return "";var options=new JsonSerializerOptions(JsonSerializerDefaults.Web);var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog),options);var definitions=JsonSerializer.Serialize(RelationPropagationCompilation.Definitions(bindings),options);
         return $$"""
 
 /// <summary>发布项目的关系传播快照，不从HTTP或MCP接收SQL／计划。</summary>

@@ -66,6 +66,8 @@ builder.Services.AddMcpServer().WithHttpTransport(options=>options.SessionMode=H
 builder.Services.AddScoped<HttpRuntimeAuthorization>();
 builder.Services.AddScoped<IRuntimeAuthorization>(sp=>sp.GetRequiredService<HttpRuntimeAuthorization>());
 builder.Services.AddScoped<MenuWorkbenchBusiness>();
+// 维护始终使用宿主平台目录与平台连接，选中业务项目不改变原sys入口的目标。
+builder.Services.AddScoped<Metarill.Runtime.Maintenance.SystemMaintenanceBusiness>(provider=>new(provider.GetRequiredService<TargetDatabaseSessions>().Platform,Metarill.Platform.Generated.GeneratedRelationMaintenance.Catalog,provider.GetRequiredService<HttpRuntimeAuthorization>()));
 builder.Services.AddScoped<RolePermissionBusiness>();
 builder.Services.AddRealmWriteCoordination();
 builder.Services.AddScoped<ConfigurationCandidatesBusiness>();

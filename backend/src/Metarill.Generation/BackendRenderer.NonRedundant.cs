@@ -9,7 +9,7 @@ internal static partial class BackendRenderer
     /// <summary>项目元数据仅嵌入和反序列化一次；各页只持有自己的不可变固定计划。</summary>
     private static string NonRedundantCatalog(GenerationModel model)
     {
-        var metadata=JsonSerializer.Serialize(model.Catalog,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog),new JsonSerializerOptions(JsonSerializerDefaults.Web));
         return $$"""
 
 /// <summary>生成来源的私有只读快照，不提供外部取出或在线改写入口。</summary>
