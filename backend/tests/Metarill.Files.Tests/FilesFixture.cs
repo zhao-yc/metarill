@@ -46,7 +46,7 @@ internal sealed class FilesFixture : IAsyncDisposable
     public FileReferenceMutationObserver Observer(RuntimeActor? actor = null) => new(Store, new([Registry.Platform,Registry.Demo]), new TestAuthorization(actor ?? Actor(), Registry), Ids, Options);
 
     /// <summary>只在指定测试库建立随机临时业务表，文件基础设施表必须已由协调者初始化。</summary>
-    public static async Task<FilesFixture> CreateAsync(bool childScope = false, bool parentKeysAsText = false)
+    public static async Task<FilesFixture> CreateAsync(bool childScope = false, bool parentKeysAsText = false,bool physicalDelete=false)
     {
         var fixture = new FilesFixture();
         try
@@ -58,6 +58,10 @@ internal sealed class FilesFixture : IAsyncDisposable
         if (connection.Database != options.ExpectedDatabase || !(await System.Net.Dns.GetHostAddressesAsync(connection.Server)).Any(address => address.ToString() == "192.168.31.200"))
             throw new InvalidOperationException("文件测试仅允许已核对的Server-200隔离库。");
         fixture.Session = new DatabaseSession(options);
+        if(physicalDelete)
+        {
+            using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")!));await using var actual=fixture.Session.Provider.CreateConnection(options);await actual.OpenAsync();await using var identity=actual.CreateCommand();identity.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await identity.ExecuteReaderAsync();if(!await reader.ReadAsync()||reader.GetString(0)!=options.ExpectedDatabase||reader.GetString(1)!=pin.RootElement.GetProperty("expectedHostname").GetString()||reader.GetString(2)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("物理删除样本实例pin不匹配。");
+        }
         var metadataPath = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
         var platform = MetadataRegistry.Load(metadataPath);
         var testId = Guid.NewGuid().ToString("N")[..12];
@@ -74,6 +78,7 @@ internal sealed class FilesFixture : IAsyncDisposable
         var columns = new List<ColumnMetadata> { Column("id", "int64", true), Column("yz_project_id", "int64", true), Column("delete_no", "datetime"),
             Column("attachments", "string", false, "FileLibrary", "{\"accessMode\":\"PROTECTED\",\"maxCount\":3}"),
             Column("public_files", "string", false, "FileLibrary", "{\"accessMode\":\"PUBLIC\"}"), Column("notes", "string") };
+        if(physicalDelete)columns.RemoveAll(column=>column.ColumnName=="delete_no");
         var managedTables = new List<TableMetadata> { table };
         var managedColumns = new List<ColumnMetadata>();
         if (childScope)

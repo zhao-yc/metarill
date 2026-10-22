@@ -21,7 +21,7 @@ public partial class DemoCustomerService
     private readonly IEnumerable<IRecordMutationGuard> guards;
 
     /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
-    public DemoCustomerService(DatabaseSession session, DemoCustomerMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? [];  }
+    public DemoCustomerService(DatabaseSession session, DemoCustomerMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? [];  }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }

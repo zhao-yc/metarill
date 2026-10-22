@@ -1,4 +1,7 @@
 using System.Data.Common;
+using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Metadata;
@@ -11,6 +14,26 @@ namespace Metarill.Runtime.Files;
 /// <summary>只同步 FileLibrary 字段；业务记录与引用校验、增删必须处于同一实际数据库事务。</summary>
 public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadataContext registry, IRuntimeAuthorization authorization, IIdGenerator ids, FileLibraryOptions? options = null) : IRecordMutationObserver
 {
+    private sealed record PhysicalDeletionProof(RuntimeActor Actor,string Project,IReadOnlyDictionary<string,object?> Record);
+    // 证明仅保存在当前观察器内部并以原事务弱引用隔离；不能由HTTP、上下文字段或另一个观察器伪造。
+    private readonly ConditionalWeakTable<DbTransaction,ConcurrentDictionary<(string Page,string Table,long Id),PhysicalDeletionProof>> deletions=new();
+
+    /// <summary>原Service完成范围授权后，物理删除前重新锁真实来源与父行，不信任调用者提交的字段快照。</summary>
+    public async Task BeforePhysicalDeleteAsync(RecordMutationContext context,CancellationToken cancellationToken=default)
+    {
+        if(!context.IsDelete||context.IsCreate||AuthorizationAction(context)!="delete")throw new InvalidOperationException("物理删除准备的操作状态无效。");
+        var catalog=registry.Catalogs.SingleOrDefault(item=>item.ConfigPages.Any(page=>page.Id==context.PageId))??throw new UnauthorizedAccessException("来源页面未登记。");
+        var page=catalog.ConfigPages.Single(page=>page.Id==context.PageId);var table=catalog.ConfigTables.Single(table=>table.Id==page.ConfigTableId);
+        if(table.TableName!=context.TableName||page.IsDelete!=1)throw new UnauthorizedAccessException("来源页面未开放该表删除。");
+        var columns=registry.PhysicalColumns(catalog,table);if(!columns.Any(column=>column.ControlKind.Equals("FileLibrary",StringComparison.OrdinalIgnoreCase)))return;
+        if(!columns.Any(column=>column.ColumnName=="yz_project_id"))throw new NotSupportedException("物理文件删除要求真实项目归属列。");
+        if(columns.Any(column=>column.ColumnName=="delete_no"))throw new InvalidOperationException("逻辑删除不能获取物理删除证明。");
+        if(context.Transaction is null||context.Transaction.Connection is null||!ReferenceEquals(context.Transaction,store.Session.CurrentTransaction))throw new InvalidOperationException("物理删除准备要求原业务连接及事务。");
+        var actor=authorization.RequireActor();if(actor.ProjectId!=context.ProjectId||catalog.YzProjectId!=context.ProjectId||context.RecordId<=0)throw new UnauthorizedAccessException("物理删除项目范围无效。");authorization.RequirePagePermission(page.Id,"delete");
+        var scope=registry.PageScope(catalog,page);var record=await LockRecordAsync(context,columns,cancellationToken,scope);await LockParentsAsync(context,scope.Parents,record,cancellationToken);
+        var proofs=deletions.GetValue(context.Transaction,_=>new());if(!proofs.TryAdd((context.PageId,context.TableName,context.RecordId),new(actor,context.ProjectId,new ReadOnlyDictionary<string,object?>(record))))throw new InvalidOperationException("同一记录物理删除已经准备，不能覆盖证明。");
+    }
+
     /// <summary>字段省略保持引用不变，显式 null 清空，任何非法引用令整个业务事务回滚。</summary>
     public async Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)
     {
@@ -23,7 +46,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var fileColumns = tableColumns.Where(c => c.ControlKind.Equals("FileLibrary", StringComparison.OrdinalIgnoreCase)).ToArray();
         var affected = context.IsDelete ? fileColumns : fileColumns.Where(c => context.SubmittedFields.ContainsKey(c.ColumnName)).ToArray();
         if (affected.Length == 0) return;
-        if (context.Transaction.Connection is null || !ReferenceEquals(context.Transaction, store.Session.CurrentTransaction))
+        if (context.Transaction is null || context.Transaction.Connection is null || !ReferenceEquals(context.Transaction, store.Session.CurrentTransaction))
             throw new InvalidOperationException("文件引用必须与业务记录使用同一连接及事务。");
         var actor = authorization.RequireActor();
         if (actor.ProjectId != context.ProjectId || catalog.YzProjectId != actor.ProjectId || context.RecordId <= 0)
@@ -31,7 +54,9 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         authorization.RequirePagePermission(page.Id, AuthorizationAction(context));
         // 标准Service已按写前范围授权；写后允许离页，仅复用完整计划及真实父锁，不以新值重做页面筛选。
         var parents = registry.PageScope(catalog,page).Parents;
-        var record = await LockRecordAsync(context, tableColumns, cancellationToken);
+        var record = context.IsDelete&&!tableColumns.Any(column=>column.ColumnName=="delete_no")
+            ? await ConsumePhysicalDeletionAsync(context,actor,cancellationToken)
+            : await LockRecordAsync(context, tableColumns, cancellationToken);
         await LockParentsAsync(context, parents, record, cancellationToken);
         var requested = new Dictionary<string, IReadOnlyList<long>>(StringComparer.Ordinal);
         var hiddenEmpty = new HashSet<string>(StringComparer.Ordinal);
@@ -154,14 +179,15 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     }
 
     /// <summary>实际记录读取使用上下文原事务，表和字段只允许发布元数据中的名称。</summary>
-    private async Task<Dictionary<string, object?>> LockRecordAsync(RecordMutationContext context, IReadOnlyList<ColumnMetadata> columns, CancellationToken token)
+    private async Task<Dictionary<string, object?>> LockRecordAsync(RecordMutationContext context, IReadOnlyList<ColumnMetadata> columns, CancellationToken token,FilePageScope? deletionScope=null)
     {
         var provider = store.Session.Provider;
         var names = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.Ordinal);
         if (!names.Contains("id")) throw new InvalidOperationException("业务表没有声明主键。");
         await using var command = context.Transaction.Connection!.CreateCommand(); command.Transaction = context.Transaction;
         var query = "SELECT " + string.Join(",", names.Select(provider.QuoteIdentifier)) + " FROM " + provider.QuoteIdentifier(context.TableName) + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "record_id", context.RecordId);
-        if (names.Contains("yz_project_id")) query += " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, "project", long.Parse(context.ProjectId, CultureInfo.InvariantCulture));
+        if (names.Contains("yz_project_id")) query += " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, "project", FileReferenceScope.IdentityValue(columns.Single(column=>column.ColumnName=="yz_project_id"),FileReferenceScope.PositiveId(context.ProjectId)));
+        if(deletionScope?.Condition is{} condition)query+=" AND "+condition.BindConstants(command,store.Session,"physical_delete");
         if (!context.IsDelete && names.Contains("delete_no")) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
         command.CommandText = provider.BuildSelectForUpdate(query);
         await using var reader = await command.ExecuteReaderAsync(token);
@@ -171,6 +197,18 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         if (context.IsDelete && names.Contains("delete_no") && result.GetValueOrDefault("delete_no") is null)
             throw new InvalidOperationException("文件清理要求业务记录已在同一事务中删除。");
         return result;
+    }
+
+    /// <summary>缺准备、换身份／事务或记录仍存在时拒绝；真实不存在后一次消费原锁定快照，随后引用仍由原事务写入。</summary>
+    private async Task<Dictionary<string,object?>> ConsumePhysicalDeletionAsync(RecordMutationContext context,RuntimeActor actor,CancellationToken token)
+    {
+        var key=(context.PageId,context.TableName,context.RecordId);
+        if(!deletions.TryGetValue(context.Transaction,out var proofs)||!proofs.TryGetValue(key,out var proof)||proof.Actor!=actor||proof.Project!=context.ProjectId)throw new UnauthorizedAccessException("物理删除缺少同一身份及事务的真实记录证明。");
+        var provider=store.Session.Provider;await using var command=context.Transaction.Connection!.CreateCommand();command.Transaction=context.Transaction;
+        // 只按真实主键检查任何项目的行都已不存在，不能用项目筛选掩盖被重建或移走的记录。
+        command.CommandText=provider.BuildSelectForUpdate("SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(context.TableName)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter(command,"deleted_id",context.RecordId));
+        if(await command.ExecuteScalarAsync(token) is not null)throw new InvalidOperationException("业务记录尚未物理删除，不能清理文件引用。");
+        if(!proofs.TryRemove(key,out _))throw new InvalidOperationException("物理删除证明已经消费。");return proof.Record.ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
     }
 
     /// <summary>参数名称由实现固定，值通过数据库参数绑定。</summary>

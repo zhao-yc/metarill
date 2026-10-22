@@ -15,6 +15,20 @@ namespace Metarill.Metadata.Tests;
 
 public sealed class ProjectFileRuntimeIntegrationTests
 {
+    /// <summary>平台包装器必须在业务槽复用同一个观察器；平台连接不能借用业务删除证明。</summary>
+    [MetadataIntegrationFact]
+    public async Task Physical_deletion_wrapper_keeps_proof_in_the_actual_business_transaction()
+    {
+        await using var f=await ProjectFileDatabaseFixture.CreateAsync(physicalDelete:true);var actor=new RuntimeActor(8801,"跨库物理删除",true,f.Registry.Demo.YzProjectId,"");var authorization=new TestFileAuthorization(actor);var resolver=new ProjectFileLibraryResolver(f.Runtimes,authorization,f.Ids);var service=resolver.RequireCurrent();var file=await f.ReadyAsync(service,"physical-wrapper.txt",f.ProtectedColumn);var record=f.Ids.NextId();f.RecordIds.Add(record);var value=JsonSerializer.Serialize(new[]{file.FileId.ToString()});var observer=new ProjectFileReferenceMutationObserver(f.Runtimes,authorization,f.Ids);var session=f.Sessions.Business;
+        RecordMutationContext Context(bool deleting=false)=>new(f.PageId,f.TableName,record,actor.ProjectId,new Dictionary<string,object?>{{"attachments",value}},deleting,session.CurrentTransaction!);
+        await session.InTransactionAsync(async()=>{await f.BusinessStore.InsertAsync(f.TableName,new Dictionary<string,object?>{{"id",record},{"yz_project_id",long.Parse(actor.ProjectId)},{"attachments",value}});await observer.BeforeCommitAsync(Context());return true;});var before=await Snapshot();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Sessions.Platform.InTransactionAsync(async()=>{await observer.BeforePhysicalDeleteAsync(Context(true) with{Transaction=f.Sessions.Platform.CurrentTransaction!});return true;}));Assert.Equal(before,await Snapshot());
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync(async()=>{await observer.BeforePhysicalDeleteAsync(Context(true));await Delete();await observer.BeforeCommitAsync(Context(true));return await Task.FromException<bool>(new InvalidOperationException("跨库删除尾部故障"));}));Assert.Equal(before,await Snapshot());
+        await session.InTransactionAsync(async()=>{await observer.BeforePhysicalDeleteAsync(Context(true));await Delete();await observer.BeforeCommitAsync(Context(true));return true;});Assert.Empty(await f.BusinessStore.ReadAsync(f.TableName,new Dictionary<string,object?>{{"id",record}}));Assert.Empty(await f.ReferencesAsync(record));Assert.True((await service.DeleteAsync(file.FileId)).StorageRemoved);
+        async Task Delete(){await using var command=session.CurrentTransaction!.Connection!.CreateCommand();command.Transaction=session.CurrentTransaction;command.CommandText="DELETE FROM "+session.Provider.QuoteIdentifier(f.TableName)+" WHERE id=@id";var id=command.CreateParameter();id.ParameterName="id";id.Value=record;command.Parameters.Add(id);Assert.Equal(1,await command.ExecuteNonQueryAsync());}
+        async Task<string> Snapshot()=>JsonSerializer.Serialize(new{source=await f.BusinessStore.ReadIncludingDeletedAsync(f.TableName,new Dictionary<string,object?>{{"id",record}}),refs=await f.Runtimes.Resolve(actor.ProjectId).Store.ReadIncludingDeletedAsync("yz_file_ref",new Dictionary<string,object?>{{"record_id",record}})});
+    }
+
     [MetadataIntegrationFact]
     public async Task Business_files_use_the_generated_transaction_and_public_routing_stays_in_the_selected_slot()
     {
@@ -103,7 +117,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
     public List<long> RecordIds { get; } = [];
 
     /// <summary>先验证真实连接库名，再通过显式 SchemaService 预览、执行文件和唯一业务表计划。</summary>
-    public static async Task<ProjectFileDatabaseFixture> CreateAsync()
+    public static async Task<ProjectFileDatabaseFixture> CreateAsync(bool physicalDelete=false)
     {
         var fixture = new ProjectFileDatabaseFixture();
         try
@@ -123,6 +137,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             ColumnMetadata Column(string name, string type, string control = "", string detail = "") => new() { Id = SharedIds.NextId().ToString(), ConfigTableId = table.Id, ColumnName = name, LogicalType = type, ColumnLength = type == "string" ? "max" : "", IsDbNotNull = name == "id" ? 1 : 0, ControlKind = control, ControlDetail = detail, YzProjectId = demo.YzProjectId };
             var columns = new[] { Column("id", "int64"), Column("yz_project_id", "int64"), Column("delete_no", "datetime"), Column("notes", "string"),
                 Column("attachments", "string", "FileLibrary", "{\"accessMode\":\"PROTECTED\"}"), Column("public_files", "string", "FileLibrary", "{\"accessMode\":\"PUBLIC\"}") };
+            if(physicalDelete)columns=columns.Where(column=>column.ColumnName!="delete_no").ToArray();
             fixture.ProtectedColumn = columns.Single(column => column.ColumnName == "attachments").Id;
             fixture.PublicColumn = columns.Single(column => column.ColumnName == "public_files").Id;
             fixture.PageId = SharedIds.NextId().ToString();
@@ -138,6 +153,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
                 await using var connection = session.Provider.CreateConnection(session.Options); await connection.OpenAsync();
                 await using var command = connection.CreateCommand(); command.CommandText = "SELECT DATABASE()";
                 if ((string?)await command.ExecuteScalarAsync() != session.Options.ExpectedDatabase) throw new InvalidOperationException("项目文件测试真实数据库目标不符。");
+                if(physicalDelete){using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")!));command.CommandText="SELECT @@hostname,@@server_uuid";await using var identity=await command.ExecuteReaderAsync();if(!await identity.ReadAsync()||identity.GetString(0)!=pin.RootElement.GetProperty("expectedHostname").GetString()||identity.GetString(1)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("跨库物理删除实例pin不匹配。");}
             }
             fixture.cleanupAllowed = true;
             var infrastructure = MetadataRegistry.Load(Path.Combine(Path.GetDirectoryName(source)!, "files.json"));
@@ -145,6 +161,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             fixture.BusinessStore = new(fixture.Sessions.Business, fixture.Registry.Demo);
             var schema = new SchemaService(fixture.Sessions.Business);
             var plan = await schema.PreviewAsync(fixture.Runtimes.ComposePhysical(fixture.Registry.Demo));
+            if(physicalDelete&&plan.Changes.Any(change=>change.Kind!="createTable"||change.Table!=fixture.TableName))throw new InvalidOperationException("物理删除样本仅允许创建本次随机业务表。");
             if (plan.Changes.Count > 0) Assert.True((await schema.ApplyAsync(plan)).Succeeded);
             return fixture;
         }

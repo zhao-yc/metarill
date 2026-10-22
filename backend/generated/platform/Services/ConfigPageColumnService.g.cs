@@ -21,7 +21,7 @@ public partial class ConfigPageColumnService
     private readonly IEnumerable<IRecordMutationGuard> guards;
     private readonly IRuntimeAuthorization? relationAuthorization;
     /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
-    public ConfigPageColumnService(DatabaseSession session, ConfigPageColumnMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null, IRuntimeAuthorization? relationAuthorization = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers; this.guards = guards ?? []; this.relationAuthorization = relationAuthorization; }
+    public ConfigPageColumnService(DatabaseSession session, ConfigPageColumnMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null, IRuntimeAuthorization? relationAuthorization = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? []; this.relationAuthorization = relationAuthorization; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }

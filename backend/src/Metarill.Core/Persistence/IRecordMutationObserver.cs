@@ -10,5 +10,7 @@ public sealed record RecordMutationContext(string PageId,string TableName,long R
 }
 public interface IRecordMutationObserver
 {
+    /// <summary>物理删除前、原范围与业务规则已通过时准备基础设施证明；默认空实现兼容既有观察者。</summary>
+    Task BeforePhysicalDeleteAsync(RecordMutationContext context,CancellationToken cancellationToken = default) => Task.CompletedTask;
     Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken = default);
 }
