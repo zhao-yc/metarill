@@ -36,17 +36,21 @@ internal static class CascadeTreeExcelRenderer
 
 """;
     }
+    /// <summary>名称单独导出时同样需要原所选ID和完整祖先证明，隐藏依赖不增添表头。</summary>
+    internal static IReadOnlyList<CascadeTreeReadModel> ExportPlans(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>CascadeTreeReadCompilation.ForService(model,table,page).Where(plan=>columns.Any(column=>column.Source.Id==plan.Source.Source.Id||table.Source.IsRongyu==0&&column.Source.Id==CascadeTreeViewRenderer.Name(table,plan.Source)?.Source.Id)).ToArray();
     /// <summary>复用批量祖先缓存，在同一导出快照生成原完整路径，坏关联不伪装为空值。</summary>
     internal static string Export(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)
     {
         var result=new StringBuilder();
-        foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))
+        foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree").Concat(ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).DistinctBy(column=>column.Source.Id))
         {
             var plan=CascadeTreeReadCompilation.Resolve(model,table,page,source).Definition;var suffix=page.Source.Id+"_"+source.Source.Id;
             if(plan is null||source.Type is not("string?" or "long?")){result.AppendLine($"        string? ExcelCascade{source.Property}({table.Name} entity)=>throw new NotSupportedException(\"级联导出范围尚未证明。\");");continue;}
             result.AppendLine($"        var excelIds{source.Property}=entities.Select(entity=>Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture)).Where(text=>!string.IsNullOrWhiteSpace(text)).Select(text=>long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0?id:throw new InvalidOperationException(\"级联ID无效，未导出。\")).Distinct().ToArray();")
                 .AppendLine($"        var excelPaths{source.Property}=await CascadeGraph{suffix}(actor).PathsAsync(excelIds{source.Property},cancellationToken);")
                 .AppendLine($"        string? ExcelCascade{source.Property}({table.Name} entity){{var text=Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture);if(string.IsNullOrWhiteSpace(text))return null;var id=long.Parse(text,CultureInfo.InvariantCulture);return Metarill.Core.Cascades.CascadeTreeExcelPath.Format(excelPaths{source.Property}.GetValueOrDefault(id),{Literal(plan.Joiner)});}}");
+            if(table.Source.IsRongyu==0&&CascadeTreeViewRenderer.Name(table,source) is{} managed&&columns.Any(column=>column.Source.Id==managed.Source.Id))
+                result.AppendLine($"        foreach(var entity in entities){{var text=Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture);entity.{managed.Property}=long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&excelPaths{source.Property}.TryGetValue(id,out var path)?path?.Path.LastOrDefault()?.Name:null;}}");
         }
         return result.ToString();
     }

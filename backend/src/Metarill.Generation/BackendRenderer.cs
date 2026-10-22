@@ -696,7 +696,7 @@ public partial class {{table.Name}}Service
     private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation)
     {
         var expression=NonRedundantReadCompilation.Requires(model,table)?$"await {((ExactDataManageCompilation.Declared(page) || page.Condition is not null) && operation is "create" or "update" or "copy"?"MutationResult":operation is "create" or "update" or "copy"?"ReadDetail":"Detail")}{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken{(!ExactDataManageCompilation.Declared(page)&&page.Condition is null&&operation is "create" or "update" or "copy"?",true":"")}) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
-        return CascadeTreeViewRenderer.One(model,table,page,expression,operation);
+        return NonRedundantReadCompilation.Requires(model,table)?expression:CascadeTreeViewRenderer.One(model,table,page,expression,operation);
     }
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>
     private static string ProjectResults(GenerationModel model,TableModel table,PageModel page,string entities,string operation)

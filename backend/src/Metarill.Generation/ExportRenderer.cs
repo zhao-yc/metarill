@@ -60,13 +60,13 @@ internal static class ExportRenderer
         }
         if(NonRedundantReadCompilation.Requires(model,table))
         {
-            var projection=columns.Concat(dependencies).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
+            var projection=columns.Concat(dependencies).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
             var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).Concat(multis.Select(multi=>multi.Names!.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
             // 实际导出用途另编译窄投影，不能复用整页可读集合读取未导出列。
-            NonRedundantReads.Compile(model.Catalog,table.Source.Id,names,plan.Dependencies);
+            NonRedundantReads.Compile(model.Catalog,table.Source.Id,names,plan.Dependencies,deferCascadeNames:true);
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
             result.Insert(0,$"    /// <summary>导出只读取原列及必要依赖，普通请求不重编译元数据。</summary>\n    private static readonly Metarill.Data.Queries.NonRedundantReadPlan ExportReadPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.Compile({Literal(table.Source.Id)},{outputs},{fixedDependencies});\n");
-            result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync(ExportReadPlan{page.Source.Id},ReadFilters{page.Source.Id}(request,actor{ExactDataManageCompilation.Argument(page,"\"export\"")}),ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});")
+            result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync(ExportReadPlan{page.Source.Id},{BackendRenderer.NonRedundantFilterCall(model,table,page,operation:"\"export\"")},ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});")
                 .AppendLine($"        var entities=rawRows.Select(row=>new {table.Name}").AppendLine("        {");
             foreach(var column in projection)result.AppendLine($"            {column.Property}=Metarill.Data.Queries.NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)}),");
             result.AppendLine("        }).ToList();").AppendLine("        if(entities.Count>maxRows)throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");

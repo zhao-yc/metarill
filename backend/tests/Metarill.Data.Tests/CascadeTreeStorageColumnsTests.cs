@@ -30,8 +30,15 @@ public sealed class CascadeTreeStorageColumnsTests
         }
         foreach(var mutate in new Action<MetadataCatalog>[]
         {
-            c=>c.ConfigTables[0].IsRongyu=0,c=>c.ConfigColumns[1].IsVirtualColumn=1,c=>c.ConfigColumns[1].Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(true),c=>c.ConfigColumns[1].ControlDetail="{}",c=>c.ConfigColumns[1].ControlDetail="{invalid",c=>c.ConfigColumns[1].ControlDetail="{\"sourceMode\":\"selfTree\",\"sourceMode\":\"crossTable\",\"selfTree\":{}}"
+            c=>c.ConfigTables[0].IsFunctionTable=1,c=>c.ConfigTables[0].IsView=1,c=>c.ConfigColumns[1].IsVirtualColumn=1,c=>c.ConfigColumns[1].Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(true),c=>c.ConfigColumns[1].ControlDetail="{}",c=>c.ConfigColumns[1].ControlDetail="{invalid",c=>c.ConfigColumns[1].ControlDetail="{\"sourceMode\":\"selfTree\",\"sourceMode\":\"crossTable\",\"selfTree\":{}}"
         }){var catalog=Catalog();mutate(catalog);Assert.DoesNotContain(CascadeTreeStorageColumns.Expand(catalog.ConfigTables[0],catalog.ConfigColumns),column=>column.ColumnName=="tree_name");}
+    }
+    /// <summary>非冗余展开只读逻辑名称，物理结构、输入配置和现有ID不增加名称列。</summary>
+    [Theory][InlineData("string")][InlineData("int64")]
+    public void Nonredundant_name_is_logical_only_and_does_not_change_schema_or_metadata(string type)
+    {
+        var catalog=Catalog(type);catalog.ConfigTables[0].IsRongyu=0;var saved=JsonSerializer.Serialize(catalog);var expanded=CascadeTreeStorageColumns.Expand(catalog.ConfigTables[0],catalog.ConfigColumns);var name=Assert.Single(expanded,column=>column.ColumnName=="tree_name");
+        Assert.Equal(MetadataFieldStorage.RelationDisplay,MetadataStoragePolicy.ForTable(catalog,catalog.ConfigTables[0]).Kind(name));Assert.DoesNotContain(MetadataStoragePolicy.ForTable(catalog,catalog.ConfigTables[0]).PhysicalColumns,column=>column.ColumnName=="tree_name");Assert.DoesNotContain(MySqlSchemaPlanner.Compile(catalog,"test").Tables[0].Columns,column=>column.Name=="tree_name");Assert.Equal(saved,JsonSerializer.Serialize(catalog));
     }
     /// <summary>用户不能伪造派生字段稳定ID，配置校验在任何结构或生成写入之前拒绝。</summary>
     [Fact]

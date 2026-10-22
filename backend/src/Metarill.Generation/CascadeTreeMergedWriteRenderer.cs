@@ -20,7 +20,7 @@ internal static class CascadeTreeMergedWriteRenderer
     internal static string Service(TableModel table,PageModel page,CascadeTreeWriteModel plan)
     {
         var source=plan.Read.Source;var name=plan.Name;var parent=plan.Read.Parent;var label=plan.Read.Name;var suffix=page.Source.Id+"_"+source.Source.Id;
-        var limit=int.TryParse(name.Source.ColumnLength,out var length)&&length>0?$"if(actualName is {{ Length: > {length} }})throw new ArgumentException(\"级联名称超过物理列声明长度，未保存。\");":"";
+        var limit=table.Source.IsRongyu==1&&int.TryParse(name.Source.ColumnLength,out var length)&&length>0?$"if(actualName is {{ Length: > {length} }})throw new ArgumentException(\"级联名称超过物理列声明长度，未保存。\");":"";
         var assignment=source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id";
         var emptyName=source.Type=="string?"?$"entity.{source.Property} is null?null:\"\"":"null";
         var clearIdentity=source.Type=="string?"?$"entity.{source.Property}=entity.{source.Property} is null?null:{Literal(string.Empty)};":"";
@@ -68,7 +68,7 @@ internal static class CascadeTreeMergedWriteRenderer
         }
         if(!refresh)return;
         {{limit}}
-        if(stored.{{name.Property}}!=actualName)throw new InvalidOperationException("级联名称与实际路径不一致，未提交。");
+        {{(table.Source.IsRongyu==1?$"if(stored.{name.Property}!=actualName)throw new InvalidOperationException(\"级联名称与实际路径不一致，未提交。\");":"")}}
         entity.{{name.Property}}=actualName;submitted.Add({{Literal(name.Source.ColumnName)}});
     }
 

@@ -33,6 +33,12 @@ internal static class CascadeTreeWriteCompilation
         if(source.Source.LinkConfigTableId.Length>0&&source.Source.LinkConfigTableId!=plan.Target.Source.Id)return Gap("叶子声明关联表与级联目标不一致。");
         var name=ManagedNames(table).SingleOrDefault(column=>column.Source.ColumnName==source.Source.ColumnName[..^3]+"_name");
         if(name is null)return Gap("名称列必须为有效物理字符串；缺省selfTree名称由共用存储计划派生，显式冲突不能覆盖。");
+        if(table.Source.IsRongyu==0)
+        {
+            if(name.Source.IsVirtualColumn!=0)return Gap("非冗余叶子名称不能是任意虚拟表达式。");
+            var path=name.Source.Extra.TryGetValue("columnFullName",out var value)?value.ToString():"";
+            if(path.Length>0&&path!=source.Source.ColumnName[..^3]+"."+plan.Name.Source.ColumnName&&path!=source.Source.ColumnName+"."+plan.Name.Source.ColumnName)return Gap("非冗余叶子名称与明确selfTree来源冲突。");
+        }
         return new(new(plan,name),null);
     }
 }

@@ -28,17 +28,29 @@ public sealed class CascadeTreeSameRowMySqlTests
     [StandaloneExportMySqlFact]
     public async Task Final_database_state_controls_same_row_paths_without_old_row_or_memory_predicate_bypass()
     {
+        var options=await VerifiedOptions();
+        foreach(var type in new[]{"string","int64"})await Exercise(options,type,false);await Exercise(options,"string",true);
+    }
+    /// <summary>非冗余同表沿同一真实矩阵复验；只存所选ID，不要求或读取名称物理列。</summary>
+    [StandaloneExportMySqlFact]
+    public async Task Nonredundant_same_row_validates_final_graph_without_storing_leaf_name()
+    {
+        var options=await VerifiedOptions();foreach(var type in new[]{"string","int64"})await Exercise(options,type,false,true);await Exercise(options,"string",true,true);
+    }
+    /// <summary>建表前验证逻辑库、主机和实例，配置与凭据不输出。</summary>
+    private static async Task<DatabaseOptions> VerifiedOptions()
+    {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));var options=settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;var builder=new MySqlConnectionStringBuilder(options.ConnectionString);
         if(options.Provider!="mysql"||options.ExpectedDatabase!="metarill_business_test"||builder.Database!=options.ExpectedDatabase||builder.Server!="deve-server.yinzon.com"||builder.Port!=3306)throw new InvalidOperationException("同表级联验收仅允许Server-200隔离库。");
         using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")!));await using(var connection=new MySqlConnection(options.ConnectionString))
         {await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例身份不符，未建样本。");}
-        foreach(var type in new[]{"string","int64"})await Exercise(options,type,false);await Exercise(options,"string",true);
+        return options;
     }
     /// <summary>每组只创建一张固定元数据表，最后核对原结构并独立连接核验清理。</summary>
-    private static async Task Exercise(DatabaseOptions options,string type,bool truncation)
+    private static async Task Exercise(DatabaseOptions options,string type,bool truncation,bool nonRedundant=false)
     {
-        var nonce=Guid.NewGuid().ToString("N");var prefix="mt_csm_"+nonce[..12];var table=prefix+"_node";var catalog=CascadeTreeSameRowTests.Catalog(prefix,type,type);if(truncation)catalog.ConfigColumns.Single(column=>column.Id=="6").ColumnLength="4";
-        var root=Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")!;var evidence=Path.Combine(root,".local/cascade-same-row/mysql-"+nonce);Directory.CreateDirectory(evidence);await File.WriteAllTextAsync(Path.Combine(evidence,"metadata.json"),JsonSerializer.Serialize(catalog));await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,type,truncation,names=new[]{table},verified=false}));
+        var nonce=Guid.NewGuid().ToString("N");var prefix="mt_csm_"+nonce[..12];var table=prefix+"_node";var catalog=CascadeTreeSameRowTests.Catalog(prefix,type,type);if(nonRedundant)catalog.ConfigTables.Single().IsRongyu=0;if(truncation)catalog.ConfigColumns.Single(column=>column.Id=="6").ColumnLength="4";
+        var root=Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")!;var evidence=Path.Combine(root,".local/cascade-same-row/mysql-"+nonce);Directory.CreateDirectory(evidence);await File.WriteAllTextAsync(Path.Combine(evidence,"metadata.json"),JsonSerializer.Serialize(catalog));await File.WriteAllTextAsync(Path.Combine(evidence,"intent.json"),JsonSerializer.Serialize(new{nonce,type,truncation,nonRedundant,names=new[]{table},verified=false}));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-same-row-mysql");var directory=Path.Combine(boundary,nonce);using var session=new DatabaseSession(options);var schema=new SchemaService(session);var observer=new ProbeObserver();WebApplication? app=null;var created=false;var verified=false;
         try
         {
@@ -46,7 +58,7 @@ public sealed class CascadeTreeSameRowMySqlTests
             async Task Seed(long id,string name,long? parent,long? bookmark=null,int status=1,long project=Project,DateTime? deleted=null)
             {
                 if(truncation)bookmark=null;
-                await Execute(session,"INSERT INTO "+session.Provider.QuoteIdentifier(table)+" (id,yz_project_id,delete_no,name,parent_id,bookmark_id,bookmark_name,status,amount,code) VALUES (@id,@project,@deleted,@name,@parent,@bookmark,@label,@status,@amount,@code)",("id",id),("project",project),("deleted",deleted),("name",name),("parent",Key(parent,type)),("bookmark",Key(bookmark,type)),("label",bookmark==id?name:null),("status",status),("amount",1m),("code","é"));
+                await Execute(session,"INSERT INTO "+session.Provider.QuoteIdentifier(table)+" (id,yz_project_id,delete_no,name,parent_id,bookmark_id"+(nonRedundant?"":",bookmark_name")+",status,amount,code) VALUES (@id,@project,@deleted,@name,@parent,@bookmark"+(nonRedundant?"":",@label")+",@status,@amount,@code)",("id",id),("project",project),("deleted",deleted),("name",name),("parent",Key(parent,type)),("bookmark",Key(bookmark,type)),("label",bookmark==id?name:null),("status",status),("amount",1m),("code","é"));
             }
             await Seed(First,"可根",null);await Seed(First+1,"可自身",First,First+1);await Seed(First+2,"可后代",First+1);await Seed(First+3,"可另根",null);await Seed(First+10,"可隐藏",First,First+10,0);await Seed(First+20,"可外部",null,project:Project+1);await Seed(First+30,"可墓碑",null,deleted:new DateTime(2026,1,1));if(truncation)await Seed(9007,"可伪根",null);
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.SameRowProbe");var entityName=GenerationModel.Pascal(table);var self=type=="string"?"entity.Id.ToString(CultureInfo.InvariantCulture)":"entity.Id";
@@ -82,6 +94,7 @@ public partial class {{entityName}}Service
             else
             {
                 var added=Data(await Post("add",new{name="可新增",bookmarkId=rootId,bookmarkName="伪造"}));var addedId=added.GetProperty("id").GetString()!;Assert.Equal("可根",added.GetProperty("bookmarkName").GetString());
+                if(nonRedundant)Assert.DoesNotContain("bookmark_name",(await Stored(long.Parse(addedId,CultureInfo.InvariantCulture))).Keys);
                 var empty=Data(await Post("add",new{name="可无关联"}));var emptyId=empty.GetProperty("id").GetString()!;
                 foreach(var id in new[]{emptyId,addedId}){var before=await State();Assert.Equal(500,(await Post("update",new{id,parentId=id},"202")).GetProperty("code").GetInt32());Assert.Equal(before,await State());}
                 // 64层仍可用，第65层通过改父写入也必须整笔拒绝。
@@ -92,7 +105,7 @@ public partial class {{entityName}}Service
                 await Execute(session,"UPDATE "+session.Provider.QuoteIdentifier(table)+" SET status=0 WHERE id=@id",("id",First+2));var branchState=await State();Assert.Equal(500,(await Post("update",new{id=own,parentId=(First+162).ToString()},"202")).GetProperty("code").GetInt32());Assert.Equal(branchState,await State());await Execute(session,"UPDATE "+session.Provider.QuoteIdentifier(table)+" SET status=1 WHERE id=@id",("id",First+2));
                 Data(await Post("update",new{id=own,parentId=(First+161).ToString()},"202"));Assert.Equal(64,Data(await Post("cascadeTreePath6",new{leafId=(First+2).ToString()})).GetProperty("path").GetArrayLength());Data(await Post("update",new{id=own,parentId=rootId},"202"));
                 var changed=Data(await Post("update",new{id=own,name="可改名",bookmarkId=own,code="E"}));Assert.Equal("可改名",changed.GetProperty("bookmarkName").GetString());Assert.Equal("可根/可改名",changed.GetProperty("bookmarkIdDisplayText").GetString());
-                var omitted=Data(await Post("update",new{id=own,name="可仅改名"}));Assert.Equal("可改名",omitted.GetProperty("bookmarkName").GetString());Assert.Equal("可根/可仅改名",omitted.GetProperty("bookmarkIdDisplayText").GetString());
+                var omitted=Data(await Post("update",new{id=own,name="可仅改名"}));Assert.Equal(nonRedundant?"可仅改名":"可改名",omitted.GetProperty("bookmarkName").GetString());Assert.Equal("可根/可仅改名",omitted.GetProperty("bookmarkIdDisplayText").GetString());
                 foreach(var body in new object[]{new{id=own,status=0},new{id=own,name="可隐藏父"},new{id=own,name="可造环"},new{id=own,name="可改作用域"},new{id=own,name="不可见"},new{id=own,bookmarkId=own,amount=.014m},new{id=own,bookmarkId=(First+20).ToString()},new{id=own,bookmarkId=(First+30).ToString()},new{id=own,bookmarkId=own,code="' OR 1=1 --"}})
                 {var before=await State();var notifications=observer.Count;Assert.Equal(500,(await Post("update",body)).GetProperty("code").GetInt32());Assert.Equal(before,await State());Assert.Equal(notifications,observer.Count);}
                 var rounded=Data(await Post("update",new{id=own,bookmarkId=own,amount=.015m,code="e"}));Assert.Equal("可仅改名",rounded.GetProperty("bookmarkName").GetString());Assert.Equal(.02m,Convert.ToDecimal((await Stored(First+1))["amount"],CultureInfo.InvariantCulture));
@@ -108,12 +121,12 @@ public partial class {{entityName}}Service
                 {await observer.Entered.Task.WaitAsync(TimeSpan.FromSeconds(20));await using var independent=new MySqlConnection(options.ConnectionString);await independent.OpenAsync();await using(var timeout=independent.CreateCommand()){timeout.CommandText="SET SESSION innodb_lock_wait_timeout=1";await timeout.ExecuteNonQueryAsync();}await using var transaction=await independent.BeginTransactionAsync();await using var rename=independent.CreateCommand();rename.Transaction=transaction;rename.CommandText="UPDATE "+session.Provider.QuoteIdentifier(table)+" SET name=@name WHERE id=@id";rename.Parameters.AddWithValue("name","可竞争根");rename.Parameters.AddWithValue("id",First);var error=await Assert.ThrowsAsync<MySqlException>(()=>rename.ExecuteNonQueryAsync());Assert.Equal(1205,error.Number);await transaction.RollbackAsync();}
                 finally{observer.Release.TrySetResult();await pending;}Assert.Equal(200,(await pending).GetProperty("code").GetInt32());await Execute(session,"UPDATE "+session.Provider.QuoteIdentifier(table)+" SET name=@name WHERE id=@id",("name","可根更新"),("id",First));
             }
-            verified=true;await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,type,truncation,verified,realGeneratedHttp=true,realMySql=true,fixedTestActor=true,browser=false,fullApplication=false,finalStorageScope=true,singleNormalWrite=true}));
+            verified=true;await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,type,truncation,nonRedundant,verified,realGeneratedHttp=true,realMySql=true,fixedTestActor=true,browser=false,fullApplication=false,finalStorageScope=true,singleNormalWrite=true}));
         }
         catch(Exception error)
         {
             // 首因先保存，避免清理保护异常覆盖实际失败阶段。
-            await File.WriteAllTextAsync(Path.Combine(evidence,"failure.json"),JsonSerializer.Serialize(new{nonce,type,truncation,errorType=error.GetType().Name,error.Message,applicationStarted=app is not null,verified=false}));throw;
+            await File.WriteAllTextAsync(Path.Combine(evidence,"failure.json"),JsonSerializer.Serialize(new{nonce,type,truncation,nonRedundant,errorType=error.GetType().Name,error.Message,applicationStarted=app is not null,verified=false}));throw;
         }
         finally
         {

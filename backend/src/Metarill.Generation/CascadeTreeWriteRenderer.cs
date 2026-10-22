@@ -51,7 +51,7 @@ internal static class CascadeTreeWriteRenderer
                 result.AppendLine("        if(path.Path.Any(node=>node.Id==entity.Id.ToString(CultureInfo.InvariantCulture)))throw new InvalidOperationException(\"不能将父节点设为自身或后代。\");")
                     .AppendLine("        if(path.Path.Count>=Metarill.Core.Cascades.SelfTreeReader.MaximumDepth)throw new InvalidOperationException(\"级联父路径已达64层，不能再挂一层。\");");
             result.AppendLine("        var actualName=path.Path[^1].Name;");
-            if(int.TryParse(name.Source.ColumnLength,NumberStyles.None,CultureInfo.InvariantCulture,out var maximum)&&maximum>0)
+            if(table.Source.IsRongyu==1&&int.TryParse(name.Source.ColumnLength,NumberStyles.None,CultureInfo.InvariantCulture,out var maximum)&&maximum>0)
                 result.AppendLine($"        if(actualName is {{ Length: > {maximum} }})throw new ArgumentException(\"级联名称超过物理列声明长度，未保存。\");");
             result.AppendLine($"        entity.{source.Property}={(source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id")};entity.{name.Property}=actualName;")
                 .AppendLine($"        submitted.Add({Literal(source.Source.ColumnName)});submitted.Add({Literal(name.Source.ColumnName)});")

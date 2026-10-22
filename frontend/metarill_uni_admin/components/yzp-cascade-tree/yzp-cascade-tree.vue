@@ -366,6 +366,7 @@ export default {
       var parentLevel = this.levels[index - 1]
       return this.getLevelKey(level) + '::' + (this.internalValue[this.getIdPropertyName(parentLevel)] || '')
     },
+    // 层级数组使用splice，所选值更新既有属性；兼容Vue3并保留原控件协议和交互。
     loadLevel(index, forceReload, parentIdOverride) {
       if (this.isSelfTreeMode) {
         return this.loadSelfTreeLevel(index, forceReload, parentIdOverride)
@@ -378,7 +379,7 @@ export default {
       var state = this.levelStates[index] || { options: [], index: -1, requestKey: '' }
       var requestKey = this.buildLevelRequestKey(index)
       if (!forceReload && state.requestKey === requestKey && state.options.length) {
-        this.$set(this.levelStates, index, {
+        this.levelStates.splice(index, 1, {
           options: state.options,
           index: this.findOptionIndex(state.options, this.internalValue[this.getIdPropertyName(level)]),
           requestKey: requestKey
@@ -399,14 +400,14 @@ export default {
           success: function(res) {
             if (res.code === 200) {
               var options = res.data || []
-              that.$set(that.levelStates, index, {
+              that.levelStates.splice(index, 1, {
                 options: options,
                 index: that.findOptionIndex(options, that.internalValue[that.getIdPropertyName(level)]),
                 requestKey: requestKey
               })
             } else {
               that.errorMessage = res.msg || '加载失败'
-              that.$set(that.levelStates, index, {
+              that.levelStates.splice(index, 1, {
                 options: [],
                 index: -1,
                 requestKey: ''
@@ -433,7 +434,7 @@ export default {
       var requestKey = this.buildLevelRequestKey(index, parentIdOverride)
       var requestParentId = this.getSelfTreeRequestParentId(index, parentIdOverride)
       if (!forceReload && state.requestKey === requestKey && state.options.length) {
-        this.$set(this.levelStates, index, {
+        this.levelStates.splice(index, 1, {
           options: state.options,
           index: this.findSelfTreeOptionIndex(index, state.options),
           requestKey: requestKey
@@ -456,14 +457,14 @@ export default {
           success: function(res) {
             if (res.code === 200) {
               var options = res.data || []
-              that.$set(that.levelStates, index, {
+              that.levelStates.splice(index, 1, {
                 options: options,
                 index: that.findSelfTreeOptionIndex(index, options),
                 requestKey: requestKey
               })
             } else {
               that.errorMessage = res.msg || '加载失败'
-              that.$set(that.levelStates, index, {
+              that.levelStates.splice(index, 1, {
                 options: [],
                 index: -1,
                 requestKey: ''
@@ -613,20 +614,20 @@ export default {
         return
       }
 
-      this.$set(this.levelStates, this.activeLevelIndex, {
+      this.levelStates.splice(this.activeLevelIndex, 1, {
         options: this.currentOptions.slice(0),
         index: optionIndex,
         requestKey: this.buildLevelRequestKey(this.activeLevelIndex)
       })
 
-      this.$set(this.internalValue, this.getIdPropertyName(level), item.id || '')
-      this.$set(this.internalValue, this.getNamePropertyName(level), item.name || '')
+      this.internalValue[this.getIdPropertyName(level)] = item.id || ''
+      this.internalValue[this.getNamePropertyName(level)] = item.name || ''
 
       for (var childIndex = this.activeLevelIndex + 1; childIndex < this.levels.length; childIndex++) {
         var childLevel = this.levels[childIndex]
-        this.$set(this.internalValue, this.getIdPropertyName(childLevel), '')
-        this.$set(this.internalValue, this.getNamePropertyName(childLevel), '')
-        this.$set(this.levelStates, childIndex, {
+        this.internalValue[this.getIdPropertyName(childLevel)] = ''
+        this.internalValue[this.getNamePropertyName(childLevel)] = ''
+        this.levelStates.splice(childIndex, 1, {
           options: [],
           index: -1,
           requestKey: ''
@@ -653,7 +654,7 @@ export default {
         return
       }
 
-      this.$set(this.levelStates, this.activeLevelIndex, {
+      this.levelStates.splice(this.activeLevelIndex, 1, {
         options: this.currentOptions.slice(0),
         index: optionIndex,
         requestKey: this.buildLevelRequestKey(this.activeLevelIndex)
@@ -667,11 +668,11 @@ export default {
       this.selfTreePath = nextPath
       this.selfTreePathLeafId = item.id || ''
 
-      this.$set(this.internalValue, this.leafIdPropertyResolved, item.id || '')
-      this.$set(this.internalValue, this.leafNamePropertyResolved, item.name || '')
+      this.internalValue[this.leafIdPropertyResolved] = item.id || ''
+      this.internalValue[this.leafNamePropertyResolved] = item.name || ''
 
       for (var childIndex = this.activeLevelIndex + 1; childIndex < this.levelStates.length; childIndex++) {
-        this.$set(this.levelStates, childIndex, {
+        this.levelStates.splice(childIndex, 1, {
           options: [],
           index: -1,
           requestKey: ''

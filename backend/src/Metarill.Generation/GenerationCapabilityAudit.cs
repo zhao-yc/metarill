@@ -27,6 +27,7 @@ internal static class GenerationCapabilityAudit
                     _ = NonRedundantReadCompilation.ForPage(model, table, page);
                     RequirePublishedRealm(model, table, page);
                     foreach (var relation in RelationCompilation.ForPage(model, page)) RequirePublishedRealm(model, relation.Target, relation.TargetPage);
+                    foreach(var tree in CascadeTreeReadCompilation.ForService(model,table,page).Where(plan=>NonRedundantSelfTreeSubset.Supports(model,table,page,plan.Source)))RequirePublishedRealm(model,tree.Target,tree.TargetPage);
                 }
                 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
                 { gaps.Add(new(page.Source.Id, "", "runtime", "非冗余固定读取未完成：" + error.Message)); }

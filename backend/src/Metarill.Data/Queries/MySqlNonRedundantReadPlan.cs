@@ -29,14 +29,14 @@ public sealed class MySqlNonRedundantReadPlan
 public static class MySqlNonRedundantReadCompiler
 {
     /// <summary>输出由生成用途指定；依赖独立编译，不擅自扩成整表读取或读取权限。</summary>
-    public static MySqlNonRedundantReadPlan Compile(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<string>? dependencies=null)
+    public static MySqlNonRedundantReadPlan Compile(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)
     {
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
         MetadataValidation.Validate(catalog);
         if(!long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var projectId)||projectId<=0)throw new InvalidOperationException("发布项目标识必须为正整数。");
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("当前固定读取执行仅完成MySQL适配。");
         if(outputNames.Count==0||outputNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputNames.Count)throw new InvalidOperationException("输出字段不能为空或重复。");
-        var builder=new Builder(catalog,tableId);
+        var builder=new Builder(catalog,tableId,deferCascadeNames:deferCascadeNames);
         return builder.Compile(outputNames,dependencies??[]);
     }
     /// <summary>先完整验证目录，再以专用用途编译单一匹配字段；最终物理列必须仍为非凭据标量。</summary>
@@ -49,6 +49,8 @@ public static class MySqlNonRedundantReadCompiler
     {
         private readonly MetadataCatalog catalog;
         private readonly bool matching;
+        private readonly bool deferCascadeNames;
+        private IReadOnlySet<string> queryDependencies=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string,TableMetadata> tables;
         private readonly Dictionary<string,Dictionary<string,ColumnMetadata>> columns;
         private readonly Dictionary<string,MetadataStoragePlan> storage;
@@ -58,20 +60,21 @@ public static class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> multiPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false)
         {
-            this.catalog=catalog;this.matching=matching;
+            this.catalog=catalog;this.matching=matching;this.deferCascadeNames=deferCascadeNames;
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
             if(root.IsRongyu!=0||root.IsFunctionTable!=0||root.IsView!=0)throw new InvalidOperationException("固定非冗余读取源必须是非冗余实体表。");
             if(tables.Values.GroupBy(table=>table.TableName,StringComparer.OrdinalIgnoreCase).Any(group=>group.Count()!=1))throw new InvalidOperationException("项目表名重复。");
             if(catalog.ConfigColumns.Any(column=>tables.ContainsKey(column.ConfigTableId)&&column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw new InvalidOperationException("字段归属与发布项目不一致。");
-            columns=tables.Values.ToDictionary(table=>table.Id,table=>catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
+            columns=tables.Values.ToDictionary(table=>table.Id,table=>CascadeTreeStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
             storage=tables.Values.ToDictionary(table=>table.Id,table=>MetadataStoragePolicy.ForTable(catalog,table),StringComparer.Ordinal);
         }
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
         internal MySqlNonRedundantReadPlan Compile(IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
         {
+            queryDependencies=new HashSet<string>(dependencies,StringComparer.OrdinalIgnoreCase);
             var id=Column(root,"id");if(id.LogicalType!="int64"||id.IsDbNotNull!=1||!storage[root.Id].IsPhysical(id))throw new InvalidOperationException("读取源缺少非空int64物理主键。");
             var expressions=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);var types=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
@@ -86,6 +89,19 @@ public static class MySqlNonRedundantReadCompiler
             try
             {
                 var column=columns[table.Id].GetValueOrDefault(name);
+                foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"&&item.ColumnName.EndsWith("_id",StringComparison.Ordinal)))
+                {
+                    if(table.IsRongyu!=0||!name.Equals(tree.ColumnName[..^3]+"_name",StringComparison.OrdinalIgnoreCase))continue;
+                    var definition=Definition(tree);if(Value(definition,"sourceMode")!="selfTree")continue;
+                    if(matching||alias!="b"||!deferCascadeNames||queryDependencies.Contains(name))throw new NotSupportedException("级联名称要求已证明的来源图投影，不能当作精确匹配、筛选排序或跨表派生值。");
+                    if(!storage[table.Id].IsPhysical(tree)||!definition.TryGetProperty("selfTree",out var settings)||settings.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("自树派生名称缺少物理来源和固定定义。");
+                    var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(settings,"table"))??throw new InvalidOperationException("自树名称目标不属于发布项目。");ValidateTarget(target);
+                    var targetName=Value(settings,"nameField");if(targetName.Length==0)targetName="name";var value=Column(target,targetName);
+                    if(!storage[target.Id].IsPhysical(value)||value.LogicalType!="string"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("自树叶子名称必须为非凭据物理字符串。");
+                    // 明确交由生成服务的固定图投影，SQL阶段不读取未经完整祖先范围证明的叶子名称。
+                    // 只有显式选择此两阶段用途时才生成占位；普通读取和名称查询依赖一律拒绝。
+                    return ("NULL","string");
+                }
                 // 多值显示先识别明确的_ids关系，聚合留在相关子查询内，不扩张根结果的基数。
                 foreach(var multi in columns[table.Id].Values.Where(item=>item.ControlKind=="MultiSelectPage"&&item.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
                 {

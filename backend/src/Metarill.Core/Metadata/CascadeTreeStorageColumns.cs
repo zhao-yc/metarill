@@ -3,15 +3,15 @@ using System.Text;
 using System.Text.Json;
 namespace Metarill.Core.Metadata;
 
-/// <summary>原selfTree的隐式物理名称列；结构、存储和生成共用确定性定义，不回写配置或执行DDL。</summary>
+/// <summary>原selfTree的隐式受管名称；冗余物理存储、非冗余只读派生，共用确定性定义且不回写配置。</summary>
 public static class CascadeTreeStorageColumns
 {
     public const string ReservedIdPrefix="__mt_auto_cascade_name_";
-    /// <summary>显式配置优先，只有冗余实体表的物理selfTree叶子才派生名称，绝不增加页面字段。</summary>
+    /// <summary>显式配置优先，实体表的物理selfTree叶子可派生名称，是否落库由统一存储计划决定，绝不增加页面字段。</summary>
     public static IReadOnlyList<ColumnMetadata> Expand(TableMetadata table,IEnumerable<ColumnMetadata> declared)
     {
         var columns=declared.ToArray();
-        if(table.IsRongyu!=1||table.IsFunctionTable!=0||table.IsView!=0)return columns;
+        if(table.IsRongyu is not(0 or 1)||table.IsFunctionTable!=0||table.IsView!=0)return columns;
         var result=columns.ToList();
         foreach(var source in columns.Where(column=>column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&(string.Equals(column.LogicalType,"string",StringComparison.OrdinalIgnoreCase)||string.Equals(column.LogicalType,"int64",StringComparison.OrdinalIgnoreCase))))
         {

@@ -9,13 +9,13 @@ public sealed class CascadeTreeSameRowTests
 {
     /// <summary>四种ID/父键组合实际编译创建、更新、复制、导入和不同来源页的事务后验入口。</summary>
     [Theory]
-    [InlineData("string","string")]
-    [InlineData("string","int64")]
-    [InlineData("int64","string")]
-    [InlineData("int64","int64")]
-    public async Task Final_storage_validation_compiles_for_every_write_entry(string sourceType,string parentType)
+    [InlineData("string","string",false)][InlineData("string","string",true)]
+    [InlineData("string","int64",false)][InlineData("string","int64",true)]
+    [InlineData("int64","string",false)][InlineData("int64","string",true)]
+    [InlineData("int64","int64",false)][InlineData("int64","int64",true)]
+    public async Task Final_storage_validation_compiles_for_every_write_entry(string sourceType,string parentType,bool nonRedundant)
     {
-        var catalog=Catalog("same",sourceType,parentType);var before=JsonSerializer.Serialize(catalog);var model=GenerationModel.Create(catalog,"Example.SameRow");var table=Assert.Single(model.Tables);var page=table.Pages.Single(page=>page.Source.Id=="201");var plan=Assert.Single(CascadeTreeWriteCompilation.ForService(model,table,page));Assert.True(CascadeTreeMergedWriteRenderer.Applies(table,plan));
+        var catalog=Catalog("same",sourceType,parentType);if(nonRedundant)catalog.ConfigTables.Single().IsRongyu=0;var before=JsonSerializer.Serialize(catalog);var model=GenerationModel.Create(catalog,"Example.SameRow");var table=Assert.Single(model.Tables);var page=table.Pages.Single(page=>page.Source.Id=="201");var plan=Assert.Single(CascadeTreeWriteCompilation.ForService(model,table,page));Assert.True(CascadeTreeMergedWriteRenderer.Applies(table,plan));
         Assert.Contains("submitted.Contains(\"amount\")",CascadeTreeMergedWriteRenderer.Trigger(table,plan));Assert.Contains("submitted.Contains(\"parent_id\")",CascadeTreeMergedWriteRenderer.Trigger(table,plan));Assert.Contains("ValidateStoredCascade201_6Async",CascadeTreeMergedWriteRenderer.After(model,table,page,false,true));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-same-row");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try

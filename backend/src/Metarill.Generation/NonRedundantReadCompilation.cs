@@ -6,7 +6,7 @@ using Metarill.Data.Queries;
 namespace Metarill.Generation;
 
 internal sealed record NonRedundantOutput(string Storage,string Property,string JsonName,string Type,bool IsJsonArray=false);
-internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Outputs,IReadOnlyList<string> Dependencies);
+internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Outputs,IReadOnlyList<string> Dependencies,IReadOnlyList<string> ReadOutputs);
 
 /// <summary>生成侧提前证明单值／固定多选用途和物理写边界；数据库表达式由数据适配器编译。</summary>
 internal static class NonRedundantReadCompilation
@@ -22,19 +22,27 @@ internal static class NonRedundantReadCompilation
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿原FileLibrary事务写入；其它多值、派生文件及布局仍须独立编译。
-        if(table.Columns.Any(column=>column.Source.ControlKind is "CascadeTree" or "Title" or "Tab" or "MultiCheckBoxDatabase" || column.IsJsonArray && (column.Source.ControlKind is not ("FileLibrary" or "MultiSelectPage") && !column.IsManagedMultiNames || column.Source.ControlKind=="FileLibrary"&&!Physical(model,table,column))))throw new InvalidOperationException("非冗余多值、级联、布局或派生文件读取仍待接线。");
+        if(table.Columns.Any(column=>column.Source.ControlKind is "Title" or "Tab" or "MultiCheckBoxDatabase" || column.IsJsonArray && (column.Source.ControlKind is not ("FileLibrary" or "MultiSelectPage") && !column.IsManagedMultiNames || column.Source.ControlKind=="FileLibrary"&&!Physical(model,table,column))))throw new InvalidOperationException("非冗余多值、级联、布局或派生文件读取仍待接线。");
         if(page.Searchable.Any(column=>column.Source.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "datetime" or "date" or "time")))throw new InvalidOperationException("非冗余筛选字段类型尚未接线。");
         if(page.Scopes.Any(scope=>!Physical(model,table,scope.Column)))throw new InvalidOperationException("非冗余父范围必须绑定物理外键。");
         if(ManagerCredentialCompilation.IsTable(table)||FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null||FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null||FixedOptionCatalogCompilation.ForPage(model,page).Count!=0)throw new InvalidOperationException("非冗余固定安全模块及目录读取尚需独立验收。");
         foreach(var multi in table.Columns.Where(column=>column.Source.ControlKind=="MultiSelectPage"))
             if(MultiSelectCompilation.Resolve(model,table,page,multi,forService:true).Definition is null)throw new InvalidOperationException("非冗余多选缺少已证明的字段与候选范围。");
+        foreach(var tree in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"))
+        {
+            if(CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition is not{} plan||plan.Read.Target.IsGlobal)throw new InvalidOperationException("非冗余级联要求已证明的同项目selfTree读写计划。");
+            var managed=CascadeTreeViewRenderer.Name(table,tree);
+            if(managed is not null&&(page.Searchable.Concat(page.Sortable).Any(column=>column.Source.Id==managed.Source.Id)||page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true))throw new InvalidOperationException("非冗余级联名称直接筛选/排序尚待专用读取用途验证。");
+        }
         foreach(var relation in table.Columns.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
+            if(relation.Source.ControlKind=="CascadeTree")continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联写入缺少已接通的明确目标。");ValidateTargetDeclarations(model,relation,target);
             if(target.IsGlobal)throw new InvalidOperationException("全局关联读取尚需完整接线。");
         }
         foreach(var selection in table.Columns.Where(column=>column.Source.ControlKind=="SelectPage"))NonRedundantSelectionCompilation.Resolve(model,table,page,selection);
         var outputs=page.Readable.Select(column=>new NonRedundantOutput(column.Source.ColumnName,column.Property,column.JsonName,column.Type,column.IsJsonArray)).ToList();
+        foreach(var name in CascadeTreeViewRenderer.ImplicitNames(model,table,page))outputs.Add(new(name.Source.ColumnName,name.Property,name.JsonName,name.Type));
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null))
             if(!outputs.Any(output=>output.Storage==multi.Names!.Source.ColumnName))outputs.Add(new(multi.Names!.Source.ColumnName,multi.Names.Property,multi.Names.JsonName,"string?",true));
         foreach(var relation in page.Readable.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
@@ -53,10 +61,14 @@ internal static class NonRedundantReadCompilation
         }
         var selectionNames=SelectionNameFilterCompilation.ForPage(model,table,page);
         var dependencies=page.Searchable.Concat(page.Sortable).Concat(ExactDataManageCompilation.Resolve(model,table,page) is {} exact ? new[]{exact.Column} : Array.Empty<ColumnModel>()).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).Concat(FixedPageQueryCompilation.For(table,page).DefaultOrder.Select(item=>item.Column)).Select(column=>column.Source.ColumnName).Concat(selectionNames.Bindings.Select(binding=>binding.StorageColumn.Source.ColumnName)).Concat(page.Condition?.Syntax.Fields??Array.Empty<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var compiled=NonRedundantReads.Compile(model.Catalog,table.Source.Id,outputs.Select(output=>output.Storage).ToArray(),dependencies);
+        // 默认排序、隐藏范围和精确匹配也属于读取依赖，不能只检查页面公开筛选键。
+        if(CascadeTreeWriteCompilation.ManagedNames(table).Any(name=>dependencies.Contains(name.Source.ColumnName,StringComparer.OrdinalIgnoreCase)))throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途尚待完整路径计划验证。");
+        // 图只取来源已授权行的所选ID；隐藏ID为私有投影依赖，不加入VO或页面字段。
+        var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var compiled=NonRedundantReads.Compile(model.Catalog,table.Source.Id,readOutputs,dependencies,deferCascadeNames:true);
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
-        return new(outputs,dependencies);
+        return new(outputs,dependencies,readOutputs);
     }
     /// <summary>读写共用同一关联目标；相互冲突的有效声明不能按不同优先级串表。</summary>
     private static void ValidateTargetDeclarations(GenerationModel model,ColumnModel relation,TableModel target)

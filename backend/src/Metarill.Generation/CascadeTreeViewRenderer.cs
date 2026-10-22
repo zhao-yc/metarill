@@ -9,7 +9,7 @@ internal static class CascadeTreeViewRenderer
     /// <summary>只开放已编译的可读字段，并提前拒绝显示别名与真实字段重名。</summary>
     internal static IReadOnlyList<CascadeTreeReadModel> ForPage(GenerationModel model,TableModel table,PageModel page)
     {
-        var plans=CascadeTreeReadCompilation.ForPage(model,table,page).Where(plan=>page.Readable.Any(column=>column.Source.Id==plan.Source.Source.Id)).ToArray();
+        var plans=CascadeTreeReadCompilation.ForService(model,table,page).Where(plan=>page.Readable.Any(column=>column.Source.Id==plan.Source.Source.Id||table.Source.IsRongyu==0&&column.Source.Id==Name(table,plan.Source)?.Source.Id)).ToArray();
         foreach(var plan in plans)if(table.Columns.Any(column=>column.Property.Equals(plan.Source.Property+"DisplayText",StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException("级联显示别名与物理字段冲突。");
         return plans;
     }
@@ -22,7 +22,7 @@ internal static class CascadeTreeViewRenderer
     /// <summary>只补原页面隐式名称，不将它加入Writable、页面布局或搜索列。</summary>
     internal static IReadOnlyList<ColumnModel> ImplicitNames(GenerationModel model,TableModel table,PageModel page)=>Names(model,table,page).Where(name=>!page.Readable.Any(column=>column.Source.Id==name.Source.Id)).ToArray();
     /// <summary>沿原JSON键输出完整路径；只能由后端装饰，不能进入写DTO。</summary>
-    internal static string Vo(GenerationModel model,TableModel table,PageModel page)=>string.Concat(ForPage(model,table,page).Select(plan=>$"    [JsonPropertyName({Literal(plan.Source.JsonName+"DisplayText")})] public string? {plan.Source.Property}DisplayText {{ get; set; }}\n"))+CrossTableDisplayRenderer.Vo(model,table,page);
+    internal static string Vo(GenerationModel model,TableModel table,PageModel page)=>string.Concat(ForPage(model,table,page).Where(plan=>page.Readable.Any(column=>column.Source.Id==plan.Source.Source.Id)).Select(plan=>$"    [JsonPropertyName({Literal(plan.Source.JsonName+"DisplayText")})] public string? {plan.Source.Property}DisplayText {{ get; set; }}\n"))+CrossTableDisplayRenderer.Vo(model,table,page);
     /// <summary>结果只来自已授权来源页，目标继续应用项目/软删/固定条件，不增加目标列表操作门槛。</summary>
     internal static string Decorate(GenerationModel model,TableModel table,PageModel page,string expression,string entities)=>CrossTableDisplayRenderer.Decorate(model,table,page,ForPage(model,table,page).Count==0?expression:$"await DecorateCascade{page.Source.Id}Async({expression}, {entities}, actor, cancellationToken)",entities);
     /// <summary>写响应使用当前读保持已验证的新名称；普通详情沿读取快照投影。</summary>
@@ -64,8 +64,8 @@ internal static class CascadeTreeViewRenderer
         {
             var source=plan.Source;var suffix=page.Source.Id+"_"+source.Source.Id;
             result.AppendLine($"        var ids{source.Source.Id}=entities.Select(entity=>Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture)).Select(text=>long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0?id:0).Where(id=>id>0).Distinct().ToArray();")
-                .AppendLine($"        var paths{source.Source.Id}=await CascadeGraph{suffix}(actor,currentRead).DisplayAsync(ids{source.Source.Id},cancellationToken);")
-                .AppendLine($"        for(var index=0;index<values.Count;index++){{var text=Convert.ToString(entities[index].{source.Property},CultureInfo.InvariantCulture);values[index].{source.Property}DisplayText=long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&paths{source.Source.Id}.TryGetValue(id,out var path)?path:\"\";}}");
+                .AppendLine($"        var paths{source.Source.Id}=await CascadeGraph{suffix}(actor,currentRead).{(table.Source.IsRongyu==0?"PathsAsync":"DisplayAsync")}(ids{source.Source.Id},cancellationToken);")
+                .AppendLine($"        for(var index=0;index<values.Count;index++){{var text=Convert.ToString(entities[index].{source.Property},CultureInfo.InvariantCulture);var valid=long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id);{(table.Source.IsRongyu==0?$"var path=valid?paths{source.Source.Id}.GetValueOrDefault(id):null;{(page.Readable.Any(column=>column.Source.Id==source.Source.Id)?$"values[index].{source.Property}DisplayText=path?.DisplayText??\"\";":"")}values[index].{Name(table,source)!.Property}=path?.Path.LastOrDefault()?.Name;":$"values[index].{source.Property}DisplayText=valid&&paths{source.Source.Id}.TryGetValue(id,out var path)?path:\"\";")}}}");
         }
         return result.AppendLine("        return values;").AppendLine("    }").ToString();
     }
