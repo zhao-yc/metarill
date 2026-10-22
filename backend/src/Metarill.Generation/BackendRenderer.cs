@@ -200,7 +200,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var number = 0;
         foreach (var (column, source) in page.Scopes.Where(scope => scope.Source == "parent"))
         {
-            var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
+            var parent = CrossTableWriteCompilation.ParentTarget(model,table,page,column) ?? model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
             var project = parent.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == "yz_project_id");
             result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");");
@@ -347,8 +347,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                     .AppendLine($"        entity.{column.Property} = {ScopeValue(column, "parentId")};");
             result.Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"true","false")).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{(CascadeTreeExcelRenderer.OperationAware(model,table,page)?", authorizationOperation":"")});").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
-                .Append(WriteCall(page, "Create", "null"))
-                .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");").Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true,CascadeTreeExcelRenderer.OperationAware(model,table,page)))
+                .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(WriteCall(page, "Create", "null"))
+                .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");").Append(CrossTableWriteRenderer.After(model,table,page,true)).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true,CascadeTreeExcelRenderer.OperationAware(model,table,page)))
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
         }
         if (Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source) || (ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) == "OverWriteByFirstColumn"))
@@ -372,7 +372,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(Audit(table, false)).Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","false")).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(RelationConditionsCompilation.ValidateMutation(model,table,page)).Append(ManagerCredentialCompilation.DigestCall(table,false)).Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken{(CascadeTreeExcelRenderer.OperationAware(model,table,page)?", authorizationOperation":"")});").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
-            result.Append(WriteCall(page, "Update", "originalScopeValues")).AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");").Append(CascadeTreeTopologyRenderer.After(model,table,page,false)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,false,CascadeTreeExcelRenderer.OperationAware(model,table,page)))
+            result.Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(WriteCall(page, "Update", "originalScopeValues")).AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");").Append(CrossTableWriteRenderer.After(model,table,page,false)).Append(CascadeTreeTopologyRenderer.After(model,table,page,false)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,false,CascadeTreeExcelRenderer.OperationAware(model,table,page)))
                 .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"update")};").AppendLine("    }, cancellationToken);");
         }
         if (page.Source.IsDelete == 1)
@@ -410,8 +410,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
         result.Append(Audit(table, true)).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
             .Append(RequiredValidation(model, table, page, false))
-            .Append(WriteCall(page, "Copy", "originalScopeValues"))
-            .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");").Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true))
+            .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
+            .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");").Append(CrossTableWriteRenderer.After(model,table,page,true)).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true))
             .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation.Copy":"")});")
             .AppendLine($"        return {RoleResult(model,table,page,"copy")};").AppendLine("    }, cancellationToken);");
         return result.ToString();

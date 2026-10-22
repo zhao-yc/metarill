@@ -201,7 +201,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
             result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels));
         }
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
-        return FixedPageConditionCompilation.ValidateFinal(CascadeTreeWriteCompilation.Prepare(MultiSelectCompilation.Prepare(new GenerationModel(catalog, rootNamespace, result))));
+        return FixedPageConditionCompilation.ValidateFinal(CrossTableWriteCompilation.Prepare(CascadeTreeWriteCompilation.Prepare(MultiSelectCompilation.Prepare(new GenerationModel(catalog, rootNamespace, result)))));
     }
     /// <summary>只编译明确的身份或父记录范围。</summary>
     internal static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)

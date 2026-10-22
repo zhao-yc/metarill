@@ -34,12 +34,12 @@ internal static class CrossTableReadRenderer
                 output.Append(FixedPageConditionCompilation.Apply(level.Page,"CrossCondition"+scope,"cross_"+scope)).AppendLine("        return query;").AppendLine("    }");
             }
             output.AppendLine("    /// <summary>来源页授权不借用客户端项目、父记录或设备上下文。</summary>").AppendLine($"    private void RequireCrossSource{suffix}(RuntimeActor actor){{ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表级联要求当前真实身份。\");relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"list\");}}")
-                .AppendLine("    /// <summary>固定层号只选生成分支，私有工厂不暴露动态查询入口。</summary>").AppendLine($"    private Metarill.Core.Cascades.CrossTableReader CrossReader{suffix}(RuntimeActor actor)=>new(new Metarill.Core.Cascades.CrossTableLevel[]{{{string.Join(",",plan.Levels.Select(level=>$"new({Literal(level.Key)},{Literal(GenerationModel.Camel(level.Prefix+"_id"))})"))}}},index=>{{switch(index){{");
-            for(var index=0;index<plan.Levels.Count;index++)output.AppendLine($"        case {index}:_=CrossScope{suffix}_{index}(actor);break;");
+                .AppendLine("    /// <summary>固定层号只选生成分支，私有工厂不暴露动态查询入口。</summary>").AppendLine($"    private Metarill.Core.Cascades.CrossTableReader CrossReader{suffix}(RuntimeActor actor,bool currentRead=false,bool requireTargetList=true)=>new(new Metarill.Core.Cascades.CrossTableLevel[]{{{string.Join(",",plan.Levels.Select(level=>$"new({Literal(level.Key)},{Literal(GenerationModel.Camel(level.Prefix+"_id"))})"))}}},index=>{{switch(index){{");
+            for(var index=0;index<plan.Levels.Count;index++)output.AppendLine($"        case {index}:_=CrossScope{suffix}_{index}(actor,requireTargetList);break;");
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,id,ct)=>{switch(index){");
             for(var index=0;index<plan.Levels.Count;index++)
             {
-                var level=plan.Levels[index];var projection=Projection(level);output.AppendLine($"        case {index}:{{var row=await CrossScope{suffix}_{index}(actor,false).Where(row=>row.Id==id).FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{level.Name.Property},{Parent(level)});}}");
+                var level=plan.Levels[index];var projection=Projection(level);output.AppendLine($"        case {index}:{{var query=CrossScope{suffix}_{index}(actor,false).Where(row=>row.Id==id);if(currentRead)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{level.Name.Property},{Parent(level)});}}");
             }
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,parent,ct)=>{switch(index){");
             for(var index=0;index<plan.Levels.Count;index++)

@@ -23,7 +23,7 @@ public static class CascadeTreeStorageColumns
             if(result.Any(column=>column.Id==id))throw new InvalidOperationException("级联派生列标识与显式字段冲突。");
             result.Add(new(){Id=id,ConfigTableId=table.Id,YzProjectId=source.YzProjectId,Name=source.Name+"名称",SortNo=source.SortNo,ColumnName=name,ColumnType="nvarchar",LogicalType="string",ColumnLength=string.Equals(source.LogicalType,"string",StringComparison.OrdinalIgnoreCase)&&!string.IsNullOrWhiteSpace(source.ColumnLength)?source.ColumnLength:"50",IsDbNotNull=0});
         }
-        return result.ToArray();
+        return CrossTableStorageColumns.Expand(table,result.ToArray());
     }
     /// <summary>只识别无重复键的全局selfTree形状，未知/损坏定义不猜列；页级覆盖不能改变表结构。</summary>
     private static bool SelfTree(string json)

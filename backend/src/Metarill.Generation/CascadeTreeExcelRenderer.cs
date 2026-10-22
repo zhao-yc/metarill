@@ -6,7 +6,7 @@ namespace Metarill.Generation;
 internal static class CascadeTreeExcelRenderer
 {
     /// <summary>导入操作来自内部调用链，不能由请求指定以绕过普通写入权限。</summary>
-    internal static bool OperationAware(GenerationModel model,TableModel table,PageModel page)=>ImportRenderer.Enabled(page)&&CascadeTreeWriteCompilation.ForService(model,table,page).Count>0;
+    internal static bool OperationAware(GenerationModel model,TableModel table,PageModel page)=>ImportRenderer.Enabled(page)&&(CascadeTreeWriteCompilation.ForService(model,table,page).Count>0||CrossTableWriteCompilation.ForService(model,table,page).Count>0);
     /// <summary>解析原单元格并只返回叶子ID；受管名称留给最终Service当前读维护。</summary>
     internal static string Import(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {

@@ -30,8 +30,9 @@ internal static class ForeignValidationRenderer
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
             .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(CascadeTreeExcelRenderer.OperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")})")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;");
-        var derived = MaterializedDerivedWriteCompilation.ForTable(model, table);
-        var cascadeNames=CascadeTreeWriteCompilation.ForService(model,table,page).Select(plan=>plan.Name.Source.Id).ToHashSet(StringComparer.Ordinal);
+        var crossFields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id.Source.Id,level.Name.Source.Id}).ToHashSet(StringComparer.Ordinal);
+        var derived = MaterializedDerivedWriteCompilation.ForTable(model, table).Where(binding=>!crossFields.Contains(binding.Storage.Source.Id)).ToArray();
+        var cascadeNames=CascadeTreeWriteCompilation.ForService(model,table,page).Select(plan=>plan.Name.Source.Id).Concat(crossFields).ToHashSet(StringComparer.Ordinal);
         // 未证明的派生值不能借默认值、复制或手写钩子的submitted集合绕过严格DTO。
         foreach (var storage in table.Columns.Where(column => GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !derived.Any(binding => binding.Storage.Source.Id == column.Source.Id)&&!cascadeNames.Contains(column.Source.Id)))
             result.AppendLine($"        if (creating ? entity.{storage.Property} is not null : submitted.Contains({Literal(storage.Source.ColumnName)})) throw new InvalidOperationException({Literal("物理派生写入尚未证明：" + storage.Source.ColumnName)});");
@@ -52,6 +53,7 @@ internal static class ForeignValidationRenderer
                 continue;
             }
             if(column.Source.ControlKind=="CascadeTree"){result.Append(CascadeTreeWriteRenderer.Validation(model,table,page,column));continue;}
+            if(crossFields.Contains(column.Source.Id))continue;
             if (column.Source.ControlKind == "MultiSelectPage")
             {
                 var multi = MultiSelectCompilation.Resolve(model, table, page, column, forService: true);
