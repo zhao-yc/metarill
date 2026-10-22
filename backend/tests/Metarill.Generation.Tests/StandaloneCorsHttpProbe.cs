@@ -59,10 +59,11 @@ internal static class StandaloneCorsHttpProbe
     }
 
     /// <summary>仅启动探测允许重试：每次HTTP超时可继续，总预算到期返回失败，外部取消必须原样传播。</summary>
-    internal static async Task<bool> WaitUntilReadyAsync(HttpClient client, Func<bool> hasExited, TimeSpan budget, CancellationToken cancellationToken = default)
+    internal static async Task<bool> WaitUntilReadyAsync(HttpClient client, Func<bool> hasExited, TimeSpan budget, CancellationToken cancellationToken = default, TimeProvider? deadlineClock = null)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(budget);
+        // 实际探测继续使用系统时钟；单元场景可控制预算时钟，独立于CI线程调度耗时。
+        using var budgetDeadline = new CancellationTokenSource(budget, deadlineClock ?? TimeProvider.System);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetDeadline.Token);
         while (!hasExited())
         {
             cancellationToken.ThrowIfCancellationRequested();
