@@ -134,8 +134,8 @@ internal static class RelationConditionsCompilation
             var targetParent=ControlRenderer.RelationContext(page,relation,false).TargetParentField;
             if(targetParent is not null)result.Add(table.Columns.Single(column=>column.JsonName==targetParent));
         }
-        foreach(var multi in MultiSelectCompilation.ForService(model,table,page).Where(def=>table.Source.IsRongyu==1&&def.Names is{} cache&&GenerationModel.Enabled(cache.Source.Extra,"isJoinColumn")))
-        {result.Add(multi.Source);result.Add(multi.Names!);result.AddRange(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column));if(multi.TargetParentField is{} field)result.Add(table.Columns.Single(column=>column.JsonName==field));}
+        foreach(var multi in MultiSelectCompilation.ForService(model,table,page).Where(def=>MultiNameWriteCompilation.ForSource(model,table,def).Count>0))
+        {result.Add(multi.Source);result.AddRange(MultiNameWriteCompilation.ForSource(model,table,multi).Select(binding=>binding.Cache));result.AddRange(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column));if(multi.TargetParentField is{} field)result.Add(table.Columns.Single(column=>column.JsonName==field));}
         foreach(var checkbox in DatabaseCheckboxCompilation.ForService(model,table,page)){result.Add(checkbox.Source);result.AddRange(checkbox.Dependencies);if(table.Source.IsRongyu==1)result.Add(checkbox.Names);}
         return result.DistinctBy(column=>column.Source.Id).ToArray();
     }

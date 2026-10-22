@@ -16,6 +16,7 @@ internal static class MultiSelectFieldRenderer
         foreach (var def in MultiSelectCompilation.ForService(model, table, page))
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
+            var caches=MultiNameWriteCompilation.ForSource(model,table,def);
             result.Append(FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix));
             result.AppendLine("    /// <summary>保留旧JSON文本字节，数组请求持久化为JSON文本；不接受对象或其它标量。</summary>")
                 .AppendLine($"    private static string? ReadMultiValue{suffix}(JsonElement? value)").AppendLine("    {")
@@ -32,7 +33,7 @@ internal static class MultiSelectFieldRenderer
                 .AppendLine("        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"多选字段要求真实当前身份。\");")
                 .AppendLine($"        if(authorizationOperation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)}, \"import\");else relationAuthorization.RequirePagePermission({Literal(def.TargetPage.Source.Id)}, \"list\");")
                 .AppendLine($"        if (entity.{def.Source.Property} is null)").AppendLine("        {");
-            if (def.Names is not null && table.Source.IsRongyu==1) result.AppendLine($"            if (refreshNames) {{ entity.{def.Names.Property} = null; submitted.Add({Literal(def.Names.Source.ColumnName)}); }}");
+            foreach(var cache in caches)result.AppendLine($"            if (refreshNames) {{ entity.{cache.Cache.Property} = null; submitted.Add({Literal(cache.Cache.Source.ColumnName)}); }}");
             result.AppendLine("            return;").AppendLine("        }")
                 .AppendLine($"        using var values = ParseMultiDocument{suffix}(entity.{def.Source.Property});")
                 .AppendLine("        if (values.RootElement.ValueKind != JsonValueKind.Array || values.RootElement.GetArrayLength() > 200) throw new ArgumentException(\"多选字段最多200个字符串ID。\");")
@@ -57,12 +58,17 @@ internal static class MultiSelectFieldRenderer
             if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");
             foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
             result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix));
-            if(def.TargetPage.Condition is not null||table.Source.IsRongyu==0)result.AppendLine("        query=query.ForUpdate();");
-            result.AppendLine($"        var rows = await query.Limit(200).ToListAsync(row => new {{ row.Id{(def.Names is null || table.Source.IsRongyu==0 ? "" : ", Name = row." + def.Name.Property)} }}, cancellationToken);")
+            // 所有缓存都来自本次已授权候选的同一当前锁读；ID展示页也不能退化为旧RR快照。
+            result.AppendLine("        query=query.OrderBy(row=>row.Id);").AppendLine("        query=query.ForUpdate();");
+            var projection=string.Concat(caches.Select((cache,index)=>", "+(index==0?"Name":"CacheName"+index)+" = row."+cache.Value.Property));
+            result.AppendLine($"        var rows = await query.Limit(200).ToListAsync(row => new {{ row.Id{projection} }}, cancellationToken);")
                 .AppendLine("        if (rows.Count != selected.Length) throw new InvalidOperationException(\"多选项不存在、已删除或不在目标页范围，源记录未保存。\");");
-            if (def.Names is not null && table.Source.IsRongyu==1)
-                result.AppendLine("        var names = rows.ToDictionary(row => row.Id, row => row.Name);")
-                    .AppendLine($"        if (refreshNames) {{ entity.{def.Names.Property} = JsonSerializer.Serialize(selected.Select(id => names[id]).ToArray()); submitted.Add({Literal(def.Names.Source.ColumnName)}); }}");
+            foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)))
+            {
+                var variable=index==0?"names":"names"+index;var value=index==0?"Name":"CacheName"+index;
+                result.AppendLine($"        var {variable} = rows.ToDictionary(row => row.Id, row => row.{value});")
+                    .AppendLine($"        if (refreshNames) {{ entity.{cache.Cache.Property} = JsonSerializer.Serialize(selected.Select(id => {variable}[id]).ToArray()); submitted.Add({Literal(cache.Cache.Source.ColumnName)}); }}");
+            }
             result.AppendLine("    }");
         }
         return result.ToString();

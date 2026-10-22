@@ -16,7 +16,7 @@ internal static class MultiSelectCompilation
         var managed = model.Tables.ToDictionary(table => table.Source.Id, table => table.Pages.SelectMany(page => ForService(model, table, page)).Where(def => def.Names is not null).Select(def => def.Names!.Source.Id).ToHashSet(StringComparer.Ordinal));
         return model with { Tables = model.Tables.Select(table =>
         {
-            var names = managed[table.Source.Id];
+            var names = managed[table.Source.Id];names.UnionWith(MultiNameWriteCompilation.ForTable(model,table).Select(binding=>binding.Cache.Source.Id));
             ColumnModel Fix(ColumnModel column) => names.Contains(column.Source.Id) ? column with { IsManagedMultiNames = true } : column;
             IReadOnlyList<ColumnModel> FixAll(IReadOnlyList<ColumnModel> columns) => columns.Select(Fix).ToArray();
             return table with { Columns = FixAll(table.Columns), Pages = table.Pages.Select(page => page with { Readable = FixAll(page.Readable), Writable = FixAll(page.Writable.Where(column => !names.Contains(column.Source.Id)).ToArray()), Searchable = FixAll(page.Searchable), Sortable = FixAll(page.Sortable), ListColumns = FixAll(page.ListColumns), DetailColumns = FixAll(page.DetailColumns) }).ToArray() };
@@ -32,7 +32,7 @@ internal static class MultiSelectCompilation
         .Select(column => Resolve(model, table, page, column, forService: true).Definition).OfType<MultiSelectModel>().ToArray();
 
     /// <summary>额外SQL或未知父映射返回明确缺口，保留原配置而不扩大候选范围。</summary>
-    internal static MultiSelectResult Resolve(GenerationModel model, TableModel table, PageModel page, ColumnModel source, bool forService = false)
+    internal static MultiSelectResult Resolve(GenerationModel model, TableModel table, PageModel page, ColumnModel source, bool forService = false, bool rootDefinition = false)
     {
         MultiSelectResult Gap(string reason) => new(null, "MultiSelectPage尚未支持：" + reason);
         if (table.Source.IsRongyu is not (0 or 1)) return Gap("未识别的多选存储模式。");
@@ -41,7 +41,7 @@ internal static class MultiSelectCompilation
         try
         {
             var root = Read(source.Source.ControlDetail);
-            var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
+            var field = rootDefinition ? null : model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var overlay = Read(field?.Extra.GetValueOrDefault("controlDetail").ToString() ?? "");
             string Value(string key, string fallback = "") { var value = Scalar(overlay, key); if (string.IsNullOrWhiteSpace(value)) value = Scalar(root, key); return string.IsNullOrWhiteSpace(value) ? fallback : value; }
             var pageId = Value("pageId", source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString());
