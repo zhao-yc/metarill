@@ -21,6 +21,8 @@ internal static class ControlRenderer
         ControlResult Wrap(string content, string? reason = null) => new(wrapper + content + "</uni-forms-item>", reason);
         var writable = page.Writable.Contains(column);
         if(column.Source.ControlKind=="CascadeTree"&&NonRedundantSelfTreeSubset.Supports(model,table,page,column))return Wrap("");
+        if(column.Source.ControlKind=="CascadeTree"&&NonRedundantCrossTableSubset.Supports(model,table,page,column))return Wrap("");
+        if(table.Source.IsRongyu==0&&NonRedundantCrossTableSubset.Declared(column))return Wrap("",NonRedundantCrossTableSubset.Reason(model,table,page));
         if(column.Source.ControlKind=="CascadeTree")return Wrap("",CrossTableReadCompilation.CapabilityReason(model,table,page,column)??CascadeTreeReadCompilation.Resolve(model,table,page,column).Reason??CascadeTreeWriteCompilation.Resolve(model,table,page,column).Reason??"CascadeTree候选、路径、最终写入、路径展示及精确/后代筛选已接线；固定子集的级联导入导出已接线；其他模式及完整应用验收仍待完成。");
         var fixedRoleAdmin=FixedRoleAdminNameCompilation.Resolve(model,table,page,column);
         if(fixedRoleAdmin.Declared && fixedRoleAdmin.Definition is null) return Wrap("",fixedRoleAdmin.Reason);

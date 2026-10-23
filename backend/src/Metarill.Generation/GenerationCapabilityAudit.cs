@@ -19,7 +19,7 @@ internal static class GenerationCapabilityAudit
         foreach(var table in model.Tables)
         foreach(var page in table.Pages)
         {
-            // 完整包只开放正式编译通过的标量非冗余链路；未接线的用途仍逐页报告，不以存储模式一律拒绝。
+            // 完整包逐页证明固定读取、写入及已配置用途；未接线的用途仍明确报告。
             if (NonRedundantReadCompilation.Requires(model, table))
             {
                 try
@@ -27,16 +27,17 @@ internal static class GenerationCapabilityAudit
                     _ = NonRedundantReadCompilation.ForPage(model, table, page);
                     RequirePublishedRealm(model, table, page);
                     foreach (var relation in RelationCompilation.ForPage(model, page)) RequirePublishedRealm(model, relation.Target, relation.TargetPage);
+                    foreach(var cross in CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>NonRedundantCrossTableSubset.Supports(model,table,page,plan.Read.Source)))foreach(var level in cross.Levels)RequirePublishedRealm(model,level.Read.Target,level.Read.Page);
                     foreach(var tree in CascadeTreeReadCompilation.ForService(model,table,page).Where(plan=>NonRedundantSelfTreeSubset.Supports(model,table,page,plan.Source)))RequirePublishedRealm(model,tree.Target,tree.TargetPage);
                     if(table.Columns.Any(column=>column.Source.ControlKind=="CascadeTree"))foreach(var parent in NonRedundantSelfTreeSubset.ParentTables(model,table,page))if(parent.Source.YzProjectId!=model.Catalog.YzProjectId)throw new InvalidOperationException("非冗余自树父表必须明确发布于包内项目。");
                 }
                 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
                 { gaps.Add(new(page.Source.Id, "", "runtime", "非冗余固定读取未完成：" + error.Message)); }
             }
-            // 隐藏跨表仍参与复制／默认值／钩子，不能靠省略页面字段绕过Full的未验收用途门禁。
+            // 隐藏跨表仍参与复制／默认值／钩子；完整证明后才放行，坏链不能借省略页面字段绕过。
             foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==0&&column.Source.ControlKind=="CascadeTree"&&!page.Readable.Any(read=>read.Source.Id==column.Source.Id)))
-                if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is not null)
-                    gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime","非冗余crossTable固定生成CRUD已接线；完整应用其余用途仍待验收，隐藏控件不能绕过门禁。"));
+                if(NonRedundantCrossTableSubset.Declared(source)&&!NonRedundantCrossTableSubset.Supports(model,table,page,source))
+                    gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime","非冗余crossTable的实际用途未通过完整包证明，隐藏控件不能绕过门禁。"));
             // 带联接标记的多选缓存即使隐藏来源字段，也必须有明确完整的内部写入证明。
             foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==1&&column.Source.ControlKind=="MultiSelectPage"))
             {var proof=MultiSelectCompilation.Resolve(model,table,page,source,forService:true);if(proof.Definition is null)gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime",proof.Reason!));}

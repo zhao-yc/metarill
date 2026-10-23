@@ -19,19 +19,19 @@ public sealed class NonRedundantCrossTableGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>BackendOnly可编译；完整包仍显式报告跨表完整用途尚未完成。</summary>
+    /// <summary>路径导入尚待确认；已证明的普通完整包不借此放开该用途。</summary>
     [Fact]
-    public void Full_package_remains_closed_until_remaining_cross_uses_are_verified()
+    public void Full_package_remains_closed_for_unconfirmed_path_import()
     {
-        var catalog=Catalog("nr_cross","string","int64");RedundantMultiNameCacheTests.Published(catalog);var model=GenerationModel.Create(catalog,"Example.NonRedundantCross");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason.Contains("跨表候选/路径已接线"));var boundary=Path.Combine(Path.GetTempPath(),"metarill-nr-cross-full-gate");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,model.Namespace,NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
+        var catalog=Catalog("nr_cross","string","int64");catalog.ConfigPages.Single(page=>page.Id=="201").IsImport=1;RedundantMultiNameCacheTests.Published(catalog);var model=GenerationModel.Create(catalog,"Example.NonRedundantCross");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason.Contains("非空路径导入"));var boundary=Path.Combine(Path.GetTempPath(),"metarill-nr-cross-full-gate");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,model.Namespace,NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
-    /// <summary>隐藏控件仍参与复制／钩子写入，不能绕过Full未验收门禁或扩大只读投影。</summary>
+    /// <summary>隐藏控件的固定链仍完整证明，Full可装配但不能扩大只读投影。</summary>
     [Fact]
-    public async Task Hidden_cross_keeps_Full_gate_and_backend_only_generation_without_exposing_ids()
+    public async Task Hidden_proven_cross_keeps_Full_package_and_generation_without_exposing_ids()
     {
-        var catalog=Catalog("hidden_nr_cross","string","int64");catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="25");RedundantMultiNameCacheTests.Published(catalog);var model=GenerationModel.Create(catalog,"Example.HiddenCross");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(table.Pages);Assert.Single(CrossTableWriteCompilation.ForService(model,table,page));Assert.DoesNotContain(page.Readable,column=>column.Source.Id=="25");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.PageId=="201"&&gap.Column=="place_id"&&gap.Usage=="runtime");
+        var catalog=Catalog("hidden_nr_cross","string","int64");catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="25");RedundantMultiNameCacheTests.Published(catalog);var model=GenerationModel.Create(catalog,"Example.HiddenCross");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(table.Pages);Assert.Single(CrossTableWriteCompilation.ForService(model,table,page));Assert.DoesNotContain(page.Readable,column=>column.Source.Id=="25");Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-nr-hidden-cross-gate");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
-        try{var full=Path.Combine(directory,"full");Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,full,model.Namespace,NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(full));var result=new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);Assert.Contains(result.Warnings,warning=>warning.Contains("隐藏控件"));var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);var vo=assembly.GetType(model.Namespace+".Generated.VOs.HiddenNrCrossSourcePage201Vo")!;Assert.Null(vo.GetProperty("PlaceId"));Assert.Null(vo.GetProperty("CountryName"));}
+        try{var full=Path.Combine(directory,"full");Assert.True(new ApplicationPackager().Create(catalog,full,model.Namespace,NonRedundantApplicationFixture.Root()).FrontendIncluded);var backend=Path.Combine(directory,"backend-only");var result=new CSharpGenerator().Generate(catalog,Path.Combine(backend,"generated"),model.Namespace);Assert.DoesNotContain(result.Warnings,warning=>warning.Contains("隐藏控件"));var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(backend);var vo=assembly.GetType(model.Namespace+".Generated.VOs.HiddenNrCrossSourcePage201Vo")!;Assert.Null(vo.GetProperty("PlaceId"));Assert.Null(vo.GetProperty("CountryName"));}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>新增跨表门禁不扩大到既有selfTree，隐藏的已支持控件仍可正常发布完整包。</summary>
