@@ -59,22 +59,24 @@ internal static class GeneratedNonRedundantReadCatalog
             .AppendLine("        return string.IsNullOrWhiteSpace(json)?null:JsonSerializer.Deserialize<JsonElement>(json);").AppendLine("    }");
         return result.AppendLine("}").ToString();
     }
-    /// <summary>保留原物理范围给更新/删除锁定，读取使用另一个预编译计划，不对联接结果申请对象写锁。</summary>
+    /// <summary>普通父范围沿物理键，稀疏跨表父范围沿固定逻辑链；公开读取与私有当前锁分开。</summary>
     private static string NonRedundantQuery(GenerationModel model,TableModel table,PageModel page)
     {
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
         var names=SelectionNameFilterCompilation.ForPage(model,table,page);var nameKeys=names.ConsumedKeys.Concat(names.Gaps.Select(gap=>gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var outputs="new string[]{"+string.Join(",",plan.ReadOutputs.Select(Literal))+"}";var dependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
-        var result=new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix));
+        var result=new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix)).Append(NonRedundantCrossParentCompilation.Service(model,table,page));
         if(ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true} exact)
             result.AppendLine("    /// <summary>匹配计划只含当前范围所需路径，避免锁住无关输出关系。</summary>")
                 .AppendLine($"    private static readonly NonRedundantReadPlan ExactReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileMatch({Literal(table.Source.Id)},{Literal(exact.Column.Source.ColumnName)});");
         result.AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
             .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(CrossTableWriteCompilation.ForService(model,table,page).Count>0?"CompileCross":"Compile")}({Literal(table.Source.Id)},{outputs},{dependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});")
-            .AppendLine("    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor,string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
+            .AppendLine(NonRedundantCrossParentCompilation.Enabled(model,table,page)?"    /// <summary>更新前按真实项目及物理／逻辑父范围锁定主记录。</summary>":"    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor,string? parentId{ExactDataManageCompilation.Parameter(page,"detail")}{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool locking=false":"")})").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
-        {if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        query=query.Where(entity=>entity.{column.Property}=={ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")});");}
+        {if(source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,table,page,column))continue;if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        query=query.Where(entity=>entity.{column.Property}=={ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")});");}
+        if(NonRedundantCrossParentCompilation.Enabled(model,table,page))result.AppendLine($"        query=LogicalParentScope{suffix}(query,actor,parentId,locking);");
         result.Append(FixedPageConditionCompilation.Apply(page,"PageCondition"+suffix,"page_"+suffix)).Append(ExactDataManageCompilation.Query(model,table,page)).AppendLine("        return query;").AppendLine("    }").AppendLine("    /// <summary>身份与父范围是服务附加的AND条件，请求筛选不能覆盖。</summary>").AppendLine($"    private {(ExactDataManageCompilation.Declared(page)?"":"static ")}List<FixedReadFilter> ReadFilters{suffix}(PageRequest request,RuntimeActor actor{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);ValidateActor(actor);var result=new List<FixedReadFilter>();");
+        if(NonRedundantCrossParentCompilation.Enabled(model,table,page))result.AppendLine($"        _=LogicalParentId{suffix}(request.ParentId);");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
         {if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(request.ParentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"request.ParentId!")}));");}
         result.Append(ExactDataManageCompilation.ReadFilter(model,table,page));

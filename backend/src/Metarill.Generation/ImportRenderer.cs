@@ -55,7 +55,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
             .Append(BackendRenderer.PrepareCall(model, table, page, "Import", "null", null, "request.ParentId"))
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")
-            .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);")
+            .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});")
             .AppendLine("        var rowNumber = 0;")
             .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {");
         if (contextual && overwrite) result.AppendLine($"                {table.Name}? importExisting = null;");
@@ -68,7 +68,7 @@ public sealed partial class {{page.Name}}ImportRequest
             var first = table.Columns.First(column => columns.Contains(column));
             result.AppendLine($"                if (!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null) throw new ArgumentException(\"覆盖匹配字段不能为空。\");")
                 .AppendLine($"                var key = JsonSerializer.Deserialize<{first.BoundaryType}>(matchValue.GetRawText(), JsonOptions);")
-                .AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync(cancellationToken);")
+                .AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync(cancellationToken);")
                 .AppendLine("                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
             if(contextual)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];")
                 .AppendLine($"                var values = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor, importExisting, false, cancellationToken);");
@@ -84,6 +84,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("                throw error.AtRow(rowNumber);").AppendLine("            }")
             .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException)").AppendLine("            {")
             .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }").AppendLine("        }")
+            .Append(NonRedundantCrossParentCompilation.Enabled(model,table,page)?$"        await ValidateParents{page.Source.Id}Async(request.ParentId,actor,cancellationToken);\n":"")
             .AppendLine("        return $\"导入成功{rowNumber}条数据\";").AppendLine("    }, cancellationToken);")
             .AppendLine("    /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>")
             .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+table.Name+"? existing, bool keyOnly":"")}, CancellationToken cancellationToken)")

@@ -20,7 +20,7 @@ internal static class NonRedundantSelfTreeSubset
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return false;}
     }
-    /// <summary>父值只能绑定明确的普通实体外键，校验真实物理主键／项目列；主键本身不冒充父关系。</summary>
+    /// <summary>普通父外键或唯一固定跨表层位均须证明目标物理主键／项目列，不能以来源主键冒充父关系。</summary>
     internal static IReadOnlyList<TableModel> ParentTables(GenerationModel model,TableModel table,PageModel page)
     {
         var parents=new List<TableModel>();
@@ -28,7 +28,8 @@ internal static class NonRedundantSelfTreeSubset
         {
             var column=scope.Column;
             if(column.IsId||column.Type is not("string?" or "long?")||!NonRedundantReadCompilation.Physical(model,table,column)||GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("非冗余自树父范围必须是真实单值外键。");
-            var parent=model.Tables.SingleOrDefault(candidate=>column.Source.LinkConfigTableId.Length>0?candidate.Source.Id==column.Source.LinkConfigTableId:candidate.Source.TableName+"_id"==column.Source.ColumnName);
+            var cross=NonRedundantCrossParentCompilation.Find(model,table,page,column);
+            var parent=cross is{} path?path.Read.Levels[path.Index].Target:model.Tables.SingleOrDefault(candidate=>column.Source.LinkConfigTableId.Length>0?candidate.Source.Id==column.Source.LinkConfigTableId:candidate.Source.TableName+"_id"==column.Source.ColumnName);
             if(parent is null||parent.IsGlobal||parent.Source.Id==table.Source.Id||parent.Source.IsFunctionTable!=0||parent.Source.IsView!=0)throw new InvalidOperationException("非冗余自树父表缺少明确普通实体归属。");
             var id=parent.Columns.Single(candidate=>candidate.IsId);var project=parent.Columns.SingleOrDefault(candidate=>candidate.Source.ColumnName=="yz_project_id");
             if(project is null||project.Type is not("string?" or "long?")||!NonRedundantReadCompilation.Physical(model,parent,id)||!NonRedundantReadCompilation.Physical(model,parent,project)||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn")||GenerationModel.Enabled(project.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("非冗余自树父表主键／项目列必须是已证明的物理身份。");

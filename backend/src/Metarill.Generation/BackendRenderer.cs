@@ -198,11 +198,16 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static string ParentValidation(GenerationModel model, TableModel table, PageModel page)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
-            .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool includeManaged=true":"")})")
             .AppendLine("    {");
         var number = 0;
         foreach (var (column, source) in page.Scopes.Where(scope => scope.Source == "parent"))
         {
+            if(NonRedundantCrossParentCompilation.Managed(model,table,page,column))
+            {
+                var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
+                result.AppendLine($"        _=LogicalParentId{page.Source.Id}(parentId);if(includeManaged)await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
+            }
             var parent = CrossTableWriteCompilation.ParentTarget(model,table,page,column) ?? model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
             var project = parent.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == "yz_project_id");
@@ -336,7 +341,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(ExactDataManageCompilation.MutationAuthorization(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"create\"":"\"create\""))
                 .Append(PrepareCall(model, table, page, "Create", "null", "request"))
-                .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken);").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
+                .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
             foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
@@ -355,7 +360,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"true","false")).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", authorizationOperation":"")});").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
                 .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(WriteCall(page, "Create", "null"))
                 .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");").Append(CrossTableWriteRenderer.After(model,table,page,true,ImportRenderer.RelationOperationAware(model,table,page))).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true,ImportRenderer.RelationOperationAware(model,table,page)))
-                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
+                .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
         }
         if (Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source) || (ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) == "OverWriteByFirstColumn"))
         {
@@ -363,7 +368,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine(MutationEntry(table,page,"Update",operationAwareImport))
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(PrepareCall(model, table, page, "Update", "request.Id", "request"))
-                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(NonRedundantCrossTableCompilation.HydrateCall(model,table,page))
                 .Append(RelationConditionsCompilation.CaptureMutation(model,table,page))
@@ -379,21 +384,21 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             }
             result.Append(Audit(table, false)).Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","false")).AppendLine("        BeforeSave(entity, actor, false, submitted);").Append(RelationConditionsCompilation.ValidateMutation(model,table,page)).Append(ManagerCredentialCompilation.DigestCall(table,false)).Append(BoundRelationValidationRenderer.Call(model, table, page, false, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, false, submitted, cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", authorizationOperation":"")});").Append(BoundRelationValidationRenderer.Call(model, table, page, false, false)).Append(RequiredValidation(model, table, page, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
-                result.AppendLine($"        if (entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
+                result.AppendLine($"        if ({NonRedundantCrossParentCompilation.SubmittedCondition(model,table,page,column)}entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
             result.Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(WriteCall(page, "Update", "originalScopeValues")).AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");").Append(CrossTableWriteRenderer.After(model,table,page,false,ImportRenderer.RelationOperationAware(model,table,page))).Append(CascadeTreeTopologyRenderer.After(model,table,page,false)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,false,ImportRenderer.RelationOperationAware(model,table,page)))
-                .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"update")};").AppendLine("    }, cancellationToken);");
+                .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken{(importFiles?", authorizationOperation":"")});").AppendLine($"        return {RoleResult(model,table,page,"update")};").AppendLine("    }, cancellationToken);");
         }
         if (page.Source.IsDelete == 1)
         {
             result.AppendLine("    /// <summary>先校验数据范围，再在同一事务内删除。</summary>")
                 .AppendLine($"    public Task<bool> Delete{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").Append(PrepareCall(model, table, page, "Delete", "id", null))
-                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"delete\"")}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+                .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"delete\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","true")).AppendLine("        BeforeDelete(entity, actor);")
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, true))
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
-                .Append(WriteCall(page, "Delete", "originalScopeValues", "new HashSet<string>(StringComparer.Ordinal)"));
+                .Append(WriteCall(page, "Delete", "originalScopeValues", "new HashSet<string>(StringComparer.Ordinal)" )).Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page));
             if (table.Columns.Any(x => x.Source.ColumnName == "delete_no"))
                 result.AppendLine("        entity.DeleteNo = DateTime.UtcNow;").AppendLine("        var deleted = await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
             else
@@ -414,8 +419,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    public Task<{page.Name}Vo> Copy{page.Source.Id}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
             .AppendLine("    {")
             .Append(PrepareCall(model, table, page, "Copy", "id", null))
-            .AppendLine($"        await ValidateParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
-            .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"copy\"")}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
+            .AppendLine($"        await ValidateParents{page.Source.Id}Async(parentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});")
+            .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"copy\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
             .AppendLine("        var originalScopeValues = MutationScopeValues(source);")
             .Append(NonRedundantCrossTableCompilation.ValidateCopy(model,table,page))
             .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};")
@@ -426,7 +431,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .Append(RequiredValidation(model, table, page, false))
             .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
             .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");").Append(CrossTableWriteRenderer.After(model,table,page,true)).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true))
-            .AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation.Copy":"")});")
+            .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation.Copy":"")});")
             .AppendLine($"        return {RoleResult(model,table,page,"copy")};").AppendLine("    }, cancellationToken);");
         return result.ToString();
     }

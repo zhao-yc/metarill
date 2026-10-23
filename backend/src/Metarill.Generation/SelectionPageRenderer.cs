@@ -22,6 +22,11 @@ internal static class SelectionPageRenderer
         var number = 0;
         foreach (var (column, _) in page.Scopes.Where(scope => scope.Source == "parent"))
         {
+            if(NonRedundantCrossParentCompilation.Managed(model,table,page,column))
+            {
+                var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
+                result.AppendLine($"        _=LogicalParentId{suffix}(parentId);await CrossReader{suffix}_{path.Read.Source.Source.Id}(actor,false,false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
+            }
             var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
                 ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("多选页父范围缺少明确目标表：" + column.Source.ColumnName);

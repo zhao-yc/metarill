@@ -18,7 +18,7 @@ internal static class NonRedundantCrossTableCompilation
         var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==plan.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
         if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(plan.Source.Source.ControlDetail)))throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
         var slots=storage.Slots.Select(slot=>slot.ColumnName).ToHashSet(StringComparer.Ordinal);
-        if(page.Scopes.Any(scope=>slots.Contains(scope.Column.Source.ColumnName))||page.Condition?.Syntax.Fields.Any(slots.Contains)==true||ExactDataManageCompilation.Declared(page))throw new InvalidOperationException("非冗余跨表逻辑父范围／来源条件／精确权限仍待逻辑锁范围接线。");
+        if(page.Condition?.Syntax.Fields.Any(slots.Contains)==true||ExactDataManageCompilation.Declared(page))throw new InvalidOperationException("非冗余跨表来源逻辑条件／精确权限仍待独立接线。");
         _=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
     }
     /// <summary>从完整生成模型冻结真实目标页的常量条件，不从精简关系目录猜测条件。</summary>

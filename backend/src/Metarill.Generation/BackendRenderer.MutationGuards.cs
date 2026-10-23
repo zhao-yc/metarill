@@ -11,7 +11,7 @@ internal static partial class BackendRenderer
     /// <summary>只有已发布归属键进入准备阶段；省略字段保持不存在，显式 null 保留。</summary>
     internal static string PrepareCall(GenerationModel model, TableModel table, PageModel page, string operation, string targetId, string? request, string parentId = "parentId")
     {
-        var columns = SafeGuardScopes(model, page).Select(scope => scope.Column).Concat(table.Columns.Where(column => PreparationScopeNames.Contains(column.Source.ColumnName) && IsPhysicalId(column))).Distinct().ToArray();
+        var columns = SafeGuardScopes(model, page).Select(scope => scope.Column).Concat(table.Columns.Where(column => PreparationScopeNames.Contains(column.Source.ColumnName) && IsPhysicalId(column))).Where(column=>!NonRedundantCrossParentCompilation.IsSlot(model,table,column)).Distinct().ToArray();
         var result = new StringBuilder().AppendLine("        var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);");
         if (request is not null)
             foreach (var column in columns.Where(page.Writable.Contains))
@@ -32,6 +32,8 @@ internal static partial class BackendRenderer
             var column = scope.Column;
             if (GenerationMetadataPublisher.IsSensitiveKey(column.Source.ColumnName) || !IsPhysicalId(column)) continue;
             if (scope.Source == "project" && column.Source.ColumnName == "yz_project_id") { yield return scope; continue; }
+            var table=model.Tables.Single(candidate=>candidate.Source.Id==page.Source.ConfigTableId);
+            if (NonRedundantCrossParentCompilation.Managed(model,table,page,column)) continue;
             if (scope.Source != "parent" || !column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal)) continue;
             var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
                 ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName);
@@ -49,7 +51,7 @@ internal static partial class BackendRenderer
     /// <summary>准备在首个记录锁前；最终校验仍使用同一事务，默认实现不改变旧宿主规则。</summary>
     private static string Preparation(GenerationModel model, TableModel table)
     {
-        var columns = table.Columns.Where(column => SecurityValueNames.Contains(column.Source.ColumnName)).Concat(table.Pages.SelectMany(page => SafeGuardScopes(model, page).Select(scope => scope.Column))).Distinct().ToArray();
+        var columns = table.Columns.Where(column => SecurityValueNames.Contains(column.Source.ColumnName)).Concat(table.Pages.SelectMany(page => SafeGuardScopes(model, page).Select(scope => scope.Column))).Where(column=>!NonRedundantCrossParentCompilation.IsSlot(model,table,column)).Distinct().ToArray();
         var values = string.Join("\n", columns.Select(column => $"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},"));
         return $$"""
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>

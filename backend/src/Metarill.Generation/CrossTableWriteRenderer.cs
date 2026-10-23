@@ -55,7 +55,7 @@ internal static class CrossTableWriteRenderer
         if(CrossTableWriteCompilation.ForService(model,table,page).Count==0)return "";return string.Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>
         {
             var column=scope.Column;var input=scope.Source=="project"?"actor.ProjectId":"parentId!";var expected=column.Type=="string?"?input:column.Type is "long" or "long?"?$"long.Parse({input},CultureInfo.InvariantCulture)":$"int.Parse({input},CultureInfo.InvariantCulture)";
-            return $"        if(entity.{column.Property}!={expected})throw new InvalidOperationException(\"跨表归一化不能改变当前项目或页面父归属。\");\n";
+            return $"        if({(scope.Source=="parent"?NonRedundantCrossParentCompilation.SubmittedCondition(model,table,page,column):"")}entity.{column.Property}!={expected})throw new InvalidOperationException(\"跨表归一化不能改变当前项目或页面父归属。\");\n";
         }));
     }
     /// <summary>所有正常DML之后、通知之前仅核验存储，不新增一次修复DML。</summary>
