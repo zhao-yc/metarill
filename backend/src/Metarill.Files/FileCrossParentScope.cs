@@ -33,7 +33,9 @@ internal sealed class FileCrossParentScope
         foreach(var level in definition.RootElement.GetProperty("levels").EnumerateArray())
         {
             var target=catalog.ConfigTables.Single(item=>item.TableName==level.GetProperty("table").GetString());var columns=MetadataStoragePolicy.ForTable(catalog,target).PhysicalColumns;
-            var name=level.TryGetProperty("nameField",out var label)&&!string.IsNullOrWhiteSpace(label.GetString())?label.GetString()!:"name";var parent=targets.Count==0?null:level.GetProperty("parentField").GetString();var required=new[]{name,parent}.OfType<string>().Select(field=>columns.Single(column=>column.ColumnName==field).Id).ToArray();
+            var name=level.TryGetProperty("nameField",out var label)&&!string.IsNullOrWhiteSpace(label.GetString())?label.GetString()!:"name";var parent=targets.Count==0?null:level.GetProperty("parentField").GetString();var display=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==name);
+            // 名称可来自已证明的单值联接，父键仍必须物理；下方完整跨表编译继续证明类型、终点与范围。
+            var required=new[]{display.Id}.Concat(parent is null?Array.Empty<string>():new[]{columns.Single(column=>column.ColumnName==parent).Id}).ToArray();
             var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:Condition(candidate,columns))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
             var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));var project=columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,project.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
         }
