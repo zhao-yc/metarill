@@ -35,4 +35,19 @@ public sealed class GenerationMetadataPublisherTests
         var original=Assert.IsType<ArgumentException>(error.InnerException);Assert.Equal("key",original.ParamName);Assert.Contains("tableId",original.Message);
         Assert.Contains("重复",error.Message);Assert.Equal(source,JsonSerializer.Serialize(catalog));
     }
+
+    /// <summary>无敏感内容的JSON字面量保持原字符，不能把默认值或控件声明重新格式化。</summary>
+    [Theory][InlineData("[\"9007199254750003\"]")][InlineData("[\n  \"9007199254750003\"\n]")][InlineData("{ \"ordered\" : [2,1], \"note\" : \"说明\" }")]
+    public void Publish_preserves_unchanged_encoded_json_literals(string literal)
+    {
+        var c=GeneratorTests.Catalog();var column=c.ConfigColumns.Single(column=>column.ColumnName=="name");column.DefaultValue=literal;column.ControlDetail=literal;var before=JsonSerializer.Serialize(c);var published=GenerationMetadataPublisher.Publish(c).Metadata.ConfigColumns.Single(item=>item.Id==column.Id);
+        Assert.Equal(literal,published.DefaultValue);Assert.Equal(literal,published.ControlDetail);Assert.Equal(before,JsonSerializer.Serialize(c));
+    }
+    /// <summary>保持原文不能豁免嵌套密码清理，原输入仍由调用方保有且不被发布器改写。</summary>
+    [Fact]
+    public void Encoded_json_still_removes_nested_secrets_without_mutating_source()
+    {
+        var c=GeneratorTests.Catalog();var column=c.ConfigColumns.Single(column=>column.ColumnName=="name");column.ControlDetail="{\"ordered\":[2,1],\"password\":\"private-value\",\"nested\":\"{\\\"password\\\":\\\"nested-private\\\",\\\"x\\\":1}\"}";var before=JsonSerializer.Serialize(c);var result=GenerationMetadataPublisher.Publish(c);using var document=JsonDocument.Parse(result.Metadata.ConfigColumns.Single(item=>item.Id==column.Id).ControlDetail);var value=document.RootElement;
+        Assert.False(value.TryGetProperty("password",out _));Assert.Equal(new[]{2,1},value.GetProperty("ordered").EnumerateArray().Select(item=>item.GetInt32()));using var nested=JsonDocument.Parse(value.GetProperty("nested").GetString()!);Assert.False(nested.RootElement.TryGetProperty("password",out _));Assert.Equal(1,nested.RootElement.GetProperty("x").GetInt32());Assert.Equal(before,JsonSerializer.Serialize(c));Assert.Equal(2,result.RedactedPaths.Count(path=>path.Contains("password",StringComparison.OrdinalIgnoreCase)));
+    }
 }

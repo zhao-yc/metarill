@@ -10,7 +10,8 @@ internal static class MySqlTextDefault
         sql=null;if(raw is null)return false;var text=raw.Trim();if(text.StartsWith('(')&&text.EndsWith(')'))text=text[1..^1].Trim();
         if(text.StartsWith("_utf8mb4",StringComparison.OrdinalIgnoreCase))text=text[8..];
         // MySQL 8.4的COLUMN_DEFAULT会用反斜杠标记表达式字面量的边界；只消除此一对固定边界。
-        if(text.Length>=4&&text[0]==(char)92&&text[1]==(char)39&&text[^2]==(char)92&&text[^1]==(char)39)text=text[1..^2]+"'";
+        var escapedExpression=text.Length>=4&&text[0]==(char)92&&text[1]==(char)39&&text[^2]==(char)92&&text[^1]==(char)39;
+        if(escapedExpression)text=text[1..^2]+"'";
         if(text.Length<2||text[0]!=(char)39||text[^1]!=(char)39)return false;
         var result=new StringBuilder();
         for(var index=1;index<text.Length-1;index++)
@@ -20,6 +21,8 @@ internal static class MySqlTextDefault
             else if(value==(char)92)
             {
                 if(++index>=text.Length-1)return false;
+                // 仅在服务端已转义的表达式边界内，消去控制字符SQL转义多出的一层；未知转义和字面反斜杠仍拒绝。
+                if(escapedExpression&&text[index]==(char)92&&index+1<text.Length-1&&text[index+1] is 'n' or 'r' or 't' or 'b' or '0' or 'Z')index++;
                 value=text[index] switch{(char)39=>(char)39,'"'=>'"','n'=>'\n','r'=>'\r','t'=>'\t','b'=>'\b','0'=>'\0','Z'=>(char)26,_=>(char)92};
                 if(value==(char)92)return false;
             }

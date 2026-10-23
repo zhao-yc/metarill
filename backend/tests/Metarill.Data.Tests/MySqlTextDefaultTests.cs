@@ -19,9 +19,11 @@ public sealed class MySqlTextDefaultTests
     /// <summary>只归一MySQL实际返回的固定字符串字面量、字符集和单层括号。</summary>
     [Theory][InlineData("'[\"9007199254740993\"]'","('[\"9007199254740993\"]')")][InlineData("_utf8mb4'中文'","('中文')")][InlineData("(_utf8mb4'a''b')","('a''b')")][InlineData("'a\\'b'","('a''b')")]
     [InlineData("_utf8mb4\\'[\"9007199254750003\"]\\'","('[\"9007199254750003\"]')")]
+    [InlineData("_utf8mb4\\'a\\\\nb\\'","('a\nb')")][InlineData("_utf8mb4\\'a\\\\rb\\'","('a\rb')")][InlineData("_utf8mb4\\'a\\\\tb\\'","('a\tb')")]
     public void Inspection_accepts_only_known_literal_shapes(string raw,string expected)=>Assert.Equal(expected,Normalize(raw));
     /// <summary>函数、运算、未知字符集和转义仍受原生成表达式保护。</summary>
     [Theory][InlineData("(uuid())")][InlineData("('a'+'b')")][InlineData("_latin1'a'")][InlineData("'a' OR 1=1")][InlineData("'\\x'")]
+    [InlineData("_utf8mb4\\'a\\\\xb\\'")][InlineData("_utf8mb4\\'a\\\\\\\\nb\\'")][InlineData("'a\\\\nb'")]
     public void Inspection_rejects_unproved_expressions(string raw)=>Assert.Null(Normalize(raw));
     /// <summary>反射仅验证同程序集内部反查函数，不为测试暴露生产API。</summary>
     private static string? Normalize(string raw)

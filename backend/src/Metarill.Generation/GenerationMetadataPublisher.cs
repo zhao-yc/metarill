@@ -63,7 +63,16 @@ public static class GenerationMetadataPublisher
                 else if (property.Value is JsonObject or JsonArray) Scrub(property.Value, childPath, redactions);
                 else if (property.Value is JsonValue value && value.TryGetValue<string>(out var content) && content.TrimStart() is [ '{' or '[', .. ])
                 {
-                    try { var nested = JsonNode.Parse(content); if (nested is JsonObject or JsonArray) { Scrub(nested, childPath, redactions); obj[property.Key] = nested.ToJsonString(Json); } }
+                    try
+                    {
+                        var nested = JsonNode.Parse(content);
+                        if (nested is JsonObject or JsonArray)
+                        {
+                            // 仅实际脱敏时重写编码JSON；格式变化也会改变字符串默认值及用户原始声明。
+                            var original=nested.DeepClone();Scrub(nested,childPath,redactions);
+                            if(!JsonNode.DeepEquals(original,nested))obj[property.Key]=nested.ToJsonString(Json);
+                        }
+                    }
                     catch (JsonException) { /* 非JSON说明保持原文，不执行或猜测其内容。 */ }
                 }
             }

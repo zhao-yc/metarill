@@ -42,7 +42,8 @@ def main():
     scenario = payload.get("scenario", "baseline")
     baseline = ("platform", "business", "package", "nonred")
     cross = ("cross_ss", "cross_sl", "cross_ls", "cross_ll")
-    profiles = {"baseline": baseline, "cross": cross, "all": baseline + cross}
+    derived = ("derived_declared", "derived_auto")
+    profiles = {"baseline": baseline, "cross": cross, "derived": derived, "all": baseline + cross}
     if not isinstance(scenario, str) or scenario not in profiles:
         raise RuntimeError("未知空库验收场景。")
     databases = [f"metarill_fresh_{run}_{kind}" for kind in profiles[scenario]]
