@@ -13,7 +13,13 @@ namespace Metarill.Runtime.Files;
 internal static class FileReferenceReadAuthorization
 {
     /// <summary>先核当前页权，再只读取文件字段及固定范围列；不会查询未授权页的业务记录或其他业务字段。</summary>
-    internal static async Task<bool> CanReadAsync(SqlRowStore store,FileMetadataContext registry,IRuntimeAuthorization authorization,long fileId,RuntimeActor actor,CancellationToken token)
+    internal static Task<bool> CanReadAsync(SqlRowStore store,FileMetadataContext registry,IRuntimeAuthorization authorization,long fileId,RuntimeActor actor,CancellationToken token)
+    {
+        if(registry.HasLogicalFileParents&&store.Session.CurrentTransaction is null)return store.Session.InReadSnapshotAsync(()=>CanReadCoreAsync(store,registry,authorization,fileId,actor,token,false),token);
+        return CanReadCoreAsync(store,registry,authorization,fileId,actor,token,store.Session.CurrentTransaction is not null);
+    }
+    /// <summary>外部逻辑父读取固定同一快照，已有写事务使用当前读，不让旧RR来源或父链提供权限。</summary>
+    private static async Task<bool> CanReadCoreAsync(SqlRowStore store,FileMetadataContext registry,IRuntimeAuthorization authorization,long fileId,RuntimeActor actor,CancellationToken token,bool currentRead)
     {
         var project=FileReferenceScope.PositiveId(actor.ProjectId);
         foreach(var catalog in registry.Catalogs.Where(catalog=>catalog.YzProjectId==actor.ProjectId))
@@ -33,7 +39,7 @@ internal static class FileReferenceReadAuthorization
             {
                 var name=SqlRowStore.Text(reference,"field_name");if(!fields.TryGetValue(name,out var field))continue;
                 var recordId=SqlRowStore.Id(reference,"record_id");if(recordId<=0)continue;
-                var record=await ReadRecordAsync(store,table,physical,field,scope,exact,registry.DerivedExactPlan(catalog,page,field),recordId,project,token);if(record is null)continue;
+                var record=await ReadRecordAsync(store,table,physical,field,scope,exact,registry.DerivedExactPlan(catalog,page,field),recordId,project,token,currentRead&&scope.Crosses.Count>0);if(record is null)continue;
                 try
                 {
                     IReadOnlyList<long> actual;
@@ -41,7 +47,8 @@ internal static class FileReferenceReadAuthorization
                     catch(InvalidOperationException){continue;} // 仅把损坏的存储文件值作为拒权，不吞数据库或连接错误。
                     if(!actual.Contains(fileId))continue;
                     var parents=scopes.Select(scope=>(Scope:scope,Id:FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
-                    if(parents.Select(parent=>parent.Id).Distinct().Skip(1).Any())continue;
+                    var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,project,currentRead,token);
+                    if(parents.Select(parent=>parent.Id).Concat(logical).Distinct().Skip(1).Any())continue;
                     var valid=true;
                     foreach(var parent in parents)
                     {
@@ -79,7 +86,7 @@ internal static class FileReferenceReadAuthorization
     }
 
     /// <summary>只投影必要列；观察者内复用真实事务以读取本批刚写的记录，独立请求才创建自有连接。</summary>
-    private static async Task<Dictionary<string,object?>?> ReadRecordAsync(SqlRowStore store,TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,FilePageScope scope,ExactFileScope? exact,NonRedundantReadPlan? derivedPlan,long record,long project,CancellationToken token)
+    private static async Task<Dictionary<string,object?>?> ReadRecordAsync(SqlRowStore store,TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,FilePageScope scope,ExactFileScope? exact,NonRedundantReadPlan? derivedPlan,long record,long project,CancellationToken token,bool currentRead=false)
     {
         var scopes=scope.Parents;
         if(exact is not null&&exact.Values.Count==0)return null;
@@ -93,7 +100,7 @@ internal static class FileReferenceReadAuthorization
             var rows=await new NonRedundantReader(store.Session).RowsAsync(derivedPlan,filters,[],1,token,project.ToString(CultureInfo.InvariantCulture),scope.Condition);
             return rows.Count==0?null:rows[0].ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
         }
-        var names=new[]{field.ColumnName,"id"}.Concat(owner is null?Array.Empty<string>():[owner.ColumnName]).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
+        var names=new[]{field.ColumnName,"id"}.Concat(owner is null?Array.Empty<string>():[owner.ColumnName]).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Concat(scope.Crosses.SelectMany(cross=>cross.StorageNames)).Distinct(StringComparer.Ordinal).ToArray();
         var provider=store.Session.Provider;var transaction=store.Session.CurrentTransaction;
         await using var ownedConnection=transaction is null?provider.CreateConnection(store.Session.Options):null;
         var connection=transaction?.Connection??ownedConnection??throw new InvalidOperationException("文件读取事务连接不可用。");
@@ -104,7 +111,7 @@ internal static class FileReferenceReadAuthorization
         if(columns.Any(column=>column.ColumnName=="delete_no"))query+=" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL";
         if(exact is not null)query+=" AND "+provider.QuoteIdentifier(exact.Column.ColumnName)+" IN ("+string.Join(",",exact.Values.Select((value,index)=>Parameter(command,store,"exact_"+index,value!)))+")";
         if(scope.Condition is not null)query+=" AND "+scope.Condition.BindConstants(command,store.Session,"file_page");
-        command.CommandText=query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
+        command.CommandText=currentRead?provider.BuildSelectForUpdate(query):query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
     }
     /// <summary>父身份从实际记录读取，复用当前事务可看见本批刚建父；父仍须有效且同项目。</summary>
     private static async Task<bool> ParentExistsAsync(SqlRowStore store,FileParentScope scope,long id,long project,CancellationToken token)

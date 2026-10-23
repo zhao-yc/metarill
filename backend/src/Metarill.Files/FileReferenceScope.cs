@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
 
@@ -6,7 +7,11 @@ namespace Metarill.Runtime.Files;
 
 internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata Project, bool HasSoftDelete);
 
-internal sealed record FilePageScope(IReadOnlyList<FileParentScope> Parents,FixedConditionSqlPlan? Condition,IReadOnlyList<string> ConditionFields);
+internal sealed record FilePageScope(IReadOnlyList<FileParentScope> Parents,FixedConditionSqlPlan? Condition,IReadOnlyList<string> ConditionFields)
+{
+    /// <summary>逻辑父路径与物理外键分开保存，不能覆盖已锁来源记录的真实列值。</summary>
+    internal IReadOnlyList<FileCrossParentScope> Crosses{get;init;}=[];
+}
 
 /// <summary>发布时固定项目/父等值及物理标量常量，与生成页面共用条件AST和数据类型绑定。</summary>
 internal static class FileReferenceScope
@@ -18,7 +23,7 @@ internal static class FileReferenceScope
     {
         try
         {
-            var result=new List<FileParentScope>();var constants=new List<FixedConditionTerm>();
+            var result=new List<FileParentScope>();var crosses=new List<FileCrossParentScope>();var constants=new List<FixedConditionTerm>();
             var columns=MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns;
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
             foreach(var term in syntax.Terms)
@@ -30,6 +35,7 @@ internal static class FileReferenceScope
                     var multiNames=columns.Any(source=>source.ControlKind=="MultiSelectPage"&&source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)&&column.ColumnName==source.ColumnName[..^4]+"_names");
                     var credential=table.Id=="6031906809708544"&&table.TableName=="yz_manager"&&column.ColumnName is "password" or "salt" or "old_password";
                     if(column.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||multiNames||credential)throw Unsupported();
+                    if(FileCrossParentScope.Compile(catalog,table,page,column) is not null)throw Unsupported();
                     constants.Add(term);continue;
                 }
                 if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)throw Unsupported();
@@ -38,6 +44,7 @@ internal static class FileReferenceScope
                 if(!project&&!variable.Equals("parent_id",StringComparison.OrdinalIgnoreCase)&&!variable.Equals("parentId",StringComparison.OrdinalIgnoreCase))throw Unsupported();
                 if((column.ColumnName=="yz_project_id")!=project||!IdentityType(column.LogicalType))throw Unsupported();
                 if(project)continue;
+                if(FileCrossParentScope.Compile(catalog,table,page,column) is{} cross){crosses.Add(cross);continue;}
                 var parents=catalog.ConfigTables.Where(candidate=>!string.IsNullOrWhiteSpace(column.LinkConfigTableId)?candidate.Id==column.LinkConfigTableId:candidate.TableName+"_id"==column.ColumnName).ToArray();
                 if(parents.Length!=1||parents[0].IsFunctionTable!=0||parents[0].IsView!=0)throw Unsupported();
                 var parent=parents[0];var parentColumns=MetadataStoragePolicy.ForTable(catalog,parent).PhysicalColumns;
@@ -49,9 +56,9 @@ internal static class FileReferenceScope
             }
             var fields=constants.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
             var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>columns.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
-            return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields));
+            return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields)){Crosses=crosses.AsReadOnly()};
         }
-        catch(Exception invalid)when(invalid is ArgumentException or InvalidOperationException){throw Unsupported();}
+        catch(Exception invalid)when(invalid is ArgumentException or InvalidOperationException or JsonException){throw Unsupported();}
     }
 
     /// <summary>实际父键必须是可表示的正整数，不能把null、浮点或表达式解释为记录身份。</summary>

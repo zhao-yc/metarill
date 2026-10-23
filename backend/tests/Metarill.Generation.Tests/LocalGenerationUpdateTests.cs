@@ -84,7 +84,7 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
     }
 
     /// <summary>跨表partial与逻辑父范围适配器随运行时同步，保留动作依赖、手写字节及未知相邻partial拒绝。</summary>
-    [Theory][InlineData("src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.CrossTable.cs")][InlineData("src/Metarill.Data/Queries/NonRedundantCrossTableScopeSql.cs")]
+    [Theory][InlineData("src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.CrossTable.cs")][InlineData("src/Metarill.Data/Queries/NonRedundantCrossTableScopeSql.cs")][InlineData("src/Metarill.Files/FileCrossParentScope.cs")]
     public void Cross_table_runtime_partial_updates_only_with_explicit_scope_and_unknown_neighbours_remain_rejected(string runtime)
     {
         var (target,candidate)=Packages(Catalog(),Catalog());var hand=Path.Combine(target,"backend/generated/Services/DemoCustomerService.cs");File.AppendAllText(hand,"\n// 更新保留手写partial。\n");var handwritten=File.ReadAllBytes(hand);

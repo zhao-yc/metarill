@@ -35,6 +35,11 @@ internal sealed class FilesFixture : IAsyncDisposable
     public string TableName { get; private set; } = "";
     public string PageId { get; private set; } = "";
     public string ParentTableName { get; private set; } = "";
+    public IReadOnlyList<string> CrossTables{get;private set;}=[];
+    public string CrossType{get;private set;}="";
+    public string CrossEvidence{get;private set;}="";
+    public bool CrossVerified{get;set;}
+    private MetadataCatalog? crossManaged;
     public string ProtectedColumnId { get; private set; } = "";
     public string PublicColumnId { get; private set; } = "";
     public List<long> FileIds { get; } = [];
@@ -46,7 +51,7 @@ internal sealed class FilesFixture : IAsyncDisposable
     public FileReferenceMutationObserver Observer(RuntimeActor? actor = null) => new(Store, new([Registry.Platform,Registry.Demo]), new TestAuthorization(actor ?? Actor(), Registry), Ids, Options);
 
     /// <summary>只在指定测试库建立随机临时业务表，文件基础设施表必须已由协调者初始化。</summary>
-    public static async Task<FilesFixture> CreateAsync(bool childScope = false, bool parentKeysAsText = false,bool physicalDelete=false)
+    public static async Task<FilesFixture> CreateAsync(bool childScope = false, bool parentKeysAsText = false,bool physicalDelete=false,bool crossParent=false,string crossType="string")
     {
         var fixture = new FilesFixture();
         try
@@ -58,7 +63,7 @@ internal sealed class FilesFixture : IAsyncDisposable
         if (connection.Database != options.ExpectedDatabase || !(await System.Net.Dns.GetHostAddressesAsync(connection.Server)).Any(address => address.ToString() == "192.168.31.200"))
             throw new InvalidOperationException("文件测试仅允许已核对的Server-200隔离库。");
         fixture.Session = new DatabaseSession(options);
-        if(physicalDelete)
+        if(physicalDelete||crossParent)
         {
             using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")!));await using var actual=fixture.Session.Provider.CreateConnection(options);await actual.OpenAsync();await using var identity=actual.CreateCommand();identity.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await identity.ExecuteReaderAsync();if(!await reader.ReadAsync()||reader.GetString(0)!=options.ExpectedDatabase||reader.GetString(1)!=pin.RootElement.GetProperty("expectedHostname").GetString()||reader.GetString(2)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("物理删除样本实例pin不匹配。");
         }
@@ -90,12 +95,26 @@ internal sealed class FilesFixture : IAsyncDisposable
             var relation = Column("parent_id", parentKeysAsText ? "string" : "int64"); relation.LinkConfigTableId = parent.Id;
             columns.Add(relation); managedTables.Add(parent); managedColumns.AddRange(parentColumns);
         }
+        if(crossParent)
+        {
+            table.IsRongyu=0;fixture.CrossType=crossType;fixture.CrossTables=new[]{"country","area","place"}.Select(name=>fixture.TableName+"_"+name).ToArray();var targets=new List<TableMetadata>();
+            for(var index=0;index<3;index++)
+            {
+                var target=new TableMetadata{Id=SharedIds.NextId().ToString(),YzProjectId=platform.YzProjectId,TableName=fixture.CrossTables[index],IsRongyu=1};targets.Add(target);managedTables.Add(target);
+                var fields=new List<ColumnMetadata>{Column("id","int64",true),Column("name","string"),Column("yz_project_id",parentKeysAsText?"string":"int64",true),Column("delete_no","datetime"),Column("enabled","bool")};
+                if(index>0){var parent=Column(index==1?"country_id":"area_id",parentKeysAsText?"string":"int64");parent.LinkConfigTableId=targets[index-1].Id;fields.Add(parent);}foreach(var field in fields)field.ConfigTableId=target.Id;managedColumns.AddRange(fields);
+                var view=new PageMetadata{Id=SharedIds.NextId().ToString(),YzProjectId=platform.YzProjectId,YzAdminTypeId=platform.YzAdminTypes[0].Id,ConfigTableId=target.Id,WhereSql="yz_project_id=@current_yz_project_id AND enabled=1"};platform.ConfigPages.Add(view);platform.ConfigPageColumns.AddRange(fields.Select(field=>new PageColumnMetadata{Id=SharedIds.NextId().ToString(),ConfigPageId=view.Id,ConfigColumnId=field.Id,IsShow=1}));
+            }
+            var cascade=Column("place_id",crossType,false,"CascadeTree",JsonSerializer.Serialize(new{sourceMode="crossTable",levels=new object[]{new{table=fixture.CrossTables[0],columnPrefix="country",nameField="name"},new{table=fixture.CrossTables[1],columnPrefix="area",parentField="country_id",nameField="name"},new{table=fixture.CrossTables[2],columnPrefix="place",parentField="area_id",nameField="name"}}}));cascade.LinkConfigTableId=targets[2].Id;columns.Add(cascade);
+            fixture.CrossEvidence=Path.Combine(Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??Directory.GetCurrentDirectory(),".local/nonredundant-cross-table-parent-files",testId);Directory.CreateDirectory(fixture.CrossEvidence);
+        }
         managedColumns.AddRange(columns);
         fixture.ProtectedColumnId = columns.Single(c => c.ColumnName == "attachments").Id;
         fixture.PublicColumnId = columns.Single(c => c.ColumnName == "public_files").Id;
         var page = new PageMetadata { Id = SharedIds.NextId().ToString(), ConfigTableId = table.Id, YzProjectId = platform.YzProjectId, YzAdminTypeId = platform.YzAdminTypes[0].Id };
         fixture.PageId = page.Id;
-        if (childScope) page.WhereSql = "yz_project_id=@current_yz_project_id AND parent_id=@parent_id";
+        if(crossParent)page.WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parent_id"+(childScope?" AND parent_id=@parent_id":"");
+        else if (childScope) page.WhereSql = "yz_project_id=@current_yz_project_id AND parent_id=@parent_id";
         platform.ConfigTables.AddRange(managedTables); platform.ConfigColumns.AddRange(managedColumns); platform.ConfigPages.Add(page);
         platform.ConfigPageColumns.AddRange(columns.Where(c => c.ControlKind == "FileLibrary").Select(c => new PageColumnMetadata { Id = SharedIds.NextId().ToString(), ConfigPageId = page.Id, ConfigColumnId = c.Id, ColumnName = c.ColumnName, IsEdit = 1 }));
         var testPlatform = Path.Combine(fixture.DirectoryPath, "platform.json");
@@ -105,6 +124,7 @@ internal sealed class FilesFixture : IAsyncDisposable
         await fixture.Store.ReadAsync("yz_file_library", new Dictionary<string, object?> { ["id"] = -1L });
         var schema = new SchemaService(fixture.Session);
         var managed = new MetadataCatalog { YzProjectId = platform.YzProjectId, ConfigTables = managedTables, ConfigColumns = managedColumns };
+        if(crossParent)fixture.crossManaged=managed;
         var plan = await schema.PreviewAsync(managed);
         if (plan.Changes.Any(change => change.Kind != "createTable") || plan.Changes.Count != managedTables.Count)
             throw new InvalidOperationException("随机文件测试表必须全部不存在且仅创建本次声明的表。");
@@ -148,6 +168,13 @@ internal sealed class FilesFixture : IAsyncDisposable
         {
             if (Session is null) {cleaned=true;return;}
             await using var connection = Session.Provider.CreateConnection(Session.Options); await connection.OpenAsync();
+            if(CrossTables.Count>0&&createdTables.Count>0)
+            {
+                using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")!));await using(var identity=connection.CreateCommand()){identity.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await identity.ExecuteReaderAsync();if(!await reader.ReadAsync()||reader.GetString(0)!=Session.Options.ExpectedDatabase||reader.GetString(1)!=pin.RootElement.GetProperty("expectedHostname").GetString()||reader.GetString(2)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("文件跨表清理实例pin不符。");}
+                if(!CrossTables.SequenceEqual(new[]{"country","area","place"}.Select(name=>TableName+"_"+name)))throw new InvalidOperationException("文件跨表清理目标不符。");var schema=new SchemaService(Session);var actual=await schema.InspectAsync(crossManaged!);if((await schema.PreviewAsync(crossManaged!)).Changes.Count!=0||actual.Tables.Count!=createdTables.Count)throw new InvalidOperationException("文件跨表样本结构有漂移，保留现场。");var state=new Dictionary<string,string>();foreach(var table in createdTables)state[table]=JsonSerializer.Serialize((await Store.ReadIncludingDeletedAsync(table)).OrderBy(row=>SqlRowStore.Id(row)));
+                using var check=new DatabaseSession(Session.Options);Assert.Equal(MySqlSchemaPlanner.Fingerprint(actual),MySqlSchemaPlanner.Fingerprint(await new SchemaService(check).InspectAsync(crossManaged!)));var other=new SqlRowStore(check,Registry.Platform);foreach(var table in createdTables)Assert.Equal(state[table],JsonSerializer.Serialize((await other.ReadIncludingDeletedAsync(table)).OrderBy(row=>SqlRowStore.Id(row))));
+                await File.WriteAllTextAsync(Path.Combine(CrossEvidence,"cleanup-before.json"),JsonSerializer.Serialize(new{table=TableName,names=createdTables.Order().ToArray(),fileIds=FileIds.ToArray(),recordIds=RecordIds.ToArray(),verified=CrossVerified,crossType=CrossType,instanceVerified=true,database=Session.Options.ExpectedDatabase,fingerprint=MySqlSchemaPlanner.Fingerprint(actual),rowsSha256=state.ToDictionary(pair=>pair.Key,pair=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pair.Value))))})+"\n");
+            }
             foreach (var id in FileIds)
             {
                 await ExecuteAsync(connection, "DELETE FROM `yz_file_ref` WHERE `file_id`=@id", id);
@@ -163,6 +190,13 @@ internal sealed class FilesFixture : IAsyncDisposable
             {
                 if (ParentTableName != TableName + "_parent") throw new InvalidOperationException("父表清理范围错误。");
                 drop.CommandText = "DROP TABLE IF EXISTS " + Session.Provider.QuoteIdentifier(ParentTableName); await drop.ExecuteNonQueryAsync();
+            }
+            foreach(var table in CrossTables.Reverse())if(createdTables.Contains(table)){drop.CommandText="DROP TABLE "+Session.Provider.QuoteIdentifier(table);await drop.ExecuteNonQueryAsync();}
+            if(CrossTables.Count>0&&createdTables.Count>0)
+            {
+                await using var independent=Session.Provider.CreateConnection(Session.Options);await independent.OpenAsync();
+                foreach(var table in createdTables){await using var command=independent.CreateCommand();command.CommandText="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@name";var name=command.CreateParameter();name.ParameterName="name";name.Value=table;command.Parameters.Add(name);Assert.Equal(0,Convert.ToInt32(await command.ExecuteScalarAsync()));}
+                await File.WriteAllTextAsync(Path.Combine(CrossEvidence,"cleanup.json"),JsonSerializer.Serialize(new{table=TableName,names=createdTables.Order().ToArray(),fileIds=FileIds.ToArray(),recordIds=RecordIds.ToArray(),verified=CrossVerified,crossType=CrossType,instanceVerified=true,independentTableAbsenceChecked=true})+"\n");
             }
             cleaned=true;
         }

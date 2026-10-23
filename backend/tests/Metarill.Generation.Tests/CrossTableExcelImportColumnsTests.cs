@@ -33,6 +33,17 @@ public sealed class CrossTableExcelImportColumnsTests
     {
         var catalog=Catalog("excelcolumns",type);var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-excel-columns");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ExcelColumns");var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.NotNull(assembly.GetType("Example.ExcelColumns.Generated.Services.ExcelcolumnsSourceService"));}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>页面与表的排序不同时，实际覆盖匹配首列仍不能是文件数组。</summary>
+    [Fact]
+    public void File_array_first_in_table_is_rejected_even_when_page_sorts_name_first()
+    {
+        var catalog=Catalog();
+        catalog.ConfigColumns.Add(new(){Id="9001",ConfigTableId="2",ColumnName="attachments",Name="附件",LogicalType="string",SortNo=-1,ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\",\"maxCount\":3}"});
+        catalog.ConfigPageColumns.Add(new(){Id="2019001",ConfigPageId="201",ConfigColumnId="9001",IsShow=1,IsEdit=1,SortNo=10000});
+        var model=GenerationModel.Create(catalog,"Example.ImportFileGuard");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single();
+        Assert.Equal("name",ImportRenderer.Columns(page)[0].Source.ColumnName);
+        Assert.Contains("覆盖匹配字段不能为数组",Assert.Throws<InvalidOperationException>(()=>ImportRenderer.Service(model,table,page)).Message);
+    }
     /// <summary>最小原配置只有名称、金额和末级控件，启用导入不应扩大页面列。</summary>
     internal static MetadataCatalog Catalog(string prefix="crossexcel",string type="string")
     {

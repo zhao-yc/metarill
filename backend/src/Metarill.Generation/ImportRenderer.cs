@@ -48,7 +48,8 @@ public sealed partial class {{page.Name}}ImportRequest
         var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page)||ImportRenderer.RelationOperationAware(model,table,page);
         if (columns.Select(Header).Distinct(StringComparer.Ordinal).Count() != columns.Count) throw new InvalidOperationException("导入列中文标题重复，无法明确解析。");
         var overwrite = Mode(page) == "OverWriteByFirstColumn";
-        if (overwrite && columns.Count > 0 && columns[0].IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
+        // 校验与下方实际选中的表级首列一致，避免页面排序不同漏过数组匹配门禁。
+        if (overwrite && columns.Count > 0 && table.Columns.First(column => columns.Contains(column)).IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
         if (overwrite && columns.Count == 0) throw new InvalidOperationException("覆盖导入至少需要一个可导入字段。");
         var result = new StringBuilder().AppendLine("    /// <summary>任意行失败时撤销整批；单行复用标准新增或明确字段更新。</summary>")
             .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")

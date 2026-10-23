@@ -9,6 +9,8 @@ namespace Metarill.Runtime.Files;
 public sealed class FileMetadataContext
 {
     public IReadOnlyList<MetadataCatalog> Catalogs { get; }
+    /// <summary>只有带真实文件字段的逻辑父页需要来源／目标共用读快照。</summary>
+    internal bool HasLogicalFileParents{get;}
     private readonly Dictionary<(string Project,string Table),IReadOnlyList<ColumnMetadata>> physicalColumns=[];
     private readonly Dictionary<(string Project,string Page,string Field),NonRedundantReadPlan> derivedExactPlans=[];
     private readonly Dictionary<(string Project,string Page),FilePageScope?> pageScopes=[];
@@ -45,6 +47,7 @@ public sealed class FileMetadataContext
             catch(Exception invalid)when(invalid is NotSupportedException or ArgumentException or InvalidOperationException){/* 坏定义只使该来源拒绝，不影响其它合法文件页面。 */}
             pageScopes.Add((catalog.YzProjectId,page.Id),scope);
         }
+        HasLogicalFileParents=snapshots.Any(catalog=>catalog.ConfigPages.Any(page=>pageScopes[(catalog.YzProjectId,page.Id)] is{Crosses.Count:>0}&&physicalColumns[(catalog.YzProjectId,page.ConfigTableId)].Any(column=>column.ControlKind=="FileLibrary")));
         foreach(var catalog in snapshots)foreach(var page in catalog.ConfigPages)CompileDerivedExact(catalog,page);
     }
     /// <summary>启动时核验派生终点并编译文件/主键/项目/父范围；坏配置保留原逐来源拒权语义。</summary>
