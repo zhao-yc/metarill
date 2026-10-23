@@ -11,14 +11,21 @@ internal static class NonRedundantSelfTreeSubset
         try
         {
             _=ParentTables(model,table,page);
-            foreach(var tree in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"))
-            {
-                var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition;
-                if(plan is null||plan.Read.Target.Source.IsRongyu!=1||plan.Read.Target.IsGlobal||plan.Read.Target.Source.Id==table.Source.Id)return false;
-            }
+            if(!FixedTarget(model,table,page,source))return false;
+            var trees=table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray();
+            foreach(var tree in trees.Where(tree=>!NonRedundantCrossTableSubset.Declared(tree)))
+                if(!FixedTarget(model,table,page,tree))return false;
+            // 跨表同伴按其实际路径与用途验证；不递归调用Supports，隐藏坏链仍拒绝整个包。
+            if(trees.Any(NonRedundantCrossTableSubset.Declared)&&NonRedundantCrossTableSubset.Reason(model,table,page) is not null)return false;
             _=NonRedundantReadCompilation.ForPage(model,table,page);return true;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return false;}
+    }
+    /// <summary>只证明单个独立R1自树目标，供混合检查共用；不反向依赖跨表完整包审计。</summary>
+    internal static bool FixedTarget(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
+    {
+        var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;
+        return plan is not null&&plan.Read.Target.Source.IsRongyu==1&&!plan.Read.Target.IsGlobal&&plan.Read.Target.Source.Id!=table.Source.Id;
     }
     /// <summary>普通父外键或唯一固定跨表层位均须证明目标物理主键／项目列，不能以来源主键冒充父关系。</summary>
     internal static IReadOnlyList<TableModel> ParentTables(GenerationModel model,TableModel table,PageModel page)
