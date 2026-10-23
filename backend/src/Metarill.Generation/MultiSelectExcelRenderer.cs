@@ -9,6 +9,7 @@ internal static class MultiSelectExcelRenderer
     /// <summary>名称逐项唯一定位目标，先编译整行物理父依赖，不按客户端任意列或SQL查询。</summary>
     internal static string Import(GenerationModel model,TableModel table,PageModel page,MultiSelectModel multi,ImportDependencyPlan dependency)
     {
+        if(DerivedMultiNamesCompilation.Declared(model,multi.Target,multi.Name))return DerivedMultiNamesImportRenderer.Render(model,table,page,multi,dependency);
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var result=new StringBuilder();
         result.AppendLine("    /// <summary>原JSON名称数组只在已授权来源import内反查，重名、缺失或越界让整批回滚。</summary>")
             .AppendLine($"    private async Task<JsonElement> ImportMulti{suffix}Async(JsonElement cell,string? parentId,RuntimeActor actor{(dependency.Contextual?", IReadOnlyDictionary<string,JsonElement> relationContext":"")},CancellationToken cancellationToken)")

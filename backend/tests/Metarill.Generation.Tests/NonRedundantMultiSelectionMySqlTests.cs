@@ -34,8 +34,14 @@ public sealed class NonRedundantMultiSelectionMySqlTests
     /// <summary>无名称配置列仍使用自动显示数组，不写元数据或物理名称。</summary>
     [StandaloneExportMySqlFact]
     public Task Automatic_names_keep_same_http_contract_without_declared_name_column()=>VerifyAsync(true);
+    /// <summary>R0目标通过公司联接提供名称，实际原HTTP、名称数组和Excel共用最新值。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Derived_multi_explicit_names_execute_real_http_and_current_import()=>VerifyAsync(false,true);
+    /// <summary>隐式名称同样只存ID，实际派生读取不能依赖名称配置列存在。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Derived_multi_automatic_names_execute_real_http_and_current_import()=>VerifyAsync(true,true);
     /// <summary>两种目录各用独占随机三表运行同一原协议，证据与清理分别记录。</summary>
-    private static async Task VerifyAsync(bool automatic)
+    private static async Task VerifyAsync(bool automatic,bool derivedNames=false)
     {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
         var options=settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
@@ -47,20 +53,25 @@ public sealed class NonRedundantMultiSelectionMySqlTests
             await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例不匹配，未创建样本。");
         }
-        var nonce=Guid.NewGuid().ToString("N");var prefix="mt_nrm_"+nonce[..12];var catalog=NonRedundantMultiSelectionTests.Catalog(prefix);if(automatic){catalog.ConfigColumns.RemoveAll(column=>column.Id=="27");catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="27");}
+        var nonce=Guid.NewGuid().ToString("N");var prefix=(derivedNames?"mt_dmn_":"mt_nrm_")+nonce[..12];var catalog=derivedNames?DerivedMultiNamesTests.Catalog(prefix,automatic):NonRedundantMultiSelectionTests.Catalog(prefix);if(automatic){catalog.ConfigColumns.RemoveAll(column=>column.Id=="27");catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="27");}
         var page=catalog.ConfigPages.Single(item=>item.Id=="201");page.WhereSql="yz_project_id=@current_yz_project_id";page.IsCopy=1;page.IsExport=1;page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
         catalog.ConfigPageColumns.Add(new(){Id="2004",ConfigPageId="201",ConfigColumnId="26",IsShow=1,IsEdit=1});
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-nonred-multi-http");var directory=Path.Combine(boundary,nonce);
-        var evidence=Path.Combine(Root(),".local/nonredundant-multi/http-"+nonce);Directory.CreateDirectory(evidence);
+        var evidence=Path.Combine(Root(),(derivedNames?".local/derived-multi-names/http-":".local/nonredundant-multi/http-")+nonce);Directory.CreateDirectory(evidence);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var rows=new SqlRowStore(session,catalog);
-        var tableNames=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var ownIds=new HashSet<long>();var authorization=new Authorization();var observer=new FailureObserver();WebApplication? app=null;var created=false;string? fingerprint=null;
+        var tableNames=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var ownIds=new HashSet<long>();var expectedTargets=new SortedSet<long>(Enumerable.Range(0,5).Select(index=>Target+index));var authorization=new Authorization(derivedNames);var observer=new FailureObserver();WebApplication? app=null;var created=false;string? fingerprint=null;
         try
         {
-            Assert.Empty((await schema.InspectAsync(catalog)).Tables);var plan=await schema.PreviewAsync(catalog);Assert.Equal(3,plan.Changes.Count);
+            Assert.Empty((await schema.InspectAsync(catalog)).Tables);var plan=await schema.PreviewAsync(catalog);Assert.Equal(derivedNames?4:3,plan.Changes.Count);
             await Receipt("intent",false);created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);fingerprint=MySqlSchemaPlanner.Fingerprint(await schema.InspectAsync(catalog));
             foreach(var id in new[]{Parent,Parent+1})await rows.InsertAsync(prefix+"_parent",new Dictionary<string,object?>{{"id",id},{"name","父"+id},{"yz_project_id",Project}});
-            for(var index=0;index<5;index++)await rows.InsertAsync(prefix+"_target",new Dictionary<string,object?>{{"id",Target+index},{"name",index==0?"甲_%!中文":"乙"+index},{"parent_id",index==2?Parent+1:Parent},{"yz_project_id",index==3?Project+1:Project},{"delete_no",index==4?new DateTime(2026,1,1):null}});
+            for(var index=0;index<5;index++)
+            {
+                var targetRow=new Dictionary<string,object?>{{"id",Target+index},{"parent_id",index==2?Parent+1:Parent},{"yz_project_id",index==3?Project+1:Project},{"delete_no",index==4?new DateTime(2026,1,1):null}};
+                if(derivedNames){targetRow.Add("company_id",Target+index);await rows.InsertAsync(prefix+"_company",new Dictionary<string,object?>{{"id",Target+index},{"name",index==0?"甲_%!中文":"乙"+index},{"yz_project_id",Project}});}else targetRow.Add("name",index==0?"甲_%!中文":"乙"+index);
+                await rows.InsertAsync(prefix+"_target",targetRow);
+            }
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.NonRedMultiHttp");var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();var port=((IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();
             var builder=WebApplication.CreateBuilder(new WebApplicationOptions{EnvironmentName="Development"});builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:"+port);
@@ -73,7 +84,7 @@ public sealed class NonRedundantMultiSelectionMySqlTests
             var added=Success(await Post("/add",new{name="来源",parentId=Parent.ToString(CultureInfo.InvariantCulture),targetIds=selected}));var record=added.GetProperty("id").GetString()!;ownIds.Add(long.Parse(record,CultureInfo.InvariantCulture));
             Assert.Equal(selected,added.GetProperty("targetIds").EnumerateArray().Select(value=>value.GetString()));Assert.Equal(new[]{"乙1","甲_%!中文"},Names(added));
             Assert.DoesNotContain("target_names",(await rows.ReadAsync(prefix+"_source")).Single().Keys);
-            var before=await Hash();Assert.Equal(1,await rows.UpdateAsync(prefix+"_target",Target,new Dictionary<string,object?>{{"name","新名称"}}));
+            var before=await Hash();if(derivedNames){using var renamed=await client.PostAsJsonAsync("/api/admin/auto/"+prefix+"_company/401/update",new{id=Target.ToString(),name="新名称"});Success(JsonSerializer.Deserialize<JsonElement>(await renamed.Content.ReadAsStringAsync()));}else Assert.Equal(1,await rows.UpdateAsync(prefix+"_target",Target,new Dictionary<string,object?>{{"name","新名称"}}));
             var fresh=Success(await Post("/page",new PageRequest{Filters=new(){{"targetNames",JsonSerializer.SerializeToElement("新名称")}}}));Assert.Equal("1",fresh.GetProperty("total").GetString());Assert.Equal(new[]{"乙1","新名称"},Names(fresh.GetProperty("records")[0]));Assert.Equal(before,await Hash());
             var full=added.EnumerateObject().ToDictionary(item=>item.Name,item=>(object?)item.Value.Clone());full["targetNames"]=new[]{"伪造名称"};full["name"]="整表单";var saved=Success(await Post("/update",full));Assert.Equal(new[]{"乙1","新名称"},Names(saved));
             var nullValue=Success(await Post("/update",new{id=record,targetIds=(object?)null}));Assert.Equal(JsonValueKind.Null,nullValue.GetProperty("targetIds").ValueKind);Assert.Empty(Names(nullValue));
@@ -102,41 +113,79 @@ public sealed class NonRedundantMultiSelectionMySqlTests
                 var source=sheet.RowsUsed().Skip(1).Single(row=>row.Cell(headers["name"]).GetString()=="省略多选仍可保存");Assert.Contains("乙1",source.Cell(headers["targetIds"]).GetString());Assert.Contains("新名称",source.Cell(headers["targetIds"]).GetString());using var values=JsonDocument.Parse(source.Cell(headers["targetIds"]).GetString());Assert.Equal(new[]{"乙1","新名称"},values.RootElement.EnumerateArray().Select(value=>value.GetString()));
             }
             authorization.DenyTarget=false;
+            if(derivedNames)
+            {
+                var beforeHidden=await Hash();using(var hiddenResponse=await client.PostAsJsonAsync("/api/admin/auto/"+prefix+"_source/202/add?parentId="+Parent,new{name="隐藏默认不能越权"})){Assert.Equal(500,JsonSerializer.Deserialize<JsonElement>(await hiddenResponse.Content.ReadAsStringAsync()).GetProperty("code").GetInt32());}Assert.Equal(beforeHidden,await Hash());
+                // 已选由原目标type=2接口回读当前联接名称，不能查询被忽略的name属性。
+                using(var selectedResponse=await client.PostAsJsonAsync("/api/admin/auto/"+prefix+"_target/301/selection/selected",new{selectedIds=selected,parentId=Parent.ToString()})){var selectedRows=Success(JsonSerializer.Deserialize<JsonElement>(await selectedResponse.Content.ReadAsStringAsync()));Assert.Equal(new[]{"乙1","新名称"},selectedRows.EnumerateArray().Select(row=>row.GetProperty("name").GetString()));}
+                var unchanged=await Hash();Assert.Equal(1,await rows.UpdateAsync(prefix+"_company",Target+1,new Dictionary<string,object?>{{"yz_project_id",Project+1}}));
+                var hidden=Success(await Post("/page",new PageRequest{SelectedIds=[record]}));Assert.Equal(new string?[]{null,"新名称"},Names(Assert.Single(hidden.GetProperty("records").EnumerateArray())));Assert.Equal(unchanged,await Hash());
+                Assert.Equal(1,await rows.UpdateAsync(prefix+"_company",Target+1,new Dictionary<string,object?>{{"yz_project_id",Project}}));
+                // 建立旧RR快照后独立请求改上游名称，导入必须看到当前名称且不重写来源缓存。
+                var serviceType=assembly.GetType("Example.NonRedMultiHttp.Generated.Services."+GenerationModel.Pascal(prefix+"_source")+"Service",true)!;using var serviceScope=app.Services.CreateScope();var service=serviceScope.ServiceProvider.GetRequiredService(serviceType);
+                await session.InTransactionAsync(async()=>
+                {
+                    Assert.Equal("新名称",SqlRowStore.Text(Assert.Single(await rows.ReadAsync(prefix+"_company",new Dictionary<string,object?>{{"id",Target}})),"name"));
+                    using var renamed=await client.PostAsJsonAsync("/api/admin/auto/"+prefix+"_company/401/update",new{id=Target.ToString(),name="RR派生新名"});Success(JsonSerializer.Deserialize<JsonElement>(await renamed.Content.ReadAsStringAsync()));
+                    var requestType=assembly.GetType("Example.NonRedMultiHttp.Generated.DTOs."+GenerationModel.Pascal(prefix+"_source")+"Page201ImportRequest",true)!;var request=Activator.CreateInstance(requestType)!;requestType.GetProperty("RequestJson")!.SetValue(request,JsonSerializer.SerializeToElement(new[]{new Dictionary<string,object?>{{"name","旧RR派生导入"},{"targetIds","[\"RR派生新名\"]"},{"parentId",Parent.ToString()}}}));
+                    await (Task<string>)serviceType.GetMethod("Import201Async")!.Invoke(service,[request,authorization.RequireActor(),CancellationToken.None])!;return true;
+                });
+                ownIds.Add(SqlRowStore.Id((await rows.ReadAsync(prefix+"_source")).Single(row=>Equals(row["name"],"旧RR派生导入"))));
+                // 同页210个不同目标跨越200项批次，列表和真实Excel均不能错别名、丢顺序或混名。
+                for(var index=0;index<210;index++)
+                {
+                    var key=Target+1000+index;expectedTargets.Add(key);await rows.InsertAsync(prefix+"_company",new Dictionary<string,object?>{{"id",key},{"name","跨批"+index.ToString("D4",CultureInfo.InvariantCulture)},{"yz_project_id",Project}});await rows.InsertAsync(prefix+"_target",new Dictionary<string,object?>{{"id",key},{"company_id",key},{"parent_id",Parent},{"yz_project_id",Project}});
+                }
+                var bulkIds=new List<string>();
+                foreach(var batch in Enumerable.Range(0,210).Chunk(20))
+                {
+                    var ids=batch.Reverse().Select(index=>(Target+1000+index).ToString(CultureInfo.InvariantCulture)).ToArray();var result=Success(await Post("/add",new{name="跨批来源"+batch[0],parentId=Parent.ToString(),targetIds=ids}));var key=result.GetProperty("id").GetString()!;bulkIds.Add(key);ownIds.Add(long.Parse(key,CultureInfo.InvariantCulture));
+                }
+                var bulk=Success(await Post("/page",new PageRequest{SelectedIds=bulkIds,PageSize=100}));Assert.Equal(11,bulk.GetProperty("records").GetArrayLength());
+                foreach(var row in bulk.GetProperty("records").EnumerateArray()){var expected=row.GetProperty("targetIds").EnumerateArray().Select(item=>"跨批"+(long.Parse(item.GetString()!,CultureInfo.InvariantCulture)-Target-1000).ToString("D4",CultureInfo.InvariantCulture));Assert.Equal(expected,Names(row));}
+                var filtered=Success(await Post("/page",new PageRequest{Filters=new(){{"targetNames",JsonSerializer.SerializeToElement("跨批0209")}}}));Assert.Equal("1",filtered.GetProperty("total").GetString());Assert.Single(filtered.GetProperty("records").EnumerateArray());
+                var bulkTicket=Success(await Post("/initExport",new PageRequest{SelectedIds=bulkIds})).GetString()!;using(var download=await client.GetAsync(ExportDownloadAccess.DownloadPath+"?exportId="+Uri.EscapeDataString(bulkTicket))){Assert.Equal(HttpStatusCode.OK,download.StatusCode);using var workbook=new XLWorkbook(new MemoryStream(await download.Content.ReadAsByteArrayAsync()));var sheet=workbook.Worksheet(1);var headers=sheet.Row(1).CellsUsed().ToDictionary(cell=>cell.GetString(),cell=>cell.Address.ColumnNumber);Assert.Equal(11,sheet.RowsUsed().Count()-1);foreach(var row in sheet.RowsUsed().Skip(1)){using var names=JsonDocument.Parse(row.Cell(headers["targetIds"]).GetString());Assert.All(names.RootElement.EnumerateArray(),name=>Assert.StartsWith("跨批",name.GetString()));}}
+                Assert.DoesNotContain("name",(await schema.InspectAsync(catalog)).Tables.Single(table=>table.Name==prefix+"_target").Columns.Select(column=>column.Name));
+            }
             Assert.Empty((await schema.PreviewAsync(catalog)).Changes);await Receipt("verified",false);
             async Task<JsonElement> Post(string route,object request){using var response=await client.PostAsJsonAsync(endpoint+route,request);return JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync());}
             async Task<string> Hash()=>Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes((await rows.ReadIncludingDeletedAsync(prefix+"_source")).OrderBy(row=>SqlRowStore.Id(row)).ToArray())));
         }
-        catch(Exception error){await File.WriteAllTextAsync(Path.Combine(evidence,"failure.txt"),error.ToString());throw;}
+        catch(Exception error){var diagnostic=error.ToString().Replace(options.ConnectionString,"[已脱敏连接配置]",StringComparison.Ordinal);if(cs.Password.Length>0)diagnostic=diagnostic.Replace(cs.Password,"[已脱敏]",StringComparison.Ordinal);await File.WriteAllTextAsync(Path.Combine(evidence,"failure.txt"),diagnostic);throw;}
         finally
         {
             if(app is not null){await app.StopAsync();await app.DisposeAsync();}
             if(created)
             {
                 using var cleanup=new DatabaseSession(options);var inspection=new SchemaService(cleanup);var actual=await inspection.InspectAsync(catalog);
-                if(actual.Tables.Count>0)
+                if(actual.Tables.Count>0&&fingerprint is null)await Receipt("cleanup-required",false);
+                else
                 {
-                    Assert.NotNull(fingerprint);Assert.Equal(fingerprint,MySqlSchemaPlanner.Fingerprint(actual));
+                if(actual.Tables.Count>0)
+                {Assert.Equal(fingerprint,MySqlSchemaPlanner.Fingerprint(actual));
                     Assert.Equal(ownIds.Order(),(await rows.ReadIncludingDeletedAsync(prefix+"_source")).Select(row=>SqlRowStore.Id(row)).Order());
                     Assert.Equal(new[]{Parent,Parent+1},(await rows.ReadIncludingDeletedAsync(prefix+"_parent")).Select(row=>SqlRowStore.Id(row)).Order());
-                    Assert.Equal(Enumerable.Range(0,5).Select(index=>Target+index),(await rows.ReadIncludingDeletedAsync(prefix+"_target")).Select(row=>SqlRowStore.Id(row)).Order());
+                    Assert.Equal(expectedTargets,(await rows.ReadIncludingDeletedAsync(prefix+"_target")).Select(row=>SqlRowStore.Id(row)).Order());
+                    if(derivedNames)Assert.Equal(expectedTargets,(await rows.ReadIncludingDeletedAsync(prefix+"_company")).Select(row=>SqlRowStore.Id(row)).Order());
                     await using var connection=cleanup.Provider.CreateConnection(options);await connection.OpenAsync();foreach(var name in tableNames){Assert.StartsWith(prefix+"_",name);await using var command=connection.CreateCommand();command.CommandText="DROP TABLE "+cleanup.Provider.QuoteIdentifier(name);await command.ExecuteNonQueryAsync();}
                 }
                 await using var independent=new MySqlConnection(options.ConnectionString);await independent.OpenAsync();foreach(var name in tableNames){await using var command=independent.CreateCommand();command.CommandText="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@name";command.Parameters.AddWithValue("name",name);Assert.Equal(0,Convert.ToInt32(await command.ExecuteScalarAsync(),CultureInfo.InvariantCulture));}await Receipt("cleaned",true);
+                }
             }
             await TestDirectoryCleanup.DeleteAsync(directory,boundary);
         }
-        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,prefix,tableNames,ownIds,fingerprint,instanceVerified=true,cleaned,fixedTestAuthorization=true,browserExecuted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
+        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,prefix,tableNames,ownIds,fingerprint,derivedNames,automatic,distinctTargets=expectedTargets.Count,instanceVerified=true,cleaned,fixedTestAuthorization=true,browserExecuted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
     }
     /// <summary>普通数组VO原样读取，空集合与缺失目标的null位置不做拼接丢失。</summary>
     private static string?[] Names(JsonElement row)=>row.GetProperty("targetNames").EnumerateArray().Select(value=>value.ValueKind==JsonValueKind.Null?null:value.GetString()).ToArray();
     /// <summary>完整生成服务使用统一R响应，失败正文只含本测试样本字段。</summary>
     private static JsonElement Success(JsonElement value){Assert.Equal(200,value.GetProperty("code").GetInt32());return value.GetProperty("data");}
     /// <summary>仅测试固定身份与受控拒绝；不声称真实登录认证。</summary>
-    private sealed class Authorization:IRuntimeAuthorization
+    private sealed class Authorization(bool derivedNames=false):IRuntimeAuthorization
     {
         internal bool DenyTarget{get;set;}
         internal bool DenySourceCrud{get;set;}
-        public RuntimeActor RequireActor()=>new(871,"非冗余多选实库",false,Project.ToString(CultureInfo.InvariantCulture),"1");
+        public RuntimeActor RequireActor()=>new(871,"非冗余多选实库",false,Project.ToString(CultureInfo.InvariantCulture),derivedNames?"5":"1");
         public void RequirePagePermission(string pageId,string operation){if(pageId=="201"&&DenySourceCrud&&operation is "create" or "update")throw new UnauthorizedAccessException("测试只授权来源import。");if(pageId=="301"&&DenyTarget)throw new UnauthorizedAccessException("测试撤销目标查询权。");}
     }
     /// <summary>标准观察者尾部故障验证主记录事务，不模拟数据库写入。</summary>

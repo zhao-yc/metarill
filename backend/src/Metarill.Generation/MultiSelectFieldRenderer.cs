@@ -17,7 +17,7 @@ internal static class MultiSelectFieldRenderer
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
             var caches=MultiNameWriteCompilation.ForSource(model,table,def);
-            result.Append(FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix));
+            result.Append(FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix)).Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
             result.AppendLine("    /// <summary>保留旧JSON文本字节，数组请求持久化为JSON文本；不接受对象或其它标量。</summary>")
                 .AppendLine($"    private static string? ReadMultiValue{suffix}(JsonElement? value)").AppendLine("    {")
                 .AppendLine("        if (value is null || value.Value.ValueKind == JsonValueKind.Null) return null;")

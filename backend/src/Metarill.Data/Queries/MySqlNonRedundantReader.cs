@@ -70,7 +70,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         foreach(var batch in ids.Chunk(200))
         {
             await using var command=Command(connection);Bind(command,projectId,[]);for(var index=0;index<batch.Length;index++)Add(command,"multi_id_"+index,batch[index]);
-            command.CommandText="SELECT multi_value.`id`,multi_value."+projection.TargetName+" FROM "+projection.TargetTable+" multi_value WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":"");
+            command.CommandText="SELECT multi_value.`id`,"+(projection.NameExpression??"multi_value."+projection.TargetName)+" FROM "+projection.TargetTable+" multi_value"+projection.Joins+" WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":"");
             await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))names.Add(reader.GetInt64(0).ToString(System.Globalization.CultureInfo.InvariantCulture),await reader.IsDBNullAsync(1,token)?null:reader.GetString(1));
         }
         for(var index=0;index<rows.Count;index++){rows[index][output]=System.Text.Json.JsonSerializer.Serialize(members[index].Select(id=>id is null?null:names.GetValueOrDefault(id)).ToArray(),MultiNamesJson);rows[index].Remove(hidden);}

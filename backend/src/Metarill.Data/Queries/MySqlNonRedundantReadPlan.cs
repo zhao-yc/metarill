@@ -11,7 +11,7 @@ internal sealed record MySqlPhysicalReference(string Table,Metarill.Data.Schema.
 internal sealed record MySqlValueOrigin(string Table,string Column);
 internal sealed record MySqlReverseProjection(string TargetTable,string From,string ForeignExpression,string ForeignType,IReadOnlyDictionary<string,IReadOnlySet<string>> Outputs);
 
-internal sealed record MySqlMultiProjection(string SourceExpression,string TargetTable,string TargetName,string TargetScope);
+internal sealed record MySqlMultiProjection(string SourceExpression,string TargetTable,string TargetName,string TargetScope,string Joins="",string? NameExpression=null);
 
 /// <summary>只由已发布元数据编译的单值读取计划，不提供SQL反序列化或任意表达式入口。</summary>
 public sealed class MySqlNonRedundantReadPlan
@@ -70,6 +70,7 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         private readonly MetadataCatalog catalog;
+        private readonly string rootAlias,aliasPrefix;
         private readonly bool matching;
         private readonly IReadOnlySet<string>? refreshFields;
         private readonly IReadOnlyDictionary<string,string> refreshPaths;
@@ -91,8 +92,9 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r")
         {
+            this.rootAlias=rootAlias;this.aliasPrefix=aliasPrefix;
             this.crossTables=(crossTables??[]).ToDictionary(scope=>scope.SourceColumnId,StringComparer.Ordinal);
             this.catalog=catalog;this.matching=matching;this.deferCascadeNames=deferCascadeNames;this.refreshFields=refreshFields;this.refreshMultiples=refreshMultiples??[];this.refreshPaths=refreshPaths??new Dictionary<string,string>();
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
@@ -112,8 +114,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var expressions=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);var types=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
             var origins=new Dictionary<string,MySqlValueOrigin>(StringComparer.Ordinal);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
-            {output=name;origin=null;var resolved=Resolve(root,"b",name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;}
-            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants));
+            {output=name;origin=null;var resolved=Resolve(root,rootAlias,name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;}
+            var scope=Scope(root,rootAlias);return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants));
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -123,7 +125,7 @@ public static partial class MySqlNonRedundantReadCompiler
             try
             {
                 var column=columns[table.Id].GetValueOrDefault(name);
-                if(alias=="b"&&table.Id==root.Id&&refreshFields?.Contains(name)==true&&refreshMultiples.SingleOrDefault(item=>item.CacheColumnId==column?.Id) is{} refresh)
+                if(alias==rootAlias&&table.Id==root.Id&&refreshFields?.Contains(name)==true&&refreshMultiples.SingleOrDefault(item=>item.CacheColumnId==column?.Id) is{} refresh)
                 {
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
                     return MultiDisplay(table,alias,foreign,value.ColumnName);
@@ -132,7 +134,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     if(table.IsRongyu!=0||!name.Equals(tree.ColumnName[..^3]+"_name",StringComparison.OrdinalIgnoreCase))continue;
                     var definition=Definition(tree);if(Value(definition,"sourceMode")!="selfTree")continue;
-                    if(matching||alias!="b"||!deferCascadeNames||queryDependencies.Contains(name))throw new NotSupportedException("级联名称要求已证明的来源图投影，不能当作精确匹配、筛选排序或跨表派生值。");
+                    if(matching||alias!=rootAlias||!deferCascadeNames||queryDependencies.Contains(name))throw new NotSupportedException("级联名称要求已证明的来源图投影，不能当作精确匹配、筛选排序或跨表派生值。");
                     if(!storage[table.Id].IsPhysical(tree)||!definition.TryGetProperty("selfTree",out var settings)||settings.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("自树派生名称缺少物理来源和固定定义。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(settings,"table"))??throw new InvalidOperationException("自树名称目标不属于发布项目。");ValidateTarget(target);
                     var targetName=Value(settings,"nameField");if(targetName.Length==0)targetName="name";var value=Column(target,targetName);
@@ -173,10 +175,10 @@ public static partial class MySqlNonRedundantReadCompiler
                             if(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||column.LogicalType=="json")throw new NotSupportedException("精确管理匹配路径只能使用非凭据单值列。");
                             Metarill.Core.Security.ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
                         }
-                        if(refreshFields is not null&&alias!="b"&&(column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.LogicalType is "json" or "binary"))throw new NotSupportedException("维护派生文件或数组路径需要独立事务合同，未执行部分回填。");
+                        if(refreshFields is not null&&alias!=rootAlias&&(column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.LogicalType is "json" or "binary"))throw new NotSupportedException("维护派生文件或数组路径需要独立事务合同，未执行部分回填。");
                         Use(table,column);Touch(alias,column.ColumnName);origin=new(table.TableName,column.ColumnName);
                         var expression=alias+"."+Q(column.ColumnName);
-                        if(alias=="b"&&column.ControlKind=="MultiCheckBoxDatabase"&&column.ColumnName.EndsWith("_ids",StringComparison.Ordinal))
+                        if(alias==rootAlias&&column.ControlKind=="MultiCheckBoxDatabase"&&column.ColumnName.EndsWith("_ids",StringComparison.Ordinal))
                         {
                             if(column.LogicalType!="string")throw new NotSupportedException("数据库复选必须以字符串保存JSON ID数组。");
                             idPredicates[expression]=ArrayMember(Array(expression),"{parameter}");
@@ -185,7 +187,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     }
                     if(kind==MetadataFieldStorage.Join)
                     {
-                        var path=(alias=="b"&&table.Id==root.Id&&refreshPaths.TryGetValue(column.ColumnName,out var refreshPath)?refreshPath:Text(column,"columnFullName")).Split('.');if(path.Length<2||path.Any(string.IsNullOrWhiteSpace))throw new InvalidOperationException("联接字段缺少有效来源路径。");
+                        var path=(alias==rootAlias&&table.Id==root.Id&&refreshPaths.TryGetValue(column.ColumnName,out var refreshPath)?refreshPath:Text(column,"columnFullName")).Split('.');if(path.Length<2||path.Any(string.IsNullOrWhiteSpace))throw new InvalidOperationException("联接字段缺少有效来源路径。");
                         var current=table;var currentAlias=alias;
                         foreach(var segment in path[..^1])
                         {MetadataValidation.RequireIdentifier(segment);var relation=columns[current.Id].GetValueOrDefault(segment+"_id")??columns[current.Id].GetValueOrDefault(segment)??throw new InvalidOperationException("联接路径关系不存在。");var target=Target(relation);var id=Resolve(current,currentAlias,relation.ColumnName);currentAlias=Join(currentAlias,relation,target,id.Sql,id.Type);current=target;}
@@ -209,6 +211,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>仅编译明确多选的物理ID与名称；窗口聚合按原数组顺序保留缺失目标的null位置。</summary>
         private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display)
         {
+            if(matching)throw new NotSupportedException("固定单值名称路径不能穿过多值关系或数组。");
             if(!storage[table.Id].IsPhysical(relation)||relation.LogicalType!="string")throw new NotSupportedException("多值关系必须以物理字符串列存储JSON ID数组。");
             var definition=Definition(relation);TableMetadata? target=null;
             var id=Value(definition,"tableId");if(id.Length>0)target=tables.GetValueOrDefault(id);
@@ -220,7 +223,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||Value(definition,"table") is {Length:>0} declared&&declared!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linkedPage&&PageTarget(linkedPage)?.Id!=target.Id)throw new InvalidOperationException("多值关系的目标声明缺失或相互矛盾。");
             if(relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id)throw new InvalidOperationException("多值关系目标声明不一致。");
             var value=Column(target,display);
-            if(!storage[target.Id].IsPhysical(value)||value.LogicalType!="string"||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的物理字符串标量。");
+            if(value.LogicalType!="string"||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的字符串标量。");
+            if(!storage[target.Id].IsPhysical(value))return DerivedMultiDisplay(table,owner,relation,target,value);
             Use(table,relation);
             var source=owner+"."+Q(relation.ColumnName);
             // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
@@ -264,7 +268,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(matching&&sourceType!="int64")throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var path=ownerAlias+":"+relation.Id;
             if(aliases.TryGetValue(path,out var existing)){Scope(target,existing);Touch(existing,"id");return existing;}
-            var alias="r"+aliases.Count;aliases.Add(path,alias);var prefix=" FROM "+Q(root.TableName)+" b"+string.Concat(joins);var scope=Scope(target,alias);
+            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=Scope(target,alias);
             if(refreshFields is not null){Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));}
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
             var equality=refreshFields is not null&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
@@ -293,7 +297,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var column=columns[table.Id].GetValueOrDefault(name)??throw new InvalidOperationException("缺少字段："+name);if(storage[table.Id].IsPhysical(column))Use(table,column);return column;
         }
         /// <summary>仅维护根投影把指定的物理副本当作派生值，不改变目标R1缓存的正常读取语义。</summary>
-        private MetadataFieldStorage Kind(TableMetadata table,string alias,ColumnMetadata column)=>alias=="b"&&table.Id==root.Id&&refreshFields?.Contains(column.ColumnName)==true?MetadataFieldStorage.Join:storage[table.Id].Kind(column);
+        private MetadataFieldStorage Kind(TableMetadata table,string alias,ColumnMetadata column)=>alias==rootAlias&&table.Id==root.Id&&refreshFields?.Contains(column.ColumnName)==true?MetadataFieldStorage.Join:storage[table.Id].Kind(column);
         /// <summary>每个输出分别登记目标字段依赖，复用别名也不能丢失第二个缓存的传播条件。</summary>
         private void Touch(string alias,string field)
         {

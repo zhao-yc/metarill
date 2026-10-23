@@ -158,8 +158,10 @@ public sealed class SchemaService(DatabaseSession session, ISchemaChangeJournal?
                     var logicalString = reader.GetString(6) is "varchar" or "char" or "text" or "longtext" or "mediumtext" or "tinytext";
                     var rawDefault = reader.IsDBNull(4) ? null : Convert.ToString(reader.GetValue(4), CultureInfo.InvariantCulture);
                     var defaultSql = rawDefault is null ? null : logicalString ? "'" + rawDefault.Replace("\\", "\\\\").Replace("'", "''") + "'" : rawDefault;
-                    columns.Add(new ColumnSchema(reader.GetString(0), type, reader.GetString(2) == "YES", reader.GetString(3) == "PRI", defaultSql,
-                        !string.IsNullOrWhiteSpace(reader.GetString(5))));
+                    var extra=reader.GetString(5);var generated=!string.IsNullOrWhiteSpace(extra);
+                    // DEFAULT_GENERATED不是生成列；仅对已证明的TEXT常量解除保护，函数及未知EXTRA继续拒绝修改。
+                    if(type is "text" or "longtext"&&extra.Equals("DEFAULT_GENERATED",StringComparison.Ordinal)&&MySqlTextDefault.TryNormalize(rawDefault,out var normalized)){defaultSql=normalized;generated=false;}
+                    columns.Add(new ColumnSchema(reader.GetString(0), type, reader.GetString(2) == "YES", reader.GetString(3) == "PRI", defaultSql,generated));
                 }
             }
             var indexes = new List<IndexSchema>();

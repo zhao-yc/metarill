@@ -24,7 +24,7 @@ public static partial class MySqlNonRedundantReadCompiler
             origin=null;var key=owner+":"+source.Id;
             if(!crossValues.TryGetValue(key,out var values))
             {
-                if(table.Id!=root.Id||owner!="b"||CrossText(table,"scopeKind")=="global"||!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))throw new NotSupportedException("跨表逻辑投影要求当前非冗余来源的真实物理项目范围。");
+                if(table.Id!=root.Id||owner!=rootAlias||CrossText(table,"scopeKind")=="global"||!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))throw new NotSupportedException("跨表逻辑投影要求当前非冗余来源的真实物理项目范围。");
                 var rootDefinition=Definition(source);if(HasExtraScope(rootDefinition))throw new NotSupportedException("跨表额外范围不能在固定读取中忽略。");
                 var entries=rootDefinition.GetProperty("levels").EnumerateArray().ToArray();if(entries.Length!=binding.Levels.Count)throw new InvalidOperationException("跨表目标页绑定与固定层数不符。");
                 var levels=new List<CrossLevel>();

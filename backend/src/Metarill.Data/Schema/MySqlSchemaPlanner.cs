@@ -56,6 +56,8 @@ public static class MySqlSchemaPlanner
         if (column.ColumnName == "delete_no" && (logical != "datetime" || column.IsDbNotNull != 0))
             throw new InvalidOperationException("delete_no 必须是可空 datetime，null 表示活动记录。");
         var defaultSql = CompileDefault(column.DefaultValue, logical);
+        // MySQL 8.0.13及以后要求TEXT常量也使用表达式括号；仍不接受原生表达式。
+        if(defaultSql is not null&&sqlType is "text" or "longtext")defaultSql="("+defaultSql+")";
         return new ColumnSchema(column.ColumnName, sqlType, column.IsDbNotNull == 0, isId, defaultSql);
     }
 

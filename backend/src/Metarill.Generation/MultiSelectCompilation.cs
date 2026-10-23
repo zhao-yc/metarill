@@ -51,8 +51,10 @@ internal static class MultiSelectCompilation
             if (!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId) && source.Source.LinkConfigTableId != target.Source.Id) return Gap("目标页与声明关联表不一致。");
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id")) return Gap("目标未声明项目归属或明确全局范围。");
             var name = target.Columns.SingleOrDefault(column => column.Source.ColumnName == Value("nameField", "name"));
-            if (name is null || GenerationModel.Enabled(name.Source.Extra, "isJoinColumn") || name.IsJsonArray || name.Type != "string?" && !name.IsId || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
+            // 只为非物理R0名称接新证明，R1物理Join缓存保留原门禁。
+            if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name) || name.IsJsonArray || name.Type != "string?" && !name.IsId || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
+            if(DerivedMultiNamesCompilation.Declared(model,target,name))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
             if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),new(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),""),out _))return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
             var ordering = Value("orderBy");
             if (!string.IsNullOrWhiteSpace(ordering) && !GenerationModel.ValidateOrderBy(ordering, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)).SequenceEqual(GenerationModel.ValidateOrderBy(targetPage.Source.OrderBy, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)))) return Gap("控件排序与目标页不一致。");
@@ -84,7 +86,7 @@ internal static class MultiSelectCompilation
             {
                 var baselineName=Scalar(root,"nameField");if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
                 if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id||baselineName!=name.Source.ColumnName)return Gap("页级目标或名称覆盖尚未绑定同一非冗余读取计划。");
-                if(!NonRedundantReadCompilation.Physical(model,table,source)||!NonRedundantReadCompilation.Physical(model,target,name)||target.IsGlobal)return Gap("非冗余多选要求同项目物理ID和标量名称。");
+                if(!NonRedundantReadCompilation.Physical(model,table,source)||target.IsGlobal)return Gap("非冗余多选要求同项目物理ID和标量名称。");
                 if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
                 if(names is not null)Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
             }
