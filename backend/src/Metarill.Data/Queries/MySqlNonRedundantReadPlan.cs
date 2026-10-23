@@ -134,6 +134,13 @@ public static class MySqlNonRedundantReadCompiler
                     // 只有显式选择此两阶段用途时才生成占位；普通读取和名称查询依赖一律拒绝。
                     return ("NULL","string");
                 }
+                // 稀疏存储位不是完整逻辑路径；固定SQL投影接通前拒绝将原始空位当作祖先值发布。
+                foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"))
+                {
+                    var definition=Definition(tree);if(table.IsRongyu!=0||Value(definition,"sourceMode")=="selfTree")continue;
+                    var sparse=CrossTableSparseSelection.Compile(table,tree.Id,columns[table.Id].Values);
+                    if(sparse.Slots.Any(slot=>slot.ColumnName.Equals(name,StringComparison.OrdinalIgnoreCase)||(slot.ColumnName[..^3]+"_name").Equals(name,StringComparison.OrdinalIgnoreCase)))throw new NotSupportedException("非冗余跨表稀疏ID的逻辑路径读取尚待固定投影接线。");
+                }
                 // 多值显示先识别明确的_ids关系，聚合留在相关子查询内，不扩张根结果的基数。
                 foreach(var multi in columns[table.Id].Values.Where(item=>item.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"&&item.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
                 {

@@ -41,6 +41,7 @@ public static class MetadataStoragePolicy
             {
                 if(relation.ControlKind=="CascadeTree")
                 {
+                    if(CrossTableStorageColumns.LevelPrefixes(relation).Count>0)_=CrossTableSparseSelection.Compile(table,relation.Id,columns);
                     foreach(var name in CascadeNames(relation))if(!name.Equals(relation.ColumnName,StringComparison.OrdinalIgnoreCase))managed.Add(name);
                 }
                 else
@@ -77,7 +78,7 @@ public static class MetadataStoragePolicy
         if(column.ColumnName.EndsWith("_id",StringComparison.Ordinal))return column.ColumnName[..^3]+"_"+name;
         if(column.ColumnName.EndsWith("_ids",StringComparison.Ordinal))return column.ColumnName[..^4]+"_"+(name.EndsWith('s')?name:name+"s");return "";
     }
-    /// <summary>级联祖先和显示名称只读派生；selfTree仅保留自身节点ID，跨表层级沿原columnPrefix/table命名。</summary>
+    /// <summary>级联名称只读派生；selfTree只存节点ID，有效跨表按层级稀疏存所选ID，逻辑祖先仍从目标恢复。</summary>
     private static IEnumerable<string> CascadeNames(ColumnMetadata column)
     {
         var definition=Definition(column);var mode=Value(definition,"sourceMode");
@@ -88,9 +89,11 @@ public static class MetadataStoragePolicy
         if(mode is not("" or "crossTable"))throw new InvalidOperationException("未知级联来源模式。");
         if(!definition.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array||levels.GetArrayLength()==0)throw new InvalidOperationException("跨表级联必须声明层级。");
         var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);string? leaf=null;
+        // 有完整结构证明的跨表按层级稀疏保存所选ID，名称和祖先路径仍为派生值。
+        var sparse=CrossTableStorageColumns.LevelPrefixes(column).Count>0;
         foreach(var level in levels.EnumerateArray())
         {
-            if(level.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("级联层级必须是对象。");var prefix=Value(level,"columnPrefix");if(prefix.Length==0)prefix=Value(level,"table");MetadataValidation.RequireIdentifier(prefix);if(!prefixes.Add(prefix))throw new InvalidOperationException("级联层级前缀重复。");leaf=prefix+"_id";yield return leaf;yield return prefix+"_name";
+            if(level.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("级联层级必须是对象。");var prefix=Value(level,"columnPrefix");if(prefix.Length==0)prefix=Value(level,"table");MetadataValidation.RequireIdentifier(prefix);if(!prefixes.Add(prefix))throw new InvalidOperationException("级联层级前缀重复。");leaf=prefix+"_id";if(!sparse)yield return leaf;yield return prefix+"_name";
         }
         if(leaf!=column.ColumnName)throw new InvalidOperationException("级联末级前缀必须和源字段一致。");
     }

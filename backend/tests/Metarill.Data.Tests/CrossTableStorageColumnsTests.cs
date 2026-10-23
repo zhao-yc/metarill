@@ -18,10 +18,10 @@ public sealed class CrossTableStorageColumnsTests
     }
     /// <summary>错误类型或虚拟显式列优先保留，生成器负责拒绝，不擅自修复存量列。</summary>
     [Fact]
-    public void Explicit_conflicts_nonredundant_and_reserved_ids_are_not_silently_rewritten()
+    public void Explicit_conflicts_and_reserved_ids_are_not_silently_rewritten()
     {
         var catalog=Catalog();catalog.ConfigColumns.Add(new(){Id="4",ConfigTableId="1",ColumnName="country_name",LogicalType="int64",IsVirtualColumn=1});var table=Assert.Single(catalog.ConfigTables);var plan=MetadataStoragePolicy.ForTable(catalog,table);var field=Assert.Single(CascadeTreeStorageColumns.Expand(table,catalog.ConfigColumns),column=>column.ColumnName=="country_name");Assert.Equal("4",field.Id);Assert.Equal("int64",field.LogicalType);Assert.False(plan.IsPhysical(field));
-        table.IsRongyu=0;Assert.DoesNotContain(MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns,column=>column.Id.StartsWith(CrossTableStorageColumns.ReservedIdPrefix));
+        table.IsRongyu=0;var sparse=MetadataStoragePolicy.ForTable(catalog,table);Assert.Equal(new[]{"country_id","area_id"},sparse.PhysicalColumns.Where(column=>column.Id.StartsWith(CrossTableStorageColumns.ReservedIdPrefix)).Select(column=>column.ColumnName));Assert.DoesNotContain(sparse.PhysicalColumns,column=>column.ColumnName.EndsWith("_name",StringComparison.Ordinal));
         var reserved=Catalog();reserved.ConfigColumns[1].Id=CrossTableStorageColumns.ReservedIdPrefix+"forged";Assert.Throws<InvalidOperationException>(()=>MetadataValidation.Validate(reserved));
     }
     /// <summary>系统字段、重复前缀与末级不匹配不能派生额外实体字段。</summary>

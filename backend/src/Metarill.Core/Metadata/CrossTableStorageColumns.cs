@@ -3,17 +3,17 @@ using System.Text;
 using System.Text.Json;
 namespace Metarill.Core.Metadata;
 
-/// <summary>跨表级联各级物理ID/名称的共同定义；只扩展计划，不写元数据或执行DDL。</summary>
+/// <summary>跨表级联各级ID/名称的共同定义；是否物理由统一存储计划决定，不写元数据或执行DDL。</summary>
 public static class CrossTableStorageColumns
 {
     public const string ReservedIdPrefix="__mt_auto_cross_";
     /// <summary>沿原columnPrefix派生缺失列，显式声明包括错误类型和虚拟列均不覆盖。</summary>
     internal static IReadOnlyList<ColumnMetadata> Expand(TableMetadata table,IReadOnlyList<ColumnMetadata> columns)
     {
-        if(table.IsRongyu!=1||table.IsFunctionTable!=0||table.IsView!=0)return columns;var result=columns.ToList();
+        if(table.IsRongyu is not(0 or 1)||table.IsFunctionTable!=0||table.IsView!=0)return columns;var result=columns.ToList();
         foreach(var source in columns.Where(column=>column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&(column.LogicalType.Equals("string",StringComparison.OrdinalIgnoreCase)||column.LogicalType.Equals("int64",StringComparison.OrdinalIgnoreCase))))
         {
-            var prefixes=Prefixes(source);if(prefixes.Count==0)continue;
+            var prefixes=LevelPrefixes(source);if(prefixes.Count==0)continue;
             foreach(var prefix in prefixes)foreach(var suffix in new[]{"_id","_name"})
             {
                 var name=prefix+suffix;if(result.Any(column=>column.ColumnName.Equals(name,StringComparison.OrdinalIgnoreCase)))continue;
@@ -25,7 +25,7 @@ public static class CrossTableStorageColumns
         return result.ToArray();
     }
     /// <summary>只使用全局固定层级的结构形状；页覆盖不能改变表结构，系统列前缀不作托管列。</summary>
-    private static IReadOnlyList<string> Prefixes(ColumnMetadata source)
+    internal static IReadOnlyList<string> LevelPrefixes(ColumnMetadata source)
     {
         try
         {
