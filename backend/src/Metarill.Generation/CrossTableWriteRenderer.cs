@@ -39,7 +39,8 @@ internal static class CrossTableWriteRenderer
                 output.AppendLine($"        if(deepest>={index}){{entity.{id.Property}={value};entity.{name.Property}=path!.Path[{index}].Name;}}else{{entity.{id.Property}={clear};entity.{name.Property}={(id.Type=="string?"?$"entity.{id.Property} is null?null:\"\"":"null")};}}submitted.Add({Literal(id.Source.ColumnName)});submitted.Add({Literal(name.Source.ColumnName)});");
             }
             output.AppendLine("    }");
-            var check=plan.Levels.SelectMany(level=>new[]{level.Id,level.Name}).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).DistinctBy(column=>column.Source.Id).ToArray();var projection=string.Join(",",check.Select(column=>column.Property+"=row."+column.Property));
+            output.Append(NonRedundantCrossTableCompilation.PackService(model,table,page,plan));
+            var check=plan.Levels.SelectMany(level=>table.Source.IsRongyu==0?new[]{level.Id}:new[]{level.Id,level.Name}).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).DistinctBy(column=>column.Source.Id).ToArray();var projection=string.Join(",",check.Select(column=>column.Property+"=row."+column.Property));
             output.AppendLine("    /// <summary>读取实际存储的受管字段，数据库截断或触发器改写时在观察者前整笔回滚，不补写修复。</summary>")
                 .AppendLine($"    private async Task VerifyStoredCross{suffix}Async({table.Name} entity,RuntimeActor actor,ISet<string> submitted,bool creating,CancellationToken cancellationToken,bool requireTargetList=true)")
                 .AppendLine("    {").AppendLine($"        if(!({Trigger(table,plan)}))return;var stored=await session.Select<{table.Name}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.Name}{{{projection}}},cancellationToken);")

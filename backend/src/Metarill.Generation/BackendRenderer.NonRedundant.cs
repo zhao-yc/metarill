@@ -10,6 +10,8 @@ internal static partial class BackendRenderer
     private static string NonRedundantCatalog(GenerationModel model)
     {
         var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog),new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
+        var helpers=cross?"    /// <summary>目标条件与页面一起冻结，静态初始化不读取后声明字段。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCross(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileWithCrossTables(Snapshot,tableId,outputs,bindings,dependencies,deferCascadeNames:true);\n    /// <summary>与统一物理结构共用稀疏选择编码器。</summary>\n    internal static Metarill.Core.Metadata.CrossTableSparseSelection CompileSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.CrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n":"";
         return $$"""
 
 /// <summary>生成来源的私有只读快照，不提供外部取出或在线改写入口。</summary>
@@ -20,7 +22,7 @@ internal static class GeneratedNonRedundantReadCatalog
     internal static Metarill.Data.Queries.NonRedundantReadPlan Compile(string tableId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.Compile(Snapshot,tableId,outputs,dependencies,deferCascadeNames:true);
     /// <summary>匹配字段只编译一次；主记录和实际关联来源由专用写入计划锁定。</summary>
     internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMatch(string tableId,string field)=>Metarill.Data.Queries.NonRedundantReads.CompileMatch(Snapshot,tableId,field);
-}
+{{helpers}}}
 
 """;
     }
@@ -48,6 +50,7 @@ internal static class GeneratedNonRedundantReadCatalog
             if(output.IsJsonArray)value=column is not null&&DatabaseCheckboxCompilation.Generic(table,column)?$"Metarill.Core.Contracts.DatabaseCheckboxValue.ProjectIds(NonRedundantReads.Value<string?>(row,{Literal(output.Storage)}))":$"ReadFileValue(row,{Literal(output.Storage)})";
             result.AppendLine($"        {output.Property}={value},");
         }
+        result.Append(NonRedundantCrossTableCompilation.VoAssignments(model,table,page));
         foreach(var column in constants)result.AppendLine($"        {column.Property}Show={ConstantDisplayExpression(column).Replace("entity."+column.Property,$"NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)})",StringComparison.Ordinal)},");
         result.AppendLine("    };");
         if(plan.Outputs.Any(output=>output.IsJsonArray))result.AppendLine("    /// <summary>沿原VO恢复数据库JSON文本，null保持空值，避免二次编码文件ID数组。</summary>")
@@ -67,7 +70,7 @@ internal static class GeneratedNonRedundantReadCatalog
             result.AppendLine("    /// <summary>匹配计划只含当前范围所需路径，避免锁住无关输出关系。</summary>")
                 .AppendLine($"    private static readonly NonRedundantReadPlan ExactReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileMatch({Literal(table.Source.Id)},{Literal(exact.Column.Source.ColumnName)});");
         result.AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
-            .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.Compile({Literal(table.Source.Id)},{outputs},{dependencies});")
+            .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(CrossTableWriteCompilation.ForService(model,table,page).Count>0?"CompileCross":"Compile")}({Literal(table.Source.Id)},{outputs},{dependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});")
             .AppendLine("    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor,string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
         {if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        query=query.Where(entity=>entity.{column.Property}=={ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")});");}

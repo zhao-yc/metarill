@@ -33,6 +33,10 @@ internal static class GenerationCapabilityAudit
                 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
                 { gaps.Add(new(page.Source.Id, "", "runtime", "非冗余固定读取未完成：" + error.Message)); }
             }
+            // 隐藏跨表仍参与复制／默认值／钩子，不能靠省略页面字段绕过Full的未验收用途门禁。
+            foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==0&&column.Source.ControlKind=="CascadeTree"&&!page.Readable.Any(read=>read.Source.Id==column.Source.Id)))
+                if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is not null)
+                    gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime","非冗余crossTable固定生成CRUD已接线；完整应用其余用途仍待验收，隐藏控件不能绕过门禁。"));
             // 带联接标记的多选缓存即使隐藏来源字段，也必须有明确完整的内部写入证明。
             foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==1&&column.Source.ControlKind=="MultiSelectPage"))
             {var proof=MultiSelectCompilation.Resolve(model,table,page,source,forService:true);if(proof.Definition is null)gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime",proof.Reason!));}

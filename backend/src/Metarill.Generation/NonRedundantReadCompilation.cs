@@ -32,6 +32,7 @@ internal static class NonRedundantReadCompilation
             if(MultiSelectCompilation.Resolve(model,table,page,multi,forService:true).Definition is null)throw new InvalidOperationException("非冗余多选缺少已证明的字段与候选范围。");
         foreach(var tree in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"))
         {
+            if(CrossTableWriteCompilation.Resolve(model,table,page,tree).Definition is{} cross){NonRedundantCrossTableCompilation.Require(model,table,page,cross.Read);continue;}
             if(CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition is not{} plan||plan.Read.Target.IsGlobal)throw new InvalidOperationException("非冗余级联要求已证明的同项目selfTree读写计划。");
             var managed=CascadeTreeViewRenderer.Name(table,tree);
             if(managed is not null&&(page.Searchable.Concat(page.Sortable).Any(column=>column.Source.Id==managed.Source.Id)||page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true))throw new InvalidOperationException("非冗余级联名称直接筛选/排序尚待专用读取用途验证。");
@@ -69,7 +70,7 @@ internal static class NonRedundantReadCompilation
         if(CascadeTreeWriteCompilation.ManagedNames(table).Any(name=>dependencies.Contains(name.Source.ColumnName,StringComparer.OrdinalIgnoreCase)))throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途尚待完整路径计划验证。");
         // 图只取来源已授权行的所选ID；隐藏ID为私有投影依赖，不加入VO或页面字段。
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var compiled=NonRedundantReads.Compile(model.Catalog,table.Source.Id,readOutputs,dependencies,deferCascadeNames:true);
+        var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,deferCascadeNames:true);
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
         return new(outputs,dependencies,readOutputs);

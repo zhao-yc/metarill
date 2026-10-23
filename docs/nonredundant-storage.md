@@ -12,14 +12,14 @@
 | --- | --- | --- |
 | 多选与数据库复选 | B16、B25—B28：固定非冗余读取及显式／自动冗余名称缓存、多页一致性；见[多选](nonredundant-multi-select.md)、[复选](database-checkbox-relations.md)、[跨页缓存](multi-page-name-cache.md)。 | 派生／非字符串／全局名称、其余复杂关系依赖和完整原页面组合，继续按B17、B20、B23推进。 |
 | 非冗余selfTree | B24固定后端／包已完成；B33固定父范围、双树、List及多选混合后端／包完成，定向76、API83、整套1346通过／0失败／3项专用Fresh未执行，正式215文件稳定。 | B18保留同表／非冗余目标完整宿主、全局及派生名称、精确权限及其余组合；B23保留正式身份／原浏览器验收。 |
-| crossTable与部分选择 | B19已有冗余固定链、来源单层参与及既定部分选择合同，见[来源图](cross-table-source-graph-contract.md)。 | 非冗余来源／目标、重复来源层位、共享辅助列及复杂父范围；B34已接统一稀疏ID存储基础、B35完成固定数据层逻辑读取，生成路径／原CRUD／筛选／Full包继续；非空Excel策略仍按B14待确认。 |
+| crossTable与部分选择 | B19已有冗余固定链、来源单层参与及既定部分选择合同，见[来源图](cross-table-source-graph-contract.md)。 | 非冗余目标、其余来源组合、重复来源层位、共享辅助列及复杂父范围；B34已接统一稀疏ID存储基础、B35完成固定数据层逻辑读取；B36固定生成CRUD／原协议HTTP后端已完成，见[生成CRUD](nonredundant-cross-table-crud.md)；逻辑父范围／Excel／复杂联接传播维护／Full及原浏览器继续；非空Excel策略仍按B14待确认。 |
 | 复杂联接与名称传播 | B29固定多值缓存传播；B31固定R1→R0→R1、双角色、后续副本及普通多值混合链，见[混合传播](mixed-relation-name-propagation.md)。 | B20／B21保留其余多值与级联、全局／派生名称和复杂依赖，不能从已验单值中间链推定其它用途完成。 |
 | 原维护回填 | B30固定原HTTP入口、物理预检和完整事务；B31补固定维护向下游传播，见[维护专项](relation-maintenance.md)。 | B22保留原浏览器、独立完整维护前端及其余复杂路径。 |
 | 交叉验收 | 各专项分别保留生成、固定授权HTTP、原Vue／Node及完整包证据。 | B23及总计划仍要求相应正式身份／原浏览器、专用空库组合、设备和同条件性能；3项专用Fresh本轮未执行。 |
 
 ### 非冗余跨表部分选择的当前断点
 
-[原级联组件](../frontend/metarill_uni_admin/components/yzp-cascade-tree/yzp-cascade-tree.vue)选择任一层后即发出当前路径，并清空后续层，允许保存前停留在根或中层。B33交付基线`5011429`的[统一物理计划](../backend/src/Metarill.Core/Metadata/MetadataStoragePolicy.cs)将跨表祖先ID及各层名称判作派生字段，只保留末级所选ID。两种合法输入`rootId="1001",leafId=null`和`rootId="1002",leafId=null`若仅保存末级，物理结果都会变成null，无法恢复用户的选择。这里是代码静态语义推导；当前[跨表编译器](../backend/src/Metarill.Generation/CrossTableReadCompilation.cs)仍拒绝非冗余来源，没有据此声称已实际写丢数据。
+[原级联组件](../frontend/metarill_uni_admin/components/yzp-cascade-tree/yzp-cascade-tree.vue)选择任一层后即发出当前路径，并清空后续层，允许保存前停留在根或中层。B33交付基线`5011429`的[统一物理计划](../backend/src/Metarill.Core/Metadata/MetadataStoragePolicy.cs)将跨表祖先ID及各层名称判作派生字段，只保留末级所选ID。两种合法输入`rootId="1001",leafId=null`和`rootId="1002",leafId=null`若仅保存末级，物理结果都会变成null，无法恢复用户的选择。这里是代码静态语义推导；该基线[跨表编译器](../backend/src/Metarill.Generation/CrossTableReadCompilation.cs)当时拒绝非冗余来源，没有据此声称已实际写丢数据。B34—B36后续已补稀疏存储、逻辑读取和固定生成CRUD，剩余范围以当前矩阵和专项为准。
 
 后续实现必须保持原部分选择、整entity回传和省略／清空合同，在同一存储计划中无损表达所选层级，再配套读取投影、写入／复制、结构预览、筛选统计、既定Excel合同、事务锁、名称传播／维护和完整包。不能以强制用户选到末级、放开门禁或仅实现末级成功场景替代这项要求。前端、生成模板及交互继续保持原样。
 
@@ -34,7 +34,7 @@
 | 显式联接字段 | 保持原物理存储 | 读取派生 |
 | 管理员审计姓名 | 保持原存储 | 读取派生 |
 | Title/Tab布局项 | 保持原规则 | 纯布局 |
-| 级联ID及各层名称 | 保持原规则 | selfTree只存所选ID；有效crossTable按层级稀疏存所选ID，名称与逻辑祖先待固定投影，完整门禁保持 |
+| 级联ID及各层名称 | 保持原规则 | selfTree只存所选ID；有效crossTable按层级稀疏存所选ID，名称与逻辑祖先由已接线的固定投影恢复，其余用途门禁保持 |
 
 原始业务`_id`没有明确关系声明时不猜测目标或名称列。自动辅助名与普通业务字段同名明确报错，不能静默吞掉该业务字段；旧App审计姓名必须有明确用户关系。自树与跨表级联分别使用原声明，损坏或重复配置拒绝，不退化成普通物理列。
 

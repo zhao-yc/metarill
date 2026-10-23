@@ -17,12 +17,17 @@ internal static class CrossTableWriteCompilation
         foreach(var level in plan.Levels)
         {
             var id=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_id");var name=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_name");
-            if(id is null||name is null||id.IsSystem||name.IsSystem||id.Type is not("string?" or "long?")||name.Type!="string?"||id.IsJsonArray||name.IsJsonArray||!physical.IsPhysical(id.Source)||!physical.IsPhysical(name.Source)||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn"))return Gap("各级ID/名称必须有可证明的非系统物理标量，显式冲突不能覆盖。");
+            if(id is null||name is null||id.IsSystem||name.IsSystem||id.Type is not("string?" or "long?")||name.Type!="string?"||id.IsJsonArray||name.IsJsonArray||!physical.IsPhysical(id.Source)||(table.Source.IsRongyu==1?!physical.IsPhysical(name.Source):physical.IsPhysical(name.Source))||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn"))return Gap("各级ID/名称必须有可证明的非系统物理标量，显式冲突不能覆盖。");
             if(id.Source.Id!=source.Source.Id&&!string.IsNullOrWhiteSpace(id.Source.ControlKind))return Gap("辅助ID的独立控件规则需要协调。");
             if(!string.IsNullOrWhiteSpace(id.Source.LinkConfigTableId)&&id.Source.LinkConfigTableId!=level.Target.Source.Id)return Gap("来源辅助ID关联表不一致。");result.Add(new(level,id,name));
         }
         var fields=result.SelectMany(level=>new[]{level.Id.Source.ColumnName,level.Name.Source.ColumnName}).ToHashSet(StringComparer.Ordinal);
         foreach(var other in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"&&column.Source.Id!=source.Source.Id))if(CrossTableReadCompilation.Resolve(model,table,page,other).Definition is{} shared&&shared.Levels.Any(level=>fields.Contains(level.Prefix+"_id")||fields.Contains(level.Prefix+"_name")))return Gap("不同级联共享辅助字段需要聚合协调。");
+        if(table.Source.IsRongyu==0)
+        {
+            try{NonRedundantCrossTableCompilation.Require(model,table,page,plan);}
+            catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException){return Gap(error.Message);}
+        }
         return new(new(plan,result),null);
     }
     /// <summary>原控件隐式携带全部级ID；名称只读，布局、搜索、排序和元数据本身不扩张。</summary>

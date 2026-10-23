@@ -22,7 +22,7 @@ internal static class CrossTableReadCompilation
         {
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();using var json=JsonDocument.Parse(string.IsNullOrWhiteSpace(overlay)?source.Source.ControlDetail:overlay);var root=json.RootElement;Object(root);
             if(Text(root,"sourceMode","crossTable")!="crossTable")return Gap("不是crossTable模式。");
-            if(table.Source.IsRongyu!=1||source.Type is not("string?" or "long?")||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||source.IsSystem||GenerationModel.Enabled(source.Source.Extra,"isJoinColumn"))return Gap("来源须为普通冗余表的物理_id字段。");
+            if(table.Source.IsRongyu is not(0 or 1)||source.Type is not("string?" or "long?")||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||source.IsSystem||GenerationModel.Enabled(source.Source.Extra,"isJoinColumn"))return Gap("来源须为普通实体表的物理_id字段。");
             if(Extra(root))return Gap("额外范围或目标页映射不能忽略。");
             if(!root.TryGetProperty("levels",out var entries)||entries.ValueKind!=JsonValueKind.Array||entries.GetArrayLength()<2)return Gap("至少需要2个固定层级。");
             var result=new List<CrossTableLevelModel>();var keys=new HashSet<string>(StringComparer.Ordinal);var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -17,11 +17,14 @@ internal static partial class BackendRenderer
     private static string NonRedundantCascadeFilters(GenerationModel model,TableModel table,PageModel page)
     {
         if(!page.Searchable.Any(column=>column.Source.ControlKind=="CascadeTree"))return "";
+        var awaits=page.Searchable.Any(column=>column.Source.ControlKind=="CascadeTree"&&!column.IsFixedCrossTableFilter);
         var result=new StringBuilder().AppendLine("    /// <summary>树范围在SQL分页／统计之前解析，未知节点键不能扩大候选。</summary>")
-            .AppendLine($"    private async Task<List<FixedReadFilter>> ReadCascadeFilters{page.Source.Id}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken{ExactDataManageCompilation.Parameter(page,"list")})")
+            .AppendLine($"    private {(awaits?"async ":"")}Task<List<FixedReadFilter>> ReadCascadeFilters{page.Source.Id}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken{ExactDataManageCompilation.Parameter(page,"list")})")
             .AppendLine("    {").AppendLine($"        var result=ReadFilters{page.Source.Id}(request,actor{ExactDataManageCompilation.Argument(page,"authorizationOperation")});");
         foreach(var source in page.Searchable.Where(column=>column.Source.ControlKind=="CascadeTree"))
         {
+            if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross)
+            {result.Append(NonRedundantCrossTableCompilation.Filter(cross,page));continue;}
             var plan=CascadeTreeReadCompilation.Resolve(model,table,page,source).Definition??throw new InvalidOperationException("非冗余树筛选缺少固定定义。");
             var key=JsonSerializer.Serialize(source.JsonName);var name=JsonSerializer.Serialize(GenerationModel.Camel(source.Source.ColumnName[..^3]+"_name"));
             result.AppendLine($"        if(request.Filters.TryGetValue({key},out var value{source.Source.Id})&&!(value{source.Source.Id}.ValueKind==JsonValueKind.Array&&value{source.Source.Id}.GetArrayLength()==0))")
@@ -29,7 +32,7 @@ internal static partial class BackendRenderer
                 .AppendLine($"            if(selected is not null){{var ids=await CascadeGraph{page.Source.Id}_{source.Source.Id}(actor).FilterIdsAsync(selected.Value,{plan.Exact.ToString().ToLowerInvariant()},cancellationToken);result.Add(new({JsonSerializer.Serialize(source.Source.ColumnName)},FixedReadComparison.In,ids.Select(id=>(object?){(source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id")}).ToArray()));}}")
                 .AppendLine("        }");
         }
-        return result.AppendLine("        return result;").AppendLine("    }").ToString();
+        return result.AppendLine(awaits?"        return result;":"        return Task.FromResult(result);").AppendLine("    }").ToString();
     }
     /// <summary>仅从来源已授权ID构造最小实体，不能从名称反推节点或增加普通可读列。</summary>
     internal static string NonRedundantProjectionCall(GenerationModel model,TableModel table,PageModel page,string rows,string currentRead,bool one=false)
