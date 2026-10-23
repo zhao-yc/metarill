@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
@@ -248,7 +249,24 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         try { await process.WaitForExitAsync(timeout.Token); } catch { if (!process.HasExited) process.Kill(true); throw; }
-        await stdout; await stderr; Assert.True(process.ExitCode == 0, "首次初始化命令失败，日志不回显配置。");
+        var outText=await stdout;var errText=await stderr;
+        // 初始化失败必须留下脱敏首因；仅允许本仓库现有私有验收目录，不能丢弃子进程诊断。
+        if(start.Environment.TryGetValue("METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY",out var evidence)&&!string.IsNullOrWhiteSpace(evidence))
+        {
+            var boundary=Path.GetFullPath(Path.Combine(SourceRoot(),".local"))+Path.DirectorySeparatorChar;var resolved=Path.GetFullPath(evidence);if(!resolved.StartsWith(boundary,StringComparison.OrdinalIgnoreCase)||!Directory.Exists(resolved))throw new InvalidOperationException("初始化诊断只允许现有私有验收目录。");
+            var secrets=new HashSet<string>(StringComparer.Ordinal);
+            void Collect(string key,string? value)
+            {
+                if(string.IsNullOrWhiteSpace(value)||!Regex.IsMatch(key,"password|pwd|token|secret|connectionstring|api.?key",RegexOptions.IgnoreCase))return;secrets.Add(value);
+                if(key.Contains("ConnectionString",StringComparison.OrdinalIgnoreCase)){var connection=new DbConnectionStringBuilder{ConnectionString=value};foreach(string name in connection.Keys)if(Regex.IsMatch(name,"password|pwd|token|secret",RegexOptions.IgnoreCase))secrets.Add(Convert.ToString(connection[name],CultureInfo.InvariantCulture)!);}
+            }
+            void Scan(JsonElement value){if(value.ValueKind==JsonValueKind.Object)foreach(var item in value.EnumerateObject()){if(item.Value.ValueKind==JsonValueKind.String)Collect(item.Name,item.Value.GetString());else Scan(item.Value);}else if(value.ValueKind==JsonValueKind.Array)foreach(var item in value.EnumerateArray())Scan(item);}
+            foreach(var pair in start.Environment)Collect(pair.Key,pair.Value);
+            if(start.Environment.TryGetValue("METARILL_SETTINGS",out var settings)&&File.Exists(settings)){using var json=JsonDocument.Parse(await File.ReadAllTextAsync(settings));Scan(json.RootElement);}
+            foreach(var secret in secrets.Where(value=>!string.IsNullOrEmpty(value)).OrderByDescending(value=>value.Length)){outText=outText.Replace(secret,"[已脱敏]",StringComparison.Ordinal);errText=errText.Replace(secret,"[已脱敏]",StringComparison.Ordinal);}
+            var id=Guid.NewGuid().ToString("N");await File.WriteAllTextAsync(Path.Combine(resolved,"initialize-"+id+".stdout.log"),outText);await File.WriteAllTextAsync(Path.Combine(resolved,"initialize-"+id+".stderr.log"),errText);
+        }
+        Assert.True(process.ExitCode == 0, "首次初始化命令失败，请核对本轮脱敏私有诊断；配置不回显。");
     }
     /// <summary>默认使用本普通克隆作为源码根。</summary>
     private static string SourceRoot([CallerFilePath] string file = "") => Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT") ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));

@@ -80,3 +80,22 @@ python -m unittest discover -s tools/acceptance -p test_server200_fresh_mysql.py
 ## 实际管理Program接线同期普通包基线（2026-10-22）
 
 编号c568606165bb4122：3/3通过、零失败零跳过，四个随机库和一个受限账号独立核验清理，临时配置删除。该轮使用普通Full生成的物理合成新入口，仍保持正常启动不建表与显式初始化流程。随后只补强可信管理分支，普通正式生成字节复验保持；可信管理Program的专项实库证据另见[管理验收](testing/trusted-management-runtime-mysql.md)。不称可信管理完整空库安装或原初始化按钮已验收。
+
+
+## 2026-10-23：固定跨表Full正式宿主（B41）
+
+默认`Baseline`仍为4个随机库、3个原验收场景。`-Scenario CrossTable`选择来源ID／目标父键四种组合的4个独占库和4项真实测试；`-Scenario All`同时运行原场景，共8库／7项。未知场景、跨场景租约清理和非自有名称拒绝，不以扩大白名单放宽旧租约。
+
+```powershell
+pwsh -NoProfile -File scripts/acceptance/fresh-mysql.ps1 `
+  -SourceSettings E:/git/metarill/.local/test.settings.json `
+  -DotnetPath E:/git/metarill/.tools/dotnet/dotnet.exe `
+  -Scenario All `
+  -CredentialBackupRoot '<项目私有凭据备份目录>'
+```
+
+可选备份仅保存本轮新生成的受限配置与中文说明；清理后工作区配置删除，备份标明凭据已撤销。不要将备份或连接串提交到源码。普通CI缺专属配置时跨表4项明确跳过，不能称为真实首次安装通过；脚本则严格核对预期项数、每项Passed及零跳过。
+
+本批最终冻结`0f19c64623d1`：跨表轮`29e1b6bf5a034842`为4/4通过，最终完整轮`56235cc673064464`为7/7通过，分别零失败零跳过；租约离线保护15项通过。六轮36个随机库、6个临时账号及所有权文件由额外只读连接确认不存在；工作区临时配置均删除，项目备份注明已撤销。
+
+原失败保留：首次仅校正测试400／500及文件401预期；其后一轮旧平台重复初始化非零退出，旧助手未留子进程正文，无法追溯首因。现增加脱敏日志，单独平台诊断与最终完整轮未复现，但原因未定，不声称修复。原产品源码、前端与模板未变。详见[跨表正式宿主专项](nonredundant-cross-table-fresh.md)及[项目进度](project-progress.md)，不替代原浏览器、真机或整体回归验收。

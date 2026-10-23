@@ -28,14 +28,14 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def invoke(self, operation, mysql=None):
+    def invoke(self, operation, mysql=None, scenario="baseline"):
         """所有外部输入和权限接口均替换为内存桩，记录真正准备执行的SQL。"""
         def execute(sql):
             self.commands.append(sql)
             if sql == "SELECT @@hostname,@@server_uuid;": return "fixture\t"+self.instance["serverUuid"]
             return "0" if sql.startswith("SELECT ") else ""
         captured = io.StringIO()
-        with patch.object(subject, "ownership_path", return_value=self.state), patch.object(subject, "verify_server"), patch.object(subject, "mysql", side_effect=mysql or execute), patch("sys.stdin", io.StringIO(json.dumps({"runId": self.run, "operation": operation, "password": self.password}))), contextlib.redirect_stdout(captured):
+        with patch.object(subject, "ownership_path", return_value=self.state), patch.object(subject, "verify_server"), patch.object(subject, "mysql", side_effect=mysql or execute), patch("sys.stdin", io.StringIO(json.dumps({"runId": self.run, "operation": operation, "password": self.password, "scenario": scenario}))), contextlib.redirect_stdout(captured):
             subject.main()
         return captured.getvalue()
 
@@ -84,6 +84,35 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
         self.commands.clear(); result = self.invoke("cleanup")
         self.assertTrue(json.loads(result)["cleaned"]); self.assertFalse(self.state.exists())
         writes = [sql for sql in self.commands if not sql.startswith("SELECT ")]; self.assertEqual(5, len(writes)); self.assertTrue(writes[0].startswith("DROP USER "))
+
+
+    def test_cross_and_all_profiles_grant_only_their_exact_owned_databases(self):
+        """新矩阵只增加白名单库，不给通配全局授权，清理与创建使用同一场景。"""
+        for scenario, suffixes in (("cross", ("cross_ss", "cross_sl", "cross_ls", "cross_ll")), ("all", ("platform", "business", "package", "nonred", "cross_ss", "cross_sl", "cross_ls", "cross_ll"))):
+            with self.subTest(scenario=scenario):
+                self.commands.clear()
+                result = json.loads(self.invoke("create", scenario=scenario))
+                expected = [f"metarill_fresh_{self.run}_{kind}" for kind in suffixes]
+                self.assertEqual(expected, result["createdDatabases"])
+                self.assertEqual(scenario, json.loads(self.state.read_text())["scenario"])
+                grants = [sql for sql in self.commands if sql.startswith("GRANT ")]
+                self.assertEqual(len(expected), len(grants)); self.assertTrue(all("*.*" not in sql for sql in grants))
+                self.commands.clear(); cleaned = json.loads(self.invoke("cleanup", scenario=scenario))
+                self.assertEqual(len(expected), cleaned["databaseCount"]); self.assertFalse(self.state.exists())
+                self.assertEqual({f"DROP DATABASE `{name}`;" for name in expected}, {sql for sql in self.commands if sql.startswith("DROP DATABASE")})
+
+    def test_changed_profile_preserves_lease_and_performs_no_drop(self):
+        """即使all包含原库集合，也不能用另一个场景扩大旧租约的清理权限。"""
+        self.invoke("create", scenario="cross"); before = self.state.read_bytes(); self.commands.clear()
+        with self.assertRaises(RuntimeError): self.invoke("cleanup", scenario="all")
+        self.assertEqual(before, self.state.read_bytes()); self.assertFalse(any(sql.startswith("DROP") for sql in self.commands))
+        self.invoke("cleanup", scenario="cross")
+
+    def test_unknown_profile_fails_before_mysql(self):
+        """未知场景不能被当作默认场景连接或创建对象。"""
+        with self.assertRaises(RuntimeError): self.invoke("create", scenario="unknown")
+        self.assertEqual([], self.commands); self.assertFalse(self.state.exists())
+
 
 
 # 新增实例pin及独立清理反例，保留上方原有创建中断/碰撞覆盖。

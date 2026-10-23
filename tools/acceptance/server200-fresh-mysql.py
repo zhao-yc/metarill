@@ -38,7 +38,14 @@ def main():
     run = payload["runId"]
     if not re.fullmatch(r"[a-f0-9]{16}", run):
         raise RuntimeError("验收编号不合法。")
-    databases = [f"metarill_fresh_{run}_{kind}" for kind in ("platform", "business", "package", "nonred")]
+    # 固定场景白名单，不允许调用方指定任意数据库后缀；旧租约默认为baseline。
+    scenario = payload.get("scenario", "baseline")
+    baseline = ("platform", "business", "package", "nonred")
+    cross = ("cross_ss", "cross_sl", "cross_ls", "cross_ll")
+    profiles = {"baseline": baseline, "cross": cross, "all": baseline + cross}
+    if not isinstance(scenario, str) or scenario not in profiles:
+        raise RuntimeError("未知空库验收场景。")
+    databases = [f"metarill_fresh_{run}_{kind}" for kind in profiles[scenario]]
     user = f"mtf_{run}"
     state = ownership_path(run)
     verify_server()
@@ -50,7 +57,7 @@ def main():
         password = payload["password"]
         if not re.fullmatch(r"[a-f0-9]{64}", password) or state.exists():
             raise RuntimeError("验收凭据或所有权清单状态不合法。")
-        expected = {"runId": run, "databases": [], "user": None, "instance": instance}
+        expected = {"runId": run, "scenario": scenario, "databases": [], "user": None, "instance": instance}
         descriptor = os.open(state, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as stream:
             json.dump(expected, stream)
@@ -69,12 +76,12 @@ def main():
         save()
         for database in databases:
             mysql(f"GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES ON `{database}`.* TO '{user}'@'%';")
-        print(json.dumps({"createdDatabases": databases, "createdUser": user, "server": "Server-200", "instance": instance}))
+        print(json.dumps({"scenario": scenario, "createdDatabases": databases, "createdUser": user, "server": "Server-200", "instance": instance}))
     elif payload["operation"] == "cleanup":
         if not state.exists():
             raise RuntimeError("没有本轮所有权清单，拒绝猜测清理对象。")
         expected = json.loads(state.read_text(encoding="utf-8"))
-        if expected.get("instance") != instance or expected.get("runId") != run or any(name not in databases for name in expected.get("databases", [])) or expected.get("user") not in (None, user):
+        if expected.get("scenario", "baseline") != scenario or expected.get("instance") != instance or expected.get("runId") != run or any(name not in databases for name in expected.get("databases", [])) or expected.get("user") not in (None, user):
             raise RuntimeError("所有权清单不匹配，拒绝清理。")
         owned_databases = list(expected["databases"])
         owned_user = expected["user"]
@@ -97,7 +104,7 @@ def main():
         if owned_user and mysql(f"SELECT COUNT(*) FROM mysql.user WHERE User='{user}';") != "0":
             raise RuntimeError("随机账号清理后仍存在。")
         state.unlink()
-        print(json.dumps({"cleaned": True, "server": "Server-200", "instance": instance, "independentAbsenceVerified": True, "databaseCount": len(owned_databases)}))
+        print(json.dumps({"cleaned": True, "scenario": scenario, "server": "Server-200", "instance": instance, "independentAbsenceVerified": True, "databaseCount": len(owned_databases)}))
     else:
         raise RuntimeError("未知验收操作。")
 
