@@ -32,7 +32,7 @@ internal static class DatabaseCheckboxExcelRenderer
                 .AppendLine("        {")
                 .AppendLine("            if(item.ValueKind!=JsonValueKind.String)throw PageImportException.Input(PageImportError.Relation);var name=item.GetString();")
                 .AppendLine($"            var currentScope=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);")
-                .AppendLine($"            var matches=await currentScope.Where(row=>row.{def.Name.Property}==name).OrderBy(row=>row.Id).Limit(2).ToListAsync(row=>new{{row.Id}},cancellationToken);")
+                .AppendLine(def.DerivedName?$"            var matches=await DerivedCheckboxRows{suffix}Async(parentId,actor,{form},null,name,true,2,true,cancellationToken);":$"            var matches=await currentScope.Where(row=>row.{def.Name.Property}==name).OrderBy(row=>row.Id).Limit(2).ToListAsync(row=>new{{row.Id}},cancellationToken);")
                 .AppendLine("            if(matches.Count!=1)throw PageImportException.Input(PageImportError.Relation);")
                 .AppendLine("            var id=matches[0].Id.ToString(CultureInfo.InvariantCulture);if(selected.Contains(id))throw PageImportException.Input(PageImportError.Relation);selected.Add(id);")
                 .AppendLine("        }")
@@ -56,13 +56,13 @@ internal static class DatabaseCheckboxExcelRenderer
         {
             var selected=DatabaseCheckboxValue.Parse(entity.{{def.Source.Property}});
             var scope=await CheckboxScope{{suffix}}Async({{DatabaseCheckboxRenderer.ParentValue(def,"entity")}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
-            var rows=await scope.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new{row.Id,Name=row.{{def.Name.Property}}},cancellationToken);
+            {{(def.DerivedName?"var rows=await DerivedCheckboxRows"+suffix+"Async("+DatabaseCheckboxRenderer.ParentValue(def,"entity")+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",selected,null,false,DatabaseCheckboxValue.MaximumItems,false,cancellationToken);":"var rows=await scope.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new{row.Id,Name=row."+def.Name.Property+"},cancellationToken);")}}
             if(rows.Count!=selected.Length||rows.Any(row=>row.Name is null))throw new InvalidOperationException("复选名称导出存在缺失、删除或离开候选范围的目标，不能生成会重映射的名称数组。");
             var names=rows.ToDictionary(row=>row.Id,row=>row.Name);
             foreach(var id in selected)
             {
                 var name=names[id];var nameScope=await CheckboxScope{{suffix}}Async({{DatabaseCheckboxRenderer.ParentValue(def,"entity")}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
-                var matches=await nameScope.Where(row=>row.{{def.Name.Property}}==name).Limit(2).ToListAsync(row=>new{row.Id},cancellationToken);
+                {{(def.DerivedName?"var matches=await DerivedCheckboxRows"+suffix+"Async("+DatabaseCheckboxRenderer.ParentValue(def,"entity")+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",null,name,true,2,false,cancellationToken);":"var matches=await nameScope.Where(row=>row."+def.Name.Property+"==name).Limit(2).ToListAsync(row=>new{row.Id},cancellationToken);")}}
                 if(matches.Count!=1||matches[0].Id!=id)throw new InvalidOperationException("复选名称导出存在歧义，名称数组不能唯一还原原ID。");
             }
             values[entity.Id]=entity.{{def.Source.Property}} is null?null:JsonSerializer.Serialize(selected.Select(id=>names[id]).ToArray());

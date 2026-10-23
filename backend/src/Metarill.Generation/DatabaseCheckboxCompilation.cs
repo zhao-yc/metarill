@@ -3,7 +3,7 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
-internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent)
+internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false)
 {
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
     internal IEnumerable<ColumnModel> Dependencies=>(Conditions?.Forms.Select(binding=>binding.Column)??[]).Concat(SourceParent is null?[]:[SourceParent]).DistinctBy(column=>column.Source.Id);
@@ -52,7 +52,8 @@ internal static class DatabaseCheckboxCompilation
             var target=Target(model,source,definition);if(target.Source.Id!=Target(model,source,baseline).Source.Id)return Gap("页级目标覆盖未绑定同一物理关系，不能错读名称。");
             if(Protected(target)||target.IsGlobal)return Gap("目标必须是同项目普通业务表。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="name");
-            if(name is null||name.Type!="string?"||name.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,name)||GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")||ManagerCredentialCompilation.IsCredential(target,name))return Gap("名称必须为非凭据物理字符串name。");
+            if(name is null||name.Type!="string?"||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))return Gap("名称必须为非凭据字符串name。");
+            var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn"))return Gap("物理Join名称仍需独立缓存证明。");
             if(!HasIdentity(model,target))return Gap("目标缺少真实项目归属。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
@@ -62,11 +63,13 @@ internal static class DatabaseCheckboxCompilation
             if(parents.Any(parent=>Protected(parent)||!HasIdentity(model,parent)))return Gap("来源父必须具有普通业务表的真实物理项目归属。");
             foreach(var scope in scopes.Where(scope=>scope.Source=="parent"))if(sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id)return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
             var order=GenerationModel.ValidateOrderBy(definition.OrderBy.Length>0?definition.OrderBy:"name asc",target.Columns).ToList();
-            if(order.Any(item=>!NonRedundantReadCompilation.Physical(model,target,item.Column)||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
+            if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
             var names=SelectionDisplayFieldCompilation.Resolve(table,source);
             if(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
             if(table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
-            return new(new(source,target,name,names,scopes,conditions,order,parents,sourceParent),null);
+            var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived);
+            if(derived)DerivedCheckboxNamesCompilation.Require(model,table,result);
+            return new(result,null);
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or JsonException or NotSupportedException){return Gap(error.Message);}
     }

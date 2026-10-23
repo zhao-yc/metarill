@@ -28,6 +28,7 @@ internal static class DatabaseCheckboxRenderer
         {
             var suffix=Suffix(page,def);var project=def.Target.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
+            if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
                 .AppendLine($"    private async Task<ISelect<{def.Target.Name}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {")
@@ -66,9 +67,9 @@ internal static class DatabaseCheckboxRenderer
                     .AppendLine($"        var form=ReadCheckboxForm{suffix}(request.FormParameters);")
                     .AppendLine("        return session.InReadSnapshotAsync<IReadOnlyList<DatabaseCheckboxOption>>(async()=>")
                     .AppendLine("        {")
-                    .AppendLine($"            var query=await CheckboxScope{suffix}Async(request.ParentId,actor,form,false,cancellationToken);")
-                    .AppendLine("            if(request.Selected is {} selected){if(selected.Length==0)return [];query=query.Where(row=>selected.Contains(row.Id));}")
-                    .AppendLine($"            var rows=await query{string.Concat(def.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"))}.Limit(5001).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
+                    .Append(def.DerivedName?"":$"            var query=await CheckboxScope{suffix}Async(request.ParentId,actor,form,false,cancellationToken);\n")
+                    .Append(def.DerivedName?"":"            if(request.Selected is {} selected){if(selected.Length==0)return [];query=query.Where(row=>selected.Contains(row.Id));}\n")
+                    .AppendLine(def.DerivedName?$"            var rows=await DerivedCheckboxRows{suffix}Async(request.ParentId,actor,form,request.Selected,null,false,5001,false,cancellationToken);":$"            var rows=await query{string.Concat(def.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"))}.Limit(5001).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
                     .AppendLine("            if(rows.Count>DatabaseCheckboxValue.MaximumItems)throw new InvalidOperationException(\"复选候选超过5000项，全选不能使用截断结果。\");")
                     .AppendLine("            return rows.Select(row=>{var id=row.Id.ToString(CultureInfo.InvariantCulture);return new DatabaseCheckboxOption(id,row.Name,id,row.Name);}).ToArray();")
                     .AppendLine("        },cancellationToken);").AppendLine("    }");
@@ -81,8 +82,8 @@ internal static class DatabaseCheckboxRenderer
                 .AppendLine($"        var selected=DatabaseCheckboxValue.Parse(entity.{def.Source.Property});");
             if(int.TryParse(def.Source.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var sourceLimit)&&sourceLimit>0)result.AppendLine($"        if(entity.{def.Source.Property} is {{Length:>{sourceLimit}}})throw new ArgumentException(\"复选ID数组超过已声明物理列长度。\");");
             result
-                .AppendLine($"        var query=await CheckboxScope{suffix}Async({ParentValue(def,"entity")},actor,{EntityForm(def,"entity")},true,cancellationToken);")
-                .AppendLine($"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
+                .Append(def.DerivedName?"":$"        var query=await CheckboxScope{suffix}Async({ParentValue(def,"entity")},actor,{EntityForm(def,"entity")},true,cancellationToken);\n")
+                .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({ParentValue(def,"entity")},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
                 .AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"复选项不存在、已删除或已离开当前固定候选范围，整笔未保存。\");");
             if(table.Source.IsRongyu==1)
                 result.AppendLine("        var names=rows.ToDictionary(row=>row.Id,row=>row.Name);")
