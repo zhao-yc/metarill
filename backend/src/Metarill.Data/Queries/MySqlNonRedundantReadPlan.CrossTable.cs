@@ -32,11 +32,17 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var entry=entries[index];if(HasExtraScope(entry))throw new NotSupportedException("跨表层级额外范围不能忽略。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(entry,"table"))??throw new InvalidOperationException("跨表目标不属于当前发布项目。");
-                    if(target.IsRongyu!=1||CrossText(target,"scopeKind")=="global")throw new NotSupportedException("跨表读取的非冗余／全局目标仍待固定范围接线。");ValidateTarget(target);
+                    if(target.IsRongyu is not(0 or 1)||target.Id==root.Id||CrossText(target,"scopeKind")=="global")throw new NotSupportedException("跨表读取要求独立普通目标，来源自身／全局目标仍待固定范围接线。");ValidateTarget(target);
                     var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==binding.Levels[index].PageId&&item.ConfigTableId==target.Id)??throw new InvalidOperationException("跨表目标页与固定目标表不符。");
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
                     if(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
-                    var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");if(!CrossPhysical(target,display)||display.LogicalType.ToLowerInvariant()!="string")throw new NotSupportedException("跨表名称须为非凭据物理字符串。");
+                    var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
+                    if(display.LogicalType.ToLowerInvariant()!="string"||ExactDataManageValues.IsSensitiveField(display.ColumnName))throw new NotSupportedException("跨表名称须为非凭据单值字符串。");
+                    if(target.IsRongyu==0)
+                    {
+                        var proof=new Builder(catalog,target.Id,matching:true).Compile([display.ColumnName],[]);if(proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
+                    }
+                    else if(!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
                     ColumnMetadata? parent=null;
                     if(index>0)
                     {
@@ -73,11 +79,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 来源varchar与目标CAST可能采用不同默认排序规则；逻辑ID显式保持二进制精确比较。
                     if(slot.LogicalType=="string")idExpression="CONVERT(("+idExpression+") USING utf8mb4) COLLATE utf8mb4_bin";
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
-                    result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+targetAliases[index]+"."+Q(levels[index].Name.ColumnName)+" END","string"));
+                    var label=levels[index].Table.IsRongyu==0?Resolve(levels[index].Table,targetAliases[index],levels[index].Name.ColumnName).Sql:targetAliases[index]+"."+Q(levels[index].Name.ColumnName);
+                    result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+label+" END","string"));
                 }
                 crossProjections.Add(key,new(selection,new ReadOnlyDictionary<string,string>(raw),valid,"("+string.Join(" OR ",paths)+")"));values=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);crossValues.Add(key,values);
             }
-            return values[name];
+            // 有条件的整条路径不能冒充单一物理来源；派生名称编译的临时origin不得泄漏到其它输出。
+            origin=null;return values[name];
         }
         /// <summary>旧父键允许前导零，但必须是正整数且不越界；按文本规范化，不经浮点或宽松数值转换。</summary>
         private static string PositiveText(string expression)

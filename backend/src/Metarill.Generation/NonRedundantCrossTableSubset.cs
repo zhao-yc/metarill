@@ -12,7 +12,7 @@ internal static class NonRedundantCrossTableSubset
         try{using var json=JsonDocument.Parse(source.Source.ControlDetail);return !json.RootElement.TryGetProperty("sourceMode",out var mode)||mode.ValueKind!=JsonValueKind.String||mode.GetString()!="selfTree";}
         catch(Exception invalid)when(invalid is JsonException or InvalidOperationException){return true;}
     }
-    /// <summary>只开放固定R0来源与独立R1目标的完整读写链，元数据及原按钮保持原样。</summary>
+    /// <summary>只开放固定R0来源与独立R0／R1目标的完整读写链，元数据及原按钮保持原样。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         if(table.Source.IsRongyu!=0||source.Source.ControlKind!="CascadeTree"||CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is null)return false;
@@ -27,7 +27,7 @@ internal static class NonRedundantCrossTableSubset
             var trees=companions.Where(Declared).ToArray();
             if(table.Source.IsRongyu!=0||trees.Length==0)return "非冗余跨表完整包要求明确的R0来源。";
             // 自树同伴使用真实自树计划，不当成跨表解析失败；未知、全局或自关联目标仍不放行。
-            if(companions.Where(tree=>!Declared(tree)).Any(tree=>!NonRedundantSelfTreeSubset.FixedTarget(model,table,page,tree)))return "混合自树同伴缺少独立R1目标的完整读写证明。";
+            if(companions.Where(tree=>!Declared(tree)).Any(tree=>!NonRedundantSelfTreeSubset.FixedTarget(model,table,page,tree)))return "混合自树同伴缺少独立目标的完整读写证明。";
             var plans=trees.Select(tree=>CrossTableWriteCompilation.Resolve(model,table,page,tree)).ToArray();
             if(plans.Any(plan=>plan.Definition is null))return "跨表同页完整写入证明缺失，不能忽略隐藏或混合级联。";
             // 原组件按前缀转换属性，原详情还读取显式属性；两者必须与同一后端JSON字段一致。

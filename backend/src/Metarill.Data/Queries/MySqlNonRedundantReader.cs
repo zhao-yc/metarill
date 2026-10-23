@@ -25,6 +25,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     /// <summary>固定有界当前读与原分页共用参数及类型验证，写事务内锁定根和名称联接，不额外COUNT。</summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadCurrentRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
         =>(await ReadAsync(plan,filters,order,1,limit,cancellationToken,false,projectId,false,condition,true)).Records;
+    /// <summary>原跨表候选无分页合同，单条SQL返回完整固定范围，不执行COUNT或静默截断。</summary>
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadAllRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
+        =>(await ReadAsync(plan,filters,order,1,0,cancellationToken,true,projectId,false,condition)).Records;
     private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false)
     {

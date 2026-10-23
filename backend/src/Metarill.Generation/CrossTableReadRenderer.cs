@@ -32,6 +32,7 @@ internal static class CrossTableReadRenderer
                 var scopes=level.Page.Scopes.ToList();var project=target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");if(!target.IsGlobal&&project is not null&&!scopes.Any(scope=>scope.Column.Source.Id==project.Source.Id))scopes.Add((project,"project"));
                 foreach(var(column,_)in scopes)output.AppendLine($"        query=query.Where(row=>row.{column.Property}=={(column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")});");
                 output.Append(FixedPageConditionCompilation.Apply(level.Page,"CrossCondition"+scope,"cross_"+scope)).AppendLine("        return query;").AppendLine("    }");
+                if(target.Source.IsRongyu==0)output.Append(NonRedundantCrossTargetsRenderer.Service(model,table,page,plan,index));
             }
             output.AppendLine("    /// <summary>来源页授权不借用客户端项目、父记录或设备上下文。</summary>").AppendLine($"    private void RequireCrossSource{suffix}(RuntimeActor actor){{ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表级联要求当前真实身份。\");relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"list\");}}")
                 .AppendLine("    /// <summary>固定层号只选生成分支，私有工厂不暴露动态查询入口。</summary>").AppendLine($"    private Metarill.Core.Cascades.CrossTableReader CrossReader{suffix}(RuntimeActor actor,bool currentRead=false,bool requireTargetList=true{(sameSource?", "+table.Name+"? sourceOverride=null,bool creating=false":"")})=>new(new Metarill.Core.Cascades.CrossTableLevel[]{{{string.Join(",",plan.Levels.Select(level=>$"new({Literal(level.Key)},{Literal(GenerationModel.Camel(level.Prefix+"_id"))})"))}}},index=>{{switch(index){{");
@@ -39,6 +40,7 @@ internal static class CrossTableReadRenderer
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,id,ct)=>{switch(index){");
             for(var index=0;index<plan.Levels.Count;index++)
             {
+                if(plan.Levels[index].Target.Source.IsRongyu==0){output.AppendLine(NonRedundantCrossTargetsRenderer.Find(page,plan,index));continue;}
                 var level=plan.Levels[index];var projection=Projection(level);
                 // 写前只覆盖已授权来源自身的待存名称/父键；真实范围与路径必须在正常DML后再次由SQL核验。
                 var overlay=level.Target.Source.Id==table.Source.Id?$"if(sourceOverride is not null&&id==sourceOverride.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");return new Metarill.Core.Cascades.CascadeTreeNode(sourceOverride.Id,sourceOverride.{level.Name.Property},{Parent(level).Replace("row.","sourceOverride.",StringComparison.Ordinal)});}}":"";
@@ -47,6 +49,7 @@ internal static class CrossTableReadRenderer
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,parent,ct)=>{switch(index){");
             for(var index=0;index<plan.Levels.Count;index++)
             {
+                if(plan.Levels[index].Target.Source.IsRongyu==0){output.AppendLine(NonRedundantCrossTargetsRenderer.Children(page,plan,index));continue;}
                 var level=plan.Levels[index];var filter=level.Parent is{} parent?$"var parentKey={(parent.Type=="string?"?"parent?.ToString(CultureInfo.InvariantCulture)":"parent")};query=query.Where(row=>row.{parent.Property}==parentKey);":"";var order=string.Concat(level.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"));
                 output.AppendLine($"        case {index}:{{var query=CrossScope{suffix}_{index}(actor,false);{filter}var rows=await query{order}.ToListAsync({Projection(level)},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{level.Name.Property},{Parent(level)})).ToArray();}}");
             }

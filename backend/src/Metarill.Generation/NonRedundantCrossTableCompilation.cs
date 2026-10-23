@@ -6,7 +6,7 @@ using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
-/// <summary>只接通固定独立R1目标的非冗余跨表生成，逻辑读值与稀疏写值明确分界。</summary>
+/// <summary>只接通固定独立R0／R1目标的非冗余跨表生成，逻辑读值与稀疏写值明确分界。</summary>
 internal static class NonRedundantCrossTableCompilation
 {
     /// <summary>物理ID位不能冒充逻辑父范围；尚未接通的组合在整个生成批次写文件前拒绝。</summary>
