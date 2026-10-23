@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | 多选与数据库复选 | B16、B25—B28：固定非冗余读取及显式／自动冗余名称缓存、多页一致性；见[多选](nonredundant-multi-select.md)、[复选](database-checkbox-relations.md)、[跨页缓存](multi-page-name-cache.md)。 | 派生／非字符串／全局名称、其余复杂关系依赖和完整原页面组合，继续按B17、B20、B23推进。 |
 | 非冗余selfTree | B24固定后端／包已完成；B33固定父范围、双树、List及多选混合后端／包完成，定向76、API83、整套1346通过／0失败／3项专用Fresh未执行，正式215文件稳定。 | B18保留同表／非冗余目标完整宿主、全局及派生名称、精确权限及其余组合；B23保留正式身份／原浏览器验收。 |
-| crossTable与部分选择 | B19已有冗余固定链、来源单层参与及既定部分选择合同，见[来源图](cross-table-source-graph-contract.md)。 | 非冗余目标、其余来源组合、重复来源层位、共享辅助列及复杂父范围；B34已接统一稀疏ID存储基础、B35完成固定数据层逻辑读取；B36固定生成CRUD／原协议HTTP后端已完成，见[生成CRUD](nonredundant-cross-table-crud.md)；逻辑父范围／Excel／复杂联接传播维护／Full及原浏览器继续；非空Excel策略仍按B14待确认。 |
+| crossTable与部分选择 | B19已有冗余固定链、来源单层参与及既定部分选择合同，见[来源图](cross-table-source-graph-contract.md)。 | 非冗余目标、其余来源组合、重复来源层位、共享辅助列及复杂父范围；B34已接统一稀疏ID存储基础、B35完成固定数据层逻辑读取；B36固定生成CRUD／原协议HTTP后端已完成，见[生成CRUD](nonredundant-cross-table-crud.md)；B37已补[空Excel／标量导出](nonredundant-cross-table-excel.md)；逻辑父范围／非空路径策略／复杂联接传播维护／Full及原浏览器继续；非空Excel策略仍按B14待确认。 |
 | 复杂联接与名称传播 | B29固定多值缓存传播；B31固定R1→R0→R1、双角色、后续副本及普通多值混合链，见[混合传播](mixed-relation-name-propagation.md)。 | B20／B21保留其余多值与级联、全局／派生名称和复杂依赖，不能从已验单值中间链推定其它用途完成。 |
 | 原维护回填 | B30固定原HTTP入口、物理预检和完整事务；B31补固定维护向下游传播，见[维护专项](relation-maintenance.md)。 | B22保留原浏览器、独立完整维护前端及其余复杂路径。 |
 | 交叉验收 | 各专项分别保留生成、固定授权HTTP、原Vue／Node及完整包证据。 | B23及总计划仍要求相应正式身份／原浏览器、专用空库组合、设备和同条件性能；3项专用Fresh本轮未执行。 |

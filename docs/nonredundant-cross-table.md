@@ -2,7 +2,7 @@
 
 日期：2026-10-23。状态：B34部分完成，尚未开放非冗余crossTable完整CRUD／Full包。冻结源码`21a61a4cbbe2`，1161文件；已交付B33的父范围／双自树不受影响，B33基线为`5011429`。
 
-当前增量：B35固定数据层读取已完成，见[读取专项](nonredundant-cross-table-read.md)；B36固定生成Service／原CRUD已验收，见[生成CRUD专项](nonredundant-cross-table-crud.md)。逻辑父范围、其余复杂用途、Full与原浏览器继续；本页21a61a4cbbe2为存储基础历史批次。
+当前增量：B35固定数据层读取已完成，见[读取专项](nonredundant-cross-table-read.md)；B36固定生成Service／原CRUD已验收，见[生成CRUD专项](nonredundant-cross-table-crud.md)。B37补[原空Excel／标量导出](nonredundant-cross-table-excel.md)；逻辑父范围、其余复杂用途、Full与原浏览器继续；本页21a61a4cbbe2为存储基础历史批次。
 
 ## 存储含义
 
@@ -41,7 +41,7 @@
 1. B35已完成固定数据层路径／范围，B36已接固定生成Service和原VO；其余组合继续。
 2. B36已验固定原DTO整entity、省略／null、手写规则、复制／清空、目标锁和写后核验／观察器回滚；文件及其余组合继续。
 3. 所有筛选、分页、count、统计、排序及父范围使用逻辑值，不能直接过滤稀疏祖先存储位。复杂联接、传播及维护亦须明确该区别。
-4. 既定空值Excel合同保持，非空路径策略仍按B14待确认；不偷偷选择末级回退或新路径格式。
+4. B37已验证固定非冗余空值Excel／标量导出，非空路径仍按B14待确认；不偷偷选择末级回退或新路径格式。
 5. 同版完整包、手写partial更新保护、真实MySQL、专用空库与原浏览器全部通过后才放开相应能力门禁。
 
 ## 更新及历史数据

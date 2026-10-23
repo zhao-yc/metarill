@@ -26,6 +26,14 @@ public sealed class CrossTableSparseSelectionTests
         catalog.ConfigColumns.Single(column=>column.Id=="3").ColumnName="changed_after_compile";Assert.Equal("place_id",plan.Slots[2].ColumnName);
     }
 
+    /// <summary>显式祖先关联是稀疏位的一部分，列顺序不改变派生名称归属或扩大普通别名豁免。</summary>
+    [Theory][InlineData("string",false)][InlineData("string",true)][InlineData("int64",false)][InlineData("int64",true)]
+    public void Explicit_slot_links_share_cascade_names_but_ordinary_alias_conflicts_stay_rejected(string type,bool reverse)
+    {
+        var catalog=Catalog(type,true);foreach(var column in catalog.ConfigColumns.Where(column=>column.ColumnName is "country_id" or "area_id"))column.LinkConfigTableId="target_"+column.ColumnName;if(reverse)catalog.ConfigColumns.Reverse();var before=JsonSerializer.Serialize(catalog);var plan=MetadataStoragePolicy.ForTable(catalog,catalog.ConfigTables[0]);Assert.Equal(3,plan.PhysicalColumns.Count(column=>column.ColumnName.EndsWith("_id",StringComparison.Ordinal)));Assert.DoesNotContain(plan.PhysicalColumns,column=>column.ColumnName.EndsWith("_name",StringComparison.Ordinal));Assert.Equal(MetadataFieldStorage.RelationDisplay,plan.Kind(catalog.ConfigColumns.Single(column=>column.ColumnName=="country_name")));Assert.Equal(before,JsonSerializer.Serialize(catalog));
+        catalog.ConfigColumns.Add(new(){Id="ordinary",ConfigTableId="1",ColumnName="customer_id",LogicalType="int64",LinkConfigTableId="target_customer"});catalog.ConfigColumns.Add(new(){Id="ordinary_name",ConfigTableId="1",ColumnName="customer_name",LogicalType="string"});Assert.Throws<InvalidOperationException>(()=>MetadataStoragePolicy.ForTable(catalog,catalog.ConfigTables[0]));
+    }
+
     /// <summary>显式各级不同ID类型按自身物理定义编解码，不能把字符串和整数绕过类型检查混用。</summary>
     [Fact]
     public void Mixed_declared_id_types_are_preserved_exactly()

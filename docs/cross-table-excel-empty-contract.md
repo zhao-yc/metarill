@@ -2,6 +2,8 @@
 
 该批修复原模板字段与空单元格内部准备，不启用尚待确认的非空路径还原策略。页面、样式、按钮、请求路由与模板列不增加操作步骤。
 
+后续[B37非冗余专项](nonredundant-cross-table-excel.md)已补双控件稀疏位、显式祖先、原空导入及标量筛选XLSX；以下数字和冗余来源父范围保留为早期批次，非空路径决定未变。
+
 ## 原字段边界
 
 只读实测确认，原页面只声明amount/name/place_id，普通表单扩张隐式级ID后，旧ImportRenderer.Columns却额外带入area_id/country_id。生成模型现在保留扩展前的DeclaredWritable快照，Excel字段取该集合与最终可写列的交集，再排除上下文父字段。

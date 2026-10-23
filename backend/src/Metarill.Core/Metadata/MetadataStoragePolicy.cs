@@ -37,14 +37,16 @@ public static class MetadataStoragePolicy
         var nonredundant=table.IsRongyu==0&&table.IsFunctionTable==0&&table.IsView==0;var managed=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if(nonredundant)
         {
+            // 固定跨表各级ID属于同一稀疏选择；显式关联目标不能再把其名称误作普通业务别名冲突。
+            var sparseSlots=columns.Where(column=>column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&CrossTableStorageColumns.LevelPrefixes(column).Count>0)
+                .SelectMany(column=>CrossTableSparseSelection.Compile(table,column.Id,columns).Slots).Select(slot=>slot.ColumnId).ToHashSet(StringComparer.Ordinal);
             foreach(var relation in columns.Where(column=>column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&IsRelationColumn(column)))
             {
                 if(relation.ControlKind=="CascadeTree")
                 {
-                    if(CrossTableStorageColumns.LevelPrefixes(relation).Count>0)_=CrossTableSparseSelection.Compile(table,relation.Id,columns);
                     foreach(var name in CascadeNames(relation))if(!name.Equals(relation.ColumnName,StringComparison.OrdinalIgnoreCase))managed.Add(name);
                 }
-                else
+                else if(!sparseSlots.Contains(relation.Id))
                 {
                     var auxiliary=Auxiliary(relation);if(auxiliary.Length==0)continue;
                     foreach(var candidate in columns.Where(column=>column.ColumnName.Equals(auxiliary,StringComparison.OrdinalIgnoreCase)&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&!AuditNames.Contains(column.ColumnName)))throw new InvalidOperationException("关联显示别名与真实业务字段冲突，请调整列名或明确声明联接字段。");
