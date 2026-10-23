@@ -6,7 +6,7 @@ using Metarill.Core.Security;
 namespace Metarill.Data.Queries;
 
 /// <summary>隐藏原始ID位只供存储核验，不能混入公开VO；有效性表达式供同范围COUNT／统计复用。</summary>
-internal sealed record MySqlCrossTableProjection(CrossTableSparseSelection Selection,IReadOnlyDictionary<string,string> RawSlots,string Validity);
+internal sealed record MySqlCrossTableProjection(CrossTableSparseSelection Selection,IReadOnlyDictionary<string,string> RawSlots,string Validity,string Reachable);
 
 public static partial class MySqlNonRedundantReadCompiler
 {
@@ -75,7 +75,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
                     result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+targetAliases[index]+"."+Q(levels[index].Name.ColumnName)+" END","string"));
                 }
-                crossProjections.Add(key,new(selection,new ReadOnlyDictionary<string,string>(raw),valid));values=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);crossValues.Add(key,values);
+                crossProjections.Add(key,new(selection,new ReadOnlyDictionary<string,string>(raw),valid,"("+string.Join(" OR ",paths)+")"));values=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);crossValues.Add(key,values);
             }
             return values[name];
         }

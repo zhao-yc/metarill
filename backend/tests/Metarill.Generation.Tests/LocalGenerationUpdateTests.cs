@@ -83,11 +83,11 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
         Assert.Equal(metadata, File.ReadAllBytes(Path.Combine(target, "backend/metadata/project.json"))); Assert.EndsWith("// 新运行时修订。\n", File.ReadAllText(Path.Combine(target, runtime)));
     }
 
-    /// <summary>只登记精确跨表partial路径，保留动作依赖、手写字节及未知相邻文件拒绝。</summary>
-    [Fact]
-    public void Cross_table_runtime_partial_updates_only_with_explicit_scope_and_unknown_neighbours_remain_rejected()
+    /// <summary>跨表partial与逻辑父范围适配器随运行时同步，保留动作依赖、手写字节及未知相邻partial拒绝。</summary>
+    [Theory][InlineData("src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.CrossTable.cs")][InlineData("src/Metarill.Data/Queries/NonRedundantCrossTableScopeSql.cs")]
+    public void Cross_table_runtime_partial_updates_only_with_explicit_scope_and_unknown_neighbours_remain_rejected(string runtime)
     {
-        var (target,candidate)=Packages(Catalog(),Catalog());const string runtime="src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.CrossTable.cs";var hand=Path.Combine(target,"backend/generated/Services/DemoCustomerService.cs");File.AppendAllText(hand,"\n// 更新保留手写partial。\n");var handwritten=File.ReadAllBytes(hand);
+        var (target,candidate)=Packages(Catalog(),Catalog());var hand=Path.Combine(target,"backend/generated/Services/DemoCustomerService.cs");File.AppendAllText(hand,"\n// 更新保留手写partial。\n");var handwritten=File.ReadAllBytes(hand);
         File.AppendAllText(Path.Combine(candidate,runtime),"\n// 已登记的跨表数据层修订。\n");var marker=Path.Combine(candidate,".metarill-package.json");var manifest=JsonNode.Parse(File.ReadAllText(marker))!;manifest["files"]!.AsArray().Single(entry=>entry!["path"]!.GetValue<string>()==runtime)!["sha256"]=Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(candidate,runtime))));File.WriteAllText(marker,manifest.ToJsonString(Json)+"\n");
         var updater=new LocalGenerationUpdater();var configOnly=updater.Preview(target,candidate,["generate-project-config"]);Assert.False(configOnly.CanApply);Assert.Contains("sync-runtime",configOnly.RequiredActions);var plan=updater.Preview(target,candidate,["sync-runtime"]);Assert.True(plan.CanApply);Assert.Contains(plan.Files,file=>file.Path==runtime&&file.Scope=="sync-runtime"&&file.Action=="replace");updater.Apply(plan,plan.PlanSha256);Assert.Equal(File.ReadAllBytes(Path.Combine(candidate,runtime)),File.ReadAllBytes(Path.Combine(target,runtime)));Assert.Equal(handwritten,File.ReadAllBytes(hand));
         const string unknown="src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.Unverified.cs";File.WriteAllText(Path.Combine(candidate,unknown),"// 未登记相邻partial不能借通配符覆盖。\n");manifest=JsonNode.Parse(File.ReadAllText(marker))!;manifest["files"]!.AsArray().Add(new JsonObject{{"path",unknown},{"sha256",Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(candidate,unknown))))}});File.WriteAllText(marker,manifest.ToJsonString(Json)+"\n");var before=SourceSnapshot(target);var error=Assert.Throws<InvalidOperationException>(()=>updater.Preview(target,candidate,All));Assert.Contains("未声明更新策略",error.Message);Assert.Equal(before,SourceSnapshot(target));
