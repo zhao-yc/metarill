@@ -11,13 +11,13 @@ namespace Metarill.Generation.Tests;
 public sealed class GeneratedChildrenTests
 {
     /// <summary>执行真正生成的页签、子列表、导航和弹层脚本，不以拼接字符串代替行为验证。</summary>
-    [Fact]
-    public async Task Generated_children_execute_saved_parent_popup_navigation_and_readonly_contracts()
+    [Theory][InlineData("id")][InlineData("string")]
+    public async Task Generated_children_execute_saved_parent_popup_navigation_and_readonly_contracts(string parentType)
     {
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-generated-children"); var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
         {
-            var catalog = Catalog(); new CSharpGenerator().Generate(catalog, output, "Example.Children");
+            var catalog = Catalog();catalog.ConfigColumns.Single(column=>column.Id=="203").LogicalType=parentType; new CSharpGenerator().Generate(catalog, output, "Example.Children");
             var path = Path.Combine(output, "frontend/pages/yzp/customer-detail-101.vue"); var before = File.ReadAllText(path);
             Assert.Single(System.Text.RegularExpressions.Regex.Matches(before, "<uni-forms "));
             Assert.True(before.IndexOf("</uni-forms>", StringComparison.Ordinal) < before.IndexOf("<ChildList", StringComparison.Ordinal));
@@ -51,6 +51,7 @@ public sealed class GeneratedChildrenTests
     [InlineData("parentPage")] [InlineData("childPage")] [InlineData("noScope")] [InlineData("wrongTable")]
     [InlineData("project")] [InlineData("admin")] [InlineData("cycle")] [InlineData("duplicate")]
     [InlineData("placement")] [InlineData("readonlyExpression")] [InlineData("listEdit")] [InlineData("unknownType")]
+    [InlineData("stringCache")] [InlineData("stringVirtual")] [InlineData("badParentType")]
     public async Task Invalid_child_definition_does_not_write_any_output(string scenario)
     {
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-generated-children"); var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -59,6 +60,9 @@ public sealed class GeneratedChildrenTests
             var catalog = Catalog(); var child = JsonNode.Parse(catalog.ConfigChildren[0].GetRawText())!;
             switch (scenario)
             {
+                case "stringCache": catalog.ConfigColumns.Single(column=>column.Id=="203").LogicalType="string";catalog.ConfigColumns.Single(column=>column.Id=="203").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);break;
+                case "stringVirtual": catalog.ConfigColumns.Single(column=>column.Id=="203").LogicalType="string";catalog.ConfigColumns.Single(column=>column.Id=="203").IsVirtualColumn=1;break;
+                case "badParentType": catalog.ConfigColumns.Single(column=>column.Id=="203").LogicalType="bool";break;
                 case "openType": child["childPageOpenType"] = 3; break;
                 case "openFloat": child["childPageOpenType"] = 1.5; break;
                 case "sort": child["sortNo"] = "bad"; break;

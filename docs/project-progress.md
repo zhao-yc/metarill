@@ -47,7 +47,7 @@
 | B08 | ✅ 已完成 | 普通 Excel 与基础统计 | 原可写列边界、普通导入导出、失败回滚，及物理数值 SUM／原百分比合同已接通；不含所有复杂关系与浏览器下载。 | [统计](list-statistics.md)、[导入错误](import-validation-errors.md)、[Excel边界](cross-table-excel-empty-contract.md) |
 | B09 | 🟡 部分完成 | 非冗余关系存储 | 普通固定标量、单值、type=2、物理文件已有；固定非冗余 MultiSelectPage 已完成（B16），固定 selfTree（B24）及数据库复选（B25）已完成；其他多值、级联、全局及复杂联接继续实施。 | [非冗余存储](nonredundant-storage.md)、[非冗余文件](nonredundant-files.md) |
 | B10 | 🟡 部分完成 | 原级联控件完整能力 | selfTree 普通冗余与 crossTable 固定链已有读取、写入、展示、筛选；同页混合和来源单层参与已验。重复来源层位、共享辅助列及复杂父范围组合仍缺。 | [级联同页与必填](cascade-mixed-required-contract.md)，`393dc41`；[来源图](cross-table-source-graph-contract.md)，`b97ce89` |
-| B11 | 🟡 部分完成 | 关系名称传播与维护回填 | B29已完成固定多值名称传播，B30已接原维护入口的固定联接／多值回填；混合自动传播、复杂派生、维护其余路径及原浏览器继续。 | [非冗余存储](nonredundant-storage.md)、[主框架审计](framework-gap-audit.md) |
+| B11 | 🟡 部分完成 | 关系名称传播与维护回填 | B29完成固定多值名称传播，B30接原维护入口的固定联接／多值回填，B31补固定R1→R0→R1混合传播及维护下游；其余混合依赖、复杂派生、维护路径及原浏览器继续。 | [非冗余存储](nonredundant-storage.md)、[主框架审计](framework-gap-audit.md) |
 | B12 | 🟡 部分完成 | 完整页面配置能力 | 补齐并验收详情分组、复杂条件显示／只读、完整表单规则及配置按钮；不能以原组件存在判为完成。 | [主框架审计·列表详情](framework-gap-audit.md) |
 | B13 | 🟡 部分完成 | 复杂文件与云存储 | 基础文件已接；补复杂关系／派生文件、全部配置组合及 S3 等云存储完整矩阵。 | [非冗余文件](nonredundant-files.md)、[原文件管理](original-file-management.md)、[主框架审计](framework-gap-audit.md) |
 | B14 | ⏳ 待确认 | 跨表级联非空路径 Excel | 空单元格、可写列边界已完成；非空路径的旧回退语义与无损往返存在冲突，等待选择后接通完整导入导出。 | [待确认策略](cross-table-excel-policy-decision.md)、[已完成空值范围](cross-table-excel-empty-contract.md) |
@@ -61,7 +61,7 @@
 | --- | --- | --- | --- | --- |
 | B16 | ✅ 已完成 | 非冗余 MultiSelectPage 固定后端／生成链路 | 固定字符串名称、显式／自动数组、分页前筛选、CRUD／当前回显、Excel、原 Vue 协议、Full 包与更新保护通过；仅此后端／生成固定子集，不含 B17 和 B23。 | [多选专项](nonredundant-multi-select.md)，2026-10-22；源码快照 `2de892abb36b` |
 | B17 | 🟡 部分完成 | 其他多值控件与多选派生名称 | 通用复选固定名称已完成 B25，两类控件的明确联接物理缓存已完成 B26；自动冗余缓存固定子集已完成 B27；派生／非字符串名称、复杂联接及未证明组合继续。 | [复选专项](database-checkbox-relations.md)、[多选剩余范围](nonredundant-multi-select.md) |
-| B18 | 🟡 部分完成 | 非冗余 selfTree | 固定后端的 ID 存储、实时名称／路径、筛选／统计／Excel、当前读与同表图已验；固定完整包子集已完成 B24。来源父范围、混合控件及原浏览器／正式宿主组合继续补齐。 | [自树专项](nonredundant-self-tree.md)、[原树读取](cascade-tree-read-contract.md) |
+| B18 | 🟡 部分完成 | 非冗余 selfTree | 固定后端的 ID 存储、实时名称／路径、筛选／统计／Excel、当前读与同表图已验；固定完整包子集已完成 B24。B33完成固定来源父范围及双树／List／多选混合后端／完整包；同表／全局／派生目标等其余组合及原浏览器／正式宿主继续。 | [自树专项](nonredundant-self-tree.md)、[原树读取](cascade-tree-read-contract.md) |
 | B19 | 🟡 部分完成 | crossTable 剩余组合与非冗余链 | 冗余固定链及来源单层参与已验；非冗余、重复来源层位、共享辅助列和复杂父范围仍缺，Excel 策略另按 B14。 | [来源图](cross-table-source-graph-contract.md)、[主框架审计](framework-gap-audit.md) |
 | B20 | 🟡 部分完成 | 复杂联接与全局／派生名称 | 已有固定单值多级路径；B31完成固定R1→R0→R1及后续副本与普通多值统一传播；其余多值／级联、全局目标、复杂派生名称及各读取用途继续。 | [非冗余存储](nonredundant-storage.md) |
 | B21 | 🟡 部分完成 | 名称变更与混合存储传播 | B29已完成固定多值物理名称的目标改名／软删／物理删、同源多缓存及自关联同事务更新；B31完成固定非冗余中间节点、双角色及下游／普通多值混合链；其余复杂依赖继续。 | [传播专项](relation-name-propagation.md)、[主框架审计](framework-gap-audit.md) |
@@ -76,8 +76,8 @@
 | B30 | ✅ 已完成 | 原维护回填固定后端／完整包 | 原控制器、冻结计划／脱敏、原登录与按钮规则、物理预检、单值／R0中间／多值及ID辅助显示、跨批整体回滚、Full更新与手写保护通过；仅此固定后端范围。 | [回填专项](relation-maintenance.md)，2026-10-23；冻结源码 `2b2a65e1f467` |
 | B31 | ✅ 已完成 | 固定R1→R0→R1混合名称传播 | 单值双角色、R0中间切换／删除、后续副本、普通多值及维护下游、旧RR／131来源／真实锁环与Full更新通过；数据262、原API9、生成组合152分别零失败零跳过。仅固定范围，B21保持部分完成。 | [混合传播专项](mixed-relation-name-propagation.md)，2026-10-23；冻结源码 `c55b605da5a4` |
 | B32 | ✅ 已完成 | 带文件字段的物理删除一致性 | 删除前真实来源／父锁和一次性事务证明、删除后核验／解绑、跨库实例复用、真实文件锁与回滚、生成HTTP／Full更新通过；文件101、跨库7、生成152、原API9分别零失败零跳过。仅固定MySQL后端／包范围。 | [物理删除专项](physical-file-deletion.md)，2026-10-23；冻结源码 `43fd5e9dfd13` |
-
-
+| B33 | ✅ 已完成 | 非冗余自树父范围与混合关系固定后端／完整包 | 字符串／int64父外键、双树、List及多选、原主子入口、ID规范化、CRUD／Excel／锁与回滚、原组件及Full更新保护通过。定向76、API83零失败零跳过；整个生成工程1349项为1346通过／0失败／3项专用Fresh未执行；215正式文件两轮稳定。原两轮失败保留，B18／B23及整个复杂关系仍未完成。 | [父范围混合专项](nonredundant-parented-self-tree.md)，2026-10-23；冻结源码 `814744d2eb0c` |
+| B34 | ⬜ 待开发 | 非冗余crossTable部分选择的无损存储 | 已静态核对原控件可只选根／中层，而当前非冗余计划只存末级ID；必须在统一物理计划与读写投影中无损表达所选层级，继续覆盖复制／清空、既定Excel、父范围及完整包，保留原交互。当前门禁仍在，未声称实际写丢数据。 | [当前矩阵与断点](nonredundant-storage.md#非冗余跨表部分选择的当前断点)，2026-10-23；当前源码 `4dafb550e472` |
 
 ## 三、独立应用、初始化、助手与 Agent
 

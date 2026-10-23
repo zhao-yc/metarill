@@ -28,6 +28,7 @@ internal static class GenerationCapabilityAudit
                     RequirePublishedRealm(model, table, page);
                     foreach (var relation in RelationCompilation.ForPage(model, page)) RequirePublishedRealm(model, relation.Target, relation.TargetPage);
                     foreach(var tree in CascadeTreeReadCompilation.ForService(model,table,page).Where(plan=>NonRedundantSelfTreeSubset.Supports(model,table,page,plan.Source)))RequirePublishedRealm(model,tree.Target,tree.TargetPage);
+                    if(table.Columns.Any(column=>column.Source.ControlKind=="CascadeTree"))foreach(var parent in NonRedundantSelfTreeSubset.ParentTables(model,table,page))if(parent.Source.YzProjectId!=model.Catalog.YzProjectId)throw new InvalidOperationException("非冗余自树父表必须明确发布于包内项目。");
                 }
                 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
                 { gaps.Add(new(page.Source.Id, "", "runtime", "非冗余固定读取未完成：" + error.Message)); }

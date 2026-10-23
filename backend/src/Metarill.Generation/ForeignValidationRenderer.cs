@@ -107,6 +107,9 @@ internal static class ForeignValidationRenderer
                 result.AppendLine($"            throw new InvalidOperationException({Literal("关联目标尚未移植：" + column.Source.Name)});");
             else
             {
+                // 数字文本外键与目标主键共用唯一表示；依赖变化触发重验时也登记实际归一化写入。
+                if(column.Type=="string?"&&!column.IsJsonArray)result.AppendLine($"            var canonicalRelation{number}=long.Parse(entity.{column.Property},CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);")
+                    .AppendLine($"            if(entity.{column.Property}!=canonicalRelation{number}){{entity.{column.Property}=canonicalRelation{number};submitted.Add({Literal(column.Source.ColumnName)});}}");
                 if (column.IsJsonArray)
                     result.AppendLine($"            using var relation{number} = JsonDocument.Parse(entity.{column.Property});")
                         .AppendLine($"            if (relation{number}.RootElement.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"多值关联必须为数组。\");")

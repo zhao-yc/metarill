@@ -45,6 +45,8 @@ public partial class ConfigChildService
         }
         if ((creating || submitted.Contains("child_config_page_id")) && entity.ChildConfigPageId is not null)
         {
+            var canonicalRelation2=long.Parse(entity.ChildConfigPageId,CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+            if(entity.ChildConfigPageId!=canonicalRelation2){entity.ChildConfigPageId=canonicalRelation2;submitted.Add("child_config_page_id");}
             var relationIds2 = new[] { long.Parse(entity.ChildConfigPageId, CultureInfo.InvariantCulture) };
             var relationQuery2 = session.Select<ConfigPage>().Where(row => relationIds2.Contains(row.Id));
             relationQuery2 = relationQuery2.Where(row => row.DeleteNo == null);

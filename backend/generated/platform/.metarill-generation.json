@@ -258,7 +258,7 @@
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "29899ae4757a58f9a5af83836431f4c58e5f84e32a39164838f8752700736d6d"
+      "sha256": "2b004ffca3bb7c21683d933169eb45e7b20153f71094595185f05850e59827a6"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -362,7 +362,7 @@
     },
     {
       "path": "Services/ConfigChildService.g.cs",
-      "sha256": "12e7c209036daf0cc00e6b7cec398ae07cd581ddb0486ea092ad1985965b291d"
+      "sha256": "4005a6fdd2eb3c754371622d2a6cbcb638a252e002ab19144194405abe1de1d9"
     },
     {
       "path": "Services/ConfigColumnService.g.cs",

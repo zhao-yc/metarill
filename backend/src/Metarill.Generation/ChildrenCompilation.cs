@@ -31,7 +31,9 @@ internal static class ChildrenCompilation
             if (scopes.Length != 1) throw new InvalidOperationException("子页面必须具有唯一的 parentId 范围：" + id);
             var column = scopes[0].Column;
             var target = model.Tables.SingleOrDefault(table => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? table.Source.Id == column.Source.LinkConfigTableId : table.Source.TableName + "_id" == column.Source.ColumnName);
-            if (target != parent.Table || column.Type is not ("long" or "long?")) throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);
+            // 前端父ID沿原字符串协议；新增字符串外键须证明物理归属，现有整数范围合同保持。
+            var supported=column.Type is "long" or "long?"||column.Type=="string?"&&NonRedundantReadCompilation.Physical(model,child.Table,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn");
+            if (target != parent.Table || !supported) throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);
             var openType = Integer(source, "childPageOpenType", 1);
             if (openType is not (1 or 2)) throw new InvalidOperationException("子页面打开方式仅支持 1（新页面）和 2（PC 弹出层）：" + id);
             children.Add(new(id, parent.Page, child.Table, child.Page, Integer(source, "sortNo", 0), openType));

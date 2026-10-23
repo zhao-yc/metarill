@@ -518,10 +518,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         }
         catch (JsonException) { throw new InvalidOperationException("字段默认值不能转换为逻辑类型：" + column.Source.ColumnName); }
     }
-    /// <summary>把可信身份或已校验父记录转换为字段类型。</summary>
+    /// <summary>范围身份按整数主键规范化；字符串存储不能保留前导零而与父记录校验分离。</summary>
     private static string ScopeValue(ColumnModel column, string value) => column.Type switch
     {
-        "string?" => value,
+        "string?" => $"long.Parse({value}, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)",
         "long?" or "long" => $"long.Parse({value}, CultureInfo.InvariantCulture)",
         "int?" => $"int.Parse({value}, CultureInfo.InvariantCulture)",
         _ => throw new InvalidOperationException("查询范围字段必须为整型或字符串。")

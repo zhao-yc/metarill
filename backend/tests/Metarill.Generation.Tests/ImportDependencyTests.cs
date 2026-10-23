@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Xunit;
 
@@ -51,6 +52,12 @@ public sealed class ImportDependencyTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ImportDependency");var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var type=assembly.GetType("Example.ImportDependency.Generated.Services.MtImportDepOrderService",true)!;var constructor=type.GetConstructors().Single();var arguments=new object?[constructor.GetParameters().Length];
+            // 纯行解析器不连接数据库，但仍提供宿主正常注入的空观察器／守卫集合。
+            foreach(var parameter in constructor.GetParameters())
+            {
+                if(parameter.ParameterType==typeof(IEnumerable<IRecordMutationObserver>))arguments[parameter.Position]=Array.Empty<IRecordMutationObserver>();
+                if(parameter.ParameterType==typeof(IEnumerable<IRecordMutationGuard>))arguments[parameter.Position]=Array.Empty<IRecordMutationGuard>();
+            }
             var service=constructor.Invoke(arguments);var parse=type.GetMethod("ParseImport105Async",BindingFlags.NonPublic|BindingFlags.Instance)!;var actor=new RuntimeActor(1,"离线依赖",false,"54","5");
             var entity=Activator.CreateInstance(assembly.GetType("Example.ImportDependency.Generated.Entities.MtImportDepOrder",true)!)!;
             var values=await Call("{\"记录名\":\"只提交名称\"}",entity);Assert.Equal(new[]{"name"},values.Keys);

@@ -243,6 +243,6 @@ public sealed partial class {{page.Name}}ImportRequest
     internal static string Header(ColumnModel column) => string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name;
     /// <summary>安全生成 C# 字符串字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
-    /// <summary>关系候选参数只由真实身份或父记录上下文转换。</summary>
-    private static string ScopeValue(ColumnModel column, string value) => column.Type switch { "string?" => value, "long?" or "long" => $"long.Parse({value}, CultureInfo.InvariantCulture)", "int?" => $"int.Parse({value}, CultureInfo.InvariantCulture)", _ => throw new InvalidOperationException("关系范围字段类型无效。") };
+    /// <summary>导入候选与标准写入共用规范整数身份，字符串范围不保留前导零别名。</summary>
+    private static string ScopeValue(ColumnModel column, string value) => column.Type switch { "string?" => $"long.Parse({value}, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)", "long?" or "long" => $"long.Parse({value}, CultureInfo.InvariantCulture)", "int?" => $"int.Parse({value}, CultureInfo.InvariantCulture)", _ => throw new InvalidOperationException("关系范围字段类型无效。") };
 }

@@ -34,12 +34,21 @@ public static class GenerationMetadataPublisher
     /// <summary>关系执行目录先脱敏，再去掉品牌、菜单及布局；纯配置更新不因此强制更新后端生成代码。</summary>
     internal static MetadataCatalog ForRelations(MetadataCatalog catalog)
     {
-        var published=Publish(catalog).Metadata;
+        // 关系编译维持生成器的定义错误合同；直接发布保留原ArgumentException及原门禁边界。
+        MetadataCatalog published;
+        try { published=Publish(catalog).Metadata; }
+        catch (ArgumentException error) { throw new InvalidOperationException("关系元数据含重复或无效的JSON属性。", error); }
         published.YzProjectName="Metarill";published.PrimaryColor="#0ab3ad";
         published.ConfigMenus=[];published.ConfigCustomPages=[];published.ConfigPageColumns=[];published.ConfigChildren=[];published.ConfigIndexes=[];published.ConfigIndexColumns=[];
         published.ConfigPages=published.ConfigPages.Select(page=>new PageMetadata{Id=page.Id,ConfigTableId=page.ConfigTableId,YzProjectId=page.YzProjectId,YzAdminTypeId=page.YzAdminTypeId}).ToList();
         published.YzAdminTypes=published.YzAdminTypes.Select(admin=>new AdminTypeMetadata{Id=admin.Id,YzProjectId=admin.YzProjectId}).ToList();
         published.ConfigButtons=published.ConfigButtons.Where(button=>button.TryGetProperty("sql",out var path)&&path.ValueKind==JsonValueKind.String&&path.GetString() is "/admin/sys/system_maintenance/tables" or "/admin/sys/system_maintenance/backfill_join_columns").Select(button=>JsonSerializer.SerializeToElement(new{id=button.GetProperty("id").ToString(),sql=button.GetProperty("sql").GetString()})).ToList();
+        // 固定记录集合的发布次序；不重排业务扩展数组，也不改变SortNo和原始输入。
+        published.ConfigTables=published.ConfigTables.OrderBy(item=>item.Id,StringComparer.Ordinal).ToList();
+        published.ConfigColumns=published.ConfigColumns.OrderBy(item=>item.Id,StringComparer.Ordinal).ToList();
+        published.ConfigPages=published.ConfigPages.OrderBy(item=>item.Id,StringComparer.Ordinal).ToList();
+        published.YzAdminTypes=published.YzAdminTypes.OrderBy(item=>item.Id,StringComparer.Ordinal).ToList();
+        published.ConfigButtons=published.ConfigButtons.OrderBy(item=>item.GetProperty("id").ToString(),StringComparer.Ordinal).ToList();
         return published;
     }
 
