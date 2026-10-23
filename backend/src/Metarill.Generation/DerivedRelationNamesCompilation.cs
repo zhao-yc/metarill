@@ -10,18 +10,27 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>隐藏字段也保留表级派生目标证明，仅用于内部最终值校验，不新增公开路由。</summary>
     internal static bool DeclaredSource(GenerationModel model,ColumnModel source)
     {
-        if(source.Source.ControlKind!="List")return false;
+        if(source.Source.ControlKind is not("List" or "SelectPage"))return false;
         var target=ForeignValidationRenderer.Target(model,source);if(target is null)return false;
         var name="name";
         if(!string.IsNullOrWhiteSpace(source.Source.ControlDetail)){using var json=JsonDocument.Parse(source.Source.ControlDetail);if(json.RootElement.TryGetProperty("nameField",out var field)&&field.ValueKind==JsonValueKind.String&&!string.IsNullOrWhiteSpace(field.GetString()))name=field.GetString()!;}
         var display=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==name);
         return display is not null&&!NonRedundantReadCompilation.Physical(model,target,display);
     }
+    /// <summary>type=1单选先独立证明目标，不反向调用关系编译；名称终点必须是非凭据单值字符串。</summary>
+    internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
+    {
+        if(owner.Source.IsRongyu!=0||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生单选名称要求R0来源、普通R0目标及原type=1固定单值页面。");
+        if(page.Scopes.Select(scope=>scope.Column).Concat(page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)))throw new InvalidOperationException("派生单选名称的目标身份、父及条件必须为物理标量。");
+        var plan=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
+        if(plan.OutputTypes[name.Source.ColumnName]!="string")throw new InvalidOperationException("派生单选名称未落到固定字符串终点。");
+    }
     /// <summary>普通目标及父条件必须完整证明，暂不把逻辑跨表父或平台固定归属当作普通物理范围。</summary>
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,PageModel page,RelationModel relation)
     {
         var target=relation.Target;var name=relation.NameColumn;
-        if(owner.Source.IsRongyu!=0||relation.SourceColumn.Source.ControlKind!="List"||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||name.Type!="string?"||name.IsJsonArray||relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))throw new InvalidOperationException("派生名称关系要求R0来源List、普通R0目标及已证明的物理候选范围。");
+        if(relation.SourceColumn.Source.ControlKind=="SelectPage")RequireSelection(model,owner,target,relation.TargetPage,name);
+        if(owner.Source.IsRongyu!=0||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||name.Type!="string?"||name.IsJsonArray||relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))throw new InvalidOperationException("派生名称关系要求R0来源List／SelectPage、普通R0目标及已证明的物理候选范围。");
         var fields=relation.TargetPage.Scopes.Concat(relation.Scopes).Select(scope=>scope.Column)
             .Concat(relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Concat(relation.Conditions?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
