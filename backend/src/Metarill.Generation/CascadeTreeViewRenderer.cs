@@ -47,6 +47,7 @@ internal static class CascadeTreeViewRenderer
         foreach(var plan in CascadeTreeReadCompilation.ForService(model,table,page))
         {
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;
+            if(plan.DerivedName){result.Append(DerivedCascadeNamesRenderer.Graph(page,plan));continue;}
             var projection=$"row=>new {target.Name}{{Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
             var parentValue=parent.Type=="string?"?"row."+parent.Property:"row."+parent.Property+"?.ToString(CultureInfo.InvariantCulture)";
             var map=$"rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{parentValue})).ToArray()";

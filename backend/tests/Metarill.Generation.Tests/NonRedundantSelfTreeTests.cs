@@ -32,12 +32,14 @@ public sealed class NonRedundantSelfTreeTests
     }
     /// <summary>真实生成页和原级联组件共同在Vue3挂载，网络受控；不替代浏览器或正式宿主验收。</summary>
     [Theory][InlineData(false)][InlineData(true)]
-    public async Task Original_self_tree_vue_keeps_paths_selection_clear_readonly_and_physical_write_contract(bool automatic)
+    public Task Original_self_tree_vue_keeps_paths_selection_clear_readonly_and_physical_write_contract(bool automatic)=>ExerciseOriginalVue(automatic,false);
+    /// <summary>相同原组件探针用于物理和派生目标，不复制或简化UI。</summary>
+    internal static async Task ExerciseOriginalVue(bool automatic,bool derived)
     {
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-nonred-self-vue");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
-            new CSharpGenerator().Generate(Catalog("nr_tree",automatic:automatic),output,"Example.TreeVue");
+            new CSharpGenerator().Generate(derived?DerivedSelfTreeTests.Catalog("nr_tree","string","int64",automatic):Catalog("nr_tree",automatic:automatic),output,"Example.TreeVue");
             var start=new System.Diagnostics.ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true,StandardOutputEncoding=System.Text.Encoding.UTF8,StandardErrorEncoding=System.Text.Encoding.UTF8};start.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.Root(),"backend/tests/Metarill.Generation.Tests/NonRedundantSelfTreeVueProbe.mjs"));start.ArgumentList.Add(output);
             using var process=System.Diagnostics.Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));try{await process.WaitForExitAsync(timeout.Token);}catch(Exception error){await SharedSourceBuildGate.StopOwnProcessAsync(process,stdout,stderr,error);throw;}Assert.True(process.ExitCode==0,await stdout+await stderr);
         }
@@ -45,9 +47,11 @@ public sealed class NonRedundantSelfTreeTests
     }
     /// <summary>从包内基础源码独立构建原前端宿主，实际本地更新继续保护手写partial。</summary>
     [Theory][InlineData(false)][InlineData(true)]
-    public async Task Full_self_tree_package_builds_and_updates_without_replacing_original_component_or_handwritten_code(bool automatic)
+    public Task Full_self_tree_package_builds_and_updates_without_replacing_original_component_or_handwritten_code(bool automatic)=>ExerciseFull(automatic,false);
+    /// <summary>派生目标与原目标共用真实完整包构建／更新验收。</summary>
+    internal static async Task ExerciseFull(bool automatic,bool derived)
     {
-        var catalog=Catalog("nr_tree",automatic:automatic);
+        var catalog=derived?DerivedSelfTreeTests.Catalog("nr_tree","string","int64",automatic):Catalog("nr_tree",automatic:automatic);
         foreach(var record in catalog.ConfigTables.Cast<MetadataRecord>().Concat(catalog.ConfigColumns).Concat(catalog.ConfigPages).Concat(catalog.ConfigPageColumns))record.YzProjectId=catalog.YzProjectId;
         catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId,Name="自树后台"});foreach(var page in catalog.ConfigPages)page.YzAdminTypeId="5";
         catalog.ConfigMenus.Add(new(){Id="9001",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",Name="树关系",Kind="GENERATED_PAGE",ConfigPageId="201"});
@@ -57,7 +61,7 @@ public sealed class NonRedundantSelfTreeTests
             Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,"Example.TreeApplication")));var package=new ApplicationPackager().Create(catalog,output,"Example.TreeApplication",NonRedundantApplicationFixture.Root());Assert.True(package.FrontendIncluded);
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);
             var component="frontend/components/yzp-cascade-tree/yzp-cascade-tree.vue";Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(NonRedundantApplicationFixture.Root(),"frontend/metarill_uni_admin/components/yzp-cascade-tree/yzp-cascade-tree.vue")),await File.ReadAllBytesAsync(Path.Combine(output,component)));Assert.DoesNotContain("$set",await File.ReadAllTextAsync(Path.Combine(output,component)));
-            using var profile=JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/generation-capabilities.json")));var subset=Assert.Single(profile.RootElement.GetProperty("supportedControlSubsets").EnumerateArray());Assert.Equal("CascadeTree",subset.GetProperty("controlKind").GetString());Assert.Equal("selfTree",subset.GetProperty("sourceMode").GetString());Assert.False(subset.GetProperty("sameTableSupported").GetBoolean());Assert.False(subset.GetProperty("renamePropagationSupported").GetBoolean());
+            using var profile=JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/generation-capabilities.json")));var subset=Assert.Single(profile.RootElement.GetProperty("supportedControlSubsets").EnumerateArray());Assert.Equal("CascadeTree",subset.GetProperty("controlKind").GetString());Assert.Equal("selfTree",subset.GetProperty("sourceMode").GetString());Assert.False(subset.GetProperty("sameTableSupported").GetBoolean());Assert.False(subset.GetProperty("renamePropagationSupported").GetBoolean());Assert.Equal(derived,subset.GetProperty("derivedNameSupported").GetBoolean());
             var handwritten=Path.Combine(output,"backend/generated/Services/NrTreeSourceService.cs");await File.AppendAllTextAsync(handwritten,"\n// 自树包手写保护标记。\n");var bytes=await File.ReadAllBytesAsync(handwritten);var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(catalog,candidate,"Example.TreeApplication",NonRedundantApplicationFixture.Root());var updater=new LocalGenerationUpdater();var plan=updater.Preview(output,candidate,["generate-project-config","sync-runtime","generate-all-page"]);Assert.True(plan.CanApply);updater.Apply(plan,plan.PlanSha256);Assert.Equal(bytes,await File.ReadAllBytesAsync(handwritten));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

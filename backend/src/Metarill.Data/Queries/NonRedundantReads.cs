@@ -45,6 +45,8 @@ public sealed class NonRedundantReader(DatabaseSession session)
     public Task<FixedReadPage> PageAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken token=default,bool unpaged=false,string? projectId=null,FixedConditionSqlPlan? condition=null,bool currentRead=false)=>mysql.ReadPageAsync(plan.MySql,filters,order,page,pageSize,token,unpaged,projectId,condition,currentRead);
     /// <summary>有界导出按固定顺序读取原列投影，不发出不需要的COUNT。</summary>
     public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> RowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadRowsAsync(plan.MySql,filters,order,limit,token,projectId,condition);
+    /// <summary>写校验沿真实事务锁定固定投影及联接名称，不执行COUNT；旧RowsAsync合同保持。</summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> CurrentRowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadCurrentRowsAsync(plan.MySql,filters,order,limit,token,projectId,condition);
     /// <summary>统计不会继承分页或排序。</summary>
     public Task<FixedReadStatistics> StatisticsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<string> sums,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadStatisticsAsync(plan.MySql,filters,sums,token,projectId,condition);
 }

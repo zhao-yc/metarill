@@ -22,6 +22,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
         => (await ReadAsync(plan,filters,order,1,limit,cancellationToken,false,projectId,false,condition)).Records;
     /// <summary>分页和有界明细共用结构生成；是否求总数由服务固定用途决定。</summary>
+    /// <summary>固定有界当前读与原分页共用参数及类型验证，写事务内锁定根和名称联接，不额外COUNT。</summary>
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadCurrentRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
+        =>(await ReadAsync(plan,filters,order,1,limit,cancellationToken,false,projectId,false,condition,true)).Records;
     private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false)
     {

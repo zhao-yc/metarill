@@ -31,18 +31,23 @@ public sealed class NonRedundantSelfTreeMySqlTests
     private const long Project=9007199254740993,First=9007199254742001;
     /// <summary>两种ID／父键及显隐名称各用独占两表，清理后独立连接确认不存在。</summary>
     [StandaloneExportMySqlFact]
-    public async Task Only_selected_id_is_stored_while_paths_filters_excel_and_current_writes_share_graph()
+    public Task Only_selected_id_is_stored_while_paths_filters_excel_and_current_writes_share_graph()=>VerifyAll(false);
+    /// <summary>独立R0树的名称联接在真实MySQL覆盖父键交叉、原候选和旧快照后的完整路径。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Derived_names_share_candidates_paths_filters_excel_and_current_writes()=>VerifyAll(true);
+    /// <summary>先核对固定测试实例；仅本轮随机样本允许清理。</summary>
+    private static async Task VerifyAll(bool derived)
     {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));var options=settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
         var cs=new MySqlConnectionStringBuilder(options.ConnectionString);if(options.Provider!="mysql"||options.ExpectedDatabase!="metarill_business_test"||cs.Database!=options.ExpectedDatabase||cs.Server!="deve-server.yinzon.com"||cs.Port!=3306)throw new InvalidOperationException("自树实库仅允许Server-200隔离业务库。");
         using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")??throw new InvalidOperationException("缺少实例pin。")));
         await using(var connection=new MySqlConnection(options.ConnectionString)){await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例不匹配，未创建样本。");}
-        foreach(var type in new[]{"string","int64"})foreach(var automatic in new[]{false,true})await Exercise(options,type,automatic);
+        foreach(var type in new[]{"string","int64"})foreach(var parentType in derived?new[]{"string","int64"}:new[]{type})foreach(var automatic in new[]{false,true})await Exercise(options,type,parentType,automatic,derived);
     }
     /// <summary>元数据先行显式建表；父及候选范围沿原页面，名称不进入物理记录。</summary>
-    private static async Task Exercise(DatabaseOptions options,string type,bool automatic)
+    private static async Task Exercise(DatabaseOptions options,string type,string parentType,bool automatic,bool derived)
     {
-        var nonce=Guid.NewGuid().ToString("N");var prefix="mt_nrself_"+nonce[..12];var catalog=NonRedundantSelfTreeTests.Catalog(prefix,type,type,automatic);
+        var nonce=Guid.NewGuid().ToString("N");var prefix=(derived?"mt_dtname_":"mt_nrself_")+nonce[..12];var catalog=derived?DerivedSelfTreeTests.Catalog(prefix,type,parentType,automatic):NonRedundantSelfTreeTests.Catalog(prefix,type,parentType,automatic);
         foreach(var column in catalog.ConfigColumns)column.Name=column.ColumnName;
         catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=1;catalog.ConfigColumns.Single(column=>column.Id=="25").SortNo=2;
         catalog.ConfigColumns.Add(new(){Id="28",ConfigTableId="2",ColumnName="amount",Name="amount",LogicalType="int64",SortNo=3});catalog.ConfigPageColumns.Add(new(){Id="2008",ConfigPageId="201",ConfigColumnId="28",Extra=new(){["sumKind"]=JsonSerializer.SerializeToElement(1)}});
@@ -55,22 +60,39 @@ public sealed class NonRedundantSelfTreeMySqlTests
             var nameOnly=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;nameOnly.Id="203";nameOnly.IsImport=0;nameOnly.IsCopy=0;nameOnly.Extra.Remove("importMethod");catalog.ConfigPages.Add(nameOnly);
             catalog.ConfigPageColumns.Add(new(){Id="20326",ConfigPageId="203",ConfigColumnId="26",SortNo=1});
         }
-        var root=Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??throw new InvalidOperationException("缺少仓库路径。"));var evidence=Path.Combine(root,".local/nonredundant-self-tree/mysql-"+nonce);Directory.CreateDirectory(evidence);
-        var boundary=Path.Combine(Path.GetTempPath(),"metarill-nonred-self-http");var directory=Path.Combine(boundary,nonce);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var source=prefix+"_source";var target=prefix+"_tree";var parent="parent_"+prefix+"_tree_id";
-        using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var store=new SqlRowStore(session,catalog);var ids=new SnowflakeIdGenerator(873);var owned=new HashSet<long>();var observer=new FailureObserver();var guard=new SnapshotGuard(options,target);WebApplication? app=null;bool created=false;string? fingerprint=null;
+        var root=Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??throw new InvalidOperationException("缺少仓库路径。"));var evidence=Path.Combine(root,(derived?".local/derived-self-tree/mysql-":".local/nonredundant-self-tree/mysql-")+nonce);Directory.CreateDirectory(evidence);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-nonred-self-http");var directory=Path.Combine(boundary,nonce);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var source=prefix+"_source";var target=prefix+"_tree";var parent="parent_"+prefix+"_tree_id";var company=prefix+"_company";var nameTable=derived?company:target;
+        using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var store=new SqlRowStore(session,catalog);var ids=new SnowflakeIdGenerator(873);var owned=new HashSet<long>();var observer=new FailureObserver();var guard=new SnapshotGuard(options,nameTable);WebApplication? app=null;bool created=false;string? fingerprint=null;
         try
         {
-            Assert.Empty((await schema.InspectAsync(catalog)).Tables);var plan=await schema.PreviewAsync(catalog);Assert.Equal(2,plan.Changes.Count);await Receipt("intent",false);created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);fingerprint=MySqlSchemaPlanner.Fingerprint(await schema.InspectAsync(catalog));
+            Assert.Empty((await schema.InspectAsync(catalog)).Tables);var plan=await schema.PreviewAsync(catalog);Assert.Equal(derived?3:2,plan.Changes.Count);await Receipt("intent",false);created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);fingerprint=MySqlSchemaPlanner.Fingerprint(await schema.InspectAsync(catalog));
             var longName=new string('长',80);
             for(var index=0;index<11;index++)
             {
                 long? parentId=index switch{1=>First,2=>First+1,7=>First+6,8=>First+999,9=>First+10,10=>First+9,_=>null};
-                await store.InsertAsync(target,new Dictionary<string,object?>{{"id",First+index},{"name",index switch{0=>"根",1=>"中",2=>longName,_=>"节点"+index}},{parent,type=="string"?parentId?.ToString(CultureInfo.InvariantCulture):parentId},{"yz_project_id",index==4?Project+1:Project},{"status",index==6?0:1},{"delete_no",index==5?new DateTime(2026,1,1):null}});
+                var name=index switch{0=>"根",1=>"中",2=>longName,_=>"节点"+index};
+                if(derived)await store.InsertAsync(company,new Dictionary<string,object?>{{"id",First+index},{"name",name},{"yz_project_id",Project}});
+                var seed=new Dictionary<string,object?>{{"id",First+index},{parent,parentType=="string"?parentId?.ToString(CultureInfo.InvariantCulture):parentId},{"yz_project_id",index==4?Project+1:Project},{"status",index==6?0:1},{"delete_no",index==5?new DateTime(2026,1,1):null}};if(derived)seed.Add("company_id",First+index);else seed.Add("name",name);if(derived&&parentType=="string"&&index==3)seed[parent]="";await store.InsertAsync(target,seed);
             }
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.NonRedTreeHttp");var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();var port=((IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();var builder=WebApplication.CreateBuilder(new WebApplicationOptions{EnvironmentName="Development"});builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:"+port);builder.Services.AddHttpContextAccessor();builder.Services.AddSingleton(session);builder.Services.AddSingleton<IIdGenerator>(ids);builder.Services.AddScoped<IRuntimeAuthorization,Authorization>();builder.Services.AddSingleton<IRecordMutationObserver>(observer);builder.Services.AddSingleton<IRecordMutationGuard>(guard);
             var exports=new ExcelPageExportService(new ExportOptions{RootDirectory=Path.Combine(directory,"exports"),MaxRows=30});builder.Services.AddSingleton<IPageExportService>(exports);assembly.GetType("Example.NonRedTreeHttp.Generated.GeneratedRegistration",true)!.GetMethod("AddGeneratedServices")!.Invoke(null,[builder.Services,null]);builder.Services.AddControllers().AddApplicationPart(assembly).AddJsonOptions(settings=>settings.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
             app=builder.Build();app.Use(async(context,next)=>{try{await next();}catch(Exception error)when(error is ArgumentException or InvalidOperationException or UnauthorizedAccessException or PageImportException){await context.Response.WriteAsJsonAsync(R<string>.Error(error.Message));}});app.MapControllers();app.MapGet(ExportDownloadAccess.DownloadPath,async(HttpContext context)=>{if(!ExportDownloadAccess.CanUseGrant(context.Request))return Results.Unauthorized();var file=await exports.OpenDownloadAsync(context.Request.Query["exportId"]!);return Results.Stream(file.Stream,file.ContentType,file.FileName);});await app.StartAsync();using var client=new HttpClient{BaseAddress=new Uri("http://127.0.0.1:"+port),Timeout=TimeSpan.FromSeconds(25)};var endpoint="/api/admin/auto/"+source+"/201/";var selectedEndpoint="/api/admin/auto/"+source+"/202/";
+            if(derived)
+            {
+                Assert.DoesNotContain("name",(await store.ReadAsync(target)).First().Keys);
+                // 当前投影锁必须覆盖真实联接终点；独立会话的改名被阻塞而不是越过在途写校验。
+                var fixedPlan=Metarill.Data.Queries.NonRedundantReads.Compile(catalog,"3",["id","name",parent]);
+                await session.InTransactionAsync(async()=>
+                {
+                    var current=await new Metarill.Data.Queries.NonRedundantReader(session).CurrentRowsAsync(fixedPlan,[new("id",Metarill.Data.Queries.FixedReadComparison.Equal,First)],[],1);Assert.Equal("根",Assert.Single(current)["name"]);
+                    await using var rival=new MySqlConnection(options.ConnectionString);await rival.OpenAsync();await using(var setup=rival.CreateCommand()){setup.CommandText="SET SESSION innodb_lock_wait_timeout=1";await setup.ExecuteNonQueryAsync();}await using var rename=rival.CreateCommand();rename.CommandText="UPDATE `"+company+"` SET name=@name WHERE id=@id";rename.Parameters.AddWithValue("name","不应写入");rename.Parameters.AddWithValue("id",First);var locked=await Assert.ThrowsAsync<MySqlException>(()=>rename.ExecuteNonQueryAsync());Assert.Equal(1205,locked.Number);return true;
+                });
+
+                var roots=Success(await Post(endpoint+"cascadeTreeOptions25",new{levelKey="selfTree-0",selectedPath=new{parentId=""}})).EnumerateArray().ToArray();Assert.Equal(2,roots.Length);Assert.Contains(roots,row=>row.GetProperty("id").GetString()==First.ToString()&&row.GetProperty("hasChildren").GetBoolean());Assert.Contains(roots,row=>row.GetProperty("id").GetString()==(First+3).ToString());
+                var path=Success(await Post(endpoint+"cascadeTreePath25",new{leafId=(First+2).ToString()}));Assert.Equal("根/中/"+longName,path.GetProperty("displayText").GetString());Assert.DoesNotContain("companyId",path.GetRawText());
+                var children=Success(await Post(endpoint+"cascadeTreeOptions25",new{levelKey="selfTree-1",selectedPath=new{parentId=First.ToString()}}));Assert.Single(children.EnumerateArray());
+            }
             var added=Success(await Post(endpoint+"add",new{name="第一条",treeId=(First+2).ToString(),amount=3}));var record=added.GetProperty("id").GetString()!;owned.Add(long.Parse(record,CultureInfo.InvariantCulture));Assert.Equal(longName,added.GetProperty("treeName").GetString());Assert.Equal("根/中/"+longName,added.GetProperty("treeIdDisplayText").GetString());Assert.DoesNotContain("tree_name",(await store.ReadAsync(source)).Single().Keys);
             if(!automatic)
             {
@@ -111,13 +133,13 @@ public sealed class NonRedundantSelfTreeMySqlTests
             if(app is not null){await app.StopAsync();await app.DisposeAsync();}
             if(created)
             {
-                using var cleanup=new DatabaseSession(options);Assert.NotNull(fingerprint);Assert.Equal(fingerprint,MySqlSchemaPlanner.Fingerprint(await new SchemaService(cleanup).InspectAsync(catalog)));Assert.Equal(owned.Order(),(await store.ReadIncludingDeletedAsync(source)).Select(row=>SqlRowStore.Id(row)).Order());Assert.Equal(Enumerable.Range(0,11).Select(index=>First+index),(await store.ReadIncludingDeletedAsync(target)).Select(row=>SqlRowStore.Id(row)).Order());
+                using var cleanup=new DatabaseSession(options);Assert.NotNull(fingerprint);Assert.Equal(fingerprint,MySqlSchemaPlanner.Fingerprint(await new SchemaService(cleanup).InspectAsync(catalog)));Assert.Equal(owned.Order(),(await store.ReadIncludingDeletedAsync(source)).Select(row=>SqlRowStore.Id(row)).Order());Assert.Equal(Enumerable.Range(0,11).Select(index=>First+index),(await store.ReadIncludingDeletedAsync(target)).Select(row=>SqlRowStore.Id(row)).Order());if(derived)Assert.Equal(Enumerable.Range(0,11).Select(index=>First+index),(await store.ReadIncludingDeletedAsync(company)).Select(row=>SqlRowStore.Id(row)).Order());
                 await using(var connection=cleanup.Provider.CreateConnection(options)){await connection.OpenAsync();foreach(var name in names){Assert.StartsWith(prefix+"_",name);await using var command=connection.CreateCommand();command.CommandText="DROP TABLE "+cleanup.Provider.QuoteIdentifier(name);await command.ExecuteNonQueryAsync();}}
                 await using var independent=new MySqlConnection(options.ConnectionString);await independent.OpenAsync();foreach(var name in names){await using var command=independent.CreateCommand();command.CommandText="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@name";command.Parameters.AddWithValue("name",name);Assert.Equal(0,Convert.ToInt32(await command.ExecuteScalarAsync(),CultureInfo.InvariantCulture));}await Receipt("cleaned",true);
             }
             await TestDirectoryCleanup.DeleteAsync(directory,boundary);
         }
-        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,type,automatic,names,fingerprint,owned,instanceVerified=true,cleaned,fixedTestAuthorization=true,browser=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
+        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,type,parentType,automatic,derived,names,fingerprint,owned,instanceVerified=true,cleaned,fixedTestAuthorization=true,browser=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
     }
     /// <summary>原组件的节点对象只发送固定叶子ID，名称不会作为SQL或匹配依据。</summary>
     private static Dictionary<string,object?> Filter(long id)=>new(){{"treeId",new{treeId=id.ToString(CultureInfo.InvariantCulture),treeName="不参与匹配"}}};

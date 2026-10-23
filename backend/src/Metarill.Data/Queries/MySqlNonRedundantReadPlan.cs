@@ -138,7 +138,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(!storage[table.Id].IsPhysical(tree)||!definition.TryGetProperty("selfTree",out var settings)||settings.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("自树派生名称缺少物理来源和固定定义。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(settings,"table"))??throw new InvalidOperationException("自树名称目标不属于发布项目。");ValidateTarget(target);
                     var targetName=Value(settings,"nameField");if(targetName.Length==0)targetName="name";var value=Column(target,targetName);
-                    if(!storage[target.Id].IsPhysical(value)||value.LogicalType!="string"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("自树叶子名称必须为非凭据物理字符串。");
+                    if(value.LogicalType!="string"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("自树叶子名称必须为非凭据字符串。");
+                    if(!storage[target.Id].IsPhysical(value))
+                    {
+                        if(target.IsRongyu!=0)throw new NotSupportedException("自树派生名称要求R0目标。");
+                        var nested=new Builder(catalog,target.Id,matching:true).Compile([value.ColumnName],[]);
+                        if(nested.Types[value.ColumnName]!="string"||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var terminal)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("自树名称必须落到非凭据单值字符串终点。");
+                    }
                     // 明确交由生成服务的固定图投影，SQL阶段不读取未经完整祖先范围证明的叶子名称。
                     // 只有显式选择此两阶段用途时才生成占位；普通读取和名称查询依赖一律拒绝。
                     return ("NULL","string");

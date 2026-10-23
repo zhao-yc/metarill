@@ -23,6 +23,8 @@ public sealed class NonRedundantMultiReadTests
         using var session=new DatabaseSession(new DatabaseOptions{ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=invalid;Connection Timeout=1"});
         var plan=MySqlNonRedundantReadCompiler.Compile(Catalog(),"1",["party_names"]);
         await Assert.ThrowsAsync<InvalidOperationException>(()=>new MySqlNonRedundantReader(session).ReadPageAsync(plan,[],[],1,10,currentRead:true));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>new MySqlNonRedundantReader(session).ReadCurrentRowsAsync(plan,[],[],10));
+        var portable=NonRedundantReads.Compile(Catalog(),"1",["party_names"]);await Assert.ThrowsAsync<InvalidOperationException>(()=>new NonRedundantReader(session).CurrentRowsAsync(portable,[],[],10));
     }
     /// <summary>没有目标、非物理/数组名称、凭据以及矛盾目标声明不能产生半可用SQL。</summary>
     [Theory]

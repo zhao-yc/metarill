@@ -48,6 +48,8 @@ internal static class CascadeTreeReadRenderer
             if(sameRow&&plan.TargetPage.Condition is not null)result.AppendLine("        if(!structureOnly)");
             result.Append(FixedPageConditionCompilation.Apply(plan.TargetPage,"CascadeCondition"+suffix,"cascade_"+suffix)).AppendLine("        return query;").AppendLine("    }");
             if(sameRow)result.Append(CascadeTreeTopologyRenderer.Service(table,page,plan));
+            if(plan.DerivedName)result.Append(DerivedCascadeNamesRenderer.Reader(model,table,page,plan));
+            else
             result.AppendLine("    /// <summary>只投影树结构必需三列，候选有界且不加载整表。</summary>")
                 .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true) => new(")
                 .AppendLine($"        async (id,ct)=>{{var query=CascadeScope{suffix}(actor,requireSourceList,requireTargetList).Where(row=>row.Id==id);if(locking)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{NodeParent("row."+parent.Property)});}},")
@@ -55,7 +57,8 @@ internal static class CascadeTreeReadRenderer
                 .AppendLine(parent.Type=="string?"
                     ? $"        async (ids,ct)=>{{var keys=ids.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray();var rows=await CascadeScope{suffix}(actor).Where(row=>keys.Contains(row.{parent.Property}!)).Distinct().ToListAsync(row=>row.{parent.Property},ct);return rows.Select(text=>long.Parse(text!,CultureInfo.InvariantCulture)).ToHashSet();}},"
                     : $"        async (ids,ct)=>{{var keys=ids.ToArray();var rows=await CascadeScope{suffix}(actor).Where(row=>row.{parent.Property}!=null&&keys.Contains(row.{parent.Property}.Value)).Distinct().ToListAsync(row=>row.{parent.Property},ct);return rows.Select(value=>value!.Value).ToHashSet();}},")
-                .AppendLine($"        {Literal(plan.Joiner)});")
+                .AppendLine($"        {Literal(plan.Joiner)});");
+            result
                 .AppendLine("    /// <summary>同一读取事务内回读根链及候选，保留原组件请求合同。</summary>")
                 .AppendLine($"    public Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>> CascadeOptions{suffix}Async(CascadeTreeOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InTransactionAsync(async()=>{{var parent=request.ParseParent();_=CascadeScope{suffix}(actor);return await CascadeReader{suffix}(actor).OptionsAsync(parent,cancellationToken);}},cancellationToken);")
                 .AppendLine("    /// <summary>空路径也执行来源和目标权限检查。</summary>")
