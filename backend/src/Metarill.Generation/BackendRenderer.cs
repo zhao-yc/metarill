@@ -663,6 +663,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (relation.ParentBinding?.Binding is not null)
                 result.AppendLine("        // 读取以同句相关范围防换表；写入已持有源父和归属当前读锁，不混入旧一致性快照。")
                     .AppendLine($"        if (!locking) query = ApplyBoundScope{suffix}(query, long.Parse(parentId!, NumberStyles.None, CultureInfo.InvariantCulture), actor);");
+            if(DerivedRelationNamesCompilation.Declared(model,relation))
+            {
+                result.AppendLine("        return query;").AppendLine("    }");
+                result.Append(DerivedRelationNamesRenderer.Service(model,model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId),page,relation,visibleRelations.Any(candidate=>candidate.SourceColumn.Source.Id==relation.SourceColumn.Source.Id)));continue;
+            }
             var optionOrder = relation.OptionsOrder is {} ordering
                 ? string.Concat(ordering.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => entity.{item.Column.Property})"))
                 : $".OrderBy(entity => entity.{relation.NameColumn.Property}).OrderBy(entity => entity.Id)";

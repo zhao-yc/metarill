@@ -38,6 +38,26 @@ public sealed class FixedConditionSqlPlan
         }
         return new(result.AsReadOnly(),Array.AsReadOnly(syntax.Variables.ToArray()));
     }
+    /// <summary>请求只绑定已编译窄变量，生成不可变常量计划；不重新解析元数据或接受外部字段。</summary>
+    public FixedConditionSqlPlan BindVariables(IReadOnlyDictionary<string,object?> variables)
+    {
+        ArgumentNullException.ThrowIfNull(variables);
+        var bound=terms.Select(term=>term with{Values=Array.AsReadOnly(term.Values.Select(value=>
+        {
+            if(value.Variable is not{} name)return value;
+            if(!variables.TryGetValue(name,out var current))throw new ArgumentException("固定条件缺少明确的上下文变量。");
+            return new Value(null,Scalar(current,term.Type));
+        }).ToArray())}).ToArray();
+        return new(Array.AsReadOnly(bound),Array.Empty<string>());
+    }
+    /// <summary>页面条件与控件条件始终AND合并，保留各自类型和值，不允许同字段采用矛盾的发布类型。</summary>
+    public FixedConditionSqlPlan And(FixedConditionSqlPlan other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        var combined=terms.Concat(other.terms).ToArray();
+        if(combined.Where(term=>term.Type.Length>0).GroupBy(term=>term.Field,StringComparer.OrdinalIgnoreCase).Any(group=>group.Select(term=>term.Type).Distinct(StringComparer.Ordinal).Count()>1))throw new InvalidOperationException("固定条件合并的字段类型不一致。");
+        return new(Array.AsReadOnly(combined),Array.AsReadOnly(Variables.Concat(other.Variables).Distinct(StringComparer.Ordinal).ToArray()));
+    }
     /// <summary>跨表固定条件须再次证明真实物理字段及其逻辑类型，不能借调用者自报类型放宽比较。</summary>
     internal void RequirePhysicalTypes(IReadOnlyDictionary<string,string> physicalTypes)
     {

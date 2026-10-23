@@ -109,8 +109,9 @@ internal static class ExportRenderer
                     .AppendLine("        {")
                     .AppendLine($"            var context{name}=group{name}.First();")
                     .AppendLine($"            var ids{name}=group{name}.Select(entity=>{sourceId}).Distinct().ToArray();")
-                    .AppendLine($"            var query{name}=await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId,TargetParent{name}(context{name}),actor,cancellationToken{formScopeAuthorization},formValues: {RelationConditionsCompilation.EntityValues(relation,"context"+name)});")
-                    .AppendLine($"            var rows{name}=await query{name}.Where(entity=>ids{name}.Contains(entity.Id)).ToListAsync(entity=>new {{ entity.Id,Name=entity.{relation.NameColumn.Property} }},cancellationToken);")
+                    .AppendLine(DerivedRelationNamesCompilation.Declared(model,relation)
+                        ?$"            var rows{name}=await DerivedOptionsRows{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId,TargetParent{name}(context{name}),actor,ids{name},cancellationToken,{RelationConditionsCompilation.EntityValues(relation,"context"+name)});"
+                        :$"            var query{name}=await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId,TargetParent{name}(context{name}),actor,cancellationToken{formScopeAuthorization},formValues: {RelationConditionsCompilation.EntityValues(relation,"context"+name)});\n            var rows{name}=await query{name}.Where(entity=>ids{name}.Contains(entity.Id)).ToListAsync(entity=>new {{ entity.Id,Name=entity.{relation.NameColumn.Property} }},cancellationToken);")
                     .AppendLine($"            foreach(var row in rows{name})names{name}[(CacheKey{name}(context{name}),row.Id)]=row.Name;")
                     .AppendLine("        }");
                 continue;
@@ -122,8 +123,9 @@ internal static class ExportRenderer
                 .AppendLine($"        foreach (var group{name} in entities.Where(entity => entity.{name} is not null).GroupBy(TargetParent{name}))")
                 .AppendLine("        {")
                 .AppendLine($"            var ids{name} = group{name}.Select(entity => {sourceId}).Distinct().ToArray();")
-                .AppendLine($"            var query{name} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId, group{name}.Key, actor, cancellationToken{scopeAuthorization});")
-                .AppendLine($"            var rows{name} = await query{name}.Where(entity => ids{name}.Contains(entity.Id)).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
+                .AppendLine(DerivedRelationNamesCompilation.Declared(model,relation)
+                    ?$"            var rows{name}=await DerivedOptionsRows{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId,group{name}.Key,actor,ids{name},cancellationToken);"
+                    :$"            var query{name} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ParentId, group{name}.Key, actor, cancellationToken{scopeAuthorization});\n            var rows{name} = await query{name}.Where(entity => ids{name}.Contains(entity.Id)).ToListAsync(entity => new {{ entity.Id, Name = entity.{relation.NameColumn.Property} }}, cancellationToken);")
                 .AppendLine($"            foreach (var row in rows{name}) names{name}[(group{name}.Key, row.Id)] = row.Name;")
                 .AppendLine("        }");
         }

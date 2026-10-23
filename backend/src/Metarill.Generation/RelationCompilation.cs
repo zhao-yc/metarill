@@ -28,7 +28,7 @@ internal static class RelationCompilation
     {
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage") : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&(column.Source.ControlKind=="SelectPage"||DerivedRelationNamesCompilation.DeclaredSource(model,column))) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
         foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || owner.Source.IsRongyu==0&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
@@ -69,7 +69,9 @@ internal static class RelationCompilation
                 try { var order = GenerationModel.ValidateOrderBy(Mapped("orderBy"), target.Columns).ToList(); if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false)); ordering = order; }
                 catch (InvalidOperationException) { binding = new(true, null, "固定归属候选排序不能安全编译。"); }
             }
-            relations.Add(new RelationModel(source, target, targetPage, name, "findNameId" + target.Name + source.Source.Id, scopes, sourceParents, targetParents, binding, ordering, conditions));
+            var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions);
+            if(DerivedRelationNamesCompilation.Declared(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
+            relations.Add(relation);
         }
         return relations;
     }

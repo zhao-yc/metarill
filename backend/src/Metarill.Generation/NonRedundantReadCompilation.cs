@@ -60,7 +60,12 @@ internal static class NonRedundantReadCompilation
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联目标缺少已接通的固定候选来源。");
             ValidateTargetDeclarations(model,relation,target);
             var display=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==nameField);
-            if(target.IsGlobal||display is null||!Physical(model,target,display))throw new InvalidOperationException("全局或派生名称候选仍待完整接线。");
+            if(target.IsGlobal||display is null)throw new InvalidOperationException("全局或未知名称候选仍待完整接线。");
+            if(!Physical(model,target,display))
+            {
+                var candidate=RelationCompilation.ForPage(model,page).SingleOrDefault(candidate=>candidate.SourceColumn.Source.Id==relation.Source.Id)??throw new InvalidOperationException("派生名称缺少固定候选关系。");
+                _=DerivedRelationNamesCompilation.Require(model,table,page,candidate);
+            }
             var alias=relation.Source.ColumnName[..^3]+"_"+nameField;MetadataValidation.RequireIdentifier(alias);
             if(!outputs.Any(output=>output.Storage.Equals(alias,StringComparison.OrdinalIgnoreCase)))outputs.Add(new(alias,GenerationModel.Pascal(alias),GenerationModel.Camel(alias),""));
         }

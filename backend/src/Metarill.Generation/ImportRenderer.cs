@@ -179,15 +179,16 @@ public sealed partial class {{page.Name}}ImportRequest
         }
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
             .AppendLine("            }").AppendLine("        }").AppendLine("        return values;").AppendLine("    }");
-        foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(relation, page, dependency));
+        foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(model,relation, page, dependency));
         foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))result.Append(DatabaseCheckboxExcelRenderer.Import(table,page,checkbox,dependency));
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))result.Append(CascadeTreeExcelRenderer.Import(model,table,page,source));
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))result.Append(MultiSelectExcelRenderer.Import(model,table,page,multi,dependency));
         return result.ToString();
     }
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>
-    private static string RelationResolver(RelationModel relation, PageModel page, ImportDependencyPlan dependency)
+    private static string RelationResolver(GenerationModel model,RelationModel relation, PageModel page, ImportDependencyPlan dependency)
     {
+        if(DerivedRelationNamesCompilation.Declared(model,relation))return DerivedRelationNamesRenderer.Import(relation,page,dependency);
         var result = new StringBuilder().AppendLine("    /// <summary>Excel 关系名称必须唯一落在已授权候选范围，数字 ID 也核对归属。</summary>")
             .AppendLine($"    private async Task<JsonElement> ImportRelation{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(JsonElement cell, string? parentId, RuntimeActor actor{(dependency.Contextual?", IReadOnlyDictionary<string, JsonElement> relationContext":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);");
