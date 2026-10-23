@@ -15,8 +15,13 @@ public sealed class NonRedundantReadPlan
 public static class NonRedundantReads
 {
     /// <summary>输出与隐藏查询依赖分别声明；后者不会自动出现在返回记录中。</summary>
-    public static NonRedundantReadPlan Compile(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>metadata.DatabaseProvider switch
-    {"mysql"=>new(MySqlNonRedundantReadCompiler.Compile(metadata,tableId,outputs,dependencies,deferCascadeNames)),_=>throw new NotSupportedException("该数据库尚未完成固定非冗余读取适配。")};
+    public static NonRedundantReadPlan Compile(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(metadata,tableId,outputs,[],dependencies,deferCascadeNames);
+    /// <summary>跨表逻辑读取须显式传入冻结目标页范围；保留原Compile签名及无绑定门禁。</summary>
+    public static NonRedundantReadPlan CompileWithCrossTables(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);ArgumentNullException.ThrowIfNull(crossTables);
+        return metadata.DatabaseProvider switch{"mysql"=>new(MySqlNonRedundantReadCompiler.CompileWithCrossTables(metadata,tableId,outputs,crossTables,dependencies,deferCascadeNames)),_=>throw new NotSupportedException("该数据库尚未完成固定非冗余读取适配。")};
+    }
     /// <summary>匹配计划只编译必要单值路径，并验证最终物理值，不能借别名匹配凭据或文件数组。</summary>
     public static NonRedundantReadPlan CompileMatch(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMatch(metadata,tableId,field)),_=>throw new NotSupportedException("该数据库尚未完成固定匹配读取适配。")};

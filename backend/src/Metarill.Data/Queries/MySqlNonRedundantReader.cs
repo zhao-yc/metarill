@@ -42,16 +42,22 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         return await OnConnection(async connection=>
         {
             var total=0L;
-            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+from;total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);}
-            await using var read=Command(connection);Bind(read,projectId,filters);BindCondition(read,conditionClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
+            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+from+(currentRead?" FOR SHARE":"");if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
+            await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
             var multis=plan.Outputs.Where(plan.MultiProjections.ContainsKey).ToArray();var hidden=new Dictionary<string,string>(StringComparer.Ordinal);var projection=plan.Outputs.Select(name=>(plan.MultiProjections.ContainsKey(name)?"NULL":plan.Expression(name))+" AS "+Q(name)).ToList();
             var ordinal=0;foreach(var name in multis){string alias;do{alias="metarill_multi_input_"+ordinal++;}while(plan.Outputs.Contains(alias,StringComparer.OrdinalIgnoreCase));hidden.Add(name,alias);projection.Add(plan.MultiProjections[name].SourceExpression+" AS "+Q(alias));}
+            var crossInputs=new List<(MySqlCrossTableProjection Plan,Dictionary<string,string> Fields)>();var used=plan.Outputs.Concat(hidden.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach(var cross in plan.Crosses)
+            {
+                var fields=new Dictionary<string,string>(StringComparer.Ordinal);foreach(var pair in cross.RawSlots){string alias;do{alias="metarill_cross_input_"+ordinal++;}while(!used.Add(alias));fields.Add(pair.Key,alias);projection.Add(pair.Value+" AS "+Q(alias));}crossInputs.Add((cross,fields));
+            }
             read.CommandText="SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(currentRead?" FOR SHARE":"");
             var records=new List<Dictionary<string,object?>>();
             await using(var reader=await read.ExecuteReaderAsync(cancellationToken))
                 while(await reader.ReadAsync(cancellationToken))
                 {var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var i=0;i<reader.FieldCount;i++)row.Add(reader.GetName(i),await reader.IsDBNullAsync(i,cancellationToken)?null:reader.GetValue(i));records.Add(row);}
+            foreach(var row in records)foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
             foreach(var name in multis)await PopulateMultiAsync(connection,plan.MultiProjections[name],name,hidden[name],records,projectId,currentRead,cancellationToken);
             return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());
         },cancellationToken);
@@ -86,11 +92,12 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();
         var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",plan.Expression);
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(filters.Select((filter,index)=>Filter(plan,filter,index))).Where(part=>part.Length>0));
-        var sql="SELECT COUNT(*) AS total"+string.Concat(fields.Select((field,index)=>",SUM("+plan.Expression(field)+") AS sum_"+index))+plan.From+(where.Length==0?"":" WHERE "+where);
+        var sql="SELECT COUNT(*) AS total"+string.Concat(fields.Select((field,index)=>",SUM("+plan.Expression(field)+") AS sum_"+index))+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+plan.From+(where.Length==0?"":" WHERE "+where);
         return await OnConnection(async connection=>
         {
-            await using var command=Command(connection);Bind(command,projectId,filters);BindCondition(command,conditionClause);command.CommandText=sql;
+            await using var command=Command(connection);Bind(command,projectId,filters);BindCross(command,plan);BindCondition(command,conditionClause);command.CommandText=sql;
             await using var reader=await command.ExecuteReaderAsync(cancellationToken);if(!await reader.ReadAsync(cancellationToken))throw new InvalidOperationException("固定统计未返回结果。");
+            if(plan.Crosses.Count>0)RequireValidCross(reader,fields.Length+1);
             var total=reader.GetInt64(0);var sums=new Dictionary<string,decimal?>(StringComparer.OrdinalIgnoreCase);
             for(var index=0;index<fields.Length;index++)sums.Add(fields[index],await reader.IsDBNullAsync(index+1,cancellationToken)?null:Convert.ToDecimal(reader.GetValue(index+1),System.Globalization.CultureInfo.InvariantCulture));
             return new FixedReadStatistics(total,new System.Collections.ObjectModel.ReadOnlyDictionary<string,decimal?>(sums));
@@ -154,6 +161,12 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }
+    /// <summary>COUNT与统计在同一原范围内检测坏稀疏存储，不隐藏错误行或增加逐行查询。</summary>
+    private static string CrossValidity(MySqlNonRedundantReadPlan plan)=>"COALESCE(MAX(CASE WHEN "+string.Join(" AND ",plan.Crosses.Select(cross=>"("+cross.Validity+")"))+" THEN 0 ELSE 1 END),0)";
+    /// <summary>多位、非规范或越界ID明确拒绝，不在读取时修补历史值。</summary>
+    private static void RequireValidCross(DbDataReader reader,int ordinal){if(Convert.ToInt32(reader.GetValue(ordinal),System.Globalization.CultureInfo.InvariantCulture)!=0)throw new InvalidOperationException("跨表稀疏存储含歧义或无效ID，未返回不完整逻辑路径。");}
+    /// <summary>固定目标条件与请求筛选分开绑定，分页、数量及统计使用同一份冻结常量。</summary>
+    private static void BindCross(DbCommand command,MySqlNonRedundantReadPlan plan){foreach(var pair in plan.Constants)Add(command,pair.Key,pair.Value??DBNull.Value);}
     /// <summary>固定页面条件的常量参数与用户筛选分别命名，所有COUNT/明细/统计共用同一绑定。</summary>
     private static void BindCondition(DbCommand command,FixedConditionSqlPlan.Clause? condition)
     {if(condition is not null)foreach(var pair in condition.Parameters)Add(command,pair.Key,pair.Value??DBNull.Value);}

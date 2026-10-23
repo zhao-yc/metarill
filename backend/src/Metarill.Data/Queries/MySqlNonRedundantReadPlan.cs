@@ -17,9 +17,11 @@ internal sealed record MySqlMultiProjection(string SourceExpression,string Targe
 public sealed class MySqlNonRedundantReadPlan
 {
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
-        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null)
-    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; Origins=origins; Reverse=reverse??[]; }
+        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null,IReadOnlyList<MySqlCrossTableProjection>? crosses=null,IReadOnlyDictionary<string,object?>? constants=null)
+    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];Constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); }
     internal IReadOnlyList<MySqlReverseProjection> Reverse {get;}
+    internal IReadOnlyList<MySqlCrossTableProjection> Crosses{get;}
+    internal IReadOnlyDictionary<string,object?> Constants{get;}
     internal IReadOnlyList<MySqlPhysicalReference> PhysicalReferences {get;}
     internal IReadOnlyDictionary<string,MySqlValueOrigin> Origins {get;}
     internal string From { get; }
@@ -36,17 +38,20 @@ public sealed class MySqlNonRedundantReadPlan
 }
 
 /// <summary>编译单值联接与固定多选名称计划；未证明的级联和虚拟表达式继续明确拒绝。</summary>
-public static class MySqlNonRedundantReadCompiler
+public static partial class MySqlNonRedundantReadCompiler
 {
     /// <summary>输出由生成用途指定；依赖独立编译，不擅自扩成整表读取或读取权限。</summary>
-    public static MySqlNonRedundantReadPlan Compile(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)
+    public static MySqlNonRedundantReadPlan Compile(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(catalog,tableId,outputNames,[],dependencies,deferCascadeNames);
+    /// <summary>冻结目标页绑定仅用于跨表逻辑投影，现有公开编译入口及其二进制签名保持。</summary>
+    public static MySqlNonRedundantReadPlan CompileWithCrossTables(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)
     {
+        ArgumentNullException.ThrowIfNull(crossTables);
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
         MetadataValidation.Validate(catalog);
         if(!long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var projectId)||projectId<=0)throw new InvalidOperationException("发布项目标识必须为正整数。");
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("当前固定读取执行仅完成MySQL适配。");
         if(outputNames.Count==0||outputNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputNames.Count)throw new InvalidOperationException("输出字段不能为空或重复。");
-        var builder=new Builder(catalog,tableId,deferCascadeNames:deferCascadeNames);
+        var builder=new Builder(catalog,tableId,deferCascadeNames:deferCascadeNames,crossTables:crossTables);
         return builder.Compile(outputNames,dependencies??[]);
     }
     /// <summary>维护用途只重算声明的物理副本；普通读取仍坚持原冗余／非冗余边界。</summary>
@@ -62,7 +67,7 @@ public static class MySqlNonRedundantReadCompiler
         Compile(catalog,tableId,[field]);return new Builder(catalog,tableId,true).Compile([field],[]);
     }
     /// <summary>构造时消费元数据，最终只保留不可变的表达式文本、类型和项目范围。</summary>
-    private sealed class Builder
+    private sealed partial class Builder
     {
         private readonly MetadataCatalog catalog;
         private readonly bool matching;
@@ -86,8 +91,9 @@ public static class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null)
         {
+            this.crossTables=(crossTables??[]).ToDictionary(scope=>scope.SourceColumnId,StringComparer.Ordinal);
             this.catalog=catalog;this.matching=matching;this.deferCascadeNames=deferCascadeNames;this.refreshFields=refreshFields;this.refreshMultiples=refreshMultiples??[];this.refreshPaths=refreshPaths??new Dictionary<string,string>();
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
@@ -96,6 +102,7 @@ public static class MySqlNonRedundantReadCompiler
             if(catalog.ConfigColumns.Any(column=>tables.ContainsKey(column.ConfigTableId)&&column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw new InvalidOperationException("字段归属与发布项目不一致。");
             columns=tables.Values.ToDictionary(table=>table.Id,table=>RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
             storage=tables.Values.ToDictionary(table=>table.Id,table=>MetadataStoragePolicy.ForTable(catalog,table),StringComparer.Ordinal);
+            foreach(var binding in this.crossTables.Values)if(!columns[root.Id].Values.Any(column=>column.Id==binding.SourceColumnId&&column.ControlKind=="CascadeTree"))throw new InvalidOperationException("跨表读取绑定不属于当前来源表。");
         }
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
         internal MySqlNonRedundantReadPlan Compile(IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
@@ -106,7 +113,7 @@ public static class MySqlNonRedundantReadCompiler
             var origins=new Dictionary<string,MySqlValueOrigin>(StringComparer.Ordinal);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
             {output=name;origin=null;var resolved=Resolve(root,"b",name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;}
-            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()));
+            var scope=Scope(root,"b");return new(" FROM "+Q(root.TableName)+" b"+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants));
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -139,7 +146,11 @@ public static class MySqlNonRedundantReadCompiler
                 {
                     var definition=Definition(tree);if(table.IsRongyu!=0||Value(definition,"sourceMode")=="selfTree")continue;
                     var sparse=CrossTableSparseSelection.Compile(table,tree.Id,columns[table.Id].Values);
-                    if(sparse.Slots.Any(slot=>slot.ColumnName.Equals(name,StringComparison.OrdinalIgnoreCase)||(slot.ColumnName[..^3]+"_name").Equals(name,StringComparison.OrdinalIgnoreCase)))throw new NotSupportedException("非冗余跨表稀疏ID的逻辑路径读取尚待固定投影接线。");
+                    if(sparse.Slots.Any(slot=>slot.ColumnName.Equals(name,StringComparison.OrdinalIgnoreCase)||(slot.ColumnName[..^3]+"_name").Equals(name,StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if(!crossTables.TryGetValue(tree.Id,out var binding)||matching||refreshFields is not null)throw new NotSupportedException("非冗余跨表逻辑路径缺少明确目标页绑定或当前用途尚未接线。");
+                        return CrossValue(table,alias,tree,sparse,binding,name);
+                    }
                 }
                 // 多值显示先识别明确的_ids关系，聚合留在相关子查询内，不扩张根结果的基数。
                 foreach(var multi in columns[table.Id].Values.Where(item=>item.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"&&item.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
