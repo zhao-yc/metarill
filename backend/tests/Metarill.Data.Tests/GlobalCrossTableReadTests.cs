@@ -22,8 +22,8 @@ public sealed class GlobalCrossTableReadTests
         {
             var table="global_read_"+new[]{"country","area","place"}[role];var joins=Regex.Matches(from,"LEFT JOIN `"+table+"` (cross[0-9]+) ON");Assert.Equal(2,joins.Count);foreach(Match match in joins){var prefix=match.Groups[1].Value+".`yz_project_id`";if((mask&(1<<role))!=0)Assert.DoesNotContain(prefix,from);else Assert.Contains(prefix+"=@project_scope_",from);Assert.Contains(match.Groups[1].Value+".`delete_no` IS NULL",from);}
         }
-        // 普通标量联接未经过跨表全局证明，原范围不得顺带变化。
-        if(mask!=7)Assert.Matches("r[0-9]+\\.`yz_project_id`=@project_scope_number",from);else Assert.DoesNotMatch("r[0-9]+\\.`yz_project_id`",from);Assert.Equal(before,JsonSerializer.Serialize(c));
+        // 普通单值联接现在独立通过全局证明；其它项目目标不能跟随共享。
+        if((mask&1)==0)Assert.Matches("r[0-9]+\\.`yz_project_id`=@project_scope_number",from);else Assert.DoesNotMatch("r[0-9]+\\.`yz_project_id`",from);Assert.Equal(before,JsonSerializer.Serialize(c));
     }
     /// <summary>不能把缺失项目、变量范围、派生名称或未发布目录解释为新的全局许可。</summary>
     [Theory][InlineData("implicit")][InlineData("sourceGlobal")][InlineData("projectVariable")][InlineData("parentVariable")][InlineData("unpublishedTable")][InlineData("unpublishedPage")][InlineData("foreignPage")][InlineData("view")][InlineData("function")][InlineData("nonredundant")][InlineData("derivedName")][InlineData("exact")]

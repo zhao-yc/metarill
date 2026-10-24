@@ -42,7 +42,7 @@ internal static class NonRedundantReadCompilation
         {
             if(relation.Source.ControlKind is "CascadeTree" or "MultiCheckBoxDatabase"||crossIds.Contains(relation.Source.Id))continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联写入缺少已接通的明确目标。");ValidateTargetDeclarations(model,relation,target);
-            if(target.IsGlobal)throw new InvalidOperationException("全局关联读取尚需完整接线。");
+            if(target.IsGlobal)_=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);
         }
         foreach(var selection in table.Columns.Where(column=>column.Source.ControlKind=="SelectPage"))NonRedundantSelectionCompilation.Resolve(model,table,page,selection);
         var outputs=page.Readable.Select(column=>new NonRedundantOutput(column.Source.ColumnName,column.Property,column.JsonName,column.Type,column.IsJsonArray)).ToList();
@@ -61,7 +61,8 @@ internal static class NonRedundantReadCompilation
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联目标缺少已接通的固定候选来源。");
             ValidateTargetDeclarations(model,relation,target);
             var display=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==nameField);
-            if(target.IsGlobal||display is null)throw new InvalidOperationException("全局或未知名称候选仍待完整接线。");
+            if(display is null)throw new InvalidOperationException("未知名称候选仍待完整接线。");
+            if(target.IsGlobal)_=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);
             if(!Physical(model,target,display))
             {
                 var candidate=RelationCompilation.ForPage(model,page).SingleOrDefault(candidate=>candidate.SourceColumn.Source.Id==relation.Source.Id)??throw new InvalidOperationException("派生名称缺少固定候选关系。");

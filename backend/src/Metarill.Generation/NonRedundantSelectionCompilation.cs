@@ -19,9 +19,10 @@ internal static class NonRedundantSelectionCompilation
         var targetPage=target.Pages.Single(page=>page.Source.Id==definition.PageId);
         if(!targetPage.Source.Extra.TryGetValue("type",out var type)||type.ToString()!="1")throw new InvalidOperationException("非冗余SelectPage目标必须是原type=1单选页。");
         var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
-        if(target.IsGlobal||name is null||name.Type!="string?"||name.IsJsonArray||!targetPage.Readable.Any(column=>column.Source.Id==name.Source.Id)||ManagerCredentialCompilation.IsCredential(target,name))throw new InvalidOperationException("非冗余单选目标名称必须是已开放的字符串列。");
+        if(name is null||name.Type!="string?"||name.IsJsonArray||!targetPage.Readable.Any(column=>column.Source.Id==name.Source.Id)||ManagerCredentialCompilation.IsCredential(target,name))throw new InvalidOperationException("非冗余单选目标名称必须是已开放的字符串列。");
         if(!NonRedundantReadCompilation.Physical(model,target,name))DerivedRelationNamesCompilation.RequireSelection(model,table,target,targetPage,name);
-        if(!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
+        if(target.IsGlobal){var proof=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
+        if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
         if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))throw new InvalidOperationException(reason);
         var selection=new NonRedundantSelectionModel(target,targetPage,name,definition);
         var display=SelectionDisplayFieldCompilation.Resolve(table,source);

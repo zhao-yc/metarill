@@ -90,6 +90,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly TableMetadata root;
         private readonly Dictionary<string,string> aliases=new(StringComparer.Ordinal);
         private readonly List<string> joins=[];
+        private readonly HashSet<string> globalSingleAliases=new(StringComparer.Ordinal);
         private readonly Dictionary<string,string> multiPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
@@ -179,6 +180,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var kind=Kind(table,alias,column);
                     if(kind==MetadataFieldStorage.Physical)
                     {
+                        if(globalSingleAliases.Contains(alias)&&((column.Extra.TryGetValue("isJoinColumn",out var globalJoined)&&(globalJoined.ValueKind==JsonValueKind.True||globalJoined.ToString()=="1"))||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList" or "CascadeTree"||column.LogicalType is "json" or "binary"))throw new NotSupportedException("全局单值路径不能读取凭据、文件或数组。");
                         if(refreshFields is not null&&(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||table.TableName=="yz_manager"&&column.ColumnName=="salt"))throw new NotSupportedException("维护回填不能读取凭据或令牌字段。");
                         if(matching)
                         {
@@ -276,18 +278,19 @@ public static partial class MySqlNonRedundantReadCompiler
         private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType)
         {
             if(matching&&sourceType!="int64")throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
+            var global=GlobalCrossTableTarget.Declared(target);if(global){if(refreshFields is not null)throw new NotSupportedException("全局单值物理缓存回填仍需跨项目事务证明。");_=GlobalSingleRelationTarget.Require(catalog,tables[relation.ConfigTableId],relation,target);}
             var path=ownerAlias+":"+relation.Id;
-            if(aliases.TryGetValue(path,out var existing)){Scope(target,existing);Touch(existing,"id");return existing;}
-            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=Scope(target,alias);
+            if(aliases.TryGetValue(path,out var existing)){Scope(target,existing,projectScoped:!global);Touch(existing,"id");return existing;}
+            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global)globalSingleAliases.Add(alias);var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=Scope(target,alias,projectScoped:!global);
             if(refreshFields is not null){Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));}
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
-            var equality=refreshFields is not null&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
+            var equality=(refreshFields is not null||global)&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
             joins.Add(" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+equality+(scope.Length==0?"":" AND "+scope));return alias;
         }
         /// <summary>范围字段必须是真实物理列；普通读取固定绑定项目，仅已证明的全局跨表别名可省略项目谓词。</summary>
         private string Scope(TableMetadata table,string alias,bool projectScoped=true)
         {
-            if((matching||refreshFields is not null)&&!columns[table.Id].ContainsKey("yz_project_id"))throw new NotSupportedException("精确管理关联必须声明真实项目列。");
+            if(projectScoped&&(matching||refreshFields is not null)&&!columns[table.Id].ContainsKey("yz_project_id"))throw new NotSupportedException("精确管理关联必须声明真实项目列。");
             var predicates=new List<string>();foreach(var name in new[]{"delete_no","yz_project_id"})
             {
                 if(!columns[table.Id].TryGetValue(name,out var column))continue;

@@ -28,7 +28,7 @@ internal static class RelationCompilation
     {
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&(column.Source.ControlKind=="SelectPage"||DerivedRelationNamesCompilation.DeclaredSource(model,column))) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&(column.Source.ControlKind=="SelectPage"||column.Source.ControlKind=="List"&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,column))) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
         foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || owner.Source.IsRongyu==0&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
@@ -55,6 +55,10 @@ internal static class RelationCompilation
                 ? target.Pages.SingleOrDefault(candidate => candidate.Source.Id == explicitPage) ?? throw new InvalidOperationException("关联目标页不存在或不属于目标表。")
                 : target.Pages.FirstOrDefault(p => p.Source.YzAdminTypeId == page.Source.YzAdminTypeId && !p.Scopes.Any(s => s.Source == "parent"))
                     ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent")));
+            if(owner.Source.IsRongyu==0&&target.IsGlobal)
+            {
+                var global=Metarill.Core.Metadata.GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
+            }
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model, owner, page, target, Mapped("whereSql"));
