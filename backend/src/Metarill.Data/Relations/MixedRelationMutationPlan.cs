@@ -27,7 +27,7 @@ internal sealed class MixedRelationMutationPlan
             var read=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,table.Option.Id,fields.Select(field=>field.Name).ToArray(),[],fields.ToDictionary(field=>field.Name,field=>field.Path,StringComparer.Ordinal));
             if(read.Reverse.SelectMany(reverse=>reverse.Outputs.Values.SelectMany(names=>names.Select(name=>(reverse.TargetTable,name)))).Any(multipleNames.Contains))continue; // 多值缓存作为标量中间值尚无完整合同，不把数组文本冒充名称。
             var inputs=read.PhysicalReferences.Where(reference=>reference.Table==table.Option.TableName).Select(reference=>reference.Column.Name).ToFrozenSet(StringComparer.Ordinal);
-            read=new(read.From,read.ProjectId,read.Scope,read.Expressions.ToDictionary(),read.Types.ToDictionary(),read.Outputs.ToArray(),read.ArrayNamePredicates.ToDictionary(),read.MultiProjections.ToDictionary(),read.ArrayIdPredicates.ToDictionary(),table.Read!.PhysicalReferences,read.Origins,read.Reverse);
+            read=read.WithPhysicalReferences(table.Read!.PhysicalReferences);
             var supported=table with{Fields=Array.AsReadOnly(fields),Multiples=[],Read=read};result.Add(new(supported,read,inputs));
         }
         // R1物理缓存之间也可能构成循环；R0路径自身的递归由读取编译器提前拒绝。

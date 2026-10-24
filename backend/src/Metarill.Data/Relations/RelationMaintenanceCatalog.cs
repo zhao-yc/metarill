@@ -68,7 +68,7 @@ public sealed class RelationMaintenanceCatalog
                     results.Add(new(field.ColumnName,path,foreign,origin.Table,origin.Column,companions.GetValueOrDefault(field.ColumnName)));
                 }
                 var required=read.PhysicalReferences.Concat(fields.Select(field=>new MySqlPhysicalReference(table.TableName,MySqlSchemaPlanner.CompileColumn(field)))).DistinctBy(item=>(item.Table,item.Column.Name)).ToArray();
-                read=new(read.From,read.ProjectId,read.Scope,read.Expressions.ToDictionary(),read.Types.ToDictionary(),read.Outputs.ToArray(),read.ArrayNamePredicates.ToDictionary(),read.MultiProjections.ToDictionary(),read.ArrayIdPredicates.ToDictionary(),Array.AsReadOnly(required),read.Origins,read.Reverse);
+                read=read.WithPhysicalReferences(required);
                 var multiples=bindings.Where(item=>item.Multiple).GroupBy(item=>item.ForeignColumnId).Select(group=>new MaintenanceMultiple(all.Values.Single(column=>column.Id==group.Key).ColumnName,all.Values.Single(column=>column.Id==group.Key).ControlKind=="MultiSelectPage"?200:5000,Array.AsReadOnly(group.Select(item=>all.Values.Single(column=>column.Id==item.CacheColumnId).ColumnName).ToArray()))).ToArray();
                 plans.Add(table.Id,new(option,projectColumn.LogicalType,all.ContainsKey("delete_no"),Array.AsReadOnly(results.ToArray()),Array.AsReadOnly(multiples),read,null));
             }

@@ -92,3 +92,8 @@ controlKind/controlDetail 页级覆盖精确保持原长度规则：长度为零
 
 
 Vue3 内部适配仅将 yzp-control-detail-editor 的 emitEntity 中旧 this.$set 替换为响应式对象直接赋值。保留原实体引用、DOM、props、receive 事件及“值未变则不回传”的行为；真实完整组件探针使用标准 Vue3，不提供虚假的 $set 宿主兼容层。is_rongyu 固定为 int32 的 0/1；is_view/is_function_table 经原 Number 消费允许 int32/bool，四种 bool 组合以真实组件证明。
+
+
+## 2026-10-25 B70：固定维护当前读联接裁剪
+
+B70仅接维护当前读的内部联接选择，不是上文List／Detail／Selection IR接入VO及SQL。代码盘点仍只有该IR定义，主生成器未调用其ForPage；不能据B68／B70宣布按用途页面读取已完整落地。实际响应字段若需改变，仍按既定接口兼容要求先给证据与影响并确认。 最终数据585、文件136、API83、相关生成11及租约15通过；前轮扩大41独立保留。215产物两轮稳定、原546资源不变，正式全局新库、原浏览器／设备及同条件性能仍未完成。范围、证据、升级与回退见[维护联接专项](maintenance-join-projection.md)，冻结 `611a68a0cb77`。

@@ -41,9 +41,11 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var clauses=filters.Select((filter,index)=>Filter(plan,filter,index)).ToArray();
         var orders=order.Select(item=>plan.Expression(item.Field)+(item.Descending?" DESC":" ASC")).ToList();
         if(!order.Any(item=>item.Field.Equals("id",StringComparison.OrdinalIgnoreCase)))orders.Add(plan.Expression("id")+" DESC");
-        var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",plan.Expression);
+        // 联接依赖同时包含响应、筛选、排序和固定条件；条件不能因未显示而丢失目标范围。
+        var required=plan.HasMaintenanceJoinProjection?plan.Outputs.Concat(filters.Select(filter=>filter.Field)).Concat(order.Select(item=>item.Field)).Append("id").ToHashSet(StringComparer.OrdinalIgnoreCase):null;
+        var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",field=>{required?.Add(field);return plan.Expression(field);});
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(clauses).Where(part=>part.Length>0));
-        var from=plan.From+(where.Length==0?"":" WHERE "+where);
+        var from=(required is null?plan.From:plan.FromForFields(required))+(where.Length==0?"":" WHERE "+where);
         var offset=checked(((long)page-1)*pageSize);
         return await OnConnection(async connection=>
         {
