@@ -66,13 +66,14 @@ public sealed class NonRedundantSelfTreeTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>完整包仍拒绝同表、来源父参数和缺失目标发布归属，独立后端已验不能提前解除所有组合。</summary>
-    [Theory][InlineData("sameTable")][InlineData("sourceParent")][InlineData("targetRealm")]
+    /// <summary>完整包仍拒绝同表额外范围、来源父参数和缺失目标发布归属，独立后端已验不能提前解除所有组合。</summary>
+    [Theory][InlineData("sameTableExtraScope")][InlineData("sourceParent")][InlineData("targetRealm")]
     public void Package_subset_keeps_unproven_combinations_and_unpublished_target_gated(string kind)
     {
-        var catalog=kind=="sameTable"?CascadeTreeSameRowTests.Catalog():Catalog("nr_tree");foreach(var table in catalog.ConfigTables.Where(table=>table.Id=="1"||table.Id=="2"))table.IsRongyu=0;
+        var catalog=kind=="sameTableExtraScope"?CascadeTreeSameRowTests.Catalog():Catalog("nr_tree");foreach(var table in catalog.ConfigTables.Where(table=>table.Id=="1"||table.Id=="2"))table.IsRongyu=0;
         foreach(var record in catalog.ConfigTables.Cast<MetadataRecord>().Concat(catalog.ConfigColumns).Concat(catalog.ConfigPages).Concat(catalog.ConfigPageColumns))record.YzProjectId=catalog.YzProjectId;
         catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});foreach(var page in catalog.ConfigPages)page.YzAdminTypeId="5";
+        if(kind=="sameTableExtraScope"){var control=catalog.ConfigColumns.Single(column=>column.Id=="6");control.ControlDetail=control.ControlDetail.Replace("\"selfTree\":{","\"selfTree\":{\"whereSql\":\"status=1\",",StringComparison.Ordinal);Assert.Contains("whereSql",control.ControlDetail);}
         if(kind=="targetRealm")catalog.ConfigPages.Single(page=>page.Id=="301").YzProjectId="";
         if(kind=="sourceParent")catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND id=@parent_id";
         var model=GenerationModel.Create(catalog,"Example.GatedTree");Assert.NotEmpty(GenerationCapabilityAudit.Collect(model));

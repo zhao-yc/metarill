@@ -4,7 +4,7 @@ namespace Metarill.Generation;
 /// <summary>非冗余自树使用完整页读取证明；父范围与混合关系逐项编译，不按控件数量排除。</summary>
 internal static class NonRedundantSelfTreeSubset
 {
-    /// <summary>独立R0／R1目标树、物理父归属和本页其它关系必须全部可执行，不能丢弃坏同伴字段。</summary>
+    /// <summary>独立／同表R0目标及独立R1目标树、物理父归属和本页其它关系必须全部可执行，不能丢弃坏同伴字段。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         if(table.Source.IsRongyu!=0||table.IsGlobal||ExactDataManageCompilation.Declared(page)||source.Source.ControlKind!="CascadeTree")return false;
@@ -21,11 +21,11 @@ internal static class NonRedundantSelfTreeSubset
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return false;}
     }
-    /// <summary>只证明单个独立R0／R1自树目标，供混合检查共用；不反向依赖跨表完整包审计。</summary>
+    /// <summary>只证明单个固定R0／R1自树目标，供混合检查共用；不反向依赖跨表完整包审计。</summary>
     internal static bool FixedTarget(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;
-        return plan is not null&&plan.Read.Target.Source.IsRongyu is 0 or 1&&!plan.Read.Target.IsGlobal&&plan.Read.Target.Source.Id!=table.Source.Id;
+        return plan is not null&&plan.Read.Target.Source.IsRongyu is 0 or 1&&!plan.Read.Target.IsGlobal;
     }
     /// <summary>普通父外键或唯一固定跨表层位均须证明目标物理主键／项目列，不能以来源主键冒充父关系。</summary>
     internal static IReadOnlyList<TableModel> ParentTables(GenerationModel model,TableModel table,PageModel page)

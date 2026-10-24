@@ -26,6 +26,8 @@ internal static class CascadeTreeMergedWriteRenderer
         var clearIdentity=source.Type=="string?"?$"entity.{source.Property}=entity.{source.Property} is null?null:{Literal(string.Empty)};":"";
         var storedEmptyName=source.Type=="string?"?$"stored.{source.Property} is null?null:{Literal(string.Empty)}":"null";
         var identity=string.Concat(table.Columns.Where(column=>column.Source.ColumnName=="yz_project_id").Select(column=>$"||stored.{column.Property}!=entity.{column.Property}"));
+        // R0自指的逻辑名称只在正常DML后按实际外键读取；不能把IsIgnore属性当作当前名称。
+        var prepare=plan.Read.DerivedName?$"if(id==entity.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=null;}}else{{var leaf=(await DerivedCascadeRows{suffix}Async(actor,[new(\"id\",FixedReadComparison.Equal,id)],[new(\"id\")],1,true,cancellationToken)).SingleOrDefault();if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.Name;}}":$"if(id==entity.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=entity.{label.Property};}}\n        else{{var leaf=await CascadeScope{suffix}(actor,false,requireTargetList).Where(row=>row.Id==id).ForUpdate().FirstAsync(row=>new {table.Name}{{Id=row.Id,{label.Property}=row.{label.Property}}},cancellationToken);if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.{label.Property};}}";
         return $$"""
     /// <summary>只准备已提交关联的叶子名称；涉及来源本身时不拿旧行决定最终路径。</summary>
     private async Task ValidateCascade{{suffix}}Async({{table.Name}} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true,bool creating=false)
@@ -41,8 +43,7 @@ internal static class CascadeTreeMergedWriteRenderer
         }
         if(!long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException("级联ID必须是不带前导零的正整数。");
         _=CascadeScope{{suffix}}(actor,false,requireTargetList);string? actualName;
-        if(id==entity.Id){if(creating)throw new InvalidOperationException("不能关联本次尚未存在的新节点。");actualName=entity.{{label.Property}};}
-        else{var leaf=await CascadeScope{{suffix}}(actor,false,requireTargetList).Where(row=>row.Id==id).ForUpdate().FirstAsync(row=>new {{table.Name}}{Id=row.Id,{{label.Property}}=row.{{label.Property}}},cancellationToken);if(leaf is null)throw new InvalidOperationException("级联记录不存在、已删除或不在当前可读范围。");actualName=leaf.{{label.Property}};}
+        {{prepare}}
         {{limit}}
         entity.{{source.Property}}={{assignment}};entity.{{name.Property}}=actualName;submitted.Add({{Literal(source.Source.ColumnName)}});submitted.Add({{Literal(name.Source.ColumnName)}});
     }
