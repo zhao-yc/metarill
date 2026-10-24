@@ -35,12 +35,12 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     /// <summary>调用方已锁来源后统一执行当前读取，只写本次事件允许的派生列，返回实际变化供同事务队列继续传播。</summary>
     internal async Task<IReadOnlyList<RelationRowPatch>> RefreshLockedAsync(MaintenanceTable table,IReadOnlyList<Dictionary<string,object?>> rows,string projectId,IReadOnlySet<string>? allowed,CancellationToken token)
     {
-        if(rows.Count==0)return [];var transaction=session.CurrentTransaction??throw new InvalidOperationException("派生刷新缺少当前事务。");var plan=table.Read!;var patches=new List<RelationRowPatch>();
+        if(rows.Count==0)return [];var transaction=session.CurrentTransaction??throw new InvalidOperationException("派生刷新缺少当前事务。");var plan=allowed is null?table.Read!:table.Read!.ForCacheFields(allowed);var patches=new List<RelationRowPatch>();
             foreach(var row in rows)foreach(var multiple in table.Multiples)if(row[multiple.Foreign] is{} raw)
             {
                 try{using var document=JsonDocument.Parse(Convert.ToString(raw,CultureInfo.InvariantCulture)!);if(document.RootElement.ValueKind==JsonValueKind.Array&&document.RootElement.GetArrayLength()>multiple.MaximumItems)throw new InvalidOperationException("历史多值记录超过发布预算，本次回填未截断数据。");}catch(JsonException){} // 坏历史ID仅按原空集合显示，禁止修补源ID。
             }
-            var ids=rows.Select(row=>(long)row["id"]!).ToArray();var projected=(await new MySqlNonRedundantReader(session).ReadPageAsync(plan,[new("id",FixedReadComparison.In,ids.Cast<object?>().ToArray())],[new("id")],1,128,token,projectId:projectId,currentRead:true)).Records;
+            var ids=rows.Select(row=>(long)row["id"]!).ToArray();var projected=await new MySqlNonRedundantReader(session).ReadCurrentRowsAsync(plan,[new("id",FixedReadComparison.In,ids.Cast<object?>().ToArray())],[new("id")],128,token,projectId:projectId);
             if(projected.Count!=rows.Count||!projected.Select(row=>(long)row["id"]!).Order().SequenceEqual(ids.Order()))throw new InvalidOperationException("回填来源锁与读取范围不一致，拒绝提交。");
             foreach(var values in projected)
             {

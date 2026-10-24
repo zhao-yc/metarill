@@ -19,6 +19,18 @@ public sealed class MySqlNonRedundantReadPlan
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
         Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null,IReadOnlyList<MySqlCrossTableProjection>? crosses=null,IReadOnlyDictionary<string,object?>? constants=null,IReadOnlyList<string>? sourceDependencies=null)
     { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; SourceDependencies=sourceDependencies??[]; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];Constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); }
+    /// <summary>投影视图复用不可变范围及依赖，只改变已编译输出；不在请求中解析元数据或重新拼接联接。</summary>
+    private MySqlNonRedundantReadPlan(MySqlNonRedundantReadPlan plan,string[] outputs)
+    {
+        From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses;Constants=plan.Constants;
+    }
+    /// <summary>缓存传播只读取稳定主键和本次允许的输出，未知字段不能变成新的读取权限。</summary>
+    internal MySqlNonRedundantReadPlan ForCacheFields(IReadOnlySet<string> fields)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+        if(!Outputs.Contains("id",StringComparer.Ordinal)||fields.Any(field=>!Outputs.Contains(field,StringComparer.Ordinal)))throw new InvalidOperationException("缓存投影只能选择已发布输出并保留真实主键。");
+        return new(this,Outputs.Where(field=>field=="id"||fields.Contains(field)).ToArray());
+    }
     internal IReadOnlyList<MySqlReverseProjection> Reverse {get;}
     internal IReadOnlyList<MySqlCrossTableProjection> Crosses{get;}
     internal IReadOnlyDictionary<string,object?> Constants{get;}
