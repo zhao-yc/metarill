@@ -37,9 +37,10 @@ internal static class NonRedundantReadCompilation
             var managed=CascadeTreeViewRenderer.Name(table,tree);
             if(managed is not null&&(page.Searchable.Concat(page.Sortable).Any(column=>column.Source.Id==managed.Source.Id)||page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true))throw new InvalidOperationException("非冗余级联名称直接筛选/排序尚待专用读取用途验证。");
         }
+        var crossIds=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
         foreach(var relation in table.Columns.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
-            if(relation.Source.ControlKind is "CascadeTree" or "MultiCheckBoxDatabase")continue;
+            if(relation.Source.ControlKind is "CascadeTree" or "MultiCheckBoxDatabase"||crossIds.Contains(relation.Source.Id))continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联写入缺少已接通的明确目标。");ValidateTargetDeclarations(model,relation,target);
             if(target.IsGlobal)throw new InvalidOperationException("全局关联读取尚需完整接线。");
         }

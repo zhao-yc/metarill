@@ -12,7 +12,8 @@ internal static class NonRedundantCrossTableCompilation
     /// <summary>物理ID位不能冒充逻辑父范围；尚未接通的组合在整个生成批次写文件前拒绝。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page,CrossTableReadModel plan)
     {
-        if(table.Source.IsRongyu!=0||table.IsGlobal||plan.Levels.Any(level=>level.Target.IsGlobal))throw new InvalidOperationException("非冗余跨表要求同项目普通目标。");
+        if(table.Source.IsRongyu!=0||table.IsGlobal)throw new InvalidOperationException("非冗余跨表要求普通项目来源。");
+        foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))GlobalCrossTableTarget.Require(model.Catalog,level.Target.Source,level.Page.Source);
         var storage=CrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id));
         if(!storage.Slots.Select(slot=>slot.ColumnName).SequenceEqual(plan.Levels.Select(level=>level.Prefix+"_id"),StringComparer.Ordinal))throw new InvalidOperationException("页级跨表定义不能改变固定存储层位。");
         var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==plan.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();

@@ -32,10 +32,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var entry=entries[index];if(HasExtraScope(entry))throw new NotSupportedException("跨表层级额外范围不能忽略。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(entry,"table"))??throw new InvalidOperationException("跨表目标不属于当前发布项目。");
-                    if(target.IsRongyu is not(0 or 1)||CrossText(target,"scopeKind")=="global")throw new NotSupportedException("跨表读取要求普通同项目目标，全局目标仍待固定范围接线。");ValidateTarget(target);
+                    if(target.IsRongyu is not(0 or 1))throw new NotSupportedException("跨表读取要求普通实体目标。");ValidateTarget(target);
                     var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==binding.Levels[index].PageId&&item.ConfigTableId==target.Id)??throw new InvalidOperationException("跨表目标页与固定目标表不符。");
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
-                    if(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
+                    var global=GlobalCrossTableTarget.Declared(target);if(global)GlobalCrossTableTarget.Require(catalog,target,page);else if(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
                     if(display.LogicalType.ToLowerInvariant()!="string"||ExactDataManageValues.IsSensitiveField(display.ColumnName))throw new NotSupportedException("跨表名称须为非凭据单值字符串。");
                     if(target.IsRongyu==0)
@@ -63,7 +63,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var level=levels[index];var alias="cross"+aliases.Count;aliases.Add("cross:"+key+":"+index,alias);targetAliases[index]=alias;
                     var sourceText="CAST("+raw[selection.Slots[index].ColumnName]+" AS CHAR)";var effective="NULLIF(BINARY "+sourceText+",BINARY '')";
                     if(index+1<levels.Count){var parent=levels[index+1].Parent!;var parentValue=targetAliases[index+1]+"."+Q(parent.ColumnName);var parentText=parent.LogicalType.ToLowerInvariant()=="string"?PositiveText(parentValue):"CASE WHEN "+parentValue+">0 THEN CAST("+parentValue+" AS CHAR) END";effective="COALESCE("+effective+","+parentText+")";}
-                    var scope=Scope(level.Table,alias);
+                    var scope=Scope(level.Table,alias,projectScoped:!GlobalCrossTableTarget.Declared(level.Table));
                     if(level.Scope.Condition is{} condition)
                     {
                         var clause=condition.RenderConstants(new MySqlDatabaseProvider(),"mt_cross_scope_"+alias,field=>alias+"."+Q(field));foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);if(clause.Sql.Length>0)scope+=(scope.Length==0?"":" AND ")+clause.Sql;

@@ -284,8 +284,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var equality=refreshFields is not null&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
             joins.Add(" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+equality+(scope.Length==0?"":" AND "+scope));return alias;
         }
-        /// <summary>范围字段必须是真实物理列；项目值固定绑定，不让筛选覆盖。</summary>
-        private string Scope(TableMetadata table,string alias)
+        /// <summary>范围字段必须是真实物理列；普通读取固定绑定项目，仅已证明的全局跨表别名可省略项目谓词。</summary>
+        private string Scope(TableMetadata table,string alias,bool projectScoped=true)
         {
             if((matching||refreshFields is not null)&&!columns[table.Id].ContainsKey("yz_project_id"))throw new NotSupportedException("精确管理关联必须声明真实项目列。");
             var predicates=new List<string>();foreach(var name in new[]{"delete_no","yz_project_id"})
@@ -294,6 +294,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(!storage[table.Id].IsPhysical(column))throw new InvalidOperationException("范围字段必须为物理列。");
                 if(name=="delete_no"&&column.LogicalType!="datetime"||name=="yz_project_id"&&column.LogicalType is not("int64" or "string"))throw new InvalidOperationException("范围字段类型不匹配。");
                 if(name=="yz_project_id"&&(!long.TryParse(catalog.YzProjectId,out var project)||project<=0))throw new InvalidOperationException("项目标识无效。");
+                if(name=="yz_project_id"&&!projectScoped)continue;
                 Use(table,column);Touch(alias,column.ColumnName);
                 predicates.Add(alias+"."+Q(name)+(name=="delete_no"?" IS NULL":column.LogicalType=="int64"?"=@project_scope_number":"=@project_scope_text"));
             }
