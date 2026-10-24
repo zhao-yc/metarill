@@ -106,7 +106,7 @@ public sealed class CrossTablePackageTests
 {
     /// <summary>CI与本机均从源码位置确定基础工程，不依赖本机私有环境变量。</summary>
     private static string SourceRoot([System.Runtime.CompilerServices.CallerFilePath]string file="")=>Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT")??Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../../.."));
-    /// <summary>BackendOnly包含新算法并实际构建，FullApplication仍因未完成用途拒绝。</summary>
+    /// <summary>BackendOnly包含新算法并实际构建，未明确发布权限目录的FullApplication仍拒绝。</summary>
     [Fact]
     public async Task Exported_backend_only_builds_cross_table_controllers_with_its_own_core()
     {
@@ -115,7 +115,7 @@ public sealed class CrossTablePackageTests
         {
             new ApplicationPackager().Create(catalog,directory,"Example.CrossPackage",source,ApplicationPackageMode.BackendOnly);Assert.True(File.Exists(Path.Combine(directory,"src/Metarill.Core/Cascades/CrossTableReader.cs")));
             var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet"){WorkingDirectory=directory,RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};foreach(var argument in new[]{"build","backend/Application.Host/Application.Host.csproj","--disable-build-servers","--verbosity","quiet"})start.ArgumentList.Add(argument);using var process=Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(90));try{await process.WaitForExitAsync(timeout.Token);}catch{process.Kill(true);throw;}Assert.True(process.ExitCode==0,await stdout+await stderr);
-            var rejected=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,directory+"-full","Example.CrossFull",source,ApplicationPackageMode.FullApplication));Assert.Contains("跨表候选/路径已接线",rejected.Message);Assert.False(Directory.Exists(directory+"-full"));
+            var rejected=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,directory+"-full","Example.CrossFull",source,ApplicationPackageMode.FullApplication));Assert.Contains("明确属于包内项目和后台",rejected.Message);Assert.False(Directory.Exists(directory+"-full"));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);if(Directory.Exists(directory+"-full"))await TestDirectoryCleanup.DeleteAsync(directory+"-full",boundary);}
     }

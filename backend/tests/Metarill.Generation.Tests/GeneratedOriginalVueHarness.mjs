@@ -6,10 +6,11 @@ import path from 'node:path'
 const sourceRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..')
 const require=createRequire(path.join(sourceRoot,'frontend/metarill_uni_admin/package.json'))
 const Vue=require('vue'),{parse}=require('@vue/compiler-sfc')
-const runtime=path.join(sourceRoot,'frontend/metarill_uni_admin/common/yzp_runtime')
+const defaultRuntime=path.join(sourceRoot,'frontend/metarill_uni_admin/common/yzp_runtime')
 export const plain=value=>JSON.parse(JSON.stringify(value))
 /** 真实Vue3解析、编译并挂载生成页面；仅网络和外部控件底层渲染受控，不复制生成逻辑。 */
-export function mountGenerated(source,props={},route,{components={}}={}){
+export function mountGenerated(source,props={},route,{components={},runtimeDirectory=defaultRuntime}={}){
+ const runtime=runtimeDirectory // 完整包探针可使用包内原运行时，既有探针保持原默认路径。
  const requests=[],dialogs=[],navigations=[],events=[],toasts=[],targets=[],subscriptions=new Map(),storage={loginStateId:'测试身份',sysParams:{yzProjectId:'100'}},inputProps=Vue.reactive({...props})
  let permission=true,valid=true,validationCount=0
  const uni={getStorageSync:key=>storage[key],setStorageSync:(key,value)=>storage[key]=value,$on(key,fn){if(!subscriptions.has(key))subscriptions.set(key,new Set());subscriptions.get(key).add(fn)},$off(key,fn){subscriptions.get(key)?.delete(fn);if(subscriptions.get(key)?.size===0)subscriptions.delete(key)},$emit:(...args)=>events.push(args),showModal:options=>dialogs.push(options),showToast:options=>toasts.push(options),showActionSheet:options=>dialogs.push(options),navigateTo:options=>navigations.push(options),navigateBack(){},stopPullDownRefresh(){}}

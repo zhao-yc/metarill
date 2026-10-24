@@ -38,6 +38,9 @@ internal static class GenerationCapabilityAudit
             foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==0&&column.Source.ControlKind=="CascadeTree"&&!page.Readable.Any(read=>read.Source.Id==column.Source.Id)))
                 if(NonRedundantCrossTableSubset.Declared(source)&&!NonRedundantCrossTableSubset.Supports(model,table,page,source))
                     gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime","非冗余crossTable的实际用途未通过完整包证明，隐藏控件不能绕过门禁。"));
+            // R1隐藏跨表也会参与默认值、复制和钩子；没有可见跨表承接审计时仍须单独证明。
+            if(table.Source.IsRongyu==1&&!page.Readable.Any(NonRedundantCrossTableSubset.Declared)&&table.Columns.Any(NonRedundantCrossTableSubset.Declared)&&RedundantCrossTableSubset.Reason(model,table,page) is{} crossGap)
+                gaps.Add(new(page.Source.Id,table.Columns.First(NonRedundantCrossTableSubset.Declared).Source.ColumnName,"runtime",crossGap));
             // 带联接标记的多选缓存即使隐藏来源字段，也必须有明确完整的内部写入证明。
             foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==1&&column.Source.ControlKind=="MultiSelectPage"))
             {var proof=MultiSelectCompilation.Resolve(model,table,page,source,forService:true);if(proof.Definition is null)gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime",proof.Reason!));}
@@ -52,6 +55,9 @@ internal static class GenerationCapabilityAudit
             // 原统计声明的类型和可读边界必须在完整包stage创建之前验证。
             _=OriginalListStatisticsCompilation.ForPage(model,table,page);
             if (ManagerCredentialCompilation.Gap(table,page) is {} credentialGap) gaps.Add(new(page.Source.Id,"password","detail",credentialGap));
+            // 按表级原始声明审计虚拟级联，不能因模型过滤或本页隐藏而静默跳过运行时缺口。
+            foreach(var source in model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn!=0&&column.ControlKind=="CascadeTree"))
+                gaps.Add(new(page.Source.Id,source.ColumnName,"runtime","级联完整用途必须使用已声明的真实ID列，虚拟控件不能被静默丢弃。"));
             // 虚拟列在模型物理列过滤前存在；固定目录声明不能因该过滤而从Full门禁静默消失。
             foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==page.Source.Id))
             {
