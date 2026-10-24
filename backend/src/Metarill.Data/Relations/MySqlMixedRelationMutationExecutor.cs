@@ -17,7 +17,7 @@ internal sealed class MySqlMixedRelationMutationExecutor(DatabaseSession session
             await ValidateAsync(consumer,validated,token);long after=0;
             while(true)
             {
-                var ids=await ReverseIds(consumer.Read,reverse,id,project,after,transaction,token);if(ids.Count==0)break;after=ids[^1];var rows=await materializer.Sources(consumer.Table,project,0,transaction,token,ids);if(rows.Count!=ids.Count)throw new InvalidOperationException("混合传播反查与来源活动范围不一致，整笔拒绝提交。");
+                var ids=await ReverseIds(consumer.Read,reverse,id,project,after,transaction,token);if(ids.Count==0)break;after=ids[^1];var rows=await materializer.Sources(consumer.Table,project,0,transaction,token,ids,allowed);if(rows.Count!=ids.Count)throw new InvalidOperationException("混合传播反查与来源活动范围不一致，整笔拒绝提交。");
                 foreach(var patch in await materializer.RefreshLockedAsync(consumer.Table,rows,project,allowed,token))onChanged(consumer.Table.Option.TableName,patch.Id,patch.Values);
             }
         }
