@@ -62,12 +62,12 @@ public sealed class NonRedundantCrossSourceTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>来源参与一层不能放开重复来源、逻辑范围、全局、隐藏名称或未确认Excel用途。</summary>
-    [Theory][InlineData("repeat")][InlineData("global")][InlineData("sourceCondition")][InlineData("derivedParent")][InlineData("hiddenName")][InlineData("extra")][InlineData("pathImport")][InlineData("view")]
+    /// <summary>来源角色的稀疏父位、逻辑范围、全局、隐藏名称及未确认Excel用途继续明确拒绝。</summary>
+    [Theory][InlineData("repeatSparseParent")][InlineData("global")][InlineData("sourceCondition")][InlineData("derivedParent")][InlineData("hiddenName")][InlineData("extra")][InlineData("pathImport")][InlineData("view")]
     public void Unproven_source_graph_uses_stay_gated_before_staging(string kind)
     {
         var c=Catalog("nr_source_bad",1,"string","int64",true);var source=c.ConfigColumns.Single(x=>x.Id=="25");var json=JsonNode.Parse(source.ControlDetail)!;
-        if(kind=="repeat"){json["levels"]![0]!["table"]="nr_source_bad_source";c.ConfigColumns.Single(x=>x.Id=="88").LinkConfigTableId="2";}
+        if(kind=="repeatSparseParent"){json["levels"]![0]!["table"]="nr_source_bad_source";json["levels"]![1]!["parentField"]="country_id";c.ConfigColumns.Single(x=>x.Id=="88").LinkConfigTableId="2";}
         if(kind=="global")c.ConfigTables.Single(x=>x.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(kind=="sourceCondition")c.ConfigPages.Single(x=>x.Id=="201").WhereSql+=" AND country_id='9007199254745001'";
         if(kind=="derivedParent"){var parent=c.ConfigColumns.Single(x=>x.Id=="88");parent.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);parent.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.id");}

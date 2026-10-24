@@ -27,7 +27,6 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(table.Id!=root.Id||owner!=rootAlias||CrossText(table,"scopeKind")=="global"||!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))throw new NotSupportedException("跨表逻辑投影要求当前非冗余来源的真实物理项目范围。");
                 var rootDefinition=Definition(source);if(HasExtraScope(rootDefinition))throw new NotSupportedException("跨表额外范围不能在固定读取中忽略。");
                 var entries=rootDefinition.GetProperty("levels").EnumerateArray().ToArray();if(entries.Length!=binding.Levels.Count)throw new InvalidOperationException("跨表目标页绑定与固定层数不符。");
-                if(entries.Count(entry=>Value(entry,"table")==table.TableName)>1)throw new NotSupportedException("来源表重复层位仍需固定图证明。");
                 var levels=new List<CrossLevel>();
                 for(var index=0;index<entries.Length;index++)
                 {
@@ -48,6 +47,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(index>0)
                     {
                         parent=Column(target,Value(entry,"parentField"));
+                        if(target.Id==root.Id&&selection.Slots.Any(slot=>slot.ColumnName==parent.ColumnName))throw new InvalidOperationException("来源角色的父键必须是独立物理外键，不能使用稀疏选择位。");
                         if(!CrossPhysical(target,parent)||parent.LogicalType.ToLowerInvariant() is not("string" or "int64")||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=levels[^1].Table.Id)throw new InvalidOperationException("跨表父键不是上一层的已证明物理外键。");
                     }
                     var slot=columns[table.Id][selection.Slots[index].ColumnName];if(slot.LinkConfigTableId.Length>0&&slot.LinkConfigTableId!=target.Id)throw new InvalidOperationException("跨表来源ID位与目标表声明不一致。");

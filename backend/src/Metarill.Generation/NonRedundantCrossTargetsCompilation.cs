@@ -4,11 +4,10 @@ namespace Metarill.Generation;
 /// <summary>跨表目标按每层真实物理结构及固定单值名称证明，不能只放开存储模式门禁。</summary>
 internal static class NonRedundantCrossTargetsCompilation
 {
-    /// <summary>非冗余来源不维护名称副本；自身恰好参与一层由写后图复核，重复层位仍拒绝。</summary>
+    /// <summary>非冗余来源不维护名称副本；来源各角色按层独立读取，写后复核实际稀疏选择及全部来源依赖。</summary>
     internal static void Require(GenerationModel model,TableModel owner,CrossTableReadModel plan)
     {
         if(owner.Source.IsRongyu!=0||owner.IsGlobal||plan.Levels.Any(level=>level.Target.IsGlobal||level.Target.Source.IsView!=0||level.Target.Source.IsFunctionTable!=0))throw new InvalidOperationException("非冗余跨表目标要求R0来源及普通同项目目标，冗余缓存仍需独立证明。");
-        if(plan.Levels.Count(level=>level.Target.Source.Id==owner.Source.Id)>1)throw new InvalidOperationException("来源表重复层位仍需固定图证明。");
         foreach(var level in plan.Levels.Where(level=>level.Target.Source.IsRongyu==0))_=Dependencies(model,level);
     }
     /// <summary>名称可派生，父键、身份、条件及其它排序必须是已证明物理标量。</summary>

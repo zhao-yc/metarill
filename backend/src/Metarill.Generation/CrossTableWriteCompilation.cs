@@ -13,7 +13,7 @@ internal static class CrossTableWriteCompilation
     internal static CrossTableWriteResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         CrossTableWriteResult Gap(string reason)=>new(null,"跨表级联写入尚未支持："+reason);var read=CrossTableReadCompilation.Resolve(model,table,page,source);if(read.Definition is not{} plan)return Gap(read.Reason??"未证明读取链。");
-        if(plan.Levels.Count(level=>level.Target.Source.Id==table.Source.Id)>1)return Gap("来源表重复层位仍需组合验证。");var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var result=new List<CrossTableWriteLevel>();
+        if(table.Source.IsRongyu==1&&plan.Levels.Count(level=>level.Target.Source.Id==table.Source.Id)>1)return Gap("来源表重复层位仍需组合验证。");var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var result=new List<CrossTableWriteLevel>();
         foreach(var level in plan.Levels)
         {
             var id=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_id");var name=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_name");
