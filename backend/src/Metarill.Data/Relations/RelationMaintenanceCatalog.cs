@@ -59,7 +59,7 @@ public sealed class RelationMaintenanceCatalog
                 if(!all.TryGetValue("yz_project_id",out var projectColumn)||projectColumn.LogicalType is not("int64" or "string")||Enabled(projectColumn))throw new InvalidOperationException("维护表缺少真实项目列。");
                 foreach(var field in fields)if(field.ColumnName is "id" or "yz_project_id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id"||ExactDataManageValues.IsSensitiveField(field.ColumnName)||field.ColumnName=="salt"||field.ControlKind=="FileLibrary"||field.IsVirtualColumn!=0)throw new NotSupportedException("维护回填不能覆盖身份、审计或凭据字段。");
                 var read=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,table.Id,fields.Select(column=>column.ColumnName).ToArray(),bindings,companionPaths);var results=new List<MaintenanceField>();
-                if(read.MultiProjections.Keys.Any(name=>!bindings.Any(binding=>all.Values.Any(column=>column.Id==binding.CacheColumnId&&column.ColumnName==name))))throw new NotSupportedException("多值回填缺少已证明的数组预算，未执行部分回填。");
+                if(read.MultiProjections.Keys.Any(name=>!bindings.Where(binding=>binding.Multiple).Any(binding=>all.Values.Any(column=>column.Id==binding.CacheColumnId&&column.ColumnName==name))))throw new NotSupportedException("多值回填缺少已证明的数组预算，未执行部分回填。");
                 foreach(var field in fields)
                 {
                     if(!read.Origins.TryGetValue(field.ColumnName,out var origin)||read.Types[field.ColumnName]!=field.LogicalType)throw new NotSupportedException("回填列与最终派生标量类型不一致。");
@@ -69,13 +69,13 @@ public sealed class RelationMaintenanceCatalog
                 }
                 var required=read.PhysicalReferences.Concat(fields.Select(field=>new MySqlPhysicalReference(table.TableName,MySqlSchemaPlanner.CompileColumn(field)))).DistinctBy(item=>(item.Table,item.Column.Name)).ToArray();
                 read=new(read.From,read.ProjectId,read.Scope,read.Expressions.ToDictionary(),read.Types.ToDictionary(),read.Outputs.ToArray(),read.ArrayNamePredicates.ToDictionary(),read.MultiProjections.ToDictionary(),read.ArrayIdPredicates.ToDictionary(),Array.AsReadOnly(required),read.Origins,read.Reverse);
-                var multiples=bindings.GroupBy(item=>item.ForeignColumnId).Select(group=>new MaintenanceMultiple(all.Values.Single(column=>column.Id==group.Key).ColumnName,all.Values.Single(column=>column.Id==group.Key).ControlKind=="MultiSelectPage"?200:5000,Array.AsReadOnly(group.Select(item=>all.Values.Single(column=>column.Id==item.CacheColumnId).ColumnName).ToArray()))).ToArray();
+                var multiples=bindings.Where(item=>item.Multiple).GroupBy(item=>item.ForeignColumnId).Select(group=>new MaintenanceMultiple(all.Values.Single(column=>column.Id==group.Key).ColumnName,all.Values.Single(column=>column.Id==group.Key).ControlKind=="MultiSelectPage"?200:5000,Array.AsReadOnly(group.Select(item=>all.Values.Single(column=>column.Id==item.CacheColumnId).ColumnName).ToArray()))).ToArray();
                 plans.Add(table.Id,new(option,projectColumn.LogicalType,all.ContainsKey("delete_no"),Array.AsReadOnly(results.ToArray()),Array.AsReadOnly(multiples),read,null));
             }
             catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException or JsonException){plans.Add(table.Id,new(option,"",false,[],[],null,"当前表回填计划未通过发布校验："+error.Message));}
         }
         Plans=new ReadOnlyDictionary<string,MaintenanceTable>(plans);Tables=Array.AsReadOnly(plans.Values.Select(item=>item.Option).ToArray());
-        Mixed=MixedRelationMutationPlan.Compile(catalog,Plans,excluded);
+        Mixed=MixedRelationMutationPlan.Compile(catalog,Plans,excluded,definitions.Where(item=>!item.Multiple).ToArray());
         Fingerprint=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{catalog,definitions,excluded=excluded.Order(StringComparer.Ordinal)}))));
     }
     /// <summary>输入只在编译时使用；后续编辑或重排目录不会改变当前宿主的维护权威。</summary>

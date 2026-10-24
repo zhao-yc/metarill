@@ -60,7 +60,7 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("维护回填尚未完成该方言验收。");
-        return new Builder(catalog,tableId,refreshFields:fields.ToHashSet(StringComparer.Ordinal),refreshMultiples:multiple,refreshPaths:paths).Compile(["id",..fields,..multiple.Select(item=>catalog.ConfigColumns.Single(column=>column.Id==item.ForeignColumnId).ColumnName).Distinct(StringComparer.Ordinal)],[]);
+        return new Builder(catalog,tableId,refreshFields:fields.ToHashSet(StringComparer.Ordinal),refreshMultiples:multiple,refreshPaths:paths).Compile(["id",..fields,..multiple.Where(item=>item.Multiple).Select(item=>catalog.ConfigColumns.Single(column=>column.Id==item.ForeignColumnId).ColumnName).Distinct(StringComparer.Ordinal)],[]);
     }
     /// <summary>先完整验证目录，再以专用用途编译单一匹配字段；最终物理列必须仍为非凭据标量。</summary>
     public static MySqlNonRedundantReadPlan CompileMatch(MetadataCatalog catalog,string tableId,string field)
@@ -130,7 +130,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(alias==rootAlias&&table.Id==root.Id&&refreshFields?.Contains(name)==true&&refreshMultiples.SingleOrDefault(item=>item.CacheColumnId==column?.Id) is{} refresh)
                 {
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
-                    return MultiDisplay(table,alias,foreign,value.ColumnName);
+                    if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName);
+                    // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
+                    ValidateTarget(target);var id=Resolve(table,alias,foreign.ColumnName);return Resolve(target,Join(alias,foreign,target,id.Sql,id.Type),value.ColumnName);
                 }
                 foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"&&item.ColumnName.EndsWith("_id",StringComparison.Ordinal)))
                 {

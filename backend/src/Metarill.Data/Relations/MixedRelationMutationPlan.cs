@@ -16,12 +16,14 @@ internal sealed class MixedRelationMutationPlan
         Consumers=Array.AsReadOnly(consumers);Targets=Array.AsReadOnly(consumers.SelectMany(item=>item.Read.Reverse).Select(item=>item.TargetTable).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray());SourceColumns=new ReadOnlyDictionary<string,IReadOnlyList<string>>(consumers.ToDictionary(item=>item.Table.Option.TableName,item=>(IReadOnlyList<string>)Array.AsReadOnly(item.Table.Fields.Select(field=>field.Name).ToArray()),StringComparer.Ordinal));
     }
     /// <summary>完整回填证明是入口；不支持的整表仍保留缺口，不能只激活其中一条未知缓存。</summary>
-    internal static MixedRelationMutationPlan Compile(MetadataCatalog catalog,IReadOnlyDictionary<string,MaintenanceTable> tables,IReadOnlySet<string> excluded)
+    internal static MixedRelationMutationPlan Compile(MetadataCatalog catalog,IReadOnlyDictionary<string,MaintenanceTable> tables,IReadOnlySet<string> excluded,IReadOnlyList<RelationCacheDefinition>? scalarCaches=null)
     {
         var result=new List<MixedRelationConsumer>();var multipleNames=tables.Values.SelectMany(table=>table.Multiples.SelectMany(multiple=>multiple.Caches.Select(name=>(table.Option.TableName,name)))).ToHashSet();
         foreach(var table in tables.Values.Where(table=>table.Error is null&&table.Read is not null&&!excluded.Contains(table.Option.Id)))
         {
-            var fields=table.Fields.Where(field=>!table.Multiples.Any(multiple=>multiple.Caches.Contains(field.Name))).ToArray();if(fields.Length==0)continue;
+            // 已登记的直接标量缓存由普通传播执行器唯一处理；混合队列只处理剩余联接，避免双重刷新。
+            var scalarNames=(scalarCaches??[]).Where(item=>item.SourceTableId==table.Option.Id).Select(item=>RelationStorageColumns.Expand(catalog.ConfigTables.Single(t=>t.Id==item.SourceTableId),catalog.ConfigColumns.Where(c=>c.ConfigTableId==item.SourceTableId)).Single(c=>c.Id==item.CacheColumnId).ColumnName).ToHashSet(StringComparer.Ordinal);
+            var fields=table.Fields.Where(field=>!table.Multiples.Any(multiple=>multiple.Caches.Contains(field.Name))&&!scalarNames.Contains(field.Name)).ToArray();if(fields.Length==0)continue;
             var read=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,table.Option.Id,fields.Select(field=>field.Name).ToArray(),[],fields.ToDictionary(field=>field.Name,field=>field.Path,StringComparer.Ordinal));
             if(read.Reverse.SelectMany(reverse=>reverse.Outputs.Values.SelectMany(names=>names.Select(name=>(reverse.TargetTable,name)))).Any(multipleNames.Contains))continue; // 多值缓存作为标量中间值尚无完整合同，不把数组文本冒充名称。
             var inputs=read.PhysicalReferences.Where(reference=>reference.Table==table.Option.TableName).Select(reference=>reference.Column.Name).ToFrozenSet(StringComparer.Ordinal);

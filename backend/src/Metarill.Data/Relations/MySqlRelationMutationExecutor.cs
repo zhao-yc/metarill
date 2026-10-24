@@ -28,6 +28,7 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
                     var rows=await Consumers(plan.Bindings,bindings,change.Id,after,transaction,projectId,token);if(rows.Count==0)break;after=rows[^1].Id;
                     // 同一来源外键的所有缓存共用本批目标集合和当前锁读取，不逐缓存／逐记录查询名称。
                     var peers=plan.Bindings.Where(binding=>binding.Source.Name==group.Key.Name&&binding.Foreign==group.Key.Foreign).ToArray();var ids=rows.SelectMany(row=>Members(row.Foreign,peers[0])).OfType<long>().Distinct().Order().ToArray();var values=await Targets(peers,ids,transaction,projectId,token);
+                    var changedRows=new List<RelationRowPatch>();
                     foreach(var row in rows)
                     {
                         var patch=new Dictionary<string,object?>(StringComparer.Ordinal);var members=Members(row.Foreign,peers[0]);
@@ -36,8 +37,11 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
                             object? value=binding.Multiple?row.Foreign is null?null:JsonSerializer.Serialize(members.Select(member=>member is null?null:values.GetValueOrDefault((member.Value,binding.Value))).ToArray()):members.FirstOrDefault() is{} key?values.GetValueOrDefault((key,binding.Value)):null;
                             if(!Same(row.Values.GetValueOrDefault(binding.Cache),value))patch[binding.Cache]=value;
                         }
-                        if(patch.Count==0)continue;await Update(peers[0].Source,row.Id,patch,transaction,projectId,token);if(group.Key.Name==table&&row.Id==id)foreach(var item in patch)origin[item.Key]=item.Value;onChanged?.Invoke(group.Key.Name,row.Id,patch);pending.Enqueue((group.Key.Name,row.Id,new(patch.Keys,StringComparer.Ordinal),false));
+                        if(patch.Count==0)continue;await Update(peers[0].Source,row.Id,patch,transaction,projectId,token);changedRows.Add(new(row.Id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(patch)));
                     }
+                    // 本批写回全部核验后才进入下游队列；失败由同一外层事务回滚全部先前批次。
+                    await RelationCacheStorageVerifier.VerifyManyAsync(session,peers[0].Source.Name,Scope(peers[0].Source,"c"),Project(peers[0].Source,projectId),changedRows,transaction,token);
+                    foreach(var patch in changedRows){if(group.Key.Name==table&&patch.Id==id)foreach(var item in patch.Values)origin[item.Key]=item.Value;onChanged?.Invoke(group.Key.Name,patch.Id,patch.Values);pending.Enqueue((group.Key.Name,patch.Id,new(patch.Values.Keys,StringComparer.Ordinal),false));}
                 }
             }
         }

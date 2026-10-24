@@ -76,6 +76,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     private async Task Update(MaintenanceTable table,long id,string project,IReadOnlyDictionary<string,object?> patch,DbTransaction transaction,CancellationToken token)
     {
         await using var command=Command(transaction);command.CommandText="UPDATE "+Q(table.Option.TableName)+" SET "+string.Join(",",patch.Keys.Select((field,index)=>Q(field)+"=@value"+index))+" WHERE `id`=@id AND "+Scope(table);Add(command,"id",id);Add(command,"project",Project(table,project));var ordinal=0;foreach(var value in patch.Values)Add(command,"value"+ordinal++,value);if(await command.ExecuteNonQueryAsync(token)!=1)throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
+        await RelationCacheStorageVerifier.VerifyAsync(session,table.Option.TableName,"c.`yz_project_id`=@project"+(table.Deleted?" AND c.`delete_no` IS NULL":""),id,Project(table,project),patch,transaction,token);
     }
     /// <summary>活动范围只来自编译后的真实物理项目列和软删列。</summary>
     private static string Scope(MaintenanceTable table)=>"`yz_project_id`=@project"+(table.Deleted?" AND `delete_no` IS NULL":"");
