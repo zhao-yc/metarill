@@ -42,7 +42,7 @@ internal static class NonRedundantReadCompilation
         {
             if(relation.Source.ControlKind is "CascadeTree" or "MultiCheckBoxDatabase"||crossIds.Contains(relation.Source.Id))continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联写入缺少已接通的明确目标。");ValidateTargetDeclarations(model,relation,target);
-            if(target.IsGlobal)_=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);
+            if(target.IsGlobal){if(relation.Source.ControlKind=="MultiSelectPage")_=GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);else _=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);}
         }
         foreach(var selection in table.Columns.Where(column=>column.Source.ControlKind=="SelectPage"))NonRedundantSelectionCompilation.Resolve(model,table,page,selection);
         var outputs=page.Readable.Select(column=>new NonRedundantOutput(column.Source.ColumnName,column.Property,column.JsonName,column.Type,column.IsJsonArray)).ToList();

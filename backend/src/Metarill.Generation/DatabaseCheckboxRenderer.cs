@@ -26,7 +26,7 @@ internal static class DatabaseCheckboxRenderer
         var result=new StringBuilder();var exposed=DatabaseCheckboxCompilation.ForPage(model,table,page).Select(def=>def.Source.Source.Id).ToHashSet(StringComparer.Ordinal);
         foreach(var def in DatabaseCheckboxCompilation.ForService(model,table,page))
         {
-            var suffix=Suffix(page,def);var project=def.Target.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
+            var suffix=Suffix(page,def);var project=def.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
@@ -48,7 +48,7 @@ internal static class DatabaseCheckboxRenderer
                         .AppendLine("        if(!await parentQuery.AnyAsync(cancellationToken))throw new InvalidOperationException(\"复选来源父不存在、已删除或不属于当前项目。\");");
                 }
             }
-            result.AppendLine($"        var query=session.Select<{def.Target.Name}>().Where(row=>row.{project.Property}=={Scope(project,"actor.ProjectId")});");
+            result.AppendLine(def.Target.IsGlobal?$"        var query=session.Select<{def.Target.Name}>();":$"        var query=session.Select<{def.Target.Name}>().Where(row=>row.{project!.Property}=={Scope(project,"actor.ProjectId")});");
             if(def.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        query=query.Where(row=>row.DeleteNo==null);");
             foreach(var (column,source) in def.Scopes)result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={Scope(column,source=="project"?"actor.ProjectId":"parentId!")});");
             if(def.Conditions is {} condition)

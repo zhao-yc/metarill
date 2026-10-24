@@ -86,13 +86,14 @@ internal static class MultiSelectCompilation
             {
                 var baselineName=Scalar(root,"nameField");if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
                 if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id||baselineName!=name.Source.ColumnName)return Gap("页级目标或名称覆盖尚未绑定同一非冗余读取计划。");
-                if(!NonRedundantReadCompilation.Physical(model,table,source)||target.IsGlobal)return Gap("非冗余多选要求同项目物理ID和标量名称。");
+                if(!NonRedundantReadCompilation.Physical(model,table,source))return Gap("非冗余多选要求物理ID和标量名称。");
+                if(target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选页级目标和名称声明不一致。");}
                 if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
                 if(names is not null)Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
             }
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择")), null);
         }
-        catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException) { return Gap("配置或范围无法安全编译：" + error.Message); }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
     }
 
     /// <summary>重复键、数组配置或复杂映射值必须拒绝，未知合法键保持在原元数据。</summary>

@@ -234,6 +234,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(target is null)throw new InvalidOperationException("多值关联缺少同项目目标。");ValidateTarget(target);
             if(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||Value(definition,"table") is {Length:>0} declared&&declared!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linkedPage&&PageTarget(linkedPage)?.Id!=target.Id)throw new InvalidOperationException("多值关系的目标声明缺失或相互矛盾。");
             if(relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id)throw new InvalidOperationException("多值关系目标声明不一致。");
+            var global=GlobalCrossTableTarget.Declared(target);if(global){if(refreshFields is not null)throw new NotSupportedException("全局多值缓存回填仍需跨项目事务证明。");var proof=GlobalMultipleRelationTarget.Require(catalog,table,relation,target);if(proof.Name.ColumnName!=display)throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");}
             var value=Column(target,display);
             if(value.LogicalType!="string"||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的字符串标量。");
             if(!storage[target.Id].IsPhysical(value))return DerivedMultiDisplay(table,owner,relation,target,value);
@@ -241,8 +242,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var source=owner+"."+Q(relation.ColumnName);
             // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
             var array=Array(source);
-            var targetScope=Scope(target,"multi_value");
-            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG(multi_value."+Q(display)+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(relation.ControlKind=="MultiCheckBoxDatabase"?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
+            var targetScope=Scope(target,"multi_value",projectScoped:!global);
+            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG(multi_value."+Q(display)+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(relation.ControlKind=="MultiCheckBoxDatabase"||global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope);
             // 名称筛选直接对目标做EXISTS，不先聚合整份名称数组，也不把根记录JOIN成多行。
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(targetScope.Length==0?"":" AND "+targetScope)+" AND multi_value."+Q(display)+" LIKE {parameter} ESCAPE '!')";
@@ -287,7 +288,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var equality=(refreshFields is not null||global)&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
             joins.Add(" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+equality+(scope.Length==0?"":" AND "+scope));return alias;
         }
-        /// <summary>范围字段必须是真实物理列；普通读取固定绑定项目，仅已证明的全局跨表别名可省略项目谓词。</summary>
+        /// <summary>范围字段必须是真实物理列；普通读取固定绑定项目，仅已证明的全局目标别名可省略项目谓词。</summary>
         private string Scope(TableMetadata table,string alias,bool projectScoped=true)
         {
             if(projectScoped&&(matching||refreshFields is not null)&&!columns[table.Id].ContainsKey("yz_project_id"))throw new NotSupportedException("精确管理关联必须声明真实项目列。");
