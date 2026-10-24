@@ -38,3 +38,7 @@
 最终命令由私有`.local/same-derived-tree/verify-final.py`串行执行并在每阶段校验源码快照。相关生成筛选为`(FullyQualifiedName~SameTableDerivedTree|FullyQualifiedName~CascadeTree|FullyQualifiedName~NonRedundantSelfTree|FullyQualifiedName~NonRedundantParentedSelfTree|FullyQualifiedName~DerivedSelfTreeTests)&FullyQualifiedName!~FreshDerivedSelfTreeMySqlTests`；同批分别运行Data、Files、Api测试工程Release测试及平台／demo两轮CLI正规生成。实例pin、测试凭据、完整TRX和清理证据均在私有目录，不入开源仓库。
 
 本批只有固定后端／源码完整包及原Vue协议结论。实际同表正式身份／专用空库组合、原浏览器现场操作、跨端和同条件性能仍待验收；其余来源角色、共享辅助列、全局目标和复杂依赖传播／维护回填继续B17—B23，不合main、不部署生产。
+
+## 后续正式宿主交叉验证
+
+本文件保留原后端／完整包批次。后续[B59正式来源图](source-graph-fresh.md)已验证同表派生树双模型及重复来源四模型的真实Production/Web、新空库、普通账号、原候选／路径、文件与即时撤权及重启；只覆盖六个固定交叉模型，不替代本文件全部类型组合的正式验收、原浏览器或性能验证。
