@@ -94,11 +94,11 @@ public sealed class RepeatedCrossSourceTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>R1缓存仍无重复来源证明，不随本批R0读取／稀疏存储接通。</summary>
+    /// <summary>R1物理名称重复角色须独立证明并登记缓存，不能误用R0稀疏存储。</summary>
     [Fact]
-    public void R1_repeated_source_still_has_an_explicit_write_gap()
+    public void R1_repeated_source_uses_explicit_physical_role_proof()
     {
-        var c=Catalog("repeat_r1",7,"string","int64",false);c.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;var model=GenerationModel.Create(c,"Example.RepeatR1Gap");var table=model.Tables.Single(x=>x.Source.Id=="2");var result=CrossTableWriteCompilation.Resolve(model,table,Assert.Single(table.Pages),table.Columns.Single(x=>x.Source.Id=="25"));Assert.Null(result.Definition);Assert.Contains("来源表重复层位",result.Reason);
+        var c=Catalog("repeat_r1",7,"string","int64",false);c.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;var model=GenerationModel.Create(c,"Example.RepeatR1Gap");var table=model.Tables.Single(x=>x.Source.Id=="2");var result=CrossTableWriteCompilation.Resolve(model,table,Assert.Single(table.Pages),table.Columns.Single(x=>x.Source.Id=="25"));Assert.NotNull(result.Definition);Assert.Equal(3,RelationPropagationCompilation.Bindings(model).Count);
     }
     /// <summary>重复角色不能打开共享槽位、逻辑父、全局、凭据及未确认路径Excel。</summary>
     [Theory][InlineData("sparseParent")][InlineData("sharedSlots")][InlineData("derivedParent")][InlineData("global")][InlineData("credential")][InlineData("sourceCondition")][InlineData("extra")][InlineData("pathImport")]

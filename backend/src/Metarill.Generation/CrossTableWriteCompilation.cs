@@ -13,7 +13,7 @@ internal static class CrossTableWriteCompilation
     internal static CrossTableWriteResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         CrossTableWriteResult Gap(string reason)=>new(null,"跨表级联写入尚未支持："+reason);var read=CrossTableReadCompilation.Resolve(model,table,page,source);if(read.Definition is not{} plan)return Gap(read.Reason??"未证明读取链。");
-        if(table.Source.IsRongyu==1&&plan.Levels.Count(level=>level.Target.Source.Id==table.Source.Id)>1)return Gap("来源表重复层位仍需组合验证。");var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var result=new List<CrossTableWriteLevel>();
+        var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var result=new List<CrossTableWriteLevel>();
         foreach(var level in plan.Levels)
         {
             var id=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_id");var name=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_name");
@@ -23,6 +23,11 @@ internal static class CrossTableWriteCompilation
         }
         var fields=result.SelectMany(level=>new[]{level.Id.Source.ColumnName,level.Name.Source.ColumnName}).ToHashSet(StringComparer.Ordinal);
         foreach(var other in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"&&column.Source.Id!=source.Source.Id))if(CrossTableReadCompilation.Resolve(model,table,page,other).Definition is{} shared&&shared.Levels.Any(level=>fields.Contains(level.Prefix+"_id")||fields.Contains(level.Prefix+"_name")))return Gap("不同级联共享辅助字段需要聚合协调。");
+        if(table.Source.IsRongyu==1&&plan.Levels.Count(level=>level.Target.Source.Id==table.Source.Id)>1)
+        {
+            try{RedundantRepeatedCrossSourceCompilation.Require(model,table,page,plan,fields);}
+            catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException){return Gap(error.Message);}
+        }
         if(table.Source.IsRongyu==0)
         {
             try{NonRedundantCrossTableCompilation.Require(model,table,page,plan);}

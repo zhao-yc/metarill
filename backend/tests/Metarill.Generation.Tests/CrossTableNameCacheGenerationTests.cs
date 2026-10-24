@@ -18,11 +18,11 @@ public sealed class CrossTableNameCacheGenerationTests
         try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),model.Namespace);await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);var registration=await File.ReadAllTextAsync(Path.Combine(directory,"generated/GeneratedRegistration.g.cs"));Assert.Contains("crossTableColumnId",registration);Assert.Contains("RelationMaintenanceCatalog.Compile",registration);using var capabilities=JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(directory,"generated/generation-capabilities.json")));var cap=Assert.Single(capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray(),x=>x.GetProperty("controlKind").GetString()=="CascadeTree");Assert.True(cap.GetProperty("renamePropagationSupported").GetBoolean());Assert.False(cap.GetProperty("fullApplicationAccepted").GetBoolean());Assert.Equal(before,JsonSerializer.Serialize(c));}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>R0实时投影不新增名称物化，旧R1重复来源门禁继续，不借本批绕过。</summary>
+    /// <summary>R0实时投影不物化；新证明的R1重复角色按独立槽位登记。</summary>
     [Fact]
-    public void Nonredundant_and_unproven_repeated_source_do_not_get_physical_cache_bindings()
+    public void Nonredundant_has_no_cache_and_proven_repeated_roles_use_distinct_bindings()
     {
-        var c=NonRedundantCrossSourceTests.Catalog("cross_r0",0,"string","int64",false);Assert.Empty(RelationPropagationCompilation.Bindings(GenerationModel.Create(c,"Example.R0NoCache")));var repeated=RepeatedCrossSourceTests.Catalog("cross_repeat",7,"string","int64",false);repeated.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;Assert.Empty(RelationPropagationCompilation.Bindings(GenerationModel.Create(repeated,"Example.R1RepeatGap")));
+        var c=NonRedundantCrossSourceTests.Catalog("cross_r0",0,"string","int64",false);Assert.Empty(RelationPropagationCompilation.Bindings(GenerationModel.Create(c,"Example.R0NoCache")));var repeated=RepeatedCrossSourceTests.Catalog("cross_repeat",7,"string","int64",false);repeated.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;var bindings=RelationPropagationCompilation.Bindings(GenerationModel.Create(repeated,"Example.R1RepeatRoles"));Assert.Equal(3,bindings.Count);Assert.Equal(3,bindings.Select(x=>x.CrossTableLevelKey).Distinct().Count());
     }
     /// <summary>全局目标仍有独立缺口，不因普通R1计划被偷偷赋予缓存传播能力。</summary>
     [Fact]
