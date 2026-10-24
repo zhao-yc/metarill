@@ -26,8 +26,8 @@ internal static class RedundantCrossTableSubset
                 foreach(var level in plan.Levels)
                 {
                     RequireRealm(model,level.Read.Target,level.Read.Page);
-                    if(level.Read.Target.Source.IsRongyu!=1||level.Read.Target.IsGlobal||level.Read.DerivedName)return "冗余跨表非冗余／派生／全局目标的完整用途仍待证明。";
-                    if(!bindings.Any(binding=>binding.Source.Source.Id==table.Source.Id&&binding.CrossTableColumnId==source.Source.Id&&binding.CrossTableLevelKey==level.Read.Key&&binding.Foreign.Source.Id==level.Id.Source.Id&&binding.Cache.Source.Id==level.Name.Source.Id&&binding.Target.Source.Id==level.Read.Target.Source.Id&&binding.Value.Source.Id==level.Read.Name.Source.Id))return "冗余跨表各级名称缓存尚未形成完整静态传播闭包。";
+                    if(level.Read.Target.Source.IsRongyu!=1||level.Read.DerivedName)return "冗余跨表非冗余／派生目标的完整用途仍待证明。";
+                    if(!bindings.Any(binding=>binding.Source.Source.Id==table.Source.Id&&binding.CrossTableColumnId==source.Source.Id&&binding.CrossTableLevelKey==level.Read.Key&&binding.Foreign.Source.Id==level.Id.Source.Id&&binding.Cache.Source.Id==level.Name.Source.Id&&binding.Target.Source.Id==level.Read.Target.Source.Id&&binding.Value.Source.Id==level.Read.Name.Source.Id&&binding.CrossTablePageId==(level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null)))return "冗余跨表各级名称缓存尚未形成完整静态传播闭包。";
                     if(ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name))return "跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
                 }
                 if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>column.Source.Id==source.Source.Id))return "跨表级联非空路径导入策略尚待确认，完整包不能开放该导入用途。";

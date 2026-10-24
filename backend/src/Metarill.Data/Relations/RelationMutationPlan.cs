@@ -14,6 +14,9 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
     /// <summary>重复表按稳定层标识区分角色，不按表名合并。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CrossTableLevelKey{get;init;}
+    /// <summary>只为全局跨表层固定已发布目标页，普通关系JSON形状保持。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CrossTablePageId{get;init;}
 }
 internal sealed record RelationTable(string Name,string ProjectType,bool Deleted);
 internal sealed record RelationCache(RelationTable Source,string Foreign,string ForeignType,RelationTable Target,string Value,string ValueType,string Cache,bool Multiple,int MaximumItems);
@@ -48,15 +51,15 @@ public sealed class RelationMutationPlan
             var suffix=definition.Multiple?"_ids":"_id";if(!foreign.ColumnName.EndsWith(suffix,StringComparison.Ordinal)||definition.Multiple&&(foreign.LogicalType!="string"||value.LogicalType!="string"||foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")))throw new InvalidOperationException("传播外键形状与声明不一致。");
             if(foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw new InvalidOperationException("传播外键目标与发布关系不一致。");
             var stem=foreign.ColumnName[..^suffix.Length];var expected=stem+"_"+(definition.Multiple&&!value.ColumnName.EndsWith('s')?value.ColumnName+"s":value.ColumnName);
-            var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,definition);
+            var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,definition,definitions);
             if((!cross&&cache.ColumnName!=expected)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw new InvalidOperationException("传播字段不是同一关系的名称辅助列。");
             if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("传播缓存的联接路径不一致。");}
             foreach(var field in new[]{foreign,value,cache})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播字段超出发布项目。");
             var global=GlobalCrossTableTarget.Declared(target);
             if(global)
             {
-                if(definition.CrossTableColumnId is not null)throw new NotSupportedException("全局跨表级联缓存仍需独立完整证明。");
-                if(definition.Multiple){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");}else _=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
+                if(cross){if(definition.Multiple)throw new InvalidOperationException("跨表缓存不能冒充多值。");}
+                else if(definition.Multiple){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");}else _=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
                 if(!GlobalPhysicalRelationValue.IsScalar(targetStorage,target,value))throw new NotSupportedException("全局缓存终点必须为非凭据物理标量。");
             }
             result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000));

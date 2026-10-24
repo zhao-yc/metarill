@@ -145,7 +145,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
                     if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName);
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
-                    ValidateTarget(target);var id=Resolve(table,alias,foreign.ColumnName);return Resolve(target,Join(alias,foreign,target,id.Sql,id.Type),value.ColumnName);
+                    ValidateTarget(target);var crossGlobal=refresh.CrossTableColumnId is not null&&GlobalCrossTableTarget.Declared(target);
+                    if(crossGlobal)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);
+                    var id=Resolve(table,alias,foreign.ColumnName);return Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal),value.ColumnName);
                 }
                 foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"&&item.ColumnName.EndsWith("_id",StringComparison.Ordinal)))
                 {
@@ -288,10 +290,10 @@ public static partial class MySqlNonRedundantReadCompiler
             var key=Column(target,"id");if(key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage[target.Id].IsPhysical(key))throw new InvalidOperationException("关联目标必须使用非空int64物理主键。");
         }
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
-        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType)
+        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false)
         {
             if(matching&&sourceType!="int64")throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
-            var global=GlobalCrossTableTarget.Declared(target);if(global){var owner=tables[relation.ConfigTableId];_=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):GlobalSingleRelationTarget.Require(catalog,owner,relation,target);}
+            var global=GlobalCrossTableTarget.Declared(target);if(global&&!validatedCrossGlobal){var owner=tables[relation.ConfigTableId];_=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):GlobalSingleRelationTarget.Require(catalog,owner,relation,target);}
             var path=ownerAlias+":"+relation.Id;
             if(aliases.TryGetValue(path,out var existing)){Scope(target,existing,projectScoped:!global);Touch(existing,"id");return existing;}
             var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global)globalSingleAliases.Add(alias);var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=Scope(target,alias,projectScoped:!global);

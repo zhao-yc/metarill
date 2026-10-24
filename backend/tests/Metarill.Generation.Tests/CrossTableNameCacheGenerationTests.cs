@@ -24,11 +24,11 @@ public sealed class CrossTableNameCacheGenerationTests
     {
         var c=NonRedundantCrossSourceTests.Catalog("cross_r0",0,"string","int64",false);Assert.Empty(RelationPropagationCompilation.Bindings(GenerationModel.Create(c,"Example.R0NoCache")));var repeated=RepeatedCrossSourceTests.Catalog("cross_repeat",7,"string","int64",false);repeated.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;var bindings=RelationPropagationCompilation.Bindings(GenerationModel.Create(repeated,"Example.R1RepeatRoles"));Assert.Equal(3,bindings.Count);Assert.Equal(3,bindings.Select(x=>x.CrossTableLevelKey).Distinct().Count());
     }
-    /// <summary>全局目标仍有独立缺口，不因普通R1计划被偷偷赋予缓存传播能力。</summary>
+    /// <summary>未发布且使用项目变量的全局目标仍拒绝，不能借新缓存能力忽略其读取证明。</summary>
     [Fact]
-    public void Global_target_keeps_read_proof_but_does_not_publish_partial_name_propagation()
+    public void Unpublished_global_target_rejects_read_and_cache_propagation()
     {
-        var c=Catalog("global_cross","string","int64",false);c.ConfigTables.Single(x=>x.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");var m=GenerationModel.Create(c,"Example.GlobalCrossGap");var t=m.Tables.Single(x=>x.Source.Id=="2");Assert.NotNull(CrossTableWriteCompilation.Resolve(m,t,Assert.Single(t.Pages),t.Columns.Single(x=>x.Source.Id=="25")).Definition);Assert.Empty(RelationPropagationCompilation.Bindings(m));
+        var c=Catalog("global_cross","string","int64",false);c.ConfigTables.Single(x=>x.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");var m=GenerationModel.Create(c,"Example.GlobalCrossGap");var t=m.Tables.Single(x=>x.Source.Id=="2");Assert.Null(CrossTableWriteCompilation.Resolve(m,t,Assert.Single(t.Pages),t.Columns.Single(x=>x.Source.Id=="25")).Definition);Assert.Empty(RelationPropagationCompilation.Bindings(m));
     }
     /// <summary>默认列名保持原协议，只改变显式目标nameField，不把caption写成新前端字段。</summary>
     internal static MetadataCatalog Catalog(string prefix,string type,string parentType,bool custom)
