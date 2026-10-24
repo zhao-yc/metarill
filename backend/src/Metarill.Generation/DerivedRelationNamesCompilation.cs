@@ -20,7 +20,7 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>type=1单选先独立证明目标，不反向调用关系编译；名称终点必须是非凭据单值字符串。</summary>
     internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
-        if(owner.Source.IsRongyu!=0||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生单选名称要求R0来源、普通R0目标及原type=1固定单值页面。");
+        if(!SupportedOwner(model,owner)||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
         if(page.Scopes.Select(scope=>scope.Column).Concat(page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)))throw new InvalidOperationException("派生单选名称的目标身份、父及条件必须为物理标量。");
         var plan=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
         if(plan.OutputTypes[name.Source.ColumnName]!="string")throw new InvalidOperationException("派生单选名称未落到固定字符串终点。");
@@ -30,7 +30,8 @@ internal static class DerivedRelationNamesCompilation
     {
         var target=relation.Target;var name=relation.NameColumn;
         if(relation.SourceColumn.Source.ControlKind=="SelectPage")RequireSelection(model,owner,target,relation.TargetPage,name);
-        if(owner.Source.IsRongyu!=0||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||name.Type!="string?"||name.IsJsonArray||relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))throw new InvalidOperationException("派生名称关系要求R0来源List／SelectPage、普通R0目标及已证明的物理候选范围。");
+        if(!SupportedOwner(model,owner)||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||name.Type!="string?"||name.IsJsonArray||relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))throw new InvalidOperationException("派生名称关系要求普通R0或已发布R1物理来源、普通R0目标及已证明的候选范围。");
+        if(owner.Source.IsRongyu==1&&(!NonRedundantReadCompilation.Physical(model,owner,relation.SourceColumn)||GenerationModel.Enabled(relation.SourceColumn.Source.Extra,"isJoinColumn")||relation.SourceColumn.Source.IsVirtualColumn!=0||relation.SourceColumn.Source.LogicalType is not("int64" or "string")))throw new InvalidOperationException("R1派生候选必须使用本表真实单值外键。");
         var fields=relation.TargetPage.Scopes.Concat(relation.Scopes).Select(scope=>scope.Column)
             .Concat(relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Concat(relation.Conditions?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
@@ -40,4 +41,11 @@ internal static class DerivedRelationNamesCompilation
         if(plan.OutputTypes["id"]!="int64"||plan.OutputTypes[name.Source.ColumnName]!="string")throw new InvalidOperationException("关系名称必须可编译为固定单值字符串，不能借级联或数组冒充标量。");
         return dependencies;
     }
+    /// <summary>普通R0保持原合同；R1只为明确发布、有真实主键／项目的物理消费者开放同一固定候选。</summary>
+    private static bool SupportedOwner(GenerationModel model,TableModel owner)
+    {
+        if(owner.Source.IsRongyu==0)return true;
+        return owner.Source.IsRongyu==1&&!owner.IsGlobal&&owner.Source.IsView==0&&owner.Source.IsFunctionTable==0&&owner.Source.YzProjectId==model.Catalog.YzProjectId&&owner.Columns.Any(column=>column.IsId&&column.Source.LogicalType=="int64"&&NonRedundantReadCompilation.Physical(model,owner,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"))&&owner.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"&&column.Source.LogicalType is "int64" or "string"&&NonRedundantReadCompilation.Physical(model,owner,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"));
+    }
+
 }

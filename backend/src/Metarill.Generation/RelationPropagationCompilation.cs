@@ -12,8 +12,8 @@ internal static class RelationPropagationCompilation
         var result=new List<RelationPropagationBinding>();
         foreach(var table in model.Tables.Where(table=>table.Source.IsRongyu==1&&!table.IsGlobal))
         {
-            foreach(var binding in MultiNameWriteCompilation.ForTable(model,table).Where(binding=>!binding.Target.IsGlobal))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
-            foreach(var definition in table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)).Where(definition=>!definition.Target.IsGlobal))result.Add(new(table,definition.Source,definition.Target,definition.Name,definition.Names));
+            foreach(var binding in MultiNameWriteCompilation.ForTable(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
+            foreach(var definition in table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))result.Add(new(table,definition.Source,definition.Target,definition.Name,definition.Names));
             // 完整写入链定义各级ID／名称归属；不按字段后缀猜目标，也不接受页间冲突定义。
             foreach(var plan in table.Pages.SelectMany(page=>CrossTableWriteCompilation.ForService(model,table,page)).Where(plan=>plan.Levels.All(level=>!level.Read.Target.IsGlobal)))
                 foreach(var level in plan.Levels)result.Add(new(table,level.Id,level.Read.Target,level.Read.Name,level.Name,false,plan.Read.Source.Source.Id,level.Read.Key));

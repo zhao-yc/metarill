@@ -3,15 +3,15 @@ using Metarill.Core.Metadata;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
-/// <summary>R0来源的List使用R0目标的联接名称，候选、原导入导出和写回显必须共用同一计划。</summary>
+/// <summary>普通R0及已发布R1来源的List使用R0目标的联接名称，候选、原导入导出和写回显必须共用同一计划。</summary>
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class DerivedRelationNamesTests
 {
     /// <summary>真实生成编译，派生名称不允许回退为Entity忽略属性上的物理SQL。</summary>
-    [Theory][InlineData(false)][InlineData(true)]
-    public async Task Derived_list_name_compiles_candidates_import_and_export(bool parentAndForm)
+    [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
+    public async Task Derived_list_name_compiles_candidates_import_and_export(bool parentAndForm,bool cached)
     {
-        var catalog=Catalog("dr_names",parentAndForm);var before=JsonSerializer.Serialize(catalog);
+        var catalog=Catalog("dr_names",parentAndForm);if(cached)catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;var before=JsonSerializer.Serialize(catalog);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-relation");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
@@ -51,7 +51,7 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>未证明目标、派生范围及隐藏坏声明在写入stage之前拒绝，不能回退宽范围或IsIgnore SQL。</summary>
-    [Theory][InlineData("global")][InlineData("derivedScope")][InlineData("virtual")][InlineData("brokenPath")][InlineData("privateName")][InlineData("redundantOwner")][InlineData("hiddenScope")]
+    [Theory][InlineData("global")][InlineData("derivedScope")][InlineData("virtual")][InlineData("brokenPath")][InlineData("privateName")][InlineData("unpublishedRedundantOwner")][InlineData("hiddenScope")]
     public void Invalid_derived_name_configuration_is_rejected_before_staging(string kind)
     {
         var c=Catalog("dr_names",true);
@@ -61,7 +61,7 @@ public sealed class DerivedRelationNamesTests
         if(kind=="virtual")c.ConfigColumns.Single(column=>column.Id=="28").IsVirtualColumn=1;
         if(kind=="brokenPath")c.ConfigColumns.Single(column=>column.Id=="28").Extra["columnFullName"]=JsonSerializer.SerializeToElement("missing.name");
         if(kind=="privateName")c.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="28");
-        if(kind=="redundantOwner")c.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
+        if(kind=="unpublishedRedundantOwner"){var owner=c.ConfigTables.Single(table=>table.Id=="1");owner.IsRongyu=1;owner.YzProjectId="";}
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-name-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.RejectedDerivedName",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
 

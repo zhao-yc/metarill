@@ -91,6 +91,7 @@ internal static class MultiSelectCompilation
                 if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
                 if(names is not null)Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
             }
+            if(table.Source.IsRongyu==1&&target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选缓存与固定目标页／名称声明不一致。");}
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择")), null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }

@@ -28,8 +28,9 @@ internal static class RelationCompilation
     {
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&(column.Source.ControlKind=="SelectPage"||column.Source.ControlKind=="List"&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,column))) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
-        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || owner.Source.IsRongyu==0&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
+        // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);
@@ -55,9 +56,9 @@ internal static class RelationCompilation
                 ? target.Pages.SingleOrDefault(candidate => candidate.Source.Id == explicitPage) ?? throw new InvalidOperationException("关联目标页不存在或不属于目标表。")
                 : target.Pages.FirstOrDefault(p => p.Source.YzAdminTypeId == page.Source.YzAdminTypeId && !p.Scopes.Any(s => s.Source == "parent"))
                     ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent")));
-            if(owner.Source.IsRongyu==0&&target.IsGlobal)
+            if(target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
             {
-                var global=Metarill.Core.Metadata.GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
+                var global=owner.Source.IsRongyu==1?Metarill.Core.Metadata.GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source):Metarill.Core.Metadata.GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");

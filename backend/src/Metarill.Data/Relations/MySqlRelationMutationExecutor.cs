@@ -84,7 +84,7 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
     /// <summary>所有SQL只引用编译过的标识符，业务值一律绑定参数。</summary>
     private string Q(string name)=>session.Provider.QuoteIdentifier(name);
     /// <summary>每张消费者／目标表独立保留真实项目和软删条件。</summary>
-    private string Scope(RelationTable table,string alias)=>alias+".`yz_project_id`=@project"+(table.Deleted?" AND "+alias+".`delete_no` IS NULL":"");
+    private string Scope(RelationTable table,string alias)=>(table.ProjectType.Length==0?"1=1":alias+".`yz_project_id`=@project")+(table.Deleted?" AND "+alias+".`delete_no` IS NULL":"");
     /// <summary>按元数据逻辑类型绑定项目，数字ID禁止隐式宽松转换。</summary>
     private static object Project(RelationTable table,string project)=>table.ProjectType=="string"?project:long.TryParse(project,System.Globalization.NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0&&id.ToString(CultureInfo.InvariantCulture)==project?id:throw new ArgumentException("传播项目ID不是规范正整数。");
     /// <summary>命令必须使用现有事务连接，不新开连接或自行提交。</summary>

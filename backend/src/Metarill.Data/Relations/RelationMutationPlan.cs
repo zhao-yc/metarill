@@ -29,12 +29,12 @@ public sealed class RelationMutationPlan
     {
         MetadataValidation.Validate(catalog);if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("该方言尚未完成关系传播验收。");
         var tables=catalog.ConfigTables.ToDictionary(table=>table.Id,StringComparer.Ordinal);var columns=tables.Values.ToDictionary(table=>table.Id,table=>RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.Id,StringComparer.Ordinal),StringComparer.Ordinal);var result=new List<RelationCache>();
-        RelationTable Table(string id)
+        RelationTable Table(string id,bool globalTarget=false)
         {
-            var table=tables[id];if(table.IsFunctionTable!=0||table.IsView!=0||table.Extra.GetValueOrDefault("scopeKind").ToString()=="global"||table.YzProjectId.Length>0&&table.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播表必须是同一发布项目的普通实体表。");
+            var table=tables[id];if(table.IsFunctionTable!=0||table.IsView!=0||!globalTarget&&table.Extra.GetValueOrDefault("scopeKind").ToString()=="global"||table.YzProjectId.Length>0&&table.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播表必须是同一发布项目的普通实体表。");
             var plan=MetadataStoragePolicy.ForTable(catalog,table);var key=columns[id].Values.SingleOrDefault(column=>column.ColumnName=="id");var project=columns[id].Values.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
-            if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!plan.IsPhysical(key)||Enabled(key)||project is null||project.LogicalType is not("int64" or "string")||!plan.IsPhysical(project)||Enabled(project))throw new InvalidOperationException("传播表缺少真实主键或项目归属。");
-            var deleted=columns[id].Values.SingleOrDefault(column=>column.ColumnName=="delete_no");if(deleted is not null&&(!plan.IsPhysical(deleted)||Enabled(deleted)||deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0))throw new InvalidOperationException("传播软删除定义不明确。");return new(table.TableName,project.LogicalType,deleted is not null);
+            if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!plan.IsPhysical(key)||Enabled(key)||!globalTarget&&project is null||project is not null&&(project.LogicalType is not("int64" or "string")||!plan.IsPhysical(project)||Enabled(project)))throw new InvalidOperationException("传播表缺少真实主键或项目归属。");
+            var deleted=columns[id].Values.SingleOrDefault(column=>column.ColumnName=="delete_no");if(deleted is not null&&(!plan.IsPhysical(deleted)||Enabled(deleted)||deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0))throw new InvalidOperationException("传播软删除定义不明确。");return new(table.TableName,globalTarget?"":project!.LogicalType,deleted is not null);
         }
         foreach(var definition in definitions)
         {
@@ -52,7 +52,14 @@ public sealed class RelationMutationPlan
             if((!cross&&cache.ColumnName!=expected)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw new InvalidOperationException("传播字段不是同一关系的名称辅助列。");
             if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("传播缓存的联接路径不一致。");}
             foreach(var field in new[]{foreign,value,cache})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播字段超出发布项目。");
-            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000));
+            var global=GlobalCrossTableTarget.Declared(target);
+            if(global)
+            {
+                if(definition.CrossTableColumnId is not null)throw new NotSupportedException("全局跨表级联缓存仍需独立完整证明。");
+                if(definition.Multiple){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");}else _=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
+                if(!GlobalPhysicalRelationValue.IsScalar(targetStorage,target,value))throw new NotSupportedException("全局缓存终点必须为非凭据物理标量。");
+            }
+            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000));
         }
         var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>binding.Target).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
         // 拒绝字段级循环；普通自关联的物理名称不是派生列，不属于此循环。

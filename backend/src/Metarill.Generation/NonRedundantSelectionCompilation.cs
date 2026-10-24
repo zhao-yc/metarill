@@ -10,7 +10,8 @@ internal static class NonRedundantSelectionCompilation
     /// <summary>页面覆盖沿原标量合并；显示来源必须保持同表同名称，候选附加条件由目标页承接。</summary>
     internal static NonRedundantSelectionModel Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        if(table.Source.IsRongyu!=0||source.Source.ControlKind!="SelectPage"||source.Source.ConfigTableId!=table.Source.Id||source.Type!="long?"||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(source.Source))throw new InvalidOperationException("非冗余单选必须绑定本表物理int64外键。");
+        var cached=table.Source.IsRongyu==1&&!table.IsGlobal&&table.Source.IsView==0&&table.Source.IsFunctionTable==0&&table.Source.YzProjectId==model.Catalog.YzProjectId&&table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"&&column.Source.LogicalType is "int64" or "string"&&NonRedundantReadCompilation.Physical(model,table,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"));
+        if(table.Source.IsRongyu!=0&&!cached||source.Source.ControlKind!="SelectPage"||source.Source.ConfigTableId!=table.Source.Id||source.Type!="long?"||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(source.Source))throw new InvalidOperationException("非冗余单选必须绑定本表物理int64外键。");
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);var baseline=SelectionControlDefinition.Resolve(source,null);
         if(definition.NameField!=baseline.NameField)throw new InvalidOperationException("非冗余单选页级名称覆盖改变了固定显示来源。");
@@ -21,7 +22,7 @@ internal static class NonRedundantSelectionCompilation
         var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
         if(name is null||name.Type!="string?"||name.IsJsonArray||!targetPage.Readable.Any(column=>column.Source.Id==name.Source.Id)||ManagerCredentialCompilation.IsCredential(target,name))throw new InvalidOperationException("非冗余单选目标名称必须是已开放的字符串列。");
         if(!NonRedundantReadCompilation.Physical(model,target,name))DerivedRelationNamesCompilation.RequireSelection(model,table,target,targetPage,name);
-        if(target.IsGlobal){var proof=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
+        if(target.IsGlobal){var proof=cached?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
         if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
         if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))throw new InvalidOperationException(reason);
         var selection=new NonRedundantSelectionModel(target,targetPage,name,definition);
