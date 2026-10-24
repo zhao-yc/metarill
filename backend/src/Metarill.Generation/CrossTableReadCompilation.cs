@@ -1,7 +1,7 @@
 using System.Text.Json;
 namespace Metarill.Generation;
 
-internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Parent,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool DerivedName=false);
+internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Parent,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool DerivedName=false,IReadOnlyList<string>? NameDependencies=null);
 internal sealed record CrossTableReadModel(ColumnModel Source,IReadOnlyList<CrossTableLevelModel> Levels,string Joiner);
 internal sealed record CrossTableReadResult(CrossTableReadModel? Definition,string? Reason);
 
@@ -43,7 +43,7 @@ internal static class CrossTableReadCompilation
                 }
                 if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
                 var pages=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&(parent is null||candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id))).ToArray();if(pages.Length!=1)return Gap("每级需要唯一且无目标父参数的可读页面。");
-                var order=GenerationModel.ValidateOrderBy(Text(entry,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();if(order.Any(item=>!Physical(item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id)))return Gap("排序必须是物理标量。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));result.Add(new(key,prefix,target,pages[0],name,parent,order,derived));
+                var order=GenerationModel.ValidateOrderBy(Text(entry,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();if(order.Any(item=>!Physical(item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id)))return Gap("排序必须是物理标量。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));result.Add(new(key,prefix,target,pages[0],name,parent,order,derived,derived&&target.Source.Id==table.Source.Id?Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog,target.Source.Id,name.Source.ColumnName):null));
             }
             if(result[^1].Prefix+"_id"!=source.Source.ColumnName)return Gap("末级前缀与来源叶子字段不一致。");
             if(!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=result[^1].Target.Source.Id)return Gap("叶子关联表与末级不一致。");

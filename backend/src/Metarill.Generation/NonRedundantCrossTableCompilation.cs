@@ -6,13 +6,13 @@ using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
-/// <summary>只接通固定独立R0／R1目标的非冗余跨表生成，逻辑读值与稀疏写值明确分界。</summary>
+/// <summary>接通固定R0／R1目标及来源单层参与的非冗余跨表生成，逻辑读值与稀疏写值明确分界。</summary>
 internal static class NonRedundantCrossTableCompilation
 {
     /// <summary>物理ID位不能冒充逻辑父范围；尚未接通的组合在整个生成批次写文件前拒绝。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page,CrossTableReadModel plan)
     {
-        if(table.Source.IsRongyu!=0||table.IsGlobal||plan.Levels.Any(level=>level.Target.IsGlobal||level.Target.Source.Id==table.Source.Id))throw new InvalidOperationException("非冗余跨表当前仅接通同项目独立普通目标。");
+        if(table.Source.IsRongyu!=0||table.IsGlobal||plan.Levels.Any(level=>level.Target.IsGlobal))throw new InvalidOperationException("非冗余跨表要求同项目普通目标。");
         var storage=CrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id));
         if(!storage.Slots.Select(slot=>slot.ColumnName).SequenceEqual(plan.Levels.Select(level=>level.Prefix+"_id"),StringComparer.Ordinal))throw new InvalidOperationException("页级跨表定义不能改变固定存储层位。");
         var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==plan.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();

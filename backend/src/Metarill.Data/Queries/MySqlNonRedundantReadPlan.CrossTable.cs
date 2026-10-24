@@ -27,12 +27,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(table.Id!=root.Id||owner!=rootAlias||CrossText(table,"scopeKind")=="global"||!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))throw new NotSupportedException("跨表逻辑投影要求当前非冗余来源的真实物理项目范围。");
                 var rootDefinition=Definition(source);if(HasExtraScope(rootDefinition))throw new NotSupportedException("跨表额外范围不能在固定读取中忽略。");
                 var entries=rootDefinition.GetProperty("levels").EnumerateArray().ToArray();if(entries.Length!=binding.Levels.Count)throw new InvalidOperationException("跨表目标页绑定与固定层数不符。");
+                if(entries.Count(entry=>Value(entry,"table")==table.TableName)>1)throw new NotSupportedException("来源表重复层位仍需固定图证明。");
                 var levels=new List<CrossLevel>();
                 for(var index=0;index<entries.Length;index++)
                 {
                     var entry=entries[index];if(HasExtraScope(entry))throw new NotSupportedException("跨表层级额外范围不能忽略。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(entry,"table"))??throw new InvalidOperationException("跨表目标不属于当前发布项目。");
-                    if(target.IsRongyu is not(0 or 1)||target.Id==root.Id||CrossText(target,"scopeKind")=="global")throw new NotSupportedException("跨表读取要求独立普通目标，来源自身／全局目标仍待固定范围接线。");ValidateTarget(target);
+                    if(target.IsRongyu is not(0 or 1)||CrossText(target,"scopeKind")=="global")throw new NotSupportedException("跨表读取要求普通同项目目标，全局目标仍待固定范围接线。");ValidateTarget(target);
                     var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==binding.Levels[index].PageId&&item.ConfigTableId==target.Id)??throw new InvalidOperationException("跨表目标页与固定目标表不符。");
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
                     if(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");

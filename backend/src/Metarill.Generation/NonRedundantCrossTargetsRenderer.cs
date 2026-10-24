@@ -24,7 +24,11 @@ internal static class NonRedundantCrossTargetsRenderer
 """;
     }
     /// <summary>单节点路径仍由原CrossTableReader逐层核验。</summary>
-    internal static string Find(PageModel page,CrossTableReadModel plan,int index)=>"        case "+index+":return(await CrossTargetRows"+page.Source.Id+"_"+plan.Source.Source.Id+"_"+index+"Async(actor,[new(\"id\",FixedReadComparison.Equal,id)],1,currentRead,ct)).SingleOrDefault();";
+    internal static string Find(PageModel page,CrossTableReadModel plan,int index,string overlay="")
+    {
+        var read="return(await CrossTargetRows"+page.Source.Id+"_"+plan.Source.Source.Id+"_"+index+"Async(actor,[new(\"id\",FixedReadComparison.Equal,id)],1,currentRead,ct)).SingleOrDefault();";
+        return "        case "+index+":"+(overlay.Length==0?read:"{"+overlay+read+"}");
+    }
     /// <summary>候选保持原完整数组，无COUNT／分页截断；父值仍按声明类型参数化。</summary>
     internal static string Children(PageModel page,CrossTableReadModel plan,int index)
     {

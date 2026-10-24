@@ -12,7 +12,7 @@ internal static class NonRedundantCrossTableSubset
         try{using var json=JsonDocument.Parse(source.Source.ControlDetail);return !json.RootElement.TryGetProperty("sourceMode",out var mode)||mode.ValueKind!=JsonValueKind.String||mode.GetString()!="selfTree";}
         catch(Exception invalid)when(invalid is JsonException or InvalidOperationException){return true;}
     }
-    /// <summary>只开放固定R0来源与独立R0／R1目标的完整读写链，元数据及原按钮保持原样。</summary>
+    /// <summary>只开放固定R0来源与普通R0／R1目标的完整读写链，元数据及原按钮保持原样。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         if(table.Source.IsRongyu!=0||source.Source.ControlKind!="CascadeTree"||CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is null)return false;

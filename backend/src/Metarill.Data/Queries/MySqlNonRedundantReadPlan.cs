@@ -17,12 +17,13 @@ internal sealed record MySqlMultiProjection(string SourceExpression,string Targe
 public sealed class MySqlNonRedundantReadPlan
 {
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
-        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null,IReadOnlyList<MySqlCrossTableProjection>? crosses=null,IReadOnlyDictionary<string,object?>? constants=null)
-    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];Constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); }
+        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null,IReadOnlyList<MySqlCrossTableProjection>? crosses=null,IReadOnlyDictionary<string,object?>? constants=null,IReadOnlyList<string>? sourceDependencies=null)
+    { From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; SourceDependencies=sourceDependencies??[]; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];Constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); }
     internal IReadOnlyList<MySqlReverseProjection> Reverse {get;}
     internal IReadOnlyList<MySqlCrossTableProjection> Crosses{get;}
     internal IReadOnlyDictionary<string,object?> Constants{get;}
     internal IReadOnlyList<MySqlPhysicalReference> PhysicalReferences {get;}
+    internal IReadOnlyList<string> SourceDependencies {get;}
     internal IReadOnlyDictionary<string,MySqlValueOrigin> Origins {get;}
     internal string From { get; }
     internal string Scope { get; }
@@ -76,6 +77,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly IReadOnlyDictionary<string,string> refreshPaths;
         private readonly IReadOnlyList<RelationCacheDefinition> refreshMultiples;
         private readonly Dictionary<(string,string),MySqlPhysicalReference> references=new();
+        private readonly HashSet<string> sourceDependencies=new(StringComparer.Ordinal);
         private MySqlValueOrigin? origin;
         private string output="";
         private readonly Dictionary<string,(string Table,string From,string Foreign,string Type)> reverse=new(StringComparer.Ordinal);
@@ -115,7 +117,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var origins=new Dictionary<string,MySqlValueOrigin>(StringComparer.Ordinal);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
             {output=name;origin=null;var resolved=Resolve(root,rootAlias,name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;}
-            var scope=Scope(root,rootAlias);return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants));
+            var scope=Scope(root,rootAlias);return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()));
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -309,8 +311,8 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             if(refreshFields is null)return;if(!aliasFields.TryGetValue(alias,out var fields))aliasFields[alias]=fields=new(StringComparer.Ordinal);if(!fields.TryGetValue(output,out var names))fields[output]=names=new(StringComparer.Ordinal);names.Add(field);
         }
-        /// <summary>记录实际依赖的物理列，执行回填前一次校验，不能因缺表而写一半。</summary>
-        private void Use(TableMetadata table,ColumnMetadata column){if(refreshFields is not null)references.TryAdd((table.TableName,column.ColumnName),new(table.TableName,Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(column)));}
+        /// <summary>来源依赖独立记录；只有回填用途编译物理结构，普通读取不增加执行期结构预检。</summary>
+        private void Use(TableMetadata table,ColumnMetadata column){if(table.Id==root.Id)sourceDependencies.Add(column.ColumnName);if(refreshFields is not null)references.TryAdd((table.TableName,column.ColumnName),new(table.TableName,Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(column)));}
     }
     /// <summary>控件定义仅作结构解析；旧式或重复JSON键必须明确拒绝。</summary>
     private static JsonElement Definition(ColumnMetadata column)

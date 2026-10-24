@@ -40,10 +40,11 @@ internal static class CrossTableReadRenderer
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,id,ct)=>{switch(index){");
             for(var index=0;index<plan.Levels.Count;index++)
             {
-                if(plan.Levels[index].Target.Source.IsRongyu==0){output.AppendLine(NonRedundantCrossTargetsRenderer.Find(page,plan,index));continue;}
                 var level=plan.Levels[index];var projection=Projection(level);
                 // 写前只覆盖已授权来源自身的待存名称/父键；真实范围与路径必须在正常DML后再次由SQL核验。
-                var overlay=level.Target.Source.Id==table.Source.Id?$"if(sourceOverride is not null&&id==sourceOverride.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");return new Metarill.Core.Cascades.CascadeTreeNode(sourceOverride.Id,sourceOverride.{level.Name.Property},{Parent(level).Replace("row.","sourceOverride.",StringComparison.Ordinal)});}}":"";
+                var overlay=level.Target.Source.Id==table.Source.Id?$"if(sourceOverride is not null&&id==sourceOverride.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");return new Metarill.Core.Cascades.CascadeTreeNode(sourceOverride.Id,{(level.DerivedName?"null":"sourceOverride."+level.Name.Property)},{Parent(level).Replace("row.","sourceOverride.",StringComparison.Ordinal)});}}":"";
+                // 派生名称写前不读IsIgnore属性；R0不缓存名称，正常DML后必须用真实FK重新锁读完整路径。
+                if(level.Target.Source.IsRongyu==0){output.AppendLine(NonRedundantCrossTargetsRenderer.Find(page,plan,index,overlay));continue;}
                 output.AppendLine($"        case {index}:{{{overlay}var query=CrossScope{suffix}_{index}(actor,false).Where(row=>row.Id==id);if(currentRead)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{level.Name.Property},{Parent(level)});}}");
             }
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,parent,ct)=>{switch(index){");
