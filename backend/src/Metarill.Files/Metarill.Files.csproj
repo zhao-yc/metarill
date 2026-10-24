@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" /><ProjectReference Include="../Metarill.Data/Metarill.Data.csproj" /><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
+  <ItemGroup><PackageReference Include="SkiaSharp" /><PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="Metarill.Files.Tests" /><None Update="licenses/*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+</Project>

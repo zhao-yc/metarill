@@ -1,0 +1,35 @@
+version = 1
+name = "Metarill"
+
+[setup]
+script = ""
+
+[[actions]]
+name = "启动后端"
+icon = "run"
+command = "pwsh -NoProfile -File E:/git/metarill/scripts/dev.ps1 start"
+
+[[actions]]
+name = "运行前端"
+icon = "run"
+command = "pwsh -NoProfile -File E:/git/metarill/scripts/dev.ps1 frontend"
+
+[[actions]]
+name = "启动全部"
+icon = "run"
+command = "pwsh -NoProfile -File E:/git/metarill/scripts/dev.ps1 all"
+
+[[actions]]
+name = "停止全部"
+icon = "tool"
+command = "pwsh -NoProfile -File E:/git/metarill/scripts/dev.ps1 stop"
+
+[[actions]]
+name = "查看日志"
+icon = "debug"
+command = "pwsh -NoProfile -File E:/git/metarill/scripts/dev.ps1 logs"
+
+[[actions]]
+name = "运行测试"
+icon = "test"
+command = "pwsh -NoProfile -File E:/git/metarill/scripts/dev.ps1 test"

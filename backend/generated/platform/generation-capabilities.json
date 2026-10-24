@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "unsupportedControls": [
+    {
+      "pageId": "6031906822946816",
+      "column": "yz_role_ids",
+      "usage": "runtime",
+      "reason": "MultiCheckBoxDatabase\u89D2\u8272\u6700\u7EC8\u5408\u5E76\u540E\u53F0\u6821\u9A8C\u53CA\u64A4\u6743\u534F\u8C03\u4ECD\u5F85Runtime A\u9A8C\u6536\u3002"
+    }
+  ],
+  "supportedControlSubsets": []
+}

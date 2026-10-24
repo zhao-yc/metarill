@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable><MetarillDataProject Condition="'$(METARILL_DATA_PROJECT)' != ''">$(METARILL_DATA_PROJECT)</MetarillDataProject><MetarillDataProject Condition="'$(MetarillDataProject)' == ''">../../src/Metarill.Data/Metarill.Data.csproj</MetarillDataProject></PropertyGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /><ProjectReference Include="$(MetarillDataProject)" />
+    <ProjectReference Include="../../src/Metarill.Generation/Metarill.Generation.csproj" />
+    <ProjectReference Include="../../src/Metarill.Runtime/Metarill.Runtime.csproj" />
+    <ProjectReference Include="../../src/Metarill.Files/Metarill.Files.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" /><PackageReference Include="xunit" /><PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
+  </ItemGroup>
+</Project>

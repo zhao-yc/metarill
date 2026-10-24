@@ -1,0 +1,296 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Net.Sockets;
+using System.Text.Json;
+using Metarill.Core.Contracts;
+using Metarill.Core.Metadata;
+using Metarill.Core.Persistence;
+using Metarill.Core.Security;
+using Metarill.Data;
+using Metarill.Data.Schema;
+using Metarill.Runtime.Files;
+using Metarill.Runtime.Persistence;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Xunit;
+
+namespace Metarill.Generation.Tests;
+
+/// <summary>实际生成HTTP/Service与真实文件观察者共用MySQL事务，不把前端回调当持久化校验。</summary>
+[Collection(GenerationMySqlCollection.Name)]
+public sealed class GeneratedMultiSelectMySqlTests
+{
+    private const long Project = 9007199254740993, Parent = 9007199254742001, First = 9007199254750000;
+
+    [StandaloneExportMySqlFact]
+    public Task Source_transaction_derives_names_and_rejects_every_partial_scope_or_permission_failure_without_file_changes()=>VerifyAsync(false);
+    /// <summary>原多选在明确物理联接缓存上复验文件引用、整个来源事务与复制保护。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Joined_name_cache_uses_original_popup_scope_and_full_source_transaction()=>VerifyAsync(true);
+    /// <summary>自动缓存不依赖显式页面名称字段，仍验证整个来源事务及文件引用。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Automatic_name_cache_uses_original_popup_and_transaction()=>VerifyAsync(true,true);
+    /// <summary>不同名称页和ID页同时维护同表缓存，隐藏别名不变成可写请求或公开输出。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Multiple_name_pages_share_all_caches_in_the_same_source_transaction()=>VerifyAsync(true,false,true);
+    /// <summary>目标HTTP改名／软删在同一事务刷新所有名称，消费者钩子、权限及文件引用不被旁路调用。</summary>
+    [StandaloneExportMySqlFact]
+    public Task Target_name_mutations_propagate_and_rollback_with_files()=>VerifyAsync(true,false,true,true);
+    /// <summary>普通及联接缓存复用相同原协议验收，实际样本分别隔离。</summary>
+    private static async Task VerifyAsync(bool joinedCache,bool automatic=false,bool multipleCaches=false,bool propagation=false)
+    {
+        using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
+        var options = settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("多选验收只允许明确的隔离MySQL业务测试库。");
+        {
+            using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")??throw new InvalidOperationException("联接缓存验收缺少实例pin。")));
+            await using var connection=new MySqlConnector.MySqlConnection(options.ConnectionString);await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync()&&reader.GetString(0)==options.ExpectedDatabase&&reader.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&reader.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例不匹配，未创建联接样本。");
+        }
+        using var session = new DatabaseSession(options); var prefix = "mt_multi_" + Guid.NewGuid().ToString("N")[..12]; var catalog = GeneratedMultiSelectContractTests.Catalog(prefix);
+        if(joinedCache){var cache=catalog.ConfigColumns.Single(column=>column.Id=="27");cache.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("target.name");}
+        var page = catalog.ConfigPages.Single(page => page.Id == "201"); page.WhereSql = "yz_project_id=@current_yz_project_id"; page.IsCopy = 1;
+        catalog.ConfigPageColumns.Add(new() { Id = "2004", ConfigPageId = "201", ConfigColumnId = "26", IsShow = 1, IsEdit = 1 });
+        catalog.ConfigColumns.Add(new() { Id = "29", ConfigTableId = "2", ColumnName = "attachments", LogicalType = "string", ColumnLength = "max", ControlKind = "FileLibrary", ControlDetail = "{\"accessMode\":\"PROTECTED\",\"maxCount\":3}" });
+        catalog.ConfigPageColumns.Add(new() { Id = "2005", ConfigPageId = "201", ConfigColumnId = "29", IsShow = 1, IsEdit = 1 });
+        // 同表隐藏IDs页仍可保存其它字段；内部复制和父依赖变化不能绕过真实关系规则。
+        var projectionPage = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(page))!; projectionPage.Id = "202"; catalog.ConfigPages.Add(projectionPage);
+        foreach (var column in new[] { "22", "26", "27", "29" }) catalog.ConfigPageColumns.Add(new() { Id = "projection_" + column, ConfigPageId = "202", ConfigColumnId = column, IsShow = 1, IsEdit = column == "27" ? 0 : 1 });
+        // nameField=id只需读取原long主键，不能要求数据库翻译带CultureInfo的ToString。
+        var idNamePage = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(page))!; idNamePage.Id = "203"; catalog.ConfigPages.Add(idNamePage);
+        catalog.ConfigPageColumns.Add(new() { Id = "id_name_22", ConfigPageId = "203", ConfigColumnId = "22", IsShow = 1, IsEdit = 1 });
+        catalog.ConfigPageColumns.Add(new() { Id = "id_name_25", ConfigPageId = "203", ConfigColumnId = "25", IsShow = 1, IsEdit = 1, Extra = new() { ["controlDetail"] = JsonSerializer.SerializeToElement("{\"nameField\":\"id\"}") } });
+        catalog.ConfigPageColumns.Add(new() { Id = "id_name_26", ConfigPageId = "203", ConfigColumnId = "26", IsShow = 1, IsEdit = 1 });
+        catalog.ConfigPageColumns.Add(new() { Id = "id_name_29", ConfigPageId = "203", ConfigColumnId = "29", IsShow = 1, IsEdit = 1 });
+        if(multipleCaches)MultiPageNameCacheTests.AddTitlePage(catalog);
+        if(automatic)RedundantMultiNameCacheTests.RemoveCache(catalog);
+        var filesPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../metadata/files.json"));
+        if (!File.Exists(filesPath)) filesPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "backend/metadata/files.json"));
+        var files = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(filesPath), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-multi-mysql"); var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        var ids = new SnowflakeIdGenerator(859); var fileIds = new[] { ids.NextId(), ids.NextId() }; WebApplication? app = null; var cleanup = false;
+        var receiptDirectory = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(filesPath)!, "../../.local/multi-field-evidence/fixtures")); Directory.CreateDirectory(receiptDirectory);
+        var receiptPath = Path.Combine(receiptDirectory, prefix + ".json");
+        await File.WriteAllTextAsync(receiptPath, JsonSerializer.Serialize(new { Prefix = prefix, FileIds = fileIds.Select(id => id.ToString()).ToArray(), Tables = catalog.ConfigTables.Select(table => table.TableName).ToArray(), TemporaryDirectory = directory, StartedUtc = DateTimeOffset.UtcNow }));
+        try
+        {
+            var schema = new SchemaService(session); Assert.Empty((await schema.InspectAsync(catalog)).Tables); var plan = await schema.PreviewAsync(catalog); Assert.Equal(3, plan.Changes.Count); cleanup = true; Assert.True((await schema.ApplyAsync(plan)).Succeeded);
+            // 固定文件基础表只复用已初始化结构，绝不在本测试自动改动它们。
+            Assert.Empty((await schema.PreviewAsync(files)).Changes);
+            var store = new SqlRowStore(session, files); var rows = new SqlRowStore(session, catalog);
+            foreach (var id in fileIds) await store.InsertAsync("yz_file_library", new Dictionary<string, object?> { ["id"] = id, ["name"] = prefix + ".txt", ["content_type"] = "text/plain", ["size"] = 1L, ["storage_key"] = Guid.NewGuid().ToString("N") + ".blob", ["access_mode"] = "PROTECTED", ["status"] = "ready", ["owner_id"] = 859L, ["yz_project_id"] = Project });
+            await Execute(session, "INSERT INTO " + Q(session, prefix + "_parent") + " (id,name,yz_project_id) VALUES (@p,'父甲',@project),(@other,'父乙',@project),(@foreign,'外项目父',@foreignProject)", ("p", Parent), ("other", Parent + 1), ("foreign", Parent + 2), ("project", Project), ("foreignProject", Project + 1));
+            await Execute(session, "INSERT INTO " + Q(session, prefix + "_target") + " (id,name,parent_id,yz_project_id,delete_no) VALUES (@one,'目标甲',@p,@project,NULL),(@two,'目标乙',@p,@project,NULL),(@other,'另一父目标',@otherParent,@project,NULL),(@foreign,'外项目目标',@p,@foreignProject,NULL),(@deleted,'已删目标',@p,@project,@now)", ("one", First), ("two", First + 1), ("other", First + 2), ("foreign", First + 3), ("deleted", First + 4), ("p", Parent), ("otherParent", Parent + 1), ("project", Project), ("foreignProject", Project + 1), ("now", DateTime.UtcNow));
+            if(multipleCaches){await rows.UpdateAsync(prefix+"_target",First,new Dictionary<string,object?>{{"title","标题甲"}});await rows.UpdateAsync(prefix+"_target",First+1,new Dictionary<string,object?>{{"title","标题乙"}});}
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.MultiProbe");
+            var sourceType=GenerationModel.Pascal(prefix+"_source");
+            if(joinedCache)await File.WriteAllTextAsync(Path.Combine(directory,"generated/Services/"+sourceType+".CacheProbe.cs"),$$"""
+using Metarill.Core.Security;
+using Example.MultiProbe.Generated.Entities;
+namespace Example.MultiProbe.Generated.Services;
+/// <summary>仅本次临时验收的手写partial故障探针，不进入正式模板。</summary>
+public partial class {{sourceType}}Service
+{
+    public static int JoinedProbeMode {get;set;}
+    partial void BeforeSave({{sourceType}} entity,RuntimeActor actor,bool creating,ISet<string> submittedFields)
+    {
+        if(creating)return;
+        if(JoinedProbeMode is 1 or 2){entity.TargetNames="[\"不能持久化的名称\"]";if(JoinedProbeMode==2)submittedFields.Add("target_names");}
+        if(JoinedProbeMode==3)entity.ParentId={{Parent+1}}L;
+        if(JoinedProbeMode==6)throw new InvalidOperationException("传播不能调用消费者业务钩子");
+        {{(multipleCaches?"if(JoinedProbeMode is 4 or 5){entity.TargetTitles=\"[\\\"不能持久化的标题\\\"]\";if(JoinedProbeMode==5)submittedFields.Add(\"target_titles\");}":"")}}
+    }
+}
+""");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" }); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:" + port);
+            builder.Services.AddHttpContextAccessor(); builder.Services.AddSingleton(session); builder.Services.AddSingleton<IIdGenerator>(ids);
+            builder.Services.AddScoped<IRuntimeAuthorization>(provider => new Authorization(provider.GetRequiredService<IHttpContextAccessor>()));
+            var propagationFailure=new PropagationFailure(prefix+"_target");builder.Services.AddSingleton<IRecordMutationObserver>(propagationFailure);
+            builder.Services.AddScoped<IRecordMutationObserver>(provider => new FileReferenceMutationObserver(store, new([catalog]), provider.GetRequiredService<IRuntimeAuthorization>(), ids));
+            assembly.GetType("Example.MultiProbe.Generated.GeneratedRegistration", true)!.GetMethod("AddGeneratedServices")!.Invoke(null, [builder.Services, null]);
+            builder.Services.AddControllers().AddApplicationPart(assembly).AddJsonOptions(configuration => configuration.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
+            app = builder.Build(); app.Use(async (context, next) => { try { await next(); } catch (Exception error) when (error is ArgumentException or InvalidOperationException or UnauthorizedAccessException) { context.Response.StatusCode = 500; await context.Response.WriteAsJsonAsync(R<string>.Error(error.Message)); } catch(Exception error){await File.WriteAllTextAsync(receiptPath+".failure.txt",error.ToString());context.Response.StatusCode=500;await context.Response.WriteAsJsonAsync(R<string>.Error("测试私有异常诊断已保留。"));} }); app.MapControllers(); await app.StartAsync();
+            using var client = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + port), Timeout = TimeSpan.FromSeconds(15) }; var endpoint = "/api/admin/auto/" + prefix + "_source/201";
+            var selected = new[] { (First + 1).ToString(), First.ToString() };
+            var created = Data(await Post(client, endpoint + "/add", new { name = "源记录", parentId = Parent.ToString(), targetIds = selected, attachments = new[] { fileIds[0].ToString() } })); var record = created.GetProperty("id").GetString()!;
+            Assert.Equal(selected, created.GetProperty("targetIds").EnumerateArray().Select(value => value.GetString())); Assert.Equal(new[] { "目标乙", "目标甲" }, created.GetProperty("targetNames").EnumerateArray().Select(value => value.GetString()));
+            Assert.Single(await store.ReadAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = long.Parse(record) }));
+            async Task<string> Snapshot() => JsonSerializer.Serialize(new { Source = await rows.ReadIncludingDeletedAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) }), Refs = (await store.ReadIncludingDeletedAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = long.Parse(record) })).OrderBy(row => Convert.ToInt64(row["id"])).ToArray() });
+            if(joinedCache)
+            {
+                var mode=assembly.GetType("Example.MultiProbe.Generated.Services."+sourceType+"Service",true)!.GetProperty("JoinedProbeMode")!;
+                try
+                {
+                    var original=await Snapshot();mode.SetValue(null,1);Assert.Equal(500,(await Post(client,endpoint+"/update",new{id=record,name="未登记缓存不保存"})).GetProperty("code").GetInt32());Assert.Equal(original,await Snapshot());
+                    mode.SetValue(null,2);var corrected=Data(await Post(client,endpoint+"/update",new{id=record}));Assert.Equal(new[]{"目标乙","目标甲"},corrected.GetProperty("targetNames").EnumerateArray().Select(item=>item.GetString()));
+                    if(multipleCaches){original=await Snapshot();mode.SetValue(null,4);Assert.Equal(500,(await Post(client,endpoint+"/update",new{id=record})).GetProperty("code").GetInt32());Assert.Equal(original,await Snapshot());mode.SetValue(null,5);Data(await Post(client,endpoint+"/update",new{id=record}));Assert.Equal(new[]{"标题乙","标题甲"},JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",long.Parse(record)}})).Single()["target_titles"]!));}
+                    original=await Snapshot();mode.SetValue(null,3);Assert.Equal(500,(await Post(client,endpoint+"/update",new{id=record,targetIds=new[]{(First+2).ToString()}})).GetProperty("code").GetInt32());Assert.Equal(original,await Snapshot());
+                }
+                finally{mode.SetValue(null,0);}
+            }
+            var hiddenEndpoint = "/api/admin/auto/" + prefix + "_source/202";
+            var before = await Snapshot(); Data(await Post(client, endpoint + "/update", new { id = record, targetNames = new[] { "客户端伪造" } })); Assert.Equal(before, await Snapshot());
+            // 原详情整实体回传辅助名称，HTTP只剥离回显；IDs仍由同一源事务重新验证并派生名称。
+            var echoed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(created.GetRawText())!; echoed["targetNames"] = JsonSerializer.SerializeToElement(new[] { "不能写入的伪名称" });
+            Assert.Equal(new[] { "目标乙", "目标甲" }, Data(await Post(client, endpoint + "/update", echoed)).GetProperty("targetNames").EnumerateArray().Select(value => value.GetString()));
+            // 省略IDs不刷新历史名称；客户端无法只写辅助名称。
+            await Execute(session, "UPDATE " + Q(session, prefix + "_source") + " SET target_names=@names WHERE id=@id", ("names", "[\"历史名称\"]"), ("id", long.Parse(record)));
+            Data(await Post(client, endpoint + "/update", new { id = record, name = "只改来源名称" })); Assert.Equal("[\"历史名称\"]", (await rows.ReadAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) })).Single()["target_names"]);
+            var hidden = Data(await Post(client, hiddenEndpoint + "/update", new { id = record, name = "隐藏ID页普通保存" })); Assert.False(hidden.TryGetProperty("targetIds", out _));if(automatic)Assert.False(hidden.TryGetProperty("targetNames",out _));
+            Assert.Equal("[\"历史名称\"]", (await rows.ReadAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) })).Single()["target_names"]);
+            before = await Snapshot(); Assert.Equal(500, (await Post(client, hiddenEndpoint + "/update", new { id = record, parentId = (Parent + 1).ToString(), attachments = new[] { fileIds[1].ToString() } })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot());
+            var encoded = " [ \"" + First + "\" ] "; var legacy = Data(await Post(client, endpoint + "/update", new { id = record, targetIds = encoded })); Assert.Equal(JsonValueKind.Array, legacy.GetProperty("targetIds").ValueKind); Assert.Equal(encoded, (await rows.ReadAsync(prefix + "_source", new Dictionary<string, object?> { ["id"] = long.Parse(record) })).Single()["target_ids"]);
+            var cleared = Data(await Post(client, endpoint + "/update", new { id = record, targetIds = (object?)null })); Assert.Equal(JsonValueKind.Null, cleared.GetProperty("targetIds").ValueKind); Assert.Equal(JsonValueKind.Null, cleared.GetProperty("targetNames").ValueKind);
+            var empty = Data(await Post(client, endpoint + "/update", new { id = record, targetIds = Array.Empty<string>() })); Assert.Empty(empty.GetProperty("targetNames").EnumerateArray());
+            Data(await Post(client, endpoint + "/update", new { id = record, targetIds = selected })); before = await Snapshot();
+            foreach (var invalid in new object[] { new[] { First.ToString(), First.ToString() }, new[] { "9223372036854775808" }, new[] { "-1" }, new[] { "0" + First }, new[] { "1 OR 1=1" }, new[] { 1 }, "[", "{}", Enumerable.Repeat(First.ToString(), 201).ToArray() })
+            { Assert.Equal(500, (await Post(client, endpoint + "/update", new { id = record, targetIds = invalid, attachments = new[] { fileIds[1].ToString() } })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot()); }
+            foreach (var invalid in new[] { First + 2, First + 3, First + 4, First + 9999 })
+            { Assert.Equal(500, (await Post(client, endpoint + "/update", new { id = record, targetIds = new[] { First.ToString(), invalid.ToString() }, attachments = new[] { fileIds[1].ToString() } })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot()); }
+            Assert.Equal(500, (await Post(client, endpoint + "/update", new { id = record, parentId = (Parent + 1).ToString() })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot());
+            // 即使直接调用来源add/save/copy，也不得绕过真实目标页list权限。
+            client.DefaultRequestHeaders.Add("denyTarget", "1");
+            Assert.Equal(500, (await Post(client, endpoint + "/add", new { name = "越权新增", parentId = Parent.ToString(), targetIds = selected })).GetProperty("code").GetInt32());
+            Assert.Equal(500, (await Post(client, endpoint + "/update", new { id = record, targetIds = selected, attachments = new[] { fileIds[1].ToString() } })).GetProperty("code").GetInt32());
+            Assert.Equal(500, (await Post(client, endpoint + "/copy/" + record, new { })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot());
+            Assert.Equal(500, (await Post(client, hiddenEndpoint + "/copy/" + record, new { })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot());
+            Data(await Post(client, hiddenEndpoint + "/update", new { id = record, name = "隐藏ID页省略关系仍可保存" }));
+            Data(await Post(client, endpoint + "/update", new { id = record, name = "省略IDs仍可改其它字段" })); client.DefaultRequestHeaders.Remove("denyTarget");
+            await Execute(session, "UPDATE " + Q(session, prefix + "_target") + " SET name=@name WHERE id=@id", ("name", "服务端新名称"), ("id", First));
+            var fresh = Data(await Post(client, endpoint + "/update", new { id = record, targetIds = selected })); Assert.Equal(new[] { "目标乙", "服务端新名称" }, fresh.GetProperty("targetNames").EnumerateArray().Select(value => value.GetString()));
+            var idNameEndpoint = "/api/admin/auto/" + prefix + "_source/203";
+            var byId = Data(await Post(client, idNameEndpoint + "/add", new { name = "主键作为名称", parentId = Parent.ToString(), targetIds = new[] { First.ToString() } }));
+            Assert.Equal(First.ToString(), Assert.Single(byId.GetProperty("targetIds").EnumerateArray()).GetString());
+            var byIdKey=long.Parse(byId.GetProperty("id").GetString()!);var byIdCache=(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",byIdKey}})).Single()["target_names"];Assert.NotNull(byIdCache);Assert.Equal(new[]{"服务端新名称"},JsonSerializer.Deserialize<string[]>((string)byIdCache!));Assert.False(byId.TryGetProperty("targetNames",out _));
+            var byIdUpdated = Data(await Post(client, idNameEndpoint + "/update", new { id = byId.GetProperty("id").GetString(), targetIds = new[] { (First + 1).ToString() } }));
+            Assert.Equal((First + 1).ToString(), Assert.Single(byIdUpdated.GetProperty("targetIds").EnumerateArray()).GetString());
+            Assert.Equal(new[]{"目标乙"},JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",byIdKey}})).Single()["target_names"]!));Assert.False(byIdUpdated.TryGetProperty("targetNames",out _));
+            // ID展示不暴露私有缓存，但新增／更新／复制／null／空数组仍维护同表已发布名称。
+            if(multipleCaches)Assert.Equal(new[]{"标题乙"},JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",byIdKey}})).Single()["target_titles"]!));
+            var idCopy=Data(await Post(client,idNameEndpoint+"/copy/"+byIdKey,new{}));Assert.False(idCopy.TryGetProperty("targetNames",out _));Assert.Equal(new[]{"目标乙"},JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",long.Parse(idCopy.GetProperty("id").GetString()!)}})).Single()["target_names"]!));
+            Data(await Post(client,idNameEndpoint+"/update",new{id=byIdKey,targetIds=(object?)null}));Assert.Null((await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",byIdKey}})).Single()["target_names"]);
+            Data(await Post(client,idNameEndpoint+"/update",new{id=byIdKey,targetIds=Array.Empty<string>()}));Assert.Empty(JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",byIdKey}})).Single()["target_names"]!)!);
+            var idBefore=JsonSerializer.Serialize(await rows.ReadIncludingDeletedAsync(prefix+"_source"));Assert.Equal(500,(await Post(client,idNameEndpoint+"/update",new{id=byIdKey,targetNames=new[]{"隐藏名称不能提交"}})).GetProperty("code").GetInt32());Assert.Equal(idBefore,JsonSerializer.Serialize(await rows.ReadIncludingDeletedAsync(prefix+"_source")));
+            if(multipleCaches)
+            {
+                var titleEndpoint="/api/admin/auto/"+prefix+"_source/204";var title=Data(await Post(client,titleEndpoint+"/add",new{name="标题页面",parentId=Parent.ToString(),targetIds=new[]{First.ToString()}}));Assert.False(title.TryGetProperty("targetNames",out _));Assert.Equal(new[]{"标题甲"},title.GetProperty("targetTitles").EnumerateArray().Select(item=>item.GetString()));var titleId=long.Parse(title.GetProperty("id").GetString()!);Assert.Equal(new[]{"服务端新名称"},JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",titleId}})).Single()["target_names"]!));
+                var titleUpdated=Data(await Post(client,titleEndpoint+"/update",new{id=titleId,targetIds=new[]{(First+1).ToString()}}));Assert.Equal(new[]{"标题乙"},titleUpdated.GetProperty("targetTitles").EnumerateArray().Select(item=>item.GetString()));Assert.Equal(new[]{"目标乙"},JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",titleId}})).Single()["target_names"]!));
+                var mode=assembly.GetType("Example.MultiProbe.Generated.Services."+sourceType+"Service",true)!.GetProperty("JoinedProbeMode")!;try{var original=JsonSerializer.Serialize(await rows.ReadIncludingDeletedAsync(prefix+"_source"));mode.SetValue(null,1);Assert.Equal(500,(await Post(client,idNameEndpoint+"/update",new{id=byIdKey})).GetProperty("code").GetInt32());Assert.Equal(original,JsonSerializer.Serialize(await rows.ReadIncludingDeletedAsync(prefix+"_source")));mode.SetValue(null,2);Data(await Post(client,idNameEndpoint+"/update",new{id=byIdKey}));Assert.Empty(JsonSerializer.Deserialize<string[]>((string)(await rows.ReadAsync(prefix+"_source",new Dictionary<string,object?>{{"id",byIdKey}})).Single()["target_names"]!)!);}finally{mode.SetValue(null,0);}
+            }
+            var copied = Data(await Post(client, endpoint + "/copy/" + record, new { })); Assert.NotEqual(record, copied.GetProperty("id").GetString()); Assert.Single(await store.ReadAsync("yz_file_ref", new Dictionary<string, object?> { ["record_id"] = long.Parse(copied.GetProperty("id").GetString()!) }));
+            await VerifyTargetCurrentLockAsync(options.ConnectionString,session,client,idNameEndpoint,record,prefix,selected,multipleCaches);
+            if(propagation)
+            {
+                var targetEndpoint="/api/admin/auto/"+prefix+"_target/301";var sourceTable=prefix+"_source";var otherProject=ids.NextId();var deletedSource=ids.NextId();var numericSource=ids.NextId();var malformedSource=ids.NextId();var prefixSource=ids.NextId();
+                async Task SeedLegacy(long id,string foreign,long project,object? deleted)=>await rows.InsertAsync(sourceTable,new Dictionary<string,object?>{{"id",id},{"name","传播隔离样本"},{"parent_id",Parent},{"yz_project_id",project},{"delete_no",deleted},{"target_ids",foreign},{"target_names","[\"旧缓存\"]"},{"target_titles","[\"旧标题\"]"}});
+                await SeedLegacy(otherProject,JsonSerializer.Serialize(new[]{First.ToString()}),Project+1,null);await SeedLegacy(deletedSource,JsonSerializer.Serialize(new[]{First.ToString()}),Project,new DateTime(2026,1,1));await SeedLegacy(numericSource,JsonSerializer.Serialize(new[]{First+1,First}),Project,null);await SeedLegacy(malformedSource,"不是JSON",Project,null);await SeedLegacy(prefixSource,JsonSerializer.Serialize(new[]{First.ToString()+"1"}),Project,null);
+                var immutable=(await rows.ReadIncludingDeletedAsync(sourceTable)).Where(row=>new[]{otherProject,deletedSource,malformedSource,prefixSource}.Contains(SqlRowStore.Id(row))).ToArray();var filesBefore=JsonSerializer.Serialize((await store.ReadIncludingDeletedAsync("yz_file_ref")).Where(row=>fileIds.Contains(Convert.ToInt64(row["file_id"],System.Globalization.CultureInfo.InvariantCulture))).ToArray());
+                async Task<string> AllState()=>JsonSerializer.Serialize(new{source=await rows.ReadIncludingDeletedAsync(sourceTable),target=await rows.ReadIncludingDeletedAsync(prefix+"_target"),refs=(await store.ReadIncludingDeletedAsync("yz_file_ref")).Where(row=>fileIds.Contains(Convert.ToInt64(row["file_id"],System.Globalization.CultureInfo.InvariantCulture))).ToArray()});
+                var mode=assembly.GetType("Example.MultiProbe.Generated.Services."+sourceType+"Service",true)!.GetProperty("JoinedProbeMode")!;mode.SetValue(null,6);client.DefaultRequestHeaders.Add("denySource","1");
+                try
+                {
+                    var beforeNoChange=JsonSerializer.Serialize(await rows.ReadIncludingDeletedAsync(sourceTable));Data(await Post(client,targetEndpoint+"/update?parentId="+Parent,new{id=First}));Assert.Equal(beforeNoChange,JsonSerializer.Serialize(await rows.ReadIncludingDeletedAsync(sourceTable)));
+                    Data(await Post(client,targetEndpoint+"/update?parentId="+Parent,new{id=First,name="目标传播新名",title="目标传播新标题"}));var propagated=(await rows.ReadAsync(sourceTable,new Dictionary<string,object?>{{"id",long.Parse(record)}})).Single();Assert.Equal(new[]{"目标乙","目标传播新名"},JsonSerializer.Deserialize<string[]>((string)propagated["target_names"]!));Assert.Equal(new[]{"标题乙","目标传播新标题"},JsonSerializer.Deserialize<string[]>((string)propagated["target_titles"]!));var numeric=(await rows.ReadAsync(sourceTable,new Dictionary<string,object?>{{"id",numericSource}})).Single();Assert.Equal(JsonSerializer.Serialize(new[]{First+1,First}),numeric["target_ids"]);Assert.Equal(new[]{"目标乙","目标传播新名"},JsonSerializer.Deserialize<string[]>((string)numeric["target_names"]!));
+                    var beforeFailure=await AllState();propagationFailure.Fail=true;Assert.Equal(500,(await Post(client,targetEndpoint+"/update?parentId="+Parent,new{id=First,name="不能留下的改名",title="不能留下的标题"})).GetProperty("code").GetInt32());Assert.Equal(beforeFailure,await AllState());propagationFailure.Fail=false;
+                    await VerifyPropagationConflictAsync(options.ConnectionString,session,client,targetEndpoint,prefix,First,new[]{long.Parse(record),byIdKey,long.Parse(idCopy.GetProperty("id").GetString()!),long.Parse(copied.GetProperty("id").GetString()!)});
+                    using(var deletion=await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete,targetEndpoint+"?parentId="+Parent){Content=JsonContent.Create(new{id=First})}))Data(JsonSerializer.Deserialize<JsonElement>(await deletion.Content.ReadAsStringAsync()));propagated=(await rows.ReadAsync(sourceTable,new Dictionary<string,object?>{{"id",long.Parse(record)}})).Single();Assert.Equal(selected,JsonSerializer.Deserialize<string[]>((string)propagated["target_ids"]!));Assert.Equal(new string?[]{"目标乙",null},JsonSerializer.Deserialize<string?[]>((string)propagated["target_names"]!));Assert.Equal(new string?[]{"标题乙",null},JsonSerializer.Deserialize<string?[]>((string)propagated["target_titles"]!));
+                    Assert.Equal(JsonSerializer.Serialize(immutable),JsonSerializer.Serialize((await rows.ReadIncludingDeletedAsync(sourceTable)).Where(row=>new[]{otherProject,deletedSource,malformedSource,prefixSource}.Contains(SqlRowStore.Id(row))).ToArray()));Assert.Equal(filesBefore,JsonSerializer.Serialize((await store.ReadIncludingDeletedAsync("yz_file_ref")).Where(row=>fileIds.Contains(Convert.ToInt64(row["file_id"],System.Globalization.CultureInfo.InvariantCulture))).ToArray()));
+                }
+                finally{mode.SetValue(null,0);propagationFailure.Fail=false;client.DefaultRequestHeaders.Remove("denySource");}
+            }
+            await Execute(session, "UPDATE " + Q(session, prefix + "_target") + " SET delete_no=@now WHERE id=@id", ("now", DateTime.UtcNow), ("id", First)); before = await Snapshot(); Assert.Equal(500, (await Post(client, endpoint + "/copy/" + record, new { })).GetProperty("code").GetInt32()); Assert.Equal(before, await Snapshot());
+        }
+        finally
+        {
+            if (app is not null) { await app.StopAsync(); await app.DisposeAsync(); }
+            if (cleanup) using (var final = new DatabaseSession(options))
+            {
+                foreach (var id in fileIds) { await Execute(final, "DELETE FROM yz_file_ref WHERE file_id=@id", ("id", id)); await Execute(final, "DELETE FROM yz_file_library WHERE id=@id", ("id", id)); }
+                foreach (var table in catalog.ConfigTables) { Assert.StartsWith(prefix + "_", table.TableName); await Execute(final, "DROP TABLE IF EXISTS " + Q(final, table.TableName)); }
+            }
+            await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
+    /// <summary>目标未提交改名时，真实HTTP持有来源锁并等待目标；释放后必须使用新值，禁止普通快照拼出旧缓存。</summary>
+    private static async Task VerifyTargetCurrentLockAsync(string connectionString,DatabaseSession session,HttpClient client,string endpoint,string record,string prefix,string[] selected,bool titles)
+    {
+        await using var writer=new MySqlConnector.MySqlConnection(connectionString);await writer.OpenAsync();await using var transaction=await writer.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);Task<JsonElement>? pending=null;var committed=false;Exception? primary=null;
+        try
+        {
+            await using(var command=writer.CreateCommand()){command.Transaction=transaction;command.CommandText="UPDATE "+Q(session,prefix+"_target")+" SET name=@name"+(titles?",title=@title":"")+" WHERE id=@id";command.Parameters.AddWithValue("name","并发当前名称");if(titles)command.Parameters.AddWithValue("title","并发当前标题");command.Parameters.AddWithValue("id",First);Assert.Equal(1,await command.ExecuteNonQueryAsync());}
+            pending=Post(client,endpoint+"/update",new{id=record,targetIds=selected});var observed=false;var watch=System.Diagnostics.Stopwatch.StartNew();await using var probe=new MySqlConnector.MySqlConnection(connectionString);await probe.OpenAsync();
+            while(!observed&&watch.Elapsed<TimeSpan.FromSeconds(8)&&!pending.IsCompleted)
+            {
+                await using var probeTransaction=await probe.BeginTransactionAsync();
+                try{await using var command=probe.CreateCommand();command.Transaction=probeTransaction;command.CommandText="SELECT id FROM "+Q(session,prefix+"_source")+" WHERE id=@id FOR UPDATE NOWAIT";command.Parameters.AddWithValue("id",long.Parse(record,System.Globalization.CultureInfo.InvariantCulture));await command.ExecuteScalarAsync();}
+                catch(MySqlConnector.MySqlException error)when(error.Number==3572){observed=true;}
+                finally{await probeTransaction.RollbackAsync();}
+                if(!observed)await Task.Delay(25);
+            }
+            Assert.True(observed,"未观察到HTTP已取得来源锁，不能把未执行请求算作目标锁等待。");Assert.False(pending.IsCompleted);await transaction.CommitAsync();committed=true;var response=Data(await pending);Assert.False(response.TryGetProperty("targetNames",out _));Assert.False(response.TryGetProperty("targetTitles",out _));
+            // 根SQL读回必须使用当前随机表的原元数据，不让测试目录或其他样本参与核验。
+            await using var read=new MySqlConnector.MySqlConnection(connectionString);await read.OpenAsync();await using var readCommand=read.CreateCommand();readCommand.CommandText="SELECT target_names"+(titles?",target_titles":"")+" FROM "+Q(session,prefix+"_source")+" WHERE id=@id";readCommand.Parameters.AddWithValue("id",long.Parse(record,System.Globalization.CultureInfo.InvariantCulture));await using var reader=await readCommand.ExecuteReaderAsync();Assert.True(await reader.ReadAsync());Assert.Equal(new[]{"目标乙","并发当前名称"},JsonSerializer.Deserialize<string[]>(reader.GetString(0)));if(titles)Assert.Equal(new[]{"标题乙","并发当前标题"},JsonSerializer.Deserialize<string[]>(reader.GetString(1)));
+        }
+        catch(Exception error){primary=error;throw;}
+        finally
+        {
+            try{if(!committed)await transaction.RollbackAsync();if(pending is not null)await pending;}
+            catch(Exception cleanup)when(primary is not null){throw new AggregateException("并发验收失败且目标事务／HTTP回收失败，保留两项异常。",primary,cleanup);}
+        }
+    }
+
+    /// <summary>真实反向传播与另一来源事务形成锁环，允许数据库选择牺牲者，但目标／缓存／业务字段必须整笔一致。</summary>
+    private static async Task VerifyPropagationConflictAsync(string connectionString,DatabaseSession session,HttpClient client,string endpoint,string prefix,long target,long[] sourceIds)
+    {
+        await using var source=new MySqlConnector.MySqlConnection(connectionString);await source.OpenAsync();await using(var check=source.CreateCommand()){check.CommandText="SELECT @@innodb_deadlock_detect";Assert.Equal(1,Convert.ToInt32(await check.ExecuteScalarAsync()));}await using var transaction=await source.BeginTransactionAsync();var completed=false;Task<JsonElement>? pending=null;Exception? original=null;var sourceVictim=false;
+        try
+        {
+            await using(var command=source.CreateCommand()){command.Transaction=transaction;command.CommandText="UPDATE "+Q(session,prefix+"_source")+" SET name=CONCAT(name,@suffix) WHERE id IN ("+string.Join(",",sourceIds.Select((_,index)=>"@id"+index))+") AND yz_project_id=@project";command.Parameters.AddWithValue("suffix","并发业务后缀");command.Parameters.AddWithValue("project",Project);for(var index=0;index<sourceIds.Length;index++)command.Parameters.AddWithValue("id"+index,sourceIds[index]);Assert.Equal(sourceIds.Length,await command.ExecuteNonQueryAsync());}
+            pending=Post(client,endpoint+"/update?parentId="+Parent,new{id=target,name="并发传播改名",title="并发传播标题"});var observed=false;var watch=System.Diagnostics.Stopwatch.StartNew();await using var probe=new MySqlConnector.MySqlConnection(connectionString);await probe.OpenAsync();
+            while(!observed&&!pending.IsCompleted&&watch.Elapsed<TimeSpan.FromSeconds(8))
+            {
+                await using var probeTransaction=await probe.BeginTransactionAsync();try{await using var command=probe.CreateCommand();command.Transaction=probeTransaction;command.CommandText="SELECT id FROM "+Q(session,prefix+"_target")+" WHERE id=@id FOR UPDATE NOWAIT";command.Parameters.AddWithValue("id",target);await command.ExecuteScalarAsync();}catch(MySqlConnector.MySqlException error)when(error.Number==3572){observed=true;}finally{await probeTransaction.RollbackAsync();}if(!observed)await Task.Delay(25);
+            }
+            Assert.True(observed,"未观察到目标HTTP写锁，不能把未进入传播的请求算作并发验证。");Assert.False(pending.IsCompleted);
+            try{await using var command=source.CreateCommand();command.Transaction=transaction;command.CommandTimeout=10;command.CommandText="SELECT id FROM "+Q(session,prefix+"_target")+" WHERE id=@id FOR UPDATE";command.Parameters.AddWithValue("id",target);await command.ExecuteScalarAsync();await transaction.CommitAsync();completed=true;}
+            catch(MySqlConnector.MySqlException error)when(error.Number==1213){sourceVictim=true;await transaction.RollbackAsync();completed=true;}
+            var response=await pending;var success=response.GetProperty("code").GetInt32()==200;Assert.True(success||response.GetProperty("code").GetInt32()==500);if(sourceVictim)Assert.True(success);else{Assert.False(success);Assert.Contains("并发冲突",response.GetProperty("msg").GetString());}
+            await using var read=new MySqlConnector.MySqlConnection(connectionString);await read.OpenAsync();await using(var command=read.CreateCommand()){command.CommandText="SELECT name FROM "+Q(session,prefix+"_target")+" WHERE id=@id";command.Parameters.AddWithValue("id",target);Assert.Equal(success?"并发传播改名":"目标传播新名",Convert.ToString(await command.ExecuteScalarAsync()));}
+            await using(var command=read.CreateCommand()){command.CommandText="SELECT name,target_names,target_titles FROM "+Q(session,prefix+"_source")+" WHERE id=@id";command.Parameters.AddWithValue("id",sourceIds[0]);await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync());Assert.Equal(!sourceVictim,reader.GetString(0).EndsWith("并发业务后缀",StringComparison.Ordinal));Assert.Equal(success?new[]{"目标乙","并发传播改名"}:new[]{"目标乙","目标传播新名"},JsonSerializer.Deserialize<string[]>(reader.GetString(1)));Assert.Equal(success?new[]{"标题乙","并发传播标题"}:new[]{"标题乙","目标传播新标题"},JsonSerializer.Deserialize<string[]>(reader.GetString(2)));}
+            await File.WriteAllTextAsync(Path.Combine(NonRedundantApplicationFixture.Root(),".local/relation-propagation/race-"+prefix+".json"),JsonSerializer.Serialize(new{targetLockObserved=true,sourceVictim,targetSucceeded=success,allOrNothing=true,noGlobalObservationGrants=true})+"\n");
+        }
+        catch(Exception error){original=error;throw;}
+        finally{try{if(!completed)await transaction.RollbackAsync();if(pending is not null)await pending;}catch(Exception cleanup)when(original is not null){throw new AggregateException("传播竞态失败且回收失败",original,cleanup);}}
+    }
+
+    /// <summary>仅本夹具的目标通知尾部故障；派生SQL和文件引用必须随目标写入一起回滚。</summary>
+    private sealed class PropagationFailure(string table):IRecordMutationObserver
+    {
+        public bool Fail{get;set;}
+        public Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken=default){if(Fail&&context.TableName==table)throw new InvalidOperationException("目标传播后模拟尾部失败");return Task.CompletedTask;}
+    }
+    /// <summary>身份来自真实宿主注入；只用拒绝头模拟权限失效，不允许客户端选择Actor或项目。</summary>
+    private sealed class Authorization(IHttpContextAccessor accessor) : IRuntimeAuthorization
+    {
+        public RuntimeActor RequireActor() => new(859, "多选真实验收", false, Project.ToString(), "1");
+        public void RequirePagePermission(string pageId, string operation) { if(pageId is "201" or "202" or "203" or "204"&&accessor.HttpContext!.Request.Headers.ContainsKey("denySource"))throw new UnauthorizedAccessException("没有消费者页面权限，传播不能借业务入口执行。");if (pageId == "301" && accessor.HttpContext!.Request.Headers.ContainsKey("denyTarget")) throw new UnauthorizedAccessException("没有目标页读取权限。"); }
+    }
+    /// <summary>固定元数据标识符由provider引用。</summary>
+    private static string Q(DatabaseSession session, string name) => session.Provider.QuoteIdentifier(name);
+    /// <summary>业务值使用真实数据库参数，不进入SQL结构。</summary>
+    private static async Task Execute(DatabaseSession session, string sql, params (string Name, object? Value)[] values)
+    {
+        await using var connection = session.Provider.CreateConnection(session.Options); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = sql;
+        foreach (var (name, value) in values) { var parameter = command.CreateParameter(); parameter.ParameterName = name; parameter.Value = value ?? DBNull.Value; command.Parameters.Add(parameter); }
+        await command.ExecuteNonQueryAsync();
+    }
+    /// <summary>HTTP仍通过实际生成控制器和Service，不直接反射调用私有规则。</summary>
+    private static async Task<JsonElement> Post(HttpClient client, string path, object body) => JsonSerializer.Deserialize<JsonElement>(await (await client.PostAsJsonAsync(path, body)).Content.ReadAsStringAsync());
+    /// <summary>成功数据必须来自真实统一响应。</summary>
+    private static JsonElement Data(JsonElement response) { Assert.True(response.GetProperty("code").GetInt32() == 200, response.GetRawText()); return response.GetProperty("data"); }
+}

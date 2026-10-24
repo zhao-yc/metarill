@@ -1,0 +1,20 @@
+{
+  "name": "metarill-uni-admin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Metarill HBuilderX uni-app Vue 3 管理端",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "sync:template-version": "node scripts/sync-template-version.mjs",
+    "sync:write-schema": "node scripts/merge-page-write-schemas.mjs",
+    "sync:custom-routes": "node scripts/merge-custom-routes.mjs",
+    "sync:platform-shell": "node scripts/merge-custom-routes.mjs"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@tinymce/tinymce-vue": "6.3.0",
+    "cap-widget": "0.1.50",
+    "crypto-js": "4.2.0",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
+  }
+}

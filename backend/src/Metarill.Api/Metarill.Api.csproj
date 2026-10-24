@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <ProjectReference Include="../Metarill.Runtime/Metarill.Runtime.csproj" />
+    <ProjectReference Include="../Metarill.Generation/Metarill.Generation.csproj" />
+    <Compile Include="../../generated/platform/**/*.cs" />
+    <Compile Include="../../generated/demo/**/*.cs" />
+  </ItemGroup>
+</Project>
