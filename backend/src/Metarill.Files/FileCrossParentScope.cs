@@ -10,26 +10,36 @@ namespace Metarill.Runtime.Files;
 internal sealed class FileCrossParentScope
 {
     private sealed record Target(string Table,string ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition);
-    private readonly CrossTableSparseSelection selection;
+    private readonly CrossTableSparseSelection? selection;
+    private readonly FileSharedCrossParentScope? shared;
     private readonly Target[] targets;
     internal string SourceId{get;}
     internal int Level{get;}
-    internal IReadOnlyList<string> StorageNames=>selection.Slots.Select(slot=>slot.ColumnName).ToArray();
+    internal IReadOnlyList<string> StorageNames=>shared?.StorageNames??selection!.Slots.Select(slot=>slot.ColumnName).ToArray();
     /// <summary>路径字段、目标与常量在发布时冻结；构造器不暴露任意SQL或在线替换入口。</summary>
     private FileCrossParentScope(string sourceId,int level,CrossTableSparseSelection selection,Target[] targets){SourceId=sourceId;Level=level;this.selection=selection;this.targets=targets;}
+    /// <summary>共享包装器使用同一组身份与全局槽位，不能冒充某一条分支。</summary>
+    internal FileCrossParentScope(string sourceId,int level,FileSharedCrossParentScope shared){SourceId=sourceId;Level=level;this.shared=shared;targets=[];}
     /// <summary>只有普通R0固定跨表的ID位可取得逻辑父证明，selfTree及普通外键继续原边界。</summary>
     internal static FileCrossParentScope? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column)
     {
-        if(table.IsRongyu!=0)return null;var matches=new List<(ColumnMetadata Source,CrossTableSparseSelection Selection,int Level)>();
+        if(table.IsRongyu!=0)return null;var groups=SharedCrossTableSparseSelection.CompileAll(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Id));var group=groups.SingleOrDefault(g=>g.Slots.Any(slot=>slot.ColumnName==column.ColumnName));if(group is not null)return FileSharedCrossParentScope.Compile(catalog,table,page,column,group);var members=groups.SelectMany(g=>g.Branches).Select(b=>b.SourceColumnId).ToHashSet(StringComparer.Ordinal);var matches=new List<(ColumnMetadata Source,CrossTableSparseSelection Selection,int Level)>();
         foreach(var source in catalog.ConfigColumns.Where(field=>field.ConfigTableId==table.Id&&field.ControlKind=="CascadeTree"))
         {
-            using var json=JsonDocument.Parse(source.ControlDetail);if(json.RootElement.TryGetProperty("sourceMode",out var mode)&&mode.GetString()=="selfTree")continue;
+            if(members.Contains(source.Id))continue;using var json=JsonDocument.Parse(source.ControlDetail);if(json.RootElement.TryGetProperty("sourceMode",out var mode)&&mode.GetString()=="selfTree")continue;
             var codec=CrossTableSparseSelection.Compile(table,source.Id,catalog.ConfigColumns.Where(field=>field.ConfigTableId==table.Id));var index=codec.Slots.ToList().FindIndex(slot=>slot.ColumnName==column.ColumnName);if(index>=0)matches.Add((source,codec,index));
         }
         if(matches.Count==0)return null;if(matches.Count!=1)throw new NotSupportedException("文件逻辑父范围不能共享稀疏层位。");var match=matches[0];
-        var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==match.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(match.Source.ControlDetail)))throw new NotSupportedException("文件跨表页覆盖不能改变固定存储链。");
+        var branch=CompileBranch(catalog,table,page,match.Source,match.Selection,match.Level);
+        // 单控件继续完整数据层证明；共享组在收齐所有同伴范围后一次证明。
+        _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],[branch.Binding],[column.ColumnName]);return branch.Scope;
+    }
+    /// <summary>固定分支的页覆盖、目标页／常量与物理身份共用同一编译器，构造器不提供在线替换入口。</summary>
+    internal static (FileCrossParentScope Scope,NonRedundantCrossTableScope Binding) CompileBranch(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata source,CrossTableSparseSelection selection,int levelIndex)
+    {
+        var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.ControlDetail)))throw new NotSupportedException("文件跨表页覆盖不能改变固定存储链。");
         if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind!=JsonValueKind.Null&&!string.IsNullOrWhiteSpace(exact.ToString()))throw new NotSupportedException("文件跨表精确权限尚需独立证明。");
-        using var definition=JsonDocument.Parse(match.Source.ControlDetail);var bindings=new List<NonRedundantCrossTableTargetScope>();var targets=new List<Target>();
+        using var definition=JsonDocument.Parse(source.ControlDetail);var bindings=new List<NonRedundantCrossTableTargetScope>();var targets=new List<Target>();
         foreach(var level in definition.RootElement.GetProperty("levels").EnumerateArray())
         {
             var target=catalog.ConfigTables.Single(item=>item.TableName==level.GetProperty("table").GetString());var columns=MetadataStoragePolicy.ForTable(catalog,target).PhysicalColumns;
@@ -39,9 +49,7 @@ internal sealed class FileCrossParentScope
             var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:Condition(candidate,columns))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
             var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));var project=columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,project.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
         }
-        // 共用数据层完整证明：重复JSON键、目标PK／父键／项目、物理类型及未知范围都不能被文件模块略过。
-        _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],[new(match.Source.Id,bindings)], [column.ColumnName]);
-        return new(match.Source.Id,match.Level,match.Selection,targets.ToArray());
+        return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray()),new NonRedundantCrossTableScope(source.Id,bindings));
     }
     /// <summary>原页面显式显示／编辑标志优先，与文件可读列及生成目标页规则保持同一语义。</summary>
     private static bool Readable(PageColumnMetadata field)=>Flag(field,"isInGrid",field.IsShow==1)||Flag(field,"isInEdit",field.IsEdit==1);
@@ -65,12 +73,12 @@ internal sealed class FileCrossParentScope
     {
         var values=new Dictionary<string,long[]>(StringComparer.Ordinal);
         foreach(var group in scopes.GroupBy(scope=>scope.SourceId,StringComparer.Ordinal))values.Add(group.Key,await group.First().PathAsync(store,record,project,locking,token));
-        return scopes.Select(scope=>scope.Level<values[scope.SourceId].Length?values[scope.SourceId][scope.Level]:throw new UnauthorizedAccessException("所选层位未提供当前文件父范围。")).ToArray();
+        return scopes.Select(scope=>scope.Level<values[scope.SourceId].Length&&values[scope.SourceId][scope.Level]>0?values[scope.SourceId][scope.Level]:throw new UnauthorizedAccessException("所选层位未提供当前文件父范围。")).ToArray();
     }
     /// <summary>只读使用同一快照，写入及删除复用原事务FOR UPDATE，值与元数据标识符分别处理。</summary>
-    private async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,long project,bool locking,CancellationToken token)
+    internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,long project,bool locking,CancellationToken token)
     {
-        var selected=ReadSelection(record);if(selected is null)throw new UnauthorizedAccessException("文件来源没有真实跨表父选择。");
+        token.ThrowIfCancellationRequested();if(shared is not null)return await shared.PathAsync(store,record,project,locking,token);var selected=ReadSelection(record);if(selected is null)throw new UnauthorizedAccessException("文件来源没有真实跨表父选择。");
         var session=store.Session;var transaction=session.CurrentTransaction;if(locking&&transaction is null)throw new InvalidOperationException("文件逻辑父锁必须加入原事务。");
         await using var owned=transaction is null?session.Provider.CreateConnection(session.Options):null;var connection=transaction?.Connection??owned??throw new InvalidOperationException("文件父路径连接不可用。");if(owned is not null)await owned.OpenAsync(token);
         var result=new long[selected.Level+1];var current=selected.Id;
@@ -81,14 +89,14 @@ internal sealed class FileCrossParentScope
             var sql="SELECT "+provider.QuoteIdentifier("id")+(target.Parent is null?"":","+provider.QuoteIdentifier(target.Parent))+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter("node",current)+" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter("project",target.ProjectType=="string"?project.ToString(CultureInfo.InvariantCulture):(object)project);
             if(target.SoftDelete)sql+=" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL";if(target.Condition is{} condition)sql+=" AND "+condition.BindConstants(command,session,"file_cross");command.CommandText=locking?provider.BuildSelectForUpdate(sql):sql;
             await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token)||Convert.ToInt64(reader.GetValue(0),CultureInfo.InvariantCulture)!=current)throw new UnauthorizedAccessException("文件跨表目标缺失、已删除或不在固定范围。");result[index]=current;
-            if(index>0){var value=await reader.IsDBNullAsync(1,token)?null:Convert.ToString(reader.GetValue(1),CultureInfo.InvariantCulture);if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out current)||current<=0)throw new UnauthorizedAccessException("文件跨表实际父键无效。");}
+            if(index>0){var value=await reader.IsDBNullAsync(1,token)?null:Convert.ToString(reader.GetValue(1),CultureInfo.InvariantCulture);if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out current)||current<=0||value!=current.ToString(CultureInfo.InvariantCulture))throw new UnauthorizedAccessException("文件跨表实际父键无效。");}
         }
         return result;
     }
     /// <summary>仅转换编码器的纯存储异常，数据库与连接异常必须向上传播。</summary>
     private CrossTableSelectedNode? ReadSelection(IReadOnlyDictionary<string,object?> record)
     {
-        try{return selection.ReadStored(selection.Slots.ToDictionary(slot=>slot.ColumnName,slot=>record.TryGetValue(slot.ColumnName,out var value)?value:throw new InvalidOperationException("缺少实际稀疏位。")));}
+        try{return selection!.ReadStored(selection.Slots.ToDictionary(slot=>slot.ColumnName,slot=>record.TryGetValue(slot.ColumnName,out var value)?value:throw new InvalidOperationException("缺少实际稀疏位。")));}
         catch(InvalidOperationException invalid){throw new UnauthorizedAccessException("文件来源稀疏选择无效。",invalid);}
     }
 }
