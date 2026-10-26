@@ -62,7 +62,7 @@ public sealed class SharedCrossTableSparseSelection
     /// <summary>恢复独立的已存节点；同一路径多层同时有值属于歧义历史数据，必须拒绝而不是静默去重。</summary>
     public IReadOnlyList<SharedCrossTableStoredNode> ReadStored(IReadOnlyDictionary<string,object?> values)
     {
-        ArgumentNullException.ThrowIfNull(values);if(values.Count!=Slots.Count||Slots.Any(s=>!values.ContainsKey(s.ColumnName)))throw new ArgumentException("共享存储快照必须完整且仅含本组ID位。",nameof(values));var result=new List<SharedCrossTableStoredNode>();foreach(var slot in Slots)if(Id(slot,values[slot.ColumnName]) is{} id)result.Add(new(slot.ColumnName,id));foreach(var node in result)if(result.Any(other=>other!=node&&ancestors[other.ColumnName].Contains(node.ColumnName)))throw new InvalidOperationException("共享稀疏记录同时保存了祖先与后代，无法无歧义恢复。");return Array.AsReadOnly(result.ToArray());
+        ArgumentNullException.ThrowIfNull(values);if(values.Count!=Slots.Count||Slots.Any(s=>!values.ContainsKey(s.ColumnName)))throw new ArgumentException("共享存储快照必须完整且仅含本组ID位。",nameof(values));var result=new List<SharedCrossTableStoredNode>();foreach(var slot in Slots)if(ParseStoredId(slot,values[slot.ColumnName]) is{} id)result.Add(new(slot.ColumnName,id));foreach(var node in result)if(result.Any(other=>other!=node&&ancestors[other.ColumnName].Contains(node.ColumnName)))throw new InvalidOperationException("共享稀疏记录同时保存了祖先与后代，无法无歧义恢复。");return Array.AsReadOnly(result.ToArray());
     }
     /// <summary>从完整快照验证后返回每个控件自己的已存末端；空分支的共同祖先须由组内其它路径恢复。</summary>
     public IReadOnlyDictionary<string,CrossTableSelectedNode?> ReadBranchSelections(IReadOnlyDictionary<string,object?> values)
@@ -70,7 +70,7 @@ public sealed class SharedCrossTableSparseSelection
         var nodes=ReadStored(values).ToDictionary(n=>n.ColumnName,n=>n.Id,StringComparer.Ordinal);return new ReadOnlyDictionary<string,CrossTableSelectedNode?>(Branches.ToDictionary(b=>b.SourceColumnId,b=>b.Slots.Select((s,index)=>(s,index)).Where(x=>nodes.ContainsKey(x.s.ColumnName)).Select(x=>new CrossTableSelectedNode(x.index,nodes[x.s.ColumnName])).SingleOrDefault(),StringComparer.Ordinal));
     }
     /// <summary>空文本与null仍代表未选，类型和规范正整数不依赖数据库隐式转换。</summary>
-    private static long? Id(CrossTableSelectionSlot slot,object? value)
+    internal static long? ParseStoredId(CrossTableSelectionSlot slot,object? value)
     {
         if(value is null||slot.LogicalType=="string"&&value is "")return null;if(slot.LogicalType=="int64"&&value is long number&&number>0)return number;if(slot.LogicalType=="string"&&value is string text&&long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0&&text==id.ToString(CultureInfo.InvariantCulture))return id;throw new InvalidOperationException("共享稀疏主键类型或规范格式无效。");
     }

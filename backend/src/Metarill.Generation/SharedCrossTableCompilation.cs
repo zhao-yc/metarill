@@ -41,23 +41,29 @@ internal static class SharedCrossTableCompilation
             var component=new List<ColumnModel>{remaining[0]};remaining.RemoveAt(0);bool changed;do{changed=false;foreach(var c in remaining.ToArray())if(component.Any(other=>raw[c.Source.Id].Overlaps(raw[other.Source.Id]))){component.Add(c);remaining.Remove(c);changed=true;}}while(changed);if(component.Count<2)continue;members.UnionWith(component.Select(c=>c.Source.Id));
             try
             {
-                if(table.Source.IsRongyu!=1||table.IsGlobal)throw new NotSupportedException("共享级联非冗余聚合存储／读取尚未接线，当前要求普通R1来源。");
+                if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal)throw new NotSupportedException("共享级联要求普通实体来源。");
+                if(table.Source.IsRongyu==0&&(page.Scopes.Any(s=>s.Source=="parent")||ExactDataManageCompilation.Declared(page)))throw new NotSupportedException("共享R0来源父范围／精确权限尚需独立生成证明。");
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var ids=component.Select(c=>c.Source.Id).ToHashSet(StringComparer.Ordinal);var plans=new List<CrossTableWriteModel>();var branches=new List<SharedCrossTableBranch>();
                 foreach(var control in component.OrderBy(c=>c.Source.Id,StringComparer.Ordinal))
                 {
+                    if(table.Source.IsRongyu==0){var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==control.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(control.Source.ControlDetail)))throw new NotSupportedException("共享R0页级覆盖不能改变固定存储定义。");}
                     var read=CrossTableReadCompilation.Resolve(model,table,page,control);if(read.Definition is not{} definition)throw new InvalidOperationException(read.Reason??"共享同伴缺少完整读取链。");
                     if(definition.Levels.Any(l=>l.Target.IsGlobal||l.Target.Source.Id==table.Source.Id))throw new NotSupportedException("共享级联的全局／来源自参与路径尚需独立聚合证明。");
                     var levels=new List<CrossTableWriteLevel>();var slots=new List<SharedCrossTableSlot>();
                     foreach(var level in definition.Levels)
                     {
                         var id=table.Columns.SingleOrDefault(c=>c.Source.ColumnName==level.Prefix+"_id");var name=table.Columns.SingleOrDefault(c=>c.Source.ColumnName==level.Prefix+"_name");
-                        if(id is null||name is null||id.IsSystem||name.IsSystem||id.Type is not("string?" or "long?")||name.Type!="string?"||id.IsJsonArray||name.IsJsonArray||id.Source.IsVirtualColumn!=0||name.Source.IsVirtualColumn!=0||!storage.IsPhysical(id.Source)||!storage.IsPhysical(name.Source)||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("共享级联要求明确的物理标量ID和缓存。");
+                        if(id is null||name is null||id.IsSystem||name.IsSystem||id.Type is not("string?" or "long?")||name.Type!="string?"||id.IsJsonArray||name.IsJsonArray||id.Source.IsVirtualColumn!=0||name.Source.IsVirtualColumn!=0||!storage.IsPhysical(id.Source)||(table.Source.IsRongyu==1?!storage.IsPhysical(name.Source):storage.Kind(name.Source)!=MetadataFieldStorage.RelationDisplay)||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("共享级联要求明确的物理标量ID和缓存。");
                         if(id.Source.Id!=control.Source.Id&&id.Source.ControlKind.Length>0&&!(id.Source.ControlKind=="CascadeTree"&&ids.Contains(id.Source.Id)))throw new InvalidOperationException("共享辅助ID有其它独立控件规则。");
                         if(id.Source.LinkConfigTableId.Length>0&&id.Source.LinkConfigTableId!=level.Target.Source.Id)throw new InvalidOperationException("共享辅助ID关联表不一致。");
                         if(level.DerivedName&&Metarill.Data.Queries.NonRedundantReads.MatchReadsTable(model.Catalog,level.Target.Source.Id,level.Name.Source.ColumnName,table.Source.TableName))throw new NotSupportedException("共享派生路径不能间接回到当前写入来源。");
                         levels.Add(new(level,id,name));var scope=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,where=level.Page.Source.WhereSql}))));slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope));
                     }
                     var plan=new CrossTableWriteModel(definition,levels);if(CrossTableFrontendProof.Reason(plan) is{} mismatch)throw new InvalidOperationException(mismatch);plans.Add(plan);branches.Add(new(control.Source.Id,slots));
+                }
+                if(table.Source.IsRongyu==0)
+                {
+                    var sparse=SharedCrossTableSparseSelection.Compile(table.Source,component[0].Source.Id,model.Catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Source.Id));if(sparse.Branches.Count!=plans.Count||plans.Any(p=>!sparse.BranchSelection(p.Read.Source.Source.Id).Slots.Select(s=>s.ColumnName).SequenceEqual(p.Levels.Select(l=>l.Id.Source.ColumnName),StringComparer.Ordinal)))throw new InvalidOperationException("共享R0存储与当前页面层位不一致。");var names=sparse.Slots.SelectMany(s=>new[]{s.ColumnName,s.ColumnName[..^3]+"_name"}).ToHashSet(StringComparer.Ordinal);if(page.Condition?.Syntax.Fields.Any(names.Contains)==true)throw new NotSupportedException("共享R0来源逻辑条件尚需独立保存范围证明。");
                 }
                 groups.Add(new(plans,new SharedCrossTableCoordinator(branches)));
             }

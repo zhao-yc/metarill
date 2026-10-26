@@ -14,7 +14,7 @@ internal static class NonRedundantCrossTableCompilation
     {
         if(table.Source.IsRongyu!=0||table.IsGlobal)throw new InvalidOperationException("非冗余跨表要求普通项目来源。");
         foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))GlobalCrossTableTarget.Require(model.Catalog,level.Target.Source,level.Page.Source);
-        var storage=CrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id));
+        var shared=SharedCrossTableCompilation.ForSource(model,table,page,plan.Source.Source.Id);var storage=shared is null?CrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)):SharedCrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)).BranchSelection(plan.Source.Source.Id);
         if(!storage.Slots.Select(slot=>slot.ColumnName).SequenceEqual(plan.Levels.Select(level=>level.Prefix+"_id"),StringComparer.Ordinal))throw new InvalidOperationException("页级跨表定义不能改变固定存储层位。");
         var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==plan.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
         if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(plan.Source.Source.ControlDetail)))throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
@@ -44,20 +44,20 @@ internal static class NonRedundantCrossTableCompilation
         return result.AppendLine("                default:throw new InvalidOperationException(\"跨表筛选层位无效。\");").AppendLine("            }").AppendLine("        }").ToString();
     }
     /// <summary>统一在逻辑校验／范围之后，写守卫／DML之前编码；未提交关联时保留原始存储。</summary>
-    internal static string PackCall(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=0?"":string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Select(plan=>$"        PackCross{page.Source.Id}_{plan.Read.Source.Source.Id}(entity,submitted);\n"));
+    internal static string PackCall(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=0?"":string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        PackCross{page.Source.Id}_{plan.Read.Source.Source.Id}(entity,submitted);\n"))+SharedCrossTableSparseRenderer.PackCall(model,table,page);
     /// <summary>复制只接受可唯一恢复的旧存储，不能把多位非空历史数据静默选成最深位。</summary>
-    internal static string ValidateCopy(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=0?"":string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Select(plan=>$"        _=CrossStorage{page.Source.Id}_{plan.Read.Source.Source.Id}.ReadStored(new Dictionary<string,object?>{{{string.Join(",",plan.Levels.Select(level=>"["+Literal(level.Id.Source.ColumnName)+"]=source."+level.Id.Property))}}});\n"));
+    internal static string ValidateCopy(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=0?"":string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        _=CrossStorage{page.Source.Id}_{plan.Read.Source.Source.Id}.ReadStored(new Dictionary<string,object?>{{{string.Join(",",plan.Levels.Select(level=>"["+Literal(level.Id.Source.ColumnName)+"]=source."+level.Id.Property))}}});\n"))+SharedCrossTableSparseRenderer.CopyValidation(model,table,page);
     /// <summary>仅局部提交ID时恢复原逻辑值再合并请求，显式null可退到原祖先，全部清空不依赖旧目标。</summary>
     internal static string HydrateCall(GenerationModel model,TableModel table,PageModel page)
     {
         if(table.Source.IsRongyu!=0)return "";var result=new StringBuilder();
-        foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page))
+        foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null))
         {
             var available=plan.Levels.Where(level=>page.Writable.Any(column=>column.Source.Id==level.Id.Source.Id)).ToArray();if(available.Length==0)continue;
             var any=string.Join("||",available.Select(level=>"request."+level.Id.Property+".IsSpecified"));var all=available.Length==plan.Levels.Count?string.Join("&&",available.Select(level=>"request."+level.Id.Property+".IsSpecified")):"false";
             result.AppendLine($"        if(({any})&&!({all}))await HydrateStoredCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(entity,actor,cancellationToken);");
         }
-        return result.ToString();
+        return result.Append(SharedCrossTableSparseRenderer.HydrateCall(model,table,page)).ToString();
     }
     /// <summary>编码只接受归一化后的完整路径，实体与观察器的字段都反映真实落库值，名称不持久化。</summary>
     internal static string PackService(GenerationModel model,TableModel table,PageModel page,CrossTableWriteModel plan)

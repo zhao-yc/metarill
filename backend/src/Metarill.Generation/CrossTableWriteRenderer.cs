@@ -40,6 +40,7 @@ internal static class CrossTableWriteRenderer
                 output.AppendLine($"        if(deepest>={index}){{entity.{id.Property}={value};entity.{name.Property}=path!.Path[{index}].Name;}}else{{entity.{id.Property}={clear};entity.{name.Property}={(id.Type=="string?"?$"entity.{id.Property} is null?null:\"\"":"null")};}}submitted.Add({Literal(id.Source.ColumnName)});submitted.Add({Literal(name.Source.ColumnName)});");
             }
             output.AppendLine("    }");
+            if(table.Source.IsRongyu==0&&SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is not null)continue;
             output.Append(NonRedundantCrossTableCompilation.PackService(model,table,page,plan));
             var check=plan.Levels.SelectMany(level=>table.Source.IsRongyu==0?new[]{level.Id}:new[]{level.Id,level.Name}).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).DistinctBy(column=>column.Source.Id).ToArray();var structure=merged?plan.Levels.Where(level=>level.Read.Target.Source.Id==table.Source.Id).SelectMany(level=>(level.Read.Parent is{} parent?new[]{parent}:[]).Concat((level.Read.NameDependencies??[]).Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field)).Where(column=>column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&!column.IsSystem))).DistinctBy(column=>column.Source.Id).ToArray():[];
             var projection=string.Join(",",check.Concat(structure).DistinctBy(column=>column.Source.Id).Select(column=>column.Property+"=row."+column.Property));
@@ -63,7 +64,7 @@ internal static class CrossTableWriteRenderer
         }));
     }
     /// <summary>所有正常DML之后、通知之前仅核验存储，不新增一次修复DML。</summary>
-    internal static string After(GenerationModel model,TableModel table,PageModel page,bool creating,bool importContext=false)=>string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Select(plan=>$"        await VerifyStoredCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(entity,actor,submitted,{creating.ToString().ToLowerInvariant()},cancellationToken{(importContext?",authorizationOperation != RecordMutationOperation.Import":"")});\n"));
+    internal static string After(GenerationModel model,TableModel table,PageModel page,bool creating,bool importContext=false)=>string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>table.Source.IsRongyu!=0||SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        await VerifyStoredCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(entity,actor,submitted,{creating.ToString().ToLowerInvariant()},cancellationToken{(importContext?",authorizationOperation != RecordMutationOperation.Import":"")});\n"))+SharedCrossTableSparseRenderer.After(model,table,page);
     /// <summary>正常DML后重新读取真实SQL路径，不使用写前覆盖实体或补写；刷新时还须逐级名称一致。</summary>
     private static string FinalPath(TableModel table,PageModel page,CrossTableWriteModel plan)
     {

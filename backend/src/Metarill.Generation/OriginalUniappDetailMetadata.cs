@@ -54,6 +54,8 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     {
         if(Table.Source.IsRongyu!=0)return false;
         if(Enabled(column.Source.Extra,"isJoinColumn") || column.Source.ColumnName is "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" || column.Source.ControlKind is "Title" or "Tab")return true;
+        // 共享组中短控件自己的主字段仍是原控件，不能被另一个成员的祖先归属隐藏。
+        if(column.Source.ControlKind=="CascadeTree"&&SharedCrossTableCompilation.ForSource(Model,Table,Page,column.Source.Id) is not null)return false;
         foreach(var cascade in Table.Columns.Where(item=>item.Source.ControlKind=="CascadeTree"&&item.Source.Id!=column.Source.Id))
         {
             var definition=Object(cascade.Source.ControlDetail,"级联");
