@@ -42,7 +42,7 @@ internal static class SharedCrossTableCompilation
             try
             {
                 if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal)throw new NotSupportedException("共享级联要求普通实体来源。");
-                if(table.Source.IsRongyu==0&&(page.Scopes.Any(s=>s.Source=="parent")||ExactDataManageCompilation.Declared(page)))throw new NotSupportedException("共享R0来源父范围／精确权限尚需独立生成证明。");
+                if(table.Source.IsRongyu==0&&ExactDataManageCompilation.Declared(page))throw new NotSupportedException("共享R0来源精确权限尚需独立生成证明。");
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var ids=component.Select(c=>c.Source.Id).ToHashSet(StringComparer.Ordinal);var plans=new List<CrossTableWriteModel>();var branches=new List<SharedCrossTableBranch>();
                 foreach(var control in component.OrderBy(c=>c.Source.Id,StringComparer.Ordinal))
                 {
@@ -65,6 +65,7 @@ internal static class SharedCrossTableCompilation
                 {
                     var sparse=SharedCrossTableSparseSelection.Compile(table.Source,component[0].Source.Id,model.Catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Source.Id));if(sparse.Branches.Count!=plans.Count||plans.Any(p=>!sparse.BranchSelection(p.Read.Source.Source.Id).Slots.Select(s=>s.ColumnName).SequenceEqual(p.Levels.Select(l=>l.Id.Source.ColumnName),StringComparer.Ordinal)))throw new InvalidOperationException("共享R0存储与当前页面层位不一致。");var names=sparse.Slots.SelectMany(s=>new[]{s.ColumnName,s.ColumnName[..^3]+"_name"}).ToHashSet(StringComparer.Ordinal);if(page.Condition?.Syntax.Fields.Any(names.Contains)==true)throw new NotSupportedException("共享R0来源逻辑条件尚需独立保存范围证明。");
                 }
+                if(table.Source.IsRongyu==0)SharedCrossTableParentCompilation.Require(model,table,page);
                 groups.Add(new(plans,new SharedCrossTableCoordinator(branches)));
             }
             catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException or JsonException){foreach(var c in component)gaps[c.Source.Id]="共享级联未通过完整证明："+error.Message;}

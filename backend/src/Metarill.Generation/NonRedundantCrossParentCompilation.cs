@@ -12,7 +12,7 @@ internal static class NonRedundantCrossParentCompilation
         var levels=CrossTableReadCompilation.ForService(model,table,page).SelectMany(read=>read.Levels.Select((level,index)=>(Read:read,Index:index,Name:level.Prefix+"_id"))).Where(level=>level.Name==column.Source.ColumnName).ToArray();
         if(levels.Length>1)
         {
-            // 这里只识别固定逻辑位；共享来源父范围仍由共享编译器保持未支持门槛。
+            // 只接受已完成整组证明的固定逻辑位；共享上级始终指向同一真实父表。
             var group=SharedCrossTableCompilation.ForSource(model,table,page,levels[0].Read.Source.Source.Id);if(group is null||levels.Any(level=>!group.Plans.Any(plan=>plan.Read.Source.Source.Id==level.Read.Source.Source.Id)))throw new InvalidOperationException("跨表父范围不能使用未证明的共享存储层位。");
         }
         return levels.Length==0?null:(levels[0].Read,levels[0].Index);

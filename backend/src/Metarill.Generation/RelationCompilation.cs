@@ -65,7 +65,7 @@ internal static class RelationCompilation
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model, owner, page, target, Mapped("whereSql"));
             if (conditions is not null && ForeignValidationRenderer.Target(model,source)?.Source.Id != target.Source.Id)
                 throw new InvalidOperationException("常量候选必须与外键及显示来源的固定目标一致。");
-            var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
+            var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
@@ -82,10 +82,12 @@ internal static class RelationCompilation
     }
 
     /// <summary>父范围必须引用真实已声明的表与项目键，不能按请求选择父定义。</summary>
-    private static TableModel Parent(GenerationModel model, ColumnModel column)
+    private static TableModel Parent(GenerationModel model, ColumnModel column, TableModel? owner=null, PageModel? page=null)
     {
-        var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
-            ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
+        // 隐式跨表父位沿已证明读取链解析，不能靠列名前缀猜目标表。
+        var cross=owner is not null&&page is not null?NonRedundantCrossParentCompilation.Find(model,owner,page,column):null;
+        var parent = (cross is{} path?path.Read.Levels[path.Index].Target:model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
+            ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName))
             ?? throw new InvalidOperationException("关联父范围缺少明确目标表：" + column.Source.ColumnName);
         if (!parent.Columns.Any(candidate => candidate.Source.ColumnName == "yz_project_id")) throw new InvalidOperationException("关联父表未声明项目归属。");
         return parent;
