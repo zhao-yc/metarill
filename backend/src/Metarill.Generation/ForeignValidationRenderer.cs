@@ -28,8 +28,8 @@ internal static class ForeignValidationRenderer
     public static string Render(GenerationModel model, TableModel table, PageModel page)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
-            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")})")
-            .AppendLine("    {").AppendLine("        await Task.CompletedTask;");
+            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)})")
+            .AppendLine("    {").AppendLine("        await Task.CompletedTask;").Append(SharedCrossTableRenderer.ValidateAll(model,table,page));
         var crossFields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id.Source.Id,level.Name.Source.Id}).ToHashSet(StringComparer.Ordinal);
         var derived = MaterializedDerivedWriteCompilation.ForTable(model, table).Where(binding=>!crossFields.Contains(binding.Storage.Source.Id)).ToArray();
         var cascadeNames=CascadeTreeWriteCompilation.ForService(model,table,page).Select(plan=>plan.Name.Source.Id).Concat(crossFields).ToHashSet(StringComparer.Ordinal);

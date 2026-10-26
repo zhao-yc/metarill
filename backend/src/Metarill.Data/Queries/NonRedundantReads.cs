@@ -30,6 +30,11 @@ public static class NonRedundantReads
     {
         var plan=CompileMatch(metadata,tableId,field);return Array.AsReadOnly(plan.MySql.SourceDependencies.ToArray());
     }
+    /// <summary>生成期证明固定名称路径是否读到指定实体，不向生成层暴露方言计划或SQL。</summary>
+    public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable)
+    {
+        MetadataValidation.RequireIdentifier(referencedTable);return CompileMatch(metadata,tableId,field).MySql.PhysicalReferences.Any(reference=>reference.Table==referencedTable);
+    }
     /// <summary>将驱动标量转换为生成属性；空值和长ID保持原类型，不经JSON或浮点中转。</summary>
     public static T? Value<T>(IReadOnlyDictionary<string,object?> row,string name)
     {

@@ -10,7 +10,7 @@ internal static class CascadeTreeWriteRenderer
     /// <summary>不依赖页面可见性；未知级联不能按普通字符串或宽外键规则放行。</summary>
     internal static string Validation(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} knownCross)return CrossTableWriteRenderer.Validation(model,table,page,knownCross);
+        if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} knownCross)return SharedCrossTableCompilation.ForSource(model,table,page,source.Source.Id) is not null?"":CrossTableWriteRenderer.Validation(model,table,page,knownCross);
         // 跨表保存未接线时，各级辅助ID/名称也必须闭合，不能只检查末级而留下部分数据。
         if(CrossTableReadCompilation.Resolve(model,table,page,source).Definition is{} cross)
         {
@@ -57,7 +57,7 @@ internal static class CascadeTreeWriteRenderer
                 .AppendLine($"        submitted.Add({Literal(source.Source.ColumnName)});submitted.Add({Literal(name.Source.ColumnName)});")
                 .AppendLine("    }");
         }
-        return result.Append(CrossTableWriteRenderer.Service(model,table,page)).ToString();
+        return result.Append(CrossTableWriteRenderer.Service(model,table,page)).Append(SharedCrossTableRenderer.Service(model,table,page)).ToString();
     }
     /// <summary>所有配置文本只能作为转义后的C#字面量。</summary>
     private static string Literal(string text)=>JsonSerializer.Serialize(text);
