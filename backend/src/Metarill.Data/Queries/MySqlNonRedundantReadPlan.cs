@@ -188,11 +188,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"))
                 {
                     var definition=Definition(tree);if(table.IsRongyu!=0||Value(definition,"sourceMode")=="selfTree")continue;
-                    var sparse=CrossTableSparseSelection.Compile(table,tree.Id,columns[table.Id].Values);
+                    var shared=SharedCrossGroup(table,tree.Id);var sparse=shared?.BranchSelection(tree.Id)??CrossTableSparseSelection.Compile(table,tree.Id,columns[table.Id].Values);
                     if(sparse.Slots.Any(slot=>slot.ColumnName.Equals(name,StringComparison.OrdinalIgnoreCase)||(slot.ColumnName[..^3]+"_name").Equals(name,StringComparison.OrdinalIgnoreCase)))
                     {
                         if(!crossTables.TryGetValue(tree.Id,out var binding)||matching||refreshFields is not null)throw new NotSupportedException("非冗余跨表逻辑路径缺少明确目标页绑定或当前用途尚未接线。");
-                        return CrossValue(table,alias,tree,sparse,binding,name);
+                        return shared is null?CrossValue(table,alias,tree,sparse,binding,name):SharedCrossValue(table,alias,shared,name);
                     }
                 }
                 // 多值显示先识别明确的_ids关系，聚合留在相关子查询内，不扩张根结果的基数。

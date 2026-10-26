@@ -6,7 +6,7 @@ using Metarill.Core.Security;
 namespace Metarill.Data.Queries;
 
 /// <summary>隐藏原始ID位只供存储核验，不能混入公开VO；有效性表达式供同范围COUNT／统计复用。</summary>
-internal sealed record MySqlCrossTableProjection(CrossTableSparseSelection Selection,IReadOnlyDictionary<string,string> RawSlots,string Validity,string Reachable);
+internal sealed record MySqlCrossTableProjection(CrossTableSparseSelection Selection,IReadOnlyDictionary<string,string> RawSlots,string Validity,string Reachable,string? SharedGroupKey=null,bool RequireRowValidity=false);
 
 public static partial class MySqlNonRedundantReadCompiler
 {

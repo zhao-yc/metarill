@@ -55,9 +55,10 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
             var multis=plan.Outputs.Where(plan.MultiProjections.ContainsKey).ToArray();var hidden=new Dictionary<string,string>(StringComparer.Ordinal);var projection=plan.Outputs.Select(name=>(plan.MultiProjections.ContainsKey(name)?"NULL":plan.Expression(name))+" AS "+Q(name)).ToList();
             var ordinal=0;foreach(var name in multis){string alias;do{alias="metarill_multi_input_"+ordinal++;}while(plan.Outputs.Contains(alias,StringComparer.OrdinalIgnoreCase));hidden.Add(name,alias);projection.Add(plan.MultiProjections[name].SourceExpression+" AS "+Q(alias));}
-            var crossInputs=new List<(MySqlCrossTableProjection Plan,Dictionary<string,string> Fields)>();var used=plan.Outputs.Concat(hidden.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var crossInputs=new List<(MySqlCrossTableProjection Plan,Dictionary<string,string> Fields)>();var sharedValidity=new List<string>();var used=plan.Outputs.Concat(hidden.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach(var cross in plan.Crosses)
             {
+                if(cross.RequireRowValidity){string validAlias;do{validAlias="metarill_cross_valid_"+ordinal++;}while(!used.Add(validAlias));sharedValidity.Add(validAlias);projection.Add("CASE WHEN ("+cross.Validity+") THEN 1 ELSE 0 END AS "+Q(validAlias));}
                 var fields=new Dictionary<string,string>(StringComparer.Ordinal);foreach(var pair in cross.RawSlots){string alias;do{alias="metarill_cross_input_"+ordinal++;}while(!used.Add(alias));fields.Add(pair.Key,alias);projection.Add(pair.Value+" AS "+Q(alias));}crossInputs.Add((cross,fields));
             }
             read.CommandText="SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(currentRead?" FOR SHARE":"");
@@ -65,7 +66,11 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             await using(var reader=await read.ExecuteReaderAsync(cancellationToken))
                 while(await reader.ReadAsync(cancellationToken))
                 {var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var i=0;i<reader.FieldCount;i++)row.Add(reader.GetName(i),await reader.IsDBNullAsync(i,cancellationToken)?null:reader.GetValue(i));records.Add(row);}
-            foreach(var row in records)foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
+            foreach(var row in records)
+            {
+                // 无COUNT用途也必须拒绝冲突的共享祖先，不能只在分页总数阶段验证。
+                foreach(var alias in sharedValidity){if(Convert.ToInt64(row[alias],System.Globalization.CultureInfo.InvariantCulture)!=1)throw new InvalidOperationException("共享跨表存储或实际祖先路径冲突，未返回数据。");row.Remove(alias);}foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
+            }
             foreach(var name in multis)await PopulateMultiAsync(connection,plan.MultiProjections[name],name,hidden[name],records,projectId,currentRead,cancellationToken);
             return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());
         },cancellationToken);

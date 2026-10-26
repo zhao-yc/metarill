@@ -38,8 +38,9 @@ public static class MetadataStoragePolicy
         if(nonredundant)
         {
             // 固定跨表各级ID属于同一稀疏选择；显式关联目标不能再把其名称误作普通业务别名冲突。
+            var shared=SharedCrossTableSparseSelection.CompileAll(table,columns).SelectMany(group=>group.Branches.Select(branch=>(branch.SourceColumnId,Group:group))).ToDictionary(item=>item.SourceColumnId,item=>item.Group,StringComparer.Ordinal);
             var sparseSlots=columns.Where(column=>column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&CrossTableStorageColumns.LevelPrefixes(column).Count>0)
-                .SelectMany(column=>CrossTableSparseSelection.Compile(table,column.Id,columns).Slots).Select(slot=>slot.ColumnId).ToHashSet(StringComparer.Ordinal);
+                .SelectMany(column=>shared.TryGetValue(column.Id,out var group)?group.BranchSelection(column.Id).Slots:CrossTableSparseSelection.Compile(table,column.Id,columns).Slots).Select(slot=>slot.ColumnId).ToHashSet(StringComparer.Ordinal);
             foreach(var relation in columns.Where(column=>column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&IsRelationColumn(column)))
             {
                 if(relation.ControlKind=="CascadeTree")

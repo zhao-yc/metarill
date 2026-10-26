@@ -15,6 +15,9 @@ public sealed class CrossTableSparseSelection
     {SourceColumnId=sourceColumnId;Slots=Array.AsReadOnly(slots);}
     public string SourceColumnId{get;}
     public IReadOnlyList<CrossTableSelectionSlot> Slots{get;}
+    /// <summary>只能由已证明的整组计划创建分支读取身份；共享写入必须仍调用整组编码。
+    /// </summary>
+    internal static CrossTableSparseSelection FromSharedBranch(SharedCrossTableSelectionBranch branch)=>new(branch.SourceColumnId,branch.Slots.ToArray());
 
     /// <summary>与结构扩展共用固定层级，显式虚拟、联接、独立控件或非空约束均不能被自动列覆盖。</summary>
     public static CrossTableSparseSelection Compile(TableMetadata table,string sourceColumnId,IEnumerable<ColumnMetadata> declared)

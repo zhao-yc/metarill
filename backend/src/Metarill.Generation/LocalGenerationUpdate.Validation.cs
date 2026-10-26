@@ -26,6 +26,7 @@ public sealed partial class LocalGenerationUpdater
     {
       // 跨表读取partial只登记这一路径，未知多点源码继续拒绝。
       "src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.CrossTable.cs",
+      "src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.SharedCrossTable.cs",
       // 派生多选名称partial只登记此固定路径，未知相邻源码仍拒绝。
       "src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.MultiNames.cs",
       // 新文件浏览partial只登记此固定路径，不扩成任意多点源码覆盖。
