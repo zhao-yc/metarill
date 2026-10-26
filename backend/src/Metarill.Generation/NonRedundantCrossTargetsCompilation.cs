@@ -4,10 +4,10 @@ namespace Metarill.Generation;
 /// <summary>跨表目标按每层真实物理结构及固定单值名称证明，不能只放开存储模式门禁。</summary>
 internal static class NonRedundantCrossTargetsCompilation
 {
-    /// <summary>非冗余来源不维护名称副本；来源各角色按层独立读取，写后复核实际稀疏选择及全部来源依赖。</summary>
+    /// <summary>目标读取共用单值证明；R0不物化名称，R1副本另由完整维护／传播校验。</summary>
     internal static void Require(GenerationModel model,TableModel owner,CrossTableReadModel plan)
     {
-        if(owner.Source.IsRongyu!=0||owner.IsGlobal||plan.Levels.Any(level=>level.Target.Source.IsView!=0||level.Target.Source.IsFunctionTable!=0))throw new InvalidOperationException("跨表目标要求普通R0来源和实体目标，冗余缓存仍需独立证明。");
+        if(owner.Source.IsRongyu is not(0 or 1)||owner.IsGlobal||plan.Levels.Any(level=>level.Target.Source.IsView!=0||level.Target.Source.IsFunctionTable!=0))throw new InvalidOperationException("跨表目标要求普通实体来源及目标，R1缓存由独立完整依赖证明。");
         foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))Metarill.Core.Metadata.GlobalCrossTableTarget.Require(model.Catalog,level.Target.Source,level.Page.Source);
         foreach(var level in plan.Levels.Where(level=>level.Target.Source.IsRongyu==0))_=Dependencies(model,level);
     }

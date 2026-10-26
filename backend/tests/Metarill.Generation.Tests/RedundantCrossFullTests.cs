@@ -29,14 +29,14 @@ public sealed class RedundantCrossFullTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>坏定义与未证明用途在任何stage创建前整体拒绝，隐藏字段也不能绕过。</summary>
-    [Theory][InlineData("unpublished")][InlineData("foreignRealm")][InlineData("global")][InlineData("nonredundant")][InlineData("badParent")][InlineData("pageOverride")][InlineData("idAlias")][InlineData("nameAlias")][InlineData("emptyPrefix")][InlineData("pathImport")][InlineData("pathExport")][InlineData("legacyExport")][InlineData("hiddenBad")][InlineData("virtual")][InlineData("hiddenVirtual")][InlineData("hiddenVirtualR0")][InlineData("badCompanion")][InlineData("sourceParent")]
+    [Theory][InlineData("unpublished")][InlineData("foreignRealm")][InlineData("global")][InlineData("invalidR0")][InlineData("badParent")][InlineData("pageOverride")][InlineData("idAlias")][InlineData("nameAlias")][InlineData("emptyPrefix")][InlineData("pathImport")][InlineData("pathExport")][InlineData("legacyExport")][InlineData("hiddenBad")][InlineData("virtual")][InlineData("hiddenVirtual")][InlineData("hiddenVirtualR0")][InlineData("badCompanion")][InlineData("sourceParent")]
     public async Task Unproven_use_rejects_full_atomically(string kind)
     {
         var c=Catalog(kind=="badCompanion"?"double":"independent",false);var control=c.ConfigColumns.Single(x=>x.Id=="25");var json=JsonNode.Parse(control.ControlDetail)!;
         if(kind=="unpublished")foreach(var page in c.ConfigPages)page.YzAdminTypeId="";
         if(kind=="foreignRealm")c.ConfigPages.Single(x=>x.Id=="301").YzProjectId="other";
         if(kind=="global")c.ConfigTables.Single(x=>x.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-        if(kind=="nonredundant")c.ConfigTables.Single(x=>x.Id=="3").IsRongyu=0;
+        if(kind=="invalidR0"){c.ConfigTables.Single(x=>x.Id=="3").IsRongyu=0;c.ConfigColumns.Single(x=>x.ConfigTableId=="3"&&x.ColumnName=="name").IsVirtualColumn=1;}
         if(kind=="badParent")json["levels"]![1]!["parentField"]="id";
         if(kind=="idAlias")json["levels"]![0]!["idPropertyName"]="differentId";
         if(kind=="nameAlias")json["levels"]![0]!["namePropertyName"]="differentName";

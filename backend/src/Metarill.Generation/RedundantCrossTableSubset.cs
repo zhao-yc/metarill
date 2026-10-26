@@ -16,7 +16,7 @@ internal static class RedundantCrossTableSubset
             if(table.Source.IsRongyu!=1||table.IsGlobal||trees.Length==0)return "冗余跨表完整用途要求普通R1来源。";
             if(trees.Any(tree=>!NonRedundantCrossTableSubset.Declared(tree)))return "冗余跨表与自树同页的完整用途仍待证明。";
             if(page.Scopes.Any(scope=>scope.Source=="parent")||ExactDataManageCompilation.Declared(page))return "冗余跨表来源父范围／精确权限的完整用途仍待证明。";
-            RequireRealm(model,table,page);var bindings=RelationPropagationCompilation.Bindings(model);
+            RequireRealm(model,table,page);var bindings=RelationPropagationCompilation.Bindings(model).Concat(RelationPropagationCompilation.DerivedBindings(model)).ToArray();
             foreach(var source in trees)
             {
                 var plan=CrossTableWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null)return "冗余跨表完整写入证明缺失，隐藏控件不能绕过。";
@@ -26,7 +26,7 @@ internal static class RedundantCrossTableSubset
                 foreach(var level in plan.Levels)
                 {
                     RequireRealm(model,level.Read.Target,level.Read.Page);
-                    if(level.Read.Target.Source.IsRongyu!=1||level.Read.DerivedName)return "冗余跨表非冗余／派生目标的完整用途仍待证明。";
+                    if(level.Read.DerivedName&&!MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns.GetValueOrDefault(table.Source.TableName,[]).Contains(level.Name.Source.ColumnName,StringComparer.Ordinal))return "冗余跨表派生名称缺少完整混合传播闭包。";
                     if(!bindings.Any(binding=>binding.Source.Source.Id==table.Source.Id&&binding.CrossTableColumnId==source.Source.Id&&binding.CrossTableLevelKey==level.Read.Key&&binding.Foreign.Source.Id==level.Id.Source.Id&&binding.Cache.Source.Id==level.Name.Source.Id&&binding.Target.Source.Id==level.Read.Target.Source.Id&&binding.Value.Source.Id==level.Read.Name.Source.Id&&binding.CrossTablePageId==(level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null)))return "冗余跨表各级名称缓存尚未形成完整静态传播闭包。";
                     if(ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name))return "跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
                 }

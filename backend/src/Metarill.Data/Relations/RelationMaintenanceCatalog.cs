@@ -30,11 +30,11 @@ public sealed class RelationMaintenanceCatalog
     /// <summary>生成器据此只挂载已证明的目标和来源实体补丁，公开投影不包含SQL。</summary>
     public IReadOnlyList<string> MixedTargets=>Mixed.Targets;
     public IReadOnlyDictionary<string,IReadOnlyList<string>> MixedSourceColumns=>Mixed.SourceColumns;
-    private RelationMaintenanceCatalog(MetadataCatalog catalog,RelationCacheDefinition[] definitions,IReadOnlySet<string> excluded)
+    private RelationMaintenanceCatalog(MetadataCatalog catalog,RelationCacheDefinition[] definitions,IReadOnlySet<string> excluded,RelationCacheDefinition[] derived)
     {
         MetadataValidation.Validate(catalog);if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("维护回填尚未完成该方言验收。");ProjectId=catalog.YzProjectId;
         if(!long.TryParse(ProjectId,out var project)||project<=0)throw new InvalidOperationException("维护发布项目标识无效。");
-        Propagation=RelationMutationPlan.Compile(catalog,definitions);AdminTypeIds=catalog.YzAdminTypes.Select(item=>item.Id).ToFrozenSet(StringComparer.Ordinal);
+        DerivedCrossTableCaches.Validate(catalog,derived,definitions);var allDefinitions=definitions.Concat(derived).ToArray();Propagation=RelationMutationPlan.Compile(catalog,definitions);AdminTypeIds=catalog.YzAdminTypes.Select(item=>item.Id).ToFrozenSet(StringComparer.Ordinal);
         Buttons=new ReadOnlyDictionary<string,IReadOnlyList<string>>(new[]{"tables","backfill_join_columns"}.ToDictionary(action=>action,action=>(IReadOnlyList<string>)Array.AsReadOnly(catalog.ConfigButtons.Where(item=>item.TryGetProperty("sql",out var sql)&&sql.GetString()=="/admin/sys/system_maintenance/"+action).Select(item=>item.GetProperty("id").ToString()).Distinct(StringComparer.Ordinal).ToArray()),StringComparer.Ordinal));
         var plans=new Dictionary<string,MaintenanceTable>(StringComparer.Ordinal);
         foreach(var table in catalog.ConfigTables.Where(table=>table.IsRongyu==1&&(table.YzProjectId.Length==0||table.YzProjectId==ProjectId)).OrderBy(table=>table.Name,StringComparer.Ordinal).ThenBy(table=>table.Id,StringComparer.Ordinal))
@@ -42,7 +42,7 @@ public sealed class RelationMaintenanceCatalog
             var display=table.Name+(table.TableName.Length>0?"（"+table.TableName+"）":"");var option=new MaintenanceTableOption(table.Id,table.Id,display,display,table.Name,table.TableName);
             try
             {
-                var storage=MetadataStoragePolicy.ForTable(catalog,table);var all=storage.PhysicalColumns.ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);var bindings=definitions.Where(item=>item.SourceTableId==table.Id).ToArray();
+                var storage=MetadataStoragePolicy.ForTable(catalog,table);var all=storage.PhysicalColumns.ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);var bindings=allDefinitions.Where(item=>item.SourceTableId==table.Id).ToArray();
                 var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).Where(column=>Enabled(column)||bindings.Any(item=>item.CacheColumnId==column.Id)).OrderBy(column=>column.ColumnName,StringComparer.Ordinal).ToArray();
                 var companionPaths=new Dictionary<string,string>(StringComparer.Ordinal);var companions=new Dictionary<string,string>(StringComparer.Ordinal);
                 foreach(var field in fields.Where(field=>Enabled(field)&&field.ColumnName.EndsWith("_id",StringComparison.Ordinal)))
@@ -75,11 +75,16 @@ public sealed class RelationMaintenanceCatalog
             catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException or JsonException){plans.Add(table.Id,new(option,"",false,[],[],null,"当前表回填计划未通过发布校验："+error.Message));}
         }
         Plans=new ReadOnlyDictionary<string,MaintenanceTable>(plans);Tables=Array.AsReadOnly(plans.Values.Select(item=>item.Option).ToArray());
-        Mixed=MixedRelationMutationPlan.Compile(catalog,Plans,excluded,definitions.Where(item=>!item.Multiple).ToArray());
-        Fingerprint=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{catalog,definitions,excluded=excluded.Order(StringComparer.Ordinal)}))));
+        Mixed=MixedRelationMutationPlan.Compile(catalog,Plans,excluded,definitions.Where(item=>!item.Multiple).ToArray(),derived);
+        foreach(var d in derived){var table=catalog.ConfigTables.Single(t=>t.Id==d.SourceTableId);var name=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Id)).Single(c=>c.Id==d.CacheColumnId).ColumnName;if(!Mixed.SourceColumns.GetValueOrDefault(table.TableName,[]).Contains(name,StringComparer.Ordinal))throw new InvalidOperationException("派生跨表缓存没有形成完整维护及混合传播闭包。");}
+        if(derived.Length>0)CombinedRelationCacheCycles.Require(Propagation,Mixed);
+        Fingerprint=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(derived.Length==0?JsonSerializer.Serialize(new{catalog,definitions,excluded=excluded.Order(StringComparer.Ordinal)}):JsonSerializer.Serialize(new{catalog,definitions,derived,excluded=excluded.Order(StringComparer.Ordinal)}))));
     }
     /// <summary>输入只在编译时使用；后续编辑或重排目录不会改变当前宿主的维护权威。</summary>
-    public static RelationMaintenanceCatalog Compile(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition>? multiple=null,IReadOnlyList<string>? excludedMixedConsumers=null)=>new(catalog,(multiple??[]).ToArray(),(excludedMixedConsumers??[]).ToFrozenSet(StringComparer.Ordinal));
+    public static RelationMaintenanceCatalog Compile(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition>? multiple=null,IReadOnlyList<string>? excludedMixedConsumers=null)=>new(catalog,(multiple??[]).ToArray(),(excludedMixedConsumers??[]).ToFrozenSet(StringComparer.Ordinal),[]);
+    /// <summary>派生跨表必须同时编译完整维护及混合依赖；原三参数入口与JSON合同保持。</summary>
+    public static RelationMaintenanceCatalog CompileWithDerivedCrossTables(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition> physical,IReadOnlyList<RelationCacheDefinition> derived,IReadOnlyList<string>? excludedMixedConsumers=null)=>new(catalog,physical.ToArray(),(excludedMixedConsumers??[]).ToFrozenSet(StringComparer.Ordinal),derived.ToArray());
+
     /// <summary>沿现有扩展开关，不把任意非空字符串当作联接声明。</summary>
     private static bool Enabled(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");
 }

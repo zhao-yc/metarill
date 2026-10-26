@@ -9,5 +9,8 @@ internal static class MixedRelationPropagationCompilation
     /// <summary>平台已证明配置缓存保留专用协调器；其他消费者必须经过与维护相同的整表证明。</summary>
     internal static string[] Excluded(GenerationModel model)=>model.Tables.Where(table=>MaterializedDerivedWriteCompilation.ForTable(model,table).Count>0).Select(table=>table.Source.Id).Order(StringComparer.Ordinal).ToArray();
     /// <summary>编译静态读取／反向依赖，不在生成的HTTP请求中重读目录或拼SQL。</summary>
-    internal static RelationMaintenanceCatalog ForModel(GenerationModel model)=>Catalogs.GetValue(model,current=>RelationMaintenanceCatalog.Compile(GenerationMetadataPublisher.ForRelations(current.Catalog),RelationPropagationCompilation.Definitions(RelationPropagationCompilation.Bindings(current)),Excluded(current)));
+    internal static RelationMaintenanceCatalog ForModel(GenerationModel model)=>Catalogs.GetValue(model,current=>
+    {
+        var metadata=GenerationMetadataPublisher.ForRelations(current.Catalog);var physical=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.Bindings(current));var derived=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(current));return derived.Length==0?RelationMaintenanceCatalog.Compile(metadata,physical,Excluded(current)):RelationMaintenanceCatalog.CompileWithDerivedCrossTables(metadata,physical,derived,Excluded(current));
+    });
 }

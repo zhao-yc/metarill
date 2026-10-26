@@ -45,11 +45,11 @@ public sealed class NonRedundantCrossTargetsTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>固定范围之外仍在创建stage前拒绝，不能用R0名称放开未证明拓扑或Excel。</summary>
-    [Theory][InlineData("sourceR1")][InlineData("global")][InlineData("view")][InlineData("credential")][InlineData("array")][InlineData("derivedParent")][InlineData("derivedScope")][InlineData("pathImport")]
+    [Theory][InlineData("sourceR1BadPeer")][InlineData("global")][InlineData("view")][InlineData("credential")][InlineData("array")][InlineData("derivedParent")][InlineData("derivedScope")][InlineData("pathImport")]
     public void Invalid_target_uses_stay_gated_before_package(string kind)
     {
         var c=Catalog("nr_cross_target","string","int64","derived");
-        if(kind=="sourceR1")c.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;
+        if(kind=="sourceR1BadPeer"){c.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;c.ConfigColumns.Add(new(){Id="bad_source_cache",ConfigTableId="2",ColumnName="bad_name",LogicalType="string",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("missing.name")}});}
         if(kind=="global")c.ConfigTables.Single(x=>x.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(kind=="view")c.ConfigTables.Single(x=>x.Id=="3").IsView=1;
         if(kind=="credential"){c.ConfigColumns.Single(x=>x.Id=="62").ColumnName="password";c.ConfigColumns.Single(x=>x.Id=="32").Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.password");}

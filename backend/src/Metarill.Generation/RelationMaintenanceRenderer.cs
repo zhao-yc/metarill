@@ -7,7 +7,7 @@ internal static class RelationMaintenanceRenderer
     /// <summary>每项目仅初始化一次；实例持有冻结计划而非可编辑元数据。</summary>
     internal static string Catalog(GenerationModel model)
     {
-        var options=new JsonSerializerOptions(JsonSerializerDefaults.Web);var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog),options);var definitions=JsonSerializer.Serialize(RelationPropagationCompilation.Definitions(RelationPropagationCompilation.Bindings(model)),options);var excluded=JsonSerializer.Serialize(MixedRelationPropagationCompilation.Excluded(model),options);
+        var options=new JsonSerializerOptions(JsonSerializerDefaults.Web);var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog),options);var definitions=JsonSerializer.Serialize(RelationPropagationCompilation.Definitions(RelationPropagationCompilation.Bindings(model)),options);var excluded=JsonSerializer.Serialize(MixedRelationPropagationCompilation.Excluded(model),options);var derived=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(model));var compile=derived.Length==0?$"Metarill.Data.Relations.RelationMaintenanceCatalog.Compile(metadata,definitions,{excluded})":$"Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(metadata,definitions,System.Text.Json.JsonSerializer.Deserialize<Metarill.Data.Relations.RelationCacheDefinition[]>({JsonSerializer.Serialize(JsonSerializer.Serialize(derived,options))},options)!,{excluded})";
         return $$"""
 
 /// <summary>原系统维护的宿主项目权威，仅由生成器创建。</summary>
@@ -20,7 +20,7 @@ public static class GeneratedRelationMaintenance
         var options=new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
         var metadata=System.Text.Json.JsonSerializer.Deserialize<Metarill.Core.Metadata.MetadataCatalog>({{JsonSerializer.Serialize(metadata)}},options)!;
         var definitions=System.Text.Json.JsonSerializer.Deserialize<Metarill.Data.Relations.RelationCacheDefinition[]>({{JsonSerializer.Serialize(definitions)}},options)!;
-        return Metarill.Data.Relations.RelationMaintenanceCatalog.Compile(metadata,definitions,{{excluded}});
+        return {{compile}};
     }
 }
 
