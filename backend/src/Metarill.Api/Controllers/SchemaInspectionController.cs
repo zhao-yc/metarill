@@ -13,4 +13,8 @@ public sealed class SchemaInspectionController(ProjectSchemaInspectionBusiness b
     [HttpPost, RequestSizeLimit(4096)]
     public async Task<R<ProjectSchemaInspection>> Inspect([FromBody] JsonElement request, CancellationToken token) =>
         R<ProjectSchemaInspection>.Success(await business.InspectAsync(request, token));
+    /// <summary>目录只读且限定当前服务端项目连接，不授予导入或结构修改能力。</summary>
+    [HttpPost("/api/admin/sys/database/catalog"), RequestSizeLimit(4096)]
+    public async Task<R<ProjectSchemaCatalog>> Catalog([FromBody] JsonElement request, CancellationToken token) =>
+        R<ProjectSchemaCatalog>.Success(await business.CatalogAsync(request, token));
 }

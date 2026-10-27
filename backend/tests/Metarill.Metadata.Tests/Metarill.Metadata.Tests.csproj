@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Metarill.Runtime/Metarill.Runtime.csproj" />
+    <ProjectReference Include="../../src/Metarill.Cli/Metarill.Cli.csproj" /><ProjectReference Include="../../src/Metarill.Runtime/Metarill.Runtime.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>

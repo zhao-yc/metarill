@@ -10,7 +10,7 @@ using MySqlConnector;
 namespace Metarill.Data.Schema;
 
 /// <summary>显式结构变更入口。预览令牌绑定当前实例、连接目标和结构快照，SQL 不由 HTTP 调用者决定。</summary>
-public sealed class SchemaService(DatabaseSession session, ISchemaChangeJournal? journal = null)
+public sealed partial class SchemaService(DatabaseSession session, ISchemaChangeJournal? journal = null)
 {
     private sealed record PendingPlan(SchemaChangePlan Plan, DatabaseSchema Desired, string Identity, string Signature, DateTimeOffset ExpiresAt);
     private readonly ConcurrentDictionary<string, PendingPlan> _pending = new();

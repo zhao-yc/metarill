@@ -25,5 +25,22 @@ public sealed class SchemaInspectionAuthorizationTests
         var store = new SqlRowStore(fixture.Sessions.Platform, fixture.Registry.Platform);
         var business = new ProjectSchemaInspectionBusiness(new(store, fixture.Registry), null!, null!, authorization);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.InspectAsync(JsonSerializer.SerializeToElement(new { })));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.CatalogAsync(JsonSerializer.SerializeToElement(new { })));
+    }
+    /// <summary>合法管理员的非法目录请求也在任何元数据或数据库读取前拒绝。</summary>
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("1")]
+    [InlineData("{\"database\":\"mysql\"}")]
+    [InlineData("{\"sql\":\"SELECT 1\",\"sql\":\"SELECT 2\"}")]
+    public async Task Invalid_catalog_requests_are_rejected_before_database_reads(string request)
+    {
+        using var fixture = new PublishedFileFixture();
+        var context = new DefaultHttpContext();
+        context.Items[typeof(AuthenticatedIdentity)] = new AuthenticatedIdentity(new RuntimeActor(11, "目录授权验收", true, "1", ""), new HashSet<string>(), 1, null);
+        var authorization = new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = context }, fixture.Registry);
+        var business = new ProjectSchemaInspectionBusiness(null!, null!, null!, authorization);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => business.CatalogAsync(JsonSerializer.Deserialize<JsonElement>(request)));
     }
 }

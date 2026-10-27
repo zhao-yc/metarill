@@ -16,7 +16,7 @@ public sealed record ProjectSchemaInspection(string ProjectId, SchemaInspectionS
 }
 
 /// <summary>反查只使用真实管理员当前项目及服务端连接，不能由请求指定库、表名或SQL。</summary>
-public sealed class ProjectSchemaInspectionBusiness(MetadataRepository metadata, ProjectSchemaService schemas, ProjectFileRuntimes files, HttpRuntimeAuthorization authorization)
+public sealed partial class ProjectSchemaInspectionBusiness(MetadataRepository metadata, ProjectSchemaService schemas, ProjectFileRuntimes files, HttpRuntimeAuthorization authorization)
 {
     /// <summary>按当前有效元数据反查受管表；缺失物理表明确列出，不写元数据、DDL或执行历史。</summary>
     public async Task<ProjectSchemaInspection> InspectAsync(JsonElement request, CancellationToken token = default)

@@ -37,6 +37,10 @@ public sealed class PlatformTools
     public static Task<ProjectSchemaInspection> Inspect(JsonElement data, ProjectSchemaInspectionBusiness inspection, CancellationToken token) =>
         inspection.InspectAsync(data, token);
 
+    [McpServerTool(Name="inspect_database_catalog", ReadOnly=true), Description("只读列出当前项目服务端数据库的表/视图名称、引擎和当前项目登记状态；共享库未登记不表示可导入，不读取业务数据，不写元数据或DDL。")]
+    public static Task<ProjectSchemaCatalog> Catalog(JsonElement data, ProjectSchemaInspectionBusiness inspection, CancellationToken token) =>
+        inspection.CatalogAsync(data, token);
+
     [McpServerTool(Name="call_generated_page",ReadOnly=false),Description("调用已发布页的强类型服务。operation 为 list/detail/create/update/delete/copy；写操作必须明确 confirmed=true。字段遵循生成 DTO，省略保持，null 清空。")]
     public static async Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,MetadataRegistry registry,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)
     {

@@ -2,15 +2,20 @@ using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Generation;
 
-/// <summary>离线生成和独立打包只读元数据及基础源码，不执行 SQL。</summary>
+namespace Metarill.Cli;
+
+/// <summary>离线生成、独立打包及在线只读反查的命令入口；数据库操作始终由平台显式接口控制。</summary>
 internal static class Program
 {
     /// <summary>参数采用明确的键值对，拒绝未知参数，避免误写输出位置。</summary>
-    private static int Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
         try
         {
+            // 重定向输出与中文错误统一使用UTF8，避免Windows代码页破坏脚本和审计日志。
+            Console.OutputEncoding = new System.Text.UTF8Encoding(false);
             if (args.Length == 1 && args[0] is "--help" or "-h") { PrintUsage(); return 0; }
+            if (args.Length > 0 && args[0] == "schema") return await Metarill.Cli.PlatformSchemaCommand.RunAsync(args);
             if (args.Length > 0 && args[0] == "update") return Update(args);
             if (args.Length == 0 || args[0] is not "generate" and not "package") { PrintUsage(); return 2; }
             var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -86,5 +91,5 @@ internal static class Program
         Console.WriteLine(JsonSerializer.Serialize(updater.Recover(values["--target"], values["--transaction"], values["--confirm"]), new JsonSerializerOptions(JsonSerializerDefaults.Web))); return 0;
     }
     /// <summary>显示稳定的脚本调用协议。</summary>
-    private static void PrintUsage() => Console.WriteLine("用法：metarill generate --metadata 元数据.json --output 输出目录 --namespace 根命名空间\n或：metarill package --metadata 元数据.json --output 空目录 --namespace 根命名空间 --source-root Metarill源码根目录 [--backend-only]\n或：metarill update target-identity --target 已有FullApplication（只读绑定身份）\n或：metarill update prepare --request 已审核请求.json --target 已有FullApplication --candidate 新空候选目录 --source-root 可信Metarill源码 --plan 新计划.json\n或：metarill update preview --target 已有FullApplication --candidate 新包目录 --actions generate-project-config,sync-runtime,generate-all-page --plan 新计划.json\n应用：metarill update apply --target 原目录 --candidate 原候选 --plan 计划.json --confirm 计划摘要\n状态：metarill update apply-status --target 原目录 --plan 原计划.json --confirm 计划摘要（只读；unknown不代表未写入）\n恢复：metarill update recover --target 原目录 --transaction 事务ID --confirm 计划摘要");
+    private static void PrintUsage() => Console.WriteLine("在线反查：metarill schema inspect --server 服务地址 --project-id 项目ID [--table-id 受管表ID] [--token-env 环境变量名]\n物理目录：metarill schema catalog --server 服务地址 --project-id 项目ID [--token-env 环境变量名]（默认从METARILL_LOGIN_STATE_ID读取网页登录会话）\n用法：metarill generate --metadata 元数据.json --output 输出目录 --namespace 根命名空间\n或：metarill package --metadata 元数据.json --output 空目录 --namespace 根命名空间 --source-root Metarill源码根目录 [--backend-only]\n或：metarill update target-identity --target 已有FullApplication（只读绑定身份）\n或：metarill update prepare --request 已审核请求.json --target 已有FullApplication --candidate 新空候选目录 --source-root 可信Metarill源码 --plan 新计划.json\n或：metarill update preview --target 已有FullApplication --candidate 新包目录 --actions generate-project-config,sync-runtime,generate-all-page --plan 新计划.json\n应用：metarill update apply --target 原目录 --candidate 原候选 --plan 计划.json --confirm 计划摘要\n状态：metarill update apply-status --target 原目录 --plan 原计划.json --confirm 计划摘要（只读；unknown不代表未写入）\n恢复：metarill update recover --target 原目录 --transaction 事务ID --confirm 计划摘要");
 }

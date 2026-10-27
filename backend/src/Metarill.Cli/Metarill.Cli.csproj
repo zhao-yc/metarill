@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><InternalsVisibleTo Include="Metarill.Metadata.Tests" /><InternalsVisibleTo Include="Metarill.Api.Tests" /></ItemGroup>
   <ItemGroup><ProjectReference Include="../Metarill.Generation/Metarill.Generation.csproj" /></ItemGroup>
 </Project>
