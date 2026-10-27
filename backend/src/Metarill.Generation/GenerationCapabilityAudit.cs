@@ -38,6 +38,9 @@ internal static class GenerationCapabilityAudit
             foreach(var source in table.Columns.Where(column=>table.Source.IsRongyu==0&&column.Source.ControlKind=="CascadeTree"&&!page.Readable.Any(read=>read.Source.Id==column.Source.Id)))
                 if(NonRedundantCrossTableSubset.Declared(source)&&!NonRedundantCrossTableSubset.Supports(model,table,page,source))
                     gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime","非冗余crossTable的实际用途未通过完整包证明，隐藏控件不能绕过门禁。"));
+            // R1自树隐藏后仍参与默认值、复制及钩子；逐字段完整审计，不能被有效跨表同伴掩盖。
+            foreach(var source in table.Columns.Where(c=>table.Source.IsRongyu==1&&c.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(c)))
+                if(RedundantSelfTreeSubset.Reason(model,table,page) is{} selfGap)gaps.Add(new(page.Source.Id,source.Source.ColumnName,"runtime",selfGap));
             // R1隐藏跨表也会参与默认值、复制和钩子；没有可见跨表承接审计时仍须单独证明。
             if(table.Source.IsRongyu==1&&!page.Readable.Any(NonRedundantCrossTableSubset.Declared)&&table.Columns.Any(NonRedundantCrossTableSubset.Declared)&&RedundantCrossTableSubset.Reason(model,table,page) is{} crossGap)
                 gaps.Add(new(page.Source.Id,table.Columns.First(NonRedundantCrossTableSubset.Declared).Source.ColumnName,"runtime",crossGap));

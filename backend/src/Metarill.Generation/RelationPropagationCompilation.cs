@@ -15,6 +15,7 @@ internal static class RelationPropagationCompilation
         var result=new List<RelationPropagationBinding>();
         foreach(var table in model.Tables.Where(table=>table.Source.IsRongyu==1&&!table.IsGlobal))
         {
+            result.AddRange(SelfTreePropagationCompilation.ForTable(model,table));
             foreach(var binding in MultiNameWriteCompilation.ForTable(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
             foreach(var definition in table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))result.Add(new(table,definition.Source,definition.Target,definition.Name,definition.Names));
             // 完整写入链定义各级ID／名称归属；不按字段后缀猜目标，也不接受页间冲突定义。

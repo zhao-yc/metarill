@@ -56,8 +56,9 @@ public sealed class RelationMutationPlan
             if(foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw new InvalidOperationException("传播外键目标与发布关系不一致。");
             var stem=foreign.ColumnName[..^suffix.Length];var expected=stem+"_"+(definition.Multiple&&!value.ColumnName.EndsWith('s')?value.ColumnName+"s":value.ColumnName);
             var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,definition,definitions);
-            if((!cross&&cache.ColumnName!=expected)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw new InvalidOperationException("传播字段不是同一关系的名称辅助列。");
-            if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("传播缓存的联接路径不一致。");}
+            var selfTree=!cross&&SelfTreeCache.Require(catalog,source,foreign,target,value,cache);
+            if((!cross&&!selfTree&&cache.ColumnName!=expected)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw new InvalidOperationException("传播字段不是同一关系的名称辅助列。");
+            if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(!(selfTree&&path.Length==0)&&path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("传播缓存的联接路径不一致。");}
             foreach(var field in new[]{foreign,value,cache})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播字段超出发布项目。");
             var global=GlobalCrossTableTarget.Declared(target);
             if(global)

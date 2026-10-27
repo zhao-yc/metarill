@@ -12,9 +12,9 @@ internal static class RedundantCrossTableSubset
     {
         try
         {
-            var trees=table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray();
+            var companions=table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray();var trees=companions.Where(NonRedundantCrossTableSubset.Declared).ToArray();
             if(table.Source.IsRongyu!=1||table.IsGlobal||trees.Length==0)return "冗余跨表完整用途要求普通R1来源。";
-            if(trees.Any(tree=>!NonRedundantCrossTableSubset.Declared(tree)))return "冗余跨表与自树同页的完整用途仍待证明。";
+            if(companions.Where(tree=>!NonRedundantCrossTableSubset.Declared(tree)).Any(tree=>!RedundantSelfTreeSubset.FixedTarget(model,table,page,tree)))return "冗余跨表的自树同伴尚未取得固定物理缓存与传播证明。";
             if(ExactDataManageCompilation.Declared(page))return "冗余跨表精确权限的完整用途仍待证明。";
             if(page.Scopes.Any(scope=>scope.Source=="parent"))SharedRedundantParentCompilation.Require(model,table,page);
             RequireRealm(model,table,page);var bindings=RelationPropagationCompilation.Bindings(model).Concat(RelationPropagationCompilation.DerivedBindings(model)).ToArray();

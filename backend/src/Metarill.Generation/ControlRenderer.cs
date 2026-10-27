@@ -20,6 +20,7 @@ internal static class ControlRenderer
         var wrapper = $"      <uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">";
         ControlResult Wrap(string content, string? reason = null) => new(wrapper + content + "</uni-forms-item>", reason);
         var writable = page.Writable.Contains(column);
+        if(column.Source.ControlKind=="CascadeTree"&&RedundantSelfTreeSubset.Supports(model,table,page,column))return Wrap("");
         if(column.Source.ControlKind=="CascadeTree"&&NonRedundantSelfTreeSubset.Supports(model,table,page,column))return Wrap("");
         if(column.Source.ControlKind=="CascadeTree"&&NonRedundantCrossTableSubset.Supports(model,table,page,column))return Wrap("");
         if(column.Source.ControlKind=="CascadeTree"&&RedundantCrossTableSubset.Supports(model,table,page,column))return Wrap("");

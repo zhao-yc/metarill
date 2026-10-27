@@ -20,7 +20,7 @@ public static class RedundantSharedParents
     {
         var table=catalog.ConfigTables.Single(t=>t.Id==tableId);var page=catalog.ConfigPages.Single(p=>p.Id==pageId&&p.ConfigTableId==tableId);var controls=catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId&&c.ControlKind=="CascadeTree").ToArray();if(table.IsRongyu!=1||controls.Length<2)return Empty();
         var storage=MetadataStoragePolicy.ForTable(catalog,table);var syntax=FixedConditionPlan.Compile(page.WhereSql,storage.PhysicalColumns.Select(c=>c.ColumnName));var parents=syntax.Terms.Where(t=>t.Values.Any(v=>v.Kind==FixedConditionValueKind.Variable&&(v.Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)||v.Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase)))).ToArray();if(parents.Length==0)return Empty();
-        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId));var branches=controls.Select(c=>CompileBranch(catalog,table,page,c,columns,controls)).ToArray();var remaining=branches.ToList();var groups=new List<Branch[]>();
+        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId));var crossControls=controls.Where(c=>CrossControl(catalog,table,page,c)).ToArray();var branches=crossControls.Select(c=>CompileBranch(catalog,table,page,c,columns,crossControls)).ToArray();var remaining=branches.ToList();var groups=new List<Branch[]>();
         while(remaining.Count>0){var group=new List<Branch>{remaining[0]};remaining.RemoveAt(0);bool changed;do{changed=false;foreach(var other in remaining.ToArray())if(group.Any(b=>b.Ids.Any(id=>other.Ids.Any(candidate=>candidate.ColumnName==id.ColumnName)))){group.Add(other);remaining.Remove(other);changed=true;}}while(changed);if(group.Count>1)groups.Add(group.ToArray());}
         if(groups.Count==0)return Empty();Realm(catalog,table,page);var sourceProject=storage.PhysicalColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");if(GlobalCrossTableTarget.Declared(table)||sourceProject is null||!Scalar(storage,table,sourceProject)||sourceProject.LogicalType is not("string" or "int64"))throw Unsupported();
         if(Exact(page))throw Unsupported();foreach(var group in groups)Prove(catalog,table,group);
@@ -38,6 +38,12 @@ public static class RedundantSharedParents
             var unique=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();if(unique.Length!=1)throw Unsupported();result.Add(column.Id,unique[0]);
         }
         return new ReadOnlyDictionary<string,RedundantSharedParentPlan>(result);
+    }
+    /// <summary>自树同伴独立证明物理缓存后不冒充跨表分支；覆盖或坏定义仍使整页关闭。</summary>
+    private static bool CrossControl(MetadataCatalog catalog,TableMetadata source,PageMetadata page,ColumnMetadata control)
+    {
+        using var json=JsonDocument.Parse(control.ControlDetail);Object(json.RootElement);if(Text(json.RootElement,"sourceMode","crossTable")!="selfTree")return true;
+        var overlay=catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(control.ControlDetail)))throw Unsupported();_=SelfTreeCache.Compile(catalog,source.Id,control.Id);return false;
     }
     /// <summary>完整目标、页面及每个物理ID／缓存先冻结；坏同伴、变化覆盖和额外SQL不能被忽略。</summary>
     private static Branch CompileBranch(MetadataCatalog catalog,TableMetadata source,PageMetadata page,ColumnMetadata control,IReadOnlyList<ColumnMetadata> sourceColumns,IReadOnlyList<ColumnMetadata> controls)
