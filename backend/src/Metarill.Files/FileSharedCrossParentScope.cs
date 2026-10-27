@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Globalization;
 using Metarill.Core.Metadata;
 using Metarill.Data.Queries;
@@ -16,7 +17,9 @@ internal sealed class FileSharedCrossParentScope
     internal static FileCrossParentScope Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column,SharedCrossTableSparseSelection selection)
     {
         if(GlobalCrossTableTarget.Declared(table))throw new NotSupportedException("共享文件父范围要求普通项目来源。");var branches=new Dictionary<string,FileCrossParentScope>(StringComparer.Ordinal);var scopes=new List<NonRedundantCrossTableScope>();
-        foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
+        foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);
+            // 读取适配层的全局能力不能替代文件归属／锁证明；完整文件接线前保持原发布门槛。
+            using var definition=JsonDocument.Parse(source.ControlDetail);if(definition.RootElement.GetProperty("levels").EnumerateArray().Any(level=>catalog.ConfigTables.Any(target=>target.TableName==level.GetProperty("table").GetString()&&GlobalCrossTableTarget.Declared(target))))throw new NotSupportedException("共享文件目标的全局范围尚需独立锁与归属证明。");var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());var plan=new FileSharedCrossParentScope(selection,branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan);
     }
     /// <summary>在同一读快照／写事务内检查全部已存末端，拒绝实际祖先冲突；共同物理位只读取一次。</summary>

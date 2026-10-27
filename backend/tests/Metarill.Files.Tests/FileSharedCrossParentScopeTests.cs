@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Metarill.Data;
+using Metarill.Data.Queries;
 using Metarill.Runtime.Files;
 using Metarill.Runtime.Persistence;
 using Xunit;
@@ -23,6 +24,14 @@ public sealed class FileSharedCrossParentScopeTests
     public void Broken_shared_peer_or_identity_keeps_entire_page_closed(string kind)
     {
         var c=Catalog("string","int64");if(kind=="peer"){var col=c.ConfigColumns.Single(x=>x.Id=="16");var json=JsonNode.Parse(col.ControlDetail)!;json["levels"]![2]!["nameField"]="missing";col.ControlDetail=json.ToJsonString();}if(kind=="overlay")c.ConfigPageColumns.Single(x=>x.ConfigPageId=="101"&&x.ConfigColumnId=="16").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{}");if(kind=="target")c.ConfigPages.Single(x=>x.Id=="501").WhereSql="name=@unknown";if(kind=="ambiguous"){var page=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(c.ConfigPages.Single(x=>x.Id=="501")))!;page.Id="502";c.ConfigPages.Add(page);foreach(var field in c.ConfigPageColumns.Where(x=>x.ConfigPageId=="501").ToArray()){var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;copy.Id="502_"+copy.Id;copy.ConfigPageId="502";c.ConfigPageColumns.Add(copy);}}if(kind=="hidden"){var field=c.ConfigPageColumns.Single(x=>x.ConfigPageId=="501"&&x.ConfigColumnId=="52");field.IsShow=0;field.IsEdit=0;}if(kind=="constant")c.ConfigPages.Single(x=>x.Id=="101").WhereSql+=" AND country_id='1'";if(kind=="exact")c.ConfigPages.Single(x=>x.Id=="101").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");if(kind=="global")c.ConfigTables.Single(x=>x.Id=="5").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="view")c.ConfigTables.Single(x=>x.Id=="5").IsView=1;if(kind=="parentName")c.ConfigPages.Single(x=>x.Id=="101").WhereSql="country_name=@parentId";var context=new FileMetadataContext([c]);var f=context.Catalogs.Single();Assert.Throws<NotSupportedException>(()=>context.PageScope(f,f.ConfigPages.Single(x=>x.Id=="101")));
+    }
+    /// <summary>数据层已证明的全局目标仍不能提前开放文件父范围，共同祖先和独立分支分别保持门槛。</summary>
+    [Theory][InlineData("2",false)][InlineData("2",true)][InlineData("5",false)][InlineData("5",true)]
+    public void Valid_global_shared_read_does_not_open_unproven_file_scope(string targetId,bool shorter)
+    {
+        var c=Catalog("string","int64",shorter);var target=c.ConfigTables.Single(table=>table.Id==targetId);target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");c.ConfigPages.Single(page=>page.ConfigTableId==targetId).WhereSql="enabled=1";
+        var table=c.ConfigTables[0];var sourcePage=c.ConfigPages.Single(page=>page.Id=="101");var group=SharedCrossTableSparseSelection.Compile(table,"15",c.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));var scopes=group.Branches.Select(branch=>FileCrossParentScope.CompileBranch(c,table,sourcePage,c.ConfigColumns.Single(column=>column.Id==branch.SourceColumnId),group.BranchSelection(branch.SourceColumnId),0).Binding).ToArray();_=NonRedundantReads.CompileWithCrossTables(c,table.Id,["id"],scopes,group.Slots.Select(slot=>slot.ColumnName).ToArray());
+        var context=new FileMetadataContext([c]);var frozen=context.Catalogs.Single();Assert.Throws<NotSupportedException>(()=>context.PageScope(frozen,frozen.ConfigPages.Single(page=>page.Id=="101")));
     }
     /// <summary>空组、祖先／后代并存、缺位和错误类型在访问目标前拒绝；离线端口不提供任何假成功。</summary>
     [Theory][InlineData("empty")][InlineData("ancestor")][InlineData("missing")][InlineData("format")][InlineData("type")]
