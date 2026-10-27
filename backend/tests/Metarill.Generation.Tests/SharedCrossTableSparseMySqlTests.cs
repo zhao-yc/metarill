@@ -67,7 +67,7 @@ public sealed class SharedCrossTableSparseMySqlTests
             async Task<JsonElement> Detail()=>Data(await Call(source,"201","detail/"+addedId,new{}));
             async Task Verify(int batch,bool a,bool b)
             {
-                var read=await Detail();Assert.Equal("国"+batch,read.GetProperty("countryName").GetString());Assert.Equal("区"+batch,read.GetProperty("areaName").GetString());var raw=await Row();Assert.Null(raw["country_id"]);if(b||a&&!shorter)Assert.Null(raw["area_id"]);else Assert.Equal(Id(Node(1,batch)),Convert.ToString(raw["area_id"],CultureInfo.InvariantCulture));if(!shorter)Assert.Equal(a?Id(Node(2,batch)):null,Convert.ToString(raw["place_id"],CultureInfo.InvariantCulture) is {Length:>0} text?text:null);Assert.Equal(b?Id(Node(3,batch)):null,Convert.ToString(raw["warehouse_id"],CultureInfo.InvariantCulture) is {Length:>0} ware?ware:null);
+                var read=await Detail();Assert.Equal("国"+batch,read.GetProperty("countryName").GetString());Assert.Equal("区"+batch,read.GetProperty("areaName").GetString());var raw=await Row();var expected=new Dictionary<string,long?>{{"country",null},{"area",b||a&&!shorter?null:Node(1,batch)},{"warehouse",b?Node(3,batch):null}};if(!shorter)expected["place"]=a?Node(2,batch):null;SharedCrossStorageAssertions.AssertSlots(raw,expected,false,batch);
             }
             await Verify(0,true,true);Data(await Update(JsonSerializer.Deserialize<Dictionary<string,object?>>(added.GetRawText())!));var copied=Data(await Call(source,"201","copy/"+addedId,new{}));Assert.Equal("国0",copied.GetProperty("countryName").GetString());Assert.NotEqual(addedId,copied.GetProperty("id").GetString());
             // 实际分页和COUNT使用已启用的共同国家筛选，稀疏ID通过SQL恢复祖先。

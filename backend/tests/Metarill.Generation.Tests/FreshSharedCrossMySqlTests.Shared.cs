@@ -78,7 +78,7 @@ public sealed partial class FreshSharedCrossMySqlTests
         async Task Storage(int group,bool a,bool b)
         {
             var read=await Detail();Assert.Equal("国"+group,read.GetProperty("countryName").GetString());Assert.Equal("区"+group,read.GetProperty("areaName").GetString());var raw=await Raw();Assert.Equal(Id(Project),SqlRowStore.Text(raw,"yz_project_id"));var expected=new Dictionary<string,long?>{{"country",p.Cached?Node(0,group):null},{"area",p.Cached||p.Shorter&&a&&!b?Node(1,group):null},{"warehouse",b?Node(3,group):null}};if(!p.Shorter)expected["place"]=a?Node(2,group):null;
-            foreach(var pair in expected){Assert.Equal(pair.Value is{} id?Id(id):null,raw[pair.Key+"_id"] is{} value?Convert.ToString(value,CultureInfo.InvariantCulture):null);if(p.Cached)Assert.Equal(pair.Value is null?null:(pair.Key switch{"country"=>"国","area"=>"区","place"=>"城",_=>"仓"})+group,raw[pair.Key+"_name"]);else Assert.False(raw.ContainsKey(pair.Key+"_name"));}
+            SharedCrossStorageAssertions.AssertSlots(raw,expected,p.Cached,group);
         }
     }
     /// <summary>两个来源共享目标改名：R0实时读取，R1跨批缓存、原维护及晚期约束回滚。</summary>
