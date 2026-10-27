@@ -12,6 +12,19 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "metarill-frontend-package", Guid.NewGuid().ToString("N"));
     private static string SourceRoot([CallerFilePath] string file = "") => Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT") ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
+    /// <summary>只选择模板中的H5标记分支，旧Web摘要继续冻结，非Web交由实际编译和生命周期用例验证。</summary>
+    private static string H5Markup(string source)
+    {
+        var lines=new List<string>();var branches=new Stack<bool>();
+        foreach(var line in source.Split('\n'))
+        {
+            if(line.Contains("<!-- #ifdef H5 -->",StringComparison.Ordinal)){branches.Push(true);continue;}
+            if(line.Contains("<!-- #ifndef H5 -->",StringComparison.Ordinal)){branches.Push(false);continue;}
+            if(line.Contains("<!-- #endif -->",StringComparison.Ordinal)){Assert.NotEmpty(branches);branches.Pop();continue;}
+            if(branches.All(active=>active))lines.Add(line);
+        }
+        Assert.Empty(branches);return string.Join('\n',lines);
+    }
     private static MetadataCatalog Demo() => JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(SourceRoot(), "backend/metadata/demo.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
     /// <summary>真实Node语法/导入检查覆盖普通模块、CommonJS、动态导入、Vue多脚本及组件闭包。</summary>
@@ -43,7 +56,7 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
             var originalStyle=System.Text.RegularExpressions.Regex.Match(Original(path),@"<style[\s\S]*?</style>").Value;
             Assert.Equal(originalStyle,System.Text.RegularExpressions.Regex.Match(Result(path),@"<style[\s\S]*?</style>").Value);
         }
-        Assert.Equal(System.Text.RegularExpressions.Regex.Match(Original("pages/main/index.vue"),@"<template>[\s\S]*?</template>").Value,System.Text.RegularExpressions.Regex.Match(Result("pages/main/index.vue"),@"<template>[\s\S]*?</template>").Value);
+        Assert.Equal(System.Text.RegularExpressions.Regex.Match(H5Markup(Original("pages/main/index.vue")),@"<template>[\s\S]*?</template>").Value,System.Text.RegularExpressions.Regex.Match(H5Markup(Result("pages/main/index.vue")),@"<template>[\s\S]*?</template>").Value);
         Assert.Contains("keep-alive",Result("pages/main/index.vue"));Assert.Contains("@/pages/main/main",Result("pages/main/index.vue"));Assert.DoesNotContain("config_table",Result("pages/main/index.vue"));Assert.DoesNotContain("config_page",Result("pages/main/index.vue"));
         Assert.Contains("<view></view>",Result("pages/main/main.vue"));Assert.DoesNotContain("dashboard",Result("pages/main/main.vue"),StringComparison.OrdinalIgnoreCase);
         Assert.Contains("v-if=\"isYzp\"",Result("pages/main/top.vue"));Assert.Contains("supportsAgentGrants",Result("components/yzp-menu/yzp-menu.vue"));
@@ -155,13 +168,14 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         Assert.Equal(ApplicationPackageMode.BackendOnly, backend.Mode); Assert.False(backend.FrontendIncluded);
     }
 
-    /// <summary>只改认证标签和可信后台回执；原登录template/style字节基线不变，Node执行实际打包脚本。</summary>
+    /// <summary>原H5登录template/style字节基线不变，其他端使用uni-app表单；Node执行实际打包脚本。</summary>
     [Fact]
     public async Task Original_login_preserves_dom_and_uses_server_realm_string_with_development_fallback()
     {
         var output=Path.Combine(root,"login-realm");new ApplicationPackager().Create(Demo(),output,"Example.LoginRealm",SourceRoot());
         var login=File.ReadAllText(Path.Combine(output,"frontend/pages/login.vue")).Replace("\r\n","\n");
-        string SectionHash(string tag)=>Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(System.Text.RegularExpressions.Regex.Match(login,"<"+tag+"[^>]*>[\\s\\S]*?</"+tag+">").Value)));
+        var h5Login=H5Markup(login);
+        string SectionHash(string tag)=>Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(System.Text.RegularExpressions.Regex.Match(h5Login,"<"+tag+"[^>]*>[\\s\\S]*?</"+tag+">").Value)));
         // 两个hash取自09c35c3受控原登录模板，不从本次修改结果刷新基线。
         Assert.Equal("b214cdf3306232c6cd66d0b0032c4acb0544de92daa3cc1d615a55cf5d674d3b",SectionHash("template"));
         Assert.Equal("a96c9c4c87d93d346a4006b78be3cb482875090778e142face190cff81ede87b",SectionHash("style"));

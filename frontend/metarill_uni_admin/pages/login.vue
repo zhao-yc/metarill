@@ -13,33 +13,64 @@
 					<view class="top-right">{{ enevName }}</view>
 				</view>
 				<!-- 原生表单的稳定标识、POST 和 submit 事件帮助密码管理器配对账号与密码。 -->
+				<!-- #ifdef H5 -->
 				<component :is="'form'" id="yzp-login-form" name="login" method="post"
 					:action="loginFormAction" autocomplete="on" @submit.prevent="login">
+				<!-- #endif -->
+				<!-- #ifndef H5 -->
+				<!-- 小程序与App使用uni-app表单，同一登录方法保持界面和认证协议。 -->
+				<form id="yzp-login-form" @submit="login">
+				<!-- #endif -->
 					<view class="login-register-input">
 						<uni-icons type="chatboxes" size="18"></uni-icons>
 						<view style="flex: 1;">
+							<!-- #ifdef H5 -->
 							<component :is="'label'" for="yzp-login-username" class="login-field-label">用户名</component>
 							<component :is="'input'" id="yzp-login-username" class="login-native-input" type="text" name="username"
 								autocapitalize="none" autocorrect="off" :spellcheck="false"
 								autocomplete="username" placeholder="请输入用户名" :value="user_name"
 								@input="onUsernameInput" @change="onUsernameInput" @keydown.enter.prevent="submitLoginForm" />
+							<!-- #endif -->
+							<!-- #ifndef H5 -->
+							<label for="yzp-login-username" class="login-field-label">用户名</label>
+							<input id="yzp-login-username" class="login-native-input" type="text" name="username"
+								placeholder="请输入用户名" :value="user_name" @input="onUsernameInput" @confirm="login" />
+							<!-- #endif -->
 						</view>
 					</view>
 					<view class="login-register-input">
 						<uni-icons type="locked" size="18"></uni-icons>
 						<view style="flex: 1;">
+							<!-- #ifdef H5 -->
 							<component :is="'label'" for="yzp-login-password" class="login-field-label">密码</component>
 							<component :is="'input'" id="yzp-login-password" class="login-native-input" type="password" name="password"
 								autocomplete="current-password" placeholder="请输入密码" :value="password"
 								@input="onPasswordInput" @change="onPasswordInput" @keydown.enter.prevent="submitLoginForm" />
+							<!-- #endif -->
+							<!-- #ifndef H5 -->
+							<label for="yzp-login-password" class="login-field-label">密码</label>
+							<input id="yzp-login-password" class="login-native-input" type="text" name="password" :password="true"
+								placeholder="请输入密码" :value="password" @input="onPasswordInput" @confirm="login" />
+							<!-- #endif -->
 						</view>
 						<!--		<uni-icons type="eye-slash" size="18"></uni-icons>  -->
 					</view>
+					<!-- #ifdef H5 -->
 					<component :is="'button'" class="Button" :class="{'is-disabled': loginSubmitting}" type="submit"
 						:disabled="loginSubmitting">
 						{{ loginButtonText }}
 					</component>
+					<!-- #endif -->
+					<!-- #ifndef H5 -->
+					<button class="Button" :class="{'is-disabled': loginSubmitting}" form-type="submit"
+						:disabled="loginSubmitting">{{ loginButtonText }}</button>
+					<!-- #endif -->
+				<!-- #ifdef H5 -->
 				</component>
+				<!-- #endif -->
+				<!-- #ifndef H5 -->
+				</form>
+				<!-- #endif -->
 
 				<!-- <view style="margin: 0px 20px;display: flex;">
 					<view style="flex: 1;font-size: 14px;" @click="retrievePassword">找回密码</view>
@@ -128,16 +159,16 @@ export default {
 		},
 
 		/**
-		 * 同步用户名输入框内容，原生 input 用于兼容浏览器密码管理器。
+		 * 同步H5原生输入及uni-app输入事件；空字符串表示主动清空。
 		 */
 		onUsernameInput(event) {
-			this.user_name = event.target.value;
+			this.user_name = event?.detail?.value ?? event?.target?.value ?? '';
 		},
 		/**
 		 * 同步密码输入框内容，保持登录提交仍使用原有字段。
 		 */
 		onPasswordInput(event) {
-			this.password = event.target.value;
+			this.password = event?.detail?.value ?? event?.target?.value ?? '';
 		},
 		/**
 		 * H5 浏览器自动填充可能不触发 input 事件，登录前回读原生输入框值。
