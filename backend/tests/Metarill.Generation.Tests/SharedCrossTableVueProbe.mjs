@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { mountGenerated,plain } from './GeneratedOriginalVueHarness.mjs'
 const require=createRequire(new URL('../../../frontend/metarill_uni_admin/package.json',import.meta.url)),Vue=require('vue'),{parse}=require('@vue/compiler-sfc')
-const root=process.argv[2],shorter=process.argv[3]==='true',source=await readFile(join(root,'pages/yzp/shared_cross_source-detail-201.vue'),'utf8'),original=await readFile(join(root,'components/yzp-cascade-tree/yzp-cascade-tree.vue'),'utf8')
+const root=process.argv[2],shorter=process.argv[3]==='true',source=await readFile(join(root,'pages/yzp/'+(process.argv[4]||'shared_cross')+'_source-detail-201.vue'),'utf8'),original=await readFile(join(root,'components/yzp-cascade-tree/yzp-cascade-tree.vue'),'utf8')
 const {descriptor,errors}=parse(original);assert.deepEqual(errors,[]);const calls=[],trees=[],yzp={request(options){calls.push(options);return{abort(){}}}}
 const component=new Function('yzp',descriptor.script.content.replace(/^import[^\n]*\n/gm,'').replace('export default','return'))(yzp);component.render=Vue.compile(descriptor.template.content);component.mounted=function(){trees.push(this)}
 const Stub={render(){return Vue.h('host',{},this.$slots.default?.())}},id='9007199254748888',country='9007199254741001',area='9007199254741002',city='9007199254741003',warehouse='9007199254741004',nextCountry='9007199254742001',nextArea='9007199254742002',nextCity='9007199254742003',nextWarehouse='9007199254742004',otherArea='9007199254742005'

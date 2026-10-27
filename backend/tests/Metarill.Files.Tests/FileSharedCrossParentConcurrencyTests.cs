@@ -27,12 +27,21 @@ public sealed class FileSharedCrossParentConcurrencyTests
     /// <summary>固定派生名称目标保持物理父键。</summary>
     [FilesIntegrationFact] public Task Derived_targets()=>Run("string","int64",false,true);
 
+    /// <summary>全局共同祖先与独立叶子逐个验证真实RR、当前读锁及文件来源项目隔离。</summary>
+    [FilesIntegrationFact]public Task Global_root()=>Run("string","string",globalMask:1);
+    [FilesIntegrationFact]public Task Global_middle()=>Run("string","int64",globalMask:2,noProject:true);
+    [FilesIntegrationFact]public Task Global_place()=>Run("int64","string",globalMask:4);
+    [FilesIntegrationFact]public Task Global_warehouse()=>Run("int64","int64",globalMask:8,noProject:true);
+    [FilesIntegrationFact]public Task Global_all()=>Run("int64","int64",globalMask:15,noProject:true);
+    [FilesIntegrationFact]public Task Global_short_root()=>Run("string","int64",true,globalMask:1);
+    [FilesIntegrationFact]public Task Global_short_all()=>Run("int64","string",true,globalMask:11,noProject:true);
+
     /// <summary>全部模型共用同一证据流程；保护授权来自当前记录，不提交请求祖先或parentId。</summary>
-    private static async Task Run(string type,string parent,bool shorter=false,bool derived=false)
+    private static async Task Run(string type,string parent,bool shorter=false,bool derived=false,int globalMask=0,bool noProject=false)
     {
-        await using var f=await SharedFileConcurrencyFixture.CreateAsync(type,parent,shorter,derived);
+        await using var f=await SharedFileConcurrencyFixture.CreateAsync(type,parent,shorter,derived,globalMask,noProject);
         var anchor=await f.UploadAsync("anchor");var replacement=await f.UploadAsync("replacement");
-        await f.BindAsync(anchor);await f.ReadableAsync(anchor,true);
+        await f.BindAsync(anchor);await f.ReadableAsync(anchor,true);await f.AssertForeignSourceDeniedAsync(replacement);
         var before=await f.StateAsync();
         foreach(var target in f.SelectedTargets)
         foreach(var deleting in new[]{false,true})
@@ -97,7 +106,7 @@ public sealed class FileSharedCrossParentConcurrencyTests
         });
         Assert.Empty(await f.Store.ReadIncludingDeletedAsync(f.Source,D("id",f.Record)));Assert.Empty(await f.ReferencesAsync());
         await f.ReadableAsync(replacement,false);f.Verified=true;
-        await f.ReceiptAsync("verified",new{type,parent,shorter,derived,oldRrCases=f.SelectedTargets.Count*2,oldRrWriteCases=f.SelectedTargets.Count,oldRrDeleteCases=f.SelectedTargets.Count,writeAndDeleteLocks=true,physicalDeleteReparentDenied=true,deleteTailRollback=true,normalPhysicalDelete=true,formalIdentity=false,browser=false,performance=false});
+        await f.ReceiptAsync("verified",new{type,parent,shorter,derived,globalMask,noProject,foreignSourceDenied=true,oldRrCases=f.SelectedTargets.Count*2,oldRrWriteCases=f.SelectedTargets.Count,oldRrDeleteCases=f.SelectedTargets.Count,writeAndDeleteLocks=true,physicalDeleteReparentDenied=true,deleteTailRollback=true,normalPhysicalDelete=true,formalIdentity=false,browser=false,performance=false});
     }
 
     /// <summary>真实来源、每个已存分支的父行和新文件行均须竞争失败；未选末端及另一来源必须可加锁。</summary>

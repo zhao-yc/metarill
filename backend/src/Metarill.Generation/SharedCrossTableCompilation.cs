@@ -29,9 +29,11 @@ internal static class SharedCrossTableCompilation
     internal static bool Equivalent(GenerationModel model,RelationPropagationBinding left,RelationPropagationBinding right)
     {
         if(left.Multiple||right.Multiple||left.CrossTableColumnId is null||right.CrossTableColumnId is null||left.Source.Source.Id!=right.Source.Source.Id||left.Foreign.Source.Id!=right.Foreign.Source.Id||left.Cache.Source.Id!=right.Cache.Source.Id||left.Target.Source.Id!=right.Target.Source.Id||left.Value.Source.Id!=right.Value.Source.Id||left.CrossTablePageId!=right.CrossTablePageId)return false;
-        if(left.CrossTableColumnId==right.CrossTableColumnId)return left.CrossTableLevelKey==right.CrossTableLevelKey;
-        return left.Source.Pages.Any(page=>ForPage(model,left.Source,page).Groups.Any(g=>g.Plans.Any(p=>p.Read.Source.Source.Id==left.CrossTableColumnId&&p.Levels.Any(l=>l.Read.Key==left.CrossTableLevelKey&&l.Id.Source.Id==left.Foreign.Source.Id))&&g.Plans.Any(p=>p.Read.Source.Source.Id==right.CrossTableColumnId&&p.Levels.Any(l=>l.Read.Key==right.CrossTableLevelKey&&l.Id.Source.Id==right.Foreign.Source.Id))));
+        if(left.CrossTableColumnId==right.CrossTableColumnId)return left.CrossTableLevelKey==right.CrossTableLevelKey&&RelationPropagationCompilation.PagesIdentity(left.CrossTableGlobalPages)==RelationPropagationCompilation.PagesIdentity(right.CrossTableGlobalPages);
+        return left.Source.Pages.Any(page=>ForPage(model,left.Source,page).Groups.Any(g=>g.Plans.Any(p=>p.Read.Source.Source.Id==left.CrossTableColumnId&&MatchesPages(left,p)&&p.Levels.Any(l=>l.Read.Key==left.CrossTableLevelKey&&l.Id.Source.Id==left.Foreign.Source.Id))&&g.Plans.Any(p=>p.Read.Source.Source.Id==right.CrossTableColumnId&&MatchesPages(right,p)&&p.Levels.Any(l=>l.Read.Key==right.CrossTableLevelKey&&l.Id.Source.Id==right.Foreign.Source.Id))));
     }
+    /// <summary>去重只能匹配同一个页面计划的完整全局层，不能跨页面混用上级范围。</summary>
+    private static bool MatchesPages(RelationPropagationBinding binding,CrossTableWriteModel plan)=>RelationPropagationCompilation.PagesIdentity(binding.CrossTableGlobalPages)==RelationPropagationCompilation.PagesIdentity(RelationPropagationCompilation.GlobalPages(plan));
     /// <summary>共享公共前缀必须属于同一目标、读取页、父键和名字，不能合并权限范围。</summary>
     private static SharedCrossTablePage Compile(GenerationModel model,TableModel table,PageModel page)
     {
@@ -48,7 +50,8 @@ internal static class SharedCrossTableCompilation
                 {
                     if(table.Source.IsRongyu==0){var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==control.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(control.Source.ControlDetail)))throw new NotSupportedException("共享R0页级覆盖不能改变固定存储定义。");}
                     var read=CrossTableReadCompilation.Resolve(model,table,page,control);if(read.Definition is not{} definition)throw new InvalidOperationException(read.Reason??"共享同伴缺少完整读取链。");
-                    if(definition.Levels.Any(l=>l.Target.IsGlobal||l.Target.Source.Id==table.Source.Id))throw new NotSupportedException("共享级联的全局／来源自参与路径尚需独立聚合证明。");
+                    if(definition.Levels.Any(l=>l.Target.Source.Id==table.Source.Id))throw new NotSupportedException("共享级联的来源自参与路径尚需独立聚合证明。");
+                    if(definition.Levels.Any(level=>level.Target.IsGlobal)){var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==control.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(control.Source.ControlDetail)))throw new NotSupportedException("全局共享控制列的页覆盖不能改变固定存储与传播定义。");}
                     var levels=new List<CrossTableWriteLevel>();var slots=new List<SharedCrossTableSlot>();
                     foreach(var level in definition.Levels)
                     {

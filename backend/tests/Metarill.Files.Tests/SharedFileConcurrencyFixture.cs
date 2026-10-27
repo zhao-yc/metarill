@@ -33,6 +33,7 @@ internal sealed class SharedFileConcurrencyFixture:IAsyncDisposable
     internal string Warehouse=>prefix+"_warehouse";
     internal long Record{get;private set;}
     internal long OtherRecord{get;private set;}
+    internal long ForeignRecord{get;private set;}
     internal long WarehouseId{get;private set;}
     internal long OtherWarehouseId{get;private set;}
     internal long OtherAreaId{get;private set;}
@@ -50,7 +51,7 @@ internal sealed class SharedFileConcurrencyFixture:IAsyncDisposable
     private object SelectedValue(long id)=>type=="string"?id.ToString(CultureInfo.InvariantCulture):id;
 
     /// <summary>复用已证明的共享文件模型，仅改随机表名与物理删除元数据，不修改平台真实配置。</summary>
-    internal static async Task<SharedFileConcurrencyFixture> CreateAsync(string type,string parent,bool shorter,bool derived)
+    internal static async Task<SharedFileConcurrencyFixture> CreateAsync(string type,string parent,bool shorter,bool derived,int globalMask=0,bool noProject=false)
     {
         var f=new SharedFileConcurrencyFixture{nonce=Guid.NewGuid().ToString("N"),type=type,parent=parent};
         try
@@ -63,6 +64,8 @@ internal sealed class SharedFileConcurrencyFixture:IAsyncDisposable
             f.prefix="mt_sfc_"+f.nonce[..12];var repository=Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??Directory.GetCurrentDirectory();
             f.evidence=Path.Combine(repository,".local/shared-cross-file-concurrency",f.nonce);Directory.CreateDirectory(f.evidence);f.objects=Path.Combine(f.evidence,"objects");
             var model=FileSharedCrossParentScopeTests.Catalog(type,parent,shorter,derived);
+            // 只有明确全局目标取消项目范围，来源仍保留物理项目列及原文件身份。
+            for(var role=0;role<4;role++)if((globalMask&(1<<role))!=0){var id=(role+2).ToString(CultureInfo.InvariantCulture);model.ConfigTables.Single(table=>table.Id==id).Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");model.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql="enabled=1";if(noProject){var removedProjects=model.ConfigColumns.Where(column=>column.ConfigTableId==id&&column.ColumnName=="yz_project_id").Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);model.ConfigColumns.RemoveAll(column=>removedProjects.Contains(column.Id));model.ConfigPageColumns.RemoveAll(field=>removedProjects.Contains(field.ConfigColumnId));}}
             f.Catalog=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(model).Replace("file_shared",f.prefix,StringComparison.Ordinal))!;
             var removed=f.Catalog.ConfigColumns.Single(c=>c.ConfigTableId=="1"&&c.ColumnName=="delete_no");f.Catalog.ConfigColumns.Remove(removed);f.Catalog.ConfigPageColumns.RemoveAll(c=>c.ConfigColumnId==removed.Id);
             f.Catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId="1"});foreach(var page in f.Catalog.ConfigPages)page.YzAdminTypeId="5";
@@ -74,7 +77,7 @@ internal sealed class SharedFileConcurrencyFixture:IAsyncDisposable
             await f.Store.ReadAsync("yz_file_library",D("id",-1L)); // 公用文件表必须已经初始化，不在夹具内隐式建表。
             f.options=new(){RootDirectory=f.objects,MaxFileBytes=4096};var schema=new SchemaService(f.Session);var plan=await schema.PreviewAsync(f.Catalog);
             Assert.Equal(f.Catalog.ConfigTables.Count,plan.Changes.Count);Assert.All(plan.Changes,c=>Assert.Equal("createTable",c.Kind));
-            await f.ReceiptAsync("intent",new{f.nonce,f.prefix,type,parent,shorter,derived,names=f.Catalog.ConfigTables.Select(t=>t.TableName).Order().ToArray(),database=database.ExpectedDatabase,instanceVerified=true});
+            await f.ReceiptAsync("intent",new{f.nonce,f.prefix,type,parent,shorter,derived,globalMask,noProject,names=f.Catalog.ConfigTables.Select(t=>t.TableName).Order().ToArray(),database=database.ExpectedDatabase,instanceVerified=true});
             f.created=true;Assert.True((await schema.ApplyAsync(plan)).Succeeded);
             await f.SeedAsync(shorter,derived);return f;
         }
@@ -91,8 +94,8 @@ internal sealed class SharedFileConcurrencyFixture:IAsyncDisposable
         for(var batch=0;batch<2;batch++)for(var role=0;role<4;role++)nodes[batch,role]=Ids.NextId();
         for(var batch=0;batch<2;batch++)for(var role=0;role<4;role++)
         {
-            var table=Catalog.ConfigTables.Single(t=>t.TableName==prefix+"_"+roles[role]);var project=Catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.ColumnName=="yz_project_id");
-            var row=D("id",nodes[batch,role],"yz_project_id",project.LogicalType=="string"?(object)"1":1L,"enabled",true);
+            var table=Catalog.ConfigTables.Single(t=>t.TableName==prefix+"_"+roles[role]);var project=Catalog.ConfigColumns.SingleOrDefault(c=>c.ConfigTableId==table.Id&&c.ColumnName=="yz_project_id");
+            var row=D("id",nodes[batch,role],"enabled",true);if(project is not null){var owner=GlobalCrossTableTarget.Declared(table)?2L:1L;row["yz_project_id"]=project.LogicalType=="string"?owner.ToString(CultureInfo.InvariantCulture):(object)owner;}
             if(derived&&role<3){var company=Ids.NextId();await Store.InsertAsync(prefix+"_company",D("id",company,"name","派生节点"+batch+role,"yz_project_id",1L));row["company_id"]=company;}
             else row["name"]="实际节点"+batch+role;
             if(role>0)row[role==1?"country_id":"area_id"]=ParentValue(nodes[batch,role==1?0:1]);
@@ -100,10 +103,10 @@ internal sealed class SharedFileConcurrencyFixture:IAsyncDisposable
         }
         WarehouseId=nodes[0,3];OtherWarehouseId=nodes[1,3];OtherAreaId=nodes[1,1];
         SelectedTargets=Enumerable.Range(0,4).Where(i=>!shorter||i!=2).Select(i=>new SharedFileTarget(prefix+"_"+roles[i],nodes[0,i])).ToArray();
-        Record=Ids.NextId();OtherRecord=Ids.NextId();
-        foreach(var id in new[]{Record,OtherRecord})
+        Record=Ids.NextId();OtherRecord=Ids.NextId();ForeignRecord=Ids.NextId();
+        foreach(var id in new[]{Record,OtherRecord,ForeignRecord})
         {
-            var row=D("id",id,"name","原记录","yz_project_id",1L,"country_id",null,"area_id",null,"warehouse_id",SelectedValue(WarehouseId),"owner_country_id",SelectedValue(nodes[0,0]));
+            var row=D("id",id,"name","原记录","yz_project_id",id==ForeignRecord?2L:1L,"country_id",null,"area_id",null,"warehouse_id",SelectedValue(WarehouseId),"owner_country_id",SelectedValue(nodes[0,0]));
             if(!shorter)row["place_id"]=SelectedValue(nodes[0,2]);await Store.InsertAsync(Source,row);
         }
     }
@@ -122,6 +125,11 @@ internal sealed class SharedFileConcurrencyFixture:IAsyncDisposable
     {
         if(allowed)Assert.Equal(file,(await Service(Reader).ResolveAsync(file)).FileId);
         else await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Service(Reader).ResolveAsync(file));
+    }
+    /// <summary>即便使用相同全局祖先，外项目来源也不能在本项目挂文件，拒绝后不留引用。</summary>
+    internal async Task AssertForeignSourceDeniedAsync(long file)
+    {
+        var before=await StateAsync();await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Session.InTransactionAsync(async()=>{var values=D("attachments",JsonSerializer.Serialize(new[]{file.ToString(CultureInfo.InvariantCulture)}));await Store.UpdateAsync(Source,ForeignRecord,values);await Observer().BeforeCommitAsync(new("101",Source,ForeignRecord,"1",values,false,Session.CurrentTransaction!));return true;}));Assert.Equal(before,await StateAsync());Assert.Empty(await Store.ReadIncludingDeletedAsync("yz_file_ref",D("record_id",ForeignRecord)));
     }
     /// <summary>物理DELETE使用原连接／事务，真实删除行数必须为一。</summary>
     internal async Task DeleteRecordAsync()

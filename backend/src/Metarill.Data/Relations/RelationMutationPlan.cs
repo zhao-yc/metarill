@@ -17,6 +17,10 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
     /// <summary>只为全局跨表层固定已发布目标页，普通关系JSON形状保持。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CrossTablePageId{get;init;}
+    /// <summary>共享缓存去重后仍保留当前控制列全部全局层的冻结目标页，不从另一控件推断范围。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string,string>? CrossTableGlobalPages{get;init;}
+
 }
 internal sealed record RelationTable(string Name,string ProjectType,bool Deleted);
 internal sealed record RelationCache(RelationTable Source,string Foreign,string ForeignType,RelationTable Target,string Value,string ValueType,string Cache,bool Multiple,int MaximumItems);

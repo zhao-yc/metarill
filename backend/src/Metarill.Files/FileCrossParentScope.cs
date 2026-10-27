@@ -9,7 +9,7 @@ namespace Metarill.Runtime.Files;
 /// <summary>文件父范围只沿已锁来源的真实稀疏选择解析，不接收请求父值或伪造祖先列。</summary>
 internal sealed class FileCrossParentScope
 {
-    private sealed record Target(string Table,string ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition);
+    private sealed record Target(string Table,string? ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition);
     private readonly CrossTableSparseSelection? selection;
     private readonly FileSharedCrossParentScope? shared;
     private readonly Target[] targets;
@@ -47,7 +47,9 @@ internal sealed class FileCrossParentScope
             // 名称可来自已证明的单值联接，父键仍必须物理；下方完整跨表编译继续证明类型、终点与范围。
             var required=new[]{display.Id}.Concat(parent is null?Array.Empty<string>():new[]{columns.Single(column=>column.ColumnName==parent).Id}).ToArray();
             var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:Condition(candidate,columns))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
-            var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));var project=columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,project.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
+            var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));
+            // 仅显式全局目标免项目等值；固定发布、常量页与普通来源项目仍由完整编译器核验。
+            var global=GlobalCrossTableTarget.Declared(target);if(global)GlobalCrossTableTarget.Require(catalog,target,chosen.Page);var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,project?.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
         }
         return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray()),new NonRedundantCrossTableScope(source.Id,bindings));
     }
@@ -86,7 +88,8 @@ internal sealed class FileCrossParentScope
         {
             var target=targets[index];var provider=session.Provider;await using var command=connection.CreateCommand();command.Transaction=transaction;
             string Parameter(string name,object value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value;command.Parameters.Add(parameter);return provider.ParameterPlaceholder(name);}
-            var sql="SELECT "+provider.QuoteIdentifier("id")+(target.Parent is null?"":","+provider.QuoteIdentifier(target.Parent))+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter("node",current)+" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter("project",target.ProjectType=="string"?project.ToString(CultureInfo.InvariantCulture):(object)project);
+            var sql="SELECT "+provider.QuoteIdentifier("id")+(target.Parent is null?"":","+provider.QuoteIdentifier(target.Parent))+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter("node",current);
+            if(target.ProjectType is not null)sql+=" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter("project",target.ProjectType=="string"?project.ToString(CultureInfo.InvariantCulture):(object)project);
             if(target.SoftDelete)sql+=" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL";if(target.Condition is{} condition)sql+=" AND "+condition.BindConstants(command,session,"file_cross");command.CommandText=locking?provider.BuildSelectForUpdate(sql):sql;
             await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token)||Convert.ToInt64(reader.GetValue(0),CultureInfo.InvariantCulture)!=current)throw new UnauthorizedAccessException("文件跨表目标缺失、已删除或不在固定范围。");result[index]=current;
             if(index>0){var value=await reader.IsDBNullAsync(1,token)?null:Convert.ToString(reader.GetValue(1),CultureInfo.InvariantCulture);if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out current)||current<=0||value!=current.ToString(CultureInfo.InvariantCulture))throw new UnauthorizedAccessException("文件跨表实际父键无效。");}

@@ -9,10 +9,11 @@ internal static class CrossTableCacheProof
     /// <summary>完整检查固定链，返回所选层是否为物理字符串名称缓存；不读取业务库或接受SQL。</summary>
     internal static bool Require(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,RelationCacheDefinition definition,IReadOnlyList<RelationCacheDefinition> definitions)
     {
-        if(definition.CrossTableColumnId is null&&definition.CrossTableLevelKey is null){if(definition.CrossTablePageId is not null)throw new InvalidOperationException("目标页不能脱离完整跨表控制列及层位。");return false;}
+        if(definition.CrossTableColumnId is null&&definition.CrossTableLevelKey is null){if(definition.CrossTablePageId is not null||definition.CrossTableGlobalPages is not null)throw new InvalidOperationException("目标页不能脱离完整跨表控制列及层位。");return false;}
         if(definition.Multiple||string.IsNullOrWhiteSpace(definition.CrossTableColumnId)||string.IsNullOrWhiteSpace(definition.CrossTableLevelKey))throw new InvalidOperationException("跨表名称缓存缺少完整控制列及层标识。");
         var control=catalog.ConfigColumns.SingleOrDefault(x=>x.ConfigTableId==source.Id&&x.Id==definition.CrossTableColumnId);if(control is null||control.ControlKind!="CascadeTree"||control.IsVirtualColumn!=0||control.LogicalType is not("string" or "int64")||Enabled(control)||!MetadataStoragePolicy.ForTable(catalog,source).IsPhysical(control))throw new InvalidOperationException("跨表名称缓存控制列不是来源的真实级联ID。");
         using var json=JsonDocument.Parse(control.ControlDetail);var root=json.RootElement;Object(root);if(Text(root,"sourceMode","crossTable")!="crossTable"||Extra(root)||!root.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array||levels.GetArrayLength()<2)throw new InvalidOperationException("跨表名称缓存必须使用完整固定层级。");
+        var globalKeys=new HashSet<string>(StringComparer.Ordinal);if(definition.CrossTableGlobalPages is{} declaredPages&&(declaredPages.Count==0||declaredPages.Any(pair=>string.IsNullOrWhiteSpace(pair.Key)||string.IsNullOrWhiteSpace(pair.Value))))throw new InvalidOperationException("共享全局层页映射不能为空或含空标识。");
         var keys=new HashSet<string>(StringComparer.Ordinal);var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);var found=false;var last="";TableMetadata? previous=null;
         foreach(var level in levels.EnumerateArray())
         {
@@ -27,7 +28,9 @@ internal static class CrossTableCacheProof
             {
                 // 每个全局层必须由同一控制列的精确缓存定义绑定唯一页；不能通过另一来源或请求补页。
                 if(source.YzProjectId!=catalog.YzProjectId||GlobalCrossTableTarget.Declared(source))throw new InvalidOperationException("全局跨表缓存来源必须明确发布为普通项目实体。");
-                var pages=definitions.Where(item=>item.SourceTableId==source.Id&&item.CrossTableColumnId==control.Id&&item.CrossTableLevelKey==key&&item.TargetTableId==node.Id&&item.ValueColumnId==name.Id).Select(item=>item.CrossTablePageId).Distinct(StringComparer.Ordinal).ToArray();
+                globalKeys.Add(key);var candidates=definitions.Where(item=>item.SourceTableId==source.Id&&item.CrossTableColumnId==control.Id&&item.CrossTableLevelKey==key&&item.TargetTableId==node.Id&&item.ValueColumnId==name.Id).Select(item=>item.CrossTablePageId);
+                // 当前定义携带完整控制列证明；直接层绑定与映射冲突时仍拒绝，不能以后值覆盖。
+                if(definition.CrossTableGlobalPages?.TryGetValue(key,out var mapped)==true)candidates=candidates.Append(mapped);var pages=candidates.Where(value=>value is not null).Distinct(StringComparer.Ordinal).ToArray();
                 if(pages.Length!=1||string.IsNullOrWhiteSpace(pages[0]))throw new InvalidOperationException("全局跨表缓存缺少唯一冻结目标页。");
                 var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pages[0])??throw new InvalidOperationException("全局跨表缓存目标页未发布。");GlobalCrossTableTarget.Require(catalog,node,page);
                 if(!GlobalPhysicalRelationValue.IsScalar(storage,node,name))throw new InvalidOperationException("全局跨表名称必须为非凭据物理标量。");
@@ -37,6 +40,7 @@ internal static class CrossTableCacheProof
             if(key==definition.CrossTableLevelKey){if(foreign.Id!=control.Id&&foreign.ControlKind.Length>0||foreign.ColumnName!=prefix+"_id"||cache.ColumnName!=prefix+"_name"||target.Id!=node.Id||value.Id!=name.Id)throw new InvalidOperationException("跨表名称缓存字段与固定层声明不一致。");found=true;}
             previous=node;last=prefix;
         }
+        if(definition.CrossTableGlobalPages is{} complete&&!globalKeys.SetEquals(complete.Keys))throw new InvalidOperationException("共享全局层页映射必须完整且仅含当前控制列的全局层。");
         if(!found||control.ColumnName!=last+"_id")throw new InvalidOperationException("跨表名称缓存层位或末级列不匹配。");return true;
     }
     /// <summary>重复JSON键不可依赖后值覆盖。</summary>
