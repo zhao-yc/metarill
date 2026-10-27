@@ -41,6 +41,10 @@ public sealed class PlatformTools
     public static Task<ProjectSchemaCatalog> Catalog(JsonElement data, ProjectSchemaInspectionBusiness inspection, CancellationToken token) =>
         inspection.CatalogAsync(data, token);
 
+    [McpServerTool(Name="preview_database_metadata_import", ReadOnly=true), Description("只读检查当前项目未登记表并生成逻辑元数据草案与缺口；符号ID不是配置ID，canImport=false；不保存元数据、不补字段或页面、不执行DDL。")]
+    public static Task<ProjectSchemaImportPreview> PreviewImport(JsonElement data, ProjectSchemaInspectionBusiness inspection, CancellationToken token) =>
+        inspection.PreviewImportAsync(data, token);
+
     [McpServerTool(Name="call_generated_page",ReadOnly=false),Description("调用已发布页的强类型服务。operation 为 list/detail/create/update/delete/copy；写操作必须明确 confirmed=true。字段遵循生成 DTO，省略保持，null 清空。")]
     public static async Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,MetadataRegistry registry,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)
     {

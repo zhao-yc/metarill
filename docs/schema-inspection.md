@@ -64,3 +64,8 @@ Remove-Item Env:METARILL_LOGIN_STATE_ID
 ## 部署者跟进
 
 没有数据库结构、元数据或旧数据迁移。平台后端按既有部署流程更新并重启，CLI需重新编译；MCP客户端重新发现工具即可。已有独立应用可继续使用原固定 `--schema-inspect`，本次平台CLI不要求修改原页面。下发同版基础设施时沿原 `sync-runtime` 同步Data源文件，不能只复制新增partial文件而遗漏SchemaService的partial声明。此次仅提交源码与文档，未部署生产或合入main。
+
+
+## A11后续：未登记表的只读逻辑草案
+
+`schema import-preview`、HTTP `/api/admin/sys/database/import/preview` 和MCP `preview_database_metadata_import` 已补齐源结构到逻辑草案的第一阶段；固定canImport:false，符号ID不能保存。具体持锁、类型缺口、实际验证及尚缺的确认/事务保存见[反向逻辑草案](schema-import-draft.md)。这不改变A10的受管inspect/catalog合同，也不代表A11已完成。

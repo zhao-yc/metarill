@@ -17,4 +17,8 @@ public sealed class SchemaInspectionController(ProjectSchemaInspectionBusiness b
     [HttpPost("/api/admin/sys/database/catalog"), RequestSizeLimit(4096)]
     public async Task<R<ProjectSchemaCatalog>> Catalog([FromBody] JsonElement request, CancellationToken token) =>
         R<ProjectSchemaCatalog>.Success(await business.CatalogAsync(request, token));
+    /// <summary>未登记表的反向逻辑草案只读预览；不能提交为DDL或元数据保存计划。</summary>
+    [HttpPost("/api/admin/sys/database/import/preview"), RequestSizeLimit(16384)]
+    public async Task<R<ProjectSchemaImportPreview>> PreviewImport([FromBody] JsonElement request, CancellationToken token) =>
+        R<ProjectSchemaImportPreview>.Success(await business.PreviewImportAsync(request, token));
 }

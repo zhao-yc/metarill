@@ -61,6 +61,7 @@ pwsh -NoProfile -File scripts/dev.ps1 stop
 - [前后端契约](docs/integration-contracts.md)
 - [索引聚合配置及限制](docs/index-workbench.md)
 - [平台只读CLI与数据库目录](docs/schema-inspection.md)
+- [数据库反向逻辑草案（导入保存尚未完成）](docs/schema-import-draft.md)
 - [来源与脱敏基线](docs/source-baseline.md)
 - [前端许可清单](frontend/metarill_uni_admin/THIRD-PARTY-NOTICES.md)
 - [Agent CLI](tools/metarill-agent-cli/README.md)

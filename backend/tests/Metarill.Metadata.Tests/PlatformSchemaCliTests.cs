@@ -121,6 +121,38 @@ public sealed class PlatformSchemaCliTests
         await PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, TextWriter.Null);
     }
 
+    /// <summary>草案命令只提交明确表名列表，且成功响应必须保留不可导入和符号ID标记。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Import_preview_uses_fixed_route_and_rejects_import_authority(bool forged)
+    {
+        var handler = new Handler(async request =>
+        {
+            Assert.EndsWith("/api/admin/sys/database/import/preview", request.RequestUri!.AbsoluteUri);
+            Assert.Equal("{\"tableNames\":[\"first_table\",\"second_table\"]}", await request.Content!.ReadAsStringAsync());
+            return new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { code = 200, data = new { projectId = "123", executable = false, canImport = forged, draft = new { usesDraftIdentifiers = true } } })) };
+        });
+        using var client = new HttpClient(handler); using var output = new StringWriter(); var args = Args("--tables", "first_table,second_table"); args[1] = "import-preview";
+        if (forged) { await Assert.ThrowsAsync<InvalidOperationException>(() => PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, output)); Assert.Equal("", output.ToString()); }
+        else await PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, output);
+        Assert.Equal(1, handler.Count);
+    }
+
+    /// <summary>草案参数不能与旧受管表选择互换，SQL/跨库名称及重复表名先于请求拒绝。</summary>
+    [Theory]
+    [InlineData("first,first")]
+    [InlineData("first,FIRST")]
+    [InlineData("other_database.table")]
+    [InlineData("table;DROP TABLE other")]
+    [InlineData("")]
+    public async Task Invalid_import_preview_selections_are_rejected_locally(string tables)
+    {
+        var handler = new Handler(_ => throw new InvalidOperationException("不应发请求")); using var client = new HttpClient(handler);
+        var args = Args("--tables", tables); args[1] = "import-preview";
+        await Assert.ThrowsAsync<ArgumentException>(() => PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, TextWriter.Null)); Assert.Equal(0, handler.Count);
+    }
+
     /// <summary>显式不提供长度头，避免MemoryStream的可计算长度使测试只覆盖预检查。</summary>
     private sealed class UnknownLengthContent(byte[] bytes) : HttpContent
     {

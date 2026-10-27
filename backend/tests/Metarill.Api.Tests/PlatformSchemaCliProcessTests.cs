@@ -82,10 +82,10 @@ public sealed partial class ApiAcceptanceTests
     }
 
     /// <summary>只通过子进程私有环境传会话；参数不拼shell，超时只终止本测试拥有的进程。</summary>
-    private static async Task<(int Code, string Output, string Error)> RunPlatformSchemaCli(string address, string command, string project, string session)
+    private static async Task<(int Code, string Output, string Error)> RunPlatformSchemaCli(string address, string command, string project, string session, params string[] extra)
     {
         var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
-        foreach (var argument in new[] { typeof(PlatformSchemaCommand).Assembly.Location, "schema", command, "--server", address, "--project-id", project, "--token-env", "METARILL_CLI_TEST_SESSION" }) info.ArgumentList.Add(argument);
+        foreach (var argument in new[] { typeof(PlatformSchemaCommand).Assembly.Location, "schema", command, "--server", address, "--project-id", project, "--token-env", "METARILL_CLI_TEST_SESSION" }.Concat(extra)) info.ArgumentList.Add(argument);
         info.Environment["METARILL_CLI_TEST_SESSION"] = session;
         using var process = Process.Start(info)!;
         var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();

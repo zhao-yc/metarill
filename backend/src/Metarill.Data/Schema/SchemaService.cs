@@ -133,22 +133,23 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
         return uuid + ":" + database;
     }
 
-    private async Task<DatabaseSchema> ReadSchemaAsync(DbConnection connection, IReadOnlyList<string> managedTables, CancellationToken token)
+    private async Task<DatabaseSchema> ReadSchemaAsync(DbConnection connection, IReadOnlyList<string> managedTables, CancellationToken token, DbTransaction? transaction = null)
     {
         var tables = new List<TableSchema>();
         foreach (var name in managedTables.OrderBy(n => n, StringComparer.Ordinal))
         {
             MetadataValidation.RequireIdentifier(name);
-            var tableKind = Convert.ToString(await ScalarAsync(connection,
+            var tableKind = Convert.ToString(await ScalarInTransactionAsync(connection, transaction,
                 "SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @table", token, ("@table", name)), CultureInfo.InvariantCulture);
             if (string.IsNullOrEmpty(tableKind)) continue;
             if (tableKind != "BASE TABLE") throw new InvalidOperationException("实体表名称被视图占用，禁止覆盖。");
-            var engine = Convert.ToString(await ScalarAsync(connection,
+            var engine = Convert.ToString(await ScalarInTransactionAsync(connection, transaction,
                 "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @table", token, ("@table", name)), CultureInfo.InvariantCulture);
             if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("受管辖表必须使用 InnoDB，以保证业务事务。");
             var columns = new List<ColumnSchema>();
             await using (var command = connection.CreateCommand())
             {
+                command.Transaction = transaction;
                 command.CommandText = "SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table ORDER BY ORDINAL_POSITION";
                 AddParameters(command, [("@table", name)]);
                 await using var reader = await command.ExecuteReaderAsync(token);
@@ -167,6 +168,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
             var indexes = new List<IndexSchema>();
             await using (var indexCommand = connection.CreateCommand())
             {
+                indexCommand.Transaction = transaction;
                 indexCommand.CommandText = "SELECT INDEX_NAME,NON_UNIQUE,COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table AND INDEX_NAME <> 'PRIMARY' ORDER BY INDEX_NAME,SEQ_IN_INDEX";
                 AddParameters(indexCommand, [("@table", name)]);
                 await using var indexReader = await indexCommand.ExecuteReaderAsync(token);
@@ -180,6 +182,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                 indexes.AddRange(rows.GroupBy(r => r.Name).Select(g => new IndexSchema(g.Key, g.First().Unique, g.Select(r => r.Column).ToArray())));
             }
             await using var ddlCommand = connection.CreateCommand();
+            ddlCommand.Transaction = transaction;
             ddlCommand.CommandText = "SHOW CREATE TABLE " + MySqlSchemaPlanner.Quote(name);
             await using var ddlReader = await ddlCommand.ExecuteReaderAsync(token);
             if (!await ddlReader.ReadAsync(token)) throw new InvalidOperationException("结构反查期间表发生变化。");
@@ -200,8 +203,12 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
     private string LockName() => "metarill:schema:" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(session.Options.ExpectedDatabase)))[..32];
     private static string Sign(SchemaChangePlan plan) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(plan)));
     private static async Task<object?> ScalarAsync(DbConnection connection, string sql, CancellationToken token, params (string, object)[] parameters)
+        => await ScalarInTransactionAsync(connection, null, sql, token, parameters);
+    /// <summary>反向检查的元信息查询加入已持有MDL的只读流程，其他调用保持原无事务行为。</summary>
+    private static async Task<object?> ScalarInTransactionAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken token, params (string, object)[] parameters)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = sql;
         AddParameters(command, parameters);
         return await command.ExecuteScalarAsync(token);

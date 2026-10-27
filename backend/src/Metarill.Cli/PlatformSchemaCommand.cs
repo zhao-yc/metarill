@@ -35,18 +35,26 @@ internal static class PlatformSchemaCommand
     /// <summary>参数先完整校验再发请求；项目选择必须由服务器再次认证，不能等价于授权。</summary>
     internal static async Task ExecuteAsync(string[] args, HttpClient client, Func<string, string?> environment, TextWriter output, CancellationToken token = default)
     {
-        if (args.Length < 2 || args[0] != "schema" || args[1] is not ("inspect" or "catalog")) throw new ArgumentException("结构子命令必须是schema inspect或schema catalog。");
+        if (args.Length < 2 || args[0] != "schema" || args[1] is not ("inspect" or "catalog" or "import-preview")) throw new ArgumentException("结构子命令必须是schema inspect、schema catalog或schema import-preview。");
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var index = 2; index < args.Length; index += 2)
         {
             if (index + 1 >= args.Length || args[index + 1].StartsWith("--", StringComparison.Ordinal) ||
-                args[index] is not ("--server" or "--project-id" or "--table-id" or "--token-env") || !options.TryAdd(args[index], args[index + 1]))
+                args[index] is not ("--server" or "--project-id" or "--table-id" or "--token-env" or "--tables") || !options.TryAdd(args[index], args[index + 1]))
                 throw new ArgumentException("结构命令参数未知、重复或缺值；会话不能直接放入命令行。");
         }
         if (!options.TryGetValue("--server", out var server) || !options.TryGetValue("--project-id", out var project) ||
-            args[1] == "catalog" && options.ContainsKey("--table-id")) throw new ArgumentException("必须指定--server和--project-id；catalog不接受--table-id。");
+            args[1] != "inspect" && options.ContainsKey("--table-id") ||
+            args[1] != "import-preview" && options.ContainsKey("--tables") || args[1] == "import-preview" && !options.ContainsKey("--tables")) throw new ArgumentException("必须指定--server和--project-id；只有inspect接受--table-id，只有import-preview接受并要求--tables。");
         RequireId(project);
         if (options.TryGetValue("--table-id", out var table)) RequireId(table);
+        string[]? names = null;
+        if (options.TryGetValue("--tables", out var supplied))
+        {
+            names = supplied.Split(',');
+            if (names.Length is < 1 or > 16 || names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Length || names.Any(name => !Regex.IsMatch(name, "^[A-Za-z_][A-Za-z0-9_]{0,63}$", RegexOptions.CultureInvariant)))
+                throw new ArgumentException("--tables要求1至16个逗号分隔、不重复的规范物理表名。");
+        }
         var endpoint = Endpoint(server, args[1]);
         var variable = options.GetValueOrDefault("--token-env", "METARILL_LOGIN_STATE_ID");
         if (!Regex.IsMatch(variable, "^[A-Za-z_][A-Za-z0-9_]{0,127}$", RegexOptions.CultureInvariant)) throw new ArgumentException("会话环境变量名无效。");
@@ -56,7 +64,7 @@ internal static class PlatformSchemaCommand
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Add("loginStateId", session);
         request.Headers.Add("sysParams", Uri.EscapeDataString(JsonSerializer.Serialize(new { yzProjectId = project })));
-        request.Content = JsonContent.Create(table is null ? new Dictionary<string, string>() : new() { ["tableId"] = table });
+        request.Content = JsonContent.Create(names is not null ? new Dictionary<string, object> { ["tableNames"] = names } : table is null ? new Dictionary<string, object>() : new() { ["tableId"] = table });
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > ResponseLimit) throw new InvalidOperationException("平台查询未成功。");
         await using var body = await response.Content.ReadAsStreamAsync(token);
@@ -76,6 +84,9 @@ internal static class PlatformSchemaCommand
             !data.TryGetProperty("projectId", out var actual) || actual.ValueKind != JsonValueKind.String || actual.GetString() != project ||
             !data.TryGetProperty("executable", out var executable) || executable.ValueKind != JsonValueKind.False)
             throw new InvalidOperationException("平台查询响应与只读项目协议不符。");
+        if (args[1] == "import-preview" && (!data.TryGetProperty("canImport", out var canImport) || canImport.ValueKind != JsonValueKind.False ||
+            !data.TryGetProperty("draft", out var draft) || draft.ValueKind != JsonValueKind.Object || !draft.TryGetProperty("usesDraftIdentifiers", out var symbolic) || symbolic.ValueKind != JsonValueKind.True))
+            throw new InvalidOperationException("逻辑草案不能授予导入权限或冒充真实配置ID。");
         await output.WriteLineAsync(data.GetRawText().AsMemory(), token);
     }
 
@@ -93,6 +104,6 @@ internal static class PlatformSchemaCommand
             uri.AbsolutePath is not ("/" or "/api" or "/api/") ||
             uri.Scheme != "https" && (uri.Scheme != "http" || !(uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address) && IPAddress.IsLoopback(address))))
             throw new ArgumentException("--server须为HTTPS服务地址；仅回环地址允许HTTP，路径只接受/或/api。");
-        return new Uri(uri, "/api/admin/sys/database/" + command);
+        return new Uri(uri, "/api/admin/sys/database/" + (command == "import-preview" ? "import/preview" : command));
     }
 }
