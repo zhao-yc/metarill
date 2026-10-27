@@ -44,13 +44,22 @@ public sealed partial class MetadataRepository(SqlRowStore store, MetadataRegist
             await store.InsertAsync(table,values,cancellationToken);
         }
     }
-    public async Task<MetadataCatalog> LoadProjectAsync(string projectId,CancellationToken cancellationToken=default)
+    public Task<MetadataCatalog> LoadProjectAsync(string projectId,CancellationToken cancellationToken=default) => LoadProjectCoreAsync(projectId,false,cancellationToken);
+    /// <summary>导入的版本复核使用锁后当前读，不继承安全锁发现阶段可能已建立的旧RR快照。</summary>
+    internal Task<MetadataCatalog> LoadProjectForImportAsync(string projectId,CancellationToken cancellationToken=default)
+    {
+        if(store.Session.CurrentTransaction is null)throw new InvalidOperationException("导入元数据当前读必须加入配置事务。");
+        return LoadProjectCoreAsync(projectId,true,cancellationToken);
+    }
+    /// <summary>普通读取保持原行为，配置导入按相同目录投影使用当前锁读。</summary>
+    private async Task<MetadataCatalog> LoadProjectCoreAsync(string projectId,bool current,CancellationToken cancellationToken)
     {
         if(!long.TryParse(projectId,out var project))throw new InvalidOperationException("项目标识无效。");
         var filters=new Dictionary<string,object?>{{"yz_project_id",project}};
-        async Task<List<T>> Read<T>(string table)=> (await store.ReadAsync(table,filters,cancellationToken)).Select(DecodeRow<T>).ToList();
+        async Task<List<Dictionary<string,object?>>> Rows(string table,IReadOnlyDictionary<string,object?> selected)=>current?await store.ReadForUpdateAsync(table,selected,cancellationToken):await store.ReadAsync(table,selected,cancellationToken);
+        async Task<List<T>> Read<T>(string table)=> (await Rows(table,filters)).Select(DecodeRow<T>).ToList();
         // 项目名与主色必须来自同一项目的实际记录，不能把业务项目统一生成为默认名称/平台主题。
-        var projectRow=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",project}},cancellationToken)).SingleOrDefault();
+        var projectRow=(await Rows("yz_project",new Dictionary<string,object?>{{"id",project}})).SingleOrDefault();
         TemplateVersionCatalog.ValidateStoredProjectVersion(projectRow?.GetValueOrDefault("yz_yzp_version_id"));
         var projectName=projectRow is null?"":SqlRowStore.Text(projectRow,"name");
         var primaryColor=projectRow is null?"":SqlRowStore.Text(projectRow,"primary_color");

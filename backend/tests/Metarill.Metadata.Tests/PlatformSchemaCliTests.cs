@@ -153,6 +153,49 @@ public sealed class PlatformSchemaCliTests
         await Assert.ThrowsAsync<ArgumentException>(() => PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, TextWriter.Null)); Assert.Equal(0, handler.Count);
     }
 
+    /// <summary>准备、确认与查询分别使用固定入口；确认只能提交计划和摘要，不能夹带任意模型或SQL。</summary>
+    [Theory]
+    [InlineData("import-prepare")]
+    [InlineData("import-apply")]
+    [InlineData("import-status")]
+    public async Task Metadata_import_commands_use_explicit_plan_protocol(string command)
+    {
+        var plan = new string('a', 32); var confirm = new string('b', 64);
+        var handler = new Handler(async request =>
+        {
+            Assert.EndsWith("/api/admin/sys/database/import/" + command[7..], request.RequestUri!.AbsoluteUri);
+            var body = await request.Content!.ReadAsStringAsync();
+            Assert.Equal(command == "import-prepare" ? "{\"tableNames\":[\"first_table\"]}" : "{\"planId\":\"" + plan + "\",\"confirmSha256\":\"" + confirm + "\"}", body);
+            return new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new { code = 200, data = new { projectId = "123", executable = false, executesDdl = false, canSaveMetadata = true, planId = plan, confirmSha256 = confirm, configurationSaved = true, state = "saved" } })) };
+        });
+        using var client = new HttpClient(handler); var args = Args(command == "import-prepare" ? ["--tables", "first_table"] : ["--plan-id", plan, "--confirm", confirm]); args[1] = command;
+        await PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, TextWriter.Null); Assert.Equal(1, handler.Count);
+    }
+
+    /// <summary>错误摘要/错误范围在发请求前拒绝，不允许直接提供连接、SQL或待写元数据。</summary>
+    [Fact]
+    public async Task Metadata_apply_rejects_missing_or_mixed_scope_arguments()
+    {
+        var handler = new Handler(_ => throw new InvalidOperationException("不应发请求")); using var client = new HttpClient(handler);
+        foreach (var tail in new[] { new[] { "--plan-id", new string('a', 32) }, new[] { "--plan-id", "bad", "--confirm", new string('b', 64) }, new[] { "--plan-id", new string('a', 32), "--confirm", new string('b', 64), "--tables", "other_table" } })
+        { var args = Args(tail); args[1] = "import-apply"; await Assert.ThrowsAsync<ArgumentException>(() => PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, TextWriter.Null)); }
+        Assert.Equal(0, handler.Count);
+    }
+
+    /// <summary>跨计划回执或把未知写成未保存必须拒绝，不能给重试提供错误证据。</summary>
+    [Theory]
+    [InlineData("import-apply", "other-plan", "saved", true)]
+    [InlineData("import-status", "other-plan", "unknown", null)]
+    [InlineData("import-status", "same-plan", "unknown", false)]
+    [InlineData("import-status", "same-plan", "saved", null)]
+    public async Task Metadata_receipt_cannot_change_plan_or_claim_unknown_as_not_saved(string command, string planKind, string state, bool? configurationSaved)
+    {
+        var plan = new string('a', 32); var handler = new Handler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent(JsonSerializer.Serialize(new { code = 200, data = new { projectId = "123", executable = false, executesDdl = false, planId = planKind == "same-plan" ? plan : new string('b', 32), state, configurationSaved } })) }));
+        using var client = new HttpClient(handler); using var output = new StringWriter(); var args = Args("--plan-id", plan, "--confirm", new string('b', 64)); args[1] = command;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => PlatformSchemaCommand.ExecuteAsync(args, client, _ => Session, output)); Assert.Equal("", output.ToString()); Assert.Equal(1, handler.Count);
+    }
+
     /// <summary>显式不提供长度头，避免MemoryStream的可计算长度使测试只覆盖预检查。</summary>
     private sealed class UnknownLengthContent(byte[] bytes) : HttpContent
     {

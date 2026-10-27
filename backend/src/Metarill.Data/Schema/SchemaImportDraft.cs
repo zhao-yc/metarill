@@ -91,6 +91,9 @@ public static class SchemaImportDraftCompiler
             column.ColumnType = type switch { "tinyint(1)" => "tinyint", "datetime(6)" => "datetime", "time(6)" => "time", _ => type };
             if (type is "text" or "longtext") column.ColumnLength = type;
         }
+        // 配置物理类型沿用原词表；真实varbinary/longblob及长度由逻辑类型编译，不能伪造SQL字段。
+        if (column.LogicalType == "binary") column.ColumnType = "blob";
+        MetadataColumnTypePolicy.Resolve(column.ColumnName, column.LogicalType, column.ColumnType, true, true, true);
         if (column.LogicalType == "decimal" && column.Precision > 28) throw new NotSupportedException("当前C# decimal不能无损覆盖超过28位精度的全部数值范围。");
         if (source.DefaultSql is { } value)
         {

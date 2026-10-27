@@ -45,6 +45,14 @@ public sealed class PlatformTools
     public static Task<ProjectSchemaImportPreview> PreviewImport(JsonElement data, ProjectSchemaInspectionBusiness inspection, CancellationToken token) =>
         inspection.PreviewImportAsync(data, token);
 
+    [McpServerTool(Name="prepare_database_metadata_import", ReadOnly=true), Description("建立当前项目表/字段/索引配置的审核计划，不保存、不DDL、不建页面；后续必须明确确认摘要。仅真实Web平台管理员。")]
+    public static Task<SchemaMetadataImportPlan> PrepareMetadataImport(JsonElement data, SchemaMetadataImportBusiness import, CancellationToken token) => import.PrepareAsync(data, token);
+    [McpServerTool(Name="apply_database_metadata_import", ReadOnly=false), Description("明确确认服务端计划，只在原配置事务保存表/字段/索引；confirmed必须true，不DDL、不写源业务数据、不建页面。")]
+    public static Task<SchemaMetadataImportResult> ApplyMetadataImport(JsonElement data, bool confirmed, SchemaMetadataImportBusiness import, CancellationToken token)
+    { if (!confirmed) throw new InvalidOperationException("配置导入必须明确确认已审核的计划。"); return import.ApplyAsync(data, token); }
+    [McpServerTool(Name="get_database_metadata_import_status", ReadOnly=true), Description("只读查询同身份同摘要的有限配置回执；unknown不能表示未写入，不得自动重复应用。")]
+    public static Task<SchemaMetadataImportStatus> MetadataImportStatus(JsonElement data, SchemaMetadataImportBusiness import, CancellationToken token) => import.StatusAsync(data, token);
+
     [McpServerTool(Name="call_generated_page",ReadOnly=false),Description("调用已发布页的强类型服务。operation 为 list/detail/create/update/delete/copy；写操作必须明确 confirmed=true。字段遵循生成 DTO，省略保持，null 清空。")]
     public static async Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,MetadataRegistry registry,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)
     {

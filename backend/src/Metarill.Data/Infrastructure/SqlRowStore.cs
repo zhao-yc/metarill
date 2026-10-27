@@ -25,6 +25,14 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");
         return ReadInternalAsync("yz_manager",new Dictionary<string,object?>{{"name",name}},true,cancellationToken,true);
     }
+    /// <summary>反向导入归属当前读包含墓碑；RR下锁整个配置表范围，兼容非协作新增及不同名称排序规则，防止空集幻影。</summary>
+    public async Task<IReadOnlyList<Dictionary<string,object?>>> ReadTableReservationsForImportAsync(CancellationToken token = default)
+    {
+        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("导入归属当前读必须在配置事务内。");
+        await session.Provider.EnsureReadSnapshotAsync(transaction, token);
+        // 配置写属于管理低频入口；选择完整范围锁，不依赖未知索引/排序规则证明不存在。
+        return await ReadInternalAsync("config_table", null, true, token, true);
+    }
     public Task<List<Dictionary<string,object?>>> ReadForUpdateAsync(string table,IReadOnlyDictionary<string,object?> filters,CancellationToken cancellationToken=default)
     {
         if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");

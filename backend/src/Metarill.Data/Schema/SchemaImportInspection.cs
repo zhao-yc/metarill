@@ -6,7 +6,7 @@ namespace Metarill.Data.Schema;
 
 /// <summary>位置和原因均来自适配器；不会将未表达的结构特征静默转换为普通列或索引。</summary>
 public sealed record SchemaImportIssue(string Table, string? Member, string Code, string Message);
-public sealed record SchemaImportInspection(SchemaInspectionSnapshot Snapshot, IReadOnlyList<SchemaImportIssue> Issues, bool CaseSensitiveNames = true);
+public sealed record SchemaImportInspection(SchemaInspectionSnapshot Snapshot, IReadOnlyList<SchemaImportIssue> Issues, bool CaseSensitiveNames = true, DatabaseTargetIdentity? Target = null);
 
 public sealed partial class SchemaService
 {
@@ -24,7 +24,7 @@ public sealed partial class SchemaService
         EnsureMySql();
         await using var connection = session.Provider.CreateConnection(session.Options);
         await connection.OpenAsync(token);
-        await ValidateTargetAsync(connection, token);
+        var identity = await ValidateTargetAsync(connection, token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
         try
         {
@@ -51,7 +51,7 @@ public sealed partial class SchemaService
                 throw new InvalidOperationException("源DDL快照超过2 MiB预算，未生成截断模型。");
             var issues = new List<SchemaImportIssue>();
             foreach (var name in names.Order(StringComparer.Ordinal)) await ReadImportFeaturesAsync(connection, transaction, name, issues, token);
-            var result = await inspect(new(new(session.Provider.Name, schema, MySqlSchemaPlanner.Fingerprint(schema)), issues.Distinct().ToArray(), caseMode == 0), token);
+            var result = await inspect(new(new(session.Provider.Name, schema, MySqlSchemaPlanner.Fingerprint(schema)), issues.Distinct().ToArray(), caseMode == 0, TargetIdentity(identity, caseMode)), token);
             await transaction.CommitAsync(token);
             return result;
         }

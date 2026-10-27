@@ -72,6 +72,8 @@ builder.Services.AddScoped<RolePermissionBusiness>();
 builder.Services.AddRealmWriteCoordination();
 builder.Services.AddScoped<ConfigurationCandidatesBusiness>();
 builder.Services.AddScoped<ProjectSchemaInspectionBusiness>();
+builder.Services.AddSingleton<SchemaMetadataImportPlans>();
+builder.Services.AddScoped<SchemaMetadataImportBusiness>();
 builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver>();
 builder.Services.AddScoped<ConfigurationMutationObserver>();
 builder.Services.AddScoped<MetadataWorkbenchBusiness>();

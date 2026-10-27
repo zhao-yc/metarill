@@ -87,4 +87,13 @@ public sealed class SchemaImportDraftTests
             await Assert.ThrowsAnyAsync<ArgumentException>(() => service.InspectForImportAsync(names));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.InspectForImportAsync(["x;DROP TABLE users"]));
     }
+    /// <summary>草案还须满足既有元数据ID/排序词表，不得在保存时才强制扩大源字段类型。</summary>
+    [Theory]
+    [InlineData("parent_id", "int")]
+    [InlineData("sort_no", "bigint")]
+    public void Configuration_type_rules_are_checked_without_widening_source(string name, string type)
+    {
+        var draft = SchemaImportDraftCompiler.Compile(Source(new(name, type, true)), "123");
+        Assert.False(draft.ColumnsAndIndexesRepresentable); Assert.Contains(draft.Issues, issue => issue.Member == name && issue.Code == "COLUMN_UNREPRESENTABLE");
+    }
 }
