@@ -28,6 +28,7 @@ internal static class FileReferenceScope
             var result=new List<FileParentScope>();var globalParents=new List<ColumnMetadata>();var pending=new List<(ColumnMetadata Source,TableMetadata Parent,ColumnMetadata? Project,bool Deleted)>();var crosses=new List<FileCrossParentScope>();var constants=new List<FixedConditionTerm>();
             var columns=MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns;
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+            var redundant=RedundantSharedParents.Compile(catalog,table.Id,page.Id);
             foreach(var term in syntax.Terms)
             {
                 var column=columns.Single(candidate=>candidate.ColumnName==term.Field);
@@ -46,6 +47,7 @@ internal static class FileReferenceScope
                 if(!project&&!variable.Equals("parent_id",StringComparison.OrdinalIgnoreCase)&&!variable.Equals("parentId",StringComparison.OrdinalIgnoreCase))throw Unsupported();
                 if((column.ColumnName=="yz_project_id")!=project||!IdentityType(column.LogicalType))throw Unsupported();
                 if(project)continue;
+                if(redundant.TryGetValue(column.Id,out var physicalParent)){crosses.Add(new FileCrossParentScope(physicalParent));continue;}
                 if(FileCrossParentScope.Compile(catalog,table,page,column) is{} cross){crosses.Add(cross);continue;}
                 var parents=catalog.ConfigTables.Where(candidate=>!string.IsNullOrWhiteSpace(column.LinkConfigTableId)?candidate.Id==column.LinkConfigTableId:candidate.TableName+"_id"==column.ColumnName).ToArray();
                 if(parents.Length!=1||parents[0].IsFunctionTable!=0||parents[0].IsView!=0)throw Unsupported();

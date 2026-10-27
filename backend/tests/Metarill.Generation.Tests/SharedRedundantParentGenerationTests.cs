@@ -37,10 +37,10 @@ public sealed class SharedRedundantParentGenerationTests
     {
         var catalog=Catalog("r1_name_parent","string","int64",false,0,false);var name=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId=="2"&&column.ColumnName=="country_name");if(name is null){name=new(){Id="1099",YzProjectId=catalog.YzProjectId,ConfigTableId="2",ColumnName="country_name",LogicalType="string"};catalog.ConfigColumns.Add(name);}name.LinkConfigTableId="3";var source=catalog.ConfigPages.Single(page=>page.Id=="202");source.WhereSql=source.WhereSql.Replace("country_id=@parent_id","country_name=@parent_id",StringComparison.Ordinal);var model=GenerationModel.Create(catalog,"Example.R1NameParent");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single(page=>page.Source.Id=="202");Assert.True(table.Columns.Single(column=>column.Source.Id==name.Id).IsManagedCascadeName);Assert.Throws<NotSupportedException>(()=>SharedRedundantParentCompilation.Require(model,table,page));
     }
-    /// <summary>文件组合尚未接线，不能因后端父验证通过就让完整包提前宣布支持。</summary>
-    [Fact]public void File_parent_full_use_stays_explicit_until_runtime_acceptance()
+    /// <summary>文件完整用途必须同时通过生成能力与公共运行时固定元数据证明。</summary>
+    [Fact]public void File_parent_full_use_requires_frozen_common_plan()
     {
-        var catalog=Catalog("shared_parent","string","int64",false,1,true,true);var model=GenerationModel.Create(catalog,"Example.SharedR1ParentFiles");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason.Contains("R1共享来源父范围的文件",StringComparison.Ordinal));
+        var catalog=Catalog("shared_parent","string","int64",false,1,true,true);var model=GenerationModel.Create(catalog,"Example.SharedR1ParentFiles");Assert.Empty(GenerationCapabilityAudit.Collect(model));Assert.Single(new Metarill.Runtime.Files.FileMetadataContext([catalog]).Catalogs);
     }
     /// <summary>同一原目录只改变来源存储声明，来源页、字段、菜单及目标链全部沿用原工厂。</summary>
     internal static Metarill.Core.Metadata.MetadataCatalog Catalog(string prefix,string type,string parent,bool shorter,int mask,bool noProject,bool files=false)

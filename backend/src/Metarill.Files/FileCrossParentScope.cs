@@ -6,17 +6,18 @@ using Metarill.Data.Queries;
 using Metarill.Runtime.Persistence;
 namespace Metarill.Runtime.Files;
 
-/// <summary>文件父范围只沿已锁来源的真实稀疏选择解析，不接收请求父值或伪造祖先列。</summary>
+/// <summary>文件父范围读取已锁来源的R0真实稀疏选择或R1实际物理父键，不接收请求伪造值。</summary>
 internal sealed class FileCrossParentScope
 {
     private sealed record Target(string Table,string PageId,string NameId,string? ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition);
     private readonly CrossTableSparseSelection? selection;
     private readonly FileSharedCrossParentScope? shared;
+    private readonly RedundantSharedParentPlan? redundant;
     private readonly Target[] targets;
     internal string SourceId{get;}
     internal int Level{get;}
     internal bool IsShared=>shared is not null;
-    internal IReadOnlyList<string> StorageNames=>shared?.StorageNames??selection!.Slots.Select(slot=>slot.ColumnName).ToArray();
+    internal IReadOnlyList<string> StorageNames=>redundant is not null?new[]{redundant.ColumnName}:shared?.StorageNames??selection!.Slots.Select(slot=>slot.ColumnName).ToArray();
     /// <summary>仅共享路径可为同页物理全局父提供等值证明；目标页和名称均须完全相同。</summary>
     internal bool CoversGlobalParent(string table,string page,string name)=>shared is not null&&shared.CoversTarget(StorageNames[Level],table,page,name);
     /// <summary>共享编译器只读取已冻结的分支目标身份，不重新解释目录。</summary>
@@ -25,6 +26,8 @@ internal sealed class FileCrossParentScope
     private FileCrossParentScope(string sourceId,int level,CrossTableSparseSelection selection,Target[] targets){SourceId=sourceId;Level=level;this.selection=selection;this.targets=targets;}
     /// <summary>共享包装器使用同一组身份与全局槽位，不能冒充某一条分支。</summary>
     internal FileCrossParentScope(string sourceId,int level,FileSharedCrossParentScope shared){SourceId=sourceId;Level=level;this.shared=shared;targets=[];}
+    /// <summary>R1只读取实际物理父键，目标路径在发布时冻结，不重新编码来源祖先。</summary>
+    internal FileCrossParentScope(RedundantSharedParentPlan plan){redundant=plan;SourceId="r1:"+plan.ColumnId;Level=plan.Levels.Count-1;targets=plan.Levels.Select(level=>new Target(level.TableName,level.PageId,level.NameId,level.ProjectType,level.SoftDelete,level.Parent,level.Condition)).ToArray();}
     /// <summary>只有普通R0固定跨表的ID位可取得逻辑父证明，selfTree及普通外键继续原边界。</summary>
     internal static FileCrossParentScope? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column)
     {
@@ -85,7 +88,7 @@ internal sealed class FileCrossParentScope
     /// <summary>只读使用同一快照，写入及删除复用原事务FOR UPDATE，值与元数据标识符分别处理。</summary>
     internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,long project,bool locking,CancellationToken token)
     {
-        token.ThrowIfCancellationRequested();if(shared is not null)return await shared.PathAsync(store,record,project,locking,token);var selected=ReadSelection(record);if(selected is null)throw new UnauthorizedAccessException("文件来源没有真实跨表父选择。");
+        token.ThrowIfCancellationRequested();if(shared is not null)return await shared.PathAsync(store,record,project,locking,token);var selected=redundant is null?ReadSelection(record):new CrossTableSelectedNode(Level,ReadPhysicalParent(record));if(selected is null)throw new UnauthorizedAccessException("文件来源没有真实跨表父选择。");
         var session=store.Session;var transaction=session.CurrentTransaction;if(locking&&transaction is null)throw new InvalidOperationException("文件逻辑父锁必须加入原事务。");
         await using var owned=transaction is null?session.Provider.CreateConnection(session.Options):null;var connection=transaction?.Connection??owned??throw new InvalidOperationException("文件父路径连接不可用。");if(owned is not null)await owned.OpenAsync(token);
         var result=new long[selected.Level+1];var current=selected.Id;
@@ -100,6 +103,11 @@ internal sealed class FileCrossParentScope
             if(index>0){var value=await reader.IsDBNullAsync(1,token)?null:Convert.ToString(reader.GetValue(1),CultureInfo.InvariantCulture);if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out current)||current<=0||value!=current.ToString(CultureInfo.InvariantCulture))throw new UnauthorizedAccessException("文件跨表实际父键无效。");}
         }
         return result;
+    }
+    /// <summary>实际列值必须符合声明的数据库标量类型，拒绝浮点、前导零或空白转换。</summary>
+    private long ReadPhysicalParent(IReadOnlyDictionary<string,object?> record)
+    {
+        if(redundant is null||!record.TryGetValue(redundant.ColumnName,out var value)||redundant.LogicalType=="string"&&value is not string||redundant.LogicalType=="int64"&&value is not long)throw new UnauthorizedAccessException("实际R1物理父键类型无效。");return FileReferenceScope.CanonicalId(value);
     }
     /// <summary>仅转换编码器的纯存储异常，数据库与连接异常必须向上传播。</summary>
     private CrossTableSelectedNode? ReadSelection(IReadOnlyDictionary<string,object?> record)

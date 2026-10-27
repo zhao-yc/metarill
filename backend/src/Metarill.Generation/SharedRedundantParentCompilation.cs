@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using Metarill.Data.Queries;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -11,6 +14,7 @@ internal sealed record SharedRedundantParentPath(CrossTableReadModel Read,int In
 /// <summary>R1来源父范围使用已持久化的物理父键，共享目标链只证明真实父记录的固定可见范围。</summary>
 internal static class SharedRedundantParentCompilation
 {
+    private static readonly ConditionalWeakTable<GenerationModel,ConcurrentDictionary<(string,string),IReadOnlyDictionary<string,RedundantSharedParentPlan>>> ParentPlans=new();
     /// <summary>不改变普通单控件、R0、自参与及精确权限的既有边界。</summary>
     internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu==1&&page.Scopes.Any(scope=>scope.Source=="parent")&&SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0;
     /// <summary>同一物理父键只能指向一个已冻结目标角色，不能从不同页或名字借用证明。</summary>
@@ -32,14 +36,22 @@ internal static class SharedRedundantParentCompilation
     {
         if(!Enabled(model,table,page)||table.IsGlobal||ExactDataManageCompilation.Declared(page)||table.Source.YzProjectId!=model.Catalog.YzProjectId||page.Source.YzProjectId!=model.Catalog.YzProjectId||!model.Catalog.YzAdminTypes.Any(admin=>admin.Id==page.Source.YzAdminTypeId&&admin.YzProjectId==model.Catalog.YzProjectId))throw new NotSupportedException("R1共享父范围要求普通已发布来源及明确后台，精确权限另行证明。");
         var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source).PhysicalColumns;
+        var plans=ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page));
         foreach(var scope in page.Scopes.Where(scope=>scope.Source=="parent"))
         {
             // 范围在准备前建立，数组及缓存身份以准备后的同ID列为准。
             var prepared=table.Columns.Single(column=>column.Source.Id==scope.Column.Source.Id);
-            if(prepared.Type is not("string?" or "long?")||prepared.IsJsonArray||prepared.IsManagedCascadeName||!physical.Any(column=>column.Id==prepared.Source.Id))throw new NotSupportedException("R1父范围必须使用真实标量身份列。");if(ForColumn(model,table,page,prepared).Count>0)continue;
+            if(prepared.Type is not("string?" or "long?")||prepared.IsJsonArray||prepared.IsManagedCascadeName||!physical.Any(column=>column.Id==prepared.Source.Id))throw new NotSupportedException("R1父范围必须使用真实标量身份列。");var typed=ForColumn(model,table,page,prepared);if(typed.Count>0){if(!plans.TryGetValue(prepared.Source.Id,out var plan)||typed.Any(path=>!Matches(plan,path)))throw new NotSupportedException("生成及文件R1父定义不一致。");continue;}
             var parent=model.Tables.SingleOrDefault(parent=>!string.IsNullOrWhiteSpace(prepared.Source.LinkConfigTableId)?parent.Source.Id==prepared.Source.LinkConfigTableId:parent.Source.TableName+"_id"==prepared.Source.ColumnName);if(parent is null||parent.Source.Id==table.Source.Id||parent.IsGlobal||parent.Source.IsView!=0||parent.Source.IsFunctionTable!=0||parent.Source.YzProjectId!=model.Catalog.YzProjectId||!parent.Columns.Any(column=>column.Source.ColumnName=="id"&&column.Type=="long"&&NonRedundantReadCompilation.Physical(model,parent,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"))||!parent.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"&&(column.Type is "long?" or "string?")&&NonRedundantReadCompilation.Physical(model,parent,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")))throw new NotSupportedException("R1独立物理父缺少原项目身份，不能猜测全局范围。");
         }
     }
+    /// <summary>保持原生成器的不支持异常合同，公共编译器仍保留首因供诊断。</summary>
+    private static IReadOnlyDictionary<string,RedundantSharedParentPlan> CompileParents(GenerationModel model,TableModel table,PageModel page)
+    {
+        try{return RedundantSharedParents.Compile(model.Catalog,table.Source.Id,page.Source.Id);}catch(Exception invalid)when(invalid is InvalidOperationException or ArgumentException or JsonException){throw new NotSupportedException("R1公共父定义尚未通过完整证明。",invalid);}
+    }
+    /// <summary>公共元数据计划与生成器完整读取角色逐层一致，不能单独借用某个有效同伴。</summary>
+    private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName).All(value=>value);
     /// <summary>候选只验证来源父，目标候选自身的父上下文仍走原逻辑。</summary>
     internal static IReadOnlyList<SharedRedundantParentPath> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel target)=>page.Scopes.Where(scope=>scope.Source=="parent").SelectMany(scope=>ForColumn(model,table,page,scope.Column)).Where(path=>path.Level.Target.Source.Id==target.Source.Id).DistinctBy(Identity,StringComparer.Ordinal).ToArray();
     /// <summary>共享目标角色按完整祖先定义比较，重复表名不能合并两个角色。</summary>
