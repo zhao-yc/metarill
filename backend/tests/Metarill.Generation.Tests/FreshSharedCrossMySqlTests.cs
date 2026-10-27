@@ -31,7 +31,7 @@ public sealed partial class FreshSharedCrossMySqlTests
     private static async Task Exercise(string profile,string property,string suffix,int worker,Func<Probe,Task> seed,Func<Probe,Task> verify)
     {
         var options=FreshInstallConfiguration.Read(property,suffix);using var session=new DatabaseSession(options);using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));var run=settings.RootElement.GetProperty("RunId").GetString()!;await Pin(session,settings.RootElement.GetProperty("InstancePin"));Assert.Equal(0,await CountTables(session));
-        var root=NonRedundantApplicationFixture.Root();var evidence=Path.Combine(root,".local/shared-cross-fresh",run+"-"+suffix);Directory.CreateDirectory(evidence);var catalog=SharedCrossFreshCatalogTests.Catalog(profile);var expectedTables=catalog.ConfigTables.Count+9;var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-fresh");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var application=Path.Combine(directory,"application");var username="shared-owner-"+suffix;var password=Guid.NewGuid().ToString("N");FreshHost? host=null;Probe? p=null;Exception? primary=null;var stage="实际Full构建";var passed=false;
+        var root=NonRedundantApplicationFixture.Root();var evidence=Path.Combine(root,".local/shared-cross-fresh",run+"-"+suffix);Directory.CreateDirectory(evidence);var catalog=ScenarioCatalog(profile);var expectedTables=catalog.ConfigTables.Count+9;var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-fresh");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var application=Path.Combine(directory,"application");var username="shared-owner-"+suffix;var password=Guid.NewGuid().ToString("N");FreshHost? host=null;Probe? p=null;Exception? primary=null;var stage="实际Full构建";var passed=false;
         try
         {
             Assert.True(new ApplicationPackager().Create(catalog,application,"Example.SharedFresh",root).FrontendIncluded);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(application,operation);var hostDirectory=Path.Combine(application,"backend/Application.Host");
@@ -53,14 +53,14 @@ public sealed partial class FreshSharedCrossMySqlTests
         Task Receipt(string name,object value)=>File.WriteAllTextAsync(Path.Combine(evidence,name+".json"),JsonSerializer.Serialize(value,new JsonSerializerOptions{WriteIndented=true})+"\n");
     }
     /// <summary>只封装测试共享会话和标准HTTP；不改变实际宿主的认证、权限或业务组件。</summary>
-    private sealed class Probe(string profile,MetadataCatalog catalog,DatabaseSession session,SqlRowStore security,SqlRowStore files)
+    private sealed partial class Probe(string profile,MetadataCatalog catalog,DatabaseSession session,SqlRowStore security,SqlRowStore files)
     {
         internal readonly MetadataCatalog Catalog=catalog;internal readonly DatabaseSession Session=session;internal readonly SqlRowStore Store=new(session,catalog),Security=security,Files=files;internal readonly Dictionary<string,long> Permissions=new(StringComparer.Ordinal);internal HttpClient Owner=null!,Reader=null!;internal string RecordId="",Stage="";
-        internal readonly string Profile=profile;internal readonly string ParentType=SharedCrossFreshCatalogTests.Definition(profile).ParentType;
+        internal readonly string Profile=profile;internal readonly string ParentType=Scenario(profile).ParentType;
         internal bool Cached;
         internal readonly Dictionary<bool,string> RecordIds=new();
-        internal bool Shorter=>SharedCrossFreshCatalogTests.Definition(Profile).Shorter;
-        internal bool Derived=>SharedCrossFreshCatalogTests.Definition(Profile).Derived;
+        internal bool Shorter=>Scenario(Profile).Shorter;
+        internal bool Derived=>Scenario(Profile).Derived;
         internal string PrimaryControl=>Cached?"10025":"25";
         internal string WarehouseControl=>Cached?"10080":"80";
         internal string FileColumn=>Cached?"19001":"9001";

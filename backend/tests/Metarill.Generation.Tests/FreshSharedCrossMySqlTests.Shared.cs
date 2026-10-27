@@ -26,7 +26,9 @@ public sealed partial class FreshSharedCrossMySqlTests
             {
                 var row=Row("id",Node(role,group),"yz_project_id",group==3?Project+1:Project,"status",group==2?0:1);var name=new[]{"国","区","城","仓"}[role]+group;
                 if(p.Derived&&role<3){await p.Store.InsertAsync(Prefix+"_company",Row("id",Company(role,group),"name",name,"yz_project_id",group==3?Project+1:Project));row["company_id"]=Company(role,group);}else row["name"]=name;
-                if(role>0)row[Prefix+"_"+(role==1?"country":"area")+"_id"]=p.Parent(Node(role==1?0:1,group));await p.Store.InsertAsync(Prefix+"_"+roles[role],row);
+                if(role>0)row[Prefix+"_"+(role==1?"country":"area")+"_id"]=p.Parent(Node(role==1?0:1,group));
+                // 全局正常目标故意属于另一项目或根本没有项目列；普通层保留原项目反例。
+                if(p.Global(role)){if(p.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==p.Catalog.ConfigTables.Single(table=>table.TableName==Prefix+"_"+roles[role]).Id&&column.ColumnName=="yz_project_id"))row["yz_project_id"]=Project+20;else row.Remove("yz_project_id");}await p.Store.InsertAsync(Prefix+"_"+roles[role],row);
             }
             await p.Store.InsertAsync(Prefix+"_item",Row("id",Item(group),"name","候选"+group,"yz_project_id",Project,"country_id",Key(p,Node(0,group))));
         }
@@ -44,8 +46,10 @@ public sealed partial class FreshSharedCrossMySqlTests
         async Task<JsonElement> Update(Dictionary<string,object?> values,HttpStatusCode status=HttpStatusCode.OK){values["id"]=p.RecordId;return await p.Post("update",values,status);}
         async Task<JsonElement> Detail()=> (await p.Send(p.Reader,HttpMethod.Get,p.Route+"detail/"+p.RecordId)).GetProperty("data");
         async Task<Dictionary<string,object?>> Raw()=>Assert.Single(await p.Store.ReadAsync(p.Source,Row("id",long.Parse(p.RecordId,CultureInfo.InvariantCulture))));
-        var options=await p.Post("cascadeTreeOptions"+p.PrimaryControl,new{levelKey="country",selectedPath=new{}});Assert.Contains(options.EnumerateArray(),x=>x.GetProperty("id").GetString()==Id(Node(0)));foreach(var group in new[]{2,3})Assert.DoesNotContain(options.EnumerateArray(),x=>x.GetProperty("id").GetString()==Id(Node(0,group)));
-        Assert.Equal("国0/区0/仓0",(await p.Post("cascadeTreePath"+p.WarehouseControl,new{leafId=Id(Node(3))})).GetProperty("displayText").GetString());foreach(var group in new[]{2,3})await p.Post("cascadeTreePath"+p.WarehouseControl,new{leafId=Id(Node(3,group))},HttpStatusCode.InternalServerError);
+        var options=await p.Post("cascadeTreeOptions"+p.PrimaryControl,new{levelKey="country",selectedPath=new{}});Assert.Contains(options.EnumerateArray(),x=>x.GetProperty("id").GetString()==Id(Node(0)));Assert.DoesNotContain(options.EnumerateArray(),x=>x.GetProperty("id").GetString()==Id(Node(0,2)));Assert.Equal(p.Global(0),options.EnumerateArray().Any(x=>x.GetProperty("id").GetString()==Id(Node(0,3))));
+        Assert.Equal("国0/区0/仓0",(await p.Post("cascadeTreePath"+p.WarehouseControl,new{leafId=Id(Node(3))})).GetProperty("displayText").GetString());await p.Post("cascadeTreePath"+p.WarehouseControl,new{leafId=Id(Node(3,2))},HttpStatusCode.InternalServerError);
+        // 异项目物理值只在整条实际路径都明确全局时可读，混合普通层仍拒绝。
+        var foreignPathAllowed=p.Global(0)&&p.Global(1)&&p.Global(3);var foreignPath=await p.Post("cascadeTreePath"+p.WarehouseControl,new{leafId=Id(Node(3,3))},foreignPathAllowed?HttpStatusCode.OK:HttpStatusCode.InternalServerError);if(foreignPathAllowed)Assert.Equal("国3/区3/仓3",foreignPath.GetProperty("displayText").GetString());
         var bytes=Encoding.UTF8.GetBytes("共享正式来源"+p.Source);var file=await p.Upload(bytes);var create=Select(0);create["name"]="共享正式记录";create["aItemId"]=Id(Item(0));create["attachments"]=new[]{file};p.RecordId=(await p.Post("add",create)).GetProperty("id").GetString()!;await Storage(0,true,true);await p.References(file,1);await p.Download(file,bytes);
         await Update(JsonSerializer.Deserialize<Dictionary<string,object?>>((await Detail()).GetRawText())!);await Storage(0,true,true);var copied=(await p.Post("copy/"+p.RecordId,new{})).GetProperty("id").GetString()!;await p.References(file,2);
         // 回传未变化的旧叶不算主动新选择；另一分支换国家应成功并清旧下级。
@@ -99,5 +103,5 @@ public sealed partial class FreshSharedCrossMySqlTests
     /// <summary>只在本轮独占库执行精确故障约束，凭据不出现在SQL文本。</summary>
     private static async Task Sql(Probe p,string sql){await using var c=p.Session.Provider.CreateConnection(p.Session.Options);await c.OpenAsync();await using var command=c.CreateCommand();command.CommandText=sql;await command.ExecuteNonQueryAsync();}
     /// <summary>选中键和父键分别保留各自元数据类型。</summary>
-    private static object Key(Probe p,long id)=>SharedCrossFreshCatalogTests.Definition(p.Profile).Type=="string"?Id(id):id;
+    private static object Key(Probe p,long id)=>Scenario(p.Profile).Type=="string"?Id(id):id;
 }
