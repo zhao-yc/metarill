@@ -11,6 +11,8 @@ internal sealed record FilePageScope(IReadOnlyList<FileParentScope> Parents,Fixe
 {
     /// <summary>逻辑父路径与物理外键分开保存，不能覆盖已锁来源记录的真实列值。</summary>
     internal IReadOnlyList<FileCrossParentScope> Crosses{get;init;}=[];
+    /// <summary>同页共享路径已经证明的物理全局父，只比较实际锁定源值，不再按不存在的项目列查询。</summary>
+    internal IReadOnlyList<ColumnMetadata> GlobalParents{get;init;}=[];
 }
 
 /// <summary>发布时固定项目/父等值及物理标量常量，与生成页面共用条件AST和数据类型绑定。</summary>
@@ -23,7 +25,7 @@ internal static class FileReferenceScope
     {
         try
         {
-            var result=new List<FileParentScope>();var crosses=new List<FileCrossParentScope>();var constants=new List<FixedConditionTerm>();
+            var result=new List<FileParentScope>();var globalParents=new List<ColumnMetadata>();var pending=new List<(ColumnMetadata Source,TableMetadata Parent,ColumnMetadata? Project,bool Deleted)>();var crosses=new List<FileCrossParentScope>();var constants=new List<FixedConditionTerm>();
             var columns=MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns;
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
             foreach(var term in syntax.Terms)
@@ -49,14 +51,22 @@ internal static class FileReferenceScope
                 if(parents.Length!=1||parents[0].IsFunctionTable!=0||parents[0].IsView!=0)throw Unsupported();
                 var parent=parents[0];var parentColumns=MetadataStoragePolicy.ForTable(catalog,parent).PhysicalColumns;
                 var id=parentColumns.SingleOrDefault(candidate=>candidate.ColumnName=="id");var owner=parentColumns.SingleOrDefault(candidate=>candidate.ColumnName=="yz_project_id");
-                if(id is null||!LongType(id.LogicalType)||owner is null||!IdentityType(owner.LogicalType))throw Unsupported();
+                if(id is null||!LongType(id.LogicalType)||owner is not null&&!IdentityType(owner.LogicalType))throw Unsupported();
                 var deleted=parentColumns.SingleOrDefault(candidate=>candidate.ColumnName=="delete_no");
                 if(deleted is not null&&(deleted.LogicalType.ToLowerInvariant() is not("datetime" or "timestamp")||deleted.IsDbNotNull!=0))throw Unsupported();
-                result.Add(new(column,parent,owner,deleted is not null));
+                if(table.IsRongyu==0&&GlobalCrossTableTarget.Declared(parent))pending.Add((column,parent,owner,deleted is not null));
+                else{if(owner is null)throw Unsupported();result.Add(new(column,parent,owner,deleted is not null));}
+            }
+            // SQL条件次序不影响证明：收齐所有共享逻辑父后再验证全局物理父的独立声明及同页等值。
+            foreach(var candidate in pending)
+            {
+                if(!crosses.Any(cross=>cross.IsShared)){if(candidate.Project is null)throw Unsupported();result.Add(new(candidate.Source,candidate.Parent,candidate.Project,candidate.Deleted));continue;}
+                var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==candidate.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(candidate.Source.ControlDetail)))throw Unsupported();
+                var proof=GlobalSingleRelationTarget.Require(catalog,table,candidate.Source,candidate.Parent);if(!crosses.Any(cross=>cross.CoversGlobalParent(candidate.Parent.TableName,proof.Page.Id,proof.Name.Id)))throw Unsupported();globalParents.Add(candidate.Source);
             }
             var fields=constants.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
             var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>columns.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
-            return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields)){Crosses=crosses.AsReadOnly()};
+            return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields)){Crosses=crosses.AsReadOnly(),GlobalParents=globalParents.AsReadOnly()};
         }
         catch(Exception invalid)when(invalid is ArgumentException or InvalidOperationException or JsonException){throw Unsupported();}
     }
@@ -67,6 +77,12 @@ internal static class FileReferenceScope
         var text = Convert.ToString(value, CultureInfo.InvariantCulture);
         return long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0
             ? id : throw new UnauthorizedAccessException("实际记录的父范围无效。");
+    }
+
+    /// <summary>新全局物理父仍须与规范ID逐字相等，不能用前导零或空白冒充已证明的共享节点。</summary>
+    internal static long CanonicalId(object? value)
+    {
+        var id=PositiveId(value);if(Convert.ToString(value,CultureInfo.InvariantCulture)!=id.ToString(CultureInfo.InvariantCulture))throw new UnauthorizedAccessException("实际全局父范围ID不规范。");return id;
     }
 
     /// <summary>查询参数沿用生成器的字符串/整型身份映射，范围不依赖MySQL隐式数值转换。</summary>

@@ -48,7 +48,7 @@ internal static class FileReferenceReadAuthorization
                     if(!actual.Contains(fileId))continue;
                     var parents=scopes.Select(scope=>(Scope:scope,Id:FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
                     var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,project,currentRead,token);
-                    if(parents.Select(parent=>parent.Id).Concat(logical).Distinct().Skip(1).Any())continue;
+                    if(parents.Select(parent=>parent.Id).Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)))).Concat(logical).Distinct().Skip(1).Any())continue;
                     var valid=true;
                     foreach(var parent in parents)
                     {
@@ -100,7 +100,7 @@ internal static class FileReferenceReadAuthorization
             var rows=await new NonRedundantReader(store.Session).RowsAsync(derivedPlan,filters,[],1,token,project.ToString(CultureInfo.InvariantCulture),scope.Condition);
             return rows.Count==0?null:rows[0].ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
         }
-        var names=new[]{field.ColumnName,"id"}.Concat(owner is null?Array.Empty<string>():[owner.ColumnName]).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Concat(scope.Crosses.SelectMany(cross=>cross.StorageNames)).Distinct(StringComparer.Ordinal).ToArray();
+        var names=new[]{field.ColumnName,"id"}.Concat(owner is null?Array.Empty<string>():[owner.ColumnName]).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Concat(scope.GlobalParents.Select(parent=>parent.ColumnName)).Concat(scope.Crosses.SelectMany(cross=>cross.StorageNames)).Distinct(StringComparer.Ordinal).ToArray();
         var provider=store.Session.Provider;var transaction=store.Session.CurrentTransaction;
         await using var ownedConnection=transaction is null?provider.CreateConnection(store.Session.Options):null;
         var connection=transaction?.Connection??ownedConnection??throw new InvalidOperationException("文件读取事务连接不可用。");

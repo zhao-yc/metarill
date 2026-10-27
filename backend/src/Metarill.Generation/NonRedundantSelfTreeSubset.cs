@@ -37,7 +37,8 @@ internal static class NonRedundantSelfTreeSubset
             if(column.IsId||column.Type is not("string?" or "long?")||!NonRedundantReadCompilation.Physical(model,table,column)||GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("非冗余自树父范围必须是真实单值外键。");
             var cross=resolveCross is null?NonRedundantCrossParentCompilation.Find(model,table,page,column):resolveCross(column);
             var parent=cross is{} path?path.Read.Levels[path.Index].Target:model.Tables.SingleOrDefault(candidate=>column.Source.LinkConfigTableId.Length>0?candidate.Source.Id==column.Source.LinkConfigTableId:candidate.Source.TableName+"_id"==column.Source.ColumnName);
-            if(parent is null||parent.IsGlobal||parent.Source.Id==table.Source.Id||parent.Source.IsFunctionTable!=0||parent.Source.IsView!=0)throw new InvalidOperationException("非冗余自树父表缺少明确普通实体归属。");
+            if(parent is null||parent.Source.Id==table.Source.Id||parent.Source.IsFunctionTable!=0||parent.Source.IsView!=0)throw new InvalidOperationException("非冗余自树父表缺少明确普通实体归属。");
+            if(parent.IsGlobal){if(SharedGlobalParentCompilation.ForColumn(model,table,page,column).Count==0)throw new NotSupportedException("全局父表缺少共享R0固定层位证明。");parents.Add(parent);continue;}
             var id=parent.Columns.Single(candidate=>candidate.IsId);var project=parent.Columns.SingleOrDefault(candidate=>candidate.Source.ColumnName=="yz_project_id");
             if(project is null||project.Type is not("string?" or "long?")||!NonRedundantReadCompilation.Physical(model,parent,id)||!NonRedundantReadCompilation.Physical(model,parent,project)||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn")||GenerationModel.Enabled(project.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("非冗余自树父表主键／项目列必须是已证明的物理身份。");
             parents.Add(parent);

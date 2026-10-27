@@ -151,7 +151,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     {
         var parents = scope.Parents.Select(scope => (Scope: scope, Id: FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
         var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,FileReferenceScope.PositiveId(context.ProjectId),true,token);
-        var ids=parents.Select(parent=>parent.Id).Concat(logical).ToArray();
+        var ids=parents.Select(parent=>parent.Id).Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)))).Concat(logical).ToArray();
         // 同一页面的@parentId只有一个实际值，多条等值条件不得被解释为互不相干的父身份。
         if (ids.Distinct().Skip(1).Any()) throw new UnauthorizedAccessException("实际记录不满足同一父记录范围。");
         var provider = store.Session.Provider;

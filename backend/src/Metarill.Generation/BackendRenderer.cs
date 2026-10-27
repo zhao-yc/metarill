@@ -197,7 +197,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>新增父键必须对应真实存在且属于当前项目的父记录。</summary>
     private static string ParentValidation(GenerationModel model, TableModel table, PageModel page)
     {
-        var result = new StringBuilder().AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
+        var result = new StringBuilder().Append(SharedGlobalParentCompilation.KeyService(model,table,page)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
             .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool includeManaged=true":"")})")
             .AppendLine("    {");
         var number = 0;
@@ -208,6 +208,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
                 result.AppendLine($"        _=LogicalParentId{page.Source.Id}(parentId);if(includeManaged)await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
             }
+            var globalParents=SharedGlobalParentCompilation.ForColumn(model,table,page,column);if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId","true"));continue;}
             var parent = CrossTableWriteCompilation.ParentTarget(model,table,page,column) ?? model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
             var project = parent.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == "yz_project_id");
@@ -601,12 +602,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    private async Task ValidateOptionsSourceParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        ValidateActor(actor);");
         if (sourceParents.Count > 0) result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
-        for (var index = 0; index < sourceParents.Count; index++) Parent(sourceParents[index], "sourceParentKey", "sourceParent" + index);
+        for (var index = 0; index < sourceParents.Count; index++) Parent(sourceParents[index], "sourceParentKey", "sourceParent" + index,sourceContext:true);
         if (sourceParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
         result.AppendLine("    }");
         /// <summary>候选按固定父定义无锁验证；常量关系写入使用同事务当前读锁。</summary>
-        void Parent(TableModel parent, string key, string variable, bool current = false)
+        void Parent(TableModel parent, string key, string variable, bool current = false,bool sourceContext=false)
         {
+            var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var globalParents=sourceContext?SharedGlobalParentCompilation.ForTable(model,owner,page,parent):[];if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",current?"locking":"false"));return;}
             var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
             result.AppendLine($"        var {variable} = session.Select<{parent.Name}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
@@ -635,7 +637,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 result.AppendLine($"        if (!locking) await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
                     .AppendLine("        else").AppendLine("        {").AppendLine("        ValidateActor(actor);")
                     .AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
-                for (var index = 0; index < relation.SourceParents.Count; index++) Parent(relation.SourceParents[index], "sourceParentKey", "sourceParent" + index, true);
+                for (var index = 0; index < relation.SourceParents.Count; index++) Parent(relation.SourceParents[index], "sourceParentKey", "sourceParent" + index, true,true);
                 result.AppendLine("        }");
             }
             else result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);");

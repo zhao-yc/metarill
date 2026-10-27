@@ -65,7 +65,7 @@ public sealed class FileMetadataContext
             var scope=PageScope(catalog,page);var scopes=scope.Parents;
             foreach(var file in physical.Where(item=>item.ControlKind=="FileLibrary"))
             {
-                var names=new[]{file.ColumnName,"id"}.Concat(physical.Any(item=>item.ColumnName=="yz_project_id")?new[]{"yz_project_id"}:Array.Empty<string>()).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
+                var names=new[]{file.ColumnName,"id"}.Concat(physical.Any(item=>item.ColumnName=="yz_project_id")?new[]{"yz_project_id"}:Array.Empty<string>()).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Concat(scope.GlobalParents.Select(parent=>parent.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
                 derivedExactPlans.Add((catalog.YzProjectId,page.Id,file.Id),NonRedundantReads.Compile(catalog,table.Id,names,new[]{column.ColumnName}.Concat(scope.ConditionFields).Distinct(StringComparer.Ordinal).ToArray()));
             }
         }

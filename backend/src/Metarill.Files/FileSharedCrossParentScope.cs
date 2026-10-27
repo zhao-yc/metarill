@@ -10,6 +10,11 @@ internal sealed class FileSharedCrossParentScope
     private readonly SharedCrossTableSparseSelection selection;
     private readonly IReadOnlyDictionary<string,FileCrossParentScope> branches;
     internal IReadOnlyList<string> StorageNames{get;}
+    /// <summary>共同位的每个分支均须绑定同一冻结页和名称，不能借一个好同伴补另一分支的范围。</summary>
+    internal bool CoversTarget(string column,string table,string page,string name)
+    {
+        var matches=selection.Branches.SelectMany(branch=>branch.Slots.Select((slot,index)=>(branch.SourceColumnId,slot,index))).Where(item=>item.slot.ColumnName==column).ToArray();return matches.Length>0&&matches.All(item=>branches[item.SourceColumnId].CoversTargetAt(item.index,table,page,name));
+    }
     /// <summary>组及分支已经编译，调用者不能在请求期间替换目录或路径。</summary>
     private FileSharedCrossParentScope(SharedCrossTableSparseSelection selection,IReadOnlyDictionary<string,FileCrossParentScope> branches){this.selection=selection;this.branches=branches;StorageNames=Array.AsReadOnly(selection.Slots.Select(s=>s.ColumnName).ToArray());}
     /// <summary>收齐每个同伴的目标页和固定条件后执行数据层完整证明；坏同伴使整个共享父范围拒绝。</summary>

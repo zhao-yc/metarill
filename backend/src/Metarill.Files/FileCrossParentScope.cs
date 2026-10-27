@@ -9,13 +9,18 @@ namespace Metarill.Runtime.Files;
 /// <summary>文件父范围只沿已锁来源的真实稀疏选择解析，不接收请求父值或伪造祖先列。</summary>
 internal sealed class FileCrossParentScope
 {
-    private sealed record Target(string Table,string? ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition);
+    private sealed record Target(string Table,string PageId,string NameId,string? ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition);
     private readonly CrossTableSparseSelection? selection;
     private readonly FileSharedCrossParentScope? shared;
     private readonly Target[] targets;
     internal string SourceId{get;}
     internal int Level{get;}
+    internal bool IsShared=>shared is not null;
     internal IReadOnlyList<string> StorageNames=>shared?.StorageNames??selection!.Slots.Select(slot=>slot.ColumnName).ToArray();
+    /// <summary>仅共享路径可为同页物理全局父提供等值证明；目标页和名称均须完全相同。</summary>
+    internal bool CoversGlobalParent(string table,string page,string name)=>shared is not null&&shared.CoversTarget(StorageNames[Level],table,page,name);
+    /// <summary>共享编译器只读取已冻结的分支目标身份，不重新解释目录。</summary>
+    internal bool CoversTargetAt(int level,string table,string page,string name)=>level>=0&&level<targets.Length&&targets[level].Table==table&&targets[level].PageId==page&&targets[level].NameId==name;
     /// <summary>路径字段、目标与常量在发布时冻结；构造器不暴露任意SQL或在线替换入口。</summary>
     private FileCrossParentScope(string sourceId,int level,CrossTableSparseSelection selection,Target[] targets){SourceId=sourceId;Level=level;this.selection=selection;this.targets=targets;}
     /// <summary>共享包装器使用同一组身份与全局槽位，不能冒充某一条分支。</summary>
@@ -49,7 +54,7 @@ internal sealed class FileCrossParentScope
             var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:Condition(candidate,columns))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
             var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));
             // 仅显式全局目标免项目等值；固定发布、常量页与普通来源项目仍由完整编译器核验。
-            var global=GlobalCrossTableTarget.Declared(target);if(global)GlobalCrossTableTarget.Require(catalog,target,chosen.Page);var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,project?.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
+            var global=GlobalCrossTableTarget.Declared(target);if(global)GlobalCrossTableTarget.Require(catalog,target,chosen.Page);var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,chosen.Page.Id,display.Id,project?.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
         }
         return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray()),new NonRedundantCrossTableScope(source.Id,bindings));
     }
