@@ -15,7 +15,8 @@ internal static class RedundantCrossTableSubset
             var trees=table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray();
             if(table.Source.IsRongyu!=1||table.IsGlobal||trees.Length==0)return "冗余跨表完整用途要求普通R1来源。";
             if(trees.Any(tree=>!NonRedundantCrossTableSubset.Declared(tree)))return "冗余跨表与自树同页的完整用途仍待证明。";
-            if(page.Scopes.Any(scope=>scope.Source=="parent")||ExactDataManageCompilation.Declared(page))return "冗余跨表来源父范围／精确权限的完整用途仍待证明。";
+            if(ExactDataManageCompilation.Declared(page))return "冗余跨表精确权限的完整用途仍待证明。";
+            if(page.Scopes.Any(scope=>scope.Source=="parent")){SharedRedundantParentCompilation.Require(model,table,page);if(table.Columns.Any(column=>column.Source.ControlKind=="FileLibrary"))return "R1共享来源父范围的文件完整用途仍待生成及运行时验收。";}
             RequireRealm(model,table,page);var bindings=RelationPropagationCompilation.Bindings(model).Concat(RelationPropagationCompilation.DerivedBindings(model)).ToArray();
             foreach(var source in trees)
             {

@@ -86,9 +86,11 @@ internal static class RelationCompilation
     {
         // 隐式跨表父位沿已证明读取链解析，不能靠列名前缀猜目标表。
         var cross=owner is not null&&page is not null?NonRedundantCrossParentCompilation.Find(model,owner,page,column):null;
-        var parent = (cross is{} path?path.Read.Levels[path.Index].Target:model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
+        var redundant=owner is not null&&page is not null?SharedRedundantParentCompilation.ForColumn(model,owner,page,column).FirstOrDefault():null;
+        var parent = redundant?.Level.Target ?? (cross is{} path?path.Read.Levels[path.Index].Target:model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
             ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName))
             ?? throw new InvalidOperationException("关联父范围缺少明确目标表：" + column.Source.ColumnName);
+        if(parent.IsGlobal&&redundant is not null)return parent;
         if(parent.IsGlobal&&owner is not null&&page is not null&&SharedGlobalParentCompilation.ForColumn(model,owner,page,column).Count>0)return parent;
         if (!parent.Columns.Any(candidate => candidate.Source.ColumnName == "yz_project_id")) throw new InvalidOperationException("关联父表未声明项目归属。");
         return parent;
