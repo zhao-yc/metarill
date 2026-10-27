@@ -16,11 +16,11 @@ public sealed partial class FreshSharedCrossMySqlTests
     private static long Company(int role,int group=0)=>First+500+group*10+role;
     /// <summary>普通List候选按共同国家区分，避免错误父范围仍匹配。</summary>
     private static long Item(int group)=>First+700+group;
-    /// <summary>四组真实目标区分正常、异父、失效与异项目，不用同名节点掩盖错层。</summary>
+    /// <summary>五组真实目标区分正常、异父、失效与异项目；额外有效分支证明两个主动新选择冲突。</summary>
     private static async Task SeedShared(Probe p)
     {
         var roles=new[]{"country","area","place","warehouse"};
-        for(var group=0;group<4;group++)
+        for(var group=0;group<5;group++)
         {
             for(var role=0;role<4;role++)
             {
@@ -48,7 +48,10 @@ public sealed partial class FreshSharedCrossMySqlTests
         Assert.Equal("国0/区0/仓0",(await p.Post("cascadeTreePath"+p.WarehouseControl,new{leafId=Id(Node(3))})).GetProperty("displayText").GetString());foreach(var group in new[]{2,3})await p.Post("cascadeTreePath"+p.WarehouseControl,new{leafId=Id(Node(3,group))},HttpStatusCode.InternalServerError);
         var bytes=Encoding.UTF8.GetBytes("共享正式来源"+p.Source);var file=await p.Upload(bytes);var create=Select(0);create["name"]="共享正式记录";create["aItemId"]=Id(Item(0));create["attachments"]=new[]{file};p.RecordId=(await p.Post("add",create)).GetProperty("id").GetString()!;await Storage(0,true,true);await p.References(file,1);await p.Download(file,bytes);
         await Update(JsonSerializer.Deserialize<Dictionary<string,object?>>((await Detail()).GetRawText())!);await Storage(0,true,true);var copied=(await p.Post("copy/"+p.RecordId,new{})).GetProperty("id").GetString()!;await p.References(file,2);
-        var before=await p.Snapshot();await Update(Select(0,1),HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());await Update(Row(primary,Id(Node(p.Shorter?1:2,1))),HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());
+        // 回传未变化的旧叶不算主动新选择；另一分支换国家应成功并清旧下级。
+        await Update(Select(0,1));await Storage(1,false,true);await Update(Select(0));await Update(Row("aItemId",Id(Item(0))));
+        // 两个有效且都变化的新选择才是冲突；省略的普通List在新父范围失效也必须回滚。
+        var before=await p.Snapshot();await Update(Select(1,4),HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());await Update(Row(primary,Id(Node(p.Shorter?1:2,1))),HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());
         await p.Grant("801","[]");await Update(Row(primary,Id(Node(p.Shorter?1:2,1)),"aItemId",null));await Storage(1,true,false);await p.Grant("801","[\"is_all\"]");await Update(Row("aItemId",Id(Item(1))));await Storage(1,true,false);await Update(Select(0));await Storage(0,true,true);
         foreach(var page in new[]{"301","401",p.Shorter?"401":"501","801"}.Distinct(StringComparer.Ordinal))
         {
