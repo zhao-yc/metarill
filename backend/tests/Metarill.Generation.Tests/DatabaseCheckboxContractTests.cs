@@ -16,6 +16,11 @@ public sealed class DatabaseCheckboxContractTests
         var json=DatabaseCheckboxDefinition.Parse("{\"tableId\":42,\"table\":\"choices\",\"whereSql\":\"status=1\",\"orderBy\":\"id desc\"}");Assert.Equal("42",json.TableId);Assert.Equal("choices",json.Table);Assert.Equal("status=1",json.WhereSql);
         Assert.Equal("",DatabaseCheckboxDefinition.Parse("choices").ReadDefinition(new(){LinkConfigTableId="42"}).GetProperty("table").GetString());Assert.Equal("choices",DatabaseCheckboxDefinition.Parse("choices").ReadDefinition(new()).GetProperty("table").GetString());
     }
+    /// <summary>原目标页优先于旧提示，生成侧和运行时不能解释为两张表。</summary>
+    [Fact]public void Explicit_page_binding_does_not_reintroduce_legacy_table_hint()
+    {
+        var source=new ColumnMetadata{Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("201")}};var before=JsonSerializer.Serialize(source);Assert.Equal("",DatabaseCheckboxDefinition.Parse("old_hint").ReadDefinition(source).GetProperty("table").GetString());Assert.Equal(before,JsonSerializer.Serialize(source));Assert.Equal("",new DatabaseCheckboxDefinition("42","","201","","","old_hint").ReadDefinition(new()).GetProperty("table").GetString());Assert.Equal("old_hint",DatabaseCheckboxDefinition.Parse("old_hint").ReadDefinition(new()).GetProperty("table").GetString());
+    }
     /// <summary>长ID从数字原文精确转成字符串，已有字符串数组文本的空白和顺序保持。</summary>
     [Fact]
     public void Arrays_keep_null_empty_text_order_and_exact_long_values_without_float_conversion()

@@ -39,7 +39,8 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
     public JsonElement ReadDefinition(ColumnMetadata source)
     {
         var table=Table;
-        if(table.Length==0&&source.LinkConfigTableId.Length==0&&string.IsNullOrWhiteSpace(source.Extra.GetValueOrDefault("joinTable").ToString()))table=LegacyTargetHint;
+        // 明确表或页面声明优先，旧字面值不得在数据层重新参与目标匹配。
+        if(table.Length==0&&TableId.Length==0&&PageId.Length==0&&source.LinkConfigTableId.Length==0&&string.IsNullOrWhiteSpace(source.Extra.GetValueOrDefault("joinTable").ToString())&&string.IsNullOrWhiteSpace(source.Extra.GetValueOrDefault("linkConfigPageId").ToString()))table=LegacyTargetHint;
         return JsonSerializer.SerializeToElement(new{tableId=TableId,table,pageId=PageId,nameField="name",whereSql=WhereSql,orderBy=OrderBy});
     }
 }

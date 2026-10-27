@@ -36,13 +36,13 @@ public sealed class DerivedCheckboxNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>未证明的名称、存储或条件在stage创建前拒绝，隐藏字段不能绕过。</summary>
-    [Theory][InlineData("global")][InlineData("targetR1")][InlineData("sourceR1")][InlineData("credential")][InlineData("array")][InlineData("broken")][InlineData("stringKey")][InlineData("derivedScope")][InlineData("overlay")][InlineData("hiddenBad")]
+    [Theory][InlineData("global")][InlineData("targetR1")][InlineData("sourceR1BadCache")][InlineData("credential")][InlineData("array")][InlineData("broken")][InlineData("stringKey")][InlineData("derivedScope")][InlineData("overlay")][InlineData("hiddenBad")]
     public void Invalid_derived_checkbox_is_rejected_before_staging(string kind)
     {
         var c=Catalog("relation",false);var name=c.ConfigColumns.Single(column=>column.Id=="32");
         if(kind=="global")c.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(kind=="targetR1")c.ConfigTables.Single(table=>table.Id=="3").IsRongyu=1;
-        if(kind=="sourceR1")c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
+        if(kind=="sourceR1BadCache"){c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;c.ConfigColumns.Single(x=>x.Id=="27").IsVirtualColumn=1;}
         if(kind=="credential"){c.ConfigColumns.Single(column=>column.Id=="42").ColumnName="password";name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.password");}
         if(kind=="array")c.ConfigColumns.Single(column=>column.Id=="42").ControlKind="FileLibrary";
         if(kind is "broken" or "hiddenBad")name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("missing.name");

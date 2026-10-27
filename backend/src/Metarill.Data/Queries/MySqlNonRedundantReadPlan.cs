@@ -262,6 +262,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(target is null&&relation.LinkConfigTableId.Length>0)target=tables.GetValueOrDefault(relation.LinkConfigTableId);
             if(target is null&&Text(relation,"linkConfigPageId").Length>0)target=PageTarget(Text(relation,"linkConfigPageId"));
             if(target is null){var targetName=Value(definition,"table");if(targetName.Length==0)targetName=Text(relation,"joinTable");target=tables.Values.SingleOrDefault(item=>item.TableName==targetName);}
+            // 原复选仅在完全没有有效目标声明时使用字段前缀，显式坏表／页不能借回退串表。
+            if(target is null&&relation.ControlKind=="MultiCheckBoxDatabase"&&id.Length==0&&pageId.Length==0&&relation.LinkConfigTableId.Length==0&&Text(relation,"linkConfigPageId").Length==0&&Value(definition,"table").Length==0&&Text(relation,"joinTable").Length==0)target=tables.Values.SingleOrDefault(item=>item.TableName==relation.ColumnName[..^4]);
             if(target is null)throw new InvalidOperationException("多值关联缺少同项目目标。");ValidateTarget(target);
             if(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||Value(definition,"table") is {Length:>0} declared&&declared!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linkedPage&&PageTarget(linkedPage)?.Id!=target.Id)throw new InvalidOperationException("多值关系的目标声明缺失或相互矛盾。");
             if(relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id)throw new InvalidOperationException("多值关系目标声明不一致。");
