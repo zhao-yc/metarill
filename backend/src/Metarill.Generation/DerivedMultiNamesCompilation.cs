@@ -9,7 +9,7 @@ internal static class DerivedMultiNamesCompilation
     /// <summary>发布时编译目标名称和范围，不能退化为查询IsIgnore实体属性。</summary>
     internal static void Require(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
-        if(owner.Source.IsRongyu!=0||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"||name.IsJsonArray||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生多选名称要求R0来源、普通R0目标和固定单值字符串。");
+        if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0||target.IsGlobal||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"||name.IsJsonArray||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生多选名称要求已证明来源、普通R0目标和固定单值字符串。");
         if(page.Scopes.Select(scope=>scope.Column).Concat(page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)))throw new InvalidOperationException("派生多选名称的候选身份、父和条件必须是物理标量。");
         var plan=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
         if(plan.OutputTypes[name.Source.ColumnName]!="string")throw new InvalidOperationException("派生多选名称未落到固定字符串标量。");

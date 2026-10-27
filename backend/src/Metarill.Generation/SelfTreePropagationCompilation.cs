@@ -18,11 +18,11 @@ internal static class SelfTreePropagationCompilation
         foreach(var page in table.Pages)foreach(var source in table.Columns.Where(c=>c.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(c)))
         {
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.Source.ControlDetail)))continue;
-            var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null||plan.Read.DerivedName||plan.Read.Target.IsGlobal)continue;
+            var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null||plan.Read.Target.IsGlobal)continue;
             try
             {
                 var proof=SelfTreeCache.Compile(model.Catalog,table.Source.Id,source.Source.Id);if(proof.TargetTableId!=plan.Read.Target.Source.Id||proof.ValueColumnId!=plan.Read.Name.Source.Id||proof.CacheColumnId!=plan.Name.Source.Id)continue;
-                _=RelationMutationPlan.Compile(model.Catalog,[proof]);result.Add(new(table,source,plan.Read.Target,plan.Read.Name,plan.Name,false));
+                if(plan.Read.DerivedName)DerivedCrossTableCaches.Validate(model.Catalog,[proof],[]);else _=RelationMutationPlan.Compile(model.Catalog,[proof]);result.Add(new(table,source,plan.Read.Target,plan.Read.Name,plan.Name,false));
             }
             catch(Exception unsupported)when(unsupported is InvalidOperationException or NotSupportedException or ArgumentException or JsonException){/* 完整用途审计仍会报告此字段，不生成未经证明的缓存。 */}
         }

@@ -99,7 +99,8 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         private readonly MetadataCatalog catalog;
         private readonly string rootAlias,aliasPrefix;
-        private readonly bool matching;
+        private readonly bool matching,trackReverse;
+        private readonly List<MySqlReverseProjection> customReverse=[];
         private readonly IReadOnlySet<string>? refreshFields;
         private readonly IReadOnlyDictionary<string,string> refreshPaths;
         private readonly IReadOnlyList<RelationCacheDefinition> refreshMultiples;
@@ -123,11 +124,11 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r")
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false)
         {
             this.rootAlias=rootAlias;this.aliasPrefix=aliasPrefix;
             this.crossTables=(crossTables??[]).ToDictionary(scope=>scope.SourceColumnId,StringComparer.Ordinal);
-            this.catalog=catalog;this.matching=matching;this.deferCascadeNames=deferCascadeNames;this.refreshFields=refreshFields;this.refreshMultiples=refreshMultiples??[];this.refreshPaths=refreshPaths??new Dictionary<string,string>();
+            this.catalog=catalog;this.matching=matching;this.trackReverse=trackReverse||refreshFields is not null;this.deferCascadeNames=deferCascadeNames;this.refreshFields=refreshFields;this.refreshMultiples=refreshMultiples??[];this.refreshPaths=refreshPaths??new Dictionary<string,string>();
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
             if((refreshFields is null?root.IsRongyu!=0:root.IsRongyu!=1)||root.IsFunctionTable!=0||root.IsView!=0)throw new InvalidOperationException("固定非冗余读取源必须是非冗余实体表。");
@@ -146,7 +147,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var origins=new Dictionary<string,MySqlValueOrigin>(StringComparer.Ordinal);
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
             {output=name;origin=null;var resolved=Resolve(root,rootAlias,name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;}
-            var scope=Scope(root,rootAlias);return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).ToArray()),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys))));
+            var scope=Scope(root,rootAlias);return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))).Concat(customReverse).ToArray()),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys))));
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -313,7 +314,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var path=ownerAlias+":"+relation.Id;
             if(aliases.TryGetValue(path,out var existing)){Scope(target,existing,projectScoped:!global);Touch(existing,"id");return existing;}
             var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global)globalSingleAliases.Add(alias);var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=Scope(target,alias,projectScoped:!global);
-            if(refreshFields is not null){Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));}
+            if(trackReverse){Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));}
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
             var equality=(refreshFields is not null||global)&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
             var sql=" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+equality+(scope.Length==0?"":" AND "+scope);joins.Add(sql);if(refreshFields is not null)maintenanceJoins.Add((alias,sql));return alias;
@@ -346,10 +347,10 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>每个输出分别登记目标字段依赖，复用别名也不能丢失第二个缓存的传播条件。</summary>
         private void Touch(string alias,string field)
         {
-            if(refreshFields is null)return;if(!aliasFields.TryGetValue(alias,out var fields))aliasFields[alias]=fields=new(StringComparer.Ordinal);if(!fields.TryGetValue(output,out var names))fields[output]=names=new(StringComparer.Ordinal);names.Add(field);
+            if(!trackReverse)return;if(!aliasFields.TryGetValue(alias,out var fields))aliasFields[alias]=fields=new(StringComparer.Ordinal);if(!fields.TryGetValue(output,out var names))fields[output]=names=new(StringComparer.Ordinal);names.Add(field);
         }
         /// <summary>来源依赖独立记录；只有回填用途编译物理结构，普通读取不增加执行期结构预检。</summary>
-        private void Use(TableMetadata table,ColumnMetadata column){if(table.Id==root.Id)sourceDependencies.Add(column.ColumnName);if(refreshFields is not null)references.TryAdd((table.TableName,column.ColumnName),new(table.TableName,Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(column)));}
+        private void Use(TableMetadata table,ColumnMetadata column){if(table.Id==root.Id)sourceDependencies.Add(column.ColumnName);if(trackReverse)references.TryAdd((table.TableName,column.ColumnName),new(table.TableName,Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(column)));}
     }
     /// <summary>控件定义仅作结构解析；旧式或重复JSON键必须明确拒绝。</summary>
     private static JsonElement Definition(ColumnMetadata column)

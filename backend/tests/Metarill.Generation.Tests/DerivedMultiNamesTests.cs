@@ -24,6 +24,15 @@ public sealed class DerivedMultiNamesTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>没有自树同伴的R1多选也必须独立生成编译，并发布完整物理缓存传播计划。</summary>
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Redundant_multi_alone_compiles_and_publishes_derived_cache(bool automatic)
+    {
+        var c=Catalog("r1_multi",automatic);c.ConfigTables.Single(t=>t.Id=="2").IsRongyu=1;var before=JsonSerializer.Serialize(c);var model=GenerationModel.Create(c,"Example.R1Multi");var source=model.Tables.Single(t=>t.Source.Id=="2");Assert.Empty(GenerationCapabilityAudit.Collect(model));Assert.Contains("target_names",MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns[source.Source.TableName]);Assert.Contains("target_names",MetadataStoragePolicy.ForTable(c,c.ConfigTables.Single(t=>t.Id=="2")).PhysicalColumns.Select(x=>x.ColumnName));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-r1-derived-multi-alone");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),model.Namespace);var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.NotNull(assembly.GetType(model.Namespace+".Generated.Services.R1MultiSourceService"));Assert.Equal(before,JsonSerializer.Serialize(c));}
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
     /// <summary>完整包按原源码构建并挂载原Vue，更新不覆盖手写partial或组件。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Full_derived_multi_package_preserves_original_vue_and_handwritten_service(bool automatic)
@@ -41,7 +50,7 @@ public sealed class DerivedMultiNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>坏名称、隐藏声明、派生范围和未接线缓存仍须在完整包落盘前拒绝。</summary>
-    [Theory][InlineData("global")][InlineData("hiddenName")][InlineData("credential")][InlineData("array")][InlineData("broken")][InlineData("cycle")][InlineData("stringKey")][InlineData("derivedScope")][InlineData("redundantSource")][InlineData("hiddenBad")]
+    [Theory][InlineData("global")][InlineData("hiddenName")][InlineData("credential")][InlineData("array")][InlineData("broken")][InlineData("cycle")][InlineData("stringKey")][InlineData("derivedScope")][InlineData("redundantBadCache")][InlineData("hiddenBad")]
     public void Invalid_derived_multi_is_rejected_before_staging(string kind)
     {
         var c=Catalog("derived_multi",false);var name=c.ConfigColumns.Single(column=>column.Id=="32");
@@ -54,7 +63,7 @@ public sealed class DerivedMultiNamesTests
         if(kind=="cycle"){name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("self.name");c.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="self_id",LogicalType="int64",LinkConfigTableId="3",ControlKind="List",ControlDetail="{\"tableId\":\"3\",\"nameField\":\"id\"}"});}
         if(kind=="stringKey")c.ConfigColumns.Single(column=>column.Id=="37").LogicalType="string";
         if(kind=="derivedScope")c.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND name='X'";
-        if(kind=="redundantSource")c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
+        if(kind=="redundantBadCache"){c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;c.ConfigColumns.Single(x=>x.Id=="27").IsVirtualColumn=1;}
         var output=Path.Combine(Path.GetTempPath(),"metarill-derived-multi-reject",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.InvalidDerivedMulti",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
     /// <summary>原R1目标物理Join缓存仍需独立证明，不能随R0逻辑名称门禁放开。</summary>

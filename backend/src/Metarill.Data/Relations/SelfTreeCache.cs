@@ -1,12 +1,13 @@
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
+using Metarill.Data.Queries;
 namespace Metarill.Data.Relations;
 
 /// <summary>R1自树只缓存真实叶子名称；固定控制定义同时约束传播及维护，路径展示仍由原树读取器完成。</summary>
 public static class SelfTreeCache
 {
-    /// <summary>只读取发布目录，返回精确字段ID，不接受请求SQL、动态页面或派生名称。</summary>
+    /// <summary>只读取发布目录，返回精确字段ID；逻辑名称须取得单值匹配证明，不接受请求SQL或动态页面。</summary>
     public static RelationCacheDefinition Compile(MetadataCatalog catalog,string sourceTableId,string controlId)
     {
         var source=catalog.ConfigTables.Single(t=>t.Id==sourceTableId);var sourceColumns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=sourceColumns.Single(c=>c.Id==controlId);var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);
@@ -15,7 +16,10 @@ public static class SelfTreeCache
         if(Extra(root)||Extra(tree)||Text(tree,"idField","id")!="id"||Text(tree,"rootMode","blank")!="blank"||Text(tree,"filterMatchMode","selfAndDescendants") is not("exact" or "selfAndDescendants"))throw Invalid();
         var target=catalog.ConfigTables.Single(t=>t.TableName==Text(tree,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0||GlobalCrossTableTarget.Declared(target)||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw Invalid();
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var storage=MetadataStoragePolicy.ForTable(catalog,target);var value=columns.Single(c=>c.ColumnName==Text(tree,"nameField","name"));var parent=columns.Single(c=>c.ColumnName==Text(tree,"parentField",""));
-        if(value.Id==parent.Id||value.LogicalType!="string"||!Scalar(storage,value)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
+        var derived=!storage.IsPhysical(value);
+        if(value.Id==parent.Id||value.LogicalType!="string"||(!derived&&!Scalar(storage,value))||derived&&(target.IsRongyu!=0||value.IsVirtualColumn!=0||storage.Kind(value)!=MetadataFieldStorage.Join)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
+        // 派生叶子只接受同一匹配编译器证明的非凭据单值字符串，不把任意逻辑列当成物理缓存值。
+        if(derived){var read=NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName);if(read.OutputTypes[value.ColumnName]!="string")throw Invalid();}
         var name=foreign.ColumnName[..^3]+"_name";var cache=sourceColumns.Single(c=>c.ColumnName==name);if(cache.Id==foreign.Id||cache.LogicalType!="string"||cache.IsVirtualColumn!=0||!sourceStorage.IsPhysical(cache)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(path.Length>0&&path!=foreign.ColumnName[..^3]+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw Invalid();}
         return new(source.Id,foreign.Id,target.Id,value.Id,cache.Id,false);

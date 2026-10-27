@@ -23,12 +23,13 @@ internal sealed class MixedRelationMutationPlan
         {
             // 已登记的直接标量缓存由普通传播执行器唯一处理；混合队列只处理剩余联接，避免双重刷新。
             var scalarNames=(scalarCaches??[]).Where(item=>item.SourceTableId==table.Option.Id).Select(item=>RelationStorageColumns.Expand(catalog.ConfigTables.Single(t=>t.Id==item.SourceTableId),catalog.ConfigColumns.Where(c=>c.ConfigTableId==item.SourceTableId)).Single(c=>c.Id==item.CacheColumnId).ColumnName).ToHashSet(StringComparer.Ordinal);
-            var fields=table.Fields.Where(field=>!table.Multiples.Any(multiple=>multiple.Caches.Contains(field.Name))&&!scalarNames.Contains(field.Name)).ToArray();if(fields.Length==0)continue;
+            var derivedNames=(derivedCross??[]).Where(d=>d.SourceTableId==table.Option.Id).Select(d=>RelationStorageColumns.Expand(catalog.ConfigTables.Single(t=>t.Id==d.SourceTableId),catalog.ConfigColumns.Where(c=>c.ConfigTableId==d.SourceTableId)).Single(c=>c.Id==d.CacheColumnId).ColumnName).ToHashSet(StringComparer.Ordinal);
+            var fields=table.Fields.Where(field=>(!table.Multiples.Any(multiple=>multiple.Caches.Contains(field.Name))||derivedNames.Contains(field.Name))&&!scalarNames.Contains(field.Name)).ToArray();if(fields.Length==0)continue;
             var read=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,table.Option.Id,fields.Select(field=>field.Name).ToArray(),(derivedCross??[]).Where(d=>d.SourceTableId==table.Option.Id).ToArray(),fields.ToDictionary(field=>field.Name,field=>field.Path,StringComparer.Ordinal));
             if(read.Reverse.SelectMany(reverse=>reverse.Outputs.Values.SelectMany(names=>names.Select(name=>(reverse.TargetTable,name)))).Any(multipleNames.Contains))continue; // 多值缓存作为标量中间值尚无完整合同，不把数组文本冒充名称。
             var inputs=read.PhysicalReferences.Where(reference=>reference.Table==table.Option.TableName).Select(reference=>reference.Column.Name).ToFrozenSet(StringComparer.Ordinal);
             read=read.WithPhysicalReferences(table.Read!.PhysicalReferences);
-            var supported=table with{Fields=Array.AsReadOnly(fields),Multiples=[],Read=read};result.Add(new(supported,read,inputs));
+            var supported=table with{Fields=Array.AsReadOnly(fields),Multiples=table.Multiples.Where(m=>m.Caches.Any(derivedNames.Contains)).ToArray(),Read=read};result.Add(new(supported,read,inputs));
         }
         // R1物理缓存之间也可能构成循环；R0路径自身的递归由读取编译器提前拒绝。
         var nodes=result.SelectMany(consumer=>consumer.Table.Fields.Select(field=>(Key:consumer.Table.Option.TableName+"."+field.Name,Consumer:consumer,Field:field.Name))).ToDictionary(item=>item.Key,StringComparer.Ordinal);var visiting=new HashSet<string>(StringComparer.Ordinal);var visited=new HashSet<string>(StringComparer.Ordinal);

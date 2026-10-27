@@ -29,11 +29,11 @@ public sealed class DerivedSelfTreeTests
     public async Task Full_package_and_original_vue_preserve_the_existing_interaction(bool automatic)
     {await NonRedundantSelfTreeTests.ExerciseFull(automatic,true);await NonRedundantSelfTreeTests.ExerciseOriginalVue(automatic,true);}
     /// <summary>未证明的终点、拓扑或范围均拒绝；名称联接不能放开数组、凭据和缓存。</summary>
-    [Theory][InlineData("sourceR1")][InlineData("global")][InlineData("array")][InlineData("credential")][InlineData("wrongPath")][InlineData("derivedParent")][InlineData("derivedCondition")][InlineData("derivedProject")][InlineData("derivedSort")]
+    [Theory][InlineData("sourceR1BadCache")][InlineData("global")][InlineData("array")][InlineData("credential")][InlineData("wrongPath")][InlineData("derivedParent")][InlineData("derivedCondition")][InlineData("derivedProject")][InlineData("derivedSort")]
     public void Unproven_derived_tree_is_rejected(string scenario)
     {
         var c=Catalog("nr_tree","string","int64",false);var name=c.ConfigColumns.Single(x=>x.Id=="32");
-        if(scenario=="sourceR1")c.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;
+        if(scenario=="sourceR1BadCache"){c.ConfigTables.Single(x=>x.Id=="2").IsRongyu=1;c.ConfigColumns.Single(x=>x.Id=="26").IsVirtualColumn=1;}
         if(scenario=="global")c.ConfigTables.Single(x=>x.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(scenario=="array")c.ConfigColumns.Single(x=>x.Id=="42").ControlKind="FileLibrary";
         if(scenario=="credential"){c.ConfigColumns.Single(x=>x.Id=="42").ColumnName="password";name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.password");}
