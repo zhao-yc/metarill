@@ -47,8 +47,10 @@ public sealed class SharedCrossTableSparseMutation
     /// <summary>只打包一次整组预期路径；未触及的组返回null，不能把原始空祖先位当作逻辑值再编码。</summary>
     public IReadOnlyDictionary<string,object?>? Pack()
     {
-        if(!normalized)throw new InvalidOperationException("共享变更须先归一化再编码。");if(!writesSelection)return null;if(packed is not null)return packed;var paths=new Dictionary<string,IReadOnlyList<long>>(StringComparer.Ordinal);
-        foreach(var branch in selection.Branches){var path=new List<long>();var empty=false;foreach(var slot in branch.Slots){var id=SharedCrossTableSparseSelection.ParseStoredId(slot,expected[slot.ColumnName]);if(id is null){empty=true;continue;}if(empty)throw new InvalidOperationException("共享逻辑路径存在空缺层级。");path.Add(id.Value);}paths.Add(branch.SourceColumnId,path);}return packed=selection.PackValidatedPaths(paths);
+        if(!normalized)throw new InvalidOperationException("共享变更须先归一化再编码。");if(!writesSelection)return null;if(packed is not null)return packed;
+        // 只有已归一化且确实写入的组才打包，预期快照缺失时明确拒绝，不能带空状态继续。
+        var expectedValues=expected??throw new InvalidOperationException("共享变更缺少归一化预期，不能打包。");var paths=new Dictionary<string,IReadOnlyList<long>>(StringComparer.Ordinal);
+        foreach(var branch in selection.Branches){var path=new List<long>();var empty=false;foreach(var slot in branch.Slots){var id=SharedCrossTableSparseSelection.ParseStoredId(slot,expectedValues[slot.ColumnName]);if(id is null){empty=true;continue;}if(empty)throw new InvalidOperationException("共享逻辑路径存在空缺层级。");path.Add(id.Value);}paths.Add(branch.SourceColumnId,path);}return packed=selection.PackValidatedPaths(paths);
     }
     /// <summary>正常DML后仅核验；原始位及实际完整路径均须与同笔写入的预期相符，不补写修复。</summary>
     public async Task VerifyStoredAsync(IReadOnlyDictionary<string,object?> stored,

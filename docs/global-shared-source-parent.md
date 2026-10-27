@@ -37,3 +37,5 @@
 证据目录 `.local/global-shared-parent/`，成功或失败均保留随机样本意图、首因和精确清理回执。正式四库版本另见[正式计划](global-shared-cross-formal-plan.md)，不复用结束租约、不处理历史待授权表、不合main、不部署生产。
 
 完整回归另28组、143表及378文件ID独立核零。数据层及测试源码与B87通过743项的源码一致，本轮未重复执行。旧fd0a24f后端CI因共享Pack可空引用CS8602严格编译失败，另行修复；本地通过不等同CI通过。
+
+上述旧CI问题的后续修复及新提交复验状态统一见[B89严格编译专项](shared-sparse-strict-build.md)。

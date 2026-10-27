@@ -49,7 +49,9 @@ public sealed class GeneratedUniappTests
             catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "13").IsEdit = 0;
             new CSharpGenerator().Generate(catalog, output, "Example.Unsupported");
             using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "generation-capabilities.json")));
-            Assert.Contains(document.RootElement.GetProperty("unsupportedControls").EnumerateArray(), item => item.GetProperty("column").GetString() == "remark" && item.GetProperty("reason").GetString()!.Contains("CascadeTree", StringComparison.Ordinal));
+            // 能力证明可以报告更具体的范围原因，但只读字段仍必须列出对应页面、用途及非空缺口。
+            var gap=Assert.Single(document.RootElement.GetProperty("unsupportedControls").EnumerateArray().Where(item=>item.GetProperty("column").GetString()=="remark"&&item.GetProperty("pageId").GetString()=="101"&&item.GetProperty("usage").GetString()=="detail"));
+            Assert.False(string.IsNullOrWhiteSpace(gap.GetProperty("reason").GetString()));
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }
