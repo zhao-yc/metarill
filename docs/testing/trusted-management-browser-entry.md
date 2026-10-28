@@ -59,3 +59,9 @@ node tools/acceptance/serve-management-browser.mjs '<本轮preview.json绝对路
 数据库配置为127.0.0.1:1的不可达回环，未连接Server-200；未执行真实登录、CRUD、工作台保存、RR/并发、浏览器、HBuilderX、真机或性能，不能据此解除管理Full发布门禁。原初始化规则仍待确认。原四项实库管理结果属于各自冻结版本，本轮仅编译配套及匿名边界。私有证据 `.local/management-current-program`；相邻回归及正式生成结果后续补记。
 
 最终相邻回归69通过/4实库跳过、零失败；真实Program两项不与重叠批次累加。正常CLI以相同元数据/命名空间导出的590文件（含清单）与C13审查包逐字一致，证明清单共用未改变普通完整包；Release严格构建0警告/0错误，原前端、元数据、表级生成产物无Git差异。本轮3份变化源码/测试摘要 `890cb87453248f8c5e2beddb1f69bfe2198be1df1c8d565fe5081cd96c78b4e4`，私有收据 `.local/management-current-program/validation-receipt.json`。未为无变化的表级代码重复虚构迁移/回填或新的数据库验收。
+
+## 2026-10-28 C16：当前宿主补真实Web／MCP／MySQL
+
+当前生产Program同源清单已用真实持久Web会话和MCP SDK补验角色CRUD、DTO结构发现、未确认／未知字段拒绝、原工作台撤权及原注销。正式1/1通过、零跳过；独占项目六表清理后，新只读连接核验全零，临时Program连接配置移除。详见[公共MCP实库范围](../standalone-mcp.md)。没有重跑三项并发，也没有公开管理Full发布或初始化。
+
+Ego当前空间列表实际为空；旧验收空间不存在，仍沿此前重建待确认事项。本轮没有创建新空间、接管其它空间、换浏览器或执行HBuilderX；上述结果不能标成原页面交互／浏览器通过，C09及完整管理前端验收继续。
