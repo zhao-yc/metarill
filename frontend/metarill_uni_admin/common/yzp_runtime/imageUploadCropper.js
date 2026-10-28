@@ -10,7 +10,13 @@ let cropQueue = Promise.resolve()
  * 判断当前运行时是否具备 H5 裁切所需 DOM 能力。
  */
 export function isH5CropRuntime() {
+	// 只在H5视图层运行DOM裁切；App逻辑层或小程序即使有同名全局对象也不进入。
+	// #ifdef H5
 	return typeof window !== 'undefined' && typeof document !== 'undefined' && !!document.body
+	// #endif
+	// #ifndef H5
+	return false
+	// #endif
 }
 
 /**
@@ -58,6 +64,8 @@ export async function cropImageFile(file, options = {}) {
  * 加载 Cropper.js。这里用动态 import，避免非 H5 单元测试和小程序构建直接解析 DOM 库。
  */
 async function loadCropper() {
+	// H5专用动态分包不可进入App的IIFE构建，否则即使运行时未调用也无法编译。
+	// #ifdef H5
 	if (!cropperModulePromise) {
 		cropperModulePromise = Promise.all([
 			import('./vendor/cropperjs/cropper.esm.js'),
@@ -65,6 +73,10 @@ async function loadCropper() {
 		]).then(([module]) => module.default || module.Cropper || (window && window.Cropper))
 	}
 	return cropperModulePromise
+	// #endif
+	// #ifndef H5
+	return null
+	// #endif
 }
 
 /**

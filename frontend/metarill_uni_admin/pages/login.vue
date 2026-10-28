@@ -82,7 +82,10 @@
 </template>
 
 <script>
+// 浏览器专用库不可进入App逻辑层或小程序，避免原生编译改写其Worker脚本。
+// #ifdef H5
 import Cap from "cap-widget";
+// #endif
 import utils from "../common/utils";
 import yzp from "../common/yzp";
 export default {
@@ -236,6 +239,11 @@ export default {
 			if (!config.enabled) {
 				return '';
 			}
+			// 非Web尚无Cap执行器；启用验证时明确失败，不能退回无验证登录。
+			// #ifndef H5
+			throw new Error('安全验证暂不可用，请稍后再试');
+			// #endif
+			// #ifdef H5
 			if (!config.apiEndpoint || typeof window === 'undefined') {
 				throw new Error('安全验证暂不可用，请稍后再试');
 			}
@@ -261,6 +269,7 @@ export default {
 				throw new Error('安全验证失败，请重试');
 			}
 			return token;
+			// #endif
 		},
 		/**
 		 * 提交原后台登录接口，继续复用 captchaVerification 字段传 Cap token。
