@@ -246,6 +246,44 @@ namespace Metarill.Agent.Tests
             Assert.Equal("YZP_OUTCOME_UNKNOWN", json.RootElement.GetProperty("map").GetProperty("agentError").GetProperty("code").GetString()); Assert.DoesNotContain("普通入口不展示此分类", json.RootElement.ToString());
             Assert.Equal("unknown", (await tasks.GetAsync(fixture.Authorization.RequireActor(), requestId)).Outcome);
         }
+        /// <summary>两个调用通道共用真实记录结果，原显示规则不采信客户端实体或JSON覆盖。</summary>
+        [Theory][InlineData("real_name")][InlineData("realName")][InlineData("HTTP_status")][InlineData("hTTPStatus")]
+        public async Task Published_visibility_uses_generated_record_for_agent_and_original_web(string field)
+        {
+            var rule=JsonSerializer.Serialize(new{conditions=new[]{new{field,value="允许"}}});using var fixture=new Fixture(rule:rule);
+            fixture.Reader.Row.RealName="拒绝";var context=fixture.Context("Preview");
+            await Assert.ThrowsAsync<BusinessRuleException>(()=>fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview",context,Encoding.UTF8.GetBytes("{\"recordKey\":7}")));
+            var handler=new WebHandler();var executor=new OriginalBusinessButtonExecutor(fixture.Resources,fixture.Authorization,fixture.Services,fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>(),new[]{handler},fixture.Guard);
+            var request=new OriginalBusinessButtonRequest("31","7",JsonSerializer.SerializeToElement(new{id="7",realName="允许"}),"AlwaysVisible","{}");
+            var failure=await Assert.ThrowsAsync<BusinessRuleException>(()=>executor.ExecuteAsync(request,context));Assert.Equal("当前记录不允许执行该按钮",failure.Message);
+            Assert.Equal(0,handler.Calls);Assert.Equal(0,fixture.Guard.Calls);
+            // 发布后元数据变化不能改写已编译规则或物理字段映射；实际行的新值仍应逐次读取。
+            fixture.Metadata.ConfigButtons.Clear();fixture.Metadata.ConfigColumns[0].ColumnName="Unpublished";
+            fixture.Reader.Row.RealName="允许";await fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview",context,Encoding.UTF8.GetBytes("{\"recordKey\":7}"));
+            await executor.ExecuteAsync(request with{Entity=JsonSerializer.SerializeToElement(new{id="7",realName="拒绝"}),VisibleRuleJson="{\"conditions\":[{\"value\":\"拒绝\"}]}"},context);
+            Assert.Equal(1,handler.Calls);Assert.Equal(1,fixture.Guard.Calls);Assert.Equal(1,fixture.Guard.Released);
+        }
+        [Fact]
+        public async Task Unloaded_derived_field_cannot_masquerade_as_an_actual_null_value()
+        {
+            using var fixture=new Fixture(rule:"{\"conditions\":[{\"field\":\"computedName\",\"operator\":\"isBlank\"}]}");
+            await Assert.ThrowsAsync<NotSupportedException>(()=>fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview",fixture.Context("Preview"),Encoding.UTF8.GetBytes("{\"recordKey\":7}")));
+            Assert.Equal(0,fixture.Guard.Calls);
+        }
+        [Theory][InlineData("{")][InlineData("{\"conditions\":[{\"operator\":\"script\"}]}")][InlineData("{\"conditions\":[],\"conditions\":[]}")]
+        public void Invalid_visibility_does_not_publish_an_always_allowed_action(string rule)
+        {
+            using var fixture=new Fixture(rule:rule);Assert.Null(fixture.Resources.AgentCatalog.FindButton("31"));
+            Assert.Throws<UnauthorizedAccessException>(()=>fixture.Catalog.Describe("action:fixture.preview"));fixture.Catalog.List();
+        }
+        /// <summary>范围守卫之外的Web身份只用于离线协议合同，不充当真实登录验收。</summary>
+        private sealed class WebIdentity(RuntimeActor actor):ISecurityIdentityAccessor
+        {public AuthenticatedIdentity RequireIdentity()=>new(actor,new HashSet<string>(),1,null){PrincipalProjectId=actor.ProjectId,PrincipalAdminTypeId=actor.AdminTypeId};}
+        private sealed class WebHandler:IOriginalBusinessButtonHandler
+        {
+            internal int Calls;public string ButtonId=>"31";public string Path=>"/admin/custom/agent-fixture/preview";
+            public Task<IActionResult> ExecuteAsync(OriginalBusinessButtonRequest request,CancellationToken cancellationToken){Calls++;return Task.FromResult<IActionResult>(new OkResult());}
+        }
         private sealed class Fixture : IDisposable
         {
             internal readonly ExecutionGuard Guard=new();
@@ -256,18 +294,23 @@ namespace Metarill.Agent.Tests
             internal readonly ServiceProvider Services;
             internal readonly AgentCapabilityCatalog Catalog;
             private readonly IActionDescriptorCollectionProvider actions;
-            internal Fixture(string variant = "", AgentTaskStore? tasks = null)
+            internal Fixture(string variant = "", AgentTaskStore? tasks = null,string? rule=null)
             {
                 Metadata = new() { YzProjectId = "100", ConfigTables = [new() { Id = "11", TableName = "action_fixture", YzProjectId = variant == "table-foreign" ? "200" : "100" }],
                     ConfigPages = [new() { Id = "21", Name = "合同", ConfigTableId = "11", YzProjectId = variant == "page-foreign" ? "200" : "100", WhereSql = variant == "parent" ? "parent_id=@parentId" : "" }] };
+                Metadata.ConfigColumns.Add(new(){Id="12",ConfigTableId="11",ColumnName="real_name",Name="名称",YzProjectId="100"});
+                Metadata.ConfigColumns.Add(new(){Id="15",ConfigTableId="11",ColumnName="HTTP_status",Name="大小写字段",YzProjectId="100"});
+                Metadata.ConfigColumns.Add(new(){Id="14",ConfigTableId="11",ColumnName="computed_name",Name="派生名称",YzProjectId="100"});
+                Metadata.ConfigColumns.Add(new(){Id="13",ConfigTableId="11",ColumnName="amount",Name="金额",LogicalType="decimal",YzProjectId="100"});
                 if (variant == "readonly-expression") Metadata.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("amount<0");
                 foreach (var (id, method, confirm) in new[] { ("31", "preview", 0), ("32", "complete", 1), ("33", "query", 0), ("34", "raw", 0), ("35", "ambiguous", 0) })
                     Metadata.ConfigButtons.Add(JsonSerializer.SerializeToElement(new { id, configPageId = "21", configTableId = variant == "wrong-table" ? "12" : "11", yzProjectId = variant == "wrong-project" ? "200" : "100",
                         actionType = variant == "not-business" ? 0 : 1, sql = "/admin/custom/agent-fixture/" + (variant == "wrong-path" ? "missing" : method), isNeedConfirm = confirm, confirmMsg = "确认处理？",
-                        visibleScheme = variant == "unknown-visibility" ? "OnlyDeve" : variant is "writable" or "readonly-expression" ? "VisibleWhenWritable" : "Normal" }));
+                        visibleRuleJson=rule??"", visibleScheme = variant == "unknown-visibility" ? "OnlyDeve" : variant is "writable" or "readonly-expression" ? "VisibleWhenWritable" : "Normal" }));
                 if (variant == "duplicate-button") Metadata.ConfigButtons.Add(Metadata.ConfigButtons[0]);
                 Resources = new(Metadata);
                 var services = new ServiceCollection(); services.AddLogging(); services.AddControllers().AddApplicationPart(typeof(ActionFixtureController).Assembly);
+                services.AddSingleton<ISecurityIdentityAccessor>(new WebIdentity(Authorization.RequireActor()));
                 services.AddSingleton(Reader);
                 services.AddSingleton<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>(Guard);
                 services.AddSingleton<IRuntimeAuthorization>(Authorization); services.AddSingleton<IAgentHostResources>(Resources); services.AddSingleton<GeneratedCapabilityIndex>(); services.AddSingleton<AgentCapabilityCatalog>();
@@ -301,11 +344,20 @@ namespace Metarill.Agent.Tests
     /// <summary>目录/绑定测试只替入记录结果，实际生成SQL由生成模块现有用例验证。</summary>
     public sealed class ActionFixtureReader
     {
+        internal readonly ActionFixtureEntity Row=new();
         internal long Id; internal string? Parent, Button; internal RuntimeActor? Actor; internal int Calls; internal bool Visible = true, Deny;
         public Task<ActionFixtureEntity?> ReadButtonRecord21Async(long id, string? parent, string button, RuntimeActor actor, CancellationToken cancellationToken)
-        { Calls++; Id = id; Parent = parent; Button = button; Actor = actor; if (Deny) throw new SecurityException("真实记录拒绝"); return Task.FromResult(Visible ? new ActionFixtureEntity() : null); }
+        { Calls++; Id = id; Parent = parent; Button = button; Actor = actor; if (Deny) throw new SecurityException("真实记录拒绝"); return Task.FromResult(Visible ? Row : null); }
     }
-    public sealed class ActionFixtureEntity;
+    public sealed class ActionFixtureEntity
+    {
+        [JsonPropertyName("id")]public long Id{get;set;}=7;
+        [JsonPropertyName("realName")][FreeSql.DataAnnotations.Column(Name="real_name")]public string? RealName{get;set;}="允许";
+        [JsonPropertyName("amount")]public decimal Amount{get;set;}=10m;
+        [JsonPropertyName("computedName")][FreeSql.DataAnnotations.Column(Name="computed_name",IsIgnore=true)]public string? ComputedName{get;set;}
+        [JsonPropertyName("hTTPStatus")][FreeSql.DataAnnotations.Column(Name="HTTP_status")]public string? HTTPStatus{get=>RealName;set=>RealName=value;}
+        public string Unpublished=>throw new InvalidOperationException("规则不得读取未发布属性。");
+    }
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     public sealed class ActionFixtureRequest { [JsonPropertyName("recordKey")] public long Id { get; set; } public string? ParentId { get; set; } }
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

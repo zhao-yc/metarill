@@ -184,6 +184,18 @@ public sealed class SampleContractActionPackageTests(SampleContractActionPackage
         Assert.NotNull(error);Assert.True(error is UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException,error.GetType().Name);
         Assert.Empty(run.Trace);Assert.Empty(run.Observer.Contexts);
     }
+    /// <summary>正式包真实生成实体、原控制器和处理器共同校验，传输替身不能替换服务端可见条件。</summary>
+    [Fact]
+    public async Task Original_package_visibility_uses_true_generated_entity_before_lease_and_business()
+    {
+        using var run=fixture.Run();using var services=ButtonServices(run,"visibility");var context=new DefaultHttpContext{RequestServices=services};
+        var executor=services.GetRequiredService<OriginalBusinessButtonExecutor>();
+        var request=new OriginalBusinessButtonRequest("86000","7",JsonSerializer.SerializeToElement(new{id="7",name="允许",amount=10,remarks="待处理"}),"AlwaysVisible","{}");
+        await Assert.ThrowsAsync<BusinessRuleException>(()=>executor.ExecuteAsync(request,context));Assert.Equal(new[]{"read"},run.Trace);Assert.Empty(run.Observer.Contexts);
+        var gate=Assert.IsType<ButtonExecutionGuard>(services.GetRequiredService<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>());Assert.Equal(0,gate.Calls);
+        run.Set("Name","允许");var result=Assert.IsType<ObjectResult>(await executor.ExecuteAsync(request with{Entity=JsonSerializer.SerializeToElement(new{id="7",name="拒绝"})},context));
+        Assert.Null(result.StatusCode);Assert.Equal(1,gate.Calls);Assert.Equal(1,gate.Releases);Assert.DoesNotContain("begin",run.Trace);
+    }
     /// <summary>注册处理器必须使用正式编译包中的类型，范围守卫仍解析请求Scope唯一生成Service。</summary>
     private ServiceProvider ButtonServices(SampleContractActionRun run,string mode="")
     {
@@ -193,7 +205,18 @@ public sealed class SampleContractActionPackageTests(SampleContractActionPackage
     private void RegisterButtonServices(IServiceCollection services,SampleContractActionRun run,string mode="")
     {
         services.AddLogging();services.AddControllers().AddApplicationPart(fixture.Assembly).AddJsonOptions(options=>Metarill.Runtime.JsonDefaults.CopyTo(options.JsonSerializerOptions));
-        services.AddSingleton<IAgentHostResources>(new Published(fixture.Metadata));services.AddSingleton<IRuntimeAuthorization>(run.Authorization);
+        var published=fixture.Metadata;
+        if(mode=="visibility")
+        {
+            published=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(fixture.Metadata))!;
+            for(var index=0;index<published.ConfigButtons.Count;index++)
+            {
+                var button=System.Text.Json.Nodes.JsonNode.Parse(published.ConfigButtons[index].GetRawText())!;
+                button["visibleRuleJson"]="{\"conditions\":[{\"field\":\"name\",\"value\":\"允许\"}]}";
+                published.ConfigButtons[index]=JsonSerializer.SerializeToElement(button);
+            }
+        }
+        services.AddSingleton<IAgentHostResources>(new Published(published));services.AddSingleton<IRuntimeAuthorization>(run.Authorization);
         var actor=run.Authorization.RequireActor();
         if(mode!="identity")services.AddSingleton<ISecurityIdentityAccessor>(new ButtonIdentity(new(actor,new HashSet<string>(),20,mode=="agent"?99:null){PrincipalProjectId=actor.ProjectId,PrincipalAdminTypeId=actor.AdminTypeId}));
         if(mode!="missing-service")services.AddSingleton(run.Service.GetType(),run.Service);

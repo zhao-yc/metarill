@@ -26,7 +26,11 @@ public sealed record AgentPublishedPage(string ProjectId, string Id, string Name
 
 /// <summary>按钮路径、确认与可见规则来自发布快照，不能被调用方元数据或请求覆盖。</summary>
 public sealed record AgentPublishedButton(string Id, AgentPublishedPage Page, string Path, bool ConfirmationRequired,
-    string ConfirmationMessage, string Visibility);
+    string ConfirmationMessage, string Visibility)
+{
+    internal ButtonVisibilityRule? Rule {get;init;}
+    internal IReadOnlyDictionary<string,string> RecordNames {get;init;} = FrozenDictionary<string,string>.Empty;
+}
 
 /// <summary>平台保持原平台身份规则；独立应用只允许自身发布后台，不产生平台管理员身份。</summary>
 public sealed class AgentHostCatalog
@@ -92,7 +96,23 @@ public sealed class AgentHostCatalog
         // 非空只读表达式尚无同等后端解释器，不能把未执行的只读条件默认为可写。
         if (visibility is not ("Normal" or "AlwaysVisible" or "VisibleWhenWritable")
             || visibility == "VisibleWhenWritable" && (!page.CanUpdate || page.ReadOnlyCondition.Length != 0)) return null;
-        return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility);
+        ButtonVisibilityRule rule;
+        try{rule=ButtonVisibilityRule.Compile(Text(button,"visibleRuleJson"));}catch(ArgumentException){return null;}
+        // 只发布真实表字段的物理/JSON名称映射，后续从实际生成实体取值，不反射客户端字段。
+        var names=new Dictionary<string,string>(StringComparer.Ordinal){["id"]="id"};
+        foreach(var column in catalog.ConfigColumns.Where(value=>value.ConfigTableId==page.TableId))
+        {
+            var json=JsonName(column.ColumnName);
+            foreach(var name in new[]{column.ColumnName,json,GeneratedRecordJsonName(column.ColumnName)})
+            {if(names.TryGetValue(name,out var previous)&&previous!=column.ColumnName)return null;names[name]=column.ColumnName;}
+        }
+        return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility){Rule=rule,RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal)};
+    }
+    /// <summary>按钮字段同时兼容原命名与生成器Pascal/Camel规则；最终属性按真实Column.Name绑定。</summary>
+    private static string GeneratedRecordJsonName(string name)
+    {
+        var value=string.Concat(name.Split('_',StringSplitOptions.RemoveEmptyEntries).Select(part=>char.ToUpperInvariant(part[0])+part[1..]));
+        return value.Length==0?"":char.ToLowerInvariant(value[0])+value[1..];
     }
     /// <summary>严格匹配本应用路径，不接收外链、查询片段或向上路径。</summary>
     internal static bool IsApplicationPath(string path) => path.StartsWith('/') && !path.StartsWith("//", StringComparison.Ordinal)
