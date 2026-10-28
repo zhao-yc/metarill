@@ -16,8 +16,9 @@ public sealed class FileReferenceScopeTests
         var scope = Assert.Single(FileReferenceScope.Compile(catalog, catalog.ConfigTables[0], catalog.ConfigPages[0]));
         Assert.Equal("parent", scope.Parent.TableName); Assert.True(scope.HasSoftDelete);
         Assert.Equal(9007199254740993L, FileReferenceScope.PositiveId("9007199254740993"));
-        scope.Project.LogicalType = "string";
-        Assert.Equal("9007199254740993", FileReferenceScope.IdentityValue(scope.Project, 9007199254740993L));
+        var project = Assert.IsType<ColumnMetadata>(scope.Project);
+        project.LogicalType = "string";
+        Assert.Equal("9007199254740993", FileReferenceScope.IdentityValue(project, 9007199254740993L));
     }
 
     [Theory]

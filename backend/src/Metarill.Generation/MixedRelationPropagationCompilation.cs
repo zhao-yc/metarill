@@ -11,6 +11,6 @@ internal static class MixedRelationPropagationCompilation
     /// <summary>编译静态读取／反向依赖，不在生成的HTTP请求中重读目录或拼SQL。</summary>
     internal static RelationMaintenanceCatalog ForModel(GenerationModel model)=>Catalogs.GetValue(model,current=>
     {
-        var metadata=GenerationMetadataPublisher.ForRelations(current.Catalog);var physical=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.Bindings(current));var derived=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(current));return derived.Length==0?RelationMaintenanceCatalog.Compile(metadata,physical,Excluded(current)):RelationMaintenanceCatalog.CompileWithDerivedCrossTables(metadata,physical,derived,Excluded(current));
+        var metadata=GenerationMetadataPublisher.ForRelations(current.Catalog);var physical=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.Bindings(current));var derived=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(current));var catalog=derived.Length==0?RelationMaintenanceCatalog.Compile(metadata,physical,Excluded(current)):RelationMaintenanceCatalog.CompileWithDerivedCrossTables(metadata,physical,derived,Excluded(current));GlobalCachedSourceCompilation.RequireComplete(current,catalog);return catalog;
     });
 }

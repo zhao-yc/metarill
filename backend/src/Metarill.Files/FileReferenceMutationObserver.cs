@@ -149,7 +149,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     /// <summary>父键只取已锁源记录；父锁在文件/引用之前取得，当前读拒绝并发删除后的父行。</summary>
     private async Task<long[]> LockParentsAsync(RecordMutationContext context, FilePageScope scope, IReadOnlyDictionary<string, object?> record, CancellationToken token)
     {
-        var parents = scope.Parents.Select(scope => (Scope: scope, Id: FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
+        var parents = scope.Parents.Select(scope => (Scope: scope, Id: scope.Project is null ? FileReferenceScope.CanonicalId(record.GetValueOrDefault(scope.Source.ColumnName)) : FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
         var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,FileReferenceScope.PositiveId(context.ProjectId),true,token);
         var ids=parents.Select(parent=>parent.Id).Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)))).Concat(logical).ToArray();
         // 同一页面的@parentId只有一个实际值，多条等值条件不得被解释为互不相干的父身份。
@@ -159,8 +159,8 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         {
             await using var command = context.Transaction.Connection!.CreateCommand(); command.Transaction = context.Transaction;
             var query = "SELECT " + provider.QuoteIdentifier("id") + " FROM " + provider.QuoteIdentifier(parent.Scope.Parent.TableName)
-                + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "scope_parent_id", parent.Id)
-                + " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, "scope_project", FileReferenceScope.IdentityValue(parent.Scope.Project, FileReferenceScope.PositiveId(context.ProjectId)));
+                + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "scope_parent_id", parent.Id);
+            if(parent.Scope.Project is{} owner)query+=" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter(command,"scope_project",FileReferenceScope.IdentityValue(owner,FileReferenceScope.PositiveId(context.ProjectId)));
             if (parent.Scope.HasSoftDelete) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
             command.CommandText = provider.BuildSelectForUpdate(query);
             if (await command.ExecuteScalarAsync(token) is null) throw new UnauthorizedAccessException("父记录不存在、已删除或不属于当前项目。");

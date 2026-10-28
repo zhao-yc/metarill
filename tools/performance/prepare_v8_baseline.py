@@ -134,6 +134,19 @@ def convert(source, schema):
             columns.append(row)
             if column["type"]=="datetime": differences.append({"table":table["tableName"],"column":name,"java":"datetime","csharp":"datetime(6)","status":"共同物理DDL待编译核对，未应用"})
             if column["default"] and column["default"].lower()=="now()": differences.append({"table":table["tableName"],"column":name,"javaDefault":"now()","csharpMetadataDefault":"","status":"动态默认不伪装为常量，待共同结构与写入核验"})
+    # 原Java的物理List名称副本由正式DDL和精确目标共同确定；在C#中显式表达同一缓存语义。
+    implicit_caches=[]
+    configured_ids={row["id"] for row in declared}
+    for foreign in columns:
+        if foreign.get("controlKind")!="List":continue
+        definition=json.loads(foreign["controlDetail"]);display=definition.get("nameField","name")
+        if display=="id":continue
+        name=foreign["columnName"][:-3]+"_"+display
+        cache=next((row for row in columns if row["configTableId"]==foreign["configTableId"] and row["columnName"]==name),None)
+        if cache is None:raise BaselineError("原List隐式名称未出现在正式DDL")
+        if cache["id"] in configured_ids:continue
+        cache["isJoinColumn"]=1;cache["columnFullName"]=foreign["columnName"][:-3]+"."+display
+        implicit_caches.append({"foreign":foreign["id"],"cache":cache["id"],"path":cache["columnFullName"],"source":"原Java List定义及正式DDL隐式物理列"})
     by_column={identity(column["id"]):column for column in columns}
     if len(by_column)!=len(columns): raise BaselineError("原始/夹具字段ID碰撞")
     admins=copy.deepcopy(source["adminTypes"])
@@ -163,7 +176,7 @@ def convert(source, schema):
             column=next(row for row in columns if row["configTableId"]==table["id"] and row["columnName"]==index["column"])
             index_columns.append({"id":synthetic(index_id,column["columnName"]),"configIndexId":index_id,"configColumnId":column["id"],"columnName":column["columnName"],"sortNo":0,"sortDirection":"ASC","yzProjectId":project_id})
     catalog={"schemaVersion":1,"backendTarget":"csharp","yzProjectId":project_id,"yzProjectName":project["name"],"primaryColor":project.get("primaryColor","#0ab3ad"),"databaseProvider":"mysql","configTables":tables,"configColumns":columns,"configPages":pages,"configPageColumns":fields,"yzAdminTypes":admins,"configMenus":menus,"configButtons":copy.deepcopy(source["buttons"]),"configChildren":copy.deepcopy(source["children"]),"configIndexes":indexes,"configIndexColumns":index_columns}
-    receipt={"offline":True,"ddlExecuted":False,"originalConfiguredColumns":len(declared),"physicalColumns":len(columns),"addedPhysicalDeclarations":added,"tables":len(tables),"pages":len(pages),"buttonsPreserved":len(source["buttons"]),"childrenPreserved":len(source["children"]),"indexesPreserved":len(indexes),"knownPhysicalDifferences":differences,"scopeEvidence":[{"table":table["tableName"],"scopeKind":table["scopeKind"],"source":"Java正式DDL是否实际含yz_project_id；页面whereSql保持原样"} for table in tables],"samePhysicalSchemaProven":False,"performanceAccepted":False}
+    receipt={"offline":True,"ddlExecuted":False,"implicitSingleCaches":implicit_caches,"originalConfiguredColumns":len(declared),"physicalColumns":len(columns),"addedPhysicalDeclarations":added,"tables":len(tables),"pages":len(pages),"buttonsPreserved":len(source["buttons"]),"childrenPreserved":len(source["children"]),"indexesPreserved":len(indexes),"knownPhysicalDifferences":differences,"scopeEvidence":[{"table":table["tableName"],"scopeKind":table["scopeKind"],"source":"Java正式DDL是否实际含yz_project_id；页面whereSql保持原样"} for table in tables],"samePhysicalSchemaProven":False,"performanceAccepted":False}
     return catalog,receipt
 
 

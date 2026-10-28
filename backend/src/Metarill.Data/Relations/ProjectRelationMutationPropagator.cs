@@ -7,6 +7,7 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
     /// <summary>生成服务传入实际身份／记录项目和变更字段；只返回原实体被刷新值，回执与同事务数据库保持一致。</summary>
     public async Task<IReadOnlyDictionary<string,object?>> AfterMutationAsync(RelationMaintenanceCatalog catalog,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,bool refreshSource,CancellationToken token=default)
     {
+        if(catalog.RequiresPublishedProjectIdentity&&projectId!=catalog.ProjectId)throw new UnauthorizedAccessException("当前身份不属于已发布全局来源目录。");
         if(session.Options.Provider!="mysql")throw new NotSupportedException("该数据库尚未完成项目关系传播验收。");if(session.CurrentTransaction is null)throw new InvalidOperationException("项目关系传播要求原业务事务。");if(id<=0||!long.TryParse(projectId,System.Globalization.NumberStyles.None,CultureInfo.InvariantCulture,out var project)||project<=0||project.ToString(CultureInfo.InvariantCulture)!=projectId)throw new ArgumentException("关系事件缺少规范记录或项目ID。");
         var patches=new Dictionary<string,object?>(StringComparer.Ordinal);var queue=new Queue<(string Table,long Id,IReadOnlySet<string> Fields,bool All)>();var validated=new HashSet<string>(StringComparer.Ordinal);var mixed=new MySqlMixedRelationMutationExecutor(session);
         void Changed(string source,long key,IReadOnlyDictionary<string,object?> values)

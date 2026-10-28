@@ -5,7 +5,7 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Runtime.Files;
 
-internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata Project, bool HasSoftDelete);
+internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata? Project, bool HasSoftDelete);
 
 internal sealed record FilePageScope(IReadOnlyList<FileParentScope> Parents,FixedConditionSqlPlan? Condition,IReadOnlyList<string> ConditionFields)
 {
@@ -56,6 +56,9 @@ internal static class FileReferenceScope
                 if(id is null||!LongType(id.LogicalType)||owner is not null&&!IdentityType(owner.LogicalType))throw Unsupported();
                 var deleted=parentColumns.SingleOrDefault(candidate=>candidate.ColumnName=="delete_no");
                 if(deleted is not null&&(deleted.LogicalType.ToLowerInvariant() is not("datetime" or "timestamp")||deleted.IsDbNotNull!=0))throw Unsupported();
+                // 无项目列来源只在同一已发布物理List证明下省略父项目谓词，不能按字段缺失降级。
+                if(table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&GlobalCrossTableTarget.Declared(parent))
+                {var published=catalog.ConfigColumns.Single(field=>field.Id==column.Id&&field.ConfigTableId==table.Id);GlobalSingleRelationTarget.RequireCached(catalog,table,published,parent);result.Add(new(column,parent,null,deleted is not null));continue;}
                 if(table.IsRongyu==0&&GlobalCrossTableTarget.Declared(parent))pending.Add((column,parent,owner,deleted is not null));
                 else{if(owner is null)throw Unsupported();result.Add(new(column,parent,owner,deleted is not null));}
             }

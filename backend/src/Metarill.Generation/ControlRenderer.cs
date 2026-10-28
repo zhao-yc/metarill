@@ -59,11 +59,11 @@ internal static class ControlRenderer
         if (column.Source.ControlKind == "RTF" && column.Type == "string?")
             return Wrap((writable ? $"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"openRtf('{column.JsonName}', 'edit')\">编辑</button>" : "") + $"<button size=\"mini\" @click=\"openRtf('{column.JsonName}', 'review')\">预览</button><rich-text :nodes=\"entity.{column.JsonName} || ''\" />");
         if (!writable && column.Source.ControlKind == "IntenetImage") return Wrap($"<image v-if=\"entity.{column.JsonName}\" :src=\"entity.{column.JsonName}\" mode=\"aspectFit\" />");
-        if (!writable && column.Source.ControlKind is "" or "TextArea" or "ConstList" or "ConstDownList" or "CheckBox" or "date" or "date_time" or "List" or "SelectPage" or "IntenetImage")
+        if (!writable && column.Source.ControlKind is "" or "Text" or "TextArea" or "ConstList" or "ConstDownList" or "CheckBox" or "date" or "date_time" or "List" or "SelectPage" or "IntenetImage")
             return Wrap($"<text>{{{{ displayValue(entity, '{column.JsonName}') }}}}</text>");
         switch (column.Source.ControlKind)
         {
-            case "": return Wrap($"<uni-easyinput {binding} {change} />");
+            case "": case "Text": return Wrap($"<uni-easyinput {binding} {change} />");
             case "TextArea": return Wrap($"<uni-easyinput type=\"textarea\" {binding} {change} />");
             case "ConstList": case "ConstDownList":
                 return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(ConstOptions(column))}\" />");
@@ -117,7 +117,7 @@ internal static class ControlRenderer
         }
         if (column.Type == "DateTime?" && column.Source.ControlKind is "" or "date" or "date_time")
             return Wrap($"<uni-datetime-picker type=\"{(column.Source.ControlKind == "date" ? "daterange" : "datetimerange")}\" {binding} @change=\"setFilter('{column.JsonName}', $event)\" />");
-        if (column.Source.ControlKind is "" or "TextArea" or "RTF")
+        if (column.Source.ControlKind is "" or "Text" or "TextArea" or "RTF")
             return Wrap($"<uni-easyinput {binding} {change} placeholder=\"请输入{label}\" />");
         return new("", "筛选控件尚未完成移植：" + column.Source.ControlKind);
     }
@@ -158,7 +158,8 @@ internal static class ControlRenderer
             if (detail.TryGetProperty("accept", out value) && value.ValueKind != JsonValueKind.Null)
             {
                 var modes = (value.GetString() ?? "").Split(',').Select(item => item.Trim()).ToArray();
-                if (modes.Length == 0 || modes.Any(mode => mode is not ("image" or "file" or "video"))) throw new InvalidOperationException("文件库上传类型无效。");
+                // 原V8样板的单独*沿原组件文件选择行为保留，不改写元数据或扩大混合类型。
+                if (modes.Length == 0 || !(modes.Length == 1 && modes[0] == "*") && modes.Any(mode => mode is not ("image" or "file" or "video"))) throw new InvalidOperationException("文件库上传类型无效。");
                 accept = string.Join(',', modes.Distinct(StringComparer.Ordinal));
             }
             if (detail.TryGetProperty("maxCount", out value) && value.ValueKind != JsonValueKind.Null) maximum = value.GetInt32();

@@ -71,6 +71,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     /// <summary>来源按真实项目、活动记录和主键分批取写锁；事件只返回受影响缓存，整表及来源自身刷新保持完整字段。</summary>
     internal async Task<List<Dictionary<string,object?>>> Sources(MaintenanceTable table,string project,long after,DbTransaction transaction,CancellationToken token,IReadOnlyList<long>? ids=null,IReadOnlySet<string>? allowed=null)
     {
+        if(table.Read?.RequiresPublishedProjectIdentity==true&&project!=table.Read.ProjectId)throw new UnauthorizedAccessException("当前身份不属于已发布全局来源目录。");
         // 只缩窄缓存值返回列；预算所需ID始终保留，未知名称不能成为标识符。
         if(allowed is not null&&allowed.Any(name=>!table.Fields.Any(field=>field.Name==name)))throw new InvalidOperationException("来源锁读只能选择已声明缓存字段。");
         var fields=new[]{"id"}.Concat(table.Fields.Where(field=>allowed is null||allowed.Contains(field.Name)).Select(field=>field.Name)).Concat(table.Multiples.Select(multiple=>multiple.Foreign)).Distinct(StringComparer.Ordinal).ToArray();await using var command=Command(transaction);command.CommandText="SELECT "+string.Join(",",fields.Select(Q))+" FROM "+Q(table.Option.TableName)+" WHERE "+Scope(table)+" AND `id`>@after"+(ids is null?"":" AND `id` IN ("+string.Join(",",Enumerable.Range(0,ids.Count).Select(index=>"@owned"+index))+")")+" ORDER BY `id` LIMIT 128 FOR UPDATE";Add(command,"project",Project(table,project));Add(command,"after",after);if(ids is not null)for(var index=0;index<ids.Count;index++)Add(command,"owned"+index,ids[index]);var rows=new List<Dictionary<string,object?>>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token)){var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<fields.Length;index++)row.Add(fields[index],await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));rows.Add(row);}return rows;
@@ -79,10 +80,10 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     private async Task Update(MaintenanceTable table,long id,string project,IReadOnlyDictionary<string,object?> patch,DbTransaction transaction,CancellationToken token)
     {
         await using var command=Command(transaction);command.CommandText="UPDATE "+Q(table.Option.TableName)+" SET "+string.Join(",",patch.Keys.Select((field,index)=>Q(field)+"=@value"+index))+" WHERE `id`=@id AND "+Scope(table);Add(command,"id",id);Add(command,"project",Project(table,project));var ordinal=0;foreach(var value in patch.Values)Add(command,"value"+ordinal++,value);if(await command.ExecuteNonQueryAsync(token)!=1)throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
-        await RelationCacheStorageVerifier.VerifyAsync(session,table.Option.TableName,"c.`yz_project_id`=@project"+(table.Deleted?" AND c.`delete_no` IS NULL":""),id,Project(table,project),patch,transaction,token);
+        await RelationCacheStorageVerifier.VerifyAsync(session,table.Option.TableName,(table.ProjectType.Length==0?"1=1":"c.`yz_project_id`=@project")+(table.Deleted?" AND c.`delete_no` IS NULL":""),id,Project(table,project),patch,transaction,token);
     }
     /// <summary>活动范围只来自编译后的真实物理项目列和软删列。</summary>
-    private static string Scope(MaintenanceTable table)=>"`yz_project_id`=@project"+(table.Deleted?" AND `delete_no` IS NULL":"");
+    private static string Scope(MaintenanceTable table)=>(table.ProjectType.Length==0?"1=1":"`yz_project_id`=@project")+(table.Deleted?" AND `delete_no` IS NULL":"");
     /// <summary>项目ID按发布类型绑定，数值不经浮点或隐式转换。</summary>
     private static object Project(MaintenanceTable table,string project)=>table.ProjectType=="string"?project:long.Parse(project,CultureInfo.InvariantCulture);
     /// <summary>标识符只来自编译计划，由适配器引用。</summary>

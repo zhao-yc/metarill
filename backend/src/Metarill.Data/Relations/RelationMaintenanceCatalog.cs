@@ -27,6 +27,8 @@ public sealed class RelationMaintenanceCatalog
     internal IReadOnlyDictionary<string,MaintenanceTable> Plans{get;}
     internal RelationMutationPlan Propagation{get;}
     internal MixedRelationMutationPlan Mixed{get;}
+    /// <summary>全局来源事件必须使用本目录项目身份，普通按行项目范围保持原合同。</summary>
+    internal bool RequiresPublishedProjectIdentity=>Plans.Values.Any(plan=>plan.Read?.RequiresPublishedProjectIdentity==true);
     /// <summary>生成器据此只挂载已证明的目标和来源实体补丁，公开投影不包含SQL。</summary>
     public IReadOnlyList<string> MixedTargets=>Mixed.Targets;
     public IReadOnlyDictionary<string,IReadOnlyList<string>> MixedSourceColumns=>Mixed.SourceColumns;
@@ -55,8 +57,11 @@ public sealed class RelationMaintenanceCatalog
                 fields=fields.Concat(companionPaths.Keys.Select(name=>all[name])).OrderBy(field=>field.ColumnName,StringComparer.Ordinal).ToArray();
                 if(fields.Any(field=>!storage.IsPhysical(field)))throw new NotSupportedException("回填列必须全部具有真实物理存储，未执行部分回填。");
                 if(fields.Length==0){plans.Add(table.Id,new(option,"",false,[],[],null,null));continue;}
-                if(table.IsFunctionTable!=0||table.IsView!=0||table.Extra.GetValueOrDefault("scopeKind").ToString()=="global")throw new NotSupportedException("维护回填要求同项目普通实体表。");
-                if(!all.TryGetValue("yz_project_id",out var projectColumn)||projectColumn.LogicalType is not("int64" or "string")||Enabled(projectColumn))throw new InvalidOperationException("维护表缺少真实项目列。");
+                var globalSource=GlobalCrossTableTarget.Declared(table);
+                if(table.IsFunctionTable!=0||table.IsView!=0)throw new NotSupportedException("维护回填要求同项目普通实体表。");
+                all.TryGetValue("yz_project_id",out var projectColumn);
+                if(globalSource){GlobalCachedRelationSource.Require(catalog,table);foreach(var field in fields)GlobalCachedRelationSource.RequireCache(catalog,table,field);}
+                else if(projectColumn is null||projectColumn.LogicalType is not("int64" or "string")||Enabled(projectColumn))throw new InvalidOperationException("维护表缺少真实项目列。");
                 foreach(var field in fields)if(field.ColumnName is "id" or "yz_project_id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id"||ExactDataManageValues.IsSensitiveField(field.ColumnName)||field.ColumnName=="salt"||field.ControlKind=="FileLibrary"||field.IsVirtualColumn!=0)throw new NotSupportedException("维护回填不能覆盖身份、审计或凭据字段。");
                 var read=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,table.Id,fields.Select(column=>column.ColumnName).ToArray(),bindings,companionPaths);var results=new List<MaintenanceField>();
                 if(read.MultiProjections.Keys.Any(name=>!bindings.Where(binding=>binding.Multiple).Any(binding=>all.Values.Any(column=>column.Id==binding.CacheColumnId&&column.ColumnName==name))))throw new NotSupportedException("多值回填缺少已证明的数组预算，未执行部分回填。");
@@ -70,7 +75,7 @@ public sealed class RelationMaintenanceCatalog
                 var required=read.PhysicalReferences.Concat(fields.Select(field=>new MySqlPhysicalReference(table.TableName,MySqlSchemaPlanner.CompileColumn(field)))).DistinctBy(item=>(item.Table,item.Column.Name)).ToArray();
                 read=read.WithPhysicalReferences(required);
                 var multiples=bindings.Where(item=>item.Multiple).GroupBy(item=>item.ForeignColumnId).Select(group=>new MaintenanceMultiple(all.Values.Single(column=>column.Id==group.Key).ColumnName,all.Values.Single(column=>column.Id==group.Key).ControlKind=="MultiSelectPage"?200:5000,Array.AsReadOnly(group.Select(item=>all.Values.Single(column=>column.Id==item.CacheColumnId).ColumnName).ToArray()))).ToArray();
-                plans.Add(table.Id,new(option,projectColumn.LogicalType,all.ContainsKey("delete_no"),Array.AsReadOnly(results.ToArray()),Array.AsReadOnly(multiples),read,null));
+                plans.Add(table.Id,new(option,globalSource?"":projectColumn!.LogicalType,all.ContainsKey("delete_no"),Array.AsReadOnly(results.ToArray()),Array.AsReadOnly(multiples),read,null));
             }
             catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException or JsonException){plans.Add(table.Id,new(option,"",false,[],[],null,"当前表回填计划未通过发布校验："+error.Message));}
         }

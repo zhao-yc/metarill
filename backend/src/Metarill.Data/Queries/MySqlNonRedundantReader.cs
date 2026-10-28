@@ -35,7 +35,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(order);
         if(page<1||pageSize<0||pageSize==0&&!unpaged||unpaged&&(page!=1||pageSize!=0))throw new ArgumentOutOfRangeException(nameof(page));
-        projectId=ValidateProject(projectId??plan.ProjectId);
+        projectId=RequirePlanProject(plan,projectId);
         // 所有字段/操作/值先验证，不能在发出COUNT后才发现排序非法。
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();order=order.ToArray();
         var clauses=filters.Select((filter,index)=>Filter(plan,filter,index)).ToArray();
@@ -99,7 +99,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(sumFields);
-        projectId=ValidateProject(projectId??plan.ProjectId);var fields=sumFields.ToArray();
+        projectId=RequirePlanProject(plan,projectId);var fields=sumFields.ToArray();
         if(fields.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=fields.Length)throw new InvalidOperationException("统计字段重复。");
         foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();
@@ -190,7 +190,10 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         for(var i=0;i<filters.Count;i++)
         {var filter=filters[i];if(filter.Comparison==FixedReadComparison.In){var items=(IReadOnlyList<object?>)filter.Value!;for(var item=0;item<items.Count;item++)if(items[item] is {} memberValue)Add(command,"filter_"+i+"_"+item,memberValue);continue;}if(filter.Value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)continue;var value=filter.Comparison is FixedReadComparison.Contains or FixedReadComparison.JsonArrayAnyContains?"%"+((string)filter.Value).Replace("!","!!",StringComparison.Ordinal).Replace("%","!%",StringComparison.Ordinal).Replace("_","!_",StringComparison.Ordinal)+"%":filter.Value;Add(command,"filter_"+i,value);}
     }
-    /// <summary>执行项目必须来自宿主已认证Actor；这里仅做类型校验，不授予页面权限。</summary>
+    /// <summary>无项目列来源必须绑定发布目录身份，不能靠请求参数取得另一项目的全局数据。</summary>
+    private static string RequirePlanProject(MySqlNonRedundantReadPlan plan,string? project)
+    {var value=ValidateProject(project??plan.ProjectId);if(plan.RequiresPublishedProjectIdentity&&value!=plan.ProjectId)throw new UnauthorizedAccessException("当前身份不属于已发布全局来源目录。");return value;}
+    /// <summary>执行项目来自已认证Actor；原项目来源保留既有类型校验，不授予页面权限。</summary>
     private static string ValidateProject(string projectId)
     {if(!long.TryParse(projectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var id)||id<=0)throw new InvalidOperationException("执行项目标识无效。");return projectId;}
     /// <summary>当前事务使用同一个真实连接；普通读取创建并释放自己的连接。</summary>

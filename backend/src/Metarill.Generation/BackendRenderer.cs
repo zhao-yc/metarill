@@ -176,14 +176,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
             .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }")
             .AppendLine("    /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>")
-            .AppendLine("    private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException(\"登录身份无效。\"); }")
+            .AppendLine("    private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException(\"登录身份无效。\");"+(GlobalCachedSourceCompilation.BindsActor(model)?$" if(actor.ProjectId!={Literal(model.Catalog.YzProjectId)})throw new UnauthorizedAccessException(\"当前身份不属于已发布全局来源目录。\");":"")+" }")
             .AppendLine("    /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>")
             .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeSave({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);")
             .AppendLine("    /// <summary>删除前规则在当前事务内执行。</summary>")
             .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
             result.Append(CascadeTreeReadRenderer.Service(model,table,page));
             result.Append(CascadeTreeWriteRenderer.Service(model,table,page));
             result.Append(CascadeTreeViewRenderer.Service(model,table,page));
@@ -210,6 +210,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
                 result.AppendLine($"        _=LogicalParentId{page.Source.Id}(parentId);if(includeManaged)await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
             }
+            if(GlobalCachedParentCompilation.ForColumn(model,table,page,column) is{} directGlobalParent){result.Append(GlobalCachedParentCompilation.Call(directGlobalParent,page,"parentId","true"));continue;}
             var globalParents=SharedGlobalParentCompilation.ForColumn(model,table,page,column);if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId","true"));continue;}
             var parent = CrossTableWriteCompilation.ParentTarget(model,table,page,column) ?? model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
@@ -612,6 +613,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var globalParents=sourceContext?SharedGlobalParentCompilation.ForTable(model,owner,page,parent):[];if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",current?"locking":"false"));return;}
             var redundantParents=sourceContext?SharedRedundantParentCompilation.ForTable(model,owner,page,parent):[];if(redundantParents.Count>0){foreach(var redundantParent in redundantParents)result.Append(SharedRedundantParentCompilation.Call(redundantParent,page,current?"locking":"false"));return;}
+            var directGlobalParents=sourceContext?GlobalCachedParentCompilation.ForTable(model,owner,page,parent):[];if(directGlobalParents.Count>0){foreach(var direct in directGlobalParents)result.Append(GlobalCachedParentCompilation.Call(direct,page,"parentId",current?"locking":"false"));return;}
             var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
             result.AppendLine($"        var {variable} = session.Select<{parent.Name}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");

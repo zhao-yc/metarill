@@ -106,7 +106,8 @@ internal static class OriginalUniappDetailFields
 {{{name}}}RtfDo(action) { if(!['edit','review'].includes(action) || action==='edit' && this.{{{ro}}}) return; const current=this.originalContext(), original=this.entity.{{{name}}}, text=original??'', that=this; uni.navigateTo({url:'/pages/main/rtf/rtf?action='+action,events:{onReceiveRtf(rtf){that.permissionVersion++;if(action==='edit' && !that.{{{ro}}} && current() && typeof rtf==='string' && rtf!==text) that.entity.{{{name}}}=rtf;}},success(result){if(current())result.eventChannel.emit('sendRtf',{data:text});}}); },
 """);
                 return Hidden(f) + $"<view class='rtf-buttons'><button size='mini' @click=\"{name}RtfDo('review')\">预览</button><button size='mini' v-if='!{ro}' @click=\"{name}RtfDo('edit')\">编辑</button></view><view class='rtf-review' v-html='entity.{name}'></view>";
-            case "":
+            // 原V8样板用Text表达默认文本框，保持与原空类型相同的HTML和数值输入行为。
+            case "": case "Text":
                 return $"<uni-easyinput primaryColor=\"{primary}\" v-if='!{ro}' v-model='entity.{name}' {(column.Type == "string?" ? $"maxlength='{(InputLength(c,f) == "max" ? "-1" : Html(InputLength(c,f)))}'" : "")} {(column.Type is "int?" or "decimal?" or "double?" ? "type='number'" : "")} {(Enabled(c.Page.Source.Extra, "isListEdit") ? "@blur='saveEntity()'" : "")} /><text v-if='{ro}'>{{{{entity.{name}}}}}</text>";
             default: throw new InvalidOperationException("原详情尚无该控件的完整移植分支：" + kind);
         }
@@ -151,7 +152,8 @@ this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._orig
     {
         var d = Object(f.Detail, "文件库"); var access = Property(d, "accessMode", "PROTECTED"); if (access is not ("PUBLIC" or "PROTECTED")) throw new InvalidOperationException("文件库访问模式无效。");
         var maximum = d.TryGetProperty("maxCount", out var count) ? Integer(count, 9) : 9; var size = d.TryGetProperty("maxSizeMb", out var bytes) ? Integer(bytes, 50) : 50;
-        var accept = Property(d, "accept", "image,file,video"); if (maximum is < 1 or > 100 || size is < 1 or > 10240 || accept.Split(',').Any(item => item is not ("image" or "file" or "video"))) throw new InvalidOperationException("文件库配置无效。");
+        // 原V8的单独*原样交给文件组件；混合通配及未知类型仍拒绝。
+        var accept = Property(d, "accept", "image,file,video"); if (maximum is < 1 or > 100 || size is < 1 or > 10240 || accept != "*" && accept.Split(',').Any(item => item is not ("image" or "file" or "video"))) throw new InvalidOperationException("文件库配置无效。");
         var extensions = d.TryGetProperty("extensions", out var exts) && exts.ValueKind != JsonValueKind.Null ? exts.GetRawText() : "[]";
         return $"<yzp-file-library v-model='entity.{f.Column.JsonName}' config-column-id='{f.Column.Source.Id}' page-id='{c.Page.Source.Id}' table-id='{c.Table.Source.Id}' :record-id='id' :parent-id='parent_id' :parent-page-sn='parent_page_sn' access-mode='{access}' accept='{Html(accept)}' :max-count='{maximum}' :max-size-mb='{Math.Min(size,100)}' :extensions='{Html(extensions)}' :allow-library='{(!d.TryGetProperty("allowLibrary", out var allow) || allow.ValueKind != JsonValueKind.False).ToString().ToLowerInvariant()}' :crop-images='{(d.TryGetProperty("cropImages", out var crop) && crop.ValueKind == JsonValueKind.True).ToString().ToLowerInvariant()}' :readonly='{ro}' primary-color=\"{c.PrimaryColor}\" />";
     }

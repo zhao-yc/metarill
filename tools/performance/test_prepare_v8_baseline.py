@@ -86,11 +86,14 @@ class V8BaselineTests(unittest.TestCase):
         source["tables"].append({"id":"20","tableName":"sample_owner","name":"所有者"})
         source["columns"].extend([{"id":"21","configTableId":"20","columnName":"name","name":"名称"},{"id":"22","configTableId":"2","columnName":"sample_owner_id","name":"所有者","columnLength":"50","controlKind":"List","controlDetail":json.dumps({"table":"sample_owner","tableId":"20","nameField":"name"})}])
         source["pages"].append({"id":"23","configTableId":"20","name":"所有者"})
-        sql=sql.replace('`name` varchar(100) NULL,','`name` varchar(100) NULL,`sample_owner_id` varchar(50) NULL,',1)
+        sql=sql.replace('`name` varchar(100) NULL,','`name` varchar(100) NULL,`sample_owner_id` varchar(50) NULL,`sample_owner_name` varchar(50) NULL,',1)
         sql+='CREATE TABLE `__YZP_SAMPLE_DATABASE__`.`sample_owner` (`id` BIGINT(20) NOT NULL,`name` varchar(100) NULL,PRIMARY KEY (`id`));'
         catalog,_=subject.convert(source,subject.parse_schema(sql));relation=next(row for row in catalog["configColumns"] if row["id"]=="22")
         self.assertEqual(relation["linkConfigTableId"],"20");self.assertEqual(relation["linkConfigPageId"],"23")
         self.assertEqual(relation["controlKind"],"List");self.assertEqual(relation["logicalType"],"string")
+        cache=next(row for row in catalog["configColumns"] if row["columnName"]=="sample_owner_name");self.assertEqual(cache["isJoinColumn"],1);self.assertEqual(cache["columnFullName"],"sample_owner.name")
+        # 物理副本缺失时不能伪造名称字段或静默降级为无缓存。
+        with self.assertRaises(subject.BaselineError):subject.convert(source,subject.parse_schema(sql.replace("`sample_owner_name` varchar(50) NULL,","")))
         source["pages"].append({"id":"24","configTableId":"20","name":"另一权限页"})
         with self.assertRaises(subject.BaselineError):subject.convert(source,subject.parse_schema(sql))
 

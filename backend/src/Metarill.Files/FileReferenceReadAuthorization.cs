@@ -46,7 +46,7 @@ internal static class FileReferenceReadAuthorization
                     try{actual=FileValidation.ParseFileIds(record.GetValueOrDefault(field.ColumnName));}
                     catch(InvalidOperationException){continue;} // 仅把损坏的存储文件值作为拒权，不吞数据库或连接错误。
                     if(!actual.Contains(fileId))continue;
-                    var parents=scopes.Select(scope=>(Scope:scope,Id:FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
+                    var parents=scopes.Select(scope=>(Scope:scope,Id:scope.Project is null?FileReferenceScope.CanonicalId(record.GetValueOrDefault(scope.Source.ColumnName)):FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
                     var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,project,currentRead,token);
                     if(parents.Select(parent=>parent.Id).Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)))).Concat(logical).Distinct().Skip(1).Any())continue;
                     var valid=true;
@@ -121,7 +121,7 @@ internal static class FileReferenceReadAuthorization
         var connection=transaction?.Connection??ownedConnection??throw new InvalidOperationException("文件读取事务连接不可用。");
         if(ownedConnection is not null)await connection.OpenAsync(token);
         await using var command=connection.CreateCommand();command.Transaction=transaction;
-        command.CommandText="SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(scope.Parent.TableName)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter(command,store,"parent_id",id)+" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter(command,store,"parent_project",FileReferenceScope.IdentityValue(scope.Project,project))+(scope.HasSoftDelete?" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL":"");return await command.ExecuteScalarAsync(token) is not null;
+        command.CommandText="SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(scope.Parent.TableName)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter(command,store,"parent_id",id)+(scope.Project is{} owner?" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter(command,store,"parent_project",FileReferenceScope.IdentityValue(owner,project)):"")+(scope.HasSoftDelete?" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL":"");return await command.ExecuteScalarAsync(token) is not null;
     }
     /// <summary>固定参数名和值分开传递，不拼接用户值。</summary>
     private static string Parameter(DbCommand command,SqlRowStore store,string name,object value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value;command.Parameters.Add(parameter);return store.Session.Provider.ParameterPlaceholder(name);}
