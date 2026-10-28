@@ -88,7 +88,7 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
 
     def test_cross_and_all_profiles_grant_only_their_exact_owned_databases(self):
         """新矩阵只增加白名单库，不给通配全局授权，清理与创建使用同一场景。"""
-        for scenario, suffixes in (("agent", ("agent",)), ("imported", ("import_without", "import_with")), ("derived", ("derived_declared", "derived_auto")), ("cross", ("cross_ss", "cross_sl", "cross_ls", "cross_ll")), ("all", ("platform", "business", "package", "nonred", "cross_ss", "cross_sl", "cross_ls", "cross_ll"))):
+        for scenario, suffixes in (("cached_source", ("cached_original", "cached_parent")), ("agent", ("agent",)), ("imported", ("import_without", "import_with")), ("derived", ("derived_declared", "derived_auto")), ("cross", ("cross_ss", "cross_sl", "cross_ls", "cross_ll")), ("all", ("platform", "business", "package", "nonred", "cross_ss", "cross_sl", "cross_ls", "cross_ll"))):
             with self.subTest(scenario=scenario):
                 self.commands.clear()
                 result = json.loads(self.invoke("create", scenario=scenario))
