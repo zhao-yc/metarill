@@ -9,6 +9,10 @@ public interface IRuntimeAuthorization
     /// <summary>仅真实宿主证明当前身份同项目、同后台的超级角色；旧授权器缺省不提供此特权。</summary>
     bool IsCurrentRealmSuper() => false;
     void RequirePagePermission(string pageId, string operation);
+    /// <summary>业务按钮是独立资源；旧宿主缺省拒绝，不能退化为页面query/update权限。</summary>
+    void RequireButtonPermission(string pageId,string buttonId)=>throw new NotSupportedException("当前授权器尚未接入业务按钮授权。");
+    /// <summary>按固定按钮授权解析记录范围；不能借其它页面动作返回无限制。</summary>
+    ExactDataManageValues ResolveButtonExactDataManage(string pageId,string buttonId,string managerField)=>throw new NotSupportedException("当前授权器尚未接入业务按钮数据范围。");
     /// <summary>文件只接受直接/真实父子来源；旧授权器保持原直接查询合同，新继承宿主必须显式覆盖。</summary>
     void RequireFileSourcePagePermission(string pageId)=>RequirePagePermission(pageId,"detail");
     /// <summary>文件的范围来源独立于选择页查询，旧授权器兼容原直接页解析。</summary>

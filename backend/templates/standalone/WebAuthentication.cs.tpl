@@ -135,6 +135,13 @@ internal sealed class ApplicationWebAuthorization(IHttpContextAccessor accessor,
         var identity=RequireIdentity();return identity.GrantId is null&&identity.IsRealmSuper&&!identity.Actor.IsAdministrator&&identity.PrincipalProjectId==catalog.ProjectId&&catalog.ContainsAdmin(identity.PrincipalAdminTypeId)
             &&identity.Actor.ProjectId==identity.PrincipalProjectId&&identity.Actor.AdminTypeId==identity.PrincipalAdminTypeId;
     }
+    /// <summary>实际按钮授权和页面归属来自编译目录；普通按钮不强加页面query/update权限。</summary>
+    public void RequireButtonPermission(string pageId,string buttonId)=>global::Metarill.Runtime.Security.BusinessButtonAuthorization.Require(RequireIdentity(),catalog.PublishedCatalogs,pageId,buttonId,false);
+    /// <summary>先验证固定按钮，再提供该按钮自己的账号匹配范围，保持原无权403与匿名401。</summary>
+    public ExactDataManageValues ResolveButtonExactDataManage(string pageId,string buttonId,string managerField)
+    {
+        RequireButtonPermission(pageId,buttonId);return ExactDataManageIdentity.ResolveButton(RequireIdentity(),buttonId,managerField);
+    }
     /// <summary>先复用当前真实页面授权，再提供固定计划所需的窄匹配值。</summary>
     public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
     {

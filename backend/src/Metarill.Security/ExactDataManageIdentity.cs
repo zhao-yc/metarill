@@ -21,6 +21,9 @@ public static class ExactDataManageIdentity
         var action=operation switch{"list" or "detail" or "count" or "options"=>"is_query","create"=>"is_new","update"=>"is_update","delete"=>"is_delete","export"=>"is_export","copy" or "import"=>"is_all",_=>throw new UnauthorizedAccessException("操作类型无效。")};
         return ResolveRequired(identity,identity.ExactDataManagePermissions.Contains(pageId+":"+action),managerField);
     }
+    /// <summary>调用方先校验固定页面/按钮绑定，再读取该按钮自己的窄匹配值，不复用页面query决策。</summary>
+    public static ExactDataManageValues ResolveButton(AuthenticatedIdentity identity,string buttonId,string managerField)=>
+        ResolveRequired(identity,identity.ExactDataManageButtonIds.Contains(buttonId),managerField);
     /// <summary>文件使用直接/真实父子来源的独立决策，旧身份兼容原直接页合同。</summary>
     public static ExactDataManageValues ResolveFileSource(AuthenticatedIdentity identity,string pageId,string managerField)=>
         ResolveRequired(identity,(identity.FileExactDataManagePermissions??identity.ExactDataManagePermissions).Contains(pageId+":is_query"),managerField);

@@ -15,6 +15,18 @@ public sealed class HttpRuntimeAuthorization(IHttpContextAccessor accessor,Metad
         var identity=RequireIdentity();return identity.GrantId is null&&identity.IsRealmSuper&&!string.IsNullOrWhiteSpace(identity.PrincipalAdminTypeId)
             &&identity.Actor.ProjectId==identity.PrincipalProjectId&&identity.Actor.AdminTypeId==identity.PrincipalAdminTypeId;
     }
+    /// <summary>普通业务按钮只要求实际按钮授权及发布归属，不暗中索要页面查询或修改权。</summary>
+    public void RequireButtonPermission(string pageId,string buttonId)
+    {
+        var identity=RequireIdentity();
+        try{BusinessButtonAuthorization.Require(identity,((ISecurityResourceRegistry)registry).PublishedCatalogs,pageId,buttonId,true);}
+        catch(System.Security.SecurityException){throw new UnauthorizedAccessException("无此按钮访问权限。");}
+    }
+    /// <summary>权限与范围均来自同一个真实请求身份，固定按钮不会借页面普通角色解除范围。</summary>
+    public ExactDataManageValues ResolveButtonExactDataManage(string pageId,string buttonId,string managerField)
+    {
+        RequireButtonPermission(pageId,buttonId);return ExactDataManageIdentity.ResolveButton(RequireIdentity(),buttonId,managerField);
+    }
     /// <summary>先复用当前真实页面授权，再提供固定计划所需的窄匹配值。</summary>
     public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
     {
