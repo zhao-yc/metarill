@@ -265,6 +265,9 @@ internal sealed class SampleContractActionRun : IDisposable
         public RuntimeActor RequireActor() => actor;
         public void RequirePagePermission(string page, string operation) { PageChecks++; throw new UnauthorizedAccessException("普通页面权不能代替按钮。"); }
         public void RequireButtonPermission(string page, string button) { Assert.Equal("81002", page); Assert.Contains(button, new[] { "86000", "86001", "86002" }); if (!Allowed) throw new UnauthorizedAccessException("按钮已撤销"); }
+        /// <summary>只替入当前授权结论，不冒充真实数据库角色或锁证明。</summary>
+        public Task RequireButtonCurrentAsync(string page,string button,RuntimeActor requested,DbTransaction transaction,CancellationToken cancellationToken=default)
+        {Assert.Equal(actor,requested);Assert.NotNull(transaction.Connection);RequireButtonPermission(page,button);return Task.CompletedTask;}
         public ExactDataManageValues ResolveButtonExactDataManage(string page, string button, string field) { RequireButtonPermission(page, button); return ExactDataManageValues.Unrestricted; }
     }
     internal sealed class SampleObserver : IRecordMutationObserver

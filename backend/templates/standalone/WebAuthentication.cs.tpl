@@ -125,8 +125,18 @@ internal sealed class ApplicationWebAuthentication(IServiceProvider services,App
 }
 
 /// <summary>同步授权只使用本请求已真实认证的身份，包外项目、后台和动作始终拒绝。</summary>
-internal sealed class ApplicationWebAuthorization(IHttpContextAccessor accessor,VerifiedPackageSecurityCatalog catalog):IRuntimeAuthorization,ISecurityIdentityAccessor
+internal sealed class ApplicationWebAuthorization:IRuntimeAuthorization,ISecurityIdentityAccessor
 {
+    private readonly IHttpContextAccessor accessor;private readonly VerifiedPackageSecurityCatalog catalog;private readonly IServiceProvider? currentServices;
+    /// <summary>保留原双参数构造供只读/普通权限使用；锁后当前读仍须真实宿主提供服务。</summary>
+    public ApplicationWebAuthorization(IHttpContextAccessor accessor,VerifiedPackageSecurityCatalog catalog):this(accessor,catalog,null){}
+    /// <summary>Scoped容器只延迟解析当前读协调器，避免授权器与身份访问器在构造时循环依赖。</summary>
+    public ApplicationWebAuthorization(IHttpContextAccessor accessor,VerifiedPackageSecurityCatalog catalog,IServiceProvider? currentServices)
+    {this.accessor=accessor;this.catalog=catalog;this.currentServices=currentServices;}
+    /// <summary>固定生成入口传入原写事务，不创建另一连接的权限证明。</summary>
+    public Task RequireButtonCurrentAsync(string pageId,string buttonId,RuntimeActor actor,System.Data.Common.DbTransaction transaction,CancellationToken cancellationToken=default)=>
+        (currentServices??throw new NotSupportedException("宿主尚未接入按钮当前权限协调。")).GetRequiredService<SecurityRealmMutationGuard>().RequireBusinessButtonAsync(pageId,buttonId,actor,transaction,cancellationToken);
+
     public AuthenticatedIdentity RequireIdentity()=>accessor.HttpContext?.Items[typeof(AuthenticatedIdentity)] as AuthenticatedIdentity??throw new UnauthorizedAccessException();
     public RuntimeActor RequireActor()=>RequireIdentity().Actor;
     /// <summary>超级角色必须来自本次真实Web身份并匹配当前项目及后台，不能由工作区选择或Agent声明扩权。</summary>

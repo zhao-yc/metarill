@@ -31,6 +31,14 @@ public sealed class SecurityRealmCurrentReader
             throw new InvalidOperationException("安全菜单引用必须使用同一当前连接及事务。");
         return resources.HasAdminMenuReferencesForUpdateAsync(store.Session,transaction,adminTypeId,token);
     }
+    /// <summary>只读取已经按固定顺序预锁的来源后台目录，不在主体/记录锁后补取新的项目或后台。</summary>
+    internal async Task<SecurityResourceCatalog> ReadDeclaredResourcesAsync(SecurityRealmLocks locks,long project,long admin,CancellationToken token)
+    {
+        if(!ReferenceEquals(locks.Transaction,store.Session.CurrentTransaction)||locks.Transaction.Connection is null
+            ||!locks.Projects.ContainsKey(project)||!locks.Admins.TryGetValue(admin,out var row)||SqlRowStore.Text(row,"yz_project_id")!=project.ToString(CultureInfo.InvariantCulture))
+            throw new InvalidOperationException("按钮来源目录必须使用本事务已预锁的项目及后台。");
+        return await resources.ReadForUpdateAsync(store.Session,locks.Transaction,project,admin,token)??throw new InvalidOperationException("按钮来源当前目录不可用，不能回退发布快照。");
+    }
     /// <summary>Agent授权先于会话，之后按操作者、角色、页面授权和固定资源目录的顺序读取。</summary>
     internal async Task<SecurityCurrentPrincipal> ReadAsync(AuthenticatedIdentity request,SecurityRealmLocks locks,CancellationToken token)
     {

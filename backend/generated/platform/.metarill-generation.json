@@ -366,7 +366,7 @@
     },
     {
       "path": "Services/ConfigColumnService.g.cs",
-      "sha256": "ef857df50f0f86205be0ba553747f622ed84bc265160a473c81185f52b507d54"
+      "sha256": "911389666fd7c1a407964ded9988dae6372ad6f492b43149eca79cfbb48a7f67"
     },
     {
       "path": "Services/ConfigCustomPageService.g.cs",
@@ -390,11 +390,11 @@
     },
     {
       "path": "Services/ConfigPageService.g.cs",
-      "sha256": "d1e21bce848a29c45fc23bc3db63a888aa51a920711474e23aebd16ca391e93c"
+      "sha256": "fadde743bd31c413d07ab66f8848a0055fe8e0eaf63142d9e0a42961c514b23b"
     },
     {
       "path": "Services/ConfigTableService.g.cs",
-      "sha256": "a87eea98b83adb567ce757319156a681079783503390b59fab8986d3b30d148e"
+      "sha256": "55c8df7aea2c9525ef71c5dc26dcb2a962165be85a7808e845433fa6512af451"
     },
     {
       "path": "Services/SysAgentGrantService.g.cs",
@@ -410,7 +410,7 @@
     },
     {
       "path": "Services/YzAdminTypeService.g.cs",
-      "sha256": "1e01153f52fec7aeec840bc3b417cbee47c35ad444d759cf56eb2de267d65319"
+      "sha256": "d70775cac01a837e7f9053ac4e164f2775bc2507ad6a24ed7a1ccbbdce65bb83"
     },
     {
       "path": "Services/YzFileLibraryFolderService.g.cs",
@@ -430,7 +430,7 @@
     },
     {
       "path": "Services/YzManagerDevicesService.g.cs",
-      "sha256": "f3b2cf5bcb4da00f83c31b20aed8e8ec75befe423d577563fee922ccbc133905"
+      "sha256": "fbbd7ceac0aef746e3cdeba91388e0f7d6cf4461a57ef8f0e902f1e4b683ed1b"
     },
     {
       "path": "Services/YzManagerService.g.cs",
@@ -438,7 +438,7 @@
     },
     {
       "path": "Services/YzProjectService.g.cs",
-      "sha256": "c10230dca541a1ab600729004f6f8adf6bcb2566c9dde8e1cf04144940e8c55c"
+      "sha256": "c519e8b63d863ee772bf1e361b262687c9781073055c538050254a205be15808"
     },
     {
       "path": "Services/YzRolePermissionService.g.cs",

@@ -70,10 +70,10 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
     }
 
     /// <summary>首次只用未锁读取发现锁集合，不能据此授权；集合跑出预锁范围时只冲突，不逆序补锁。</summary>
-    private async Task<CoordinationState> PrepareLocksAsync(AuthenticatedIdentity request,string table,long? targetId,IReadOnlyDictionary<string,object?> hints,CancellationToken token)
+    private async Task<CoordinationState> PrepareLocksAsync(AuthenticatedIdentity request,string table,long? targetId,IReadOnlyDictionary<string,object?> hints,CancellationToken token,IReadOnlySet<long>? declaredAdmins=null)
     {
         var transaction=store.Session.CurrentTransaction??throw new InvalidOperationException("安全预锁必须在事务内。");
-        var adminIds=new SortedSet<long>{Id(request.PrincipalAdminTypeId)};
+        var adminIds=new SortedSet<long>{Id(request.PrincipalAdminTypeId)};if(declaredAdmins is not null)adminIds.UnionWith(declaredAdmins);
         var projects=new SortedSet<long>{Id(request.PrincipalProjectId),Id(request.Actor.ProjectId)};
         Dictionary<string,object?>? discovery=null;
         if(targetId is{} target)

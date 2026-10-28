@@ -59,6 +59,49 @@ public sealed class GeneratedBusinessButtonUpdateTests(BusinessButtonUpdateFixtu
         try{return(Task)service.GetType().GetMethod("UpdateButtonRecord101Async")!.Invoke(service,[request,null,button,actor,CancellationToken.None])!;}
         catch(TargetInvocationException error)when(error.InnerException is not null){ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
     }
+    /// <summary>当前证明在锁前和Mapper前各执行一次，两处任一拒绝都不能继续更新。</summary>
+    [Theory][InlineData(1)][InlineData(2)]
+    public async Task Current_proof_rejection_prevents_lock_or_actual_update_at_correct_stage(int rejectAt)
+    {
+        using var run=fixture.Run(false);var auth=new Authorization(run.Actor){RejectCurrentAt=rejectAt};var guard=new Guard(run);var observer=new Observer(run);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Invoke(run.Service([guard],[observer],auth),run.Request(RecordMutationOperation.Update,"{\"id\":1,\"name\":\"有效\"}")!,run.Actor));
+        Assert.Equal(rejectAt,auth.CurrentChecks);Assert.DoesNotContain("write:Update",run.Trace);Assert.Empty(observer.Contexts);Assert.Equal("rollback",run.Trace[^1]);
+        if(rejectAt==1)Assert.DoesNotContain("read:ForUpdate",run.Trace);else{Assert.Contains("read:ForUpdate",run.Trace);Assert.Single(guard.Validated);}
+    }
+    /// <summary>手写Business使用的公开锁入口也必须先证明当前权限，不能先锁记录再补安全锁。</summary>
+    [Fact]
+    public async Task Public_business_lock_requires_current_proof_before_record_lock()
+    {
+        using var run=fixture.Run(false);var auth=new Authorization(run.Actor){RejectCurrentAt=1};var service=run.Service([],[],auth);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>run.Session.InTransactionAsync(async()=>
+        {await(Task)service.GetType().GetMethod("LockButtonRecord101Async")!.Invoke(service,[1L,null,"86001",run.Actor,CancellationToken.None])!;return true;}));
+        Assert.Equal(1,auth.CurrentChecks);Assert.DoesNotContain("read:ForUpdate",run.Trace);Assert.DoesNotContain("write:Update",run.Trace);
+    }
+    /// <summary>旧授权器即使已有按钮授权，未接当前证明也必须在首个业务记录锁前拒绝。</summary>
+    [Fact]
+    public async Task Legacy_authorizer_cannot_implicitly_approve_current_button_proof()
+    {
+        using var run=fixture.Run(false);var auth=new Authorization(run.Actor);var service=run.Service([],[],new LegacyAuthorization(auth));
+        await Assert.ThrowsAsync<NotSupportedException>(()=>Invoke(service,run.Request(RecordMutationOperation.Update,"{\"id\":1}")!,run.Actor));
+        Assert.DoesNotContain("read:ForUpdate",run.Trace);Assert.DoesNotContain("write:Update",run.Trace);
+    }
+    /// <summary>普通更新不调用新增按钮证明；旧宿主的标准页面权及范围继续独立执行。</summary>
+    [Fact]
+    public async Task Standard_update_does_not_require_or_borrow_button_current_proof()
+    {
+        using var run=fixture.Run(true);var auth=new Authorization(run.Actor){PageAllowed=true};var service=run.Service([],[],new LegacyAuthorization(auth));
+        var task=(Task)service.GetType().GetMethod("Update101Async")!.Invoke(service,[run.Request(RecordMutationOperation.Update,"{\"id\":1,\"name\":\"有效\"}"),null,run.Actor,CancellationToken.None])!;await task;
+        Assert.Equal(0,auth.CurrentChecks);Assert.Contains("write:Update",run.Trace);Assert.True(auth.PageChecks>0);
+    }
+    /// <summary>只包装旧接口，故意保留新增接口的缺省拒绝，不能让测试替身自动获得能力。</summary>
+    private sealed class LegacyAuthorization(Authorization inner):IRuntimeAuthorization
+    {
+        public RuntimeActor RequireActor()=>inner.RequireActor();
+        public void RequirePagePermission(string page,string operation)=>inner.RequirePagePermission(page,operation);
+        public void RequireButtonPermission(string page,string button)=>inner.RequireButtonPermission(page,button);
+        public ExactDataManageValues ResolveExactDataManage(string page,string operation,string field)=>inner.ResolveExactDataManage(page,operation,field);
+        public ExactDataManageValues ResolveButtonExactDataManage(string page,string button,string field)=>inner.ResolveButtonExactDataManage(page,button,field);
+    }
     private sealed class Guard(GeneratedMutationGuardRun run):IRecordMutationGuard
     {
         internal bool Reject;internal List<RecordMutationPreparation> Prepared=[];internal List<RecordMutationValidation> Validated=[];
@@ -75,7 +118,7 @@ public sealed class GeneratedBusinessButtonUpdateTests(BusinessButtonUpdateFixtu
     }
     private sealed class Authorization(RuntimeActor actor):IRuntimeAuthorization
     {
-        internal bool Allowed=true,PageAllowed;internal int ButtonChecks,PageChecks,ScopeChecks;
+        internal bool Allowed=true,PageAllowed;internal int ButtonChecks,PageChecks,ScopeChecks,CurrentChecks,RejectCurrentAt;
         /// <summary>真实身份测试输入固定，生成代码不得替换主体。</summary>
         public RuntimeActor RequireActor()=>actor;
         /// <summary>没有页面权限的业务更新若误走普通路径必须失败。</summary>
@@ -84,6 +127,9 @@ public sealed class GeneratedBusinessButtonUpdateTests(BusinessButtonUpdateFixtu
         public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField){RequirePagePermission(pageId,operation);return ExactDataManageValues.Unrestricted;}
         /// <summary>此处只模拟已认证的权限结论，实际角色聚合另验。</summary>
         public void RequireButtonPermission(string pageId,string buttonId){Assert.Equal("101",pageId);Assert.Equal("86001",buttonId);ButtonChecks++;if(!Allowed)throw new UnauthorizedAccessException();}
+        /// <summary>本夹具只替入当前读结果，真实锁读由安全协调专项验证。</summary>
+        public Task RequireButtonCurrentAsync(string pageId,string buttonId,RuntimeActor requested,System.Data.Common.DbTransaction transaction,CancellationToken cancellationToken=default)
+        {Assert.Equal(actor,requested);Assert.NotNull(transaction.Connection);RequireButtonPermission(pageId,buttonId);CurrentChecks++;if(RejectCurrentAt==CurrentChecks)throw new UnauthorizedAccessException("当前证明拒绝。");return Task.CompletedTask;}
         /// <summary>按钮范围必须由生成记录锁消费，不能复用页面权限。</summary>
         public ExactDataManageValues ResolveButtonExactDataManage(string pageId,string buttonId,string managerField){RequireButtonPermission(pageId,buttonId);Assert.Equal("real_name",managerField);ScopeChecks++;return new(true,JsonSerializer.SerializeToElement("原名称"));}
     }

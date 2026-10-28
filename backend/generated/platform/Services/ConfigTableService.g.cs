@@ -154,7 +154,7 @@ public partial class ConfigTableService
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
     public async Task<ConfigTable?> ReadButtonRecord6191083005411328Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6191083005411328(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
     /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
-    public async Task<ConfigTable?> LockButtonRecord6191083005411328Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6191083005411328(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);
+    public async Task<ConfigTable?> LockButtonRecord6191083005411328Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6191083005411328Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6191083005411328(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
     /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>
     private void RequireButtonRecordAccess6191083005411328(long id,string buttonId,RuntimeActor actor)
     {
@@ -163,6 +163,13 @@ public partial class ConfigTableService
         var authorization=relationAuthorization??throw new UnauthorizedAccessException("业务记录需要宿主真实授权。");
         if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("业务记录身份与当前真实身份不一致。");
         authorization.RequireButtonPermission("6191083005411328",buttonId);
+    }
+    /// <summary>锁记录与实际写入前，沿原事务当前读重新证明按钮及请求范围。</summary>
+    private Task RequireButtonCurrent6191083005411328Async(long id,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)
+    {
+        RequireButtonRecordAccess6191083005411328(id,buttonId,actor);
+        var transaction=session.CurrentTransaction??throw new InvalidOperationException("业务按钮当前权限必须加入真实写事务。");
+        return relationAuthorization!.RequireButtonCurrentAsync("6191083005411328",buttonId,actor,transaction,cancellationToken);
     }
     /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
     private ISelect<ConfigTable> ButtonRecordQuery6191083005411328(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
@@ -351,6 +358,7 @@ public partial class ConfigTableService
         if (request.YzAdminTypeId.IsSpecified) mutationScopeValues["yz_admin_type_id"] = request.YzAdminTypeId.Value;
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6191083005411328", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues, businessButtonId);
+        if(businessButtonId is not null)await RequireButtonCurrent6191083005411328Async(request.Id,businessButtonId,actor,cancellationToken);
         var entity = await (businessButtonId is null ? Scope6191083005411328(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery6191083005411328(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -445,6 +453,7 @@ public partial class ConfigTableService
         if (entity.IsView is null) throw new ArgumentException("\u6570\u636E\u5E93\u89C6\u56FE\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if(businessButtonId is not null)RequireButtonRecordAccess6191083005411328(request.Id,businessButtonId,actor);
         await ValidateMutationAsync("6191083005411328", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken, businessButtonId);
+        if(businessButtonId is not null)await RequireButtonCurrent6191083005411328Async(request.Id,businessButtonId,actor,cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigTableAsync("6191083005411328", entity, actor, submitted, false, false, cancellationToken, businessButtonId);
         return ConfigTablePage6191083005411328Vo.FromEntity(entity);
