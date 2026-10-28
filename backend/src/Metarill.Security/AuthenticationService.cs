@@ -56,7 +56,8 @@ public sealed class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISe
         var registered=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",projectId}},cancellationToken)).SingleOrDefault();
         if(registered is null)return null;
         if(!realm.IsPlatformAdministrator&&project!=realm.ProjectId)return null;
-        if(SqlRowStore.Text(session,"kind")=="agent"&&(!realm.IsPlatformRealm||project!=SqlRowStore.Text(session,"project_id")))return null;
+        // Agent签发域由宿主固定目录证明；应用超级角色仍不会产生平台身份。
+        if(SqlRowStore.Text(session,"kind")=="agent"&&(!registry.IsAgentRealm(realm.ProjectId,realm.AdminTypeId)||project!=SqlRowStore.Text(session,"project_id")))return null;
         long? grantId=session.GetValueOrDefault("grant_id") is null?null:SqlRowStore.Id(session,"grant_id");
         if(SqlRowStore.Text(session,"kind")=="agent")
         {

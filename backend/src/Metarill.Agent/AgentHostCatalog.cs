@@ -55,7 +55,9 @@ public sealed class AgentHostCatalog
     public AgentPublishedPage? FindPage(string id) => pages.GetValueOrDefault(id);
     /// <summary>身份域来自实际账号/后台/项目链；迁出签发域后旧授权不能再换取凭据。</summary>
     public bool IsEligibleRealm(PrincipalRoleRealm realm) => platform ? realm.IsPlatformRealm
-        : realm.ProjectId == PendingProjectId && adminTypes.Contains(realm.AdminTypeId);
+        : OwnsIssuerRealm(realm.ProjectId,realm.AdminTypeId);
+    /// <summary>只匹配固定签发项目与发布后台，不把该匹配结果当作平台管理员身份。</summary>
+    public bool OwnsIssuerRealm(string projectId,string adminTypeId)=>projectId==PendingProjectId&&adminTypes.Contains(adminTypeId);
     /// <summary>人工批准同时要求真实签发域与当前超级角色，不从工作区或客户端选项推断。</summary>
     public bool CanApprove(PrincipalRoleRealm realm) => platform ? realm.IsPlatformAdministrator : IsEligibleRealm(realm) && realm.IsSuper;
     /// <summary>沿用现有原字段JSON命名规则，冻结后的元数据变化不能修改已签发目录。</summary>

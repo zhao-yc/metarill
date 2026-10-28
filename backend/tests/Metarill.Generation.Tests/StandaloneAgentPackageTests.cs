@@ -58,6 +58,7 @@ public sealed class StandaloneAgentPackageTests
                     Assert.Equal("Metarill.Runtime.Security.AgentSecurityCurrentSessionPolicy",receipt.GetProperty("currentPolicy").GetString());
                     Assert.Equal(metadata.YzProjectId,receipt.GetProperty("project").GetString());Assert.True(receipt.GetProperty("entries").GetInt32()>0);
                     Assert.Equal("Metarill.Runtime.Agent.AgentAuthenticationService",receipt.GetProperty("authentication").GetString());
+                    Assert.True(receipt.GetProperty("sameResourceRegistry").GetBoolean());Assert.True(receipt.GetProperty("agentRealm").GetBoolean());Assert.False(receipt.GetProperty("platformRealm").GetBoolean());
                 }
             }
         }
@@ -84,7 +85,8 @@ internal sealed class AgentProof(IServiceProvider services,IHostEnvironment envi
         using var scope=services.CreateScope();var provider=scope.ServiceProvider;
         var resources=provider.GetRequiredService<IAgentHostResources>();var index=provider.GetRequiredService<GeneratedCapabilityIndex>();
         var entries=((System.Collections.IEnumerable)typeof(GeneratedCapabilityIndex).GetMethod("Entries",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(index,null)!).Cast<object>().Count();
-        var receipt=new{project=resources.AgentCatalog.PendingProjectId,entries,currentPolicy=provider.GetRequiredService<ISecurityCurrentSessionPolicy>().GetType().FullName,authentication=provider.GetRequiredService<AgentAuthenticationService>().GetType().FullName};
+        var frozen=provider.GetRequiredService<VerifiedPackageSecurityCatalog>().Clone();var admin=frozen.YzAdminTypes.First().Id;var registry=provider.GetRequiredService<ISecurityResourceRegistry>();
+        var receipt=new{sameResourceRegistry=ReferenceEquals(registry,resources),agentRealm=registry.IsAgentRealm(frozen.YzProjectId,admin),platformRealm=registry.IsPlatformRealm(frozen.YzProjectId,admin),project=resources.AgentCatalog.PendingProjectId,entries,currentPolicy=provider.GetRequiredService<ISecurityCurrentSessionPolicy>().GetType().FullName,authentication=provider.GetRequiredService<AgentAuthenticationService>().GetType().FullName};
         File.WriteAllText(Path.Combine(environment.ContentRootPath,"agent-proof.json"),JsonSerializer.Serialize(receipt));return Task.CompletedTask;
     }
     // 探针没有后台循环或外部资源。

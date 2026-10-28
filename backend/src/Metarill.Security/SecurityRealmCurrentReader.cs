@@ -67,7 +67,7 @@ public sealed class SecurityRealmCurrentReader
             ??throw new InvalidOperationException("当前安全资源适配未返回目录，不能回退发布快照。");
         var realm=PrincipalRolePolicy.Evaluate(registry,account,admin,projectId,roles,grants,catalog);
         // 不能把认证时的超级标志继续交给文件/手写钩子；发生身份语义变化则刷新整个请求。
-        if(realm.IsPlatformAdministrator!=actor.IsAdministrator||realm.IsSuper!=request.IsRealmSuper||kind=="agent"&&!realm.IsPlatformRealm)throw InvalidIdentity();
+        if(realm.IsPlatformAdministrator!=actor.IsAdministrator||realm.IsSuper!=request.IsRealmSuper||kind=="agent"&&!registry.IsAgentRealm(realm.ProjectId,realm.AdminTypeId))throw InvalidIdentity();
         var identity=request with{Permissions=realm.Permissions,ExactDataManagePermissions=realm.ExactDataManagePermissions,InheritedAllPermissions=realm.InheritedAllPermissions,FileQueryPermissions=realm.FileQueryPermissions,FileExactDataManagePermissions=realm.FileExactDataManagePermissions,ExactDataManageMatchField=realm.ExactDataManageMatchField,ExactDataManageMatchValue=realm.ExactDataManageMatchValue,MenuIds=realm.MenuIds,ButtonIds=realm.ButtonIds};
         return new(identity,account,catalog);
     }

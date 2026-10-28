@@ -8,6 +8,8 @@ public interface ISecurityResourceRegistry
     IReadOnlyList<SecurityResourceCatalog> PublishedCatalogs { get; }
     /// <summary>只有宿主声明的真实平台后台可产生平台管理员身份。</summary>
     bool IsPlatformRealm(string projectId,string adminTypeId);
+    /// <summary>未显式装配Agent的宿主继续只接受平台身份域；应用须从可信固定目录声明签发后台。</summary>
+    bool IsAgentRealm(string projectId,string adminTypeId)=>IsPlatformRealm(projectId,adminTypeId);
     /// <summary>新宿主只声明固定计划中唯一账号匹配字段；null保留旧宿主的后台行兼容路径，空字符串表示计划未配置。</summary>
     string? ExactDataManageManagerField(string projectId,string adminTypeId)=>null;
 }

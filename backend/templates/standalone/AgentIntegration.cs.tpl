@@ -11,6 +11,8 @@ internal sealed class ApplicationAgentHostResources(VerifiedPackageSecurityCatal
     public IReadOnlyList<SecurityResourceCatalog> PublishedCatalogs=>resources.PublishedCatalogs;
     /// <summary>普通应用永远不产生平台身份。</summary>
     public bool IsPlatformRealm(string projectId,string adminTypeId)=>false;
+    /// <summary>认证与锁后复核使用同一固定签发域；客户端选择不能扩充后台。</summary>
+    public bool IsAgentRealm(string projectId,string adminTypeId)=>AgentCatalog.OwnsIssuerRealm(projectId,adminTypeId);
     /// <summary>匹配字段与Web使用同一冻结目录，不读取客户端或外部元数据。</summary>
     public string? ExactDataManageManagerField(string projectId,string adminTypeId)=>resources.ExactDataManageManagerField(projectId,adminTypeId);
     /// <summary>只有认证遇到实际Agent会话才解析数据库证明，匿名请求不创建连接。</summary>
@@ -26,6 +28,7 @@ internal static class ApplicationAgentIntegration
     {
         services.AddSingleton<ApplicationAgentHostResources>();
         services.AddSingleton<IAgentHostResources>(provider=>provider.GetRequiredService<ApplicationAgentHostResources>());
+        services.Replace(ServiceDescriptor.Singleton<ISecurityResourceRegistry>(provider=>provider.GetRequiredService<ApplicationAgentHostResources>()));
         services.Replace(ServiceDescriptor.Singleton<ISecuritySessionPolicy>(provider=>provider.GetRequiredService<ApplicationAgentHostResources>()));
         services.AddSingleton<AgentSecuritySessionPolicy>();
         if(!mode.Development)services.Replace(ServiceDescriptor.Scoped<ISecurityCurrentSessionPolicy,AgentSecurityCurrentSessionPolicy>());
