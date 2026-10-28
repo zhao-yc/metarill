@@ -23,6 +23,8 @@ jobs:
         run: npm ci --ignore-scripts --prefix frontend/metarill_uni_admin
       - name: 验证空库工具的服务器与清理边界
         run: python -m unittest discover -s tools/acceptance -p test_server200_fresh_mysql.py
+      - name: 核对性能测量合同和回环HTTP
+        run: python -m unittest discover -s tools/performance -p test_paired_http.py
       - name: 核对管理页面私有预览传输边界
         run: node --test tools/acceptance/serve-management-browser.test.mjs
       - name: 核对平台元数据重建与已发布声明
