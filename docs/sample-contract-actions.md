@@ -54,3 +54,8 @@ Controller只绑定严格请求和响应，Business管理外层事务，生成Se
 ## 原页面中央按钮接线（2026-10-29）
 
 [原中央入口专项](original-business-button-execution.md)已接平台分支及 FullApplication 原Controller模板，并增加第六份手写 SampleContractButtonHandler。原详情/entity协议进入相同 Business 和生成 Service，预览不写、锁后摘要冲突409、负金额撤销第一笔写入，正常结果保持单层R。源头页面和生成前端不修改。实际模板与JSON回环只替入身份和数据库传输；正式登录/数据库/分布式互斥/父范围仍待，不以本节覆盖历史验收边界。
+
+
+## 正式应用执行器准备（2026-10-29，尚未执行）
+
+[C19正式准备](sample-actions-native-acceptance.md)已新增六份手写源的完整包冻结、实际CLI动作/任务探针，以及单库真实Web/普通按钮/文件保持/两个宿主占用/身份重启用例。严格编译与纯离线35项通过，只证明准备/合同；正式场景仍须新的精确单库/账号授权。B98与C12旧租约不覆盖，父范围和跨库等剩余工作保持。
