@@ -94,7 +94,7 @@ public sealed class GlobalCachedSourceGenerationTests
                 if(name=="SampleContract")
                 {
                     var entity=Activator.CreateInstance(assembly.GetType("Example.GlobalSourceActor.Generated.Entities.SampleContract",true)!)!;var amount=entity.GetType().GetProperty("Amount")!;amount.SetValue(entity,-0.01m);var hook=service.GetType().GetMethod("BeforeSave",BindingFlags.Instance|BindingFlags.NonPublic)!;
-                    var failure=Assert.Throws<TargetInvocationException>(()=>hook.Invoke(service,[entity,actor,true,new HashSet<string>()]));Assert.Equal("合同金额不能小于零",Assert.IsType<ArgumentException>(failure.InnerException).Message);
+                    var failure=Assert.Throws<TargetInvocationException>(()=>hook.Invoke(service,[entity,actor,true,new HashSet<string>()]));Assert.Equal("合同金额不能小于零",Assert.IsType<BusinessRuleException>(failure.InnerException).Message);
                     foreach(var value in new decimal?[]{0m,null}){amount.SetValue(entity,value);hook.Invoke(service,[entity,actor,false,new HashSet<string>()]);}Assert.Equal("v8-sample-preserved",service.GetType().GetMethod("SampleBusinessSentinel")!.Invoke(service,null));
                 }
             }
@@ -126,6 +126,7 @@ public sealed class GlobalCachedSourceGenerationTests
     internal static string HandwrittenRule()=>"""
 using Example.GlobalSource.Generated.Entities;
 using Metarill.Core.Security;
+using Metarill.Core.Contracts;
 namespace Example.GlobalSource.Generated.Services;
 /// <summary>原样板手写金额校验。</summary>
 public partial class SampleContractService
@@ -135,7 +136,7 @@ public partial class SampleContractService
     /// <summary>对象校验在原事务内运行，负金额不能写入。</summary>
     partial void BeforeSave(SampleContract entity, RuntimeActor actor, bool creating, ISet<string> submittedFields)
     {
-        if(entity.Amount is{} amount&&amount<0)throw new ArgumentException("合同金额不能小于零");
+        if(entity.Amount is{} amount&&amount<0)throw new BusinessRuleException("合同金额不能小于零");
     }
 }
 """;

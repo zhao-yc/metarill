@@ -149,6 +149,12 @@ app.Use(async (context, next) =>
     }
     catch (Exception error) when (!context.Response.HasStarted)
     {
+        // 只有业务代码主动声明的提示复用原HTTP200/R500；类型/数据库/未知异常继续现有拒绝和脱敏。
+        if(error is BusinessRuleException rule)
+        {
+            context.Response.Clear();context.Response.StatusCode=200;
+            await context.Response.WriteAsJsonAsync(R<object>.Error(rule.Message));return;
+        }
         var (status, message) = error switch
         {
             UnauthorizedAccessException => (401, "请先登录，或确认应用认证配置。"),
