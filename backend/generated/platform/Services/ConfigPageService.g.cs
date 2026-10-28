@@ -19,9 +19,9 @@ public partial class ConfigPageService
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
     private readonly IEnumerable<IRecordMutationGuard> guards;
-
+    private readonly IRuntimeAuthorization? relationAuthorization;
     /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
-    public ConfigPageService(DatabaseSession session, ConfigPageMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? [];  }
+    public ConfigPageService(DatabaseSession session, ConfigPageMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null, IRuntimeAuthorization? relationAuthorization = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? []; this.relationAuthorization = relationAuthorization; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -142,6 +142,25 @@ public partial class ConfigPageService
     {
         var entity = await Scope1868973685063311361(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, IsBeforeQuery = entity.IsBeforeQuery, IsNotGenerateDetailPage = entity.IsNotGenerateDetailPage, MobileListPageStyleType = entity.MobileListPageStyleType, IsAutoBackOnMobileSave = entity.IsAutoBackOnMobileSave, Cols = entity.Cols, IsBeforeGet = entity.IsBeforeGet, IsUpdateEditColumnsOnly = entity.IsUpdateEditColumnsOnly, DetailPageButtonsPosition = entity.DetailPageButtonsPosition, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return entity is null ? null : ConfigPagePage1868973685063311361Vo.FromEntity(entity);
+    }
+    /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
+    public async Task<ConfigPage?> ReadButtonRecord1868973685063311361Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery1868973685063311361(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
+    public async Task<ConfigPage?> LockButtonRecord1868973685063311361Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery1868973685063311361(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);
+    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
+    private ISelect<ConfigPage> ButtonRecordQuery1868973685063311361(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("业务记录标识无效。");
+        if(buttonId is not ("1868973686766198786" or "1868973686812336129" or "1868973686850084865" or "1868973686887833602" or "1868973686946553857" or "1868973686984302593" or "2111122692747956224"))throw new UnauthorizedAccessException("按钮不属于当前已发布业务页面。");
+        var authorization=relationAuthorization??throw new UnauthorizedAccessException("业务记录需要宿主真实授权。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("业务记录身份与当前真实身份不一致。");
+        authorization.RequireButtonPermission("1868973685063311361",buttonId);
+        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
+        var query=mapper.Query().Where(entity=>entity.Id==id);
+        query=query.Where(entity=>entity.YzProjectId==long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException("当前页面要求parentId。");
+        query=query.Where(entity=>entity.ConfigTableId==long.Parse(parentId!, CultureInfo.InvariantCulture));
+        return locking?query.ForUpdate():query;
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents1868973685063311361Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
@@ -656,6 +675,23 @@ public partial class ConfigPageService
     {
         var entity = await Scope6191175925956608(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, ConfigTableId = entity.ConfigTableId, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, IsBeforeQuery = entity.IsBeforeQuery, IsNotGenerateDetailPage = entity.IsNotGenerateDetailPage, MobileListPageStyleType = entity.MobileListPageStyleType, IsAutoBackOnMobileSave = entity.IsAutoBackOnMobileSave, Cols = entity.Cols, IsBeforeGet = entity.IsBeforeGet, IsUpdateEditColumnsOnly = entity.IsUpdateEditColumnsOnly, DetailPageButtonsPosition = entity.DetailPageButtonsPosition, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return entity is null ? null : ConfigPagePage6191175925956608Vo.FromEntity(entity);
+    }
+    /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
+    public async Task<ConfigPage?> ReadButtonRecord6191175925956608Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6191175925956608(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
+    public async Task<ConfigPage?> LockButtonRecord6191175925956608Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6191175925956608(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);
+    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
+    private ISelect<ConfigPage> ButtonRecordQuery6191175925956608(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("业务记录标识无效。");
+        if(buttonId is not ("1675705392114606082" or "1676949833760571394" or "1676950028015566850" or "1677942658826280962" or "1678020383436009473" or "1696339787104047106" or "1761377189732839425" or "1880945414320971778" or "2111122691124760576"))throw new UnauthorizedAccessException("按钮不属于当前已发布业务页面。");
+        var authorization=relationAuthorization??throw new UnauthorizedAccessException("业务记录需要宿主真实授权。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("业务记录身份与当前真实身份不一致。");
+        authorization.RequireButtonPermission("6191175925956608",buttonId);
+        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
+        var query=mapper.Query().Where(entity=>entity.Id==id);
+        query=query.Where(entity=>entity.YzProjectId==long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        return locking?query.ForUpdate():query;
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents6191175925956608Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)

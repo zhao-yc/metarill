@@ -33,14 +33,14 @@ internal static class ExactDataManageCompilation
     /// <summary>操作表达式由生成器固定，非请求属性。</summary>
     internal static string Argument(PageModel page,string expression)=>Declared(page)?", "+expression:"";
     /// <summary>在ORM分页、统计或写前锁定之前附加AND；空集合固定不匹配，参数按名称全部绑定。</summary>
-    internal static string Query(GenerationModel model,TableModel table,PageModel page,string query="query",string actor="actor",string operation="authorizationOperation",string prefix="exact")
+    internal static string Query(GenerationModel model,TableModel table,PageModel page,string query="query",string actor="actor",string operation="authorizationOperation",string prefix="exact",bool button=false,string? locking=null)
     {
         var definition=Resolve(model,table,page);if(definition is null)return "";
         var prefixHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(page.Source.Id+"|"+definition.Column.Source.ColumnName+"|"+prefix))).ToLowerInvariant()[..12];
         var call=definition.Derived
-            ? $"Metarill.Data.Queries.ExactDataManageSql.ApplyDerived({query}, session, ExactReadPlan{page.Source.Id}, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}), {actor}.ProjectId)"
+            ? $"Metarill.Data.Queries.ExactDataManageSql.ApplyDerived({query}, session, ExactReadPlan{page.Source.Id}, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}), {actor}.ProjectId{(locking is null?"":",locking:"+locking)})"
             : $"Metarill.Data.Queries.ExactDataManageSql.Apply({query}, session, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}))";
-        return Authorization(page,definition,actor,operation,prefix)+$"        if ({prefix}Scope.IsRequired) {query} = {call};\n";
+        return Authorization(page,definition,actor,operation,prefix,button)+$"        if ({prefix}Scope.IsRequired) {query} = {call};\n";
     }
     /// <summary>非冗余读取使用同一类型集合作为固定计划附加过滤，不能从请求覆盖该条件。</summary>
     internal static string ReadFilter(GenerationModel model,TableModel table,PageModel page)
@@ -58,10 +58,10 @@ internal static class ExactDataManageCompilation
             +$"        exactWriteAuthorization.RequirePagePermission({Literal(page.Source.Id)}, {operation});\n";
     }
     /// <summary>范围仅接受当前真实身份，旧授权器或漏注入宿主都明确拒绝。</summary>
-    private static string Authorization(PageModel page,ExactDataManageModel definition,string actor,string operation,string prefix)=>
+    private static string Authorization(PageModel page,ExactDataManageModel definition,string actor,string operation,string prefix,bool button=false)=>
         $"        var {prefix}Authorization = relationAuthorization ?? throw new UnauthorizedAccessException(\"精确管理需要宿主真实授权。\");\n"
         +$"        if ({prefix}Authorization.RequireActor() != {actor}) throw new UnauthorizedAccessException(\"精确管理身份与当前真实身份不一致。\");\n"
-        +$"        var {prefix}Scope = {prefix}Authorization.ResolveExactDataManage({Literal(page.Source.Id)}, {operation}, {Literal(definition.ManagerField)});\n";
+        +$"        var {prefix}Scope = {prefix}Authorization.{(button?"ResolveButtonExactDataManage":"ResolveExactDataManage")}({Literal(page.Source.Id)}, {operation}, {Literal(definition.ManagerField)});\n";
     /// <summary>元数据扩展必须是字符串；损坏声明不能当成未配置。</summary>
     private static string Text(MetadataRecord record,string key)
     {

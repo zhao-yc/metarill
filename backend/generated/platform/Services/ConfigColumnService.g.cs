@@ -19,9 +19,9 @@ public partial class ConfigColumnService
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
     private readonly IEnumerable<IRecordMutationGuard> guards;
-
+    private readonly IRuntimeAuthorization? relationAuthorization;
     /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
-    public ConfigColumnService(DatabaseSession session, ConfigColumnMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? [];  }
+    public ConfigColumnService(DatabaseSession session, ConfigColumnMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null, IRuntimeAuthorization? relationAuthorization = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? []; this.relationAuthorization = relationAuthorization; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -142,6 +142,25 @@ public partial class ConfigColumnService
     {
         var entity = await Scope6217715532627968(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigColumn { Id = entity.Id, Name = entity.Name, ColumnName = entity.ColumnName, MatchType = entity.MatchType, Width = entity.Width, ControlKind = entity.ControlKind, ControlDetail = entity.ControlDetail, SortNo = entity.SortNo, DefaultValue = entity.DefaultValue, QueryDefaultValue = entity.QueryDefaultValue, InitValue = entity.InitValue, ControlWidth = entity.ControlWidth, ColSpan = entity.ColSpan, Align = entity.Align, IsAutoPostBack = entity.IsAutoPostBack, VisibleCondition = entity.VisibleCondition, IsAutoPostBackQuery = entity.IsAutoPostBackQuery, JoinTable = entity.JoinTable, IsHideSelectGrid = entity.IsHideSelectGrid, IsJoinColumn = entity.IsJoinColumn, ColumnType = entity.ColumnType, ColumnConstrain = entity.ColumnConstrain, ColumnLength = entity.ColumnLength, ColumnFullName = entity.ColumnFullName, SaveOption = entity.SaveOption, DisplayOption = entity.DisplayOption, Description = entity.Description, DeveloperRemarks = entity.DeveloperRemarks, IsAutoUpdate = entity.IsAutoUpdate, IsCopy = entity.IsCopy, IsSort = entity.IsSort, FilterControlKind = entity.FilterControlKind, IsVirtualColumn = entity.IsVirtualColumn, MobileListPageColSpan = entity.MobileListPageColSpan, IsDbNotNull = entity.IsDbNotNull, ConfigTableName = entity.ConfigTableName, IsInGrid = entity.IsInGrid, IsInFilter = entity.IsInFilter, IsInEdit = entity.IsInEdit, IsReadOnly = entity.IsReadOnly, IsMust = entity.IsMust, LinkConfigTableName = entity.LinkConfigTableName, LinkConfigPageName = entity.LinkConfigPageName, YzProjectId = entity.YzProjectId, YzProjectName = entity.YzProjectName, IsPrint = entity.IsPrint, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, SumKind = entity.SumKind, LogicalType = entity.LogicalType, Precision = entity.Precision, Scale = entity.Scale }, cancellationToken);
         return entity is null ? null : ConfigColumnPage6217715532627968Vo.FromEntity(entity);
+    }
+    /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
+    public async Task<ConfigColumn?> ReadButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
+    public async Task<ConfigColumn?> LockButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);
+    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
+    private ISelect<ConfigColumn> ButtonRecordQuery6217715532627968(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("业务记录标识无效。");
+        if(buttonId is not ("1764267649526751234" or "1764274114228662273" or "2040725488384864258"))throw new UnauthorizedAccessException("按钮不属于当前已发布业务页面。");
+        var authorization=relationAuthorization??throw new UnauthorizedAccessException("业务记录需要宿主真实授权。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("业务记录身份与当前真实身份不一致。");
+        authorization.RequireButtonPermission("6217715532627968",buttonId);
+        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
+        var query=mapper.Query().Where(entity=>entity.Id==id);
+        query=query.Where(entity=>entity.YzProjectId==long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException("当前页面要求parentId。");
+        query=query.Where(entity=>entity.ConfigTableId==long.Parse(parentId!, CultureInfo.InvariantCulture));
+        return locking?query.ForUpdate():query;
     }
     /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>
     public async Task<Metarill.Core.Exports.PageExportRequest> Export6217715532627968Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)

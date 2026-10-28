@@ -6,12 +6,15 @@ namespace Metarill.Data.Queries;
 /// <summary>精确范围集合按固定名称绑定ADO参数，避免ORM的Contains把账号匹配值内联进SQL或日志。</summary>
 public static class ExactDataManageSql
 {
-    /// <summary>派生匹配使用固定相关子查询；内外分别锁读，关联值与主记录共同保持至原写事务结束。</summary>
-    public static ISelect<T> ApplyDerived<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,string field,string parameterPrefix,IReadOnlyList<object?> values,string projectId)where T:class
+    /// <summary>保持已有七参数方法及写锁语义；已编译的生成程序集无需改变方法绑定。</summary>
+    public static ISelect<T> ApplyDerived<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,string field,string parameterPrefix,IReadOnlyList<object?> values,string projectId)where T:class=>
+        ApplyDerived(query,session,plan,field,parameterPrefix,values,projectId,true);
+    /// <summary>派生匹配使用固定相关子查询；读取在同一SQL内校验，锁定时内外共同保持至原写事务结束。</summary>
+    public static ISelect<T> ApplyDerived<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,string field,string parameterPrefix,IReadOnlyList<object?> values,string projectId,bool locking)where T:class
     {
         MetadataValidation.RequireIdentifier(parameterPrefix);
         if(session.Provider.Name!="mysql")throw new NotSupportedException("派生匹配计划与数据库方言不一致。");
-        if(session.CurrentTransaction is null)throw new InvalidOperationException("派生匹配锁定必须加入真实写事务。");
+        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("派生匹配锁定必须加入真实写事务。");
         if(!long.TryParse(projectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var project)||project<=0)throw new InvalidOperationException("派生匹配项目标识无效。");
         var fixedPlan=plan.MySql;var expression=fixedPlan.Expression(field);var provider=session.Provider;
         if(values.Count==0)return query.Where("1=0");
@@ -24,7 +27,7 @@ public static class ExactDataManageSql
         // 生成Mapper从创建时固定使用a；保持同名，不能在已有lambda后改名。
         const string outer="a";
         var predicates=new[]{fixedPlan.Scope,fixedPlan.Expression("id")+"="+provider.QuoteIdentifier(outer)+"."+provider.QuoteIdentifier("id"),expression+" IN ("+string.Join(",",names)+")"};
-        var sql="EXISTS (SELECT 1"+fixedPlan.From+" WHERE "+string.Join(" AND ",predicates.Where(part=>part.Length>0))+" FOR UPDATE)";
+        var sql="EXISTS (SELECT 1"+fixedPlan.From+" WHERE "+string.Join(" AND ",predicates.Where(part=>part.Length>0))+(locking?" FOR UPDATE)":")");
         sql=sql.Replace("@project_scope_number",provider.ParameterPlaceholder(parameterPrefix+"_project_number"),StringComparison.Ordinal).Replace("@project_scope_text",provider.ParameterPlaceholder(parameterPrefix+"_project_text"),StringComparison.Ordinal);
         return query.As(outer).Where(sql,parameters);
     }

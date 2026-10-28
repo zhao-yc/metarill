@@ -258,7 +258,7 @@
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "5906510a944f5f4c6c72f93b8593627c3ec4b4ebc685ca0e20a49af78c22de03"
+      "sha256": "e277a134996b69d78850f66354abd9f9bcdabf936765dfa179eddf26d42cdb3f"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -366,7 +366,7 @@
     },
     {
       "path": "Services/ConfigColumnService.g.cs",
-      "sha256": "07aac092ba67a574976244ad40504a5e6f993b30521043bf1829b6106670298a"
+      "sha256": "ba3058b668f518569a241a034883fdf7fb15fde38dc8aa9fc80e8d91f34f61a5"
     },
     {
       "path": "Services/ConfigCustomPageService.g.cs",
@@ -390,11 +390,11 @@
     },
     {
       "path": "Services/ConfigPageService.g.cs",
-      "sha256": "b1bfb6c4306376619a2ed93bbdfd89b9751a98b35a0065d3e32632dc34f87701"
+      "sha256": "9daf6dc2fac9051f8a86e80f2b45b41e49cde5154ea4ff22b3dd3b56983b4c96"
     },
     {
       "path": "Services/ConfigTableService.g.cs",
-      "sha256": "c8da0c9ce5f19c7d16f287a450d1f480d192cb4b59eca02177ca72f6fd27d865"
+      "sha256": "eed9bad6d3f3a297f176027d3c17486a648aa635f68d3a0dfeb61cb12bbb6acd"
     },
     {
       "path": "Services/SysAgentGrantService.g.cs",
@@ -410,7 +410,7 @@
     },
     {
       "path": "Services/YzAdminTypeService.g.cs",
-      "sha256": "4680caf351a2e990838b1dda592bed617c2adc732470e59b6ed37e671dcca818"
+      "sha256": "7a08a970f0bb86bcf5e1076830872ff6bb6a6aa2c1cd7729f0382614f123f79d"
     },
     {
       "path": "Services/YzFileLibraryFolderService.g.cs",
@@ -430,7 +430,7 @@
     },
     {
       "path": "Services/YzManagerDevicesService.g.cs",
-      "sha256": "a8a141246714a20e821ab844d2e8c03486c2dd1c5f569a325a8c2ff00b221e33"
+      "sha256": "488385f11fe086029b2aa7e14cbd0c58076701eb1d0303a627ecb54c1afbc4a0"
     },
     {
       "path": "Services/YzManagerService.g.cs",
@@ -438,7 +438,7 @@
     },
     {
       "path": "Services/YzProjectService.g.cs",
-      "sha256": "133505266fa577ab56a1a87b9dacd349fbacdcc4f79d7791b0692095259d0fd0"
+      "sha256": "b040cf77c768597212f0c64a95ad206e90a60e1918d4e6c80a23bfde8afac4fd"
     },
     {
       "path": "Services/YzRolePermissionService.g.cs",

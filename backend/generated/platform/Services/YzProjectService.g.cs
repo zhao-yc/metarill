@@ -19,9 +19,9 @@ public partial class YzProjectService
     private readonly IIdGenerator ids;
     private readonly IEnumerable<IRecordMutationObserver> observers;
     private readonly IEnumerable<IRecordMutationGuard> guards;
-
+    private readonly IRuntimeAuthorization? relationAuthorization;
     /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>
-    public YzProjectService(DatabaseSession session, YzProjectMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? [];  }
+    public YzProjectService(DatabaseSession session, YzProjectMapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null, IRuntimeAuthorization? relationAuthorization = null) { this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); this.guards = guards ?? []; this.relationAuthorization = relationAuthorization; }
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     /// <summary>查询筛选值沿用字符串 ID 协议。</summary>
     private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }
@@ -117,6 +117,22 @@ public partial class YzProjectService
     {
         var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : YzProjectPage6186303424888832Vo.FromEntity(entity);
+    }
+    /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
+    public async Task<YzProject?> ReadButtonRecord6186303424888832Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6186303424888832(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
+    public async Task<YzProject?> LockButtonRecord6186303424888832Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6186303424888832(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);
+    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
+    private ISelect<YzProject> ButtonRecordQuery6186303424888832(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("业务记录标识无效。");
+        if(buttonId is not ("1696360770502291457" or "2069009428958547968" or "2069009429197623296"))throw new UnauthorizedAccessException("按钮不属于当前已发布业务页面。");
+        var authorization=relationAuthorization??throw new UnauthorizedAccessException("业务记录需要宿主真实授权。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("业务记录身份与当前真实身份不一致。");
+        authorization.RequireButtonPermission("6186303424888832",buttonId);
+        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
+        var query=mapper.Query().Where(entity=>entity.Id==id);
+        return locking?query.ForUpdate():query;
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<YzProjectPage6186303424888832Vo> Create6186303424888832Async(YzProjectPage6186303424888832CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
