@@ -52,6 +52,11 @@ public sealed class PlatformTools
     [McpServerTool(Name="get_database_metadata_import_status", ReadOnly=true), Description("只读查询同身份同摘要的有限配置回执；unknown不能表示未写入，不得自动重复应用。")]
     public static Task<SchemaMetadataImportStatus> MetadataImportStatus(JsonElement data, SchemaMetadataImportBusiness import, CancellationToken token) => import.StatusAsync(data, token);
 
+    /// <summary>平台与完整应用使用相同的请求结构及逐次页权检查。</summary>
+    [McpServerTool(Name="describe_generated_page",ReadOnly=true),Description("按当前页面动作权限描述真实生成DTO字段及parent/确认合同，不返回默认值或连接。")]
+    public static JsonElement DescribePage(string pageId,string operation,PublishedPageInvoker invoker,HttpRuntimeAuthorization authorization)=>
+        GeneratedPageMcpTools.Describe(pageId,operation,invoker,authorization,authorization);
+
     /// <summary>平台保持原工具及权限合同，六种强类型业务操作复用公共执行器。</summary>
     [McpServerTool(Name="call_generated_page",ReadOnly=false),Description("调用已发布页的强类型服务。operation 为 list/detail/create/update/delete/copy；写操作必须明确 confirmed=true。字段遵循生成 DTO，省略保持，null 清空。")]
     public static Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,PublishedPageInvoker invoker,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)=>

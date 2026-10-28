@@ -11,6 +11,7 @@
 | 工具 | 行为 | 权限与边界 |
 | --- | --- | --- |
 | `list_generated_pages` | 当前允许的固定项目/页面标识、名称、表名及动作 | 每次重新按当前身份页权过滤；不返回连接、SQL或隐藏默认值，Agent仅列出读取动作 |
+| `describe_generated_page` | 查询当前动作的实际DTO结构、parent位置和确认要求 | 每次校验持久身份及同一动作页权；Agent只允许批准项目的list/detail；不构造Service或返回默认配置 |
 | `call_generated_page` | list/detail/create/update/delete/copy，调用原生成Service | 先验证真实持久身份及页权；写入必须明确confirmed=true；DTO拒绝未知字段，保留省略/null；原parent、取消令牌及对象规则继续 |
 
 服务类型、命名空间、程序集和方法只来自宿主注册的可信目录。客户端不能提供类型名、源码路径或自报项目权限；源元数据对象在建立目录后变化也不能扩充该快照。当前工具返回对象使用公共JSON合同，长整数以字符串输出；原字符串结果保持字符串。
@@ -34,3 +35,15 @@ C12待授权的固定32bbce6包不含本轮MCP代码；新代码不能替换其�
 最终正式生成核对：平台/示例各两轮，191份受管文件及清单稳定、24份手写partial未变；Release构建0警告/0错误。原前端、元数据及表级生成产物无Git差异。正常CLI导出590文件审查包，元数据摘要仍为 `58ed1e8a8db53a9cbf9fcbd207bc64621a2340083383416e7b047e47e8d97add`；逐条核验包清单匹配。
 
 本轮17份变化源码/工程/模板/测试摘要 `dd127b5c6d71dc1ba55bb143dd9e2656ca75b4c641b7eb0fbef85456c466c9d8`；真实TRX、原编译失败记录、更新策略与包摘要保存在私有 `.local/standalone-mcp/validation-receipt.json` 和早期 `.local/standalone-agent-full/mcp-*.log`。日志、配置、依赖和编译产物不进入Git。没有外部数据库写入、Docker、正式MCP身份、浏览器、设备或性能验收；C08及首版整体继续部分完成。
+
+## 2026-10-28 C15：请求结构发现
+
+新增只读 `describe_generated_page(pageId, operation)`，平台与完整应用共用同一实现。描述 `call_generated_page` 的 `data` 对象：分页使用真实PageRequest，创建/更新使用已发布程序集的对应强DTO，记录操作使用既有ID合同；更新及记录操作明确ID必填。分页父范围在 `data.parentId`，其余操作使用外层 `parentId`。长整数仍接受字符串或整数；可选包装、未知字段拒绝及数据库复选的兼容输入沿既有Agent结构描述规则。
+
+描述只反射类型，不解析Service、读取数据库、实例化DTO或获取属性默认值，不返回连接、SQL、隐藏元数据。未知动作、未发布方法、当前页权拒绝、无持久会话及身份不一致均拒绝。Agent不获得写动作结构且仍受批准项目限制；每次查询重新校验，返回对象的修改不会污染下次结果。此结构只描述输入形状；业务必填、默认值、关系、父范围及对象规则仍由原Service执行，不能把结构查询成功当作写入授权或合法性保证。
+
+既有Agent内部入口保留兼容转发，规则提取到Core，MCP不引用Agent。无数据库、元数据、原前端、生成表级代码或待授权C12固定包变化。旧完整包通过原运行时同步流程配套更新Core/Mcp及宿主后重编译；平台同步Core/Agent/Mcp及工具适配。无需DDL或数据回填，回退使用前一配套版本，保留手写partial。
+
+最终MCP30/30通过，包含实际SDK传输中的结构发现、服务参数隐藏、Agent写结构拒绝及撤权；Agent226通过/25实库跳过，完整包与BackendOnly相关11/11通过，平台API53通过/46实库跳过；严格Release构建0警告/0错误。可空引用补充后，最终再次执行实际完整包编译/三模式启动1/1及严格Release零警告错误；此前11项包组合与53项API另保留，不混写为最终全量。各批独立，不累加为全量。Agent保留原默认描述模式，MCP显式补充可空引用注解（含分页parentId及orderBy）；原前端、元数据、表级生成文件及C12固定包未改变，不需要表级再生成或DDL。初次传输测试误用了SDK客户端不公开的Annotations属性，修正测试后完整MCP复验通过，初次编译日志保留。
+
+7份源码/测试摘要 `c1c71c62dedaf69f94d8b6f5267c6176ee52e885eb05e3eb8522c52f3708a4b5`；TRX、包编译日志、原失败记录和回执保存在私有 `.local/mcp-request-schema/validation-receipt.json`。真实Web/OAuth/业务SQL、浏览器、设备和性能仍待验收，C08及MySQL首版不据此标为完成。

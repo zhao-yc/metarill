@@ -17,6 +17,9 @@ public sealed record McpPublishedApplication(MetadataCatalog Metadata,string Roo
 /// <summary>只提供当前身份可调用的稳定页面标识，不输出连接、SQL、隐藏默认值或完整元数据。</summary>
 public sealed record McpPublishedPage(string ProjectId,string Id,string Name,string TableName,IReadOnlyList<string> Operations);
 
+/// <summary>描述call_generated_page的data结构；不包含DTO默认值或完整元数据。</summary>
+public sealed record McpPageRequest(string PageId,string Operation,Dictionary<string,object?> DataSchema,string ParentIdLocation,bool RequiresConfirmation,string Notes);
+
 /// <summary>平台与独立应用共用固定Service分派；反射只选择已发布类型，查询与写入仍由生成Service执行。</summary>
 public sealed class PublishedPageInvoker
 {
@@ -67,6 +70,24 @@ public sealed class PublishedPageInvoker
             if(allowed.Count>0)result.Add(new(page.ProjectId,page.Id,page.Name,page.TableName,allowed.AsReadOnly()));
         }
         return result.AsReadOnly();
+    }
+
+    /// <summary>逐次验证身份、动作页权与实际发布方法，再描述DTO；不构造Service或读取数据库。</summary>
+    public McpPageRequest Describe(string pageId,string operation,IRuntimeAuthorization authorization,ISecurityIdentityAccessor identities)
+    {
+        var (actor,identity)=Identity(authorization,identities);
+        if(!Operations.Contains(operation,StringComparer.Ordinal))throw new ArgumentException("不支持的页面操作。");
+        authorization.RequirePagePermission(pageId,operation);
+        var page=pages.GetValueOrDefault(pageId)??throw new InvalidOperationException("页面尚未发布。");
+        if(identity.GrantId is not null&&(page.ProjectId!=actor.ProjectId||operation is not("list" or "detail")))throw new UnauthorizedAccessException("Agent仅能描述已批准项目的MCP读取动作。");
+        if(page.Service?.GetMethod(page.Method(operation),BindingFlags.Instance|BindingFlags.Public) is null)throw new InvalidOperationException("页面未开放该操作。");
+        Dictionary<string,object?> schema;
+        if(operation=="list")schema=RequestJsonSchema.Create(typeof(PageRequest),includeNullableReferences:true);
+        else if(operation is "create" or "update")schema=RequestJsonSchema.Create(page.Request(operation)??throw new InvalidOperationException("页面未开放该写入。"),includeNullableReferences:true);
+        else schema=new(){["type"]="object",["properties"]=new Dictionary<string,object?>{["id"]=RequestJsonSchema.Create(typeof(long))},["additionalProperties"]=true};
+        // 记录操作沿实际正整数ID解析；更新ID必填，业务字段必填/默认值仍由原Service判断。
+        if(operation is not("list" or "create"))schema["required"]=schema.TryGetValue("required",out var required)?((IEnumerable<string>)required!).Append("id").Distinct().ToArray():new[]{"id"};
+        return new(pageId,operation,schema,operation=="list"?"data.parentId":"parentId",operation is "create" or "update" or "delete" or "copy","结构来自实际DTO；省略保持，null清空。业务必填、默认值、关系与对象权限仍由原Service校验；记录ID须为正整数。");
     }
 
     /// <summary>沿原六操作/parent/强DTO合同执行；Agent只读，不给MCP另设弱写入通道或任意SQL入口。</summary>

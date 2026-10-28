@@ -66,6 +66,63 @@ public sealed class PublishedPageInvokerTests
         using var f=new Fixture();Assert.Equal(6,Assert.Single(f.Invoker.List(f.Access,f.Access)).Operations.Count);f.Access.Denied.Add("delete");Assert.DoesNotContain("delete",Assert.Single(f.Invoker.List(f.Access,f.Access)).Operations);
         f.Access.Identity=f.Access.Identity with{GrantId=70};Assert.Equal(new[]{"list","detail"},Assert.Single(f.Invoker.List(f.Access,f.Access)).Operations);f.Access.Identity=f.Access.Identity with{Actor=f.Access.Identity.Actor with{ProjectId="999"}};Assert.Empty(f.Invoker.List(f.Access,f.Access));
     }
+    /// <summary>六动作的data字段来自实际DTO，更新/记录ID必填，parent位置与确认要求保持。</summary>
+    [Theory]
+    [InlineData("list")][InlineData("detail")][InlineData("create")][InlineData("update")][InlineData("delete")][InlineData("copy")]
+    public void Description_matches_real_request_without_resolving_service(string operation)
+    {
+        using var f=new Fixture();var result=f.Invoker.Describe(Page,operation,f.Access,f.Access);
+        var schema=JsonSerializer.SerializeToElement(result.DataSchema);var fields=schema.GetProperty("properties").EnumerateObject().Select(p=>p.Name).ToArray();
+        Assert.Equal(operation is "create" or "update" or "delete" or "copy",result.RequiresConfirmation);Assert.Equal(operation=="list"?"data.parentId":"parentId",result.ParentIdLocation);
+        if(operation=="list")
+        {
+            Assert.Equal(new[]{"formParameters","pageNo","pageSize","filters","parentId","orderBy","selectedIds"},fields);
+            var properties=schema.GetProperty("properties");Assert.Contains("null",properties.GetProperty("parentId").GetProperty("type").EnumerateArray().Select(v=>v.GetString()));
+            Assert.Contains("null",properties.GetProperty("orderBy").GetProperty("type").EnumerateArray().Select(v=>v.GetString()));
+            Assert.Contains("null",properties.GetProperty("orderBy").GetProperty("properties").GetProperty("column").GetProperty("type").EnumerateArray().Select(v=>v.GetString()));
+        }
+        else if(operation=="create")Assert.Equal(new[]{"name","notes"},fields);
+        else if(operation=="update")Assert.Equal(new[]{"id","notes"},fields);
+        else Assert.Equal(new[]{"id"},fields);
+        if(operation is not("list" or "create"))Assert.Contains(schema.GetProperty("required").EnumerateArray(),field=>field.GetString()=="id");
+        if(operation is "create" or "update")
+        {
+            Assert.False(schema.GetProperty("additionalProperties").GetBoolean());Assert.Contains("null",schema.GetProperty("properties").GetProperty("notes").GetProperty("type").EnumerateArray().Select(v=>v.GetString()));
+        }
+        if(operation=="detail")Assert.Equal(new[]{"string","integer"},schema.GetProperty("properties").GetProperty("id").GetProperty("type").EnumerateArray().Select(v=>v.GetString()));
+        Assert.DoesNotContain("default",schema.GetRawText(),StringComparison.OrdinalIgnoreCase);Assert.Empty(f.Service.Calls);
+    }
+    /// <summary>结构描述逐次授权；Agent不获得写字段，拒绝跨项目、失效身份或未知方法。</summary>
+    [Theory]
+    [InlineData("permission")][InlineData("agent-write")][InlineData("agent-project")][InlineData("no-session")][InlineData("mismatched-actor")][InlineData("unknown-operation")]
+    public void Request_description_rejects_unavailable_operations(string mode)
+    {
+        using var f=new Fixture();var operation=mode=="agent-write"?"create":mode=="unknown-operation"?"GetType":"detail";
+        if(mode=="permission")f.Access.Denied.Add(operation);
+        if(mode.StartsWith("agent",StringComparison.Ordinal))f.Access.Identity=f.Access.Identity with{GrantId=70};
+        if(mode=="agent-project")f.Access.Identity=f.Access.Identity with{Actor=f.Access.Identity.Actor with{ProjectId="999"}};
+        if(mode=="no-session")f.Access.Identity=f.Access.Identity with{SessionId=0};
+        if(mode=="mismatched-actor")f.Access.OverrideActor=f.Access.Identity.Actor with{AccountId=9};
+        Assert.NotNull(Record.Exception(()=>f.Invoker.Describe(Page,operation,f.Access,f.Access)));Assert.Empty(f.Service.Calls);
+    }
+    /// <summary>Agent默认结构继续兼容旧输出，MCP显式启用引用可空注解。</summary>
+    [Fact]
+    public void Shared_schema_keeps_legacy_default_and_opts_into_nullable_reference_metadata()
+    {
+        var legacy=JsonSerializer.SerializeToElement(Metarill.Core.Contracts.RequestJsonSchema.Create(typeof(Metarill.Core.Contracts.PageRequest)));
+        Assert.Equal("string",legacy.GetProperty("properties").GetProperty("parentId").GetProperty("type").GetString());
+        Assert.Equal("object",legacy.GetProperty("properties").GetProperty("orderBy").GetProperty("type").GetString());
+        using var f=new Fixture();var current=JsonSerializer.SerializeToElement(f.Invoker.Describe(Page,"list",f.Access,f.Access).DataSchema);
+        Assert.Contains("null",current.GetProperty("properties").GetProperty("parentId").GetProperty("type").EnumerateArray().Select(v=>v.GetString()));
+    }
+    /// <summary>调用者修改描述结果不能污染后续结构；Agent读取允许并即时响应页权撤销。</summary>
+    [Fact]
+    public void Descriptions_are_fresh_and_revocation_is_checked_again()
+    {
+        using var f=new Fixture();f.Access.Identity=f.Access.Identity with{GrantId=70};var first=f.Invoker.Describe(Page,"detail",f.Access,f.Access);first.DataSchema.Clear();
+        Assert.Contains("properties",f.Invoker.Describe(Page,"detail",f.Access,f.Access).DataSchema.Keys);
+        f.Access.Denied.Add("detail");Assert.Throws<SecurityException>(()=>f.Invoker.Describe(Page,"detail",f.Access,f.Access));Assert.Empty(f.Service.Calls);
+    }
     /// <summary>目录查询只读取检出中的公开示例，不连接数据库或配置文件。</summary>
     internal static MetadataCatalog Catalog([CallerFilePath]string file="")=>JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../../metadata/demo.json"))),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     internal static JsonElement Json(string value)=>JsonSerializer.Deserialize<JsonElement>(value);
