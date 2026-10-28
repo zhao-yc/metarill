@@ -45,9 +45,7 @@ public partial class ConfigChildService
         }
         if ((creating || submitted.Contains("child_config_page_id")) && entity.ChildConfigPageId is not null)
         {
-            var canonicalRelation2=long.Parse(entity.ChildConfigPageId,CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
-            if(entity.ChildConfigPageId!=canonicalRelation2){entity.ChildConfigPageId=canonicalRelation2;submitted.Add("child_config_page_id");}
-            var relationIds2 = new[] { long.Parse(entity.ChildConfigPageId, CultureInfo.InvariantCulture) };
+            var relationIds2 = new[] { entity.ChildConfigPageId.Value };
             var relationQuery2 = session.Select<ConfigPage>().Where(row => relationIds2.Contains(row.Id));
             relationQuery2 = relationQuery2.Where(row => row.DeleteNo == null);
             relationQuery2 = relationQuery2.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
@@ -106,11 +104,11 @@ break; }
                     if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
                     if (filter.Value.ValueKind == JsonValueKind.Array)
                     {
-                        var values = JsonSerializer.Deserialize<string?[]>(filter.Value.GetRawText(), JsonOptions)!;
+                        var values = JsonSerializer.Deserialize<long?[]>(filter.Value.GetRawText(), JsonOptions)!;
                         query = query.Where(entity => values.Contains(entity.ChildConfigPageId));
                         break;
                     }
-                    var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
+                    var value = JsonSerializer.Deserialize<long?>(filter.Value.GetRawText(), JsonOptions);
                     query = query.Where(entity => entity.ChildConfigPageId == value);
                     break;
                 }
@@ -189,7 +187,7 @@ break; }
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations1679390851298631682Async(entity, actor, true, submitted, cancellationToken);
         if (entity.ParentConfigPageId is null) throw new ArgumentException("\u7236\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ChildConfigPageId)) throw new ArgumentException("\u5B50\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (entity.ChildConfigPageId is null) throw new ArgumentException("\u5B50\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.ChildPageOpenType is null) throw new ArgumentException("PC\u7AEF\u5B50\u9875\u9762\u6253\u5F00\u65B9\u5F0F\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         await ValidateMutationAsync("1679390851298631682", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
@@ -225,7 +223,7 @@ break; }
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations1679390851298631682Async(entity, actor, false, submitted, cancellationToken);
         if (entity.ParentConfigPageId is null) throw new ArgumentException("\u7236\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ChildConfigPageId)) throw new ArgumentException("\u5B50\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (entity.ChildConfigPageId is null) throw new ArgumentException("\u5B50\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         if (entity.ChildPageOpenType is null) throw new ArgumentException("PC\u7AEF\u5B50\u9875\u9762\u6253\u5F00\u65B9\u5F0F\u4E0D\u80FD\u4E3A\u7A7A\u3002");
         await ValidateMutationAsync("1679390851298631682", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);

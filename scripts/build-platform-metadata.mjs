@@ -116,6 +116,26 @@ for(const c of columns) {
  if(c.logicalType==='string'&&!c.columnLength)c.columnLength='255';
  // 虚拟布局字段已经在来源过滤，不进入物理结构。
 }
+// 固定配置关联ID统一到int64；原整数下拉仍使用int，实际物理方言由逻辑类型映射。
+// 只匹配六个稳定表/字段身份，不按_id后缀改写OAuth client_id或请求UUID等不透明标识。
+const configurationRelationIds = [
+ ['config_child','1679390851269271554','child_config_page_id','1679391146044956674','config_page'],
+ ['config_column','6217714881724416','link_config_table_id','1670726646479638529','config_table'],
+ ['config_column','6217714881724416','link_config_page_id','1670726646546747393','config_page'],
+ ['config_page_column','6218035521716224','link_config_table_id','2200000000000000135','config_table'],
+ ['config_page_column','6218035521716224','link_config_page_id','2200000000000000137','config_page'],
+ ['config_page_column','6218035521716224','combine_super_column_id','2200000000000000139','config_column'],
+];
+for(const [tableName,tableId,columnName,columnId,targetName] of configurationRelationIds) {
+ const owner=tables.find(table=>table.id===tableId&&table.tableName===tableName);
+ const matches=columns.filter(column=>column.configTableId===tableId&&column.columnName===columnName);
+ const target=tables.find(table=>table.tableName===targetName);
+ const key=target&&columns.find(column=>column.configTableId===target.id&&column.columnName==='id');
+ if(!owner||matches.length!==1||matches[0].id!==columnId||!key||key.logicalType!=='int64'||matches[0].joinTable&&matches[0].joinTable!==targetName)
+  throw new Error('固定配置关联ID身份或目标声明变化：'+tableName+'.'+columnName);
+ const column=matches[0];column.logicalType='int64';column.columnType='int';column.columnLength='';
+ if(Object.hasOwn(column,'columnTypeShow'))column.columnTypeShow='整数';
+}
 for(const c of columns)if(c.columnName==='config_second_menu_id')c.columnName='config_menu_id';
 columns=columns.filter((c,i,all)=>all.findIndex(x=>x.configTableId===c.configTableId&&x.columnName===c.columnName)===i);
 for(const t of tables)if(t.tableName==='yz_project')t.scopeKind='global';

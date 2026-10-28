@@ -1383,10 +1383,10 @@
     },
     {
       "colSpan": 1,
-      "columnLength": "50",
+      "columnLength": "",
       "columnName": "child_config_page_id",
-      "columnType": "nvarchar",
-      "columnTypeShow": "字符",
+      "columnType": "int",
+      "columnTypeShow": "整数",
       "configTableId": "1679390851269271554",
       "configTableName": "子表关系",
       "controlDetail": "{\"pageId\": \"1869016706289577986\", \"orderBy\": \"\", \"whereSql\": \"\", \"buttonText\": \"选择视图\"}",
@@ -1408,7 +1408,7 @@
       "name": "子页面",
       "sortNo": 20,
       "yzProjectId": "1608097412978577409",
-      "logicalType": "string"
+      "logicalType": "int64"
     },
     {
       "colSpan": 1,
@@ -5952,10 +5952,10 @@
     },
     {
       "colSpan": 1,
-      "columnLength": "50",
+      "columnLength": "",
       "columnName": "link_config_table_id",
-      "columnType": "nvarchar",
-      "columnTypeShow": "字符",
+      "columnType": "int",
+      "columnTypeShow": "整数",
       "configTableId": "6217714881724416",
       "configTableName": "列",
       "controlKind": "",
@@ -5974,14 +5974,14 @@
       "name": "link_config_table_id",
       "sortNo": 510,
       "yzProjectId": "1608097412978577409",
-      "logicalType": "string"
+      "logicalType": "int64"
     },
     {
       "colSpan": 1,
-      "columnLength": "50",
+      "columnLength": "",
       "columnName": "link_config_page_id",
-      "columnType": "nvarchar",
-      "columnTypeShow": "字符",
+      "columnType": "int",
+      "columnTypeShow": "整数",
       "configTableId": "6217714881724416",
       "configTableName": "列",
       "controlKind": "",
@@ -6000,7 +6000,7 @@
       "name": "link_config_page_id",
       "sortNo": 520,
       "yzProjectId": "1608097412978577409",
-      "logicalType": "string"
+      "logicalType": "int64"
     },
     {
       "colSpan": 1,
@@ -9211,11 +9211,11 @@
       "name": "link_config_table_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 300,
-      "logicalType": "string",
+      "logicalType": "int64",
       "isDbNotNull": 0,
-      "columnLength": "50",
+      "columnLength": "",
       "defaultValue": "",
-      "columnType": "varchar"
+      "columnType": "int"
     },
     {
       "id": "2200000000000000136",
@@ -9239,11 +9239,11 @@
       "name": "link_config_page_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 320,
-      "logicalType": "string",
+      "logicalType": "int64",
       "isDbNotNull": 0,
-      "columnLength": "50",
+      "columnLength": "",
       "defaultValue": "",
-      "columnType": "varchar"
+      "columnType": "int"
     },
     {
       "id": "2200000000000000138",
@@ -9267,11 +9267,11 @@
       "name": "combine_super_column_id",
       "yzProjectId": "1608097412978577409",
       "sortNo": 340,
-      "logicalType": "string",
+      "logicalType": "int64",
       "isDbNotNull": 0,
-      "columnLength": "50",
+      "columnLength": "",
       "defaultValue": "",
-      "columnType": "varchar"
+      "columnType": "int"
     },
     {
       "id": "2200000000000000140",

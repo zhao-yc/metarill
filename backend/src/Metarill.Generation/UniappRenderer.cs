@@ -8,13 +8,15 @@ internal static class UniappRenderer
     /// <summary>原列表和详情共享同一元数据快照，尚未交付的后端控件仍写入能力缺口。</summary>
     public static IEnumerable<PlannedFile> Render(GenerationModel model)
     {
-        var routes=new List<object>();var gaps=GenerationCapabilityAudit.Collect(model);var children=ChildrenCompilation.Compile(model);
-        foreach(var table in model.Tables)
+        var routes=new List<object>();var gaps=GenerationCapabilityAudit.Collect(model);
+        // 能力审计始终使用真实后端类型；只有原页面渲染消费固定展示副本。
+        var presentation=PlatformConfigurationIdPresentation.ForFrontend(model);var children=ChildrenCompilation.Compile(presentation);
+        foreach(var table in presentation.Tables)
         foreach(var page in table.Pages)
         {
             var stem=table.Source.TableName;var list=$"pages/yzp/{stem}-list-{page.Source.Id}";var detail=$"pages/yzp/{stem}-detail-{page.Source.Id}";
-            yield return new("frontend/"+list+".vue",OriginalUniappListRenderer.Render(model,table,page));
-            yield return new("frontend/"+detail+".vue",OriginalUniappDetailRenderer.Render(model,table,page,children.Where(child=>child.Parent==page).ToArray()));
+            yield return new("frontend/"+list+".vue",OriginalUniappListRenderer.Render(presentation,table,page));
+            yield return new("frontend/"+detail+".vue",OriginalUniappDetailRenderer.Render(presentation,table,page,children.Where(child=>child.Parent==page).ToArray()));
             routes.Add(new{path=list,style=new{navigationBarTitleText=page.Source.Name,navigationStyle="custom",enablePullDownRefresh=true}});
             routes.Add(new{path=detail,style=new{navigationBarTitleText=page.Source.Name,navigationStyle="custom"}});
         }

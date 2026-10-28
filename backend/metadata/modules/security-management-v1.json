@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "moduleId": "security-management-v1",
   "sources": {
-    "platformSha256": "546e235817f1db434eee2b757cad5b929c5938f66cbd9e514ccc07c5e904d899",
+    "platformSha256": "3c5ebad8c3486f7b5168fd13e5f6f9f2d802570beb71aca00a1bc31c86f28873",
     "securitySha256": "6321e3b413a3bd41cbe04eb150562bc9654f31aedefe36ca5426981c7a8b9541",
     "filesSha256": "e5bac8b7ce7e4bae674d84b904152eff6f55803691382c55fe81dda7d1118bca"
   },

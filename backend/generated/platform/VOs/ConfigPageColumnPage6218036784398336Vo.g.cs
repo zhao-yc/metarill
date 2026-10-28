@@ -64,15 +64,15 @@ public sealed partial class ConfigPageColumnPage6218036784398336Vo
     [JsonPropertyName("configPageName")]
     public string? ConfigPageName { get; init; }
     [JsonPropertyName("linkConfigTableId")]
-    public string? LinkConfigTableId { get; init; }
+    public long? LinkConfigTableId { get; init; }
     [JsonPropertyName("linkConfigTableName")]
     public string? LinkConfigTableName { get; init; }
     [JsonPropertyName("linkConfigPageId")]
-    public string? LinkConfigPageId { get; init; }
+    public long? LinkConfigPageId { get; init; }
     [JsonPropertyName("linkConfigPageName")]
     public string? LinkConfigPageName { get; init; }
     [JsonPropertyName("combineSuperColumnId")]
-    public string? CombineSuperColumnId { get; init; }
+    public long? CombineSuperColumnId { get; init; }
     [JsonPropertyName("combineSuperColumnName")]
     public string? CombineSuperColumnName { get; init; }
     [JsonPropertyName("importNo")]

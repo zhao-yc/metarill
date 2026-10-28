@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "e57987426e248c706f755e2ca55638d2f1ab0377dddd291e17556b88815ba59e",
+  "metadataSha256": "6918b6e45ce4fa134b898af2493a788fe236a9bf23fa66fc2fa2abcdbeb9ef95",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -94,7 +94,7 @@
     },
     {
       "path": "DTOs/ConfigChildPage1679390851298631682Requests.g.cs",
-      "sha256": "ffbd8639baaaca1f676697e157f320baddb620fdae9ef2dff3b3aca567ec144c"
+      "sha256": "af943d3f6e630132899c5240b82fd2fae6cdcf60dca67767b04b2bc1307638f1"
     },
     {
       "path": "DTOs/ConfigColumnPage6217715532627968Requests.g.cs",
@@ -118,7 +118,7 @@
     },
     {
       "path": "DTOs/ConfigPageColumnPage6218036784398336Requests.g.cs",
-      "sha256": "91cb5d1f759dfe5e13c26ca8e31dc7f8e04ea2ff6f967cef6ccce7448395fdb0"
+      "sha256": "9e6770f0851707c12d366aa4d0ad76b136ec661c3ba29a33ae28c4381efe11a2"
     },
     {
       "path": "DTOs/ConfigPagePage1868973685063311361Requests.g.cs",
@@ -170,11 +170,11 @@
     },
     {
       "path": "Entities/ConfigChild.g.cs",
-      "sha256": "a8d4f6c9cd9b941b8f9339f82fc9f3d08c688c79f6baa08fddce1bd57208deab"
+      "sha256": "d08439730d0555ac9853c7c4d84d3d8a1a2edd8cc6b9a64296e4c221cec28089"
     },
     {
       "path": "Entities/ConfigColumn.g.cs",
-      "sha256": "84bad55b7af75563934018eec75ea55c0cc05ccc3902a38d2cb7350d35a7024f"
+      "sha256": "049f0deb6f41516d34a2ff6d2311059728e343b5f5b3d3311699c78fe71d5617"
     },
     {
       "path": "Entities/ConfigCustomPage.g.cs",
@@ -198,7 +198,7 @@
     },
     {
       "path": "Entities/ConfigPageColumn.g.cs",
-      "sha256": "d367cf07762fa1e58fb9e38eab8a590a8af41695f8501d70d862fb7bfae66fb2"
+      "sha256": "5b9128051497d69b687e27967efaee8fe57d0b6b6112510c149e8b8922c82c61"
     },
     {
       "path": "Entities/ConfigTable.g.cs",
@@ -258,7 +258,7 @@
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "c93ae4cd2e984b5c44dff449483c41410d1fda959950bb234c67b9293b7996ec"
+      "sha256": "5906510a944f5f4c6c72f93b8593627c3ec4b4ebc685ca0e20a49af78c22de03"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -362,7 +362,7 @@
     },
     {
       "path": "Services/ConfigChildService.g.cs",
-      "sha256": "425b7a6e318b35dafdd67b166ec0ccc83b623449bc463b6c81c32e37370c1942"
+      "sha256": "d82b8df552e0c7ee91559af09a9db37c9bf1d9a1a837ac38d2d3edab4105c34b"
     },
     {
       "path": "Services/ConfigColumnService.g.cs",
@@ -458,7 +458,7 @@
     },
     {
       "path": "VOs/ConfigChildPage1679390851298631682Vo.g.cs",
-      "sha256": "2dd64c56608027f47cc0002363fa4e50b6abd599ef964b7bbe08c21c3a596aad"
+      "sha256": "2f3dcc5e2bf6d6e2d18c70a633d661179a7cf55ab7d0b7cd90041a534c6ec9c4"
     },
     {
       "path": "VOs/ConfigColumnPage6217715532627968Vo.g.cs",
@@ -482,7 +482,7 @@
     },
     {
       "path": "VOs/ConfigPageColumnPage6218036784398336Vo.g.cs",
-      "sha256": "17322a1b8eb0e8f1f322b0bdea5ae9a98175b131ce360f6319c3a2e077a89a12"
+      "sha256": "231ac1c205d99f67df24d62472f6584723483879cd49283b236536941781a0f1"
     },
     {
       "path": "VOs/ConfigPagePage1868973685063311361Vo.g.cs",

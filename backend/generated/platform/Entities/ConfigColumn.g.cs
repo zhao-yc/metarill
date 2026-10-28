@@ -131,13 +131,13 @@ public partial class ConfigColumn
     public DateTime? DeleteNo { get; set; }
     [Column(Name = "link_config_table_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("linkConfigTableId")]
-    public string? LinkConfigTableId { get; set; }
+    public long? LinkConfigTableId { get; set; }
     [Column(Name = "insert_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("insertTime")]
     public DateTime? InsertTime { get; set; }
     [Column(Name = "link_config_page_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("linkConfigPageId")]
-    public string? LinkConfigPageId { get; set; }
+    public long? LinkConfigPageId { get; set; }
     [Column(Name = "control_width", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("controlWidth")]
     public string? ControlWidth { get; set; }

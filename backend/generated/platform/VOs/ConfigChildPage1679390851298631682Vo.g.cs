@@ -10,7 +10,7 @@ public sealed partial class ConfigChildPage1679390851298631682Vo
     [JsonPropertyName("parentConfigPageId")]
     public long? ParentConfigPageId { get; init; }
     [JsonPropertyName("childConfigPageId")]
-    public string? ChildConfigPageId { get; init; }
+    public long? ChildConfigPageId { get; init; }
     [JsonPropertyName("sortNo")]
     public int? SortNo { get; init; }
     [JsonPropertyName("childPageOpenType")]

@@ -95,19 +95,19 @@ public partial class ConfigPageColumn
     public string? ConfigPageName { get; set; }
     [Column(Name = "link_config_table_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("linkConfigTableId")]
-    public string? LinkConfigTableId { get; set; }
+    public long? LinkConfigTableId { get; set; }
     [Column(Name = "link_config_table_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("linkConfigTableName")]
     public string? LinkConfigTableName { get; set; }
     [Column(Name = "link_config_page_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("linkConfigPageId")]
-    public string? LinkConfigPageId { get; set; }
+    public long? LinkConfigPageId { get; set; }
     [Column(Name = "link_config_page_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("linkConfigPageName")]
     public string? LinkConfigPageName { get; set; }
     [Column(Name = "combine_super_column_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("combineSuperColumnId")]
-    public string? CombineSuperColumnId { get; set; }
+    public long? CombineSuperColumnId { get; set; }
     [Column(Name = "combine_super_column_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("combineSuperColumnName")]
     public string? CombineSuperColumnName { get; set; }

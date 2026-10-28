@@ -173,3 +173,33 @@ test('原初始化密码页字段缺失或身份及秘密初值漂移不能补�
     writeFileSync(path,JSON.stringify(source,null,2)+'\n');assert.throws(()=>generate(workspace));
   });
 });
+
+// 实际重建后数据库关联与目标主键同型；原控件和稳定ID不随类型优化改变。
+test('固定六个配置关联使用int64且不改写不透明字符串标识', () => withSandbox(workspace => {
+ const rebuilt=generate(workspace);
+ for(const [table,name,id,target] of [
+  ['config_child','child_config_page_id','1679391146044956674','config_page'],
+  ['config_column','link_config_table_id','1670726646479638529','config_table'],
+  ['config_column','link_config_page_id','1670726646546747393','config_page'],
+  ['config_page_column','link_config_table_id','2200000000000000135','config_table'],
+  ['config_page_column','link_config_page_id','2200000000000000137','config_page'],
+  ['config_page_column','combine_super_column_id','2200000000000000139','config_column'],
+ ]) {
+  const owner=rebuilt.configTables.find(row=>row.tableName===table);const field=rebuilt.configColumns.find(row=>row.id===id);
+  const targetTable=rebuilt.configTables.find(row=>row.tableName===target);const key=rebuilt.configColumns.find(row=>row.configTableId===targetTable.id&&row.columnName==='id');
+  assert.equal(field.configTableId,owner.id);assert.equal(field.columnName,name);assert.equal(field.logicalType,key.logicalType);assert.equal(field.logicalType,'int64');assert.equal(field.columnType,'int');assert.equal(field.columnLength,'');
+ }
+ for(const name of ['client_id','request_id'])assert.equal(rebuilt.configColumns.find(row=>row.columnName===name).logicalType,'string');
+ assert.deepEqual(rebuilt.configPageColumns,canonical.configPageColumns);assert.deepEqual(rebuilt.configMenus,canonical.configMenus);
+}));
+
+// 不能把被挪用的字段身份或错误目标自动归一成可信关联，必须在写出之前拒绝。
+test('固定配置关联身份或目标漂移在builder中明确拒绝', () => {
+ for(const change of ['identity','target'])withSandbox(workspace=>{
+  const filename=join(workspace,'backend/metadata/platform-source.json'),source=JSON.parse(readFileSync(filename,'utf8'));
+  const field=source.configColumns.find(row=>row.id==='1679391146044956674');assert.ok(field);
+  if(change==='identity')field.id='9007199254740993';else field.joinTable='yz_manager';
+  writeFileSync(filename,JSON.stringify(source,null,2)+'\n');
+  assert.throws(()=>generate(workspace),error=>error.status===1&&String(error.stderr).includes('固定配置关联ID身份或目标声明变化'));
+ });
+});

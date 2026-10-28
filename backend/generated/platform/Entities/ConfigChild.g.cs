@@ -11,7 +11,7 @@ public partial class ConfigChild
     public long? ParentConfigPageId { get; set; }
     [Column(Name = "child_config_page_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("childConfigPageId")]
-    public string? ChildConfigPageId { get; set; }
+    public long? ChildConfigPageId { get; set; }
     [Column(Name = "sort_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
     [JsonPropertyName("sortNo")]
     public int? SortNo { get; set; }

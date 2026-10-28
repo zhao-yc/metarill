@@ -10,7 +10,7 @@ public sealed partial class ConfigChildPage1679390851298631682CreateRequest
     [JsonPropertyName("parentConfigPageId")]
     public Optional<long?> ParentConfigPageId { get; set; }
     [JsonPropertyName("childConfigPageId")]
-    public Optional<string?> ChildConfigPageId { get; set; }
+    public Optional<long?> ChildConfigPageId { get; set; }
     [JsonPropertyName("sortNo")]
     public Optional<int?> SortNo { get; set; }
     [JsonPropertyName("childPageOpenType")]
@@ -29,7 +29,7 @@ public sealed partial class ConfigChildPage1679390851298631682UpdateRequest
     [JsonPropertyName("parentConfigPageId")]
     public Optional<long?> ParentConfigPageId { get; set; }
     [JsonPropertyName("childConfigPageId")]
-    public Optional<string?> ChildConfigPageId { get; set; }
+    public Optional<long?> ChildConfigPageId { get; set; }
     [JsonPropertyName("sortNo")]
     public Optional<int?> SortNo { get; set; }
     [JsonPropertyName("childPageOpenType")]

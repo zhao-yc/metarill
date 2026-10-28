@@ -60,15 +60,15 @@ public sealed partial class ConfigPageColumnPage6218036784398336CreateRequest
     [JsonPropertyName("configPageName")]
     public Optional<string?> ConfigPageName { get; set; }
     [JsonPropertyName("linkConfigTableId")]
-    public Optional<string?> LinkConfigTableId { get; set; }
+    public Optional<long?> LinkConfigTableId { get; set; }
     [JsonPropertyName("linkConfigTableName")]
     public Optional<string?> LinkConfigTableName { get; set; }
     [JsonPropertyName("linkConfigPageId")]
-    public Optional<string?> LinkConfigPageId { get; set; }
+    public Optional<long?> LinkConfigPageId { get; set; }
     [JsonPropertyName("linkConfigPageName")]
     public Optional<string?> LinkConfigPageName { get; set; }
     [JsonPropertyName("combineSuperColumnId")]
-    public Optional<string?> CombineSuperColumnId { get; set; }
+    public Optional<long?> CombineSuperColumnId { get; set; }
     [JsonPropertyName("combineSuperColumnName")]
     public Optional<string?> CombineSuperColumnName { get; set; }
     [JsonPropertyName("importNo")]
@@ -131,15 +131,15 @@ public sealed partial class ConfigPageColumnPage6218036784398336UpdateRequest
     [JsonPropertyName("configPageName")]
     public Optional<string?> ConfigPageName { get; set; }
     [JsonPropertyName("linkConfigTableId")]
-    public Optional<string?> LinkConfigTableId { get; set; }
+    public Optional<long?> LinkConfigTableId { get; set; }
     [JsonPropertyName("linkConfigTableName")]
     public Optional<string?> LinkConfigTableName { get; set; }
     [JsonPropertyName("linkConfigPageId")]
-    public Optional<string?> LinkConfigPageId { get; set; }
+    public Optional<long?> LinkConfigPageId { get; set; }
     [JsonPropertyName("linkConfigPageName")]
     public Optional<string?> LinkConfigPageName { get; set; }
     [JsonPropertyName("combineSuperColumnId")]
-    public Optional<string?> CombineSuperColumnId { get; set; }
+    public Optional<long?> CombineSuperColumnId { get; set; }
     [JsonPropertyName("combineSuperColumnName")]
     public Optional<string?> CombineSuperColumnName { get; set; }
     [JsonPropertyName("importNo")]

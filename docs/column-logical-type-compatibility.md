@@ -25,3 +25,7 @@
 离线回归执行实际生成 DTO、Service、Mapper 及事务边界，ORM 执行由明确代理提供；另一组执行真实 SqlRowStore/ConfigurationMutationObserver，数据库命令由内存适配器提供。覆盖空物理值的 decimal/int64/double/time/binary 保持、固定身份边界、原 UI 必填、显式类型、创建/复制、未知映射、旧 int 标识创建推导、显式逻辑命名冲突和尾部异常回滚。这些测试不证明真实 MySQL 锁与并发行为。
 
 源头集成后应正规重新生成平台，再使用真实身份、原元数据生命周期接口重验已授权的窄更新。本任务不修改生成产物、不访问实库、不发布或回填任何 live 元数据；本任务不重新执行原先失败的发布。
+
+## 2026-10-28 A15：平台固定关联ID源头优化
+
+六处配置关联使用int64/bigint；原UI整数选项保持int，前端固定展示投影保留原校验/初值，HTTP/Core仍为字符串ID。仅作用于确定的表/字段身份，不改OAuth client_id、请求UUID或普通项目。实体与DTO由正规CLI生成，后台审计仍使用实际类型；既有开发库未自动DDL或覆盖种子，三表实库仍待精确授权。表、接口、接入与回退及实际证据见[平台关联ID类型统一](platform-configuration-id-types.md)。
