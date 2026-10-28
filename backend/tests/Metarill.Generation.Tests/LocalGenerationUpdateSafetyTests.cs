@@ -212,7 +212,7 @@ public sealed partial class LocalGenerationUpdateTests
     public void Full_application_bootstrap_files_cannot_be_removed_by_pruning_manifests()
     {
         var (target, candidate) = Packages(Catalog(), Catalog()); var marker = Path.Combine(candidate, ".metarill-package.json"); var frontendMarker = Path.Combine(candidate, "frontend/.metarill-frontend.json"); var original = File.ReadAllText(marker); var originalFrontend = File.ReadAllText(frontendMarker); var snapshot = SourceSnapshot(target);
-        foreach (var path in new[] { "frontend/main.js", "frontend/App.vue", "frontend/index.html", "backend/Application.Host/Program.cs", "backend/Application.Host/Application.Host.csproj", "src/Metarill.Core/Metarill.Core.csproj" })
+        foreach (var path in new[] { "frontend/main.js", "frontend/App.vue", "frontend/index.html", "backend/Application.Host/Program.cs", "backend/Application.Host/Application.Host.csproj", "src/Metarill.Core/Metarill.Core.csproj", "src/Metarill.Core/Persistence/IBusinessButtonExecutionGuard.cs", "src/Metarill.Data/DatabaseExecutionLeases.cs", "src/Metarill.Data/MySqlExecutionLocks.cs", "src/Metarill.Data/Coordination/DatabaseButtonExecutionGuard.cs" })
         {
             var bytes = File.ReadAllBytes(Path.Combine(candidate, path)); var package = JsonNode.Parse(original)!; var files = package["files"]!.AsArray(); files.Remove(files.Single(file => file!["path"]!.GetValue<string>() == path)); File.Delete(Path.Combine(candidate, path));
             if (path.StartsWith("frontend/", StringComparison.Ordinal))

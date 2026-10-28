@@ -67,6 +67,10 @@ builder.Services.AddScoped<ApplicationSecurityInitialization>();
 builder.Services.AddSingleton<DevelopmentNavigation>();
 builder.Services.AddSingleton(provider => new DatabaseSession(builder.Configuration.GetSection("Database").Get<DatabaseOptions>() ?? new()));
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue<int?>("Ids:WorkerId") ?? 1));
+// 独立应用仅绑定本发布项目及本业务库；运行时缺少数据库租约能力时明确拒绝。
+builder.Services.AddScoped<global::Metarill.Core.Persistence.IBusinessButtonExecutionGuard>(provider=>new global::Metarill.Data.DatabaseButtonExecutionGuard(
+    project=>project==metadata.YzProjectId?provider.GetRequiredService<global::Metarill.Data.DatabaseSession>():throw new InvalidOperationException("按钮协调项目未发布。"),
+    cleanupFailure:()=>provider.GetRequiredService<ILogger<global::Metarill.Data.DatabaseButtonExecutionGuard>>().LogWarning("按钮执行租约连接清理状态不确定，请核查协调服务。")));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<DevelopmentSessions>();
 if(authenticationMode.Development)builder.Services.AddScoped<IRuntimeAuthorization,DevelopmentAuthorization>();

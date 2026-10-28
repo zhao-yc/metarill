@@ -28,6 +28,9 @@ public interface IDatabaseProvider
     ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken cancellationToken=default)=>throw new NotSupportedException("当前数据库尚未实现一致读取事务。");
     /// <summary>加入外层事务前验证隔离能力，不擅自改变业务事务级别。</summary>
     Task EnsureReadSnapshotAsync(DbTransaction transaction,CancellationToken cancellationToken=default)=>throw new NotSupportedException("当前数据库尚未实现一致读取事务验证。");
+    /// <summary>跨应用实例的按钮租约由适配器提供，未实现时明确拒绝，不用本机锁冒充。</summary>
+    Task<IDatabaseExecutionLease?> TryAcquireExecutionLeaseAsync(DatabaseOptions options,string scope,TimeSpan lifetime,TimeProvider clock,CancellationToken cancellationToken=default)
+        =>throw new NotSupportedException("当前数据库尚未实现跨实例按钮执行租约。");
     /// <summary>适配器显式提供事务锁定读取；未实现的数据库不能静默降级。</summary>
     string BuildSelectForUpdate(string selectSql) => throw new NotSupportedException("当前数据库尚未实现锁定读取。");
 }
@@ -49,7 +52,7 @@ public static class DatabaseProviders
     };
 }
 
-public sealed class MySqlDatabaseProvider : IDatabaseProvider
+public sealed partial class MySqlDatabaseProvider : IDatabaseProvider
 {
     public string Name => "mysql";
     /// <summary>显式RR避免部署库默认隔离级别改变后分批图读取混入多个版本。</summary>

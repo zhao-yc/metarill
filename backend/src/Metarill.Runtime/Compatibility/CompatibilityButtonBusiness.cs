@@ -1,5 +1,6 @@
 using System.Globalization;
 using Metarill.Core.Security;
+using Metarill.Core.Persistence;
 using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
@@ -88,7 +89,7 @@ public static class CompatibilityButtonPolicy
 }
 
 /// <summary>兼容旧按钮网关；数据库按钮和关联实体均在服务端重新读取，不执行客户端提交的实体。</summary>
-public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAuthorization authorization, MetadataRegistry registry, ConfigurationActionsBusiness configurationActions)
+public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAuthorization authorization, MetadataRegistry registry, ConfigurationActionsBusiness configurationActions,IBusinessButtonExecutionGuard execution)
 {
     /// <summary>按钮 ID 是唯一动作入口，客户端只允许提供待核验的实体 ID。</summary>
     public async Task<CompatibilityButtonResult> ExecuteAsync(string buttonId, string? entityId, CancellationToken cancellationToken = default)
@@ -116,15 +117,19 @@ public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAu
         // 关联配置表也重新读库；实体自身项目正确不代表其关联主键可信。
         Dictionary<string, object?>? parent = null;
         if (action.EntityTable is "config_page" or "config_column") parent = await RequireRowAsync("config_table", CompatibilityButtonPolicy.RequireId(SqlRowStore.Text(entity, "config_table_id")), cancellationToken);
-        var result = CompatibilityButtonPolicy.Resolve(actor, action, entity, parent);
-        if (action.Operation is not ("copyPage" or "createPage" or "createMenu")) return result;
-        var receipt = action.Operation switch
+        // 原中央入口及旧直调别名使用同一真实按钮键，导航动作也保持原执行互斥边界。
+        return await execution.ExecuteAsync(registry.Platform.YzProjectId,SqlRowStore.Text(button,"id"),async()=>
         {
-            "copyPage" => await configurationActions.CopyPageAsync(SqlRowStore.Text(entity, "id"), cancellationToken),
-            "createPage" => await configurationActions.CreatePageAsync(SqlRowStore.Text(entity, "id"), cancellationToken),
-            _ => await configurationActions.CreateMenuAsync(SqlRowStore.Text(entity, "id"), cancellationToken)
-        };
-        return result with { Configuration = receipt };
+            var result = CompatibilityButtonPolicy.Resolve(actor, action, entity, parent);
+            if (action.Operation is not ("copyPage" or "createPage" or "createMenu")) return result;
+            var receipt = action.Operation switch
+            {
+                "copyPage" => await configurationActions.CopyPageAsync(SqlRowStore.Text(entity, "id"), cancellationToken),
+                "createPage" => await configurationActions.CreatePageAsync(SqlRowStore.Text(entity, "id"), cancellationToken),
+                _ => await configurationActions.CreateMenuAsync(SqlRowStore.Text(entity, "id"), cancellationToken)
+            };
+            return result with { Configuration = receipt };
+        },cancellationToken);
     }
 
     /// <summary>基础设施查询只使用明确主键，逻辑删除记录由仓储自动排除。</summary>

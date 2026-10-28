@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Metarill.Core.Security;
+using Metarill.Core.Persistence;
 using Metarill.Runtime.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +26,7 @@ public interface IOriginalBusinessButtonHandler
 
 /// <summary>原中央按钮只分发到唯一手写处理器，先验证真实Web身份、按钮和生成记录范围。</summary>
 public sealed class OriginalBusinessButtonExecutor(IAgentHostResources resources,IRuntimeAuthorization authorization,
-    IServiceProvider services,IActionDescriptorCollectionProvider actions,IEnumerable<IOriginalBusinessButtonHandler> handlers)
+    IServiceProvider services,IActionDescriptorCollectionProvider actions,IEnumerable<IOriginalBusinessButtonHandler> handlers,IBusinessButtonExecutionGuard execution)
 {
     /// <summary>仅声明的手写按钮进入此分支；平台配置按钮继续原数据库白名单。</summary>
     public bool IsRegistered(string buttonId)=>handlers.Any(handler=>handler.ButtonId==buttonId);
@@ -57,7 +58,7 @@ public sealed class OriginalBusinessButtonExecutor(IAgentHostResources resources
             if(!AgentActionBinding.TryRecordAccess(button,registered,out var access,out var reader))throw new NotSupportedException("业务按钮缺少唯一的正式生成记录入口。");
             await AgentActionBinding.RequireRecordAsync(button,access!,reader!,id,null,context,authorization);
         }
-        return await matches[0].ExecuteAsync(request,cancellationToken);
+        return await execution.ExecuteAsync(button.Page.ProjectId,button.Id,()=>matches[0].ExecuteAsync(request,cancellationToken),cancellationToken);
     }
     /// <summary>原字符串ID不经浮点；拒绝非正数、指数表示及相互冲突的实体来源。</summary>
     private static long CanonicalId(string? raw)=>long.TryParse(raw,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0&&raw==id.ToString(CultureInfo.InvariantCulture)?id:throw new ArgumentException("按钮对象标识无效。");

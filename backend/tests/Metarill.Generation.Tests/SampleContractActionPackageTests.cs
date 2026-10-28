@@ -168,10 +168,11 @@ public sealed class SampleContractActionPackageTests(SampleContractActionPackage
             }
         }
         Assert.Equal(0,run.Authorization.PageChecks);Assert.Null(run.Session.CurrentTransaction);
+        var gate=Assert.IsType<ButtonExecutionGuard>(services.GetRequiredService<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>());Assert.Equal(1,gate.Calls);Assert.Equal(1,gate.Releases);
     }
     /// <summary>错误身份、路径、处理器或相互冲突ID必须在查询实际业务记录之前拒绝。</summary>
     [Theory][InlineData("agent")][InlineData("identity")][InlineData("duplicate")][InlineData("wrong-path")]
-    [InlineData("entity-id")][InlineData("large-id")][InlineData("array")][InlineData("revoked")][InlineData("missing-service")]
+    [InlineData("entity-id")][InlineData("large-id")][InlineData("array")][InlineData("revoked")][InlineData("missing-service")][InlineData("no-guard")]
     public async Task Original_button_rejects_bad_identity_binding_and_id_before_business(string scenario)
     {
         using var run=fixture.Run();using var services=ButtonServices(run,scenario);
@@ -202,6 +203,7 @@ public sealed class SampleContractActionPackageTests(SampleContractActionPackage
             services.AddSingleton<IOriginalBusinessButtonHandler>(mode=="wrong-path"&&id=="86000"?new InvalidButtonPath():handler);
             if(mode=="duplicate"&&id=="86000")services.AddSingleton(handler);
         }
+        if(mode!="no-guard")services.AddSingleton<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>(new ButtonExecutionGuard());
         services.AddSingleton<OriginalBusinessButtonExecutor>();
     }
     /// <summary>实际MVC绑定原按钮JSON，原模板控制器与公开业务回传R；身份/数据库仍是离线替身。</summary>
@@ -218,6 +220,10 @@ public sealed class SampleContractActionPackageTests(SampleContractActionPackage
             using var client=new HttpClient{BaseAddress=new Uri(app.Urls.Single()),Timeout=TimeSpan.FromSeconds(20)};
             const string path="/api/admin/sys/config_button/execute";
             var entity=new{id="7",name="待处理合同😀",amount=10,remarks="待处理",attachments=Array.Empty<string>()};
+            var gate=(ButtonExecutionGuard)app.Services.GetRequiredService<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>();gate.Busy=true;
+            using(var busy=await client.PostAsJsonAsync(path,new{buttonId="86000",entityId="7",entity}))
+            {Assert.Equal(HttpStatusCode.OK,busy.StatusCode);using var busyBody=JsonDocument.Parse(await busy.Content.ReadAsStringAsync());Assert.Equal(500,busyBody.RootElement.GetProperty("code").GetInt32());Assert.Equal("按钮正在执行中，请稍后再试",busyBody.RootElement.GetProperty("msg").GetString());Assert.DoesNotContain("begin",run.Trace);}
+            gate.Busy=false;
             using var preview=await client.PostAsJsonAsync(path,new{buttonId="86000",entityId="7",entity});Assert.Equal(HttpStatusCode.OK,preview.StatusCode);
             using var previewBody=JsonDocument.Parse(await preview.Content.ReadAsStringAsync());Assert.Equal(200,previewBody.RootElement.GetProperty("code").GetInt32());Assert.Equal(run.Digest(),previewBody.RootElement.GetProperty("data").GetProperty("expectedDigest").GetString());
             run.Set("Name","另一次修改");using var stale=await client.PostAsJsonAsync(path,new{buttonId="86001",entityId="7",entity});Assert.Equal(HttpStatusCode.Conflict,stale.StatusCode);Assert.DoesNotContain("write",run.Trace);
@@ -227,6 +233,17 @@ public sealed class SampleContractActionPackageTests(SampleContractActionPackage
             using var rejected=JsonDocument.Parse(await rollback.Content.ReadAsStringAsync());Assert.Equal(500,rejected.RootElement.GetProperty("code").GetInt32());Assert.Equal("合同金额不能小于零",rejected.RootElement.GetProperty("msg").GetString());Assert.Equal("待处理",run.Get("Remarks"));Assert.Equal(commits,run.Trace.Count(value=>value=="commit"));Assert.Equal("rollback",run.Trace[^1]);
         }
         finally{await app.StopAsync();}
+    }
+    /// <summary>此夹具只替入租约决策，真实数据库租约状态机与跨进程SQL由专项覆盖。</summary>
+    private sealed class ButtonExecutionGuard:Metarill.Core.Persistence.IBusinessButtonExecutionGuard
+    {
+        internal int Calls,Releases;internal bool Busy;
+        public async Task<T> ExecuteAsync<T>(string project,string button,Func<Task<T>> action,CancellationToken token=default)
+        {
+            Calls++;Assert.NotEmpty(project);Assert.Contains(button,new[]{"86000","86001","86002"});
+            if(Busy)throw new BusinessRuleException("按钮正在执行中，请稍后再试");
+            try{return await action();}finally{Releases++;}
+        }
     }
     private sealed class ButtonIdentity(AuthenticatedIdentity identity):ISecurityIdentityAccessor
     {

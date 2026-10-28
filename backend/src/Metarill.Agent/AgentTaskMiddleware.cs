@@ -50,7 +50,15 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
             context.Response.Body = buffer;
             try
             {
-                await next(context);
+                if(capability.Operation=="action")
+                {
+                    // 与原页面按钮共用固定发布按钮键；账本已登记，忙或协调故障仍走既有unknown/查询任务规则。
+                    var published=context.RequestServices.GetRequiredService<IAgentHostResources>().AgentCatalog.FindButton(capability.ButtonId??"")
+                        ??throw new UnauthorizedAccessException("动作按钮未发布。");
+                    if(published.Page.Id!=capability.PageId)throw new UnauthorizedAccessException("动作按钮归属不一致。");
+                    await context.RequestServices.GetRequiredService<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>().ExecuteAsync(published.Page.ProjectId,published.Id,async()=>{await next(context);return true;},context.RequestAborted);
+                }
+                else await next(context);
                 var result = ParseResult(buffer.ToArray(), context.Response.StatusCode);
                 await tasks.CompleteAsync(claim, context.Response.StatusCode, result.Code, result.Id, result.Success);
                 if (!result.Success)

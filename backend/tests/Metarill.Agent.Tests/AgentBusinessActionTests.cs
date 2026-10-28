@@ -147,6 +147,13 @@ namespace Metarill.Agent.Tests
             Assert.Throws<UnauthorizedAccessException>(() => missing.Describe("action:fixture.preview"));
         }
         /// <summary>只筛选/重复真实MVC发现结果，用于验证注册歧义，不能构造不存在的可调用方法。</summary>
+        /// <summary>动作协议测试只替入租约决策；提供程序SQL和跨进程互斥由独立组件验收。</summary>
+        private sealed class ExecutionGuard:Metarill.Core.Persistence.IBusinessButtonExecutionGuard
+        {
+            internal int Calls,Released;internal bool Busy;
+            public async Task<T> ExecuteAsync<T>(string project,string button,Func<Task<T>> action,CancellationToken token=default)
+            {Calls++;if(Busy)throw new BusinessRuleException("按钮正在执行中，请稍后再试");try{return await action();}finally{Released++;}}
+        }
         private sealed class ActionSnapshot(IReadOnlyList<Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor> items) : IActionDescriptorCollectionProvider
         {
             public ActionDescriptorCollection ActionDescriptors { get; } = new(items, 1);
@@ -168,9 +175,24 @@ namespace Metarill.Agent.Tests
                 await current.Response.WriteAsJsonAsync(R<object>.Success(new { id = "7" }), JsonDefaults.Options);
             });
             await middleware.InvokeAsync(context);
-            Assert.Equal(1, calls); Assert.Equal(1, fixture.Reader.Calls);
+            Assert.Equal(1, calls); Assert.Equal(1, fixture.Reader.Calls); Assert.Equal(1,fixture.Guard.Calls);Assert.Equal(1,fixture.Guard.Released);
             var task = await tasks.GetAsync(fixture.Authorization.RequireActor(), requestId); Assert.Equal("succeeded", task.Status); Assert.Equal(capability, task.CapabilityId); Assert.Equal(7L, task.ResultId);
             // 内存传输只验证台账调用次序/结果，唯一索引和真实并发去重仍由实库套件验收。
+        }
+        /// <summary>按钮忙时不调用业务，但已登记动作仍保留unknown和先查任务规则，不能自动重发。</summary>
+        [Fact]
+        public async Task Busy_button_does_not_execute_action_or_reclassify_existing_task_protocol()
+        {
+            using var memory=new PrincipalRealmFixture();var tasks=new AgentTaskStore(memory.Store,memory.Ids,new());using var fixture=new Fixture(tasks:tasks);fixture.Guard.Busy=true;
+            var context=fixture.Context("Preview");var requestId=Guid.NewGuid().ToString("D");
+            context.Items[typeof(AgentRequestIdentity)]=new AgentRequestIdentity(new(fixture.Authorization.RequireActor(),new HashSet<string>(),1,2),"agent",2);
+            context.Request.Headers["X-Yzp-Agent-Capability"]="action:fixture.preview";context.Request.Headers["X-Yzp-Agent-Request-Id"]=requestId;
+            context.Request.Body=new MemoryStream(Encoding.UTF8.GetBytes("{\"recordKey\":7}"));context.Response.Body=new MemoryStream();var calls=0;
+            await new AgentTaskMiddleware(_=>{calls++;return Task.CompletedTask;}).InvokeAsync(context);
+            Assert.Equal(0,calls);Assert.Equal(1,fixture.Guard.Calls);Assert.Equal(0,fixture.Guard.Released);
+            Assert.Single(memory.Provider.Rows["sys_agent_task"]);var task=await tasks.GetAsync(fixture.Authorization.RequireActor(),requestId);Assert.Equal("unknown",task.Outcome);Assert.False(task.Retryable);
+            context.Response.Body.Position=0;using var body=await JsonDocument.ParseAsync(context.Response.Body);var error=body.RootElement.GetProperty("map").GetProperty("agentError");
+            Assert.Equal(503,context.Response.StatusCode);Assert.Equal("YZP_OUTCOME_UNKNOWN",error.GetProperty("code").GetString());Assert.Equal("query_task",error.GetProperty("recovery").GetString());Assert.False(error.GetProperty("retryable").GetBoolean());
         }
         [Theory]
         [InlineData("Preview", "action:fixture.preview", false, false, 400)]
@@ -226,6 +248,7 @@ namespace Metarill.Agent.Tests
         }
         private sealed class Fixture : IDisposable
         {
+            internal readonly ExecutionGuard Guard=new();
             internal readonly MetadataCatalog Metadata;
             internal readonly Resources Resources;
             internal readonly Authorization Authorization = new();
@@ -246,6 +269,7 @@ namespace Metarill.Agent.Tests
                 Resources = new(Metadata);
                 var services = new ServiceCollection(); services.AddLogging(); services.AddControllers().AddApplicationPart(typeof(ActionFixtureController).Assembly);
                 services.AddSingleton(Reader);
+                services.AddSingleton<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>(Guard);
                 services.AddSingleton<IRuntimeAuthorization>(Authorization); services.AddSingleton<IAgentHostResources>(Resources); services.AddSingleton<GeneratedCapabilityIndex>(); services.AddSingleton<AgentCapabilityCatalog>();
                 if (tasks is not null) { services.AddSingleton(tasks); services.AddSingleton(new AgentTaskOptions()); }
                 Services = services.BuildServiceProvider(); actions = Services.GetRequiredService<IActionDescriptorCollectionProvider>();
