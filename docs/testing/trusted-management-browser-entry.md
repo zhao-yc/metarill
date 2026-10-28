@@ -47,3 +47,15 @@ node tools/acceptance/serve-management-browser.mjs '<本轮preview.json绝对路
 最终默认模式边界及真实管理/三并发15/15，人工构建阶段后原HTTP测试1/1，均零跳过；批次有重叠，不累计。私有代理2/2覆盖回环/到期限制、状态/身份头/正文保真、静态查询与越界、日志不含输入值。初次人工会话因辅助目录保留..触发路径保护而失败，规范化辅助根目录后成功；未放宽产品路径校验，失败原件保留。
 
 包括失败批次在内的7轮自有项目，已用新连接核验六表42个范围为零；临时登录文件、私有前后端和临时HBuilderX工程均关闭。证据在.local/trusted-management-browser-20261022，不提交原始口令、日志、依赖或产物。浏览器、设备、性能、初始化和完整管理发布继续保留原验收边界。
+
+## 管理Program与当前模板配套（2026-10-28）
+
+发现旧验收宿主仍手工列出九份C#模板和五个基础工程，已遗漏当前生产Program使用的AgentIntegration、McpIntegration、SystemMaintenanceController及Agent/Mcp依赖。此时不能再用旧宿主的历史通过记录证明当前Program可运行。
+
+修复后管理宿主复用生产打包器同源、不可修改的C#模板与基础工程清单，避免后续普通包新增接线而管理宿主继续停留旧版。普通包的模板内容、路径、顺序和基础工程闭包没有改变，不放宽通用安全表合成、Runtime A或初始化门禁。
+
+新增两项离线用例通过：清单不可变；从本轮实际可信生成物与生产Program编译启动，解析真实YzManager/YzRole/YzAdminType Service，构造过程保持唯一首位安全协调器要求；Web授权和身份访问器同实例、当前grant锁策略为AgentSecurityCurrentSessionPolicy、Mcp固定执行器及原工作台MVC控制器存在，应用平台身份域仍false。GET健康200，原管理页/Agent权限/MCP匿名请求401。可选HostedService只观察实际DI，不注册认证、控制器或数据访问替身。
+
+数据库配置为127.0.0.1:1的不可达回环，未连接Server-200；未执行真实登录、CRUD、工作台保存、RR/并发、浏览器、HBuilderX、真机或性能，不能据此解除管理Full发布门禁。原初始化规则仍待确认。原四项实库管理结果属于各自冻结版本，本轮仅编译配套及匿名边界。私有证据 `.local/management-current-program`；相邻回归及正式生成结果后续补记。
+
+最终相邻回归69通过/4实库跳过、零失败；真实Program两项不与重叠批次累加。正常CLI以相同元数据/命名空间导出的590文件（含清单）与C13审查包逐字一致，证明清单共用未改变普通完整包；Release严格构建0警告/0错误，原前端、元数据、表级生成产物无Git差异。本轮3份变化源码/测试摘要 `890cb87453248f8c5e2beddb1f69bfe2198be1df1c8d565fe5081cd96c78b4e4`，私有收据 `.local/management-current-program/validation-receipt.json`。未为无变化的表级代码重复虚构迁移/回填或新的数据库验收。

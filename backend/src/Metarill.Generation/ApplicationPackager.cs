@@ -26,6 +26,12 @@ public sealed class ApplicationPackager
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] FoundationProjects = ["Metarill.Core", "Metarill.Data", "Metarill.Exports", "Metarill.Files"];
     private static readonly string[] WebFoundationProjects = [..FoundationProjects,"Metarill.Security","Metarill.Agent","Metarill.Mcp"];
+    private static readonly string[] FullHostAdditionalTemplates=["WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","SessionPolicy.cs","AgentIntegration.cs","McpIntegration.cs","WebSecurityCoordination.cs","SystemMaintenanceController.cs"];
+    /// <summary>管理宿主等同源验收复用生产模板清单，避免新增接线只进入普通包而遗漏管理宿主。</summary>
+    internal static IReadOnlyList<string> FullHostSourceTemplates {get;}=Array.AsReadOnly(new[]{"Program.cs","Authentication.cs","PasswordStore.cs","Navigation.cs"}.Concat(FullHostAdditionalTemplates).ToArray());
+    /// <summary>仅公开不可修改的工程名快照；既有管理宿主按同一闭包编译，不另维护过期依赖名单。</summary>
+    internal static IReadOnlyList<string> FullFoundationProjects {get;}=Array.AsReadOnly(WebFoundationProjects);
+
     /// <summary>先在同级临时目录完成整个包，成功后一次移动；既有非空项目永不覆盖。</summary>
     public ApplicationPackageResult Create(MetadataCatalog catalog, string outputDirectory, string rootNamespace, string sourceRoot, ApplicationPackageMode mode = ApplicationPackageMode.FullApplication)
     {
@@ -115,7 +121,7 @@ public sealed class ApplicationPackager
                     .Replace("{{SECURITY_REFERENCE}}",fullApplication?"<ProjectReference Include=\"../../src/Metarill.Security/Metarill.Security.csproj\" /><ProjectReference Include=\"../../src/Metarill.Agent/Metarill.Agent.csproj\" /><ProjectReference Include=\"../../src/Metarill.Mcp/Metarill.Mcp.csproj\" />":"")
                     .Replace("{{SECURITY_CONTENT}}",fullApplication?"<ItemGroup><Content Include=\"../metadata/security.json\" Link=\"metadata/security.json\" CopyToOutputDirectory=\"PreserveNewest\" /></ItemGroup>":""));
             if(fullApplication)
-                foreach(var name in new[]{"WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","SessionPolicy.cs","AgentIntegration.cs","McpIntegration.cs","WebSecurityCoordination.cs","SystemMaintenanceController.cs"})Write(stage,"backend/Application.Host/"+name,Template(name+".tpl").Replace("{{NAMESPACE}}",rootNamespace));
+                foreach(var name in FullHostAdditionalTemplates)Write(stage,"backend/Application.Host/"+name,Template(name+".tpl").Replace("{{NAMESPACE}}",rootNamespace));
             if(fullApplication)Write(stage,"backend/Application.Host/PackageSecurityCatalogBinding.g.cs",SecurityCatalogBindingSource(rootNamespace,securityCatalogSha256!));
             Write(stage, ".gitignore", "**/bin/\n**/obj/\n.local/\n**/appsettings.local.json\n**/appsettings.Development.json\n");
             var warnings = generated.Warnings.Concat(frontendIncluded ? Array.Empty<string>() : new[] { "本包显式选择BackendOnly，不含可运行前端宿主；平台配置前端需单独提供。backend/generated/frontend仅为生成片段。" }).ToArray();
