@@ -18,7 +18,6 @@
 			<uni-icons v-if="row.directory" :type="expanded[row.node.menu_id] ? 'bottom' : 'right'" size="13" />
 		</view>
 		<view v-if="state.navigationError" class="navigation-error">{{ state.navigationError }}</view>
-		<view class="agent-entry"><button size="mini" @click="openAgentGrants">Agent 授权管理</button></view>
 	</view>
 </template>
 
@@ -70,15 +69,7 @@ export default {
 			else getMenuRuntime().navigateTo(row.node.menu_id)
 		},
 		retry() { getMenuRuntime().retry() },
-		retryCount(node) { getMenuRuntime().invalidateCounts(node.target) },
-		/** 授权管理使用独立公共路由，当前账号的连接不需要业务菜单授权。 */
-		openAgentGrants() {
-			uni.navigateTo({
-				url: '/pages/custom/agent_grants',
-				// 路由尚未更新或页面无法打开时给出反馈，避免按钮看起来没有响应。
-				fail: () => uni.showToast({ title: '授权管理页暂时无法打开，请刷新后重试', icon: 'none' })
-			})
-		}
+		retryCount(node) { getMenuRuntime().invalidateCounts(node.target) }
 	}
 }
 </script>
@@ -96,6 +87,4 @@ export default {
 .menu-state { padding: 24px 16px; color: #737d76; font-size: 13px; line-height: 22px; }
 .menu-state button { display: block; margin: 14px 0 0; }
 .navigation-error { margin: 12px 16px; color: #a43d34; font-size: 12px; line-height: 20px; }
-.agent-entry { margin: 18px 16px 0; padding-top: 14px; border-top: 1px solid #e1e8e3; }
-.agent-entry button { margin: 0; background: transparent; color: $uni-primary; font-size: 13px; }
 </style>

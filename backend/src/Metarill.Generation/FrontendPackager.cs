@@ -103,14 +103,6 @@ public sealed class FrontendPackager
                 if (theme.Matches(content).Count != 1) throw new InvalidOperationException("原主题变量结构已变化，请先核对主色下发。");
                 content = theme.Replace(content, match => match.Groups[1].Value + catalog.PrimaryColor + match.Groups[2].Value);
             }
-            if (relative == "components/yzp-menu/yzp-menu.vue")
-            {
-                // 原入口随完整宿主能力声明显示，前端开关本身不授予后台能力。
-                const string entry = "<view class=\"agent-entry\">";
-                if (!content.Contains(entry, StringComparison.Ordinal)) throw new InvalidOperationException("原菜单授权入口结构已变化，请先核对能力门禁。");
-                content = content.Replace(entry, "<view v-if=\"supportsAgentGrants\" class=\"agent-entry\">", StringComparison.Ordinal)
-                    .Replace("computed: {", "computed: {\n\t\t/** 入口沿用原布局，未接线能力明确关闭，不能点击404或伪称Agent已支持。 */\n\t\tsupportsAgentGrants() { return getApp().globalData.environment.capabilities?.agentGrants === true },", StringComparison.Ordinal);
-            }
             Text(relative, content);
         }
         foreach (var path in new[] { "main.js", "uni.scss", "common/utils.js", "common/yzp.scss", "pages/main/rtf/rtf.vue", "THIRD-PARTY-NOTICES.md", "uni_modules/LICENSE.uni-ui", "licenses/sheetjs.LICENSE", "licenses/sheetjs-dist.LICENSE", "licenses/tinymce-vue.LICENSE.txt", "vendor/xlsx-0.20.3.tgz", "vendor/sheetjs-source.json", "common/yzp_runtime/vendor/cropperjs/cropper.esm.js", "common/yzp_runtime/vendor/cropperjs/cropper.css", "common/yzp_runtime/vendor/cropperjs/LICENSE" }) Copy(path);

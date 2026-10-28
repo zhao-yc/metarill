@@ -42,6 +42,8 @@
 			}
 		},
 		computed: {
+			/** 仅已接线 Agent 的应用显示入口，前端声明不授予服务端权限。 */
+			supportsAgentGrants() { return application.capabilities?.agentGrants === true; },
 			/** 普通业务工程没有平台配置/设备项目切换能力，保留原入口节点但明确按包能力门禁。 */
 			isYzp() { return application.capabilities?.platformManagement === true; },
 			currentSelectionText() {
@@ -72,24 +74,30 @@
 		// 	this.sysParams = uni.getStorageSync("sysParams");
 		// },
 		methods: {
+			/** 账户操作按菜单项分派，避免调整顺序后触发错误操作。 */
 			showActions() {
-				const that = this
+				const actions = [
+					{ name: '修改密码', handler: () => this.editPwd() },
+					...(this.supportsAgentGrants ? [{ name: 'Agent 授权管理', handler: () => this.openAgentGrants() }] : []),
+					{ name: '退出', handler: () => this.exitLogin() }
+				]
 				uni.showActionSheet({
-					itemList: ['修改密码', '退出'],
+					itemList: actions.map(action => action.name),
 					popover: {
-						width: 100,
+						width: 180,
 						top: uni.getTopWindowStyle().height.replace("px", ""),
-						left: getApp().globalData.windowInfo.windowWidth - 130
+						left: getApp().globalData.windowInfo.windowWidth - 200
 					},
 					success: (e) => {
-						console.log(e.tapIndex);
-						//修改密码
-						if (e.tapIndex == 0) {
-							that.editPwd();
-						} else if (e.tapIndex == 1) {
-							that.exitLogin();
-						}
+						actions[e.tapIndex]?.handler()
 					}
+				})
+			},
+			/** 当前账号授权管理使用公共路由，跳转失败时显示明确反馈。 */
+			openAgentGrants() {
+				uni.navigateTo({
+					url: '/pages/custom/agent_grants',
+					fail: () => uni.showToast({ title: '授权管理页暂时无法打开，请刷新后重试', icon: 'none' })
 				})
 			},
 			// 平台工作台按目标项目版本校验，维护各个 V8 项目的菜单元数据。
