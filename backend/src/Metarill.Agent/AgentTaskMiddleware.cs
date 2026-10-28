@@ -62,6 +62,17 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
                 }
                 context.Response.Body = original; buffer.Position = 0; await buffer.CopyToAsync(original, context.RequestAborted);
             }
+            catch (AgentActionConflictException error) when (capability.Operation == "action")
+            {
+                // 仅保留显式动作冲突分类；账本仍记录unknown，错误不能授权重试或证明没有写入。
+                var recorded = false;
+                try { await tasks!.CompleteAsync(claim, 409, null, null, false); recorded = true; } catch (Exception) { /* 账本失败回退通用unknown。 */ }
+                context.Response.Body = original;
+                if (context.Response.HasStarted) throw;
+                context.Response.Clear();
+                await WriteErrorAsync(context, new(recorded ? "YZP_CONFLICT" : "YZP_OUTCOME_UNKNOWN",
+                    recorded ? error.Message : "结果记录失败，请查询任务并回读数据。", recorded ? 409 : 503, "unknown", "query_task", requestId));
+            }
             catch
             {
                 try { await tasks!.CompleteAsync(claim, context.Response.StatusCode, null, null, false); } catch (Exception) { /* 账本故障由unknown响应兜底，禁止自动重发。 */ }

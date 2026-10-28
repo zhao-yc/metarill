@@ -187,6 +187,43 @@ namespace Metarill.Agent.Tests
             await new AgentTaskMiddleware(_ => { calls++; return Task.CompletedTask; }).InvokeAsync(context);
             Assert.Equal(expected, context.Response.StatusCode); Assert.Equal(0, calls); Assert.Empty(memory.Provider.Rows.GetValueOrDefault("sys_agent_task") ?? []);
         }
+        [Theory]
+        [InlineData(true, true)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public async Task Explicit_conflict_keeps_unknown_task_and_generic_failure_or_missing_ledger_does_not_claim_conflict(bool conflict, bool ledgerAvailable)
+        {
+            using var memory = new PrincipalRealmFixture(); var tasks = new AgentTaskStore(memory.Store, memory.Ids, new());
+            using var fixture = new Fixture(tasks: tasks); var context = fixture.Context("Complete"); var requestId = Guid.NewGuid().ToString("D");
+            context.Items[typeof(AgentRequestIdentity)] = new AgentRequestIdentity(new(fixture.Authorization.RequireActor(), new HashSet<string>(), 1, 2), "agent", 2);
+            context.Request.Headers["X-Yzp-Agent-Capability"] = "action:fixture.complete"; context.Request.Headers["X-Yzp-Agent-Request-Id"] = requestId; context.Request.Headers["X-Yzp-Agent-Confirm"] = "true";
+            context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("{\"recordKey\":7}")); context.Response.Body = new MemoryStream();
+            await new AgentTaskMiddleware(_ =>
+            {
+                if (!ledgerAvailable) memory.Provider.Rows["sys_agent_task"].Clear();
+                if (conflict) throw new AgentActionConflictException("合同在预览后已变化，请重新查询和预览");
+                throw new InvalidOperationException("SQL口令与内部路径不得回显");
+            }).InvokeAsync(context);
+            context.Response.Body.Position = 0; using var json = await JsonDocument.ParseAsync(context.Response.Body); var error = json.RootElement.GetProperty("map").GetProperty("agentError");
+            Assert.Equal(conflict && ledgerAvailable ? 409 : 503, context.Response.StatusCode); Assert.Equal(conflict && ledgerAvailable ? "YZP_CONFLICT" : "YZP_OUTCOME_UNKNOWN", error.GetProperty("code").GetString());
+            Assert.Equal(requestId, error.GetProperty("requestId").GetString()); Assert.Equal("unknown", error.GetProperty("outcome").GetString()); Assert.Equal("query_task", error.GetProperty("recovery").GetString()); Assert.False(error.GetProperty("retryable").GetBoolean());
+            Assert.DoesNotContain("SQL口令", json.RootElement.ToString());
+            if (ledgerAvailable) { var task = await tasks.GetAsync(fixture.Authorization.RequireActor(), requestId); Assert.Equal("unknown", task.Status); Assert.Equal("unknown", task.Outcome); }
+        }
+        [Fact]
+        public async Task Marked_action_conflict_does_not_reclassify_existing_standard_write_failure()
+        {
+            using var memory = new PrincipalRealmFixture(); var tasks = new AgentTaskStore(memory.Store, memory.Ids, new()); using var fixture = new Fixture(tasks: tasks); fixture.Authorization.AllowPage = true;
+            var action = fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>().ActionDescriptors.Items.OfType<ControllerActionDescriptor>().Single(value => value.ControllerTypeInfo == typeof(Generated.Controllers.ActionFixtureGeneratedController).GetTypeInfo() && value.ActionName == "Create");
+            var context = new DefaultHttpContext { RequestServices = fixture.Services }; context.SetEndpoint(new Endpoint(_ => Task.CompletedTask, new EndpointMetadataCollection(action), "Create")); context.Request.Method = "POST"; context.Request.ContentType = "application/json"; context.Request.Path = "/api/admin/auto/action_fixture/21/add";
+            var requestId = Guid.NewGuid().ToString("D"); context.Items[typeof(AgentRequestIdentity)] = new AgentRequestIdentity(new(fixture.Authorization.RequireActor(), new HashSet<string>(), 1, 2), "agent", 2);
+            context.Request.Headers["X-Yzp-Agent-Capability"] = "page:21:create"; context.Request.Headers["X-Yzp-Agent-Request-Id"] = requestId; context.Request.Headers["X-Yzp-Agent-Confirm"] = "true";
+            context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("{}")); context.Response.Body = new MemoryStream();
+            await new AgentTaskMiddleware(_ => throw new AgentActionConflictException("普通入口不展示此分类")).InvokeAsync(context);
+            Assert.Equal(503, context.Response.StatusCode); context.Response.Body.Position = 0; using var json = await JsonDocument.ParseAsync(context.Response.Body);
+            Assert.Equal("YZP_OUTCOME_UNKNOWN", json.RootElement.GetProperty("map").GetProperty("agentError").GetProperty("code").GetString()); Assert.DoesNotContain("普通入口不展示此分类", json.RootElement.ToString());
+            Assert.Equal("unknown", (await tasks.GetAsync(fixture.Authorization.RequireActor(), requestId)).Outcome);
+        }
         private sealed class Fixture : IDisposable
         {
             internal readonly MetadataCatalog Metadata;
@@ -273,5 +310,8 @@ namespace Metarill.Agent.Tests.Generated.Controllers
     {
         [HttpGet("detail/{id}")]
         public R<string> Detail(long id) { _ = reader; return R<string>.Success(); }
+        /// <summary>真实注册的普通写入口只供中间件兼容测试，业务行为由测试下一层明确替入。</summary>
+        [HttpPost("add")]
+        public R<string> Create([FromBody] ActionQueryRequest request) => R<string>.Success();
     }
 }
