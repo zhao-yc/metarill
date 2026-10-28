@@ -48,6 +48,10 @@ public sealed class BusinessButtonApplicationAuthorizationTests
             context.Items[typeof(AuthenticatedIdentity)]=identity with{GrantId=123};auth.RequireButtonPermission(page.Id,"86000");
             context.Items[typeof(AuthenticatedIdentity)]=identity with{ExactDataManageButtonIds=new HashSet<string>()};Assert.False(auth.ResolveButtonExactDataManage(page.Id,"86000","real_name").IsRequired);
             context.Items.Clear();Assert.Throws<UnauthorizedAccessException>(()=>auth.RequireButtonPermission(page.Id,"86000"));Assert.Throws<UnauthorizedAccessException>(()=>auth.ResolveButtonExactDataManage(page.Id,"86000","real_name"));
+            // 真实完整包旧双参数宿主没有当前协调器时，不执行文件回调，更不能缺省复用旧文件身份。
+            context.Items[typeof(AuthenticatedIdentity)]=identity;var invoked=false;
+            await Assert.ThrowsAsync<NotSupportedException>(()=>auth.WithButtonFileCurrentAsync(page.Id,"86000",identity.Actor,null!,()=>{invoked=true;return Task.CompletedTask;}));
+            Assert.False(invoked);Assert.Same(identity,context.Items[typeof(AuthenticatedIdentity)]);
             // 此处所有决策在已认证请求上下文执行，未连接数据库，未声称完成真实业务动作调用。
             // 反射只构造包内真实类型，公共依赖由共享框架提供。
             object New(string name,params object?[] arguments)=>Activator.CreateInstance(assembly.GetType(ns+".Host."+name,true)!,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,arguments,CultureInfo.InvariantCulture)!;

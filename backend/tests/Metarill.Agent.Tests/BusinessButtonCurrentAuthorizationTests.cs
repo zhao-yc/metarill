@@ -5,6 +5,12 @@ using Metarill.Data;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 using Xunit;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
+using Metarill.Core.Metadata;
+using Metarill.Core.Persistence;
+using Metarill.Runtime.Files;
 namespace Metarill.Agent.Tests;
 
 /// <summary>真实认证/角色策略/SqlRowStore/当前读协调器的离线合同；数据库传输不承担MySQL锁与隔离证明。</summary>
@@ -136,12 +142,159 @@ public sealed class BusinessButtonCurrentAuthorizationTests
         Assert.Equal(previous, f.Accessor.Identity.ExactDataManageMatchValue!.Value.GetInt64()); f.Memory.Account["real_name"] = current;
         await Assert.ThrowsAsync<UnauthorizedAccessException>(f.Check);
     }
+    /// <summary>当前文件身份只在真实宿主的文件用途回调内生效，普通请求和普通页权不被替换。</summary>
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task File_source_revocation_is_current_and_scope_is_restored_after_await_or_failure(bool fail)
+    {
+        using var f=new Fixture();f.FileGrant();await f.Authenticate();var original=f.Accessor.Identity;
+        var http=new DefaultHttpContext();http.Items[typeof(AuthenticatedIdentity)]=original;
+        using var services=new ServiceCollection().AddSingleton(f.Guard).BuildServiceProvider();
+        var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=http},f.Memory.Registry,services);
+        auth.RequireFileSourcePagePermission(f.Donor);f.Memory.Row("yz_role_permission",80)["delete_no"]=DateTime.UtcNow;
+        await f.Memory.Session.InTransactionAsync(async()=>
+        {
+            await f.Current();
+            async Task Callback()
+            {
+                await Task.Yield();Assert.Same(original,auth.RequireIdentity());auth.RequirePagePermission(f.Donor,"detail");
+                Assert.Throws<UnauthorizedAccessException>(()=>auth.RequireFileSourcePagePermission(f.Donor));
+                if(fail)throw new FileScopeFailure();
+            }
+            var action=()=>auth.WithButtonFileCurrentAsync(Fixture.Page,Fixture.Button,original.Actor,f.Memory.Session.CurrentTransaction!,Callback);
+            if(fail)await Assert.ThrowsAsync<FileScopeFailure>(action);else await action();
+            auth.RequireFileSourcePagePermission(f.Donor);Assert.Same(original,http.Items[typeof(AuthenticatedIdentity)]);return true;
+        });
+        auth.RequireFileSourcePagePermission(f.Donor);
+    }
+    /// <summary>文件匹配使用锁后账号值；它不改变已完成写前范围授权的普通按钮快照。</summary>
+    [Fact]
+    public async Task Current_file_matching_value_does_not_overwrite_button_or_general_identity()
+    {
+        using var f=new Fixture();f.FileGrant();await f.Authenticate();var original=f.Accessor.Identity;
+        var http=new DefaultHttpContext();http.Items[typeof(AuthenticatedIdentity)]=original;
+        using var services=new ServiceCollection().AddSingleton(f.Guard).BuildServiceProvider();
+        var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=http},f.Memory.Registry,services);
+        await f.Memory.Session.InTransactionAsync(async()=>
+        {
+            await f.Current();f.Memory.Account["real_name"]="仅乙";
+            await auth.WithButtonFileCurrentAsync(Fixture.Page,Fixture.Button,original.Actor,f.Memory.Session.CurrentTransaction!,async()=>
+            {
+                await Task.Yield();var scope=auth.ResolveFileSourceExactDataManage(f.Donor,"real_name");
+                Assert.True(scope.IsRequired);Assert.Equal(new[]{"仅乙"},scope.Read<string>());
+                Assert.Equal("仅甲",auth.RequireIdentity().ExactDataManageMatchValue!.Value.GetString());
+            });
+            Assert.Equal(new[]{"仅甲"},auth.ResolveFileSourceExactDataManage(f.Donor,"real_name").Read<string>());return true;
+        });
+    }
+    /// <summary>没有同事务成功按钮证明时，不执行任何文件回调，不在记录锁后首次规划安全锁。</summary>
+    [Fact]
+    public async Task File_current_read_without_prior_button_proof_fails_before_security_sql()
+    {
+        using var f=new Fixture();await f.Authenticate();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Memory.Session.InTransactionAsync(async()=>
+        {
+            await f.FileIdentity();return true;
+        }));Assert.Empty(f.Memory.Provider.Commands);
+    }
+    /// <summary>第二次当前读拒绝新增角色集合，且拒绝发生在任何新角色SQL之前。</summary>
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Late_role_expansion_cannot_take_new_role_locks(bool file)
+    {
+        using var f=new Fixture();await f.Authenticate();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Memory.Session.InTransactionAsync(async()=>
+        {
+            await f.Current();f.ExtraRole(false);f.Memory.Provider.Commands.Clear();
+            if(file)await f.FileIdentity();else await f.Current();return true;
+        }));Assert.DoesNotContain(f.Memory.Provider.Commands,sql=>sql.Contains("FROM `yz_role` ",StringComparison.Ordinal));
+    }
+    /// <summary>当前按钮撤权、错误事务和错误操作者都不能借已存在的文件证明继续。</summary>
+    [Theory][InlineData("revoked")][InlineData("actor")][InlineData("transaction")][InlineData("other-button")]
+    public async Task File_current_read_is_bound_to_live_button_actor_and_transaction(string change)
+    {
+        using var f=new Fixture();using var other=new PrincipalRealmFixture();await f.Authenticate();
+        await f.Memory.Session.InTransactionAsync(async()=>
+        {
+            await f.Current();f.Memory.Provider.Commands.Clear();
+            if(change=="revoked")f.Grant["delete_no"]=DateTime.UtcNow;
+            var actor=f.Accessor.Identity.Actor;
+            async Task Call()=>await f.Guard.ReadBusinessButtonFileIdentityAsync(Fixture.Page,change=="other-button"?"80032":Fixture.Button,
+                change=="actor"?actor with{AccountId=9}:actor,change=="transaction"?other.Session.CurrentTransaction!:f.Memory.Session.CurrentTransaction!);
+            if(change=="transaction")await other.Session.InTransactionAsync(async()=>{await Assert.ThrowsAsync<InvalidOperationException>(Call);return true;});
+            else if(change=="other-button")await Assert.ThrowsAsync<InvalidOperationException>(Call);
+            else if(change=="revoked")await Assert.ThrowsAsync<SecurityException>(Call);
+            else await Assert.ThrowsAsync<UnauthorizedAccessException>(Call);
+            if(change!="revoked")Assert.Empty(f.Memory.Provider.Commands);return true;
+        });
+    }
+    /// <summary>实际文件观察器与真实平台授权器共同执行；只有传输替身，不模拟文件来源权限结论。</summary>
+    [Theory][InlineData("allowed")][InlineData("revoked")][InlineData("mismatch")][InlineData("tail-rollback")][InlineData("rebound")]
+    public async Task Real_file_observer_uses_current_donor_permission_and_preserves_transaction(string scenario)
+    {
+        using var f=new Fixture();var model=f.FileModel();f.FileGrant();await f.Authenticate();var original=f.Accessor.Identity;
+        var http=new DefaultHttpContext();http.Items[typeof(AuthenticatedIdentity)]=original;
+        using var services=new ServiceCollection().AddSingleton(f.Guard).BuildServiceProvider();
+        var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=http},f.Memory.Registry,services);
+        var observer=new FileReferenceMutationObserver(f.Memory.Store,new([model]),auth,f.Memory.Ids);
+        f.Memory.Add("sample_contract",("id",77L),("yz_project_id",long.Parse(original.Actor.ProjectId)),("attachments",null));
+        f.Memory.Add("yz_file_library",("id",500L),("yz_project_id",long.Parse(original.Actor.ProjectId)),("status","ready"),("owner_id",9L),("access_mode","PROTECTED"),("size",3L),("name","sample.txt"));
+        var donorTable=model.ConfigTables.Single(value=>value.Id!= "80011").TableName;
+        f.Memory.Add(donorTable,("id",78L),("yz_project_id",long.Parse(original.Actor.ProjectId)),("attachments","[\"500\"]"),("real_name","仅甲"));
+        f.Memory.Add("yz_file_ref",("id",501L),("file_id",500L),("page_id",long.Parse(f.Donor)),("record_id",78L),("field_name","attachments"),("yz_project_id",long.Parse(original.Actor.ProjectId)));
+        async Task<bool> Write()=>await f.Memory.Session.InTransactionAsync(async()=>
+        {
+            await f.Current();
+            if(scenario=="revoked")f.Memory.Row("yz_role_permission",80)["delete_no"]=DateTime.UtcNow;
+            if(scenario=="mismatch")f.Memory.Account["real_name"]="仅乙";
+            if(scenario=="rebound")f.Resources.Catalog=f.Resources.Catalog with{Pages=f.Resources.Catalog.Pages.Select(page=>page.Id==f.Donor?page with{TableId="80011"}:page).ToArray()};
+            var values=new Dictionary<string,object?>{{"attachments","[\"500\"]"}};
+            f.Memory.Row("sample_contract",77)["attachments"]=values["attachments"];
+            await observer.BeforeCommitAsync(new(Fixture.Page,"sample_contract",77,original.Actor.ProjectId,values,false,f.Memory.Session.CurrentTransaction!){BusinessButtonId=Fixture.Button});
+            if(scenario=="tail-rollback")throw new FileScopeFailure();return true;
+        });
+        if(scenario=="allowed")
+        {
+            await Write();Assert.Equal(2,f.Memory.Provider.Rows["yz_file_ref"].Count);
+            Assert.Equal("[\"500\"]",f.Memory.Row("sample_contract",77)["attachments"]);
+        }
+        else
+        {
+            if(scenario=="tail-rollback")await Assert.ThrowsAsync<FileScopeFailure>(async()=>await Write());
+            else await Assert.ThrowsAsync<UnauthorizedAccessException>(async()=>await Write());
+            Assert.Single(f.Memory.Provider.Rows["yz_file_ref"]);Assert.Null(f.Memory.Row("sample_contract",77)["attachments"]);
+            if(scenario!="tail-rollback")Assert.DoesNotContain(f.Memory.Provider.Commands,sql=>sql.StartsWith("INSERT INTO `yz_file_ref`",StringComparison.Ordinal));
+        }
+        Assert.Same(original,auth.RequireIdentity());
+    }
+    /// <summary>文件字段省略不新增当前证明；真正提交时，旧宿主缺省拒绝且不能先查询业务行或写引用。</summary>
+    [Fact]
+    public async Task Omitted_file_field_keeps_original_path_but_legacy_file_host_cannot_write()
+    {
+        using var f=new Fixture();var model=f.FileModel();await f.Authenticate();
+        var auth=new LegacyButtonHost(f.Accessor.Identity.Actor);
+        var observer=new FileReferenceMutationObserver(f.Memory.Store,new([model]),auth,f.Memory.Ids);
+        await f.Memory.Session.InTransactionAsync(async()=>
+        {
+            var context=new RecordMutationContext(Fixture.Page,"sample_contract",77,auth.RequireActor().ProjectId,new Dictionary<string,object?>(),false,f.Memory.Session.CurrentTransaction!){BusinessButtonId=Fixture.Button};
+            await observer.BeforeCommitAsync(context);Assert.Equal(0,auth.ButtonCalls);
+            await Assert.ThrowsAsync<NotSupportedException>(()=>observer.BeforeCommitAsync(context with{SubmittedFields=new Dictionary<string,object?>{{"attachments",null}}}));
+            Assert.Equal(1,auth.ButtonCalls);return true;
+        });Assert.Empty(f.Memory.Provider.Commands);
+    }
+    private sealed class LegacyButtonHost(RuntimeActor actor):IRuntimeAuthorization
+    {
+        internal int ButtonCalls;
+        public RuntimeActor RequireActor()=>actor;
+        public void RequirePagePermission(string pageId,string operation)=>throw new UnauthorizedAccessException();
+        public void RequireButtonPermission(string pageId,string buttonId)=>ButtonCalls++;
+    }
+    private sealed class FileScopeFailure:Exception;
     private sealed class Fixture : IDisposable
     {
         internal const string Page = "80021", Button = "80031";
         internal readonly PrincipalRealmFixture Memory;
         internal readonly Accessor Accessor = new(); internal readonly Registry Registry; internal readonly Resources Resources; internal readonly Policy Policy;
         internal readonly AuthenticationService Authentication; internal readonly SecurityRealmMutationGuard Guard;
+        internal string Donor=>Memory.DemoPage;
         internal Dictionary<string, object?> Grant => Memory.Row("yz_role_permission", 70);
         internal Fixture(bool platform = false)
         {
@@ -149,6 +302,12 @@ public sealed class BusinessButtonCurrentAuthorizationTests
             var project = platform ? Memory.PlatformProject : Memory.DemoProject; var admin = platform ? "91" : Memory.DemoAdmin;
             if (platform) Memory.Add("yz_admin_type", ("id", 91L), ("yz_project_id", long.Parse(project)));
             var catalog = new SecurityResourceCatalog(project, [new("80011", "sample_contract")], [new(Page, "80011", project, admin, false, false, false, false)], [], [new(Button, Page), new("80032", Page)]);
+            if(!platform)
+            {
+                var donor=Memory.Registry.Demo.ConfigPages.Single(value=>value.Id==Donor);
+                var table=Memory.Registry.Demo.ConfigTables.Single(value=>value.Id==donor.ConfigTableId);
+                catalog=catalog with{Tables=[..catalog.Tables,new(table.Id,table.TableName)],Pages=[..catalog.Pages,new(donor.Id,table.Id,project,admin,false,false,false,false)]};
+            }
             Registry = new(catalog, platform, Memory.PlatformAdmin); Resources = new(catalog, Memory); Policy = new(Memory);
             Memory.Role["is_scope"] = 1; Memory.Account["real_name"] = "仅甲";
             Memory.Add("yz_role_permission", ("id", 70L), ("yz_role_id", 10L), ("config_button_id", long.Parse(Button)), ("permission_values", "[]"));
@@ -159,6 +318,32 @@ public sealed class BusinessButtonCurrentAuthorizationTests
         internal async Task Authenticate() { Accessor.Identity = await Authentication.AuthenticateAsync(Memory.Token, Registry.PublishedCatalogs[0].ProjectId) ?? throw new InvalidOperationException("测试身份未建立"); Memory.Provider.Commands.Clear(); }
         /// <summary>当前证明必须处于原写事务；不在测试中自己计算授权结果。</summary>
         internal Task<bool> Check() => Memory.Session.InTransactionAsync(async () => { await Current(); return true; });
+        /// <summary>发布最小双页文件模型；平台宿主仍使用其真实页面/按钮授权方法。</summary>
+        internal MetadataCatalog FileModel()
+        {
+            var donor=Memory.Registry.Demo.ConfigPages.Single(value=>value.Id==Donor);
+            var donorTable=Memory.Registry.Demo.ConfigTables.Single(value=>value.Id==donor.ConfigTableId);
+            var project=Memory.DemoProject;var target=new PageMetadata{Id=Page,ConfigTableId="80011",YzProjectId=project,YzAdminTypeId=Memory.DemoAdmin};
+            var targetTable=new TableMetadata{Id="80011",TableName="sample_contract",YzProjectId=project};
+            Memory.Registry.Demo.ConfigPages.Add(target);Memory.Registry.Demo.ConfigTables.Add(targetTable);
+            Memory.Registry.Demo.ConfigButtons.Add(JsonSerializer.SerializeToElement(new{id=Button,configPageId=Page}));
+            var model=new MetadataCatalog{YzProjectId=project,ConfigTables=[targetTable,donorTable],ConfigPages=[target,new(){Id=Donor,ConfigTableId=donorTable.Id,YzProjectId=project,YzAdminTypeId=Memory.DemoAdmin}]};
+            var admin=new AdminTypeMetadata{Id=Memory.DemoAdmin,YzProjectId=project};admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");model.YzAdminTypes.Add(admin);
+            model.ConfigPages[1].Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+            var i=80700;
+            foreach(var table in model.ConfigTables)
+            {
+                foreach(var (name,type,control) in new[]{("id","int64",""),("yz_project_id","int64",""),("attachments","string","FileLibrary"),("real_name","string","")})
+                {
+                    var column=new ColumnMetadata{Id=(i++).ToString(),ConfigTableId=table.Id,ColumnName=name,LogicalType=type,ControlKind=control};model.ConfigColumns.Add(column);
+                    if(name=="attachments")model.ConfigPageColumns.Add(new(){Id=(i++).ToString(),ConfigPageId=table.Id=="80011"?Page:Donor,ConfigColumnId=column.Id,ColumnName=name,IsEdit=1,IsShow=1});
+                }
+            }
+            return model;
+        }
+        /// <summary>真实来源页授权参与角色聚合，文件用途不可借按钮权限或查询继承顶替。</summary>
+        internal void FileGrant()=>Memory.Add("yz_role_permission",("id",80L),("yz_role_id",10L),("config_page_id",long.Parse(Donor)),("permission_values","[\"is_query\"]"));
+        internal Task<AuthenticatedIdentity> FileIdentity()=>Guard.ReadBusinessButtonFileIdentityAsync(Page,Button,Accessor.Identity.Actor,Memory.Session.CurrentTransaction!);
         internal Task Current() => Guard.RequireBusinessButtonAsync(Page, Button, Accessor.Identity.Actor, Memory.Session.CurrentTransaction!);
         /// <summary>增添实际角色/授权行，当前策略只可按该按钮自己的授权决定是否解除范围。</summary>
         internal void ExtraRole(bool sameButton)

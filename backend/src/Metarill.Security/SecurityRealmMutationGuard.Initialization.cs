@@ -17,7 +17,7 @@ public sealed partial class SecurityRealmMutationGuard
             throw new UnauthorizedAccessException("账号初始化需要本应用管理后台的真实Web身份。");
         var id=Id(adminTypeId);
         var state=await PrepareLocksAsync(request,"yz_admin_type",id,new Dictionary<string,object?>(),token);
-        var current=await reader.ReadAsync(request,state.Locks,token);
+        var current=await ReadCurrentAsync(request,state,token);
         var page=PublishedPage(InitializationPageId,"yz_admin_type");
         var identity=current.Identity;
         if(page.ProjectId!=identity.PrincipalProjectId||page.AdminTypeId!=identity.PrincipalAdminTypeId||

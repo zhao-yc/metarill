@@ -16,6 +16,9 @@ public interface IRuntimeAuthorization
     /// <summary>锁记录和实际更新前必须使用同一事务重新证明当前按钮与范围；旧宿主不能缺省放行。</summary>
     Task RequireButtonCurrentAsync(string pageId,string buttonId,RuntimeActor actor,DbTransaction transaction,CancellationToken cancellationToken=default)
         =>throw new NotSupportedException("当前授权器尚未接入按钮锁后当前权限。");
+    /// <summary>按钮文件写入只在当前事务证明之后执行回调，旧宿主不能借请求快照放行。</summary>
+    Task WithButtonFileCurrentAsync(string pageId,string buttonId,RuntimeActor actor,DbTransaction transaction,Func<Task> action,CancellationToken cancellationToken=default)
+        =>throw new NotSupportedException("当前授权器尚未接入按钮文件来源当前权限。");
     /// <summary>按固定按钮授权解析记录范围；不能借其它页面动作返回无限制。</summary>
     ExactDataManageValues ResolveButtonExactDataManage(string pageId,string buttonId,string managerField)=>throw new NotSupportedException("当前授权器尚未接入业务按钮数据范围。");
     /// <summary>文件只接受直接/真实父子来源；旧授权器保持原直接查询合同，新继承宿主必须显式覆盖。</summary>

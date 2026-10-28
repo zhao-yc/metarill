@@ -18,6 +18,8 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
         internal AuthenticatedIdentity Request {get;}=request;
         internal SecurityRealmLocks Locks {get;set;}=locks;
         internal List<PreparedWrite> Pending {get;}=[];
+        internal IReadOnlySet<long>? RoleIds {get;set;}
+        internal HashSet<(string Page,string Button)> Buttons {get;}=[];
     }
     private sealed record PreparedWrite(RecordMutationPreparation Preparation,Dictionary<string,object?>? Original);
     internal sealed record RolePermissionWriteScope(AuthenticatedIdentity Identity,Dictionary<string,object?> Role,SecurityResourceCatalog Catalog);
@@ -31,7 +33,7 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
         var request=RequireRequest(preparation.Actor,preparation.Transaction);
         EnsureEnabled(page,preparation.Operation);
         var state=await PrepareLocksAsync(request,preparation.TableName,preparation.TargetId,preparation.ScopeValues,cancellationToken);
-        var current=await reader.ReadAsync(request,state.Locks,cancellationToken);
+        var current=await ReadCurrentAsync(request,state,cancellationToken);
         RequireSourceAction(current,page,preparation.Operation);
         var original=await LockedTarget(preparation.TableName,preparation.TargetId,state,cancellationToken);
         state.Pending.Add(new(preparation,original));
@@ -49,7 +51,7 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
         if(pending is null||pending.Preparation.BusinessButtonId!=validation.BusinessButtonId)throw Changed();
         RequireSameRequest(state.Request,request);
         await RefreshLocks(state,cancellationToken);
-        var current=await reader.ReadAsync(request,state.Locks,cancellationToken);
+        var current=await ReadCurrentAsync(request,state,cancellationToken);
         RequireSourceAction(current,PublishedPage(validation.PageId,validation.TableName),validation.Operation);
         ValidateOriginal(validation,pending.Original);
         await ValidateFinalAsync(validation,pending.Original,state,current,cancellationToken);
@@ -63,7 +65,7 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
         var request=RequireRequest(authorization.RequireIdentity().Actor,transaction);
         var id=Id(roleId);
         var state=await PrepareLocksAsync(request,"yz_role",id,new Dictionary<string,object?>(),token);
-        var current=await reader.ReadAsync(request,state.Locks,token);
+        var current=await ReadCurrentAsync(request,state,token);
         var role=await LockedTarget("yz_role",id,state,token)??throw Changed();
         RequireRoleAction(current,Id(SqlRowStore.Text(role,"yz_admin_type_id")),"is_update");
         return new(current.Identity,role,current.Catalog);
@@ -102,6 +104,14 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
         foreach(var id in adminIds)lockedAdmins[id]=(await store.ReadForUpdateAsync("yz_admin_type",new Dictionary<string,object?>{{"id",id}},token)).SingleOrDefault()??throw Changed();
         if(lockedAdmins.Values.Any(row=>!lockedProjects.ContainsKey(Id(SqlRowStore.Text(row,"yz_project_id")))))throw Changed();
         var state=new CoordinationState(request,new(transaction,lockedProjects,lockedAdmins));_states.Add(transaction,state);return state;
+    }
+
+    /// <summary>首次当前读固定角色预锁集合，后续检查只允许复用或缩小，防止记录锁后补锁新角色。</summary>
+    private async Task<SecurityCurrentPrincipal> ReadCurrentAsync(AuthenticatedIdentity request,CoordinationState state,CancellationToken token)
+    {
+        var current=await reader.ReadPreparedAsync(request,state.Locks,token,state.RoleIds);
+        state.RoleIds??=PrincipalRolePolicy.Identifiers(SqlRowStore.Text(current.Account,"yz_role_ids")).Select(value=>long.Parse(value,CultureInfo.InvariantCulture)).ToHashSet();
+        return current;
     }
 
     /// <summary>同事务前一笔可能修改后台，复核只重读已经持有的聚合锁，绝不补未准备的新项目/后台。</summary>

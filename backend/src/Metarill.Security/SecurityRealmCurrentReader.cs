@@ -40,7 +40,10 @@ public sealed class SecurityRealmCurrentReader
         return await resources.ReadForUpdateAsync(store.Session,locks.Transaction,project,admin,token)??throw new InvalidOperationException("按钮来源当前目录不可用，不能回退发布快照。");
     }
     /// <summary>Agent授权先于会话，之后按操作者、角色、页面授权和固定资源目录的顺序读取。</summary>
-    internal async Task<SecurityCurrentPrincipal> ReadAsync(AuthenticatedIdentity request,SecurityRealmLocks locks,CancellationToken token)
+    internal Task<SecurityCurrentPrincipal> ReadAsync(AuthenticatedIdentity request,SecurityRealmLocks locks,CancellationToken token)
+        =>ReadPreparedAsync(request,locks,token,null);
+    /// <summary>预锁后的复核只允许原角色集合；保留原三参数读取合同及唯一方法名。</summary>
+    internal async Task<SecurityCurrentPrincipal> ReadPreparedAsync(AuthenticatedIdentity request,SecurityRealmLocks locks,CancellationToken token,IReadOnlySet<long>? preparedRoleIds)
     {
         if(!ReferenceEquals(locks.Transaction,store.Session.CurrentTransaction)||locks.Transaction.Connection is null)
             throw new InvalidOperationException("安全当前读必须使用聚合预锁的同一连接及事务。");
@@ -68,6 +71,8 @@ public sealed class SecurityRealmCurrentReader
         var admin=locks.Admins[adminId];
         if(SqlRowStore.Text(admin,"yz_project_id")!=request.PrincipalProjectId)throw InvalidIdentity();
         var ids=PrincipalRolePolicy.Identifiers(SqlRowStore.Text(account,"yz_role_ids")).Select(value=>long.Parse(value,CultureInfo.InvariantCulture)).Order().ToArray();
+        // 记录锁之后只能复读原角色集合；同事务新增角色必须重新规划，不能反序补取角色锁。
+        if(preparedRoleIds is not null&&ids.Any(id=>!preparedRoleIds.Contains(id)))throw InvalidIdentity();
         var roles=await store.ReadForUpdateByIdsAsync("yz_role","id",ids,new Dictionary<string,object?>{{"yz_admin_type_id",adminId}},token);
         var validIds=roles.Select(row=>SqlRowStore.Id(row)).Distinct().Order().ToArray();
         var grants=await store.ReadForUpdateByIdsAsync("yz_role_permission","yz_role_id",validIds,cancellationToken:token);

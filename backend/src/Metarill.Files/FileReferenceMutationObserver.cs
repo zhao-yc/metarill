@@ -35,7 +35,10 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     }
 
     /// <summary>字段省略保持引用不变，显式 null 清空，任何非法引用令整个业务事务回滚。</summary>
-    public async Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)
+    public Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)=>BeforeCommitCoreAsync(context,cancellationToken,false);
+
+    /// <summary>按钮文件引用由宿主封闭回调取得当前来源权限，内部标记不对HTTP开放，普通CRUD保持原路径。</summary>
+    private async Task BeforeCommitCoreAsync(RecordMutationContext context,CancellationToken cancellationToken,bool currentFileScope)
     {
         var catalog = registry.Catalogs.SingleOrDefault(c => c.ConfigPages.Any(p => p.Id == context.PageId))
             ?? throw new UnauthorizedAccessException("来源页面未登记。");
@@ -52,6 +55,11 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         if (actor.ProjectId != context.ProjectId || catalog.YzProjectId != actor.ProjectId || context.RecordId <= 0)
             throw new UnauthorizedAccessException("文件引用项目范围无效。");
         RequireMutationPermission(context,authorization);
+        if(context.BusinessButtonId is{} buttonId&&!currentFileScope)
+        {
+            await authorization.WithButtonFileCurrentAsync(context.PageId,buttonId,actor,context.Transaction,
+                ()=>BeforeCommitCoreAsync(context,cancellationToken,true),cancellationToken);return;
+        }
         // 标准Service已按写前范围授权；写后允许离页，仅复用完整计划及真实父锁，不以新值重做页面筛选。
         var scope = registry.PageScope(catalog,page);
         var proof = context.IsDelete&&!tableColumns.Any(column=>column.ColumnName=="delete_no")?await ConsumePhysicalDeletionAsync(context,actor,cancellationToken):null;

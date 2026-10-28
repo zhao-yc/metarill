@@ -128,6 +128,8 @@ internal sealed class ApplicationWebAuthentication(IServiceProvider services,App
 internal sealed class ApplicationWebAuthorization:IRuntimeAuthorization,ISecurityIdentityAccessor
 {
     private readonly IHttpContextAccessor accessor;private readonly VerifiedPackageSecurityCatalog catalog;private readonly IServiceProvider? currentServices;
+    // 仅供文件来源权限方法使用；普通请求身份和按钮/页面权限始终保留原快照。
+    private readonly AsyncLocal<AuthenticatedIdentity?> currentFileIdentity=new();
     /// <summary>保留原双参数构造供只读/普通权限使用；锁后当前读仍须真实宿主提供服务。</summary>
     public ApplicationWebAuthorization(IHttpContextAccessor accessor,VerifiedPackageSecurityCatalog catalog):this(accessor,catalog,null){}
     /// <summary>Scoped容器只延迟解析当前读协调器，避免授权器与身份访问器在构造时循环依赖。</summary>
@@ -137,6 +139,15 @@ internal sealed class ApplicationWebAuthorization:IRuntimeAuthorization,ISecurit
     public Task RequireButtonCurrentAsync(string pageId,string buttonId,RuntimeActor actor,System.Data.Common.DbTransaction transaction,CancellationToken cancellationToken=default)=>
         (currentServices??throw new NotSupportedException("宿主尚未接入按钮当前权限协调。")).GetRequiredService<SecurityRealmMutationGuard>().RequireBusinessButtonAsync(pageId,buttonId,actor,transaction,cancellationToken);
 
+    /// <summary>回调内使用当前文件来源身份，跨await及异常后恢复；不改变HttpContext或普通页面权限。</summary>
+    public async Task WithButtonFileCurrentAsync(string pageId,string buttonId,RuntimeActor actor,System.Data.Common.DbTransaction transaction,Func<Task> action,CancellationToken cancellationToken=default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        var identity=await (currentServices??throw new NotSupportedException("宿主尚未接入按钮文件当前权限协调。")).GetRequiredService<global::Metarill.Runtime.Security.SecurityRealmMutationGuard>()
+            .ReadBusinessButtonFileIdentityAsync(pageId,buttonId,actor,transaction,cancellationToken);
+        var previous=currentFileIdentity.Value;currentFileIdentity.Value=identity;
+        try{await action();}finally{currentFileIdentity.Value=previous;}
+    }
     public AuthenticatedIdentity RequireIdentity()=>accessor.HttpContext?.Items[typeof(AuthenticatedIdentity)] as AuthenticatedIdentity??throw new UnauthorizedAccessException();
     public RuntimeActor RequireActor()=>RequireIdentity().Actor;
     /// <summary>超级角色必须来自本次真实Web身份并匹配当前项目及后台，不能由工作区选择或Agent声明扩权。</summary>
@@ -162,14 +173,14 @@ internal sealed class ApplicationWebAuthorization:IRuntimeAuthorization,ISecurit
     /// <summary>先校验独立文件来源，再解析该来源自己的精确范围。</summary>
     public ExactDataManageValues ResolveFileSourceExactDataManage(string pageId,string managerField)
     {
-        RequireFileSourcePagePermission(pageId);return ExactDataManageIdentity.ResolveFileSource(RequireIdentity(),pageId,managerField);
+        RequireFileSourcePagePermission(pageId);return ExactDataManageIdentity.ResolveFileSource(currentFileIdentity.Value??RequireIdentity(),pageId,managerField);
     }
     /// <summary>普通生成页保留原调用，授权用途只由宿主方法选择，不从HTTP接收。</summary>
     public void RequirePagePermission(string pageId,string operation)=>RequirePagePermissionCore(pageId,operation,false);
     /// <summary>同一项目/后台及动作检查使用用途对应的真实来源集合。</summary>
     private void RequirePagePermissionCore(string pageId,string operation,bool fileSource)
     {
-        var identity=RequireIdentity();var page=catalog.PublishedCatalogs.SelectMany(item=>item.Pages).SingleOrDefault(item=>item.Id==pageId)??throw new SecurityException();
+        var identity=(fileSource?currentFileIdentity.Value:null)??RequireIdentity();var page=catalog.PublishedCatalogs.SelectMany(item=>item.Pages).SingleOrDefault(item=>item.Id==pageId)??throw new SecurityException();
         if(identity.Actor.IsAdministrator||identity.Actor.ProjectId!=catalog.ProjectId||identity.PrincipalProjectId!=catalog.ProjectId||page.ProjectId!=catalog.ProjectId||page.AdminTypeId!=identity.PrincipalAdminTypeId||identity.Actor.AdminTypeId!=identity.PrincipalAdminTypeId)throw new SecurityException();
         var enabled=operation switch
         {
