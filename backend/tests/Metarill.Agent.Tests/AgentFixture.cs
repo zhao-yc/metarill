@@ -88,13 +88,13 @@ internal sealed class AgentFixture : IAsyncDisposable
             var builder = WebApplication.CreateBuilder(); builder.Logging.ClearProviders(); builder.WebHost.UseTestServer();
             Action<IServiceCollection> configure = services =>
             {
-                services.AddSingleton(fixture.Session); services.AddSingleton(fixture.Store); services.AddSingleton(fixture.Registry); services.AddSingleton<IIdGenerator>(Ids);
+                services.AddSingleton(fixture.Session); services.AddSingleton(fixture.Store); services.AddSingleton(fixture.Registry); services.AddSingleton<IAgentHostResources>(fixture.Registry); services.AddSingleton<IIdGenerator>(Ids);
                 services.AddSingleton(fixture.Authentication); services.AddSingleton<TimeProvider>(fixture.Clock); services.AddSingleton(new AgentOAuthOptions());
                 services.AddSingleton(new AgentTaskOptions()); services.AddSingleton(fixture.Tasks);
                 Metarill.Demo.Generated.GeneratedRegistration.AddGeneratedServices(services, _ => fixture.BusinessSession);
                 services.AddSingleton(fixture.OAuth); services.AddSingleton<AgentAuthenticationService>(); services.AddSingleton<AgentPublicRateLimiter>();
                 services.AddHttpContextAccessor(); services.AddScoped<IRuntimeAuthorization, HttpRuntimeAuthorization>(); services.AddSingleton<GeneratedCapabilityIndex>(); services.AddScoped<AgentCapabilityCatalog>();
-                services.AddControllers().AddApplicationPart(typeof(AgentOAuthController).Assembly).AddJsonOptions(o => JsonDefaults.CopyTo(o.JsonSerializerOptions));
+                services.AddControllers().AddApplicationPart(typeof(AgentOAuthController).Assembly).AddApplicationPart(typeof(Metarill.Demo.Generated.GeneratedRegistration).Assembly).AddJsonOptions(o => JsonDefaults.CopyTo(o.JsonSerializerOptions));
             }; configure(builder.Services); customize?.Invoke(builder.Services);
             var app = builder.Build();
                 app.Use(async (context, next) =>

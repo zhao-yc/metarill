@@ -1,12 +1,14 @@
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Runtime.Security;
+using Metarill.Runtime.Agent;
 
 namespace Metarill.Runtime.Metadata;
 
 /// <summary>发布包内不可变的物理模型；项目可编辑元数据由数据库仓储读取。</summary>
-public sealed class MetadataRegistry : ISecurityResourceRegistry
+public sealed class MetadataRegistry : IAgentHostResources
 {
+    public AgentHostCatalog AgentCatalog { get; }
     public MetadataCatalog Platform { get; }
     public MetadataCatalog Demo { get; }
     public string PlatformPath { get; }
@@ -16,6 +18,7 @@ public sealed class MetadataRegistry : ISecurityResourceRegistry
     {
         PlatformPath = Path.GetFullPath(platformPath);
         Platform = Load(platformPath); Demo = Load(demoPath);
+        AgentCatalog = AgentHostCatalog.ForPlatform(Platform, Demo);
         // 固定继承关系在发布目录加载时编译，普通认证不重复解析控件JSON。
         platformInheritance=PagePermissionInheritance.Compile(Platform);demoInheritance=PagePermissionInheritance.Compile(Demo);
     }

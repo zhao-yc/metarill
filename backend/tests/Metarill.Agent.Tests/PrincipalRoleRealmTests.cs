@@ -231,12 +231,12 @@ internal sealed class RealmHttpHost(WebApplication application,HttpClient client
     internal static async Task<RealmHttpHost> Start(PrincipalRealmFixture fixture)
     {
         var builder=WebApplication.CreateBuilder();builder.WebHost.UseTestServer();builder.Logging.ClearProviders();
-        builder.Services.AddSingleton(fixture.Store);builder.Services.AddSingleton(fixture.Registry);builder.Services.AddSingleton(fixture.Authentication);builder.Services.AddSingleton(fixture.OAuth);builder.Services.AddSingleton(fixture.Ids);
+        builder.Services.AddSingleton(fixture.Store);builder.Services.AddSingleton(fixture.Registry);builder.Services.AddSingleton<IAgentHostResources>(fixture.Registry);builder.Services.AddSingleton(fixture.Authentication);builder.Services.AddSingleton(fixture.OAuth);builder.Services.AddSingleton(fixture.Ids);
         builder.Services.AddSingleton<AgentAuthenticationService>();builder.Services.AddSingleton<AgentPublicRateLimiter>();builder.Services.AddSingleton<GeneratedCapabilityIndex>();builder.Services.AddScoped<AgentCapabilityCatalog>();
         builder.Services.AddSingleton(new AgentTaskStore(fixture.Store,fixture.Ids,new()));builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<HttpRuntimeAuthorization>();builder.Services.AddScoped<IRuntimeAuthorization>(sp=>sp.GetRequiredService<HttpRuntimeAuthorization>());
         builder.Services.AddScoped<MetadataRepository>();builder.Services.AddScoped<MenuWorkbenchBusiness>();
-        builder.Services.AddControllers().AddApplicationPart(typeof(AgentManagementController).Assembly).AddApplicationPart(typeof(PrincipalRealmProbeController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
+        builder.Services.AddControllers().AddApplicationPart(typeof(AgentManagementController).Assembly).AddApplicationPart(typeof(Metarill.Demo.Generated.GeneratedRegistration).Assembly).AddApplicationPart(typeof(PrincipalRealmProbeController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
         var app=builder.Build();
         // 只在测试宿主用401观测真实拒绝，不改变产品R.code/HTTP习惯。
         app.Use(async(context,next)=>{try{await next();}catch(UnauthorizedAccessException){context.Response.StatusCode=401;await context.Response.WriteAsJsonAsync(R<object>.Error("无权执行。"));}});

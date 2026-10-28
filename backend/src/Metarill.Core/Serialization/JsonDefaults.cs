@@ -5,6 +5,7 @@ using Metarill.Core.Contracts;
 
 namespace Metarill.Runtime;
 
+/// <summary>平台与独立宿主复用的既有JSON合同，保留原命名空间兼容调用。</summary>
 public static class JsonDefaults
 {
     public static JsonSerializerOptions Options { get; } = Create();
@@ -16,6 +17,7 @@ public static class JsonDefaults
         options.Converters.Add(new CompatibleDateTimeConverter());
         return options;
     }
+    /// <summary>向宿主JSON选项追加相同的字符串ID和兼容时间转换器。</summary>
     public static void CopyTo(JsonSerializerOptions options)
     {
         options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;

@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Metarill.Core.Contracts;
 using Metarill.Core.Security;
-using Metarill.Runtime.Metadata;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
@@ -17,7 +16,7 @@ public sealed record AgentCapability(string Id, string Name, string Description,
 internal sealed record IndexedCapability(AgentCapability Descriptor, ControllerActionDescriptor Action, string ProjectId, string Permission);
 
 /// <summary>只编目MVC真实注册的生成控制器，不能根据元数据开关宣称不存在的按钮或SQL入口可调用。</summary>
-public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollectionProvider actions, MetadataRegistry registry)
+public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollectionProvider actions, IAgentHostResources registry)
 {
     private readonly object _sync = new();
     private int _version = -1;
@@ -37,10 +36,8 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                 if (!(action.ControllerTypeInfo.Namespace?.Contains(".Generated.Controllers", StringComparison.Ordinal) ?? false)) continue;
                 var route = action.AttributeRouteInfo?.Template ?? ""; var match = RoutePattern().Match(route);
                 if (!match.Success) continue;
-                var page = registry.FindPage(match.Groups[2].Value); if (page is null) continue;
-                var catalog = new[] { registry.Platform, registry.Demo }.First(c => c.ConfigPages.Any(p => p.Id == page.Id));
-                var table = catalog.ConfigTables.Single(t => t.Id == page.ConfigTableId);
-                if (table.TableName != match.Groups[1].Value) continue;
+                var page = registry.AgentCatalog.FindPage(match.Groups[2].Value); if (page is null) continue;
+                if (page.TableName != match.Groups[1].Value) continue;
                 var methods = action.ActionConstraints?.OfType<HttpMethodActionConstraint>().SelectMany(c => c.HttpMethods).Distinct().ToArray() ?? [];
                 if (methods.Length != 1) continue;
                 var method = methods[0].ToUpperInvariant(); var tail = match.Groups[3].Value;
@@ -62,21 +59,16 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                         requestSchema = schema;
                         var required = new List<string>();
                         if (operation is "update" or "delete") required.Add("id");
-                        if (operation == "create")
-                            foreach (var field in catalog.ConfigPageColumns.Where(f => f.ConfigPageId == page.Id && f.IsEdit == 1 && f.IsRequired == 1))
-                            {
-                                var column = catalog.ConfigColumns.Single(c => c.Id == field.ConfigColumnId);
-                                if (column.DefaultValue.Length == 0) required.Add(MetadataRegistry.Camel(column.ColumnName));
-                            }
+                        if (operation == "create") required.AddRange(page.RequiredCreateFields);
                         if (operation == "import") required.Add("requestJson");
                         if (required.Count > 0) requestSchema["required"] = required.Distinct().ToArray();
                     }
-                    parameters.Add(new(parameter.Name, kind, kind is "path" or "body" || parameter.Name == "parentId" && page.WhereSql.Contains("@parent", StringComparison.OrdinalIgnoreCase), schema));
+                    parameters.Add(new(parameter.Name, kind, kind is "path" or "body" || parameter.Name == "parentId" && page.RequiresParent, schema));
                 }
                 var read = operation is "list" or "detail" or "count" or "options";
                 var descriptor = new AgentCapability(id, page.Name + "：" + operation, "复用当前生成接口与服务端页面数据范围。", operation, path, method, page.Id, null, !read,
                     read ? "" : "此操作会写入数据或创建导出文件，请核对请求后明确确认。", parameters, requestSchema, AgentJsonSchema.Create(ReturnType(action.MethodInfo.ReturnType)));
-                result.Add(new(descriptor, action, catalog.YzProjectId, operation == "options" ? "list" : operation));
+                result.Add(new(descriptor, action, page.ProjectId, operation == "options" ? "list" : operation));
             }
             if (result.Select(x => x.Descriptor.Id).Distinct().Count() != result.Count) throw new InvalidOperationException("真实生成路由出现重复能力标识。");
             _entries = result; _version = snapshot.Version; return _entries;

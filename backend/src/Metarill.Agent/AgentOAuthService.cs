@@ -3,14 +3,13 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Metarill.Core.Security;
-using Metarill.Runtime.Metadata;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 
 namespace Metarill.Runtime.Agent;
 
 /// <summary>设备流绑定人工批准的真实账号、项目和固定CLI客户端，不授予客户端自报权限。</summary>
-public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistry registry, IIdGenerator ids, AgentOAuthOptions options, TimeProvider? timeProvider = null)
+public sealed partial class AgentOAuthService(SqlRowStore store, IAgentHostResources registry, IIdGenerator ids, AgentOAuthOptions options, TimeProvider? timeProvider = null)
 {
     public const string ClientId = "metarill-agent-cli";
     public const string DeviceGrant = "urn:ietf:params:oauth:grant-type:device_code";
@@ -33,7 +32,7 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
         var code = string.Concat(Enumerable.Range(0, 8).Select(_ => alphabet[RandomNumberGenerator.GetInt32(alphabet.Length)]));
         await store.InsertAsync("sys_agent_grant", new Dictionary<string, object?>
         {
-            ["id"] = ids.NextId(), ["project_id"] = long.Parse(registry.Platform.YzProjectId, CultureInfo.InvariantCulture),
+            ["id"] = ids.NextId(), ["project_id"] = long.Parse(registry.AgentCatalog.PendingProjectId, CultureInfo.InvariantCulture),
             ["device_code_hash"] = PasswordHasher.Digest(deviceCode), ["user_code"] = code, ["client_id"] = ClientId,
             ["client_name"] = name, ["status"] = "pending", ["expires_at"] = now.AddSeconds(options.DeviceCodeSeconds).UtcDateTime,
             ["poll_interval_seconds"] = options.PollingSeconds, ["insert_time"] = now.UtcDateTime
@@ -181,8 +180,8 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
             ?? throw new UnauthorizedAccessException("当前身份后台已失效。");
         if(realm.AdminTypeId!=identity.PrincipalAdminTypeId || realm.ProjectId!=identity.PrincipalProjectId)
             throw new UnauthorizedAccessException("当前身份后台已变化，请重新登录。");
-        if(administrator && !realm.IsPlatformAdministrator)
-            throw new UnauthorizedAccessException("批准Agent授权需要平台管理员权限。");
+        if(administrator && !registry.AgentCatalog.CanApprove(realm))
+            throw new UnauthorizedAccessException(registry.AgentCatalog.ApprovalPermissionMessage);
     }
 
     /// <summary>签发短期访问会话，只有摘要进入现有会话表。</summary>
@@ -200,8 +199,8 @@ public sealed partial class AgentOAuthService(SqlRowStore store, MetadataRegistr
         var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{["id"]=id},token)).SingleOrDefault();
         if(account is null)return false;
         var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,token,includePermissions:false);
-        // 本机Agent控制面只由平台身份批准；迁入业务后台后旧grant不能继续换取或刷新凭据。
-        return realm is {IsPlatformRealm:true};
+        // 宿主明确限定签发身份域；迁出后旧grant不能继续换取或刷新凭据。
+        return realm is not null && registry.AgentCatalog.IsEligibleRealm(realm);
     }
     /// <summary>项目名只来自已登记的服务端记录。</summary>
     private async Task<string> ProjectNameAsync(string project, CancellationToken token) { var row = (await store.ReadAsync("yz_project", new Dictionary<string, object?> { ["id"] = long.Parse(project, CultureInfo.InvariantCulture) }, token)).SingleOrDefault() ?? throw new UnauthorizedAccessException("项目未登记。"); return SqlRowStore.Text(row, "name"); }
