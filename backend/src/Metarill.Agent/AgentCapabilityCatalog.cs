@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security;
 using System.Text.RegularExpressions;
 using Metarill.Core.Contracts;
 using Metarill.Core.Security;
@@ -13,9 +14,12 @@ namespace Metarill.Runtime.Agent;
 public sealed record AgentCapabilityParameter(string Name, string Binding, bool Required, IReadOnlyDictionary<string, object?> Schema);
 public sealed record AgentCapability(string Id, string Name, string Description, string Operation, string Path, string Method, string PageId, string? ButtonId,
     bool ConfirmationRequired, string ConfirmationMessage, IReadOnlyList<AgentCapabilityParameter> Parameters, IReadOnlyDictionary<string, object?> RequestSchema, IReadOnlyDictionary<string, object?> ResponseSchema);
-internal sealed record IndexedCapability(AgentCapability Descriptor, ControllerActionDescriptor Action, string ProjectId, string Permission);
+internal sealed record IndexedCapability(AgentCapability Descriptor, ControllerActionDescriptor Action, string ProjectId, string Permission)
+{
+    public AgentActionBinding? BusinessAction { get; init; }
+}
 
-/// <summary>只编目MVC真实注册的生成控制器，不能根据元数据开关宣称不存在的按钮或SQL入口可调用。</summary>
+/// <summary>只编目MVC真实注册的生成控制器及显式业务动作，元数据按钮本身不代表已实现入口。</summary>
 public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollectionProvider actions, IAgentHostResources registry)
 {
     private readonly object _sync = new();
@@ -31,8 +35,13 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
         {
             if (_version == snapshot.Version) return _entries;
             var result = new List<IndexedCapability>();
-            foreach (var action in snapshot.Items.OfType<ControllerActionDescriptor>())
+            var registered = snapshot.Items.OfType<ControllerActionDescriptor>().ToArray();
+            var custom = registered.Select(action => AgentActionBinding.Compile(action, registry.AgentCatalog, registered)).OfType<IndexedCapability>().ToArray();
+            // 同标识的多路由/多声明不取第一条；歧义业务动作整组排除。
+            result.AddRange(custom.GroupBy(entry => entry.Descriptor.Id, StringComparer.Ordinal).Where(group => group.Count() == 1).Select(group => group.Single()));
+            foreach (var action in registered)
             {
+                if (action.MethodInfo.GetCustomAttribute<AgentActionAttribute>() is not null) continue;
                 if (!(action.ControllerTypeInfo.Namespace?.Contains(".Generated.Controllers", StringComparison.Ordinal) ?? false)) continue;
                 var route = action.AttributeRouteInfo?.Template ?? ""; var match = RoutePattern().Match(route);
                 if (!match.Success) continue;
@@ -91,24 +100,40 @@ public sealed class AgentCapabilityCatalog(GeneratedCapabilityIndex index, IRunt
     {
         var actor = authorization.RequireActor(); return new { protocolVersion = 1, projectId = actor.ProjectId, capabilities = Allowed().Select(c => c.Descriptor).ToArray() };
     }
-    public AgentCapability Describe(string id) => Allowed().SingleOrDefault(c => c.Descriptor.Id == id)?.Descriptor ?? throw new UnauthorizedAccessException("能力不存在或当前账号无权调用。");
+    public AgentCapability Describe(string id) => Allowed(id).SingleOrDefault(c => c.Descriptor.Id == id)?.Descriptor ?? throw new UnauthorizedAccessException("能力不存在或当前账号无权调用。");
     /// <summary>校验匹配的MVC动作和HTTP方法，客户端不能借目录标识调用其他路径。</summary>
     public AgentCapability RequireInvocation(string id, HttpContext context)
     {
-        var found = Allowed().SingleOrDefault(c => c.Descriptor.Id == id) ?? throw new UnauthorizedAccessException("能力不存在或当前账号无权调用。");
+        var found = Allowed(id).SingleOrDefault(c => c.Descriptor.Id == id) ?? throw new UnauthorizedAccessException("能力不存在或当前账号无权调用。");
         var actual = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
         if (actual is null || actual.MethodInfo != found.Action.MethodInfo || actual.ControllerTypeInfo != found.Action.ControllerTypeInfo || actual.AttributeRouteInfo?.Template != found.Action.AttributeRouteInfo?.Template || context.Request.Method != found.Descriptor.Method)
             throw new UnauthorizedAccessException("能力标识与实际请求路径或方法不一致。");
         return found.Descriptor;
     }
-    private IEnumerable<IndexedCapability> Allowed()
+    /// <summary>在台账登记及真实动作执行前，重新核验当前权限与真实记录范围。</summary>
+    public async Task ValidateActionInvocationAsync(string id, HttpContext context, ReadOnlyMemory<byte> body)
+    {
+        RequireInvocation(id, context);
+        var found = Allowed(id).SingleOrDefault(entry => entry.Descriptor.Id == id) ?? throw new UnauthorizedAccessException("业务动作未授权。");
+        if (found.BusinessAction is null) throw new UnauthorizedAccessException("该能力不是已发布业务动作。");
+        await found.BusinessAction.ValidateAsync(context, body, authorization);
+    }
+    private IEnumerable<IndexedCapability> Allowed(string? capabilityId = null)
     {
         var actor = authorization.RequireActor();
         foreach (var entry in index.Entries())
         {
-            if (entry.ProjectId != actor.ProjectId) continue;
-            try { authorization.RequirePagePermission(entry.Descriptor.PageId, entry.Permission); }
-            catch (UnauthorizedAccessException) { continue; }
+            if (entry.ProjectId != actor.ProjectId || capabilityId is not null && entry.Descriptor.Id != capabilityId) continue;
+            try
+            {
+                if (entry.BusinessAction is { } action)
+                {
+                    authorization.RequireButtonPermission(entry.Descriptor.PageId, action.Button.Id);
+                    if (action.Button.Visibility == "VisibleWhenWritable") authorization.RequirePagePermission(entry.Descriptor.PageId, "update");
+                }
+                else authorization.RequirePagePermission(entry.Descriptor.PageId, entry.Permission);
+            }
+            catch (Exception error) when (error is UnauthorizedAccessException or SecurityException or NotSupportedException) { continue; }
             yield return entry;
         }
     }

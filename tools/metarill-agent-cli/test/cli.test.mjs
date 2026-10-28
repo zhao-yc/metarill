@@ -18,6 +18,7 @@ const descriptors = [
   { id: 'page:42:update', name: '修改物品', method: 'PUT', path: '/admin/auto/items/item', parameters: requestBody, requestSchema: propertySchema },
   { id: 'page:42:delete', name: '删除物品', method: 'DELETE', path: '/admin/auto/items/item', parameters: [...requestBody, { name: 'parentId', binding: 'query' }], requestSchema: { type: 'object', properties: { id: { type: 'integer' } } }, confirmationRequired: true },
   { id: 'page:42:copy', name: '复制物品', method: 'POST', path: '/admin/auto/items/item/copy', parameters: requestBody, requestSchema: propertySchema },
+  { id: 'action:preview', name: '预览处理结果', method: 'POST', path: '/admin/custom/items/preview', parameters: requestBody, requestSchema: propertySchema, confirmationRequired: false },
   { id: 'action:approve', name: '审批物品', method: 'POST', path: '/admin/custom/items/approve', parameters: requestBody, requestSchema: propertySchema, confirmationRequired: true, confirmationMessage: '确认审批？' }
 ].map((entry) => ({ ...entry, operation: entry.id.startsWith('page:') ? entry.id.split(':').at(-1) : 'action' }));
 
@@ -137,6 +138,7 @@ async function fixture(t) {
         state.records.delete(data.id);
         return success(true);
       }
+      if (id === 'action:preview') return success({ id: data.id, preview: true });
       if (id === 'action:approve') {
         assert.equal(request.headers['x-yzp-agent-confirm'], 'true');
         return success({ id: data.id, approved: true, ...(state.echoToken ? { diagnostic: state.accessToken } : {}) });
@@ -175,7 +177,7 @@ test('设备授权、CRUD、复制、确认动作与撤销完整闭环', async (
   assert.doesNotMatch(login.stdout + login.stderr, /test-(?:access|refresh|device)-secret/);
   assert.equal(login.value.projectId, 9);
   assert.equal((await invoke('auth', 'status')).value.accountId, 7);
-  assert.equal((await invoke('capabilities', 'list')).value.capabilities.length, 7);
+  assert.equal((await invoke('capabilities', 'list')).value.capabilities.length, 8);
   assert.equal((await invoke('capabilities', 'describe', 'page:42:update')).value.requestSchema.properties.notes.type[1], 'null');
   const create = await invoke('call', 'page:42:create', '--json', '{"name":"初始物品","notes":"待更新"}');
   assert.equal(create.code, 0, create.stderr);
@@ -530,4 +532,18 @@ test('Skill 安装仅写所选技能目录，覆盖需显式指定', async (t) =
   await authorize();
   assert.equal((await invoke('skill', 'install', '--dir', root, '--project', '--force')).code, 0);
   assert.match(await readFile(target, 'utf8'), /# 测试项目/);
+});
+
+/** 服务端预览动作与CLI本地--preview分开：前者调用业务并登记任务，后者只输出拟发送请求。 */
+test('无需确认的业务预览仍携带任务编号并可查询，CLI本地预览不执行业务', async (t) => {
+  const { state, invoke, authorize } = await fixture(t); await authorize();
+  const local = await invoke('call', 'action:preview', '--json', '{"id":1}', '--preview');
+  assert.equal(local.code, 0, local.stderr); assert.equal(local.value.executed, false); assert.equal(local.value.confirmation.required, false);
+  assert.equal(state.businessCalls, 0); assert.equal(state.tasks.size, 0);
+  const result = await invoke('call', 'action:preview', '--json', '{"id":1}');
+  assert.equal(result.code, 0, result.stderr); assert.deepEqual(result.value.data, { id: 1, preview: true });
+  const started = JSON.parse(result.stderr.split('\n')[0]); assert.equal(started.event, 'request_started');
+  const sent = state.requests.findLast((request) => request.path === '/api/admin/custom/items/preview');
+  assert.equal(sent.headers['x-yzp-agent-request-id'], started.requestId); assert.notEqual(sent.headers['x-yzp-agent-confirm'], 'true');
+  const task = await invoke('tasks', 'show', started.requestId); assert.equal(task.value.status, 'succeeded'); assert.equal(state.businessCalls, 1);
 });

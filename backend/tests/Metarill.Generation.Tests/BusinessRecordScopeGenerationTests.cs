@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using FreeSql;
 using Metarill.Core.Metadata;
+using Metarill.Core.Contracts;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -33,6 +34,8 @@ public sealed class BusinessRecordScopeGenerationTests
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});
             var actor=new RuntimeActor(8,"按钮记录范围",false,catalog.YzProjectId,page.YzAdminTypeId);var authorization=new Authorization(actor);
             var type=assembly.GetType(model.Namespace+".Generated.Services."+table.Name+"Service",true)!;var entity=assembly.GetType(model.Namespace+".Generated.Entities."+table.Name,true)!;
+            var access=Assert.Single(assembly.GetTypes().Select(controller=>controller.GetCustomAttribute<GeneratedPageAccessAttribute>()).OfType<GeneratedPageAccessAttribute>(),value=>value.PageId==page.Id);
+            Assert.Equal(table.Source.Id,access.TableId);Assert.Equal(type,access.ServiceType);Assert.Equal(entity,access.EntityType);Assert.Equal("ReadButtonRecord"+page.Id+"Async",access.ReadMethod);
             var mapper=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Mappers."+table.Name+"Mapper",true)!,session)!;
             var service=Activator.CreateInstance(type,[session,mapper,new SnowflakeIdGenerator(945),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
             var scope=type.GetMethod("ButtonRecordQuery101",BindingFlags.Instance|BindingFlags.NonPublic)!;var parent=nonredundant?"71":null;const long id=9007199254740993;

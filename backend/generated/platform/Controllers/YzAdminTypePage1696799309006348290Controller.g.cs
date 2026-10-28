@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[GeneratedPageAccess("1696799309006348290", "1696799308939239425", typeof(global::Metarill.Platform.Generated.Entities.YzAdminType), typeof(YzAdminTypeService), nameof(YzAdminTypeService.ReadButtonRecord1696799309006348290Async))]
 [Route("api/admin/auto/yz_admin_type/1696799309006348290")]
 public sealed partial class YzAdminTypePage1696799309006348290Controller(YzAdminTypeService service, IRuntimeAuthorization authorization) : ControllerBase
 {

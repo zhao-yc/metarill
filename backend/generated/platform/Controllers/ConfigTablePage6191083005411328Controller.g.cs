@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[GeneratedPageAccess("6191083005411328", "6191080026669056", typeof(global::Metarill.Platform.Generated.Entities.ConfigTable), typeof(ConfigTableService), nameof(ConfigTableService.ReadButtonRecord6191083005411328Async))]
 [Route("api/admin/auto/config_table/6191083005411328")]
 public sealed partial class ConfigTablePage6191083005411328Controller(ConfigTableService service, IRuntimeAuthorization authorization) : ControllerBase
 {

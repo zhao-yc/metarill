@@ -34,10 +34,15 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
             AgentCapability capability;
             try { capability = catalog.RequireInvocation(capabilityId, context); }
             catch (UnauthorizedAccessException) { throw new AgentTaskException("YZP_CAPABILITY_DENIED", "能力未授权，或与实际请求路径、方法不匹配。", 403, "not_applied", "fix_request"); }
-            if (!capability.ConfirmationRequired) { await next(context); return; }
-            if (Header(context, "X-Yzp-Agent-Confirm", 5) != "true") throw new AgentTaskException("YZP_CONFIRMATION_REQUIRED", "写操作必须逐次明确确认。", 400, "not_applied", "fix_request");
+            if (!capability.ConfirmationRequired && capability.Operation != "action") { await next(context); return; }
+            if (capability.ConfirmationRequired && Header(context, "X-Yzp-Agent-Confirm", 5) != "true") throw new AgentTaskException("YZP_CONFIRMATION_REQUIRED", "写操作必须逐次明确确认。", 400, "not_applied", "fix_request");
             var requestId = Header(context, "X-Yzp-Agent-Request-Id", 36).ToLowerInvariant(); AgentTaskStore.ValidateRequestId(requestId);
             var body = await ReadBodyAsync(context, options.MaxRequestBytes);
+            if (capability.Operation == "action")
+            {
+                try { await catalog.ValidateActionInvocationAsync(capabilityId, context, body); }
+                catch (UnauthorizedAccessException) { throw new AgentTaskException("YZP_CAPABILITY_DENIED", "业务记录不存在或当前按钮无权访问。", 403, "not_applied", "fix_request"); }
+            }
             var hash = AgentTaskStore.Fingerprint(capability.Id, context.Request.Method, path, context.Request.QueryString.Value ?? "", body);
             claim = await tasks.BeginAsync(identity.Identity.Actor, capability.Id, requestId, hash, context.RequestAborted);
             var original = context.Response.Body;
