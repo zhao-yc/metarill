@@ -17,8 +17,8 @@ public sealed class BusinessButtonApplicationAuthorizationTests
     [Fact]
     public async Task Actual_full_package_preserves_business_button_boundary_and_scope()
     {
-        // 根命名空间故意与新增权限类同名，模板必须用全局限定避免生成项目命名冲突。
-        var boundary=Path.Combine(Path.GetTempPath(),"metarill-business-button-full");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));const string ns="Example.BusinessButtonAuthorization";AssemblyLoadContext? loadContext=null;
+        // 根命名空间故意同时与按钮权限、执行器和原请求类型同名，模板必须用全局限定避免生成项目命名冲突。
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-business-button-full");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));const string ns="Example.BusinessButtonAuthorization.OriginalBusinessButtonExecutor.OriginalBusinessButtonRequest";AssemblyLoadContext? loadContext=null;
         try
         {
             var metadata=GlobalCachedSourceGenerationTests.Catalog();new ApplicationPackager().Create(metadata,directory,ns,NonRedundantApplicationFixture.Root());

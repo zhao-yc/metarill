@@ -12,11 +12,15 @@ public sealed record ExecuteCompatibilityButtonRequest(string ButtonId, string? 
 
 /// <summary>旧前端按钮协议边界；实体及列表显示规则只保留接收兼容，绝不参与动作和权限判定。</summary>
 [ApiController]
-public sealed class CompatibilityButtonController(CompatibilityButtonBusiness business) : ControllerBase
+public sealed class CompatibilityButtonController(CompatibilityButtonBusiness business,Metarill.Runtime.Agent.OriginalBusinessButtonExecutor buttons) : ControllerBase
 {
+    /// <summary>已注册业务按钮进入统一记录守卫，平台配置按钮继续原白名单与领域事务。</summary>
     [HttpPost("api/admin/sys/config_button/execute")]
-    public async Task<R<CompatibilityButtonResult>> Execute(ExecuteCompatibilityButtonRequest request, CancellationToken cancellationToken) =>
-        R<CompatibilityButtonResult>.Success(await business.ExecuteAsync(request.ButtonId, request.EntityId, cancellationToken));
+    public async Task<IActionResult> Execute(ExecuteCompatibilityButtonRequest request,CancellationToken cancellationToken)
+    {
+        if(buttons.IsRegistered(request.ButtonId))return await buttons.ExecuteAsync(new(request.ButtonId,request.EntityId,request.Entity,request.VisibleScheme,request.VisibleRuleJson),HttpContext,cancellationToken);
+        return Ok(R<CompatibilityButtonResult>.Success(await business.ExecuteAsync(request.ButtonId,request.EntityId,cancellationToken)));
+    }
 
     // 首页沿用这些直调入口；具体动作仍必须由数据库按钮及服务端白名单共同确认。
     // action是MVC保留的动作必需值；用operation承载旧URL段，避免copy_page等被误判404。

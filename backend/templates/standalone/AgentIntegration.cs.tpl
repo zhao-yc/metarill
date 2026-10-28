@@ -36,6 +36,7 @@ internal static class ApplicationAgentIntegration
         services.AddSingleton(configuration.GetSection("Agent").Get<AgentOAuthOptions>()??new AgentOAuthOptions{VerificationUri=""});
         services.AddSingleton<AgentOAuthService>();services.AddScoped<AgentAuthenticationService>();services.AddSingleton<AgentPublicRateLimiter>();
         services.AddSingleton<GeneratedCapabilityIndex>();services.AddScoped<AgentCapabilityCatalog>();
+        services.AddScoped<global::Metarill.Runtime.Agent.OriginalBusinessButtonExecutor>();
         services.AddSingleton(configuration.GetSection("Agent:Tasks").Get<AgentTaskOptions>()??new AgentTaskOptions());services.AddSingleton<AgentTaskStore>();
     }
 }

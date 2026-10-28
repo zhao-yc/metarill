@@ -19,6 +19,9 @@ using Metarill.Runtime.Security;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -131,8 +134,110 @@ public sealed class SampleContractActionPackageTests(SampleContractActionPackage
         {
             using var response = await host.Client.PostAsJsonAsync("/api/admin/custom/sample-contract-agent/" + action, new { id = "7" }); Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
+        using var central=await host.Client.PostAsJsonAsync("/api/admin/sys/config_button/execute",new{buttonId="86000",entityId="7"});Assert.Equal(HttpStatusCode.Unauthorized,central.StatusCode);
     }
     /// <summary>测试只读取实际响应记录的公开业务字段，不反射改写业务实现。</summary>
+    /// <summary>原详情正文经真实模板中央控制器/处理器/Business/Service执行，不改变页面或以服务器新值补摘要。</summary>
+    [Theory][InlineData("preview")][InlineData("complete")][InlineData("stale")][InlineData("rollback")][InlineData("missing-original")][InlineData("numeric")][InlineData("fraction")][InlineData("explicit")]
+    public async Task Original_detail_button_uses_registered_business_and_real_generated_pipeline(string scenario)
+    {
+        using var run=fixture.Run();using var services=ButtonServices(run);
+        var entity=JsonSerializer.SerializeToElement(new{id="7",name=run.Get("Name"),amount=scenario=="numeric"?(object)10:scenario=="fraction"?10.001m:"10.00",remarks="待处理",unusedDisplay="原详情其他字段"});
+        if(scenario=="explicit")entity=JsonSerializer.SerializeToElement(new{id="7",expectedDigest=run.Digest()});
+        var request=new OriginalBusinessButtonRequest(scenario=="preview"?"86000":scenario=="rollback"?"86002":"86001","7",scenario=="missing-original"?null:entity);
+        if(scenario=="stale")run.Set("Name","加载详情后已修改");
+        var context=new DefaultHttpContext{RequestServices=services};
+        var executor=services.GetRequiredService<OriginalBusinessButtonExecutor>();
+        var controller=(ControllerBase)Activator.CreateInstance(fixture.Assembly.GetType("Metarill.GlobalSample.Host.OriginalBusinessButtonController",true)!,executor)!;
+        controller.ControllerContext=new(){HttpContext=context};
+        async Task<IActionResult> Execute()=>await(Task<IActionResult>)controller.GetType().GetMethod("Execute")!.Invoke(controller,[request,CancellationToken.None])!;
+        if(scenario=="rollback")
+        {
+            await Assert.ThrowsAsync<BusinessRuleException>(Execute);Assert.Equal("待处理",run.Get("Remarks"));Assert.Equal("rollback",run.Trace[^1]);Assert.DoesNotContain("commit",run.Trace);
+        }
+        else
+        {
+            var result=Assert.IsType<ObjectResult>(await Execute());
+            if(scenario is "stale" or "missing-original" or "fraction")
+            {Assert.Equal(409,result.StatusCode);Assert.DoesNotContain("write",run.Trace);Assert.Equal("待处理",run.Get("Remarks"));}
+            else
+            {
+                Assert.Equal(200,(int)result.Value!.GetType().GetProperty("Code")!.GetValue(result.Value)!);
+                if(scenario is "complete" or "numeric" or "explicit"){Assert.Equal("已处理",run.Get("Remarks"));Assert.Single(run.Observer.Contexts);Assert.Equal("86001",run.Observer.Contexts[0].BusinessButtonId);}
+                else Assert.DoesNotContain("begin",run.Trace);
+            }
+        }
+        Assert.Equal(0,run.Authorization.PageChecks);Assert.Null(run.Session.CurrentTransaction);
+    }
+    /// <summary>错误身份、路径、处理器或相互冲突ID必须在查询实际业务记录之前拒绝。</summary>
+    [Theory][InlineData("agent")][InlineData("identity")][InlineData("duplicate")][InlineData("wrong-path")]
+    [InlineData("entity-id")][InlineData("large-id")][InlineData("array")][InlineData("revoked")][InlineData("missing-service")]
+    public async Task Original_button_rejects_bad_identity_binding_and_id_before_business(string scenario)
+    {
+        using var run=fixture.Run();using var services=ButtonServices(run,scenario);
+        if(scenario=="revoked")run.Authorization.Allowed=false;
+        var entity=scenario=="array"?JsonSerializer.SerializeToElement(new[]{1}):JsonSerializer.SerializeToElement(new{id=scenario=="entity-id"?"8":"7"});
+        var request=new OriginalBusinessButtonRequest("86000",scenario=="large-id"?"9007199254740993":"7",entity);
+        var context=new DefaultHttpContext{RequestServices=services};
+        var error=await Record.ExceptionAsync(()=>services.GetRequiredService<OriginalBusinessButtonExecutor>().ExecuteAsync(request,context));
+        Assert.NotNull(error);Assert.True(error is UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException,error.GetType().Name);
+        Assert.Empty(run.Trace);Assert.Empty(run.Observer.Contexts);
+    }
+    /// <summary>注册处理器必须使用正式编译包中的类型，范围守卫仍解析请求Scope唯一生成Service。</summary>
+    private ServiceProvider ButtonServices(SampleContractActionRun run,string mode="")
+    {
+        var services=new ServiceCollection();RegisterButtonServices(services,run,mode);return services.BuildServiceProvider();
+    }
+    /// <summary>同一正式类型装配供直接合同和MVC回环HTTP共用，替身只负责身份结论和传输。</summary>
+    private void RegisterButtonServices(IServiceCollection services,SampleContractActionRun run,string mode="")
+    {
+        services.AddLogging();services.AddControllers().AddApplicationPart(fixture.Assembly).AddJsonOptions(options=>Metarill.Runtime.JsonDefaults.CopyTo(options.JsonSerializerOptions));
+        services.AddSingleton<IAgentHostResources>(new Published(fixture.Metadata));services.AddSingleton<IRuntimeAuthorization>(run.Authorization);
+        var actor=run.Authorization.RequireActor();
+        if(mode!="identity")services.AddSingleton<ISecurityIdentityAccessor>(new ButtonIdentity(new(actor,new HashSet<string>(),20,mode=="agent"?99:null){PrincipalProjectId=actor.ProjectId,PrincipalAdminTypeId=actor.AdminTypeId}));
+        if(mode!="missing-service")services.AddSingleton(run.Service.GetType(),run.Service);
+        foreach(var id in new[]{"86000","86001","86002"})
+        {
+            var handler=(IOriginalBusinessButtonHandler)Activator.CreateInstance(fixture.Assembly.GetType("Metarill.GlobalSample.Business.SampleContractButtonHandler",true)!,id,run.Business,fixture.Metadata)!;
+            services.AddSingleton<IOriginalBusinessButtonHandler>(mode=="wrong-path"&&id=="86000"?new InvalidButtonPath():handler);
+            if(mode=="duplicate"&&id=="86000")services.AddSingleton(handler);
+        }
+        services.AddSingleton<OriginalBusinessButtonExecutor>();
+    }
+    /// <summary>实际MVC绑定原按钮JSON，原模板控制器与公开业务回传R；身份/数据库仍是离线替身。</summary>
+    [Fact]
+    public async Task Original_central_route_accepts_actual_json_and_returns_single_R_with_conflict_and_rollback()
+    {
+        using var run=fixture.Run();var builder=WebApplication.CreateBuilder(Array.Empty<string>());builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:0");RegisterButtonServices(builder.Services,run);
+        await using var app=builder.Build();
+        // 此处只复现已公开对象规则的HTTP200/R500边界，不声称复现完整生产认证或中间件。
+        app.Use(async(context,next)=>{try{await next();}catch(BusinessRuleException error){context.Response.StatusCode=200;await context.Response.WriteAsJsonAsync(R<object>.Error(error.Message));}});
+        app.MapControllers();await app.StartAsync();
+        try
+        {
+            using var client=new HttpClient{BaseAddress=new Uri(app.Urls.Single()),Timeout=TimeSpan.FromSeconds(20)};
+            const string path="/api/admin/sys/config_button/execute";
+            var entity=new{id="7",name="待处理合同😀",amount=10,remarks="待处理",attachments=Array.Empty<string>()};
+            using var preview=await client.PostAsJsonAsync(path,new{buttonId="86000",entityId="7",entity});Assert.Equal(HttpStatusCode.OK,preview.StatusCode);
+            using var previewBody=JsonDocument.Parse(await preview.Content.ReadAsStringAsync());Assert.Equal(200,previewBody.RootElement.GetProperty("code").GetInt32());Assert.Equal(run.Digest(),previewBody.RootElement.GetProperty("data").GetProperty("expectedDigest").GetString());
+            run.Set("Name","另一次修改");using var stale=await client.PostAsJsonAsync(path,new{buttonId="86001",entityId="7",entity});Assert.Equal(HttpStatusCode.Conflict,stale.StatusCode);Assert.DoesNotContain("write",run.Trace);
+            run.Set("Name","待处理合同😀");using var completed=await client.PostAsJsonAsync(path,new{buttonId="86001",entityId="7",entity});Assert.Equal(HttpStatusCode.OK,completed.StatusCode);
+            using var body=JsonDocument.Parse(await completed.Content.ReadAsStringAsync());Assert.Equal(200,body.RootElement.GetProperty("code").GetInt32());Assert.Equal("已处理",body.RootElement.GetProperty("data").GetProperty("remarks").GetString());Assert.False(body.RootElement.GetProperty("data").TryGetProperty("code",out _));
+            run.Set("Remarks","待处理");var commits=run.Trace.Count(value=>value=="commit");using var rollback=await client.PostAsJsonAsync(path,new{buttonId="86002",entityId="7",entity});Assert.Equal(HttpStatusCode.OK,rollback.StatusCode);
+            using var rejected=JsonDocument.Parse(await rollback.Content.ReadAsStringAsync());Assert.Equal(500,rejected.RootElement.GetProperty("code").GetInt32());Assert.Equal("合同金额不能小于零",rejected.RootElement.GetProperty("msg").GetString());Assert.Equal("待处理",run.Get("Remarks"));Assert.Equal(commits,run.Trace.Count(value=>value=="commit"));Assert.Equal("rollback",run.Trace[^1]);
+        }
+        finally{await app.StopAsync();}
+    }
+    private sealed class ButtonIdentity(AuthenticatedIdentity identity):ISecurityIdentityAccessor
+    {
+        public AuthenticatedIdentity RequireIdentity()=>identity;
+    }
+    private sealed class InvalidButtonPath:IOriginalBusinessButtonHandler
+    {
+        public string ButtonId=>"86000";
+        public string Path=>"https://invalid.example/execute";
+        public Task<IActionResult> ExecuteAsync(OriginalBusinessButtonRequest request,CancellationToken token)=>throw new InvalidOperationException("路径错误不应执行。");
+    }
     private static string? Text(object value, string name) => (string?)value.GetType().GetProperty(name)!.GetValue(value);
     private sealed class Published(MetadataCatalog metadata) : IAgentHostResources
     {
@@ -192,6 +297,7 @@ internal sealed class SampleContractActionRun : IDisposable
     internal DatabaseSession Session { get; }
     internal Action? BeforeLockedRead;
     internal object Business => business;
+    internal object Service {get;}
     internal SampleContractActionRun(Assembly assembly, MetadataCatalog metadata)
     {
         entityType = assembly.GetType("Metarill.GlobalSample.Generated.Entities.SampleContract", true)!; row = Activator.CreateInstance(entityType)!;
@@ -204,6 +310,7 @@ internal sealed class SampleContractActionRun : IDisposable
         Session = new(new() { Provider = "mysql", ExpectedDatabase = "offline" }, orm, new OfflineProvider(this));
         var mapper = Activator.CreateInstance(assembly.GetType("Metarill.GlobalSample.Generated.Mappers.SampleContractMapper", true)!, Session)!;
         var service = Activator.CreateInstance(assembly.GetType("Metarill.GlobalSample.Generated.Services.SampleContractService", true)!, Session, mapper, new SnowflakeIdGenerator(891), new IRecordMutationObserver[] { Observer }, Array.Empty<IRecordMutationGuard>(), Authorization)!;
+        Service=service;
         business = Activator.CreateInstance(assembly.GetType("Metarill.GlobalSample.Business.SampleContractAgentBusiness", true)!, Session, service, Authorization)!;
     }
     /// <summary>执行实际公开业务方法，反射只处理生成后才可知的类型。</summary>

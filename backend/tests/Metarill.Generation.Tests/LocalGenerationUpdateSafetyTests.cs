@@ -46,6 +46,7 @@ public sealed partial class LocalGenerationUpdateTests
     /// <summary>初始化及文件浏览partial按固定运行时路径升级，其他含点源码仍拒绝，不扩成通配写入。</summary>
     [Theory]
     [InlineData("src/Metarill.Security/SecurityRealmMutationGuard.Initialization.cs")]
+    [InlineData("src/Metarill.Security/SecurityRealmMutationGuard.BusinessButtons.cs")]
     [InlineData("src/Metarill.Files/FileLibraryService.Browsing.cs")]
     public void Explicit_runtime_partial_is_upgraded_and_unknown_dotted_source_remains_rejected(string path)
     {

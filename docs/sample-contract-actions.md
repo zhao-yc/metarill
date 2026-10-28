@@ -49,3 +49,8 @@ Controller只绑定严格请求和响应，Business管理外层事务，生成Se
 ## 后续当前读接线（2026-10-29）
 
 原三动作无需改手写业务即可通过更新后的生成锁/更新入口调用[当前权限协调器](business-button-current-authorization.md)。本批35项生成/完整包回归仍通过，但这些业务执行用例中的授权结论和数据库传输仍是明确的离线替身；不能写成真正的角色锁或文件事务验收。授权与业务库不同连接、独立文件来源读取用途等仍在原目标待办内。
+
+
+## 原页面中央按钮接线（2026-10-29）
+
+[原中央入口专项](original-business-button-execution.md)已接平台分支及 FullApplication 原Controller模板，并增加第六份手写 SampleContractButtonHandler。原详情/entity协议进入相同 Business 和生成 Service，预览不写、锁后摘要冲突409、负金额撤销第一笔写入，正常结果保持单层R。源头页面和生成前端不修改。实际模板与JSON回环只替入身份和数据库传输；正式登录/数据库/分布式互斥/父范围仍待，不以本节覆盖历史验收边界。

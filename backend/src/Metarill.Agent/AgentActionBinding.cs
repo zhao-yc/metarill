@@ -60,21 +60,7 @@ internal sealed record AgentActionBinding(AgentPublishedButton Button, Type Body
             || button.Page.RequiresParent && parent.Length != 1) return null;
         if (record.Any(binding => binding.Property is not null && !ScalarIdentifier(binding.Property.PropertyType))
             || parent.Any(binding => binding.Property is not null && !ScalarIdentifier(binding.Property.PropertyType))) return null;
-        GeneratedPageAccessAttribute? access = null; MethodInfo? reader = null;
-        if (!button.Page.IsFunctionTable)
-        {
-            var sources = registered.Select(value => value.ControllerTypeInfo.AsType()).Distinct()
-                .Where(type => type.Namespace?.Contains(".Generated.Controllers", StringComparison.Ordinal) == true)
-                .Select(type => (Type: type, Access: type.GetCustomAttribute<GeneratedPageAccessAttribute>()))
-                .Where(value => value.Access?.PageId == button.Page.Id).ToArray();
-            if (sources.Length != 1) return null;
-            var source = sources[0]; access = source.Access!;
-            if (access.TableId != button.Page.TableId || access.ServiceType.Assembly != source.Type.Assembly || access.EntityType.Assembly != source.Type.Assembly
-                || source.Type.GetConstructors().Length != 1 || source.Type.GetConstructors()[0].GetParameters().Count(parameter => parameter.ParameterType == access.ServiceType) != 1
-                || access.ReadMethod != "ReadButtonRecord" + button.Page.Id + "Async") return null;
-            reader = access.ServiceType.GetMethod(access.ReadMethod, BindingFlags.Public | BindingFlags.Instance, [typeof(long), typeof(string), typeof(string), typeof(RuntimeActor), typeof(CancellationToken)]);
-            if (reader is null || reader.ReturnType != typeof(Task<>).MakeGenericType(access.EntityType)) return null;
-        }
+        if(!TryRecordAccess(button,registered,out var access,out var reader))return null;
         var recordSource = record.SingleOrDefault(); var parentSource = parent.SingleOrDefault();
         var required = schema.GetValueOrDefault("required") is IEnumerable<string> existing ? existing.ToList() : [];
         if (!button.Page.IsFunctionTable && recordSource.Binding == "body") required.Add(declaration.RecordIdField);
@@ -86,6 +72,27 @@ internal sealed record AgentActionBinding(AgentPublishedButton Button, Type Body
             button.Page.Id, button.Id, button.ConfirmationRequired, button.ConfirmationMessage, published.AsReadOnly(), schema,
             AgentJsonSchema.Create(ReturnType(action.MethodInfo.ReturnType)));
         return new(descriptor, action, button.Page.ProjectId, "button") { BusinessAction = binding };
+    }
+
+    /// <summary>Web原按钮与Agent共享真实生成Service归属证明，不按类名选择任意服务。</summary>
+    internal static bool TryRecordAccess(AgentPublishedButton button,IReadOnlyList<ControllerActionDescriptor> registered,out GeneratedPageAccessAttribute? access,out MethodInfo? reader)
+    {
+        access=null;reader=null;
+        if (!button.Page.IsFunctionTable)
+        {
+            var sources = registered.Select(value => value.ControllerTypeInfo.AsType()).Distinct()
+                .Where(type => type.Namespace?.Contains(".Generated.Controllers", StringComparison.Ordinal) == true)
+                .Select(type => (Type: type, Access: type.GetCustomAttribute<GeneratedPageAccessAttribute>()))
+                .Where(value => value.Access?.PageId == button.Page.Id).ToArray();
+            if (sources.Length != 1) return false;
+            var source = sources[0]; var selected = source.Access!; access=selected;
+            if (selected.TableId != button.Page.TableId || selected.ServiceType.Assembly != source.Type.Assembly || selected.EntityType.Assembly != source.Type.Assembly
+                || source.Type.GetConstructors().Length != 1 || source.Type.GetConstructors()[0].GetParameters().Count(parameter => parameter.ParameterType == selected.ServiceType) != 1
+                || selected.ReadMethod != "ReadButtonRecord" + button.Page.Id + "Async") return false;
+            reader = selected.ServiceType.GetMethod(selected.ReadMethod, BindingFlags.Public | BindingFlags.Instance, [typeof(long), typeof(string), typeof(string), typeof(RuntimeActor), typeof(CancellationToken)]);
+            if (reader is null || reader.ReturnType != typeof(Task<>).MakeGenericType(selected.EntityType)) return false;
+        }
+        return true;
     }
 
     /// <summary>使用宿主MVC相同JSON配置绑定实际DTO，再从当前请求及生成记录入口证明范围。</summary>
@@ -101,11 +108,16 @@ internal sealed record AgentActionBinding(AgentPublishedButton Button, Type Body
         if (Button.Page.IsFunctionTable) return;
         var raw = ReadValue(context, value, RecordProperty, RecordBinding, RecordName, options);
         if (!long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0) throw InvalidRequest();
+        await RequireRecordAsync(Button,Access!,Reader!,id,parent,context,authorization);
+    }
+    /// <summary>每次使用请求Scope中唯一的真实生成Service，两个入口均不接受客户端存在性证明。</summary>
+    internal static async Task RequireRecordAsync(AgentPublishedButton button,GeneratedPageAccessAttribute access,MethodInfo reader,long id,string? parent,HttpContext context,IRuntimeAuthorization authorization)
+    {
         // 每次解析当前scope内真实Service；不能随意选第一个注册项或把bool回调视为记录证明。
-        var services = context.RequestServices.GetServices(Access!.ServiceType).ToArray();
+        var services = context.RequestServices.GetServices(access.ServiceType).ToArray();
         if (services.Length != 1 || services[0] is null) throw new InvalidOperationException("业务动作要求唯一的已发布生成Service。");
         Task task;
-        try { task = (Task)Reader!.Invoke(services[0], [id, parent, Button.Id, authorization.RequireActor(), context.RequestAborted])!; }
+        try { task = (Task)reader.Invoke(services[0], [id, parent, button.Id, authorization.RequireActor(), context.RequestAborted])!; }
         catch (TargetInvocationException error) when (error.InnerException is UnauthorizedAccessException or SecurityException)
         { throw new UnauthorizedAccessException("业务记录未授权。"); }
         try { await task; }

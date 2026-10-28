@@ -59,6 +59,7 @@ builder.Services.AddSingleton<AgentAuthenticationService>();
 builder.Services.AddSingleton<AgentPublicRateLimiter>();
 builder.Services.AddSingleton<GeneratedCapabilityIndex>();
 builder.Services.AddScoped<AgentCapabilityCatalog>();
+builder.Services.AddScoped<OriginalBusinessButtonExecutor>();
 builder.Services.AddSingleton(new AgentTaskOptions());
 builder.Services.AddSingleton<AgentTaskStore>();
 builder.Services.AddScoped<CompatibilityButtonBusiness>();

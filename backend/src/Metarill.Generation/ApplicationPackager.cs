@@ -26,7 +26,7 @@ public sealed class ApplicationPackager
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] FoundationProjects = ["Metarill.Core", "Metarill.Data", "Metarill.Exports", "Metarill.Files"];
     private static readonly string[] WebFoundationProjects = [..FoundationProjects,"Metarill.Security","Metarill.Agent","Metarill.Mcp"];
-    private static readonly string[] FullHostAdditionalTemplates=["WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","SessionPolicy.cs","AgentIntegration.cs","McpIntegration.cs","WebSecurityCoordination.cs","SystemMaintenanceController.cs"];
+    private static readonly string[] FullHostAdditionalTemplates=["WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","SessionPolicy.cs","AgentIntegration.cs","McpIntegration.cs","WebSecurityCoordination.cs","SystemMaintenanceController.cs","OriginalBusinessButtonController.cs"];
     /// <summary>管理宿主等同源验收复用生产模板清单，避免新增接线只进入普通包而遗漏管理宿主。</summary>
     internal static IReadOnlyList<string> FullHostSourceTemplates {get;}=Array.AsReadOnly(new[]{"Program.cs","Authentication.cs","PasswordStore.cs","Navigation.cs"}.Concat(FullHostAdditionalTemplates).ToArray());
     /// <summary>仅公开不可修改的工程名快照；既有管理宿主按同一闭包编译，不另维护过期依赖名单。</summary>
