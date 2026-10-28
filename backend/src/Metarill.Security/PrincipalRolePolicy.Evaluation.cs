@@ -31,6 +31,7 @@ public static partial class PrincipalRolePolicy
         var buttons=(currentCatalog?.Buttons??publishedButtons.Values.ToList()).Where(button=>publishedButtons.TryGetValue(button.Id,out var fixedButton)&&
             pages.ContainsKey(button.PageId)&&fixedButton.PageId==button.PageId).Select(button=>button.Id).ToHashSet(StringComparer.Ordinal);
         var scopedGrants=new HashSet<string>(StringComparer.Ordinal);var unrestrictedGrants=new HashSet<string>(StringComparer.Ordinal);
+        var scopedButtons=new HashSet<string>(StringComparer.Ordinal);var unrestrictedButtons=new HashSet<string>(StringComparer.Ordinal);
         var scopeRoleIds=roles.Where(row=>SqlRowStore.Text(row,"is_scope")=="1").Select(row=>SqlRowStore.Text(row,"id")).ToHashSet(StringComparer.Ordinal);
         var permissions=new HashSet<string>(StringComparer.Ordinal);var grantedMenus=new HashSet<string>(StringComparer.Ordinal);var grantedButtons=new HashSet<string>(StringComparer.Ordinal);
         if (super)
@@ -44,7 +45,7 @@ public static partial class PrincipalRolePolicy
         {
             if(row.GetValueOrDefault("delete_no") is not null || !roleIds.Contains(SqlRowStore.Text(row,"yz_role_id")))continue;
             var menu=SqlRowStore.Text(row,"config_menu_id");if(menus.Contains(menu))grantedMenus.Add(menu);
-            var button=SqlRowStore.Text(row,"config_button_id");if(buttons.Contains(button))grantedButtons.Add(button);
+            var button=SqlRowStore.Text(row,"config_button_id");if(buttons.Contains(button)){grantedButtons.Add(button);(scopeRoleIds.Contains(SqlRowStore.Text(row,"yz_role_id"))?scopedButtons:unrestrictedButtons).Add(button);}
             var pageId=SqlRowStore.Text(row,"config_page_id");if(!pages.TryGetValue(pageId,out var definition))continue;
             var enabled=PageActions(definition);enabled.IntersectWith(PageActions(publishedPages[pageId]));
             foreach(var action in PermissionValues(SqlRowStore.Text(row,"permission_values")))
@@ -56,7 +57,9 @@ public static partial class PrincipalRolePolicy
         }
         var inherited=ApplyInheritance(pages,publishedPages,catalogs,currentCatalog,permissions,scopedGrants,unrestrictedGrants,super);
         var exactPermissions=inherited.Exact;
-        var match=exactPermissions.Count==0&&inherited.FileExact.Count==0?(Field:"",Value:(System.Text.Json.JsonElement?)null):ExactDataManageIdentity.Capture(admin,account,registry.ExactDataManageManagerField(projectText,adminText));
-        return new(adminText,projectText,super,platformRealm,platform,roleIds,permissions,grantedMenus,grantedButtons){ExactDataManagePermissions=exactPermissions,InheritedAllPermissions=inherited.InheritedAll,FileQueryPermissions=inherited.FileQueries,FileExactDataManagePermissions=inherited.FileExact,ExactDataManageMatchField=match.Field,ExactDataManageMatchValue=match.Value};
+        // 按钮是独立授权资源；同页普通查询、其它按钮或菜单不能解除该按钮的数据范围。
+        var exactButtons=super?new HashSet<string>(StringComparer.Ordinal):scopedButtons.Except(unrestrictedButtons,StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
+        var match=exactPermissions.Count==0&&inherited.FileExact.Count==0&&exactButtons.Count==0?(Field:"",Value:(System.Text.Json.JsonElement?)null):ExactDataManageIdentity.Capture(admin,account,registry.ExactDataManageManagerField(projectText,adminText));
+        return new(adminText,projectText,super,platformRealm,platform,roleIds,permissions,grantedMenus,grantedButtons){ExactDataManagePermissions=exactPermissions,ExactDataManageButtonIds=exactButtons,InheritedAllPermissions=inherited.InheritedAll,FileQueryPermissions=inherited.FileQueries,FileExactDataManagePermissions=inherited.FileExact,ExactDataManageMatchField=match.Field,ExactDataManageMatchValue=match.Value};
     }
 }

@@ -11,6 +11,9 @@ public sealed record PrincipalRoleRealm(string AdminTypeId, string ProjectId, bo
     /// <summary>逐页面/动作的有效授权全部来自is_scope角色时记录；只保留决策，不代表查询已经执行记录过滤。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlySet<string> ExactDataManagePermissions {get;init;}=new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>仅实际授予该按钮的范围角色参与决策，不能由页面或其它按钮权限取消。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlySet<string> ExactDataManageButtonIds {get;init;}=new HashSet<string>(StringComparer.Ordinal);
     /// <summary>继承的全功能来源只供复制/导入使用，不能绕过来源页标准动作开关。</summary>
     [System.Text.Json.Serialization.JsonIgnore] public IReadOnlySet<string> InheritedAllPermissions {get;init;}=new HashSet<string>(StringComparer.Ordinal);
     /// <summary>文件来源仅聚合直接/真实父子查询，选择页来源不能授予独立文件读取。</summary>
