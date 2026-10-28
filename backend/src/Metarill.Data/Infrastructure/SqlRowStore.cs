@@ -146,6 +146,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
             "int64"=>Convert.ToInt64(value,CultureInfo.InvariantCulture),
             "int32"=>Convert.ToInt32(value,CultureInfo.InvariantCulture),
             "decimal"=>Convert.ToDecimal(value,CultureInfo.InvariantCulture),
+            "double"=>Metarill.Core.Contracts.ExactNumericValue.TryDouble(Convert.ToString(value,CultureInfo.InvariantCulture),out var floating)?floating:throw new FormatException("浮点数必须是有效有限值，不能溢出或下溢为零。"),
             "bool"=>Convert.ToBoolean(value,CultureInfo.InvariantCulture),
             "datetime" or "date"=>value is DateTime date?date:DateTime.Parse(Convert.ToString(value,CultureInfo.InvariantCulture)!,CultureInfo.InvariantCulture),
             "time"=>value is TimeSpan time?time:TimeSpan.Parse(Convert.ToString(value,CultureInfo.InvariantCulture)!,CultureInfo.InvariantCulture),

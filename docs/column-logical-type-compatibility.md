@@ -31,3 +31,7 @@
 六处配置关联使用int64/bigint；原UI整数选项保持int，前端固定展示投影保留原校验/初值，HTTP/Core仍为字符串ID。仅作用于确定的表/字段身份，不改OAuth client_id、请求UUID或普通项目。实体与DTO由正规CLI生成，后台审计仍使用实际类型；既有开发库未自动DDL或覆盖种子，三表实库仍待精确授权。表、接口、接入与回退及实际证据见[平台关联ID类型统一](platform-configuration-id-types.md)。
 
 A15后续已获精确三表授权：固定1eb0c6d真实MySQL1/1零跳过，六字段存取/生成实体及空选择通过，三表已清理并由独立进程新连接核零。只完成固定六字段子集，旧库迁移/完整空库/跨库和性能边界见上述专项。
+
+## 2026-10-29：显式 double 基础链路
+
+补齐显式 double 的 MySQL 规划、反查草案、JSON、行存储及生成 Service／原详情默认值；现有物理 double/float 自动推导为 decimal 的规则保持。范围、更新器回归、接入和未验收边界见 [double 专项](double-logical-type.md)。仅本地验证，未执行真实 double DDL 或修改已有业务数据。

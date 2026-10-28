@@ -43,6 +43,7 @@ public static class MySqlSchemaPlanner
             "int32" => "int",
             "int64" => "bigint",
             "decimal" => DecimalType(column.Precision, column.Scale),
+            "double" => "double",
             "bool" => "tinyint(1)",
             "date" => "date",
             "datetime" => "datetime(6)",
@@ -125,10 +126,12 @@ public static class MySqlSchemaPlanner
         actual.StoreType == expected.StoreType && actual.Nullable == expected.Nullable && actual.PrimaryKey == expected.PrimaryKey
         && CanonicalDefault(actual) == CanonicalDefault(expected) && !actual.Generated;
 
-    /// <summary>MySQL为DECIMAL补齐小数位；仅精确文本归一，不使用数值舍入或修改声明。</summary>
+    /// <summary>默认值按声明归一：DECIMAL保持精确文本，DOUBLE按binary64往返值比较，不修改类型声明。</summary>
     private static string? CanonicalDefault(ColumnSchema column)
     {
         var value=column.DefaultSql;
+        // DOUBLE默认值按真实浮点往返格式归一，避免MySQL指数大小写与尾零导致重复差异；decimal仍走精确文本。
+        if(value is not null&&column.StoreType=="double"&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(value,out var floating))return (floating==0?"0":floating.ToString("R",CultureInfo.InvariantCulture));
         if(value is null||!System.Text.RegularExpressions.Regex.IsMatch(column.StoreType,@"^decimal[(][0-9]+,[0-9]+[)]$")||!System.Text.RegularExpressions.Regex.IsMatch(value,@"^[+-]?[0-9]+(?:[.][0-9]+)?$"))return value;
         var negative=value[0]=='-';var parts=value.TrimStart('+','-').Split('.',2);var integer=parts[0].TrimStart('0');if(integer.Length==0)integer="0";var fraction=parts.Length==2?parts[1].TrimEnd('0'):"";
         return (negative&&(integer!="0"||fraction.Length>0)?"-":"")+integer+(fraction.Length==0?"":"."+fraction);
@@ -189,6 +192,7 @@ public static class MySqlSchemaPlanner
             "int32" when int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) => i.ToString(CultureInfo.InvariantCulture),
             "int64" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) => l.ToString(CultureInfo.InvariantCulture),
             "decimal" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) => d.ToString(CultureInfo.InvariantCulture),
+            "double" when Metarill.Core.Contracts.ExactNumericValue.TryDouble(value,out var floating)=>(floating==0?"0":floating.ToString("R",CultureInfo.InvariantCulture)),
             "bool" when value is "true" or "1" => "1",
             "bool" when value is "false" or "0" => "0",
             _ => throw new InvalidOperationException("该字段默认值不是受支持的安全常量。")

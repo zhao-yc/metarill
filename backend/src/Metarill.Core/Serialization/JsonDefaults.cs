@@ -14,6 +14,7 @@ public static class JsonDefaults
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true, NumberHandling = JsonNumberHandling.AllowReadingFromString };
         options.Converters.Add(new StringLongJsonConverter());
+        options.Converters.Add(new FiniteDoubleJsonConverter());
         options.Converters.Add(new CompatibleDateTimeConverter());
         return options;
     }
@@ -23,6 +24,7 @@ public static class JsonDefaults
         options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         options.NumberHandling = JsonNumberHandling.AllowReadingFromString;
         options.Converters.Add(new StringLongJsonConverter());
+        options.Converters.Add(new FiniteDoubleJsonConverter());
         options.Converters.Add(new CompatibleDateTimeConverter());
     }
     private sealed class CompatibleDateTimeConverter : JsonConverter<DateTime>

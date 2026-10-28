@@ -48,6 +48,7 @@ public sealed partial class LocalGenerationUpdateTests
     [InlineData("src/Metarill.Security/SecurityRealmMutationGuard.Initialization.cs")]
     [InlineData("src/Metarill.Security/SecurityRealmMutationGuard.BusinessButtons.cs")]
     [InlineData("src/Metarill.Files/FileLibraryService.Browsing.cs")]
+    [InlineData("src/Metarill.Data/Schema/SchemaService.IndexDirections.cs")]
     public void Explicit_runtime_partial_is_upgraded_and_unknown_dotted_source_remains_rejected(string path)
     {
         var(target,candidate)=Packages(Catalog(),Catalog());

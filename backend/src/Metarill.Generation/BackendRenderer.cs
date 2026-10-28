@@ -174,7 +174,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); {TrustedSecurityServiceCompilation.GuardsAssignment(model,table)} {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
             .AppendLine("    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();")
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
-            .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter()); return options; }")
+            .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter());"+(table.Columns.Any(column=>column.Type=="double?")?" options.Converters.Add(new global::Metarill.Core.Contracts.FiniteDoubleJsonConverter());":"")+" return options; }")
             .AppendLine("    /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>")
             .AppendLine("    private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException(\"登录身份无效。\");"+(GlobalCachedSourceCompilation.BindsActor(model)?$" if(actor.ProjectId!={Literal(model.Catalog.YzProjectId)})throw new UnauthorizedAccessException(\"当前身份不属于已发布全局来源目录。\");":"")+" }")
             .AppendLine("    /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>")
@@ -517,6 +517,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (compatibility.Length != 0) condition = $"({condition}) && !({compatibility})";
             result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");
         }
+        // JSON入口之外，手写钩子及服务端直接调用同样不能把非有限浮点交给数据库。
+        foreach(var column in table.Columns.Where(column=>column.Type=="double?"&&NonRedundantReadCompilation.Physical(model,table,column)))
+            result.AppendLine($"        if (entity.{column.Property} is {{ }} number{column.Property} && !double.IsFinite(number{column.Property})) throw new ArgumentException({Literal(column.Source.Name+"必须是有效有限浮点数。")});");
         // 原后台初始化用户名/密码沿用页面物理长度；只校验本次提交值，省略字段不触及旧配置。
         if(table.Source.Id=="1696799308939239425"&&table.Source.TableName=="yz_admin_type"&&page.Source.Id=="1696799309006348290")
             foreach(var column in page.Writable.Where(column=>column.Type=="string?"&&
@@ -532,6 +535,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         try
         {
             var raw = column.Source.DefaultValue;
+            if(column.Type=="double?")
+            {
+                if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(raw,out var floating))throw new InvalidOperationException("浮点默认值必须是有效有限值，不能溢出或下溢为零："+column.Source.ColumnName);
+                raw=floating==0?"0":floating.ToString("R",System.Globalization.CultureInfo.InvariantCulture);
+            }
             if (column.Type is "DateTime?") raw = Literal(raw);
             using var parsed = JsonDocument.Parse(raw);
             return $"JsonSerializer.Deserialize<{column.Type}>({Literal(raw)}, JsonOptions)";

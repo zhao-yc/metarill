@@ -24,6 +24,8 @@ public sealed partial class LocalGenerationUpdater
     { "backend/metadata/project.json", SecurityCatalogBindingPath, "frontend/common/application.generated.json", "frontend/pages.json", "frontend/pages.generated.json", "backend/generated/frontend/pages.generated.json" };
     private static readonly HashSet<string> RuntimeFiles = new(StringComparer.Ordinal)
     {
+      // 索引方向partial按精确路径升级，未知多点源码仍拒绝。
+      "src/Metarill.Data/Schema/SchemaService.IndexDirections.cs",
       // 跨表读取partial只登记这一路径，未知多点源码继续拒绝。
       "src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.CrossTable.cs",
       "src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.SharedCrossTable.cs",
@@ -73,6 +75,8 @@ public sealed partial class LocalGenerationUpdater
         if(frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"backend/metadata/security.json","backend/Application.Host/WebAuthentication.cs","backend/Application.Host/SecurityInitialization.cs","src/Metarill.Security/Metarill.Security.csproj"});
         // 旧Full仍可预览显式运行时升级；当前候选不能同时删源码和归属来伪造完整协调闭包。
         if(candidate&&frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"backend/Application.Host/SessionPolicy.cs", "backend/Application.Host/AgentIntegration.cs", "backend/Application.Host/McpIntegration.cs", "src/Metarill.Agent/AgentFoundationCatalog.g.cs", "frontend/pages/custom/agent_authorize.vue", "frontend/pages/custom/agent_grants.vue","backend/Application.Host/WebSecurityCoordination.cs","backend/Application.Host/SystemMaintenanceController.cs", "backend/Application.Host/OriginalBusinessButtonController.cs", "src/Metarill.Core/Metadata/ButtonVisibilityRule.cs", "src/Metarill.Agent/AgentButtonVisibility.cs", "src/Metarill.Core/Persistence/IBusinessButtonExecutionGuard.cs", "src/Metarill.Data/DatabaseExecutionLeases.cs", "src/Metarill.Data/MySqlExecutionLocks.cs", "src/Metarill.Data/Coordination/DatabaseButtonExecutionGuard.cs"});
+        // 公共JsonDefaults始终引用浮点转换器；无double业务列的当前候选也必须带齐其解析依赖。
+        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs","src/Metarill.Core/Contracts/ExactNumericValue.cs"});
         foreach (var required in bootstrap)
             if (!entries.ContainsKey(required)) throw new InvalidOperationException("完整包缺少必要启动归属：" + required);
         foreach (var entry in generatedEntries.Values)

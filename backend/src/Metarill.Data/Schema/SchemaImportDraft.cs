@@ -88,7 +88,7 @@ public static class SchemaImportDraftCompiler
         else if (decimalType.Success) { column.LogicalType = "decimal"; column.ColumnType = "decimal"; column.Precision = int.Parse(decimalType.Groups[1].Value, CultureInfo.InvariantCulture); column.Scale = int.Parse(decimalType.Groups[2].Value, CultureInfo.InvariantCulture); }
         else
         {
-            column.LogicalType = type switch { "int" => "int32", "bigint" => "int64", "tinyint(1)" => "bool", "text" or "longtext" => "string", "date" => "date", "datetime(6)" => "datetime", "time(6)" => "time", "json" => "json", "longblob" => "binary", _ => throw new NotSupportedException("当前逻辑类型不能无损表达物理类型：" + type) };
+            column.LogicalType = type switch { "int" => "int32", "bigint" => "int64", "double" => "double", "tinyint(1)" => "bool", "text" or "longtext" => "string", "date" => "date", "datetime(6)" => "datetime", "time(6)" => "time", "json" => "json", "longblob" => "binary", _ => throw new NotSupportedException("当前逻辑类型不能无损表达物理类型：" + type) };
             column.ColumnType = type switch { "tinyint(1)" => "tinyint", "datetime(6)" => "datetime", "time(6)" => "time", _ => type };
             if (type is "text" or "longtext") column.ColumnLength = type;
         }

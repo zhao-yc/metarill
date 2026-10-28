@@ -38,7 +38,13 @@ internal static class OriginalUniappDetailFields
     private static string Default(OriginalDetailField f)
     {
         if (f.Column.Source.ControlKind is "Image" or "MultiImage" or "Upload" or "Video" or "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage") return "[]";
-        if (f.Column.Type is "long" or "long?" or "int?" or "decimal?" or "double?" && !string.IsNullOrWhiteSpace(f.Default))
+        // double默认值按有限binary64解析，保持原控件及数值绑定，避免误用decimal范围拒绝。
+        if(f.Column.Type=="double?"&&!string.IsNullOrWhiteSpace(f.Default))
+        {
+            if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(f.Default,out var floating))throw new InvalidOperationException("原详情浮点默认值无效："+f.Column.Source.ColumnName);
+            return floating==0?"0":floating.ToString("R",CultureInfo.InvariantCulture);
+        }
+        if (f.Column.Type is "long" or "long?" or "int?" or "decimal?" && !string.IsNullOrWhiteSpace(f.Default))
         {
             if (!decimal.TryParse(f.Default, NumberStyles.Float, CultureInfo.InvariantCulture, out _)) throw new InvalidOperationException("原详情数值默认值无效：" + f.Column.Source.ColumnName);
             return f.Column.Type is "long" or "long?" ? Js(f.Default) : f.Default;
