@@ -198,10 +198,13 @@ public sealed class GeneratedMutationGuardRun : IDisposable
         var orm = Proxy<IFreeSql>((method, args) => method.Name switch { "Select" => Select(method.GetGenericArguments()[0]), "Insert" or "Update" or "Delete" => Command(method.ReturnType, method.Name), _ => throw new NotSupportedException(method.Name) });
         Session = new(new() { Provider = "mysql", ExpectedDatabase = "offline" }, orm, new OfflineProvider(Trace));
     }
-    public object Service(IRecordMutationGuard[] guards, IRecordMutationObserver[]? observers = null)
+    /// <summary>旧样本保持五参数构造；按钮样本显式提供真实授权测试入口。</summary>
+    public object Service(IRecordMutationGuard[] guards, IRecordMutationObserver[]? observers = null, IRuntimeAuthorization? authorization = null)
     {
         var mapper = Activator.CreateInstance(assembly.GetType("Example.GuardContract.Generated.Mappers.CustomerMapper", true)!, Session);
-        return Activator.CreateInstance(assembly.GetType("Example.GuardContract.Generated.Services.CustomerService", true)!, Session, mapper, new SnowflakeIdGenerator(841), observers ?? [], guards)!;
+        var type=assembly.GetType("Example.GuardContract.Generated.Services.CustomerService",true)!;
+        object?[] args=[Session,mapper,new SnowflakeIdGenerator(841),observers??[],guards];
+        return Activator.CreateInstance(type,type.GetConstructors().Single().GetParameters().Length==6?[..args,authorization]:args)!;
     }
     public object? Request(RecordMutationOperation operation, string json)
     {

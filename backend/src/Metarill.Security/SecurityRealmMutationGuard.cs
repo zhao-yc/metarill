@@ -46,7 +46,7 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
         if(!_states.TryGetValue(validation.Transaction,out var state))throw Changed();
         var pending=state.Pending.LastOrDefault(item=>item.Preparation.PageId==validation.PageId&&item.Preparation.Operation==validation.Operation&&
             (validation.Operation is RecordMutationOperation.Create or RecordMutationOperation.Copy||item.Preparation.TargetId==validation.RecordId));
-        if(pending is null)throw Changed();
+        if(pending is null||pending.Preparation.BusinessButtonId!=validation.BusinessButtonId)throw Changed();
         RequireSameRequest(state.Request,request);
         await RefreshLocks(state,cancellationToken);
         var current=await reader.ReadAsync(request,state.Locks,cancellationToken);

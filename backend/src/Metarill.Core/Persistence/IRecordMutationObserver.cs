@@ -5,6 +5,8 @@ namespace Metarill.Core.Persistence;
 public sealed record RecordMutationContext(string PageId,string TableName,long RecordId,string ProjectId,
     IReadOnlyDictionary<string,object?> SubmittedFields,bool IsDelete,DbTransaction Transaction,bool IsCreate=false)
 {
+    /// <summary>生成的业务更新来源，只适用于更新既有记录；不增加请求字段或构造参数。</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? BusinessButtonId { get; init; }
     /// <summary>仅由服务端生成入口设置原操作；不增加HTTP字段，也不改变既有构造函数签名。</summary>
     public RecordMutationOperation? AuthorizationOperation { get; init; }
 }

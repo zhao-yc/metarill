@@ -19,13 +19,17 @@ internal static partial class BackendRenderer
             .AppendLine($"    public async Task<{table.Name}?> ReadButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);")
             .AppendLine("    /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>")
             .AppendLine($"    public async Task<{table.Name}?> LockButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);")
-            .AppendLine("    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>")
-            .AppendLine($"    private ISelect<{table.Name}> ButtonRecordQuery{suffix}(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)")
+            .AppendLine("    /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>")
+            .AppendLine($"    private void RequireButtonRecordAccess{suffix}(long id,string buttonId,RuntimeActor actor)")
             .AppendLine("    {").AppendLine("        ValidateActor(actor);if(id<=0)throw new ArgumentException(\"业务记录标识无效。\");")
             .AppendLine($"        if(buttonId is not ({string.Join(" or ",buttons.Select(Literal))}))throw new UnauthorizedAccessException(\"按钮不属于当前已发布业务页面。\");")
             .AppendLine("        var authorization=relationAuthorization??throw new UnauthorizedAccessException(\"业务记录需要宿主真实授权。\");")
             .AppendLine("        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"业务记录身份与当前真实身份不一致。\");")
             .AppendLine($"        authorization.RequireButtonPermission({Literal(suffix)},buttonId);")
+            .AppendLine("    }")
+            .AppendLine("    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>")
+            .AppendLine($"    private ISelect<{table.Name}> ButtonRecordQuery{suffix}(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)")
+            .AppendLine("    {").AppendLine($"        RequireButtonRecordAccess{suffix}(id,buttonId,actor);")
             .AppendLine("        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException(\"业务记录锁定必须加入真实写事务。\");")
             .AppendLine("        var query=mapper.Query().Where(entity=>entity.Id==id);");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
@@ -40,4 +44,19 @@ internal static partial class BackendRenderer
         if(ManagerCredentialCompilation.Unsupported(table,page))result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         return result.AppendLine("        return locking?query.ForUpdate():query;").AppendLine("    }").ToString();
     }
+    /// <summary>业务按钮与普通更新复用一个生成核心；页面关闭普通更新时也不伪造页面授权。</summary>
+    private static string BusinessUpdateEntry(TableModel table,PageModel page,bool standardUpdate)
+    {
+        var suffix=page.Source.Id;var result=new StringBuilder();
+        if(standardUpdate)result.AppendLine($"    public Task<{page.Name}Vo> Update{suffix}Async({page.Name}UpdateRequest request,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)=>Update{suffix}CoreAsync(request,parentId,actor,null,cancellationToken);");
+        return result.AppendLine("    /// <summary>只供服务端固定业务动作调用；仍使用本页字段存在性、对象/关系规则和同一事务。</summary>")
+            .AppendLine($"    public Task<{page.Name}Vo> UpdateButtonRecord{suffix}Async({page.Name}UpdateRequest request,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)")
+            .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
+            .AppendLine($"        RequireButtonRecordAccess{suffix}(request.Id,buttonId,actor);")
+            .AppendLine($"        return Update{suffix}CoreAsync(request,parentId,actor,null,cancellationToken,buttonId);").AppendLine("    }")
+            .AppendLine("    /// <summary>普通/导入/按钮来源显式进入共同写入核心，客户端无来源开关。</summary>")
+            .AppendLine($"    private Task<{page.Name}Vo> Update{suffix}CoreAsync({page.Name}UpdateRequest request,string? parentId,RuntimeActor actor,RecordMutationOperation? authorizationOperation,CancellationToken cancellationToken,string? businessButtonId=null)=>session.InTransactionAsync(async()=>")
+            .ToString();
+    }
+
 }

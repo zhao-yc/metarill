@@ -116,14 +116,19 @@ public partial class YzManagerDevicesService
     public async Task<YzManagerDevices?> ReadButtonRecord6220589291798528Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6220589291798528(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
     /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
     public async Task<YzManagerDevices?> LockButtonRecord6220589291798528Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6220589291798528(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);
-    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
-    private ISelect<YzManagerDevices> ButtonRecordQuery6220589291798528(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>
+    private void RequireButtonRecordAccess6220589291798528(long id,string buttonId,RuntimeActor actor)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("业务记录标识无效。");
         if(buttonId is not ("2034487360028282880" or "2034487360028282881"))throw new UnauthorizedAccessException("按钮不属于当前已发布业务页面。");
         var authorization=relationAuthorization??throw new UnauthorizedAccessException("业务记录需要宿主真实授权。");
         if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("业务记录身份与当前真实身份不一致。");
         authorization.RequireButtonPermission("6220589291798528",buttonId);
+    }
+    /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
+    private ISelect<YzManagerDevices> ButtonRecordQuery6220589291798528(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    {
+        RequireButtonRecordAccess6220589291798528(id,buttonId,actor);
         if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
         var query=mapper.Query().Where(entity=>entity.Id==id);
         query=query.Where(entity=>entity.YzProjectId==long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
@@ -209,12 +214,23 @@ public partial class YzManagerDevicesService
         return YzManagerDevicesPage6220589291798528Vo.FromEntity(entity);
     }, cancellationToken);
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
-    public Task<YzManagerDevicesPage6220589291798528Vo> Update6220589291798528Async(YzManagerDevicesPage6220589291798528UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
+    public Task<YzManagerDevicesPage6220589291798528Vo> Update6220589291798528Async(YzManagerDevicesPage6220589291798528UpdateRequest request,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)=>Update6220589291798528CoreAsync(request,parentId,actor,null,cancellationToken);
+    /// <summary>只供服务端固定业务动作调用；仍使用本页字段存在性、对象/关系规则和同一事务。</summary>
+    public Task<YzManagerDevicesPage6220589291798528Vo> UpdateButtonRecord6220589291798528Async(YzManagerDevicesPage6220589291798528UpdateRequest request,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        RequireButtonRecordAccess6220589291798528(request.Id,buttonId,actor);
+        return Update6220589291798528CoreAsync(request,parentId,actor,null,cancellationToken,buttonId);
+    }
+    /// <summary>普通/导入/按钮来源显式进入共同写入核心，客户端无来源开关。</summary>
+    private Task<YzManagerDevicesPage6220589291798528Vo> Update6220589291798528CoreAsync(YzManagerDevicesPage6220589291798528UpdateRequest request,string? parentId,RuntimeActor actor,RecordMutationOperation? authorizationOperation,CancellationToken cancellationToken,string? businessButtonId=null)=>session.InTransactionAsync(async()=>
+
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if(businessButtonId is not null){if(authorizationOperation is not(null or RecordMutationOperation.Update))throw new UnauthorizedAccessException("业务按钮不能冒充导入或其它来源。");RequireButtonRecordAccess6220589291798528(request.Id,businessButtonId,actor);}
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
-        await PrepareMutationAsync("6220589291798528", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
-        var entity = await Scope6220589291798528(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        await PrepareMutationAsync("6220589291798528", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues, businessButtonId);
+        var entity = await (businessButtonId is null ? Scope6220589291798528(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery6220589291798528(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.YzManagerId.IsSpecified) { entity.YzManagerId = request.YzManagerId.Value; submitted.Add("yz_manager_id"); }
@@ -231,9 +247,10 @@ public partial class YzManagerDevicesService
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations6220589291798528Async(entity, actor, false, submitted, cancellationToken);
         if (entity.YzManagerId is null) throw new ArgumentException("\u7BA1\u7406\u5458\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        await ValidateMutationAsync("6220589291798528", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
+        if(businessButtonId is not null)RequireButtonRecordAccess6220589291798528(request.Id,businessButtonId,actor);
+        await ValidateMutationAsync("6220589291798528", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken, businessButtonId);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
-        await NotifyYzManagerDevicesAsync("6220589291798528", entity, actor, submitted, false, false, cancellationToken);
+        await NotifyYzManagerDevicesAsync("6220589291798528", entity, actor, submitted, false, false, cancellationToken, businessButtonId);
         return YzManagerDevicesPage6220589291798528Vo.FromEntity(entity);
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
@@ -258,28 +275,29 @@ public partial class YzManagerDevicesService
         }) : EmptyMutationScope;
     private static readonly IReadOnlyDictionary<string, object?> EmptyMutationScope = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
     /// <summary>身份先验证，归属值仅为提示，宿主必须在当前读中验证实际项目和后台。</summary>
-    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken, long? targetId = null, IReadOnlyDictionary<string, object?>? scopeValues = null)
+    private async Task PrepareMutationAsync(string pageId, RecordMutationOperation operation, RuntimeActor actor, CancellationToken cancellationToken, long? targetId = null, IReadOnlyDictionary<string, object?>? scopeValues = null, string? businessButtonId = null)
     {
         ValidateActor(actor);
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入准备要求当前事务。");
         var preparation = new RecordMutationPreparation(pageId, "yz_manager_devices", operation, actor, transaction)
         {
             TargetId = targetId,
-            ScopeValues = scopeValues is null ? EmptyMutationScope : new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(scopeValues, StringComparer.Ordinal))
+            ScopeValues = scopeValues is null ? EmptyMutationScope : new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(scopeValues, StringComparer.Ordinal)),
+            BusinessButtonId = businessButtonId
         };
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, YzManagerDevices entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, YzManagerDevices entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
         var validation = new RecordMutationValidation(pageId, "yz_manager_devices", operation, entity.Id, actor,
-            original ?? EmptyMutationScope, MutationScopeValues(entity), new HashSet<string>(submitted, StringComparer.Ordinal), transaction);
+            original ?? EmptyMutationScope, MutationScopeValues(entity), new HashSet<string>(submitted, StringComparer.Ordinal), transaction) { BusinessButtonId = businessButtonId };
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyYzManagerDevicesAsync(string pageId, YzManagerDevices entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
+    private async Task NotifyYzManagerDevicesAsync(string pageId, YzManagerDevices entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         var values = new Dictionary<string, object?>
         {
@@ -301,7 +319,7 @@ public partial class YzManagerDevicesService
         };
         if (!allFields) values = values.Where(item => item.Key == "id" || submitted.Contains(item.Key)).ToDictionary(item => item.Key, item => item.Value);
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入观察者要求当前事务。");
-        var context = new RecordMutationContext(pageId, "yz_manager_devices", entity.Id, Convert.ToString(entity.YzProjectId, CultureInfo.InvariantCulture) ?? string.Empty, values, deleting, transaction, IsCreate: allFields && !deleting);
+        var context = new RecordMutationContext(pageId, "yz_manager_devices", entity.Id, Convert.ToString(entity.YzProjectId, CultureInfo.InvariantCulture) ?? string.Empty, values, deleting, transaction, IsCreate: allFields && !deleting) { BusinessButtonId = businessButtonId };
         foreach (var observer in observers) await observer.BeforeCommitAsync(context, cancellationToken);
     }
 }

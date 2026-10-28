@@ -29,7 +29,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         if(!columns.Any(column=>column.ColumnName=="yz_project_id"))throw new NotSupportedException("物理文件删除要求真实项目归属列。");
         if(columns.Any(column=>column.ColumnName=="delete_no"))throw new InvalidOperationException("逻辑删除不能获取物理删除证明。");
         if(context.Transaction is null||context.Transaction.Connection is null||!ReferenceEquals(context.Transaction,store.Session.CurrentTransaction))throw new InvalidOperationException("物理删除准备要求原业务连接及事务。");
-        var actor=authorization.RequireActor();if(actor.ProjectId!=context.ProjectId||catalog.YzProjectId!=context.ProjectId||context.RecordId<=0)throw new UnauthorizedAccessException("物理删除项目范围无效。");authorization.RequirePagePermission(page.Id,"delete");
+        var actor=authorization.RequireActor();if(actor.ProjectId!=context.ProjectId||catalog.YzProjectId!=context.ProjectId||context.RecordId<=0)throw new UnauthorizedAccessException("物理删除项目范围无效。");RequireMutationPermission(context,authorization);
         var scope=registry.PageScope(catalog,page);var record=await LockRecordAsync(context,columns,cancellationToken,scope);var parents=await LockParentsAsync(context,scope,record,cancellationToken);
         var proofs=deletions.GetValue(context.Transaction,_=>new());if(!proofs.TryAdd((context.PageId,context.TableName,context.RecordId),new(actor,context.ProjectId,new ReadOnlyDictionary<string,object?>(record),Array.AsReadOnly(parents))))throw new InvalidOperationException("同一记录物理删除已经准备，不能覆盖证明。");
     }
@@ -51,7 +51,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var actor = authorization.RequireActor();
         if (actor.ProjectId != context.ProjectId || catalog.YzProjectId != actor.ProjectId || context.RecordId <= 0)
             throw new UnauthorizedAccessException("文件引用项目范围无效。");
-        authorization.RequirePagePermission(page.Id, AuthorizationAction(context));
+        RequireMutationPermission(context,authorization);
         // 标准Service已按写前范围授权；写后允许离页，仅复用完整计划及真实父锁，不以新值重做页面筛选。
         var scope = registry.PageScope(catalog,page);
         var proof = context.IsDelete&&!tableColumns.Any(column=>column.ColumnName=="delete_no")?await ConsumePhysicalDeletionAsync(context,actor,cancellationToken):null;
@@ -130,9 +130,18 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         return await command.ExecuteScalarAsync(token) is not null;
     }
 
+    /// <summary>普通入口仍取原动作，业务更新只检查实际按钮；来源状态在任何授权调用前核验。</summary>
+    internal static void RequireMutationPermission(RecordMutationContext context,IRuntimeAuthorization authorization)
+    {
+        var action=AuthorizationAction(context);
+        if(context.BusinessButtonId is {} button)authorization.RequireButtonPermission(context.PageId,button);
+        else authorization.RequirePagePermission(context.PageId,action);
+    }
     /// <summary>保留导入/复制的原页动作；真实身份和页权仍逐次核验，矛盾状态及未知枚举不能转成其它动作。</summary>
     internal static string AuthorizationAction(RecordMutationContext context)
     {
+        if(context.BusinessButtonId is not null&&(string.IsNullOrWhiteSpace(context.BusinessButtonId)||context.RecordId<=0||context.IsDelete||context.IsCreate||context.AuthorizationOperation is not (null or RecordMutationOperation.Update)))
+            throw new UnauthorizedAccessException("业务按钮文件来源只允许更新实际既有记录。");
         if(context.IsDelete&&context.IsCreate)throw new UnauthorizedAccessException("文件变更状态矛盾。");
         return context.AuthorizationOperation switch
         {
