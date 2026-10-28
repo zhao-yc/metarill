@@ -33,9 +33,12 @@ internal static class GlobalCachedSourceNativePreparation
     /// <summary>不启动固定原包；显式安装会写结构审计，所有执行状态放到本轮独占副本。</summary>
     internal static GlobalCachedPackageProof CopyForExecution(GlobalCachedPackageProof proof,string output,bool parentFiles)
     {
-        Verify(proof,parentFiles);if(Directory.Exists(output)||File.Exists(output))throw new InvalidOperationException("执行副本必须是新目录。");Directory.CreateDirectory(output);
-        foreach(var item in proof.Files){var target=CSharpGenerator.SafePath(output,item.Key);Directory.CreateDirectory(Path.GetDirectoryName(target)!);File.Copy(CSharpGenerator.SafePath(proof.PackageRoot,item.Key),target);}
-        var copied=Capture(output);Verify(copied,parentFiles);return copied;
+        Verify(proof,parentFiles);
+        // Path.Combine不会规范内嵌的另一种分隔符；先固定绝对根，再交给原越界/链接守卫。
+        var root=Path.GetFullPath(output);if(Directory.Exists(root)||File.Exists(root))throw new InvalidOperationException("执行副本必须是新目录。");
+        _=CSharpGenerator.SafePath(root,".metarill-execution-boundary");Directory.CreateDirectory(root);
+        foreach(var item in proof.Files){var target=CSharpGenerator.SafePath(root,item.Key);Directory.CreateDirectory(Path.GetDirectoryName(target)!);File.Copy(CSharpGenerator.SafePath(proof.PackageRoot,item.Key),target);}
+        var copied=Capture(root);Verify(copied,parentFiles);return copied;
     }
     /// <summary>运行白名单不来自配置或请求，且初始固定包不能已经含有运行日志。</summary>
     private static MetadataCatalog VerifyCore(GlobalCachedPackageProof proof,bool parentFiles,bool runtime)
