@@ -32,7 +32,8 @@ internal static class SecurityManagementModuleFactory
     private const string ModuleId = "security-management-v1";
     private const string SourceProject = "1608097412978577409", SourceAdmin = "1762777514515656705";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SecurityManagementModelSet, object> Issued = new();
+    private sealed record IssuedApplication(string Json);
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SecurityManagementModelSet, IssuedApplication> Issued = new();
     private static readonly Dictionary<string, string> Tables = new(StringComparer.Ordinal)
     { ["6031906809708544"]="yz_manager", ["1692532858499969026"]="yz_role", ["1696799308939239425"]="yz_admin_type" };
     private static readonly Dictionary<string, string> Pages = new(StringComparer.Ordinal)
@@ -70,7 +71,7 @@ internal static class SecurityManagementModuleFactory
         var noPages = Clone(published); noPages.ConfigPages.Clear(); noPages.ConfigPageColumns.Clear();
         _ = MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(noPages, asset.Files), asset.Security);
         var result = new SecurityManagementModelSet(physical, published, new(ModuleId, sha, application.YzProjectId, selected[0].Id), asset.PendingAdapters);
-        Issued.Add(result, new object());
+        Issued.Add(result, new(JsonSerializer.Serialize(application,Json)));
         return result;
     }
 
@@ -86,6 +87,14 @@ internal static class SecurityManagementModuleFactory
         ArgumentNullException.ThrowIfNull(models);
         RequireIssued(models);
         return models.Published;
+    }
+
+    /// <summary>独立准备包只从签发记录取得原业务目录，不能从带安全表的业务JSON反推可信模块。</summary>
+    internal static MetadataCatalog RequireApplicationForPreparation(SecurityManagementModelSet models)
+    {
+        RequireIssued(models);
+        if(!Issued.TryGetValue(models,out var source))throw Rejected();
+        return JsonSerializer.Deserialize<MetadataCatalog>(source.Json,Json)!;
     }
 
     /// <summary>摘要绑定固定嵌入字节，业务输入不能提供另一份模块或预期摘要。</summary>

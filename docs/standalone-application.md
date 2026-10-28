@@ -126,3 +126,8 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 ## 公共MCP接线（2026-10-28）
 
 完整包已包含独立Mcp公共工程、可信目录绑定及 `/api/mcp` Stateless Streamable HTTP；平台原六操作分派也复用该工程。工具保持原强类型Service与逐次页权，Agent仅允许读取，写入继续走任务保护HTTP；开发身份、缺配置或匿名均拒绝。BackendOnly不增加该正式宿主。没有新增页面、表、DDL或任意SQL入口。实际SDK协议/离线夹具、完整包及正式身份验证须分列，详见 [MCP接线与未验收边界](standalone-mcp.md)。
+
+
+## 管理模块同源准备（2026-10-29，未开放普通Full发布）
+
+[C20同源装配](security-management-application-preparation.md)已将真实三份安全partial、原权限工作台及基础工程/生产宿主/Web/Agent/MCP装入独立准备包，通过包自身严格构建、只读DI和匿名401。只有工厂真签发对象可进入内部准备路径；准备结果保留所有后端缺口，`readyForPublication=false`且没有普通Full标记。普通Create和初始化门禁不变，C06规则及后续真实管理矩阵仍待，不能把这一准备子集写成C05完整交付。

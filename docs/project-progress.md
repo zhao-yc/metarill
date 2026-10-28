@@ -158,7 +158,7 @@
 | C02 | ✅ 已完成 | 独立应用基础正式 Web 认证 | 数据库账号／持久会话、登录权限、改密、注销、重启后会话及禁用／撤权已在固定场景实测；不等于完整管理 CRUD。 | [正式Web认证](standalone-web-authentication.md) |
 | C03 | ✅ 已完成 | 本地生成更新与恢复 | 三种更新范围、preview／apply／recover、归属与摘要校验、手写／配置保护和失败恢复已验证。 | [本地更新](local-generation-update.md) |
 | C04 | ✅ 已完成 | 原首页三按钮到真实工程闭环 | 原交互→队列→本机受控更新→回执已分批浏览器实证；额外迟到／换身份场景另验。 | [在线助手浏览器验收](testing/online-helper-browser-acceptance.md) |
-| C05 | 🟡 部分完成 | 独立项目完整管理模块 | 平台已有安全协调、可信管理模块及实库证据；C14补当前生产Program与三管理页的依赖/模板配套及DI/匿名证明；仍需完整下发三个手写 Service 扩展、工作台和相关自定义组件并正式验收，整体运行时门槛未解除。 | [独立应用](standalone-application.md)、[可信管理实库](testing/trusted-management-runtime-mysql.md) |
+| C05 | 🟡 部分完成 | 独立项目完整管理模块 | 平台/可信管理模块已有分批实库证据；C14接当前生产Program，C20再将三份安全partial、原工作台/组件、全基础源码与Web/Agent/MCP同源装入独立准备包。实际独立构建、真实3Service DI/匿名401及127离线回归通过，705普通产物不变。C06初始化规则、公开Full打包/更新及同包正式身份/数据库/工作台矩阵仍待，未解除整体门槛。 | [同源装配](security-management-application-preparation.md)、[独立应用](standalone-application.md)、[可信管理实库](testing/trusted-management-runtime-mysql.md) |
 | C06 | ⏳ 待确认 | 原后台初始化按钮 | 同库 Business 与离线回归已准备；账号 ID 保留、同名冲突、重置与会话规则待确认，HTTP／DI 尚未启用。 | [初始化行为决定](admin-initialization-policy-decision.md) |
 | C07 | ⬜ 待开发 | 平台到业务库后台初始化 | 按已确认行为接入真实目标库与原按钮，验证身份、事务、重复初始化及会话；不以同库准备代替跨业务库接线。 | [初始化范围](admin-initialization-policy-decision.md) |
 | C08 | 🟡 部分完成 | 完整 MCP／Agent 能力 | 平台核心与C10公共运行时/C11完整包接线已有验证；C12补固定示例Full真实Web/OAuth/CLI/MySQL与任务/撤权/刷新重放正式验收，C13公共MCP接线、C15结构发现及C16可信管理宿主真实Web/MCP角色CRUD/撤权通过。普通账号、复杂业务/文件/关系、原浏览器、Agent跨重启及独立MCP同包完整矩阵仍待验收，不拼接不同冻结基线为整体通过。 | [Agent正式范围](standalone-agent.md)、[MCP边界](standalone-mcp.md) |
@@ -173,6 +173,7 @@
 | C17 | ✅ 入口调整及定向验证完成 | Agent授权管理迁入头像菜单 | 平台与独立应用模板将入口置于修改密码和退出之间，移除左侧按钮；独立应用仍按Agent能力显示，打包器不再依赖旧入口结构。前端287/287、生成与真实完整包相关21/21通过，HBuilderX 5.33实际导出Web成功。ego-browser在真实产物确认三项顺序、180px宽度且无文字溢出、左侧无旧入口，未登录点击后进入登录页并保留授权管理回跳。截图因窗口最小化未取得；真实账号授权列表/撤销、移动设备及生产未验收。 | 2026-10-28；冻结起点`498712887a79`上的本任务同提交；`accountMenu.test.mjs`、`FrontendPackagerTests`、`StandaloneAgentPackageTests` |
 | C18 | 🟡 原按钮规则与执行租约已接线 | 原显式Agent业务动作与页面三按钮 | 原中央入口、按钮/文件同事务当前权限和30分钟执行租约保留，租约真实MySQL跨进程组件已验。新增发布时结构化显示规则，Web/Agent共用真实生成记录、Column.Name与固定字段别名，拒绝客户端覆盖及未装载派生假空值；61组实际Java向量通过。Data954/21实库跳过、Agent309/25实库跳过、API69/47实库跳过、相关完整包/更新51项通过；CLI严格构建及两轮705文件稳定，490前端与24partial不变。父范围请求协议待决定；非空只读表达式、未装载派生字段、跨库权限/文件事务、正式Web/OAuth/多实例业务/回滚及性能仍待，未扩用B98。 | [显示规则](button-visible-rules.md)、[执行租约](button-execution-leases.md)、[原中央入口](original-business-button-execution.md)、[总缺口](agent-custom-business-gap.md)，2026-10-29；本任务同提交 |
 | C19 | 🧪 执行器离线通过，正式待授权 | 原三按钮正式Web/OAuth/CLI/MySQL | 新完整包冻结/复制、真实CLI分阶段探针及正式单库场景已编译，纯离线准备与原业务包35项通过、零跳过。计划覆盖空库14表、原三动作/任务/冲突/回滚、普通Web按钮、文件保持、双宿主占用及身份重启；正式矩阵尚未执行。首个含正式场景命令被审核拒绝且未执行；当前已改用独立运行标识，须固定新源码/包及精确新租约后授权，不能复用B98/C12。 | [正式验收准备](sample-actions-native-acceptance.md)，2026-10-29；产品e051297上的本任务同提交 |
+| C20 | ✅ 同源装配准备子集完成 | 独立管理准备包 | 内部真签发对象取得私有原业务快照，经普通脱敏重新签发管理目录，成套装配三partial/原工作台与完整生产依赖；独立包实际构建、Production只读DI及匿名401、重复字节稳定、手写/来源/发布故障保护通过。相关127项零跳过，CLI严格及两轮705文件稳定；readyForPublication=false、普通Full/初始化门禁保持，C05仍未完整交付。 | [范围与证据](security-management-application-preparation.md)，2026-10-29；3ea948d起点上的本任务同提交 |
 
 ## 四、MySQL 首版验收与交付门槛
 
@@ -210,6 +211,7 @@
 
 | 日期 | 变更 | 依据 |
 | --- | --- | --- |
+| 2026-10-29 | C20管理同源装配准备完成：真实独立包编译/生产DI/匿名及127相关离线合同通过，705普通文件两轮稳定，原界面及手写保护；C05仍部分，C06与正式发布/管理矩阵未解除。 | [同源准备](security-management-application-preparation.md)，本任务同提交 |
 | 2026-10-29 | C18补原结构化显示规则与实际记录绑定；61组原Java、Data954/21实库跳过、Agent309/25实库跳过、API69/47实库跳过及相关完整包/更新51项通过，705文件两轮稳定。原前端/请求不变，父范围协议和其余正式验收继续。 | [规则专项](button-visible-rules.md)，冻结起点bf901c5上的本任务同提交 |
 | 2026-10-28 | C17将Agent授权管理迁入右上角头像菜单，保留原公共路由/失败提示及独立应用能力门禁；移除左侧入口和旧打包注入。前端287、相关生成/完整包21零失败零跳过，HBuilderX发行及ego-browser实际DOM检查通过。首轮新返回用例因夹具误用uni而失败，改为原页面实际调用的yzp.back后全量通过；浏览器登录页预期路径断言超时，核对实际首页登录路由及redirect后确认跳转正确。界面运行模式只下发命令未提供端口，改用CLI发行产物与临时回环静态服务，服务和浏览器空间已关闭。未进行真实账号授权业务或生产部署。 | C17；冻结起点`498712887a79`，本任务同提交 |
 | 2026-10-28 | C14管理宿主配套修复：同源不可变模板/工程清单补齐Agent/MCP/维护接线，真实Program编译启动及三安全Service/原工作台DI、匿名401两项通过；相邻69通过/4实库跳过。普通完整包590文件与C13逐字一致，严格Release零警告错误；原前端/元数据/表级产物不变。不解除管理Full、Runtime A或初始化门禁，无外部库写入。 | [配套证据](testing/trusted-management-browser-entry.md)，890cb8745324 |

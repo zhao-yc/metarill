@@ -61,7 +61,7 @@ public sealed class FrontendPackager
     }
 
     /// <summary>只准备工厂签发管理模块的前端资源，不写目录、不发布应用、不解除后端缺口。</summary>
-    internal FrontendAssetPlan PrepareSecurityManagement(SecurityManagementModelSet module,string generatedFrontend,string sourceRoot)
+    internal FrontendAssetPlan PrepareSecurityManagement(SecurityManagementModelSet module,string generatedFrontend,string sourceRoot,bool includeAgent=false)
     {
         var catalog=SecurityManagementModuleFactory.RequirePublishedForGeneration(module);
         MetadataValidation.Validate(catalog);ValidateMenus(catalog);
@@ -76,7 +76,7 @@ public sealed class FrontendPackager
         if(catalog.ConfigCustomPages.Any(page=>page.Id!=custom.Id)||catalog.ConfigMenus.Any(menu=>menu.Kind is not("DIRECTORY" or "GENERATED_PAGE")&&!(menu.Kind=="CUSTOM_PAGE"&&menu.ConfigCustomPageId==custom.Id&&menu.YzAdminTypeId==custom.YzAdminTypeId)))throw new InvalidOperationException("管理前端存在未接线的自定义或外部入口。");
         if(model.Tables.SelectMany(table=>table.Pages).SelectMany(page=>page.DetailColumns).Any(column=>column.Source.ControlKind=="CustomControl"))throw new InvalidOperationException("管理前端存在未接线的自定义控件。");
         var boundary=Path.Combine(generated,".frontend-assets-plan");
-        return new(BuildFiles(catalog,generated,boundary,sourceRoot,model),module.PendingAdapters,GenerationCapabilityAudit.Collect(model));
+        return new(BuildFiles(catalog,generated,boundary,sourceRoot,model,includeAgent),module.PendingAdapters,GenerationCapabilityAudit.Collect(model));
     }
 
     /// <summary>先建立完整资源图；普通发布和内部管理准备共用复制、依赖、路由与摘要规则。</summary>
