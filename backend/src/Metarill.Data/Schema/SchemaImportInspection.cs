@@ -58,7 +58,7 @@ public sealed partial class SchemaService
         catch { await transaction.RollbackAsync(CancellationToken.None); throw; }
     }
 
-    /// <summary>普通快照未表达前缀/降序/隐藏/非BTREE索引与外键、CHECK；逐项列缺口，不伪装成普通索引。</summary>
+    /// <summary>普通快照未表达前缀/隐藏/非BTREE索引与外键、CHECK；逐项列缺口，不伪装成普通索引。</summary>
     private static async Task ReadImportFeaturesAsync(DbConnection connection, DbTransaction transaction, string table, List<SchemaImportIssue> issues, CancellationToken token)
     {
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
@@ -67,8 +67,8 @@ public sealed partial class SchemaService
         await using (var reader = await command.ExecuteReaderAsync(token))
             while (await reader.ReadAsync(token))
             {
-                var unsupported = !reader.IsDBNull(1) || !reader.IsDBNull(2) && reader.GetString(2) != "A" || reader.GetString(3) != "BTREE" || reader.GetString(4) != "YES";
-                if (unsupported) issues.Add(new(table, reader.GetString(0), "INDEX_FEATURE_UNSUPPORTED", "前缀、降序、隐藏或非BTREE索引尚不能无损映射。"));
+                var unsupported = !reader.IsDBNull(1) || !reader.IsDBNull(2) && (reader.GetString(2) is not("A" or "D") || reader.GetString(0)=="PRIMARY"&&reader.GetString(2)=="D") || reader.GetString(3) != "BTREE" || reader.GetString(4) != "YES";
+                if (unsupported) issues.Add(new(table, reader.GetString(0), "INDEX_FEATURE_UNSUPPORTED", "前缀、隐藏、降序主键、未知方向或非BTREE索引尚不能无损映射。"));
             }
         command.Parameters.Clear();
         command.CommandText = "SELECT CONSTRAINT_NAME,CONSTRAINT_TYPE FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table AND CONSTRAINT_TYPE NOT IN ('PRIMARY KEY','UNIQUE') ORDER BY CONSTRAINT_NAME";

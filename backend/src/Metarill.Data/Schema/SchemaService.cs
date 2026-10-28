@@ -25,6 +25,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
         await using var connection = session.Provider.CreateConnection(session.Options);
         await connection.OpenAsync(cancellationToken);
         var identity = await ValidateTargetAsync(connection, cancellationToken);
+        RequireIndexDirectionSupport(connection,desired);
         var current = await ReadSchemaAsync(connection, desired.Tables.Select(t => t.Name).ToArray(), cancellationToken);
         var changes = MySqlSchemaPlanner.Compare(current, desired);
         var plan = new SchemaChangePlan(Guid.NewGuid().ToString("N"), "mysql", desired.Database,
@@ -54,6 +55,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
         {
             await connection.OpenAsync(cancellationToken);
             if (await ValidateTargetAsync(connection, cancellationToken) != pending.Identity) throw new InvalidOperationException("数据库服务器身份发生变化。");
+            RequireIndexDirectionSupport(connection,pending.Desired);
             locked = Convert.ToInt32(await ScalarAsync(connection, "SELECT GET_LOCK(@name, 10)", cancellationToken,
                 ("@name", LockName())), CultureInfo.InvariantCulture) == 1;
             if (!locked) throw new InvalidOperationException("其他结构任务正在执行，未取得数据库结构锁。");
@@ -169,17 +171,18 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
             await using (var indexCommand = connection.CreateCommand())
             {
                 indexCommand.Transaction = transaction;
-                indexCommand.CommandText = "SELECT INDEX_NAME,NON_UNIQUE,COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table AND INDEX_NAME <> 'PRIMARY' ORDER BY INDEX_NAME,SEQ_IN_INDEX";
+                indexCommand.CommandText = "SELECT INDEX_NAME,NON_UNIQUE,COLUMN_NAME,COLLATION FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table AND INDEX_NAME <> 'PRIMARY' ORDER BY INDEX_NAME,SEQ_IN_INDEX";
                 AddParameters(indexCommand, [("@table", name)]);
                 await using var indexReader = await indexCommand.ExecuteReaderAsync(token);
-                var rows = new List<(string Name, bool Unique, string Column)>();
+                var rows = new List<(string Name, bool Unique, string Column,string Direction)>();
                 while (await indexReader.ReadAsync(token))
                 {
                     // 函数索引不能误识别为普通字段索引；其原始定义仍进入漂移摘要。
                     rows.Add((indexReader.GetString(0), Convert.ToInt32(indexReader.GetValue(1), CultureInfo.InvariantCulture) == 0,
-                        indexReader.IsDBNull(2) ? "<expression>" : indexReader.GetString(2)));
+                        indexReader.IsDBNull(2) ? "<expression>" : indexReader.GetString(2),
+                        indexReader.IsDBNull(3)?"ASC":indexReader.GetString(3) switch{"A"=>"ASC","D"=>"DESC",_=>throw new NotSupportedException("结构反查遇到未知索引方向。") }));
                 }
-                indexes.AddRange(rows.GroupBy(r => r.Name).Select(g => new IndexSchema(g.Key, g.First().Unique, g.Select(r => r.Column).ToArray())));
+                indexes.AddRange(rows.GroupBy(r => r.Name).Select(g => IndexDirectionRules.Normalize(new IndexSchema(g.Key, g.First().Unique, g.Select(r => r.Column).ToArray()){Directions=g.Select(r=>r.Direction).ToArray()})));
             }
             await using var ddlCommand = connection.CreateCommand();
             ddlCommand.Transaction = transaction;

@@ -50,10 +50,11 @@ public static class SchemaImportDraftCompiler
                     MetadataValidation.RequireIdentifier(index.Name);
                     if (index.Columns.Count is < 1 or > 16 || index.Columns.Distinct(StringComparer.OrdinalIgnoreCase).Count() != index.Columns.Count || index.Columns.Any(name => !columns.ContainsKey(name))) throw new InvalidOperationException("索引包含未映射字段、表达式或不支持的重复字段。 ");
                     if (source.Issues.Any(issue => issue.Table == table.Name && issue.Member == index.Name)) continue;
+                    var directions=IndexDirectionRules.Read(index);
                     var id = tableId + "_index_" + number.ToString(CultureInfo.InvariantCulture);
                     catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new { id, configTableId = tableId, yzProjectId = projectId, indexName = index.Name, indexType = index.Unique ? "UNIQUE" : "NORMAL", isUnique = index.Unique ? 1 : 0, isEnabled = 1 }, Json));
                     foreach (var (name, order) in index.Columns.Select((name, order) => (name, order)))
-                        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new { id = id + "_" + order, configIndexId = id, configColumnId = columns[name].Id, yzProjectId = projectId, columnName = name, sortNo = (order + 1) * 10, sortDirection = "ASC" }, Json));
+                        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new { id = id + "_" + order, configIndexId = id, configColumnId = columns[name].Id, yzProjectId = projectId, columnName = name, sortNo = (order + 1) * 10, sortDirection = directions[order] }, Json));
                 }
                 catch (Exception error) when (error is InvalidOperationException or ArgumentException)
                 { issues.Add(new(table.Name, index.Name, "INDEX_UNREPRESENTABLE", error.Message)); }

@@ -24,7 +24,9 @@ public sealed class IndexCompilationSafetyTests
     [Fact]
     public void DescendingOrUnknownDirectionCannotSilentlyBecomeAscending()
     {
-        Assert.Throws<NotSupportedException>(() => MySqlSchemaPlanner.Compile(Catalog(direction: "DESC"), "db"));
+        var descending=MySqlSchemaPlanner.Compile(Catalog(direction:"DESC"),"db");
+        Assert.Equal("DESC",Assert.Single(Assert.Single(descending.Tables[0].Indexes!).Directions!));
+        Assert.Contains("`id` DESC",Assert.Single(MySqlSchemaPlanner.Compare(new("db",[]),descending)).Sql);
         Assert.Throws<NotSupportedException>(() => MySqlSchemaPlanner.Compile(Catalog(direction: "random"), "db"));
         Assert.Empty(MySqlSchemaPlanner.Compile(Catalog(0, "DESC"), "db").Tables[0].Indexes!);
     }

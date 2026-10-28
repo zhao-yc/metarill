@@ -65,6 +65,7 @@ public static class MySqlSchemaPlanner
     public static IReadOnlyList<SchemaChange> Compare(DatabaseSchema current, DatabaseSchema desired)
     {
         if (current.Database != desired.Database) throw new InvalidOperationException("结构快照数据库不一致。");
+        foreach(var index in current.Tables.Concat(desired.Tables).SelectMany(table=>table.Indexes??[]))_=IndexDirectionRules.Read(index);
         var changes = new List<SchemaChange>();
         foreach (var expectedTable in desired.Tables)
         {
@@ -97,7 +98,7 @@ public static class MySqlSchemaPlanner
                 var foundIndex = actual.Indexes?.SingleOrDefault(x => x.Name == index.Name);
                 if (foundIndex is null)
                     changes.Add(new SchemaChange("addIndex", actual.Name, null, $"ALTER TABLE {Quote(actual.Name)} ADD {IndexDefinition(index)}"));
-                else if (foundIndex.Unique != index.Unique || !foundIndex.Columns.SequenceEqual(index.Columns, StringComparer.Ordinal))
+                else if (foundIndex.Unique != index.Unique || !foundIndex.Columns.SequenceEqual(index.Columns, StringComparer.Ordinal) || !IndexDirectionRules.Read(foundIndex).SequenceEqual(IndexDirectionRules.Read(index),StringComparer.Ordinal))
                     throw new InvalidOperationException($"索引 {actual.Name}.{index.Name} 已存在但结构不同，请单独制定迁移方案。");
             }
             // 未声明列不自动删除：元数据可能仅管辖一部分列，显式删除需后续独立方案。
@@ -109,7 +110,7 @@ public static class MySqlSchemaPlanner
     public static string Fingerprint(DatabaseSchema schema)
     {
         var normalized = new DatabaseSchema(schema.Database, schema.Tables.OrderBy(t => t.Name, StringComparer.Ordinal)
-            .Select(t => new TableSchema(t.Name, t.Columns.Select(column=>column with{DefaultSql=CanonicalDefault(column)}).OrderBy(c => c.Name, StringComparer.Ordinal).ToArray(), t.SnapshotDefinition, t.Indexes?.OrderBy(i => i.Name, StringComparer.Ordinal).ToArray())).ToArray());
+            .Select(t => new TableSchema(t.Name, t.Columns.Select(column=>column with{DefaultSql=CanonicalDefault(column)}).OrderBy(c => c.Name, StringComparer.Ordinal).ToArray(), t.SnapshotDefinition, t.Indexes?.Select(IndexDirectionRules.Normalize).OrderBy(i => i.Name, StringComparer.Ordinal).ToArray())).ToArray());
         return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(normalized))).ToLowerInvariant();
     }
 
@@ -136,7 +137,12 @@ public static class MySqlSchemaPlanner
     private static string Definition(ColumnSchema column) => $"{Quote(column.Name)} {column.StoreType} {(column.Nullable ? "NULL" : "NOT NULL")}" +
         (column.DefaultSql is null ? "" : $" DEFAULT {column.DefaultSql}") + (column.PrimaryKey ? " PRIMARY KEY" : "");
 
-    private static string IndexDefinition(IndexSchema index) => $"{(index.Unique ? "UNIQUE " : "")}INDEX {Quote(index.Name)} ({string.Join(", ", index.Columns.Select(Quote))})";
+    /// <summary>只把已验证方向附在对应的白名单字段上；ASC省略以保持旧DDL逐字一致。</summary>
+    private static string IndexDefinition(IndexSchema index)
+    {
+        var directions=IndexDirectionRules.Read(index);
+        return $"{(index.Unique ? "UNIQUE " : "")}INDEX {Quote(index.Name)} ({string.Join(", ",index.Columns.Select((name,position)=>Quote(name)+(directions[position]=="DESC"?" DESC":"")))})";
+    }
 
     private static bool CanWiden(string actual, string desired)
     {

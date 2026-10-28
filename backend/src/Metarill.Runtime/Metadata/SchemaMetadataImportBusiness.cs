@@ -155,7 +155,7 @@ public sealed class SchemaMetadataImportBusiness(SqlRowStore store, MetadataRepo
                 {
                     var reference = columns[child.GetProperty("configColumnId").GetString()!]; var column = model.ConfigColumns.Single(column => column.Id == child.GetProperty("configColumnId").GetString());
                     var childValues = Values(owner, model.YzProjectName, new() { ["id"] = ids.NextId(), ["config_index_id"] = id, ["config_index_index_name"] = name, ["config_column_id"] = reference,
-                        ["config_column_name"] = column.Name, ["column_name"] = column.ColumnName, ["sort_no"] = child.GetProperty("sortNo").GetInt32(), ["sort_direction"] = "ASC" });
+                        ["config_column_name"] = column.Name, ["column_name"] = column.ColumnName, ["sort_no"] = child.GetProperty("sortNo").GetInt32(), ["sort_direction"] = child.GetProperty("sortDirection").GetString()! });
                     Fill("config_index_column", childValues); await store.InsertAsync("config_index_column", childValues, token);
                 }
             }
