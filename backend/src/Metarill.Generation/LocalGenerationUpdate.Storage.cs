@@ -154,7 +154,7 @@ public sealed partial class LocalGenerationUpdater
             if (missingShell && file.AfterSha256 is null) throw new InvalidOperationException("手写壳只能首次创建。");
             if (!seen.Add(file.Path) || file.BeforeSha256 is not null && !ValidHash(file.BeforeSha256) || file.AfterSha256 is not null && !ValidHash(file.AfterSha256) || file.BeforeSha256 is null && file.AfterSha256 is null || Protected.Contains(file.Path) && !missingFrontendShell) throw new InvalidOperationException("事务路径或摘要无效。");
             if (file.Path is PackageMarker or GenerationMarker or FrontendMarker or "backend/generated/frontend/common/yzp_runtime/page-write-schema.generated.json" || Configuration.Contains(file.Path) || RuntimeFiles.Contains(file.Path) || FrontendAssets.Value.Contains(file.Path) || missingFrontendShell
-                || Regex.IsMatch(file.Path, @"^(?:src/Metarill\.(?:Core|Data|Exports|Files|Security)/[A-Za-z0-9_./-]+|frontend/common/yzp_runtime/[A-Za-z0-9_-]+\.js|backend/generated/(?:[A-Za-z0-9_/-]+\.(?:g\.cs|vue|json)|Services/[A-Za-z0-9_]+Service\.cs)|frontend/pages/yzp/[A-Za-z0-9_-]+\.vue|frontend/common/yzp_runtime/page-write-schema\.generated\.json)$")) continue;
+                || Regex.IsMatch(file.Path, @"^(?:src/Metarill\.(?:Core|Data|Exports|Files|Security|Agent)/[A-Za-z0-9_./-]+|frontend/common/yzp_runtime/[A-Za-z0-9_-]+\.js|backend/generated/(?:[A-Za-z0-9_/-]+\.(?:g\.cs|vue|json)|Services/[A-Za-z0-9_]+Service\.cs)|frontend/pages/yzp/[A-Za-z0-9_-]+\.vue|frontend/common/yzp_runtime/page-write-schema\.generated\.json)$")) continue;
             throw new InvalidOperationException("恢复日志包含未知写入路径。");
         }
         return journal;

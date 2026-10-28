@@ -1,6 +1,6 @@
 # 独立应用 {{NAMESPACE}}
 
-本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data/Exports/Files/Security 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
+本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data/Exports/Files/Security/Agent 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
 
 ## 构建与结构同步
 
@@ -11,7 +11,7 @@ dotnet restore backend/Application.Host/Application.Host.csproj
 dotnet build backend/Application.Host/Application.Host.csproj --no-restore
 ```
 
-SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data/Exports/Files/Security 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
+SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data/Exports/Files/Security/Agent 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
 
 通过环境变量设置 Database__Provider=mysql、Database__ConnectionString、Database__ExpectedDatabase，或在宿主目录自行创建已忽略的 appsettings.local.json。不要把真实凭据提交到仓库。
 
@@ -22,7 +22,7 @@ dotnet run --project backend/Application.Host -- --schema-apply
 dotnet run --project backend/Application.Host --urls http://127.0.0.1:5080
 ```
 
-FullApplication的web-database-v1结构同步严格组合业务project.json、files.json（三张文件基础表）和security.json（六张认证/权限基础表、128列、5索引）。安全基础表不开放业务CRUD页面；已带安全表CRUD页的应用仍拒绝Full，不会自动降级。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
+FullApplication的web-database-v1结构同步严格组合业务project.json、files.json（三张文件基础表）、security.json（六张认证/权限基础表、128列、5索引）及固定Agent模型（两表、44列、3唯一索引）。安全基础表不开放业务CRUD页面；已带安全表CRUD页的应用仍拒绝Full，不会自动降级。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
 
 ## 认证
 
@@ -36,7 +36,7 @@ dotnet run --project backend/Application.Host -- --initialize-security
 
 该命令只初始化本包项目/后台及新生成长ID的应用管理员角色/账号，**不执行DDL、不导入平台Config/Demo/Agent/设备数据**。重复仅核验并返回unchanged，不重置密码、复活墓碑或补绑既有用户名。并发初始化由真实事务与固定项目主键取锁/唯一冲突保护；冲突失败回滚，不自动重试。初始化需此前已安装六表，缺表直接失败。
 
-POST `/api/admin/sys/yz_manager/login`保留URL编码表单或JSON的username/password及响应`map.loginStateId`。令牌只能在loginStateId或Bearer头传输，不接受query身份。每次请求重读会话、账号和同后台角色，停用、到期或撤权下次请求生效。仅包内真实项目/后台允许登录；本应用后台super使用独立IsRealmSuper，不产生平台管理员身份，不开放包外项目选择或Agent会话。
+POST `/api/admin/sys/yz_manager/login`保留URL编码表单或JSON的username/password及响应`map.loginStateId`。令牌只能在loginStateId或Bearer头传输，不接受query身份。每次请求重读会话、账号和同后台角色，停用、到期或撤权下次请求生效。仅包内真实项目/后台允许登录；本应用后台super使用独立IsRealmSuper，不产生平台管理员身份，不开放包外项目选择。Agent授权只绑定本应用已发布后台，显式开发身份不能签发。
 
 POST `exit_login`只撤当前会话；`getMenu`/`getCurrentPermissions`沿用原菜单与动作响应。菜单及按钮按真实身份和本包固定发布目录过滤，不能由客户端项目或页面参数授权。`edit_password`保留原GET/POST合同，原页面使用POST JSON `{oldPwd,pwd}`；核验原密码后在同一事务更新PBKDF2并撤该账号旧会话，推荐POST避免URL记录秘密。部署网关也应禁止记录改密query。
 
@@ -48,7 +48,7 @@ Development且显式启用开发认证时，宿主在认证前处理HTTP(S)回�
 
 生成服务 `.g.cs` 与手写 `.cs` 使用 partial；BeforeSave 修改派生字段后必须加入 submittedFields。write-schema 列出每页允许提交的字段，服务端拒绝未知和审计字段，省略与显式 null 含义不同。表范围、权限、ID、审计和事务在服务端执行。
 
-本包包含当前已实现的普通 CRUD、复制、JSON 行导入、查询导出投影和本地文件库。Agent、平台设计器和复杂自定义 SQL 未随包提供。
+本包包含当前已实现的普通 CRUD、复制、JSON 行导入、查询导出投影和本地文件库。公共Agent、原授权/授权管理页面已随完整包下发；平台设计器和复杂自定义 SQL 未随包提供。Agent真实CLI与正式身份验收须由部署者执行，源码和Web构建不代表该验收通过。
 
 文件库沿用 /api/admin/sys/file-library 协议，Files__RootDirectory 默认 .local/files，Files__MaxFileBytes 默认 100 MiB。文件目录必须持久化且不能作为静态资源公开映射；只有 PUBLIC、ready 文件可匿名访问公开流。PROTECTED 文件仅当前项目所有者或管理员可读取，pageId/recordId 不提供额外读取权限。上传计划、上传、完成是独立步骤；未完成文件不可引用。服务端校验扩展名、大小和摘要，不接收对象路径或远端地址。
 
@@ -83,3 +83,9 @@ Entity、页级DTO/VO、Mapper、Service、Controller及导入请求均支持同
 页级DTO/VO、Mapper、Controller保留`sealed`，`partial`只拆分同一个类型；手写文件不要重复生成属性、基类或主构造函数。Mapper/Controller的主构造函数仍仅由生成文件声明，其他分部可访问其参数及生成的private成员。Controller辅助方法加`[NonAction]`，公开业务动作仍需明确路由和权限；DTO/VO扩展属性会影响JSON协议，辅助值按需使用`[JsonIgnore]`，实体非持久化属性需明确`[Column(IsIgnore=true)]`。不通过手改生成属性调整数据库或标准接口。
 
 已生成工程跟进时更新生成器、重新生成并编译；无需SQL迁移或元数据回填。公开完整包的其他能力门槛不因partial声明解除。
+
+## Agent 配置与升级
+
+完整包在同一应用数据库安装 `sys_agent_grant`、`sys_agent_task`。旧工程更新后须显式预览并审核新增表，再应用结构计划；正常启动不DDL。`Agent:VerificationUri` 默认空，须在私有配置填写本应用原授权页可信HTTPS地址，例如 `https://app.example/#/pages/custom/agent_authorize`；本机验收允许HTTP回环。服务端不会从Host头或客户端参数推导该地址。
+
+OAuth和 `X-Yzp-Agent-*` 协议沿用现有CLI；批准需要当前后台真实Web超级角色。所有业务请求继续核验当前账号及页面/按钮权限，写请求必须逐次确认并带UUID；重复UUID拒绝执行，应查任务并回读。账本与业务不构成跨库分布式事务，响应或记账失败返回unknown，禁止自动重发。开发身份和缺数据库配置均不开放Agent接口。

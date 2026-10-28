@@ -3,6 +3,7 @@ using System.Text.Json;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Metarill.Runtime.Agent;
 
@@ -40,7 +41,7 @@ public sealed class AgentAuthenticationService(SqlRowStore store, Authentication
 public sealed class AgentAuthenticationMiddleware(RequestDelegate next)
 {
     /// <summary>请求的项目选择只用于缩小已认证上下文，实际项目存在性和授权由服务端验证。</summary>
-    public async Task InvokeAsync(HttpContext context, AgentAuthenticationService authentication)
+    public async Task InvokeAsync(HttpContext context)
     {
         var web = context.Request.Headers["loginStateId"];
         var authorization = context.Request.Headers.Authorization;
@@ -59,6 +60,8 @@ public sealed class AgentAuthenticationMiddleware(RequestDelegate next)
                 using var json = JsonDocument.Parse(Uri.UnescapeDataString(selected));
                 if (json.RootElement.TryGetProperty("yzProjectId", out var value)) project = value.ToString();
             }
+            // 仅持有效格式凭据时解析数据库依赖，匿名宿主不因缺数据库配置变成500。
+            var authentication = context.RequestServices.GetRequiredService<AgentAuthenticationService>();
             var identity = await authentication.AuthenticateAsync(token, string.IsNullOrEmpty(bearer) ? "web" : "agent", project, context.RequestAborted);
             context.Items[typeof(AgentRequestIdentity)] = identity;
             context.Items[typeof(AuthenticatedIdentity)] = identity.Identity;

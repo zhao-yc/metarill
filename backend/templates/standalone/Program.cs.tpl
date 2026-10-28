@@ -14,6 +14,7 @@ using Metarill.Core.Security;
 using Metarill.Data;
 using Metarill.Data.Schema;
 using Metarill.Runtime.Security;
+using Metarill.Runtime.Agent;
 using {{NAMESPACE}}.Generated;
 using {{NAMESPACE}}.Host;
 
@@ -51,8 +52,9 @@ var infrastructure = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllTex
 var security = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/security.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少固定安全基础元数据。");
 // 基础设施仍严格合成；生成注册类只允许编译绑定的固定管理页进入本应用物理图，不读取业务JSON特权标记。
-var combinedInfrastructure=MetadataCatalogComposition.MergePhysical(infrastructure,security);
-var physicalMetadata = GeneratedRegistration.ComposePhysicalMetadata(metadata, infrastructure, security);
+var agentInfrastructure=AgentFoundationCatalog.ForApplication(metadata);
+var combinedInfrastructure=MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(infrastructure,security),agentInfrastructure);
+var physicalMetadata = MetadataCatalogComposition.MergePhysical(GeneratedRegistration.ComposePhysicalMetadata(metadata, infrastructure, security),agentInfrastructure);
 builder.Services.AddSingleton(metadata);
 ApplicationSecurityCatalogRegistration.Add(builder.Services,verifiedCatalog);
 builder.Services.AddSingleton(authenticationMode);
@@ -69,6 +71,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<DevelopmentSessions>();
 if(authenticationMode.Development)builder.Services.AddScoped<IRuntimeAuthorization,DevelopmentAuthorization>();
 else ApplicationWebSecurityCoordination.Add(builder.Services,authenticationMode);
+ApplicationAgentIntegration.Add(builder.Services,builder.Configuration,authenticationMode);
 // 生成和下载共享同一个票据仓库；先取得资源额度，再执行生成页的有界查询。
 builder.Services.AddSingleton(builder.Configuration.GetSection("Exports").Get<ExportOptions>() ?? new());
 builder.Services.AddSingleton<ExcelPageExportService>();
@@ -84,7 +87,7 @@ builder.Services.AddScoped<IRecordMutationObserver, FileReferenceMutationObserve
 builder.Services.AddGeneratedServices();
 // 原维护只接已发布宿主目录与同一业务库；显式开发认证不伪造真实Web身份。
 builder.Services.AddScoped<Metarill.Runtime.Maintenance.SystemMaintenanceBusiness>(provider=>new(provider.GetRequiredService<DatabaseSession>(),GeneratedRelationMaintenance.Catalog,provider.GetService<ISecurityIdentityAccessor>()??throw new UnauthorizedAccessException("维护操作需要真实Web身份。")));
-builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
+builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddApplicationPart(typeof(Metarill.Api.AgentControllers.AgentOAuthController).Assembly).AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -137,17 +140,10 @@ app.Use(async (context, next) =>
 {
     try
     {
-        var path = context.Request.Path;
-        if (path.StartsWithSegments("/api") && path != "/api/admin/sys/yz_manager/login" && !IsPublicFileContent(context.Request) && !ExportDownloadAccess.CanUseGrant(context.Request))
-        {
-            if(!authenticationMode.Development)
-            {
-                var identity=await context.RequestServices.GetRequiredService<ApplicationWebAuthentication>().ResolveAsync(DevelopmentSessions.ReadToken(context),context.RequestAborted);
-                if(identity is null)throw new UnauthorizedAccessException();
-                context.Items[typeof(AuthenticatedIdentity)]=identity;
-            }
-            context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
-        }
+        var path=context.Request.Path;
+        // 开发身份没有OAuth签发域；默认缺配置也在控制器和数据库服务构造前拒绝。
+        if((path.StartsWithSegments("/api/agent")||path.StartsWithSegments("/api/admin/sys/agent"))&&(authenticationMode.Development||!authenticationMode.DatabaseConfigured))
+            throw new UnauthorizedAccessException();
         await next(context);
     }
     catch (Exception error) when (!context.Response.HasStarted)
@@ -168,6 +164,33 @@ app.Use(async (context, next) =>
         context.Response.Clear(); context.Response.StatusCode = status;
         await context.Response.WriteAsJsonAsync(R<object>.Error(message, status));
     }
+});
+// 原公开登录、受保护下载票据和公开文件不读取旧会话；其余API采用严格Web/Agent分流。
+bool RequiresIdentity(HttpContext context)=>context.Request.Path.StartsWithSegments("/api")&&context.Request.Path!="/api/admin/sys/yz_manager/login"
+    &&!context.Request.Path.StartsWithSegments("/api/agent/oauth")&&!IsPublicFileContent(context.Request)&&!ExportDownloadAccess.CanUseGrant(context.Request);
+if(!authenticationMode.Development)
+{
+    app.UseWhen(RequiresIdentity,branch=>
+    {
+        branch.Use(async(context,next)=>
+        {
+            if(!authenticationMode.DatabaseConfigured)throw new UnauthorizedAccessException();
+            await next(context);
+        });
+        branch.UseMiddleware<AgentAuthenticationMiddleware>();
+        branch.Use(async(context,next)=>
+        {
+            var identity=context.Items[typeof(AuthenticatedIdentity)] as AuthenticatedIdentity;
+            if(identity is null||!context.RequestServices.GetRequiredService<ApplicationSecurityRegistry>().ContainsPrincipal(identity))throw new UnauthorizedAccessException();
+            await next(context);
+        });
+        branch.UseMiddleware<AgentTaskMiddleware>();
+    });
+}
+app.Use(async(context,next)=>
+{
+    if(RequiresIdentity(context))context.RequestServices.GetRequiredService<IRuntimeAuthorization>().RequireActor();
+    await next(context);
 });
 app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new { status = "UP", application = metadata.YzProjectName }));

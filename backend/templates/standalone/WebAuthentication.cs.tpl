@@ -24,7 +24,7 @@ internal sealed record ApplicationAuthenticationMode(bool Development, bool Data
     }
 }
 
-/// <summary>仅投影本包发布资源；本应用后台super不具有平台管理员身份，Agent始终不开放。</summary>
+/// <summary>仅投影本包发布资源；本应用后台super不具有平台管理员身份；OAuth证明由宿主模块独立接线。</summary>
 internal sealed class ApplicationSecurityRegistry(VerifiedPackageSecurityCatalog catalog):ISecurityResourceRegistry,ISecuritySessionPolicy
 {
     internal string ProjectId=>catalog.ProjectId;
@@ -35,10 +35,12 @@ internal sealed class ApplicationSecurityRegistry(VerifiedPackageSecurityCatalog
     public string? ExactDataManageManagerField(string projectId,string adminTypeId)=>catalog.ExactDataManageManagerField(projectId,adminTypeId);
     /// <summary>普通应用不能声明自己是平台，不能借业务super切换包外项目。</summary>
     public bool IsPlatformRealm(string projectId,string adminTypeId)=>false;
-    /// <summary>本宿主没有OAuth/设备控制面，任何Agent会话均不能作为Web身份。</summary>
+    /// <summary>Web基础模板默认不提供OAuth证明；完整宿主由Agent模块替换会话策略注册。</summary>
     public Task<bool> ValidateAgentSessionAsync(SecuritySessionBinding binding,CancellationToken cancellationToken)=>Task.FromResult(false);
     /// <summary>数据库身份仍必须属于可信包内项目及已发布后台。</summary>
-    internal bool Contains(AuthenticatedIdentity identity)=>!identity.Actor.IsAdministrator && identity.GrantId is null &&
+    internal bool Contains(AuthenticatedIdentity identity)=>identity.GrantId is null&&ContainsPrincipal(identity);
+    /// <summary>宿主模块认证后仍核对固定项目和后台，不能由Agent或工作区声明扩权。</summary>
+    internal bool ContainsPrincipal(AuthenticatedIdentity identity)=>!identity.Actor.IsAdministrator &&
         identity.Actor.ProjectId==catalog.ProjectId && identity.PrincipalProjectId==catalog.ProjectId &&
         identity.Actor.AdminTypeId==identity.PrincipalAdminTypeId && catalog.ContainsAdmin(identity.PrincipalAdminTypeId);
 }

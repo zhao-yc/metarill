@@ -35,6 +35,10 @@ jobs:
           node tools/metadata/derive-security.mjs --check
           node --test tools/metadata/derive-security-management.test.mjs
           node tools/metadata/derive-security-management.mjs --check
+      - name: 核对Agent固定基础表派生
+        run: |
+          node --test tools/metadata/derive-agent.test.mjs
+          node tools/metadata/derive-agent.mjs --check
       - name: 重新生成并核对提交产物
         shell: pwsh
         run: |

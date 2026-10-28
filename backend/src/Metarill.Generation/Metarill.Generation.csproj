@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup><ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" /><ProjectReference Include="../Metarill.Data/Metarill.Data.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../Metarill.Agent/Metarill.Agent.csproj" /><ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" /><ProjectReference Include="../Metarill.Data/Metarill.Data.csproj" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="../../templates/uniapp/*.tpl" /><EmbeddedResource Include="../../templates/standalone/*.tpl" WithCulture="false" /><EmbeddedResource Include="../../templates/standalone-frontend/*.tpl" WithCulture="false" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="../../metadata/modules/security-management-v1.json" LogicalName="Metarill.Generation.SecurityManagement.V1.json" WithCulture="false" /><EmbeddedResource Include="../../metadata/modules/security-management-v1.sha256" LogicalName="Metarill.Generation.SecurityManagement.V1.sha256" WithCulture="false" /></ItemGroup>
   <!-- 直接嵌入现有原页面与组件，不另建可漂移的页面模板副本。 -->

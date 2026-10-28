@@ -78,7 +78,7 @@ const my=await component('pages/main/my.vue');my.definition.onShow.call(my.insta
 const home=await component('pages/main/index.vue');home.definition.onLoad.call(home.instance,{});
 for(let i=0;i<20&&!home.instance.asyncComponent;i++)await new Promise(resolve=>setTimeout(resolve,0));assert.ok(home.instance.asyncComponent,'原动态首页槽未完成导入');
 home.definition.onShow.call(home.instance);assert.equal(home.instance.homeVisible,true);home.definition.onHide.call(home.instance);assert.equal(home.instance.homeVisible,false);
-const menu=await component('components/yzp-menu/yzp-menu.vue');assert.equal(menu.definition.computed.supportsAgentGrants.call(menu.instance),false);
+const menu=await component('components/yzp-menu/yzp-menu.vue');assert.equal(menu.definition.computed.supportsAgentGrants.call(menu.instance),true);
 menu.instance.select({directory:true,node:{menu_id:'parent'}});assert.equal(menu.instance.expanded.parent,true);menu.instance.select({directory:true,node:{menu_id:'parent'}});assert.equal(menu.instance.expanded.parent,false);
 
 const change=await component('pages/main/change_password.vue');change.instance.password_new='新密码-仅模拟';change.instance.password_confirm='不相同';change.instance.changePassword();assert.equal(requests.length,0);assert.equal(modals.pop().content,'两次输入的密码不一致');

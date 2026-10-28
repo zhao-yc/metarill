@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Text.Json;
 using Metarill.Core.Contracts;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc.Controllers;
 
 namespace Metarill.Runtime.Agent;
@@ -10,7 +11,7 @@ namespace Metarill.Runtime.Agent;
 public sealed class AgentTaskMiddleware(RequestDelegate next)
 {
     /// <summary>确认、能力、编号和请求摘要均校验后才登记；账本成功后才调用真实MVC业务。</summary>
-    public async Task InvokeAsync(HttpContext context, AgentCapabilityCatalog catalog, AgentTaskStore tasks, AgentTaskOptions options)
+    public async Task InvokeAsync(HttpContext context)
     {
         if (context.Items[typeof(AgentRequestIdentity)] is not AgentRequestIdentity { Kind: "agent" } identity) { await next(context); return; }
         var path = context.Request.Path.Value ?? "";
@@ -22,8 +23,13 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
         // 助手控制通道由控制器再次校验Agent管理员及精确grant/lease；不放宽普通能力目录。
         if (action?.ControllerTypeInfo.FullName == "Metarill.Api.Controllers.GenerationAssistantController" && action.ActionName is "Bind" or "Claim" or "Report" or "Approvals" or "Authorize" or "VerifyTicket" or "ApplicationReport") { await next(context); return; }
         AgentTaskClaim? claim = null;
+        AgentTaskStore? tasks = null;
         try
         {
+            // 仅真实Agent业务调用解析目录和账本；普通Web与匿名请求不提前创建数据库服务。
+            var catalog = context.RequestServices.GetRequiredService<AgentCapabilityCatalog>();
+            tasks = context.RequestServices.GetRequiredService<AgentTaskStore>();
+            var options = context.RequestServices.GetRequiredService<AgentTaskOptions>();
             var capabilityId = Header(context, "X-Yzp-Agent-Capability", 200);
             AgentCapability capability;
             try { capability = catalog.RequireInvocation(capabilityId, context); }
@@ -53,7 +59,7 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
             }
             catch
             {
-                try { await tasks.CompleteAsync(claim, context.Response.StatusCode, null, null, false); } catch (Exception) { /* 账本故障由unknown响应兜底，禁止自动重发。 */ }
+                try { await tasks!.CompleteAsync(claim, context.Response.StatusCode, null, null, false); } catch (Exception) { /* 账本故障由unknown响应兜底，禁止自动重发。 */ }
                 context.Response.Body = original;
                 if (context.Response.HasStarted) throw;
                 context.Response.Clear();

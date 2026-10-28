@@ -42,12 +42,12 @@ public sealed class FrontendPackager
     }
 
     /// <summary>先读取并验证完整闭包再写同级stage；非空目录一律保护，重复输出由新空目录承接。</summary>
-    public FrontendPackageResult Create(MetadataCatalog catalog, string generatedFrontend, string outputDirectory, string sourceRoot)
+    public FrontendPackageResult Create(MetadataCatalog catalog, string generatedFrontend, string outputDirectory, string sourceRoot, bool includeAgent = false)
     {
         Validate(catalog);
         var output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputDirectory)); CSharpGenerator.SafePath(output, ".metarill-frontend.json");
         if (File.Exists(output) || Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any()) throw new InvalidOperationException("独立前端输出目录必须为空，不能覆盖手写宿主或配置。");
-        var files=BuildFiles(catalog,generatedFrontend,output,sourceRoot,null);
+        var files=BuildFiles(catalog,generatedFrontend,output,sourceRoot,null,includeAgent);
         var stage = output + ".staging-" + Guid.NewGuid().ToString("N");
         var preserveStage = false;
         try
@@ -80,7 +80,7 @@ public sealed class FrontendPackager
     }
 
     /// <summary>先建立完整资源图；普通发布和内部管理准备共用复制、依赖、路由与摘要规则。</summary>
-    private static Dictionary<string,byte[]> BuildFiles(MetadataCatalog catalog,string generatedFrontend,string output,string sourceRoot,GenerationModel? trustedModel)
+    private static Dictionary<string,byte[]> BuildFiles(MetadataCatalog catalog,string generatedFrontend,string output,string sourceRoot,GenerationModel? trustedModel,bool includeAgent=false)
     {
         var source = CSharpGenerator.SafePath(Path.GetFullPath(sourceRoot), "frontend/metarill_uni_admin");
         var generated = Path.GetFullPath(generatedFrontend); CSharpGenerator.SafePath(generated, "pages.generated.json");
@@ -105,7 +105,7 @@ public sealed class FrontendPackager
             }
             if (relative == "components/yzp-menu/yzp-menu.vue")
             {
-                // 独立开发宿主尚未提供Agent控制面，显示条件只控制原入口，不授予后台能力。
+                // 原入口随完整宿主能力声明显示，前端开关本身不授予后台能力。
                 const string entry = "<view class=\"agent-entry\">";
                 if (!content.Contains(entry, StringComparison.Ordinal)) throw new InvalidOperationException("原菜单授权入口结构已变化，请先核对能力门禁。");
                 content = content.Replace(entry, "<view v-if=\"supportsAgentGrants\" class=\"agent-entry\">", StringComparison.Ordinal)
@@ -148,9 +148,19 @@ public sealed class FrontendPackager
         Add("common/yzp_runtime/page-write-schema.generated.json", File.ReadAllBytes(CSharpGenerator.SafePath(generated, "common/yzp_runtime/page-write-schema.generated.json")));
         var pages = JsonNode.Parse(Template("frontend-pages.json.tpl"))!;
         foreach (var route in generatedRoutes) pages["pages"]!.AsArray().Add(route!.DeepClone());
+        if(includeAgent)
+        {
+            // 原授权页面、路由和样式逐字复用，页面参数不能启用服务器能力。
+            var original=JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source,"pages.json")))!["pages"]!.AsArray();
+            foreach(var path in new[]{"pages/custom/agent_authorize","pages/custom/agent_grants"})
+            {
+                Copy(path+".vue");
+                pages["pages"]!.AsArray().Add(original.Single(route=>route?["path"]?.GetValue<string>()==path)!.DeepClone());
+            }
+        }
         pages["tabBar"]!["selectedColor"] = catalog.PrimaryColor;
         Text("pages.json", pages.ToJsonString(JsonOptions) + "\n");
-        Text("common/application.generated.json", JsonSerializer.Serialize(new { projectId = catalog.YzProjectId, name = catalog.YzProjectName, adminTypeId = catalog.YzAdminTypes.FirstOrDefault()?.Id ?? "", capabilities = new { platformManagement = false, agentGrants = false } }, JsonOptions) + "\n");
+        Text("common/application.generated.json", JsonSerializer.Serialize(new { projectId = catalog.YzProjectId, name = catalog.YzProjectName, adminTypeId = catalog.YzAdminTypes.FirstOrDefault()?.Id ?? "", capabilities = new { platformManagement = false, agentGrants = includeAgent } }, JsonOptions) + "\n");
         foreach (var (template, destination) in new[] { ("frontend-App.vue.tpl", "App.vue"), ("frontend-environment.js.tpl", "common/environment.js"), ("frontend-config.js.tpl", "common/application.config.js"), ("frontend-yzp.js.tpl", "common/yzp.js"), ("frontend-project.js.tpl", "common/project.js"), ("frontend-login.vue.tpl", "pages/login.vue"), ("frontend-index.vue.tpl", "pages/main/index.vue"), ("frontend-main.vue.tpl", "pages/main/main.vue"), ("frontend-change_password.vue.tpl", "pages/main/change_password.vue"), ("frontend-menu.vue.tpl", "pages/main/menu.vue"), ("frontend-left.vue.tpl", "pages/main/left.vue"), ("frontend-top.vue.tpl", "pages/main/top.vue"), ("frontend-my.vue.tpl", "pages/main/my.vue"), ("frontend-manifest.json.tpl", "manifest.json"), ("frontend-index.html.tpl", "index.html"), ("frontend-verify.mjs.tpl", "scripts/verify-frontend.mjs"), ("frontend-README.md.tpl", "README.md") }) Text(destination, Template(template));
         var package = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source, "package.json")))!;
         var dependencies = package["dependencies"]!.DeepClone();

@@ -2,6 +2,8 @@ using Metarill.Core.Metadata;
 using Metarill.Runtime.Agent;
 using Metarill.Runtime.Security;
 using Xunit;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Metarill.Agent.Tests;
 
@@ -75,6 +77,27 @@ public sealed class AgentHostCatalogTests
     {
         var source = Catalog("100", "31", "21"); source.YzAdminTypes[0].YzProjectId = "200";
         Assert.False(AgentHostCatalog.ForApplication(source).CanApprove(Realm("100", "31", true)));
+    }
+
+    /// <summary>匿名请求及普通Web通道不提前解析任何Agent数据库依赖。</summary>
+    [Fact]
+    public async Task Anonymous_middlewares_do_not_resolve_agent_database_services()
+    {
+        using var services=new ServiceCollection().BuildServiceProvider();var context=new DefaultHttpContext{RequestServices=services};var calls=0;
+        await new AgentAuthenticationMiddleware(_=>{calls++;return Task.CompletedTask;}).InvokeAsync(context);
+        await new AgentTaskMiddleware(_=>{calls++;return Task.CompletedTask;}).InvokeAsync(context);
+        Assert.Equal(2,calls);
+    }
+
+    /// <summary>重复或错误传输头在解析数据库服务前拒绝，不能借缺配置改变认证结果。</summary>
+    [Fact]
+    public async Task Invalid_transport_headers_fail_before_dependency_resolution()
+    {
+        using var services=new ServiceCollection().BuildServiceProvider();var context=new DefaultHttpContext{RequestServices=services};
+        context.Request.Headers.Authorization="Basic invalid";
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new AgentAuthenticationMiddleware(_=>throw new InvalidOperationException()).InvokeAsync(context));
+        context.Request.Headers.Authorization=new Microsoft.Extensions.Primitives.StringValues(new[]{"Bearer first","Bearer second"});
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new AgentAuthenticationMiddleware(_=>throw new InvalidOperationException()).InvokeAsync(context));
     }
 
     /// <summary>仅提供已保存的静态模型，不用HTTP客户端参数构造权限。</summary>

@@ -1,6 +1,6 @@
 # 独立应用包与前端宿主
 
-独立包将项目元数据、生成强类型后端、Core/Data/Exports/Files 源码及 ASP.NET Core 宿主放入同一目录；当前 FullApplication 另含 Security 源码和数据库 Web 认证，BackendOnly 保留原 development-only 宿主。普通 CRUD 和文件、导出不依赖在线 Metarill 平台。MySQL 结构仍从元数据显式预览、执行和核验，普通启动不执行 DDL 或账号初始化。
+独立包将项目元数据、生成强类型后端、Core/Data/Exports/Files 源码及 ASP.NET Core 宿主放入同一目录；当前 FullApplication 另含 Security/Agent 源码、数据库 Web 认证及Agent装配，BackendOnly 保留原 development-only 宿主。普通 CRUD 和文件、导出不依赖在线 Metarill 平台。MySQL 结构仍从元数据显式预览、执行和核验，普通启动不执行 DDL 或账号初始化。
 
 ## 两种显式模式
 
@@ -16,7 +16,7 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 ## 独立前端边界
 
-前端宿主保留登录表单、菜单展开/导航、请求 loading、错误提示及标准 list/detail 的交互，复用公共请求运行时、菜单状态机、FileLibrary、日期选择、搜索多选、Tiny Cloud 与 DCloud uni-ui。生成页面与页面写入 schema 只使用当前业务项目元数据。`pages.generated.json` 组装到独立宿主 `pages.json`，不复制平台配置页面或平台 Agent 入口。
+前端宿主保留登录表单、菜单展开/导航、请求 loading、错误提示及标准 list/detail 的交互，复用公共请求运行时、菜单状态机、FileLibrary、日期选择、搜索多选、Tiny Cloud 与 DCloud uni-ui。生成页面与页面写入 schema 只使用当前业务项目元数据。`pages.generated.json` 组装到独立宿主 `pages.json`，不复制平台配置页面；完整包仅额外复用原Agent授权/授权管理两页，普通前端片段包默认关闭该入口。
 
 源资产来自固定逐文件 allowlist，所有祖先路径拒绝符号链接和 junction；新出现的私有文件不会自动进入包。只生成公开的项目 ID/名称/后台 ID；源平台 environment、AppID、`.local` 和 appsettings.local 不复制。依赖锁文件只允许核对后的 npm registry 和带完整性校验的离线 SheetJS 归档，许可证随包保留。元数据敏感键先脱敏，非标准键仍需发布者审核。
 
@@ -24,9 +24,9 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 ## 数据库Web认证与显式初始化
 
-当前新 FullApplication 的认证 profile 为 `web-database-v1`，默认使用数据库账号、PBKDF2 摘要及持久化 Web 会话；缺配置、匿名或无效令牌明确拒绝，不回退开发账号。原登录、菜单、权限、注销和自助改密 URL/响应继续使用原协议；本应用后台 super 不产生平台管理员身份，也没有 Agent/设备控制面。
+当前新 FullApplication 的认证 profile 为 `web-database-v1`，默认使用数据库账号、PBKDF2 摘要及持久化 Web 会话；缺配置、匿名或无效令牌明确拒绝，不回退开发账号。原登录、菜单、权限、注销和自助改密 URL/响应继续使用原协议；本应用后台 super 不产生平台管理员身份，Agent/设备签发只绑定该应用已发布后台，不能产生平台身份。
 
-结构计划组合业务 `project.json`、文件三表 `files.json` 与安全六表 `security.json`。先审核并显式执行结构计划，再从宿主私有配置或环境提供 `Authentication:Bootstrap`，单独执行 `dotnet run --project backend/Application.Host -- --initialize-security`。该命令不执行 DDL，只初始化本包项目/后台及新生成长 ID 的管理员角色/账号；重复不重置摘要、不复活墓碑或补绑既有账号。多后台必须明确选择包内后台，凭据不放入命令行、URL、源码或日志。普通启动不执行这一步。
+结构计划组合业务 `project.json`、文件三表 `files.json` 、安全六表 `security.json` 与程序集内固定Agent两表。先审核并显式执行结构计划，再从宿主私有配置或环境提供 `Authentication:Bootstrap`，单独执行 `dotnet run --project backend/Application.Host -- --initialize-security`。该命令不执行 DDL，只初始化本包项目/后台及新生成长 ID 的管理员角色/账号；重复不重置摘要、不复活墓碑或补绑既有账号。多后台必须明确选择包内后台，凭据不放入命令行、URL、源码或日志。普通启动不执行这一步。
 
 六表是兼容平台的物理定义，不开放安全表业务 CRUD。完整安全写协调、三个手写安全 Service partial 与角色工作台下发仍待后续独立适配；共享 Security 工程随包不等于完整 Runtime A 已下发。安全表带业务页、五处平台 Custom 及其它未支持能力仍按既有门禁拒绝，不自动降级。详细配置和边界见 [独立完整包数据库Web认证](standalone-web-authentication.md)。
 
@@ -116,3 +116,9 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 
 
 物理FileLibrary可随普通非冗余完整包下发；Core/Files与生成Service/VO需配套更新并重建，普通query-only角色可按有效记录引用读取保护文件。参见[文件读写及权限边界](nonredundant-files.md)。这里只补齐真实引用读取，不将既有所有者路径、原V8状态映射与全部云存储策略一并视为完成。
+
+## 完整包 Agent 接线（2026-10-28）
+
+当前源码包已包含公共Agent、固定两表/三个唯一索引、原授权/授权管理页面及严格Web/Agent管线。`Agent:VerificationUri` 必须由部署者在私有配置填写本应用可信授权页地址；不从请求Host或客户端元数据推导。普通启动不DDL，旧工程更新须先审查新增结构计划。显式开发身份不签发Agent，无配置/匿名请求在数据库服务构造前拒绝。
+
+固定模型派生、共享运行时、真实独立包编译及三模式HTTP、HBuilderX Web导出已有验证；正式OAuth/CLI/MySQL业务、原浏览器及独立MCP完整下发仍未验收。历史章节的无Agent下发状态以本节为准，历史实库结果仍只证明当时冻结的版本；不能把新增两表加入旧计数后冒称已经重验。详见 [Agent接线与实际证据](standalone-agent.md)。
