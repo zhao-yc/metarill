@@ -125,7 +125,7 @@ public partial class YzRolePermissionService
         var query = Query2063264600601714690(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2063264600601714690(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzRolePermission { Id = entity.Id, ConfigMenuId = entity.ConfigMenuId, PermissionValues = entity.PermissionValues, YzRoleId = entity.YzRoleId, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId, ConfigPageId = entity.ConfigPageId, ConfigButtonId = entity.ConfigButtonId }, cancellationToken);
         return new(entities.Select(YzRolePermissionPage2063264600601714690Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -133,7 +133,7 @@ public partial class YzRolePermissionService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzRolePermissionPage2063264600601714690Vo?> Detail2063264600601714690Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2063264600601714690(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope2063264600601714690(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzRolePermission { Id = entity.Id, ConfigMenuId = entity.ConfigMenuId, PermissionValues = entity.PermissionValues, YzRoleId = entity.YzRoleId, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId, ConfigPageId = entity.ConfigPageId, ConfigButtonId = entity.ConfigButtonId }, cancellationToken);
         return entity is null ? null : YzRolePermissionPage2063264600601714690Vo.FromEntity(entity);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>

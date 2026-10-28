@@ -93,7 +93,7 @@ public partial class YzAdminTypeService
         var query = Query1696799309006348290(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order1696799309006348290(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzAdminType { Id = entity.Id, Name = entity.Name, UserName = entity.UserName, Password = entity.Password, ExactDataManageMatchField = entity.ExactDataManageMatchField, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return new(entities.Select(YzAdminTypePage1696799309006348290Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -101,7 +101,7 @@ public partial class YzAdminTypeService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzAdminTypePage1696799309006348290Vo?> Detail1696799309006348290Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope1696799309006348290(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope1696799309006348290(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzAdminType { Id = entity.Id, Name = entity.Name, UserName = entity.UserName, Password = entity.Password, ExactDataManageMatchField = entity.ExactDataManageMatchField, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return entity is null ? null : YzAdminTypePage1696799309006348290Vo.FromEntity(entity);
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>

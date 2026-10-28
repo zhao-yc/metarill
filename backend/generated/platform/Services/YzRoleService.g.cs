@@ -114,7 +114,7 @@ public partial class YzRoleService
         var query = Query1692532858529329154(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order1692532858529329154(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzRole { Id = entity.Id, IsSuper = entity.IsSuper, YzAdminTypeId = entity.YzAdminTypeId, IsBuiltIn = entity.IsBuiltIn, Name = entity.Name, SortNo = entity.SortNo, IsScope = entity.IsScope, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return new(await ProjectRoleAdminNames1692532858529329154Async(entities, actor, "list", cancellationToken), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -122,7 +122,7 @@ public partial class YzRoleService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzRolePage1692532858529329154Vo?> Detail1692532858529329154Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope1692532858529329154(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope1692532858529329154(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzRole { Id = entity.Id, IsSuper = entity.IsSuper, YzAdminTypeId = entity.YzAdminTypeId, IsBuiltIn = entity.IsBuiltIn, Name = entity.Name, SortNo = entity.SortNo, IsScope = entity.IsScope, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : (await ProjectRoleAdminNames1692532858529329154Async([entity], actor, "detail", cancellationToken))[0];
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>

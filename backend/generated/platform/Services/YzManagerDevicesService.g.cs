@@ -101,7 +101,7 @@ public partial class YzManagerDevicesService
         var query = Query6220589291798528(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6220589291798528(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzManagerDevices { Id = entity.Id, YzManagerId = entity.YzManagerId, Name = entity.Name, IsMac = entity.IsMac, Token = entity.Token, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return new(entities.Select(YzManagerDevicesPage6220589291798528Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -109,7 +109,7 @@ public partial class YzManagerDevicesService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzManagerDevicesPage6220589291798528Vo?> Detail6220589291798528Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope6220589291798528(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope6220589291798528(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzManagerDevices { Id = entity.Id, YzManagerId = entity.YzManagerId, Name = entity.Name, IsMac = entity.IsMac, Token = entity.Token, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : YzManagerDevicesPage6220589291798528Vo.FromEntity(entity);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>

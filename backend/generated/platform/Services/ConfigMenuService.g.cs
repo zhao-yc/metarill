@@ -117,7 +117,7 @@ public partial class ConfigMenuService
         var query = Query2200000000000099000(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2200000000000099000(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigMenu { Id = entity.Id, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, Name = entity.Name, ParentMenuId = entity.ParentMenuId, YzProjectId = entity.YzProjectId, YzAdminTypeId = entity.YzAdminTypeId, Kind = entity.Kind, ConfigPageId = entity.ConfigPageId, ConfigCustomPageId = entity.ConfigCustomPageId, NavigateUrl = entity.NavigateUrl, IconName = entity.IconName, SortNo = entity.SortNo, IsHidden = entity.IsHidden, IsShowCount = entity.IsShowCount, VisibleScheme = entity.VisibleScheme }, cancellationToken);
         return new(entities.Select(ConfigMenuPage2200000000000099000Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -125,7 +125,7 @@ public partial class ConfigMenuService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigMenuPage2200000000000099000Vo?> Detail2200000000000099000Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2200000000000099000(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope2200000000000099000(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigMenu { Id = entity.Id, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, Name = entity.Name, ParentMenuId = entity.ParentMenuId, YzProjectId = entity.YzProjectId, YzAdminTypeId = entity.YzAdminTypeId, Kind = entity.Kind, ConfigPageId = entity.ConfigPageId, ConfigCustomPageId = entity.ConfigCustomPageId, NavigateUrl = entity.NavigateUrl, IconName = entity.IconName, SortNo = entity.SortNo, IsHidden = entity.IsHidden, IsShowCount = entity.IsShowCount, VisibleScheme = entity.VisibleScheme }, cancellationToken);
         return entity is null ? null : ConfigMenuPage2200000000000099000Vo.FromEntity(entity);
     }
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>

@@ -115,7 +115,7 @@ public partial class ConfigIndexColumnService
         var query = Query2076977554350190593(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2076977554350190593(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigIndexColumn { Id = entity.Id, ConfigIndexId = entity.ConfigIndexId, ConfigColumnId = entity.ConfigColumnId, ColumnName = entity.ColumnName, SortNo = entity.SortNo, SortDirection = entity.SortDirection, ConfigIndexIndexName = entity.ConfigIndexIndexName, ConfigColumnName = entity.ConfigColumnName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return new(entities.Select(ConfigIndexColumnPage2076977554350190593Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -123,7 +123,7 @@ public partial class ConfigIndexColumnService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigIndexColumnPage2076977554350190593Vo?> Detail2076977554350190593Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2076977554350190593(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope2076977554350190593(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigIndexColumn { Id = entity.Id, ConfigIndexId = entity.ConfigIndexId, ConfigColumnId = entity.ConfigColumnId, ColumnName = entity.ColumnName, SortNo = entity.SortNo, SortDirection = entity.SortDirection, ConfigIndexIndexName = entity.ConfigIndexIndexName, ConfigColumnName = entity.ConfigColumnName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return entity is null ? null : ConfigIndexColumnPage2076977554350190593Vo.FromEntity(entity);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>

@@ -141,7 +141,7 @@ break; }
         var query = Query1870796062470516738(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order1870796062470516738(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return new(entities.Select(ConfigButtonPage1870796062470516738Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -149,7 +149,7 @@ break; }
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigButtonPage1870796062470516738Vo?> Detail1870796062470516738Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage1870796062470516738Vo.FromEntity(entity);
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
@@ -422,7 +422,7 @@ break; }
         var query = Query7097193256583168(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order7097193256583168(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return new(entities.Select(ConfigButtonPage7097193256583168Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -430,7 +430,7 @@ break; }
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigButtonPage7097193256583168Vo?> Detail7097193256583168Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage7097193256583168Vo.FromEntity(entity);
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>

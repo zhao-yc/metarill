@@ -108,7 +108,7 @@ public partial class DemoCustomerService
         var query = Query2200000000000100020(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2200000000000100020(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
         return new(entities.Select(DemoCustomerPage2200000000000100020Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -116,7 +116,7 @@ public partial class DemoCustomerService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<DemoCustomerPage2200000000000100020Vo?> Detail2200000000000100020Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
         return entity is null ? null : DemoCustomerPage2200000000000100020Vo.FromEntity(entity);
     }
     /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>

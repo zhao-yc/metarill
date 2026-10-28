@@ -114,7 +114,7 @@ public partial class YzManagerDevicesProjectService
         var query = Query6220608155484160(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6220608155484160(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzManagerDevicesProject { Id = entity.Id, YzProjectId = entity.YzProjectId, YzManagerId = entity.YzManagerId, IsJava = entity.IsJava, IsUniapp = entity.IsUniapp, JavaPath = entity.JavaPath, UniappPath = entity.UniappPath, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName }, cancellationToken);
         return new(entities.Select(YzManagerDevicesProjectPage6220608155484160Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -122,7 +122,7 @@ public partial class YzManagerDevicesProjectService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzManagerDevicesProjectPage6220608155484160Vo?> Detail6220608155484160Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope6220608155484160(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope6220608155484160(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzManagerDevicesProject { Id = entity.Id, YzProjectId = entity.YzProjectId, YzManagerId = entity.YzManagerId, IsJava = entity.IsJava, IsUniapp = entity.IsUniapp, JavaPath = entity.JavaPath, UniappPath = entity.UniappPath, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName }, cancellationToken);
         return entity is null ? null : YzManagerDevicesProjectPage6220608155484160Vo.FromEntity(entity);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>

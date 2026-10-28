@@ -191,6 +191,12 @@ public sealed class MaterializedDerivedWriteTests
                 if(method.Name=="Where"&&args![0] is LambdaExpression condition)conditions.Add(condition);
                 if(method.Name=="CountAsync")return Task.FromResult(Count);
                 if(method.Name=="FirstAsync")return Completed(entity,rows.GetValueOrDefault(entity));
+                if(method.Name=="ToOneAsync")
+                {
+                    // 普通详情显式投影与写入完整实体分开，空行不构造默认实体。
+                    var expression=args!.OfType<LambdaExpression>().Single();var row=rows.GetValueOrDefault(entity);
+                    return Completed(expression.ReturnType,row is null?null:expression.Compile().DynamicInvoke(row));
+                }
                 if(method.Name=="ToListAsync")
                 {
                     var expression=(LambdaExpression)args![0]!;projectedEntity=entity;projection=expression;predicates=conditions.ToArray();var item=expression.Compile().DynamicInvoke(rows[entity]);var list=(System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(expression.ReturnType))!;list.Add(item);return Completed(list.GetType(),list);

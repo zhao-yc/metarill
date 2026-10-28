@@ -58,7 +58,7 @@ internal static class SelectionPageRenderer
         if(projected is null&&(CascadeTreeViewRenderer.ForPage(model,table,page).Count>0||CrossTableDisplayRenderer.ForPage(model,table,page).Count>0))projected=CascadeTreeViewRenderer.Decorate(model,table,page,$"ordered.Select({page.Name}Vo.FromEntity).ToArray()","ordered");
         return result.AppendLine($"        var query = {CascadeTreeQueryCompilation.Call(page,$"new PageRequest {{ ParentId = request.ParentId, SelectedIds = selected.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToList() }}")};")
             .AppendLine("        if (selected.Length == 0) return [];")
-            .AppendLine(ManagerCredentialCompilation.IsTable(table) ? $"        var entities = await query.Limit(200).ToListAsync({ManagerCredentialCompilation.ReadProjection(table)}, cancellationToken);" : "        var entities = await query.Limit(200).ToListAsync(cancellationToken);")
+            .AppendLine($"        var entities = await query.Limit(200).ToListAsync({PublishedReadProjectionCompilation.Expression(model, table, page)}, cancellationToken);")
             .AppendLine("        if (entities.Count != selected.Length) throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
             .AppendLine("        var rows = entities.ToDictionary(row => row.Id);")
             .Append(projected is null ? "" : "        var ordered = selected.Select(id => rows[id]).ToArray();\n")

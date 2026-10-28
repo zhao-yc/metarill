@@ -124,7 +124,12 @@ public partial class ConfigColumnService
             {
                 if(method.Name=="Where"&&args![0] is LambdaExpression condition)conditions.Add(condition);
                 if(method.Name=="ForUpdate")ForUpdateObserved=true;
-                if(method.Name=="FirstAsync")return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(entity).Invoke(null,[Row is not null&&conditions.All(condition=>(bool)condition.Compile().DynamicInvoke(Row)!)?Clone(Row):null]);
+                if(method.Name is "FirstAsync" or "ToOneAsync")
+                {
+                    // 只投影命中原谓词的副本；不影响完整写锁副本与回滚快照。
+                    var projection=args!.OfType<LambdaExpression>().SingleOrDefault();var row=Row is not null&&conditions.All(condition=>(bool)condition.Compile().DynamicInvoke(Row)!)?Clone(Row):null;
+                    return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(projection?.ReturnType??entity).Invoke(null,[row is null||projection is null?row:projection.Compile().DynamicInvoke(row)]);
+                }
                 return query;
             });return query;
         }

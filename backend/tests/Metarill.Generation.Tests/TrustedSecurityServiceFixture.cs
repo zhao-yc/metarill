@@ -130,7 +130,12 @@ internal sealed class TrustedSecurityServiceRun:IAsyncDisposable
             if(method.Name=="Where"||method.Name=="WhereIf"){if(args!.FirstOrDefault() is not bool enabled||enabled)predicates.AddRange(args!.OfType<LambdaExpression>());return query;}
             var rows=Rows(entityType).Where(row=>predicates.All(predicate=>(bool)predicate.Compile().DynamicInvoke(row)!)).ToArray();
             if(method.Name=="Any")return rows.Length>0;if(method.Name=="CountAsync")return Task.FromResult((long)rows.Length);
-            if(method.Name=="FirstAsync")return TaskValue(entityType,rows.FirstOrDefault());
+            if(method.Name is "FirstAsync" or "ToOneAsync")
+            {
+                // 原范围过滤后再投影，空结果保持null；保存锁读没有投影时仍返回完整实体。
+                var projection=args!.OfType<LambdaExpression>().SingleOrDefault();var row=rows.FirstOrDefault();
+                return TaskValue(projection?.ReturnType??entityType,row is null||projection is null?row:projection.Compile().DynamicInvoke(row));
+            }
             if(method.Name=="ToListAsync")
             {
                 var projection=args!.OfType<LambdaExpression>().SingleOrDefault();var type=projection?.ReturnType??entityType;var list=(IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(type))!;foreach(var row in rows)list.Add(projection is null?row:projection.Compile().DynamicInvoke(row));return TaskValue(list.GetType(),list);

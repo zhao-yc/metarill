@@ -149,7 +149,7 @@ break; }
         var query = Query1679390851298631682(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order1679390851298631682(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigChild { Id = entity.Id, ParentConfigPageId = entity.ParentConfigPageId, ChildConfigPageId = entity.ChildConfigPageId, SortNo = entity.SortNo, ChildPageOpenType = entity.ChildPageOpenType, ParentConfigPageName = entity.ParentConfigPageName, ChildConfigPageName = entity.ChildConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return new(entities.Select(ConfigChildPage1679390851298631682Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -157,7 +157,7 @@ break; }
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigChildPage1679390851298631682Vo?> Detail1679390851298631682Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope1679390851298631682(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope1679390851298631682(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigChild { Id = entity.Id, ParentConfigPageId = entity.ParentConfigPageId, ChildConfigPageId = entity.ChildConfigPageId, SortNo = entity.SortNo, ChildPageOpenType = entity.ChildPageOpenType, ParentConfigPageName = entity.ParentConfigPageName, ChildConfigPageName = entity.ChildConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return entity is null ? null : ConfigChildPage1679390851298631682Vo.FromEntity(entity);
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>

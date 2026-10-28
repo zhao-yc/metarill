@@ -268,12 +268,17 @@ public sealed class FixedRoleAdminNameTests
                 foreach(var filter in filters) {var predicate=filter.Compile();data=data.Where(item=>(bool)predicate.DynamicInvoke(item)!);}
                 return data.Any();
             }
-            if(method.Name is "ToListAsync" or "CountAsync" or "FirstAsync")
+            if(method.Name is "ToListAsync" or "CountAsync" or "FirstAsync" or "ToOneAsync")
             {
                 rows.Commands.Add((string)typeof(ReadQueryProxy).GetMethod(nameof(Sql),BindingFlags.Static|BindingFlags.NonPublic)!.MakeGenericMethod(entity,lambda?.ReturnType??entity).Invoke(null,[real,lambda,method.Name=="CountAsync"])!);
                 IEnumerable<object> data=rows.Data.GetValueOrDefault(entity)??[];foreach(var filter in filters){var predicate=filter.Compile();data=data.Where(item=>(bool)predicate.DynamicInvoke(item)!);}
                 object? result;rows.PredicateDepth++;
-                try {if(method.Name=="CountAsync")result=data.LongCount();else if(method.Name=="FirstAsync")result=data.FirstOrDefault();else{var type=method.ReturnType.GetGenericArguments()[0];var list=(System.Collections.IList)Activator.CreateInstance(type)!;var project=lambda?.Compile();foreach(var item in data)list.Add(project is null?item:project.DynamicInvoke(item));result=list;}}
+                try {if(method.Name=="CountAsync")result=data.LongCount();else if(method.Name is "FirstAsync" or "ToOneAsync")
+                {
+                    // 显式单行投影执行同一表达式；无匹配行仍返回null，不能回传完整实体掩盖缺列。
+                    var first=data.FirstOrDefault();result=first is null||lambda is null?first:lambda.Compile().DynamicInvoke(first);
+                }
+                else{var type=method.ReturnType.GetGenericArguments()[0];var list=(System.Collections.IList)Activator.CreateInstance(type)!;var project=lambda?.Compile();foreach(var item in data)list.Add(project is null?item:project.DynamicInvoke(item));result=list;}}
                 finally {rows.PredicateDepth--;}
                 return typeof(OfflineRows).GetMethod(nameof(OfflineRows.Complete),BindingFlags.Instance|BindingFlags.NonPublic)!.MakeGenericMethod(method.ReturnType.GetGenericArguments()[0]).Invoke(rows,[result]);
             }

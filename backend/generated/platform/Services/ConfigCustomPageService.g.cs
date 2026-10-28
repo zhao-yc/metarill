@@ -101,7 +101,7 @@ public partial class ConfigCustomPageService
         var query = Query2062361618137833473(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2062361618137833473(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigCustomPage { Id = entity.Id, Name = entity.Name, PagePath = entity.PagePath, NavigationStyle = entity.NavigationStyle, EnablePullDownRefresh = entity.EnablePullDownRefresh, IsShowLeft = entity.IsShowLeft, IsShowTop = entity.IsShowTop, SortNo = entity.SortNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return new(entities.Select(ConfigCustomPagePage2062361618137833473Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -109,7 +109,7 @@ public partial class ConfigCustomPageService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigCustomPagePage2062361618137833473Vo?> Detail2062361618137833473Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigCustomPage { Id = entity.Id, Name = entity.Name, PagePath = entity.PagePath, NavigationStyle = entity.NavigationStyle, EnablePullDownRefresh = entity.EnablePullDownRefresh, IsShowLeft = entity.IsShowLeft, IsShowTop = entity.IsShowTop, SortNo = entity.SortNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return entity is null ? null : ConfigCustomPagePage2062361618137833473Vo.FromEntity(entity);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>

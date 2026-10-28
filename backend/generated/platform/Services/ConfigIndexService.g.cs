@@ -101,7 +101,7 @@ public partial class ConfigIndexService
         var query = Query2076977531071803393(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2076977531071803393(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigIndex { Id = entity.Id, ConfigTableId = entity.ConfigTableId, IndexName = entity.IndexName, IndexType = entity.IndexType, IsEnabled = entity.IsEnabled, ConfigTableName = entity.ConfigTableName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, IsUnique = entity.IsUnique }, cancellationToken);
         return new(entities.Select(ConfigIndexPage2076977531071803393Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -109,7 +109,7 @@ public partial class ConfigIndexService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigIndexPage2076977531071803393Vo?> Detail2076977531071803393Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2076977531071803393(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope2076977531071803393(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigIndex { Id = entity.Id, ConfigTableId = entity.ConfigTableId, IndexName = entity.IndexName, IndexType = entity.IndexType, IsEnabled = entity.IsEnabled, ConfigTableName = entity.ConfigTableName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, IsUnique = entity.IsUnique }, cancellationToken);
         return entity is null ? null : ConfigIndexPage2076977531071803393Vo.FromEntity(entity);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>

@@ -107,7 +107,7 @@ public partial class YzProjectService
         var query = Query6186303424888832(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6186303424888832(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return new(entities.Select(YzProjectPage6186303424888832Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -115,7 +115,7 @@ public partial class YzProjectService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzProjectPage6186303424888832Vo?> Detail6186303424888832Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).FirstAsync(cancellationToken);
+        var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : YzProjectPage6186303424888832Vo.FromEntity(entity);
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
