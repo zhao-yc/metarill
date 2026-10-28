@@ -122,3 +122,7 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 当前源码包已包含公共Agent、固定两表/三个唯一索引、原授权/授权管理页面及严格Web/Agent管线。`Agent:VerificationUri` 必须由部署者在私有配置填写本应用可信授权页地址；不从请求Host或客户端元数据推导。普通启动不DDL，旧工程更新须先审查新增结构计划。显式开发身份不签发Agent，无配置/匿名请求在数据库服务构造前拒绝。
 
 固定模型派生、共享运行时、真实独立包编译及三模式HTTP、HBuilderX Web导出已有验证；正式OAuth/CLI/MySQL业务、原浏览器及独立MCP完整下发仍未验收。历史章节的无Agent下发状态以本节为准，历史实库结果仍只证明当时冻结的版本；不能把新增两表加入旧计数后冒称已经重验。详见 [Agent接线与实际证据](standalone-agent.md)。
+
+## 公共MCP接线（2026-10-28）
+
+完整包已包含独立Mcp公共工程、可信目录绑定及 `/api/mcp` Stateless Streamable HTTP；平台原六操作分派也复用该工程。工具保持原强类型Service与逐次页权，Agent仅允许读取，写入继续走任务保护HTTP；开发身份、缺配置或匿名均拒绝。BackendOnly不增加该正式宿主。没有新增页面、表、DDL或任意SQL入口。实际SDK协议/离线夹具、完整包及正式身份验证须分列，详见 [MCP接线与未验收边界](standalone-mcp.md)。

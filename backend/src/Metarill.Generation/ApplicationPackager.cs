@@ -25,7 +25,7 @@ public sealed class ApplicationPackager
     internal ApplicationPackager(Action<string, string> publish) => this.publish = publish;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
     private static readonly string[] FoundationProjects = ["Metarill.Core", "Metarill.Data", "Metarill.Exports", "Metarill.Files"];
-    private static readonly string[] WebFoundationProjects = [..FoundationProjects,"Metarill.Security","Metarill.Agent"];
+    private static readonly string[] WebFoundationProjects = [..FoundationProjects,"Metarill.Security","Metarill.Agent","Metarill.Mcp"];
     /// <summary>先在同级临时目录完成整个包，成功后一次移动；既有非空项目永不覆盖。</summary>
     public ApplicationPackageResult Create(MetadataCatalog catalog, string outputDirectory, string rootNamespace, string sourceRoot, ApplicationPackageMode mode = ApplicationPackageMode.FullApplication)
     {
@@ -112,10 +112,10 @@ public sealed class ApplicationPackager
             if(securityJson is not null)Write(stage,"backend/metadata/security.json",securityJson.ToJsonString(JsonOptions)+"\n");
             foreach (var (template, destination) in new[] { (fullApplication?"Program.cs.tpl":"DevelopmentProgram.cs.tpl", "backend/Application.Host/Program.cs"), ("Authentication.cs.tpl", "backend/Application.Host/DevelopmentAuthentication.cs"), ("PasswordStore.cs.tpl", "backend/Application.Host/DevelopmentPasswordStore.cs"), (fullApplication?"Navigation.cs.tpl":"DevelopmentNavigation.cs.tpl", "backend/Application.Host/DevelopmentNavigation.cs"), ("Host.csproj.tpl", "backend/Application.Host/Application.Host.csproj"), (fullApplication?"README.md.tpl":"DevelopmentREADME.md.tpl", "README.md"), (fullApplication?"appsettings.example.json.tpl":"DevelopmentSettings.json.tpl", "backend/Application.Host/appsettings.example.json") })
                 Write(stage, destination, Template(template).Replace("{{NAMESPACE}}", rootNamespace)
-                    .Replace("{{SECURITY_REFERENCE}}",fullApplication?"<ProjectReference Include=\"../../src/Metarill.Security/Metarill.Security.csproj\" /><ProjectReference Include=\"../../src/Metarill.Agent/Metarill.Agent.csproj\" />":"")
+                    .Replace("{{SECURITY_REFERENCE}}",fullApplication?"<ProjectReference Include=\"../../src/Metarill.Security/Metarill.Security.csproj\" /><ProjectReference Include=\"../../src/Metarill.Agent/Metarill.Agent.csproj\" /><ProjectReference Include=\"../../src/Metarill.Mcp/Metarill.Mcp.csproj\" />":"")
                     .Replace("{{SECURITY_CONTENT}}",fullApplication?"<ItemGroup><Content Include=\"../metadata/security.json\" Link=\"metadata/security.json\" CopyToOutputDirectory=\"PreserveNewest\" /></ItemGroup>":""));
             if(fullApplication)
-                foreach(var name in new[]{"WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","SessionPolicy.cs","AgentIntegration.cs","WebSecurityCoordination.cs","SystemMaintenanceController.cs"})Write(stage,"backend/Application.Host/"+name,Template(name+".tpl").Replace("{{NAMESPACE}}",rootNamespace));
+                foreach(var name in new[]{"WebAuthentication.cs","SecurityInitialization.cs","PackageSecurityCatalog.cs","SessionPolicy.cs","AgentIntegration.cs","McpIntegration.cs","WebSecurityCoordination.cs","SystemMaintenanceController.cs"})Write(stage,"backend/Application.Host/"+name,Template(name+".tpl").Replace("{{NAMESPACE}}",rootNamespace));
             if(fullApplication)Write(stage,"backend/Application.Host/PackageSecurityCatalogBinding.g.cs",SecurityCatalogBindingSource(rootNamespace,securityCatalogSha256!));
             Write(stage, ".gitignore", "**/bin/\n**/obj/\n.local/\n**/appsettings.local.json\n**/appsettings.Development.json\n");
             var warnings = generated.Warnings.Concat(frontendIncluded ? Array.Empty<string>() : new[] { "本包显式选择BackendOnly，不含可运行前端宿主；平台配置前端需单独提供。backend/generated/frontend仅为生成片段。" }).ToArray();

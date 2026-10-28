@@ -1,6 +1,6 @@
 # 独立应用 {{NAMESPACE}}
 
-本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data/Exports/Files/Security/Agent 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
+本目录包含元数据、强类型 Entity/DTO/VO/Mapper/Service/Controller、Core/Data/Exports/Files/Security/Agent/Mcp 源码和 ASP.NET Core 宿主。普通 CRUD 不依赖在线 Metarill/YZP。首期数据库为 MySQL，启动不会自动创建或修改表。
 
 ## 构建与结构同步
 
@@ -11,7 +11,7 @@ dotnet restore backend/Application.Host/Application.Host.csproj
 dotnet build backend/Application.Host/Application.Host.csproj --no-restore
 ```
 
-SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data/Exports/Files/Security/Agent 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
+SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packages.lock.json，应提交这些锁文件，后续 CI 使用 `dotnet restore --locked-mode`，锁定传递依赖。Core/Data/Exports/Files/Security/Agent/Mcp 仅包含允许的源码及工程文件，原机器路径和私有配置不会复制。
 
 通过环境变量设置 Database__Provider=mysql、Database__ConnectionString、Database__ExpectedDatabase，或在宿主目录自行创建已忽略的 appsettings.local.json。不要把真实凭据提交到仓库。
 
@@ -89,3 +89,11 @@ Entity、页级DTO/VO、Mapper、Service、Controller及导入请求均支持同
 完整包在同一应用数据库安装 `sys_agent_grant`、`sys_agent_task`。旧工程更新后须显式预览并审核新增表，再应用结构计划；正常启动不DDL。`Agent:VerificationUri` 默认空，须在私有配置填写本应用原授权页可信HTTPS地址，例如 `https://app.example/#/pages/custom/agent_authorize`；本机验收允许HTTP回环。服务端不会从Host头或客户端参数推导该地址。
 
 OAuth和 `X-Yzp-Agent-*` 协议沿用现有CLI；批准需要当前后台真实Web超级角色。所有业务请求继续核验当前账号及页面/按钮权限，写请求必须逐次确认并带UUID；重复UUID拒绝执行，应查任务并回读。账本与业务不构成跨库分布式事务，响应或记账失败返回unknown，禁止自动重发。开发身份和缺数据库配置均不开放Agent接口。
+
+## MCP
+
+完整包提供同路径 `/api/mcp` 的Stateless Streamable HTTP，使用本应用同一真实Web/Agent认证。`list_generated_pages`只列当前允许的固定页面/动作；`call_generated_page`保留list/detail/create/update/delete/copy、parent及强DTO合同，写入必须confirmed=true。服务类型和程序集由宿主固定，不接受客户端类型名或任意SQL。对象响应中的长整数保持字符串。
+
+Agent仅可经MCP读取本授权项目页面；即使confirmed=true，也不能通过MCP写入，应使用原带UUID及任务账本的HTTP能力入口。显式Development身份不发布MCP，无数据库配置/匿名请求在工具执行前拒绝。该模块不开放平台设计器或元数据编辑。普通启动不DDL，新增模块无需新增数据库表。
+
+旧完整工程须通过原运行时更新预览/应用，配套同步Mcp源码、中央NuGet依赖及宿主引用、McpIntegration与Program，不改原页面或手写partial。源码、离线SDK测试和包编译不代表部署后的正式身份/数据库/文件关系/并发/设备或性能验收通过。

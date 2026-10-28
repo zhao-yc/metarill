@@ -48,7 +48,7 @@ public sealed class StandaloneAgentPackageTests
             foreach(var mode in new[]{"missing","development","configured"})
             {
                 await using var server=await Server.Start(host,mode);
-                foreach(var path in new[]{"/api/admin/sys/agent/grants","/api/admin/sys/agent/capabilities","/api/admin/sys/yz_manager/getCurrentPermissions"})
+                foreach(var path in new[]{"/api/admin/sys/agent/grants","/api/admin/sys/agent/capabilities","/api/admin/sys/yz_manager/getCurrentPermissions","/api/mcp"})
                 {using var response=await server.Client.GetAsync(path);Assert.Equal(HttpStatusCode.Unauthorized,response.StatusCode);}
                 using var oauth=await server.Client.PostAsync("/api/agent/oauth/device",new FormUrlEncodedContent(new Dictionary<string,string>{{"client_id","invalid"}}));
                 Assert.Equal(mode=="configured"?HttpStatusCode.BadRequest:HttpStatusCode.Unauthorized,oauth.StatusCode);

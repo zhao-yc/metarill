@@ -72,6 +72,7 @@ builder.Services.AddSingleton<DevelopmentSessions>();
 if(authenticationMode.Development)builder.Services.AddScoped<IRuntimeAuthorization,DevelopmentAuthorization>();
 else ApplicationWebSecurityCoordination.Add(builder.Services,authenticationMode);
 ApplicationAgentIntegration.Add(builder.Services,builder.Configuration,authenticationMode);
+ApplicationMcpIntegration.Add(builder.Services,verifiedCatalog,authenticationMode);
 // 生成和下载共享同一个票据仓库；先取得资源额度，再执行生成页的有界查询。
 builder.Services.AddSingleton(builder.Configuration.GetSection("Exports").Get<ExportOptions>() ?? new());
 builder.Services.AddSingleton<ExcelPageExportService>();
@@ -142,7 +143,7 @@ app.Use(async (context, next) =>
     {
         var path=context.Request.Path;
         // 开发身份没有OAuth签发域；默认缺配置也在控制器和数据库服务构造前拒绝。
-        if((path.StartsWithSegments("/api/agent")||path.StartsWithSegments("/api/admin/sys/agent"))&&(authenticationMode.Development||!authenticationMode.DatabaseConfigured))
+        if((path.StartsWithSegments("/api/agent")||path.StartsWithSegments("/api/admin/sys/agent")||path.StartsWithSegments("/api/mcp"))&&(authenticationMode.Development||!authenticationMode.DatabaseConfigured))
             throw new UnauthorizedAccessException();
         await next(context);
     }
@@ -233,6 +234,7 @@ app.MapMethods("/api/admin/sys/export/export", new[] { "GET", "HEAD" }, async (s
 app.MapGet("/api/admin/sys/yz_manager/getMenu", (DevelopmentNavigation navigation, IRuntimeAuthorization authorization) => navigation.Menu(authorization));
 app.MapGet("/api/admin/sys/yz_manager/getCurrentPermissions", (DevelopmentNavigation navigation, IRuntimeAuthorization authorization) => R<object>.Success(navigation.Permissions(authorization)));
 app.MapGet("/api/admin/sys/yz_manager/cap-config", () => R<object>.Success(new { enabled = false, apiEndpoint = "" }));
+ApplicationMcpIntegration.Map(app,authenticationMode);
 app.MapControllers();
 await app.RunAsync();
 

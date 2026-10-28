@@ -1,6 +1,5 @@
+using Metarill.Runtime.Mcp;
 using System.ComponentModel;
-using System.Globalization;
-using System.Reflection;
 using System.Text.Json;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
@@ -53,38 +52,8 @@ public sealed class PlatformTools
     [McpServerTool(Name="get_database_metadata_import_status", ReadOnly=true), Description("只读查询同身份同摘要的有限配置回执；unknown不能表示未写入，不得自动重复应用。")]
     public static Task<SchemaMetadataImportStatus> MetadataImportStatus(JsonElement data, SchemaMetadataImportBusiness import, CancellationToken token) => import.StatusAsync(data, token);
 
+    /// <summary>平台保持原工具及权限合同，六种强类型业务操作复用公共执行器。</summary>
     [McpServerTool(Name="call_generated_page",ReadOnly=false),Description("调用已发布页的强类型服务。operation 为 list/detail/create/update/delete/copy；写操作必须明确 confirmed=true。字段遵循生成 DTO，省略保持，null 清空。")]
-    public static async Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,MetadataRegistry registry,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)
-    {
-        var actor=authorization.RequireActor();authorization.RequirePagePermission(pageId,operation);
-        var catalog=new[]{registry.Platform,registry.Demo}.SingleOrDefault(c=>c.ConfigPages.Any(p=>p.Id==pageId))??throw new InvalidOperationException("页面尚未发布。");
-        if(authorization.RequireIdentity().GrantId is not null&&catalog.YzProjectId!=actor.ProjectId)throw new UnauthorizedAccessException("MCP页面不属于已批准的Agent项目。");
-        var page=catalog.ConfigPages.Single(p=>p.Id==pageId);var table=catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId);
-        var writing=operation is "create" or "update" or "delete" or "copy";
-        if(writing&&!confirmed)throw new InvalidOperationException("写入前必须检查请求并明确确认。");
-        if(writing&&authorization.RequireIdentity().GrantId is not null)throw new UnauthorizedAccessException("Agent 写请求须通过带请求任务保护的能力入口执行。");
-        var root=catalog.YzProjectId==registry.Platform.YzProjectId?"Metarill.Platform":"Metarill.Demo";
-        var tableName=string.Concat(table.TableName.Split('_').Select(part=>char.ToUpperInvariant(part[0])+part[1..]));
-        var assembly=typeof(Program).Assembly;var serviceType=assembly.GetType(root+".Generated.Services."+tableName+"Service")??throw new InvalidOperationException("服务尚未发布。");
-        var service=services.GetRequiredService(serviceType);string name;object?[] arguments;
-        if(operation is "list" or "detail" or "delete" or "copy")
-        {
-            if(operation=="list"){name="Page"+pageId+"Async";arguments=[data.Deserialize<PageRequest>(JsonDefaults.Options)??throw new ArgumentException("分页请求为空。"),actor,token];}
-            else
-            {
-                if(!data.TryGetProperty("id",out var key)||!long.TryParse(key.ToString(),NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0)throw new ArgumentException("请求缺少合法标识。");
-                name=(operation=="detail"?"Detail":operation=="delete"?"Delete":"Copy")+pageId+"Async";arguments=[id,parentId,actor,token];
-            }
-        }
-        else if(operation is "create" or "update")
-        {
-            name=(operation=="create"?"Create":"Update")+pageId+"Async";
-            var dto=assembly.GetType(root+".Generated.DTOs."+tableName+"Page"+pageId+(operation=="create"?"Create":"Update")+"Request")??throw new InvalidOperationException("页面未开放该写入。");
-            arguments=[data.Deserialize(dto,JsonDefaults.Options)??throw new ArgumentException("请求为空。"),parentId,actor,token];
-        }
-        else throw new ArgumentException("不支持的页面操作。");
-        var method=serviceType.GetMethod(name,BindingFlags.Instance|BindingFlags.Public)??throw new InvalidOperationException("页面未开放该操作。");
-        // 反射仅用于 MCP 工具目录分派；实际数据查询、映射和写入仍走已生成的固定类型服务。
-        var task=(Task)method.Invoke(service,arguments)!;await task;return task.GetType().GetProperty("Result")?.GetValue(task);
-    }
+    public static Task<object?> Page(string pageId,string operation,JsonElement data,bool confirmed,PublishedPageInvoker invoker,HttpRuntimeAuthorization authorization,IServiceProvider services,CancellationToken token,string? parentId=null)=>
+        GeneratedPageMcpTools.Page(pageId,operation,data,confirmed,invoker,authorization,authorization,services,token,parentId);
 }
