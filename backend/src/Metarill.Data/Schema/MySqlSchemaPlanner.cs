@@ -46,8 +46,7 @@ public static class MySqlSchemaPlanner
             "double" => "double",
             "bool" => "tinyint(1)",
             "date" => "date",
-            "datetime" => "datetime(6)",
-            "time" => "time(6)",
+            "datetime" or "time" => TemporalType(column),
             "json" => "json",
             "binary" => BinaryType(column.ColumnLength),
             _ => throw new InvalidOperationException($"不支持的逻辑类型：{column.LogicalType}。")
@@ -56,7 +55,7 @@ public static class MySqlSchemaPlanner
         if (isId && logical != "int64") throw new InvalidOperationException("id 必须为 int64。");
         if (column.ColumnName == "delete_no" && (logical != "datetime" || column.IsDbNotNull != 0))
             throw new InvalidOperationException("delete_no 必须是可空 datetime，null 表示活动记录。");
-        var defaultSql = CompileDefault(column.DefaultValue, logical);
+        var defaultSql = TryAuditTimestampDefault(column.ColumnName,sqlType,column.DefaultValue,out var temporalDefault) ? temporalDefault : CompileDefault(column.DefaultValue, logical);
         // MySQL 8.0.13及以后要求TEXT常量也使用表达式括号；仍不接受原生表达式。
         if(defaultSql is not null&&sqlType is "text" or "longtext")defaultSql="("+defaultSql+")";
         return new ColumnSchema(column.ColumnName, sqlType, column.IsDbNotNull == 0, isId, defaultSql);
@@ -111,7 +110,7 @@ public static class MySqlSchemaPlanner
     public static string Fingerprint(DatabaseSchema schema)
     {
         var normalized = new DatabaseSchema(schema.Database, schema.Tables.OrderBy(t => t.Name, StringComparer.Ordinal)
-            .Select(t => new TableSchema(t.Name, t.Columns.Select(column=>column with{DefaultSql=CanonicalDefault(column)}).OrderBy(c => c.Name, StringComparer.Ordinal).ToArray(), t.SnapshotDefinition, t.Indexes?.Select(IndexDirectionRules.Normalize).OrderBy(i => i.Name, StringComparer.Ordinal).ToArray())).ToArray());
+            .Select(t => new TableSchema(t.Name, t.Columns.Select(column=>column with{StoreType=CanonicalTemporalType(column.StoreType),DefaultSql=CanonicalDefault(column)}).OrderBy(c => c.Name, StringComparer.Ordinal).ToArray(), t.SnapshotDefinition, t.Indexes?.Select(IndexDirectionRules.Normalize).OrderBy(i => i.Name, StringComparer.Ordinal).ToArray())).ToArray());
         return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(normalized))).ToLowerInvariant();
     }
 
@@ -123,13 +122,16 @@ public static class MySqlSchemaPlanner
     }
 
     internal static bool Equivalent(ColumnSchema actual, ColumnSchema expected) =>
-        actual.StoreType == expected.StoreType && actual.Nullable == expected.Nullable && actual.PrimaryKey == expected.PrimaryKey
+        CanonicalTemporalType(actual.StoreType) == CanonicalTemporalType(expected.StoreType) && actual.Nullable == expected.Nullable && actual.PrimaryKey == expected.PrimaryKey
         && CanonicalDefault(actual) == CanonicalDefault(expected) && !actual.Generated;
 
+    /// <summary>仅归一物理快照的零精度别名；不改变元数据裸时间类型沿用六位的兼容规则。</summary>
+    private static string CanonicalTemporalType(string type)=>type switch{"datetime(0)"=>"datetime","time(0)"=>"time",_=>type};
     /// <summary>默认值按声明归一：DECIMAL保持精确文本，DOUBLE按binary64往返值比较，不修改类型声明。</summary>
     private static string? CanonicalDefault(ColumnSchema column)
     {
         var value=column.DefaultSql;
+        if(TryAuditTimestampDefault(column.Name,column.StoreType,value,out var temporal))return temporal;
         // DOUBLE默认值按真实浮点往返格式归一，避免MySQL指数大小写与尾零导致重复差异；decimal仍走精确文本。
         if(value is not null&&column.StoreType=="double"&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(value,out var floating))return (floating==0?"0":floating.ToString("R",CultureInfo.InvariantCulture));
         if(value is null||!System.Text.RegularExpressions.Regex.IsMatch(column.StoreType,@"^decimal[(][0-9]+,[0-9]+[)]$")||!System.Text.RegularExpressions.Regex.IsMatch(value,@"^[+-]?[0-9]+(?:[.][0-9]+)?$"))return value;
@@ -181,6 +183,24 @@ public static class MySqlSchemaPlanner
     {
         if (precision is < 1 or > 65 || scale is < 0 or > 30 || scale > precision) throw new InvalidOperationException("小数精度或小数位数无效。");
         return $"decimal({precision},{scale})";
+    }
+    /// <summary>原时间类型保留默认六位；只有已明确声明的类型精度才能改变新建物理结构。</summary>
+    private static string TemporalType(ColumnMetadata column)
+    {
+        var precision=MetadataColumnTypePolicy.TemporalPrecision(column);
+        return column.LogicalType.ToLowerInvariant()+(precision==0?"":"("+precision.ToString(CultureInfo.InvariantCulture)+")");
+    }
+    /// <summary>仅恢复原两个审计时间字段的固定当前时间默认；不接受通用函数或ON UPDATE表达式。</summary>
+    internal static bool TryAuditTimestampDefault(string name,string type,string? value,out string? normalized)
+    {
+        normalized=null;if(name is not("insert_time" or "update_time")||value is null)return false;
+        var temporal=System.Text.RegularExpressions.Regex.Match(type,@"\Adatetime(?:\(([0-6])\))?\z",System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        var expression=System.Text.RegularExpressions.Regex.Match(value,@"\A(?:CURRENT_TIMESTAMP(?:\(([0-6]?)\))?|NOW\(([0-6]?)\))\z",System.Text.RegularExpressions.RegexOptions.IgnoreCase|System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if(!temporal.Success||!expression.Success)return false;
+        var precision=temporal.Groups[1].Success?temporal.Groups[1].Value:"0";
+        var requested=expression.Groups[1].Value+expression.Groups[2].Value;if(requested.Length==0)requested="0";
+        if(requested!=precision)return false;
+        normalized=precision=="0"?"CURRENT_TIMESTAMP":"CURRENT_TIMESTAMP("+precision+")";return true;
     }
     private static string? CompileDefault(string value, string logical)
     {

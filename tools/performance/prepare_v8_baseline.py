@@ -63,17 +63,21 @@ def parse_schema(text):
     return tables
 
 
-def physical(column):
-    """保留Java真实类型和长度；datetime精度/默认值差异另记，不能静默宣称相同结构。"""
+def physical(column, name=None):
+    """保留Java真实类型和长度；审计时间使用明确零精度及固定默认，结构仍须实际编译核验。"""
     kind=column["type"]
     if kind.startswith("bigint"): result={"logicalType":"int64","columnType":"bigint","columnLength":""}
     elif kind.startswith("varchar"): result={"logicalType":"string","columnType":"nvarchar","columnLength":re.search(r"[0-9]+",kind)[0]}
     elif kind=="longtext": result={"logicalType":"string","columnType":"nvarchar","columnLength":"max"}
-    elif kind=="datetime": result={"logicalType":"datetime","columnType":"datetime","columnLength":""}
+    elif kind=="datetime": result={"logicalType":"datetime","columnType":"datetime(0)","columnLength":""}
     elif kind.startswith("decimal"):
         precision,scale=map(int,re.findall(r"[0-9]+",kind)); result={"logicalType":"decimal","columnType":"decimal","columnLength":f"{precision},{scale}","precision":precision,"scale":scale}
     else: raise BaselineError("未知物理类型")
-    return {**result,"isDbNotNull":0 if column["nullable"] else 1,"defaultValue":""}
+    default=""
+    if column["default"] and column["default"].lower()=="now()":
+        if kind!="datetime" or name not in ("insert_time","update_time"):raise BaselineError("动态时间默认仅支持原审计列")
+        default="now()"
+    return {**result,"isDbNotNull":0 if column["nullable"] else 1,"defaultValue":default}
 
 
 def merged(source, key, defaults):
@@ -122,7 +126,7 @@ def convert(source, schema):
             else:
                 row={"id":synthetic(table_id,name),"name":name,"configTableId":table_id,"controlKind":"","controlDetail":"","sortNo":order*10}
                 added.append({"table":table["tableName"],"column":name,"id":row["id"],"source":"Java正式DDL内建列或关系辅助列"})
-            row.update(physical(column)); row.update({"columnName":name,"yzProjectId":project_id})
+            row.update(physical(column,name)); row.update({"columnName":name,"yzProjectId":project_id})
             # 原List的精确目标来自原controlDetail，不猜别名或跨页权限。
             if row.get("controlKind")=="List":
                 detail=json.loads(row["controlDetail"]); target=identity(detail["tableId"])
@@ -132,8 +136,6 @@ def convert(source, schema):
                 if row.get("linkConfigTableId") not in (None,"",target) or row.get("linkConfigPageId") not in (None,"",targets[0]["id"]): raise BaselineError("显式关系目标与样板唯一目标冲突")
                 row["linkConfigTableId"]=target; row["linkConfigPageId"]=identity(targets[0]["id"])
             columns.append(row)
-            if column["type"]=="datetime": differences.append({"table":table["tableName"],"column":name,"java":"datetime","csharp":"datetime(6)","status":"共同物理DDL待编译核对，未应用"})
-            if column["default"] and column["default"].lower()=="now()": differences.append({"table":table["tableName"],"column":name,"javaDefault":"now()","csharpMetadataDefault":"","status":"动态默认不伪装为常量，待共同结构与写入核验"})
     # 原Java的物理List名称副本由正式DDL和精确目标共同确定；在C#中显式表达同一缓存语义。
     implicit_caches=[]
     configured_ids={row["id"] for row in declared}
@@ -180,6 +182,17 @@ def convert(source, schema):
     return catalog,receipt
 
 
+def canonical_audit_default(name, kind, value):
+    """只归一原审计列、精度相符的NOW/CURRENT_TIMESTAMP同义词，不合并任意SQL表达式。"""
+    if name not in ("insert_time","update_time") or value is None:return value
+    temporal=re.fullmatch(r"datetime(?:\(([0-6])\))?",kind,re.I)
+    expression=re.fullmatch(r"(?:CURRENT_TIMESTAMP(?:\(([0-6]?)\))?|NOW\(([0-6]?)\))",value,re.I)
+    if not temporal or not expression:return value
+    precision=temporal[1] or "0";requested=expression[1] or expression[2] or "0"
+    if precision!=requested:return value
+    return "current_timestamp"+("("+precision+")" if precision!="0" else "")
+
+
 def compare_physical(schema, candidate):
     """比较真实C#方言编译结果，字段、主键、默认及索引任一不同均明确保留。"""
     if candidate.get("offline") is not True or candidate.get("ddlExecuted") is not False:
@@ -199,7 +212,7 @@ def compare_physical(schema, candidate):
             # MySQL bigint(20)仅显示宽度；不将datetime和datetime(6)当成相同精度。
             old_type="bigint" if source["type"]=="bigint(20)" else source["type"]
             old_default=None if source["default"] is None or source["default"].upper()=="NULL" else source["default"].lower()
-            values={"storeType":(old_type,target["storeType"].lower()),"nullable":(source["nullable"],target["nullable"]),"primaryKey":(column_name=="id",target["primaryKey"]),"defaultSql":(old_default,target["defaultSql"])}
+            values={"storeType":(old_type,target["storeType"].lower()),"nullable":(source["nullable"],target["nullable"]),"primaryKey":(column_name=="id",target["primaryKey"]),"defaultSql":(canonical_audit_default(column_name,old_type,old_default),canonical_audit_default(column_name,target["storeType"],target["defaultSql"]))}
             for kind,(before,after) in values.items():
                 if before!=after:differences.append({"table":name,"column":column_name,"kind":kind,"java":before,"csharp":after})
         before=sorted((index["name"],index["unique"],(index["column"],)) for index in schema[name]["indexes"])

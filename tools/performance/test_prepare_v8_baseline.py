@@ -47,7 +47,9 @@ class V8BaselineTests(unittest.TestCase):
         self.assertEqual(catalog["configPageColumns"][0]["isRequired"],1)
         self.assertEqual(receipt["indexesPreserved"],2)
         self.assertFalse(receipt["samePhysicalSchemaProven"]);self.assertFalse(receipt["performanceAccepted"])
-        self.assertEqual(len(receipt["knownPhysicalDifferences"]),3)
+        self.assertEqual(receipt["knownPhysicalDifferences"],[])
+        audit=next(column for column in catalog["configColumns"] if column["columnName"]=="insert_time")
+        self.assertEqual(audit["columnType"],"datetime(0)");self.assertEqual(audit["defaultValue"],"now()")
 
     def test_input_is_unchanged_and_derived_id_stable(self):
         """默认展开不得污染Java原始元数据，重复转换稳定且保留原ID。"""
@@ -112,6 +114,13 @@ class V8BaselineTests(unittest.TestCase):
         self.assertIn("indexes",{row["kind"] for row in subject.compare_physical(schema,candidate)["differences"]})
         candidate["ddlExecuted"]=True
         with self.assertRaises(subject.BaselineError):subject.compare_physical(schema,candidate)
+
+    def test_audit_alias_normalization_does_not_hide_precision_or_expressions(self):
+        """只认审计列固定同义词，精度不同和未知表达式保持原值，不伪造物理等价。"""
+        self.assertEqual(subject.canonical_audit_default("insert_time","datetime","NOW()"),"current_timestamp")
+        self.assertEqual(subject.canonical_audit_default("update_time","datetime(3)","CURRENT_TIMESTAMP(3)"),"current_timestamp(3)")
+        for name,kind,value in [("value","datetime","now()"),("insert_time","datetime(3)","now()"),("insert_time","datetime","now(6)"),("insert_time","datetime","now();DROP TABLE x"),("insert_time","datetime","CURRENT_TIMESTAMP + INTERVAL 1 DAY")]:
+            with self.subTest(value=value):self.assertEqual(subject.canonical_audit_default(name,kind,value),value)
 
     def test_cli_rejects_existing_output_without_overwriting(self):
         """旧基线证据不能被同名重跑覆盖，所有输入均为本机临时文件。"""

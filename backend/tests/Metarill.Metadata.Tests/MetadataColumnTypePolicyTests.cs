@@ -25,6 +25,19 @@ public sealed class MetadataColumnTypePolicyTests
         foreach(var physical in new[]{"unknown","point","varbinary"})Assert.Throws<ArgumentException>(()=>MetadataColumnTypePolicy.Resolve("client_id",null,physical,true,false,true));
     }
 
+    /// <summary>物理时间精度参与类型推导，遗留长度不参与；坏语法不能借显式逻辑类型绕过物理白名单。</summary>
+    [Theory][InlineData("datetime")][InlineData("time")]
+    public void Explicit_temporal_type_is_inferred_without_reusing_legacy_length(string kind)
+    {
+        for(var precision=0;precision<=6;precision++)
+        {
+            var physical=kind+"("+precision+")";Assert.Equal(kind,MetadataColumnTypePolicy.Resolve("occurred_at",null,physical,true,false,true));
+            var column=new ColumnMetadata{LogicalType=kind,ColumnType=physical,ColumnLength="255"};Assert.Equal(precision,MetadataColumnTypePolicy.TemporalPrecision(column));
+        }
+        foreach(var invalid in new[]{kind+"(7)",kind+"(-1)",kind+"(03)",kind+"(3);DROP TABLE x",kind+"(3)\n"})
+            Assert.Throws<ArgumentException>(()=>MetadataColumnTypePolicy.Resolve("occurred_at",kind,invalid,true,true,true));
+    }
+
     [Fact]
     public void Only_exact_empty_unchanged_original_and_omitted_type_fields_can_preserve_legacy_value()
     {

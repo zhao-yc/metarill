@@ -37,7 +37,26 @@ public static class MetadataColumnTypePolicy
     /// <summary>显式逻辑类型使用固定元数据词表，不归一化未知、空值或大小写错误。</summary>
     private static string RequireLogical(string? value) => IsSupportedLogicalType(value) ? value! : throw new ArgumentException("字段逻辑类型无效。");
 
-    /// <summary>只列举已有正确映射；未知、point、varbinary和空值保持明确拒绝，不能默认伪装为string。</summary>
+    /// <summary>显式时间小数精度写在物理类型中；旧空值/裸类型继续六位，不借用遗留长度字段。</summary>
+    public static int TemporalPrecision(ColumnMetadata column)
+    {
+        var physical=column.ColumnType??"";
+        if(TryTemporalPhysicalType(physical,out var logical,out var precision))
+        {
+            if(!string.Equals(column.LogicalType,logical,StringComparison.OrdinalIgnoreCase))throw new ArgumentException("显式时间类型与逻辑类型不一致。");
+            return precision;
+        }
+        if(physical.Contains('(')&&(physical.StartsWith("datetime",StringComparison.OrdinalIgnoreCase)||physical.StartsWith("time",StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("时间小数精度只允许0至6的单个数字。");
+        return 6;
+    }
+    /// <summary>固定时间类型语法，不接收长度表达式、空白、SQL尾句或超范围精度。</summary>
+    public static bool TryTemporalPhysicalType(string? value,out string logical,out int precision)
+    {
+        var match=System.Text.RegularExpressions.Regex.Match(value??"",@"\A(datetime|time)\(([0-6])\)\z",System.Text.RegularExpressions.RegexOptions.IgnoreCase|System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        logical=match.Success?match.Groups[1].Value.ToLowerInvariant():"";precision=match.Success?match.Groups[2].Value[0]-'0':0;return match.Success;
+    }
+    /// <summary>已有类型及明确时间精度可推导逻辑类型；未知物理声明不退化成string。</summary>
     private static string FromPhysical(string? value) => value?.ToLowerInvariant() switch
     {
         "bigint" or "int64" => "int64",
@@ -46,6 +65,7 @@ public static class MetadataColumnTypePolicy
         "nvarchar" or "varchar" or "char" or "nchar" or "text" or "tinytext" or "mediumtext" or "longtext" or "string" => "string",
         "date" => "date", "time" => "time", "datetime" or "timestamp" => "datetime",
         "bool" or "boolean" => "bool", "json" => "json", "blob" or "binary" => "binary",
+        _ when TryTemporalPhysicalType(value,out var logical,out _) => logical,
         _ => throw new ArgumentException("字段物理类型无已知逻辑映射。")
     };
 }

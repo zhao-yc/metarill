@@ -86,6 +86,11 @@ public static class SchemaImportDraftCompiler
         var decimalType = Regex.Match(type, "^decimal\\(([0-9]+),([0-9]+)\\)$", RegexOptions.CultureInvariant);
         if (sized.Success) { column.LogicalType = sized.Groups[1].Value == "varchar" ? "string" : "binary"; column.ColumnType = sized.Groups[1].Value; column.ColumnLength = sized.Groups[2].Value; }
         else if (decimalType.Success) { column.LogicalType = "decimal"; column.ColumnType = "decimal"; column.Precision = int.Parse(decimalType.Groups[1].Value, CultureInfo.InvariantCulture); column.Scale = int.Parse(decimalType.Groups[2].Value, CultureInfo.InvariantCulture); }
+        else if(type is "datetime" or "time" || MetadataColumnTypePolicy.TryTemporalPhysicalType(type,out _,out _))
+        {
+            var bare=type.Split('(')[0];var precision=type==bare?0:type[^2]-'0';
+            column.LogicalType=bare;column.ColumnType=precision==6?bare:bare+"("+precision.ToString(CultureInfo.InvariantCulture)+")";
+        }
         else
         {
             column.LogicalType = type switch { "int" => "int32", "bigint" => "int64", "double" => "double", "tinyint(1)" => "bool", "text" or "longtext" => "string", "date" => "date", "datetime(6)" => "datetime", "time(6)" => "time", "json" => "json", "longblob" => "binary", _ => throw new NotSupportedException("当前逻辑类型不能无损表达物理类型：" + type) };
