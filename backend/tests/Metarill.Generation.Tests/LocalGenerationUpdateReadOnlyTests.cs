@@ -9,6 +9,7 @@ public sealed partial class LocalGenerationUpdateTests
     [InlineData("src/Metarill.Core/Metadata/JavaDecimalNumber.cs")]
     [InlineData("src/Metarill.Core/Contracts/GeneratedAgentWriteAccessAttribute.cs")]
     [InlineData("src/Metarill.Core/Contracts/IGeneratedRuleRecord.cs")]
+    [InlineData("src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.RecordStorage.cs")]
     [InlineData("src/Metarill.Agent/AgentRecordWriteBinding.cs")]
     [InlineData("src/Metarill.Agent/AgentRecordValues.cs")]
     public void Candidate_cannot_remove_readonly_condition_runtime_and_manifest_together(string path)

@@ -20,12 +20,12 @@ internal static partial class BackendRenderer
             {try{Add(ButtonVisibilityRule.Compile(rule.ValueKind==JsonValueKind.Null?null:rule.ToString()).Fields);}catch(ArgumentException){/* 原发布目录会拒绝坏规则，不能因此放开记录写入。 */}}
         }
         if(needsReadonly&&page.Source.Extra.TryGetValue("readOnlyCondition",out var condition))Add(ReadOnlyConditionRule.Compile(condition.ValueKind==JsonValueKind.Null?null:condition.ToString()).Fields);
-        return table.Columns.Where(column=>roots.Contains(column.JsonName)||roots.Contains(column.Source.ColumnName)).Where(column=>!NonRedundantReadCompilation.Physical(model,table,column)).ToArray();
+        return table.Columns.Where(column=>roots.Contains(column.JsonName)||roots.Contains(column.Source.ColumnName)).Where(column=>!NonRedundantReadCompilation.Physical(model,table,column)||CrossTableWriteCompilation.ForService(model,table,page).Any(plan=>plan.Levels.Any(level=>level.Id.Source.Id==column.Source.Id))).ToArray();
     }
     /// <summary>实体只在需要时增加内部装载状态；显式接口没有可反序列化属性或HTTP字段。</summary>
     private static bool RuleRecordEntity(GenerationModel model,TableModel table)=>table.Pages.Any(page=>RuleRecordFields(model,table,page).Count>0);
     /// <summary>装载快照只初始化一次并复制字典/JSON值；未装载实例继续明确拒绝派生判定。</summary>
-    private static string RuleRecordEntityState()=>"""
+    private static string RuleRecordEntityState(GenerationModel model,TableModel table)=>"    /// <summary>逻辑规则字段缺装载时必须拒绝，物理存储空位不能冒充逻辑空值。</summary>\n    bool global::Metarill.Core.Contracts.IGeneratedRuleRecord.RequiresLoadedRuleValue(string physicalColumn)=>physicalColumn is "+string.Join(" or ",table.Pages.SelectMany(page=>RuleRecordFields(model,table,page)).Select(column=>column.Source.ColumnName).Distinct(StringComparer.Ordinal).Select(Literal))+";\n"+"""
     private IReadOnlyDictionary<string,object?>? generatedRuleValues;
     /// <summary>由同程序集固定Service从实际SQL结果捕获，客户端实体不能初始化。</summary>
     internal void SetGeneratedRuleValues(IReadOnlyDictionary<string,object?> values)
@@ -45,10 +45,10 @@ internal static partial class BackendRenderer
         var fixedQuery=FixedPageQueryCompilation.For(table,page);var exact=ExactDataManageCompilation.Resolve(model,table,page);
         var dependencies=fixedQuery.IdentityScopes.Select(scope=>scope.Column.Source.ColumnName).Concat(page.Condition?.Syntax.Fields??[]).Concat(exact is null?[]:new[]{exact.Column.Source.ColumnName}).Distinct(StringComparer.Ordinal).ToArray();
         // 真实适配器提前证明全部输出及隐藏范围；不能到运行时才静默回退成宽查询。
-        _=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,columns.Select(column=>column.Source.ColumnName).ToArray(),NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies);
+        _=NonRedundantReads.CompileRuleRecord(model.Catalog,table.Source.Id,columns.Select(column=>column.Source.ColumnName).ToArray(),physical.Select(column=>column.Source.ColumnName).ToArray(),NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,logicalOutputs:derived.Select(column=>column.Source.ColumnName).ToArray());
         var cross=CrossTableWriteCompilation.ForService(model,table,page).Count>0;
         var result=new StringBuilder().AppendLine("    /// <summary>本页规则记录的固定完整物理实体和必要派生投影，不参与HTTP输出。</summary>")
-            .AppendLine($"    private static readonly NonRedundantReadPlan RuleRecordPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(cross?"CompileCross":"Compile")}({Literal(table.Source.Id)},new string[]{{{string.Join(",",columns.Select(column=>Literal(column.Source.ColumnName)))}}},new string[]{{{string.Join(",",dependencies.Select(Literal))}}}{(cross?NonRedundantCrossTableCompilation.BindingArgument(model,table,page):"")});")
+            .AppendLine($"    private static readonly NonRedundantReadPlan RuleRecordPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileRuleRecord({Literal(table.Source.Id)},new string[]{{{string.Join(",",columns.Select(column=>Literal(column.Source.ColumnName)))}}},new string[]{{{string.Join(",",physical.Select(column=>Literal(column.Source.ColumnName)))}}},new string[]{{{string.Join(",",dependencies.Select(Literal))}}},new string[]{{{string.Join(",",derived.Select(column=>Literal(column.Source.ColumnName)))}}}{(cross?NonRedundantCrossTableCompilation.BindingArgument(model,table,page):",Array.Empty<NonRedundantCrossTableScope>()")});")
             .AppendLine("    /// <summary>原权限由公开固定入口建立；这里只消费固定动作、范围和值，不接受客户端字段投影。</summary>")
             .AppendLine($"    private Task<{table.Name}?> ReadRuleRecord{page.Source.Id}Async(long id,string? parentId,string operation,RuntimeActor actor,bool button,bool locking,CancellationToken cancellationToken)=>locking?ReadRuleRecord{page.Source.Id}CoreAsync(id,parentId,operation,actor,button,true,cancellationToken):session.InReadSnapshotAsync(()=>ReadRuleRecord{page.Source.Id}CoreAsync(id,parentId,operation,actor,button,false,cancellationToken),cancellationToken);")
             .AppendLine("    /// <summary>分批多值名称加入同一RR读取快照，当前锁读继续加入外层真实业务事务。</summary>")
@@ -72,11 +72,13 @@ internal static partial class BackendRenderer
             .AppendLine("        if(rows.Count==0)return null;var row=rows.Single();")
             .AppendLine($"        var entity=new {table.Name}").AppendLine("        {");
         foreach(var column in columns)result.AppendLine($"            {column.Property}=NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)}),");
-        result.AppendLine("        };").AppendLine("        entity.SetGeneratedRuleValues(new Dictionary<string,object?>")
+        result.AppendLine("        };");
+        for(var index=0;index<derived.Count;index++)result.AppendLine($"        var ruleValue{index}=NonRedundantReads.RuleValue<{derived[index].Type}>(RuleRecordPlan{page.Source.Id},row,{Literal(derived[index].Source.ColumnName)});");
+        result.AppendLine("        entity.SetGeneratedRuleValues(new Dictionary<string,object?>")
             .AppendLine("        {");
-        foreach(var column in derived)
+        for(var index=0;index<derived.Count;index++)
         {
-            var value="entity."+column.Property;
+            var column=derived[index];var value="ruleValue"+index;
             if(column.IsJsonArray)value=$"({value} is null?null:(object)System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>({value}))";
             result.AppendLine($"            [{Literal(column.Source.ColumnName)}]={value},");
         }

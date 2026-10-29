@@ -16,6 +16,12 @@ public static class NonRedundantReads
 {
     /// <summary>输出与隐藏查询依赖分别声明；后者不会自动出现在返回记录中。</summary>
     public static NonRedundantReadPlan Compile(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(metadata,tableId,outputs,[],dependencies,deferCascadeNames);
+    /// <summary>规则记录专用：物理根实体输出与逻辑筛选/派生值分开，仍使用同一固定SQL及范围。</summary>
+    public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        return metadata.DatabaseProvider switch{"mysql"=>new(MySqlNonRedundantReadCompiler.CompileRuleRecord(metadata,tableId,outputs,storageOutputs,crossTables,dependencies,deferCascadeNames,logicalOutputs)),_=>throw new NotSupportedException("该数据库尚未完成规则记录读取适配。")};
+    }
     /// <summary>跨表逻辑读取须显式传入冻结目标页范围；保留原Compile签名及无绑定门禁。</summary>
     public static NonRedundantReadPlan CompileWithCrossTables(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)
     {
@@ -34,6 +40,12 @@ public static class NonRedundantReads
     public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable)
     {
         MetadataValidation.RequireIdentifier(referencedTable);return CompileMatch(metadata,tableId,field).MySql.PhysicalReferences.Any(reference=>reference.Table==referencedTable);
+    }
+    /// <summary>只读规则取固定逻辑别名；无独立别名的派生名称继续读取原字段，不接受客户端别名。</summary>
+    public static T? RuleValue<T>(NonRedundantReadPlan plan,IReadOnlyDictionary<string,object?> row,string name)
+    {
+        if(!plan.MySql.Outputs.Contains(name,StringComparer.OrdinalIgnoreCase))throw new InvalidOperationException("逻辑规则字段不属于固定输出。");
+        return Value<T>(row,plan.MySql.RuleOutputAliases.TryGetValue(name,out var alias)?alias:name);
     }
     /// <summary>将驱动标量转换为生成属性；空值和长ID保持原类型，不经JSON或浮点中转。</summary>
     public static T? Value<T>(IReadOnlyDictionary<string,object?> row,string name)

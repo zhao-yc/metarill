@@ -41,7 +41,7 @@ internal static partial class BackendRenderer
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]")
                 .AppendLine($"    public {column.Type} {column.Property} {{ get; set; }}");
         }
-        if(RuleRecordEntity(model,table))result.Append(RuleRecordEntityState());
+        if(RuleRecordEntity(model,table))result.Append(RuleRecordEntityState(model,table));
         return result.AppendLine("}").ToString();
     }
     /// <summary>生成只接受页面可写字段的请求。</summary>

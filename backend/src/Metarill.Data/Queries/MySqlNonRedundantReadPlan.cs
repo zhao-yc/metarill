@@ -22,7 +22,7 @@ public sealed class MySqlNonRedundantReadPlan
     /// <summary>投影视图复用不可变范围及依赖；执行时只选择预编译联接片段，不重新解析元数据。</summary>
     private MySqlNonRedundantReadPlan(MySqlNonRedundantReadPlan plan,string[] outputs,IReadOnlyList<MySqlPhysicalReference>? physicalReferences=null)
     {
-        RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses;Constants=plan.Constants;
+        RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses;Constants=plan.Constants;
     }
     /// <summary>缓存传播只读取稳定主键和本次允许的输出，未知字段不能变成新的读取权限。</summary>
     internal MySqlNonRedundantReadPlan ForCacheFields(IReadOnlySet<string> fields)
@@ -60,6 +60,14 @@ public sealed class MySqlNonRedundantReadPlan
     internal IReadOnlyDictionary<string,string> ArrayNamePredicates {get;}
     internal IReadOnlyDictionary<string,string> ArrayIdPredicates {get;}
     internal IReadOnlyDictionary<string,MySqlMultiProjection> MultiProjections {get;}
+    /// <summary>仅规则实体用途覆盖输出；逻辑筛选表达式保持原计划，不把原始存储值当逻辑祖先。</summary>
+    internal IReadOnlyDictionary<string,string> StorageOutputs { get; private init; } = FrozenDictionary<string,string>.Empty;
+    /// <summary>复制只读的已证明根列，不接受运行时SQL或请求字段。</summary>
+    internal MySqlNonRedundantReadPlan WithStorageOutputs(IReadOnlyDictionary<string,string> expressions,IReadOnlyDictionary<string,string> aliases)=>new(this,Outputs.ToArray()){StorageOutputs=expressions.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),RuleOutputAliases=aliases.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase)};
+    /// <summary>物理字段同时参与逻辑规则时使用独立固定别名，不能覆盖实体的稀疏存储值。</summary>
+    internal IReadOnlyDictionary<string,string> RuleOutputAliases { get; private init; } = FrozenDictionary<string,string>.Empty;
+    /// <summary>同一SQL分别保留物理实体输出和逻辑条件；普通计划没有覆盖，行为不变。</summary>
+    internal string OutputExpression(string name)=>StorageOutputs.TryGetValue(name,out var expression)?expression:Expression(name);
     internal IReadOnlyDictionary<string,string> Expressions { get; }
     internal IReadOnlyDictionary<string,string> Types { get; }
     public IReadOnlyList<string> Outputs { get; }
