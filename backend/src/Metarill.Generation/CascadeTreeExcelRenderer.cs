@@ -10,7 +10,7 @@ internal static class CascadeTreeExcelRenderer
     /// <summary>解析原单元格并只返回叶子ID；受管名称留给最终Service当前读维护。</summary>
     internal static string Import(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is not null)return CrossTableExcelRenderer.Import(page,source);
+        if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross)return CrossTableExcelRenderer.Import(page,cross);
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;
         if(plan is null)return $"    private Task<JsonElement> ImportCascade{page.Source.Id}_{source.Source.Id}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)=>throw new NotSupportedException(\"级联导入范围尚未证明。\");\n";
         if(plan.Read.DerivedName)return DerivedCascadeNamesRenderer.Import(page,source,plan.Read);
@@ -45,6 +45,7 @@ internal static class CascadeTreeExcelRenderer
         var result=new StringBuilder();
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree").Concat(ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).DistinctBy(column=>column.Source.Id))
         {
+            if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross){result.Append(CrossTableExcelRenderer.Export(table,page,cross));continue;}
             var plan=CascadeTreeReadCompilation.Resolve(model,table,page,source).Definition;var suffix=page.Source.Id+"_"+source.Source.Id;
             if(plan is null||source.Type is not("string?" or "long?")){result.AppendLine($"        string? ExcelCascade{source.Property}({table.EntityType} entity)=>throw new NotSupportedException(\"级联导出范围尚未证明。\");");continue;}
             result.AppendLine($"        var excelIds{source.Property}=entities.Select(entity=>Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture)).Where(text=>!string.IsNullOrWhiteSpace(text)).Select(text=>long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0?id:throw new InvalidOperationException(\"级联ID无效，未导出。\")).Distinct().ToArray();")

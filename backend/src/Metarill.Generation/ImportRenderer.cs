@@ -43,6 +43,8 @@ public sealed partial class {{page.Name}}ImportRequest
         if (!Enabled(page)) return "";
         if (Mode(page) == "custom") throw new InvalidOperationException("定制导入需要手写 Business 入口，不能自动生成普通导入。");
         var columns = Columns(page);
+        var crosses=columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>CrossTableWriteCompilation.Resolve(model,table,page,column).Definition).OfType<CrossTableWriteModel>().ToArray();
+        var hasCross=crosses.Length>0;
         var dependency = ImportDependencyCompilation.ForPage(model, table, page);
         var contextual = dependency.Contextual;
         var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page)||ImportRenderer.RelationOperationAware(model,table,page);
@@ -93,6 +95,13 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("        if (row.ValueKind != JsonValueKind.Object) throw PageImportException.Input(PageImportError.RowObject);")
             .AppendLine("        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);")
             .AppendLine("        var seen = new HashSet<string>(StringComparer.Ordinal);");
+        if(hasCross)
+        {
+            result.AppendLine("        var crossInputs=new Metarill.Core.Cascades.CrossTableExcelRow();");
+            var slots=crosses.SelectMany(cross=>cross.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
+            foreach(var scope in page.Scopes.Where(scope=>slots.Contains(scope.Column.Source.Id)))
+                result.AppendLine($"        values[{Literal(scope.Column.JsonName)}]=JsonSerializer.SerializeToElement({ScopeValue(scope.Column,scope.Source=="parent"?"parentId!":"actor.ProjectId")},JsonOptions);");
+        }
         if (contextual)
         {
             result.AppendLine("        var relationContext = new Dictionary<string, JsonElement>(StringComparer.Ordinal);");
@@ -140,9 +149,10 @@ public sealed partial class {{page.Name}}ImportRequest
             }
             else if(column.Source.ControlKind=="CascadeTree")
             {
+                var cross=CrossTableWriteCompilation.Resolve(model,table,page,column).Definition;
                 result.AppendLine("                    try").AppendLine("                    {")
-                    .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportCascade{page.Source.Id}_{column.Source.Id}Async(cell.Value,actor,cancellationToken);")
-                    .Append(CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is{} cross?CrossTableExcelRenderer.PrepareIds(cross,columns):"")
+                    .AppendLine(cross is null?$"                        values[{Literal(column.JsonName)}]=await ImportCascade{page.Source.Id}_{column.Source.Id}Async(cell.Value,actor,cancellationToken);":
+                        $"                        crossInputs.Add({Literal(Header(column))},await ImportCascade{page.Source.Id}_{column.Source.Id}Async(cell.Value,actor,cancellationToken),cell.Value.ValueKind==JsonValueKind.Null||cell.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.Value.GetString()));")
                     .AppendLine("                    }").AppendLine("                    catch(PageImportException error) when(error.IsInputError)").AppendLine("                    {")
                     .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);").AppendLine("                    }");
             }
@@ -174,11 +184,17 @@ public sealed partial class {{page.Name}}ImportRequest
                     .AppendLine($"                        throw PageImportException.Input(PageImportError.{ErrorKind(column)}, columnName: {Literal(Header(column))}, inner: error);")
                     .AppendLine("                    }");
             }
-            if(contextual&&dependency.ContextValues.Any(parent=>parent.Source.Id==column.Source.Id))result.AppendLine($"                    relationContext[{Literal(column.JsonName)}] = values[{Literal(column.JsonName)}];");
+            if(contextual&&hasCross&&column.Source.ControlKind=="CascadeTree"&&CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is not null)
+            {
+                result.AppendLine("                    var crossContext=crossInputs.Merge(values);");
+                foreach(var parent in dependency.ContextValues)
+                    result.AppendLine($"                    if(crossContext.TryGetValue({Literal(parent.JsonName)},out var crossValue{parent.Source.Id}))relationContext[{Literal(parent.JsonName)}]=crossValue{parent.Source.Id};");
+            }
+            else if(contextual&&dependency.ContextValues.Any(parent=>parent.Source.Id==column.Source.Id))result.AppendLine($"                    relationContext[{Literal(column.JsonName)}] = values[{Literal(column.JsonName)}];");
             result.AppendLine("                    break;").AppendLine("                }");
         }
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
-            .AppendLine("            }").AppendLine("        }").AppendLine("        return values;").AppendLine("    }");
+            .AppendLine("            }").AppendLine("        }").AppendLine(hasCross?"        return crossInputs.Merge(values);":"        return values;").AppendLine("    }");
         foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(model,relation, page, dependency));
         foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))result.Append(DatabaseCheckboxExcelRenderer.Import(table,page,checkbox,dependency));
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))result.Append(CascadeTreeExcelRenderer.Import(model,table,page,source));

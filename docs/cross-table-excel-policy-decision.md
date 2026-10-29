@@ -23,7 +23,7 @@
 
 ## 不依赖本决定的修复
 
-当前ImportRenderer.Columns直接使用page.Writable，而CrossTableWriteCompilation为原表单把隐式各级ID加入Writable。只读反射已实际确认：页面显式列为amount/name/place_id，当前导入列却额外出现area_id/country_id。修复应让Excel模板继续只含原显式页面字段，保留普通表单DTO的隐式ID支持。
+初次核对时ImportRenderer.Columns直接使用page.Writable，而CrossTableWriteCompilation为原表单把隐式各级ID加入Writable。只读反射已实际确认：页面显式列为amount/name/place_id，当前导入列却额外出现area_id/country_id。修复应让Excel模板继续只含原显式页面字段，保留普通表单DTO的隐式ID支持。
 
 空单元格的内部准备还需按原清空整条选择处理，不能只清叶子后误保留旧祖先；普通表单部分更新的省略/null合同继续保持。来源import动作、数据范围、原事务/钩子/文件同步和当前读锁不能绕过。上述模板与内部准备工作可先继续，完整路径Excel验收须包含最终选定语义。
 
@@ -44,3 +44,7 @@
 | 导出模板和再次导入 | 原表头/列保持，不增加隐式祖先ID列；完整/部分路径往返稳定，手写partial和原前端保持。 |
 
 实施应先维护共享路径规则与生成源头，再通过实际生成Service/完整包和正式HTTP数据库用例验收；不得逐页补丁或把驱动/编译通过当作B14完成。新实库样本另行固定精确范围并获授权。
+
+## 当前实施记录
+
+B100已接共享无损路径、整行ID聚合及生成导入/导出；原页面和前端方法未改。具体固定子集证据、失败修正及尚未完成的真实SQL/事务/身份/浏览器/性能见[实施与验收边界](cross-table-excel-lossless.md)。上述验收清单仍须逐项完成，不以规则已确认或当前子集测试通过代替B14整体完成。

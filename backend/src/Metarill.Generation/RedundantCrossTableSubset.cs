@@ -31,7 +31,7 @@ internal static class RedundantCrossTableSubset
                     if(!bindings.Any(binding=>binding.Source.Source.Id==table.Source.Id&&(binding.CrossTableColumnId==source.Source.Id&&binding.CrossTableLevelKey==level.Read.Key||SharedCrossTableCompilation.ForSource(model,table,page,source.Source.Id) is{} shared&&shared.Plans.Any(p=>p.Read.Source.Source.Id==binding.CrossTableColumnId&&p.Levels.Any(l=>l.Read.Key==binding.CrossTableLevelKey&&l.Id.Source.Id==level.Id.Source.Id)))&&binding.Foreign.Source.Id==level.Id.Source.Id&&binding.Cache.Source.Id==level.Name.Source.Id&&binding.Target.Source.Id==level.Read.Target.Source.Id&&binding.Value.Source.Id==level.Read.Name.Source.Id&&binding.CrossTablePageId==(level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null)))return "冗余跨表各级名称缓存尚未形成完整静态传播闭包。";
                     if(ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name))return "跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
                 }
-                if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>column.Source.Id==source.Source.Id))return "跨表级联非空路径导入策略尚待确认，完整包不能开放该导入用途。";
+                if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>column.Source.Id==source.Source.Id))return "跨表级联无损路径已接生成源头，完整往返及正式事务验收尚待完成，完整包暂不开放该导入用途。";
             }
             return null;
         }

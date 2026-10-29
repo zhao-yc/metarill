@@ -196,7 +196,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(CascadeTreeViewRenderer.Service(model,table,page));
             result.Append(FixedRoleCheckboxRenderer.Service(model,table,page));
             result.Append(FixedRoleAdminNameRenderer.Service(model,table,page));
-            result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
+            result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(CrossTableExcelRenderer.Helpers(model,table,page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
         result.Append(TimeFieldCompilation.PersistedValues(model,table));
         result.Append(TrustedSecurityProjectOptionsRenderer.Service(model,table));

@@ -1,7 +1,7 @@
 using System.Text.Json;
 namespace Metarill.Generation;
 
-/// <summary>完整包按已经配置的跨表用途证明，未确认的路径Excel不能借隐藏控件绕过。</summary>
+/// <summary>完整包按已经配置的跨表用途证明，尚未完成验收的路径Excel不能借隐藏控件绕过。</summary>
 internal static class NonRedundantCrossTableSubset
 {
     /// <summary>坏定义也不能借隐藏控件绕过完整包审计。</summary>
@@ -32,7 +32,7 @@ internal static class NonRedundantCrossTableSubset
             // 原组件按前缀转换属性，原详情还读取显式属性；两者必须与同一后端JSON字段一致。
             foreach(var plan in plans.Select(plan=>plan.Definition!))if(CrossTableFrontendProof.Reason(plan) is{} mismatch)return mismatch;
             _=NonRedundantReadCompilation.ForPage(model,table,page);_=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
-            if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id)))return "跨表级联非空路径导入策略尚待确认，完整包不能开放该导入用途。";
+            if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id)))return "跨表级联无损路径已接生成源头，完整往返及正式事务验收尚待完成，完整包暂不开放该导入用途。";
             if(plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name)))return "跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
             return null;
         }

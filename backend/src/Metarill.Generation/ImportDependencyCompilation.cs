@@ -48,6 +48,10 @@ internal static class ImportDependencyCompilation
         foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))
         {var fields=(checkbox.Conditions?.Forms.Select(binding=>binding.Column)??[]).DistinctBy(column=>column.Source.Id).ToArray();if(fields.Length>0)dependencies.Add(checkbox.Source.Source.Id,fields);}
         if(dependencies.Count==0)return new(columns,parents,new HashSet<string>(StringComparer.Ordinal),dependencies);
+        // 级联单元格同时产生隐式祖先ID，关联候选依赖这些ID时必须先解析其控件。
+        var producers=CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id))
+            .SelectMany(plan=>plan.Levels.Select(level=>(Field:level.Id.Source.Id,Source:plan.Read.Source)))
+            .GroupBy(pair=>pair.Field,StringComparer.Ordinal).ToDictionary(group=>group.Key,group=>group.Select(pair=>pair.Source).DistinctBy(column=>column.Source.Id).ToArray(),StringComparer.Ordinal);
         var available=columns.ToDictionary(column=>column.Source.Id,StringComparer.Ordinal);var order=new List<ColumnModel>();var state=new Dictionary<string,int>(StringComparer.Ordinal);
         foreach(var column in columns)Visit(column);
         var match=new HashSet<string>(StringComparer.Ordinal);if(columns.Count>0)Closure(table.Columns.First(column=>columns.Contains(column)));
@@ -59,7 +63,7 @@ internal static class ImportDependencyCompilation
             if(state.GetValueOrDefault(column.Source.Id)==2)return;
             if(state.GetValueOrDefault(column.Source.Id)==1)throw new InvalidOperationException("导入关系的物理字段存在循环依赖。");
             state[column.Source.Id]=1;
-            if(dependencies.TryGetValue(column.Source.Id,out var fields))foreach(var field in fields)if(available.ContainsKey(field.Source.Id))Visit(field);
+            if(dependencies.TryGetValue(column.Source.Id,out var fields))foreach(var field in fields){if(available.ContainsKey(field.Source.Id))Visit(field);foreach(var producer in producers.GetValueOrDefault(field.Source.Id,[]))if(producer.Source.Id!=column.Source.Id)Visit(producer);}
             state[column.Source.Id]=2;order.Add(column);
         }
         /// <summary>覆盖先只解析首列及全部依赖；其余省略值等锁定原对象后读取。</summary>
@@ -67,6 +71,7 @@ internal static class ImportDependencyCompilation
         {
             if(!match.Add(column.Source.Id))return;
             if(dependencies.TryGetValue(column.Source.Id,out var fields))foreach(var field in fields)Closure(field);
+            foreach(var producer in producers.GetValueOrDefault(column.Source.Id,[]))if(producer.Source.Id!=column.Source.Id)Closure(producer);
         }
     }
 }

@@ -20,7 +20,7 @@ public sealed class NonRedundantCrossTableExcelTests
     {
         var catalog=Catalog("nr_cross_excel","int64","string",true);if(readOnly)catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="28").Extra["isReadOnly"]=JsonSerializer.SerializeToElement(1);var page=Assert.Single(GenerationModel.Create(catalog,"Example.NonRedundantCrossExcel").Tables.Single(table=>table.Source.Id=="2").Pages);Assert.Equal(!readOnly,ImportRenderer.Columns(page).Any(column=>column.Source.ColumnName=="country_id"));Assert.DoesNotContain(ImportRenderer.Columns(page),column=>column.Source.ColumnName.EndsWith("_name",StringComparison.Ordinal)||column.IsId);
     }
-    /// <summary>导出包用自身运行时源码构建，Full继续拒绝尚未确认的非空路径等用途。</summary>
+    /// <summary>导出包用自身运行时源码构建，Full继续保留尚未完成验收的路径用途门槛。</summary>
     [Fact]
     public async Task Backend_package_builds_with_original_import_and_scalar_export_while_Full_remains_closed()
     {
