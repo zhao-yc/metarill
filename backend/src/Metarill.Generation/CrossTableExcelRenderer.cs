@@ -5,6 +5,8 @@ namespace Metarill.Generation;
 /// <summary>固定跨表Excel保留选择深度；名称反查、快照和目标范围复用原生成链。</summary>
 internal static class CrossTableExcelRenderer
 {
+    internal const string ImportAcceptancePending="跨表级联无损路径已接生成源头，完整往返及正式事务验收尚待完成，完整包暂不开放该导入用途。";
+    internal const string ExportAcceptancePending="跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
     /// <summary>隐式各级ID只作为读取依赖，不扩大原导出表头。</summary>
     internal static IReadOnlyList<ColumnModel> ExportDependencies(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
         CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)).SelectMany(plan=>plan.Levels.Select(level=>level.Id)).DistinctBy(column=>column.Source.Id).ToArray();

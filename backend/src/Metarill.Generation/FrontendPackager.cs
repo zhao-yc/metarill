@@ -79,6 +79,20 @@ public sealed class FrontendPackager
         return new(BuildFiles(catalog,generated,boundary,sourceRoot,model,includeAgent),module.PendingAdapters,GenerationCapabilityAudit.Collect(model));
     }
 
+    /// <summary>内部Excel验收资源仍记录缺口；逐项核对生成归属和基底，不接受JSON豁免标记。</summary>
+    internal FrontendAssetPlan PrepareCrossTableExcel(MetadataCatalog catalog,string generatedFrontend,string sourceRoot,bool includeAgent=false)
+    {
+        MetadataValidation.Validate(catalog);ValidateMenus(catalog);
+        var generated=Path.GetFullPath(generatedFrontend);
+        using var document=JsonDocument.Parse(File.ReadAllText(CSharpGenerator.SafePath(Path.GetDirectoryName(generated)!,".metarill-generation.json")));
+        var marker=document.RootElement;var rootNamespace=marker.GetProperty("rootNamespace").GetString()!;CSharpGenerator.ValidateNamespace(rootNamespace);
+        var expected=Convert.ToHexStringLower(SHA256.HashData(CSharpGenerator.CanonicalMetadata(catalog)));
+        if(marker.GetProperty("version").GetInt32()!=1||marker.GetProperty("projectId").GetString()!=catalog.YzProjectId||marker.GetProperty("metadataSha256").GetString()!=expected)
+            throw new InvalidOperationException("跨表Excel前端生成归属不匹配。");
+        var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,rootNamespace);
+        return new(BuildFiles(catalog,generated,Path.Combine(generated,".frontend-assets-plan"),sourceRoot,null,includeAgent),[],proof.Gaps);
+    }
+
     /// <summary>先建立完整资源图；普通发布和内部管理准备共用复制、依赖、路由与摘要规则。</summary>
     private static Dictionary<string,byte[]> BuildFiles(MetadataCatalog catalog,string generatedFrontend,string output,string sourceRoot,GenerationModel? trustedModel,bool includeAgent=false)
     {

@@ -32,8 +32,8 @@ internal static class NonRedundantCrossTableSubset
             // 原组件按前缀转换属性，原详情还读取显式属性；两者必须与同一后端JSON字段一致。
             foreach(var plan in plans.Select(plan=>plan.Definition!))if(CrossTableFrontendProof.Reason(plan) is{} mismatch)return mismatch;
             _=NonRedundantReadCompilation.ForPage(model,table,page);_=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
-            if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id)))return "跨表级联无损路径已接生成源头，完整往返及正式事务验收尚待完成，完整包暂不开放该导入用途。";
-            if(plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name)))return "跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
+            if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id)))return CrossTableExcelRenderer.ImportAcceptancePending;
+            if(plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name)))return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "非冗余跨表完整用途未通过："+error.Message;}
