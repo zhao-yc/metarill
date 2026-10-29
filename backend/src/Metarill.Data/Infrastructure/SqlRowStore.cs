@@ -32,6 +32,13 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if(table is not("yz_project" or "yz_admin_type")||id<=0)throw new ArgumentException("初始化归属只能读取明确项目或后台。");
         return ReadInternalAsync(table,new Dictionary<string,object?>{{"id",id}},true,token,true);
     }
+    /// <summary>显式窄种子升级按主键锁全局保留（含墓碑）；只限三个配置表，不能用于账号或业务恢复。</summary>
+    public Task<List<Dictionary<string,object?>>> ReadConfigurationSeedForUpdateAsync(string table,long id,CancellationToken token=default)
+    {
+        if(session.CurrentTransaction is null)throw new InvalidOperationException("种子升级保留检查必须加入配置事务。");
+        if(table is not("config_column" or "config_index" or "config_index_column")||id<=0)throw new ArgumentException("种子升级只能锁明确配置标识。");
+        return ReadInternalAsync(table,new Dictionary<string,object?>{{"id",id}},true,token,true);
+    }
     /// <summary>反向导入归属当前读包含墓碑；RR下锁整个配置表范围，兼容非协作新增及不同名称排序规则，防止空集幻影。</summary>
     public async Task<IReadOnlyList<Dictionary<string,object?>>> ReadTableReservationsForImportAsync(CancellationToken token = default)
     {

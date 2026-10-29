@@ -10,7 +10,7 @@ using MySqlConnector;
 namespace Metarill.Data.Schema;
 
 /// <summary>显式结构变更入口。预览令牌绑定当前实例、连接目标和结构快照，SQL 不由 HTTP 调用者决定。</summary>
-public sealed partial class SchemaService(DatabaseSession session, ISchemaChangeJournal? journal = null)
+public sealed partial class SchemaService(DatabaseSession session, ISchemaChangeJournal? journal = null, string? expectedServerUuid = null)
 {
     private sealed record PendingPlan(SchemaChangePlan Plan, DatabaseSchema Desired, string Identity, string Signature, DateTimeOffset ExpiresAt);
     private readonly ConcurrentDictionary<string, PendingPlan> _pending = new();
@@ -132,6 +132,8 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
         if (database != session.Options.ExpectedDatabase) throw new InvalidOperationException("实际连接数据库与预期不一致。");
         var uuid = Convert.ToString(await ScalarAsync(connection, "SELECT @@server_uuid", token), CultureInfo.InvariantCulture);
         if (string.IsNullOrWhiteSpace(uuid)) throw new InvalidOperationException("无法确认 MySQL 服务器身份。");
+        // 维护等显式绑定实例的调用方在每条实际连接核对UUID；普通调用继续原预览/执行身份绑定。
+        if(expectedServerUuid is not null&&!string.Equals(uuid,expectedServerUuid,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("MySQL服务器身份与调用方审查范围不符。");
         return uuid + ":" + database;
     }
 

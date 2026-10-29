@@ -90,6 +90,20 @@ public sealed class DescendingIndexSchemaTests
     {
         var provider=new RecordingProvider{Version="5.7.44"};using var session=Session(provider);Assert.Single((await new SchemaService(session).PreviewAsync(Catalog("ASC"))).Changes);Assert.Equal(0,provider.Ddl);
     }
+    /// <summary>维护方显式绑定的UUID必须在实际预览连接核对，不能只由调用方另开连接预检。</summary>
+    [Fact]
+    public async Task Explicit_instance_binding_rejects_preview_before_any_schema_lock_or_ddl()
+    {
+        var provider=new RecordingProvider();using var session=Session(provider);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>new SchemaService(session,expectedServerUuid:"approved-instance").PreviewAsync(Catalog()));Assert.Equal(0,provider.Ddl);Assert.Equal(0,provider.Locks);
+    }
+    /// <summary>正确绑定保持原预览结果；后续实际连接UUID改变时在结构锁/DDL之前停止。</summary>
+    [Fact]
+    public async Task Explicit_instance_binding_rechecks_every_apply_connection()
+    {
+        var provider=new RecordingProvider();using var session=Session(provider);var schema=new SchemaService(session,expectedServerUuid:"offline-instance");var plan=await schema.PreviewAsync(Catalog());Assert.Single(plan.Changes);
+        provider.Uuid="other-instance";var error=await Assert.ThrowsAsync<SchemaApplyException>(()=>schema.ApplyAsync(plan));Assert.Contains("调用方审查范围",error.InnerException!.Message);Assert.Equal(0,error.Result.AppliedStatements);Assert.Equal(0,provider.Ddl);Assert.Equal(0,provider.Locks);
+    }
     /// <summary>夹具只注入数据库协议，不替换SchemaService、规划器或反向编译器。</summary>
     private static DatabaseSession Session(RecordingProvider provider)=>new(new(){Provider="mysql",ConnectionString="Server=127.0.0.1;Port=1;Database=direction_offline;User ID=unused;Password=unused",ExpectedDatabase="direction_offline"},null,provider);
     /// <summary>原工作台排序与数组次序刻意不同，确保方向与实际索引字段绑定。</summary>
@@ -101,6 +115,7 @@ public sealed class DescendingIndexSchemaTests
     };
     private sealed class RecordingProvider:IDatabaseProvider
     {
+        internal string Uuid {get;set;}="offline-instance";
         internal string Version="8.0.43";internal bool TableExists;internal string[] Directions=["D","A"];internal int Ddl,IndexReads,Locks;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public string QuoteIdentifier(string identifier)=>MySqlSchemaPlanner.Quote(identifier);public string ParameterPlaceholder(string name)=>"@"+name;
@@ -121,7 +136,7 @@ public sealed class DescendingIndexSchemaTests
         public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>parameters.CreateParameter();public override int ExecuteNonQuery(){provider.Ddl++;throw new InvalidOperationException("离线测试不可执行DDL。");}
         public override object? ExecuteScalar()
         {
-            if(CommandText=="SELECT DATABASE()")return "direction_offline";if(CommandText=="SELECT @@server_uuid")return "offline-instance";
+            if(CommandText=="SELECT DATABASE()")return "direction_offline";if(CommandText=="SELECT @@server_uuid")return provider.Uuid;
             if(CommandText.StartsWith("SELECT TABLE_TYPE",StringComparison.Ordinal))return provider.TableExists?"BASE TABLE":null;if(CommandText.StartsWith("SELECT ENGINE",StringComparison.Ordinal))return "InnoDB";
             if(CommandText.Contains("GET_LOCK",StringComparison.Ordinal)){provider.Locks++;return 1;}if(CommandText.Contains("RELEASE_LOCK",StringComparison.Ordinal))return 1;throw new InvalidOperationException("未声明离线SQL。");
         }

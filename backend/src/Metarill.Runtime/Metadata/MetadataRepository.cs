@@ -28,8 +28,10 @@ public sealed partial class MetadataRepository(SqlRowStore store, MetadataRegist
     }
     private async Task SeedRows<T>(string table,IEnumerable<T> records,CancellationToken cancellationToken)
     {
+        // 窄种子不触碰空集合对应的其它配置表，避免无关读取和范围扩大。
+        var pending=records.ToArray();if(pending.Length==0)return;
         var existing=(await store.ReadIncludingDeletedAsync(table,cancellationToken:cancellationToken)).Select(r=>SqlRowStore.Id(r)).ToHashSet();
-        foreach(var record in records)
+        foreach(var record in pending)
         {
             var json=JsonSerializer.SerializeToElement(record,JsonDefaults.Options);
             var values=json.EnumerateObject().ToDictionary(p=>MetadataRegistry.Snake(p.Name),p=>(object?)p.Value.Clone());

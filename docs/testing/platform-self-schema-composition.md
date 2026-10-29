@@ -37,4 +37,4 @@ C45把平台整项目预览与业务库显式初始化接到文件/安全/Agent�
 
 另一个明确命名的草案用例只在内存补上这13条已发布定义；全局逐ID读取（包括删除记录）均未占用，基础表实际预览得到五条：sys_session新增ix_session_account_active；yz_file_library新增可空datetime(6) upload_expires_at；yz_manager、yz_role、yz_role_permission各新增一个范围/逻辑删除普通索引。全项目计划也恰好这五条，没有其它结构差异。草案1通过、零跳过，只证明提议可由当前快照形成；currentMetadataAccepted=false、proposedOnly=true、applied=false，原验收没有被此用例替换为成功。
 
-私有proposed-foundation-upgrade.json与foundation-upgrade-review.md记录全部13个标识、五条规划器SQL、前后指纹及后续执行要求。目前没有写入执行器或写入授权，不执行宽范围种子同步；需要在准备好受控执行器后审查精确配置/DDL范围并实际落地，再复验原当前目录用例。未将草案、默认跳过或本批内存自举测试写成当前真实库完整通过。
+私有proposed-foundation-upgrade.json与foundation-upgrade-review.md记录全部13个标识、五条规划器SQL、前后指纹及后续执行要求。C47已实现并验证独立受控执行器，见[固定升级](platform-foundation-upgrade.md)；目前没有本轮写入授权或实际执行，不执行宽范围种子同步；需要在准备好受控执行器后审查精确配置/DDL范围并实际落地，再复验原当前目录用例。未将草案、默认跳过或本批内存自举测试写成当前真实库完整通过。
