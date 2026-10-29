@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -58,7 +59,7 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
                 {
                     if(current is null)throw new InvalidOperationException("菜单不存在。");
                     if(catalog.ConfigMenus.Any(m=>m.ParentMenuId==current.Id))throw new InvalidOperationException("请先处理子菜单。");
-                    await store.UpdateAsync("config_menu",long.Parse(current.Id),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow},{"update_manager_id",actor.AccountId}},cancellationToken);
+                    await store.UpdateAsync("config_menu",long.Parse(current.Id),new Dictionary<string,object?>{{"delete_no",BusinessCalendar.Now},{"update_manager_id",actor.AccountId}},cancellationToken);
                     return true;
                 }
                 if(string.IsNullOrWhiteSpace(request.Name)||request.Name.Length>50)throw new InvalidOperationException("菜单名称需要1到50个字符。");
@@ -66,8 +67,8 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
                 if(kind is not ("DIRECTORY" or "GENERATED_PAGE" or "CUSTOM_PAGE"))throw new InvalidOperationException("菜单类型无效。");
                 var node=new MenuMetadata {Id=current?.Id??ids.NextId().ToString(),YzProjectId=request.ProjectId,YzAdminTypeId=request.AdminTypeId,Name=request.Name.Trim(),ParentMenuId=request.Kind=="FIRST_MENU"?null:request.ParentId,Kind=kind,ConfigPageId=kind=="GENERATED_PAGE"?request.TargetPageId:null,ConfigCustomPageId=kind=="CUSTOM_PAGE"?request.TargetPageId:null,SortNo=request.SortNo,IconName=request.Icon,IsHidden=request.Hidden?1:0,IsShowCount=request.ShowCount?1:0,Extra=[]};
                 catalog.ConfigMenus.RemoveAll(m=>m.Id==node.Id);catalog.ConfigMenus.Add(node);Validate(catalog);
-                var values=new Dictionary<string,object?>{{"id",long.Parse(node.Id)},{"yz_project_id",long.Parse(node.YzProjectId)},{"yz_admin_type_id",long.Parse(node.YzAdminTypeId)},{"name",node.Name},{"parent_menu_id",string.IsNullOrEmpty(node.ParentMenuId)?null:long.Parse(node.ParentMenuId)},{"kind",node.Kind},{"config_page_id",string.IsNullOrEmpty(node.ConfigPageId)?null:long.Parse(node.ConfigPageId)},{"config_custom_page_id",string.IsNullOrEmpty(node.ConfigCustomPageId)?null:long.Parse(node.ConfigCustomPageId)},{"sort_no",node.SortNo},{"icon_name",node.IconName},{"is_hidden",node.IsHidden},{"is_show_count",node.IsShowCount},{"visible_scheme",request.VisibleScheme},{"update_time",DateTime.UtcNow},{"update_manager_id",actor.AccountId}};
-                if(current is null){values["insert_time"]=DateTime.UtcNow;values["insert_manager_id"]=actor.AccountId;await store.InsertAsync("config_menu",values,cancellationToken);}else await store.UpdateAsync("config_menu",long.Parse(node.Id),values,cancellationToken);
+                var values=new Dictionary<string,object?>{{"id",long.Parse(node.Id)},{"yz_project_id",long.Parse(node.YzProjectId)},{"yz_admin_type_id",long.Parse(node.YzAdminTypeId)},{"name",node.Name},{"parent_menu_id",string.IsNullOrEmpty(node.ParentMenuId)?null:long.Parse(node.ParentMenuId)},{"kind",node.Kind},{"config_page_id",string.IsNullOrEmpty(node.ConfigPageId)?null:long.Parse(node.ConfigPageId)},{"config_custom_page_id",string.IsNullOrEmpty(node.ConfigCustomPageId)?null:long.Parse(node.ConfigCustomPageId)},{"sort_no",node.SortNo},{"icon_name",node.IconName},{"is_hidden",node.IsHidden},{"is_show_count",node.IsShowCount},{"visible_scheme",request.VisibleScheme},{"update_time",BusinessCalendar.Now},{"update_manager_id",actor.AccountId}};
+                if(current is null){values["insert_time"]=BusinessCalendar.Now;values["insert_manager_id"]=actor.AccountId;await store.InsertAsync("config_menu",values,cancellationToken);}else await store.UpdateAsync("config_menu",long.Parse(node.Id),values,cancellationToken);
                 return true;
             },cancellationToken);
             return await SnapshotAsync(request.ProjectId,request.AdminTypeId,cancellationToken);

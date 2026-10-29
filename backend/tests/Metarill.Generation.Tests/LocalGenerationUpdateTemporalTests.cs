@@ -6,6 +6,7 @@ public sealed partial class LocalGenerationUpdateTests
 {
     /// <summary>普通与显式时间精度模型都依赖同一结构源码；删除文件及清单不能伪造可应用的当前候选。</summary>
     [Theory]
+    [InlineData("src/Metarill.Core/Contracts/FileUploadLifetime.cs",true)]
     [InlineData("src/Metarill.Core/Contracts/BusinessCalendar.cs",true)]
     [InlineData("src/Metarill.Core/Contracts/BusinessCalendar.cs",false)]
     [InlineData("src/Metarill.Core/Metadata/MetadataColumnTypePolicy.cs",true)]

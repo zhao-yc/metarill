@@ -3,5 +3,6 @@
     <ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" />
     <PackageReference Include="FreeSql" />
     <PackageReference Include="FreeSql.Provider.MySqlConnector" />
+    <PackageReference Include="MySqlConnector" />
   </ItemGroup>
 </Project>

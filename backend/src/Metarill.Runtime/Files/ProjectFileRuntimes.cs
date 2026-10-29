@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using Metarill.Core.Metadata;
 using Metarill.Data;
@@ -19,6 +20,7 @@ public sealed class ProjectFileRuntimes
     /// <summary>平台保留原物理目录，业务目录按规范项目标识隔离，初始化只验证模型而不执行 DDL。</summary>
     public ProjectFileRuntimes(TargetDatabaseSessions sessions, MetadataRegistry registry, MetadataCatalog infrastructure, FileLibraryOptions options)
     {
+        FileUploadLifetime.ValidateMetadata(infrastructure);
         var published = new FileMetadataContext([registry.Platform, registry.Demo]);
         this.infrastructure = new FileMetadataContext([infrastructure]).Catalogs.Single();
         PlatformProjectId = CanonicalProject(registry.Platform.YzProjectId);

@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -61,6 +62,7 @@ public sealed partial class LocalGenerationUpdater
         }
         var metadata = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/project.json"));
         var infrastructure = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/files.json"));
+        if(candidate)FileUploadLifetime.ValidateMetadata(infrastructure);
         MetadataCatalogComposition.MergePhysical(metadata, infrastructure);
         if(frontend.Authentication=="web-database-v1")MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(metadata,infrastructure),Decode<MetadataCatalog>(ReadBytes(root,"backend/metadata/security.json")));
         MetadataValidation.Validate(metadata);
@@ -79,7 +81,7 @@ public sealed partial class LocalGenerationUpdater
         // 公共JsonDefaults始终引用浮点转换器；无double业务列的当前候选也必须带齐其解析依赖。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs","src/Metarill.Core/Contracts/ExactNumericValue.cs"});
         // 当前时间精度解释与结构反查共用Core/Data源码，不能删文件及归属后冒充完整候选。
-        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/BusinessCalendar.cs","src/Metarill.Core/Metadata/MetadataColumnTypePolicy.cs","src/Metarill.Core/Metadata/MetadataCatalogComposition.cs","src/Metarill.Data/Schema/MySqlSchemaPlanner.cs","src/Metarill.Data/Schema/SchemaImportDraft.cs","src/Metarill.Data/Schema/SchemaService.cs"});
+        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FileUploadLifetime.cs","src/Metarill.Core/Contracts/BusinessCalendar.cs","src/Metarill.Core/Metadata/MetadataColumnTypePolicy.cs","src/Metarill.Core/Metadata/MetadataCatalogComposition.cs","src/Metarill.Data/Schema/MySqlSchemaPlanner.cs","src/Metarill.Data/Schema/SchemaImportDraft.cs","src/Metarill.Data/Schema/SchemaService.cs"});
         foreach (var required in bootstrap)
             if (!entries.ContainsKey(required)) throw new InvalidOperationException("完整包缺少必要启动归属：" + required);
         foreach (var entry in generatedEntries.Values)

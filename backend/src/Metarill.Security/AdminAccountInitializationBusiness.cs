@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Security;
@@ -30,7 +31,7 @@ public sealed class AdminAccountInitializationBusiness(SqlRowStore store,Securit
             // 保留原非空、最长50字符配置语义；普通新账号的12字符规则不在此入口强加到原页面。
             var digest=PasswordHasher.HashInitializationConfiguration(configuredPassword);
             var superRole=roles.Where(role=>SqlRowStore.Text(role,"is_super")=="1").OrderByDescending(role=>SqlRowStore.Id(role)).FirstOrDefault();
-            var now=DateTime.UtcNow;var projectId=long.Parse(SqlRowStore.Text(admin,"yz_project_id"),CultureInfo.InvariantCulture);
+            var now=BusinessCalendar.Now;var projectId=long.Parse(SqlRowStore.Text(admin,"yz_project_id"),CultureInfo.InvariantCulture);
             if(superRole is null)
             {
                 var roleId=ids.NextId();
@@ -53,7 +54,7 @@ public sealed class AdminAccountInitializationBusiness(SqlRowStore store,Securit
                 if(await store.UpdateAsync("yz_manager",accountId,values,token)!=1)throw new InvalidOperationException("YZP_CONFLICT：初始化账号已变化。");
             }
             foreach(var session in sessions)
-                if(await store.UpdateAsync("sys_session",SqlRowStore.Id(session),new Dictionary<string,object?>{{"delete_no",now}},token)!=1)
+                if(await store.UpdateAsync("sys_session",SqlRowStore.Id(session),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token)!=1)
                     throw new InvalidOperationException("YZP_CONFLICT：初始化会话已变化。");
             return new(true,accountId.ToString(CultureInfo.InvariantCulture));
         },token);

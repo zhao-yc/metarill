@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Data.Common;
 using System.Runtime.CompilerServices;
 using System.Collections.Concurrent;
@@ -119,14 +120,14 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
             }
         }
         foreach (var old in current)
-            await store.UpdateAsync("yz_file_ref", SqlRowStore.Id(old), new Dictionary<string, object?> { ["delete_no"] = DateTime.UtcNow }, cancellationToken);
+            await store.UpdateAsync("yz_file_ref", SqlRowStore.Id(old), new Dictionary<string, object?> { ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
         foreach (var (field, fileIds) in requested)
             foreach (var fileId in fileIds)
                 await store.InsertAsync("yz_file_ref", new Dictionary<string, object?>
                 {
                     ["id"] = ids.NextId(), ["file_id"] = fileId, ["page_id"] = long.Parse(page.Id, CultureInfo.InvariantCulture),
                     ["record_id"] = context.RecordId, ["field_name"] = field, ["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture),
-                    ["insert_time"] = DateTime.UtcNow, ["insert_manager_id"] = actor.AccountId
+                    ["insert_time"] = BusinessCalendar.Now, ["insert_manager_id"] = actor.AccountId
                 }, cancellationToken);
     }
 

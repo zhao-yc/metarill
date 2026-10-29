@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Persistence;
@@ -31,7 +32,7 @@ public sealed partial class MetadataWorkbenchBusiness
                     ["name"]=string.IsNullOrWhiteSpace(plan.Field.Name)?plan.Field.ColumnName:plan.Field.Name,["column_name"]=plan.Field.JoinColumnName,["column_full_name"]=plan.Field.ColumnFullName,["join_table"]=plan.Field.JoinTable,
                     ["is_join_column"]=1,["is_virtual_column"]=0,["col_span"]=1,["mobile_list_page_col_span"]=1,["sort_no"]=maximum,["is_copy"]="0",["is_db_not_null"]=0,
                     ["default_value"]="",["query_default_value"]="",["init_value"]="",["match_type"]="",["width"]="",["align"]="",["visible_condition"]="",["column_constrain"]="",["save_option"]="",["display_option"]="",["trim_option"]="",["description"]="",["developer_remarks"]="",["filter_control_kind"]="",
-                    ["insert_time"]=DateTime.UtcNow,["update_time"]=DateTime.UtcNow,["insert_manager_id"]=actor.AccountId,["update_manager_id"]=actor.AccountId
+                    ["insert_time"]=BusinessCalendar.Now,["update_time"]=BusinessCalendar.Now,["insert_manager_id"]=actor.AccountId,["update_manager_id"]=actor.AccountId
                 };
                 foreach(var key in new[]{"column_type","column_length","logical_type","control_kind","control_detail"})values[key]=SqlRowStore.Text(plan.Target,key);
                 foreach(var key in new[]{"precision","scale"})values[key]=plan.Target.GetValueOrDefault(key);

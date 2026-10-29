@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -159,7 +160,7 @@ public sealed partial class MetadataWorkbenchBusiness(SqlRowStore store, HttpRun
     }
     /// <summary>审计信息始终来自服务端身份，不接受客户端覆盖。</summary>
     private static Dictionary<string, object?> Audit(Dictionary<string, object?> values, RuntimeActor actor)
-    { values["update_time"] = DateTime.UtcNow; values["update_manager_id"] = actor.AccountId; return values; }
+    { values["update_time"] = BusinessCalendar.Now; values["update_manager_id"] = actor.AccountId; return values; }
     /// <summary>显式版本不一致时阻断本次写入。</summary>
     private static void RequireRevision(string? supplied, string actual)
     { MetadataWorkbenchRules.Revision(supplied); if (!string.Equals(supplied, actual, StringComparison.Ordinal)) throw new MetadataRevisionConflictException(); }

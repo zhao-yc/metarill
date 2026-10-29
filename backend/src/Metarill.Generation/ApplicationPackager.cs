@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using Metarill.Runtime.Agent;
 using System.Security.Cryptography;
 using System.Text;
@@ -63,6 +64,7 @@ public sealed class ApplicationPackager
         var infrastructureJson = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(source, "backend/metadata/files.json")))!;
         GenerationMetadataPublisher.Scrub(infrastructureJson, "$.files", redactions);
         var infrastructure = infrastructureJson.Deserialize<MetadataCatalog>(JsonOptions)!;
+        FileUploadLifetime.ValidateMetadata(infrastructure);
         MetadataCatalogComposition.MergePhysical(sanitized, infrastructure);
         JsonNode? securityJson=null;
         if(fullApplication)

@@ -49,6 +49,7 @@ var verifiedCatalog=VerifiedPackageSecurityCatalog.Load(Path.Combine(AppContext.
 var metadata=verifiedCatalog.Clone();
 var infrastructure = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/files.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少文件基础元数据。");
+FileUploadLifetime.ValidateMetadata(infrastructure);
 var security = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "metadata/security.json")), jsonOptions)
     ?? throw new InvalidOperationException("缺少固定安全基础元数据。");
 // 基础设施仍严格合成；生成注册类只允许编译绑定的固定管理页进入本应用物理图，不读取业务JSON特权标记。

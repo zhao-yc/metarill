@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Metadata;
@@ -180,7 +181,7 @@ public sealed class SchemaMetadataImportBusiness(SqlRowStore store, MetadataRepo
     {
         values["yz_project_id"] = long.Parse(owner.Actor.ProjectId, CultureInfo.InvariantCulture);
         values["yz_project_name"] = projectName;
-        values["insert_time"] = values["update_time"] = DateTime.UtcNow; values["insert_manager_id"] = values["update_manager_id"] = owner.Actor.AccountId;
+        values["insert_time"] = values["update_time"] = BusinessCalendar.Now; values["insert_manager_id"] = values["update_manager_id"] = owner.Actor.AccountId;
         return values;
     }
     /// <summary>入口先认证，不让Agent或工作区选择绕过原平台管理员边界。</summary>

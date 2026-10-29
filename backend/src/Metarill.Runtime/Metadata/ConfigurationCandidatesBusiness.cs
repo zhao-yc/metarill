@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Persistence;
@@ -83,7 +84,7 @@ public sealed class ConfigurationCandidatesBusiness(SqlRowStore store, MetadataR
             }
             foreach (var field in fields.OrderBy(row => SqlRowStore.Id(row)))
                 if (await store.UpdateAsync("config_page_column", SqlRowStore.Id(field), new Dictionary<string, object?>
-                    { ["control_detail"] = "", ["update_time"] = DateTime.UtcNow, ["update_manager_id"] = actor.AccountId, ["update_manager_real_name"] = actor.AccountName, ["update_user_name"] = actor.AccountName }, token) != 1)
+                    { ["control_detail"] = "", ["update_time"] = BusinessCalendar.Now, ["update_manager_id"] = actor.AccountId, ["update_manager_real_name"] = actor.AccountName, ["update_user_name"] = actor.AccountName }, token) != 1)
                     throw new InvalidOperationException("页面字段控件明细清空失败。");
             return "清空成功，共处理 " + fields.Count.ToString(CultureInfo.InvariantCulture) + " 条页面字段";
         }, token);

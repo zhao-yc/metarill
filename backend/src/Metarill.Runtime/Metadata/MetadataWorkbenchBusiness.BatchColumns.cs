@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Persistence;
@@ -37,7 +38,7 @@ public sealed partial class MetadataWorkbenchBusiness
                     ["id"]=id,["config_table_id"]=input.TableId,["config_table_name"]=SqlRowStore.Text(scope.Table,"name"),["yz_project_id"]=long.Parse(actor.ProjectId),
                     ["name"]=row.Name,["column_name"]=row.ColumnName,["column_type"]=row.ColumnType,["logical_type"]=row.LogicalType,["column_length"]=row.ColumnType is "text" or "longtext"?row.ColumnType:row.ColumnLength,
                     ["control_kind"]=row.ControlKind,["control_detail"]=row.ControlDetail,["join_table"]=row.JoinTable,["link_config_table_id"]=row.LinkTableId,["precision"]=row.Precision,["scale"]=row.Scale,
-                    ["sort_no"]=maximum,["col_span"]=1,["mobile_list_page_col_span"]=1,["default_value"]="",["insert_time"]=DateTime.UtcNow,["update_time"]=DateTime.UtcNow,["insert_manager_id"]=actor.AccountId,["update_manager_id"]=actor.AccountId
+                    ["sort_no"]=maximum,["col_span"]=1,["mobile_list_page_col_span"]=1,["default_value"]="",["insert_time"]=BusinessCalendar.Now,["update_time"]=BusinessCalendar.Now,["insert_manager_id"]=actor.AccountId,["update_manager_id"]=actor.AccountId
                 };
                 ConfigurationColumnDefaults.Fill(values,registry.Platform);
                 await store.InsertAsync("config_column",values,cancellationToken);

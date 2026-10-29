@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -83,9 +84,9 @@ public sealed class IndexWorkbenchBusiness(SqlRowStore store, HttpRuntimeAuthori
             }
             // 完整替换只作用于托管集合，ux_*等平台基础设施索引不由此页面删除或改名。
             foreach (var row in scope.IndexColumns.Where(row => existing.ContainsKey(SqlRowStore.Id(row, "config_index_id")) && !usedChildren.Contains(SqlRowStore.Id(row))))
-                await store.UpdateAsync("config_index_column", SqlRowStore.Id(row), Audit(new() { ["delete_no"] = DateTime.UtcNow }, actor), cancellationToken);
+                await store.UpdateAsync("config_index_column", SqlRowStore.Id(row), Audit(new() { ["delete_no"] = BusinessCalendar.Now }, actor), cancellationToken);
             foreach (var row in existing.Values.Where(row => !usedIndexes.Contains(SqlRowStore.Id(row))))
-                await store.UpdateAsync("config_index", SqlRowStore.Id(row), Audit(new() { ["delete_no"] = DateTime.UtcNow }, actor), cancellationToken);
+                await store.UpdateAsync("config_index", SqlRowStore.Id(row), Audit(new() { ["delete_no"] = BusinessCalendar.Now }, actor), cancellationToken);
             return Snapshot(await ReadScopeAsync(input.TableId, cancellationToken));
         }, cancellationToken);
     }
@@ -136,8 +137,8 @@ public sealed class IndexWorkbenchBusiness(SqlRowStore store, HttpRuntimeAuthori
         .Select(row => row.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToDictionary(pair => pair.Key, pair => pair.Value)), JsonDefaults.Options))).ToLowerInvariant();
     /// <summary>审计值由服务器身份生成，不接受客户端提交账号、项目或时间。</summary>
     private static Dictionary<string, object?> Audit(Dictionary<string, object?> values, RuntimeActor actor)
-    { values["update_time"] = DateTime.UtcNow; values["update_manager_id"] = actor.AccountId; values["update_user_name"] = actor.AccountName; values["update_manager_real_name"] = actor.AccountName; return values; }
+    { values["update_time"] = BusinessCalendar.Now; values["update_manager_id"] = actor.AccountId; values["update_user_name"] = actor.AccountName; values["update_manager_real_name"] = actor.AccountName; return values; }
     /// <summary>新节点补齐服务器创建人和创建时间。</summary>
     private static void Created(Dictionary<string, object?> values, RuntimeActor actor)
-    { values["insert_time"] = DateTime.UtcNow; values["insert_manager_id"] = actor.AccountId; values["insert_user_name"] = actor.AccountName; values["insert_manager_real_name"] = actor.AccountName; }
+    { values["insert_time"] = BusinessCalendar.Now; values["insert_manager_id"] = actor.AccountId; values["insert_user_name"] = actor.AccountName; values["insert_manager_real_name"] = actor.AccountName; }
 }

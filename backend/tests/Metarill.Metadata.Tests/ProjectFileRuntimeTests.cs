@@ -105,16 +105,12 @@ internal sealed class PublishedFileFixture : IDisposable
         Registry = new(platformPath, demoPath);
         var platformOptions = Options("metarill_project_platform_test"); var businessOptions = Options("metarill_project_business_test");
         Sessions = new(platformOptions, businessOptions, Registry, new Dictionary<string, DatabaseOptions> { ["3"] = businessOptions });
-        var infrastructure = new MetadataCatalog { YzProjectId = "1" };
-        var index = 800;
-        foreach (var name in new[] { "yz_file_library", "yz_file_library_folder", "yz_file_ref" })
-        {
-            var id = (++index).ToString(CultureInfo.InvariantCulture);
-            infrastructure.ConfigTables.Add(new() { Id = id, TableName = name, YzProjectId = "1" });
-            infrastructure.ConfigColumns.Add(new() { Id = (++index).ToString(CultureInfo.InvariantCulture), ConfigTableId = id, ColumnName = "id", LogicalType = "int64" });
-        }
+        var infrastructure = LoadInfrastructure();infrastructure.YzProjectId="1";
         Runtimes = new(Sessions, Registry, infrastructure, new() { RootDirectory = Root });
     }
+
+    /// <summary>基础文件模型直接取实际发布源，避免最小目录遗漏新增运行时合同。</summary>
+    private static MetadataCatalog LoadInfrastructure([System.Runtime.CompilerServices.CallerFilePath]string source="")=>JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(Path.GetDirectoryName(source)!,"../../metadata/files.json")),JsonDefaults.Options)!;
 
     /// <summary>构造最小页面，只有业务页面携带文件字段。</summary>
     private static MetadataCatalog Catalog(string project, string table, string page, string name, bool files)

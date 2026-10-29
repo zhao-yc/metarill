@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Text.Json;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
@@ -202,7 +203,7 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         async Task DeleteRows(string table,string field,long id)
         {
             foreach(var row in await store.ReadAsync(table,new Dictionary<string,object?>{{field,id},{"yz_project_id",long.Parse(context.ProjectId)}},token))
-                await store.UpdateAsync(table,SqlRowStore.Id(row),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+                await store.UpdateAsync(table,SqlRowStore.Id(row),new Dictionary<string,object?>{{"delete_no",BusinessCalendar.Now}},token);
         }
         if(context.TableName=="config_custom_page")await DeleteRows("config_menu","config_custom_page_id",context.RecordId);
         if(context.TableName=="config_column")
@@ -230,14 +231,14 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
                 var fields=await store.ReadForUpdateAsync("config_index_column",new Dictionary<string,object?>{{"config_index_id",indexId}},token);
                 foreach(var field in fields)RequireProject(field,project);
                 foreach(var field in fields.OrderBy(row=>SqlRowStore.Id(row)))
-                    await store.UpdateAsync("config_index_column",SqlRowStore.Id(field),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
-                await store.UpdateAsync("config_index",indexId,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+                    await store.UpdateAsync("config_index_column",SqlRowStore.Id(field),new Dictionary<string,object?>{{"delete_no",BusinessCalendar.Now}},token);
+                await store.UpdateAsync("config_index",indexId,new Dictionary<string,object?>{{"delete_no",BusinessCalendar.Now}},token);
             }
             var columns=await store.ReadForUpdateAsync("config_column",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},token);
             foreach(var column in columns)RequireProject(column,project);
             foreach(var column in columns.OrderBy(row=>SqlRowStore.Id(row)))await RequireColumnNotIndexedAsync(SqlRowStore.Id(column),token);
             foreach(var column in columns.OrderBy(row=>SqlRowStore.Id(row)))
-                await store.UpdateAsync("config_column",SqlRowStore.Id(column),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+                await store.UpdateAsync("config_column",SqlRowStore.Id(column),new Dictionary<string,object?>{{"delete_no",BusinessCalendar.Now}},token);
             await DeleteRows("config_page","config_table_id",context.RecordId);
         }
     }

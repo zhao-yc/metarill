@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -65,10 +66,10 @@ public sealed class RolePermissionBusiness(SqlRowStore store,IRolePermissionCata
                 if(actions.Any(a=>!Actions.Contains(a)||!enabled.Contains(a)))throw new ArgumentException("页面授权包含未开放动作。");
             }
             foreach(var button in request.Grants.ButtonIds)if(!catalog.ConfigButtons.Any(b=>b.GetProperty("id").ToString()==button))throw new ArgumentException("按钮授权包含无效按钮。");
-            foreach(var old in existing)await store.UpdateAsync("yz_role_permission",SqlRowStore.Id(old),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+            foreach(var old in existing)await store.UpdateAsync("yz_role_permission",SqlRowStore.Id(old),new Dictionary<string,object?>{{"delete_no",BusinessCalendar.Now}},token);
             async Task Add(string field,string resource,string[] actions)
             {
-                await store.InsertAsync("yz_role_permission",new Dictionary<string,object?>{{"id",ids.NextId()},{"yz_role_id",long.Parse(request.RoleId)},{field,long.Parse(resource)},{"permission_values",JsonSerializer.Serialize(actions)},{"yz_project_id",long.Parse(principal.ProjectId)},{"insert_time",DateTime.UtcNow},{"insert_manager_id",actor.AccountId}},token);
+                await store.InsertAsync("yz_role_permission",new Dictionary<string,object?>{{"id",ids.NextId()},{"yz_role_id",long.Parse(request.RoleId)},{field,long.Parse(resource)},{"permission_values",JsonSerializer.Serialize(actions)},{"yz_project_id",long.Parse(principal.ProjectId)},{"insert_time",BusinessCalendar.Now},{"insert_manager_id",actor.AccountId}},token);
             }
             foreach(var menu in request.Grants.MenuIds.Distinct())await Add("config_menu_id",menu,[]);
             foreach(var(page,actions)in request.Grants.PagePermissions.OrderBy(p=>p.Key,StringComparer.Ordinal))if(actions.Length>0)await Add("config_page_id",page,actions.Distinct().Order(StringComparer.Ordinal).ToArray());

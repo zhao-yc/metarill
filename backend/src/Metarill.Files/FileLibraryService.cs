@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Security.Cryptography;
 using Metarill.Core.Metadata;
@@ -29,16 +30,18 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if (!policy.Extensions.Contains(Path.GetExtension(request.OriginalName))) throw new InvalidOperationException("文件扩展名不在允许范围。");
         if (request.FolderId is { } folder) RequireProject(await RequiredAsync(Folders, folder, true, cancellationToken), actor);
         var id = ids.NextId();
-        var now = DateTime.UtcNow;
+        var now = BusinessCalendar.Now;
+        var expires = FileUploadLifetime.NewDeadline(DateTimeOffset.UtcNow);
         await store.InsertAsync(Files, new Dictionary<string, object?>
         {
             ["id"] = id, ["name"] = request.OriginalName, ["content_type"] = FileValidation.ContentType(request.OriginalName),
             ["size"] = request.SizeBytes, ["storage_key"] = Guid.NewGuid().ToString("N") + ".blob", ["access_mode"] = policy.AccessMode,
             ["status"] = "planned", ["owner_id"] = actor.AccountId, ["folder_id"] = request.FolderId, ["yz_project_id"] = Project(actor),
+            [FileUploadLifetime.DeadlineColumn] = expires,
             ["sha256"] = FileValidation.Digest(request.Sha256), ["insert_time"] = now, ["insert_manager_id"] = actor.AccountId
         }, cancellationToken);
         return new FileUploadPlan(id, new LocalUploadPlan("local", "SERVER_MULTIPART", $"/admin/sys/file-library/local-upload/{id}",
-            new Dictionary<string, string>(), new Dictionary<string, string>(), DateTimeOffset.UtcNow.AddMinutes(30)));
+            new Dictionary<string, string>(), new Dictionary<string, string>(), new DateTimeOffset(expires)));
     }, cancellationToken);
 
     /// <summary>持有文件记录锁完成有界流写入和摘要核验，上传后为私有草稿，显式完成后才可绑定或公开。</summary>
@@ -53,7 +56,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 var actor = authorization.RequireActor();
                 var row = await RequiredAsync(Files, id, true, cancellationToken); RequireOwner(row, actor);
                 if (SqlRowStore.Text(row, "status") != "planned") throw new InvalidOperationException("文件状态不允许重新上传。");
-                if (DateTime.UtcNow - Convert.ToDateTime(row["insert_time"], CultureInfo.InvariantCulture) > TimeSpan.FromMinutes(30)) throw new InvalidOperationException("上传计划已过期。");
+                FileUploadLifetime.RequireActive(row, DateTimeOffset.UtcNow);
                 EnsureRoot();
                 var destination = FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
                 temporary = destination + ".part." + Guid.NewGuid().ToString("N");
@@ -81,7 +84,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 if (requestedHash.Length > 0 && !string.Equals(requestedHash, hash, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("上传内容摘要与计划不一致。");
                 // 数据库提交结果不明时保留随机对象供完成或重试核验，不能删除可能已提交的文件。
                 File.Move(temporary, destination, true); temporary = null;
-                await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "uploaded", ["sha256"] = hash, ["update_time"] = DateTime.UtcNow }, cancellationToken);
+                await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "uploaded", ["sha256"] = hash, ["update_time"] = BusinessCalendar.Now }, cancellationToken);
                 row["status"] = "uploaded"; row["sha256"] = hash;
                 return Describe(row);
             }, cancellationToken);
@@ -101,7 +104,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if (content.Length != SqlRowStore.Id(row, "size")) throw new InvalidOperationException("已上传对象大小异常。");
         var hash = Convert.ToHexString(await SHA256.HashDataAsync(content, cancellationToken)).ToLowerInvariant();
         if (!string.Equals(hash, SqlRowStore.Text(row, "sha256"), StringComparison.Ordinal)) throw new InvalidOperationException("已上传对象摘要异常。");
-        await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "ready", ["update_time"] = DateTime.UtcNow }, cancellationToken);
+        await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "ready", ["update_time"] = BusinessCalendar.Now }, cancellationToken);
         row["status"] = "ready";
         return Describe(row);
     }, cancellationToken);
@@ -136,7 +139,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         {
             var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, true, cancellationToken); RequireDeleteOwner(row, actor);
             if ((await store.ReadForUpdateAsync(References, new Dictionary<string, object?> { ["file_id"] = id }, cancellationToken)).Count > 0) throw new InvalidOperationException("文件仍被业务记录引用，不能删除。");
-            await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "deleted", ["delete_no"] = DateTime.UtcNow }, cancellationToken);
+            await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "deleted", ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
             return FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
         }, cancellationToken);
         return new FileDeleteResult(id, TryDelete(path));
@@ -154,7 +157,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if (parentId is { } parent) RequireProject(await RequiredAsync(Folders, parent, true, cancellationToken), actor);
         await RequireSiblingNameAsync(actor,parentId,name,null,cancellationToken);
         var id = ids.NextId();
-        await store.InsertAsync(Folders, new Dictionary<string, object?> { ["id"] = id, ["name"] = name, ["parent_folder_id"] = parentId, ["owner_id"] = actor.AccountId, ["yz_project_id"] = Project(actor), ["insert_time"] = DateTime.UtcNow }, cancellationToken);
+        await store.InsertAsync(Folders, new Dictionary<string, object?> { ["id"] = id, ["name"] = name, ["parent_folder_id"] = parentId, ["owner_id"] = actor.AccountId, ["yz_project_id"] = Project(actor), ["insert_time"] = BusinessCalendar.Now }, cancellationToken);
         return new FileFolder(id, name, parentId);
     }, cancellationToken);
 
@@ -172,7 +175,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if ((await store.ReadForUpdateAsync(Folders, new Dictionary<string, object?> { ["parent_folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Count > 0 ||
             (await store.ReadForUpdateAsync(Files, new Dictionary<string, object?> { ["folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Any(row=>SqlRowStore.Text(row,"status")!="deleted"))
             throw new InvalidOperationException("目录不为空，不能删除。");
-        await store.UpdateAsync(Folders, id, new Dictionary<string, object?> { ["delete_no"] = DateTime.UtcNow }, cancellationToken);
+        await store.UpdateAsync(Folders, id, new Dictionary<string, object?> { ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
         return true;
     }, cancellationToken);
 
@@ -181,7 +184,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     {
         name=DisplayName(name,255);
         var actor=authorization.RequireActor();var row=await RequiredAsync(Files,id,true,token);await RequireReadableAsync(row,actor,token);
-        await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"name",name},{"update_time",DateTime.UtcNow}},token);return true;
+        await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"name",name},{"update_time",BusinessCalendar.Now}},token);return true;
     },token);
 
     /// <summary>移动文件先锁定目标目录，和空目录删除共用同一行锁。</summary>
@@ -190,7 +193,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         var actor=authorization.RequireActor();
         if(targetFolderId is{} folder)RequireProject(await RequiredAsync(Folders,folder,true,token),actor);
         await RequireReadableAsync(await RequiredAsync(Files,id,true,token),actor,token);
-        await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"folder_id",targetFolderId},{"update_time",DateTime.UtcNow}},token);return true;
+        await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"folder_id",targetFolderId},{"update_time",BusinessCalendar.Now}},token);return true;
     },token);
 
     /// <summary>目录更名只修改显示字段，保留原有项目及所有者。</summary>

@@ -7,6 +7,8 @@
     <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
     <PackageVersion Include="ClosedXML" Version="0.105.1" />
     <PackageVersion Include="FreeSql.Provider.MySqlConnector" Version="3.5.311" />
+    <!-- 显式固定驱动修复版本，避免ORM传递依赖退回存在已知公告的旧版。 -->
+    <PackageVersion Include="MySqlConnector" Version="2.6.1" />
     <PackageVersion Include="Scriban" Version="7.5.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />

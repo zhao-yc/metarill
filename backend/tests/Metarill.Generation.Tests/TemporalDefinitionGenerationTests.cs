@@ -45,6 +45,9 @@ public sealed class TemporalDefinitionGenerationTests
         const string clock="src/Metarill.Core/Contracts/BusinessCalendar.cs";
         foreach(var file in Directory.GetFiles(Path.Combine(output,"backend/generated/Services"),"*.g.cs"))
             File.WriteAllText(file,File.ReadAllText(file).Replace("BusinessCalendar.Now","DateTime.UtcNow",StringComparison.Ordinal));
+        // 后续手写模块也共享日历合同；旧行为模拟必须还原所有受管引用才能真实编译。
+        foreach(var file in Directory.GetFiles(Path.Combine(output,"src"),"*.cs",SearchOption.AllDirectories))
+            File.WriteAllText(file,File.ReadAllText(file).Replace("BusinessCalendar.Now","DateTime.UtcNow",StringComparison.Ordinal));
         File.Delete(Path.Combine(output,clock));
         var generated=Path.Combine(output,"backend/generated/.metarill-generation.json");var generatedNode=JsonNode.Parse(File.ReadAllText(generated))!;
         foreach(var entry in generatedNode["files"]!.AsArray())entry!["sha256"]=Hash(Path.Combine(output,"backend/generated",entry["path"]!.GetValue<string>()));

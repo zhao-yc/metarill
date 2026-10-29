@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Runtime.Persistence;
@@ -48,11 +49,11 @@ public sealed class DevelopmentSeedSynchronizer(SqlRowStore store,MetadataRegist
                     }
                     foreach(var column in registry.Platform.ConfigColumns.Where(c=>c.ConfigTableId==physical.Id&&!values.ContainsKey(c.ColumnName)))
                         values[column.ColumnName]=!string.IsNullOrEmpty(column.DefaultValue)?column.DefaultValue:column.IsDbNotNull==1&&column.LogicalType is "int32" or "int64" or "decimal"?0:null;
-                    values["delete_no"]=null;values["update_time"]=DateTime.UtcNow;
+                    values["delete_no"]=null;values["update_time"]=BusinessCalendar.Now;
                     if(await store.UpdateAsync(table,id,values,token)==0)await store.InsertAsync(table,values,token);
                 }
                 foreach(var old in before[table].Where(r=>r.GetValueOrDefault("delete_no") is null&&!expected.Contains(SqlRowStore.Id(r))))
-                    await store.UpdateAsync(table,SqlRowStore.Id(old),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token);
+                    await store.UpdateAsync(table,SqlRowStore.Id(old),new Dictionary<string,object?>{{"delete_no",BusinessCalendar.Now}},token);
             }
             return true;
         },token);

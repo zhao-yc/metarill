@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Metadata;
@@ -224,7 +225,7 @@ public sealed class ConfigurationActionsBusiness(SqlRowStore store, MetadataRegi
         return result;
     }
     /// <summary>新记录的归属、审计和删除状态只能来自当前身份与服务器时钟。</summary>
-    private static Dictionary<string,object?> NewValues(long id,RuntimeActor actor)=>new(){["id"]=id,["yz_project_id"]=Parse(actor.ProjectId),["delete_no"]=null,["insert_time"]=DateTime.UtcNow,["update_time"]=DateTime.UtcNow,["insert_manager_id"]=actor.AccountId,["update_manager_id"]=actor.AccountId,["insert_user_name"]=actor.AccountName,["update_user_name"]=actor.AccountName};
+    private static Dictionary<string,object?> NewValues(long id,RuntimeActor actor)=>new(){["id"]=id,["yz_project_id"]=Parse(actor.ProjectId),["delete_no"]=null,["insert_time"]=BusinessCalendar.Now,["update_time"]=BusinessCalendar.Now,["insert_manager_id"]=actor.AccountId,["update_manager_id"]=actor.AccountId,["insert_user_name"]=actor.AccountName,["update_user_name"]=actor.AccountName};
     /// <summary>解析明确正整数主键。</summary>
     private static long Parse(string value)=>long.Parse(CompatibilityButtonPolicy.RequireId(value),CultureInfo.InvariantCulture);
     /// <summary>沿用菜单和配置页面名称长度边界。</summary>

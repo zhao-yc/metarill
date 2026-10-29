@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Runtime.Persistence;
@@ -36,7 +37,7 @@ public sealed partial class MetadataRepository(SqlRowStore store, MetadataRegist
             if(existing.Contains(id))continue;
             if(record is PageMetadata page){values.TryAdd("is_edit",1);values.TryAdd("is_update",page.IsSave);}
             if(record is PageColumnMetadata field){values["is_in_edit"]=field.IsEdit;values["is_in_grid"]=field.IsShow;values["is_must"]=field.IsRequired;}
-            values.TryAdd("insert_time",DateTime.UtcNow);values.TryAdd("update_time",DateTime.UtcNow);
+            values.TryAdd("insert_time",BusinessCalendar.Now);values.TryAdd("update_time",BusinessCalendar.Now);
             var physical=registry.Platform.ConfigTables.Single(t=>t.TableName==table);
             foreach(var required in registry.Platform.ConfigColumns.Where(c=>c.ConfigTableId==physical.Id&&c.IsDbNotNull==1&&!values.ContainsKey(c.ColumnName)))
                 if(required.LogicalType is "int32" or "int64" or "decimal")values[required.ColumnName]=0;
