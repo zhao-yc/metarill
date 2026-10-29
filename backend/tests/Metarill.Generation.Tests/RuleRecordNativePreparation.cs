@@ -6,7 +6,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>C25实际共享跨表与六类父页面的固定完整包；本工具不读取连接或创建数据库对象。</summary>
 internal static class RuleRecordNativePreparation
 {
-    internal const string RootNamespace="Metarill.RuleRecordNative",ProductCommit="9d169e9090391d41f24a45b75f77d4f3d4e83661",Prefix="rule_native";
+    internal const string RootNamespace="Metarill.RuleRecordNative",ProductCommit="b34f8c667eedbb797e99fa2a0be28857fedaa15f",Prefix="rule_native";
     /// <summary>沿用真实共享R0及派生目标元数据，仅明确启用只读规则和已支持的标准写操作。</summary>
     internal static MetadataCatalog Catalog()
     {
