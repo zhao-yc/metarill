@@ -65,14 +65,14 @@ internal static class NonRedundantCrossTableCompilation
         if(table.Source.IsRongyu!=0)return "";var suffix=page.Source.Id+"_"+plan.Read.Source.Source.Id;
         var result=new StringBuilder().AppendLine($"    private static readonly Metarill.Core.Metadata.CrossTableSparseSelection CrossStorage{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileSelection({Literal(table.Source.Id)},{Literal(plan.Read.Source.Source.Id)});")
             .AppendLine("    /// <summary>省略保持稀疏值；真实提交以最深ID编码，祖先ID及派生名称不缓存。</summary>")
-            .AppendLine($"    private static void PackCross{suffix}({table.Name} entity,ISet<string> submitted)")
+            .AppendLine($"    private static void PackCross{suffix}({table.EntityType} entity,ISet<string> submitted)")
             .AppendLine("    {").AppendLine($"        if(!({CrossTableWriteRenderer.Trigger(plan,"false")}))return;var path=new List<long>();");
         foreach(var level in plan.Levels)result.AppendLine($"        if(!string.IsNullOrWhiteSpace(Convert.ToString(entity.{level.Id.Property},CultureInfo.InvariantCulture)))path.Add(long.Parse(Convert.ToString(entity.{level.Id.Property},CultureInfo.InvariantCulture)!,NumberStyles.None,CultureInfo.InvariantCulture));");
         result.AppendLine($"        var packed=CrossStorage{suffix}.PackValidatedPath(path);");
         foreach(var level in plan.Levels)result.AppendLine($"        entity.{level.Id.Property}=({level.Id.Type})packed[{Literal(level.Id.Source.ColumnName)}];submitted.Add({Literal(level.Id.Source.ColumnName)});entity.{level.Name.Property}=null;submitted.Remove({Literal(level.Name.Source.ColumnName)});");
         result.AppendLine("    }")
             .AppendLine("    /// <summary>先锁原节点路径再合并局部请求，不用共享锁升级；省略整项时完全跳过。</summary>")
-            .AppendLine($"    private async Task HydrateStoredCross{suffix}Async({table.Name} entity,RuntimeActor actor,CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task HydrateStoredCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,CancellationToken cancellationToken)")
             .AppendLine("    {")
             .AppendLine($"        var selected=CrossStorage{suffix}.ReadStored(new Dictionary<string,object?>{{{string.Join(",",plan.Levels.Select(level=>"["+Literal(level.Id.Source.ColumnName)+"]=entity."+level.Id.Property))}}});if(selected is null)return;")
             .AppendLine($"        var path=await CrossReader{suffix}(actor,true,false).PathAsync(selected.Level,selected.Id,cancellationToken);");

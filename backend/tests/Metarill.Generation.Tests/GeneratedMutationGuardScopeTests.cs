@@ -25,7 +25,7 @@ public sealed class GeneratedMutationGuardScopeTests
             var source = await File.ReadAllTextAsync(Path.Combine(directory, "Services/CustomerService.g.cs"));
             var property = string.Concat(column.Split('_').Select(part => char.ToUpperInvariant(part[0]) + part[1..]));
             Assert.Contains("query = query.Where(entity => entity." + property + " == ", source);
-            Assert.DoesNotContain("[\"" + column + "\"]", source.Split("MutationScopeValues(Customer entity)")[1].Split("private static readonly")[0]);
+            Assert.DoesNotContain("[\"" + column + "\"]", source.Split("MutationScopeValues(global::Example.Scope.Generated.Entities.Customer entity)")[1].Split("private static readonly")[0]);
             Assert.DoesNotContain(source.Split('\n'), line => line.Contains("mutationScopeValues[\"" + column + "\"]", StringComparison.Ordinal));
             Assert.Contains("parent1.ForUpdate().FirstAsync", source);
 

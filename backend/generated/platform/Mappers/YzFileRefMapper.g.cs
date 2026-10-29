@@ -2,19 +2,18 @@
 #nullable enable
 using FreeSql;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.Mappers;
 
 /// <summary>固定类型持久化，当前事务由 DatabaseSession 自动附加。</summary>
 public sealed partial class YzFileRefMapper(DatabaseSession session)
 {
     /// <summary>创建仅包含未删除记录的查询起点。</summary>
-    public ISelect<YzFileRef> Query() => session.Select<YzFileRef>().Where(entity => entity.DeleteNo == null);
+    public ISelect<global::Metarill.Platform.Generated.Entities.YzFileRef> Query() => session.Select<global::Metarill.Platform.Generated.Entities.YzFileRef>().Where(entity => entity.DeleteNo == null);
     /// <summary>插入当前服务已验证的记录。</summary>
-    public Task<int> InsertAsync(YzFileRef entity, CancellationToken cancellationToken) => session.Insert<YzFileRef>().AppendData(entity).ExecuteAffrowsAsync(cancellationToken);
+    public Task<int> InsertAsync(global::Metarill.Platform.Generated.Entities.YzFileRef entity, CancellationToken cancellationToken) => session.Insert<global::Metarill.Platform.Generated.Entities.YzFileRef>().AppendData(entity).ExecuteAffrowsAsync(cancellationToken);
     /// <summary>仅更新服务列出的提交字段，禁止实体全量覆盖。</summary>
-    public Task<int> UpdateAsync(YzFileRef entity, string[] columns, CancellationToken cancellationToken) =>
-        session.Update<YzFileRef>().SetSource(entity).UpdateColumns(columns).Where(row => row.Id == entity.Id).ExecuteAffrowsAsync(cancellationToken);
+    public Task<int> UpdateAsync(global::Metarill.Platform.Generated.Entities.YzFileRef entity, string[] columns, CancellationToken cancellationToken) =>
+        session.Update<global::Metarill.Platform.Generated.Entities.YzFileRef>().SetSource(entity).UpdateColumns(columns).Where(row => row.Id == entity.Id).ExecuteAffrowsAsync(cancellationToken);
     /// <summary>未声明逻辑删除字段的表执行物理删除。</summary>
-    public Task<int> DeleteAsync(long id, CancellationToken cancellationToken) => session.Delete<YzFileRef>().Where(entity => entity.Id == id).ExecuteAffrowsAsync(cancellationToken);
+    public Task<int> DeleteAsync(long id, CancellationToken cancellationToken) => session.Delete<global::Metarill.Platform.Generated.Entities.YzFileRef>().Where(entity => entity.Id == id).ExecuteAffrowsAsync(cancellationToken);
 }

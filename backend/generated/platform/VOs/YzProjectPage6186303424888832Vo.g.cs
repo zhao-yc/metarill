@@ -3,7 +3,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class YzProjectPage6186303424888832Vo
 {
@@ -60,7 +59,7 @@ public sealed partial class YzProjectPage6186303424888832Vo
     [JsonPropertyName("dbTypeShow")]
     public string? DbTypeShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static YzProjectPage6186303424888832Vo FromEntity(YzProject entity) => new()
+    public static YzProjectPage6186303424888832Vo FromEntity(global::Metarill.Platform.Generated.Entities.YzProject entity) => new()
     {
         Name = entity.Name,
         MysqlConnStr = entity.MysqlConnStr,

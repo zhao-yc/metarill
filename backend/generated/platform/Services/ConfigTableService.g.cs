@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Mappers;
@@ -28,17 +27,17 @@ public partial class ConfigTableService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(ConfigTable entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Platform.Generated.Entities.ConfigTable entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(ConfigTable entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Platform.Generated.Entities.ConfigTable entity, RuntimeActor actor);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations6191083005411328Async(ConfigTable entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations6191083005411328Async(global::Metarill.Platform.Generated.Entities.ConfigTable entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
         if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
         {
             var relationIds1 = new[] { entity.YzAdminTypeId.Value };
-            var relationQuery1 = session.Select<YzAdminType>().Where(row => relationIds1.Contains(row.Id));
+            var relationQuery1 = session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(row => relationIds1.Contains(row.Id));
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u6240\u5C5E\u540E\u53F0");
@@ -50,7 +49,7 @@ public partial class ConfigTableService
         await Task.CompletedTask;
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<ConfigTable> Scope6191083005411328(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigTable> Scope6191083005411328(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
@@ -58,7 +57,7 @@ public partial class ConfigTableService
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<ConfigTable> Query6191083005411328(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigTable> Query6191083005411328(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope6191083005411328(actor, request.ParentId);
@@ -118,7 +117,7 @@ public partial class ConfigTableService
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<ConfigTable> Order6191083005411328(ISelect<ConfigTable> query, PageRequest request)
+    private static ISelect<global::Metarill.Platform.Generated.Entities.ConfigTable> Order6191083005411328(ISelect<global::Metarill.Platform.Generated.Entities.ConfigTable> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -140,7 +139,7 @@ public partial class ConfigTableService
         var query = Query6191083005411328(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6191083005411328(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigTable { Id = entity.Id, Name = entity.Name, TableName = entity.TableName, IsRongyu = entity.IsRongyu, IsFunctionTable = entity.IsFunctionTable, IsView = entity.IsView, Sql = entity.Sql, OracleSql = entity.OracleSql, WhereSql = entity.WhereSql, OrderBy = entity.OrderBy, GroupBy = entity.GroupBy, PageSize = entity.PageSize, IsEdit = entity.IsEdit, IsNew = entity.IsNew, IsSave = entity.IsSave, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, BeforeDeleteSql = entity.BeforeDeleteSql, AfterSaveSql = entity.AfterSaveSql, AfterImportSql = entity.AfterImportSql, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsLazyQuery = entity.IsLazyQuery, GridEdit = entity.GridEdit, Title = entity.Title, Title2 = entity.Title2, Title3 = entity.Title3, IsSum = entity.IsSum, GridWidth = entity.GridWidth, IsPrintPreview = entity.IsPrintPreview, IsBatchDelete = entity.IsBatchDelete, ImportMethod = entity.ImportMethod, ReadOnlyCondition = entity.ReadOnlyCondition, PopWindowWidth = entity.PopWindowWidth, PopWindowHeight = entity.PopWindowHeight, IsExportEdit = entity.IsExportEdit, IsNoSaveAndClose = entity.IsNoSaveAndClose, IsUpdate = entity.IsUpdate, IsHeadGroup = entity.IsHeadGroup, IsModifyLog = entity.IsModifyLog, Layout = entity.Layout, ConnString = entity.ConnString, ExportMethod = entity.ExportMethod, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, CopyMethod = entity.CopyMethod, SqlMore = entity.SqlMore, AuthorizeScheme = entity.AuthorizeScheme, ClearMethod = entity.ClearMethod, IsRaw = entity.IsRaw, SameEditCode = entity.SameEditCode, SqlGrid = entity.SqlGrid, DataSrc = entity.DataSrc, MainColumn = entity.MainColumn, BatchNewPageName = entity.BatchNewPageName, EditTableId = entity.EditTableId, EditTableName = entity.EditTableName, EditPageId = entity.EditPageId, EditPageName = entity.EditPageName, EditKeyColumn = entity.EditKeyColumn, ButtonVisible = entity.ButtonVisible, AutoSave = entity.AutoSave, ChildPlace = entity.ChildPlace, SuperColumnName = entity.SuperColumnName, EditPageUrl = entity.EditPageUrl, DisplayOption = entity.DisplayOption, BpmStepKind = entity.BpmStepKind, DocumentReady = entity.DocumentReady, Help = entity.Help, EditWidth = entity.EditWidth, YzProjectName = entity.YzProjectName, IsPlatform = entity.IsPlatform, IsSys = entity.IsSys, IsRepeatPwd = entity.IsRepeatPwd, YzAdminTypeId = entity.YzAdminTypeId, ScopeKind = entity.ScopeKind }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigTable { Id = entity.Id, Name = entity.Name, TableName = entity.TableName, IsRongyu = entity.IsRongyu, IsFunctionTable = entity.IsFunctionTable, IsView = entity.IsView, Sql = entity.Sql, OracleSql = entity.OracleSql, WhereSql = entity.WhereSql, OrderBy = entity.OrderBy, GroupBy = entity.GroupBy, PageSize = entity.PageSize, IsEdit = entity.IsEdit, IsNew = entity.IsNew, IsSave = entity.IsSave, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, BeforeDeleteSql = entity.BeforeDeleteSql, AfterSaveSql = entity.AfterSaveSql, AfterImportSql = entity.AfterImportSql, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsLazyQuery = entity.IsLazyQuery, GridEdit = entity.GridEdit, Title = entity.Title, Title2 = entity.Title2, Title3 = entity.Title3, IsSum = entity.IsSum, GridWidth = entity.GridWidth, IsPrintPreview = entity.IsPrintPreview, IsBatchDelete = entity.IsBatchDelete, ImportMethod = entity.ImportMethod, ReadOnlyCondition = entity.ReadOnlyCondition, PopWindowWidth = entity.PopWindowWidth, PopWindowHeight = entity.PopWindowHeight, IsExportEdit = entity.IsExportEdit, IsNoSaveAndClose = entity.IsNoSaveAndClose, IsUpdate = entity.IsUpdate, IsHeadGroup = entity.IsHeadGroup, IsModifyLog = entity.IsModifyLog, Layout = entity.Layout, ConnString = entity.ConnString, ExportMethod = entity.ExportMethod, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, CopyMethod = entity.CopyMethod, SqlMore = entity.SqlMore, AuthorizeScheme = entity.AuthorizeScheme, ClearMethod = entity.ClearMethod, IsRaw = entity.IsRaw, SameEditCode = entity.SameEditCode, SqlGrid = entity.SqlGrid, DataSrc = entity.DataSrc, MainColumn = entity.MainColumn, BatchNewPageName = entity.BatchNewPageName, EditTableId = entity.EditTableId, EditTableName = entity.EditTableName, EditPageId = entity.EditPageId, EditPageName = entity.EditPageName, EditKeyColumn = entity.EditKeyColumn, ButtonVisible = entity.ButtonVisible, AutoSave = entity.AutoSave, ChildPlace = entity.ChildPlace, SuperColumnName = entity.SuperColumnName, EditPageUrl = entity.EditPageUrl, DisplayOption = entity.DisplayOption, BpmStepKind = entity.BpmStepKind, DocumentReady = entity.DocumentReady, Help = entity.Help, EditWidth = entity.EditWidth, YzProjectName = entity.YzProjectName, IsPlatform = entity.IsPlatform, IsSys = entity.IsSys, IsRepeatPwd = entity.IsRepeatPwd, YzAdminTypeId = entity.YzAdminTypeId, ScopeKind = entity.ScopeKind }, cancellationToken);
         return new(entities.Select(ConfigTablePage6191083005411328Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -148,13 +147,13 @@ public partial class ConfigTableService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigTablePage6191083005411328Vo?> Detail6191083005411328Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope6191083005411328(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigTable { Id = entity.Id, Name = entity.Name, TableName = entity.TableName, IsRongyu = entity.IsRongyu, IsFunctionTable = entity.IsFunctionTable, IsView = entity.IsView, Sql = entity.Sql, OracleSql = entity.OracleSql, WhereSql = entity.WhereSql, OrderBy = entity.OrderBy, GroupBy = entity.GroupBy, PageSize = entity.PageSize, IsEdit = entity.IsEdit, IsNew = entity.IsNew, IsSave = entity.IsSave, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, BeforeDeleteSql = entity.BeforeDeleteSql, AfterSaveSql = entity.AfterSaveSql, AfterImportSql = entity.AfterImportSql, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsLazyQuery = entity.IsLazyQuery, GridEdit = entity.GridEdit, Title = entity.Title, Title2 = entity.Title2, Title3 = entity.Title3, IsSum = entity.IsSum, GridWidth = entity.GridWidth, IsPrintPreview = entity.IsPrintPreview, IsBatchDelete = entity.IsBatchDelete, ImportMethod = entity.ImportMethod, ReadOnlyCondition = entity.ReadOnlyCondition, PopWindowWidth = entity.PopWindowWidth, PopWindowHeight = entity.PopWindowHeight, IsExportEdit = entity.IsExportEdit, IsNoSaveAndClose = entity.IsNoSaveAndClose, IsUpdate = entity.IsUpdate, IsHeadGroup = entity.IsHeadGroup, IsModifyLog = entity.IsModifyLog, Layout = entity.Layout, ConnString = entity.ConnString, ExportMethod = entity.ExportMethod, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, CopyMethod = entity.CopyMethod, SqlMore = entity.SqlMore, AuthorizeScheme = entity.AuthorizeScheme, ClearMethod = entity.ClearMethod, IsRaw = entity.IsRaw, SameEditCode = entity.SameEditCode, SqlGrid = entity.SqlGrid, DataSrc = entity.DataSrc, MainColumn = entity.MainColumn, BatchNewPageName = entity.BatchNewPageName, EditTableId = entity.EditTableId, EditTableName = entity.EditTableName, EditPageId = entity.EditPageId, EditPageName = entity.EditPageName, EditKeyColumn = entity.EditKeyColumn, ButtonVisible = entity.ButtonVisible, AutoSave = entity.AutoSave, ChildPlace = entity.ChildPlace, SuperColumnName = entity.SuperColumnName, EditPageUrl = entity.EditPageUrl, DisplayOption = entity.DisplayOption, BpmStepKind = entity.BpmStepKind, DocumentReady = entity.DocumentReady, Help = entity.Help, EditWidth = entity.EditWidth, YzProjectName = entity.YzProjectName, IsPlatform = entity.IsPlatform, IsSys = entity.IsSys, IsRepeatPwd = entity.IsRepeatPwd, YzAdminTypeId = entity.YzAdminTypeId, ScopeKind = entity.ScopeKind }, cancellationToken);
+        var entity = await Scope6191083005411328(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigTable { Id = entity.Id, Name = entity.Name, TableName = entity.TableName, IsRongyu = entity.IsRongyu, IsFunctionTable = entity.IsFunctionTable, IsView = entity.IsView, Sql = entity.Sql, OracleSql = entity.OracleSql, WhereSql = entity.WhereSql, OrderBy = entity.OrderBy, GroupBy = entity.GroupBy, PageSize = entity.PageSize, IsEdit = entity.IsEdit, IsNew = entity.IsNew, IsSave = entity.IsSave, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, BeforeDeleteSql = entity.BeforeDeleteSql, AfterSaveSql = entity.AfterSaveSql, AfterImportSql = entity.AfterImportSql, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsLazyQuery = entity.IsLazyQuery, GridEdit = entity.GridEdit, Title = entity.Title, Title2 = entity.Title2, Title3 = entity.Title3, IsSum = entity.IsSum, GridWidth = entity.GridWidth, IsPrintPreview = entity.IsPrintPreview, IsBatchDelete = entity.IsBatchDelete, ImportMethod = entity.ImportMethod, ReadOnlyCondition = entity.ReadOnlyCondition, PopWindowWidth = entity.PopWindowWidth, PopWindowHeight = entity.PopWindowHeight, IsExportEdit = entity.IsExportEdit, IsNoSaveAndClose = entity.IsNoSaveAndClose, IsUpdate = entity.IsUpdate, IsHeadGroup = entity.IsHeadGroup, IsModifyLog = entity.IsModifyLog, Layout = entity.Layout, ConnString = entity.ConnString, ExportMethod = entity.ExportMethod, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, CopyMethod = entity.CopyMethod, SqlMore = entity.SqlMore, AuthorizeScheme = entity.AuthorizeScheme, ClearMethod = entity.ClearMethod, IsRaw = entity.IsRaw, SameEditCode = entity.SameEditCode, SqlGrid = entity.SqlGrid, DataSrc = entity.DataSrc, MainColumn = entity.MainColumn, BatchNewPageName = entity.BatchNewPageName, EditTableId = entity.EditTableId, EditTableName = entity.EditTableName, EditPageId = entity.EditPageId, EditPageName = entity.EditPageName, EditKeyColumn = entity.EditKeyColumn, ButtonVisible = entity.ButtonVisible, AutoSave = entity.AutoSave, ChildPlace = entity.ChildPlace, SuperColumnName = entity.SuperColumnName, EditPageUrl = entity.EditPageUrl, DisplayOption = entity.DisplayOption, BpmStepKind = entity.BpmStepKind, DocumentReady = entity.DocumentReady, Help = entity.Help, EditWidth = entity.EditWidth, YzProjectName = entity.YzProjectName, IsPlatform = entity.IsPlatform, IsSys = entity.IsSys, IsRepeatPwd = entity.IsRepeatPwd, YzAdminTypeId = entity.YzAdminTypeId, ScopeKind = entity.ScopeKind }, cancellationToken);
         return entity is null ? null : ConfigTablePage6191083005411328Vo.FromEntity(entity);
     }
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
-    public async Task<ConfigTable?> ReadButtonRecord6191083005411328Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6191083005411328(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigTable?> ReadButtonRecord6191083005411328Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6191083005411328(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
     /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
-    public async Task<ConfigTable?> LockButtonRecord6191083005411328Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6191083005411328Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6191083005411328(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigTable?> LockButtonRecord6191083005411328Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6191083005411328Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6191083005411328(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
     /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>
     private void RequireButtonRecordAccess6191083005411328(long id,string buttonId,RuntimeActor actor)
     {
@@ -172,7 +171,7 @@ public partial class ConfigTableService
         return relationAuthorization!.RequireButtonCurrentAsync("6191083005411328",buttonId,actor,transaction,cancellationToken);
     }
     /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
-    private ISelect<ConfigTable> ButtonRecordQuery6191083005411328(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigTable> ButtonRecordQuery6191083005411328(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
     {
         RequireButtonRecordAccess6191083005411328(id,buttonId,actor);
         if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
@@ -181,7 +180,7 @@ public partial class ConfigTableService
         return locking?query.ForUpdate():query;
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
-    public async Task<ConfigTable?> ReadAgentRecord6191083005411328Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigTable?> ReadAgentRecord6191083005411328Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
         if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
@@ -196,12 +195,12 @@ public partial class ConfigTableService
         await Task.CompletedTask;
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<YzAdminType>> OptionsScope6191083005411328_2200000000000000087Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
+    private async Task<ISelect<global::Metarill.Platform.Generated.Entities.YzAdminType>> OptionsScope6191083005411328_2200000000000000087Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents6191083005411328Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
         await Task.CompletedTask;
-        var query = session.Select<YzAdminType>();
+        var query = session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>();
         query = query.Where(entity => entity.DeleteNo == null);
         query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         return query;
@@ -248,7 +247,7 @@ public partial class ConfigTableService
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6191083005411328", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents6191083005411328Async(parentId, actor, cancellationToken);
-        var entity = new ConfigTable { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.ConfigTable { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.TableName.IsSpecified) { entity.TableName = request.TableName.Value; submitted.Add("table_name"); }
@@ -483,7 +482,7 @@ public partial class ConfigTableService
         return deleted;
     }, cancellationToken);
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigTable entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Platform.Generated.Entities.ConfigTable entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
@@ -504,7 +503,7 @@ public partial class ConfigTableService
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigTable entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken, string? businessButtonId = null)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Platform.Generated.Entities.ConfigTable entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -513,7 +512,7 @@ public partial class ConfigTableService
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyConfigTableAsync(string pageId, ConfigTable entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken, string? businessButtonId = null)
+    private async Task NotifyConfigTableAsync(string pageId, global::Metarill.Platform.Generated.Entities.ConfigTable entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         var values = new Dictionary<string, object?>
         {

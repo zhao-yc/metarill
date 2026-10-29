@@ -62,7 +62,7 @@ internal static class TrustedSecurityProjectOptionsRenderer
     {
         RequireTrustedProjectActor(actor);
         var currentProject={{plan.ProjectId}}L;
-        var query=session.Select<{{plan.Project.Name}}>().Where(project=>project.Id==currentProject&&project.DeleteNo==null);
+        var query=session.Select<{{plan.Project.EntityType}}>().Where(project=>project.Id==currentProject&&project.DeleteNo==null);
         if(keyword is not null)query=query.Where(project=>project.Name!=null&&project.Name.Contains(keyword));
         var rows=await query.Limit(2).ToListAsync(project=>new{project.Id,project.Name},cancellationToken);
         RequireTrustedProjectActor(actor);

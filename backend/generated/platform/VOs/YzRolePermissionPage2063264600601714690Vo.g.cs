@@ -2,7 +2,6 @@
 #nullable enable
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class YzRolePermissionPage2063264600601714690Vo
 {
@@ -37,7 +36,7 @@ public sealed partial class YzRolePermissionPage2063264600601714690Vo
     [JsonPropertyName("id")]
     public long Id { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static YzRolePermissionPage2063264600601714690Vo FromEntity(YzRolePermission entity) => new()
+    public static YzRolePermissionPage2063264600601714690Vo FromEntity(global::Metarill.Platform.Generated.Entities.YzRolePermission entity) => new()
     {
         InsertTime = entity.InsertTime,
         UpdateTime = entity.UpdateTime,

@@ -26,7 +26,7 @@ internal static class ManagerCredentialCompilation
         ((!IsOriginal(table,page)&&page.Readable.Concat(page.Writable).Any(column=>IsCredential(table,column))) ||
          page.Searchable.Concat(page.Sortable).Concat(page.Scopes.Select(scope=>scope.Column)).Concat(GenerationModel.ValidateOrderBy(page.Source.OrderBy,table.Columns).Select(item=>item.Column)).Any(column=>IsCredential(table,column)));
     /// <summary>固定账号列表、详情及selection读取SQL都排除摘要及盐；原详情只输出与物理值无关的掩码和空别名。</summary>
-    internal static string ReadProjection(TableModel table)=>"entity => new "+table.Name+" { "+string.Join(", ",table.Columns.Where(column=>!IsCredential(table,column)).Select(column=>column.Property+" = entity."+column.Property))+" }";
+    internal static string ReadProjection(TableModel table)=>"entity => new "+table.EntityType+" { "+string.Join(", ",table.Columns.Where(column=>!IsCredential(table,column)).Select(column=>column.Property+" = entity."+column.Property))+" }";
     /// <summary>用于固定原页，已保存的摘要从不参与VO构造。</summary>
     internal static string? Output(TableModel table,PageModel page,ColumnModel column)
         => IsCredential(table,column)?IsOriginal(table,page)?"includeCredentials ? "+(IsPassword(table,column)?"Metarill.Core.Contracts.ManagerCredentialValue.PasswordMask":"string.Empty")+" : null":"null":IsEnabled(table,page,column)?"Metarill.Core.Contracts.ManagerCredentialValue.ToEnabled(entity."+column.Property+")":null;

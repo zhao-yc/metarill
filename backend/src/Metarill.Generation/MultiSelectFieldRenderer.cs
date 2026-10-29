@@ -35,7 +35,7 @@ internal static class MultiSelectFieldRenderer
                 .AppendLine("    /// <summary>非法历史JSON在写入口明确拒绝，不通过500HTML掩盖业务错误。</summary>")
                 .AppendLine($"    private static JsonDocument ParseMultiDocument{suffix}(string text) {{ try {{ return JsonDocument.Parse(text); }} catch (JsonException error) {{ throw new ArgumentException(\"多选字段JSON无效。\", error); }} }}")
                 .AppendLine("    /// <summary>来源字段省略不刷新名称；显式提交在同一事务内校验目标list权限及所有ID。</summary>")
-                .AppendLine($"    private async Task ValidateMulti{suffix}Async({table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool refreshNames, CancellationToken cancellationToken, RecordMutationOperation? authorizationOperation = null)").AppendLine("    {")
+                .AppendLine($"    private async Task ValidateMulti{suffix}Async({table.EntityType} entity, RuntimeActor actor, ISet<string> submitted, bool refreshNames, CancellationToken cancellationToken, RecordMutationOperation? authorizationOperation = null)").AppendLine("    {")
                 .AppendLine("        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"多选字段要求真实当前身份。\");")
                 .AppendLine($"        if(authorizationOperation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)}, \"import\");else relationAuthorization.RequirePagePermission({Literal(def.TargetPage.Source.Id)}, \"list\");")
                 .AppendLine($"        if (entity.{def.Source.Property} is null)").AppendLine("        {");
@@ -53,12 +53,12 @@ internal static class MultiSelectFieldRenderer
                 foreach (var parent in def.TargetParents)
                 {
                     var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
-                    result.AppendLine($"        var parentQuery = session.Select<{parent.Name}>().Where(row => row.Id == targetParentKey && row.{project.Property} == {Scope(project, "actor.ProjectId")});");
+                    result.AppendLine($"        var parentQuery = session.Select<{parent.EntityType}>().Where(row => row.Id == targetParentKey && row.{project.Property} == {Scope(project, "actor.ProjectId")});");
                     if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        parentQuery = parentQuery.Where(row => row.DeleteNo == null);");
                     result.AppendLine("        if (!await parentQuery.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"多选目标父记录不存在、已删除或不属于当前项目。\");");
                 }
             }
-            result.AppendLine($"        var query = session.Select<{def.Target.Name}>().Where(row => selected.Contains(row.Id));");
+            result.AppendLine($"        var query = session.Select<{def.Target.EntityType}>().Where(row => selected.Contains(row.Id));");
             if (def.Target.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(row => row.DeleteNo == null);");
             var targetProject = def.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
             if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");

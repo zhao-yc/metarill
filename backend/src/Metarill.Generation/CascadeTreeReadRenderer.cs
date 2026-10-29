@@ -33,14 +33,14 @@ internal static class CascadeTreeReadRenderer
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;var sameRow=target.Source.Id==table.Source.Id;
             string ParentValue(string expression)=>parent.Type=="string?"?expression+"?.ToString(CultureInfo.InvariantCulture)":expression;
             string NodeParent(string expression)=>parent.Type=="string?"?expression:expression+"?.ToString(CultureInfo.InvariantCulture)";
-            var projection=$"row => new {target.Name} {{ Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property} }}";
+            var projection=$"row => new {target.EntityType} {{ Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property} }}";
             var ordering=string.Join("",plan.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"));
             result.Append(FixedPageConditionCompilation.Declaration(plan.TargetPage,"CascadeCondition"+suffix));
             result.AppendLine("    /// <summary>固定候选范围使用真实身份，普通调用与路径每一跳共用权限和SQL条件。</summary>")
-                .AppendLine($"    private ISelect<{target.Name}> CascadeScope{suffix}(RuntimeActor actor,bool requireSourceList=true,bool requireTargetList=true{(sameRow?",bool structureOnly=false":"")})")
+                .AppendLine($"    private ISelect<{target.EntityType}> CascadeScope{suffix}(RuntimeActor actor,bool requireSourceList=true,bool requireTargetList=true{(sameRow?",bool structureOnly=false":"")})")
                 .AppendLine("    {").AppendLine("        ValidateActor(actor);")
                 .AppendLine($"        if(relationAuthorization is null || relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"级联读取要求当前真实授权身份。\"); if(requireSourceList)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"list\");if(requireTargetList)relationAuthorization.RequirePagePermission({Literal(plan.TargetPage.Source.Id)},\"list\");")
-                .AppendLine($"        var query=session.Select<{target.Name}>();");
+                .AppendLine($"        var query=session.Select<{target.EntityType}>();");
             if(FixedPageQueryCompilation.SoftDeleteColumn(target) is{} deleted)result.AppendLine($"        query=query.Where(row=>row.{deleted.Property}==null);");
             var scopes=plan.TargetPage.Scopes.ToList();var project=target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
             if(!target.IsGlobal&&project is not null&&!scopes.Any(scope=>scope.Column.Source.Id==project.Source.Id))scopes.Add((project,"project"));

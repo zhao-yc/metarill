@@ -30,7 +30,7 @@ internal static class DatabaseCheckboxRenderer
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
-                .AppendLine($"    private async Task<ISelect<{def.Target.Name}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
+                .AppendLine($"    private async Task<ISelect<{def.Target.EntityType}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {")
                 .AppendLine("        await Task.CompletedTask;")
                 .AppendLine("        ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"数据库复选要求真实当前身份。\");")
@@ -42,13 +42,13 @@ internal static class DatabaseCheckboxRenderer
                 foreach(var parent in def.SourceParents)
                 {
                     var parentProject=parent.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
-                    result.AppendLine($"        var parentQuery=session.Select<{parent.Name}>().Where(row=>row.Id==parentKey&&row.{parentProject.Property}=={Scope(parentProject,"actor.ProjectId")});");
+                    result.AppendLine($"        var parentQuery=session.Select<{parent.EntityType}>().Where(row=>row.Id==parentKey&&row.{parentProject.Property}=={Scope(parentProject,"actor.ProjectId")});");
                     if(parent.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        parentQuery=parentQuery.Where(row=>row.DeleteNo==null);");
                     result.AppendLine("        if(locking)parentQuery=parentQuery.ForUpdate();")
                         .AppendLine("        if(!await parentQuery.AnyAsync(cancellationToken))throw new InvalidOperationException(\"复选来源父不存在、已删除或不属于当前项目。\");");
                 }
             }
-            result.AppendLine(def.Target.IsGlobal?$"        var query=session.Select<{def.Target.Name}>();":$"        var query=session.Select<{def.Target.Name}>().Where(row=>row.{project!.Property}=={Scope(project,"actor.ProjectId")});");
+            result.AppendLine(def.Target.IsGlobal?$"        var query=session.Select<{def.Target.EntityType}>();":$"        var query=session.Select<{def.Target.EntityType}>().Where(row=>row.{project!.Property}=={Scope(project,"actor.ProjectId")});");
             if(def.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        query=query.Where(row=>row.DeleteNo==null);");
             foreach(var (column,source) in def.Scopes)result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={Scope(column,source=="project"?"actor.ProjectId":"parentId!")});");
             if(def.Conditions is {} condition)
@@ -75,7 +75,7 @@ internal static class DatabaseCheckboxRenderer
                     .AppendLine("        },cancellationToken);").AppendLine("    }");
             }
             result.AppendLine("    /// <summary>来源依赖变化重新校验完整所选集合，冗余名称仅在本事务派生；未提交无关字段不刷新。</summary>")
-                .AppendLine($"    private async Task ValidateCheckbox{suffix}Async({table.Name} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,RecordMutationOperation? operation=null)")
+                .AppendLine($"    private async Task ValidateCheckbox{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,RecordMutationOperation? operation=null)")
                 .AppendLine("    {")
                 .AppendLine("        if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"复选保存要求真实当前身份。\");")
                 .AppendLine($"        if(operation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"import\");")

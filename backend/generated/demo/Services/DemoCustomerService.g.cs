@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Demo.Generated.Entities;
 using Metarill.Demo.Generated.DTOs;
 using Metarill.Demo.Generated.VOs;
 using Metarill.Demo.Generated.Mappers;
@@ -28,11 +27,11 @@ public partial class DemoCustomerService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(DemoCustomer entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Demo.Generated.Entities.DemoCustomer entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(DemoCustomer entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Demo.Generated.Entities.DemoCustomer entity, RuntimeActor actor);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations2200000000000100020Async(DemoCustomer entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations2200000000000100020Async(global::Metarill.Demo.Generated.Entities.DemoCustomer entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
     }
@@ -42,7 +41,7 @@ public partial class DemoCustomerService
         await Task.CompletedTask;
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<DemoCustomer> Scope2200000000000100020(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Demo.Generated.Entities.DemoCustomer> Scope2200000000000100020(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
@@ -50,7 +49,7 @@ public partial class DemoCustomerService
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<DemoCustomer> Query2200000000000100020(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Demo.Generated.Entities.DemoCustomer> Query2200000000000100020(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope2200000000000100020(actor, request.ParentId);
@@ -84,7 +83,7 @@ public partial class DemoCustomerService
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<DemoCustomer> Order2200000000000100020(ISelect<DemoCustomer> query, PageRequest request)
+    private static ISelect<global::Metarill.Demo.Generated.Entities.DemoCustomer> Order2200000000000100020(ISelect<global::Metarill.Demo.Generated.Entities.DemoCustomer> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -108,7 +107,7 @@ public partial class DemoCustomerService
         var query = Query2200000000000100020(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2200000000000100020(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Demo.Generated.Entities.DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
         return new(entities.Select(DemoCustomerPage2200000000000100020Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -116,11 +115,11 @@ public partial class DemoCustomerService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<DemoCustomerPage2200000000000100020Vo?> Detail2200000000000100020Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
+        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Demo.Generated.Entities.DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
         return entity is null ? null : DemoCustomerPage2200000000000100020Vo.FromEntity(entity);
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
-    public async Task<DemoCustomer?> ReadAgentRecord2200000000000100020Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    public async Task<global::Metarill.Demo.Generated.Entities.DemoCustomer?> ReadAgentRecord2200000000000100020Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
         if(operation is not ("update" or "delete" or "copy"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
@@ -133,7 +132,7 @@ public partial class DemoCustomerService
     {
         if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));
         var query = Order2200000000000100020(Query2200000000000100020(request, actor), request);
-        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new DemoCustomer
+        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new global::Metarill.Demo.Generated.Entities.DemoCustomer
         {
             YzProjectId = entity.YzProjectId,
             Name = entity.Name,
@@ -280,7 +279,7 @@ public partial class DemoCustomerService
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents2200000000000100020Async(parentId, actor, cancellationToken);
-        var entity = new DemoCustomer { Id = ids.NextId() };
+        var entity = new global::Metarill.Demo.Generated.Entities.DemoCustomer { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.Notes.IsSpecified) { entity.Notes = request.Notes.Value; submitted.Add("notes"); }
@@ -357,7 +356,7 @@ public partial class DemoCustomerService
         await ValidateParents2200000000000100020Async(parentId, actor, cancellationToken);
         var source = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var originalScopeValues = MutationScopeValues(source);
-        var entity = new DemoCustomer { Id = ids.NextId() };
+        var entity = new global::Metarill.Demo.Generated.Entities.DemoCustomer { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         entity.Name = source.Name; submitted.Add("name");
         entity.Notes = source.Notes; submitted.Add("notes");
@@ -381,7 +380,7 @@ public partial class DemoCustomerService
         return DemoCustomerPage2200000000000100020Vo.FromEntity(entity);
     }, cancellationToken);
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(DemoCustomer entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Demo.Generated.Entities.DemoCustomer entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
@@ -400,7 +399,7 @@ public partial class DemoCustomerService
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, DemoCustomer entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Demo.Generated.Entities.DemoCustomer entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -409,7 +408,7 @@ public partial class DemoCustomerService
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyDemoCustomerAsync(string pageId, DemoCustomer entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
+    private async Task NotifyDemoCustomerAsync(string pageId, global::Metarill.Demo.Generated.Entities.DemoCustomer entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {
         var values = new Dictionary<string, object?>
         {

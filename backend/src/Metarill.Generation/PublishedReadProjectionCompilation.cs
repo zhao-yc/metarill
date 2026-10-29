@@ -20,6 +20,6 @@ internal static class PublishedReadProjectionCompilation
     /// <summary>账号表保留已有专用脱敏投影；其他普通读取生成固定强类型列集合。</summary>
     internal static string Expression(GenerationModel model, TableModel table, PageModel page) => ManagerCredentialCompilation.IsTable(table)
         ? ManagerCredentialCompilation.ReadProjection(table)
-        : "entity => new " + table.Name + " { " + string.Join(", ", Columns(model, table, page)
+        : "entity => new " + table.EntityType + " { " + string.Join(", ", Columns(model, table, page)
             .Select(column => column.Property + " = entity." + column.Property)) + " }";
 }

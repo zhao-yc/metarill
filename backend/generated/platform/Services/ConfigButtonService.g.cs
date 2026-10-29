@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Mappers;
@@ -28,17 +27,17 @@ public partial class ConfigButtonService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(ConfigButton entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Platform.Generated.Entities.ConfigButton entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(ConfigButton entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Platform.Generated.Entities.ConfigButton entity, RuntimeActor actor);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations1870796062470516738Async(ConfigButton entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations1870796062470516738Async(global::Metarill.Platform.Generated.Entities.ConfigButton entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
         if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is not null)
         {
             var relationIds1 = new[] { entity.ConfigTableId.Value };
-            var relationQuery1 = session.Select<ConfigTable>().Where(row => relationIds1.Contains(row.Id));
+            var relationQuery1 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigTable>().Where(row => relationIds1.Contains(row.Id));
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1Aconfig_table_id");
@@ -46,7 +45,7 @@ public partial class ConfigButtonService
         if ((creating || submitted.Contains("config_page_id")) && entity.ConfigPageId is not null)
         {
             var relationIds2 = new[] { entity.ConfigPageId.Value };
-            var relationQuery2 = session.Select<ConfigPage>().Where(row => relationIds2.Contains(row.Id));
+            var relationQuery2 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigPage>().Where(row => relationIds2.Contains(row.Id));
             relationQuery2 = relationQuery2.Where(row => row.DeleteNo == null);
             relationQuery2 = relationQuery2.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery2.CountAsync(cancellationToken) != relationIds2.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u89C6\u56FE");
@@ -58,7 +57,7 @@ public partial class ConfigButtonService
         await Task.CompletedTask;
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<ConfigButton> Scope1870796062470516738(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> Scope1870796062470516738(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
@@ -66,7 +65,7 @@ public partial class ConfigButtonService
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<ConfigButton> Query1870796062470516738(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> Query1870796062470516738(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope1870796062470516738(actor, request.ParentId);
@@ -119,7 +118,7 @@ break; }
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<ConfigButton> Order1870796062470516738(ISelect<ConfigButton> query, PageRequest request)
+    private static ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> Order1870796062470516738(ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -141,7 +140,7 @@ break; }
         var query = Query1870796062470516738(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order1870796062470516738(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return new(entities.Select(ConfigButtonPage1870796062470516738Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -149,11 +148,11 @@ break; }
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigButtonPage1870796062470516738Vo?> Detail1870796062470516738Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
+        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage1870796062470516738Vo.FromEntity(entity);
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
-    public async Task<ConfigButton?> ReadAgentRecord1870796062470516738Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigButton?> ReadAgentRecord1870796062470516738Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
         if(operation is not ("update" or "delete" or "copy"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
@@ -169,7 +168,7 @@ break; }
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("1870796062470516738", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents1870796062470516738Async(parentId, actor, cancellationToken);
-        var entity = new ConfigButton { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.ActionType.IsSpecified) { entity.ActionType = request.ActionType.Value; submitted.Add("action_type"); }
@@ -289,7 +288,7 @@ break; }
         await ValidateParents1870796062470516738Async(parentId, actor, cancellationToken);
         var source = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var originalScopeValues = MutationScopeValues(source);
-        var entity = new ConfigButton { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         entity.Name = source.Name; submitted.Add("name");
         entity.ActionType = source.ActionType; submitted.Add("action_type");
@@ -336,13 +335,13 @@ break; }
         return ConfigButtonPage1870796062470516738Vo.FromEntity(entity);
     }, cancellationToken);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations7097193256583168Async(ConfigButton entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations7097193256583168Async(global::Metarill.Platform.Generated.Entities.ConfigButton entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
         if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is not null)
         {
             var relationIds1 = new[] { entity.ConfigTableId.Value };
-            var relationQuery1 = session.Select<ConfigTable>().Where(row => relationIds1.Contains(row.Id));
+            var relationQuery1 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigTable>().Where(row => relationIds1.Contains(row.Id));
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1Aconfig_table_id");
@@ -350,7 +349,7 @@ break; }
         if ((creating || submitted.Contains("config_page_id")) && entity.ConfigPageId is not null)
         {
             var relationIds2 = new[] { entity.ConfigPageId.Value };
-            var relationQuery2 = session.Select<ConfigPage>().Where(row => relationIds2.Contains(row.Id));
+            var relationQuery2 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigPage>().Where(row => relationIds2.Contains(row.Id));
             relationQuery2 = relationQuery2.Where(row => row.DeleteNo == null);
             relationQuery2 = relationQuery2.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery2.CountAsync(cancellationToken) != relationIds2.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u89C6\u56FE");
@@ -360,12 +359,12 @@ break; }
     private async Task ValidateParents7097193256583168Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException("当前页面要求 parentId。");
-        var parent1 = session.Select<ConfigPage>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        var parent1 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigPage>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         parent1 = parent1.Where(entity => entity.DeleteNo == null);
         if (await parent1.ForUpdate().FirstAsync(cancellationToken) is null) throw new InvalidOperationException("父记录不存在或不属于当前项目。");
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<ConfigButton> Scope7097193256583168(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> Scope7097193256583168(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
@@ -375,7 +374,7 @@ break; }
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<ConfigButton> Query7097193256583168(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> Query7097193256583168(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope7097193256583168(actor, request.ParentId);
@@ -409,7 +408,7 @@ break; }
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<ConfigButton> Order7097193256583168(ISelect<ConfigButton> query, PageRequest request)
+    private static ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> Order7097193256583168(ISelect<global::Metarill.Platform.Generated.Entities.ConfigButton> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -431,7 +430,7 @@ break; }
         var query = Query7097193256583168(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order7097193256583168(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return new(entities.Select(ConfigButtonPage7097193256583168Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -439,11 +438,11 @@ break; }
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigButtonPage7097193256583168Vo?> Detail7097193256583168Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
+        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage7097193256583168Vo.FromEntity(entity);
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
-    public async Task<ConfigButton?> ReadAgentRecord7097193256583168Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigButton?> ReadAgentRecord7097193256583168Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
         if(operation is not ("update" or "delete" or "copy"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
@@ -459,7 +458,7 @@ break; }
         if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("7097193256583168", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents7097193256583168Async(parentId, actor, cancellationToken);
-        var entity = new ConfigButton { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.ActionType.IsSpecified) { entity.ActionType = request.ActionType.Value; submitted.Add("action_type"); }
@@ -578,7 +577,7 @@ break; }
         await ValidateParents7097193256583168Async(parentId, actor, cancellationToken);
         var source = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var originalScopeValues = MutationScopeValues(source);
-        var entity = new ConfigButton { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         entity.Name = source.Name; submitted.Add("name");
         entity.ActionType = source.ActionType; submitted.Add("action_type");
@@ -624,7 +623,7 @@ break; }
         return ConfigButtonPage7097193256583168Vo.FromEntity(entity);
     }, cancellationToken);
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigButton entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Platform.Generated.Entities.ConfigButton entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
@@ -644,7 +643,7 @@ break; }
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigButton entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Platform.Generated.Entities.ConfigButton entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -653,7 +652,7 @@ break; }
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyConfigButtonAsync(string pageId, ConfigButton entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
+    private async Task NotifyConfigButtonAsync(string pageId, global::Metarill.Platform.Generated.Entities.ConfigButton entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {
         var values = new Dictionary<string, object?>
         {

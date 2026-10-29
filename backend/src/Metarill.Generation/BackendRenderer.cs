@@ -10,7 +10,10 @@ internal static partial class BackendRenderer
     /// <summary>生成安全的 C# 字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
     /// <summary>汇总整个生成批次的强类型后端文件。</summary>
-    public static IEnumerable<PlannedFile> Render(GenerationModel model)
+    public static IEnumerable<PlannedFile> Render(GenerationModel model) =>
+        RenderFiles(model).Select(file => file with { Content = RuntimeTypeBinding.BindEntities(model,file.Content) });
+    /// <summary>所有调用入口共用同一类型绑定，完整包校验不得与实际导出产生字节差异。</summary>
+    private static IEnumerable<PlannedFile> RenderFiles(GenerationModel model)
     {
         foreach (var table in model.Tables)
         {
@@ -32,14 +35,14 @@ internal static partial class BackendRenderer
     private static string Entity(GenerationModel model, TableModel table)
     {
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using FreeSql.DataAnnotations;").AppendLine("using System.Text.Json.Serialization;")
-            .AppendLine($"namespace {model.Namespace}.Generated.Entities;").AppendLine($"[Table(Name = {Literal(table.Source.TableName)})]")
+            .AppendLine($"namespace {model.Namespace}.Generated.Entities;").AppendLine($"[global::FreeSql.DataAnnotations.TableAttribute(Name = {Literal(table.Source.TableName)})]")
             .AppendLine($"public partial class {table.Name}{(RuleRecordEntity(model,table)?" : global::Metarill.Core.Contracts.IGeneratedRuleRecord":"")}").AppendLine("{");
         foreach (var column in table.Columns)
         {
-            if(NonRedundantReadCompilation.Requires(model,table)&&!NonRedundantReadCompilation.Physical(model,table,column))result.AppendLine($"    [Column(Name = {Literal(column.Source.ColumnName)}, IsIgnore = true)]");
-            else result.AppendLine($"    [Column(Name = {Literal(column.Source.ColumnName)}, IsPrimary = {column.IsId.ToString().ToLowerInvariant()}, IsIdentity = false, IsNullable = {(column.Source.IsDbNotNull == 0 && !column.IsId).ToString().ToLowerInvariant()})]");
-            result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]")
-                .AppendLine($"    public {column.Type} {column.Property} {{ get; set; }}");
+            if(NonRedundantReadCompilation.Requires(model,table)&&!NonRedundantReadCompilation.Physical(model,table,column))result.AppendLine($"    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = {Literal(column.Source.ColumnName)}, IsIgnore = true)]");
+            else result.AppendLine($"    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = {Literal(column.Source.ColumnName)}, IsPrimary = {column.IsId.ToString().ToLowerInvariant()}, IsIdentity = false, IsNullable = {(column.Source.IsDbNotNull == 0 && !column.IsId).ToString().ToLowerInvariant()})]");
+            result.AppendLine($"    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute({Literal(column.JsonName)})]")
+                .AppendLine($"    public {(column.Type == "DateTime?" ? "global::System.DateTime?" : column.Type)} {column.Property} {{ get; set; }}");
         }
         if(RuleRecordEntity(model,table))result.Append(RuleRecordEntityState(model,table));
         return result.AppendLine("}").ToString();
@@ -94,13 +97,13 @@ internal static partial class BackendRenderer
         foreach (var catalog in catalogs)
             result.AppendLine($"    [JsonPropertyName({Literal(catalog.JsonName)})]").AppendLine($"    public string? {catalog.Property} {{ get; init; }}");
         if (role is not null) result.AppendLine("    [JsonPropertyName(\"yzRoleNames\")] public JsonElement? YzRoleNames { get; init; }")
-            .AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => FromEntity(entity,null);");
+            .AppendLine($"    public static {page.Name}Vo FromEntity({table.EntityType} entity) => FromEntity(entity,null);");
         if (roleAdmin is not null) result.AppendLine("    [JsonPropertyName(\"yzAdminTypeName\")] public string? YzAdminTypeName { get; init; }")
-            .AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity) => FromEntity(entity,null);");
-        if (credentials && role is not null) result.AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity,JsonElement? roleNames) => FromEntity(entity,roleNames,true);");
+            .AppendLine($"    public static {page.Name}Vo FromEntity({table.EntityType} entity) => FromEntity(entity,null);");
+        if (credentials && role is not null) result.AppendLine($"    public static {page.Name}Vo FromEntity({table.EntityType} entity,JsonElement? roleNames) => FromEntity(entity,roleNames,true);");
         foreach (var column in constants)
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName + "Show")})]").AppendLine($"    public string? {column.Property}Show {{ get; init; }}");
-        result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.Name} entity{(role is not null ? ",JsonElement? roleNames" : roleAdmin is not null ? ",string? roleAdminName" : "")}{(credentials ? ",bool includeCredentials = true" : "")}) => new()").AppendLine("    {");
+        result.AppendLine("    /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>").AppendLine($"    public static {page.Name}Vo FromEntity({table.EntityType} entity{(role is not null ? ",JsonElement? roleNames" : roleAdmin is not null ? ",string? roleAdminName" : "")}{(credentials ? ",bool includeCredentials = true" : "")}) => new()").AppendLine("    {");
         foreach (var column in page.Readable) result.AppendLine(ManagerCredentialCompilation.Output(table,page,column) is {} credential ? $"        {column.Property} = {credential}," : role?.Source.Source.Id==column.Source.Id ? $"        {column.Property} = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.{column.Property})," : DatabaseCheckboxCompilation.Generic(table,column) ? $"        {column.Property} = Metarill.Core.Contracts.DatabaseCheckboxValue.ProjectIds(entity.{column.Property})," : column.IsJsonArray ? $"        {column.Property} = string.IsNullOrWhiteSpace(entity.{column.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{column.Property})," : $"        {column.Property} = entity.{column.Property},");
         foreach(var name in MultiNameStorageCompilation.ImplicitNames(model,table,page))result.AppendLine($"        {name.Property} = string.IsNullOrWhiteSpace(entity.{name.Property}) ? null : JsonSerializer.Deserialize<JsonElement>(entity.{name.Property}),");
         foreach(var name in CascadeTreeViewRenderer.ImplicitNames(model,table,page))result.AppendLine($"        {name.Property} = entity.{name.Property},");
@@ -151,14 +154,14 @@ namespace {{model.Namespace}}.Generated.Mappers;
 public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
 {
     /// <summary>创建仅包含未删除记录的查询起点。</summary>
-    public ISelect<{{table.Name}}> Query() => session.Select<{{table.Name}}>(){{(deleted is not null ? $".Where(entity => entity.{deleted.Property} == null)" : "")}};
+    public ISelect<{{table.EntityType}}> Query() => session.Select<{{table.EntityType}}>(){{(deleted is not null ? $".Where(entity => entity.{deleted.Property} == null)" : "")}};
     /// <summary>插入当前服务已验证的记录。</summary>
-    public Task<int> InsertAsync({{table.Name}} entity, CancellationToken cancellationToken) => session.Insert<{{table.Name}}>().AppendData(entity).ExecuteAffrowsAsync(cancellationToken);
+    public Task<int> InsertAsync({{table.EntityType}} entity, CancellationToken cancellationToken) => session.Insert<{{table.EntityType}}>().AppendData(entity).ExecuteAffrowsAsync(cancellationToken);
     /// <summary>仅更新服务列出的提交字段，禁止实体全量覆盖。</summary>
-    public Task<int> UpdateAsync({{table.Name}} entity, string[] columns, CancellationToken cancellationToken) =>
-        session.Update<{{table.Name}}>().SetSource(entity).UpdateColumns(columns).Where(row => row.Id == entity.Id).ExecuteAffrowsAsync(cancellationToken);
+    public Task<int> UpdateAsync({{table.EntityType}} entity, string[] columns, CancellationToken cancellationToken) =>
+        session.Update<{{table.EntityType}}>().SetSource(entity).UpdateColumns(columns).Where(row => row.Id == entity.Id).ExecuteAffrowsAsync(cancellationToken);
     /// <summary>未声明逻辑删除字段的表执行物理删除。</summary>
-    public Task<int> DeleteAsync(long id, CancellationToken cancellationToken) => session.Delete<{{table.Name}}>().Where(entity => entity.Id == id).ExecuteAffrowsAsync(cancellationToken);
+    public Task<int> DeleteAsync(long id, CancellationToken cancellationToken) => session.Delete<{{table.EntityType}}>().Where(entity => entity.Id == id).ExecuteAffrowsAsync(cancellationToken);
 }
 
 """;
@@ -179,9 +182,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>")
             .AppendLine("    private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException(\"登录身份无效。\");"+(GlobalCachedSourceCompilation.BindsActor(model)?$" if(actor.ProjectId!={Literal(model.Catalog.YzProjectId)})throw new UnauthorizedAccessException(\"当前身份不属于已发布全局来源目录。\");":"")+" }")
             .AppendLine("    /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>")
-            .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeSave({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);")
+            .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeSave({table.EntityType} entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);")
             .AppendLine("    /// <summary>删除前规则在当前事务内执行。</summary>")
-            .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
+            .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.EntityType} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
             result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(AgentRecordAccess(model,table,page)); result.Append(RuleRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
@@ -221,7 +224,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else
             {
                 number++;
-                result.AppendLine($"        var parent{number} = session.Select<{parent.Name}>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+                result.AppendLine($"        var parent{number} = session.Select<{parent.EntityType}>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
                 if (parent.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"        parent{number} = parent{number}.Where(entity => entity.DeleteNo == null);");
                 result.AppendLine($"        if (await parent{number}.ForUpdate().FirstAsync(cancellationToken) is null) throw new InvalidOperationException(\"父记录不存在或不属于当前项目。\");");
             }
@@ -237,7 +240,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
         var nameKeys = names.ConsumedKeys.Concat(names.Gaps.Select(gap => gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var result = new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix)).AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
-            .AppendLine($"    private ISelect<{table.Name}> Scope{suffix}(RuntimeActor actor, string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {")
+            .AppendLine($"    private ISelect<{table.EntityType}> Scope{suffix}(RuntimeActor actor, string? parentId{ExactDataManageCompilation.Parameter(page,"detail")})").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
         foreach (var (column, source) in fixedQuery.IdentityScopes)
         {
@@ -249,7 +252,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (ManagerCredentialCompilation.Unsupported(table,page)) result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>")
-            .AppendLine($"    private {(CascadeTreeQueryCompilation.Async(page)?$"async Task<ISelect<{table.Name}>>":$"ISelect<{table.Name}>")} Query{suffix}(PageRequest request, RuntimeActor actor{(CascadeTreeQueryCompilation.Async(page)?", CancellationToken cancellationToken":"")}{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {")
+            .AppendLine($"    private {(CascadeTreeQueryCompilation.Async(page)?$"async Task<ISelect<{table.EntityType}>>":$"ISelect<{table.EntityType}>")} Query{suffix}(PageRequest request, RuntimeActor actor{(CascadeTreeQueryCompilation.Async(page)?", CancellationToken cancellationToken":"")}{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {")
             .AppendLine("        ArgumentNullException.ThrowIfNull(request);")
             .AppendLine($"        var query = Scope{suffix}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"authorizationOperation")});")
             .AppendLine("        foreach (var filter in request.Filters ?? throw new ArgumentException(\"filters 不能为空。\"))")
@@ -304,7 +307,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("        if (request.SelectedIds.Count > 0)").AppendLine("        {").AppendLine("            var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();")
             .AppendLine("            query = query.Where(entity => selected.Contains(entity.Id));").AppendLine("        }").AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>")
-            .AppendLine($"    private static ISelect<{table.Name}> Order{suffix}(ISelect<{table.Name}> query, PageRequest request)").AppendLine("    {")
+            .AppendLine($"    private static ISelect<{table.EntityType}> Order{suffix}(ISelect<{table.EntityType}> query, PageRequest request)").AppendLine("    {")
             .AppendLine("        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))").AppendLine("        {")
             .AppendLine("            var descending = request.OrderBy.Order switch { \"descending\" => true, \"ascending\" => false, _ => throw new ArgumentException(\"排序方向无效。\") };")
             .AppendLine("            return (request.OrderBy.Column ?? request.OrderBy.Field) switch").AppendLine("            {");
@@ -346,7 +349,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(ExactDataManageCompilation.MutationAuthorization(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"create\"":"\"create\""))
                 .Append(PrepareCall(model, table, page, "Create", "null", "request"))
-                .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});").AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
+                .AppendLine($"        await ValidateParents{suffix}Async(parentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});").AppendLine($"        var entity = new {table.EntityType} {{ Id = ids.NextId() }};").AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
             foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
             foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
@@ -433,7 +436,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"        var source = await Scope{page.Source.Id}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"copy\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
             .AppendLine("        var originalScopeValues = MutationScopeValues(source);")
             .Append(NonRedundantCrossTableCompilation.ValidateCopy(model,table,page))
-            .AppendLine($"        var entity = new {table.Name} {{ Id = ids.NextId() }};")
+            .AppendLine($"        var entity = new {table.EntityType} {{ Id = ids.NextId() }};")
             .AppendLine("        var submitted = new HashSet<string>(StringComparer.Ordinal);");
         // 已证明的缓存由同事务通知重算；复制只保留关系ID，不把旧缓存当作新业务输入。
         var managedCopyCaches=MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns.GetValueOrDefault(table.Source.TableName,[]).ToHashSet(StringComparer.Ordinal);
@@ -467,7 +470,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var business=table.Pages.Any(page=>BusinessRecordButtons(model,page).Count>0);
         var sourceProperties=new List<string>();if(HasPhysicalFileColumns(model,table))sourceProperties.Add("AuthorizationOperation = authorizationOperation");if(business)sourceProperties.Add("BusinessButtonId = businessButtonId");
         var result = new StringBuilder().AppendLine("    /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>")
-            .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.Name} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation? authorizationOperation = null":"")}{(business?", string? businessButtonId = null":"")})")
+            .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.EntityType} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation? authorizationOperation = null":"")}{(business?", string? businessButtonId = null":"")})")
             .AppendLine("    {").Append(RelationPropagationRenderer.Notify(model,table,ProjectExpression(table))).AppendLine("        var values = new Dictionary<string, object?>").AppendLine("        {");
         foreach (var column in table.Columns) result.AppendLine($"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},");
         result.AppendLine("        };")
@@ -632,7 +635,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var redundantParents=sourceContext?SharedRedundantParentCompilation.ForTable(model,owner,page,parent):[];if(redundantParents.Count>0){foreach(var redundantParent in redundantParents)result.Append(SharedRedundantParentCompilation.Call(redundantParent,page,current?"locking":"false"));return;}
             var directGlobalParents=sourceContext?GlobalCachedParentCompilation.ForTable(model,owner,page,parent):[];if(directGlobalParents.Count>0){foreach(var direct in directGlobalParents)result.Append(GlobalCachedParentCompilation.Call(direct,page,"parentId",current?"locking":"false"));return;}
             var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
-            result.AppendLine($"        var {variable} = session.Select<{parent.Name}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+            result.AppendLine($"        var {variable} = session.Select<{parent.EntityType}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
             if (current)
                 result.AppendLine($"        if (locking) {{ if ((await {variable}.ForUpdate().Limit(1).ToListAsync(entity => new {{ entity.Id }}, cancellationToken)).Count != 1) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\"); }}")
@@ -646,7 +649,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix));
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
-                .AppendLine($"    private async Task<ISelect<{relation.Target.Name}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)})")
+                .AppendLine($"    private async Task<ISelect<{relation.Target.EntityType}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)})")
                 .AppendLine("    {");
             if (relation.ParentBinding?.Declared == true)
             {
@@ -673,7 +676,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             }
             else result.AppendLine("        if (targetParentId is not null) throw new ArgumentException(\"当前关联不使用 targetParentId。\");");
             if (relation.SourceParents.Count == 0 && relation.TargetParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
-            result.AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
+            result.AppendLine($"        var query = session.Select<{relation.Target.EntityType}>();");
             if (relation.Target.Columns.Any(c => c.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
             var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");

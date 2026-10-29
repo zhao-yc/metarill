@@ -3,7 +3,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class ConfigPagePage1868973685063311361Vo
 {
@@ -134,7 +133,7 @@ public sealed partial class ConfigPagePage1868973685063311361Vo
     [JsonPropertyName("detailPageButtonsPositionShow")]
     public string? DetailPageButtonsPositionShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigPagePage1868973685063311361Vo FromEntity(ConfigPage entity) => new()
+    public static ConfigPagePage1868973685063311361Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigPage entity) => new()
     {
         Name = entity.Name,
         ConfigTableTableName = entity.ConfigTableTableName,

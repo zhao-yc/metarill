@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Mappers;
@@ -28,11 +27,11 @@ public partial class SysSessionService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(SysSession entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Platform.Generated.Entities.SysSession entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(SysSession entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Platform.Generated.Entities.SysSession entity, RuntimeActor actor);
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(SysSession entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Platform.Generated.Entities.SysSession entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
 
@@ -51,7 +50,7 @@ public partial class SysSessionService
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, SysSession entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Platform.Generated.Entities.SysSession entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -60,7 +59,7 @@ public partial class SysSessionService
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifySysSessionAsync(string pageId, SysSession entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
+    private async Task NotifySysSessionAsync(string pageId, global::Metarill.Platform.Generated.Entities.SysSession entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {
         var values = new Dictionary<string, object?>
         {

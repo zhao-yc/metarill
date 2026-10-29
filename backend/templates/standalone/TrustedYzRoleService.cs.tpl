@@ -7,13 +7,13 @@ namespace {{NAMESPACE}}.Generated.Services;
 public partial class YzRoleService
 {
     /// <summary>手写对象规则执行前，必须证明当前操作已沿同事务安全准备入口完成。</summary>
-    private partial void BeforeSave(YzRole entity,RuntimeActor actor,bool creating,ISet<string> submittedFields)
+    private partial void BeforeSave(global::{{NAMESPACE}}.Generated.Entities.YzRole entity,RuntimeActor actor,bool creating,ISet<string> submittedFields)
     {
         SecurityRealmMutationGuard.RequirePrepared(guards,session.CurrentTransaction,"yz_role",entity.Id,actor,creating,false);
         if(entity.IsSuper is not (null or 0 or 1))throw new ArgumentException("超级管理员标志必须为0或1。");
     }
     /// <summary>删除复用真实目标的delete准备，引用和归属由最终协调器统一核验。</summary>
-    private partial void BeforeDelete(YzRole entity,RuntimeActor actor)
+    private partial void BeforeDelete(global::{{NAMESPACE}}.Generated.Entities.YzRole entity,RuntimeActor actor)
     {
         SecurityRealmMutationGuard.RequirePrepared(guards,session.CurrentTransaction,"yz_role",entity.Id,actor,false,true);
     }

@@ -2,7 +2,6 @@
 #nullable enable
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class YzManagerDevicesPage6220589291798528Vo
 {
@@ -35,7 +34,7 @@ public sealed partial class YzManagerDevicesPage6220589291798528Vo
     [JsonPropertyName("id")]
     public long Id { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static YzManagerDevicesPage6220589291798528Vo FromEntity(YzManagerDevices entity) => new()
+    public static YzManagerDevicesPage6220589291798528Vo FromEntity(global::Metarill.Platform.Generated.Entities.YzManagerDevices entity) => new()
     {
         YzManagerId = entity.YzManagerId,
         Name = entity.Name,

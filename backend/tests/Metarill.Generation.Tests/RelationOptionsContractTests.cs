@@ -34,7 +34,7 @@ public sealed class RelationOptionsContractTests
         var saved = column.ControlDetail;
         catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["controlDetail"] = JsonSerializer.SerializeToElement("{\"nameField\":\"alias\",\"futureOption\":{\"keep\":true}}");
         var generated = Compile(catalog);
-        Assert.Contains("entity.Alias.Contains(keyword)", generated); Assert.Contains("session.Select<RelationParent>()", generated);
+        Assert.Contains("entity.Alias.Contains(keyword)", generated); Assert.Contains("session.Select<global::Example.Relation.Generated.Entities.RelationParent>()", generated);
         Assert.Contains("OptionsPage201_25Async", generated);
         Assert.Equal(saved, column.ControlDetail);
         column.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("101");
@@ -49,7 +49,7 @@ public sealed class RelationOptionsContractTests
     {
         var catalog = Catalog();
         catalog.ConfigColumns.Single(column => column.ConfigTableId == "3" && column.ColumnName == "parent_id").LinkConfigTableId = "2";
-        var independent = Compile(catalog); Assert.Contains("session.Select<RelationSource>()", independent); Assert.Contains("out var targetParentKey", independent);
+        var independent = Compile(catalog); Assert.Contains("session.Select<global::Example.Relation.Generated.Entities.RelationSource>()", independent); Assert.Contains("out var targetParentKey", independent);
         catalog = Catalog(); catalog.ConfigPageColumns.RemoveAll(field => field.ConfigPageId == "301" && field.ConfigColumnId == "32");
         Assert.Throws<InvalidOperationException>(() => Compile(catalog));
         catalog = Catalog(); catalog.ConfigColumns.Single(column => column.ConfigTableId == "3" && column.ColumnName == "yz_project_id").ColumnName = "project_unknown";

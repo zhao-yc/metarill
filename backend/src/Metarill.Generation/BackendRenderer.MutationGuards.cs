@@ -56,7 +56,7 @@ internal static partial class BackendRenderer
         var values = string.Join("\n", columns.Select(column => $"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},"));
         return $$"""
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues({{table.Name}} entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues({{table.EntityType}} entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
 {{values}}
@@ -75,7 +75,7 @@ internal static partial class BackendRenderer
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, {{table.Name}} entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken{{(business?", string? businessButtonId = null":"")}})
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, {{table.EntityType}} entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken{{(business?", string? businessButtonId = null":"")}})
     {
 {{(TrustedSecurityServiceCompilation.Applies(model,table) ? "        SecurityRealmMutationGuard.RequirePrepared(guards,session.CurrentTransaction,\""+table.Source.TableName+"\",entity.Id,actor,operation is RecordMutationOperation.Create or RecordMutationOperation.Copy,operation==RecordMutationOperation.Delete);" : "        if (!guards.Any()) return;")}}
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");

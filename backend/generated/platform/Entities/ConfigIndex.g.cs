@@ -3,64 +3,64 @@
 using FreeSql.DataAnnotations;
 using System.Text.Json.Serialization;
 namespace Metarill.Platform.Generated.Entities;
-[Table(Name = "config_index")]
+[global::FreeSql.DataAnnotations.TableAttribute(Name = "config_index")]
 public partial class ConfigIndex
 {
-    [Column(Name = "config_table_id", IsPrimary = false, IsIdentity = false, IsNullable = false)]
-    [JsonPropertyName("configTableId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "config_table_id", IsPrimary = false, IsIdentity = false, IsNullable = false)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("configTableId")]
     public long? ConfigTableId { get; set; }
-    [Column(Name = "index_name", IsPrimary = false, IsIdentity = false, IsNullable = false)]
-    [JsonPropertyName("indexName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "index_name", IsPrimary = false, IsIdentity = false, IsNullable = false)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("indexName")]
     public string? IndexName { get; set; }
-    [Column(Name = "index_type", IsPrimary = false, IsIdentity = false, IsNullable = false)]
-    [JsonPropertyName("indexType")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "index_type", IsPrimary = false, IsIdentity = false, IsNullable = false)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("indexType")]
     public string? IndexType { get; set; }
-    [Column(Name = "is_enabled", IsPrimary = false, IsIdentity = false, IsNullable = false)]
-    [JsonPropertyName("isEnabled")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "is_enabled", IsPrimary = false, IsIdentity = false, IsNullable = false)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("isEnabled")]
     public int? IsEnabled { get; set; }
-    [Column(Name = "id", IsPrimary = true, IsIdentity = false, IsNullable = false)]
-    [JsonPropertyName("id")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "id", IsPrimary = true, IsIdentity = false, IsNullable = false)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("id")]
     public long Id { get; set; }
-    [Column(Name = "yz_project_id", IsPrimary = false, IsIdentity = false, IsNullable = false)]
-    [JsonPropertyName("yzProjectId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "yz_project_id", IsPrimary = false, IsIdentity = false, IsNullable = false)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("yzProjectId")]
     public long? YzProjectId { get; set; }
-    [Column(Name = "config_table_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("configTableName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "config_table_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("configTableName")]
     public string? ConfigTableName { get; set; }
-    [Column(Name = "yz_project_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("yzProjectName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "yz_project_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("yzProjectName")]
     public string? YzProjectName { get; set; }
-    [Column(Name = "import_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("importNo")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "import_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("importNo")]
     public string? ImportNo { get; set; }
-    [Column(Name = "delete_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("deleteNo")]
-    public DateTime? DeleteNo { get; set; }
-    [Column(Name = "insert_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertTime")]
-    public DateTime? InsertTime { get; set; }
-    [Column(Name = "update_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateTime")]
-    public DateTime? UpdateTime { get; set; }
-    [Column(Name = "insert_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertManagerId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "delete_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("deleteNo")]
+    public global::System.DateTime? DeleteNo { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertTime")]
+    public global::System.DateTime? InsertTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateTime")]
+    public global::System.DateTime? UpdateTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertManagerId")]
     public long? InsertManagerId { get; set; }
-    [Column(Name = "update_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateManagerId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateManagerId")]
     public long? UpdateManagerId { get; set; }
-    [Column(Name = "insert_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertManagerRealName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertManagerRealName")]
     public string? InsertManagerRealName { get; set; }
-    [Column(Name = "update_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateManagerRealName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateManagerRealName")]
     public string? UpdateManagerRealName { get; set; }
-    [Column(Name = "insert_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertUserName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertUserName")]
     public string? InsertUserName { get; set; }
-    [Column(Name = "update_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateUserName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateUserName")]
     public string? UpdateUserName { get; set; }
-    [Column(Name = "is_unique", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("isUnique")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "is_unique", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("isUnique")]
     public int? IsUnique { get; set; }
 }

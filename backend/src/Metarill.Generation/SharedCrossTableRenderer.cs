@@ -28,14 +28,14 @@ internal static class SharedCrossTableRenderer
                 ;
             if(table.Source.IsRongyu==0){output.Append(SharedCrossTableSparseRenderer.GroupService(model,table,page,group));continue;}
             output.AppendLine("    /// <summary>隔离验证各主动路径，先清受影响的其它下级，再把完整组结果交给原DML和写后核验。</summary>")
-                .AppendLine($"    private async Task NormalizeSharedCross{suffix}Async({table.Name} entity,RuntimeActor actor,ISet<string> submitted,bool creating,IReadOnlyDictionary<string,object?>? original,CancellationToken cancellationToken,bool requireTargetList=true)")
+                .AppendLine($"    private async Task NormalizeSharedCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,bool creating,IReadOnlyDictionary<string,object?>? original,CancellationToken cancellationToken,bool requireTargetList=true)")
                 .AppendLine("    {").AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"共享级联必须加入当前事务。\");")
                 .AppendLine($"        var result=await SharedCross{suffix}.NormalizeAsync({Dictionary(group.Columns,"entity")},original??new Dictionary<string,object?>(),submitted.ToHashSet(StringComparer.Ordinal),creating,async(control,input,token)=>")
                 .AppendLine("        {").AppendLine("            switch(control)").AppendLine("            {");
             foreach(var plan in group.Plans)
             {
                 var columns=plan.Levels.SelectMany(l=>new[]{l.Id,l.Name}).ToArray();output.AppendLine($"                case {Literal(plan.Read.Source.Source.Id)}:")
-                    .AppendLine("                {").AppendLine($"                    var copy=new {table.Name}{{{string.Join(",",columns.Select(c=>c.Property+"=("+c.Type+")input["+Literal(c.Source.ColumnName)+"]"))}}};var local=new HashSet<string>(submitted,StringComparer.Ordinal);")
+                    .AppendLine("                {").AppendLine($"                    var copy=new {table.EntityType}{{{string.Join(",",columns.Select(c=>c.Property+"=("+c.Type+")input["+Literal(c.Source.ColumnName)+"]"))}}};var local=new HashSet<string>(submitted,StringComparer.Ordinal);")
                     .AppendLine($"                    await NormalizeCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(copy,actor,local,token,requireTargetList);return {Dictionary(columns,"copy")};").AppendLine("                }");
             }
             output.AppendLine("                default:throw new InvalidOperationException(\"未知共享级联控件。\");").AppendLine("            }").AppendLine("        },cancellationToken);");

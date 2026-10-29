@@ -49,7 +49,7 @@ internal static partial class BackendRenderer
     /// <summary>名称和路径来自同一固定图，坏目标不使来源记录丢失。</summary>
     private Task<IReadOnlyList<{{page.Name}}Vo>> ProjectRead{{page.Source.Id}}Async(IReadOnlyList<IReadOnlyDictionary<string,object?>> rows,RuntimeActor actor,CancellationToken cancellationToken,bool currentRead=false)
     {
-        var entities=rows.Select(row=>new {{table.Name}}{Id=NonRedundantReads.Value<long>(row,"id"),{{assignments}}}).ToArray();
+        var entities=rows.Select(row=>new {{table.EntityType}}{Id=NonRedundantReads.Value<long>(row,"id"),{{assignments}}}).ToArray();
         return DecorateCascade{{page.Source.Id}}Async(rows.Select({{page.Name}}Vo.FromReadRow).ToArray(),entities,actor,cancellationToken,currentRead);
     }
 """;

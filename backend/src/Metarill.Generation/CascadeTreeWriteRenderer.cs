@@ -35,7 +35,7 @@ internal static class CascadeTreeWriteRenderer
             if(CascadeTreeMergedWriteRenderer.Applies(table,plan)){result.Append(CascadeTreeMergedWriteRenderer.Service(table,page,plan));continue;}
             var source=plan.Read.Source;var name=plan.Name;var suffix=page.Source.Id+"_"+source.Source.Id;
             result.AppendLine("    /// <summary>只在关联被提交、复制/新增或规则显式刷新时维护名称，省略保持原值。</summary>")
-                .AppendLine($"    private async Task ValidateCascade{suffix}Async({table.Name} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true)")
+                .AppendLine($"    private async Task ValidateCascade{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true)")
                 .AppendLine("    {")
                 .AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"级联写入必须加入当前事务。\");ValidateActor(actor);")
                 .AppendLine("        if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"级联写入要求真实当前身份。\");")

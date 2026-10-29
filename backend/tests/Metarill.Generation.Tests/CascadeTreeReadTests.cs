@@ -72,7 +72,7 @@ public sealed class CascadeTreeReadTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.Cascade");
             var service=File.ReadAllText(Path.Combine(directory,"generated/Services/CascadeSourceService.g.cs"));
-            Assert.Contains("CascadeCondition201_25.ApplyConstants",service);Assert.Contains("Limit(limit)",service);Assert.Contains("new CascadeTree { Id=row.Id,Name=row.Name,ParentCascadeTreeId=row.ParentCascadeTreeId }",service);
+            Assert.Contains("CascadeCondition201_25.ApplyConstants",service);Assert.Contains("Limit(limit)",service);Assert.Contains("new global::Example.Cascade.Generated.Entities.CascadeTree { Id=row.Id,Name=row.Name,ParentCascadeTreeId=row.ParentCascadeTreeId }",service);
             Assert.DoesNotContain("row.Secret",service);Assert.Contains("cascadeTreeOptions25",File.ReadAllText(Path.Combine(directory,"generated/Controllers/CascadeSourcePage201Controller.g.cs")));
             var compiled=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.NotNull(compiled.GetType("Example.Cascade.Generated.Controllers.CascadeSourcePage201Controller"));
             Assert.Equal(original,JsonSerializer.Serialize(catalog));

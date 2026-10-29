@@ -29,7 +29,7 @@ internal static class MultiSelectExcelRenderer
         if(multi.TargetParents.Count>0)result.AppendLine($"        var targetParentId={targetParent};if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);");
         result.AppendLine("        foreach(var item in cell.EnumerateArray())").AppendLine("        {")
             .AppendLine("            if(item.ValueKind is not(JsonValueKind.String or JsonValueKind.Number))throw PageImportException.Input(PageImportError.Relation);")
-            .AppendLine($"            var query=session.Select<{multi.Target.Name}>();");
+            .AppendLine($"            var query=session.Select<{multi.Target.EntityType}>();");
         if(multi.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("            query=query.Where(row=>row.DeleteNo==null);");
         if(multi.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id") is {} project&&(!multi.Target.IsGlobal||multi.TargetPage.Scopes.Any(scope=>scope.Source=="project")))result.AppendLine($"            query=query.Where(row=>row.{project.Property}=={Scope(project,"actor.ProjectId")});");
         foreach(var scope in multi.TargetPage.Scopes.Where(scope=>scope.Source=="parent"))result.AppendLine($"            query=query.Where(row=>row.{scope.Column.Property}=={Scope(scope.Column,"targetParentId!")});");

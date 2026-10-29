@@ -25,6 +25,11 @@ for(const target of ['platform','demo']){
  for(const c of previous.configIndexColumns||[])identifiers['indexfield:'+c.configIndexId+':'+c.configColumnId]??=c.id;
  const menu=previous.configMenus?.find(m=>m.configPageId==='2200000000000099000');if(menu)identifiers['menu:workbench']??=menu.id;
 }
+// 文件期限是已经发布的内部字段，固定身份必须进入重建源和标识清单。
+const uploadDeadlineKey='column:yz_file_library:upload_expires_at',uploadDeadlineId='2300000000000000401';
+if(identifiers[uploadDeadlineKey]!==undefined&&identifiers[uploadDeadlineKey]!==uploadDeadlineId)throw new Error('上传期限字段标识不一致。');
+if(Object.entries(identifiers).some(([key,value])=>key!==uploadDeadlineKey&&value===uploadDeadlineId))throw new Error('上传期限字段标识被其他对象占用。');
+identifiers[uploadDeadlineKey]=uploadDeadlineId;
 let nextId=Object.values(identifiers).reduce((max,value)=>BigInt(value)>max?BigInt(value):max,2200000000000101000n)+1n;
 const id = key => {if(!key)throw new Error('新增元数据必须声明稳定标识键');return identifiers[key]??=(nextId++).toString();};
 const snake = value => value.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
@@ -169,6 +174,10 @@ pageColumns.push(...restoredAdminFields,...restoredManagerFields);
 const finalPageIds=new Set(pages.map(p=>p.id));
 menus=menus.filter(m=>!m.configPageId||finalPageIds.has(m.configPageId));
 menus=menus.map(m=>({...m,yzProjectId:projectId}));
+// 仅追加内部物理列，不生成页字段；保留原目录顺序与原UTC期限合同。
+const fileLibrary=tables.find(table=>table.tableName==='yz_file_library');
+if(!fileLibrary||columns.some(column=>column.id===uploadDeadlineId))throw new Error('文件库期限定义重复或所属表缺失。');
+columns.push({id:uploadDeadlineId,configTableId:fileLibrary.id,configTableName:fileLibrary.name,columnName:'upload_expires_at',name:'上传截止时间',yzProjectId:projectId,sortNo:200,logicalType:'datetime',columnType:'datetime(6)',isDbNotNull:0,columnLength:'',defaultValue:''});
 const catalog={schemaVersion:1,backendTarget:'csharp',yzProjectId:projectId,yzProjectName:'Metarill',databaseProvider:'mysql',configTables:tables,configColumns:columns,configPages:pages,configPageColumns:pageColumns,yzAdminTypes:input.yzAdminTypes,configMenus:menus,configCustomPages:input.menuCustomPages.map(p=>({id:p.id,name:p.pagePath.split('/').at(-1),pagePath:p.pagePath,yzProjectId:projectId,yzAdminTypeId:adminId})),configButtons:input.configButtons.filter(b=>!b.configPageId||finalPageIds.has(b.configPageId)).map(b=>({...b,yzProjectId:projectId})),configChildren:input.configChildren.filter(c=>(!c.configPageId||finalPageIds.has(c.configPageId))&&(!c.childConfigPageId||finalPageIds.has(c.childConfigPageId))).map(c=>({...c,yzProjectId:projectId})),configIndexes:[],configIndexColumns:[]};
 const indexes=[],indexColumns=[];
 function index(tableName,name,fields,unique=false) {

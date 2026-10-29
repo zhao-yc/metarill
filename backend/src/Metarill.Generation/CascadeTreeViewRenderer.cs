@@ -48,7 +48,7 @@ internal static class CascadeTreeViewRenderer
         {
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;
             if(plan.DerivedName){result.Append(DerivedCascadeNamesRenderer.Graph(page,plan));continue;}
-            var projection=$"row=>new {target.Name}{{Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
+            var projection=$"row=>new {target.EntityType}{{Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
             var parentValue=parent.Type=="string?"?"row."+parent.Property:"row."+parent.Property+"?.ToString(CultureInfo.InvariantCulture)";
             var map=$"rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{parentValue})).ToArray()";
             result.AppendLine("    /// <summary>只有来源页已授权读取或筛选可以进入此私有固定图，不暴露动态查询网关。</summary>")
@@ -59,7 +59,7 @@ internal static class CascadeTreeViewRenderer
         }
         var plans=ForPage(model,table,page);if(plans.Count==0)return result.ToString();
         result.AppendLine("    /// <summary>同页多行共用祖先缓存；坏关联只显示空文本，不丢原ID，不返回部分祖先。</summary>")
-            .AppendLine($"    private async Task<IReadOnlyList<{page.Name}Vo>> DecorateCascade{page.Source.Id}Async(IReadOnlyList<{page.Name}Vo> values,IReadOnlyList<{table.Name}> entities,RuntimeActor actor,CancellationToken cancellationToken,bool currentRead=false)")
+            .AppendLine($"    private async Task<IReadOnlyList<{page.Name}Vo>> DecorateCascade{page.Source.Id}Async(IReadOnlyList<{page.Name}Vo> values,IReadOnlyList<{table.EntityType}> entities,RuntimeActor actor,CancellationToken cancellationToken,bool currentRead=false)")
             .AppendLine("    {").AppendLine("        if(values.Count!=entities.Count)throw new InvalidOperationException(\"级联投影记录数不符。\");");
         foreach(var plan in plans)
         {

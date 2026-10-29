@@ -3,7 +3,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class ConfigIndexPage2076977531071803393Vo
 {
@@ -44,7 +43,7 @@ public sealed partial class ConfigIndexPage2076977531071803393Vo
     [JsonPropertyName("indexTypeShow")]
     public string? IndexTypeShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigIndexPage2076977531071803393Vo FromEntity(ConfigIndex entity) => new()
+    public static ConfigIndexPage2076977531071803393Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigIndex entity) => new()
     {
         ConfigTableId = entity.ConfigTableId,
         IndexName = entity.IndexName,

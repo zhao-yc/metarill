@@ -167,7 +167,12 @@ internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList
     internal IReadOnlyList<ColumnModel> DeclaredWritable {get;init;} = Writable.ToArray();
     internal FixedPageCondition? Condition {get;init;}
 }
-internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages) { public bool IsGlobal => Source.Extra.TryGetValue("scopeKind", out var scope) && scope.ToString() == "global"; }
+internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages)
+{
+    /// <summary>实体类型始终完整限定，业务表可与CLR、持久化或安全类型同名。</summary>
+    internal string EntityType => "global::" + RootNamespace + ".Generated.Entities." + Name;
+    internal string RootNamespace {get;init;} = "";
+    public bool IsGlobal => Source.Extra.TryGetValue("scopeKind", out var scope) && scope.ToString() == "global"; }
 internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace, IReadOnlyList<TableModel> Tables)
 {
     // 此上下文只由内部factory签发入口建立，不是MetadataCatalog的可序列化字段。
@@ -202,7 +207,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 ValidateOrderBy(page.OrderBy, columns);
                 pageModels.Add(new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()){Condition=condition});
             }
-            result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels));
+            result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels){RootNamespace=rootNamespace});
         }
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
         return FixedPageConditionCompilation.ValidateFinal(CrossTableFilterCompilation.Prepare(CrossTableWriteCompilation.Prepare(CascadeTreeWriteCompilation.Prepare(DatabaseCheckboxCompilation.Prepare(MultiSelectCompilation.Prepare(GlobalCachedSourceCompilation.AddReadAliases(new GenerationModel(catalog, rootNamespace, result))))))));

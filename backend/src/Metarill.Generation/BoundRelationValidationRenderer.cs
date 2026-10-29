@@ -49,10 +49,10 @@ internal static class BoundRelationValidationRenderer
             if (binding.SourceParent.Source.Id == "2076977530983813120")
                 foreach (var flag in binding.TargetParent.Columns.Where(column => column.Source.ColumnName is "is_view" or "is_function_table"))
                     ownerTerms.Add($"(owner.{flag.Property} == null || owner.{flag.Property} != {(flag.Type == "bool?" ? "true" : "1")})");
-            result.AppendLine($"    /// <summary>目标SQL再次关联真实源父与归属表，避免多语句读取间换表而返回旧范围候选。</summary>\n    private ISelect<{relation.Target.Name}> ApplyBoundScope{suffix}(ISelect<{relation.Target.Name}> query, long sourceKey, RuntimeActor actor)")
+            result.AppendLine($"    /// <summary>目标SQL再次关联真实源父与归属表，避免多语句读取间换表而返回旧范围候选。</summary>\n    private ISelect<{relation.Target.EntityType}> ApplyBoundScope{suffix}(ISelect<{relation.Target.EntityType}> query, long sourceKey, RuntimeActor actor)")
                 .AppendLine("    {")
-                .AppendLine($"        query = query.Where(row => session.Orm.Select<{binding.SourceParent.Name}>().Where(parent => {string.Join(" && ", sourceTerms)}).Any());")
-                .AppendLine($"        return query.Where(row => session.Orm.Select<{binding.TargetParent.Name}>().Where(owner => {string.Join(" && ", ownerTerms)}).Any());")
+                .AppendLine($"        query = query.Where(row => session.Orm.Select<{binding.SourceParent.EntityType}>().Where(parent => {string.Join(" && ", sourceTerms)}).Any());")
+                .AppendLine($"        return query.Where(row => session.Orm.Select<{binding.TargetParent.EntityType}>().Where(owner => {string.Join(" && ", ownerTerms)}).Any());")
                 .AppendLine("    }")
                 .AppendLine($"    /// <summary>来源读取与目标读取分别授权；写入已有来源操作门禁，不能把请求Actor当真实授权。</summary>\n    private void AuthorizeBound{suffix}(RuntimeActor actor, bool requireSourceList)")
                 .AppendLine("    {")
@@ -65,13 +65,13 @@ internal static class BoundRelationValidationRenderer
                 .AppendLine($"        AuthorizeBound{suffix}(actor, requireSourceList);")
                 .AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceKey) || sourceKey <= 0) throw new ArgumentException(\"固定关系要求有效来源parentId。\");")
                 .AppendLine("        if (locking && session.CurrentTransaction is null) throw new InvalidOperationException(\"固定关系写入校验必须加入当前事务。\");")
-                .AppendLine($"        var sourceQuery = session.Select<{binding.SourceParent.Name}>().Where(row => row.Id == sourceKey && row.{Project(binding.SourceParent).Property} == {ProjectValue(binding.SourceParent)});");
+                .AppendLine($"        var sourceQuery = session.Select<{binding.SourceParent.EntityType}>().Where(row => row.Id == sourceKey && row.{Project(binding.SourceParent).Property} == {ProjectValue(binding.SourceParent)});");
             if (FixedPageQueryCompilation.SoftDeleteColumn(binding.SourceParent) is {} sourceDeleted) result.AppendLine($"        sourceQuery = sourceQuery.Where(row => row.{sourceDeleted.Property} == null);");
             result.AppendLine("        if (locking) sourceQuery = sourceQuery.ForUpdate();")
                 .AppendLine($"        var sources = await sourceQuery.Limit(1).ToListAsync(row => new {{ row.Id, OwnerId = row.{binding.OwnerColumn.Property} }}, cancellationToken);")
                 .AppendLine("        var owner = sources.SingleOrDefault()?.OwnerId;")
                 .AppendLine("        if (owner is not {} derived || derived <= 0) throw new InvalidOperationException(\"来源父不存在、已删除、跨项目或未声明有效归属。\");")
-                .AppendLine($"        var ownerQuery = session.Select<{binding.TargetParent.Name}>().Where(row => row.Id == derived && row.{Project(binding.TargetParent).Property} == {ProjectValue(binding.TargetParent)});");
+                .AppendLine($"        var ownerQuery = session.Select<{binding.TargetParent.EntityType}>().Where(row => row.Id == derived && row.{Project(binding.TargetParent).Property} == {ProjectValue(binding.TargetParent)});");
             if (FixedPageQueryCompilation.SoftDeleteColumn(binding.TargetParent) is {} ownerDeleted) result.AppendLine($"        ownerQuery = ownerQuery.Where(row => row.{ownerDeleted.Property} == null);");
             if (binding.SourceParent.Source.Id == "2076977530983813120")
                 foreach (var flag in binding.TargetParent.Columns.Where(column => column.Source.ColumnName is "is_view" or "is_function_table"))
@@ -81,7 +81,7 @@ internal static class BoundRelationValidationRenderer
                 .AppendLine("        if (targetParentId is not null && (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var hinted) || hinted != derived)) throw new ArgumentException(\"targetParentId与服务器固定归属不一致。\");")
                 .AppendLine("        return derived;")
                 .AppendLine("    }")
-                .AppendLine($"    /// <summary>最终实体的来源父和关联值必须处于同一固定归属；目标越界时整笔写入回滚。</summary>\n    private async Task ValidateBound{suffix}Async({table.Name} entity, RuntimeActor actor, CancellationToken cancellationToken)")
+                .AppendLine($"    /// <summary>最终实体的来源父和关联值必须处于同一固定归属；目标越界时整笔写入回滚。</summary>\n    private async Task ValidateBound{suffix}Async({table.EntityType} entity, RuntimeActor actor, CancellationToken cancellationToken)")
                 .AppendLine("    {")
                 .AppendLine($"        var parentId = Convert.ToString(entity.{binding.SourceParentColumn.Property}, CultureInfo.InvariantCulture);")
                 .AppendLine($"        var query = await OptionsScope{suffix}Async(parentId, null, actor, cancellationToken, true, false);")

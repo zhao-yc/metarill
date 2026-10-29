@@ -2,7 +2,6 @@
 #nullable enable
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Demo.Generated.Entities;
 namespace Metarill.Demo.Generated.VOs;
 public sealed partial class DemoCustomerPage2200000000000100020Vo
 {
@@ -19,7 +18,7 @@ public sealed partial class DemoCustomerPage2200000000000100020Vo
     [JsonPropertyName("id")]
     public long Id { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static DemoCustomerPage2200000000000100020Vo FromEntity(DemoCustomer entity) => new()
+    public static DemoCustomerPage2200000000000100020Vo FromEntity(global::Metarill.Demo.Generated.Entities.DemoCustomer entity) => new()
     {
         YzProjectId = entity.YzProjectId,
         Name = entity.Name,

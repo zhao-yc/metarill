@@ -22,7 +22,7 @@ internal static class GlobalCachedParentCompilation
                 .AppendLine($"    private async Task ValidateGlobalCachedParent{page.Source.Id}_{binding.Foreign.Source.Id}Async(string? parentId,RuntimeActor actor,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {").AppendLine("        ValidateActor(actor);")
                 .AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0||parentId!=key.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");")
-                .AppendLine($"        var query=session.Select<{binding.Target.Name}>().Where(entity=>entity.Id==key);");
+                .AppendLine($"        var query=session.Select<{binding.Target.EntityType}>().Where(entity=>entity.Id==key);");
             if(binding.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        query=query.Where(entity=>entity.DeleteNo==null);");
             result.AppendLine("        if(locking){if((await query.ForUpdate().Limit(1).ToListAsync(entity=>new{entity.Id},cancellationToken)).Count!=1)throw new InvalidOperationException(\"父记录不存在或已删除。\");}")
                 .AppendLine("        else if(!await query.AnyAsync(cancellationToken))throw new InvalidOperationException(\"父记录不存在或已删除。\");").AppendLine("    }");

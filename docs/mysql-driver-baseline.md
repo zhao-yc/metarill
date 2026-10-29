@@ -9,4 +9,7 @@ Directory.Packages.props现在显式固定MySqlConnector2.6.1，Metarill.Data.cs
 升级无需元数据、DDL或回填；已有包须成套更新中央依赖/Data工程并重新还原和构建，不能只复制DLL。MySQL真实连接/事务/并发、文件新截止字段及原TLS部署配置仍需正式回归，构建通过不能替代；首版/MySQL整体和其他数据库支持状态不变。此公告不代表完成仓库级安全扫描。
 
 
-最终全量相关回归零失败；Agent351通过/25实库条件跳过，私有生成合同实际恢复/严格编译通过。Data、Agent及该子合同的project.assets.json确认解析2.6.1。两个实际生成/完整包构建专项再次通过；未执行真实连接、事务或TLS中间人用例，不将官方修复声明写成项目专属攻击验证结论。最终证据在.local/platform-calendar-20261029/final-receipt.json。
+最终全量相关回归零失败；Agent351通过/25实库条件跳过，私有生成合同实际恢复/严格编译通过。Data、Agent及该子合同的project.assets.json确认解析2.6.1。两个实际生成/完整包构建专项再次通过；上述C32离线批次当时未执行真实连接、事务或TLS中间人用例，不将官方修复声明写成项目专属攻击验证结论。最终证据在.local/platform-calendar-20261029/final-receipt.json。
+
+
+后续[C33](testing/file-calendar-native-acceptance.md)固定原三表包使用实际2.6.1完成Server-200/MySQL8.4.11连接、CRUD/文件引用事务回滚及重启。TLS模式/CA/中间人、并发与首版完整验收仍未由此验证，原配置未因本轮改变。

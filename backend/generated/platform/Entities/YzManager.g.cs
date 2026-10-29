@@ -3,112 +3,112 @@
 using FreeSql.DataAnnotations;
 using System.Text.Json.Serialization;
 namespace Metarill.Platform.Generated.Entities;
-[Table(Name = "yz_manager")]
+[global::FreeSql.DataAnnotations.TableAttribute(Name = "yz_manager")]
 public partial class YzManager
 {
-    [Column(Name = "name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("name")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("name")]
     public string? Name { get; set; }
-    [Column(Name = "yz_role_ids", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("yzRoleIds")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "yz_role_ids", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("yzRoleIds")]
     public string? YzRoleIds { get; set; }
-    [Column(Name = "password", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("password")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "password", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("password")]
     public string? Password { get; set; }
-    [Column(Name = "real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("realName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("realName")]
     public string? RealName { get; set; }
-    [Column(Name = "mobile", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("mobile")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "mobile", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("mobile")]
     public string? Mobile { get; set; }
-    [Column(Name = "lock_ip", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("lockIp")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "lock_ip", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("lockIp")]
     public string? LockIp { get; set; }
-    [Column(Name = "last_login_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("lastLoginTime")]
-    public DateTime? LastLoginTime { get; set; }
-    [Column(Name = "login_ip", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("loginIp")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "last_login_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("lastLoginTime")]
+    public global::System.DateTime? LastLoginTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "login_ip", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("loginIp")]
     public string? LoginIp { get; set; }
-    [Column(Name = "email", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("email")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "email", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("email")]
     public string? Email { get; set; }
-    [Column(Name = "phone", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("phone")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "phone", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("phone")]
     public string? Phone { get; set; }
-    [Column(Name = "is_disabled", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("isDisabled")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "is_disabled", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("isDisabled")]
     public int? IsDisabled { get; set; }
-    [Column(Name = "salt", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("salt")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "salt", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("salt")]
     public string? Salt { get; set; }
-    [Column(Name = "old_password", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("oldPassword")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "old_password", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("oldPassword")]
     public string? OldPassword { get; set; }
-    [Column(Name = "notes", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("notes")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "notes", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("notes")]
     public string? Notes { get; set; }
-    [Column(Name = "is_edit_pwd", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("isEditPwd")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "is_edit_pwd", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("isEditPwd")]
     public int? IsEditPwd { get; set; }
-    [Column(Name = "edit_pwd_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("editPwdTime")]
-    public DateTime? EditPwdTime { get; set; }
-    [Column(Name = "openid", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("openid")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "edit_pwd_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("editPwdTime")]
+    public global::System.DateTime? EditPwdTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "openid", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("openid")]
     public string? Openid { get; set; }
-    [Column(Name = "avatar", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("avatar")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "avatar", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("avatar")]
     public string? Avatar { get; set; }
-    [Column(Name = "ding_userid", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("dingUserid")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "ding_userid", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("dingUserid")]
     public string? DingUserid { get; set; }
-    [Column(Name = "ding_unionid", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("dingUnionid")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "ding_unionid", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("dingUnionid")]
     public string? DingUnionid { get; set; }
-    [Column(Name = "login_rise_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("loginRiseTime")]
-    public DateTime? LoginRiseTime { get; set; }
-    [Column(Name = "login_stop_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("loginStopTime")]
-    public DateTime? LoginStopTime { get; set; }
-    [Column(Name = "validity_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("validityTime")]
-    public DateTime? ValidityTime { get; set; }
-    [Column(Name = "insert_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertTime")]
-    public DateTime? InsertTime { get; set; }
-    [Column(Name = "yz_admin_type_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("yzAdminTypeId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "login_rise_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("loginRiseTime")]
+    public global::System.DateTime? LoginRiseTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "login_stop_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("loginStopTime")]
+    public global::System.DateTime? LoginStopTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "validity_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("validityTime")]
+    public global::System.DateTime? ValidityTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertTime")]
+    public global::System.DateTime? InsertTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "yz_admin_type_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("yzAdminTypeId")]
     public long? YzAdminTypeId { get; set; }
-    [Column(Name = "id", IsPrimary = true, IsIdentity = false, IsNullable = false)]
-    [JsonPropertyName("id")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "id", IsPrimary = true, IsIdentity = false, IsNullable = false)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("id")]
     public long Id { get; set; }
-    [Column(Name = "update_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateTime")]
-    public DateTime? UpdateTime { get; set; }
-    [Column(Name = "insert_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertManagerId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_time", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateTime")]
+    public global::System.DateTime? UpdateTime { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertManagerId")]
     public long? InsertManagerId { get; set; }
-    [Column(Name = "update_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateManagerId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_manager_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateManagerId")]
     public long? UpdateManagerId { get; set; }
-    [Column(Name = "insert_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertUserName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertUserName")]
     public string? InsertUserName { get; set; }
-    [Column(Name = "update_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateUserName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_user_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateUserName")]
     public string? UpdateUserName { get; set; }
-    [Column(Name = "insert_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("insertManagerRealName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "insert_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("insertManagerRealName")]
     public string? InsertManagerRealName { get; set; }
-    [Column(Name = "update_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("updateManagerRealName")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "update_manager_real_name", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("updateManagerRealName")]
     public string? UpdateManagerRealName { get; set; }
-    [Column(Name = "delete_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("deleteNo")]
-    public DateTime? DeleteNo { get; set; }
-    [Column(Name = "yz_project_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
-    [JsonPropertyName("yzProjectId")]
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "delete_no", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("deleteNo")]
+    public global::System.DateTime? DeleteNo { get; set; }
+    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = "yz_project_id", IsPrimary = false, IsIdentity = false, IsNullable = true)]
+    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute("yzProjectId")]
     public long? YzProjectId { get; set; }
 }

@@ -26,17 +26,17 @@ internal static class FixedRoleCheckboxRenderer
         if (FixedRoleCheckboxCompilation.ForService(model,table,page) is not {} def) return "";
         var scope = $$"""
     /// <summary>当前actor必须与宿主认证一致，读取仍经过原来源页面权限。</summary>
-    private ISelect<{{def.Roles.Name}}> RoleNameScope{{page.Source.Id}}(RuntimeActor actor)
+    private ISelect<{{def.Roles.EntityType}}> RoleNameScope{{page.Source.Id}}(RuntimeActor actor)
     {
         ValidateActor(actor);
         if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("角色候选要求真实当前身份。");
         if (!long.TryParse(actor.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
         // 后台的真实项目是归属事实，不能用角色的兼容项目列扩大或缩小范围。
-        return session.Select<{{def.Roles.Name}}>().Where(role => role.DeleteNo == null && session.Orm.Select<{{def.Admins.Name}}>()
+        return session.Select<{{def.Roles.EntityType}}>().Where(role => role.DeleteNo == null && session.Orm.Select<{{def.Admins.EntityType}}>()
             .Where(admin => admin.Id == role.YzAdminTypeId && admin.DeleteNo == null && admin.YzProjectId == project).Any());
     }
     /// <summary>候选沿用原查询/新增/修改任一授权；最终关系校验也保留此原入口合同。</summary>
-    private ISelect<{{def.Roles.Name}}> RoleOptionsScope{{page.Source.Id}}(RuntimeActor actor)
+    private ISelect<{{def.Roles.EntityType}}> RoleOptionsScope{{page.Source.Id}}(RuntimeActor actor)
     {
         if (relationAuthorization is null || RoleCheckboxAuthorization.Require(relationAuthorization,"{{page.Source.Id}}",{{(page.Source.IsNew==1).ToString().ToLowerInvariant()}},{{Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source).ToString().ToLowerInvariant()}}) != actor) throw new UnauthorizedAccessException("角色读取身份已变化。");
         return RoleNameScope{{page.Source.Id}}(actor);
@@ -64,7 +64,7 @@ internal static class FixedRoleCheckboxRenderer
         relationAuthorization!.RequirePagePermission("{{page.Source.Id}}",operation);
     }
     /// <summary>批量读取仅投影角色ID与名称；原数组顺序及缺名位置不随数据库排序变化。</summary>
-    private async Task<{{page.Name}}Vo[]> ProjectRoleNames{{page.Source.Id}}Async(IReadOnlyList<{{table.Name}}> entities, RuntimeActor actor, string operation, CancellationToken cancellationToken{{(ManagerCredentialCompilation.IsOriginal(table,page) ? ",bool includeCredentials=true" : "")}})
+    private async Task<{{page.Name}}Vo[]> ProjectRoleNames{{page.Source.Id}}Async(IReadOnlyList<{{table.EntityType}}> entities, RuntimeActor actor, string operation, CancellationToken cancellationToken{{(ManagerCredentialCompilation.IsOriginal(table,page) ? ",bool includeCredentials=true" : "")}})
     {
         RequireRoleNameAction{{page.Source.Id}}(actor,operation);
         var selected = RoleCheckboxValue.ProjectionIds(entities.Select(entity => entity.{{def.Source.Property}}));

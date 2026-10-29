@@ -9,7 +9,7 @@ internal static class CascadeTreeTopologyRenderer
     {
         var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var parent=plan.Parent;
         var parentValue=$"Convert.ToString(row.{parent.Property},CultureInfo.InvariantCulture)";
-        var projection=$"row=>new {table.Name}{{Id=row.Id,{parent.Property}=row.{parent.Property}}}";
+        var projection=$"row=>new {table.EntityType}{{Id=row.Id,{parent.Property}=row.{parent.Property}}}";
         var keys=parent.Type=="string?"?"parents.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray()":"parents.ToArray()";
         var predicate=parent.Type=="string?"?$"values.Contains(row.{parent.Property}!)":$"row.{parent.Property}!=null&&values.Contains(row.{parent.Property}.Value)";
         return $$"""

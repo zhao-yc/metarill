@@ -67,14 +67,14 @@ internal static class ExportRenderer
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
             result.Insert(0,$"    /// <summary>导出只读取原列及必要依赖，普通请求不重编译元数据。</summary>\n    private static readonly Metarill.Data.Queries.NonRedundantReadPlan ExportReadPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(CrossTableWriteCompilation.ForService(model,table,page).Count>0?"CompileCross":"Compile")}({Literal(table.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});\n");
             result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync(ExportReadPlan{page.Source.Id},{BackendRenderer.NonRedundantFilterCall(model,table,page,operation:"\"export\"")},ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});")
-                .AppendLine($"        var entities=rawRows.Select(row=>new {table.Name}").AppendLine("        {");
+                .AppendLine($"        var entities=rawRows.Select(row=>new {table.EntityType}").AppendLine("        {");
             foreach(var column in projection)result.AppendLine($"            {column.Property}=Metarill.Data.Queries.NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)}),");
             result.AppendLine("        }).ToList();").AppendLine("        if(entities.Count>maxRows)throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         }
         else
         {
         result.AppendLine($"        var query = Order{page.Source.Id}({CascadeTreeQueryCompilation.Call(page,extra:ExactDataManageCompilation.Argument(page,"\"export\""))}, request);")
-            .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.Name}").AppendLine("        {");
+            .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.EntityType}").AppendLine("        {");
         // 目标父依赖只在已有可读字段中取固定列，不因此增加导出的表头或VO字段。
         foreach (var column in columns.Concat(dependencies).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
         result.AppendLine("        }, cancellationToken);")
@@ -89,7 +89,7 @@ internal static class ExportRenderer
             var dependency = context.TargetParentField is null ? null : table.Columns.Single(column => column.JsonName == context.TargetParentField);
             var unsupported = context.UnresolvedTarget || dependency is not null && (dependency.IsJsonArray || dependency.Type is not ("string?" or "long?" or "long" or "int?"));
             var parent = dependency is null ? context.SameParent ? "request.ParentId" : "null" : dependency.Type == "string?" ? "entity." + dependency.Property : "Convert.ToString(entity." + dependency.Property + ", CultureInfo.InvariantCulture)";
-            result.AppendLine($"        string? TargetParent{name}({table.Name} entity) => {parent};")
+            result.AppendLine($"        string? TargetParent{name}({table.EntityType} entity) => {parent};")
                 .AppendLine($"        var names{name} = new Dictionary<(string? Parent, long Id), string?>();");
             if (unsupported)
             {
@@ -104,7 +104,7 @@ internal static class ExportRenderer
                 var fields=relation.Conditions!.Forms.Select(binding=>binding.Column).DistinctBy(column=>column.Source.Id).ToArray();
                 var key=string.Join(", ",fields.Select(column=>"entity."+column.Property));
                 var formScopeAuthorization=relation.ParentBinding?.Binding is not null?", false, false":"";
-                result.AppendLine($"        string CacheKey{name}({table.Name} entity) => JsonSerializer.Serialize(new object?[] {{ TargetParent{name}(entity), {key} }}, JsonOptions);")
+                result.AppendLine($"        string CacheKey{name}({table.EntityType} entity) => JsonSerializer.Serialize(new object?[] {{ TargetParent{name}(entity), {key} }}, JsonOptions);")
                     .AppendLine($"        foreach(var group{name} in entities.Where(entity=>entity.{name} is not null).GroupBy(CacheKey{name}))")
                     .AppendLine("        {")
                     .AppendLine($"            var context{name}=group{name}.First();")

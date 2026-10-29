@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Mappers;
@@ -28,17 +27,17 @@ public partial class ConfigColumnService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(ConfigColumn entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Platform.Generated.Entities.ConfigColumn entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(ConfigColumn entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Platform.Generated.Entities.ConfigColumn entity, RuntimeActor actor);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations6217715532627968Async(ConfigColumn entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations6217715532627968Async(global::Metarill.Platform.Generated.Entities.ConfigColumn entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
         if ((creating || submitted.Contains("config_table_id")) && entity.ConfigTableId is not null)
         {
             var relationIds1 = new[] { entity.ConfigTableId.Value };
-            var relationQuery1 = session.Select<ConfigTable>().Where(row => relationIds1.Contains(row.Id));
+            var relationQuery1 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigTable>().Where(row => relationIds1.Contains(row.Id));
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u914D\u7F6E\u8868");
@@ -48,12 +47,12 @@ public partial class ConfigColumnService
     private async Task ValidateParents6217715532627968Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException("当前页面要求 parentId。");
-        var parent1 = session.Select<ConfigTable>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
+        var parent1 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigTable>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         parent1 = parent1.Where(entity => entity.DeleteNo == null);
         if (await parent1.ForUpdate().FirstAsync(cancellationToken) is null) throw new InvalidOperationException("父记录不存在或不属于当前项目。");
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<ConfigColumn> Scope6217715532627968(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigColumn> Scope6217715532627968(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
@@ -63,7 +62,7 @@ public partial class ConfigColumnService
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<ConfigColumn> Query6217715532627968(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigColumn> Query6217715532627968(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope6217715532627968(actor, request.ParentId);
@@ -110,7 +109,7 @@ public partial class ConfigColumnService
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<ConfigColumn> Order6217715532627968(ISelect<ConfigColumn> query, PageRequest request)
+    private static ISelect<global::Metarill.Platform.Generated.Entities.ConfigColumn> Order6217715532627968(ISelect<global::Metarill.Platform.Generated.Entities.ConfigColumn> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -132,7 +131,7 @@ public partial class ConfigColumnService
         var query = Query6217715532627968(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6217715532627968(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigColumn { Id = entity.Id, Name = entity.Name, ColumnName = entity.ColumnName, MatchType = entity.MatchType, Width = entity.Width, ControlKind = entity.ControlKind, ControlDetail = entity.ControlDetail, SortNo = entity.SortNo, DefaultValue = entity.DefaultValue, QueryDefaultValue = entity.QueryDefaultValue, InitValue = entity.InitValue, ControlWidth = entity.ControlWidth, ColSpan = entity.ColSpan, Align = entity.Align, IsAutoPostBack = entity.IsAutoPostBack, VisibleCondition = entity.VisibleCondition, IsAutoPostBackQuery = entity.IsAutoPostBackQuery, JoinTable = entity.JoinTable, IsHideSelectGrid = entity.IsHideSelectGrid, IsJoinColumn = entity.IsJoinColumn, ColumnType = entity.ColumnType, ColumnConstrain = entity.ColumnConstrain, ColumnLength = entity.ColumnLength, ColumnFullName = entity.ColumnFullName, SaveOption = entity.SaveOption, DisplayOption = entity.DisplayOption, Description = entity.Description, DeveloperRemarks = entity.DeveloperRemarks, IsAutoUpdate = entity.IsAutoUpdate, IsCopy = entity.IsCopy, IsSort = entity.IsSort, FilterControlKind = entity.FilterControlKind, IsVirtualColumn = entity.IsVirtualColumn, MobileListPageColSpan = entity.MobileListPageColSpan, IsDbNotNull = entity.IsDbNotNull, ConfigTableName = entity.ConfigTableName, IsInGrid = entity.IsInGrid, IsInFilter = entity.IsInFilter, IsInEdit = entity.IsInEdit, IsReadOnly = entity.IsReadOnly, IsMust = entity.IsMust, LinkConfigTableName = entity.LinkConfigTableName, LinkConfigPageName = entity.LinkConfigPageName, YzProjectId = entity.YzProjectId, YzProjectName = entity.YzProjectName, IsPrint = entity.IsPrint, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, SumKind = entity.SumKind, LogicalType = entity.LogicalType, Precision = entity.Precision, Scale = entity.Scale }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigColumn { Id = entity.Id, Name = entity.Name, ColumnName = entity.ColumnName, MatchType = entity.MatchType, Width = entity.Width, ControlKind = entity.ControlKind, ControlDetail = entity.ControlDetail, SortNo = entity.SortNo, DefaultValue = entity.DefaultValue, QueryDefaultValue = entity.QueryDefaultValue, InitValue = entity.InitValue, ControlWidth = entity.ControlWidth, ColSpan = entity.ColSpan, Align = entity.Align, IsAutoPostBack = entity.IsAutoPostBack, VisibleCondition = entity.VisibleCondition, IsAutoPostBackQuery = entity.IsAutoPostBackQuery, JoinTable = entity.JoinTable, IsHideSelectGrid = entity.IsHideSelectGrid, IsJoinColumn = entity.IsJoinColumn, ColumnType = entity.ColumnType, ColumnConstrain = entity.ColumnConstrain, ColumnLength = entity.ColumnLength, ColumnFullName = entity.ColumnFullName, SaveOption = entity.SaveOption, DisplayOption = entity.DisplayOption, Description = entity.Description, DeveloperRemarks = entity.DeveloperRemarks, IsAutoUpdate = entity.IsAutoUpdate, IsCopy = entity.IsCopy, IsSort = entity.IsSort, FilterControlKind = entity.FilterControlKind, IsVirtualColumn = entity.IsVirtualColumn, MobileListPageColSpan = entity.MobileListPageColSpan, IsDbNotNull = entity.IsDbNotNull, ConfigTableName = entity.ConfigTableName, IsInGrid = entity.IsInGrid, IsInFilter = entity.IsInFilter, IsInEdit = entity.IsInEdit, IsReadOnly = entity.IsReadOnly, IsMust = entity.IsMust, LinkConfigTableName = entity.LinkConfigTableName, LinkConfigPageName = entity.LinkConfigPageName, YzProjectId = entity.YzProjectId, YzProjectName = entity.YzProjectName, IsPrint = entity.IsPrint, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, SumKind = entity.SumKind, LogicalType = entity.LogicalType, Precision = entity.Precision, Scale = entity.Scale }, cancellationToken);
         return new(entities.Select(ConfigColumnPage6217715532627968Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -140,13 +139,13 @@ public partial class ConfigColumnService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigColumnPage6217715532627968Vo?> Detail6217715532627968Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope6217715532627968(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigColumn { Id = entity.Id, Name = entity.Name, ColumnName = entity.ColumnName, MatchType = entity.MatchType, Width = entity.Width, ControlKind = entity.ControlKind, ControlDetail = entity.ControlDetail, SortNo = entity.SortNo, DefaultValue = entity.DefaultValue, QueryDefaultValue = entity.QueryDefaultValue, InitValue = entity.InitValue, ControlWidth = entity.ControlWidth, ColSpan = entity.ColSpan, Align = entity.Align, IsAutoPostBack = entity.IsAutoPostBack, VisibleCondition = entity.VisibleCondition, IsAutoPostBackQuery = entity.IsAutoPostBackQuery, JoinTable = entity.JoinTable, IsHideSelectGrid = entity.IsHideSelectGrid, IsJoinColumn = entity.IsJoinColumn, ColumnType = entity.ColumnType, ColumnConstrain = entity.ColumnConstrain, ColumnLength = entity.ColumnLength, ColumnFullName = entity.ColumnFullName, SaveOption = entity.SaveOption, DisplayOption = entity.DisplayOption, Description = entity.Description, DeveloperRemarks = entity.DeveloperRemarks, IsAutoUpdate = entity.IsAutoUpdate, IsCopy = entity.IsCopy, IsSort = entity.IsSort, FilterControlKind = entity.FilterControlKind, IsVirtualColumn = entity.IsVirtualColumn, MobileListPageColSpan = entity.MobileListPageColSpan, IsDbNotNull = entity.IsDbNotNull, ConfigTableName = entity.ConfigTableName, IsInGrid = entity.IsInGrid, IsInFilter = entity.IsInFilter, IsInEdit = entity.IsInEdit, IsReadOnly = entity.IsReadOnly, IsMust = entity.IsMust, LinkConfigTableName = entity.LinkConfigTableName, LinkConfigPageName = entity.LinkConfigPageName, YzProjectId = entity.YzProjectId, YzProjectName = entity.YzProjectName, IsPrint = entity.IsPrint, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, SumKind = entity.SumKind, LogicalType = entity.LogicalType, Precision = entity.Precision, Scale = entity.Scale }, cancellationToken);
+        var entity = await Scope6217715532627968(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigColumn { Id = entity.Id, Name = entity.Name, ColumnName = entity.ColumnName, MatchType = entity.MatchType, Width = entity.Width, ControlKind = entity.ControlKind, ControlDetail = entity.ControlDetail, SortNo = entity.SortNo, DefaultValue = entity.DefaultValue, QueryDefaultValue = entity.QueryDefaultValue, InitValue = entity.InitValue, ControlWidth = entity.ControlWidth, ColSpan = entity.ColSpan, Align = entity.Align, IsAutoPostBack = entity.IsAutoPostBack, VisibleCondition = entity.VisibleCondition, IsAutoPostBackQuery = entity.IsAutoPostBackQuery, JoinTable = entity.JoinTable, IsHideSelectGrid = entity.IsHideSelectGrid, IsJoinColumn = entity.IsJoinColumn, ColumnType = entity.ColumnType, ColumnConstrain = entity.ColumnConstrain, ColumnLength = entity.ColumnLength, ColumnFullName = entity.ColumnFullName, SaveOption = entity.SaveOption, DisplayOption = entity.DisplayOption, Description = entity.Description, DeveloperRemarks = entity.DeveloperRemarks, IsAutoUpdate = entity.IsAutoUpdate, IsCopy = entity.IsCopy, IsSort = entity.IsSort, FilterControlKind = entity.FilterControlKind, IsVirtualColumn = entity.IsVirtualColumn, MobileListPageColSpan = entity.MobileListPageColSpan, IsDbNotNull = entity.IsDbNotNull, ConfigTableName = entity.ConfigTableName, IsInGrid = entity.IsInGrid, IsInFilter = entity.IsInFilter, IsInEdit = entity.IsInEdit, IsReadOnly = entity.IsReadOnly, IsMust = entity.IsMust, LinkConfigTableName = entity.LinkConfigTableName, LinkConfigPageName = entity.LinkConfigPageName, YzProjectId = entity.YzProjectId, YzProjectName = entity.YzProjectName, IsPrint = entity.IsPrint, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, SumKind = entity.SumKind, LogicalType = entity.LogicalType, Precision = entity.Precision, Scale = entity.Scale }, cancellationToken);
         return entity is null ? null : ConfigColumnPage6217715532627968Vo.FromEntity(entity);
     }
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
-    public async Task<ConfigColumn?> ReadButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> ReadButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
     /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
-    public async Task<ConfigColumn?> LockButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6217715532627968Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> LockButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6217715532627968Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
     /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>
     private void RequireButtonRecordAccess6217715532627968(long id,string buttonId,RuntimeActor actor)
     {
@@ -164,7 +163,7 @@ public partial class ConfigColumnService
         return relationAuthorization!.RequireButtonCurrentAsync("6217715532627968",buttonId,actor,transaction,cancellationToken);
     }
     /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
-    private ISelect<ConfigColumn> ButtonRecordQuery6217715532627968(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigColumn> ButtonRecordQuery6217715532627968(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
     {
         RequireButtonRecordAccess6217715532627968(id,buttonId,actor);
         if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
@@ -175,7 +174,7 @@ public partial class ConfigColumnService
         return locking?query.ForUpdate():query;
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
-    public async Task<ConfigColumn?> ReadAgentRecord6217715532627968Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> ReadAgentRecord6217715532627968Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
         if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
@@ -188,7 +187,7 @@ public partial class ConfigColumnService
     {
         if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));
         var query = Order6217715532627968(Query6217715532627968(request, actor), request);
-        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new ConfigColumn
+        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigColumn
         {
             Name = entity.Name,
             ColumnType = entity.ColumnType,
@@ -378,7 +377,7 @@ public partial class ConfigColumnService
         return deleted;
     }, cancellationToken);
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigColumn entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Platform.Generated.Entities.ConfigColumn entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
@@ -399,7 +398,7 @@ public partial class ConfigColumnService
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigColumn entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken, string? businessButtonId = null)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Platform.Generated.Entities.ConfigColumn entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -408,7 +407,7 @@ public partial class ConfigColumnService
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyConfigColumnAsync(string pageId, ConfigColumn entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken, string? businessButtonId = null)
+    private async Task NotifyConfigColumnAsync(string pageId, global::Metarill.Platform.Generated.Entities.ConfigColumn entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         var values = new Dictionary<string, object?>
         {

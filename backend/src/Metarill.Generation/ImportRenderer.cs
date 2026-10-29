@@ -59,7 +59,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});")
             .AppendLine("        var rowNumber = 0;")
             .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {");
-        if (contextual && overwrite) result.AppendLine($"                {table.Name}? importExisting = null;");
+        if (contextual && overwrite) result.AppendLine($"                {table.EntityType}? importExisting = null;");
         // 覆盖先匹配并锁定原对象，再解析其余列；旧父与默认值只作候选上下文，不作为提交字段。
         var parsed = contextual && overwrite ? "keyValues" : "values";
         var initialContext = contextual ? ", null, " + (overwrite ? "true" : "false") : "";
@@ -88,7 +88,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .Append(NonRedundantCrossParentCompilation.Enabled(model,table,page)?$"        await ValidateParents{page.Source.Id}Async(request.ParentId,actor,cancellationToken);\n":"")
             .AppendLine("        return $\"导入成功{rowNumber}条数据\";").AppendLine("    }, cancellationToken);")
             .AppendLine("    /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>")
-            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+table.Name+"? existing, bool keyOnly":"")}, CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+table.EntityType+"? existing, bool keyOnly":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;")
             .AppendLine("        if (row.ValueKind != JsonValueKind.Object) throw PageImportException.Input(PageImportError.RowObject);")
             .AppendLine("        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);")
@@ -203,7 +203,7 @@ public sealed partial class {{page.Name}}ImportRequest
         }
         else
         {
-            result.AppendLine($"        var query = session.Select<{relation.Target.Name}>();");
+            result.AppendLine($"        var query = session.Select<{relation.Target.EntityType}>();");
             if (relation.Target.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
             var project = relation.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project")))

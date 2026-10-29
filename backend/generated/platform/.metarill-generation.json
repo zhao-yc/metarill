@@ -2,7 +2,7 @@
   "version": 1,
   "projectId": "1608097412978577409",
   "rootNamespace": "Metarill.Platform",
-  "metadataSha256": "6918b6e45ce4fa134b898af2493a788fe236a9bf23fa66fc2fa2abcdbeb9ef95",
+  "metadataSha256": "e4c66f71149a5876d0f96795fd09eb911bb1ab7f65ebb707b991587ed65acfdd",
   "files": [
     {
       "path": "Controllers/ConfigButtonPage1870796062470516738Controller.g.cs",
@@ -166,99 +166,99 @@
     },
     {
       "path": "Entities/ConfigButton.g.cs",
-      "sha256": "f8733d4a8ce3975bba8cb2def924903c0c0b41d157d8bb62f5c8345254a9ffb7"
+      "sha256": "17150b50fa69f4ce8b32bee0bc08b722fb6d648358d0a2ee52deea37871b2589"
     },
     {
       "path": "Entities/ConfigChild.g.cs",
-      "sha256": "d08439730d0555ac9853c7c4d84d3d8a1a2edd8cc6b9a64296e4c221cec28089"
+      "sha256": "e37b8041d97f3bdd35f6267391da21cf7aa2b4a6aed295f7c516d1ea74dc207d"
     },
     {
       "path": "Entities/ConfigColumn.g.cs",
-      "sha256": "049f0deb6f41516d34a2ff6d2311059728e343b5f5b3d3311699c78fe71d5617"
+      "sha256": "19d3a472f575c40c86b7647d38e362ec4a393fe75d061a77d00cb10b58f18321"
     },
     {
       "path": "Entities/ConfigCustomPage.g.cs",
-      "sha256": "a43ba693145915d650062102191c1cc297a8ed45efa5853a1e16799b216ee93a"
+      "sha256": "9f3263c70417f79232f2d6da52c152ad890fa3c6022b986c9462717ab23fdddf"
     },
     {
       "path": "Entities/ConfigIndex.g.cs",
-      "sha256": "3c65b9f6dfa0c989aa22e571b04354a658df2879a531dbeff679e70d941a7bc4"
+      "sha256": "be3403efe7d2075076b8ebf31ecd83dd7dad14f71023ccb9a29e13309d36d777"
     },
     {
       "path": "Entities/ConfigIndexColumn.g.cs",
-      "sha256": "7548e01b78d7e52c38835a23a87afab3fce8838eec47a02903832805c9477f5e"
+      "sha256": "2c87a5396bf03c7662e23331db3c9cd503e46e03fedda91d56c82fa57d07d5aa"
     },
     {
       "path": "Entities/ConfigMenu.g.cs",
-      "sha256": "465f4b9786cc285d264923f587a246a417c7285aadc0440ef48c1bf481ea43d1"
+      "sha256": "543c39f44600a3712df4da4e0d8843466de8316380e25cf795b0fb3e66287407"
     },
     {
       "path": "Entities/ConfigPage.g.cs",
-      "sha256": "a08ee4125c52036aa2068b26db833502f8fe33a75e8db68dae5c4de7931e6f46"
+      "sha256": "5cc2921e356f9228232f9f1b106fffaf08bb749218c8807da7615e3b7c0f2b15"
     },
     {
       "path": "Entities/ConfigPageColumn.g.cs",
-      "sha256": "5b9128051497d69b687e27967efaee8fe57d0b6b6112510c149e8b8922c82c61"
+      "sha256": "41c28c65bf3d68d96cc4639d8546c02a9144143a6ec3c806b1be0b7ba9868cf6"
     },
     {
       "path": "Entities/ConfigTable.g.cs",
-      "sha256": "1e53ce96f2418f1dacecdb4743a7c716d328a46d4520def4be2345abdd62022e"
+      "sha256": "52cbd307ded2996297f8420af8d61f96fc645cb06ded6a29f6fd0469a7f1849c"
     },
     {
       "path": "Entities/SysAgentGrant.g.cs",
-      "sha256": "b2e343cd709cdcdcbf6a26d25f43ae4a18e255960d75c475c1b7cfe4d84e67e9"
+      "sha256": "23eaf80c80121bb1a4a1562453ff9af40975bce1bfad2f0c1dbf1c7523a9df3f"
     },
     {
       "path": "Entities/SysAgentTask.g.cs",
-      "sha256": "bf6957b7cb85700c6ceff72bb64793bb2b0f98894dba350f0a0caba6055ee505"
+      "sha256": "7f9fdce60cfc9433abfe3eeb15bd6342790b74ffbf85c15d2869008bddf54bd4"
     },
     {
       "path": "Entities/SysSession.g.cs",
-      "sha256": "2e4575390edf054d5d459726468c901267763f9db2395c08edc6ef2b3ca2d929"
+      "sha256": "3c845855469153a20ae19f05fdeff8779bf7e62465c9267dc77c896be8b8d7df"
     },
     {
       "path": "Entities/YzAdminType.g.cs",
-      "sha256": "ca95cdd286ab69db53e92ba38d108c8379f7f2351dee7c9d3255252743ec714c"
+      "sha256": "a26c7cc2b08d7a7a72bbea8a418bcb0e1784423a9b4e362dd7cdbe0bfbed229c"
     },
     {
       "path": "Entities/YzFileLibrary.g.cs",
-      "sha256": "135f8f52236a4632ecb5111f2ca0c93d505f830801b6766fd651fd5f3de4b6f3"
+      "sha256": "d0bae8ab5ab98e54ea2713803614d7ee9026b79cfffa4bd02d494c0a6cf7028e"
     },
     {
       "path": "Entities/YzFileLibraryFolder.g.cs",
-      "sha256": "d60dd89eaa3e228928de99d391c9dc00b6690e7d8a48aa8504d969fb4c064bf7"
+      "sha256": "79b1974db7fad310ef2734eee7478d550095018c819b3ee78572e891b14779b5"
     },
     {
       "path": "Entities/YzFileRef.g.cs",
-      "sha256": "b5a948b936581528919b06e439ad81356173beed97bf44e530cb4697ae9247ea"
+      "sha256": "8688342733d2c6b19740c88ae4fe7a9c53e212ab05569f9ecea177d6f56e93d6"
     },
     {
       "path": "Entities/YzManager.g.cs",
-      "sha256": "fba9de8959fdab69ed2b00a80fe76173f41fb4d741a34bf186e24f140ef0f128"
+      "sha256": "310da6116380bf406580c1dbab8b858517bb65eb2e6afde39499abfadfab47c4"
     },
     {
       "path": "Entities/YzManagerDevices.g.cs",
-      "sha256": "1634d829713a218f7a2512f7f62fc2ba92b20cde344b54202cb884a2a1f6e77f"
+      "sha256": "879c77a6b78e85912a968c8cf4aee666c369903bff379f92321fb2741e59f663"
     },
     {
       "path": "Entities/YzManagerDevicesProject.g.cs",
-      "sha256": "4f86500845a7e5d3acf29522606655f13847a0932e87f48aafeb684ca0e934ee"
+      "sha256": "5cb4e1be2659be05f1d5cb2a8b41a798667c88eb39129120d1f141fdb33e3f4c"
     },
     {
       "path": "Entities/YzProject.g.cs",
-      "sha256": "2203b800877d236449a4d1ddaf8ffdd2eae9380f730d9639d72e469a7302fffd"
+      "sha256": "6c15238180a7d1a5b130d689b006ff9d080d085ec9aeff5bd7dd81a7e42e049e"
     },
     {
       "path": "Entities/YzRole.g.cs",
-      "sha256": "35994080b4140010b22d1ff858b447c393e96c7792ab3e85bbc01681a5d1483f"
+      "sha256": "a6b3fdd17a7f299376cf77b69be1b037b78081c87d6b380849ee4a6ded988469"
     },
     {
       "path": "Entities/YzRolePermission.g.cs",
-      "sha256": "5d9b292a6ca18b59478e8a88d968b17f0fc02f59c1d5fcbbcce88ed0fdeace9e"
+      "sha256": "a01cd79488d90619f22424b3d0f5c0b90d5230599e444c2769be1419fa12ffdd"
     },
     {
       "path": "GeneratedRegistration.g.cs",
-      "sha256": "e277a134996b69d78850f66354abd9f9bcdabf936765dfa179eddf26d42cdb3f"
+      "sha256": "090def85d783dfc76606343dbd2e07df00d91a45c32ea9658ac81be84c1944bc"
     },
     {
       "path": "GeneratedWriteSchema.g.cs",
@@ -266,239 +266,239 @@
     },
     {
       "path": "Mappers/ConfigButtonMapper.g.cs",
-      "sha256": "40d35609ca10f5119ef3a6f8d1a72167d6a8c3f40f5b388e4a767942d6ba8c26"
+      "sha256": "b403fc9b623f4cf8e2b773527891aeaa485cc5fba60fdd65fcd81454456e1cf3"
     },
     {
       "path": "Mappers/ConfigChildMapper.g.cs",
-      "sha256": "4e44f9f49fae65a64aca85e62efd89a1634e2a484dccb091dc2660de88392850"
+      "sha256": "d006981168c3a35543cccfbc2706330a22a33477bf4b06bba994b14e1190db58"
     },
     {
       "path": "Mappers/ConfigColumnMapper.g.cs",
-      "sha256": "a70ee390f929695de295578c54bc8a839ed0a210b14a77e23a232f4f7e5d024a"
+      "sha256": "b35fe932e58719e4e603424e6c2081b8d6921e9739fc358536ce21d5079dac90"
     },
     {
       "path": "Mappers/ConfigCustomPageMapper.g.cs",
-      "sha256": "8abb7af4c70db1811efa8e125dda782d8dfc095f7bccec698b447f173718ffe4"
+      "sha256": "e584966b6861cdd8b6493da2a9ba1d19192ec3161f543076a68badd3d97e7d10"
     },
     {
       "path": "Mappers/ConfigIndexColumnMapper.g.cs",
-      "sha256": "f7678476ff555c3a548942b8619620995d917cd8ad273bebbb5e9648d3fd5362"
+      "sha256": "d11855cefbe7a3df2a4e7afcffe6ac3b8c60da551714dbb085cff47d5a18f365"
     },
     {
       "path": "Mappers/ConfigIndexMapper.g.cs",
-      "sha256": "6eb6c257afadbe5883f551985b31ed20fc1344679db62cbd43c4bd0db0e7fb01"
+      "sha256": "b277f4eb613bb85daf90d17eeadcdd0eb8105190e3606b88aca91e79cbf06081"
     },
     {
       "path": "Mappers/ConfigMenuMapper.g.cs",
-      "sha256": "4e1426a642fad4f15387e51b15041cfda31334fab9a829a932d3c78fc74b82a2"
+      "sha256": "b19cb114a8850c7795b959b168ec553febbdd04a6273b5bdadd146ec8e0befe4"
     },
     {
       "path": "Mappers/ConfigPageColumnMapper.g.cs",
-      "sha256": "397d8b6c496aed6627481f4f2f45e53bf0474a9aab0a497d09fb837f2e616175"
+      "sha256": "76333e4acccf675eb0161819e2c5ba23a37896a6e33d128b4a4ca871318a7871"
     },
     {
       "path": "Mappers/ConfigPageMapper.g.cs",
-      "sha256": "fbb3951642466baa0ccfcfbec801572fea1d62575506afa1e4ac6c35b90e1586"
+      "sha256": "02937d88e4875b56a9f7ed3d49b995d5fc9290b06ff371bdfb99664a2240bc30"
     },
     {
       "path": "Mappers/ConfigTableMapper.g.cs",
-      "sha256": "1d4e598f0f50cb521992175362ca7cc1fd5d245141524bfc7251f1936f7ec10b"
+      "sha256": "c165524705aa17ab70aaae7589f1c6d8917c3a21828b0541ba7f37d936079ba7"
     },
     {
       "path": "Mappers/SysAgentGrantMapper.g.cs",
-      "sha256": "a248ce130e299ebb52745a50e135a1624e791d8cd75158d885534b0e4e2e2fcf"
+      "sha256": "094a6add82fac5b88a6861cd1d872e99a3429544717f77cfd9aef3d20fb1bc6a"
     },
     {
       "path": "Mappers/SysAgentTaskMapper.g.cs",
-      "sha256": "9c3838e09d7238e0a03564b54b1ff6c82a4d8a32090688cce1ebecfd927aa588"
+      "sha256": "21c2c8b8f8105c8d90ac0a9c918d79e11e1ee1963879091801eab575c6782a10"
     },
     {
       "path": "Mappers/SysSessionMapper.g.cs",
-      "sha256": "b61564760e647a6842573d2facdd4b4e2d21894c057b132d490ba44a83db6bf5"
+      "sha256": "7e4671e1942ab3182b569c9440566bfe175c88f70591caa7b83f8f53f18e5f7f"
     },
     {
       "path": "Mappers/YzAdminTypeMapper.g.cs",
-      "sha256": "8597e0a23db177789cc754c9f66dd48845b9f472b277507102a8422a570f890e"
+      "sha256": "6217c74c997a78cda66be992be824b1df974cb3e0d8d46817192537e3023a186"
     },
     {
       "path": "Mappers/YzFileLibraryFolderMapper.g.cs",
-      "sha256": "e3e117eb662bc8f24fa178c4196fe0f9544911b6430b3deaf49e832481090120"
+      "sha256": "13f7d88400ad985b87f4fad99a58a79734d438d14b7ce4779fab9f720fad4d37"
     },
     {
       "path": "Mappers/YzFileLibraryMapper.g.cs",
-      "sha256": "ddb8671052048b9f23121a086d525419f5404154223f7d4f953fffa9cc9e71b6"
+      "sha256": "e65d14eb1ea4f69e8be5736e962a5da0fabe3302cd1fd156b5e3da807c9a2a0c"
     },
     {
       "path": "Mappers/YzFileRefMapper.g.cs",
-      "sha256": "f28d026b21b2e796a9e50a763e955790d3d2b39805a5aecd885233c9f05dc46b"
+      "sha256": "ac600db3ae6d65a30983ae192bc7167769bcf355f8352eaf632ceb37e2bf32c8"
     },
     {
       "path": "Mappers/YzManagerDevicesMapper.g.cs",
-      "sha256": "bf7040c0cb5b54ca9307a2a73565896b7da69cc2dde12f6dbcda7b13b2033b6c"
+      "sha256": "803579a7d9c6ac2b82f7a1c9cf0ac841f089a61a2d0130385d2af0c2db02ad7e"
     },
     {
       "path": "Mappers/YzManagerDevicesProjectMapper.g.cs",
-      "sha256": "dbf4ccbfe49a88dbcb5c8bd2126ef8e9e3918d6aecbd229a5bd9f1cfdb1255ed"
+      "sha256": "dc27445b9fe3623b66032da2402585fd2e71081637d59b68bcb1df9b128d0d7b"
     },
     {
       "path": "Mappers/YzManagerMapper.g.cs",
-      "sha256": "36e1b8df7f3bcfbe39ed50529ea1cf19195d5bfffd9f588f98c2b920c50ed49c"
+      "sha256": "8b2a86b74b9e7e3d4f8224b92aabdf5327eb4a57953624652a9315ee8907c280"
     },
     {
       "path": "Mappers/YzProjectMapper.g.cs",
-      "sha256": "1152e3b559b7a34dbc03723e58e1ef57bd6b8c31087bfb8ab8aba26ca0272672"
+      "sha256": "7a5cf5d5d235d1f81d407f6cf4432e5ceb19ccf668862862cdd3216b4172b9cb"
     },
     {
       "path": "Mappers/YzRoleMapper.g.cs",
-      "sha256": "98eef495cbbeb21c0bd344ba40b70a7d3ab5a70047ee67f95769c23dc641175b"
+      "sha256": "ea75e5a04de6148d6ef6b3ad20c508511300e4bfa23fd5084f408050385c6180"
     },
     {
       "path": "Mappers/YzRolePermissionMapper.g.cs",
-      "sha256": "b4d36234f4f8f0f60aa00025647c885a67bf16c41c5c6d29046e3004b2f850e7"
+      "sha256": "e446a5b803e3f7d1f1ebbe47eeb496f0941a389ff0fa011cf9e18a6da57da0c8"
     },
     {
       "path": "Services/ConfigButtonService.g.cs",
-      "sha256": "bd224b611349e3501bbfc189ec6e1e1213041ed60b2960954d1123bf4bdad7b6"
+      "sha256": "84204bf75770497331177dea33fde1e859914b9b4c711c48fec702b65d866fec"
     },
     {
       "path": "Services/ConfigChildService.g.cs",
-      "sha256": "b480fd59fb4905d7c5ed7a7c00af199a91f1318ac873f46add1807f671c51f25"
+      "sha256": "4d43b3d5617285853eb9a1381275887b1a00294ec7b7069af3b37f22d909ca6f"
     },
     {
       "path": "Services/ConfigColumnService.g.cs",
-      "sha256": "728232c81b6ecf9656223c535a6b031b837b5f098e3826eb385d2f6e582c3dd0"
+      "sha256": "c92fe4705f5b79cd4a81c4f7213b4589daa04c802c6bda01e954c521f90290a0"
     },
     {
       "path": "Services/ConfigCustomPageService.g.cs",
-      "sha256": "849ed874c6902a4e77f84e90fd17aeb695c18a32f5ef234133bd99dbba646d97"
+      "sha256": "9bd3e1586c1b25111c512caac2a9700a3fb141099cea8b91748d152c7a3af70d"
     },
     {
       "path": "Services/ConfigIndexColumnService.g.cs",
-      "sha256": "f26c8fd8ab5d58b330f879e1fd407c711ca5b8a57743f8696574bef060c989d8"
+      "sha256": "c2cafcfa3f512616175188f5c96c2fd2baca4111919c7dbf9f98899aa0f079a5"
     },
     {
       "path": "Services/ConfigIndexService.g.cs",
-      "sha256": "4ae630e6a4f0736dc8fd720195ef5ba72dc5ed281899e986ed7deed1cfc55339"
+      "sha256": "048aed03a730c5c55774b7e3e95c8368b64be8f2bc69947682bf030419d7c42d"
     },
     {
       "path": "Services/ConfigMenuService.g.cs",
-      "sha256": "f0e7ad68e5bf9cfc44c45bec35d7da97b3191be14ff01f00b166cb4b2235adab"
+      "sha256": "c72bc48bd11045f0733cc4c5b4ef200db40dba48e66befdd0a45ee040387298d"
     },
     {
       "path": "Services/ConfigPageColumnService.g.cs",
-      "sha256": "0228793231cf0f0d382bd12fe52520ed94ad98443ccce9b4537dff5ab573a0e3"
+      "sha256": "7bd56f444d54ca077444421bf366d03f29097ca2c8613cb7cfa340d994f97354"
     },
     {
       "path": "Services/ConfigPageService.g.cs",
-      "sha256": "66faff8c43bc94bf960089bb8828cde0aaeff54e4a8c20f0f45ff3370738c0cd"
+      "sha256": "3fc18063ac93d269febfc91a764e2ac7d37c090f271eba868e6540655c3c1b24"
     },
     {
       "path": "Services/ConfigTableService.g.cs",
-      "sha256": "901c3e655bfefe1daef972f4d08690b4721c54c42ef0b3fd793d21c05656e804"
+      "sha256": "189f00dd6c628fcc5eeb143449c52f44a8572abe36f5c590a7923173c59975fa"
     },
     {
       "path": "Services/SysAgentGrantService.g.cs",
-      "sha256": "7eff4c945db1bbc3431b35c39227dcb8027452a81888d68f0bfd9b3f8857da38"
+      "sha256": "ec1a32cfa5a61d88011687e0212b3a7e3d18bdf8b379eac9473f6036936d5803"
     },
     {
       "path": "Services/SysAgentTaskService.g.cs",
-      "sha256": "f6c26f318606d2e37a25a944f4eef415e018ce53dd3e4df2cb815f582c6f06c8"
+      "sha256": "46c73ff25be09f5e503e9245b6d190cf38bb5d8d1c989e142db3e09733a6a0ab"
     },
     {
       "path": "Services/SysSessionService.g.cs",
-      "sha256": "7072099395bb7f6e4e5075bd2fb30a2759bbc60e8cd33f5166d3ce34e837b6e0"
+      "sha256": "a4e7d725fd9625fb6bdf1ed43909b79effaab96f6b3b97e10f1e02947b1b4b78"
     },
     {
       "path": "Services/YzAdminTypeService.g.cs",
-      "sha256": "44e4ac69b90e3c9d134396205da04a7c1485837a7cbd0c65ea922980c0d6306b"
+      "sha256": "87c9de5da179bcd64a3fd228f6d2b4d1529de91b99d39dcbda0910678122121c"
     },
     {
       "path": "Services/YzFileLibraryFolderService.g.cs",
-      "sha256": "77635ef7851f4a7e6db861b5a28976633db77ffed3d576d5e1f7d0d991c14ea9"
+      "sha256": "0cfad7a17f96d2374b671d6c1d01cdba6fb941a2102b5032db17a0ed038d5266"
     },
     {
       "path": "Services/YzFileLibraryService.g.cs",
-      "sha256": "0d0a726b36210da4b49f67a4c3aa2c1fd2a09fd9e3644aaa8be52ccf86d54cc8"
+      "sha256": "47ac35f1e5538301a9caab85bc5de22a28379d02601b548b60cacfff591b7ba9"
     },
     {
       "path": "Services/YzFileRefService.g.cs",
-      "sha256": "c54a063ce5d56ad4e7fb94512bfd3efd356e17753a444479c691d1ef0f583c5e"
+      "sha256": "d532c7cf442fefc13370731a93b29c613697e6bfcf4ef94028c3483feedf9120"
     },
     {
       "path": "Services/YzManagerDevicesProjectService.g.cs",
-      "sha256": "3e9ac39d49c3f0d1771e861045f3e61b2d673a06c7c915efbb873de2e93f85d6"
+      "sha256": "c58ba702421d4b2ac3a006ed8c532e2d34a115f4ac042c73c80bd6f943b085fb"
     },
     {
       "path": "Services/YzManagerDevicesService.g.cs",
-      "sha256": "9ef93f54c64e94d6834621494f90604426d7448f7385559bea142922f4a1ed90"
+      "sha256": "5204126a363a44c337b83195020b143ffaefa6fd26d02cc93afda1ed04345e25"
     },
     {
       "path": "Services/YzManagerService.g.cs",
-      "sha256": "3196719f09da18365f597821b469ff5d9742d2bb64fb1219fbaf888063176c6d"
+      "sha256": "bc57fabefe27ddd286f33995545c3fa3ba8982b9a04db56b8fae1198e2635202"
     },
     {
       "path": "Services/YzProjectService.g.cs",
-      "sha256": "ac317c56efbac540ad3b8de1ddac9e9282e072cb1ef6a2f5c8a8f4a85f444977"
+      "sha256": "7119a1ee744691c3d2ec223e26fe6d16eb93d3ade803a7fa888705dd3c669516"
     },
     {
       "path": "Services/YzRolePermissionService.g.cs",
-      "sha256": "ab5a4db70ebb060780beb530398a7bb6878c9b564bc357ed0d6f10e812a5882c"
+      "sha256": "af72cd5201bf5fa05773d87eb56c644c9fad620da2ea9e744287e64e8564f6fa"
     },
     {
       "path": "Services/YzRoleService.g.cs",
-      "sha256": "b55cb1f65ce575ae08f4b5ad63d4f49334dd1143ca25c7589b834198dac27c7b"
+      "sha256": "57fd141f28ac02b7a7d0e7d91e9c0073340836e6c75d66cd728d21187bd80b32"
     },
     {
       "path": "VOs/ConfigButtonPage1870796062470516738Vo.g.cs",
-      "sha256": "ff3d4af32cafa1da952391bfefda3ac377ef049cb8d908dfe6039c99a6339a58"
+      "sha256": "3ab282eedbdfa7cb76f76f841eff9059d62149f1e086d0245846b3beeb5313a8"
     },
     {
       "path": "VOs/ConfigButtonPage7097193256583168Vo.g.cs",
-      "sha256": "e2184516b69dcae02500d704e80a3e9ed1e4d6451c7c25dc849ded76a3d6bcf0"
+      "sha256": "5a84c82f3a920b81f67a1f9b8d4e1ead61009a435efcab4581d24a64a45ac18e"
     },
     {
       "path": "VOs/ConfigChildPage1679390851298631682Vo.g.cs",
-      "sha256": "2f3dcc5e2bf6d6e2d18c70a633d661179a7cf55ab7d0b7cd90041a534c6ec9c4"
+      "sha256": "b01842c9c7b66e262ca6e7613c161a55346b47f1f41b4b4701d3368ca6f6e2fa"
     },
     {
       "path": "VOs/ConfigColumnPage6217715532627968Vo.g.cs",
-      "sha256": "17d432ff1257d277611e081a51ea508687c21d23738a59cfec6d13c3e5c780f5"
+      "sha256": "f774d1362c965c9be1476060a3a0f34fd08672c4389b775fc6d472677224ea29"
     },
     {
       "path": "VOs/ConfigCustomPagePage2062361618137833473Vo.g.cs",
-      "sha256": "64ea796bac5de15be530d83008ad7a05fb172ab2ec9f714b23318027c0a1478b"
+      "sha256": "98151e24ff55408ea8e3188606a4232573f2a2dc1680bb99d0e836f0921a54ac"
     },
     {
       "path": "VOs/ConfigIndexColumnPage2076977554350190593Vo.g.cs",
-      "sha256": "219fb678d3f09757363cf06a6d7e4e40ae5bd6f978029142080eed23fe36d3d9"
+      "sha256": "29d4391ad4970d7e19b9a2721af23c717f9542bcbbba66e63515339c90252ad1"
     },
     {
       "path": "VOs/ConfigIndexPage2076977531071803393Vo.g.cs",
-      "sha256": "1fa24321ac1fe4eade7c8a9b9e789d2f1cc8d83d38174dce88e380604a4311b4"
+      "sha256": "1c95ed790de92485fa27e129ada481504c19b9304001ca6aeb7b7b23835c0e18"
     },
     {
       "path": "VOs/ConfigMenuPage2200000000000099000Vo.g.cs",
-      "sha256": "35f426c000f8f5cb0ef163bde1b09c15b132ba3e4c0b9e9d49d06e78ed2f70e4"
+      "sha256": "ddca65a2bcc9cbb9a593b124b3bd8d851fadef6df1a3298172ddf2ab66dd265e"
     },
     {
       "path": "VOs/ConfigPageColumnPage6218036784398336Vo.g.cs",
-      "sha256": "231ac1c205d99f67df24d62472f6584723483879cd49283b236536941781a0f1"
+      "sha256": "37a3398112c01b7af21a9339e03d71e51bed892bf0c2e7b3ef37697dac5d923d"
     },
     {
       "path": "VOs/ConfigPagePage1868973685063311361Vo.g.cs",
-      "sha256": "0be7e51d72a7007e9e0f745f808be41625daccc985c24c8b29713011863d5e29"
+      "sha256": "6d384d3fa22440a5885d65a30776cbb60ed44eaaf0e95ec5b2f23413e51bf53d"
     },
     {
       "path": "VOs/ConfigPagePage1869016706289577986Vo.g.cs",
-      "sha256": "7fdf62ee88e09ecd66054fd732a495638f466d3608621278a4d62ee4b2a7fef4"
+      "sha256": "d662fe90d67c35b641b640608caa6e8e4a0854cadaa141ad224ea75cbdfe762c"
     },
     {
       "path": "VOs/ConfigPagePage6191175925956608Vo.g.cs",
-      "sha256": "3178dad34c24e0f3c383bfed8d5535fbe9f80239b7448d64ad9eb7fa0e6cece0"
+      "sha256": "cd6dc0fe0ed3bdcf329806a47eccb6abdbcc422c4dba57eb488490029fa21dd8"
     },
     {
       "path": "VOs/ConfigTablePage6191083005411328Vo.g.cs",
-      "sha256": "a4c1ff50b6772c8e0551d4e37e2c547d528f1642c7143a7d45743880ba24608c"
+      "sha256": "9296475b399581cbf45457ce47c07d1cd676e9688a012f4cbe422bea0aee5b78"
     },
     {
       "path": "VOs/GeneratedOption.g.cs",
@@ -506,31 +506,31 @@
     },
     {
       "path": "VOs/YzAdminTypePage1696799309006348290Vo.g.cs",
-      "sha256": "723d461e4c098328f017b6a446be4a6424d7fff6e2481e1fac8b31f68ad5a6b6"
+      "sha256": "54de108c2d8595a5a8222d8d5cf3eb41c9b989f806a67ee1b0a85eaaccdfc368"
     },
     {
       "path": "VOs/YzManagerDevicesPage6220589291798528Vo.g.cs",
-      "sha256": "3d08f252319b9829ba1aecca0151e8cd15a530e96242f4e2b769adf342911203"
+      "sha256": "c68ede708d0ed56f183809dad883295f4b4284eeff38dfcea2cd57c463b7aee6"
     },
     {
       "path": "VOs/YzManagerDevicesProjectPage6220608155484160Vo.g.cs",
-      "sha256": "a066bbf1fd8fa9d1ff0cc1cc3bbfd3d0614a3b35ae163466e99e98a1c07a08fe"
+      "sha256": "acb15ed5faa5ca35c4118bf055c68323f1cdddda4d6114393daf8baf7d2e19b8"
     },
     {
       "path": "VOs/YzManagerPage6031906822946816Vo.g.cs",
-      "sha256": "ac1a0bbcb536124cf96f66a78943ae7f29538bed44c6ee45361f822deffcf279"
+      "sha256": "6b58ee84569e61b9fb00e0a52e9f3b91e396a25b9e8287829207ab45ef3f0da7"
     },
     {
       "path": "VOs/YzProjectPage6186303424888832Vo.g.cs",
-      "sha256": "06806c621cad150a812e8d69de4d2fee4a1419c9ea72aeeee956bbc2594f2bb7"
+      "sha256": "0d8a673fe7ee58f781721ea0304fc95c661c15a24f7d4af2d4403d617b10a1a6"
     },
     {
       "path": "VOs/YzRolePage1692532858529329154Vo.g.cs",
-      "sha256": "1c7b71def05340b3af17822b1197b01354737f3b7fd4da2cbe651aca0531487c"
+      "sha256": "2a35c65f3ce91af08217e1d96779313ead565756a560e99c4464626410dc914b"
     },
     {
       "path": "VOs/YzRolePermissionPage2063264600601714690Vo.g.cs",
-      "sha256": "990a9fe4f1565935cb0d591ad55729ee37a631ffccecf7760d6b5b6b4cd5673c"
+      "sha256": "f94c495173c6e4fce895c7bb8a969b0f9221583f70b6f527f32de74534208a80"
     },
     {
       "path": "frontend/common/yzp_runtime/page-write-schema.generated.json",

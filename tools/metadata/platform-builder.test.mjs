@@ -106,11 +106,11 @@ test('结构声明缺字段名或类型时由builder明确拒绝', () => {
 });
 
 // 恢复控件以追加方式进入已发布目录，既有数组顺序、三个完整对象和所有固定标识都不能漂移。
-test('原账号三凭据按已发布尾部顺序重建，保留完整对象和1439固定标识', () => withSandbox(workspace => {
+test('原账号三凭据按已发布尾部顺序重建，保留完整对象和1440固定标识', () => withSandbox(workspace => {
   const restoredIds = ['1679698326770069506', '1679698328187744258', '1679698328317767682'];
   const identifiersPath = join(workspace, 'backend/metadata/identifiers.json');
   const beforeIdentifiers = JSON.parse(readFileSync(identifiersPath, 'utf8'));
-  assert.equal(Object.keys(beforeIdentifiers).length, 1439);
+  assert.equal(Object.keys(beforeIdentifiers).length, 1440);
   const rebuilt = generate(workspace);
   assert.deepEqual(rebuilt.configPageColumns.map(field => field.id), canonical.configPageColumns.map(field => field.id), '全目录页字段ID数组顺序必须保持');
   assert.deepEqual(rebuilt.configPageColumns.slice(-3).map(field => field.id), restoredIds);
@@ -201,5 +201,26 @@ test('固定配置关联身份或目标漂移在builder中明确拒绝', () => {
   if(change==='identity')field.id='9007199254740993';else field.joinTable='yz_manager';
   writeFileSync(filename,JSON.stringify(source,null,2)+'\n');
   assert.throws(()=>generate(workspace),error=>error.status===1&&String(error.stderr).includes('固定配置关联ID身份或目标声明变化'));
+ });
+});
+
+// 实际重建和文件派生必须保留同一内部UTC期限，不能只修一份JSON或让页面暴露它。
+test('上传期限由统一builder重建并与文件基础目录逐字一致', () => withSandbox(workspace=>{
+ const actual=generate(workspace),id='2300000000000000401';
+ const field=actual.configColumns.find(column=>column.id===id);
+ assert.deepEqual(field,canonical.configColumns.find(column=>column.id===id));
+ assert.equal(field.columnName,'upload_expires_at');assert.equal(field.columnType,'datetime(6)');assert.equal(field.isDbNotNull,0);assert.equal(field.defaultValue,'');
+ assert.equal(actual.configPageColumns.some(row=>row.configColumnId===id),false);
+ execFileSync(process.execPath,[join(workspace,'tools/metadata/derive-files.mjs'),'--check'],{cwd:workspace,encoding:'utf8'});
+ const ids=JSON.parse(readFileSync(join(workspace,'backend/metadata/identifiers.json'),'utf8'));
+ assert.equal(ids['column:yz_file_library:upload_expires_at'],id);
+}));
+// 已发布身份不能通过旧标识清单或他人占用被静默接受。
+test('上传期限身份漂移或标识挪用在写出前拒绝',()=>{
+ for(const change of ['identity','occupied'])withSandbox(workspace=>{
+  const filename=join(workspace,'backend/metadata/identifiers.json'),ids=JSON.parse(readFileSync(filename,'utf8'));
+  if(change==='identity')ids['column:yz_file_library:upload_expires_at']='2300000000000000402';else ids['column:other:foreign']='2300000000000000401';
+  writeFileSync(filename,JSON.stringify(ids,null,2)+'\n');
+  assert.throws(()=>generate(workspace),error=>error.status===1&&String(error.stderr).includes('上传期限字段标识'));
  });
 });

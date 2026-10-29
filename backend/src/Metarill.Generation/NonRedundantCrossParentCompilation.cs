@@ -48,7 +48,7 @@ internal static class NonRedundantCrossParentCompilation
             .AppendLine($"    private static long LogicalParentId{suffix}(string? parentId)")
             .AppendLine("    {").AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0||parentId!=key.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return key;").AppendLine("    }")
             .AppendLine("    /// <summary>来源及目标完整路径同项目且可见，写用途加入原事务的当前锁读。</summary>")
-            .AppendLine($"    private ISelect<{table.Name}> LogicalParentScope{suffix}(ISelect<{table.Name}> query,RuntimeActor actor,string? parentId,bool locking)")
+            .AppendLine($"    private ISelect<{table.EntityType}> LogicalParentScope{suffix}(ISelect<{table.EntityType}> query,RuntimeActor actor,string? parentId,bool locking)")
             .AppendLine("    {").AppendLine($"        _=LogicalParentId{suffix}(parentId);");
         foreach(var column in parents)
         {
@@ -57,8 +57,8 @@ internal static class NonRedundantCrossParentCompilation
         }
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>保留物理实体与字段存在性；钩子／数据库改写父链或稀疏位时在通知前拒绝整笔提交。</summary>")
-            .AppendLine($"    private async Task VerifyLogicalParent{suffix}Async({table.Name} entity,RuntimeActor actor,string? parentId,CancellationToken cancellationToken)")
-            .AppendLine("    {").AppendLine($"        var stored=await LogicalParentScope{suffix}(mapper.Query(),actor,parentId,true).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.Name}{{{string.Join(",",fields.Select(column=>column.Property+"=row."+column.Property))}}},cancellationToken);")
+            .AppendLine($"    private async Task VerifyLogicalParent{suffix}Async({table.EntityType} entity,RuntimeActor actor,string? parentId,CancellationToken cancellationToken)")
+            .AppendLine("    {").AppendLine($"        var stored=await LogicalParentScope{suffix}(mapper.Query(),actor,parentId,true).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{{string.Join(",",fields.Select(column=>column.Property+"=row."+column.Property))}}},cancellationToken);")
             .AppendLine($"        if(stored is null||{string.Join("||",fields.Select(column=>"stored."+column.Property+"!=entity."+column.Property))})throw new InvalidOperationException(\"跨表逻辑父归属或实际稀疏存储发生变化，未提交。\");").AppendLine("    }");
         return result.ToString();
     }

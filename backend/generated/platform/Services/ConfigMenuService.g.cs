@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Mappers;
@@ -28,17 +27,17 @@ public partial class ConfigMenuService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(ConfigMenu entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Platform.Generated.Entities.ConfigMenu entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(ConfigMenu entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Platform.Generated.Entities.ConfigMenu entity, RuntimeActor actor);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations2200000000000099000Async(ConfigMenu entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations2200000000000099000Async(global::Metarill.Platform.Generated.Entities.ConfigMenu entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
         if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
         {
             var relationIds1 = new[] { entity.YzAdminTypeId.Value };
-            var relationQuery1 = session.Select<YzAdminType>().Where(row => relationIds1.Contains(row.Id));
+            var relationQuery1 = session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(row => relationIds1.Contains(row.Id));
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u6240\u5C5E\u540E\u53F0");
@@ -46,7 +45,7 @@ public partial class ConfigMenuService
         if ((creating || submitted.Contains("config_page_id")) && entity.ConfigPageId is not null)
         {
             var relationIds2 = new[] { entity.ConfigPageId.Value };
-            var relationQuery2 = session.Select<ConfigPage>().Where(row => relationIds2.Contains(row.Id));
+            var relationQuery2 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigPage>().Where(row => relationIds2.Contains(row.Id));
             relationQuery2 = relationQuery2.Where(row => row.DeleteNo == null);
             relationQuery2 = relationQuery2.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery2.CountAsync(cancellationToken) != relationIds2.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u76EE\u6807\u9875\u9762");
@@ -54,7 +53,7 @@ public partial class ConfigMenuService
         if ((creating || submitted.Contains("config_custom_page_id")) && entity.ConfigCustomPageId is not null)
         {
             var relationIds3 = new[] { entity.ConfigCustomPageId.Value };
-            var relationQuery3 = session.Select<ConfigCustomPage>().Where(row => relationIds3.Contains(row.Id));
+            var relationQuery3 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigCustomPage>().Where(row => relationIds3.Contains(row.Id));
             relationQuery3 = relationQuery3.Where(row => row.DeleteNo == null);
             relationQuery3 = relationQuery3.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery3.CountAsync(cancellationToken) != relationIds3.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u81EA\u5B9A\u4E49\u9875\u9762");
@@ -66,7 +65,7 @@ public partial class ConfigMenuService
         await Task.CompletedTask;
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<ConfigMenu> Scope2200000000000099000(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigMenu> Scope2200000000000099000(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
@@ -74,7 +73,7 @@ public partial class ConfigMenuService
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<ConfigMenu> Query2200000000000099000(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigMenu> Query2200000000000099000(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope2200000000000099000(actor, request.ParentId);
@@ -95,7 +94,7 @@ public partial class ConfigMenuService
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<ConfigMenu> Order2200000000000099000(ISelect<ConfigMenu> query, PageRequest request)
+    private static ISelect<global::Metarill.Platform.Generated.Entities.ConfigMenu> Order2200000000000099000(ISelect<global::Metarill.Platform.Generated.Entities.ConfigMenu> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -117,7 +116,7 @@ public partial class ConfigMenuService
         var query = Query2200000000000099000(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2200000000000099000(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigMenu { Id = entity.Id, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, Name = entity.Name, ParentMenuId = entity.ParentMenuId, YzProjectId = entity.YzProjectId, YzAdminTypeId = entity.YzAdminTypeId, Kind = entity.Kind, ConfigPageId = entity.ConfigPageId, ConfigCustomPageId = entity.ConfigCustomPageId, NavigateUrl = entity.NavigateUrl, IconName = entity.IconName, SortNo = entity.SortNo, IsHidden = entity.IsHidden, IsShowCount = entity.IsShowCount, VisibleScheme = entity.VisibleScheme }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigMenu { Id = entity.Id, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, Name = entity.Name, ParentMenuId = entity.ParentMenuId, YzProjectId = entity.YzProjectId, YzAdminTypeId = entity.YzAdminTypeId, Kind = entity.Kind, ConfigPageId = entity.ConfigPageId, ConfigCustomPageId = entity.ConfigCustomPageId, NavigateUrl = entity.NavigateUrl, IconName = entity.IconName, SortNo = entity.SortNo, IsHidden = entity.IsHidden, IsShowCount = entity.IsShowCount, VisibleScheme = entity.VisibleScheme }, cancellationToken);
         return new(entities.Select(ConfigMenuPage2200000000000099000Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -125,11 +124,11 @@ public partial class ConfigMenuService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigMenuPage2200000000000099000Vo?> Detail2200000000000099000Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2200000000000099000(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigMenu { Id = entity.Id, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, Name = entity.Name, ParentMenuId = entity.ParentMenuId, YzProjectId = entity.YzProjectId, YzAdminTypeId = entity.YzAdminTypeId, Kind = entity.Kind, ConfigPageId = entity.ConfigPageId, ConfigCustomPageId = entity.ConfigCustomPageId, NavigateUrl = entity.NavigateUrl, IconName = entity.IconName, SortNo = entity.SortNo, IsHidden = entity.IsHidden, IsShowCount = entity.IsShowCount, VisibleScheme = entity.VisibleScheme }, cancellationToken);
+        var entity = await Scope2200000000000099000(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigMenu { Id = entity.Id, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, Name = entity.Name, ParentMenuId = entity.ParentMenuId, YzProjectId = entity.YzProjectId, YzAdminTypeId = entity.YzAdminTypeId, Kind = entity.Kind, ConfigPageId = entity.ConfigPageId, ConfigCustomPageId = entity.ConfigCustomPageId, NavigateUrl = entity.NavigateUrl, IconName = entity.IconName, SortNo = entity.SortNo, IsHidden = entity.IsHidden, IsShowCount = entity.IsShowCount, VisibleScheme = entity.VisibleScheme }, cancellationToken);
         return entity is null ? null : ConfigMenuPage2200000000000099000Vo.FromEntity(entity);
     }
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigMenu entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Platform.Generated.Entities.ConfigMenu entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
@@ -149,7 +148,7 @@ public partial class ConfigMenuService
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigMenu entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Platform.Generated.Entities.ConfigMenu entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -158,7 +157,7 @@ public partial class ConfigMenuService
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyConfigMenuAsync(string pageId, ConfigMenu entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
+    private async Task NotifyConfigMenuAsync(string pageId, global::Metarill.Platform.Generated.Entities.ConfigMenu entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {
         var values = new Dictionary<string, object?>
         {

@@ -3,7 +3,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class ConfigColumnPage6217715532627968Vo
 {
@@ -136,7 +135,7 @@ public sealed partial class ConfigColumnPage6217715532627968Vo
     [JsonPropertyName("mobileListPageColSpanShow")]
     public string? MobileListPageColSpanShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigColumnPage6217715532627968Vo FromEntity(ConfigColumn entity) => new()
+    public static ConfigColumnPage6217715532627968Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigColumn entity) => new()
     {
         Name = entity.Name,
         JoinTable = entity.JoinTable,

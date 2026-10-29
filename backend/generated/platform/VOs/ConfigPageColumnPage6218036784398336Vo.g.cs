@@ -3,7 +3,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class ConfigPageColumnPage6218036784398336Vo
 {
@@ -100,7 +99,7 @@ public sealed partial class ConfigPageColumnPage6218036784398336Vo
     [JsonPropertyName("sumKindShow")]
     public string? SumKindShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigPageColumnPage6218036784398336Vo FromEntity(ConfigPageColumn entity) => new()
+    public static ConfigPageColumnPage6218036784398336Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigPageColumn entity) => new()
     {
         ConfigColumnColumnName = entity.ConfigColumnColumnName,
         ConfigColumnSortNo = entity.ConfigColumnSortNo,

@@ -27,10 +27,10 @@ internal static class CascadeTreeMergedWriteRenderer
         var storedEmptyName=source.Type=="string?"?$"stored.{source.Property} is null?null:{Literal(string.Empty)}":"null";
         var identity=string.Concat(table.Columns.Where(column=>column.Source.ColumnName=="yz_project_id").Select(column=>$"||stored.{column.Property}!=entity.{column.Property}"));
         // R0自指的逻辑名称只在正常DML后按实际外键读取；不能把IsIgnore属性当作当前名称。
-        var prepare=plan.Read.DerivedName?$"if(id==entity.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=null;}}else{{var leaf=(await DerivedCascadeRows{suffix}Async(actor,[new(\"id\",FixedReadComparison.Equal,id)],[new(\"id\")],1,true,cancellationToken)).SingleOrDefault();if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.Name;}}":$"if(id==entity.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=entity.{label.Property};}}\n        else{{var leaf=await CascadeScope{suffix}(actor,false,requireTargetList).Where(row=>row.Id==id).ForUpdate().FirstAsync(row=>new {table.Name}{{Id=row.Id,{label.Property}=row.{label.Property}}},cancellationToken);if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.{label.Property};}}";
+        var prepare=plan.Read.DerivedName?$"if(id==entity.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=null;}}else{{var leaf=(await DerivedCascadeRows{suffix}Async(actor,[new(\"id\",FixedReadComparison.Equal,id)],[new(\"id\")],1,true,cancellationToken)).SingleOrDefault();if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.Name;}}":$"if(id==entity.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=entity.{label.Property};}}\n        else{{var leaf=await CascadeScope{suffix}(actor,false,requireTargetList).Where(row=>row.Id==id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{Id=row.Id,{label.Property}=row.{label.Property}}},cancellationToken);if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.{label.Property};}}";
         return $$"""
     /// <summary>只准备已提交关联的叶子名称；涉及来源本身时不拿旧行决定最终路径。</summary>
-    private async Task ValidateCascade{{suffix}}Async({{table.Name}} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true,bool creating=false)
+    private async Task ValidateCascade{{suffix}}Async({{table.EntityType}} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true,bool creating=false)
     {
         if(session.CurrentTransaction is null)throw new InvalidOperationException("级联写入必须加入当前事务。");ValidateActor(actor);
         if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException("级联写入要求真实当前身份。");
@@ -48,13 +48,13 @@ internal static class CascadeTreeMergedWriteRenderer
         entity.{{source.Property}}={{assignment}};entity.{{name.Property}}=actualName;submitted.Add({{Literal(source.Source.ColumnName)}});submitted.Add({{Literal(name.Source.ColumnName)}});
     }
     /// <summary>只读回本次已授权写入的行；数据库实际舍入、排序及NULL规则决定路径可见性。</summary>
-    private async Task ValidateStoredCascade{{suffix}}Async({{table.Name}} entity,RuntimeActor actor,ISet<string> submitted,bool creating,CancellationToken cancellationToken,bool requireTargetList=true)
+    private async Task ValidateStoredCascade{{suffix}}Async({{table.EntityType}} entity,RuntimeActor actor,ISet<string> submitted,bool creating,CancellationToken cancellationToken,bool requireTargetList=true)
     {
         if(!({{Trigger(table,plan)}}))return;
         if(session.CurrentTransaction is null)throw new InvalidOperationException("级联最终校验要求来源事务。");ValidateActor(actor);
         if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException("级联写入要求真实当前身份。");
         var refresh=creating||submitted.Contains({{Literal(source.Source.ColumnName)}})||submitted.Contains({{Literal(name.Source.ColumnName)}});
-        var stored=await session.Select<{{table.Name}}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(cancellationToken);
+        var stored=await session.Select<{{table.EntityType}}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(cancellationToken);
         if(stored is null||stored.{{source.Property}}!=entity.{{source.Property}}{{identity}}||(creating||submitted.Contains({{Literal(parent.Source.ColumnName)}}))&&stored.{{parent.Property}}!=entity.{{parent.Property}})throw new InvalidOperationException("级联关联ID或归属在存储后发生变化，未提交。");
         // 改父必须验证完整分支，不能把后代推过64层，也不能因书签为空漏掉约束。
         if(creating||submitted.Contains({{Literal(parent.Source.ColumnName)}}))_ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync(stored.Id,false,cancellationToken);

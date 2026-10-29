@@ -2,7 +2,6 @@
 #nullable enable
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class YzManagerPage6031906822946816Vo
 {
@@ -78,10 +77,10 @@ public sealed partial class YzManagerPage6031906822946816Vo
     [JsonPropertyName("id")]
     public long Id { get; init; }
     [JsonPropertyName("yzRoleNames")] public JsonElement? YzRoleNames { get; init; }
-    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity) => FromEntity(entity,null);
-    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity,JsonElement? roleNames) => FromEntity(entity,roleNames,true);
+    public static YzManagerPage6031906822946816Vo FromEntity(global::Metarill.Platform.Generated.Entities.YzManager entity) => FromEntity(entity,null);
+    public static YzManagerPage6031906822946816Vo FromEntity(global::Metarill.Platform.Generated.Entities.YzManager entity,JsonElement? roleNames) => FromEntity(entity,roleNames,true);
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static YzManagerPage6031906822946816Vo FromEntity(YzManager entity,JsonElement? roleNames,bool includeCredentials = true) => new()
+    public static YzManagerPage6031906822946816Vo FromEntity(global::Metarill.Platform.Generated.Entities.YzManager entity,JsonElement? roleNames,bool includeCredentials = true) => new()
     {
         Name = entity.Name,
         YzRoleIds = Metarill.Core.Contracts.RoleCheckboxValue.ProjectIds(entity.YzRoleIds),

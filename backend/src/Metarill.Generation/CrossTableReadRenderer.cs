@@ -25,9 +25,9 @@ internal static class CrossTableReadRenderer
             for(var index=0;index<plan.Levels.Count;index++)
             {
                 var level=plan.Levels[index];var target=level.Target;var scope=suffix+"_"+index;
-                output.Append(FixedPageConditionCompilation.Declaration(level.Page,"CrossCondition"+scope)).AppendLine("    /// <summary>固定逐级目标的数据范围，动作权限可由内部只读工厂统一要求。</summary>").AppendLine($"    private ISelect<{target.Name}> CrossScope{scope}(RuntimeActor actor,bool requireList=true)")
+                output.Append(FixedPageConditionCompilation.Declaration(level.Page,"CrossCondition"+scope)).AppendLine("    /// <summary>固定逐级目标的数据范围，动作权限可由内部只读工厂统一要求。</summary>").AppendLine($"    private ISelect<{target.EntityType}> CrossScope{scope}(RuntimeActor actor,bool requireList=true)")
                     .AppendLine("    {").AppendLine("        ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表级联要求当前真实身份。\");")
-                    .AppendLine($"        if(requireList)relationAuthorization.RequirePagePermission({Literal(level.Page.Source.Id)},\"list\");var query=session.Select<{target.Name}>();");
+                    .AppendLine($"        if(requireList)relationAuthorization.RequirePagePermission({Literal(level.Page.Source.Id)},\"list\");var query=session.Select<{target.EntityType}>();");
                 if(FixedPageQueryCompilation.SoftDeleteColumn(target) is{} deleted)output.AppendLine($"        query=query.Where(row=>row.{deleted.Property}==null);");
                 var scopes=level.Page.Scopes.ToList();var project=target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");if(!target.IsGlobal&&project is not null&&!scopes.Any(scope=>scope.Column.Source.Id==project.Source.Id))scopes.Add((project,"project"));
                 foreach(var(column,_)in scopes)output.AppendLine($"        query=query.Where(row=>row.{column.Property}=={(column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")});");
@@ -35,7 +35,7 @@ internal static class CrossTableReadRenderer
                 if(target.Source.IsRongyu==0)output.Append(NonRedundantCrossTargetsRenderer.Service(model,table,page,plan,index));
             }
             output.AppendLine("    /// <summary>来源页授权不借用客户端项目、父记录或设备上下文。</summary>").AppendLine($"    private void RequireCrossSource{suffix}(RuntimeActor actor){{ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表级联要求当前真实身份。\");relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"list\");}}")
-                .AppendLine("    /// <summary>固定层号只选生成分支，私有工厂不暴露动态查询入口。</summary>").AppendLine($"    private Metarill.Core.Cascades.CrossTableReader CrossReader{suffix}(RuntimeActor actor,bool currentRead=false,bool requireTargetList=true{(sameSource?", "+table.Name+"? sourceOverride=null,bool creating=false":"")})=>new(new Metarill.Core.Cascades.CrossTableLevel[]{{{string.Join(",",plan.Levels.Select(level=>$"new({Literal(level.Key)},{Literal(GenerationModel.Camel(level.Prefix+"_id"))})"))}}},index=>{{switch(index){{");
+                .AppendLine("    /// <summary>固定层号只选生成分支，私有工厂不暴露动态查询入口。</summary>").AppendLine($"    private Metarill.Core.Cascades.CrossTableReader CrossReader{suffix}(RuntimeActor actor,bool currentRead=false,bool requireTargetList=true{(sameSource?", "+table.EntityType+"? sourceOverride=null,bool creating=false":"")})=>new(new Metarill.Core.Cascades.CrossTableLevel[]{{{string.Join(",",plan.Levels.Select(level=>$"new({Literal(level.Key)},{Literal(GenerationModel.Camel(level.Prefix+"_id"))})"))}}},index=>{{switch(index){{");
             for(var index=0;index<plan.Levels.Count;index++)output.AppendLine($"        case {index}:_=CrossScope{suffix}_{index}(actor,requireTargetList);break;");
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,id,ct)=>{switch(index){");
             for(var index=0;index<plan.Levels.Count;index++)
@@ -63,7 +63,7 @@ internal static class CrossTableReadRenderer
         return output.ToString();
     }
     /// <summary>只读取本级ID/名称及下一跳所需父键。</summary>
-    private static string Projection(CrossTableLevelModel level)=>$"row=>new {level.Target.Name}{{Id=row.Id,{level.Name.Property}=row.{level.Name.Property}{(level.Parent is{} parent?","+parent.Property+"=row."+parent.Property:"")}}}";
+    private static string Projection(CrossTableLevelModel level)=>$"row=>new {level.Target.EntityType}{{Id=row.Id,{level.Name.Property}=row.{level.Name.Property}{(level.Parent is{} parent?","+parent.Property+"=row."+parent.Property:"")}}}";
     /// <summary>根层不读取父列，非根保留字符串或精确整数文本。</summary>
     private static string Parent(CrossTableLevelModel level)=>level.Parent is not{} parent?"null":parent.Type=="string?"?"row."+parent.Property:"row."+parent.Property+"?.ToString(CultureInfo.InvariantCulture)";
     /// <summary>元数据文本只能作为转义后的C#字面量。</summary>

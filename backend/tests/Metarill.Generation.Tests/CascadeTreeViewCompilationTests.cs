@@ -14,7 +14,7 @@ public sealed class CascadeTreeViewCompilationTests
         var catalog=Catalog("view",sourceType,parentType);var before=JsonSerializer.Serialize(catalog);var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-view");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
-            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.CascadeView");var source=File.ReadAllText(Path.Combine(directory,"generated/Services/ViewSourceService.g.cs"));Assert.Contains("async Task<ISelect<ViewSource>> Query201",source);Assert.Contains("FilterIdsAsync",source);Assert.Contains("DecorateCascade201Async",source);
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.CascadeView");var source=File.ReadAllText(Path.Combine(directory,"generated/Services/ViewSourceService.g.cs"));Assert.Contains("async Task<ISelect<global::Example.CascadeView.Generated.Entities.ViewSource>> Query201",source);Assert.Contains("FilterIdsAsync",source);Assert.Contains("DecorateCascade201Async",source);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.NotNull(assembly.GetType("Example.CascadeView.Generated.VOs.ViewSourcePage201Vo",true)!.GetProperty("TreeIdDisplayText"));Assert.Equal(before,JsonSerializer.Serialize(catalog));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

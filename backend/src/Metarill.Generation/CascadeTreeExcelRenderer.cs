@@ -15,7 +15,7 @@ internal static class CascadeTreeExcelRenderer
         if(plan is null)return $"    private Task<JsonElement> ImportCascade{page.Source.Id}_{source.Source.Id}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)=>throw new NotSupportedException(\"级联导入范围尚未证明。\");\n";
         if(plan.Read.DerivedName)return DerivedCascadeNamesRenderer.Import(page,source,plan.Read);
         var read=plan.Read;var suffix=page.Source.Id+"_"+source.Source.Id;var target=read.Target;var parent=read.Parent;var name=read.Name;
-        var projection=$"row=>new {target.Name}{{Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
+        var projection=$"row=>new {target.EntityType}{{Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
         var parentOutput=parent.Type=="string?"?"row."+parent.Property:"row."+parent.Property+"?.ToString(CultureInfo.InvariantCulture)";
         return $$"""
     /// <summary>按根至叶完整路径逐层唯一反查；锁住名称/归属，后续并发变化不能偷换Excel所指节点。</summary>
@@ -46,10 +46,10 @@ internal static class CascadeTreeExcelRenderer
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree").Concat(ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).DistinctBy(column=>column.Source.Id))
         {
             var plan=CascadeTreeReadCompilation.Resolve(model,table,page,source).Definition;var suffix=page.Source.Id+"_"+source.Source.Id;
-            if(plan is null||source.Type is not("string?" or "long?")){result.AppendLine($"        string? ExcelCascade{source.Property}({table.Name} entity)=>throw new NotSupportedException(\"级联导出范围尚未证明。\");");continue;}
+            if(plan is null||source.Type is not("string?" or "long?")){result.AppendLine($"        string? ExcelCascade{source.Property}({table.EntityType} entity)=>throw new NotSupportedException(\"级联导出范围尚未证明。\");");continue;}
             result.AppendLine($"        var excelIds{source.Property}=entities.Select(entity=>Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture)).Where(text=>!string.IsNullOrWhiteSpace(text)).Select(text=>long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0?id:throw new InvalidOperationException(\"级联ID无效，未导出。\")).Distinct().ToArray();")
                 .AppendLine($"        var excelPaths{source.Property}=await CascadeGraph{suffix}(actor).PathsAsync(excelIds{source.Property},cancellationToken);")
-                .AppendLine($"        string? ExcelCascade{source.Property}({table.Name} entity){{var text=Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture);if(string.IsNullOrWhiteSpace(text))return null;var id=long.Parse(text,CultureInfo.InvariantCulture);return Metarill.Core.Cascades.CascadeTreeExcelPath.Format(excelPaths{source.Property}.GetValueOrDefault(id),{Literal(plan.Joiner)});}}");
+                .AppendLine($"        string? ExcelCascade{source.Property}({table.EntityType} entity){{var text=Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture);if(string.IsNullOrWhiteSpace(text))return null;var id=long.Parse(text,CultureInfo.InvariantCulture);return Metarill.Core.Cascades.CascadeTreeExcelPath.Format(excelPaths{source.Property}.GetValueOrDefault(id),{Literal(plan.Joiner)});}}");
             if(table.Source.IsRongyu==0&&CascadeTreeViewRenderer.Name(table,source) is{} managed&&columns.Any(column=>column.Source.Id==managed.Source.Id))
                 result.AppendLine($"        foreach(var entity in entities){{var text=Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture);entity.{managed.Property}=long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&excelPaths{source.Property}.TryGetValue(id,out var path)?path?.Path.LastOrDefault()?.Name:null;}}");
         }

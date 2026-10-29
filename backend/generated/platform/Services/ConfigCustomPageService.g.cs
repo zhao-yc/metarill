@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Mappers;
@@ -28,17 +27,17 @@ public partial class ConfigCustomPageService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(ConfigCustomPage entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Platform.Generated.Entities.ConfigCustomPage entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(ConfigCustomPage entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Platform.Generated.Entities.ConfigCustomPage entity, RuntimeActor actor);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations2062361618137833473Async(ConfigCustomPage entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations2062361618137833473Async(global::Metarill.Platform.Generated.Entities.ConfigCustomPage entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
         if ((creating || submitted.Contains("yz_admin_type_id")) && entity.YzAdminTypeId is not null)
         {
             var relationIds1 = new[] { entity.YzAdminTypeId.Value };
-            var relationQuery1 = session.Select<YzAdminType>().Where(row => relationIds1.Contains(row.Id));
+            var relationQuery1 = session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(row => relationIds1.Contains(row.Id));
             relationQuery1 = relationQuery1.Where(row => row.DeleteNo == null);
             relationQuery1 = relationQuery1.Where(row => row.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
             if (await relationQuery1.CountAsync(cancellationToken) != relationIds1.Length) throw new InvalidOperationException("\u5173\u8054\u8BB0\u5F55\u4E0D\u5B58\u5728\u3001\u5DF2\u5220\u9664\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u9879\u76EE\uFF1A\u6240\u5C5E\u540E\u53F0");
@@ -50,7 +49,7 @@ public partial class ConfigCustomPageService
         await Task.CompletedTask;
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<ConfigCustomPage> Scope2062361618137833473(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigCustomPage> Scope2062361618137833473(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
@@ -58,7 +57,7 @@ public partial class ConfigCustomPageService
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<ConfigCustomPage> Query2062361618137833473(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Platform.Generated.Entities.ConfigCustomPage> Query2062361618137833473(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope2062361618137833473(actor, request.ParentId);
@@ -79,7 +78,7 @@ public partial class ConfigCustomPageService
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<ConfigCustomPage> Order2062361618137833473(ISelect<ConfigCustomPage> query, PageRequest request)
+    private static ISelect<global::Metarill.Platform.Generated.Entities.ConfigCustomPage> Order2062361618137833473(ISelect<global::Metarill.Platform.Generated.Entities.ConfigCustomPage> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -101,7 +100,7 @@ public partial class ConfigCustomPageService
         var query = Query2062361618137833473(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order2062361618137833473(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new ConfigCustomPage { Id = entity.Id, Name = entity.Name, PagePath = entity.PagePath, NavigationStyle = entity.NavigationStyle, EnablePullDownRefresh = entity.EnablePullDownRefresh, IsShowLeft = entity.IsShowLeft, IsShowTop = entity.IsShowTop, SortNo = entity.SortNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigCustomPage { Id = entity.Id, Name = entity.Name, PagePath = entity.PagePath, NavigationStyle = entity.NavigationStyle, EnablePullDownRefresh = entity.EnablePullDownRefresh, IsShowLeft = entity.IsShowLeft, IsShowTop = entity.IsShowTop, SortNo = entity.SortNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return new(entities.Select(ConfigCustomPagePage2062361618137833473Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -109,11 +108,11 @@ public partial class ConfigCustomPageService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigCustomPagePage2062361618137833473Vo?> Detail2062361618137833473Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigCustomPage { Id = entity.Id, Name = entity.Name, PagePath = entity.PagePath, NavigationStyle = entity.NavigationStyle, EnablePullDownRefresh = entity.EnablePullDownRefresh, IsShowLeft = entity.IsShowLeft, IsShowTop = entity.IsShowTop, SortNo = entity.SortNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
+        var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigCustomPage { Id = entity.Id, Name = entity.Name, PagePath = entity.PagePath, NavigationStyle = entity.NavigationStyle, EnablePullDownRefresh = entity.EnablePullDownRefresh, IsShowLeft = entity.IsShowLeft, IsShowTop = entity.IsShowTop, SortNo = entity.SortNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return entity is null ? null : ConfigCustomPagePage2062361618137833473Vo.FromEntity(entity);
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
-    public async Task<ConfigCustomPage?> ReadAgentRecord2062361618137833473Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigCustomPage?> ReadAgentRecord2062361618137833473Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
         if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
@@ -128,12 +127,12 @@ public partial class ConfigCustomPageService
         await Task.CompletedTask;
     }
     /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>
-    private async Task<ISelect<YzAdminType>> OptionsScope2062361618137833473_2200000000000101010Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
+    private async Task<ISelect<global::Metarill.Platform.Generated.Entities.YzAdminType>> OptionsScope2062361618137833473_2200000000000101010Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true)
     {
         await ValidateOptionsSourceParents2062361618137833473Async(parentId, actor, cancellationToken);
         if (targetParentId is not null) throw new ArgumentException("当前关联不使用 targetParentId。");
         await Task.CompletedTask;
-        var query = session.Select<YzAdminType>();
+        var query = session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>();
         query = query.Where(entity => entity.DeleteNo == null);
         query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         return query;
@@ -180,7 +179,7 @@ public partial class ConfigCustomPageService
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("2062361618137833473", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents2062361618137833473Async(parentId, actor, cancellationToken);
-        var entity = new ConfigCustomPage { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.ConfigCustomPage { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.PagePath.IsSpecified) { entity.PagePath = request.PagePath.Value; submitted.Add("page_path"); }
@@ -262,7 +261,7 @@ public partial class ConfigCustomPageService
         return deleted;
     }, cancellationToken);
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(ConfigCustomPage entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Platform.Generated.Entities.ConfigCustomPage entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
@@ -282,7 +281,7 @@ public partial class ConfigCustomPageService
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, ConfigCustomPage entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Platform.Generated.Entities.ConfigCustomPage entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -291,7 +290,7 @@ public partial class ConfigCustomPageService
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyConfigCustomPageAsync(string pageId, ConfigCustomPage entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
+    private async Task NotifyConfigCustomPageAsync(string pageId, global::Metarill.Platform.Generated.Entities.ConfigCustomPage entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken)
     {
         var values = new Dictionary<string, object?>
         {

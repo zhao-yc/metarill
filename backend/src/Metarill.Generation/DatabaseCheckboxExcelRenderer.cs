@@ -46,7 +46,7 @@ internal static class DatabaseCheckboxExcelRenderer
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);
         return $$"""
     /// <summary>源行及候选共用读取快照，名字按数据库真实比较规则唯一性核验。</summary>
-    private async Task<IReadOnlyDictionary<long,string?>> ExportCheckbox{{suffix}}Async(IReadOnlyList<{{table.Name}}> entities,RuntimeActor actor,CancellationToken cancellationToken)
+    private async Task<IReadOnlyDictionary<long,string?>> ExportCheckbox{{suffix}}Async(IReadOnlyList<{{table.EntityType}}> entities,RuntimeActor actor,CancellationToken cancellationToken)
     {
         if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException("复选导出要求真实身份。");
         relationAuthorization.RequirePagePermission("{{page.Source.Id}}","export");

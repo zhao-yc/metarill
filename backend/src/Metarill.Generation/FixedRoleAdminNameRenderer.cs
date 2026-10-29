@@ -9,17 +9,17 @@ internal static class FixedRoleAdminNameRenderer
     /// <summary>读取仍要求当前真实来源动作，目标仅取当前项目未删除后台的ID和名称。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page) => FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} def ? $$"""
     /// <summary>来源动作已经由对应入口确定；原冗余名读取不额外要求后台页面query。</summary>
-    private ISelect<{{def.Admins.Name}}> RoleAdminNameScope{{page.Source.Id}}(RuntimeActor actor,string operation)
+    private ISelect<{{def.Admins.EntityType}}> RoleAdminNameScope{{page.Source.Id}}(RuntimeActor actor,string operation)
     {
         ValidateActor(actor);
         if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("后台名称要求真实来源身份。");
         if (operation is not ("list" or "detail" or "create" or "update" or "copy" or "export")) throw new UnauthorizedAccessException("后台名称读取动作无效。");
         relationAuthorization.RequirePagePermission("{{page.Source.Id}}",operation);
         if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
-        return session.Select<{{def.Admins.Name}}>().Where(admin => admin.DeleteNo == null && admin.YzProjectId == project);
+        return session.Select<{{def.Admins.EntityType}}>().Where(admin => admin.DeleteNo == null && admin.YzProjectId == project);
     }
     /// <summary>最多5000个唯一后台ID，每200个串行一次；空值与不可见/已删除目标的名称为null。</summary>
-    private async Task<{{page.Name}}Vo[]> ProjectRoleAdminNames{{page.Source.Id}}Async(IReadOnlyList<{{table.Name}}> entities,RuntimeActor actor,string operation,CancellationToken cancellationToken)
+    private async Task<{{page.Name}}Vo[]> ProjectRoleAdminNames{{page.Source.Id}}Async(IReadOnlyList<{{table.EntityType}}> entities,RuntimeActor actor,string operation,CancellationToken cancellationToken)
     {
         _ = RoleAdminNameScope{{page.Source.Id}}(actor,operation);
         var selected=entities.Select(entity=>entity.{{def.Source.Property}}).OfType<long>().Distinct().Take(5001).ToArray();

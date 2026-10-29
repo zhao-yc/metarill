@@ -7,7 +7,6 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Core.Persistence;
 using Metarill.Data;
-using Metarill.Platform.Generated.Entities;
 using Metarill.Platform.Generated.DTOs;
 using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Mappers;
@@ -28,11 +27,11 @@ public partial class YzProjectService
     /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>
     private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException("登录身份无效。"); }
     /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>
-    partial void BeforeSave(YzProject entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
+    partial void BeforeSave(global::Metarill.Platform.Generated.Entities.YzProject entity, RuntimeActor actor, bool creating, ISet<string> submittedFields);
     /// <summary>删除前规则在当前事务内执行。</summary>
-    partial void BeforeDelete(YzProject entity, RuntimeActor actor);
+    partial void BeforeDelete(global::Metarill.Platform.Generated.Entities.YzProject entity, RuntimeActor actor);
     /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>
-    private async Task ValidateRelations6186303424888832Async(YzProject entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
+    private async Task ValidateRelations6186303424888832Async(global::Metarill.Platform.Generated.Entities.YzProject entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken)
     {
         await Task.CompletedTask;
         if (creating || submitted.Contains("yz_yzp_version_id"))
@@ -44,14 +43,14 @@ public partial class YzProjectService
         await Task.CompletedTask;
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
-    private ISelect<YzProject> Scope6186303424888832(RuntimeActor actor, string? parentId)
+    private ISelect<global::Metarill.Platform.Generated.Entities.YzProject> Scope6186303424888832(RuntimeActor actor, string? parentId)
     {
         ValidateActor(actor);
         var query = mapper.Query();
         return query;
     }
     /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>
-    private ISelect<YzProject> Query6186303424888832(PageRequest request, RuntimeActor actor)
+    private ISelect<global::Metarill.Platform.Generated.Entities.YzProject> Query6186303424888832(PageRequest request, RuntimeActor actor)
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = Scope6186303424888832(actor, request.ParentId);
@@ -85,7 +84,7 @@ public partial class YzProjectService
         return query;
     }
     /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>
-    private static ISelect<YzProject> Order6186303424888832(ISelect<YzProject> query, PageRequest request)
+    private static ISelect<global::Metarill.Platform.Generated.Entities.YzProject> Order6186303424888832(ISelect<global::Metarill.Platform.Generated.Entities.YzProject> query, PageRequest request)
     {
         if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))
         {
@@ -107,7 +106,7 @@ public partial class YzProjectService
         var query = Query6186303424888832(request, actor);
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6186303424888832(query, request);
-        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
+        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return new(entities.Select(YzProjectPage6186303424888832Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
@@ -115,13 +114,13 @@ public partial class YzProjectService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzProjectPage6186303424888832Vo?> Detail6186303424888832Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
-        var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
+        var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : YzProjectPage6186303424888832Vo.FromEntity(entity);
     }
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
-    public async Task<YzProject?> ReadButtonRecord6186303424888832Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6186303424888832(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    public async Task<global::Metarill.Platform.Generated.Entities.YzProject?> ReadButtonRecord6186303424888832Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6186303424888832(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
     /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
-    public async Task<YzProject?> LockButtonRecord6186303424888832Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6186303424888832Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6186303424888832(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
+    public async Task<global::Metarill.Platform.Generated.Entities.YzProject?> LockButtonRecord6186303424888832Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6186303424888832Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6186303424888832(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
     /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>
     private void RequireButtonRecordAccess6186303424888832(long id,string buttonId,RuntimeActor actor)
     {
@@ -139,7 +138,7 @@ public partial class YzProjectService
         return relationAuthorization!.RequireButtonCurrentAsync("6186303424888832",buttonId,actor,transaction,cancellationToken);
     }
     /// <summary>主键、按钮及范围均由服务端验证；请求筛选、普通页面角色与旧授权器不能扩大记录集合。</summary>
-    private ISelect<YzProject> ButtonRecordQuery6186303424888832(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
+    private ISelect<global::Metarill.Platform.Generated.Entities.YzProject> ButtonRecordQuery6186303424888832(long id,string? parentId,string buttonId,RuntimeActor actor,bool locking)
     {
         RequireButtonRecordAccess6186303424888832(id,buttonId,actor);
         if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("业务记录锁定必须加入真实写事务。");
@@ -147,7 +146,7 @@ public partial class YzProjectService
         return locking?query.ForUpdate():query;
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
-    public async Task<YzProject?> ReadAgentRecord6186303424888832Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    public async Task<global::Metarill.Platform.Generated.Entities.YzProject?> ReadAgentRecord6186303424888832Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
     {
         ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
         if(operation is not ("update" or "delete" or "copy"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
@@ -162,7 +161,7 @@ public partial class YzProjectService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         await PrepareMutationAsync("6186303424888832", RecordMutationOperation.Create, actor, cancellationToken, null, mutationScopeValues);
         await ValidateParents6186303424888832Async(parentId, actor, cancellationToken);
-        var entity = new YzProject { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.YzProject { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.MysqlConnStr.IsSpecified) { entity.MysqlConnStr = request.MysqlConnStr.Value; submitted.Add("mysql_conn_str"); }
@@ -286,7 +285,7 @@ public partial class YzProjectService
         await ValidateParents6186303424888832Async(parentId, actor, cancellationToken);
         var source = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
         var originalScopeValues = MutationScopeValues(source);
-        var entity = new YzProject { Id = ids.NextId() };
+        var entity = new global::Metarill.Platform.Generated.Entities.YzProject { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         entity.Name = source.Name; submitted.Add("name");
         entity.MysqlConnStr = source.MysqlConnStr; submitted.Add("mysql_conn_str");
@@ -330,7 +329,7 @@ public partial class YzProjectService
         return YzProjectPage6186303424888832Vo.FromEntity(entity);
     }, cancellationToken);
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>
-    private IReadOnlyDictionary<string, object?> MutationScopeValues(YzProject entity) => guards.Any()
+    private IReadOnlyDictionary<string, object?> MutationScopeValues(global::Metarill.Platform.Generated.Entities.YzProject entity) => guards.Any()
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
@@ -350,7 +349,7 @@ public partial class YzProjectService
         foreach (var guard in guards) await guard.BeforeMutationAsync(preparation, cancellationToken);
     }
     /// <summary>准备后的归属变化由宿主保守拒绝；不能在此补取逆序聚合锁。</summary>
-    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, YzProject entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken, string? businessButtonId = null)
+    private async Task ValidateMutationAsync(string pageId, RecordMutationOperation operation, global::Metarill.Platform.Generated.Entities.YzProject entity, RuntimeActor actor, IReadOnlyDictionary<string, object?>? original, ISet<string> submitted, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         if (!guards.Any()) return;
         var transaction = session.CurrentTransaction ?? throw new InvalidOperationException("写入复核要求当前事务。");
@@ -359,7 +358,7 @@ public partial class YzProjectService
         foreach (var guard in guards) await guard.BeforeWriteAsync(validation, cancellationToken);
     }
     /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>
-    private async Task NotifyYzProjectAsync(string pageId, YzProject entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken, string? businessButtonId = null)
+    private async Task NotifyYzProjectAsync(string pageId, global::Metarill.Platform.Generated.Entities.YzProject entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken, string? businessButtonId = null)
     {
         var values = new Dictionary<string, object?>
         {

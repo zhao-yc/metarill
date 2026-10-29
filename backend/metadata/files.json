@@ -298,20 +298,6 @@
       "defaultValue": ""
     },
     {
-      "id": "2300000000000000401",
-      "configTableId": "2200000000000000364",
-      "configTableName": "文件库",
-      "columnName": "upload_expires_at",
-      "name": "上传截止时间",
-      "yzProjectId": "1608097412978577409",
-      "sortNo": 200,
-      "logicalType": "datetime",
-      "columnType": "datetime(6)",
-      "isDbNotNull": 0,
-      "columnLength": "",
-      "defaultValue": ""
-    },
-    {
       "id": "2200000000000000386",
       "configTableId": "2200000000000000385",
       "configTableName": "文件夹",
@@ -685,6 +671,20 @@
       "sortNo": 140,
       "logicalType": "int64",
       "isDbNotNull": 1,
+      "columnLength": "",
+      "defaultValue": ""
+    },
+    {
+      "id": "2300000000000000401",
+      "configTableId": "2200000000000000364",
+      "configTableName": "文件库",
+      "columnName": "upload_expires_at",
+      "name": "上传截止时间",
+      "yzProjectId": "1608097412978577409",
+      "sortNo": 200,
+      "logicalType": "datetime",
+      "columnType": "datetime(6)",
+      "isDbNotNull": 0,
       "columnLength": "",
       "defaultValue": ""
     }

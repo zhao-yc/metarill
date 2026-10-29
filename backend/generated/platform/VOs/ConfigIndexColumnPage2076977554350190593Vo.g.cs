@@ -3,7 +3,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class ConfigIndexColumnPage2076977554350190593Vo
 {
@@ -46,7 +45,7 @@ public sealed partial class ConfigIndexColumnPage2076977554350190593Vo
     [JsonPropertyName("sortDirectionShow")]
     public string? SortDirectionShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigIndexColumnPage2076977554350190593Vo FromEntity(ConfigIndexColumn entity) => new()
+    public static ConfigIndexColumnPage2076977554350190593Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigIndexColumn entity) => new()
     {
         ConfigIndexId = entity.ConfigIndexId,
         ConfigColumnId = entity.ConfigColumnId,

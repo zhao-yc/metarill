@@ -14,7 +14,7 @@ internal static partial class BackendRenderer
     {
         var operations=AgentRecordOperations(page);if(operations.Count==0)return "";
         return new StringBuilder().AppendLine("    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>")
-            .AppendLine($"    public async Task<{table.Name}?> ReadAgentRecord{page.Source.Id}Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)")
+            .AppendLine($"    public async Task<{table.EntityType}?> ReadAgentRecord{page.Source.Id}Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)")
             .AppendLine("    {")
             .AppendLine("        ValidateActor(actor);if(id<=0)throw new ArgumentException(\"记录标识无效。\");")
             .AppendLine($"        if(operation is not ({string.Join(" or ",operations.Select(Literal))}))throw new UnauthorizedAccessException(\"操作不属于当前已发布页面。\");")

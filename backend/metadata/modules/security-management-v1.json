@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "moduleId": "security-management-v1",
   "sources": {
-    "platformSha256": "3c5ebad8c3486f7b5168fd13e5f6f9f2d802570beb71aca00a1bc31c86f28873",
+    "platformSha256": "2cd5a4db1e385d0696bb99a5e14b7c2f3d64225a9d6d46c2d74715d64e17c0b1",
     "securitySha256": "6321e3b413a3bd41cbe04eb150562bc9654f31aedefe36ca5426981c7a8b9541",
-    "filesSha256": "e5bac8b7ce7e4bae674d84b904152eff6f55803691382c55fe81dda7d1118bca"
+    "filesSha256": "0f07b499c3bad6e2e11b9f57265c620531a26b9ce7fc6aba526f906d2fd5565c"
   },
   "files": {
     "schemaVersion": 1,
@@ -679,6 +679,20 @@
         "sortNo": 140,
         "logicalType": "int64",
         "isDbNotNull": 1,
+        "columnLength": "",
+        "defaultValue": ""
+      },
+      {
+        "id": "2300000000000000401",
+        "configTableId": "2200000000000000364",
+        "configTableName": "文件库",
+        "columnName": "upload_expires_at",
+        "name": "上传截止时间",
+        "yzProjectId": "1608097412978577409",
+        "sortNo": 200,
+        "logicalType": "datetime",
+        "columnType": "datetime(6)",
+        "isDbNotNull": 0,
         "columnLength": "",
         "defaultValue": ""
       }

@@ -2,7 +2,6 @@
 #nullable enable
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Metarill.Platform.Generated.Entities;
 namespace Metarill.Platform.Generated.VOs;
 public sealed partial class ConfigMenuPage2200000000000099000Vo
 {
@@ -51,7 +50,7 @@ public sealed partial class ConfigMenuPage2200000000000099000Vo
     [JsonPropertyName("id")]
     public long Id { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigMenuPage2200000000000099000Vo FromEntity(ConfigMenu entity) => new()
+    public static ConfigMenuPage2200000000000099000Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigMenu entity) => new()
     {
         InsertTime = entity.InsertTime,
         UpdateTime = entity.UpdateTime,

@@ -28,7 +28,7 @@ internal static class ForeignValidationRenderer
     public static string Render(GenerationModel model, TableModel table, PageModel page)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
-            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.Name} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)})")
+            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.EntityType} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)})")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;").Append(SharedCrossTableRenderer.ValidateAll(model,table,page));
         var crossFields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id.Source.Id,level.Name.Source.Id}).ToHashSet(StringComparer.Ordinal);
         var derived = MaterializedDerivedWriteCompilation.ForTable(model, table).Where(binding=>!crossFields.Contains(binding.Storage.Source.Id)).ToArray();
@@ -117,7 +117,7 @@ internal static class ForeignValidationRenderer
                 else
                     result.AppendLine($"            var relationIds{number} = new[] {{ {IdExpression(column)} }};");
                 if (constantRelation is not null) result.Append(RelationConditionsCompilation.WriteQuery(model,table,page,constantRelation,number.ToString(CultureInfo.InvariantCulture)));
-                else result.AppendLine($"            var relationQuery{number} = session.Select<{target.Name}>().Where(row => relationIds{number}.Contains(row.Id));");
+                else result.AppendLine($"            var relationQuery{number} = session.Select<{target.EntityType}>().Where(row => relationIds{number}.Contains(row.Id));");
                 if (target.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"            relationQuery{number} = relationQuery{number}.Where(row => row.DeleteNo == null);");
                 var project = target.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == "yz_project_id");
                 if (project is not null && !target.IsGlobal)

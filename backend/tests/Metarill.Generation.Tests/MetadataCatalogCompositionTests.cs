@@ -75,6 +75,26 @@ public sealed class MetadataCatalogCompositionTests
         Assert.Throws<InvalidOperationException>(() => MetadataCatalogComposition.MergePhysical(GeneratorTests.Catalog(), exposed));
     }
 
+    /// <summary>直接核对正式平台与文件基础目录，防止基础设施新增字段只同步一份而阻断自举或平台导出。</summary>
+    [Fact]
+    public void Published_platform_file_metadata_matches_infrastructure_and_keeps_deadline_internal()
+    {
+        var root=SourceRoot();
+        MetadataCatalog Read(string name)=>JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(root,"backend/metadata/"+name+".json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var platform=Read("platform");var files=Read("files");var before=JsonSerializer.Serialize(platform);
+        Metarill.Core.Contracts.FileUploadLifetime.ValidateMetadata(platform);
+        var merged=MetadataCatalogComposition.MergePhysical(platform,files);
+        Assert.Equal(platform.ConfigColumns.Count,merged.ConfigColumns.Count);
+        var deadline=Assert.Single(platform.ConfigColumns,column=>column.ColumnName==Metarill.Core.Contracts.FileUploadLifetime.DeadlineColumn);
+        Assert.DoesNotContain(platform.ConfigPageColumns,field=>field.ConfigColumnId==deadline.Id);
+        Assert.Equal(before,JsonSerializer.Serialize(platform));
+        var missing=JsonSerializer.Deserialize<MetadataCatalog>(before)!;missing.ConfigColumns.RemoveAll(column=>column.Id==deadline.Id);
+        Assert.Throws<InvalidOperationException>(()=>MetadataCatalogComposition.MergePhysical(missing,files));
+        Assert.Throws<InvalidOperationException>(()=>Metarill.Core.Contracts.FileUploadLifetime.ValidateMetadata(missing));
+    }
+    /// <summary>按本测试源码定位仓库固定元数据，不从环境选择其他平台配置。</summary>
+    private static string SourceRoot([System.Runtime.CompilerServices.CallerFilePath]string source="")=>Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!,"../../.."));
+
     /// <summary>最小文件基础模型包含完整索引闭包，字段定义只用于组合契约测试。</summary>
     private static MetadataCatalog Infrastructure() => new()
     {

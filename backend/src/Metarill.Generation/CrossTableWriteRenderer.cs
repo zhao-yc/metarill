@@ -26,7 +26,7 @@ internal static class CrossTableWriteRenderer
         {
             var suffix=page.Source.Id+"_"+plan.Read.Source.Source.Id;var merged=Merged(table,plan.Read);
             output.AppendLine("    /// <summary>最深非空ID决定路径；用户祖先ID与名称不作为可信值，部分选择清空后段。</summary>")
-                .AppendLine($"    private async Task NormalizeCross{suffix}Async({table.Name} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true{(merged?",bool creating=false":"")})")
+                .AppendLine($"    private async Task NormalizeCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true{(merged?",bool creating=false":"")})")
                 .AppendLine("    {").AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"跨表保存必须加入原事务。\");ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表保存要求当前真实身份。\");var deepest=-1;long? selected=null;");
             if(merged)output.AppendLine($"        if(!({Trigger(plan)}))return;");
             for(var index=0;index<plan.Levels.Count;index++)
@@ -45,8 +45,8 @@ internal static class CrossTableWriteRenderer
             var check=plan.Levels.SelectMany(level=>table.Source.IsRongyu==0?new[]{level.Id}:new[]{level.Id,level.Name}).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).DistinctBy(column=>column.Source.Id).ToArray();var structure=merged?plan.Levels.Where(level=>level.Read.Target.Source.Id==table.Source.Id).SelectMany(level=>(level.Read.Parent is{} parent?new[]{parent}:[]).Concat((level.Read.NameDependencies??[]).Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field)).Where(column=>column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&!column.IsSystem))).DistinctBy(column=>column.Source.Id).ToArray():[];
             var projection=string.Join(",",check.Concat(structure).DistinctBy(column=>column.Source.Id).Select(column=>column.Property+"=row."+column.Property));
             output.AppendLine("    /// <summary>读取实际存储的受管字段，数据库截断或触发器改写时在观察者前整笔回滚，不补写修复。</summary>")
-                .AppendLine($"    private async Task VerifyStoredCross{suffix}Async({table.Name} entity,RuntimeActor actor,ISet<string> submitted,bool creating,CancellationToken cancellationToken,bool requireTargetList=true)")
-                .AppendLine("    {").AppendLine($"        if(!({Trigger(table,plan)}))return;var stored=await session.Select<{table.Name}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.Name}{{{projection}}},cancellationToken);")
+                .AppendLine($"    private async Task VerifyStoredCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,bool creating,CancellationToken cancellationToken,bool requireTargetList=true)")
+                .AppendLine("    {").AppendLine($"        if(!({Trigger(table,plan)}))return;var stored=await session.Select<{table.EntityType}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{{projection}}},cancellationToken);")
                 .AppendLine($"        if(stored is null||{string.Join("||",check.Select(column=>"stored."+column.Property+"!=entity."+column.Property))})throw new InvalidOperationException(\"跨表受管ID、名称或归属在存储后发生变化，未提交。\");");
             // 实际父键／名称FK发生截断或被改写时，不能因为R0不存祖先而接受另一条有效路径。
             foreach(var column in structure)output.AppendLine($"        if((creating||submitted.Contains({Literal(column.Source.ColumnName)}))&&stored.{column.Property}!=entity.{column.Property})throw new InvalidOperationException(\"跨表来源结构外键在存储后发生变化，未提交。\");");

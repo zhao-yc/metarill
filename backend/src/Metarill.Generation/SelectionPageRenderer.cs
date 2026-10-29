@@ -34,7 +34,7 @@ internal static class SelectionPageRenderer
                 ?? throw new InvalidOperationException("多选页父表未声明项目归属。");
             number++;
             result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var parentKey" + number + ") || parentKey" + number + " <= 0) throw new ArgumentException(\"当前多选页要求有效parentId。\");")
-                .AppendLine($"        var parent{number} = session.Select<{parent.Name}>().Where(row => row.Id == parentKey{number}).Where(row => row.{project.Property} == {(project.Type == "string?" ? "actor.ProjectId" : "long.Parse(actor.ProjectId, CultureInfo.InvariantCulture)")});");
+                .AppendLine($"        var parent{number} = session.Select<{parent.EntityType}>().Where(row => row.Id == parentKey{number}).Where(row => row.{project.Property} == {(project.Type == "string?" ? "actor.ProjectId" : "long.Parse(actor.ProjectId, CultureInfo.InvariantCulture)")});");
             if (parent.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"        parent{number} = parent{number}.Where(row => row.DeleteNo == null);");
             result.AppendLine($"        if (!await parent{number}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"多选页父记录不存在、已删除或不属于当前项目。\");");
         }

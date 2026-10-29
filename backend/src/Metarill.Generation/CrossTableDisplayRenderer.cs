@@ -23,7 +23,7 @@ internal static class CrossTableDisplayRenderer
     {
         var plans=ForPage(model,table,page);if(plans.Count==0)return "";var output=new StringBuilder();
         output.AppendLine("    /// <summary>原跨表显示只拼接来源行中已存名称；部分选择与历史名称保持原语义。</summary>")
-            .AppendLine($"    private static IReadOnlyList<{page.Name}Vo> DecorateCross{page.Source.Id}(IReadOnlyList<{page.Name}Vo> values,IReadOnlyList<{table.Name}> entities)")
+            .AppendLine($"    private static IReadOnlyList<{page.Name}Vo> DecorateCross{page.Source.Id}(IReadOnlyList<{page.Name}Vo> values,IReadOnlyList<{table.EntityType}> entities)")
             .AppendLine("    {").AppendLine("        if(values.Count!=entities.Count)throw new InvalidOperationException(\"跨表展示记录数不符。\");");
         foreach(var plan in plans)output.AppendLine($"        for(var index=0;index<values.Count;index++)values[index].{plan.Read.Source.Property}DisplayText=string.Join({Literal(plan.Read.Joiner)},new[]{{{string.Join(",",plan.Levels.Select(level=>"entities[index]."+level.Name.Property))}}}.Where(text=>!string.IsNullOrWhiteSpace(text)));" );
         return output.AppendLine("        return values;").AppendLine("    }").ToString();
