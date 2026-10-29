@@ -29,7 +29,10 @@ public sealed class PlatformAdminInitializationWiringTests
             Assert.IsType<PlatformAdminAccountInitializationBusiness>(services.GetRequiredService<IAdminAccountInitializer>());
             Assert.IsType<AgentAdminInitializationPolicy>(services.GetRequiredService<IAdminInitializationAgentPolicy>());
             Assert.NotNull(ActivatorUtilities.CreateInstance<CompatibilityButtonController>(services));
-            var registry=services.GetRequiredService<MetadataRegistry>();var targets=services.GetRequiredService<ProjectAdminInitializationTargets>();
+            var registry=services.GetRequiredService<MetadataRegistry>();
+            var platformPhysical=services.GetRequiredService<ProjectPhysicalModels>().Compose(registry.Platform);
+            Assert.NotEmpty(Metarill.Data.Schema.MySqlSchemaPlanner.Compile(platformPhysical,"offline").Tables);
+            var targets=services.GetRequiredService<ProjectAdminInitializationTargets>();
             var sessions=services.GetRequiredService<TargetDatabaseSessions>();
             Assert.Same(sessions.Business,targets.Resolve(registry.Demo.YzProjectId).Session);
             Assert.Throws<UnauthorizedAccessException>(()=>targets.Resolve(registry.Platform.YzProjectId));

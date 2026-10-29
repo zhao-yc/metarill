@@ -140,3 +140,6 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 账号初始化原按钮已接服务端登记的目标库；同物理库共享源授权事务，异库独立提交目标，仅保留平台授权读锁，不承诺分布式事务。平台项目自身、未登记连接、墓碑或归属冲突明确拒绝。普通完整包不因此增加平台管理权限或初始化Controller。有效Agent刷新授权的重置规则待用户确认，当前仍明确阻断，不对真实账号执行重置。
 
 旧工程更新须从同一版本同步运行时并重新生成：新增MySqlDatabaseIdentity、PlatformAdminInitializationScope、PlatformAdminAccountTarget、IAdminInitializationAgentPolicy及AgentAdminInitializationPolicy纳入候选闭包校验；旧目标仍可进入原升级流程，缺依赖的新候选拒绝。AgentIntegration模板显式注册Agent策略，手写partial只首次创建。编译/离线HTTP/只读实例核验与真实初始化分别记录，见[平台初始化验收边界](testing/platform-admin-initialization.md)。
+
+
+C46补齐平台自身的特殊结构来源：只有平台Program显式绑定的服务端发布目录可以保留原安全管理页参与结构组合，物理表/字段/索引仍按通用严格校验，普通独立应用的同形JSON继续拒绝。此修复不要求既有普通应用DDL或再生成，也不开放管理Full；[实际自举证据](testing/platform-self-schema-composition.md)单列。

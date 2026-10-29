@@ -35,7 +35,7 @@ var businessOptions=builder.Configuration.GetSection("Metarill:BusinessDatabase"
 // 基础模型在宿主启动时固定，预览/显式初始化/账号目标仓储共用同一份来源，普通启动不执行DDL。
 var filesMetadata=MetadataRegistry.Load(Path.Combine(root,"backend","metadata","files.json"));
 var securityMetadata=MetadataRegistry.Load(Path.Combine(root,"backend","metadata","security.json"));
-builder.Services.AddSingleton(new ProjectPhysicalModels(filesMetadata,securityMetadata));
+builder.Services.AddSingleton(new ProjectPhysicalModels(filesMetadata,securityMetadata,registry));
 builder.Services.AddSingleton(registry);
 builder.Services.AddSingleton<ISecurityResourceRegistry>(sp=>sp.GetRequiredService<MetadataRegistry>());
 builder.Services.AddSingleton<IAgentHostResources>(sp=>sp.GetRequiredService<MetadataRegistry>());
