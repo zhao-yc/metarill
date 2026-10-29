@@ -29,7 +29,10 @@ internal sealed class SecurityManagementApplicationPreparer
         {
             // 基础源码、依赖、许可证、源码链接守卫、Web/Agent/MCP宿主全部复用生产完整包闭包。
             var ordinary=new ApplicationPackager().Create(application,candidate,rootNamespace,sourceRoot);
-            var published=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(CSharpGenerator.SafePath(candidate,"backend/metadata/project.json")),Json)!;
+            var applicationBytes=File.ReadAllBytes(CSharpGenerator.SafePath(candidate,"backend/metadata/project.json"));
+            WriteBytes(candidate,PreparedSecurityManagementSource.ApplicationPath,applicationBytes);
+            var applicationMetadataSha256=Hash(applicationBytes);
+            var published=JsonSerializer.Deserialize<MetadataCatalog>(applicationBytes,Json)!;
             var trusted=SecurityManagementModuleFactory.Compose(published,module.Binding.ManagementAdminTypeId);
             RequireMatchingFoundations(trusted,candidate);
             var catalog=SecurityManagementModuleFactory.RequirePublishedForGeneration(trusted);
@@ -45,7 +48,9 @@ internal sealed class SecurityManagementApplicationPreparer
             var warning="管理模块同源准备包，尚未发布。原后台初始化正式验收及剩余适配尚未完成，不能作为完整可用管理应用交付。";
             Write(candidate,"README.md",warning+"\n\n"+File.ReadAllText(CSharpGenerator.SafePath(candidate,"README.md")));
             var files=Directory.EnumerateFiles(candidate,"*",SearchOption.AllDirectories).Select(path=>new{path=Path.GetRelativePath(candidate,path).Replace('\\','/'),sha256=Hash(File.ReadAllBytes(path))}).OrderBy(file=>file.path,StringComparer.Ordinal).ToArray();
-            Write(candidate,".metarill-management-preparation.json",JsonSerializer.Serialize(new{schemaVersion=1,profile="management-preparation-v1",readyForPublication=false,rootNamespace,projectId=catalog.YzProjectId,managementAdminTypeId=trusted.Binding.ManagementAdminTypeId,moduleSha256=trusted.Binding.ModuleSha256,metadataSha256=generated.MetadataSha256,securityCatalogSha256=hash,redactedPaths=ordinary.RedactedPaths,requiredBackendAdapters=frontend.RequiredBackendAdapters,backendGaps=frontend.BackendGaps,files},Json)+"\n");
+            Write(candidate,".metarill-management-preparation.json",JsonSerializer.Serialize(new{schemaVersion=1,profile="management-preparation-v1",readyForPublication=false,rootNamespace,projectId=catalog.YzProjectId,managementAdminTypeId=trusted.Binding.ManagementAdminTypeId,moduleSha256=trusted.Binding.ModuleSha256,applicationMetadataSha256,metadataSha256=generated.MetadataSha256,securityCatalogSha256=hash,redactedPaths=ordinary.RedactedPaths,requiredBackendAdapters=frontend.RequiredBackendAdapters,backendGaps=frontend.BackendGaps,files},Json)+"\n");
+            // 发布前从真实落盘快照重新签发一次，保证后续独立进程无需原WeakTable对象也能恢复来源。
+            _=PreparedSecurityManagementSource.Read(candidate);
             publish(candidate,output);
             return new(Array.AsReadOnly(files.Select(file=>file.path).Append(".metarill-management-preparation.json").ToArray()),generated.MetadataSha256,Array.AsReadOnly(ordinary.RedactedPaths.ToArray()),frontend.RequiredBackendAdapters,frontend.BackendGaps);
         }
@@ -61,7 +66,7 @@ internal sealed class SecurityManagementApplicationPreparer
         }
     }
     /// <summary>比较实际已装入包的基础定义与工厂冻结模型，避免检查来源后复制到另一版本的结构。</summary>
-    private static void RequireMatchingFoundations(SecurityManagementModelSet module,string candidate)
+    internal static void RequireMatchingFoundations(SecurityManagementModelSet module,string candidate)
     {
         var expected=SecurityManagementModuleFactory.RequireFoundationsForPreparation(module);
         foreach(var (name,fixedModel) in new[]{("files",expected.Files),("security",expected.Security)})
