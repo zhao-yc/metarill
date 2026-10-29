@@ -528,10 +528,16 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var required=page.DeclaredWritable.Any(item=>item.Source.Id==column.Source.Id)&&model.Catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id&&(field.IsRequired==1||GenerationModel.Enabled(field.Extra,"isMust")));
             if(!required&&column.Source.IsDbNotNull!=1)continue;
             // 数据库NOT NULL只拒绝null；原页面必填另拒绝空白文本或空多选。
-            var condition=required&&column.IsJsonArray?$"Metarill.Core.Contracts.RequiredFieldValue.IsEmptyArray(entity.{column.Property})":required&&column.Type=="string?"?$"string.IsNullOrWhiteSpace(entity.{column.Property})":$"entity.{column.Property} is null";
+            var condition=required&&column.Type=="byte[]?"?$"entity.{column.Property} is null || entity.{column.Property}.Length==0":required&&column.IsJsonArray?$"Metarill.Core.Contracts.RequiredFieldValue.IsEmptyArray(entity.{column.Property})":required&&column.Type=="string?"?$"string.IsNullOrWhiteSpace(entity.{column.Property})":$"entity.{column.Property} is null";
             var compatibility = updating ? PlatformColumnTypeCompatibilityCompilation.Exception(model, table, page, column) : "";
             if (compatibility.Length != 0) condition = $"({condition}) && !({compatibility})";
             result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");
+        }
+        // 手写规则同样按实际字节长度校验，不能依赖数据库截断或只检查Base64字符。
+        foreach(var column in table.Columns.Where(column=>column.Type=="byte[]?"&&NonRedundantReadCompilation.Physical(model,table,column)))
+        {
+            var maximum=global::Metarill.Core.Contracts.BinaryFieldValue.MaximumLength(column.Source.ColumnLength);
+            result.AppendLine($"        global::Metarill.Core.Contracts.BinaryFieldValue.Validate(entity.{column.Property},{(maximum?.ToString(System.Globalization.CultureInfo.InvariantCulture)??"null")});");
         }
         // JSON入口之外，手写钩子及服务端直接调用同样不能把非有限浮点交给数据库。
         foreach(var column in table.Columns.Where(column=>column.Type=="double?"&&NonRedundantReadCompilation.Physical(model,table,column)))

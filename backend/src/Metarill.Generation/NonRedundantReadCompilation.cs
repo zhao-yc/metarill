@@ -23,7 +23,7 @@ internal static class NonRedundantReadCompilation
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿原FileLibrary事务写入；其它多值、派生文件及布局仍须独立编译。
         if(table.Columns.Any(column=>column.Source.ControlKind is "Title" or "Tab" || column.IsJsonArray && (column.Source.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase") && !column.IsManagedMultiNames || column.Source.ControlKind=="FileLibrary"&&!Physical(model,table,column))))throw new InvalidOperationException("非冗余多值、级联、布局或派生文件读取仍待接线。");
-        if(page.Searchable.Any(column=>column.Source.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "datetime" or "date" or "time")))throw new InvalidOperationException("非冗余筛选字段类型尚未接线。");
+        if(page.Searchable.Any(column=>column.Source.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "datetime" or "date" or "time" or "binary")))throw new InvalidOperationException("非冗余筛选字段类型尚未接线。");
         if(page.Scopes.Any(scope=>!Physical(model,table,scope.Column)))throw new InvalidOperationException("非冗余父范围必须绑定物理外键。");
         if(ManagerCredentialCompilation.IsTable(table)||FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null||FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null||FixedOptionCatalogCompilation.ForPage(model,page).Count!=0)throw new InvalidOperationException("非冗余固定安全模块及目录读取尚需独立验收。");
         foreach(var checkbox in table.Columns.Where(column=>column.Source.ControlKind=="MultiCheckBoxDatabase"))

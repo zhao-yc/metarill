@@ -16,6 +16,7 @@ public static class RequestJsonSchema
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Optional<>)) return WithNull(Create(type.GetGenericArguments()[0], depth, includeNullableReferences));
         if (type == typeof(object) || type == typeof(JsonElement) || depth > 5) return [];
         if (type == typeof(string) || type == typeof(char) || type == typeof(Guid)) return new() { ["type"] = "string" };
+        if(type==typeof(byte[]))return new(){["type"]="string",["format"]="byte",["contentEncoding"]="base64"};
         if (type == typeof(bool)) return new() { ["type"] = "boolean" };
         if (type == typeof(long) || type == typeof(ulong)) return new() { ["type"] = new[] { "string", "integer" }, ["format"] = "int64", ["pattern"] = "^-?[0-9]+$" };
         if (type.IsEnum || type == typeof(int) || type == typeof(uint) || type == typeof(short) || type == typeof(ushort) || type == typeof(byte) || type == typeof(sbyte)) return new() { ["type"] = "integer" };

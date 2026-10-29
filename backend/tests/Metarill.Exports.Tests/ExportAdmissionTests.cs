@@ -37,6 +37,9 @@ public sealed class ExportAdmissionTests
         Task<PageExportRequest> Prepare(int maximum, CancellationToken token) { calls++; return Task.FromResult(Request()); }
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.CreateAsync(fixture.Actor, Prepare));
         Assert.Equal(0, calls);
+        // 拒绝方不得遗留当前线程持锁；否则另一线程恢复的合法在途写入会永久等待。
+        var sync=typeof(ExcelPageExportService).GetField("_sync",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(fixture.Service)!;
+        Assert.False(System.Threading.Monitor.IsEntered(sync));
         release.SetResult(); await first.WaitAsync(TimeSpan.FromSeconds(10));
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.CreateAsync(fixture.Actor, Prepare));
         Assert.Equal(0, calls);

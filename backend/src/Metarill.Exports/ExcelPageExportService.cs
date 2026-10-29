@@ -61,11 +61,14 @@ public sealed partial class ExcelPageExportService : IPageExportService
         try
         {
             await CleanupExpiredAsync(cancellationToken);
+            // 容量判断和预留仍原子执行；拒绝异常在退出锁后抛出，避免异常清理持锁影响在途导出。
+            bool capacityExceeded;
             lock (_sync)
             {
-                if (_tickets.Count + _reservations >= _options.MaxActiveTickets) throw new InvalidOperationException("当前导出文件数量达到上限，请等待过期清理。");
-                _reservations++; reserved = true;
+                capacityExceeded = _tickets.Count + _reservations >= _options.MaxActiveTickets;
+                if (!capacityExceeded) { _reservations++; reserved = true; }
             }
+            if (capacityExceeded) throw new InvalidOperationException("当前导出文件数量达到上限，请等待过期清理。");
             // 读取必须发生在已取得并发槽和预留票据之后，不能先全量物化再校验。
             var request = await prepare(_options.MaxRows, cancellationToken);
             ArgumentNullException.ThrowIfNull(request); ValidateDimensions(request);

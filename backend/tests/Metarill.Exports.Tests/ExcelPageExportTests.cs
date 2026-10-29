@@ -11,6 +11,20 @@ namespace Metarill.Exports.Tests;
 
 public sealed class ExcelPageExportTests
 {
+    /// <summary>真实XLSX写入器以Base64文本保存字节，不改图片、不注入公式。</summary>
+    [Fact]
+    public async Task Workbook_binary_values_are_lossless_Base64_text()
+    {
+        using var fixture=new ExportFixture();byte[] bytes=[0,255,0,127];
+        var ticket=await fixture.Service.CreateAsync(new("page1","二进制",["字节","空字节","空值"],[new object?[]{bytes,Array.Empty<byte>(),null}]),fixture.Actor);
+        var content=await fixture.Service.OpenAsync(ticket,fixture.Actor);
+        await using(content.Stream)
+        {
+            using var workbook=new XLWorkbook(content.Stream);var sheet=workbook.Worksheet(1);
+            Assert.Equal("AP8Afw==",sheet.Cell(2,1).GetString());Assert.Equal(bytes,Convert.FromBase64String(sheet.Cell(2,1).GetString()));Assert.False(sheet.Cell(2,1).HasFormula);Assert.Equal(XLDataType.Text,sheet.Cell(2,1).DataType);
+            Assert.Equal("",sheet.Cell(2,2).GetString());Assert.True(sheet.Cell(2,3).IsEmpty());
+        }
+    }
     [Fact]
     public async Task Workbook_preserves_typed_values_large_ids_and_literal_strings()
     {

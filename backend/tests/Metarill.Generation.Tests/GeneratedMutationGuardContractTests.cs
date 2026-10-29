@@ -192,6 +192,8 @@ public sealed class GeneratedMutationGuardRun : IDisposable
     public List<string> Trace { get; } = []; public DatabaseSession Session { get; }
     public RuntimeActor Actor { get; set; } = new(8015, "守卫合同", true, "100", "1");
     public string? ParentId { get; set; }
+    // 专项可为真实查询返回行补充初值，不代替Service处理省略字段。
+    public Action<object>? SeedRow { get; set; }
     public GeneratedMutationGuardRun(Assembly assembly,Action<TimeSpan>? validateTime=null,Func<string,TimeSpan?,TimeSpan?>? persistedTime=null)
     {
         this.assembly = assembly; entityType = assembly.GetType("Example.GuardContract.Generated.Entities.Customer", true)!;
@@ -229,6 +231,7 @@ public sealed class GeneratedMutationGuardRun : IDisposable
             {
                 Trace.Add("read:First"); var row = Activator.CreateInstance(type)!;
                 foreach (var pair in new Dictionary<string, object?> { ["Id"] = 1L, ["Name"] = "原名称", ["YzProjectId"] = 100L, ["YzAdminTypeId"] = 90L, ["YzRoleIds"] = "[]", ["IsSuper"] = 0, ["Pwd"] = "原密码不得传入" }) type.GetProperty(pair.Key)?.SetValue(row, pair.Value);
+                SeedRow?.Invoke(row);
                 return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(type).Invoke(null, [row]);
             }
             if (method.Name == "CountAsync") return Task.FromResult(1L);

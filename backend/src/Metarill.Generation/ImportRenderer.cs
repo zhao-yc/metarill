@@ -250,6 +250,7 @@ public sealed partial class {{page.Name}}ImportRequest
                 + string.Join(", ", cases.Select(pair => Literal(pair.label) + " => " + (column.Type == "string?" ? "JsonSerializer.SerializeToElement(" + Literal(pair.value) + ")" : "JsonSerializer.SerializeToElement(JsonSerializer.Deserialize<" + column.Type + ">(" + Literal(JsonSerializer.Serialize(pair.value)) + ", JsonOptions))")))
                 + ", _ => throw PageImportException.Input(PageImportError.Constant) }";
         }
+        if(column.Type=="byte[]?")return "cell.Value.Clone()";
         if (column.IsJsonArray) return "cell.Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(cell.Value.GetString()) ? JsonSerializer.Deserialize<JsonElement>(cell.Value.GetString()!) : cell.Value.Clone()";
         if (column.Type == "string?") return "cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString())";
         if (column.Type == "bool?") return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.ToString().ToLowerInvariant() switch { \"1\" or \"true\" or \"是\" or \"男\" => JsonSerializer.SerializeToElement(true), \"0\" or \"false\" or \"否\" or \"女\" => JsonSerializer.SerializeToElement(false), _ => throw PageImportException.Input(PageImportError.Boolean) }";
@@ -258,7 +259,7 @@ public sealed partial class {{page.Name}}ImportRequest
         return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone()";
     }
     /// <summary>类型错误只映射固定公开分类，原异常消息不进入返回值。</summary>
-    private static string ErrorKind(ColumnModel column) => column.Source.ControlKind is "ConstList" or "ConstDownList" ? "Constant" : column.IsJsonArray ? "Array" : column.Type switch { "bool?" => "Boolean", "DateTime?" or "TimeSpan?" => "DateTime", _ => "Number" };
+    private static string ErrorKind(ColumnModel column) => column.Source.ControlKind is "ConstList" or "ConstDownList" ? "Constant" : column.IsJsonArray ? "Array" : column.Type switch { "byte[]?"=>"Binary", "bool?" => "Boolean", "DateTime?" or "TimeSpan?" => "DateTime", _ => "Number" };
     /// <summary>Excel 使用中文标题，空标题回退为稳定字段名。</summary>
     internal static string Header(ColumnModel column) => string.IsNullOrWhiteSpace(column.Source.Name) ? column.JsonName : column.Source.Name;
     /// <summary>安全生成 C# 字符串字面量。</summary>

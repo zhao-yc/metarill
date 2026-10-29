@@ -134,6 +134,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         object converted=type switch
         {
             "int64" when value is long or int=>Convert.ToInt64(value,culture),
+            // byte[]可变；冻结一次，避免COUNT与明细绑定之间被调用方改写。
+            "binary" when value is byte[] bytes=>bytes.ToArray(),
             "int64" when value is string text&&long.TryParse(text,System.Globalization.NumberStyles.Integer,culture,out var number)=>number,
             "int32" when value is int=>value,
             "int32" when value is string text&&int.TryParse(text,System.Globalization.NumberStyles.Integer,culture,out var number)=>number,
@@ -158,7 +160,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var expression=plan.Expression(filter.Field);var value=filter.Value;var parameter="@filter_"+index;
         if(filter.Comparison==FixedReadComparison.In)
         {var items=(IReadOnlyList<object?>)value!;var indexes=Enumerable.Range(0,items.Count).Where(item=>items[item] is not null).ToArray();var member=indexes.Length==0?"":expression+" IN ("+string.Join(",",indexes.Select(item=>parameter+"_"+item))+")";var hasNull=items.Any(item=>item is null);return member.Length==0?hasNull?expression+" IS NULL":"1=0":hasNull?"("+member+" OR "+expression+" IS NULL)":member;}
-        if(value is not(null or string or long or int or decimal or double or float or bool or DateTime or DateTimeOffset or TimeSpan))throw new InvalidOperationException("固定筛选值必须是受支持的标量。");
+        if(value is not(null or string or byte[] or long or int or decimal or double or float or bool or DateTime or DateTimeOffset or TimeSpan))throw new InvalidOperationException("固定筛选值必须是受支持的标量。");
         if(filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)
         {if(value is not null)throw new InvalidOperationException("空值筛选不能同时带值。");return expression+(filter.Comparison==FixedReadComparison.IsNull?" IS NULL":" IS NOT NULL");}
         if(filter.Comparison==FixedReadComparison.JsonArrayHasId)

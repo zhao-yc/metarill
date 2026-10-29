@@ -146,6 +146,11 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
     }
     private static object? Coerce(object? value,ColumnMetadata column)
     {
+        if(column.LogicalType=="binary")
+        {
+            var bytes=Metarill.Core.Contracts.BinaryFieldValue.Coerce(value);
+            Metarill.Core.Contracts.BinaryFieldValue.Validate(bytes,Metarill.Core.Contracts.BinaryFieldValue.MaximumLength(column.ColumnLength));return bytes;
+        }
         if(value is JsonElement json)
             value=json.ValueKind switch {JsonValueKind.Null=>null,JsonValueKind.String=>json.GetString(),JsonValueKind.Object or JsonValueKind.Array=>json.GetRawText(),JsonValueKind.True=>1,JsonValueKind.False=>0,_=>json.GetRawText()};
         if(value is null || value is string s && s.Length==0 && column.LogicalType is not ("string" or "json")) return null;

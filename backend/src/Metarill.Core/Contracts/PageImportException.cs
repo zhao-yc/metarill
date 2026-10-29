@@ -1,7 +1,7 @@
 namespace Metarill.Core.Contracts;
 
 /// <summary>导入错误只使用固定分类，不能用任意异常消息充当可展示业务提示。</summary>
-public enum PageImportError { RowsArray, RowObject, DuplicateHeader, UnknownHeader, Number, Boolean, DateTime, Array, Constant, Relation }
+public enum PageImportError { RowsArray, RowObject, DuplicateHeader, UnknownHeader, Number, Boolean, DateTime, Array, Constant, Relation, Binary }
 
 /// <summary>明确区分可修正的单元格输入与内部执行失败；内部异常链只供宿主日志使用。</summary>
 public sealed class PageImportException : Exception
@@ -50,6 +50,7 @@ public sealed class PageImportException : Exception
             PageImportError.RowsArray => "必须提交Excel解析后的行数组。", PageImportError.RowObject => "每行必须是标题与单元格值组成的对象。",
             PageImportError.DuplicateHeader => "导入标题重复，请核对模板。", PageImportError.UnknownHeader => "存在未开放的导入列，请核对模板。",
             PageImportError.Number => "应填写有效数字。", PageImportError.Boolean => "应填写有效布尔选项。", PageImportError.DateTime => "应填写有效日期或时间。",
+            PageImportError.Binary => "应填写有效Base64二进制文本。",
             PageImportError.Array => "应填写有效数组。", PageImportError.Constant => "应填写已配置的选项。", PageImportError.Relation => "关联名称无匹配或存在重名，请修正后导入。",
             _ => throw new ArgumentOutOfRangeException(nameof(code))
         };
