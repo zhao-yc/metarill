@@ -33,3 +33,11 @@ dotnet test backend/tests/Metarill.Compatibility.Tests/Metarill.Compatibility.Te
 ```
 
 首轮固定来源实际严格编译/运行：18通过、11实库条件跳过、0失败。CI驱动的失败/成功两种控制流均通过。最终源文件核对及新提交的Windows/Linux远端复验另记；未执行项目不能用其他项目结果替代。
+
+## 后续Linux实际失败与精确范围夹具修正
+
+本次读取[aba4d5e的push运行40806534633](https://github.com/zhao-yc/metarill/actions/runs/40806534633)终态日志：前端成功，Linux后端失败；同运行Windows检查读取时仍在执行，不能视为通过。Linux全部项目实际跑完，生成测试2039通过、252跳过、1失败，其余九个测试项目无失败。唯一失败为 `ExactDataManageGenerationTests.Derived_match_compiles_as_hidden_read_dependency_and_separate_lock_plan`，异常为TargetParameterCountException；不是其原本要求检查的内部事务拒绝。
+
+生成方法跟进派生规则预检后，新增可选参数exactLocking=true，反射Invoke不会自动省略实参数组长度。旧测试仍传三个参数，尚未进入真实事务检查。只修正该测试：先明确断言第四参数名称、可选标志及默认true，再传Type.Missing使用实际默认值，保留TargetInvocationException内层InvalidOperationException和“真实写事务”断言。生成器、产品权限、锁及数据库代码均未更改。
+
+本地Release执行整个ExactDataManageGenerationTests组，8通过、0失败、0跳过；缺事务必须拒绝的实际生成程序集断言已运行。日志/TRX保留在私有 `.local/exact-scope-ci-20261029`。这只关闭已知反射参数回归，不宣称全部生成测试、Windows/Linux最新提交CI、实库锁或最终首版验收完成。新提交仍须按具体SHA跟踪远端CI。

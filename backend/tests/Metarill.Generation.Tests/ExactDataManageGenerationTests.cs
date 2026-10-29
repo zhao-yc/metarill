@@ -77,7 +77,9 @@ public sealed class ExactDataManageGenerationTests
             var filters=(List<FixedReadFilter>)type.GetMethod("ReadFilters101",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[new PageRequest{ParentId="71"},actor,"export"])!;
             Assert.Single(filters,filter=>filter.Field=="customer_notes"&&filter.Comparison==FixedReadComparison.In);Assert.Equal("export",authorization.LastOperation);
             var vo=assembly.GetType(model.Namespace+".Generated.VOs."+page.Name+"Vo",true)!;Assert.Null(vo.GetProperty("CustomerNotes"));
-            var error=Assert.Throws<TargetInvocationException>(()=>type.GetMethod("Scope101",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[actor,"71","update"]));Assert.IsType<InvalidOperationException>(error.InnerException);Assert.Contains("真实写事务",error.InnerException!.Message);
+            // 反射调用须显式占位可选参数，保留生成方法默认启用真实事务锁的合同。
+            var scope=type.GetMethod("Scope101",BindingFlags.NonPublic|BindingFlags.Instance)!;var locking=Assert.Single(scope.GetParameters().Skip(3));Assert.Equal("exactLocking",locking.Name);Assert.True(locking.IsOptional);Assert.Equal(true,locking.DefaultValue);
+            var error=Assert.Throws<TargetInvocationException>(()=>scope.Invoke(service,[actor,"71","update",Type.Missing]));Assert.IsType<InvalidOperationException>(error.InnerException);Assert.Contains("真实写事务",error.InnerException!.Message);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
