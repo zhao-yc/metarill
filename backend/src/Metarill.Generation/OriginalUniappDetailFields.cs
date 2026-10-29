@@ -78,7 +78,11 @@ internal static class OriginalUniappDetailFields
             case "month":
                 c.Methods.AppendLine($"{name}MonthChange(e) {{ const value=e?.detail?.value; this.entity.{name}=value ? String(value).slice(0,7)+'-01' : ''; }},");
                 return $"<picker mode='date' fields='month' :disabled='{ro}' :value='entity.{name} ? String(entity.{name}).substring(0,7) : \"\"' @change='{name}MonthChange'><uni-easyinput :disabled='{ro}' :model-value='entity.{name} ? String(entity.{name}).substring(0,7) : \"\"' primaryColor=\"{primary}\" /></picker>";
-            case "time": return $"<picker mode='time' :disabled='{ro}' :value='entity.{name}' @change='entity.{name}=$event.detail.value'><uni-easyinput :disabled='{ro}' :model-value='entity.{name}' /></picker>";
+            case "time":
+                // 原输入组件的清空/键盘事件必须回写实体；保留picker和全部显示属性，只读迟到事件不改值。
+                c.Methods.AppendLine("// 原时间控件输入与选择共用绑定，保留文本精度和明确清空。");
+                c.Methods.AppendLine($"{name}TimeChange(value) {{ if(!this._alive || this.{ro}) return; this.entity.{name}=value; }},");
+                return $"<picker mode='time' :disabled='{ro}' :value='entity.{name}' @change='{name}TimeChange($event.detail.value)'><uni-easyinput :disabled='{ro}' :model-value='entity.{name}' @update:modelValue='{name}TimeChange' /></picker>";
             case "ConstList": case "ConstDownList":
                 var choices = f.Detail.Split(',').Select(token => token.Split('|', 2)).Select(pair => new { text = pair[0], value = ConstValue(column, pair.Length == 2 ? pair[1] : pair[0]) }).ToArray();
                 c.Data.Append(name).Append("Range:").Append(Js(choices)).Append(',');

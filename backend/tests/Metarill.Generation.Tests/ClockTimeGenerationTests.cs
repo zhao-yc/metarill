@@ -55,7 +55,7 @@ public partial class CustomerService
             using(var run=new GeneratedMutationGuardRun(assembly,new MySqlDatabaseProvider().ValidateTimeValue))
             {await Assert.ThrowsAsync<ArgumentOutOfRangeException>(()=>Invoke(run.Service([]),"Create101Async",Request("Create","{\"name\":\"超限钩子\"}"),null,run.Actor,CancellationToken.None));Assert.DoesNotContain("write:Insert",run.Trace);Assert.Contains("rollback",run.Trace);}
             var vue=Assert.Single(Directory.EnumerateFiles(Path.Combine(directory,"generated"),"*.vue",SearchOption.AllDirectories),path=>File.ReadAllText(path).Contains("<picker mode='time'"));
-            Assert.Contains("@change='entity.clock=$event.detail.value'",await File.ReadAllTextAsync(vue));
+            Assert.Contains("@change='clockTimeChange($event.detail.value)'",await File.ReadAllTextAsync(vue));
             Assert.Contains("ClockTimeValue.FormatExport",await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/CustomerService.g.cs")));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
