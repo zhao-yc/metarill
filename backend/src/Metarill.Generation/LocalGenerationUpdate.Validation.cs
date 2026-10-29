@@ -81,7 +81,7 @@ public sealed partial class LocalGenerationUpdater
         // 当前中央按钮模板引用初始化协议源；旧目标仍可预览升级，当前候选不能双删伪造闭包。
         if(candidate&&frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"src/Metarill.Agent/AdminAccountInitializationHttp.cs","src/Metarill.Security/AdminAccountInitializationBusiness.cs"});
         // 通用行存储引用二进制合同；当前候选必须带源，旧目标可显式同步后升级。
-        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/BinaryFieldValue.cs"});
+        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/BinaryFieldValue.cs","src/Metarill.Data/Schema/MySqlBinaryDefault.cs"});
         // 新级联导入/导出依赖整层路径及整行聚合；当前候选必须带齐，旧目标可预览完整运行时升级。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Cascades/CrossTableExcelPath.cs","src/Metarill.Core/Cascades/CrossTableExcelRow.cs"});
         // 公共JsonDefaults始终引用浮点转换器；无double业务列的当前候选也必须带齐其解析依赖。

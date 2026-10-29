@@ -252,11 +252,11 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
     /// <summary>把数据库名称转换为稳定的类型成员名称。</summary>
     /// <summary>保留现有前端使用的驼峰 JSON 名称。</summary>
     internal static string Camel(string value) { var name = Pascal(value); return char.ToLowerInvariant(name[0]) + name[1..]; }
-    /// <summary>二进制字段只开放现有可同步的无默认模型，长度与字节校验共用逻辑规则。</summary>
+    /// <summary>二进制默认及长度由共享逻辑合同验证，不把数据库方言带入生成服务。</summary>
     private static string BinaryType(ColumnMetadata column)
     {
         _=global::Metarill.Core.Contracts.BinaryFieldValue.MaximumLength(column.ColumnLength);
-        if(column.DefaultValue.Length!=0)throw new InvalidOperationException("二进制数据库默认值尚未接通，不能生成不可同步的模型。");
+        _=global::Metarill.Core.Contracts.BinaryFieldValue.DefaultBytes(column.DefaultValue,column.ColumnLength);
         return "byte[]?";
     }
     /// <summary>将逻辑数据类型映射为 C# 类型。</summary>

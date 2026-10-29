@@ -55,7 +55,7 @@ public static class MySqlSchemaPlanner
         if (isId && logical != "int64") throw new InvalidOperationException("id 必须为 int64。");
         if (column.ColumnName == "delete_no" && (logical != "datetime" || column.IsDbNotNull != 0))
             throw new InvalidOperationException("delete_no 必须是可空 datetime，null 表示活动记录。");
-        var defaultSql = TryAuditTimestampDefault(column.ColumnName,sqlType,column.DefaultValue,out var temporalDefault) ? temporalDefault : logical=="time"?CompileTimeDefault(column):CompileDefault(column.DefaultValue, logical);
+        var defaultSql = TryAuditTimestampDefault(column.ColumnName,sqlType,column.DefaultValue,out var temporalDefault) ? temporalDefault : logical=="time"?CompileTimeDefault(column):logical=="binary"?MySqlBinaryDefault.Compile(column,sqlType):CompileDefault(column.DefaultValue, logical);
         // MySQL 8.0.13及以后要求TEXT常量也使用表达式括号；仍不接受原生表达式。
         if(defaultSql is not null&&sqlType is "text" or "longtext")defaultSql="("+defaultSql+")";
         return new ColumnSchema(column.ColumnName, sqlType, column.IsDbNotNull == 0, isId, defaultSql);
@@ -138,6 +138,8 @@ public static class MySqlSchemaPlanner
             var raw=value.Length>=2&&value[0]=='\''&&value[^1]=='\''?value[1..^1]:value;
             try{return "time:"+Metarill.Core.Contracts.SqlTimeValue.ParseNanoseconds(raw)?.ToString(CultureInfo.InvariantCulture);}catch(System.Text.Json.JsonException){return value;}
         }
+        // 二进制只按明确字节归一大小写/字面量包装，不把字符默认或函数当作相同值。
+        if(MySqlBinaryDefault.Supports(column.StoreType)&&MySqlBinaryDefault.TryNormalize(value,out var binary))return binary;
         // DOUBLE默认值按真实浮点往返格式归一，避免MySQL指数大小写与尾零导致重复差异；decimal仍走精确文本。
         if(value is not null&&column.StoreType=="double"&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(value,out var floating))return (floating==0?"0":floating.ToString("R",CultureInfo.InvariantCulture));
         if(value is null||!System.Text.RegularExpressions.Regex.IsMatch(column.StoreType,@"^decimal[(][0-9]+,[0-9]+[)]$")||!System.Text.RegularExpressions.Regex.IsMatch(value,@"^[+-]?[0-9]+(?:[.][0-9]+)?$"))return value;

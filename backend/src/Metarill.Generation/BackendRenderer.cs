@@ -560,6 +560,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     internal static string DefaultExpression(ColumnModel column)
     {
         if (column.Type == "string?") return Literal(column.Source.DefaultValue);
+        // 每次创建重新分配默认字节，不能共享可变数组；SQL形式仍只由数据库适配器生成。
+        if(column.Type=="byte[]?")return "global::System.Convert.FromBase64String("+Literal(Convert.ToBase64String(global::Metarill.Core.Contracts.BinaryFieldValue.DefaultBytes(column.Source.DefaultValue,column.Source.ColumnLength)!))+")";
         try
         {
             var raw = column.Source.DefaultValue;

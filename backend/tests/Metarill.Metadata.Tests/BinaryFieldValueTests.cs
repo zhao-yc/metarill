@@ -20,6 +20,15 @@ public sealed class BinaryFieldValueTests
     [Theory][InlineData("\"不是编码\"")][InlineData("\"%%%\"")][InlineData("\"A\"")][InlineData("[0,255]")][InlineData("{}")][InlineData("123")][InlineData("true")]
     public void Invalid_text_and_json_shapes_are_rejected(string raw)=>Assert.Throws<JsonException>(()=>BinaryFieldValue.Parse(JsonSerializer.Deserialize<JsonElement>(raw)));
     /// <summary>null、空、实际字节分别保留；长度按字节计算，不能按Base64文本或数据库截断处理。</summary>
+    /// <summary>元数据默认与请求同解码，留空框保留无默认语义，结果每次独立分配。</summary>
+    [Fact]
+    public void Default_bytes_validate_length_and_do_not_share_mutable_arrays()
+    {
+        Assert.Null(BinaryFieldValue.DefaultBytes("","4"));
+        var first=BinaryFieldValue.DefaultBytes("AP8=","4")!;var next=BinaryFieldValue.DefaultBytes("AP8=","4")!;
+        Assert.Equal(new byte[]{0,255},first);Assert.NotSame(first,next);first[0]=99;Assert.Equal((byte)0,next[0]);
+        foreach(var invalid in new[]{"不是Base64","AQIDBAU=","UNHEX('00FF')"," ","[0,255]"})Assert.Throws<InvalidOperationException>(()=>BinaryFieldValue.DefaultBytes(invalid,"4"));
+    }
     [Fact]
     public void Null_and_byte_length_contracts_remain_distinct()
     {

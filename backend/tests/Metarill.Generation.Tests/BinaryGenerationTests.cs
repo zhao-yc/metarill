@@ -21,7 +21,7 @@ public sealed class BinaryGenerationTests
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-binary-generation");var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
-            var catalog=GeneratorTests.Catalog();AddBinary(catalog);new CSharpGenerator().Generate(catalog,Path.Combine(root,"generated"),"Example.GuardContract");
+            var catalog=GeneratorTests.Catalog();AddBinary(catalog);catalog.ConfigColumns.Single(column=>column.ColumnName=="payload").DefaultValue="AP8=";new CSharpGenerator().Generate(catalog,Path.Combine(root,"generated"),"Example.GuardContract");
             var hand=Path.Combine(root,"generated/Services/CustomerService.cs");
             await File.AppendAllTextAsync(hand,"""
 
@@ -42,6 +42,11 @@ public partial class CustomerService
                 var service=run.Service([]);
                 async Task<object?> Save(string operation,string json)=>await ClockTimeGenerationTests.Invoke(service,operation+"101Async",Request(operation,json),null,run.Actor,CancellationToken.None);
                 byte[]? Bytes(object? value)=>(byte[]?)value!.GetType().GetProperty("Payload")!.GetValue(value);
+                var defaultA=await Save("Create","""{"name":"默认甲"}""");var defaultB=await Save("Create","""{"name":"默认乙"}""");
+                Assert.Equal(new byte[]{0,255},Bytes(defaultA));Assert.Equal(new byte[]{0,255},Bytes(defaultB));Assert.NotSame(Bytes(defaultA),Bytes(defaultB));
+                Bytes(defaultA)![0]=99;Assert.Equal((byte)0,Bytes(defaultB)![0]);
+                Assert.Null(Bytes(await Save("Create","""{"name":"主动空","payload":null}""")));
+                Assert.Empty(Bytes(await Save("Create","""{"name":"主动零字节","payload":""}"""))!);
                 var created=await Save("Create","""{"name":"字节","payload":"AP8Afw=="}""");Assert.Equal(new byte[]{0,255,0,127},Bytes(created));Assert.Contains("write:Insert",run.Trace);
                 using(var json=JsonDocument.Parse(JsonSerializer.Serialize(created,created!.GetType(),JsonDefaults.Options)))Assert.Equal("AP8Afw==",json.RootElement.GetProperty("payload").GetString());
                 Assert.Equal(new byte[]{7,0,255},Bytes(await Save("Update","""{"id":"1","remark":"省略"}""")));
@@ -100,7 +105,7 @@ public partial class CustomerService
     [Fact]
     public async Task Complete_binary_application_builds_from_own_sources()
     {
-        var source=NonRedundantApplicationFixture.Root();var catalog=JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(source,"backend/metadata/demo.json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;AddBinary(catalog);
+        var source=NonRedundantApplicationFixture.Root();var catalog=JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(source,"backend/metadata/demo.json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;AddBinary(catalog);catalog.ConfigColumns.Single(column=>column.ColumnName=="payload").DefaultValue="AP8=";
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-binary-package");var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
@@ -110,11 +115,11 @@ public partial class CustomerService
         }
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
     }
-    /// <summary>尚无二进制默认值DDL合同时尽早拒绝，不能输出无法同步的项目。</summary>
-    [Fact]
-    public void Binary_default_rejects_before_output()
+    /// <summary>无效或超长二进制默认在发布前拒绝，不输出部分产物。</summary>
+    [Theory][InlineData("不是Base64")][InlineData("AQIDBAU=")][InlineData("X'00FF'")]
+    public void Binary_default_rejects_before_output(string value)
     {
-        var catalog=GeneratorTests.Catalog();AddBinary(catalog);catalog.ConfigColumns.Single(column=>column.ColumnName=="payload").DefaultValue="AA==";
+        var catalog=GeneratorTests.Catalog();AddBinary(catalog);catalog.ConfigColumns.Single(column=>column.ColumnName=="payload").DefaultValue=value;
         var root=Path.Combine(Path.GetTempPath(),"metarill-binary-invalid-"+Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,root,"Example.InvalidBinary"));Assert.False(Directory.Exists(root));
     }
     /// <summary>只扩展隔离样本元数据，不变更平台或原前端。</summary>

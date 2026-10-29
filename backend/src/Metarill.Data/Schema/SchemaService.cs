@@ -166,6 +166,8 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                     if(type is "text" or "longtext"&&extra.Equals("DEFAULT_GENERATED",StringComparison.Ordinal)&&MySqlTextDefault.TryNormalize(rawDefault,out var normalized)){defaultSql=normalized;generated=false;}
                     // 仅固定审计时间的已证明CURRENT_TIMESTAMP默认可解除DEFAULT_GENERATED，未知EXTRA继续保护。
                     if(extra.Equals("DEFAULT_GENERATED",StringComparison.Ordinal)&&MySqlSchemaPlanner.TryAuditTimestampDefault(reader.GetString(0),type,rawDefault,out var auditDefault)){defaultSql=auditDefault;generated=false;}
+                    // 仅精确DEFAULT_GENERATED且确认为十六进制常量时解除二进制默认保护。
+                    if(MySqlBinaryDefault.Supports(type)&&extra.Equals("DEFAULT_GENERATED",StringComparison.Ordinal)&&MySqlBinaryDefault.TryNormalize(rawDefault,out var binaryDefault)){defaultSql=binaryDefault;generated=false;}
                     columns.Add(new ColumnSchema(reader.GetString(0), type, reader.GetString(2) == "YES", reader.GetString(3) == "PRI", defaultSql,generated));
                 }
             }

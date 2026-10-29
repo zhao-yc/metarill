@@ -109,6 +109,11 @@ public static class SchemaImportDraftCompiler
                 column.DefaultValue = normalized![2..^2].Replace("''", "'", StringComparison.Ordinal);
                 if (column.DefaultValue.Length == 0) throw new NotSupportedException("现有元数据不能区分空字符串默认值与没有默认值。");
             }
+            else if(column.LogicalType=="binary")
+            {
+                var bytes=MySqlBinaryDefault.Read(value);if(bytes.Length==0)throw new NotSupportedException("现有元数据不能区分零字节默认值与没有默认值。");
+                column.DefaultValue=Convert.ToBase64String(bytes);
+            }
             else if(column.LogicalType=="time")column.DefaultValue=value.Length>=2&&value[0]=='\''&&value[^1]=='\''?value[1..^1]:value;
             else column.DefaultValue = value;
         }
