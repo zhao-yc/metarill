@@ -102,7 +102,7 @@ public sealed class GatewayIntegrationFactAttribute:FactAttribute
 
 public sealed class CompatibilityGatewayIntegrationTests
 {
-    /// <summary>仅只读已初始化的隔离库，验证真实按钮及实体查询；不修改共享种子或执行 DDL。</summary>
+    /// <summary>仅查询已初始化隔离库并临时取得/释放真实按钮租约；不修改共享种子或执行DDL。</summary>
     private static CompatibilityButtonBusiness Business(bool administrator=true,string? project=null)
     {
         var registry=CompatibilityButtonTests.Registry();
@@ -111,8 +111,8 @@ public sealed class CompatibilityGatewayIntegrationTests
         if(options.ExpectedDatabase!="metarill_test")throw new InvalidOperationException("测试仅允许隔离 metarill_test 库。");
         var context=new DefaultHttpContext();var actor=new RuntimeActor(8001,"测试管理员",administrator,project??registry.Platform.YzProjectId,registry.Platform.YzAdminTypes[0].Id);
         context.Items[typeof(AuthenticatedIdentity)]=new AuthenticatedIdentity(actor,new HashSet<string>(),1,null);
-        var store=new SqlRowStore(new DatabaseSession(options),registry.Platform);var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},registry);var ids=new SnowflakeIdGenerator(855);
-        return new(store,auth,registry,new ConfigurationActionsBusiness(store,registry,new MetadataRepository(store,registry),auth,ids,new ConfigurationMutationObserver(store,registry,ids)));
+        var session=new DatabaseSession(options);var store=new SqlRowStore(session,registry.Platform);var auth=new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},registry);var ids=new SnowflakeIdGenerator(855);
+        return new(store,auth,registry,new ConfigurationActionsBusiness(store,registry,new MetadataRepository(store,registry),auth,ids,new ConfigurationMutationObserver(store,registry,ids)),new DatabaseButtonExecutionGuard(_=>session));
     }
     [GatewayIntegrationFact]
     public async Task Registered_button_and_legacy_alias_resolve_same_database_object()
@@ -137,7 +137,7 @@ public sealed class CompatibilityGatewayIntegrationTests
             var context=new DefaultHttpContext();context.Request.Path="/api/admin/custom/config_table/generate_all";
             context.Request.ContentType=contentType;context.Request.Body=new MemoryStream(System.Text.Encoding.UTF8.GetBytes(body));
             context.Request.QueryString=new QueryString("?id=6191080026669056");
-            var controller=new Metarill.Api.Controllers.CompatibilityButtonController(Business()){ControllerContext=new Microsoft.AspNetCore.Mvc.ControllerContext{HttpContext=context}};
+            using var fixture=new CompatibilityControllerFixture(Business());var controller=fixture.Controller;controller.ControllerContext=new Microsoft.AspNetCore.Mvc.ControllerContext{HttpContext=context};
             return await controller.Legacy(default);
         }
         Assert.Equal("metarillGenerate",(await Legacy("application/json","{}")).Data!.Type);
@@ -146,8 +146,10 @@ public sealed class CompatibilityGatewayIntegrationTests
         await Assert.ThrowsAsync<InvalidOperationException>(()=>Legacy("application/json","{\"id\":\"999\"}"));
         await Assert.ThrowsAsync<InvalidOperationException>(()=>Legacy("application/json","{\"route\":\"/sql\"}"));
         var clientEntity=JsonSerializer.SerializeToElement(new {yzProjectId="foreign",configTableId="foreign",sql="DROP TABLE x"});
-        var gateway=new Metarill.Api.Controllers.CompatibilityButtonController(Business());
-        Assert.Equal("/pages/custom/config_columns_sort?config_table_id=6191080026669056",(await gateway.Execute(new("1676828142707372033","6191080026669056",clientEntity),default)).Data!.Path);
+        using var gatewayFixture=new CompatibilityControllerFixture(Business());var gateway=gatewayFixture.Controller;
+        var response=Assert.IsType<Microsoft.AspNetCore.Mvc.OkObjectResult>(await gateway.Execute(new("1676828142707372033","6191080026669056",clientEntity),default));
+        var envelope=Assert.IsType<Metarill.Core.Contracts.R<CompatibilityButtonResult>>(response.Value);
+        Assert.Equal("/pages/custom/config_columns_sort?config_table_id=6191080026669056",envelope.Data!.Path);
     }
 
 }

@@ -35,7 +35,7 @@ internal sealed class ConfigurationActionsFixture:IAsyncDisposable
     internal CompatibilityButtonBusiness Gateway()
     {
         var actor=new RuntimeActor(8026,"配置动作测试",true,Project.ToString(),Admin.ToString());var context=new DefaultHttpContext();context.Items[typeof(AuthenticatedIdentity)]=new AuthenticatedIdentity(actor,new HashSet<string>(),1,null);
-        return new(Store,new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},Registry),Registry,Business());
+        return new(Store,new HttpRuntimeAuthorization(new HttpContextAccessor{HttpContext=context},Registry),Registry,Business(),new DatabaseButtonExecutionGuard(_=>Session));
     }
     /// <summary>强制使用明确的metarill_test测试库，凭据不打印或落入提交。</summary>
     internal static async Task<ConfigurationActionsFixture> CreateAsync()

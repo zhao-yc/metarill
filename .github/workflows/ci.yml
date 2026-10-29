@@ -59,10 +59,13 @@ jobs:
       - name: 运行全部后端测试项目
         shell: pwsh
         run: |
-          foreach ($project in Get-ChildItem backend/tests -Filter *.csproj -Recurse) {
-            dotnet test $project.FullName --logger "trx;LogFileName=$($project.BaseName).trx"
-            if ($LASTEXITCODE -ne 0) { throw "测试失败：$($project.BaseName)" }
+          # 跑完全部项目后统一失败，避免第一个编译错误隐藏后续验证；不降低最终门槛。
+          $failedTestProjects = [System.Collections.Generic.List[string]]::new()
+          foreach ($testProject in Get-ChildItem backend/tests -Filter *.csproj -Recurse | Sort-Object FullName) {
+            dotnet test $testProject.FullName --logger "trx;LogFileName=$($testProject.BaseName).trx"
+            if ($LASTEXITCODE -ne 0) { $failedTestProjects.Add($testProject.BaseName) }
           }
+          if ($failedTestProjects.Count -gt 0) { throw "测试失败：$($failedTestProjects -join '、')" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
