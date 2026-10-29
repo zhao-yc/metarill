@@ -79,11 +79,41 @@ public sealed class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISe
         return new AuthenticatedIdentity(actor,realm.Permissions,SqlRowStore.Id(session),grantId){PrincipalAdminTypeId=realm.AdminTypeId,PrincipalProjectId=realm.ProjectId,IsRealmSuper=realm.IsSuper}.WithPermissionContext(realm);
     }
     /// <summary>有效期与登录起止时间在每次请求重新检查，停用立即生效。</summary>
-    public static bool AccountActive(IReadOnlyDictionary<string,object?> account)
+    public static bool AccountActive(IReadOnlyDictionary<string,object?> account)=>AccountActive(account,DateTimeOffset.UtcNow,TimeZoneInfo.Local);
+    /// <summary>原账号字段是宿主日历时间；显式瞬时保留自身时区，绝不把这些字段和UTC会话期限混用。</summary>
+    internal static bool AccountActive(IReadOnlyDictionary<string,object?> account,DateTimeOffset now,TimeZoneInfo calendarZone)
     {
-        var now=DateTime.UtcNow;if(SqlRowStore.Text(account,"is_disabled")=="1")return false;
-        foreach(var field in new[]{"validity_time","login_stop_time"})if(account.GetValueOrDefault(field) is{} end&&Convert.ToDateTime(end,CultureInfo.InvariantCulture)<=now)return false;
-        return account.GetValueOrDefault("login_rise_time") is not{} start||Convert.ToDateTime(start,CultureInfo.InvariantCulture)<=now;
+        ArgumentNullException.ThrowIfNull(calendarZone);
+        if(SqlRowStore.Text(account,"is_disabled")=="1")return false;
+        foreach(var field in new[]{"validity_time","login_stop_time"})
+            if(account.GetValueOrDefault(field) is{} end&&(!TryCalendarUtcTicks(end,calendarZone,out var until)||until<=now.UtcTicks))return false;
+        return account.GetValueOrDefault("login_rise_time") is not{} start||TryCalendarUtcTicks(start,calendarZone,out var from)&&from<=now.UtcTicks;
+    }
+    /// <summary>未标时区的库值按原Java atZone解释：重叠取较早瞬时，跳时向前跨过缺口；坏值拒绝。</summary>
+    private static bool TryCalendarUtcTicks(object value,TimeZoneInfo zone,out long ticks)
+    {
+        ticks=0;
+        try
+        {
+            if(value is DateTimeOffset instant){ticks=instant.UtcTicks;return true;}
+            var calendar=Convert.ToDateTime(value,CultureInfo.InvariantCulture);
+            if(calendar.Kind==DateTimeKind.Utc){ticks=calendar.Ticks;return true;}
+            if(calendar.Kind==DateTimeKind.Local){ticks=calendar.ToUniversalTime().Ticks;return true;}
+            if(zone.IsInvalidTime(calendar))
+            {
+                var before=calendar;var after=calendar;
+                // 时区偏移范围有界，按小时找缺口两侧；同时覆盖非整小时和跳过一日的变化。
+                for(var i=0;i<48&&zone.IsInvalidTime(before);i++)before=before.AddHours(-1);
+                for(var i=0;i<48&&zone.IsInvalidTime(after);i++)after=after.AddHours(1);
+                if(zone.IsInvalidTime(before)||zone.IsInvalidTime(after))return false;
+                var gap=zone.GetUtcOffset(after)-zone.GetUtcOffset(before);if(gap<=TimeSpan.Zero)return false;
+                calendar=calendar.Add(gap);if(zone.IsInvalidTime(calendar))return false;
+            }
+            var offset=zone.IsAmbiguousTime(calendar)?zone.GetAmbiguousTimeOffsets(calendar).Max():zone.GetUtcOffset(calendar);
+            // ticks比较避免正负时区把合法DateTime.Min/Max边界转换成不可构造的DateTimeOffset。
+            ticks=calendar.Ticks-offset.Ticks;return true;
+        }
+        catch(Exception error)when(error is FormatException or InvalidCastException or ArgumentException or OverflowException or InvalidTimeZoneException){return false;}
     }
     /// <summary>仅将本次真实会话逻辑注销，保留审计与既有会话存储语义。</summary>
     public Task LogoutAsync(long sessionId,CancellationToken cancellationToken=default)=>store.UpdateAsync("sys_session",sessionId,new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},cancellationToken);
