@@ -90,7 +90,21 @@ public partial class ConfigColumnService
         Assert.Equal(1,physical.IsDbNotNull);Assert.Equal(1,field.IsRequired);Assert.Equal("1",field.Extra["isMust"].ToString());
         var actual=GenerationModel.Create(platform,"Example.OriginalTypeRule");var actualTable=actual.Tables.Single(value=>value.Source.Id==Table);var actualPage=actualTable.Pages.Single(value=>value.Source.Id==Page);
         var detail=OriginalUniappDetailRenderer.Render(actual,actualTable,actualPage,[]);Assert.Contains("columnType:{rules:[{\"required\":true",detail);
-        foreach(var unsupported in new[]{"time","binary"}){var metadata=Catalog();metadata.ConfigColumns.Single(value=>value.ColumnName=="control_detail").LogicalType=unsupported;Assert.Throws<InvalidOperationException>(()=>GenerationModel.Create(metadata,"Example.UnchangedCapability"));}
+        // 已实现的逻辑类型必须保持强类型映射；固定页面豁免不能收窄普通字段能力。
+        foreach(var (logicalType,expectedType) in new[]{("time","TimeSpan?"),("binary","byte[]?")})
+        {
+            var metadata=Catalog();metadata.ConfigColumns.Single(value=>value.ColumnName=="control_detail").LogicalType=logicalType;
+            var supported=GenerationModel.Create(metadata,"Example.UnchangedCapability");
+            Assert.Equal(expectedType,supported.Tables.Single().Columns.Single(value=>value.Source.ColumnName=="control_detail").Type);
+            Assert.Equal(logicalType,metadata.ConfigColumns.Single(value=>value.ColumnName=="control_detail").LogicalType);
+        }
+        // 真正未知的类型仍在生成阶段拒绝，不能借兼容旧空物理类型绕过类型合同。
+        foreach(var unsupported in new[]{"geometry","xml","invalid"})
+        {
+            var metadata=Catalog();metadata.ConfigColumns.Single(value=>value.ColumnName=="control_detail").LogicalType=unsupported;
+            var error=Assert.Throws<InvalidOperationException>(()=>GenerationModel.Create(metadata,"Example.UnchangedCapability"));
+            Assert.Contains("未知逻辑类型："+unsupported,error.Message);
+        }
     }
 
     /// <summary>固定平台字段身份与原必填保持一致，另加普通页面证明豁免不会扩散。</summary>
