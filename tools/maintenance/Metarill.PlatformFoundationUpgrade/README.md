@@ -24,4 +24,4 @@ DDL先于配置，不承诺分布式或DDL回滚。配置事务先锁有效平�
 
 ## 验证与当前状态
 
-源范围/防篡改、阶段次序/停止、回执故障、实际SqlRowStore内存ADO补缺/墓碑与跨归属占用/整批回滚、目标设置等32项通过；实际SchemaService的UUID绑定及相邻索引20项通过。工具真实preview已核当前13条/5SQL，尚未执行apply。Data1222/24条件跳过、Agent443/25、API82/49及实际完整包/管理宿主2项零失败；32专项含后加的大小写重复键反例，不与全套数相加。CLI/API/维护工具及测试严格零警告错误，215后端与492原前端两轮保持。冻结构建和授权/正式执行状态按[项目进度](../../../docs/project-progress.md)及[专项证据](../../../docs/testing/platform-foundation-upgrade.md)维护。
+源范围/防篡改、阶段次序/停止、回执故障、实际SqlRowStore内存ADO补缺/墓碑与跨归属占用/整批回滚、目标设置等32项通过；实际SchemaService的UUID绑定及相邻索引20项通过。工具真实preview已核当前13条/5SQL，尚未执行apply。Data1222/24条件跳过、Agent443/25、API82/49及实际完整包/管理宿主2项零失败；32专项含后加的大小写重复键反例，不与全套数相加。CLI/API/维护工具及测试严格零警告错误，215后端与492原前端两轮保持。6e94f17代码的58文件已冻结并从副本只读preview逐字一致；错误摘要阴性进程未进入写入。授权/正式执行状态按[项目进度](../../../docs/project-progress.md)及[专项证据](../../../docs/testing/platform-foundation-upgrade.md)维护。
