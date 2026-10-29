@@ -235,13 +235,14 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
         await command.ExecuteNonQueryAsync();
     }
     /// <summary>真实引用 Core/Data 源码编译生成物，不用替身声明冒充生成项目可编译。</summary>
-    internal static async Task<Assembly> BuildGenerated(string directory, [CallerFilePath] string source = "")
+    internal static async Task<Assembly> BuildGenerated(string directory, bool includeAgent = false, [CallerFilePath] string source = "")
     {
         var repository = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../../.."));
         var core = SecurityElement.Escape(Path.Combine(repository, "backend/src/Metarill.Core/Metarill.Core.csproj")); var data = SecurityElement.Escape(Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj"));
+        var agent = includeAgent ? "<ProjectReference Include=\"" + SecurityElement.Escape(Path.Combine(repository, "backend/src/Metarill.Agent/Metarill.Agent.csproj")) + "\"/>" : "";
         var assemblyName = "Metarill.Generated.Relation." + Guid.NewGuid().ToString("N");
         await File.WriteAllTextAsync(Path.Combine(directory, "Relation.csproj"), $$"""
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>{{assemblyName}}</AssemblyName></PropertyGroup><ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App"/><ProjectReference Include="{{core}}"/><ProjectReference Include="{{data}}"/></ItemGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>{{assemblyName}}</AssemblyName></PropertyGroup><ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App"/><ProjectReference Include="{{core}}"/><ProjectReference Include="{{data}}"/>{{agent}}</ItemGroup></Project>
 """);
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var argument in new[] { "build", "Relation.csproj", "--nologo", "--verbosity", "quiet", "--disable-build-servers" }) start.ArgumentList.Add(argument);

@@ -33,7 +33,7 @@ internal static partial class BackendRenderer
     {
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using FreeSql.DataAnnotations;").AppendLine("using System.Text.Json.Serialization;")
             .AppendLine($"namespace {model.Namespace}.Generated.Entities;").AppendLine($"[Table(Name = {Literal(table.Source.TableName)})]")
-            .AppendLine($"public partial class {table.Name}").AppendLine("{");
+            .AppendLine($"public partial class {table.Name}{(RuleRecordEntity(model,table)?" : global::Metarill.Core.Contracts.IGeneratedRuleRecord":"")}").AppendLine("{");
         foreach (var column in table.Columns)
         {
             if(NonRedundantReadCompilation.Requires(model,table)&&!NonRedundantReadCompilation.Physical(model,table,column))result.AppendLine($"    [Column(Name = {Literal(column.Source.ColumnName)}, IsIgnore = true)]");
@@ -41,6 +41,7 @@ internal static partial class BackendRenderer
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]")
                 .AppendLine($"    public {column.Type} {column.Property} {{ get; set; }}");
         }
+        if(RuleRecordEntity(model,table))result.Append(RuleRecordEntityState());
         return result.AppendLine("}").ToString();
     }
     /// <summary>生成只接受页面可写字段的请求。</summary>
@@ -183,7 +184,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(AgentRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(AgentRecordAccess(model,table,page)); result.Append(RuleRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
             result.Append(CascadeTreeReadRenderer.Service(model,table,page));
             result.Append(CascadeTreeWriteRenderer.Service(model,table,page));
             result.Append(CascadeTreeViewRenderer.Service(model,table,page));

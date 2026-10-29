@@ -20,7 +20,7 @@ internal static partial class BackendRenderer
             .AppendLine($"        if(operation is not ({string.Join(" or ",operations.Select(Literal))}))throw new UnauthorizedAccessException(\"操作不属于当前已发布页面。\");")
             .AppendLine("        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"记录身份与当前真实身份不一致。\");")
             .AppendLine($"        authorization.RequirePagePermission({Literal(page.Source.Id)},operation);")
-            .AppendLine($"        return await Scope{page.Source.Id}(actor,parentId{ExactDataManageCompilation.Argument(page,"operation")}{(ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true}?",exactLocking:false":"")}).Where(row=>row.Id==id).FirstAsync(cancellationToken);")
+            .AppendLine(RuleRecordFields(model,table,page).Count>0?$"        return await ReadRuleRecord{page.Source.Id}Async(id,parentId,operation,actor,false,false,cancellationToken);":$"        return await Scope{page.Source.Id}(actor,parentId{ExactDataManageCompilation.Argument(page,"operation")}{(ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true}?",exactLocking:false":"")}).Where(row=>row.Id==id).FirstAsync(cancellationToken);")
             .AppendLine("    }").ToString();
     }
     /// <summary>同一程序集固定读取类型及方法；旧产物未再生成时不能伪装新预检合同。</summary>

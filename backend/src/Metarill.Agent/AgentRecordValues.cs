@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json.Serialization;
@@ -28,7 +29,11 @@ internal static class AgentRecordValues
             if(names.TryGetValue(name,out var physical))
             {
                 if(!properties.TryGetValue(physical,out var property))throw new InvalidOperationException("规则字段缺少实际生成属性，请成套再生成。");
-                if(property.GetCustomAttribute<FreeSql.DataAnnotations.ColumnAttribute>()?.IsIgnore==true)throw new NotSupportedException("规则引用尚未装载的派生字段，未执行写入。");
+                if(property.GetCustomAttribute<FreeSql.DataAnnotations.ColumnAttribute>()?.IsIgnore==true)
+                {
+                    if(record is not IGeneratedRuleRecord loaded||!loaded.TryGetLoadedRuleValue(physical,out var value))throw new NotSupportedException("规则引用尚未装载的派生字段，未执行写入。");
+                    values[name]=value;continue;
+                }
                 values[name]=property.GetValue(record);
             }
         return values;
