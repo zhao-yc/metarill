@@ -43,11 +43,11 @@ public sealed class TrustedSecurityServiceFixture:IAsyncLifetime
         File.WriteAllText(Path.Combine(DirectoryPath,"host/PackageSecurityCatalogBinding.g.cs"),ApplicationPackager.SecurityCatalogBindingSource(Namespace,Convert.ToHexStringLower(SHA256.HashData(CatalogBytes))));
         var result=await Build(DirectoryPath);Assert.True(result.ExitCode==0,result.Output);Assembly=AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(await File.ReadAllBytesAsync(result.AssemblyPath)));
     }
-    /// <summary>构建只引用本cloneCore/Data/Security，不启动Main，门闩覆盖真实子进程及输出排空。</summary>
+    /// <summary>构建只引用本cloneCore/Data/Security/Agent，不启动Main，门闩覆盖真实子进程及输出排空。</summary>
     internal static async Task<(int ExitCode,string Output,string AssemblyPath)> Build(string directory)
     {
         System.IO.Directory.CreateDirectory(directory);var name="TrustedSecurity"+Guid.NewGuid().ToString("N");
-        var references=string.Join("",new[]{"Core","Data","Security"}.Select(project=>"<ProjectReference Include=\""+SecurityElement.Escape(Path.Combine(SourceRoot,"src/Metarill."+project,"Metarill."+project+".csproj"))+"\"/>"));
+        var references=string.Join("",new[]{"Core","Data","Security","Agent"}.Select(project=>"<ProjectReference Include=\""+SecurityElement.Escape(Path.Combine(SourceRoot,"src/Metarill."+project,"Metarill."+project+".csproj"))+"\"/>"));
         File.WriteAllText(Path.Combine(directory,"Trusted.csproj"),"<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>"+name+"</AssemblyName></PropertyGroup><ItemGroup>"+references+"</ItemGroup></Project>");
         var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet"){WorkingDirectory=directory,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};foreach(var arg in new[]{"build","Trusted.csproj","--nologo","--verbosity","quiet","--disable-build-servers","-warnaserror"})start.ArgumentList.Add(arg);
         using(await SharedSourceBuildGate.Shared.EnterAsync())

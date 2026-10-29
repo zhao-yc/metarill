@@ -25,7 +25,11 @@ public sealed class TrustedSecurityWorkbenchTests(TrustedSecurityServiceFixture 
         ordinary.Catalog.ConfigTables[0].Extra["trustedModule"]=JsonSerializer.SerializeToElement("security-management-v1");
         Assert.Empty(TrustedSecurityWorkbenchRenderer.Render(ordinary));
         var trusted=TrustedSecurityServiceCompilation.Bind(GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace),fixture.Models);
-        var file=Assert.Single(TrustedSecurityWorkbenchRenderer.Render(trusted));Assert.Equal("Controllers/RolePermissionWorkbenchController.g.cs",file.Path);
+        var files=TrustedSecurityWorkbenchRenderer.Render(trusted).ToArray();Assert.Equal(2,files.Length);
+        Assert.Contains(files,file=>file.Path=="Controllers/RolePermissionWorkbenchController.g.cs");
+        Assert.Contains(files,file=>file.Path=="Controllers/AdminAccountInitializationController.g.cs");
+        var initialization=fixture.Type("Generated.Controllers.AdminAccountInitializationController");
+        Assert.Equal("api/admin/custom/index/init_admin",initialization.GetMethod("Initialize")!.GetCustomAttribute<HttpPostAttribute>()!.Template);
         var type=fixture.Type("Generated.Controllers.RolePermissionWorkbenchController");
         Assert.Equal("api/admin/sys/yzp_permission",type.GetCustomAttribute<RouteAttribute>()!.Template);
         Assert.Equal("roles",type.GetMethod("Roles")!.GetCustomAttribute<HttpGetAttribute>()!.Template);

@@ -8,12 +8,37 @@ namespace Metarill.Runtime.Security;
 
 public sealed record AdminAccountInitializationResult(bool Applied,string? AccountId=null);
 
-/// <summary>原初始化按钮的同库事务实现；尚未发布路由，不能将准备能力当作完整管理包已上线。</summary>
-public sealed class AdminAccountInitializationBusiness(SqlRowStore store,SecurityRealmMutationGuard coordinator,IIdGenerator ids)
+/// <summary>原按钮仅按已保存后台ID执行，宿主不能用客户端密码替代配置。</summary>
+public interface IAdminAccountInitializer
 {
+    /// <summary>只按已保存后台初始化，事务内核对当前身份、权限、账号与会话。</summary>
+    Task<AdminAccountInitializationResult> InitializeAsync(string adminTypeId,CancellationToken token=default);
+}
+
+/// <summary>原初始化按钮的同库事务实现；HTTP入口只由可信管理模块显式注册。</summary>
+public sealed class AdminAccountInitializationBusiness(SqlRowStore store,SecurityRealmMutationGuard coordinator,IIdGenerator ids):IAdminAccountInitializer
+{
+    public const string ButtonId=SecurityRealmMutationGuard.InitializationButtonId;
+    /// <summary>字符串大ID与原entity回显只作一致性检查，其他客户端字段不参与初始化。</summary>
+    public static string RequireTargetId(string? raw,JsonElement? entity=null)
+    {
+        if(!long.TryParse(raw,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||raw!=id.ToString(CultureInfo.InvariantCulture))
+            throw new ArgumentException("初始化后台标识无效。");
+        if(entity is{} body&&body.ValueKind!=JsonValueKind.Null)
+        {
+            if(body.ValueKind!=JsonValueKind.Object)throw new ArgumentException("按钮实体必须是对象。");
+            var fields=body.EnumerateObject().Where(field=>field.Name.Equals("id",StringComparison.OrdinalIgnoreCase)).ToArray();
+            if(fields.Length>1||fields.Length==1&&(fields[0].Name!="id"||fields[0].Value.ValueKind is not(JsonValueKind.String or JsonValueKind.Number)||
+                (fields[0].Value.ValueKind==JsonValueKind.String?fields[0].Value.GetString():fields[0].Value.GetRawText())!=raw))
+                throw new ArgumentException("按钮对象标识冲突。");
+        }
+        return raw;
+    }
     /// <summary>只接已保存后台ID；配置、权限、角色与账号全部在同一事务中重新取得，不接客户端密码或后台归属。</summary>
-    public Task<AdminAccountInitializationResult> InitializeAsync(string adminTypeId,CancellationToken token=default)=>
-        store.Session.InTransactionAsync<AdminAccountInitializationResult>(async()=>
+    public Task<AdminAccountInitializationResult> InitializeAsync(string adminTypeId,CancellationToken token=default)
+    {
+        adminTypeId=RequireTargetId(adminTypeId);
+        return store.Session.InTransactionAsync<AdminAccountInitializationResult>(async()=>
         {
             var admin=await coordinator.PrepareAdminInitializationAsync(adminTypeId,token);
             var name=SqlRowStore.Text(admin,"user_name");var configuredPassword=SqlRowStore.Text(admin,"password");
@@ -58,4 +83,5 @@ public sealed class AdminAccountInitializationBusiness(SqlRowStore store,Securit
                     throw new InvalidOperationException("YZP_CONFLICT：初始化会话已变化。");
             return new(true,accountId.ToString(CultureInfo.InvariantCulture));
         },token);
+    }
 }

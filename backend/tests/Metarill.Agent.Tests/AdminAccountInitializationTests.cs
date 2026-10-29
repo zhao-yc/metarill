@@ -8,7 +8,7 @@ using Xunit;
 namespace Metarill.Agent.Tests;
 
 /// <summary>真实SqlRowStore、认证与协调器的离线事务合同；内存传输不冒充MySQL并发锁验收。</summary>
-public sealed class AdminAccountInitializationTests
+public sealed partial class AdminAccountInitializationTests
 {
     /// <summary>只有原按钮权也能初始化，不额外要求页面编辑权。</summary>
     [Fact]

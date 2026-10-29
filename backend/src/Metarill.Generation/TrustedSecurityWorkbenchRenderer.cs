@@ -18,6 +18,9 @@ internal static class TrustedSecurityWorkbenchRenderer
             .Replace("{{PROJECT_ID}}",JsonSerializer.Serialize(model.Catalog.YzProjectId),StringComparison.Ordinal)
             .Replace("{{ADMIN_TYPE_ID}}",JsonSerializer.Serialize(management.YzAdminTypeId),StringComparison.Ordinal);
         yield return new("Controllers/RolePermissionWorkbenchController.g.cs",CSharpGenerator.Header+source);
+        using var initialization=assembly.GetManifestResourceStream(assembly.GetManifestResourceNames().Single(name=>name.EndsWith(".TrustedAdminInitializationController.cs.tpl",StringComparison.Ordinal)))!;
+        using var initializationReader=new StreamReader(initialization);
+        yield return new("Controllers/AdminAccountInitializationController.g.cs",CSharpGenerator.Header+initializationReader.ReadToEnd().Replace("{{NAMESPACE}}",model.Namespace,StringComparison.Ordinal));
     }
     /// <summary>前端资产直接来自本程序集编译时嵌入的原源码，普通模型不增加页面或依赖。</summary>
     internal static IEnumerable<PlannedFile> Frontend(GenerationModel model)

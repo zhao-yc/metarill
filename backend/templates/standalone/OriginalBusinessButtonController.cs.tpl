@@ -9,5 +9,9 @@ public sealed class OriginalBusinessButtonController(global::Metarill.Runtime.Ag
 {
     /// <summary>返回手写业务原R结果，不嵌套包装，不转发客户端地址。</summary>
     [HttpPost("api/admin/sys/config_button/execute")]
-    public Task<IActionResult> Execute([FromBody] global::Metarill.Runtime.Agent.OriginalBusinessButtonRequest request,CancellationToken cancellationToken)=>executor.ExecuteAsync(request,HttpContext,cancellationToken);
+    public async Task<IActionResult> Execute([FromBody] global::Metarill.Runtime.Agent.OriginalBusinessButtonRequest request,CancellationToken cancellationToken)
+    {
+        var initialization=await global::Metarill.Runtime.Agent.AdminAccountInitializationHttp.TryExecuteAsync(request,HttpContext,cancellationToken);
+        return initialization??await executor.ExecuteAsync(request,HttpContext,cancellationToken);
+    }
 }

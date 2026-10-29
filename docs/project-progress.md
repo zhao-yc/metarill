@@ -57,7 +57,7 @@
 | B11 | 🟡 部分完成 | 关系名称传播与维护回填 | B29完成固定多值名称传播，B30接原维护入口的固定联接／多值回填，B31补固定R1→R0→R1混合传播及维护下游；B67补全局物理目标的当前项目传播与原维护；B72补R1跨表到R0物理／派生目标的固定缓存及回填；B74补普通R1共享缓存唯一登记及原维护；其余混合依赖、复杂派生、维护路径及原浏览器继续。 B93补固定R1物理自树叶子缓存的统一传播、原维护及跨批回滚。 B94补普通R0派生目标的R1自树／多选缓存、关联切换、下游与原维护。 B95补固定R1数据库复选的单层／两层派生缓存、统一传播及原维护。 | [非冗余存储](nonredundant-storage.md)、[主框架审计](framework-gap-audit.md)；[B94](redundant-derived-self-tree.md)；[B95](redundant-derived-checkbox.md) |
 | B12 | 🟡 部分完成 | 完整页面配置能力 | 补齐并验收详情分组、复杂条件显示／只读、完整表单规则及配置按钮；不能以原组件存在判为完成。 | [主框架审计·列表详情](framework-gap-audit.md) |
 | B13 | 🟡 部分完成 | 复杂文件与云存储 | 基础文件已接；B39补固定非冗余crossTable逻辑父范围的文件读取／引用／软删与物理删后端及BackendOnly包。B40补相同固定模型的完整包构建，B55补固定派生目标文件范围、B54补新旧正式交叉，B79补固定共享R0父范围文件后端／原Full，B80补共同国家父页文件基础设施旧RR／真实并发；继续其余正式宿主、其余Full用途／原浏览器、复杂关系／派生文件、全部配置组合及 S3 等云存储矩阵。 B77补固定共享R0／R1正式文件上传／保护下载与引用故障回滚，其余父范围正式交叉仍继续。 | [非冗余文件](nonredundant-files.md)、[原文件管理](original-file-management.md)、[主框架审计](framework-gap-audit.md) |
-| B14 | ⏳ 待确认 | 跨表级联非空路径 Excel | 空单元格、可写列边界已完成，B37补固定非冗余空值／标量导出；非空路径旧回退与无损往返仍待选择后接通。 | [待确认策略](cross-table-excel-policy-decision.md)、[已完成空值范围](cross-table-excel-empty-contract.md) |
+| B14 | 🟡 规则已确认，待接通 | 跨表级联非空路径 Excel | 用户2026-10-29选择无损还原：部分路径补空层、歧义或未命中整批报错，旧简写仅唯一无歧义兼容。空单元格、可写列边界及B37标量导出已完成；非空解析、无损导出与事务验收继续。 | [已确认策略](cross-table-excel-policy-decision.md)、[已完成空值范围](cross-table-excel-empty-contract.md) |
 | B15 | ⏳ 待配置 | Tiny Cloud 实际富文本 | 已按自有 Tiny Cloud 保留原交互并接入配置；API key 按用户要求暂空。配置后验真实加载、编辑、保存和上传。 | [Tiny Cloud](tiny-cloud.md) |
 
 ### 本轮复杂关系细分（B09／B10／B11）
@@ -161,8 +161,8 @@
 | C02 | ✅ 已完成 | 独立应用基础正式 Web 认证 | 数据库账号／持久会话、登录权限、改密、注销、重启后会话及禁用／撤权已在固定场景实测；不等于完整管理 CRUD。 | [正式Web认证](standalone-web-authentication.md) |
 | C03 | ✅ 已完成 | 本地生成更新与恢复 | 三种更新范围、preview／apply／recover、归属与摘要校验、手写／配置保护和失败恢复已验证。 | [本地更新](local-generation-update.md) |
 | C04 | ✅ 已完成 | 原首页三按钮到真实工程闭环 | 原交互→队列→本机受控更新→回执已分批浏览器实证；额外迟到／换身份场景另验。 | [在线助手浏览器验收](testing/online-helper-browser-acceptance.md) |
-| C05 | 🟡 部分完成 | 独立项目完整管理模块 | 平台/可信管理模块已有分批实库证据；C14接当前生产Program，C20再将三份安全partial、原工作台/组件、全基础源码与Web/Agent/MCP同源装入独立准备包。实际独立构建、真实3Service DI/匿名401及127离线回归通过，705普通产物不变。C06初始化规则、公开Full打包/更新及同包正式身份/数据库/工作台矩阵仍待，未解除整体门槛。 | [同源装配](security-management-application-preparation.md)、[独立应用](standalone-application.md)、[可信管理实库](testing/trusted-management-runtime-mysql.md) |
-| C06 | ⏳ 待确认 | 原后台初始化按钮 | 同库 Business 与离线回归已准备；账号 ID 保留、同名冲突、重置与会话规则待确认，HTTP／DI 尚未启用。 | [初始化行为决定](admin-initialization-policy-decision.md) |
+| C05 | 🟡 部分完成 | 独立项目完整管理模块 | 平台/可信管理模块已有分批实库证据；C14接当前生产Program，C20再将三份安全partial、原工作台/组件、全基础源码与Web/Agent/MCP同源装入独立准备包。实际独立构建、真实3Service DI/匿名401及127离线回归通过，705普通产物不变。C06规则已确认、同库接线继续；公开Full打包/更新及同包正式身份/数据库/工作台矩阵仍待，未解除整体门槛。 | [同源装配](security-management-application-preparation.md)、[独立应用](standalone-application.md)、[可信管理实库](testing/trusted-management-runtime-mysql.md) |
+| C06 | 🟡 规则已确认，同库接线子集完成 | 原后台初始化按钮 | 用户2026-10-29选择保留账号ID的修正规则；可信管理模块原中央按钮/直调URL与DI已接同库Business；59业务/HTTP及47生成/更新/实际宿主子集通过，未执行真实账号初始化。C05发布及C07跨业务库门槛保留。 | [初始化行为决定](admin-initialization-policy-decision.md) |
 | C07 | ⬜ 待开发 | 平台到业务库后台初始化 | 按已确认行为接入真实目标库与原按钮，验证身份、事务、重复初始化及会话；不以同库准备代替跨业务库接线。 | [初始化范围](admin-initialization-policy-decision.md) |
 | C08 | 🟡 部分完成 | 完整 MCP／Agent 能力 | 平台核心与C10公共运行时/C11完整包接线已有验证；C12补固定示例Full真实Web/OAuth/CLI/MySQL与任务/撤权/刷新重放正式验收，C13公共MCP接线、C15结构发现及C16可信管理宿主真实Web/MCP角色CRUD/撤权通过。普通账号、复杂业务/文件/关系、原浏览器、Agent跨重启及独立MCP同包完整矩阵仍待验收，不拼接不同冻结基线为整体通过。 | [Agent正式范围](standalone-agent.md)、[MCP边界](standalone-mcp.md) |
 | C09 | 🧪 待完整验收 | 助手与管理模块剩余原页场景 | C28已用当前原H5/ego及仅回环合成HTTP实测离页、账号/项目切换三种迟到阴性与阳性/同UUID恢复，不替换组件或回调。真实身份/助手迟到组合、管理工作台及新增组合仍待现场验收；既有真实三按钮闭环不重复列为未实现。 | [助手验收](testing/online-helper-browser-acceptance.md)、[管理入口](testing/trusted-management-browser-entry.md) |
@@ -198,6 +198,7 @@
 | C38 | 🧪 固定完整包准备通过，正式待授权 | TIME原接口/持久化/反查/Excel | 原三表50列/6索引完整包与真实Web、4列time(0/1/6)/负时长、回执/省略/null/筛选/复制/原表头导入和XLSX/回滚/重启场景已编译，正式未执行。离线实际宿主区分手动DTO原HTTP400/R400与MVC旧ProblemDetails；只为原管理MVC补平台HTTP200/R500，非管理默认MVC和开发态OAuth401保持，不放宽身份。准备/升级/门禁及真实ID节点11通过/1正式跳过；相关整包及异常13项通过；API69/47实库跳过、Agent351/25，CLI/API严格通过。1038来源含模板保持，215产物两轮/24partial/492原前端逐字不变。新独占库/账号仍须精确授权；截断模式仅同连接驱动回滚对照，不计完整HTTP，浏览器/真机/并发/性能未验。 | [正式准备](testing/time-value-native-acceptance.md)，2026-10-29；本任务同提交 |
 | C39 | ✅ 固定只读TLS子集完成 | 驱动TLS模式与公开证书对照 | 新增九项连接前门禁和一个真实五模式用例；实际2.6.1的Required/指定公开CA VerifyCA使用TLS1.3，无CA严格模式及指定CA VerifyFull按无匹配域名SAN证书拒绝。只查询实例和会话加密状态，无DDL/DML、不改应用/服务器TLS或信任库。最终严格编译零警告错误，Data整组1151通过/23实库条件跳过；专属TLS10通过/0跳过，不能计域名匹配VerifyFull正向、容器/双向TLS/中间人或首版完成。原前端与生成产物未修改，公开证书已按项目备份。 | [只读TLS范围](testing/mysql-tls-readonly.md)，2026-10-29；本任务同提交 |
 | C40 | ✅ 固定原时间绑定子集完成 | 原picker清空/输入与保存一致 | 实际原H5复现清空后仍发旧值，源头补输入/清空/picker同一受控绑定，原结构/显示属性及全部样式不变。原Vue相关22项零跳过通过，含原组件和缺绑定阴性；CLI/测试严格零警告错误，HBuilderX两次完整Web通过。桌面清空/六位微秒/时分确认、原只读及受控R500反馈、390×844移动视口通过；6截图已查看，均回环受控API，不计真实身份/C#校验/数据库或真机。两轮后215产物/24partial/492原前端逐字保持，时间模型34文件第二轮稳定；自有浏览器/存储/服务/工程清理。C38仍待精确授权，正式TIME/跨端/性能继续。 | [原时间绑定及范围](testing/original-time-input-binding.md)，2026-10-29；本任务同提交 |
+| C41 | ✅ 同库HTTP/DI固定子集完成 | 原初始化账号接线及更新保护 | 按用户确认保留账号ID/档案、重置密码/角色并撤销旧Web会话；原中央按钮及直调URL共用真实事务Business。仅可信管理模型生成Controller/注册DI；普通Full保持未启用。59业务/HTTP及47实际生成/宿主/普通Full/更新子集零跳过通过；相邻138零跳过通过，正文边界红灯修正后Agent386/25实库跳过、API69/47实库跳过零失败。实际Program最终2项通过，CLI/API/测试严格零警告错误；两轮生成215产物/492原前端逐字保持。管理发布/正式登录与实库/跨库及性能未完成。 | [接线及边界](testing/admin-initialization-http.md)，2026-10-30；本任务同提交 |
 
 ## 四、MySQL 首版验收与交付门槛
 
@@ -241,6 +242,7 @@
 | 2026-10-29 | C36按确认修复time输入并分离日内时刻/原生TIME；生成与更新器、字段schema及相关模块回归通过，215产物/24partial/492前端逐字保持。仅Server-200只读表达式核验，无DDL/DML，参数持久化、精度组合及原界面实测仍待。 | [time合同与证据](time-logical-type.md)，本任务同提交 |
 | 2026-10-29 | C37通过真实只读驱动/ORM参数对照发现并修复TIME内存回执精度不一致，新增同事务批量回读与失败回滚；19项生成/升级及15项适配器通过，既有产物/partial/原前端保持。持久化、HTTP、多SQL模式及性能仍待正式样本验收。 | [写后值专项](persisted-time-values.md)，本任务同提交 |
 | 2026-10-29 | C39补驱动2.6.1当前Server-200的只读TLS五模式与公开证书对照；不改服务端或应用配置，不创建/写入数据库对象，不消费C38待批租约。完整TLS部署与首版继续。 | [真实连接范围](testing/mysql-tls-readonly.md)，本任务同提交 |
+| 2026-10-30 | C41按用户确认接同库原初始化按钮/直调与可信DI；59初始化、138相邻及实际Program通过，正文3红灯修正后Agent386/25实库跳过，API69/47跳过；最终严格构建与两轮215产物/492前端字节核对通过。B14已确认无损规则及待验收案例，未写作功能完成。无DB写入/部署，C05/C07/C38门槛保留。 | [初始化接线](testing/admin-initialization-http.md)、[Excel规则](cross-table-excel-policy-decision.md)，本任务同提交 |
 | 2026-10-29 | C40从原H5清空仍提交旧值的真实证据修复时间模板绑定；原结构/样式保持，22回归、严格构建、两次HBuilderX及桌面/移动视口受控验收通过，215产物/24partial/492前端保持。自有服务与页面清理，无实库写入，不消费C38待批租约。 | [绑定及验收](testing/original-time-input-binding.md)，本任务同提交 |
 | 2026-10-29 | C38准备原三表TIME完整包及Production/Web/反查/原Excel/回滚用例，离线10通过/1正式跳过；补原管理MVC解析R合同，保留手动DTO及非管理拒绝。215产物/24partial/492前端保持，新单库/账号尚未授权或创建，首版/性能不计完成。 | [TIME正式准备](testing/time-value-native-acceptance.md)，本任务同提交 |
 | 2026-10-29 | A18补显式时间精度及两个原审计默认，旧裸类型映射/前端不改；新三表46列6索引完整模型实际方言对照原15处差异归零。严格Data1102/22跳过、Metadata351/25及工具28通过；真实数据库/时区/原编辑器和性能仍待。 | [时间结构专项](temporal-schema-compatibility.md)，本任务同提交 |

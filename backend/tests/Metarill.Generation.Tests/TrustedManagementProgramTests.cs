@@ -31,9 +31,12 @@ public sealed class TrustedManagementProgramTests(TrustedSecurityServiceFixture 
         foreach(var route in new[]{"/api/admin/sys/agent/grants","/api/admin/sys/yz_manager/getCurrentPermissions"})
         {using var denied=await client.GetAsync(route);Assert.Equal(HttpStatusCode.Unauthorized,denied.StatusCode);}
         using(var denied=await client.PostAsJsonAsync("/api/admin/auto/yz_manager-6031906822946816/page",new{}))Assert.Equal(HttpStatusCode.Unauthorized,denied.StatusCode);
+        foreach(var route in new[]{"/api/admin/custom/index/init_admin","/api/admin/sys/config_button/execute"})
+        {using var denied=await client.PostAsJsonAsync(route,new{id="91"});Assert.Equal(HttpStatusCode.Unauthorized,denied.StatusCode);}
         var proof=JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(Path.Combine(evidence,"program/services-observation.json")));
         Assert.Equal(3,proof.GetProperty("servicesResolved").GetInt32());Assert.True(proof.GetProperty("sharedAuthorization").GetBoolean());Assert.True(proof.GetProperty("mcpLinked").GetBoolean());Assert.True(proof.GetProperty("workbench").GetBoolean());Assert.False(proof.GetProperty("platformRealm").GetBoolean());Assert.Equal("AgentSecurityCurrentSessionPolicy",proof.GetProperty("agentCurrentPolicy").GetString());
-        // 原初始化按钮仍未获得决定，不借修复测试宿主发布Full管理或开放该HTTP写入口。
+        Assert.True(proof.GetProperty("initializerResolved").GetBoolean());Assert.Equal(1,proof.GetProperty("initializationRoutes").GetInt32());Assert.Equal(1,proof.GetProperty("centralRoutes").GetInt32());
+        // 初始化规则已确认；同库HTTP/DI接线仍不代表完整管理发布、实库或跨业务库验收。
         var plan=new FrontendPackager().PrepareSecurityManagement(fixture.Models,Path.Combine(fixture.DirectoryPath,"generated/frontend"),Path.Combine(TrustedSecurityServiceFixture.SourceRoot,".."));Assert.Contains(plan.RequiredBackendAdapters,adapter=>adapter.Code=="initialize-account");Assert.Contains(plan.BackendGaps,gap=>gap.Usage=="runtime");
     }
 }

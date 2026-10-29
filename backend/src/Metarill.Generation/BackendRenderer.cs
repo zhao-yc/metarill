@@ -793,6 +793,11 @@ public partial class {{table.Name}}Service
         foreach (var table in model.Tables)
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
                 .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(RequiresRelationAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
+        if(model.TrustedSecurityServices is not null)
+        {
+            // 只有工厂签发管理图注册初始化；普通业务JSON或相同按钮ID不能取得此能力。
+            result.AppendLine("        services.AddScoped<global::Metarill.Runtime.Security.IAdminAccountInitializer, global::Metarill.Runtime.Security.AdminAccountInitializationBusiness>();");
+        }
         return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table=>NonRedundantReadCompilation.Requires(model,table))?NonRedundantCatalog(model):"").Append(RelationPropagationRenderer.Catalog(model)).Append(RelationMaintenanceRenderer.Catalog(model)).ToString();
     }
 }

@@ -19,6 +19,10 @@ public sealed class TrustedSecurityServicePartialsTests(TrustedSecurityServiceFi
     {
         var catalog=fixture.Models.Published;catalog.ConfigTables[0].Extra["moduleId"]=JsonSerializer.SerializeToElement("security-management-v1");
         var ordinary=GenerationModel.Create(catalog,TrustedSecurityServiceFixture.Namespace);var rendered=BackendRenderer.Render(ordinary).ToArray();
+        Assert.DoesNotContain("IAdminAccountInitializer",rendered.Single(file=>file.Path=="GeneratedRegistration.g.cs").Content);
+        Assert.DoesNotContain(rendered,file=>file.Path=="Controllers/AdminAccountInitializationController.g.cs");
+        var trusted=TrustedSecurityServiceCompilation.Bind(GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace),fixture.Models);
+        Assert.Contains("IAdminAccountInitializer",BackendRenderer.Render(trusted).Single(file=>file.Path=="GeneratedRegistration.g.cs").Content);
         foreach(var name in Names){Assert.DoesNotContain("RequirePrepared",rendered.Single(file=>file.Path=="Services/"+name+"Service.cs").Content);Assert.DoesNotContain("private partial void",rendered.Single(file=>file.Path=="Services/"+name+"Service.g.cs").Content);}
         var forged=new SecurityManagementModelSet(fixture.Models.Physical,fixture.Models.Published,fixture.Models.Binding,fixture.Models.PendingAdapters);
         Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(forged,Path.Combine(fixture.DirectoryPath,"forged"),TrustedSecurityServiceFixture.Namespace));

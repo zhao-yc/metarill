@@ -36,6 +36,10 @@ public sealed class StandaloneAgentPackageTests
         {
             new ApplicationPackager().Create(metadata,output,"Example.AgentFull",source);
             Assert.True(File.Exists(Path.Combine(output,"src/Metarill.Agent/Metarill.Agent.csproj")));
+            Assert.True(File.Exists(Path.Combine(output,"src/Metarill.Agent/AdminAccountInitializationHttp.cs")));
+            Assert.True(File.Exists(Path.Combine(output,"src/Metarill.Security/AdminAccountInitializationBusiness.cs")));
+            Assert.False(File.Exists(Path.Combine(output,"backend/generated/Controllers/AdminAccountInitializationController.g.cs")));
+            Assert.DoesNotContain("IAdminAccountInitializer",await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/GeneratedRegistration.g.cs")));
             foreach(var name in new[]{"agent_authorize","agent_grants"})Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(source,"frontend/metarill_uni_admin/pages/custom/"+name+".vue")),await File.ReadAllBytesAsync(Path.Combine(output,"frontend/pages/custom/"+name+".vue")));
             var app=JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(Path.Combine(output,"frontend/common/application.generated.json")));Assert.True(app.GetProperty("capabilities").GetProperty("agentGrants").GetBoolean());
             var route=JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages.json")));foreach(var name in new[]{"agent_authorize","agent_grants"})Assert.Contains(route.GetProperty("pages").EnumerateArray(),page=>page.GetProperty("path").GetString()=="pages/custom/"+name);
