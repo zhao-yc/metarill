@@ -97,6 +97,13 @@ internal static class SecurityManagementModuleFactory
         return JsonSerializer.Deserialize<MetadataCatalog>(source.Json,Json)!;
     }
 
+    /// <summary>管理准备只核对本工厂已签发模块的固定基础副本，业务JSON不能提供预期结构。</summary>
+    internal static (MetadataCatalog Files,MetadataCatalog Security) RequireFoundationsForPreparation(SecurityManagementModelSet models)
+    {
+        RequireIssued(models);var (asset,_)=Load();ValidateAsset(asset);
+        return (Clone(asset.Files),Clone(asset.Security));
+    }
+
     /// <summary>摘要绑定固定嵌入字节，业务输入不能提供另一份模块或预期摘要。</summary>
     private static (Asset Asset, string Sha) Load()
     {

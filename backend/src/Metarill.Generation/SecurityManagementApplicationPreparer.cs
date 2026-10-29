@@ -31,6 +31,7 @@ internal sealed class SecurityManagementApplicationPreparer
             var ordinary=new ApplicationPackager().Create(application,candidate,rootNamespace,sourceRoot);
             var published=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(CSharpGenerator.SafePath(candidate,"backend/metadata/project.json")),Json)!;
             var trusted=SecurityManagementModuleFactory.Compose(published,module.Binding.ManagementAdminTypeId);
+            RequireMatchingFoundations(trusted,candidate);
             var catalog=SecurityManagementModuleFactory.RequirePublishedForGeneration(trusted);
             var generated=new CSharpGenerator().Generate(trusted,CSharpGenerator.SafePath(candidate,"backend/generated"),rootNamespace);
             var frontend=new FrontendPackager().PrepareSecurityManagement(trusted,CSharpGenerator.SafePath(candidate,"backend/generated/frontend"),sourceRoot,includeAgent:true);
@@ -57,6 +58,28 @@ internal sealed class SecurityManagementApplicationPreparer
         {
             // 只清理本次新建、规范化且与明确输出同父的随机临时根；发布失败保留供诊断。
             if(!preserve&&Directory.Exists(stage)&&Path.GetDirectoryName(stage)==Path.GetDirectoryName(output)&&Path.GetFileName(stage).StartsWith(Path.GetFileName(output)+".preparing-",StringComparison.Ordinal))Directory.Delete(stage,true);
+        }
+    }
+    /// <summary>比较实际已装入包的基础定义与工厂冻结模型，避免检查来源后复制到另一版本的结构。</summary>
+    private static void RequireMatchingFoundations(SecurityManagementModelSet module,string candidate)
+    {
+        var expected=SecurityManagementModuleFactory.RequireFoundationsForPreparation(module);
+        foreach(var (name,fixedModel) in new[]{("files",expected.Files),("security",expected.Security)})
+        {
+            var foundation=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(CSharpGenerator.SafePath(candidate,"backend/metadata/"+name+".json")),Json)
+                ?? throw new InvalidOperationException("管理准备包缺少基础定义："+name);
+            try
+            {
+                // 合成器允许新增表，因此先核对完整表集合，整表遗漏也不能只比较相交部分。
+                if(!fixedModel.ConfigTables.Select(table=>table.Id).Order(StringComparer.Ordinal).SequenceEqual(foundation.ConfigTables.Select(table=>table.Id).Order(StringComparer.Ordinal),StringComparer.Ordinal))
+                    throw new InvalidOperationException("基础表集合不完整或包含额外表。");
+                _=MetadataCatalogComposition.MergePhysical(fixedModel,foundation);
+            }
+            catch(InvalidOperationException error)
+            {
+                // 复用字段、索引、顺序及方向的现有合同；文案、格式和项目绑定不是物理漂移。
+                throw new InvalidOperationException("管理准备包基础定义与固定管理模块不一致："+name+"。请先同步基础元数据并重新派生管理模块。",error);
+            }
         }
     }
     /// <summary>原资产按已验证包内相对路径写入，不跟随链接或接受外部绝对路径。</summary>
