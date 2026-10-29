@@ -17,6 +17,7 @@ public sealed record AgentCapability(string Id, string Name, string Description,
 internal sealed record IndexedCapability(AgentCapability Descriptor, ControllerActionDescriptor Action, string ProjectId, string Permission)
 {
     public AgentActionBinding? BusinessAction { get; init; }
+    public AgentRecordWriteBinding? RecordWrite {get;init;}
 }
 
 /// <summary>只编目MVC真实注册的生成控制器及显式业务动作，元数据按钮本身不代表已实现入口。</summary>
@@ -51,6 +52,8 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                 if (methods.Length != 1) continue;
                 var method = methods[0].ToUpperInvariant(); var tail = match.Groups[3].Value;
                 var operation = Operation(method, tail); if (operation is null) continue;
+                var recordWrite=operation is "update" or "delete" or "copy"?AgentRecordWriteBinding.Compile(action,page,operation,registered):null;
+                if(operation is "update" or "delete" or "copy"&&recordWrite is null)continue;
                 var path = "/" + route.TrimStart('/')[4..];
                 var id = "page:" + page.Id + ":" + operation + (operation == "options" ? ":" + tail : "");
                 var parameters = new List<AgentCapabilityParameter>(); var requestSchema = new Dictionary<string, object?>();
@@ -77,7 +80,7 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                 var read = operation is "list" or "detail" or "count" or "options";
                 var descriptor = new AgentCapability(id, page.Name + "：" + operation, "复用当前生成接口与服务端页面数据范围。", operation, path, method, page.Id, null, !read,
                     read ? "" : "此操作会写入数据或创建导出文件，请核对请求后明确确认。", parameters, requestSchema, AgentJsonSchema.Create(ReturnType(action.MethodInfo.ReturnType)));
-                result.Add(new(descriptor, action, page.ProjectId, operation == "options" ? "list" : operation));
+                result.Add(new(descriptor, action, page.ProjectId, operation == "options" ? "list" : operation){RecordWrite=recordWrite});
             }
             if (result.Select(x => x.Descriptor.Id).Distinct().Count() != result.Count) throw new InvalidOperationException("真实生成路由出现重复能力标识。");
             _entries = result; _version = snapshot.Version; return _entries;
@@ -117,6 +120,13 @@ public sealed class AgentCapabilityCatalog(GeneratedCapabilityIndex index, IRunt
         var found = Allowed(id).SingleOrDefault(entry => entry.Descriptor.Id == id) ?? throw new UnauthorizedAccessException("业务动作未授权。");
         if (found.BusinessAction is null) throw new UnauthorizedAccessException("该能力不是已发布业务动作。");
         await found.BusinessAction.ValidateAsync(context, body, authorization);
+    }
+    /// <summary>普通记录写沿本次实际操作scope核验原记录和只读条件；不能借页面query角色替代写权限。</summary>
+    public async Task ValidateRecordWriteInvocationAsync(string id,HttpContext context,ReadOnlyMemory<byte> body)
+    {
+        RequireInvocation(id,context);var found=Allowed(id).SingleOrDefault(entry=>entry.Descriptor.Id==id)??throw new UnauthorizedAccessException("记录写未授权。");
+        var binding=found.RecordWrite??throw new UnauthorizedAccessException("缺少已发布的记录写读取合同。");
+        await binding.ValidateAsync(context,body,authorization);
     }
     private IEnumerable<IndexedCapability> Allowed(string? capabilityId = null)
     {

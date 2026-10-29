@@ -119,6 +119,15 @@ public partial class DemoCustomerService
         var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
         return entity is null ? null : DemoCustomerPage2200000000000100020Vo.FromEntity(entity);
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<DemoCustomer?> ReadAgentRecord2200000000000100020Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete" or "copy"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("2200000000000100020",operation);
+        return await Scope2200000000000100020(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>
     public async Task<Metarill.Core.Exports.PageExportRequest> Export2200000000000100020Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)
     {

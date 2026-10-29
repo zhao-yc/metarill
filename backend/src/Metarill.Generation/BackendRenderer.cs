@@ -183,7 +183,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.Name} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(AgentRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
             result.Append(CascadeTreeReadRenderer.Service(model,table,page));
             result.Append(CascadeTreeWriteRenderer.Service(model,table,page));
             result.Append(CascadeTreeViewRenderer.Service(model,table,page));
@@ -561,6 +561,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using Microsoft.AspNetCore.Mvc;").AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;")
             .AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "").AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Services;")
             .AppendLine($"namespace {model.Namespace}.Generated.Controllers;").AppendLine("[ApiController]")
+            .Append(AgentRecordAccessAttribute(model,table,page))
             .Append(BusinessRecordButtons(model,page).Count==0 ? "" : $"[GeneratedPageAccess({Literal(suffix)}, {Literal(table.Source.Id)}, typeof(global::{model.Namespace}.Generated.Entities.{table.Name}), typeof({table.Name}Service), nameof({table.Name}Service.ReadButtonRecord{suffix}Async))]"+Environment.NewLine)
             .AppendLine($"[Route({Literal("api/admin/auto/" + table.Source.TableName + "/" + suffix)})]")
             .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization{(CascadeTreeQueryCompilation.Snapshot(model,table,page)?", Metarill.Data.DatabaseSession readSession":"")}) : ControllerBase").AppendLine("{")

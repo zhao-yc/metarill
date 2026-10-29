@@ -22,6 +22,7 @@ public sealed record AgentPublishedPage(string ProjectId, string Id, string Name
     public bool CanUpdate { get; init; }
     public string ReadOnlyCondition { get; init; } = "";
     public bool HasOwnedActionSource { get; init; }
+    internal IReadOnlyDictionary<string,string>? RecordNames {get;init;}
 }
 
 /// <summary>按钮路径、确认与可见规则来自发布快照，不能被调用方元数据或请求覆盖。</summary>
@@ -60,7 +61,7 @@ public sealed class AgentHostCatalog
             return new AgentPublishedPage(catalog.YzProjectId, page.Id, page.Name, table.TableName,
                 page.WhereSql.Contains("@parent", StringComparison.OrdinalIgnoreCase), Array.AsReadOnly(required))
             {
-                TableId = table.Id, IsFunctionTable = table.IsFunctionTable == 1,
+                TableId = table.Id, IsFunctionTable = table.IsFunctionTable == 1, RecordNames=CompileRecordNames(catalog,table.Id),
                 CanUpdate = PageUpdatePolicy.CanUpdate(page),
                 ReadOnlyCondition = page.Extra.GetValueOrDefault("readOnlyCondition").ToString(),
                 HasOwnedActionSource = table.YzProjectId == catalog.YzProjectId && page.YzProjectId == catalog.YzProjectId
@@ -104,16 +105,18 @@ public sealed class AgentHostCatalog
             if(visibility=="VisibleWhenWritable"&&!page.IsFunctionTable)readOnly=ReadOnlyConditionRule.Compile(page.ReadOnlyCondition);
         }
         catch(ArgumentException){return null;}
-        // 只发布真实表字段的物理/JSON名称映射，后续从实际生成实体取值，不反射客户端字段。
-        var names=new Dictionary<string,string>(StringComparer.Ordinal){["id"]="id"};
-        foreach(var column in catalog.ConfigColumns.Where(value=>value.ConfigTableId==page.TableId))
-        {
-            var json=JsonName(column.ColumnName);
-            foreach(var name in new[]{column.ColumnName,json,GeneratedRecordJsonName(column.ColumnName)})
-            {if(names.TryGetValue(name,out var previous)&&previous!=column.ColumnName)return null;names[name]=column.ColumnName;}
-        }
+        var names=page.RecordNames;if(names is null)return null;
         if(readOnly is not null&&readOnly.Fields.Any(field=>!names.ContainsKey(field.Split('.')[0])))return null;
         return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility){Rule=rule,ReadOnlyRule=readOnly,RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal)};
+    }
+    /// <summary>页面和按钮共用冻结的物理/JSON别名，只按真实元数据声明绑定，不读客户端字段定义。</summary>
+    private static IReadOnlyDictionary<string,string>? CompileRecordNames(MetadataCatalog catalog,string tableId)
+    {
+        var names=new Dictionary<string,string>(StringComparer.Ordinal){["id"]="id"};
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId))
+            foreach(var name in new[]{column.ColumnName,JsonName(column.ColumnName),GeneratedRecordJsonName(column.ColumnName)})
+            {if(names.TryGetValue(name,out var previous)&&previous!=column.ColumnName)return null;names[name]=column.ColumnName;}
+        return names.ToFrozenDictionary(StringComparer.Ordinal);
     }
     /// <summary>按钮字段同时兼容原命名与生成器Pascal/Camel规则；最终属性按真实Column.Name绑定。</summary>
     private static string GeneratedRecordJsonName(string name)

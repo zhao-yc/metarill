@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "1870796062470516738", "1675764388766908417", typeof(global::Metarill.Platform.Generated.Entities.ConfigButton), typeof(ConfigButtonService), nameof(ConfigButtonService.ReadAgentRecord1870796062470516738Async))]
 [Route("api/admin/auto/config_button/1870796062470516738")]
 public sealed partial class ConfigButtonPage1870796062470516738Controller(ConfigButtonService service, IRuntimeAuthorization authorization) : ControllerBase
 {

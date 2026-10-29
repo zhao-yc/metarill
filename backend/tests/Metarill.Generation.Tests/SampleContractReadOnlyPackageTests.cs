@@ -43,6 +43,15 @@ public sealed partial class SampleContractActionPackageTests
             Assert.Equal(0,gate.Calls);Assert.DoesNotContain("begin",run.Trace);Assert.DoesNotContain("write",run.Trace);Assert.Empty(run.Observer.Contexts);
             run.Set("Amount",0m);await catalog.ValidateActionInvocationAsync("action:sample-contract-preview",context,Encoding.UTF8.GetBytes("{\"id\":\"7\"}"));
             var result=Assert.IsType<ObjectResult>(await executor.ExecuteAsync(request with{Entity=JsonSerializer.SerializeToElement(new{id="7",amount=99})},context));Assert.Null(result.StatusCode);Assert.Equal(1,gate.Calls);Assert.Equal(1,gate.Releases);Assert.DoesNotContain("begin",run.Trace);Assert.True(prepared.HandwrittenProtected);
+            // 普通记录写通过真实生成控制器标记绑定相同Service，客户端amount回显不能替代原记录。
+            var update=services.GetRequiredService<IActionDescriptorCollectionProvider>().ActionDescriptors.Items.OfType<ControllerActionDescriptor>().Single(value=>value.ControllerTypeInfo.Namespace?.Contains(".Generated.Controllers",StringComparison.Ordinal)==true&&value.AttributeRouteInfo?.Template?.EndsWith("/sample_contract/81002/update",StringComparison.Ordinal)==true);
+            var updateContext=new DefaultHttpContext{RequestServices=services};updateContext.Request.Method="POST";updateContext.Request.ContentType="application/json";updateContext.Request.Path="/"+update.AttributeRouteInfo!.Template;updateContext.SetEndpoint(new Endpoint(_=>Task.CompletedTask,new EndpointMetadataCollection(update),"原生成更新"));
+            Assert.Equal("update",catalog.Describe("page:81002:update").Operation);
+            var taskGateCalls=gate.Calls;run.Set("Amount",10m);
+            var denied=await Assert.ThrowsAsync<AgentTaskException>(()=>catalog.ValidateRecordWriteInvocationAsync("page:81002:update",updateContext,Encoding.UTF8.GetBytes("{\"id\":\"7\",\"amount\":0,\"sampleCustomerName\":\"原回显\"}")));
+            Assert.Equal("not_applied",denied.Outcome);Assert.Equal("YZP_CAPABILITY_DENIED",denied.Code);Assert.Equal(taskGateCalls,gate.Calls);Assert.DoesNotContain("begin",run.Trace);
+            run.Set("Amount",0m);await catalog.ValidateRecordWriteInvocationAsync("page:81002:update",updateContext,Encoding.UTF8.GetBytes("{\"id\":\"7\",\"amount\":99,\"sampleCustomerName\":\"原回显\"}"));
+            Assert.Equal(taskGateCalls,gate.Calls);Assert.DoesNotContain("write",run.Trace);Assert.Empty(run.Observer.Contexts);
             // 使用实际包控制器验证原JSON/R边界；身份与ORM仍是明确离线夹具，不声称真实登录或数据库。
             var builder=WebApplication.CreateBuilder(Array.Empty<string>());builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:0");helper.RegisterButtonServices(builder.Services,run);
             await using var app=builder.Build();app.Use(async(current,next)=>{try{await next();}catch(BusinessRuleException error){current.Response.StatusCode=200;await current.Response.WriteAsJsonAsync(R<object>.Error(error.Message));}});app.MapControllers();await app.StartAsync();

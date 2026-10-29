@@ -180,6 +180,15 @@ public partial class ConfigTableService
         query=query.Where(entity=>entity.YzProjectId==long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         return locking?query.ForUpdate():query;
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigTable?> ReadAgentRecord6191083005411328Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("6191083005411328",operation);
+        return await Scope6191083005411328(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents6191083005411328Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {

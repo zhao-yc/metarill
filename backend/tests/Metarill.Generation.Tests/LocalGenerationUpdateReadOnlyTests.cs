@@ -7,6 +7,9 @@ public sealed partial class LocalGenerationUpdateTests
     [Theory]
     [InlineData("src/Metarill.Core/Metadata/ReadOnlyConditionRule.cs")]
     [InlineData("src/Metarill.Core/Metadata/JavaDecimalNumber.cs")]
+    [InlineData("src/Metarill.Core/Contracts/GeneratedAgentWriteAccessAttribute.cs")]
+    [InlineData("src/Metarill.Agent/AgentRecordWriteBinding.cs")]
+    [InlineData("src/Metarill.Agent/AgentRecordValues.cs")]
     public void Candidate_cannot_remove_readonly_condition_runtime_and_manifest_together(string path)
     {
         var(target,candidate)=Packages(Catalog(),Catalog());var updater=new LocalGenerationUpdater();var before=SourceSnapshot(target);

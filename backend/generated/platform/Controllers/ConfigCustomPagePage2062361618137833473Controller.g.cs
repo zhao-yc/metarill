@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "2062361618137833473", "2062361618091741184", typeof(global::Metarill.Platform.Generated.Entities.ConfigCustomPage), typeof(ConfigCustomPageService), nameof(ConfigCustomPageService.ReadAgentRecord2062361618137833473Async))]
 [Route("api/admin/auto/config_custom_page/2062361618137833473")]
 public sealed partial class ConfigCustomPagePage2062361618137833473Controller(ConfigCustomPageService service, IRuntimeAuthorization authorization) : ControllerBase
 {

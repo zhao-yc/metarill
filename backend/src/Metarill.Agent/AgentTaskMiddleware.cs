@@ -43,6 +43,11 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
                 try { await catalog.ValidateActionInvocationAsync(capabilityId, context, body); }
                 catch (UnauthorizedAccessException) { throw new AgentTaskException("YZP_CAPABILITY_DENIED", "业务记录不存在或当前按钮无权访问。", 403, "not_applied", "fix_request"); }
             }
+            if(capability.Operation is "update" or "delete" or "copy")
+            {
+                try{await catalog.ValidateRecordWriteInvocationAsync(capabilityId,context,body);}
+                catch(UnauthorizedAccessException){throw new AgentTaskException("YZP_CAPABILITY_DENIED","原记录不存在或当前写操作无权访问。",403,"not_applied","fix_request");}
+            }
             var hash = AgentTaskStore.Fingerprint(capability.Id, context.Request.Method, path, context.Request.QueryString.Value ?? "", body);
             claim = await tasks.BeginAsync(identity.Identity.Actor, capability.Id, requestId, hash, context.RequestAborted);
             var original = context.Response.Body;

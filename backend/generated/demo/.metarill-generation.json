@@ -6,7 +6,7 @@
   "files": [
     {
       "path": "Controllers/DemoCustomerPage2200000000000100020Controller.g.cs",
-      "sha256": "fcc2c4f97d9b7ed1b4031bd4255f87e413fa12c4892740ac42dfc79ddc0d74c8"
+      "sha256": "166a6deaa999b2cda587afe02eba28884844d7cc64fdeaa59d1885412028a946"
     },
     {
       "path": "DTOs/DemoCustomerPage2200000000000100020Requests.g.cs",
@@ -30,7 +30,7 @@
     },
     {
       "path": "Services/DemoCustomerService.g.cs",
-      "sha256": "98daea6da2d6413f779f9cb00130ca6f05f17a208a80b5025c707e751d45c597"
+      "sha256": "483c71613518fd0ec5ad032a54abc4af0daaf306f64fc2ec7785e5a4571eb420"
     },
     {
       "path": "VOs/DemoCustomerPage2200000000000100020Vo.g.cs",

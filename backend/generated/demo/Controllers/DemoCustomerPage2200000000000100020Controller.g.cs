@@ -8,6 +8,7 @@ using Metarill.Demo.Generated.VOs;
 using Metarill.Demo.Generated.Services;
 namespace Metarill.Demo.Generated.Controllers;
 [ApiController]
+[global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("2200000000000100000", "2200000000000100020", "2200000000000100010", typeof(global::Metarill.Demo.Generated.Entities.DemoCustomer), typeof(DemoCustomerService), nameof(DemoCustomerService.ReadAgentRecord2200000000000100020Async))]
 [Route("api/admin/auto/demo_customer/2200000000000100020")]
 public sealed partial class DemoCustomerPage2200000000000100020Controller(DemoCustomerService service, IRuntimeAuthorization authorization) : ControllerBase
 {

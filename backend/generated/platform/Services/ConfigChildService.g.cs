@@ -158,6 +158,15 @@ break; }
         var entity = await Scope1679390851298631682(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigChild { Id = entity.Id, ParentConfigPageId = entity.ParentConfigPageId, ChildConfigPageId = entity.ChildConfigPageId, SortNo = entity.SortNo, ChildPageOpenType = entity.ChildPageOpenType, ParentConfigPageName = entity.ParentConfigPageName, ChildConfigPageName = entity.ChildConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return entity is null ? null : ConfigChildPage1679390851298631682Vo.FromEntity(entity);
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigChild?> ReadAgentRecord1679390851298631682Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("1679390851298631682",operation);
+        return await Scope1679390851298631682(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<ConfigChildPage1679390851298631682Vo> Create1679390851298631682Async(ConfigChildPage1679390851298631682CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {

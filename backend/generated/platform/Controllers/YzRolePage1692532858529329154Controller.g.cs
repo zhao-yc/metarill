@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "1692532858529329154", "1692532858499969026", typeof(global::Metarill.Platform.Generated.Entities.YzRole), typeof(YzRoleService), nameof(YzRoleService.ReadAgentRecord1692532858529329154Async))]
 [Route("api/admin/auto/yz_role/1692532858529329154")]
 public sealed partial class YzRolePage1692532858529329154Controller(YzRoleService service, IRuntimeAuthorization authorization) : ControllerBase
 {

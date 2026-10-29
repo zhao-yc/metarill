@@ -57,13 +57,19 @@ namespace Metarill.Agent.Tests
 
 namespace Metarill.Agent.Tests.Generated.Controllers
 {
-    [ApiController, Route("api/admin/auto/legacy_fixture/101")]
-    public sealed class LegacyFixtureController : ControllerBase
+    [ApiController, Route("api/admin/auto/legacy_fixture/101"), GeneratedAgentWriteAccess("77","101","1",typeof(LegacyFixtureEntity),typeof(LegacyFixtureReader),nameof(LegacyFixtureReader.ReadAgentRecord101Async))]
+    public sealed class LegacyFixtureController(LegacyFixtureReader reader) : ControllerBase
     {
         /// <summary>测试实际 MVC 对兼容入口的发现，不触发业务写入。</summary>
         [HttpPost("update"), LegacyPageWriteRequest(typeof(LegacyFixtureUpdateRequest))]
-        public R<string> Update([FromBody] JsonElement entity) => R<string>.Success();
+        public R<string> Update([FromBody] JsonElement entity) { _=reader;return R<string>.Success(); }
     }
+    /// <summary>只供schema合同证明，测试不伪造或执行实际数据scope读取。</summary>
+    public sealed class LegacyFixtureReader
+    {
+        public Task<LegacyFixtureEntity?> ReadAgentRecord101Async(long id,string? parentId,string operation,RuntimeActor actor,IRuntimeAuthorization authorization,CancellationToken token)=>throw new NotSupportedException("schema夹具不执行记录查询。");
+    }
+    public sealed class LegacyFixtureEntity { [JsonPropertyName("id")]public long Id{get;set;} }
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     public sealed class LegacyFixtureUpdateRequest
     {

@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "6220589291798528", "6220588773015552", typeof(global::Metarill.Platform.Generated.Entities.YzManagerDevices), typeof(YzManagerDevicesService), nameof(YzManagerDevicesService.ReadAgentRecord6220589291798528Async))]
 [GeneratedPageAccess("6220589291798528", "6220588773015552", typeof(global::Metarill.Platform.Generated.Entities.YzManagerDevices), typeof(YzManagerDevicesService), nameof(YzManagerDevicesService.ReadButtonRecord6220589291798528Async))]
 [Route("api/admin/auto/yz_manager_devices/6220589291798528")]
 public sealed partial class YzManagerDevicesPage6220589291798528Controller(YzManagerDevicesService service, IRuntimeAuthorization authorization) : ControllerBase

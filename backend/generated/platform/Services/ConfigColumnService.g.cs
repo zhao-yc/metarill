@@ -174,6 +174,15 @@ public partial class ConfigColumnService
         query=query.Where(entity=>entity.ConfigTableId==long.Parse(parentId!, CultureInfo.InvariantCulture));
         return locking?query.ForUpdate():query;
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigColumn?> ReadAgentRecord6217715532627968Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("6217715532627968",operation);
+        return await Scope6217715532627968(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>
     public async Task<Metarill.Core.Exports.PageExportRequest> Export6217715532627968Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken)
     {

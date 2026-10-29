@@ -133,6 +133,15 @@ public partial class YzAdminTypeService
         query=query.Where(entity=>entity.YzProjectId==long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         return locking?query.ForUpdate():query;
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<YzAdminType?> ReadAgentRecord1696799309006348290Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("1696799309006348290",operation);
+        return await Scope1696799309006348290(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<YzAdminTypePage1696799309006348290Vo> Create1696799309006348290Async(YzAdminTypePage1696799309006348290CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {

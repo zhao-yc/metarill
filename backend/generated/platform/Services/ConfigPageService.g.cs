@@ -174,6 +174,15 @@ public partial class ConfigPageService
         query=query.Where(entity=>entity.ConfigTableId==long.Parse(parentId!, CultureInfo.InvariantCulture));
         return locking?query.ForUpdate():query;
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigPage?> ReadAgentRecord1868973685063311361Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("1868973685063311361",operation);
+        return await Scope1868973685063311361(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents1868973685063311361Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
@@ -445,6 +454,15 @@ public partial class ConfigPageService
     {
         var entity = await Scope1869016706289577986(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return entity is null ? null : ConfigPagePage1869016706289577986Vo.FromEntity(entity);
+    }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigPage?> ReadAgentRecord1869016706289577986Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("1869016706289577986",operation);
+        return await Scope1869016706289577986(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents1869016706289577986Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
@@ -730,6 +748,15 @@ public partial class ConfigPageService
         var query=mapper.Query().Where(entity=>entity.Id==id);
         query=query.Where(entity=>entity.YzProjectId==long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         return locking?query.ForUpdate():query;
+    }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigPage?> ReadAgentRecord6191175925956608Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("6191175925956608",operation);
+        return await Scope6191175925956608(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
     }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents6191175925956608Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)

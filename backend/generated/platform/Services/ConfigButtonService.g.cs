@@ -152,6 +152,15 @@ break; }
         var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage1870796062470516738Vo.FromEntity(entity);
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigButton?> ReadAgentRecord1870796062470516738Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete" or "copy"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("1870796062470516738",operation);
+        return await Scope1870796062470516738(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<ConfigButtonPage1870796062470516738Vo> Create1870796062470516738Async(ConfigButtonPage1870796062470516738CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
@@ -432,6 +441,15 @@ break; }
     {
         var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage7097193256583168Vo.FromEntity(entity);
+    }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigButton?> ReadAgentRecord7097193256583168Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete" or "copy"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("7097193256583168",operation);
+        return await Scope7097193256583168(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
     }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<ConfigButtonPage7097193256583168Vo> Create7097193256583168Async(ConfigButtonPage7097193256583168CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>

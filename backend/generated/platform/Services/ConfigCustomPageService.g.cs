@@ -112,6 +112,15 @@ public partial class ConfigCustomPageService
         var entity = await Scope2062361618137833473(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new ConfigCustomPage { Id = entity.Id, Name = entity.Name, PagePath = entity.PagePath, NavigationStyle = entity.NavigationStyle, EnablePullDownRefresh = entity.EnablePullDownRefresh, IsShowLeft = entity.IsShowLeft, IsShowTop = entity.IsShowTop, SortNo = entity.SortNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
         return entity is null ? null : ConfigCustomPagePage2062361618137833473Vo.FromEntity(entity);
     }
+    /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
+    public async Task<ConfigCustomPage?> ReadAgentRecord2062361618137833473Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);if(id<=0)throw new ArgumentException("记录标识无效。");
+        if(operation is not ("update" or "delete"))throw new UnauthorizedAccessException("操作不属于当前已发布页面。");
+        if(authorization.RequireActor()!=actor)throw new UnauthorizedAccessException("记录身份与当前真实身份不一致。");
+        authorization.RequirePagePermission("2062361618137833473",operation);
+        return await Scope2062361618137833473(actor,parentId).Where(row=>row.Id==id).FirstAsync(cancellationToken);
+    }
     /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>
     private async Task ValidateOptionsSourceParents2062361618137833473Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
