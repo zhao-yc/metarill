@@ -10,8 +10,8 @@ namespace Metarill.Generation.Tests;
 public sealed class CrossTableExcelWorkbookTests
 {
     /// <summary>生产XLSX与原选择函数完成文本往返，保留分隔符和精确大ID。</summary>
-    [Fact]
-    public async Task Original_excel_handler_preserves_partial_paths_whitespace_and_literal_text()
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Original_excel_handler_preserves_partial_paths_whitespace_and_literal_text(bool capture)
     {
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-excel-workbook");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -33,9 +33,11 @@ public sealed class CrossTableExcelWorkbookTests
             }
             var expected=values.Select((value,index)=>new Dictionary<string,object?>{{"序号",index+1},{"级联",value},{"选择ID","9007199254740993"}}).ToArray();
             var expectedPath=Path.Combine(directory,"expected.json");await File.WriteAllTextAsync(expectedPath,JsonSerializer.Serialize(expected));
-            var root=NonRedundantApplicationFixture.Root();var start=NonRedundantApplicationFixture.Start("node",root);
+            var root=NonRedundantApplicationFixture.Root();var start=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node",root);
             foreach(var argument in new[]{Path.Combine(root,"backend/tests/Metarill.Generation.Tests/OriginalExcelImportProbe.mjs"),root,book,expectedPath})start.ArgumentList.Add(argument);
+            var captured=Path.Combine(directory,"original-callback.json");if(capture)start.ArgumentList.Add(captured);
             await NonRedundantApplicationFixture.RunAsync(start);
+            if(capture)Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(expectedPath)),System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(captured))));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

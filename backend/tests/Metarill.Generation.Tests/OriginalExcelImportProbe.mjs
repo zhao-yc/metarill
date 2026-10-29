@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 
 // 执行原选择函数本体，不复制其SheetJS参数或自行重写Excel解析。
-const [root, workbook, expectedPath] = process.argv.slice(2);
+const [root, workbook, expectedPath, outputPath] = process.argv.slice(2);
 const source = fs.readFileSync(path.join(root, 'frontend/metarill_uni_admin/common/yzp_runtime/yzp-runtime.js'), 'utf8');
 const marker = 'chooseImportFile(onSelect) {';
 assert.equal(source.split(marker).length, 2, '原Excel选择方法必须唯一');
@@ -33,4 +33,6 @@ const handlers = vm.runInNewContext('({' + method + '})', {
 handlers.chooseImportFile(rows => { result = rows; });
 assert.equal(choices, 1); assert.equal(reads, 1); assert.equal(conversions, 1);
 assert.deepEqual(JSON.parse(JSON.stringify(result)), JSON.parse(fs.readFileSync(expectedPath, 'utf8')));
-process.stdout.write('真实XLSX与原Excel方法：八种路径文本、尾空层、空格及大ID逐字保持。\n');
+// 可选输出仍来自原回调，仅交给外部实际HTTP用例；本脚本不自行发送请求。
+if (outputPath) fs.writeFileSync(outputPath, JSON.stringify(result));
+process.stdout.write('真实XLSX与原Excel方法：' + result.length + '行逐字保持。\n');

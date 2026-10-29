@@ -4,9 +4,9 @@ using Metarill.Core.Metadata;
 namespace Metarill.Generation.Tests;
 
 /// <summary>八种键/存储组合共享一个专属模型，基础表只安装一次；不连接数据库或创建账号。</summary>
-internal static class CrossTableExcelNativePreparation
+internal static partial class CrossTableExcelNativePreparation
 {
-    internal const string RootNamespace="Metarill.CrossExcelNative",ProductCommit="1a323917bca1b036a2e5aacef190a617e47665df";
+    internal const string RootNamespace="Metarill.CrossExcelNative",ProductCommit="bb8a410ba8cba0a00aea1d2a59cc40e6cdab5eb7";
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){WriteIndented=true,NewLine="\n"};
     /// <summary>每个组的表/字段/页面ID独立，项目/后台共用；整个普通矩阵可在同一新库验收并清理。</summary>
     internal static MetadataCatalog Catalog()
@@ -52,5 +52,20 @@ internal static class CrossTableExcelNativePreparation
     private static Dictionary<string,string> Map<T>(IReadOnlyList<T> records,long basis)where T:MetadataRecord
         =>records.Select((record,index)=>(record.Id,Value:(basis+index).ToString(CultureInfo.InvariantCulture))).ToDictionary(pair=>pair.Id,pair=>pair.Value,StringComparer.Ordinal);
     /// <summary>只在新的明确目录准备；关闭发布资格的标记不能被普通更新器使用。</summary>
-    internal static PreparedCrossTableExcelApplication Create(string sourceRoot,string output)=>new CrossTableExcelApplicationPreparer().Prepare(Catalog(),output,RootNamespace,sourceRoot);
+    internal static PreparedCrossTableExcelApplication Create(string sourceRoot,string output)
+    {
+        var catalog=Catalog();var result=new CrossTableExcelApplicationPreparer().Prepare(catalog,output,RootNamespace,sourceRoot);
+        var generated=CSharpGenerator.SafePath(output,"backend/generated");var hands=new Dictionary<string,byte[]>(StringComparer.Ordinal);
+        foreach(var table in catalog.ConfigTables.Where(table=>table.TableName.EndsWith("_source",StringComparison.Ordinal)))
+        {
+            var path=CSharpGenerator.SafePath(generated,"Services/"+GenerationModel.Pascal(table.TableName)+"Service.cs");
+            File.WriteAllText(path,Handwritten(table.TableName));hands[path]=File.ReadAllBytes(path);
+        }
+        for(var round=0;round<2;round++)
+        {
+            new CSharpGenerator().Generate(catalog,generated,RootNamespace);
+            if(hands.Any(file=>!File.ReadAllBytes(file.Key).SequenceEqual(file.Value)))throw new InvalidOperationException("跨表Excel验收手写规则被再生成覆盖。");
+        }
+        return result;
+    }
 }
