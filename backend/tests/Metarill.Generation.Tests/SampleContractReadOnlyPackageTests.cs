@@ -20,11 +20,11 @@ namespace Metarill.Generation.Tests;
 public sealed partial class SampleContractActionPackageTests
 {
     /// <summary>只读条件写入元数据后真实完整打包／严格编译，不在编译后补改目录来冒充可生成。</summary>
-    [Fact]
-    public async Task Actual_full_package_readonly_condition_rejects_web_and_agent_before_business()
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Actual_full_package_readonly_condition_rejects_web_and_agent_before_business(bool composite)
     {
         var prepared=new SampleContractActionPackageFixture{ApplicationAssemblyName="Application.Host.ReadOnly."+Guid.NewGuid().ToString("N")};
-        prepared.Metadata.ConfigPages.Single(page=>page.Id=="81002").Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("amount");
+        prepared.Metadata.ConfigPages.Single(page=>page.Id=="81002").Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement(composite?"amount > 0 && name != '允许'":"amount");
         for(var i=0;i<prepared.Metadata.ConfigButtons.Count;i++)
         {
             var button=JsonNode.Parse(prepared.Metadata.ConfigButtons[i].GetRawText())!;

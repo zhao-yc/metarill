@@ -321,7 +321,8 @@ internal static class ReadProjectionCompilation
         {
             try
             {
-                if (ChildrenCompilation.ReadonlyField(page) is {} field) Add(page.Readable.Single(column => column.JsonName == field), "页面及主子只读条件", false);
+                if (PageReadOnlyCompilation.Compile(page) is {} condition)
+                    foreach(var column in condition.Dependencies)Add(column,"页面及主子只读条件",false);
             }
             catch (InvalidOperationException error) { Gap("", error.Message); }
             foreach (var column in page.DetailColumns)

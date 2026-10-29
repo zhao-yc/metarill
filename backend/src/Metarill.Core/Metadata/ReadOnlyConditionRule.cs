@@ -22,8 +22,31 @@ public sealed partial class ReadOnlyConditionRule
     }
     /// <summary>每次使用服务端原记录重新求值；字段缺失、对象转换及非有限值均拒绝，不默认成可写。</summary>
     public bool IsReadOnly(IReadOnlyDictionary<string,object?> record)=>Truth(root.Evaluate(record));
+    /// <summary>只把已编译语法树输出为静态JS表达式；字段由生成器固定绑定，不重新执行或拼入原条件文本。</summary>
+    public string ToJavaScript(Func<string,string> bindField)
+    {
+        ArgumentNullException.ThrowIfNull(bindField);
+        return Render(root);
+        string Render(Node node)=>node switch
+        {
+            Literal {NumberText:{} number}=>JavaScriptNumber(number),
+            Literal literal=>JsonSerializer.Serialize(literal.Value),
+            Field field=>bindField(field.Name),
+            Not not=>"(!"+Render(not.Value)+")",
+            Binary binary=>"("+Render(binary.Left)+" "+binary.Operation+" "+Render(binary.Right)+")",
+            _=>throw Invalid()
+        };
+    }
+    /// <summary>普通十进制令牌归一为JS模块合法数字，去除旧式八进制前导零并映射Unicode十进制数字。</summary>
+    private static string JavaScriptNumber(string source)
+    {
+        var text=new string(source.Select(c=>char.IsDigit(c)?(char)('0'+(int)char.GetNumericValue(c)):c).ToArray());
+        var negative=text.StartsWith('-');if(negative)text=text[1..];var dot=text.IndexOf('.');var integer=dot<0?text:text[..dot];
+        integer=integer.TrimStart('0');if(integer.Length==0)integer="0";
+        var fraction=dot<0?"":"."+(dot+1==text.Length?"0":text[(dot+1)..]);return (negative?"-":"")+integer+fraction;
+    }
     private abstract record Node{internal abstract object? Evaluate(IReadOnlyDictionary<string,object?> row);}
-    private sealed record Literal(object? Value):Node{internal override object? Evaluate(IReadOnlyDictionary<string,object?> row)=>Value;}
+    private sealed record Literal(object? Value,string? NumberText=null):Node{internal override object? Evaluate(IReadOnlyDictionary<string,object?> row)=>Value;}
     private sealed record Field(string Name):Node
     {
         internal override object? Evaluate(IReadOnlyDictionary<string,object?> row)
@@ -111,7 +134,7 @@ public sealed partial class ReadOnlyConditionRule
             {
                 if(Accept("!"))return new Not(Unary());
                 if(Accept("(")){var value=Or();if(!Accept(")"))throw Invalid();return value;}
-                var token=Current;if(Accept("literal"))return new Literal(token.Value);
+                var token=Current;if(Accept("literal"))return new Literal(token.Value,token.Value is JavaDecimalNumber?token.Text:null);
                 if(Accept("field"))
                 {
                     var name=token.Text.StartsWith("this.entity.",StringComparison.Ordinal)?token.Text[12..]:token.Text.StartsWith("entity.",StringComparison.Ordinal)?token.Text[7..]:token.Text;

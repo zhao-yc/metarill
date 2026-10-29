@@ -58,15 +58,6 @@ internal static class ChildrenCompilation
         return value == "Tab";
     }
 
-    /// <summary>只读条件只接受本页真实可读属性，不能执行元数据中的任意 JavaScript。</summary>
-    public static string? ReadonlyField(PageModel page)
-    {
-        var value = Text(page.Source.Extra, "readOnlyCondition");
-        if (value.Length == 0) return null;
-        return page.Readable.SingleOrDefault(column => column.JsonName == value || column.Source.ColumnName == value)?.JsonName
-            ?? throw new InvalidOperationException("只读条件必须是本页真实可读字段：" + page.Source.Id);
-    }
-
     /// <summary>更新能力沿用原 isUpdate；精简元数据未声明时使用既有保存能力。</summary>
     public static bool CanUpdate(PageModel page) => Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source);
 
