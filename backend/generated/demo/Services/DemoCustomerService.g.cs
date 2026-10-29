@@ -286,8 +286,8 @@ public partial class DemoCustomerService
         if (request.Notes.IsSpecified) { entity.Notes = request.Notes.Value; submitted.Add("notes"); }
         if (request.Amount.IsSpecified) { entity.Amount = request.Amount.Value; submitted.Add("amount"); }
         if (request.IsEnabled.IsSpecified) { entity.IsEnabled = request.IsEnabled.Value; submitted.Add("is_enabled"); }
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
@@ -317,7 +317,7 @@ public partial class DemoCustomerService
         if (request.Notes.IsSpecified) { entity.Notes = request.Notes.Value; submitted.Add("notes"); }
         if (request.Amount.IsSpecified) { entity.Amount = request.Amount.Value; submitted.Add("amount"); }
         if (request.IsEnabled.IsSpecified) { entity.IsEnabled = request.IsEnabled.Value; submitted.Add("is_enabled"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -343,7 +343,7 @@ public partial class DemoCustomerService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("2200000000000100020", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyDemoCustomerAsync("2200000000000100020", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
@@ -363,8 +363,8 @@ public partial class DemoCustomerService
         entity.Notes = source.Notes; submitted.Add("notes");
         entity.Amount = source.Amount; submitted.Add("amount");
         entity.IsEnabled = source.IsEnabled; submitted.Add("is_enabled");
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;

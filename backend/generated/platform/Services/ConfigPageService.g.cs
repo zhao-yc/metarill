@@ -306,7 +306,7 @@ public partial class ConfigPageService
         if (request.IsUpdateEditColumnsOnly.IsSpecified) { entity.IsUpdateEditColumnsOnly = request.IsUpdateEditColumnsOnly.Value; submitted.Add("is_update_edit_columns_only"); }
         if (request.DetailPageButtonsPosition.IsSpecified) { entity.DetailPageButtonsPosition = request.DetailPageButtonsPosition.Value; submitted.Add("detail_page_buttons_position"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -343,7 +343,7 @@ public partial class ConfigPageService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("1868973685063311361", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigPageAsync("1868973685063311361", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
@@ -565,7 +565,7 @@ public partial class ConfigPageService
         if (request.ParentConfigPageName.IsSpecified) { entity.ParentConfigPageName = request.ParentConfigPageName.Value; submitted.Add("parent_config_page_name"); }
         if (request.ImportNo.IsSpecified) { entity.ImportNo = request.ImportNo.Value; submitted.Add("import_no"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -595,7 +595,7 @@ public partial class ConfigPageService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("1869016706289577986", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigPageAsync("1869016706289577986", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
@@ -920,8 +920,8 @@ public partial class ConfigPageService
         else entity.DetailPageButtonsPosition = JsonSerializer.Deserialize<int?>("0", JsonOptions);
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertManagerRealName = actor.AccountName;
@@ -1017,7 +1017,7 @@ public partial class ConfigPageService
         if (request.IsUpdateEditColumnsOnly.IsSpecified) { entity.IsUpdateEditColumnsOnly = request.IsUpdateEditColumnsOnly.Value; submitted.Add("is_update_edit_columns_only"); }
         if (request.DetailPageButtonsPosition.IsSpecified) { entity.DetailPageButtonsPosition = request.DetailPageButtonsPosition.Value; submitted.Add("detail_page_buttons_position"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -1054,7 +1054,7 @@ public partial class ConfigPageService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6191175925956608", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigPageAsync("6191175925956608", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

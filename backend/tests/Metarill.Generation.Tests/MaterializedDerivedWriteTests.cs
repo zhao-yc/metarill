@@ -18,7 +18,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>执行真实生成Service和DTO；ORM执行由明确离线代理记录，不把它当成MySQL验收。</summary>
-public sealed class MaterializedDerivedWriteTests
+public sealed partial class MaterializedDerivedWriteTests
 {
     [Fact]
     public void Published_platform_has_exactly_three_proven_bindings_and_join_is_never_a_request_field()
@@ -169,6 +169,9 @@ public sealed class MaterializedDerivedWriteTests
     private sealed class RecordedOrm(Assembly assembly)
     {
         internal List<string> Trace {get;}=[];internal long Count {get;set;}=1;
+        internal List<object> WrittenEntities {get;}=[];
+        /// <summary>取得真实生成写入后同一实体以核验软删；不伪造MySQL结果。</summary>
+        internal object Current(string table)=>rows[assembly.GetType("Example.Derived.Generated.Entities."+table,true)!];
         private readonly Dictionary<Type,object> rows=[];
         private Type? projectedEntity;private LambdaExpression? projection;private LambdaExpression[] predicates=[];
         /// <summary>将真实生成方法捕获的相同表达式交给真实FreeSql解析，不执行命令或另造WHERE。</summary>
@@ -204,7 +207,15 @@ public sealed class MaterializedDerivedWriteTests
                 return query;
             });return query;
         }
-        private object Command(Type type){object? command=null;command=Make(type,(method,args)=>method.Name=="ExecuteAffrowsAsync"?Task.FromResult(1):command);return command;}
+        private object Command(Type type)
+        {
+            object? command=null;command=Make(type,(method,args)=>
+            {
+                // 捕获真实生成Mapper交给FreeSql的实体，仅用于明确离线的行为核验。
+                if(method.Name is "AppendData" or "SetSource" && args?[0] is{} row)WrittenEntities.Add(row);
+                return method.Name=="ExecuteAffrowsAsync"?Task.FromResult(1):command;
+            });return command;
+        }
         private static object Completed(Type type,object? value)=>typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(type).Invoke(null,[value])!;
         private static T Make<T>(Func<MethodInfo,object?[]?,object?> action)where T:class=>(T)Make(typeof(T),action);
         private static object Make(Type type,Func<MethodInfo,object?[]?,object?> action){var proxy=DispatchProxy.Create(type,typeof(Proxy));((Proxy)proxy).Action=action;return proxy;}

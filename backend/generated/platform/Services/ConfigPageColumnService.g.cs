@@ -340,7 +340,7 @@ public partial class ConfigPageColumnService
         if (request.CombineSuperColumnId.IsSpecified) { entity.CombineSuperColumnId = request.CombineSuperColumnId.Value; submitted.Add("combine_super_column_id"); }
         if (request.CombineSuperColumnName.IsSpecified) { entity.CombineSuperColumnName = request.CombineSuperColumnName.Value; submitted.Add("combine_super_column_name"); }
         if (request.ImportNo.IsSpecified) { entity.ImportNo = request.ImportNo.Value; submitted.Add("import_no"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -374,7 +374,7 @@ public partial class ConfigPageColumnService
         if ((true) && entity.ConfigColumnId is not null)
             await ValidateBound6218036784398336_1676901024774926338Async(entity, actor, cancellationToken);
         await ValidateMutationAsync("6218036784398336", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigPageColumnAsync("6218036784398336", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

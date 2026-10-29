@@ -178,8 +178,8 @@ public partial class YzProjectService
         if (request.DbUsername.IsSpecified) { entity.DbUsername = request.DbUsername.Value; submitted.Add("db_username"); }
         if (request.PrimaryColor.IsSpecified) { entity.PrimaryColor = request.PrimaryColor.Value; submitted.Add("primary_color"); }
         if (request.IsSmall.IsSpecified) { entity.IsSmall = request.IsSmall.Value; submitted.Add("is_small"); }
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
@@ -238,7 +238,7 @@ public partial class YzProjectService
         if (request.DbUsername.IsSpecified) { entity.DbUsername = request.DbUsername.Value; submitted.Add("db_username"); }
         if (request.PrimaryColor.IsSpecified) { entity.PrimaryColor = request.PrimaryColor.Value; submitted.Add("primary_color"); }
         if (request.IsSmall.IsSpecified) { entity.IsSmall = request.IsSmall.Value; submitted.Add("is_small"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -273,7 +273,7 @@ public partial class YzProjectService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6186303424888832", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyYzProjectAsync("6186303424888832", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
@@ -304,8 +304,8 @@ public partial class YzProjectService
         entity.DbPassword = source.DbPassword; submitted.Add("db_password");
         entity.PrimaryColor = source.PrimaryColor; submitted.Add("primary_color");
         entity.IsSmall = source.IsSmall; submitted.Add("is_small");
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;

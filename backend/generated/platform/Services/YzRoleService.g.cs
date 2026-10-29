@@ -221,8 +221,8 @@ public partial class YzRoleService
         if (request.IsSuper.IsSpecified) { entity.IsSuper = request.IsSuper.Value; submitted.Add("is_super"); }
         if (request.IsBuiltIn.IsSpecified) { entity.IsBuiltIn = request.IsBuiltIn.Value; submitted.Add("is_built_in"); }
         if (request.IsScope.IsSpecified) { entity.IsScope = request.IsScope.Value; submitted.Add("is_scope"); }
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
@@ -256,7 +256,7 @@ public partial class YzRoleService
         if (request.IsSuper.IsSpecified) { entity.IsSuper = request.IsSuper.Value; submitted.Add("is_super"); }
         if (request.IsBuiltIn.IsSpecified) { entity.IsBuiltIn = request.IsBuiltIn.Value; submitted.Add("is_built_in"); }
         if (request.IsScope.IsSpecified) { entity.IsScope = request.IsScope.Value; submitted.Add("is_scope"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -283,7 +283,7 @@ public partial class YzRoleService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("1692532858529329154", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyYzRoleAsync("1692532858529329154", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

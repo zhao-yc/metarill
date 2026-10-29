@@ -410,7 +410,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
                 .Append(WriteCall(page, "Delete", "originalScopeValues", "new HashSet<string>(StringComparer.Ordinal)" )).Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page));
             if (table.Columns.Any(x => x.Source.ColumnName == "delete_no"))
-                result.AppendLine("        entity.DeleteNo = DateTime.UtcNow;").AppendLine("        var deleted = await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
+                result.AppendLine("        entity.DeleteNo = BusinessCalendar.Now;").AppendLine("        var deleted = await mapper.UpdateAsync(entity, [\"delete_no\"], cancellationToken) == 1;");
             else
             {
                 if(HasPhysicalFileColumns(model,table))result.AppendLine($"        var deletionContext=new RecordMutationContext({Literal(page.Source.Id)},{Literal(table.Source.TableName)},entity.Id,{ProjectExpression(table)},new Dictionary<string,object?>(),true,session.CurrentTransaction!);")
@@ -486,11 +486,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder();
         var assignments = new Dictionary<string, string>
         {
-            ["update_time"] = "DateTime.UtcNow", ["update_manager_id"] = "actor.AccountId", ["update_manager_name"] = "actor.AccountName", ["update_manager_real_name"] = "actor.AccountName", ["update_user_name"] = "actor.AccountName"
+            ["update_time"] = "BusinessCalendar.Now", ["update_manager_id"] = "actor.AccountId", ["update_manager_name"] = "actor.AccountName", ["update_manager_real_name"] = "actor.AccountName", ["update_user_name"] = "actor.AccountName"
         };
         if (creating)
         {
-            assignments["insert_time"] = "DateTime.UtcNow"; assignments["insert_manager_id"] = "actor.AccountId"; assignments["insert_manager_name"] = "actor.AccountName"; assignments["insert_manager_real_name"] = "actor.AccountName"; assignments["insert_user_name"] = "actor.AccountName";
+            assignments["insert_time"] = "BusinessCalendar.Now"; assignments["insert_manager_id"] = "actor.AccountId"; assignments["insert_manager_name"] = "actor.AccountName"; assignments["insert_manager_real_name"] = "actor.AccountName"; assignments["insert_user_name"] = "actor.AccountName";
             var project = table.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null) assignments["yz_project_id"] = ScopeValue(project, "actor.ProjectId");
         }

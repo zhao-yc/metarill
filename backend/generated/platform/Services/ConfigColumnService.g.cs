@@ -333,7 +333,7 @@ public partial class ConfigColumnService
         if (request.Precision.IsSpecified) { entity.Precision = request.Precision.Value; submitted.Add("precision"); }
         if (request.IsDbNotNull.IsSpecified) { entity.IsDbNotNull = request.IsDbNotNull.Value; submitted.Add("is_db_not_null"); }
         if (request.Scale.IsSpecified) { entity.Scale = request.Scale.Value; submitted.Add("scale"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -372,7 +372,7 @@ public partial class ConfigColumnService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6217715532627968", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigColumnAsync("6217715532627968", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

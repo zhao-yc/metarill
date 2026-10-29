@@ -212,8 +212,8 @@ public partial class YzManagerDevicesService
         if (request.YzManagerId.IsSpecified) { entity.YzManagerId = request.YzManagerId.Value; submitted.Add("yz_manager_id"); }
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.IsMac.IsSpecified) { entity.IsMac = request.IsMac.Value; submitted.Add("is_mac"); }
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
@@ -253,7 +253,7 @@ public partial class YzManagerDevicesService
         if (request.YzManagerId.IsSpecified) { entity.YzManagerId = request.YzManagerId.Value; submitted.Add("yz_manager_id"); }
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
         if (request.IsMac.IsSpecified) { entity.IsMac = request.IsMac.Value; submitted.Add("is_mac"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -280,7 +280,7 @@ public partial class YzManagerDevicesService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6220589291798528", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyYzManagerDevicesAsync("6220589291798528", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

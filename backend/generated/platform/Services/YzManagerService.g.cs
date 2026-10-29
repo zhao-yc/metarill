@@ -268,8 +268,8 @@ public partial class YzManagerService
         if (request.LoginStopTime.IsSpecified) { entity.LoginStopTime = request.LoginStopTime.Value; submitted.Add("login_stop_time"); }
         if (request.ValidityTime.IsSpecified) { entity.ValidityTime = request.ValidityTime.Value; submitted.Add("validity_time"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
@@ -320,7 +320,7 @@ public partial class YzManagerService
         if (request.LoginStopTime.IsSpecified) { entity.LoginStopTime = request.LoginStopTime.Value; submitted.Add("login_stop_time"); }
         if (request.ValidityTime.IsSpecified) { entity.ValidityTime = request.ValidityTime.Value; submitted.Add("validity_time"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -348,7 +348,7 @@ public partial class YzManagerService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyYzManagerAsync("6031906822946816", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

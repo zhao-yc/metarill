@@ -16,7 +16,7 @@ MySQL规则参考[官方小数秒说明](https://dev.mysql.com/doc/refman/8.4/en
 
 结构反查仅对这两个审计字段、精度匹配的固定默认且EXTRA恰为DEFAULT_GENERATED解除生成列保护。真正生成列、ON UPDATE及其它未知EXTRA不解除。反向草案用显式ColumnType保留裸时间的零精度，并交给真实正向编译器双向核验；不分配真实配置ID、不自动写元数据或DDL。原配置保存管线已有column_type/default_value字段，本批没有新增API参数或页面。
 
-审计Service仍按已有DateTime.UtcNow生成，未改变客户端时钟、现有JSON格式或数据库会话时区。数据库默认只是原结构中已有的省略列回退语义，不能据离线DDL推断应用与数据库时钟相同。实际秒/微秒读写、舍入、SQL模式、时区及两侧请求结果尚未验收。
+本A18批次的审计Service仍按当时DateTime.UtcNow生成；后续C30已从生成源头改为原宿主日历，见[生成审计专项](generated-audit-calendar.md)。两批均未改变客户端时钟、现有JSON格式或数据库会话时区。数据库默认只是原结构中已有的省略列回退语义，不能据离线DDL推断应用与数据库时钟相同。实际秒/微秒读写、舍入、SQL模式、时区及两侧请求结果尚未验收。
 
 ## 生成包与受控更新
 

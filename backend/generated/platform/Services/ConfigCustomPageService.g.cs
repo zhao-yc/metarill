@@ -190,8 +190,8 @@ public partial class ConfigCustomPageService
         if (request.IsShowTop.IsSpecified) { entity.IsShowTop = request.IsShowTop.Value; submitted.Add("is_show_top"); }
         if (request.SortNo.IsSpecified) { entity.SortNo = request.SortNo.Value; submitted.Add("sort_no"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
@@ -228,7 +228,7 @@ public partial class ConfigCustomPageService
         if (request.IsShowTop.IsSpecified) { entity.IsShowTop = request.IsShowTop.Value; submitted.Add("is_show_top"); }
         if (request.SortNo.IsSpecified) { entity.SortNo = request.SortNo.Value; submitted.Add("sort_no"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -256,7 +256,7 @@ public partial class ConfigCustomPageService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("2062361618137833473", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigCustomPageAsync("2062361618137833473", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

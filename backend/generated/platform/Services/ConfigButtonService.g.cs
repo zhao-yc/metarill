@@ -189,8 +189,8 @@ break; }
         if (request.IsBatchSelectButton.IsSpecified) { entity.IsBatchSelectButton = request.IsBatchSelectButton.Value; submitted.Add("is_batch_select_button"); }
         if (request.IsAutoCloseAfterAction.IsSpecified) { entity.IsAutoCloseAfterAction = request.IsAutoCloseAfterAction.Value; submitted.Add("is_auto_close_after_action"); }
         else entity.IsAutoCloseAfterAction = JsonSerializer.Deserialize<int?>("0", JsonOptions);
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
         entity.UpdateManagerId = actor.AccountId;
@@ -241,7 +241,7 @@ break; }
         if (request.Type.IsSpecified) { entity.Type = request.Type.Value; submitted.Add("type"); }
         if (request.IsBatchSelectButton.IsSpecified) { entity.IsBatchSelectButton = request.IsBatchSelectButton.Value; submitted.Add("is_batch_select_button"); }
         if (request.IsAutoCloseAfterAction.IsSpecified) { entity.IsAutoCloseAfterAction = request.IsAutoCloseAfterAction.Value; submitted.Add("is_auto_close_after_action"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -275,7 +275,7 @@ break; }
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("1870796062470516738", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigButtonAsync("1870796062470516738", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
@@ -310,8 +310,8 @@ break; }
         entity.Type = source.Type; submitted.Add("type");
         entity.IsBatchSelectButton = source.IsBatchSelectButton; submitted.Add("is_batch_select_button");
         entity.IsAutoCloseAfterAction = source.IsAutoCloseAfterAction; submitted.Add("is_auto_close_after_action");
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
         entity.UpdateManagerId = actor.AccountId;
@@ -478,8 +478,8 @@ break; }
         if (request.IsBatchSelectButton.IsSpecified) { entity.IsBatchSelectButton = request.IsBatchSelectButton.Value; submitted.Add("is_batch_select_button"); }
         if (request.IsAutoCloseAfterAction.IsSpecified) { entity.IsAutoCloseAfterAction = request.IsAutoCloseAfterAction.Value; submitted.Add("is_auto_close_after_action"); }
         else entity.IsAutoCloseAfterAction = JsonSerializer.Deserialize<int?>("0", JsonOptions);
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
         entity.UpdateManagerId = actor.AccountId;
@@ -530,7 +530,7 @@ break; }
         if (request.Type.IsSpecified) { entity.Type = request.Type.Value; submitted.Add("type"); }
         if (request.IsBatchSelectButton.IsSpecified) { entity.IsBatchSelectButton = request.IsBatchSelectButton.Value; submitted.Add("is_batch_select_button"); }
         if (request.IsAutoCloseAfterAction.IsSpecified) { entity.IsAutoCloseAfterAction = request.IsAutoCloseAfterAction.Value; submitted.Add("is_auto_close_after_action"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -564,7 +564,7 @@ break; }
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("7097193256583168", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigButtonAsync("7097193256583168", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
@@ -599,8 +599,8 @@ break; }
         entity.Type = source.Type; submitted.Add("type");
         entity.IsBatchSelectButton = source.IsBatchSelectButton; submitted.Add("is_batch_select_button");
         entity.IsAutoCloseAfterAction = source.IsAutoCloseAfterAction; submitted.Add("is_auto_close_after_action");
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
         entity.UpdateManagerId = actor.AccountId;

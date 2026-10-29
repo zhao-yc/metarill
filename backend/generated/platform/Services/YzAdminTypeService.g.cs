@@ -158,8 +158,8 @@ public partial class YzAdminTypeService
         if (request.ImportNo.IsSpecified) { entity.ImportNo = request.ImportNo.Value; submitted.Add("import_no"); }
         if (request.ExactDataManageMatchField.IsSpecified) { entity.ExactDataManageMatchField = request.ExactDataManageMatchField.Value; submitted.Add("exact_data_manage_match_field"); }
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
         entity.InsertManagerRealName = actor.AccountName;
@@ -203,7 +203,7 @@ public partial class YzAdminTypeService
         if (request.Password.IsSpecified) { entity.Password = request.Password.Value; submitted.Add("password"); }
         if (request.ImportNo.IsSpecified) { entity.ImportNo = request.ImportNo.Value; submitted.Add("import_no"); }
         if (request.ExactDataManageMatchField.IsSpecified) { entity.ExactDataManageMatchField = request.ExactDataManageMatchField.Value; submitted.Add("exact_data_manage_match_field"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -233,7 +233,7 @@ public partial class YzAdminTypeService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("1696799309006348290", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyYzAdminTypeAsync("1696799309006348290", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;

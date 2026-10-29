@@ -328,8 +328,8 @@ public partial class ConfigTableService
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
         if (request.ScopeKind.IsSpecified) { entity.ScopeKind = request.ScopeKind.Value; submitted.Add("scope_kind"); }
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
-        entity.InsertTime = DateTime.UtcNow;
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.InsertTime = BusinessCalendar.Now;
+        entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.InsertUserName = actor.AccountName;
         entity.UpdateManagerId = actor.AccountId;
@@ -445,7 +445,7 @@ public partial class ConfigTableService
         if (request.IsRepeatPwd.IsSpecified) { entity.IsRepeatPwd = request.IsRepeatPwd.Value; submitted.Add("is_repeat_pwd"); }
         if (request.YzAdminTypeId.IsSpecified) { entity.YzAdminTypeId = request.YzAdminTypeId.Value; submitted.Add("yz_admin_type_id"); }
         if (request.ScopeKind.IsSpecified) { entity.ScopeKind = request.ScopeKind.Value; submitted.Add("scope_kind"); }
-        entity.UpdateTime = DateTime.UtcNow;
+        entity.UpdateTime = BusinessCalendar.Now;
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
@@ -477,7 +477,7 @@ public partial class ConfigTableService
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6191083005411328", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
-        entity.DeleteNo = DateTime.UtcNow;
+        entity.DeleteNo = BusinessCalendar.Now;
         var deleted = await mapper.UpdateAsync(entity, ["delete_no"], cancellationToken) == 1;
         if (deleted) await NotifyConfigTableAsync("6191083005411328", entity, actor, new HashSet<string>(), true, true, cancellationToken);
         return deleted;
