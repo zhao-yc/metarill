@@ -188,15 +188,15 @@ public partial class CustomerService
 /// <summary>只模拟执行结果与事务回执，固定行读取不承担权限、SQL或并发锁证明。</summary>
 public sealed class GeneratedMutationGuardRun : IDisposable
 {
-    private readonly Assembly assembly; private readonly Type entityType;
+    private readonly Assembly assembly; private readonly Type entityType; private object? lastWrittenEntity;
     public List<string> Trace { get; } = []; public DatabaseSession Session { get; }
     public RuntimeActor Actor { get; set; } = new(8015, "守卫合同", true, "100", "1");
     public string? ParentId { get; set; }
-    public GeneratedMutationGuardRun(Assembly assembly,Action<TimeSpan>? validateTime=null)
+    public GeneratedMutationGuardRun(Assembly assembly,Action<TimeSpan>? validateTime=null,Func<string,TimeSpan?,TimeSpan?>? persistedTime=null)
     {
         this.assembly = assembly; entityType = assembly.GetType("Example.GuardContract.Generated.Entities.Customer", true)!;
         var orm = Proxy<IFreeSql>((method, args) => method.Name switch { "Select" => Select(method.GetGenericArguments()[0]), "Insert" or "Update" or "Delete" => Command(method.ReturnType, method.Name), _ => throw new NotSupportedException(method.Name) });
-        Session = new(new() { Provider = "mysql", ExpectedDatabase = "offline" }, orm, new OfflineProvider(Trace,validateTime));
+        Session = new(new() { Provider = "mysql", ExpectedDatabase = "offline" }, orm, new OfflineProvider(Trace,validateTime,()=>lastWrittenEntity,entityType,persistedTime));
     }
     /// <summary>旧样本保持五参数构造；按钮样本显式提供真实授权测试入口。</summary>
     public object Service(IRecordMutationGuard[] guards, IRecordMutationObserver[]? observers = null, IRuntimeAuthorization? authorization = null)
@@ -237,14 +237,26 @@ public sealed class GeneratedMutationGuardRun : IDisposable
     }
     private object Command(Type type, string kind)
     {
-        object? command = null; command = Proxy(type, (method, args) => { if (method.Name == "ExecuteAffrowsAsync") { Trace.Add("write:" + kind); return Task.FromResult(1); } return command; }); return command;
+        object? command = null; command = Proxy(type, (method, args) => { if(method.Name is "AppendData" or "SetSource" && args is {Length:>0} && entityType.IsInstanceOfType(args[0]))lastWrittenEntity=args[0]; if (method.Name == "ExecuteAffrowsAsync") { Trace.Add("write:" + kind); return Task.FromResult(1); } return command; }); return command;
     }
     private static T Proxy<T>(Func<MethodInfo, object?[]?, object?> action) where T : class => (T)Proxy(typeof(T), action);
     private static object Proxy(Type type, Func<MethodInfo, object?[]?, object?> action) { var proxy = DispatchProxy.Create(type, typeof(CallProxy)); ((CallProxy)proxy).Action = action; return proxy; }
     public class CallProxy : DispatchProxy { internal Func<MethodInfo, object?[]?, object?> Action = null!; protected override object? Invoke(MethodInfo? method, object?[]? args) => Action(method!, args); }
     public void Dispose() => Session.Dispose();
-    private sealed class OfflineProvider(List<string> trace,Action<TimeSpan>? validateTime=null) : IDatabaseProvider
+    private sealed class OfflineProvider(List<string> trace,Action<TimeSpan>? validateTime,Func<object?> writtenEntity,Type entityType,Func<string,TimeSpan?,TimeSpan?>? persistedTime) : IDatabaseProvider
     {
+        /// <summary>从真实Mapper提交实体投影时间，专项可模拟数据库精度；不冒充实库执行。</summary>
+        public Task<IReadOnlyList<TimeSpan?>> ReadPersistedTimeValuesAsync(DbTransaction transaction,string table,long id,IReadOnlyList<string> columns,CancellationToken cancellationToken=default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();trace.Add("read:PersistedTimes");
+            var entity=writtenEntity()??throw new InvalidOperationException("尚无真实Mapper写入。");
+            IReadOnlyList<TimeSpan?> values=columns.Select(column=>
+            {
+                var property=entityType.GetProperties().Single(property=>property.GetCustomAttribute<FreeSql.DataAnnotations.ColumnAttribute>()?.Name==column);
+                var value=(TimeSpan?)property.GetValue(entity);return persistedTime is null?value:persistedTime(column,value);
+            }).ToArray();
+            return Task.FromResult(values);
+        }
         /// <summary>时间专项显式借用真实方言范围验证，事务与SQL执行仍为替身。</summary>
         public void ValidateTimeValue(TimeSpan value){if(validateTime is not null)validateTime(value);else if(!Metarill.Core.Contracts.ClockTimeValue.IsClock(value))throw new ArgumentOutOfRangeException(nameof(value));}
         public string Name => "mysql"; public DatabaseCapabilities Capabilities => new("mysql", true, false); public void Validate(DatabaseOptions options) { }

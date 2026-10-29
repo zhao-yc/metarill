@@ -29,6 +29,9 @@ public interface IDatabaseProvider
     {
         if(!Metarill.Core.Contracts.ClockTimeValue.IsClock(value))throw new ArgumentOutOfRangeException(nameof(value),"当前数据库尚未支持扩展TIME范围。");
     }
+    /// <summary>写后在同一事务定向读取TIME实际值，不能用内存精度假冒数据库持久值。</summary>
+    Task<IReadOnlyList<TimeSpan?>> ReadPersistedTimeValuesAsync(DbTransaction transaction,string table,long id,IReadOnlyList<string> columns,CancellationToken cancellationToken=default)
+        =>throw new NotSupportedException("当前数据库尚未实现TIME写后回读。");
     /// <summary>读取快照由适配器建立，未验收的提供程序不能静默降级。</summary>
     ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken cancellationToken=default)=>throw new NotSupportedException("当前数据库尚未实现一致读取事务。");
     /// <summary>加入外层事务前验证隔离能力，不擅自改变业务事务级别。</summary>

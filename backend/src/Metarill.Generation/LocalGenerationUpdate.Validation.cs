@@ -81,7 +81,7 @@ public sealed partial class LocalGenerationUpdater
         // 公共JsonDefaults始终引用浮点转换器；无double业务列的当前候选也必须带齐其解析依赖。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs","src/Metarill.Core/Contracts/ExactNumericValue.cs"});
         // 当前完整Core包含字段级时钟合同，旧目标仍可预览升级；双删源码/归属不能伪装完整候选。
-        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/ClockTimeValue.cs","src/Metarill.Core/Contracts/ClockTimeJsonConverter.cs","src/Metarill.Core/Contracts/SqlTimeValue.cs","src/Metarill.Core/Contracts/SqlTimeJsonConverter.cs"});
+        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/ClockTimeValue.cs","src/Metarill.Core/Contracts/ClockTimeJsonConverter.cs","src/Metarill.Core/Contracts/SqlTimeValue.cs","src/Metarill.Core/Contracts/SqlTimeJsonConverter.cs","src/Metarill.Data/MySqlPersistedTimeValues.cs"});
         // 当前时间精度解释与结构反查共用Core/Data源码，不能删文件及归属后冒充完整候选。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FileUploadLifetime.cs","src/Metarill.Core/Contracts/BusinessCalendar.cs","src/Metarill.Core/Metadata/MetadataColumnTypePolicy.cs","src/Metarill.Core/Metadata/MetadataCatalogComposition.cs","src/Metarill.Data/Schema/MySqlSchemaPlanner.cs","src/Metarill.Data/Schema/SchemaImportDraft.cs","src/Metarill.Data/Schema/SchemaService.cs"});
         foreach (var required in bootstrap)

@@ -110,7 +110,7 @@ public partial class CustomerService
         var output=Path.Combine(Path.GetTempPath(),"metarill-invalid-clock-"+Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,output,"Example.InvalidClock"));Assert.False(Directory.Exists(output));
     }
     /// <summary>原示例模型扩展两个独立时间字段，页面和路由沿既有规则。</summary>
-    private static MetadataCatalog Catalog(){var catalog=GeneratorTests.Catalog();AddFields(catalog);return catalog;}
+    internal static MetadataCatalog Catalog(){var catalog=GeneratorTests.Catalog();AddFields(catalog);return catalog;}
     /// <summary>仅为隔离夹具增加受控元数据；原平台目录不增加业务时间列。</summary>
     private static void AddFields(MetadataCatalog catalog)
     {
@@ -124,7 +124,7 @@ public partial class CustomerService
         catalog.ConfigPageColumns.Add(new(){Id="905",ConfigPageId=page.Id,ConfigColumnId="904",IsEdit=1,IsShow=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)},YzProjectId=catalog.YzProjectId});
     }
     /// <summary>只解包实际异步调用的原异常，测试不替业务产生期望值。</summary>
-    private static async Task<object?> Invoke(object service,string method,params object?[] args)
+    internal static async Task<object?> Invoke(object service,string method,params object?[] args)
     {
         Task task;try{task=(Task)service.GetType().GetMethod(method,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!.Invoke(service,args)!;}catch(TargetInvocationException error)when(error.InnerException is not null){ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
         await task;return task.GetType().GetProperty("Result")?.GetValue(task);
