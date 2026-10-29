@@ -9,7 +9,8 @@ const origin=new URL(base),scenario=JSON.parse(scenarioText||'null'),webToken=pr
 if(!['authorize','exercise','revoked'].includes(mode)||!['127.0.0.1','localhost'].includes(origin.hostname)||!['http:','https:'].includes(origin.protocol)||origin.username||origin.password||origin.pathname!=='/api'||origin.search||origin.hash||!/^\d+$/.test(projectId||'')||!scenario||!repository||!evidence||mode==='authorize'&&!webToken)throw new Error('规则正式CLI参数无效。');
 const root=path.resolve(repository),evidenceRoot=path.resolve(evidence),allowed=path.join(root,'.local')+path.sep;
 if(!evidenceRoot.startsWith(allowed))throw new Error('规则CLI证据目录越界。');
-const directory=path.join(evidenceRoot,'rule-cli'),config=path.join(directory,'config.json');
+if(!/^[a-f0-9]{32}$/.test(scenario.cliRunId||''))throw new Error('规则CLI随机目录无效。');
+const directory=path.join(evidenceRoot,'rule-cli',scenario.cliRunId),config=path.join(directory,'config.json');
 if(!directory.startsWith(evidenceRoot+path.sep))throw new Error('规则CLI缓存越界。');
 await mkdir(directory,{recursive:true});
 const env={...process.env,METARILL_AGENT_CONFIG:config},cli=path.join(root,'tools/metarill-agent-cli/bin/metarill-agent.mjs');
@@ -49,7 +50,7 @@ async function exercise(){
  const result=await call(['capabilities','list','--profile','rules']);const deniedIds=[],allowedIds=[];
  for(const page of scenario.pages){
   const entries=result.capabilities.filter(item=>item.pageId===page.id);
-  if(entries.length!==2||entries.some(item=>!['update','delete'].includes(item.operation)))throw new Error('无查询权普通账号的真实目录不符。');
+  if(entries.length!==2||entries.some(item=>!['update','delete'].includes(item.operation)))throw new Error('普通账号目录不符：页面'+page.id+'，操作['+entries.map(item=>/^[a-z_]+$/.test(item.operation||'')?item.operation:'unknown').sort().join(',')+']。');
   const update=entries.find(item=>item.operation==='update'),remove=entries.find(item=>item.operation==='delete');if(!update||!remove)throw new Error('普通更新或删除缺失。');
   await denied(update,{id:scenario.blockedId,name:'允许回显'},page.parentId,deniedIds);await denied(remove,{id:scenario.blockedId},page.parentId,deniedIds);
   if(page.parentId)await denied(update,{id:scenario.allowedId,name:'越界回显'},page.wrongParentId,deniedIds);

@@ -113,7 +113,12 @@ public sealed class AgentHostCatalog
     private static IReadOnlyDictionary<string,string>? CompileRecordNames(MetadataCatalog catalog,string tableId)
     {
         var names=new Dictionary<string,string>(StringComparer.Ordinal){["id"]="id"};
-        foreach(var column in catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId))
+        var table=catalog.ConfigTables.SingleOrDefault(table=>table.Id==tableId);if(table is null)return null;
+        IReadOnlyList<ColumnMetadata> columns;
+        try{columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId)).ToArray();}
+        catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException){return null;}
+        // 与生成实体使用同一隐式关系列展开；国家等逻辑祖先不能因未显式配置而从规则目录消失。
+        foreach(var column in columns)
             foreach(var name in new[]{column.ColumnName,JsonName(column.ColumnName),GeneratedRecordJsonName(column.ColumnName)})
             {if(names.TryGetValue(name,out var previous)&&previous!=column.ColumnName)return null;names[name]=column.ColumnName;}
         return names.ToFrozenDictionary(StringComparer.Ordinal);

@@ -4,6 +4,12 @@ using System.Text.Json;
 using Metarill.Core.Persistence;
 using Metarill.Core.Contracts;
 using Metarill.Runtime;
+using Metarill.Runtime.Agent;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Controllers;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using System.Text;
 using System.Text.RegularExpressions;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -77,6 +83,13 @@ public sealed partial class DerivedRuleRecordGenerationTests
                 var values=new Dictionary<string,object?>{{"countryId",logicalId},{"countryName","禁止"},{"warehouseName","封锁"}};Assert.True(Metarill.Core.Metadata.ReadOnlyConditionRule.Compile(page.Source.Extra["readOnlyCondition"].GetString()).IsReadOnly(values));
                 var forged=Assert.IsAssignableFrom<IGeneratedRuleRecord>(JsonSerializer.Deserialize("{\"id\":\"9007199254740993\",\"countryId\":\"0\",\"generatedRuleValues\":{\"country_id\":0}}",entity.GetType(),JsonDefaults.Options));Assert.True(forged.RequiresLoadedRuleValue("country_id"));Assert.False(forged.TryGetLoadedRuleValue("country_id",out _));
                 Assert.Null(entity.GetType().GetProperty("CountryId")!.GetValue(entity));Assert.Null(entity.GetType().GetProperty("AreaId")!.GetValue(entity));Assert.Equal(parentId,Convert.ToString(entity.GetType().GetProperty("WarehouseId")!.GetValue(entity),CultureInfo.InvariantCulture));
+                // 必须发布真实生成控制器的写能力，并由实际Agent目录消费逻辑证明；不能只测试Service读取。
+                var definitions=new ServiceCollection();definitions.AddLogging();definitions.AddControllers().AddApplicationPart(assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));definitions.AddSingleton<IRuntimeAuthorization>(authorization);definitions.AddSingleton<IAgentHostResources>(new Resources(catalog));definitions.AddSingleton(serviceType,service);definitions.AddSingleton<GeneratedCapabilityIndex>();definitions.AddSingleton<AgentCapabilityCatalog>();using(var services=definitions.BuildServiceProvider())
+                {
+                    var action=services.GetRequiredService<IActionDescriptorCollectionProvider>().ActionDescriptors.Items.OfType<ControllerActionDescriptor>().Single(action=>action.ControllerTypeInfo.Assembly==assembly&&action.AttributeRouteInfo?.Template?.EndsWith("/"+page.Source.Id+"/update",StringComparison.Ordinal)==true);
+                    var context=new DefaultHttpContext{RequestServices=services};context.Request.Method="POST";context.Request.Path="/"+action.AttributeRouteInfo!.Template;context.Request.ContentType="application/json";context.Request.QueryString=new("?parentId="+parentId);context.SetEndpoint(new Endpoint(_=>Task.CompletedTask,new EndpointMetadataCollection(action),"真实共享规则更新"));
+                    var error=await Assert.ThrowsAsync<AgentTaskException>(()=>services.GetRequiredService<AgentCapabilityCatalog>().ValidateRecordWriteInvocationAsync("page:"+page.Source.Id+":update",context,Encoding.UTF8.GetBytes("{\"id\":\"9007199254740993\",\"name\":\"允许回显\"}")));Assert.Equal("YZP_CAPABILITY_DENIED",error.Code);Assert.Equal("not_applied",error.Outcome);
+                }
                 corrupt=true;var rejected=(Task)serviceType.GetMethod("ReadAgentRecord"+page.Source.Id+"Async")!.Invoke(service,[Transport.Id,parentId,"update",actor,authorization,CancellationToken.None])!;await Assert.ThrowsAsync<InvalidOperationException>(async()=>await rejected);Assert.Null(session.CurrentTransaction);
             }
             Assert.Equal(6,table.Pages.Count);Assert.Equal(before,JsonSerializer.Serialize(catalog));
