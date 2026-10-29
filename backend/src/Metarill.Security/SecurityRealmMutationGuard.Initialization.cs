@@ -34,4 +34,38 @@ public sealed partial class SecurityRealmMutationGuard
             throw new UnauthorizedAccessException("账号初始化只允许本应用已发布后台，不得初始化平台或跨库后台。");
         return target;
     }
+    /// <summary>跨库入口只接受真实平台Web身份；原按钮当前授权与目标后台/项目在同一平台事务中固定。</summary>
+    public async Task<PlatformAdminInitializationScope> PreparePlatformAdminInitializationAsync(string adminTypeId,CancellationToken token=default)
+    {
+        var transaction=store.Session.CurrentTransaction??throw new InvalidOperationException("平台账号初始化授权必须在事务内。");
+        var request=RequireRequest(authorization.RequireIdentity().Actor,transaction);
+        if(request.GrantId is not null||!request.Actor.IsAdministrator||!registry.IsPlatformRealm(request.PrincipalProjectId,request.PrincipalAdminTypeId))
+            throw new UnauthorizedAccessException("跨库初始化需要真实平台Web管理员身份。");
+        adminTypeId=AdminAccountInitializationBusiness.RequireTargetId(adminTypeId);
+        BusinessButtonAuthorization.Require(request,registry.PublishedCatalogs,InitializationPageId,InitializationButtonId,true);
+        var state=await PrepareLocksAsync(request,"yz_admin_type",Id(adminTypeId),new Dictionary<string,object?>(),token);
+        var current=await ReadCurrentAsync(request,state,token);
+        await RequireCurrentButtonBindingAsync(request,current,state,InitializationPageId,InitializationButtonId,true,token);
+        var admin=await LockedTarget("yz_admin_type",Id(adminTypeId),state,token)??throw Changed();
+        var projectId=SqlRowStore.Text(admin,"yz_project_id");
+        if(projectId!=request.Actor.ProjectId||projectId==request.PrincipalProjectId||!state.Locks.Projects.TryGetValue(Id(projectId),out var project)
+            ||string.Equals(SqlRowStore.Text(project,"name").Trim(),"YZP",StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("初始化只允许当前业务项目的后台，不得初始化平台项目。");
+        Metarill.Core.Metadata.TemplateVersionCatalog.ValidateStoredProjectVersion(project.GetValueOrDefault("yz_yzp_version_id"));
+        var identity=await store.Session.Provider.ReadPhysicalDatabaseIdentityAsync(store.Session.Options,transaction,token);
+        return new(store,transaction,admin,project,identity,request.PrincipalProjectId,async currentToken=>
+        {
+            RequireSameRequest(request,RequireRequest(request.Actor,transaction));
+            await RefreshLocks(state,currentToken);var latest=await ReadCurrentAsync(request,state,currentToken);
+            if(!latest.Identity.Actor.IsAdministrator)throw new UnauthorizedAccessException("当前身份已不具备平台管理员权限。");
+            await RequireCurrentButtonBindingAsync(request,latest,state,InitializationPageId,InitializationButtonId,true,currentToken);
+            var currentAdmin=await LockedTarget("yz_admin_type",Id(adminTypeId),state,currentToken)??throw Changed();
+            foreach(var field in new[]{"id","yz_project_id","user_name","password"})
+                if(SqlRowStore.Text(currentAdmin,field)!=SqlRowStore.Text(admin,field))throw Changed();
+            var currentProject=state.Locks.Projects[Id(projectId)];
+            foreach(var field in new[]{"id","name","yz_yzp_version_id"})
+                if(SqlRowStore.Text(currentProject,field)!=SqlRowStore.Text(project,field))throw Changed();
+        });
+    }
+
 }

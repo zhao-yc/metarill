@@ -21,7 +21,7 @@ public sealed class CompatibilityAliasRoutingTests
     [InlineData("/api/admin/custom/config_table/config_indexes", "Legacy")]
     [InlineData("/api/admin/custom/config_column/add_column_to_db", "Legacy")]
     [InlineData("/api/admin/custom/index/init_database", "Legacy")]
-    [InlineData("/api/admin/custom/index/init_admin", "Legacy")]
+    [InlineData("/api/admin/custom/index/init_admin", "InitializeAdmin")]
     [InlineData("/api/admin/sys/config_button/execute", "Execute")]
     public async Task Original_urls_reach_the_real_controller_action_without_a_database(string path, string expectedAction)
     {

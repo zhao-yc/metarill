@@ -63,6 +63,12 @@ internal sealed class RealmMemoryProvider : IDatabaseProvider
 {
     internal Dictionary<string,List<Dictionary<string,object?>>> Rows {get;set;}=new(StringComparer.Ordinal);
     internal List<string> Commands {get;}=[]; internal IFreeSql Orm {get;}=DispatchProxy.Create<IFreeSql,ForbiddenRealmOrm>();
+    internal PhysicalDatabaseIdentity PhysicalIdentity {get;set;}=new("offline",Guid.NewGuid().ToString("N"),"offline");
+    internal Action<string>? BeforeWrite {get;set;}
+    internal Action? BeforeCommit {get;set;}
+    /// <summary>仅为跨库专项返回独立内存端点，不模拟真实MySQL身份SQL或网络连接。</summary>
+    public Task<PhysicalDatabaseIdentity> ReadPhysicalDatabaseIdentityAsync(DatabaseOptions options,DbTransaction transaction,CancellationToken token=default)
+    {token.ThrowIfCancellationRequested();if(transaction.Connection is null)throw new InvalidOperationException("离线身份需要事务。");Commands.Add("IDENTITY");return Task.FromResult(PhysicalIdentity);}
     public string Name=>"offline"; public DatabaseCapabilities Capabilities=>new("offline",true,false);
     public void Validate(DatabaseOptions options){} public IFreeSql CreateOrm(DatabaseOptions options)=>Orm;
     public DbConnection CreateConnection(DatabaseOptions options)=>new MemoryConnection(this);
@@ -85,7 +91,7 @@ internal sealed class RealmMemoryProvider : IDatabaseProvider
     }
     internal int Write(string sql,DbParameterCollection parameters)
     {
-        Commands.Add(sql);var update=Regex.Match(sql,@"^UPDATE \x60([^\x60]+)\x60 SET (.+) WHERE \x60id\x60=@record_id$");
+        Commands.Add(sql);BeforeWrite?.Invoke(sql);var update=Regex.Match(sql,@"^UPDATE \x60([^\x60]+)\x60 SET (.+) WHERE \x60id\x60=@record_id$");
         if(update.Success)
         {
             var row=(Rows.GetValueOrDefault(update.Groups[1].Value)??[]).SingleOrDefault(row=>Equal(row.GetValueOrDefault("id"),parameters["record_id"].Value)); if(row is null)return 0;
@@ -107,7 +113,7 @@ internal sealed class RealmMemoryProvider : IDatabaseProvider
     private sealed class MemoryTransaction(MemoryConnection connection,RealmMemoryProvider provider):DbTransaction
     {
         private readonly Dictionary<string,List<Dictionary<string,object?>>> before=provider.Rows.ToDictionary(pair=>pair.Key,pair=>pair.Value.Select(row=>new Dictionary<string,object?>(row,StringComparer.Ordinal)).ToList(),StringComparer.Ordinal);
-        public override IsolationLevel IsolationLevel=>IsolationLevel.ReadCommitted;protected override DbConnection DbConnection=>connection;public override void Commit(){}public override void Rollback()=>provider.Rows=before;
+        public override IsolationLevel IsolationLevel=>IsolationLevel.ReadCommitted;protected override DbConnection DbConnection=>connection;public override void Commit()=>provider.BeforeCommit?.Invoke();public override void Rollback()=>provider.Rows=before;
     }
     private sealed class MemoryCommand(RealmMemoryProvider provider,MemoryConnection connection):DbCommand
     {

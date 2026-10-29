@@ -13,7 +13,7 @@ public sealed record SchemaPreviewRequest(string ProjectId,string? TableId);
 public sealed record SchemaApplyRequest(string ProjectId,SchemaChangePlan Plan);
 public sealed record GenerateRequest(string ProjectId,string? RootNamespace);
 [ApiController,Route("api/admin/sys/database")]
-public sealed class DatabaseController(MetadataRepository metadata,HttpRuntimeAuthorization authorization,ProjectSchemaService schemas,ProjectFileRuntimes files):ControllerBase
+public sealed class DatabaseController(MetadataRepository metadata,HttpRuntimeAuthorization authorization,ProjectSchemaService schemas,ProjectPhysicalModels physicalModels):ControllerBase
 {
     private SchemaService Resolve(string project)=>schemas.Resolve(project);
     [HttpPost("preview")]public async Task<R<SchemaChangePlan>> Preview(SchemaPreviewRequest request,CancellationToken cancellationToken)
@@ -27,8 +27,8 @@ public sealed class DatabaseController(MetadataRepository metadata,HttpRuntimeAu
             var indexIds=catalog.ConfigIndexes.Select(i=>i.GetProperty("id").ToString()).ToHashSet();
             catalog.ConfigIndexColumns=catalog.ConfigIndexColumns.Where(i=>i.TryGetProperty("configIndexId",out var id)&&indexIds.Contains(id.ToString())).ToList();
         }
-        // 完整项目预览包含同库文件基础设施，单表预览继续只展示指定业务表。
-        else catalog=files.ComposePhysical(catalog);
+        // 完整项目与独立应用共用文件/安全/Agent基础结构；单表预览仍只展示指定业务表。
+        else catalog=physicalModels.Compose(catalog);
         return R<SchemaChangePlan>.Success(await Resolve(request.ProjectId).PreviewAsync(catalog,cancellationToken));
     }
     [HttpPost("apply")]public async Task<R<SchemaApplyResult>> Apply(SchemaApplyRequest request,CancellationToken cancellationToken)

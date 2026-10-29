@@ -31,6 +31,7 @@ internal static class ApplicationAgentIntegration
         services.Replace(ServiceDescriptor.Singleton<ISecurityResourceRegistry>(provider=>provider.GetRequiredService<ApplicationAgentHostResources>()));
         services.Replace(ServiceDescriptor.Singleton<ISecuritySessionPolicy>(provider=>provider.GetRequiredService<ApplicationAgentHostResources>()));
         services.AddSingleton<AgentSecuritySessionPolicy>();
+        services.AddSingleton<IAdminInitializationAgentPolicy,AgentAdminInitializationPolicy>();
         if(!mode.Development)services.Replace(ServiceDescriptor.Scoped<ISecurityCurrentSessionPolicy,AgentSecurityCurrentSessionPolicy>());
         // 网址只来自部署者可信配置，不从请求Host、页面或客户端回调推导。
         services.AddSingleton(configuration.GetSection("Agent").Get<AgentOAuthOptions>()??new AgentOAuthOptions{VerificationUri=""});

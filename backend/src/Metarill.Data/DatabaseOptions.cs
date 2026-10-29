@@ -24,6 +24,9 @@ public interface IDatabaseProvider
     void Validate(DatabaseOptions options);
     string QuoteIdentifier(string identifier);
     string ParameterPlaceholder(string name);
+    /// <summary>同一实际事务返回物理服务器/数据库身份；跨库操作不得依赖连接别名推测隔离。</summary>
+    Task<PhysicalDatabaseIdentity> ReadPhysicalDatabaseIdentityAsync(DatabaseOptions options,DbTransaction transaction,CancellationToken cancellationToken=default)
+        =>throw new NotSupportedException("当前数据库尚未实现跨库目标身份核验。");
     /// <summary>TIME范围属于数据库适配边界；默认仅承认日内时刻，扩展范围须显式实现。</summary>
     void ValidateTimeValue(TimeSpan value)
     {

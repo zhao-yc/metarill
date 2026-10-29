@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using Metarill.Core.Contracts;
 using Metarill.Runtime;
 using Metarill.Runtime.Compatibility;
+using Metarill.Runtime.Agent;
+using Metarill.Runtime.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Metarill.Api.Controllers;
@@ -18,6 +20,8 @@ public sealed class CompatibilityButtonController(CompatibilityButtonBusiness bu
     [HttpPost("api/admin/sys/config_button/execute")]
     public async Task<IActionResult> Execute(ExecuteCompatibilityButtonRequest request,CancellationToken cancellationToken)
     {
+        var initialized=await AdminAccountInitializationHttp.TryExecuteAsync(new(request.ButtonId,request.EntityId,request.Entity,request.VisibleScheme,request.VisibleRuleJson),HttpContext,cancellationToken);
+        if(initialized is not null)return initialized;
         if(buttons.IsRegistered(request.ButtonId))return await buttons.ExecuteAsync(new(request.ButtonId,request.EntityId,request.Entity,request.VisibleScheme,request.VisibleRuleJson),HttpContext,cancellationToken);
         return Ok(R<CompatibilityButtonResult>.Success(await business.ExecuteAsync(request.ButtonId,request.EntityId,cancellationToken)));
     }
@@ -28,7 +32,6 @@ public sealed class CompatibilityButtonController(CompatibilityButtonBusiness bu
     [HttpPost("api/admin/custom/config_page/{operation}")]
     [HttpPost("api/admin/custom/config_column/{operation}")]
     [HttpPost("api/admin/custom/index/init_database")]
-    [HttpPost("api/admin/custom/index/init_admin")]
     public async Task<R<CompatibilityButtonResult>> Legacy(CancellationToken cancellationToken)
     {
         var id = Request.Query["id"].ToString();
@@ -47,6 +50,15 @@ public sealed class CompatibilityButtonController(CompatibilityButtonBusiness bu
         }
         var route = Request.Path.Value![4..]; // 固定移除 /api，不能由请求体传入动作地址。
         return R<CompatibilityButtonResult>.Success(await business.ExecuteLegacyAsync(route, id, cancellationToken));
+    }
+
+    /// <summary>原初始化别名使用与中央按钮相同的唯一ID解析、真实Web身份及跨库领域事务。</summary>
+    [HttpPost("api/admin/custom/index/init_admin")]
+    public async Task<IActionResult> InitializeAdmin(CancellationToken cancellationToken)
+    {
+        var id=await AdminAccountInitializationHttp.ReadTargetIdAsync(Request,cancellationToken);
+        return await AdminAccountInitializationHttp.TryExecuteAsync(new(AdminAccountInitializationBusiness.ButtonId,id),HttpContext,cancellationToken)
+            ??throw new InvalidOperationException("当前宿主尚未注册账号初始化事务入口。");
     }
 
     private static string SelectId(string query, string body)

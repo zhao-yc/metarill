@@ -25,6 +25,14 @@ public sealed partial class AdminAccountInitializationTests
         Assert.DoesNotContain(f.Memory.Provider.Commands,sql=>sql.StartsWith("DELETE ",StringComparison.Ordinal));
     }
 
+    /// <summary>旧Web重置不能绕过没有活跃session的有效刷新授权，拒绝后不改旧凭据或角色。</summary>
+    [Fact]
+    public async Task Existing_refresh_grant_without_agent_session_is_rejected_before_reset()
+    {
+        using var f=new Fixture();f.ExistingAccount();f.Memory.Add("sys_agent_grant",("id",72L),("account_id",30L),("status","approved"),("refresh_expires_at",DateTime.UtcNow.AddHours(1)));
+        var before=JsonSerializer.Serialize(f.Memory.Provider.Rows);var business=await f.Business();
+        await Assert.ThrowsAsync<NotSupportedException>(()=>business.InitializeAsync("91"));Assert.Equal(before,JsonSerializer.Serialize(f.Memory.Provider.Rows));
+    }
     /// <summary>保留同后台账号ID与档案，只撤销目标账号的既有Web会话。</summary>
     [Fact]
     public async Task Existing_same_admin_account_keeps_id_profile_references_and_revokes_old_web_sessions()
@@ -199,7 +207,7 @@ public sealed partial class AdminAccountInitializationTests
         internal async Task<AdminAccountInitializationBusiness> Business()
         {
             Accessor.Identity=await Authentication.AuthenticateAsync(Memory.Token,null)??throw new InvalidOperationException("离线身份未建立");
-            return new(Memory.Store,new(Memory.Store,Registry,Accessor,new(Memory.Store,Registry,Resources,new PlatformSecurityCurrentSessionPolicy(Memory.Store))),Memory.Ids);
+            return new(Memory.Store,new(Memory.Store,Registry,Accessor,new(Memory.Store,Registry,Resources,new PlatformSecurityCurrentSessionPolicy(Memory.Store))),Memory.Ids,new Metarill.Runtime.Agent.AgentAdminInitializationPolicy());
         }
         public void Dispose()=>Memory.Dispose();
     }

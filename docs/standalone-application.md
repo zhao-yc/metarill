@@ -131,3 +131,12 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 ## 管理模块同源准备（2026-10-29，未开放普通Full发布）
 
 [C20同源装配](security-management-application-preparation.md)已将真实三份安全partial、原权限工作台及基础工程/生产宿主/Web/Agent/MCP装入独立准备包，通过包自身严格构建、只读DI和匿名401。只有工厂真签发对象可进入内部准备路径；准备结果保留所有后端缺口，`readyForPublication=false`且没有普通Full标记。普通Create和初始化门禁不变，C06规则及后续真实管理矩阵仍待，不能把这一准备子集写成C05完整交付。
+
+
+## 平台业务库初始化与完整物理模型（2026-10-30）
+
+平台整项目结构预览、显式开发初始化与独立应用使用相同文件/安全/Agent基础图，避免业务库只建立业务表却缺账号基础表。单表预览仍只处理该表。普通启动不自动改表；既有库须先预览完整差异、审查SQL，再按原同步流程执行、核验和记录，不能把新增基础表作为启动副作用。
+
+账号初始化原按钮已接服务端登记的目标库；同物理库共享源授权事务，异库独立提交目标，仅保留平台授权读锁，不承诺分布式事务。平台项目自身、未登记连接、墓碑或归属冲突明确拒绝。普通完整包不因此增加平台管理权限或初始化Controller。有效Agent刷新授权的重置规则待用户确认，当前仍明确阻断，不对真实账号执行重置。
+
+旧工程更新须从同一版本同步运行时并重新生成：新增MySqlDatabaseIdentity、PlatformAdminInitializationScope、PlatformAdminAccountTarget、IAdminInitializationAgentPolicy及AgentAdminInitializationPolicy纳入候选闭包校验；旧目标仍可进入原升级流程，缺依赖的新候选拒绝。AgentIntegration模板显式注册Agent策略，手写partial只首次创建。编译/离线HTTP/只读实例核验与真实初始化分别记录，见[平台初始化验收边界](testing/platform-admin-initialization.md)。

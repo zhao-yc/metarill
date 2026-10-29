@@ -7,6 +7,11 @@ public sealed partial class LocalGenerationUpdateTests
     /// <summary>中央按钮新增依赖必须随候选完整下发，双删文件及归属条目也不能绕过。</summary>
     [Theory]
     [InlineData("src/Metarill.Agent/AdminAccountInitializationHttp.cs")]
+    [InlineData("src/Metarill.Security/PlatformAdminInitializationScope.cs")]
+    [InlineData("src/Metarill.Security/PlatformAdminAccountTarget.cs")]
+    [InlineData("src/Metarill.Data/MySqlDatabaseIdentity.cs")]
+    [InlineData("src/Metarill.Security/IAdminInitializationAgentPolicy.cs")]
+    [InlineData("src/Metarill.Agent/AgentAdminInitializationPolicy.cs")]
     [InlineData("src/Metarill.Security/AdminAccountInitializationBusiness.cs")]
     public void Candidate_requires_initialization_boundary_without_touching_target(string path)
     {

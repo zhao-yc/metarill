@@ -32,6 +32,10 @@ if(string.IsNullOrEmpty(builder.Configuration["urls"]))builder.WebHost.UseUrls("
 var registry=new MetadataRegistry(Path.Combine(root,"backend","metadata","platform.json"),Path.Combine(root,"backend","metadata","demo.json"));
 var platformOptions=builder.Configuration.GetSection("Metarill:Database").Get<DatabaseOptions>()??throw new InvalidOperationException("请配置 Metarill:Database。");
 var businessOptions=builder.Configuration.GetSection("Metarill:BusinessDatabase").Get<DatabaseOptions>()??throw new InvalidOperationException("请配置 Metarill:BusinessDatabase。");
+// 基础模型在宿主启动时固定，预览/显式初始化/账号目标仓储共用同一份来源，普通启动不执行DDL。
+var filesMetadata=MetadataRegistry.Load(Path.Combine(root,"backend","metadata","files.json"));
+var securityMetadata=MetadataRegistry.Load(Path.Combine(root,"backend","metadata","security.json"));
+builder.Services.AddSingleton(new ProjectPhysicalModels(filesMetadata,securityMetadata));
 builder.Services.AddSingleton(registry);
 builder.Services.AddSingleton<ISecurityResourceRegistry>(sp=>sp.GetRequiredService<MetadataRegistry>());
 builder.Services.AddSingleton<IAgentHostResources>(sp=>sp.GetRequiredService<MetadataRegistry>());
@@ -40,7 +44,7 @@ builder.Services.AddSingleton(_=>new TargetDatabaseSessions(platformOptions,busi
 builder.Services.AddSingleton<DatabaseSession>(sp=>sp.GetRequiredService<TargetDatabaseSessions>().Platform);
 builder.Services.AddSingleton(sp=>new SqlRowStore(sp.GetRequiredService<DatabaseSession>(),registry.Platform));
 builder.Services.AddSingleton(sp=>new ProjectFileRuntimes(sp.GetRequiredService<TargetDatabaseSessions>(),registry,
-    MetadataRegistry.Load(Path.Combine(root,"backend","metadata","files.json")),sp.GetRequiredService<FileLibraryOptions>()));
+    filesMetadata,sp.GetRequiredService<FileLibraryOptions>()));
 builder.Services.AddSingleton<MetadataRepository>();
 builder.Services.AddSingleton<DevelopmentSeedSynchronizer>();
 builder.Services.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(builder.Configuration.GetValue("Metarill:WorkerId",1)));
@@ -78,6 +82,14 @@ builder.Services.AddScoped<MenuWorkbenchBusiness>();
 builder.Services.AddScoped<Metarill.Runtime.Maintenance.SystemMaintenanceBusiness>(provider=>new(provider.GetRequiredService<TargetDatabaseSessions>().Platform,Metarill.Platform.Generated.GeneratedRelationMaintenance.Catalog,provider.GetRequiredService<HttpRuntimeAuthorization>()));
 builder.Services.AddScoped<RolePermissionBusiness>();
 builder.Services.AddRealmWriteCoordination();
+builder.Services.AddSingleton(provider=>new ProjectAdminInitializationTargets(provider.GetRequiredService<TargetDatabaseSessions>(),
+    securityMetadata,registry.Platform.YzProjectId));
+builder.Services.AddSingleton<IAdminInitializationAgentPolicy,AgentAdminInitializationPolicy>();
+builder.Services.AddScoped<IAdminAccountInitializer>(provider=>new PlatformAdminAccountInitializationBusiness(provider.GetRequiredService<SqlRowStore>(),
+    provider.GetRequiredService<SecurityRealmMutationGuard>(),provider.GetRequiredService<ProjectAdminInitializationTargets>().Resolve,
+    provider.GetRequiredService<IIdGenerator>(),provider.GetRequiredService<IBusinessButtonExecutionGuard>(),provider.GetRequiredService<IAdminInitializationAgentPolicy>(),
+    ()=>provider.GetRequiredService<ILogger<PlatformAdminAccountInitializationBusiness>>().LogWarning("目标账号初始化已提交，平台授权锁清理异常，请核查连接状态。")));
+
 builder.Services.AddScoped<ConfigurationCandidatesBusiness>();
 builder.Services.AddScoped<ProjectSchemaInspectionBusiness>();
 builder.Services.AddSingleton<SchemaMetadataImportPlans>();

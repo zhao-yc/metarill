@@ -25,11 +25,11 @@ public sealed class PlatformTools
             pages=catalog.ConfigPages.Select(p=>new{p.Id,p.ConfigTableId,p.Name,p.YzAdminTypeId}),menus=catalog.ConfigMenus};
     }
     [McpServerTool(Name="preview_database_schema",ReadOnly=true),Description("预览当前项目的数据库结构差异和 SQL，不执行 DDL。")]
-    public static async Task<object> Preview(MetadataRepository metadata,ProjectSchemaService schemas,ProjectFileRuntimes files,HttpRuntimeAuthorization authorization,CancellationToken token)
+    public static async Task<object> Preview(MetadataRepository metadata,ProjectSchemaService schemas,ProjectPhysicalModels physicalModels,HttpRuntimeAuthorization authorization,CancellationToken token)
     {
         var actor=authorization.RequireAdministrator();
-        // 完整项目预览与HTTP入口相同，包含源头派生的同库文件基础结构。
-        var physical=files.ComposePhysical(await metadata.LoadProjectAsync(actor.ProjectId,token));
+        // 完整项目预览与HTTP/显式初始化相同，包含文件、安全和Agent固定基础结构。
+        var physical=physicalModels.Compose(await metadata.LoadProjectAsync(actor.ProjectId,token));
         return await schemas.Resolve(actor.ProjectId).PreviewAsync(physical,token);
     }
     [McpServerTool(Name="inspect_database_schema", ReadOnly=true), Description("只读反查当前授权项目的受管表结构与指纹，响应executable=false；不执行DDL或反向导入元数据。")]

@@ -25,6 +25,13 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");
         return ReadInternalAsync("yz_manager",new Dictionary<string,object?>{{"name",name}},true,cancellationToken,true);
     }
+    /// <summary>初始化只锁项目/后台的指定ID并包含墓碑，缺失与已删除必须区分，禁止重复插入或复活。</summary>
+    public Task<List<Dictionary<string,object?>>> ReadInitializationScopeForUpdateAsync(string table,long id,CancellationToken token=default)
+    {
+        if(Session.CurrentTransaction is null)throw new InvalidOperationException("初始化归属读取必须加入目标事务。");
+        if(table is not("yz_project" or "yz_admin_type")||id<=0)throw new ArgumentException("初始化归属只能读取明确项目或后台。");
+        return ReadInternalAsync(table,new Dictionary<string,object?>{{"id",id}},true,token,true);
+    }
     /// <summary>反向导入归属当前读包含墓碑；RR下锁整个配置表范围，兼容非协作新增及不同名称排序规则，防止空集幻影。</summary>
     public async Task<IReadOnlyList<Dictionary<string,object?>>> ReadTableReservationsForImportAsync(CancellationToken token = default)
     {

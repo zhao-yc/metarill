@@ -19,14 +19,17 @@ namespace Metarill.Agent.Tests;
 /// <summary>真实协调核心接既有离线SQL传输，证明平台窄适配保持事务与目录revision，并以明确范围补齐继承读取锁序；不代替MySQL/RR。</summary>
 public sealed class SecurityCoordinationExtractionTests
 {
-    /// <summary>下沉的是实际Reader与Guard，锁集合、准备状态和工作台Prepare没有新增公共入口。</summary>
+    /// <summary>下沉的是实际Reader与Guard，锁集合及工作台准备状态不公开；跨库入口只返回不可构造的不透明授权范围。</summary>
     [Fact]
     public void Coordination_types_are_shared_without_exposing_the_preparation_state()
     {
         var assembly=typeof(AuthenticationService).Assembly;
         Assert.Equal(assembly,typeof(SecurityRealmCurrentReader).Assembly);Assert.Equal(assembly,typeof(SecurityRealmMutationGuard).Assembly);
         Assert.False(assembly.GetType("Metarill.Runtime.Security.SecurityRealmLocks",true)!.IsPublic);
-        Assert.DoesNotContain(typeof(SecurityRealmMutationGuard).GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.DeclaredOnly),method=>method.Name.StartsWith("Prepare",StringComparison.Ordinal));
+        var prepare=Assert.Single(typeof(SecurityRealmMutationGuard).GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.DeclaredOnly),method=>method.Name.StartsWith("Prepare",StringComparison.Ordinal));
+        Assert.Equal("PreparePlatformAdminInitializationAsync",prepare.Name);Assert.Equal(typeof(Task<PlatformAdminInitializationScope>),prepare.ReturnType);
+        Assert.Empty(typeof(PlatformAdminInitializationScope).GetConstructors());
+        Assert.All(typeof(PlatformAdminInitializationScope).GetProperties(BindingFlags.Public|BindingFlags.Instance),property=>Assert.True(property.PropertyType==typeof(string)||property.PropertyType==typeof(bool)));
         Assert.True(typeof(SecurityRealmMutationGuard).GetField("_states",BindingFlags.NonPublic|BindingFlags.Instance)!.IsPrivate);
         Assert.DoesNotContain(assembly.GetReferencedAssemblies(),reference=>reference.Name is "Metarill.Runtime" or "Metarill.Generation" or "Metarill.Api");
     }

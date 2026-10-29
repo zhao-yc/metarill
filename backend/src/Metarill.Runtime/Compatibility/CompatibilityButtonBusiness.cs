@@ -47,7 +47,7 @@ public static class CompatibilityButtonPolicy
         if (route is "/admin/custom/config_table/delete_table" or "/admin/custom/config_column/drop_column_to_db")
             throw new InvalidOperationException("暂不支持删除数据库表或字段；该按钮不会执行任何结构操作。");
         if (route == "/admin/custom/index/init_admin")
-            throw new InvalidOperationException("平台到业务库的账号初始化尚未接线，本次未执行。");
+            throw new InvalidOperationException("账号初始化只允许通过原Web专用事务入口执行。");
         if (!Actions.TryGetValue(route, out var action)) throw new InvalidOperationException("该按钮动作尚未移植或未登记在安全白名单中，未执行任何操作。");
         if (action.EntityTable != table.TableName) throw new InvalidOperationException("按钮动作与所属配置页面不匹配。");
         return action with { Route = route };
