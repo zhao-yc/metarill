@@ -13,3 +13,8 @@ Directory.Packages.props现在显式固定MySqlConnector2.6.1，Metarill.Data.cs
 
 
 后续[C33](testing/file-calendar-native-acceptance.md)固定原三表包使用实际2.6.1完成Server-200/MySQL8.4.11连接、CRUD/文件引用事务回滚及重启。TLS模式/CA/中间人、并发与首版完整验收仍未由此验证，原配置未因本轮改变。
+
+
+## C39：当前服务器的真实TLS模式子集
+
+新增只读实连与证书对照，实际2.6.1在Required和指定公开CA的VerifyCA下使用TLS1.3；两个无CA严格模式及指定CA的VerifyFull按当前无域名SAN证书明确拒绝。五种模式均按预期完成，九项无网络门禁另验。没有修改服务器证书/TLS设置、系统信任库或应用连接配置，也没有DDL/DML。此结果仅补当前Windows客户端/Server-200的连接子集，匹配域名证书的VerifyFull正向部署、容器、双向TLS和中间人测试仍待；完整边界与复现见[只读TLS验证](testing/mysql-tls-readonly.md)。
