@@ -155,6 +155,7 @@ internal static class ExportRenderer
             var id = IdExpression(column, "entity");
             return $"{access} is null ? null : names{column.Property}.GetValueOrDefault(({(RelationConditionsCompilation.HasForms(relation)?"CacheKey":"TargetParent")}{column.Property}(entity), {id})) ?? Convert.ToString({access}, CultureInfo.InvariantCulture)";
         }
+        if(column.Type=="TimeSpan?")return access+" is {} clock"+column.Property+"?"+TimeFieldCompilation.Value(column)+(TimeFieldCompilation.IsClock(column)?".FormatExport(clock":".Format(clock")+column.Property+"):null";
         if (column.Type == "long") return access + ".ToString(CultureInfo.InvariantCulture)";
         if (column.Type == "long?") return access + "?.ToString(CultureInfo.InvariantCulture)";
         if (column.Source.ControlKind is "ConstList" or "ConstDownList")

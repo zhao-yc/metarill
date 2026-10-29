@@ -18,7 +18,7 @@
 
 已知物理映射包括 bigint/int64、int/integer/tinyint/smallint/int32、decimal/numeric/double/float、nvarchar/varchar/char/nchar/text/tinytext/mediumtext/longtext/string、date/time/datetime/timestamp、bool/boolean、json、blob/binary；保留物理 double/float 到逻辑 decimal 的既有映射。空值、未知类型、point、varbinary 的明确类型编辑拒绝，不默认转换为 string。无关字段更新不替用户迁移已有物理类型。
 
-逻辑类型合法不等于生成能力完成。time、binary 的已有元数据可以保持；当前 C# `TypeFor` 仍明确拒绝生成这两种类型。本切片没有扩展数据库或代码生成能力。
+逻辑类型合法不等于生成能力完成。该窄更新切片只保持time、binary的已有元数据；2026-10-29 C36另行补齐time的强类型生成、字段JSON及MySQL规划，见[time专项](time-logical-type.md)。binary的生成链路仍待实现，不能因元数据允许就宣称支持。
 
 ## 验证和接入
 

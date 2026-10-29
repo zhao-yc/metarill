@@ -116,6 +116,7 @@ public sealed class FixedConditionSqlPlan
                 {if(!variables.TryGetValue(variable,out var current))throw new ArgumentException("固定条件缺少明确的上下文变量。");scalar=Scalar(current,term.Type);}
                 // =NULL与IN(NULL)保持SQL三值语义，不能偷换成IS NULL；空值无须依赖ORM的空参数重写。
                 if(scalar is null){marks.Add("NULL");continue;}
+                if(scalar is TimeSpan time)provider.ValidateTimeValue(time);
                 var name=parameterPrefix+"_"+parameters.Count;parameters.Add(name,scalar);marks.Add(provider.ParameterPlaceholder(name));
             }
             var operation=term.Comparison switch
@@ -154,7 +155,11 @@ public sealed class FixedConditionSqlPlan
         }
         if(type=="bool")return value switch{bool flag=>flag,int integer when integer is 0 or 1=>integer==1,long wide when wide is 0 or 1=>wide==1,decimal exact when exact is 0m or 1m=>exact==1m,string text when text is "0" or "1"=>text=="1",string text when bool.TryParse(text,out var flag)=>flag,_=>throw Invalid()};
         if(type is "date" or "datetime")return value switch{DateTime date=>date,string text when DateTime.TryParse(text,culture,DateTimeStyles.RoundtripKind,out var date)=>date,_=>throw Invalid()};
-        if(type=="time")return value switch{TimeSpan time=>time,string text when TimeSpan.TryParse(text,culture,out var time)=>time,_=>throw Invalid()};
+        if(type=="time")
+        {
+            try{return value switch{TimeSpan time=>time,string text=>SqlTimeValue.ParseText(text)??throw Invalid(),_=>throw Invalid()};}
+            catch(JsonException){throw Invalid();}
+        }
         throw Invalid();
     }
     /// <summary>逻辑类型不带数据库品牌，方言名称和占位符由实际适配器承担。</summary>

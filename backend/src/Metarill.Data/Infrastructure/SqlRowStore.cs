@@ -133,8 +133,16 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
     }
     private string AddParameter(DbCommand command,string name,object? value)
     {
+        if(value is TimeSpan time)session.Provider.ValidateTimeValue(time);
         var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value??DBNull.Value;command.Parameters.Add(parameter);
         return session.Provider.ParameterPlaceholder(name);
+    }
+    /// <summary>基础设施写入与生成字段共用时间文本，手写TimeSpan也校验原控件范围。</summary>
+    private static TimeSpan? CoerceTime(object value,ColumnMetadata column)
+    {
+        var time=value is TimeSpan span?span:column.ControlKind=="time"?Metarill.Core.Contracts.ClockTimeValue.ParseText(Convert.ToString(value,CultureInfo.InvariantCulture)):Metarill.Core.Contracts.SqlTimeValue.ParseText(Convert.ToString(value,CultureInfo.InvariantCulture));
+        if(column.ControlKind=="time"&&time is {} clock&&!Metarill.Core.Contracts.ClockTimeValue.IsClock(clock))throw new System.Text.Json.JsonException("时间必须是有效日内时刻。");
+        return time;
     }
     private static object? Coerce(object? value,ColumnMetadata column)
     {
@@ -149,7 +157,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
             "double"=>Metarill.Core.Contracts.ExactNumericValue.TryDouble(Convert.ToString(value,CultureInfo.InvariantCulture),out var floating)?floating:throw new FormatException("浮点数必须是有效有限值，不能溢出或下溢为零。"),
             "bool"=>Convert.ToBoolean(value,CultureInfo.InvariantCulture),
             "datetime" or "date"=>value is DateTime date?date:DateTime.Parse(Convert.ToString(value,CultureInfo.InvariantCulture)!,CultureInfo.InvariantCulture),
-            "time"=>value is TimeSpan time?time:TimeSpan.Parse(Convert.ToString(value,CultureInfo.InvariantCulture)!,CultureInfo.InvariantCulture),
+            "time"=>CoerceTime(value,column),
             _=>value
         };
     }

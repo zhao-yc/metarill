@@ -36,6 +36,9 @@ public static class RequestJsonSchema
             properties[name] = property.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType == typeof(CheckboxBooleanJsonConverter)
                 ? new Dictionary<string, object?> { ["anyOf"] = new object[] { new Dictionary<string, object?> { ["type"] = "boolean" }, new Dictionary<string, object?> { ["type"] = "integer", ["enum"] = new[] { 0, 1 } }, new Dictionary<string, object?> { ["type"] = "string", ["pattern"] = @"^(?:0|1|\s*)$" }, new Dictionary<string, object?> { ["type"] = "null" } } }
                 : Create(property.PropertyType, depth + 1, includeNullableReferences);
+            // 原picker允许HH:mm，原生TIME允许总小时；不能用RFC3339 time误拒绝合法字段输入。
+            if(property.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType is {} converter&&(converter==typeof(ClockTimeJsonConverter)||converter==typeof(SqlTimeJsonConverter)))
+                properties[name]=TimeFieldSchema(property.PropertyType,converter==typeof(ClockTimeJsonConverter));
             // MCP额外反映可空引用注解；默认关闭，保留既有Agent描述的逐字兼容。
             if (includeNullableReferences && !property.PropertyType.IsValueType && new NullabilityInfoContext().Create(property).ReadState == NullabilityState.Nullable)
                 properties[name] = WithNull((Dictionary<string, object?>)properties[name]!);
@@ -44,6 +47,16 @@ public static class RequestJsonSchema
         var result = new Dictionary<string, object?> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = type.GetCustomAttribute<JsonUnmappedMemberHandlingAttribute>()?.UnmappedMemberHandling != JsonUnmappedMemberHandling.Disallow };
         if (required.Count > 0) result["required"] = required;
         return result;
+    }
+    /// <summary>仅描述已标注字段，不改变全局持续时间；具体日期和数据库范围仍由运行时校验。</summary>
+    private static Dictionary<string,object?> TimeFieldSchema(Type type,bool clock)
+    {
+        var optional=type.IsGenericType&&type.GetGenericTypeDefinition()==typeof(Optional<>);
+        var inner=optional?type.GetGenericArguments()[0]:type;var nullable=Nullable.GetUnderlyingType(inner) is not null;
+        const string hour="(?:[01][0-9]|2[0-3])";const string minute="[0-5][0-9]";const string seconds=":[0-5][0-9](?:\\.[0-9]{1,9})?";
+        var pattern=clock?"^(?:|"+hour+":"+minute+"(?:"+seconds+")?|[0-9]{4}-[0-9]{2}-[0-9]{2}[ T]"+hour+":"+minute+seconds+")$":"^(?:|-?[0-9]{2,6}:"+minute+"(?:"+seconds+")?)$";
+        var schema=new Dictionary<string,object?>{["type"]="string",["pattern"]=pattern,["description"]=clock?"日内HH:mm、HH:mm:ss及可选1至9位小数；兼容合法完整无偏移日期时间。空串/null清空，省略不修改。":"带可选负号的总小时HH:mm或HH:mm:ss及可选1至9位小数；数据库范围另校验。空串/null清空，省略不修改。"};
+        return optional||nullable?WithNull(schema):schema;
     }
     private static Dictionary<string, object?> WithNull(Dictionary<string, object?> schema)
     {

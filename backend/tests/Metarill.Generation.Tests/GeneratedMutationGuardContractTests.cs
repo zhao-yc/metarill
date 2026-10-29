@@ -192,11 +192,11 @@ public sealed class GeneratedMutationGuardRun : IDisposable
     public List<string> Trace { get; } = []; public DatabaseSession Session { get; }
     public RuntimeActor Actor { get; set; } = new(8015, "守卫合同", true, "100", "1");
     public string? ParentId { get; set; }
-    public GeneratedMutationGuardRun(Assembly assembly)
+    public GeneratedMutationGuardRun(Assembly assembly,Action<TimeSpan>? validateTime=null)
     {
         this.assembly = assembly; entityType = assembly.GetType("Example.GuardContract.Generated.Entities.Customer", true)!;
         var orm = Proxy<IFreeSql>((method, args) => method.Name switch { "Select" => Select(method.GetGenericArguments()[0]), "Insert" or "Update" or "Delete" => Command(method.ReturnType, method.Name), _ => throw new NotSupportedException(method.Name) });
-        Session = new(new() { Provider = "mysql", ExpectedDatabase = "offline" }, orm, new OfflineProvider(Trace));
+        Session = new(new() { Provider = "mysql", ExpectedDatabase = "offline" }, orm, new OfflineProvider(Trace,validateTime));
     }
     /// <summary>旧样本保持五参数构造；按钮样本显式提供真实授权测试入口。</summary>
     public object Service(IRecordMutationGuard[] guards, IRecordMutationObserver[]? observers = null, IRuntimeAuthorization? authorization = null)
@@ -243,8 +243,10 @@ public sealed class GeneratedMutationGuardRun : IDisposable
     private static object Proxy(Type type, Func<MethodInfo, object?[]?, object?> action) { var proxy = DispatchProxy.Create(type, typeof(CallProxy)); ((CallProxy)proxy).Action = action; return proxy; }
     public class CallProxy : DispatchProxy { internal Func<MethodInfo, object?[]?, object?> Action = null!; protected override object? Invoke(MethodInfo? method, object?[]? args) => Action(method!, args); }
     public void Dispose() => Session.Dispose();
-    private sealed class OfflineProvider(List<string> trace) : IDatabaseProvider
+    private sealed class OfflineProvider(List<string> trace,Action<TimeSpan>? validateTime=null) : IDatabaseProvider
     {
+        /// <summary>时间专项显式借用真实方言范围验证，事务与SQL执行仍为替身。</summary>
+        public void ValidateTimeValue(TimeSpan value){if(validateTime is not null)validateTime(value);else if(!Metarill.Core.Contracts.ClockTimeValue.IsClock(value))throw new ArgumentOutOfRangeException(nameof(value));}
         public string Name => "mysql"; public DatabaseCapabilities Capabilities => new("mysql", true, false); public void Validate(DatabaseOptions options) { }
         public string QuoteIdentifier(string value) => new MySqlDatabaseProvider().QuoteIdentifier(value); public string ParameterPlaceholder(string value) => "@" + value;
         public IFreeSql CreateOrm(DatabaseOptions options) => throw new NotSupportedException(); public DbConnection CreateConnection(DatabaseOptions options) => new Connection(trace);

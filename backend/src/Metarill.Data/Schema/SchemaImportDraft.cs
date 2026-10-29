@@ -109,6 +109,7 @@ public static class SchemaImportDraftCompiler
                 column.DefaultValue = normalized![2..^2].Replace("''", "'", StringComparison.Ordinal);
                 if (column.DefaultValue.Length == 0) throw new NotSupportedException("现有元数据不能区分空字符串默认值与没有默认值。");
             }
+            else if(column.LogicalType=="time")column.DefaultValue=value.Length>=2&&value[0]=='\''&&value[^1]=='\''?value[1..^1]:value;
             else column.DefaultValue = value;
         }
         if (!MySqlSchemaPlanner.Equivalent(source, MySqlSchemaPlanner.CompileColumn(column))) throw new NotSupportedException("字段类型、可空性或默认值不能无损往返。");

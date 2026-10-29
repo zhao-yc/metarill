@@ -41,8 +41,9 @@ internal static partial class BackendRenderer
         {
             if(NonRedundantReadCompilation.Requires(model,table)&&!NonRedundantReadCompilation.Physical(model,table,column))result.AppendLine($"    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = {Literal(column.Source.ColumnName)}, IsIgnore = true)]");
             else result.AppendLine($"    [global::FreeSql.DataAnnotations.ColumnAttribute(Name = {Literal(column.Source.ColumnName)}, IsPrimary = {column.IsId.ToString().ToLowerInvariant()}, IsIdentity = false, IsNullable = {(column.Source.IsDbNotNull == 0 && !column.IsId).ToString().ToLowerInvariant()})]");
+            if(column.Type=="TimeSpan?")result.AppendLine($"    [global::System.Text.Json.Serialization.JsonConverterAttribute(typeof({TimeFieldCompilation.Converter(column)}))]");
             result.AppendLine($"    [global::System.Text.Json.Serialization.JsonPropertyNameAttribute({Literal(column.JsonName)})]")
-                .AppendLine($"    public {(column.Type == "DateTime?" ? "global::System.DateTime?" : column.Type)} {column.Property} {{ get; set; }}");
+                .AppendLine($"    public {(column.Type is "DateTime?" or "TimeSpan?" ? "global::System."+column.Type : column.Type)} {column.Property} {{ get; set; }}");
         }
         if(RuleRecordEntity(model,table))result.Append(RuleRecordEntityState(model,table));
         return result.AppendLine("}").ToString();
@@ -60,6 +61,7 @@ internal static partial class BackendRenderer
             {
                 result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
                 if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(CheckboxBooleanJsonConverter))]");
+                if(column.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
                 result.AppendLine($"    public Optional<{column.BoundaryType}> {column.Property} {{ get; set; }}");
             }
             result.AppendLine("}");
@@ -87,6 +89,7 @@ internal static partial class BackendRenderer
             if (ManagerCredentialCompilation.IsCredential(table,column)) result.AppendLine("    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]");
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
             if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            if(column.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
         }
         foreach(var name in MultiNameStorageCompilation.ImplicitNames(model,table,page))
@@ -178,7 +181,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); {TrustedSecurityServiceCompilation.GuardsAssignment(model,table)} {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
             .AppendLine("    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();")
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
-            .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter());"+(table.Columns.Any(column=>column.Type=="double?")?" options.Converters.Add(new global::Metarill.Core.Contracts.FiniteDoubleJsonConverter());":"")+" return options; }")
+            .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter());"+(table.Columns.Any(column=>column.Type=="double?")?" options.Converters.Add(new global::Metarill.Core.Contracts.FiniteDoubleJsonConverter());":"")+(table.Columns.Any(column=>column.Type=="TimeSpan?")?" options.Converters.Add(new global::Metarill.Core.Contracts.SqlTimeJsonConverter());":"")+" return options; }")
             .AppendLine("    /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>")
             .AppendLine("    private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException(\"登录身份无效。\");"+(GlobalCachedSourceCompilation.BindsActor(model)?$" if(actor.ProjectId!={Literal(model.Catalog.YzProjectId)})throw new UnauthorizedAccessException(\"当前身份不属于已发布全局来源目录。\");":"")+" }")
             .AppendLine("    /// <summary>所有单对象写入共用手写校验和归一化钩子。</summary>")
@@ -277,6 +280,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             {
                 result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array) { var values = filter.Value.EnumerateArray().Select(ManagerCredentialValue.Filter).ToArray(); query = query.Where(entity => values.Contains(entity.IsDisabled)); break; }")
                     .AppendLine("                    var value = ManagerCredentialValue.Filter(filter.Value); query = query.Where(entity => entity.IsDisabled == value);");
+            }
+            else if(column.Type=="TimeSpan?")
+            {
+                result.AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Array) {")
+                    .AppendLine($"                        var values=filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).ToArray();")
+                    .AppendLine($"                        query=query.Where(entity=>values.Contains(entity.{column.Property}));break;}}")
+                    .AppendLine($"                    var value={TimeFieldCompilation.Value(column)}.Parse(filter.Value);")
+                    .AppendLine($"                    query=query.Where(entity=>entity.{column.Property}==value);");
             }
             else if (column.Type == "DateTime?")
             {
@@ -524,6 +535,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         // JSON入口之外，手写钩子及服务端直接调用同样不能把非有限浮点交给数据库。
         foreach(var column in table.Columns.Where(column=>column.Type=="double?"&&NonRedundantReadCompilation.Physical(model,table,column)))
             result.AppendLine($"        if (entity.{column.Property} is {{ }} number{column.Property} && !double.IsFinite(number{column.Property})) throw new ArgumentException({Literal(column.Source.Name+"必须是有效有限浮点数。")});");
+        // 手写钩子必须遵守控件合同，原生TIME范围统一交给数据库适配器。
+        foreach(var column in table.Columns.Where(column=>column.Type=="TimeSpan?"&&NonRedundantReadCompilation.Physical(model,table,column)))
+        {
+            if(TimeFieldCompilation.IsClock(column))result.AppendLine($"        if(entity.{column.Property} is {{ }} clock{column.Property} && !global::Metarill.Core.Contracts.ClockTimeValue.IsClock(clock{column.Property}))throw new ArgumentException({Literal(column.Source.Name+"必须是有效日内时刻。")});");
+            result.AppendLine($"        if(entity.{column.Property} is {{ }} time{column.Property})session.Provider.ValidateTimeValue(time{column.Property});");
+        }
         // 原后台初始化用户名/密码沿用页面物理长度；只校验本次提交值，省略字段不触及旧配置。
         if(table.Source.Id=="1696799308939239425"&&table.Source.TableName=="yz_admin_type"&&page.Source.Id=="1696799309006348290")
             foreach(var column in page.Writable.Where(column=>column.Type=="string?"&&
@@ -539,6 +556,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         try
         {
             var raw = column.Source.DefaultValue;
+            if(column.Type=="TimeSpan?")
+            {
+                var clock=TimeFieldCompilation.IsClock(column)?global::Metarill.Core.Contracts.ClockTimeValue.DefaultText(raw,global::Metarill.Core.Metadata.MetadataColumnTypePolicy.TemporalPrecision(column.Source)):global::Metarill.Core.Contracts.SqlTimeValue.DefaultText(raw,global::Metarill.Core.Metadata.MetadataColumnTypePolicy.TemporalPrecision(column.Source));
+                return $"{TimeFieldCompilation.Value(column)}.ParseText({Literal(clock)})";
+            }
             if(column.Type=="double?")
             {
                 if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(raw,out var floating))throw new InvalidOperationException("浮点默认值必须是有效有限值，不能溢出或下溢为零："+column.Source.ColumnName);

@@ -22,7 +22,7 @@ public sealed class RuntimeTypeNameGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var table in catalog.ConfigTables)
             {
-                var name=GenerationModel.Pascal(table.TableName);var page=catalog.ConfigPages.Single(page=>page.ConfigTableId==table.Id).Id;var entity=assembly.GetType("Example.TypeBinding.Generated.Entities."+name,true)!;Assert.Equal(typeof(DateTime?),entity.GetProperty("InsertTime")!.PropertyType);Assert.Equal(typeof(string),entity.GetProperty("Payload")!.PropertyType);
+                var name=GenerationModel.Pascal(table.TableName);var page=catalog.ConfigPages.Single(page=>page.ConfigTableId==table.Id).Id;var entity=assembly.GetType("Example.TypeBinding.Generated.Entities."+name,true)!;Assert.Equal(typeof(DateTime?),entity.GetProperty("InsertTime")!.PropertyType);Assert.Equal(typeof(string),entity.GetProperty("Payload")!.PropertyType);Assert.Equal(typeof(TimeSpan?),entity.GetProperty("Clock")!.PropertyType);
                 var service=assembly.GetType("Example.TypeBinding.Generated.Services."+name+"Service",true)!;Assert.Contains(service.GetConstructors().Single().GetParameters(),parameter=>parameter.ParameterType==typeof(DatabaseSession));Assert.Contains(service.GetMethod("Create"+page+"Async")!.GetParameters(),parameter=>parameter.ParameterType==typeof(RuntimeActor));
             }
             var actorEntity=Activator.CreateInstance(assembly.GetType("Example.TypeBinding.Generated.Entities.RuntimeActor",true)!)!;var actorService=assembly.GetType("Example.TypeBinding.Generated.Services.RuntimeActorService",true)!;
@@ -70,10 +70,10 @@ public sealed class RuntimeTypeNameGenerationTests
     internal static MetadataCatalog Catalog()
     {
         var model=new MetadataCatalog{YzProjectId="77"};var index=1000;
-        foreach(var name in new[]{"business_calendar","file_upload_lifetime","runtime_actor","page_request","json_serializer","json_element","date_time","task","database_session","query_spec","record_mutation_context","i_record_mutation_observer","i_id_generator","dictionary","hash_set","cancellation_token","r","i_record_mutation_guard","invalid_operation_exception","convert","json_value_kind","argument_exception","table","column","json_property_name_attribute","list","string_comparer","system","i_read_only_dictionary"})
+        foreach(var name in new[]{"business_calendar","file_upload_lifetime","runtime_actor","page_request","json_serializer","json_element","date_time","task","database_session","query_spec","record_mutation_context","i_record_mutation_observer","i_id_generator","dictionary","hash_set","cancellation_token","r","i_record_mutation_guard","invalid_operation_exception","convert","json_value_kind","argument_exception","table","column","json_property_name_attribute","list","string_comparer","system","i_read_only_dictionary","time_span","clock_time_value","clock_time_json_converter","sql_time_value","sql_time_json_converter"})
         {
             var table=(++index).ToString();var page=(++index).ToString();model.ConfigTables.Add(new(){Id=table,TableName=name,IsRongyu=1,YzProjectId="77"});model.ConfigPages.Add(new(){Id=page,ConfigTableId=table,YzProjectId="77",IsNew=1,IsSave=1,IsCopy=1,IsDelete=1,IsImport=1});
-            foreach(var (column,type) in new[]{("id","int64"),("name","string"),("payload","json"),("insert_time","datetime"),("update_time","datetime"),("delete_no","datetime")})
+            foreach(var (column,type) in new[]{("id","int64"),("name","string"),("payload","json"),("clock","time"),("insert_time","datetime"),("update_time","datetime"),("delete_no","datetime")})
             {
                 var id=(++index).ToString();model.ConfigColumns.Add(new(){Id=id,ConfigTableId=table,ColumnName=column,LogicalType=type,IsDbNotNull=column=="id"?1:0,YzProjectId="77"});model.ConfigPageColumns.Add(new(){Id=(++index).ToString(),ConfigPageId=page,ConfigColumnId=id,ColumnName=column,IsEdit=column=="name"||column=="payload"?1:0,IsShow=1,YzProjectId="77"});
             }

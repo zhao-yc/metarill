@@ -24,6 +24,11 @@ public interface IDatabaseProvider
     void Validate(DatabaseOptions options);
     string QuoteIdentifier(string identifier);
     string ParameterPlaceholder(string name);
+    /// <summary>TIME范围属于数据库适配边界；默认仅承认日内时刻，扩展范围须显式实现。</summary>
+    void ValidateTimeValue(TimeSpan value)
+    {
+        if(!Metarill.Core.Contracts.ClockTimeValue.IsClock(value))throw new ArgumentOutOfRangeException(nameof(value),"当前数据库尚未支持扩展TIME范围。");
+    }
     /// <summary>读取快照由适配器建立，未验收的提供程序不能静默降级。</summary>
     ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken cancellationToken=default)=>throw new NotSupportedException("当前数据库尚未实现一致读取事务。");
     /// <summary>加入外层事务前验证隔离能力，不擅自改变业务事务级别。</summary>
@@ -55,6 +60,12 @@ public static class DatabaseProviders
 public sealed partial class MySqlDatabaseProvider : IDatabaseProvider
 {
     public string Name => "mysql";
+    /// <summary>MySQL TIME使用带符号总小时，最大838:59:59.000000，不在Service散布品牌判断。</summary>
+    public void ValidateTimeValue(TimeSpan value)
+    {
+        const long maximum=(838L*3600+59*60+59)*TimeSpan.TicksPerSecond;
+        if(value.Ticks < -maximum||value.Ticks>maximum)throw new ArgumentOutOfRangeException(nameof(value),"时间超出当前数据库TIME范围。");
+    }
     /// <summary>显式RR避免部署库默认隔离级别改变后分批图读取混入多个版本。</summary>
     public ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken cancellationToken=default)=>connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead,cancellationToken);
     /// <summary>明确级别直接检查；本会话默认事务的Unspecified再查询同连接默认级别。</summary>

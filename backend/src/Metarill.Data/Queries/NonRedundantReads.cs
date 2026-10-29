@@ -54,7 +54,7 @@ public static class NonRedundantReads
         if(value is null)return default;
         var target=Nullable.GetUnderlyingType(typeof(T))??typeof(T);
         if(value is T exact)return exact;
-        if(target==typeof(TimeSpan))return (T)(object)(value is TimeSpan span?span:TimeSpan.Parse(Convert.ToString(value,CultureInfo.InvariantCulture)!,CultureInfo.InvariantCulture));
+        if(target==typeof(TimeSpan))return (T)(object)(value is TimeSpan span?span:Metarill.Core.Contracts.SqlTimeValue.ParseText(Convert.ToString(value,CultureInfo.InvariantCulture))!.Value);
         return (T)Convert.ChangeType(value,target,CultureInfo.InvariantCulture);
     }
 }

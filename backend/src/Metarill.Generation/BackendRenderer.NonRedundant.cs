@@ -39,6 +39,7 @@ internal static class GeneratedNonRedundantReadCatalog
             var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
             result.AppendLine($"    [JsonPropertyName({Literal(output.JsonName)})]");
             if(column is not null&&Checkbox(column))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            if(output.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
             // 物理存储仍是字符串；原接口文件值保持JSON数组或null，不能向前端返回二次编码字符串。
             result.AppendLine($"    public {(output.IsJsonArray?"JsonElement?":output.Type)} {output.Property} {{get;{(table.Columns.Any(item=>item.Source.ColumnName==output.Storage&&item.IsManagedCascadeName)?"set":"init")};}}");
         }
@@ -110,8 +111,8 @@ internal static class GeneratedNonRedundantReadCatalog
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,DateTime.Parse(filter.Value.GetString()!,CultureInfo.InvariantCulture)));break;");
             else
             {
-                var parse=Checkbox(column)?"CheckboxBooleanJsonConverter.Parse(filter.Value)":$"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)";
-                var parseArray=Checkbox(column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
+                var parse=column.Type=="TimeSpan?"?$"{TimeFieldCompilation.Value(column)}.Parse(filter.Value)":Checkbox(column)?"CheckboxBooleanJsonConverter.Parse(filter.Value)":$"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)";
+                var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":Checkbox(column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
                 var field=model.Catalog.ConfigPageColumns.Single(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==column.Source.Id);var match=field.Extra.TryGetValue("searchType",out var item)?item.ToString():field.Extra.TryGetValue("matchType",out item)?item.ToString():"";
                 var like=column.Type=="string?"&&(match=="like"||match.Length==0&&column.Source.ControlKind is not("List" or "ConstList" or "ConstDownList" or "SelectPage"));
                 result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.In,{parseArray}));break;}}")

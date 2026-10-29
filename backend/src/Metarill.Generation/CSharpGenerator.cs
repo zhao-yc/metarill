@@ -264,6 +264,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
             "decimal" or "money" or "number" => "decimal?",
             "double" => "double?",
             "date" or "datetime" or "timestamp" => "DateTime?",
+            "time" => "TimeSpan?",
             "string" or "text" or "json" or "varchar" => "string?",
             _ => throw new InvalidOperationException($"未知逻辑类型：{column.LogicalType}")
         };

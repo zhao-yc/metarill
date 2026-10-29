@@ -55,7 +55,7 @@ public static class MySqlSchemaPlanner
         if (isId && logical != "int64") throw new InvalidOperationException("id 必须为 int64。");
         if (column.ColumnName == "delete_no" && (logical != "datetime" || column.IsDbNotNull != 0))
             throw new InvalidOperationException("delete_no 必须是可空 datetime，null 表示活动记录。");
-        var defaultSql = TryAuditTimestampDefault(column.ColumnName,sqlType,column.DefaultValue,out var temporalDefault) ? temporalDefault : CompileDefault(column.DefaultValue, logical);
+        var defaultSql = TryAuditTimestampDefault(column.ColumnName,sqlType,column.DefaultValue,out var temporalDefault) ? temporalDefault : logical=="time"?CompileTimeDefault(column):CompileDefault(column.DefaultValue, logical);
         // MySQL 8.0.13及以后要求TEXT常量也使用表达式括号；仍不接受原生表达式。
         if(defaultSql is not null&&sqlType is "text" or "longtext")defaultSql="("+defaultSql+")";
         return new ColumnSchema(column.ColumnName, sqlType, column.IsDbNotNull == 0, isId, defaultSql);
@@ -132,6 +132,12 @@ public static class MySqlSchemaPlanner
     {
         var value=column.DefaultSql;
         if(TryAuditTimestampDefault(column.Name,column.StoreType,value,out var temporal))return temporal;
+        // TIME字符串默认可能由MySQL补零，只归一相同TIME值，不放宽列精度或未知表达式。
+        if(value is not null&&System.Text.RegularExpressions.Regex.IsMatch(column.StoreType,@"\Atime(?:\([0-6]\))?\z"))
+        {
+            var raw=value.Length>=2&&value[0]=='\''&&value[^1]=='\''?value[1..^1]:value;
+            try{return "time:"+Metarill.Core.Contracts.SqlTimeValue.ParseNanoseconds(raw)?.ToString(CultureInfo.InvariantCulture);}catch(System.Text.Json.JsonException){return value;}
+        }
         // DOUBLE默认值按真实浮点往返格式归一，避免MySQL指数大小写与尾零导致重复差异；decimal仍走精确文本。
         if(value is not null&&column.StoreType=="double"&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(value,out var floating))return (floating==0?"0":floating.ToString("R",CultureInfo.InvariantCulture));
         if(value is null||!System.Text.RegularExpressions.Regex.IsMatch(column.StoreType,@"^decimal[(][0-9]+,[0-9]+[)]$")||!System.Text.RegularExpressions.Regex.IsMatch(value,@"^[+-]?[0-9]+(?:[.][0-9]+)?$"))return value;
@@ -201,6 +207,18 @@ public static class MySqlSchemaPlanner
         var requested=expression.Groups[1].Value+expression.Groups[2].Value;if(requested.Length==0)requested="0";
         if(requested!=precision)return false;
         normalized=precision=="0"?"CURRENT_TIMESTAMP":"CURRENT_TIMESTAMP("+precision+")";return true;
+    }
+    /// <summary>时间默认只编译受控的TIME常量；精度不匹配必须在DDL前拒绝。</summary>
+    private static string? CompileTimeDefault(ColumnMetadata column)
+    {
+        if(string.IsNullOrEmpty(column.DefaultValue))return null;
+        try
+        {
+            var text=Metarill.Core.Contracts.SqlTimeValue.DefaultText(column.DefaultValue,MetadataColumnTypePolicy.TemporalPrecision(column));
+            new MySqlDatabaseProvider().ValidateTimeValue(Metarill.Core.Contracts.SqlTimeValue.ParseText(text)!.Value);
+            return "'"+text+"'";
+        }
+        catch(Exception error)when(error is System.Text.Json.JsonException or ArgumentException){throw new InvalidOperationException("时间默认值必须是精度匹配且在数据库范围内的有效TIME。",error);}
     }
     private static string? CompileDefault(string value, string logical)
     {

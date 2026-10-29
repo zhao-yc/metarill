@@ -146,9 +146,10 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             "datetime" or "date" when value is DateTime=>value,
             "datetime" or "date" when value is string text&&DateTime.TryParse(text,culture,System.Globalization.DateTimeStyles.RoundtripKind,out var date)=>date,
             "time" when value is TimeSpan=>value,
-            "time" when value is string text&&TimeSpan.TryParse(text,culture,out var time)=>time,
+            "time" when value is string text=>Metarill.Core.Contracts.SqlTimeValue.ParseText(text)??throw new InvalidOperationException("非空TIME筛选不能为空。"),
             _=>throw new InvalidOperationException("筛选值与发布字段类型不匹配。")
         };
+        if(converted is TimeSpan time)new MySqlDatabaseProvider().ValidateTimeValue(time);
         return filter with{Value=converted};
     }
     /// <summary>校验完整操作与标量类型；NULL使用明确SQL语义，LIKE使用字面转义。</summary>

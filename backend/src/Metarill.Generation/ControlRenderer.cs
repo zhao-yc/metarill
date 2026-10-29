@@ -69,6 +69,9 @@ internal static class ControlRenderer
                 return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(ConstOptions(column))}\" />");
             case "CheckBox":
                 return Wrap($"<uni-data-select {binding} {change} :localdata=\"{Escape(CheckOptions(column))}\" />");
+            // 实际页面沿OriginalUniappDetailFields的原picker；这里只认可已接通的日内时刻类型。
+            case "time" when column.Type=="TimeSpan?":
+                return Wrap($"<picker mode='time' :disabled='readOnlyCondition' :value='entity.{column.JsonName}' @change='entity.{column.JsonName}=$event.detail.value'><uni-easyinput :disabled='readOnlyCondition' :model-value='entity.{column.JsonName}' /></picker>");
             case "date": case "date_time":
                 return Wrap($"<uni-datetime-picker type=\"{(column.Source.ControlKind == "date" ? "date" : "datetime")}\" {binding} @change=\"change('{column.JsonName}', $event)\" />");
             case "SelectPage":
@@ -115,6 +118,9 @@ internal static class ControlRenderer
             if (context.UnresolvedTarget) return new("", "关联筛选缺少可证明的目标父范围，当前不提供选择。");
             return Wrap(RelationMarkup(model, page, relation, context, "draftFilters", "false", change));
         }
+        // 原Java时间筛选走普通文本输入；不把它改成新的picker或日期范围交互。
+        if(column.Type=="TimeSpan?"&&column.Source.ControlKind=="time")
+            return Wrap($"<uni-easyinput {binding} {change} confirm-type='search' />");
         if (column.Type == "DateTime?" && column.Source.ControlKind is "" or "date" or "date_time")
             return Wrap($"<uni-datetime-picker type=\"{(column.Source.ControlKind == "date" ? "daterange" : "datetimerange")}\" {binding} @change=\"setFilter('{column.JsonName}', $event)\" />");
         if (column.Source.ControlKind is "" or "Text" or "TextArea" or "RTF")
