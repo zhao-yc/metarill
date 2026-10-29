@@ -20,7 +20,7 @@ using Xunit;
 namespace Metarill.Agent.Tests
 {
     /// <summary>真实MVC发现、严格JSON绑定及中间件前置门禁；模拟实体读取，不冒充实库范围SQL验收。</summary>
-    public sealed class AgentBusinessActionTests
+    public sealed partial class AgentBusinessActionTests
     {
         [Fact]
         public void Declared_actions_publish_fixed_button_confirmation_and_typed_schema_without_page_permission()
@@ -44,7 +44,7 @@ namespace Metarill.Agent.Tests
         [InlineData("wrong-project")]
         [InlineData("wrong-table")]
         [InlineData("duplicate-button")]
-        [InlineData("readonly-expression")]
+        [InlineData("unsupported-readonly-expression")]
         [InlineData("unknown-visibility")]
         [InlineData("page-foreign")]
         [InlineData("table-foreign")]
@@ -294,7 +294,7 @@ namespace Metarill.Agent.Tests
             internal readonly ServiceProvider Services;
             internal readonly AgentCapabilityCatalog Catalog;
             private readonly IActionDescriptorCollectionProvider actions;
-            internal Fixture(string variant = "", AgentTaskStore? tasks = null,string? rule=null)
+            internal Fixture(string variant = "", AgentTaskStore? tasks = null,string? rule=null,string? readOnly=null)
             {
                 Metadata = new() { YzProjectId = "100", ConfigTables = [new() { Id = "11", TableName = "action_fixture", YzProjectId = variant == "table-foreign" ? "200" : "100" }],
                     ConfigPages = [new() { Id = "21", Name = "合同", ConfigTableId = "11", YzProjectId = variant == "page-foreign" ? "200" : "100", WhereSql = variant == "parent" ? "parent_id=@parentId" : "" }] };
@@ -302,11 +302,12 @@ namespace Metarill.Agent.Tests
                 Metadata.ConfigColumns.Add(new(){Id="15",ConfigTableId="11",ColumnName="HTTP_status",Name="大小写字段",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="14",ConfigTableId="11",ColumnName="computed_name",Name="派生名称",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="13",ConfigTableId="11",ColumnName="amount",Name="金额",LogicalType="decimal",YzProjectId="100"});
-                if (variant == "readonly-expression") Metadata.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("amount<0");
+                if (variant == "unsupported-readonly-expression") Metadata.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("amount.toFixed(2)");
+                if(readOnly is not null)Metadata.ConfigPages[0].Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement(readOnly);
                 foreach (var (id, method, confirm) in new[] { ("31", "preview", 0), ("32", "complete", 1), ("33", "query", 0), ("34", "raw", 0), ("35", "ambiguous", 0) })
                     Metadata.ConfigButtons.Add(JsonSerializer.SerializeToElement(new { id, configPageId = "21", configTableId = variant == "wrong-table" ? "12" : "11", yzProjectId = variant == "wrong-project" ? "200" : "100",
                         actionType = variant == "not-business" ? 0 : 1, sql = "/admin/custom/agent-fixture/" + (variant == "wrong-path" ? "missing" : method), isNeedConfirm = confirm, confirmMsg = "确认处理？",
-                        visibleRuleJson=rule??"", visibleScheme = variant == "unknown-visibility" ? "OnlyDeve" : variant is "writable" or "readonly-expression" ? "VisibleWhenWritable" : "Normal" }));
+                        visibleRuleJson=rule??"", visibleScheme = variant == "unknown-visibility" ? "OnlyDeve" : variant is "writable" or "unsupported-readonly-expression" ? "VisibleWhenWritable" : "Normal" }));
                 if (variant == "duplicate-button") Metadata.ConfigButtons.Add(Metadata.ConfigButtons[0]);
                 Resources = new(Metadata);
                 var services = new ServiceCollection(); services.AddLogging(); services.AddControllers().AddApplicationPart(typeof(ActionFixtureController).Assembly);

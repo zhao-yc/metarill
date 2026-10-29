@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Globalization;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace Metarill.Core.Metadata;
 
@@ -94,7 +93,7 @@ public sealed partial class ButtonVisibilityRule
     {
         var leftBlank=Blank(actual);var rightBlank=Blank(expected);if(leftBlank||rightBlank)return leftBlank?(rightBlank?0:-1):1;
         var left=TrimJava(Text(actual));var right=TrimJava(Text(expected));
-        if(Number.Try(left,out var a)&&Number.Try(right,out var b))return a.CompareTo(b);
+        if(JavaDecimalNumber.Try(left,out var a)&&JavaDecimalNumber.Try(right,out var b))return a.CompareTo(b);
         return string.CompareOrdinal(left,right);
     }
     /// <summary>空白及空集合沿原后端语义；false、0、空对象不是空值。</summary>
@@ -122,27 +121,4 @@ public sealed partial class ButtonVisibilityRule
     /// <summary>重复JSON键拒绝，不能借解析器选择差异覆盖运算符或字段。</summary>
     private static void Unique(JsonElement value){if(value.EnumerateObject().Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=value.EnumerateObject().Count())throw Invalid();}
     private static ArgumentException Invalid()=>new("按钮显示规则定义无效，未执行业务。");
-    /// <summary>只识别ASCII十进制及指数，最终规模仍由Java整数scale范围验证。</summary>
-    [GeneratedRegex(@"^(?<sign>[+-]?)(?<whole>[0-9]*)(?:\.(?<fraction>[0-9]*))?(?:[eE](?<exponent>[+-]?[0-9]+))?$",RegexOptions.CultureInvariant)]private static partial Regex NumberPattern();
-    /// <summary>以符号、有效数字和十进制数量级比较，避免double精度损失及巨大指数的内存分配。</summary>
-    private sealed record Number(int Sign,string Digits,long Order)
-    {
-        internal static bool Try(string text,out Number result)
-        {
-            result=new(0,"",0);var match=NumberPattern().Match(text);if(!match.Success)return false;
-            var whole=match.Groups["whole"].Value;var fraction=match.Groups["fraction"].Value;if(whole.Length+fraction.Length==0)return false;
-            var exponent=0;if(match.Groups["exponent"].Success&&!int.TryParse(match.Groups["exponent"].Value,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out exponent))return false;
-            var scale=(long)fraction.Length-exponent;if(scale is <int.MinValue or >int.MaxValue)return false;
-            var digits=(whole+fraction).TrimStart('0');if(digits.Length==0){result=new(0,"0",0);return true;}
-            result=new(match.Groups["sign"].Value=="-"?-1:1,digits.TrimEnd('0'),digits.Length-scale);return true;
-        }
-        internal int CompareTo(Number other)
-        {
-            if(Sign!=other.Sign)return Sign.CompareTo(other.Sign);if(Sign==0)return 0;
-            var order=Order.CompareTo(other.Order);if(order!=0)return Sign*order;
-            for(var index=0;index<Math.Max(Digits.Length,other.Digits.Length);index++)
-            {var left=index<Digits.Length?Digits[index]:'0';var right=index<other.Digits.Length?other.Digits[index]:'0';if(left!=right)return Sign*left.CompareTo(right);}
-            return 0;
-        }
-    }
 }

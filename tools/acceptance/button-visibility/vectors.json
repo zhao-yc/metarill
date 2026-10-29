@@ -1012,5 +1012,85 @@
       ]
     },
     "expected": true
+  },
+  {
+    "name": "最终scale最小边界",
+    "rule": {
+      "conditions": [
+        {
+          "field": "value",
+          "operator": "gt",
+          "value": "2e1"
+        }
+      ]
+    },
+    "row": {
+      "value": "1e2147483648"
+    },
+    "expected": true
+  },
+  {
+    "name": "小数位抵消指数边界",
+    "rule": {
+      "conditions": [
+        {
+          "field": "value",
+          "operator": "gt",
+          "value": "2e1"
+        }
+      ]
+    },
+    "row": {
+      "value": "1.0e2147483649"
+    },
+    "expected": true
+  },
+  {
+    "name": "非法scale保留原文字回退",
+    "rule": {
+      "conditions": [
+        {
+          "field": "value",
+          "operator": "gt",
+          "value": "2e1"
+        }
+      ]
+    },
+    "row": {
+      "value": "1e2147483649"
+    },
+    "expected": false
+  },
+  {
+    "name": "Unicode数字按数值而非文字",
+    "rule": {
+      "conditions": [
+        {
+          "field": "value",
+          "operator": "gt",
+          "value": "10"
+        }
+      ]
+    },
+    "row": {
+      "value": "٢"
+    },
+    "expected": false
+  },
+  {
+    "name": "Unicode数字数值相等",
+    "rule": {
+      "conditions": [
+        {
+          "field": "value",
+          "operator": "eq",
+          "value": "12"
+        }
+      ]
+    },
+    "row": {
+      "value": "١٢"
+    },
+    "expected": true
   }
 ]

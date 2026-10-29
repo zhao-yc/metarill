@@ -28,7 +28,7 @@ namespace Metarill.Generation.Tests;
 
 /// <summary>正式完整包实际编译与执行原手写业务；仅数据库传输使用内存替身，不冒充MySQL锁/回滚验收。</summary>
 [Collection(StandaloneProcessBudgetCollection.Name)]
-public sealed class SampleContractActionPackageTests(SampleContractActionPackageFixture fixture) : IClassFixture<SampleContractActionPackageFixture>
+public sealed partial class SampleContractActionPackageTests(SampleContractActionPackageFixture fixture) : IClassFixture<SampleContractActionPackageFixture>
 {
     /// <summary>真实MVC发现三个原标识与确认设置，声明的正文仍是严格请求而非任意更新实体。</summary>
     [Fact]
@@ -295,6 +295,7 @@ public sealed class SampleContractActionPackageFixture : IAsyncLifetime
     internal MetadataCatalog Metadata { get; } = GlobalCachedSourceGenerationTests.Catalog();
     internal bool HandwrittenProtected { get; private set; }
     internal string PackageDirectory => directory;
+    internal string ApplicationAssemblyName {get;set;}="Application.Host";
     /// <summary>只向本夹具新包安装原样板，普通生成器和已冻结B98包不自动接入。</summary>
     public async Task InitializeAsync()
     {
@@ -311,6 +312,12 @@ public sealed class SampleContractActionPackageFixture : IAsyncLifetime
             foreach (var file in handwritten) Assert.Equal(file.Value, await File.ReadAllBytesAsync(file.Key));
         }
         HandwrittenProtected = true;
+        // 两份同名包的泛型DispatchProxy会混用程序集引用；只为本夹具独占包隔离名称。
+        if(ApplicationAssemblyName!="Application.Host")
+        {
+            var projectPath=Path.Combine(directory,"backend/Application.Host/Application.Host.csproj");var project=System.Xml.Linq.XDocument.Load(projectPath);
+            project.Root!.Add(new System.Xml.Linq.XElement("PropertyGroup",new System.Xml.Linq.XElement("AssemblyName",ApplicationAssemblyName)));File.WriteAllText(projectPath,project.ToString());
+        }
         foreach (var operation in new[] { "restore", "build" })
         {
             var info = NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet", directory);
@@ -320,7 +327,7 @@ public sealed class SampleContractActionPackageFixture : IAsyncLifetime
         }
         // DispatchProxy动态程序集不能引用可卸载类型；每个测试进程只加载这一份完整包，仍与同名宿主隔离。
         loadContext = new AssemblyLoadContext("sample-contract-actions-" + Guid.NewGuid().ToString("N"), isCollectible: false);
-        Assembly = loadContext.LoadFromStream(new MemoryStream(await File.ReadAllBytesAsync(Path.Combine(directory, "backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"))));
+        Assembly = loadContext.LoadFromStream(new MemoryStream(await File.ReadAllBytesAsync(Path.Combine(directory, "backend/Application.Host/bin/Debug/net10.0/"+ApplicationAssemblyName+".dll"))));
     }
     /// <summary>每例使用独立实体、权限、ORM传输与事务状态。</summary>
     internal SampleContractActionRun Run() => new(Assembly, Metadata);
@@ -410,7 +417,8 @@ internal sealed class SampleContractActionRun : IDisposable
     {
         internal bool Allowed = true; internal int PageChecks;
         public RuntimeActor RequireActor() => actor;
-        public void RequirePagePermission(string page, string operation) { PageChecks++; throw new UnauthorizedAccessException("普通页面权不能代替按钮。"); }
+        internal bool AllowUpdate;
+        public void RequirePagePermission(string page, string operation) { PageChecks++; if(AllowUpdate&&operation=="update")return;throw new UnauthorizedAccessException("普通页面权不能代替按钮。"); }
         public void RequireButtonPermission(string page, string button) { Assert.Equal("81002", page); Assert.Contains(button, new[] { "86000", "86001", "86002" }); if (!Allowed) throw new UnauthorizedAccessException("按钮已撤销"); }
         /// <summary>只替入当前授权结论，不冒充真实数据库角色或锁证明。</summary>
         public Task RequireButtonCurrentAsync(string page,string button,RuntimeActor requested,DbTransaction transaction,CancellationToken cancellationToken=default)

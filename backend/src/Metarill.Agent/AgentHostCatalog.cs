@@ -29,6 +29,7 @@ public sealed record AgentPublishedButton(string Id, AgentPublishedPage Page, st
     string ConfirmationMessage, string Visibility)
 {
     internal ButtonVisibilityRule? Rule {get;init;}
+    internal ReadOnlyConditionRule? ReadOnlyRule {get;init;}
     internal IReadOnlyDictionary<string,string> RecordNames {get;init;} = FrozenDictionary<string,string>.Empty;
 }
 
@@ -93,11 +94,16 @@ public sealed class AgentHostCatalog
             || Text(button, "yzProjectId") is var project && project.Length != 0 && project != page.ProjectId
             || Text(button, "configTableId") is var table && table.Length != 0 && table != page.TableId || !IsApplicationPath(path)) return null;
         var visibility = Text(button, "visibleScheme");
-        // 非空只读表达式尚无同等后端解释器，不能把未执行的只读条件默认为可写。
+        // 可写按钮沿原Java受限语法发布；不支持的条件仍拒绝，普通按钮不额外套页面只读规则。
         if (visibility is not ("Normal" or "AlwaysVisible" or "VisibleWhenWritable")
-            || visibility == "VisibleWhenWritable" && (!page.CanUpdate || page.ReadOnlyCondition.Length != 0)) return null;
-        ButtonVisibilityRule rule;
-        try{rule=ButtonVisibilityRule.Compile(Text(button,"visibleRuleJson"));}catch(ArgumentException){return null;}
+            || visibility == "VisibleWhenWritable" && !page.CanUpdate) return null;
+        ButtonVisibilityRule rule;ReadOnlyConditionRule? readOnly=null;
+        try
+        {
+            rule=ButtonVisibilityRule.Compile(Text(button,"visibleRuleJson"));
+            if(visibility=="VisibleWhenWritable"&&!page.IsFunctionTable)readOnly=ReadOnlyConditionRule.Compile(page.ReadOnlyCondition);
+        }
+        catch(ArgumentException){return null;}
         // 只发布真实表字段的物理/JSON名称映射，后续从实际生成实体取值，不反射客户端字段。
         var names=new Dictionary<string,string>(StringComparer.Ordinal){["id"]="id"};
         foreach(var column in catalog.ConfigColumns.Where(value=>value.ConfigTableId==page.TableId))
@@ -106,7 +112,8 @@ public sealed class AgentHostCatalog
             foreach(var name in new[]{column.ColumnName,json,GeneratedRecordJsonName(column.ColumnName)})
             {if(names.TryGetValue(name,out var previous)&&previous!=column.ColumnName)return null;names[name]=column.ColumnName;}
         }
-        return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility){Rule=rule,RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal)};
+        if(readOnly is not null&&readOnly.Fields.Any(field=>!names.ContainsKey(field.Split('.')[0])))return null;
+        return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility){Rule=rule,ReadOnlyRule=readOnly,RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal)};
     }
     /// <summary>按钮字段同时兼容原命名与生成器Pascal/Camel规则；最终属性按真实Column.Name绑定。</summary>
     private static string GeneratedRecordJsonName(string name)
