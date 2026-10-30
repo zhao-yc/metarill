@@ -17,6 +17,17 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
     private IReadOnlyList<ColumnMetadata> Columns(string table) => physicalColumns.TryGetValue(table,out var columns)?columns:throw new InvalidOperationException("未登记的基础设施表。");
     private string Q(string value) => session.Provider.QuoteIdentifier(value);
     public Task<List<Dictionary<string, object?>>> ReadAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken);
+    /// <summary>基础设施固定只读投影；列名必须来自服务端发布物理白名单，不能接客户端字段、表达式或锁读。</summary>
+    public Task<List<Dictionary<string,object?>>> ReadProjectedAsync(string table,IReadOnlyList<string> selected,
+        IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();ArgumentNullException.ThrowIfNull(selected);
+        var allowed=Columns(table).Select(column=>column.ColumnName).ToHashSet(StringComparer.Ordinal);
+        if(selected.Count==0||selected.Distinct(StringComparer.Ordinal).Count()!=selected.Count||selected.Any(name=>!allowed.Contains(name)))
+            throw new ArgumentException("只读投影必须为不重复的已登记物理字段。",nameof(selected));
+        if(filters is not null&&filters.Keys.Any(name=>!allowed.Contains(name)))throw new InvalidOperationException("查询字段未登记。");
+        return ReadInternalAsync(table,filters,false,cancellationToken,selectedColumns:selected.ToArray());
+    }
     /// <summary>只用于种子存在性与开发备份，包含逻辑删除记录；业务查询不得使用此入口。</summary>
     public Task<List<Dictionary<string,object?>>> ReadIncludingDeletedAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken,true);
     /// <summary>账号初始化按用户名唯一索引检查墓碑冲突；只允许在既有事务中读取，不能用于恢复已删除账号。</summary>
@@ -68,7 +79,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if (ids.Count == 0) return Task.FromResult(new List<Dictionary<string,object?>>());
         return ReadInternalAsync(table, filters, true, cancellationToken, idColumn: idColumn, ids: ids.Order().ToArray());
     }
-    private async Task<List<Dictionary<string, object?>>> ReadInternalAsync(string table,IReadOnlyDictionary<string,object?>? filters,bool forUpdate,CancellationToken cancellationToken,bool includeDeleted=false, string? idColumn=null, IReadOnlyList<long>? ids=null)
+    private async Task<List<Dictionary<string, object?>>> ReadInternalAsync(string table,IReadOnlyDictionary<string,object?>? filters,bool forUpdate,CancellationToken cancellationToken,bool includeDeleted=false, string? idColumn=null, IReadOnlyList<long>? ids=null,IReadOnlyList<string>? selectedColumns=null)
     {
         var columns = Columns(table); var allowed = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.Ordinal);
         return await CommandAsync(async command =>
@@ -88,7 +99,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
                 if (ids is null || ids.Count == 0) throw new InvalidOperationException("集合锁查询不能退化为全表读取。");
                 conditions.Add(Q(idColumn) + " IN (" + string.Join(",", ids.Select(id => AddParameter(command, "p" + command.Parameters.Count, id))) + ")");
             }
-            command.CommandText = "SELECT " + string.Join(",", columns.Select(c => Q(c.ColumnName))) + " FROM " + Q(table) + (conditions.Count == 0 ? "" : " WHERE " + string.Join(" AND ", conditions));
+            command.CommandText = "SELECT " + string.Join(",", (selectedColumns is null?columns.Select(column=>Q(column.ColumnName)):selectedColumns.Select(Q))) + " FROM " + Q(table) + (conditions.Count == 0 ? "" : " WHERE " + string.Join(" AND ", conditions));
             // 固定查询返回顺序；物理取锁仍依赖项目/后台预锁，不能把ORDER BY或IN参数当取锁证明。
             if (idColumn is not null) command.CommandText += " ORDER BY " + Q("id");
             if(forUpdate)command.CommandText=session.Provider.BuildSelectForUpdate(command.CommandText);

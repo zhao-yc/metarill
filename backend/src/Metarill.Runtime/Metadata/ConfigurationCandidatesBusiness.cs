@@ -21,7 +21,7 @@ public sealed class ConfigurationCandidatesBusiness(SqlRowStore store, MetadataR
     public async Task<IReadOnlyList<ConfigurationCandidateOption>> TablesAsync(JsonElement request, CancellationToken token = default)
     {
         MetadataWorkbenchRules.Object(request); var actor = RequireAdministrator();
-        return (await store.ReadAsync("config_table", Project(actor), token)).OrderByDescending(row => SqlRowStore.Id(row)).Select(Option).ToArray();
+        return (await store.ReadProjectedAsync("config_table", ["id","name"], Project(actor), token)).OrderByDescending(row => SqlRowStore.Id(row)).Select(Option).ToArray();
     }
 
     /// <summary>单选默认type=1，多选明确type=2；两者只返回当前项目有效父表下的页面及原四字段。</summary>
@@ -32,8 +32,8 @@ public sealed class ConfigurationCandidatesBusiness(SqlRowStore store, MetadataR
             ? value.ValueKind == JsonValueKind.String ? value.GetString() : throw new InvalidOperationException("选择页控件类型必须是明确字符串。")
             : "SelectPage";
         var pageType = kind switch { "SelectPage" => 1, "MultiSelectPage" => 2, _ => throw new InvalidOperationException("仅支持单选或多选择页候选。") };
-        var tables = (await store.ReadAsync("config_table", Project(actor), token)).Select(row => SqlRowStore.Id(row)).ToHashSet();
-        return (await store.ReadAsync("config_page", Project(actor), token)).Where(row => MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("type")) == pageType && tables.Contains(SqlRowStore.Id(row, "config_table_id")))
+        var tables = (await store.ReadProjectedAsync("config_table", ["id"], Project(actor), token)).Select(row => SqlRowStore.Id(row)).ToHashSet();
+        return (await store.ReadProjectedAsync("config_page", ["id","name","type","config_table_id"], Project(actor), token)).Where(row => MetadataWorkbenchRules.StoredFlag(row.GetValueOrDefault("type")) == pageType && tables.Contains(SqlRowStore.Id(row, "config_table_id")))
             .OrderBy(row => SqlRowStore.Text(row, "name"), StringComparer.Ordinal).ThenByDescending(row => SqlRowStore.Id(row)).Select(Option).ToArray();
     }
 
@@ -44,10 +44,10 @@ public sealed class ConfigurationCandidatesBusiness(SqlRowStore store, MetadataR
         return store.Session.InTransactionAsync(async () =>
         {
             var filters = Project(actor); filters["id"] = id;
-            var column = (await store.ReadAsync("config_column", filters, token)).SingleOrDefault()
+            var column = (await store.ReadProjectedAsync("config_column", ["config_table_id","control_kind","column_name","column_type","name","control_detail"], filters, token)).SingleOrDefault()
                 ?? throw new UnauthorizedAccessException("字段或所属配置不存在或不属于当前项目。");
             filters["id"] = SqlRowStore.Id(column, "config_table_id");
-            if ((await store.ReadAsync("config_table", filters, token)).Count != 1)
+            if ((await store.ReadProjectedAsync("config_table", ["id"], filters, token)).Count != 1)
                 throw new UnauthorizedAccessException("字段或所属配置不存在或不属于当前项目。");
             // 保持包括 whereSql/orderBy 在内的原明细，避免继承编辑后丢失已保存条件；此接口不执行任何配置。
             return new ConfigurationControlMetadata(SqlRowStore.Text(column, "control_kind"), SqlRowStore.Text(column, "column_name"),
