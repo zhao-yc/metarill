@@ -11,7 +11,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>可信管理前端完整资源准备；不以闭包验证代替默认Full、初始化或实际浏览器验收。</summary>
 public sealed class TrustedSecurityFrontendAssetsTests
 {
-    /// <summary>原页面/组件/脚本/路由完整进入同一资源图，准备不落盘，后端缺口完整保留。</summary>
+    /// <summary>原资源与路由完整进入只读准备，已接可信运行时不虚报缺口，后端适配要求仍显式保留。</summary>
     [Fact]
     public async Task Actual_prepared_frontend_keeps_original_assets_routes_and_passes_own_node_verifier()
     {
@@ -19,7 +19,9 @@ public sealed class TrustedSecurityFrontendAssetsTests
         try
         {
             var before=Snapshot(root);var plan=new FrontendPackager().PrepareSecurityManagement(models,generated,SourceRoot());Assert.Equal(before,Snapshot(root));
-            Assert.Equal(4,plan.RequiredBackendAdapters.Count);Assert.Contains(plan.RequiredBackendAdapters,item=>item.Code=="initialize-account");Assert.Contains(plan.BackendGaps,item=>item.Usage=="runtime"&&item.Reason.Contains("Runtime A",StringComparison.Ordinal));
+            Assert.Equal(4,plan.RequiredBackendAdapters.Count);Assert.Contains(plan.RequiredBackendAdapters,item=>item.Code=="initialize-account");Assert.Empty(plan.BackendGaps);
+            var ordinary=GenerationModel.Create(models.Published,"Example.SecurityFrontend");
+            Assert.Contains(GenerationCapabilityAudit.Collect(ordinary),gap=>gap.Usage=="runtime"&&gap.Column=="yz_role_ids");
             var files=plan.Files;foreach(var relative in new[]{"pages/main/set_role_permission.vue","components/yzp-permission-workbench/yzp-permission-workbench.vue","components/yzp-permission-legacy/yzp-permission-legacy.vue","common/yzp_runtime/permissionWorkbench.js"})
             {var original=File.ReadAllText(Path.Combine(SourceRoot(),"frontend/metarill_uni_admin",relative)).Replace("\r\n","\n").Replace('\r','\n');Assert.Equal(Encoding.UTF8.GetBytes(original),files[relative]);}
             using var pages=JsonDocument.Parse(files["pages.json"]);var route=Assert.Single(pages.RootElement.GetProperty("pages").EnumerateArray(),p=>p.GetProperty("path").GetString()=="pages/main/set_role_permission");Assert.Equal("设置角色权限",route.GetProperty("style").GetProperty("navigationBarTitleText").GetString());

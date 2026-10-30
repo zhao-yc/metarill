@@ -29,9 +29,9 @@ public sealed class TrustedSecurityServicePartialsTests(TrustedSecurityServiceFi
         var model=TrustedSecurityServiceCompilation.Bind(GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace),fixture.Models);
         model.Catalog.ConfigPages[0].Name+="被改动";Assert.Throws<InvalidOperationException>(()=>BackendRenderer.Render(model).ToArray());
     }
-    /// <summary>三服务均使用必需方法与真实预备检查，手写文件首次创建后逐字保留，门禁不因模板存在消失。</summary>
+    /// <summary>三服务均使用必需方法与真实预备检查，手写文件逐字保留；可信接线不放宽普通目录门禁。</summary>
     [Fact]
-    public void First_creation_preserves_existing_partials_and_keeps_runtime_gap()
+    public void First_creation_preserves_existing_partials_and_required_runtime_guards()
     {
         var output=Path.Combine(fixture.DirectoryPath,"preserve");var generator=new CSharpGenerator();var first=generator.Generate(fixture.Models,output,TrustedSecurityServiceFixture.Namespace);
         var original=new Dictionary<string,byte[]>();foreach(var name in Names)
@@ -39,7 +39,10 @@ public sealed class TrustedSecurityServicePartialsTests(TrustedSecurityServiceFi
             var path="Services/"+name+"Service.cs";Assert.Contains(path,first.CreatedHandwrittenFiles);var file=Path.Combine(output,path);Assert.Contains("private partial void BeforeSave",File.ReadAllText(file));File.AppendAllText(file,"\n// 开发者自己的业务扩展，不能覆盖。\n");original[file]=File.ReadAllBytes(file);
             var generated=File.ReadAllText(Path.Combine(output,"Services/"+name+"Service.g.cs"));Assert.Contains("private partial void BeforeSave",generated);Assert.Contains("fixedGuards",generated);Assert.Contains("SecurityRealmMutationGuard.RequirePrepared",generated);Assert.DoesNotContain("Copy"+fixture.Catalog.ConfigPages.Single(page=>page.ConfigTableId==fixture.Catalog.ConfigTables.Single(table=>GenerationModel.Pascal(table.TableName)==name).Id).Id+"Async",generated);
         }
-        var second=generator.Generate(fixture.Models,output,TrustedSecurityServiceFixture.Namespace);Assert.Empty(second.CreatedHandwrittenFiles);foreach(var item in original)Assert.Equal(item.Value,File.ReadAllBytes(item.Key));Assert.Contains(second.Warnings,warning=>warning.Contains("Runtime A",StringComparison.Ordinal));
+        var second=generator.Generate(fixture.Models,output,TrustedSecurityServiceFixture.Namespace);Assert.Empty(second.CreatedHandwrittenFiles);foreach(var item in original)Assert.Equal(item.Value,File.ReadAllBytes(item.Key));Assert.DoesNotContain(second.Warnings,warning=>warning.Contains("Runtime A",StringComparison.Ordinal));
+        var ordinary=GenerationModel.Create(fixture.Models.Published,TrustedSecurityServiceFixture.Namespace);
+        Assert.Contains(GenerationCapabilityAudit.Collect(ordinary),gap=>gap.Usage=="runtime"&&gap.Column=="yz_role_ids");
+        Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(ordinary.Catalog));
         var manager=File.ReadAllText(Path.Combine(output,"Services/YzManagerService.g.cs"));Assert.True(manager.IndexOf("BeforeSave(entity, actor, true",StringComparison.Ordinal)<manager.IndexOf("ManagerCredentialValue.RequireDigest",StringComparison.Ordinal));
     }
     /// <summary>旧空壳或缺失实现不能以文件存在假装接好，真实编译器拒绝必需partial。</summary>

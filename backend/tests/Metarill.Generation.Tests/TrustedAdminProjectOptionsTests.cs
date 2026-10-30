@@ -34,7 +34,18 @@ public sealed class TrustedAdminProjectOptionsTests(TrustedSecurityServiceFixtur
         Assert.NotNull(plan);Assert.Empty(plan.Project.Pages);Assert.DoesNotContain(plan.Page.DetailColumns,column=>column==plan.Column);Assert.DoesNotContain(plan.Page.Writable,column=>column==plan.Column);
         var original=UniappRenderer.Render(normal).ToDictionary(file=>file.Path,file=>file.Content);var current=UniappRenderer.Render(trusted).ToDictionary(file=>file.Path,file=>file.Content);
         Assert.Equal(original.Keys.Order(),current.Keys.Order());
-        foreach(var file in original.Where(file=>file.Key!="frontend/pages.generated.json"))Assert.Equal(file.Value,current[file.Key]);
+        foreach(var file in original.Where(file=>file.Key is not ("frontend/pages.generated.json" or "generation-capabilities.json")))Assert.Equal(file.Value,current[file.Key]);
+        // 能力清单不是页面；只允许可信模块消除已接线的固定角色协调缺口，其余声明逐项保留。
+        using(var before=JsonDocument.Parse(original["generation-capabilities.json"]))
+        using(var after=JsonDocument.Parse(current["generation-capabilities.json"]))
+        {
+            Assert.Equal(before.RootElement.GetProperty("schemaVersion").GetInt32(),after.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(JsonSerializer.Serialize(before.RootElement.GetProperty("supportedControlSubsets")),JsonSerializer.Serialize(after.RootElement.GetProperty("supportedControlSubsets")));
+            var beforeGaps=JsonSerializer.Deserialize<GenerationCapabilityGap[]>(before.RootElement.GetProperty("unsupportedControls"))!;
+            var afterGaps=JsonSerializer.Deserialize<GenerationCapabilityGap[]>(after.RootElement.GetProperty("unsupportedControls"))!;
+            var coordinated=beforeGaps.Where(gap=>gap.Usage=="runtime"&&gap.Column=="yz_role_ids"&&gap.Reason.Contains("Runtime A",StringComparison.Ordinal)).ToArray();
+            Assert.NotEmpty(coordinated);Assert.Equal(beforeGaps.Except(coordinated).ToArray(),afterGaps);
+        }
         // 可信模块另有原权限工作台路由；隐藏项目候选不能改变其余原路由或增加项目CRUD页。
         using(var before=JsonDocument.Parse(original["frontend/pages.generated.json"]))
         using(var after=JsonDocument.Parse(current["frontend/pages.generated.json"]))
@@ -47,7 +58,7 @@ public sealed class TrustedAdminProjectOptionsTests(TrustedSecurityServiceFixtur
             var expected=Assert.Single(sourceRoutes.RootElement.GetProperty("pages").EnumerateArray(),page=>page.GetProperty("path").GetString()=="pages/main/set_role_permission");
             Assert.Equal(JsonSerializer.Serialize(expected),JsonSerializer.Serialize(workbench));
         }
-        Assert.Contains(GenerationCapabilityAudit.Collect(trusted),gap=>gap.Usage=="runtime");Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(trusted.Catalog));
+        Assert.Contains(GenerationCapabilityAudit.Collect(normal),gap=>gap.Usage=="runtime");Assert.DoesNotContain(GenerationCapabilityAudit.Collect(trusted),gap=>gap.Usage=="runtime");Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(trusted.Catalog));
         var request=fixture.Type("Generated.DTOs.YzAdminTypePage"+Page+"CreateRequest");Assert.Null(request.GetProperty("YzProjectId"));
         Assert.Contains("provider.GetRequiredService<IRuntimeAuthorization>()",File.ReadAllText(Path.Combine(fixture.DirectoryPath,"generated/GeneratedRegistration.g.cs")));
         // 即使业务JSON自报同形标记，普通入口也不接受它。

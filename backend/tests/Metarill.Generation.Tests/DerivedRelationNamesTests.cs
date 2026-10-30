@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Xunit;
@@ -36,7 +38,11 @@ public sealed class DerivedRelationNamesTests
             Assert.True(new ApplicationPackager().Create(catalog,output,"Example.DerivedNameApplication",root).FrontendIncluded);
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);
             foreach(var component in new[]{"common/yzp_runtime/remoteRelationOptions.js","components/yzp-relation-select/yzp-relation-select.vue"})
-                Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin",component)),File.ReadAllBytes(Path.Combine(output,"frontend",component)));
+            {
+                // 打包器的既有文本合同统一LF；只规范来源行尾，包内其余UTF8字节必须完全相同。
+                var original=File.ReadAllText(Path.Combine(root,"frontend/metarill_uni_admin",component)).Replace("\r\n","\n",StringComparison.Ordinal).Replace('\r','\n');
+                Assert.Equal(Encoding.UTF8.GetBytes(original),File.ReadAllBytes(Path.Combine(output,"frontend",component)));
+            }
             using var profile=JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/generation-capabilities.json")));var subsets=profile.RootElement.GetProperty("supportedControlSubsets").EnumerateArray().Where(item=>item.GetProperty("controlKind").GetString()=="List").ToArray();Assert.Equal(2,subsets.Length);Assert.All(subsets,item=>Assert.True(item.GetProperty("derivedNameSupported").GetBoolean()));
             var hand=Path.Combine(output,"backend/generated/Services/DrNamesOrderService.cs");await File.AppendAllTextAsync(hand,"\n// 派生名称不覆盖手写业务。\n");var bytes=await File.ReadAllBytesAsync(hand);var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(catalog,candidate,"Example.DerivedNameApplication",root);var updater=new LocalGenerationUpdater();var plan=updater.Preview(output,candidate,["generate-project-config","sync-runtime","generate-all-page"]);Assert.True(plan.CanApply);updater.Apply(plan,plan.PlanSha256);Assert.Equal(bytes,await File.ReadAllBytesAsync(hand));
         }
@@ -47,7 +53,13 @@ public sealed class DerivedRelationNamesTests
     public async Task Hidden_derived_relation_keeps_private_validation_without_public_options()
     {
         var catalog=Catalog("dr_names",true);catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="15");var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-name-hidden");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
-        try{new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.HiddenDerivedName");var service=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));Assert.Contains("OptionsCondition101_15",service);Assert.Contains("private async Task<ISelect<DrNamesParty>> OptionsScope101_15Async",service);Assert.DoesNotContain("public Task<IReadOnlyList<GeneratedOption>> Options101_15Async",service);await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);}
+        try{new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.HiddenDerivedName");var service=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));Assert.Contains("OptionsCondition101_15",service);var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            // 用真实编译类型验证可见性与返回值，不依赖实体名称是否写了完整命名空间。
+            var type=assembly.GetType("Example.HiddenDerivedName.Generated.Services.DrNamesOrderService")!;
+            var entity=assembly.GetType("Example.HiddenDerivedName.Generated.Entities.DrNamesParty")!;
+            var method=type.GetMethod("OptionsScope101_15Async",BindingFlags.Instance|BindingFlags.NonPublic);
+            Assert.NotNull(method);Assert.True(method.IsPrivate);Assert.Equal(typeof(Task<>).MakeGenericType(typeof(FreeSql.ISelect<>).MakeGenericType(entity)),method.ReturnType);
+            Assert.Null(type.GetMethod("Options101_15Async",BindingFlags.Instance|BindingFlags.Public));}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>未证明目标、派生范围及隐藏坏声明在写入stage之前拒绝，不能回退宽范围或IsIgnore SQL。</summary>

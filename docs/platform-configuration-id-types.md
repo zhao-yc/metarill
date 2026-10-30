@@ -55,3 +55,7 @@
 测试仅清理已确认创建且结构/样本所有权一致的三表，再用新连接核验不存在；随后独立PowerShell进程再次校验实例并仅读information_schema，三表均零。租约ended、执行进程已退出，原授权审计及此前未批准拒绝记录保留，不重跑已用租约。证据为私有 `frozen-manifest.json`、`authorization.json`、`native-results/native.trx`、`execution.json`、`cleanup-independent.json` 和固定克隆内本轮intent/created/verified/cleanup回执。
 
 此专项不等于完整平台新库自举、必填子页允许清空、浏览器/真机或同条件性能验收；旧库字符串到bigint仍须另行审查迁移，不因测试通过自动DDL或覆盖种子。
+
+## C58现行模板兼容补验（2026-10-30）
+
+用户后续批准List服务端搜索/滚动分页，page_column详情的完整脚本因此变化；A15历史两页SHA通过事实不改写。现测试使用bd800bfa的独立六字段原类型事实，分别正式生成当前存储模型与旧展示事实模型，两份详情整文件落盘字节相同；未受该变化影响的child页仍校验A15原整文件SHA，原DOM/样式和主前端十二页金样保留。七个相关完整类118项及前端320项零失败/零跳过，批次不累加；未新增实库或设备验收。详见[本轮失败、修正及证据](testing/ci-current-contracts.md)。
