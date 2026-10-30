@@ -2,7 +2,7 @@ import yzp from '@/common/yzp_runtime/yzp-runtime';
 import { createRemoteRelationOptions } from '@/common/yzp_runtime/remoteRelationOptions';
 
 /** 为原zxz绑定固定候选端点；只管理视图状态，不修改实体、筛选值或页面布局。 */
-export function createOriginalRemoteOptionsMixin(definitions = [], owner = 'entity') {
+export function createOriginalRemoteOptionsMixin(definitions = [], owner = 'entity', { originalHost = false } = {}) {
  const initial = () => ({ records: [], selected: [], loading: false, hasMore: true, blocked: false, message: '', revision: 0 })
  return {
   data() { return { originalRemoteOptions: Object.fromEntries(definitions.map(definition => [definition.id, initial()])) } },
@@ -40,8 +40,9 @@ export function createOriginalRemoteOptionsMixin(definitions = [], owner = 'enti
   methods: {
    /** 所有范围均由生成时声明，身份仅用于隔离迟到响应，不能替代服务端权限。 */
    originalRemoteContext(definition) {
-    const login = uni.getStorageSync('loginStateId'), permissions = this.permissionsReady, record = this.recordReady, id = this.id
-    const ready = owner !== 'entity' || !!(this._alive && permissions && (!id || record))
+    const login = uni.getStorageSync('loginStateId'), permissions = this.permissionsReady, record = this.recordReady, id = this.id, loaded = this.loadEntitySuccess, entityId = this.entity?.id
+    // 原平台页没有新宿主的ready字段；明确选择兼容模式，既有记录仍须实际回读同一字符串ID。
+    const ready = owner !== 'entity' || Boolean(originalHost ? !id || loaded && typeof entityId === 'string' && entityId === id : this._alive && permissions && (!id || record))
     return { endpoint: definition.endpoint, parentId: this.parent_id || null, targetParentId: definition.targetParentField ? this[owner]?.[definition.targetParentField] ?? '' : definition.sameParent ? this.parent_id || null : undefined, requireParent: definition.requireParent, requireTargetParent: definition.requireTargetParent, sameParent: definition.sameParent, readonly: !!(definition.readonlyField && this[definition.readonlyField]), authenticated: !!login && ready && this._originalRemoteAlive, identity: JSON.stringify([login || '', uni.getStorageSync('sysParams') || {}, this.parent_id || '', owner === 'entity' ? [this.id || '', this._detailEpoch || 0, ready] : !!this.is_son_page]) }
    },
    /** 初始化只回读已选；展开后才分页，不预先拉完整候选集合。 */

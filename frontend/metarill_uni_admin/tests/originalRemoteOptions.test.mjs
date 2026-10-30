@@ -8,14 +8,14 @@ const { createRemoteRelationOptions }=await import('data:text/javascript;base64,
 const id='9007199254750011',parent='9007199254742001',otherParent='9007199254742002',endpoint='/admin/auto/source/201/findNameIdTarget25'
 const row=(id,name='候选'+id)=>({id:String(id),value:String(id),name,text:name})
 /** 挂载真实共享mixin与分页状态机，只替换uni宿主和HTTP传输，不复制生产控制逻辑。 */
-function fixture(owner='entity',readonly=false) {
+function fixture(owner='entity',readonly=false,originalHost=false) {
  const requests=[],dialogs=[],events=new Map(),storage={loginStateId:'合成会话',sysParams:{yzProjectId:'100'}}
  const uni={getStorageSync:key=>storage[key],showModal:options=>dialogs.push(options),$on(name,fn){if(!events.has(name))events.set(name,new Set());events.get(name).add(fn)},$off(name,fn){events.get(name)?.delete(fn)}}
  const yzp={request(options){const request={options,aborted:false};requests.push(request);return{abort(){request.aborted=true;options.fail?.();options.complete?.()}}}}
  const factory=new Function('uni','yzp','createRemoteRelationOptions',source.replace(/^import .*;\s*$/gm,'').replace('export function','function')+';return createOriginalRemoteOptionsMixin')(uni,yzp,createRemoteRelationOptions)
  const definition={id:'25',field:'targetId',list:'target_list',endpoint,requireParent:true,requireTargetParent:true,sameParent:false,targetParentField:'ownerId',readonlyField:owner==='entity'?'targetIdReadOnly':null}
  const node=()=>({children:[],parent:null}),renderer=createRenderer({createElement:node,createText:node,createComment:node,setElementText(){},setText(){},patchProp(){},insert(n,p){n.parent=p;p.children.push(n)},remove(n){if(n.parent)n.parent.children.splice(n.parent.children.indexOf(n),1)},parentNode:n=>n.parent,nextSibling:()=>null})
- const app=renderer.createApp({mixins:[factory([definition],owner)],data(){return{entity:{targetId:id,ownerId:parent},filters:{targetId:id,ownerId:parent},target_list:[],id:'9007199254741000',parent_id:parent,permissionsReady:false,recordReady:false,targetIdReadOnly:readonly}},created(){this._alive=true;this._detailEpoch=1},render(){return h('view')}})
+ const app=renderer.createApp({mixins:[factory([definition],owner,{originalHost})],data(){return{entity:{targetId:id,ownerId:parent},filters:{targetId:id,ownerId:parent},target_list:[],id:'9007199254741000',parent_id:parent,permissionsReady:false,recordReady:false,loadEntitySuccess:false,targetIdReadOnly:readonly}},created(){this._alive=true;this._detailEpoch=1},render(){return h('view')}})
  const vm=app.mount(node())
  const respond=(request,data,code=200)=>{assert(request);request.options.success({code,data});request.options.complete?.()}
  return{app,vm,requests,storage,dialogs,respond,events,emit(name){for(const listener of events.get(name)||[])listener()},value:()=>vm[owner].targetId,selected:()=>requests.filter(r=>r.options.url.endsWith('/selected')),pages:()=>requests.filter(r=>r.options.url.endsWith('/page')),ready(){vm.permissionsReady=true;vm.recordReady=true;vm.loadOriginalRemoteOptions('25')}}
@@ -75,5 +75,31 @@ test('原详情换记录的准备期不请求；非法已选保值，清空只�
  f.respond(pending,[row(id,'上一记录')]);assert.equal(f.vm.originalRemoteOptions['25'].selected[0].id,'0');assert.equal(f.requests.length,count)
  f.vm.permissionsReady=true;f.vm.recordReady=true;assert.equal(f.requests.length,count);assert.match(f.vm.originalRemoteOptions['25'].message,/已选标识无效/)
  f.vm.entity.targetId=null;assert.equal(f.value(),null);assert.equal(f.vm.originalRemoteOptions['25'].selected.length,0)
+ }finally{f.app.unmount()}
+})
+
+test('原平台宿主按已回读实体ID与加载完成开放，不要求新生成页ready字段',()=>{
+ const f=fixture('entity',false,true);try{
+ f.vm.loadOriginalRemoteOptions('25');assert.equal(f.requests.length,0)
+ f.vm.entity.id=f.vm.id;assert.equal(f.requests.length,0);f.vm.loadEntitySuccess=true
+ assert.equal(f.selected().length,1);f.respond(f.selected().at(-1),[row(id,'原平台已选')])
+ f.vm.openOriginalRemoteOptions('25');assert.equal(f.pages().length,1);assert.equal(f.value(),id)
+ const pending=f.pages().at(-1);f.vm.id='9007199254741001';f.respond(pending,{records:[row(id,'旧记录迟到')],pages:'1'});assert.equal(f.vm.target_list.length,0)
+ const count=f.requests.length;f.vm.loadOriginalRemoteOptions('25');assert.equal(f.requests.length,count)
+ f.vm.entity={id:f.vm.id,targetId:id,ownerId:otherParent};assert.equal(f.selected().at(-1).options.data.targetParentId,otherParent)
+ }finally{f.app.unmount()}
+})
+
+test('原平台准备期间未知或数值实体ID不能成为可编辑候选上下文',()=>{
+ const f=fixture('entity',false,true);try{
+ f.vm.loadEntitySuccess=true;f.vm.entity.id=Number(f.vm.id);f.vm.openOriginalRemoteOptions('25');assert.equal(f.requests.length,0)
+ f.vm.entity.id='另一个ID';f.vm.loadOriginalRemoteOptions('25');assert.equal(f.requests.length,0)
+ f.vm.id='';f.vm.entity.targetId=null;f.vm.openOriginalRemoteOptions('25');assert.equal(f.pages().length,1)
+ }finally{f.app.unmount()}
+})
+
+test('兼容原宿主未提供加载标记时仍未准备，不因undefined默认值提前读取',()=>{
+ const f=fixture('entity',false,true);try{
+ f.vm.loadEntitySuccess=undefined;f.vm.loadOriginalRemoteOptions('25');assert.equal(f.requests.length,0)
  }finally{f.app.unmount()}
 })

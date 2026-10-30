@@ -39,7 +39,7 @@
 
 <!-- 所属后台沿用平台List选择器与只读展示；许可占位组件不替换交互。 -->
 <uni-forms-item label='所属后台' name='yzAdminTypeId' v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange'  remote :key="'original-options-2200000000000101010-'+originalRemoteOptions['2200000000000101010'].revision" :remote-selected="originalRemoteOptions['2200000000000101010'].selected" :remote-loading="originalRemoteOptions['2200000000000101010'].loading" :remote-has-more="originalRemoteOptions['2200000000000101010'].hasMore" @open="openOriginalRemoteOptions('2200000000000101010')" @inputChange="searchOriginalRemoteOptions('2200000000000101010',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000101010')"/></template>
 </uni-forms-item>
 
         </uni-forms>
@@ -52,11 +52,15 @@
   </view>
 </template>
 <script>
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin'; // 元数据同步的原List接线
+
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
 
 export default {
+  // 原List分页由当前元数据同步；不覆盖原页面与事件。
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2200000000000101010","field":"yzAdminTypeId","list":"yz_admin_type_list","endpoint":"/admin/auto/config_custom_page/2062361618137833473/findNameIdYzAdminType2200000000000101010","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzAdminTypeIdReadOnly"}],"entity",{originalHost:true})],
   components: {
 
   },
@@ -201,16 +205,7 @@ export default {
       }
       var that = this;
       // 由后台归属列的生成候选入口限定当前项目，保留原formParameters载荷。
-      yzp.request({
-        url: '/admin/auto/config_custom_page/2062361618137833473/findNameIdYzAdminType2200000000000101010',
-        data: { formParameters: uni.getStorageSync(that.formParametersName) },
-        sendSessionId: true,
-        method: 'POST',
-        success: function(res) {
-          if (res.code == 200) that.yz_admin_type_list = res.data || [];
-          else uni.showModal({ showCancel: false, content: res.msg });
-        }
-      });
+      that.loadOriginalRemoteOptions("2200000000000101010");
     },
     refreshSonsData: function () {
       // this.getEntity();

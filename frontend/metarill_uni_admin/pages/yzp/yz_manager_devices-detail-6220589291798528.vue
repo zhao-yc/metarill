@@ -6,7 +6,7 @@
         <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
 
 <uni-forms-item label='管理员' name='yzManagerId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerName)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' @change='yz_managerSelectChange' /></template>
+<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerName)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' @change='yz_managerSelectChange'  remote :key="'original-options-1679383180512325633-'+originalRemoteOptions['1679383180512325633'].revision" :remote-selected="originalRemoteOptions['1679383180512325633'].selected" :remote-loading="originalRemoteOptions['1679383180512325633'].loading" :remote-has-more="originalRemoteOptions['1679383180512325633'].hasMore" @open="openOriginalRemoteOptions('1679383180512325633')" @inputChange="searchOriginalRemoteOptions('1679383180512325633',$event)" @loadMore="moreOriginalRemoteOptions('1679383180512325633')"/></template>
 </uni-forms-item>
 
 <uni-forms-item label='名称' name='name'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
@@ -40,11 +40,15 @@
   </view>
 </template>
 <script>
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin'; // 元数据同步的原List接线
+
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
 import yz_manager_devices_project_6220608155484160 from '@/pages/yzp/yz_manager_devices_project-list-6220608155484160.vue';
 export default {
+  // 原List分页由当前元数据同步；不覆盖原页面与事件。
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"1679383180512325633","field":"yzManagerId","list":"yz_manager_list","endpoint":"/admin/auto/yz_manager_devices/6220589291798528/findNameIdYzManager1679383180512325633","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzManagerIdReadOnly"}],"entity",{originalHost:true})],
   components: {
     yz_manager_devices_project_6220608155484160,
   },
@@ -181,7 +185,7 @@ export default {
         return;
       }
       var that = this;
-      yzp.request({    url: '/admin/auto/yz_manager_devices/6220589291798528/findNameIdYzManager1679383180512325633',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_manager_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      that.loadOriginalRemoteOptions("1679383180512325633");
     },
     refreshSonsData: function () {
       // this.getEntity();

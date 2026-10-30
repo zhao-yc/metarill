@@ -14,7 +14,7 @@ switch($Action){
  & $dotnet run --project (Join-Path $metarillRoot 'backend/src/Metarill.Cli') -- generate --metadata (Join-Path $metarillRoot "backend/metadata/$target.json") --output (Join-Path $metarillRoot "backend/generated/$target") --namespace ("Metarill."+(Get-Culture).TextInfo.ToTitleCase($target))
  if($LASTEXITCODE -ne 0){throw '代码生成失败。'}
  }
- foreach($sync in @('sync:template-version','sync:write-schema','sync:custom-routes')){
+ foreach($sync in @('sync:template-version','sync:write-schema','sync:custom-routes','sync:original-list-options')){
  & npm run $sync --prefix (Join-Path $metarillRoot 'frontend/metarill_uni_admin')
  if($LASTEXITCODE -ne 0){throw '平台原页面元数据同步失败。'}
  };break

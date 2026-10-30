@@ -1,6 +1,6 @@
 # List 关系候选分页与已选回读
 
-**当前接线（2026-10-30，C54）：用户已确认保留原控件接入搜索／滚动分页。原 List 生成详情与筛选现直接给 zxz 绑定 `/page` 与 `/selected`，不使用 wrapper，不替换页面布局或样式。** 305项前端、96项生成／原Vue／完整包及实际HBuilderX／ego合成HTTP子集通过；5014候选真实MySQL浏览器、正式身份、其它父范围及物理滚轮仍待。具体变更、原页面逐字保护及证据边界见[实施记录](original-list-pagination-decision.md)。
+**当前接线（2026-10-30，C54/C55）：用户已确认保留原控件接入搜索／滚动分页。原List生成详情/筛选与主前端十二原页十六字段直接给zxz绑定 `/page`、`/selected`，页面/样式/原回调保持；两个平台旧104地址由手写partial复用105入口。** 316前端、MVC专项4零跳过及API85通过/49条件跳过，原工程HBuilderX与ego两原页5014合成候选、软件滚轮/保存回读/失败重试已验。真实MySQL/普通身份、完整父范围、其它控件与物理硬件仍待；见[原平台接线](original-platform-list-pagination.md)及[生成器记录](original-list-pagination-decision.md)。
 
 本能力的后端由 `RelationCompilation` 与 `BackendRenderer` 生成，只支持已有明确目标的 `List`。下文后端合同仍有效；2026-10-19 的 wrapper 接线及浏览器结果属于恢复原前端之前的历史子集。共享组件支持多选并不代表标准 List 元数据已编译多选。现有生成应用须维护元数据/模板/共享运行时并配套生成，不能手改可覆盖产物。
 

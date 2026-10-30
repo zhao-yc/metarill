@@ -11,7 +11,7 @@
 </uni-forms-item>
 
 <uni-forms-item label='后台类型' name='yzAdminTypeId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange'  remote :key="'original-options-2200000000000000105-'+originalRemoteOptions['2200000000000000105'].revision" :remote-selected="originalRemoteOptions['2200000000000000105'].selected" :remote-loading="originalRemoteOptions['2200000000000000105'].loading" :remote-has-more="originalRemoteOptions['2200000000000000105'].hasMore" @open="openOriginalRemoteOptions('2200000000000000105')" @inputChange="searchOriginalRemoteOptions('2200000000000000105',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000105')"/></template>
 </uni-forms-item>
 
 <uni-forms-item label='名称' name='name' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
@@ -211,12 +211,16 @@
   </view>
 </template>
 <script>
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin'; // 元数据同步的原List接线
+
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
 
 import config_page_column_6218036784398336 from '@/pages/yzp/config_page_column-list-6218036784398336.vue';import config_button_7097193256583168 from '@/pages/yzp/config_button-list-7097193256583168.vue';
 export default {
+  // 原List分页由当前元数据同步；不覆盖原页面与事件。
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2200000000000000105","field":"yzAdminTypeId","list":"yz_admin_type_list","endpoint":"/admin/auto/config_page/1868973685063311361/findNameIdYzAdminType2200000000000000105","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzAdminTypeIdReadOnly"}],"entity",{originalHost:true})],
 
   components: {
     config_page_column_6218036784398336,config_button_7097193256583168,
@@ -361,7 +365,7 @@ export default {
         return;
       }
       var that = this;
-      yzp.request({    url: '/admin/auto/config_page/1868973685063311361/findNameIdYzAdminType2200000000000000104',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_admin_type_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      that.loadOriginalRemoteOptions("2200000000000000105");
     },
     refreshSonsData: function () {
       // this.getEntity();

@@ -117,7 +117,7 @@
 </uni-forms-item>
 
 <uni-forms-item label='后台类型' name='yzAdminTypeId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yz_admin_typeSelectChange'  remote :key="'original-options-1679698329655750657-'+originalRemoteOptions['1679698329655750657'].revision" :remote-selected="originalRemoteOptions['1679698329655750657'].selected" :remote-loading="originalRemoteOptions['1679698329655750657'].loading" :remote-has-more="originalRemoteOptions['1679698329655750657'].hasMore" @open="openOriginalRemoteOptions('1679698329655750657')" @inputChange="searchOriginalRemoteOptions('1679698329655750657',$event)" @loadMore="moreOriginalRemoteOptions('1679698329655750657')"/></template>
 </uni-forms-item>
 
         </uni-forms>
@@ -130,11 +130,15 @@
   </view>
 </template>
 <script>
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin'; // 元数据同步的原List接线
+
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
 
 export default {
+  // 原List分页由当前元数据同步；不覆盖原页面与事件。
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"1679698329655750657","field":"yzAdminTypeId","list":"yz_admin_type_list","endpoint":"/admin/auto/yz_manager/6031906822946816/findNameIdYzAdminType1679698329655750657","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzAdminTypeIdReadOnly"}],"entity",{originalHost:true})],
   components: {
 
   },
@@ -271,7 +275,7 @@ export default {
         return;
       }
       var that = this;
-      yzp.request({    url: '/admin/auto/yz_manager/6031906822946816/findNameIdYzRole1692528723801219073',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yzRoleIdsList = res.data;            that.yzRoleIdsChange();        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});yzp.request({    url: '/admin/auto/yz_manager/6031906822946816/findNameIdYzAdminType1679698329655750657',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_admin_type_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      yzp.request({    url: '/admin/auto/yz_manager/6031906822946816/findNameIdYzRole1692528723801219073',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yzRoleIdsList = res.data;            that.yzRoleIdsChange();        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});that.loadOriginalRemoteOptions("1679698329655750657");
     },
     refreshSonsData: function () {
       // this.getEntity();

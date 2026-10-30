@@ -6,11 +6,11 @@
         <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
 
 <uni-forms-item label='项目' name='yzProjectId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzProjectIdReadOnly'>{{readonlyDisplayText(entity.yzProjectName)}}</text><template v-if='!yzProjectIdReadOnly'><zxz-uni-data-select v-model='entity.yzProjectId' :localdata='yz_project_list' filterable :disabled='yzProjectIdReadOnly' dataKey='name' dataValue='id' @change='yz_projectSelectChange' /></template>
+<text v-if='yzProjectIdReadOnly'>{{readonlyDisplayText(entity.yzProjectName)}}</text><template v-if='!yzProjectIdReadOnly'><zxz-uni-data-select v-model='entity.yzProjectId' :localdata='yz_project_list' filterable :disabled='yzProjectIdReadOnly' dataKey='name' dataValue='id' @change='yz_projectSelectChange'  remote :key="'original-options-1679323290301280258-'+originalRemoteOptions['1679323290301280258'].revision" :remote-selected="originalRemoteOptions['1679323290301280258'].selected" :remote-loading="originalRemoteOptions['1679323290301280258'].loading" :remote-has-more="originalRemoteOptions['1679323290301280258'].hasMore" @open="openOriginalRemoteOptions('1679323290301280258')" @inputChange="searchOriginalRemoteOptions('1679323290301280258',$event)" @loadMore="moreOriginalRemoteOptions('1679323290301280258')"/></template>
 </uni-forms-item>
 
 <uni-forms-item label='账号' name='yzManagerId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerName)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' @change='yz_managerSelectChange' /></template>
+<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerName)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' @change='yz_managerSelectChange'  remote :key="'original-options-1679323290464858113-'+originalRemoteOptions['1679323290464858113'].revision" :remote-selected="originalRemoteOptions['1679323290464858113'].selected" :remote-loading="originalRemoteOptions['1679323290464858113'].loading" :remote-has-more="originalRemoteOptions['1679323290464858113'].hasMore" @open="openOriginalRemoteOptions('1679323290464858113')" @inputChange="searchOriginalRemoteOptions('1679323290464858113',$event)" @loadMore="moreOriginalRemoteOptions('1679323290464858113')"/></template>
 </uni-forms-item>
 
 <uni-forms-item label='生成java代码' name='isJava'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
@@ -41,11 +41,15 @@
   </view>
 </template>
 <script>
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin'; // 元数据同步的原List接线
+
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
 
 export default {
+  // 原List分页由当前元数据同步；不覆盖原页面与事件。
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"1679323290301280258","field":"yzProjectId","list":"yz_project_list","endpoint":"/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzProject1679323290301280258","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzProjectIdReadOnly"},{"id":"1679323290464858113","field":"yzManagerId","list":"yz_manager_list","endpoint":"/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzManager1679323290464858113","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzManagerIdReadOnly"}],"entity",{originalHost:true})],
   components: {
 
   },
@@ -182,7 +186,7 @@ export default {
         return;
       }
       var that = this;
-      yzp.request({    url: '/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzProject1679323290301280258',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_project_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});yzp.request({    url: '/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzManager1679323290464858113',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_manager_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      that.loadOriginalRemoteOptions("1679323290301280258");that.loadOriginalRemoteOptions("1679323290464858113");
     },
     refreshSonsData: function () {
       // this.getEntity();

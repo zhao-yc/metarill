@@ -10,7 +10,7 @@
 </uni-forms-item>
 
 <uni-forms-item label='角色' name='yzRoleId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='yzRoleIdReadOnly'>{{readonlyDisplayText(entity.yzRoleName)}}</text><template v-if='!yzRoleIdReadOnly'><zxz-uni-data-select v-model='entity.yzRoleId' :localdata='yz_role_list' filterable :disabled='yzRoleIdReadOnly' dataKey='name' dataValue='id' @change='yz_roleSelectChange' /></template>
+<text v-if='yzRoleIdReadOnly'>{{readonlyDisplayText(entity.yzRoleName)}}</text><template v-if='!yzRoleIdReadOnly'><zxz-uni-data-select v-model='entity.yzRoleId' :localdata='yz_role_list' filterable :disabled='yzRoleIdReadOnly' dataKey='name' dataValue='id' @change='yz_roleSelectChange'  remote :key="'original-options-2063264600941453314-'+originalRemoteOptions['2063264600941453314'].revision" :remote-selected="originalRemoteOptions['2063264600941453314'].selected" :remote-loading="originalRemoteOptions['2063264600941453314'].loading" :remote-has-more="originalRemoteOptions['2063264600941453314'].hasMore" @open="openOriginalRemoteOptions('2063264600941453314')" @inputChange="searchOriginalRemoteOptions('2063264600941453314',$event)" @loadMore="moreOriginalRemoteOptions('2063264600941453314')"/></template>
 </uni-forms-item>
 
 <uni-forms-item label='权限值' name='permissionValues'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
@@ -28,11 +28,15 @@
   </view>
 </template>
 <script>
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin'; // 元数据同步的原List接线
+
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
 
 export default {
+  // 原List分页由当前元数据同步；不覆盖原页面与事件。
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2063264600941453314","field":"yzRoleId","list":"yz_role_list","endpoint":"/admin/auto/yz_role_permission/2063264600601714690/findNameIdYzRole2063264600941453314","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzRoleIdReadOnly"}],"entity",{originalHost:true})],
   components: {
 
   },
@@ -169,7 +173,7 @@ export default {
         return;
       }
       var that = this;
-      yzp.request({    url: '/admin/auto/yz_role_permission/2063264600601714690/findNameIdConfigSecondMenu2063264600681406465',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.config_second_menu_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});yzp.request({    url: '/admin/auto/yz_role_permission/2063264600601714690/findNameIdYzRole2063264600941453314',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.yz_role_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      yzp.request({    url: '/admin/auto/yz_role_permission/2063264600601714690/findNameIdConfigSecondMenu2063264600681406465',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.config_second_menu_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});that.loadOriginalRemoteOptions("2063264600941453314");
     },
     refreshSonsData: function () {
       // this.getEntity();

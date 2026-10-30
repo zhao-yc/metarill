@@ -56,6 +56,8 @@ jobs:
           npm run sync:template-version --prefix frontend/metarill_uni_admin
           npm run sync:write-schema --prefix frontend/metarill_uni_admin
           npm run sync:custom-routes --prefix frontend/metarill_uni_admin
+          npm run sync:original-list-options --prefix frontend/metarill_uni_admin
+          if ($LASTEXITCODE -ne 0) { throw '原平台List同步失败' }
           git diff --exit-code -- backend/generated frontend/metarill_uni_admin
           if ($LASTEXITCODE -ne 0) { throw '生成产物与已提交内容不一致' }
       - name: 编译服务

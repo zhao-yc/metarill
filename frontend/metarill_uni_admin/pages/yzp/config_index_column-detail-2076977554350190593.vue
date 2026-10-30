@@ -6,11 +6,11 @@
         <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
 
 <uni-forms-item label='所属索引' name='configIndexId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='configIndexIdReadOnly'>{{readonlyDisplayText(entity.configIndexIndexName)}}</text><template v-if='!configIndexIdReadOnly'><zxz-uni-data-select v-model='entity.configIndexId' :localdata='config_index_list' filterable :disabled='configIndexIdReadOnly' dataKey='name' dataValue='id' @change='config_indexSelectChange' /></template>
+<text v-if='configIndexIdReadOnly'>{{readonlyDisplayText(entity.configIndexIndexName)}}</text><template v-if='!configIndexIdReadOnly'><zxz-uni-data-select v-model='entity.configIndexId' :localdata='config_index_list' filterable :disabled='configIndexIdReadOnly' dataKey='name' dataValue='id' @change='config_indexSelectChange'  remote :key="'original-options-2076977805266128896-'+originalRemoteOptions['2076977805266128896'].revision" :remote-selected="originalRemoteOptions['2076977805266128896'].selected" :remote-loading="originalRemoteOptions['2076977805266128896'].loading" :remote-has-more="originalRemoteOptions['2076977805266128896'].hasMore" @open="openOriginalRemoteOptions('2076977805266128896')" @inputChange="searchOriginalRemoteOptions('2076977805266128896',$event)" @loadMore="moreOriginalRemoteOptions('2076977805266128896')"/></template>
 </uni-forms-item>
 
 <uni-forms-item label='配置字段' name='configColumnId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
-<text v-if='configColumnIdReadOnly'>{{readonlyDisplayText(entity.configColumnName)}}</text><template v-if='!configColumnIdReadOnly'><zxz-uni-data-select v-model='entity.configColumnId' :localdata='config_column_list' filterable :disabled='configColumnIdReadOnly' dataKey='name' dataValue='id' @change='config_columnSelectChange' /></template>
+<text v-if='configColumnIdReadOnly'>{{readonlyDisplayText(entity.configColumnName)}}</text><template v-if='!configColumnIdReadOnly'><zxz-uni-data-select v-model='entity.configColumnId' :localdata='config_column_list' filterable :disabled='configColumnIdReadOnly' dataKey='name' dataValue='id' @change='config_columnSelectChange'  remote :key="'original-options-2076977805534564352-'+originalRemoteOptions['2076977805534564352'].revision" :remote-selected="originalRemoteOptions['2076977805534564352'].selected" :remote-loading="originalRemoteOptions['2076977805534564352'].loading" :remote-has-more="originalRemoteOptions['2076977805534564352'].hasMore" @open="openOriginalRemoteOptions('2076977805534564352')" @inputChange="searchOriginalRemoteOptions('2076977805534564352',$event)" @loadMore="moreOriginalRemoteOptions('2076977805534564352')"/></template>
 </uni-forms-item>
 
 <uni-forms-item label='物理列名' name='columnName' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: ""}, entity)'>
@@ -37,11 +37,15 @@
   </view>
 </template>
 <script>
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin'; // 元数据同步的原List接线
+
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
 
 export default {
+  // 原List分页由当前元数据同步；不覆盖原页面与事件。
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2076977805266128896","field":"configIndexId","list":"config_index_list","endpoint":"/admin/auto/config_index_column/2076977554350190593/findNameIdConfigIndex2076977805266128896","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"configIndexIdReadOnly"},{"id":"2076977805534564352","field":"configColumnId","list":"config_column_list","endpoint":"/admin/auto/config_index_column/2076977554350190593/findNameIdConfigColumn2076977805534564352","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"configColumnIdReadOnly"}],"entity",{originalHost:true})],
   components: {
 
   },
@@ -178,7 +182,7 @@ export default {
         return;
       }
       var that = this;
-      yzp.request({    url: '/admin/auto/config_index_column/2076977554350190593/findNameIdConfigIndex2076977805266128896',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.config_index_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});yzp.request({    url: '/admin/auto/config_index_column/2076977554350190593/findNameIdConfigColumn2076977805534564352',    data: {       formParameters: uni.getStorageSync(that.formParametersName)    },    sendSessionId: true,    method: "POST",    success: function (res) {        if (res.code == 200) {            that.config_column_list = res.data || [];        } else {            uni.showModal({                showCancel: false,                content: res.msg            })        }    },});
+      that.loadOriginalRemoteOptions("2076977805266128896");that.loadOriginalRemoteOptions("2076977805534564352");
     },
     refreshSonsData: function () {
       // this.getEntity();
