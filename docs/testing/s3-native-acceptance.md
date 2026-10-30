@@ -38,6 +38,16 @@
 | Python准备/服务器边界 | 17项离线通过，无网络。包含实际ZIP反例、严格SSH请求形状、凭据字段泄漏拒绝、脏源码及TRX检查。Windows的ZipInfo会规范化反斜杠，测试明确保存原始ZIP名称后验证orig_filename拒绝；原失败保留。 |
 | 完整Files测试 | 严格构建250通过、0失败、59条件跳过；其中37项为本轮授权/清理/真实文件闭包护栏，正式S3用例1项属于跳过。跳过不计真实库或存储完成。 |
 | CI | 增加两系统Python护栏；正式S3默认不在CI执行。当前提交的实际CI结果须按SHA另查。 |
-| 固定提交准备 | 完成代码提交后执行，精确来源/闭包/未授权拒绝结果追加于本文，不提前声明完成。 |
+| 固定提交准备 | 已从2928114独立归档严格Release构建，0警告/0错误，136文件闭包；冻结37项全部通过，pending正式入口恰1失败/0通过/0跳过，堆栈停在ValidateGrant，租约字节未变、无runs目录。没有正式S3执行。 |
 
 私有日志：`E:\\git\\metarill\\.local\\s3-native-files-final2.log`及Files.Tests对应TRX。准备器只新建目录，不覆盖已有租约；失败现场保留。代码和工具已具备不等于用户已授权或正式S3已通过。
+
+
+## 已固定的本轮来源
+
+- 来源：`2928114e128853fef442a2b186415951d7959196`；源码ZIP SHA-256：`dff478bbe6cf218781da865813777aff88f18979c257d8d88f6f204269ce9898`。
+- 当前artifact.json SHA-256：`68c18d83f9cba83446c22afb9f71bd6903b00d29519d9e89a769986fd996d771`。
+- 当前scope.json SHA-256：`8dfb5084f16c5e4e25d2e289ae14e6d221de967cb8ef003262e3dbf5a5a00cf1`。
+- 唯一待授权桶：`metarill-native-1e36e9ec8c404d4ea175fae396ead3bc`。**尚未检查/创建该桶，没有读取凭据值、PUT/GET/DELETE或正式验收结果。**
+- 私有证据：`E:\git\metarill\.local\s3-native-acceptance\1e36e9ec8c404d4ea175fae396ead3bc`，含scope/artifact/lease、permission-plan、原归档、冻结136文件、build/guards/pending-denied日志及两份TRX、preparation-receipt。
+- 本次固定来源验证由自身准备工具实际执行成功；前端与生成C#未修改。后续文档提交不替换该源码或编译闭包。
