@@ -274,7 +274,7 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
     }
 
     /// <summary>在实际工程目录执行随包Node校验，不用源码断言代替运行结果。</summary>
-    private static async Task<(int Code, string Output, string Error)> VerifyFrontendAsync(string directory)
+    internal static async Task<(int Code, string Output, string Error)> VerifyFrontendAsync(string directory)
     {
         var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node") { WorkingDirectory = directory, CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
         info.ArgumentList.Add("--experimental-vm-modules"); info.ArgumentList.Add("scripts/verify-frontend.mjs");

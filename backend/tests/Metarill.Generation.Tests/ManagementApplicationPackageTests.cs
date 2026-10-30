@@ -32,6 +32,20 @@ public sealed class ManagementApplicationPackageTests
             Assert.Equal(ApplicationPackageMode.FullManagementApplication,result.Mode);Assert.True(result.FrontendIncluded);Assert.NotEmpty(result.Warnings);
             Assert.False(File.Exists(Path.Combine(output,".metarill-management-preparation.json")));Assert.True(File.Exists(Path.Combine(output,PreparedSecurityManagementSource.SourceMarker)));
             var context=PreparedSecurityManagementSource.Read(output);Assert.Equal(app.YzProjectId,context.Module.Binding.ProjectId);Assert.Equal(app.YzAdminTypes[0].Id,context.Module.Binding.ManagementAdminTypeId);
+            // 完整管理模式也须真正下发原List分页依赖；源码编译不能代替前端导入闭包。
+            const string remoteRelative="frontend/common/yzp_runtime/originalRemoteOptionsMixin.js";
+            Assert.Contains(remoteRelative,result.Files);var remotePath=Path.Combine(output,remoteRelative);
+            Assert.Equal(File.ReadAllText(Path.Combine(source,"frontend/metarill_uni_admin/common/yzp_runtime/originalRemoteOptionsMixin.js")).Replace("\r\n","\n"),File.ReadAllText(remotePath).Replace("\r\n","\n"));
+            Assert.Contains("createOriginalRemoteOptionsMixin",File.ReadAllText(Path.Combine(output,"frontend/pages/yzp/yz_role-detail-1692532858529329154.vue")));
+            var verified=await FrontendPackagerTests.VerifyFrontendAsync(Path.Combine(output,"frontend"));Assert.True(verified.Code==0,verified.Error+verified.Output);
+            // 缺失模块必须由随包真实Node校验拒绝，不能只检查文件清单中曾经存在。
+            var held=Path.Combine(root,"held-original-remote.js");File.Move(remotePath,held);
+            try
+            {
+                var missing=await FrontendPackagerTests.VerifyFrontendAsync(Path.Combine(output,"frontend"));
+                Assert.NotEqual(0,missing.Code);Assert.Contains("originalRemoteOptionsMixin",missing.Error+missing.Output);
+            }
+            finally{File.Move(held,remotePath);}
             // 同时存在准备/通用来源声明时不能按其中一个猜测，拒绝后保留原完整包。
             var ambiguous=Path.Combine(output,".metarill-management-preparation.json");await File.WriteAllTextAsync(ambiguous,await File.ReadAllTextAsync(Path.Combine(output,PreparedSecurityManagementSource.SourceMarker)));
             Assert.Throws<InvalidOperationException>(()=>PreparedSecurityManagementSource.Read(output));File.Delete(ambiguous);
