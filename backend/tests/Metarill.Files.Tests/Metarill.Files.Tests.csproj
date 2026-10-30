@@ -5,5 +5,6 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <None Include="../../../tools/acceptance/server200-s3-info.py" Link="native/server200-s3-info.py" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
