@@ -13,6 +13,12 @@ using Metarill.Runtime.Security;
 [assembly: InternalsVisibleTo("Metarill.Metadata.Tests")]
 namespace Metarill.Runtime.Metadata;
 
+/// <summary>仅布局参数前检可创建；尚未打开数据库事务，执行后错误不得借此声明安全重试。</summary>
+public sealed class MetadataLayoutInputException:InvalidOperationException
+{
+    internal MetadataLayoutInputException(Exception error):base(error.Message,error){}
+}
+
 public sealed class MetadataRevisionConflictException() : InvalidOperationException("版本冲突：页面或字段配置已变化，请刷新后重试。");
 public sealed record MetadataRowsSnapshot(IReadOnlyList<Dictionary<string, object?>> Rows, string Revision);
 public sealed record DetailLayoutGroup(string Key, string Name);
@@ -30,15 +36,14 @@ public sealed partial class MetadataWorkbenchBusiness(SqlRowStore store, HttpRun
     /// <summary>取得页面布局完整快照，读取也采用相同聚合锁顺序，避免版本与字段跨代。</summary>
     public Task<object> DetailLayoutSnapshotAsync(JsonElement request, CancellationToken cancellationToken = default)
     {
-        MetadataWorkbenchRules.Object(request, "pageId");
-        var pageId = MetadataWorkbenchRules.Id(request, "pageId");
+        var pageId=ParseLayoutInput(()=>{MetadataWorkbenchRules.Object(request,"pageId");return MetadataWorkbenchRules.Id(request,"pageId");});
         return InMetadataTransactionAsync(async () => BuildLayoutSnapshot(await ReadPageScopeAsync(pageId, cancellationToken)), cancellationToken);
     }
 
     /// <summary>保存显式布局和完整字段归属，缺失字段、跨页字段或版本冲突均整体拒绝。</summary>
     public Task<object> SaveDetailLayoutAsync(JsonElement request, CancellationToken cancellationToken = default)
     {
-        var input = MetadataWorkbenchRules.LayoutSave(request);
+        var input=ParseLayoutInput(()=>MetadataWorkbenchRules.LayoutSave(request));
         return InMetadataTransactionAsync(async () =>
         {
             var scope = await ReadPageScopeAsync(input.PageId, cancellationToken);
@@ -53,6 +58,14 @@ public sealed partial class MetadataWorkbenchBusiness(SqlRowStore store, HttpRun
                 throw new InvalidOperationException("详情布局页面已变化，请刷新后重试。");
             return BuildLayoutSnapshot(await ReadPageScopeAsync(input.PageId, cancellationToken));
         }, cancellationToken);
+    }
+
+    /// <summary>只包装纯输入解析，数据库操作和提交异常不能被重新分类为参数前检失败。</summary>
+    private static T ParseLayoutInput<T>(Func<T> parse)
+    {
+        try{return parse();}
+        catch(Exception error) when(error is InvalidOperationException or ArgumentException or System.Text.Json.JsonException or FormatException or OverflowException)
+        {throw new MetadataLayoutInputException(error);}
     }
 
     /// <summary>沿用原字段工作台的显示字段与标志名，响应另带用于并发校验的版本。</summary>
@@ -222,7 +235,7 @@ internal static class MetadataWorkbenchRules
     /// <summary>缺失和null不能隐式变成空字符串。</summary>
     internal static string Text(JsonElement row, string field) => row.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()! : throw new InvalidOperationException("缺少字符串字段或显式null不被允许：" + field);
     /// <summary>版本必须来自服务端快照的确定性哈希。</summary>
-    internal static void Revision(string? value) { if (value is null || !Regex.IsMatch(value, "^[a-f0-9]{64}$")) throw new InvalidOperationException("缺少有效版本，请先读取快照。"); }
+    internal static void Revision(string? value) { if (value is null || value.Length!=64 || !Regex.IsMatch(value, "^[a-f0-9]{64}$")) throw new InvalidOperationException("缺少有效版本，请先读取快照。"); }
     /// <summary>统一数据库标志的数字、布尔和空值表示。</summary>
     internal static int StoredFlag(object? value) => value is null ? 0 : value is bool flag ? (flag ? 1 : 0) : Convert.ToInt32(value, CultureInfo.InvariantCulture);
     /// <summary>只接受版本1布局、唯一标签标识与有效名称。</summary>

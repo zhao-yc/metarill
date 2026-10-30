@@ -2,8 +2,14 @@
   <PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Metarill.Cli/Metarill.Cli.csproj" /><ProjectReference Include="../../src/Metarill.Runtime/Metarill.Runtime.csproj" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <!-- 链接实际边界源码，SDK/HTTP测试不复制另一套工具或控制器实现。 -->
+    <Compile Include="../../src/Metarill.Api/Mcp/MetadataWorkbenchMcpTools.cs" Link="Boundary/MetadataWorkbenchMcpTools.cs" />
+    <Compile Include="../../src/Metarill.Api/Controllers/MetadataWorkbenchController.cs" Link="Boundary/MetadataWorkbenchController.cs" />
   </ItemGroup>
 </Project>

@@ -59,3 +59,7 @@ C12待授权的固定32bbce6包不含本轮MCP代码；新代码不能替换其�
 原夹具按随机项目和两个后台所有权检查，在同一事务清理六表活动／墓碑行；新的独立只读连接重新核验实例与六表COUNT均为0，临时Program连接配置已移除。核验器未读取锁观测列或执行补清理。没有创建数据库、MySQL账号或GRANT；C12待授权独占单库及A14两库仍未执行，旧租约不复用。
 
 源码／测试摘要 `0cb98bad5c2671155bcc685896d51106990dcf617c2da6e4b396824d9fcb8511`；真实TRX、原预检失败、逐阶段MCP回执及独立核零见私有 `.local/management-mcp-web/validation-receipt.json` 与本轮 `.local/trusted-security-runtime/mysql-*/`。原前端、元数据、模板和产品源码未改变，无需再生成、DDL或回填；仅CI测试项目新增公共Mcp工程引用。C05管理完整包发布、C06初始化、Agent正式复验、普通业务／文件／关系完整矩阵、原浏览器、设备和同条件性能仍未完成。
+
+## 平台原布局专用工具（C60，2026-10-30）
+
+平台另外注册原 `getPageDetailLayout(pageId)` 与 `savePageDetailLayout(request)`，使用同一布局聚合、当前管理员/项目、完整归属和revision；保留原ok/message/data及error JSON。参数前检/版本冲突明确not_applied，其余执行失败要求回读且禁止自动重试。详情与实际证据见[布局MCP专项](testing/detail-layout-mcp.md)。这两项属于平台设计器，不加入普通完整应用的三工具集合，也不改变原生成页面写入的confirmed要求。19项真实SDK/HTTP及真实Program注册通过；正式MCP/MySQL/排队撤权与原工作台浏览器仍待。

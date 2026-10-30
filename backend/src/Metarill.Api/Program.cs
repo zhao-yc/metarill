@@ -72,7 +72,7 @@ builder.Services.AddSingleton<AgentTaskStore>();
 builder.Services.AddScoped<CompatibilityButtonBusiness>();
 builder.Services.AddScoped<ConfigurationActionsBusiness>();
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddMcpServer().WithHttpTransport(options=>options.SessionMode=HttpServerSessionMode.Stateless).WithTools<PlatformTools>();
+builder.Services.AddMcpServer().WithHttpTransport(options=>options.SessionMode=HttpServerSessionMode.Stateless).WithTools<PlatformTools>().WithTools<MetadataWorkbenchMcpTools>();
 // 业务分派只绑定本宿主实际编译的两个发布目录，不从MCP参数读取程序集或类型。
 builder.Services.AddSingleton(new PublishedPageInvoker([new(registry.Platform,"Metarill.Platform",typeof(Program).Assembly),new(registry.Demo,"Metarill.Demo",typeof(Program).Assembly)]));
 builder.Services.AddScoped<HttpRuntimeAuthorization>();
