@@ -6,6 +6,8 @@ namespace Metarill.Runtime.Files;
 
 public sealed record FileLibraryOptions
 {
+    /// <summary>默认本地；云端配置只来自宿主私有设置，不由页面或请求选择。</summary>
+    public FileStorageOptions Storage { get; init; } = new();
     public string RootDirectory { get; init; } = ".local/files";
     /// <summary>多项目宿主为公开URL附带的可信定位提示，不作为访问授权。</summary>
     public string? PublicContentProjectId { get; init; }

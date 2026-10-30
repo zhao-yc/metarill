@@ -16,3 +16,7 @@
 
 
 生成/手写代码通过同程序集partial分离：Entity、页级DTO/VO、Mapper、Service、Controller及导入请求可直接访问同类成员。DTO/VO、Mapper、Controller继续sealed，主构造函数仅在生成部分声明；Service手写壳只首次创建，其余扩展另建非归属`.Extension.cs`。前端和JSON合同不因partial自动改变，Controller辅助方法须NonAction、计算属性按需JsonIgnore/Column(IsIgnore=true)。已有工程更新生成器后再生成并编译，无SQL或元数据回填；具体规则随两种独立宿主README下发。
+
+## 文件对象供应商
+
+文件行、权限与引用仍使用各项目的同一数据库会话/事务，对象层默认本地；S3服务器中转已接固定私有配置、不可重解释的定位、实际字节校验和原可寻址只读流。没有添加表或前端入口，不自动创建桶；平台与独立宿主共用实现。普通/管理包与真实旧应用升级离线闭环已有证据，真实存储/供应商、跨库权限、原浏览器、直传/OSS及性能仍待，不能以SDK或编译宣布支持全部云端。见[S3范围与配置](s3-object-storage.md)。

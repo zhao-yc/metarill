@@ -7,13 +7,20 @@ using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Files;
 
-/// <summary>本地文件库只使用固定磁盘根与服务端随机键，公开与受保护读取共用真实状态检查。</summary>
-public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataContext registry, IIdGenerator ids, IRuntimeAuthorization authorization, FileLibraryOptions options)
+/// <summary>文件库使用部署侧对象存储及服务端随机键，公开与受保护读取共用真实状态检查。</summary>
+public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataContext registry, IIdGenerator ids, IRuntimeAuthorization authorization, FileLibraryOptions options, FileObjectStorage? objectStorage = null)
 {
+    /// <summary>保留原五参公开签名，旧手写宿主和反射工厂继续使用本地合同。</summary>
+    public FileLibraryService(SqlRowStore store, FileMetadataContext registry, IIdGenerator ids, IRuntimeAuthorization authorization, FileLibraryOptions options)
+        : this(store, registry, ids, authorization, options, null) { }
+
     private const string Files = "yz_file_library";
     private const string Folders = "yz_file_library_folder";
     private const string References = "yz_file_ref";
     private string Root => Path.GetFullPath(options.RootDirectory);
+    private readonly FileObjectStorage localStorage = new(new FileLibraryOptions());
+    // 旧手写构造仅兼容原本地配置；云端必须使用宿主注册的共享连接，不能静默回退本地。
+    private FileObjectStorage Storage => objectStorage ?? (options.Storage.DefaultProfile == "local" && options.Storage.S3Profiles.Count == 0 ? localStorage : throw new InvalidOperationException("宿主尚未注册云文件存储。"));
 
     /// <summary>创建待上传记录，供应商、对象键和访问级别均由服务端决定。</summary>
     public Task<FileUploadPlan> PlanUploadAsync(FileUploadRequest request, CancellationToken cancellationToken = default) => PlanUploadCoreAsync(request, false, cancellationToken);
@@ -29,18 +36,19 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if (request.SizeBytes < 0 || request.SizeBytes > policy.MaximumBytes) throw new InvalidOperationException("文件大小超过服务端或控件上限。");
         if (!policy.Extensions.Contains(Path.GetExtension(request.OriginalName))) throw new InvalidOperationException("文件扩展名不在允许范围。");
         if (request.FolderId is { } folder) RequireProject(await RequiredAsync(Folders, folder, true, cancellationToken), actor);
+        var key = Storage.CreateKey();
         var id = ids.NextId();
         var now = BusinessCalendar.Now;
         var expires = FileUploadLifetime.NewDeadline(DateTimeOffset.UtcNow);
         await store.InsertAsync(Files, new Dictionary<string, object?>
         {
             ["id"] = id, ["name"] = request.OriginalName, ["content_type"] = FileValidation.ContentType(request.OriginalName),
-            ["size"] = request.SizeBytes, ["storage_key"] = Guid.NewGuid().ToString("N") + ".blob", ["access_mode"] = policy.AccessMode,
+            ["size"] = request.SizeBytes, ["storage_key"] = key, ["access_mode"] = policy.AccessMode,
             ["status"] = "planned", ["owner_id"] = actor.AccountId, ["folder_id"] = request.FolderId, ["yz_project_id"] = Project(actor),
             [FileUploadLifetime.DeadlineColumn] = expires,
             ["sha256"] = FileValidation.Digest(request.Sha256), ["insert_time"] = now, ["insert_manager_id"] = actor.AccountId
         }, cancellationToken);
-        return new FileUploadPlan(id, new LocalUploadPlan("local", "SERVER_MULTIPART", $"/admin/sys/file-library/local-upload/{id}",
+        return new FileUploadPlan(id, new LocalUploadPlan(FileObjectStorage.ProviderCode(key), "SERVER_MULTIPART", $"/admin/sys/file-library/local-upload/{id}",
             new Dictionary<string, string>(), new Dictionary<string, string>(), new DateTimeOffset(expires)));
     }, cancellationToken);
 
@@ -58,7 +66,8 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 if (SqlRowStore.Text(row, "status") != "planned") throw new InvalidOperationException("文件状态不允许重新上传。");
                 FileUploadLifetime.RequireActive(row, DateTimeOffset.UtcNow);
                 EnsureRoot();
-                var destination = FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
+                var key = SqlRowStore.Text(row, "storage_key"); Storage.ValidateKey(key, Root);
+                var destination = FileValidation.StoragePath(Root, FileObjectStorage.ProviderCode(key) == "local" ? key : Guid.NewGuid().ToString("N") + ".blob");
                 temporary = destination + ".part." + Guid.NewGuid().ToString("N");
                 var expected = SqlRowStore.Id(row, "size");
                 await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "uploading" }, cancellationToken);
@@ -83,7 +92,8 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 var requestedHash = SqlRowStore.Text(row, "sha256");
                 if (requestedHash.Length > 0 && !string.Equals(requestedHash, hash, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("上传内容摘要与计划不一致。");
                 // 数据库提交结果不明时保留随机对象供完成或重试核验，不能删除可能已提交的文件。
-                File.Move(temporary, destination, true); temporary = null;
+                await Storage.CommitAsync(key, temporary, Root, actual, hash, cancellationToken);
+                if (FileObjectStorage.ProviderCode(key) == "local") temporary = null;
                 await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "uploaded", ["sha256"] = hash, ["update_time"] = BusinessCalendar.Now }, cancellationToken);
                 row["status"] = "uploaded"; row["sha256"] = hash;
                 return Describe(row);
@@ -99,8 +109,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         var row = await RequiredAsync(Files, id, true, cancellationToken); RequireOwner(row, actor);
         var status = SqlRowStore.Text(row, "status");
         if (status is not ("uploaded" or "ready")) throw new InvalidOperationException("文件尚未上传完成。");
-        var path = FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
-        await using var content = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var content = await Storage.OpenAsync(SqlRowStore.Text(row, "storage_key"), Root, SqlRowStore.Id(row, "size"), SqlRowStore.Text(row, "sha256"), cancellationToken);
         if (content.Length != SqlRowStore.Id(row, "size")) throw new InvalidOperationException("已上传对象大小异常。");
         var hash = Convert.ToHexString(await SHA256.HashDataAsync(content, cancellationToken)).ToLowerInvariant();
         if (!string.Equals(hash, SqlRowStore.Text(row, "sha256"), StringComparison.Ordinal)) throw new InvalidOperationException("已上传对象摘要异常。");
@@ -116,7 +125,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         await RequireReadableAsync(row, actor, cancellationToken); return Describe(row, allowProtectedDraft: true);
     }
 
-    /// <summary>返回可寻址本地流供 ASP.NET Core 启用 Range；绝不代理或重定向远端地址。</summary>
+    /// <summary>返回可寻址流供 ASP.NET Core 启用 Range；云端只从固定私有配置读取，不接受客户端远端地址。</summary>
     public async Task<FileContentHandle> OpenContentAsync(long id, bool publicOnly = false, string? pageId = null, long? recordId = null, CancellationToken cancellationToken = default, string? expectedProjectId = null)
     {
         var row = await RequiredAsync(Files, id, false, cancellationToken);
@@ -126,8 +135,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 || expectedProjectId is not null && SqlRowStore.Text(row, "yz_project_id") != expectedProjectId) throw new UnauthorizedAccessException("文件不存在或不可公开访问。");
         }
         else await RequireReadableAsync(row, authorization.RequireActor(), cancellationToken);
-        var path = FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var stream = await Storage.OpenAsync(SqlRowStore.Text(row, "storage_key"), Root, SqlRowStore.Id(row, "size"), SqlRowStore.Text(row, "sha256"), cancellationToken);
         if (stream.Length != SqlRowStore.Id(row, "size")) { await stream.DisposeAsync(); throw new InvalidOperationException("文件对象大小异常。"); }
         return new FileContentHandle(stream, string.IsNullOrWhiteSpace(SqlRowStore.Text(row,"content_type"))?"application/octet-stream":SqlRowStore.Text(row,"content_type"), SqlRowStore.Text(row, "name"), stream.Length, SqlRowStore.Text(row, "sha256"));
     }
@@ -135,14 +143,15 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     /// <summary>删除前锁定文件并确认无有效引用；数据库先失效，磁盘清理失败明确返回。</summary>
     public async Task<FileDeleteResult> DeleteAsync(long id, CancellationToken cancellationToken = default)
     {
-        var path = await store.Session.InTransactionAsync(async () =>
+        var key = await store.Session.InTransactionAsync(async () =>
         {
             var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, true, cancellationToken); RequireDeleteOwner(row, actor);
             if ((await store.ReadForUpdateAsync(References, new Dictionary<string, object?> { ["file_id"] = id }, cancellationToken)).Count > 0) throw new InvalidOperationException("文件仍被业务记录引用，不能删除。");
+            var storageKey = SqlRowStore.Text(row, "storage_key"); Storage.ValidateKey(storageKey, Root);
             await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "deleted", ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
-            return FileValidation.StoragePath(Root, SqlRowStore.Text(row, "storage_key"));
+            return storageKey;
         }, cancellationToken);
-        return new FileDeleteResult(id, TryDelete(path));
+        return new FileDeleteResult(id, await Storage.DeleteAsync(key, Root, cancellationToken));
     }
 
     /// <summary>Service兼容入口也按真实读取过滤；原HTTP入口另复核控件访问级别。</summary>

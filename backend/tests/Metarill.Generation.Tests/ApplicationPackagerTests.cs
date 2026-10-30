@@ -43,6 +43,14 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         Assert.NotEmpty(filesMetadata.ConfigIndexes);
         Assert.NotEmpty(filesMetadata.ConfigIndexColumns);
         Assert.Contains("ClosedXML", File.ReadAllText(Path.Combine(output, "Directory.Packages.props")));
+        // 依赖版本必须以原始完整数值精确锁定，不能裁掉AWS SDK的第四段。
+        var sourceVersion = System.Xml.Linq.XDocument.Load(Path.Combine(source, "Directory.Packages.props")).Descendants("PackageVersion").Single(item => item.Attribute("Include")?.Value == "AWSSDK.S3").Attribute("Version")!.Value;
+        var packageVersion = System.Xml.Linq.XDocument.Load(Path.Combine(output, "Directory.Packages.props")).Descendants("PackageVersion").Single(item => item.Attribute("Include")?.Value == "AWSSDK.S3").Attribute("Version")!.Value;
+        Assert.Equal("[" + sourceVersion + "]", packageVersion);
+        Assert.True(File.Exists(Path.Combine(output, "src/Metarill.Files/FileObjectStorage.cs")));
+        var notice = File.ReadAllText(Path.Combine(output, "src/Metarill.Files/licenses/THIRD-PARTY-NOTICES.txt"));
+        Assert.Contains("AWS SDK for .NET - AWSSDK.S3 / AWSSDK.Core", notice);
+        Assert.Equal(File.ReadAllText(Path.Combine(source, "backend/src/Metarill.Files/licenses/THIRD-PARTY-NOTICES.txt")).Replace("\r\n", "\n"), notice);
         StandaloneExportHttpProbe.WriteFixture(output);
         Assert.Contains("environment.IsDevelopment()", File.ReadAllText(Path.Combine(output, "backend/Application.Host/DevelopmentAuthentication.cs")));
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };

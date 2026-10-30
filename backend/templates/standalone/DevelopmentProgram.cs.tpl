@@ -57,6 +57,8 @@ builder.Services.AddHostedService<ExportCleanupWorker>();
 builder.Services.AddSingleton(provider => new SqlRowStore(provider.GetRequiredService<DatabaseSession>(), infrastructure));
 builder.Services.AddSingleton(new FileMetadataContext([metadata]));
 builder.Services.AddSingleton(builder.Configuration.GetSection("Files").Get<FileLibraryOptions>() ?? new());
+// 对象供应商共享固定部署配置，普通启动不连接S3或创建桶。
+builder.Services.AddSingleton<FileObjectStorage>();
 builder.Services.AddScoped<FileLibraryService>();
 builder.Services.AddScoped<IFileLibraryResolver, SingleDatabaseFileLibraryResolver>();
 builder.Services.AddScoped<IRecordMutationObserver, FileReferenceMutationObserver>();

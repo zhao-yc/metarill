@@ -105,10 +105,11 @@ public sealed partial class ApplicationPackager
             var versions = XDocument.Load(CSharpGenerator.SafePath(source, "Directory.Packages.props")).Descendants("PackageVersion")
                 .Where(element => packageIds.Contains(element.Attribute("Include")?.Value ?? "")).ToArray();
             if (versions.Length != packageIds.Count || versions.Any(element => string.IsNullOrWhiteSpace(element.Attribute("Version")?.Value))) throw new InvalidOperationException("基础依赖必须有明确的中央版本。");
+            // NuGet允许SDK常用的四段固定版本；仍拒绝浮动、区间和缺少明确版本。
             foreach (var version in versions)
             {
                 var value = version.Attribute("Version")!.Value;
-                if (!System.Text.RegularExpressions.Regex.IsMatch(value, @"^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$")) throw new InvalidOperationException("独立包依赖必须是具体版本，不能使用浮动范围。");
+                if (!System.Text.RegularExpressions.Regex.IsMatch(value, @"^\d+\.\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.-]+)?$")) throw new InvalidOperationException("独立包依赖必须是具体版本，不能使用浮动范围。");
                 version.SetAttributeValue("Version", "[" + value + "]");
             }
             var packages = new XDocument(new XElement("Project", new XElement("PropertyGroup", new XElement("ManagePackageVersionsCentrally", "true")), new XElement("ItemGroup", versions.OrderBy(element => element.Attribute("Include")!.Value, StringComparer.Ordinal).Select(element => new XElement(element)))));

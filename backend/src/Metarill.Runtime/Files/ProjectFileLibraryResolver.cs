@@ -3,8 +3,12 @@ using Metarill.Core.Security;
 namespace Metarill.Runtime.Files;
 
 /// <summary>身份选择受保护项目，公开提示仅定位已经发布的固定槽，绝不作为授权依据。</summary>
-public sealed class ProjectFileLibraryResolver(ProjectFileRuntimes runtimes, IRuntimeAuthorization authorization, IIdGenerator ids) : IFileLibraryResolver
+public sealed class ProjectFileLibraryResolver(ProjectFileRuntimes runtimes, IRuntimeAuthorization authorization, IIdGenerator ids, FileObjectStorage? objectStorage = null) : IFileLibraryResolver
 {
+    /// <summary>保留原三参公开签名，不要求旧本地工厂先接入云供应商。</summary>
+    public ProjectFileLibraryResolver(ProjectFileRuntimes runtimes, IRuntimeAuthorization authorization, IIdGenerator ids)
+        : this(runtimes, authorization, ids, null) { }
+
     /// <summary>所有写操作和受保护读取仅使用中间件建立的真实项目身份。</summary>
     public FileLibraryService RequireCurrent() => Service(runtimes.Resolve(authorization.RequireActor().ProjectId));
 
@@ -16,5 +20,5 @@ public sealed class ProjectFileLibraryResolver(ProjectFileRuntimes runtimes, IRu
     }
 
     /// <summary>服务使用槽内固定会话与模型，公开构造过程不会尝试取得登录身份。</summary>
-    private FileLibraryService Service(ProjectFileRuntime runtime) => new(runtime.Store, runtime.Metadata, ids, authorization, runtime.Options);
+    private FileLibraryService Service(ProjectFileRuntime runtime) => new(runtime.Store, runtime.Metadata, ids, authorization, runtime.Options, objectStorage);
 }

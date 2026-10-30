@@ -98,7 +98,10 @@ builder.Services.AddScoped<IRecordMutationObserver,ConfigurationMutationObserver
 builder.Services.AddScoped<ConfigurationMutationObserver>();
 builder.Services.AddScoped<MetadataWorkbenchBusiness>();
 builder.Services.AddScoped<IndexWorkbenchBusiness>();
-builder.Services.AddSingleton(new FileLibraryOptions{RootDirectory=Path.Combine(root,".local","files"),LegacyPublicBaseUrl=builder.Configuration["Metarill:Files:LegacyPublicBaseUrl"]});
+// 文件端点与凭据只绑定宿主私有配置；既有本地根与公开URL协议保持。
+var fileOptions=builder.Configuration.GetSection("Metarill:Files").Get<FileLibraryOptions>()??new();
+builder.Services.AddSingleton(fileOptions with {RootDirectory=Path.Combine(root,".local","files")});
+builder.Services.AddSingleton<FileObjectStorage>();
 builder.Services.AddScoped<IFileLibraryResolver,ProjectFileLibraryResolver>();
 builder.Services.AddSingleton(new ExportOptions{RootDirectory=Path.Combine(root,".local","exports")});
 builder.Services.AddSingleton<ExcelPageExportService>();
