@@ -46,7 +46,13 @@ public sealed partial class LocalGenerationUpdater
     /// <summary>识别既有v1三层归属；候选必须仍与当前CLI的真实生成输出匹配，不能猜测未来版本协议。</summary>
     private static PackageSnapshot ReadPackage(string root, bool candidate)
     {
-        var package = Decode<PackageManifest>(ReadBytes(root, PackageMarker)); var generated = Decode<GeneratedManifest>(ReadBytes(root, GenerationMarker)); var frontend = Decode<FrontendManifest>(ReadBytes(root, FrontendMarker));
+        var packageBytes=ReadBytes(root,PackageMarker);
+        // 新模式不能先落入旧字段解码，更不能按普通Full继续更新；正式管理更新将单独接入绑定校验。
+        using(var declaration=JsonDocument.Parse(packageBytes))
+            if(declaration.RootElement.ValueKind==JsonValueKind.Object&&declaration.RootElement.TryGetProperty("packageMode",out var mode)
+                &&mode.ValueKind==JsonValueKind.String&&mode.GetString()=="FullManagementApplication")
+                throw new InvalidOperationException("当前更新器尚未支持FullManagementApplication完整管理模式，未执行工程更新。");
+        var package = Decode<PackageManifest>(packageBytes); var generated = Decode<GeneratedManifest>(ReadBytes(root, GenerationMarker)); var frontend = Decode<FrontendManifest>(ReadBytes(root, FrontendMarker));
         if (package.SchemaVersion != 1 || generated.Version != 1 || frontend.SchemaVersion != 1 || frontend.Authentication is not("development-only" or "web-database-v1")) throw new InvalidOperationException("未知包、生成或前端清单版本，当前更新器不能证明兼容。");
         if(package.AuthenticationProfile is not null && package.AuthenticationProfile!=frontend.Authentication || candidate && frontend.Authentication!="web-database-v1")throw new InvalidOperationException("包认证profile与当前候选宿主不一致。旧开发包不能伪称数据库Web。 ");
         if (package.PackageMode != "FullApplication" || !package.FrontendIncluded) throw new InvalidOperationException("首期已有项目更新只支持FullApplication，BackendOnly需独立适配。");

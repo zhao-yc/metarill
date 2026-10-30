@@ -21,7 +21,7 @@ public sealed class SecurityManagementApplicationPreparationTests
             var result=new SecurityManagementApplicationPreparer().Prepare(module,output,Namespace,source);
             var repeated=Path.Combine(root,"repeated");new SecurityManagementApplicationPreparer().Prepare(module,repeated,Namespace,source);Assert.Equal(Snapshot(output),Snapshot(repeated));
             Assert.Throws<NotSupportedException>(()=>((IList<string>)result.Files).Add("未知路径"));
-            Assert.False(File.Exists(Path.Combine(output,".metarill-package.json")));Assert.Contains(result.RequiredBackendAdapters,adapter=>adapter.Code=="initialize-account");Assert.NotEmpty(result.BackendGaps);
+            Assert.False(File.Exists(Path.Combine(output,".metarill-package.json")));Assert.Contains(result.RequiredBackendAdapters,adapter=>adapter.Code=="initialize-account");Assert.Empty(result.BackendGaps);
             using var document=JsonDocument.Parse(File.ReadAllText(Path.Combine(output,".metarill-management-preparation.json")));var declaration=document.RootElement;Assert.False(declaration.GetProperty("readyForPublication").GetBoolean());Assert.Equal(result.MetadataSha256,declaration.GetProperty("metadataSha256").GetString());
             foreach(var file in declaration.GetProperty("files").EnumerateArray())Assert.Equal(file.GetProperty("sha256").GetString(),Hash(File.ReadAllBytes(CSharpGenerator.SafePath(output,file.GetProperty("path").GetString()!))));
             Assert.Contains("尚未发布",File.ReadAllText(Path.Combine(output,"README.md")));Assert.NotEmpty(result.RedactedPaths);

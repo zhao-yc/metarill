@@ -27,6 +27,13 @@ public sealed class PackageCliTests : IAsyncDisposable
         Assert.True(backend.Code == 0, backend.Output);
         using (var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(temporary, "platform-backend/.metarill-package.json")))) Assert.False(manifest.RootElement.GetProperty("frontendIncluded").GetBoolean());
         var full = await RunAsync(source, Args("demo", "demo-full")); Assert.True(full.Code == 0, full.Output); Assert.True(File.Exists(Path.Combine(temporary, "demo-full/frontend/manifest.json")));
+        // 实际CLI新增模式必须明确选择包内后台，普通Full和BackendOnly继续原参数行为。
+        var application=JsonSerializer.Deserialize<Metarill.Core.Metadata.MetadataCatalog>(File.ReadAllText(Path.Combine(source,"backend/metadata/demo.json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var managed=await RunAsync(source,Args("demo","managed").Concat(["--management-admin-type",application.YzAdminTypes[0].Id]).ToArray());Assert.True(managed.Code==0,managed.Output);
+        using(var manifest=JsonDocument.Parse(File.ReadAllText(Path.Combine(temporary,"managed/.metarill-package.json"))))Assert.Equal("FullManagementApplication",manifest.RootElement.GetProperty("packageMode").GetString());
+        var mixed=await RunAsync(source,Args("demo","mixed").Concat(["--backend-only","--management-admin-type",application.YzAdminTypes[0].Id]).ToArray());Assert.Equal(1,mixed.Code);Assert.False(Directory.Exists(Path.Combine(temporary,"mixed")));
+        var repeatedManagement=await RunAsync(source,Args("demo","repeated-management").Concat(["--management-admin-type",application.YzAdminTypes[0].Id,"--management-admin-type",application.YzAdminTypes[0].Id]).ToArray());Assert.Equal(1,repeatedManagement.Code);Assert.False(Directory.Exists(Path.Combine(temporary,"repeated-management")));
+        Assert.Equal(1,(await RunAsync(source,cli,"generate","--management-admin-type",application.YzAdminTypes[0].Id)).Code);
         var duplicate = await RunAsync(source, Args("demo", "duplicate").Concat(["--backend-only", "--backend-only"]).ToArray()); Assert.Equal(1, duplicate.Code); Assert.False(Directory.Exists(Path.Combine(temporary, "duplicate")));
         var wrongCommand = await RunAsync(source, cli, "generate", "--backend-only"); Assert.Equal(1, wrongCommand.Code);
         var missingValue = await RunAsync(source, cli, "package", "--metadata", "--backend-only"); Assert.Equal(1, missingValue.Code);

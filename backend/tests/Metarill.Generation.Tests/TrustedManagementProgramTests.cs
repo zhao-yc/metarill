@@ -37,6 +37,6 @@ public sealed class TrustedManagementProgramTests(TrustedSecurityServiceFixture 
         Assert.Equal(3,proof.GetProperty("servicesResolved").GetInt32());Assert.True(proof.GetProperty("sharedAuthorization").GetBoolean());Assert.True(proof.GetProperty("mcpLinked").GetBoolean());Assert.True(proof.GetProperty("workbench").GetBoolean());Assert.False(proof.GetProperty("platformRealm").GetBoolean());Assert.Equal("AgentSecurityCurrentSessionPolicy",proof.GetProperty("agentCurrentPolicy").GetString());
         Assert.True(proof.GetProperty("initializerResolved").GetBoolean());Assert.Equal(1,proof.GetProperty("initializationRoutes").GetInt32());Assert.Equal(1,proof.GetProperty("centralRoutes").GetInt32());
         // 初始化规则已确认；同库HTTP/DI接线仍不代表完整管理发布、实库或跨业务库验收。
-        var plan=new FrontendPackager().PrepareSecurityManagement(fixture.Models,Path.Combine(fixture.DirectoryPath,"generated/frontend"),Path.Combine(TrustedSecurityServiceFixture.SourceRoot,".."));Assert.Contains(plan.RequiredBackendAdapters,adapter=>adapter.Code=="initialize-account");Assert.Contains(plan.BackendGaps,gap=>gap.Usage=="runtime");
+        var plan=new FrontendPackager().PrepareSecurityManagement(fixture.Models,Path.Combine(fixture.DirectoryPath,"generated/frontend"),Path.Combine(TrustedSecurityServiceFixture.SourceRoot,".."));Assert.Contains(plan.RequiredBackendAdapters,adapter=>adapter.Code=="initialize-account");Assert.Empty(plan.BackendGaps);
     }
 }

@@ -7,7 +7,9 @@ namespace Metarill.Generation;
 internal sealed record PreparedSecurityManagementSource(SecurityManagementModelSet Module,string RootNamespace,string ApplicationMetadataSha256)
 {
     internal const string ApplicationPath="backend/metadata/application-source.json";
+    internal const string SourceMarker=".metarill-management-source.json";
     private const string ProjectPath="backend/metadata/project.json",GenerationPath="backend/generated/.metarill-generation.json";
+    internal static IReadOnlyList<string> OwnedMetadataPaths {get;}=Array.AsReadOnly(new[]{ApplicationPath,ProjectPath,GenerationPath,"backend/metadata/files.json","backend/metadata/security.json"});
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     // 只将顶层已声明元数据/归属集合的元素当模型；业务扩展字典保留大小写不同的键。
     private static readonly HashSet<string> ModelCollections=new(StringComparer.OrdinalIgnoreCase)
@@ -24,8 +26,11 @@ internal sealed record PreparedSecurityManagementSource(SecurityManagementModelS
     /// <summary>只读取固定元数据路径；手写代码和开发者宿主不在本来源校验范围，更新器须另验完整归属。</summary>
     private static PreparedSecurityManagementSource ReadCore(string root)
     {
-        using var marker=ReadDocument(CSharpGenerator.SafePath(root,".metarill-management-preparation.json"));var header=marker.RootElement;
-        if(header.GetProperty("schemaVersion").GetInt32()!=1||header.GetProperty("profile").GetString()!="management-preparation-v1"||header.GetProperty("readyForPublication").GetBoolean())throw Invalid();
+        var sourceMarker=CSharpGenerator.SafePath(root,SourceMarker);var preparationMarker=CSharpGenerator.SafePath(root,".metarill-management-preparation.json");
+        var source=File.Exists(sourceMarker);if(source&&File.Exists(preparationMarker))throw Invalid();
+        using var marker=ReadDocument(source?sourceMarker:preparationMarker);var header=marker.RootElement;
+        if(header.GetProperty("schemaVersion").GetInt32()!=1||Text(header,"profile")!=(source?"management-source-v1":"management-preparation-v1")
+            ||!source&&header.GetProperty("readyForPublication").GetBoolean())throw Invalid();
         var rootNamespace=Text(header,"rootNamespace");CSharpGenerator.ValidateNamespace(rootNamespace);
         var files=header.GetProperty("files");
         byte[] ReadOwned(string relative)

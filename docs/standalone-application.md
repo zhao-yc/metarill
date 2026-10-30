@@ -1,8 +1,8 @@
 # 独立应用包与前端宿主
 
-独立包将项目元数据、生成强类型后端、Core/Data/Exports/Files 源码及 ASP.NET Core 宿主放入同一目录；当前 FullApplication 另含 Security/Agent 源码、数据库 Web 认证及Agent装配，BackendOnly 保留原 development-only 宿主。普通 CRUD 和文件、导出不依赖在线 Metarill 平台。MySQL 结构仍从元数据显式预览、执行和核验，普通启动不执行 DDL 或账号初始化。
+独立包将项目元数据、生成强类型后端、Core/Data/Exports/Files 源码及 ASP.NET Core 宿主放入同一目录；当前 FullApplication 另含 Security/Agent/MCP 源码、数据库 Web 认证及Agent装配，BackendOnly 保留原 development-only 宿主。普通 CRUD 和文件、导出不依赖在线 Metarill 平台。MySQL 结构仍从元数据显式预览、执行和核验，普通启动不执行 DDL 或账号初始化。
 
-## 两种显式模式
+## 显式打包模式
 
 CLI 默认 `FullApplication`，包含 `frontend` HBuilderX uni-app Vue3 工程；`--backend-only` 明确选择 `BackendOnly`，保留后端与生成页面片段。完整模式遇到未接线的 CustomControl 或自定义/外部菜单时，在写 stage 前中文拒绝并指出页面或控件，不自动降级。
 
@@ -11,6 +11,16 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 # 平台配置前端包含专用页面与组件，需单独提供；显式保留仅后端包：
 dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/metadata/platform.json --output .local/platform-backend --namespace Example.Platform --source-root . --backend-only
 ```
+
+2026-10-30新增显式 `FullManagementApplication`：仅CLI/API在指定包内管理后台时，额外装配原固定管理页、权限工作台和受守卫Service。使用原业务元数据，不接受将合并后的安全管理目录伪装成业务输入。普通下载API仍按下述原规则选择，不自动切换模式。
+
+```powershell
+# 示例目录只有一个后台；实际项目必须明确选择已有后台ID：
+$managementAdminTypeId = (Get-Content backend/metadata/demo.json -Raw | ConvertFrom-Json).yzAdminTypes[0].id
+dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/metadata/demo.json --output .local/demo-management --namespace Example.Demo --source-root . --management-admin-type $managementAdminTypeId
+```
+
+管理模式不能与 `--backend-only` 混用，输出必须是新空目录。当前管理工程受管更新尚未接线，已有更新器明确拒绝；正式身份、数据库、初始化及工作台矩阵仍待完整验收。模式标识、来源声明和打包成功均不等于正式发布；具体实现和证据见[完整管理打包](testing/management-full-package.md)。
 
 平台生成下载 API 根据服务端已发布平台项目身份显式选择 BackendOnly，业务项目选择 FullApplication。ZIP 的 `.metarill-package.json`、README 与响应头 `X-Metarill-Package-Mode`、`X-Metarill-Frontend-Included`、`X-Metarill-Package-Warnings` 均记录模式；warnings 头为 URI 编码的 JSON 字符串数组。平台行为不由客户端另传模式或路径决定。
 
@@ -130,7 +140,7 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 
 ## 管理模块同源准备（2026-10-29，未开放普通Full发布）
 
-[C20同源装配](security-management-application-preparation.md)已将真实三份安全partial、原权限工作台及基础工程/生产宿主/Web/Agent/MCP装入独立准备包，通过包自身严格构建、只读DI和匿名401。只有工厂真签发对象可进入内部准备路径；准备结果保留所有后端缺口，`readyForPublication=false`且没有普通Full标记。普通Create和初始化门禁不变，C06规则及后续真实管理矩阵仍待，不能把这一准备子集写成C05完整交付。
+[C20同源装配](security-management-application-preparation.md)已将真实三份安全partial、原权限工作台及基础工程/生产宿主/Web/Agent/MCP装入独立准备包，通过包自身严格构建、只读DI和匿名401。只有工厂真签发对象可进入内部准备路径；准备结果保留所有后端缺口，`readyForPublication=false`且没有普通Full标记。普通Create继续严格拒绝未签发安全管理声明；C06规则已确认、同库及平台跨库初始化分别接线，正式矩阵仍待。C51另提供显式完整管理模式，见上文；内部准备子集和新的打包实现均不代表C05全部交付。
 
 
 ## 平台业务库初始化与完整物理模型（2026-10-30）

@@ -42,7 +42,9 @@ public sealed class SecurityManagementSourceRoundTripTests
             await File.WriteAllTextAsync(Path.Combine(probe,"Probe.csproj"),project.ToString());await File.WriteAllTextAsync(Path.Combine(probe,"Program.cs"),Probe);
             var evidence=Path.Combine(source,".local/management-source-process",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(evidence);
             var build=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",probe);build.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=evidence;
-            foreach(var argument in new[]{"build","Probe.csproj","-c","Release","--nologo","--disable-build-servers","--verbosity","quiet","-warnaserror"})build.ArgumentList.Add(argument);await NonRedundantApplicationFixture.RunAsync(build);
+            foreach(var argument in new[]{"build","Probe.csproj","-c","Release","--nologo","--disable-build-servers","--verbosity","quiet","-warnaserror"})build.ArgumentList.Add(argument);
+            // 该工具项目引用当前生成器源码，跨测试类构建必须复用现有源码构建协调器。
+            using(await SharedSourceBuildGate.Shared.EnterAsync("build"))await NonRedundantApplicationFixture.RunAsync(build);
             var roundtrip=Path.Combine(root,"roundtrip-generated");var receipt=Path.Combine(evidence,"receipt.json");
             var run=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",probe);run.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=evidence;
             foreach(var argument in new[]{Path.Combine(probe,"bin/Release/net10.0/Metarill.Generation.Tests.dll"),output,roundtrip,receipt})run.ArgumentList.Add(argument);await NonRedundantApplicationFixture.RunAsync(run);

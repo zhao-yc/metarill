@@ -9,7 +9,7 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
-public enum ApplicationPackageMode { FullApplication, BackendOnly }
+public enum ApplicationPackageMode { FullApplication, BackendOnly, FullManagementApplication }
 public sealed record ApplicationPackageResult(IReadOnlyList<string> Files, string MetadataSha256, IReadOnlyList<string> RedactedPaths, IReadOnlyList<string> Warnings)
 {
     public bool FrontendIncluded { get; init; }
@@ -17,7 +17,7 @@ public sealed record ApplicationPackageResult(IReadOnlyList<string> Files, strin
 }
 
 /// <summary>将通用基础设施和生成源码装配为独立应用，不读取私有配置，也不连接数据库。</summary>
-public sealed class ApplicationPackager
+public sealed partial class ApplicationPackager
 {
     private readonly Action<string, string> publish;
     /// <summary>内外两层使用同一发布边界，失败stage必须一直保留到调用者诊断。</summary>
@@ -38,6 +38,7 @@ public sealed class ApplicationPackager
     {
         ArgumentNullException.ThrowIfNull(catalog);
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
+        if (mode == ApplicationPackageMode.FullManagementApplication) throw new ArgumentOutOfRangeException(nameof(mode), "完整管理模式必须调用CreateManagement并明确选择后台。");
         var fullApplication=mode==ApplicationPackageMode.FullApplication;
         var projects=fullApplication?WebFoundationProjects:FoundationProjects;
         var authenticationProfile=fullApplication?"web-database-v1":"development-only";
