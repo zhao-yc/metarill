@@ -7,7 +7,7 @@ namespace Metarill.Generation;
 /// <summary>逐项沿用原筛选控件、默认值和选项请求，保留原字段命名。</summary>
 internal static partial class OriginalUniappListRenderer
 {
-    private sealed record ListFilters(string Markup, string Data, string Defaults, string Methods, string Requests, string Reset, int Count, IReadOnlyList<string> OptionFields);
+    private sealed record ListFilters(string Markup, string Data, string Defaults, string Methods, string Requests, string Reset, int Count, IReadOnlyList<string> OptionFields, IReadOnlyList<string> RemoteOptions);
 
     /// <summary>原筛选只在提交时生效；不新增排序器、查询按钮或清除按钮。</summary>
     private static ListFilters Filters(GenerationModel model, TableModel table, PageModel page)
@@ -15,7 +15,7 @@ internal static partial class OriginalUniappListRenderer
         var markup = new StringBuilder(); var data = new StringBuilder(); var defaults = new StringBuilder();
         var methods = new StringBuilder(); var requests = new StringBuilder(); var reset = new StringBuilder();
         // 只下发本页实际生成的远程候选数组，退出清理不猜测实体属性。
-        var optionFields = new List<string>();
+        var optionFields = new List<string>();var remoteOptions = new List<string>();
         foreach (var column in page.Searchable)
         {
             var field = Field(model, page, column); var key = column.JsonName;
@@ -43,9 +43,11 @@ internal static partial class OriginalUniappListRenderer
                 case "ConstDownList": markup.Append($"<zxz-uni-data-select v-model='filters.{key}' :localdata='{key}Range' filterable />"); break;
                 case "List": case "MultiCheckBoxDatabase":
                     var name = column.Source.ColumnName.Length >= 3 ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
-                    markup.Append($"<zxz-uni-data-select v-model='filters.{key}' :localdata='{name}_list' filterable dataKey='name' dataValue='id' />");
-                    data.Append(name).Append("_list:[],"); optionFields.Add(name + "_list");
-                    requests.Append(OriginalOptionsRequest(model, table, page, column, name)); break;
+                    var remote=kind=="List"?OriginalRemoteOptionsCompilation.Definition(model,page,column,name+"_list",true):null;
+                    markup.Append($"<zxz-uni-data-select v-model='filters.{key}' :localdata='{name}_list' filterable dataKey='name' dataValue='id'{(remote is null?"":OriginalRemoteOptionsCompilation.Attributes(column))} />");
+                    data.Append(name).Append("_list:[],");
+                    if(remote is null){optionFields.Add(name+"_list");requests.Append(OriginalOptionsRequest(model,table,page,column,name));}
+                    else {remoteOptions.Add(remote);requests.Append("that.loadOriginalRemoteOptions(").Append(J(column.Source.Id)).Append(");");} break;
                 case "CheckBox": markup.Append($"<uni-data-checkbox v-model='filters.{key}' :localdata='$checkboxRange' />"); break;
                 case "CascadeTree":
                     // 后端级联能力仍由导出门禁检查；模板保持原组件，不能降级成普通输入框。
@@ -67,7 +69,7 @@ internal static partial class OriginalUniappListRenderer
             else if (kind is "DateTime" or "Date" or "date_time" or "date") { if (value == "today") defaults.Append($"this.filters.{key}=utils.getTodayDateAry();"); }
             else defaults.Append("this.filters.").Append(inputKey).Append('=').Append(column.Type is "int?" or "decimal?" && decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _) ? value : J(value)).Append(';');
         }
-        return new(markup.ToString(), data.ToString(), defaults.ToString(), methods.ToString(), requests.ToString(), reset.ToString(), page.Searchable.Count, optionFields.Distinct(StringComparer.Ordinal).ToArray());
+        return new(markup.ToString(), data.ToString(), defaults.ToString(), methods.ToString(), requests.ToString(), reset.ToString(), page.Searchable.Count, optionFields.Distinct(StringComparer.Ordinal).ToArray(), remoteOptions);
     }
 
     /// <summary>旧选项路径按来源列生成；空POST不改成候选分页协议。</summary>

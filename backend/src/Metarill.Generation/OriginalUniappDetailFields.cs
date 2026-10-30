@@ -90,9 +90,17 @@ internal static class OriginalUniappDetailFields
             case "CheckBox": return Choice(ro, $"(($checkboxRange || [])[entity.{name}==null?0:entity.{name}] || {{}}).text || ''", $"<uni-data-checkbox :disabled='{ro}' v-model='entity.{name}' :localdata='$checkboxRange' />");
             case "List":
                 var list = Stem(column) + "_list"; var handler = FixedOptionCatalogCompilation.Resolve(c.Model,c.Page,column).Definition is not null ? Stem(column) + "SelectChange" : name + "DetailChange"; var display = c.DisplayField(column, string.IsNullOrWhiteSpace(f.Detail) || !f.Detail.TrimStart().StartsWith("{",StringComparison.Ordinal) ? "name" : Property(Object(f.Detail,"关联"),"nameField","name"));
-                c.Data.Append(list).Append(":[],"); InitList(c, f, list, false);
+                c.Data.Append(list).Append(":[],");
+                var remote = OriginalRemoteOptionsCompilation.Definition(c.Model,c.Page,column,list,false);
+                if(remote is null)InitList(c,f,list,false);
+                else
+                {
+                    c.RemoteOptions.Add(remote);var method="loadOriginalOptions"+column.Source.Id;
+                    c.Methods.AppendLine($"{method}() {{this.loadOriginalRemoteOptions({Js(column.Source.Id)});}},");
+                    (Enabled(column.Source.Extra,"isAutoPostBackQuery")?c.DynamicInit:c.Init).AppendLine($"that.{method}();");
+                }
                 c.Methods.AppendLine($"{handler}(item) {{ if(this.{ro}) return; this.entity.{name}=item ? item.id : ''; {(display == name ? "" : $"this.entity.{display}=item ? item.name : '';")} }},");
-                return Choice(ro, $"readonlyDisplayText(entity.{display})", $"<zxz-uni-data-select v-model='entity.{name}' :localdata='{list}' filterable :disabled='{ro}' dataKey='name' dataValue='id' @change='{handler}' />");
+                return Choice(ro, $"readonlyDisplayText(entity.{display})", $"<zxz-uni-data-select v-model='entity.{name}' :localdata='{list}' filterable :disabled='{ro}' dataKey='name' dataValue='id'{(remote is null ? "" : OriginalRemoteOptionsCompilation.Attributes(column))} @change='{handler}' />");
             case "MultiCheckBoxDatabase":
                 c.Data.Append(name).Append("List:[],").Append(name).Append("SelectAll:[],"); InitList(c, f, name + "List", true);
                 c.Methods.AppendLine($$$"""

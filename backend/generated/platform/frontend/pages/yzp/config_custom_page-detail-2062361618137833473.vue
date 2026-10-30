@@ -26,7 +26,7 @@
 <uni-easyinput primaryColor="#0ab3ad" v-if='!sortNoReadOnly' v-model='entity.sortNo'  type='number'  /><text v-if='sortNoReadOnly'>{{entity.sortNo}}</text>
 </uni-forms-item>
 <uni-forms-item label='所属后台' name='yzAdminTypeId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yzAdminTypeIdDetailChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000101010-'+originalRemoteOptions['2200000000000101010'].revision" :remote-selected="originalRemoteOptions['2200000000000101010'].selected" :remote-loading="originalRemoteOptions['2200000000000101010'].loading" :remote-has-more="originalRemoteOptions['2200000000000101010'].hasMore" @open="openOriginalRemoteOptions('2200000000000101010')" @inputChange="searchOriginalRemoteOptions('2200000000000101010',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000101010')" @change='yzAdminTypeIdDetailChange' /></template>
 </uni-forms-item>
 
         </uni-forms>
@@ -42,11 +42,12 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';
 
 const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
 
 export default {
-  
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2200000000000101010","field":"yzAdminTypeId","list":"yz_admin_type_list","endpoint":"/admin/auto/config_custom_page/2062361618137833473/findNameIdYzAdminType2200000000000101010","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzAdminTypeIdReadOnly"}])],
   components: {
     
   },
@@ -243,7 +244,7 @@ runOriginalButton(id) {
  const identity=this.currentIdentity();if(button.confirm)uni.showModal({content:button.confirmMsg||'您确定'+button.name+'吗？',success(modal){if(modal.confirm)execute();}});else execute();
 },
 
-    loadOriginalOptions2200000000000101010() {const that=this;that.yz_admin_type_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["2200000000000101010"]||0)+1;that._originalOptions["2200000000000101010"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/config_custom_page/2062361618137833473/findNameIdYzAdminType2200000000000101010",isCurrent:()=>optionSequence===that._originalOptions["2200000000000101010"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.yzAdminTypeId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_admin_type_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+    loadOriginalOptions2200000000000101010() {this.loadOriginalRemoteOptions("2200000000000101010");},
 yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : '';  },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },
 

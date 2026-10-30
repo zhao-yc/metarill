@@ -67,7 +67,14 @@ public sealed class FixedRoleAdminNameTests
         static string Hash(string text)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
         // 摘要来自精确d2c1398的受管原模板，不能读取再生成后的新文件当成旧基线而形成循环证明。
         var expected=purpose=="list"?("149228BDF6FD9B4B1182AA42FFA7B6833E41AA8CAB774C911F5B9745464FAC8B","381B366BA6A47E60F6E9A2EE4360112A5E3C410F44CBB89AD163C373B00CB46E"):("FD970869AEA02A8C6CD87CB4BDF701219E89BB1FBFB01DC3C7A956D259117EE9","23B59EDA8DC1CCDAB83C137BD9438A02D5C7919D576FE7983FC3786C5DEB9B5C");
-        Assert.Equal(expected.Item1,Hash(Template(current).Replace("yzAdminTypeName","yzAdminTypeId",StringComparison.Ordinal)));Assert.Equal(expected.Item2,Hash(Style(current)));
+        // 本轮用户明确批准原控件搜索/滚动分页；只排除这一段精确属性，原DOM/事件/样式摘要继续约束。
+        var template=Template(current);
+        if(purpose=="detail")
+        {
+            const string approved=" remote :key=\"'original-options-1692533179766878209-'+originalRemoteOptions['1692533179766878209'].revision\" :remote-selected=\"originalRemoteOptions['1692533179766878209'].selected\" :remote-loading=\"originalRemoteOptions['1692533179766878209'].loading\" :remote-has-more=\"originalRemoteOptions['1692533179766878209'].hasMore\" @open=\"openOriginalRemoteOptions('1692533179766878209')\" @inputChange=\"searchOriginalRemoteOptions('1692533179766878209',$event)\" @loadMore=\"moreOriginalRemoteOptions('1692533179766878209')\"";
+            Assert.Contains(approved,template);template=template.Replace(approved,"",StringComparison.Ordinal);
+        }
+        Assert.Equal(expected.Item1,Hash(template.Replace("yzAdminTypeName","yzAdminTypeId",StringComparison.Ordinal)));Assert.Equal(expected.Item2,Hash(Style(current)));
     }
 
     /// <summary>错误映射、隐藏冲突和非物理图不能因普通List候选存在而自动通过名称证明。</summary>

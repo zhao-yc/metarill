@@ -5,10 +5,10 @@
       <view class='section-view'>
         <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
           <uni-forms-item label='所属索引' name='configIndexId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='configIndexIdReadOnly'>{{readonlyDisplayText(entity.configIndexIndexName)}}</text><template v-if='!configIndexIdReadOnly'><zxz-uni-data-select v-model='entity.configIndexId' :localdata='config_index_list' filterable :disabled='configIndexIdReadOnly' dataKey='name' dataValue='id' @change='configIndexIdDetailChange' /></template>
+<text v-if='configIndexIdReadOnly'>{{readonlyDisplayText(entity.configIndexIndexName)}}</text><template v-if='!configIndexIdReadOnly'><zxz-uni-data-select v-model='entity.configIndexId' :localdata='config_index_list' filterable :disabled='configIndexIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2076977805266128896-'+originalRemoteOptions['2076977805266128896'].revision" :remote-selected="originalRemoteOptions['2076977805266128896'].selected" :remote-loading="originalRemoteOptions['2076977805266128896'].loading" :remote-has-more="originalRemoteOptions['2076977805266128896'].hasMore" @open="openOriginalRemoteOptions('2076977805266128896')" @inputChange="searchOriginalRemoteOptions('2076977805266128896',$event)" @loadMore="moreOriginalRemoteOptions('2076977805266128896')" @change='configIndexIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='配置字段' name='configColumnId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='configColumnIdReadOnly'>{{readonlyDisplayText(entity.configColumnName)}}</text><template v-if='!configColumnIdReadOnly'><zxz-uni-data-select v-model='entity.configColumnId' :localdata='config_column_list' filterable :disabled='configColumnIdReadOnly' dataKey='name' dataValue='id' @change='configColumnIdDetailChange' /></template>
+<text v-if='configColumnIdReadOnly'>{{readonlyDisplayText(entity.configColumnName)}}</text><template v-if='!configColumnIdReadOnly'><zxz-uni-data-select v-model='entity.configColumnId' :localdata='config_column_list' filterable :disabled='configColumnIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2076977805534564352-'+originalRemoteOptions['2076977805534564352'].revision" :remote-selected="originalRemoteOptions['2076977805534564352'].selected" :remote-loading="originalRemoteOptions['2076977805534564352'].loading" :remote-has-more="originalRemoteOptions['2076977805534564352'].hasMore" @open="openOriginalRemoteOptions('2076977805534564352')" @inputChange="searchOriginalRemoteOptions('2076977805534564352',$event)" @loadMore="moreOriginalRemoteOptions('2076977805534564352')" @change='configColumnIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='物理列名' name='columnName' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!columnNameReadOnly' v-model='entity.columnName' maxlength='64'   /><text v-if='columnNameReadOnly'>{{entity.columnName}}</text>
@@ -45,11 +45,12 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';
 
 const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
 
 export default {
-  
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2076977805266128896","field":"configIndexId","list":"config_index_list","endpoint":"/admin/auto/config_index_column/2076977554350190593/findNameIdConfigIndex2076977805266128896","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"configIndexIdReadOnly"},{"id":"2076977805534564352","field":"configColumnId","list":"config_column_list","endpoint":"/admin/auto/config_index_column/2076977554350190593/findNameIdConfigColumn2076977805534564352","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"configColumnIdReadOnly"}])],
   components: {
     
   },
@@ -247,9 +248,9 @@ runOriginalButton(id) {
  const identity=this.currentIdentity();if(button.confirm)uni.showModal({content:button.confirmMsg||'您确定'+button.name+'吗？',success(modal){if(modal.confirm)execute();}});else execute();
 },
 
-    loadOriginalOptions2076977805266128896() {const that=this;that.config_index_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["2076977805266128896"]||0)+1;that._originalOptions["2076977805266128896"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/config_index_column/2076977554350190593/findNameIdConfigIndex2076977805266128896",isCurrent:()=>optionSequence===that._originalOptions["2076977805266128896"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.configIndexId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.config_index_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+    loadOriginalOptions2076977805266128896() {this.loadOriginalRemoteOptions("2076977805266128896");},
 configIndexIdDetailChange(item) { if(this.configIndexIdReadOnly) return; this.entity.configIndexId=item ? item.id : ''; this.entity.configIndexIndexName=item ? item.name : ''; },
-loadOriginalOptions2076977805534564352() {const that=this;that.config_column_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["2076977805534564352"]||0)+1;that._originalOptions["2076977805534564352"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/config_index_column/2076977554350190593/findNameIdConfigColumn2076977805534564352",isCurrent:()=>optionSequence===that._originalOptions["2076977805534564352"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.configColumnId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.config_column_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+loadOriginalOptions2076977805534564352() {this.loadOriginalRemoteOptions("2076977805534564352");},
 configColumnIdDetailChange(item) { if(this.configColumnIdReadOnly) return; this.entity.configColumnId=item ? item.id : ''; this.entity.configColumnName=item ? item.name : ''; },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },
 

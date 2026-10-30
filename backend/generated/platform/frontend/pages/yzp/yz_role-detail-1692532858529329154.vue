@@ -11,7 +11,7 @@
 <uni-easyinput primaryColor="#0ab3ad" v-if='!sortNoReadOnly' v-model='entity.sortNo'  type='number'  /><text v-if='sortNoReadOnly'>{{entity.sortNo}}</text>
 </uni-forms-item>
 <uni-forms-item label='后台类型' name='yzAdminTypeId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yzAdminTypeIdDetailChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-1692533179766878209-'+originalRemoteOptions['1692533179766878209'].revision" :remote-selected="originalRemoteOptions['1692533179766878209'].selected" :remote-loading="originalRemoteOptions['1692533179766878209'].loading" :remote-has-more="originalRemoteOptions['1692533179766878209'].hasMore" @open="openOriginalRemoteOptions('1692533179766878209')" @inputChange="searchOriginalRemoteOptions('1692533179766878209',$event)" @loadMore="moreOriginalRemoteOptions('1692533179766878209')" @change='yzAdminTypeIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='超级管理员' name='isSuper'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <text v-if='isSuperReadOnly'>{{(($checkboxRange || [])[entity.isSuper==null?0:entity.isSuper] || {}).text || ''}}</text><template v-if='!isSuperReadOnly'><uni-data-checkbox :disabled='isSuperReadOnly' v-model='entity.isSuper' :localdata='$checkboxRange' /></template>
@@ -39,11 +39,12 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';
 
 const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
 
 export default {
-  
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"1692533179766878209","field":"yzAdminTypeId","list":"yz_admin_type_list","endpoint":"/admin/auto/yz_role/1692532858529329154/findNameIdYzAdminType1692533179766878209","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzAdminTypeIdReadOnly"}])],
   components: {
     
   },
@@ -239,7 +240,7 @@ runOriginalButton(id) {
  const identity=this.currentIdentity();if(button.confirm)uni.showModal({content:button.confirmMsg||'您确定'+button.name+'吗？',success(modal){if(modal.confirm)execute();}});else execute();
 },
 
-    loadOriginalOptions1692533179766878209() {const that=this;that.yz_admin_type_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["1692533179766878209"]||0)+1;that._originalOptions["1692533179766878209"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/yz_role/1692532858529329154/findNameIdYzAdminType1692533179766878209",isCurrent:()=>optionSequence===that._originalOptions["1692533179766878209"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.yzAdminTypeId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_admin_type_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+    loadOriginalOptions1692533179766878209() {this.loadOriginalRemoteOptions("1692533179766878209");},
 yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : ''; this.entity.yzAdminTypeName=item ? item.name : ''; },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },
 

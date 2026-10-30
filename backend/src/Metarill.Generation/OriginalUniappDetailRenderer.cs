@@ -22,6 +22,11 @@ internal static class OriginalUniappDetailRenderer
             if(tabs && group.Length>0 && !inserted){c.Fields.AppendLine(GroupTabs);inserted=true;}
             c.FieldsMetadata.Add(field with {GroupKey=group});OriginalUniappDetailFields.Render(c,field,group,tabs);
         }
+        if(c.RemoteOptions.Count>0)
+        {
+            c.Imports.AppendLine("import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';");
+            c.Mixins.Add("createOriginalRemoteOptionsMixin(["+string.Join(',',c.RemoteOptions)+"])");
+        }
         if(tabs)
         {
             c.Imports.AppendLine("import { createDetailLayoutMixin } from '@/common/yzp_runtime/detailLayoutRuntime';");

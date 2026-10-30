@@ -35,6 +35,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     internal List<OriginalDetailField> FieldsMetadata { get; } = [];
     internal Dictionary<string, string> ImportedComponents { get; } = new(StringComparer.Ordinal);
     internal List<string> Mixins { get; } = [];
+    internal List<string> RemoteOptions { get; } = [];
 
     /// <summary>页面控件明细为空才继承字段明细，与原PageColumnSettingsResolver一致。</summary>
     internal OriginalDetailField Field(ColumnModel column)

@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Metarill.Generation.Tests;
 
-/// <summary>原List保留zxz组件和数组协议；额外目标父必须来自唯一可读声明外键，不得猜测或退全量。</summary>
+/// <summary>原List保留zxz组件，分页及已选回读使用固定父范围；不猜测目标父、不退回全量。</summary>
 public sealed class GeneratedRelationUiTests
 {
     [Fact]
@@ -19,8 +19,8 @@ public sealed class GeneratedRelationUiTests
             new CSharpGenerator().Generate(catalog, output, "Example.RelationUi");
             var detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-detail-201.vue"));
             var list = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-list-201.vue"));
-            Assert.Contains("<zxz-uni-data-select",detail);Assert.DoesNotContain("<yzp-relation-select",detail+list);Assert.Contains("findNameIdTarget25",detail);Assert.Contains("formParameters:uni.getStorageSync(that.formParametersName)",detail);
-            Assert.Contains("dataKey='name' dataValue='id'",detail);Assert.Contains("targetParentId:optionParent",detail);Assert.Contains("filters.targetId",list);
+            Assert.Contains("<zxz-uni-data-select",detail);Assert.DoesNotContain("<yzp-relation-select",detail+list);Assert.Contains("findNameIdTarget25",detail);Assert.Contains("createOriginalRemoteOptionsMixin",detail);Assert.Contains(" remote ",detail);
+            Assert.Contains("dataKey='name' dataValue='id'",detail);Assert.Contains("\"sameParent\":true",detail);Assert.Contains("filters.targetId",list);
             await RunProbe(output,"same");
             catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["isReadOnly"] = JsonSerializer.SerializeToElement(1);
             new CSharpGenerator().Generate(catalog, output, "Example.RelationUi"); detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-detail-201.vue"));
@@ -46,7 +46,7 @@ public sealed class GeneratedRelationUiTests
             // 真实当前记录开放了唯一目标父外键之后，才能明确绑定 entity.parentId，不经过索引等跨层推测。
             catalog.ConfigPageColumns.Add(new() { Id = "2026", ConfigPageId = "201", ConfigColumnId = "26", IsShow = 1, IsEdit = 1 });
             new CSharpGenerator().Generate(catalog, output, "Example.IndependentUi"); detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-detail-201.vue"));
-            Assert.Contains("String(that.entity.parentId??'')",detail);Assert.Contains("targetParentId:optionParent",detail);await RunProbe(output,"independent");await RunProbe(output,"independentReadonly");
+            Assert.Contains("\"targetParentField\":\"parentId\"",detail);await RunProbe(output,"independent");await RunProbe(output,"independentReadonly");
             catalog.ConfigColumns.Add(new() { Id = "29", ConfigTableId = "2", ColumnName = "other_parent_id", LogicalType = "int64", LinkConfigTableId = "1" });
             catalog.ConfigPageColumns.Add(new() { Id = "2029", ConfigPageId = "201", ConfigColumnId = "29", IsShow = 1 });
             new CSharpGenerator().Generate(catalog, output, "Example.IndependentUi"); detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/relation_source-detail-201.vue"));

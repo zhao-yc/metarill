@@ -26,7 +26,7 @@ public sealed class OriginalListTargetParentTests
             }
             new CSharpGenerator().Generate(catalog,output,"Example.OriginalListParent");
             var generated=File.ReadAllText(Path.Combine(output,"frontend/pages/yzp/relation_source-list-201.vue"));
-            Assert.Contains("optionFields:[\"target_list\"]",generated);
+            Assert.Contains(scenario=="unresolved"?"optionFields:[\"target_list\"]":"createOriginalRemoteOptionsMixin",generated);
             Assert.Contains("canLoad(){return !!uni.getStorageSync('loginStateId');}",generated);
             var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
             start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(SourceFile())!,"OriginalListTargetParentProbe.mjs"));start.ArgumentList.Add(output);start.ArgumentList.Add(scenario);

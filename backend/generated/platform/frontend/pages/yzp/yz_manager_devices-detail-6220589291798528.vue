@@ -5,7 +5,7 @@
       <view class='section-view'>
         <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
           <uni-forms-item label='管理员' name='yzManagerId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerId)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' @change='yzManagerIdDetailChange' /></template>
+<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerId)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-1679383180512325633-'+originalRemoteOptions['1679383180512325633'].revision" :remote-selected="originalRemoteOptions['1679383180512325633'].selected" :remote-loading="originalRemoteOptions['1679383180512325633'].loading" :remote-has-more="originalRemoteOptions['1679383180512325633'].hasMore" @open="openOriginalRemoteOptions('1679383180512325633')" @inputChange="searchOriginalRemoteOptions('1679383180512325633',$event)" @loadMore="moreOriginalRemoteOptions('1679383180512325633')" @change='yzManagerIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='名称' name='name'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!nameReadOnly' v-model='entity.name' maxlength='50'   /><text v-if='nameReadOnly'>{{entity.name}}</text>
@@ -35,12 +35,13 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';
 import ChildList2034175000850300930 from "@/pages/yzp/yz_manager_devices_project-list-6220608155484160.vue";
 
 const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
 
 export default {
-  
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"1679383180512325633","field":"yzManagerId","list":"yz_manager_list","endpoint":"/admin/auto/yz_manager_devices/6220589291798528/findNameIdYzManager1679383180512325633","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzManagerIdReadOnly"}])],
   components: {
     ChildList2034175000850300930,
   },
@@ -236,7 +237,7 @@ runOriginalButton(id) {
  const identity=this.currentIdentity();if(button.confirm)uni.showModal({content:button.confirmMsg||'您确定'+button.name+'吗？',success(modal){if(modal.confirm)execute();}});else execute();
 },
 
-    loadOriginalOptions1679383180512325633() {const that=this;that.yz_manager_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["1679383180512325633"]||0)+1;that._originalOptions["1679383180512325633"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/yz_manager_devices/6220589291798528/findNameIdYzManager1679383180512325633",isCurrent:()=>optionSequence===that._originalOptions["1679383180512325633"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.yzManagerId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_manager_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+    loadOriginalOptions1679383180512325633() {this.loadOriginalRemoteOptions("1679383180512325633");},
 yzManagerIdDetailChange(item) { if(this.yzManagerIdReadOnly) return; this.entity.yzManagerId=item ? item.id : '';  },
 customerButtonHandler2034487360028282880() { this.runOriginalButton("2034487360028282880"); },
 customerButtonHandler2034487360028282881() { this.runOriginalButton("2034487360028282881"); },

@@ -5,7 +5,7 @@
       <view class='section-view'>
         <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
           <uni-forms-item label='所属配置表' name='configTableId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='configTableIdReadOnly'>{{readonlyDisplayText(entity.configTableName)}}</text><template v-if='!configTableIdReadOnly'><zxz-uni-data-select v-model='entity.configTableId' :localdata='config_table_list' filterable :disabled='configTableIdReadOnly' dataKey='name' dataValue='id' @change='configTableIdDetailChange' /></template>
+<text v-if='configTableIdReadOnly'>{{readonlyDisplayText(entity.configTableName)}}</text><template v-if='!configTableIdReadOnly'><zxz-uni-data-select v-model='entity.configTableId' :localdata='config_table_list' filterable :disabled='configTableIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2076977821456142336-'+originalRemoteOptions['2076977821456142336'].revision" :remote-selected="originalRemoteOptions['2076977821456142336'].selected" :remote-loading="originalRemoteOptions['2076977821456142336'].loading" :remote-has-more="originalRemoteOptions['2076977821456142336'].hasMore" @open="openOriginalRemoteOptions('2076977821456142336')" @inputChange="searchOriginalRemoteOptions('2076977821456142336',$event)" @loadMore="moreOriginalRemoteOptions('2076977821456142336')" @change='configTableIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='索引名称' name='indexName' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!indexNameReadOnly' v-model='entity.indexName' maxlength='64'   /><text v-if='indexNameReadOnly'>{{entity.indexName}}</text>
@@ -42,12 +42,13 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';
 import ChildList2076978161299623936 from "@/pages/yzp/config_index_column-list-2076977554350190593.vue";
 
 const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
 
 export default {
-  
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2076977821456142336","field":"configTableId","list":"config_table_list","endpoint":"/admin/auto/config_index/2076977531071803393/findNameIdConfigTable2076977821456142336","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"configTableIdReadOnly"}])],
   components: {
     ChildList2076978161299623936,
   },
@@ -244,7 +245,7 @@ runOriginalButton(id) {
  const identity=this.currentIdentity();if(button.confirm)uni.showModal({content:button.confirmMsg||'您确定'+button.name+'吗？',success(modal){if(modal.confirm)execute();}});else execute();
 },
 
-    loadOriginalOptions2076977821456142336() {const that=this;that.config_table_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["2076977821456142336"]||0)+1;that._originalOptions["2076977821456142336"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/config_index/2076977531071803393/findNameIdConfigTable2076977821456142336",isCurrent:()=>optionSequence===that._originalOptions["2076977821456142336"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.configTableId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.config_table_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+    loadOriginalOptions2076977821456142336() {this.loadOriginalRemoteOptions("2076977821456142336");},
 configTableIdDetailChange(item) { if(this.configTableIdReadOnly) return; this.entity.configTableId=item ? item.id : ''; this.entity.configTableName=item ? item.name : ''; },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },
 

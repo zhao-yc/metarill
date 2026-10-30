@@ -6,16 +6,17 @@ namespace Metarill.Generation;
 internal static partial class OriginalUniappListRenderer
 {
     /// <summary>后台固定端点复用原状态机；选择桥接只替换内部完整回读。</summary>
-    private static string ScriptTop(GenerationModel model, TableModel table, PageModel page, string detail, bool importDetail, bool selection, bool child, IReadOnlyList<string> optionFields)
+    private static string ScriptTop(GenerationModel model, TableModel table, PageModel page, string detail, bool importDetail, bool selection, bool child, IReadOnlyList<string> optionFields, IReadOnlyList<string> remoteOptions)
     {
         var endpoint = "/admin/auto/" + table.Source.TableName + "/" + page.Source.Id;
         var optionParents = RelationCompilation.ForPage(model,page).Where(relation=>page.Searchable.Contains(relation.SourceColumn))
             .Select(relation=>ControlRenderer.RelationContext(page,relation,true).TargetParentField).Where(field=>field is not null).Distinct(StringComparer.Ordinal).ToArray();
         var result = new StringBuilder("import utils from '@/common/utils';\nimport yzp from '@/common/yzp_runtime/yzp-runtime';\nimport project from '@/common/project';\nimport { menuBoolean } from '@/common/yzp_runtime/menuRuntime';\nimport { createListPageMixin } from '@/common/yzp_runtime/listPageRuntime';\nimport { createOriginalListOptionsMixin } from '@/common/yzp_runtime/originalListOptionsMixin';\n");
+        if(remoteOptions.Count>0)result.AppendLine("import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';");
         if (importDetail) result.Append("import ").Append(detail).Append(" from '@/pages/yzp/").Append(table.Source.TableName).Append("-detail-").Append(page.Source.Id).AppendLine(".vue';");
         if (selection) result.AppendLine("import { createOriginalSelectionPageMixin } from '@/common/yzp_runtime/originalSelectionPageMixin';");
         // 缺少本机会话的自动加载只清空；真正的项目/页面权限仍由服务端核验。
-        result.Append("export default {mixins:[createOriginalListOptionsMixin({targetParentFields:").Append(J(optionParents)).Append(",optionFields:").Append(J(optionFields)).Append("}),createListPageMixin({canLoad(){return !!uni.getStorageSync('loginStateId');},url:").Append(J(endpoint + "/page")).Append(",pageSize:").Append(page.Source.PageSize).Append(",request(options){return yzp.request(options);},onParentChanged(){");
+        result.Append("export default {mixins:[createOriginalListOptionsMixin({targetParentFields:").Append(J(optionParents)).Append(",optionFields:").Append(J(optionFields)).Append("}),").Append(remoteOptions.Count==0?"":"createOriginalRemoteOptionsMixin(["+string.Join(',',remoteOptions)+"],'filters'),").Append("createListPageMixin({canLoad(){return !!uni.getStorageSync('loginStateId');},url:").Append(J(endpoint + "/page")).Append(",pageSize:").Append(page.Source.PageSize).Append(",request(options){return yzp.request(options);},onParentChanged(){");
         if (!selection) result.Append("if(Array.isArray(this.selectedList)){this.selectedList=[];this.isSelectAll=false;}");
         if (importDetail) result.Append("if(this.closeChildDetailPopup)this.closeChildDetailPopup();");
         result.Append("},onLoaded(){if(this.syncOriginalSelectionRows)this.syncOriginalSelectionRows();else if(this.selectedList){for(const item of this.list)item.isSelect=this.selectedList.some(row=>String(row.id)===String(item.id));this.checkIsAllSelect();}}");

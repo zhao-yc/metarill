@@ -5,10 +5,10 @@
       <view class='section-view'>
         <uni-forms ref='entityForm' :modelValue='entity' :rules="entity_rules" label-width="96px">
           <uni-forms-item label='项目' name='yzProjectId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzProjectIdReadOnly'>{{readonlyDisplayText(entity.yzProjectId)}}</text><template v-if='!yzProjectIdReadOnly'><zxz-uni-data-select v-model='entity.yzProjectId' :localdata='yz_project_list' filterable :disabled='yzProjectIdReadOnly' dataKey='name' dataValue='id' @change='yzProjectIdDetailChange' /></template>
+<text v-if='yzProjectIdReadOnly'>{{readonlyDisplayText(entity.yzProjectId)}}</text><template v-if='!yzProjectIdReadOnly'><zxz-uni-data-select v-model='entity.yzProjectId' :localdata='yz_project_list' filterable :disabled='yzProjectIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-1679323290301280258-'+originalRemoteOptions['1679323290301280258'].revision" :remote-selected="originalRemoteOptions['1679323290301280258'].selected" :remote-loading="originalRemoteOptions['1679323290301280258'].loading" :remote-has-more="originalRemoteOptions['1679323290301280258'].hasMore" @open="openOriginalRemoteOptions('1679323290301280258')" @inputChange="searchOriginalRemoteOptions('1679323290301280258',$event)" @loadMore="moreOriginalRemoteOptions('1679323290301280258')" @change='yzProjectIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='账号' name='yzManagerId' required v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerId)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' @change='yzManagerIdDetailChange' /></template>
+<text v-if='yzManagerIdReadOnly'>{{readonlyDisplayText(entity.yzManagerId)}}</text><template v-if='!yzManagerIdReadOnly'><zxz-uni-data-select v-model='entity.yzManagerId' :localdata='yz_manager_list' filterable :disabled='yzManagerIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-1679323290464858113-'+originalRemoteOptions['1679323290464858113'].revision" :remote-selected="originalRemoteOptions['1679323290464858113'].selected" :remote-loading="originalRemoteOptions['1679323290464858113'].loading" :remote-has-more="originalRemoteOptions['1679323290464858113'].hasMore" @open="openOriginalRemoteOptions('1679323290464858113')" @inputChange="searchOriginalRemoteOptions('1679323290464858113',$event)" @loadMore="moreOriginalRemoteOptions('1679323290464858113')" @change='yzManagerIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='生成java代码' name='isJava'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <text v-if='isJavaReadOnly'>{{(($checkboxRange || [])[entity.isJava==null?0:entity.isJava] || {}).text || ''}}</text><template v-if='!isJavaReadOnly'><uni-data-checkbox :disabled='isJavaReadOnly' v-model='entity.isJava' :localdata='$checkboxRange' /></template>
@@ -36,11 +36,12 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';
 
 const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
 
 export default {
-  
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"1679323290301280258","field":"yzProjectId","list":"yz_project_list","endpoint":"/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzProject1679323290301280258","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzProjectIdReadOnly"},{"id":"1679323290464858113","field":"yzManagerId","list":"yz_manager_list","endpoint":"/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzManager1679323290464858113","requireParent":true,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzManagerIdReadOnly"}])],
   components: {
     
   },
@@ -235,9 +236,9 @@ runOriginalButton(id) {
  const identity=this.currentIdentity();if(button.confirm)uni.showModal({content:button.confirmMsg||'您确定'+button.name+'吗？',success(modal){if(modal.confirm)execute();}});else execute();
 },
 
-    loadOriginalOptions1679323290301280258() {const that=this;that.yz_project_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["1679323290301280258"]||0)+1;that._originalOptions["1679323290301280258"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzProject1679323290301280258",isCurrent:()=>optionSequence===that._originalOptions["1679323290301280258"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),id:that.entity.yzProjectId},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_project_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+    loadOriginalOptions1679323290301280258() {this.loadOriginalRemoteOptions("1679323290301280258");},
 yzProjectIdDetailChange(item) { if(this.yzProjectIdReadOnly) return; this.entity.yzProjectId=item ? item.id : '';  },
-loadOriginalOptions1679323290464858113() {const that=this;that.yz_manager_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["1679323290464858113"]||0)+1;that._originalOptions["1679323290464858113"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/yz_manager_devices_project/6220608155484160/findNameIdYzManager1679323290464858113",isCurrent:()=>optionSequence===that._originalOptions["1679323290464858113"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.yzManagerId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_manager_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+loadOriginalOptions1679323290464858113() {this.loadOriginalRemoteOptions("1679323290464858113");},
 yzManagerIdDetailChange(item) { if(this.yzManagerIdReadOnly) return; this.entity.yzManagerId=item ? item.id : '';  },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },
 

@@ -224,7 +224,7 @@
 <uni-easyinput primaryColor="#0ab3ad" v-if='!isRepeatPwdReadOnly' v-model='entity.isRepeatPwd'  type='number'  /><text v-if='isRepeatPwdReadOnly'>{{entity.isRepeatPwd}}</text>
 </uni-forms-item>
 <uni-forms-item label='所属后台' name='yzAdminTypeId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' @change='yzAdminTypeIdDetailChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000000087-'+originalRemoteOptions['2200000000000000087'].revision" :remote-selected="originalRemoteOptions['2200000000000000087'].selected" :remote-loading="originalRemoteOptions['2200000000000000087'].loading" :remote-has-more="originalRemoteOptions['2200000000000000087'].hasMore" @open="openOriginalRemoteOptions('2200000000000000087')" @inputChange="searchOriginalRemoteOptions('2200000000000000087',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000087')" @change='yzAdminTypeIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='数据归属模式' name='scopeKind'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!scopeKindReadOnly' v-model='entity.scopeKind' maxlength='30'   /><text v-if='scopeKindReadOnly'>{{entity.scopeKind}}</text>
@@ -259,13 +259,14 @@
 import utils from "@/common/utils";
 import yzp from "@/common/yzp_runtime/yzp-runtime";
 import project from "@/common/project";
+import { createOriginalRemoteOptionsMixin } from '@/common/yzp_runtime/originalRemoteOptionsMixin';
 import ChildList1868973890525487105 from "@/pages/yzp/config_page-list-1868973685063311361.vue";
 import ChildList1610249810450849794 from "@/pages/yzp/config_column-list-6217715532627968.vue";
 
 const originalRecordId=value=>typeof value==='string' && !['null','undefined'].includes(value.trim())?value.trim():'';
 
 export default {
-  
+  mixins:[createOriginalRemoteOptionsMixin([{"id":"2200000000000000087","field":"yzAdminTypeId","list":"yz_admin_type_list","endpoint":"/admin/auto/config_table/6191083005411328/findNameIdYzAdminType2200000000000000087","requireParent":false,"requireTargetParent":false,"sameParent":false,"targetParentField":null,"readonlyField":"yzAdminTypeIdReadOnly"}])],
   components: {
     ChildList1868973890525487105,ChildList1610249810450849794,
   },
@@ -538,7 +539,7 @@ runOriginalButton(id) {
 },
 
     receive1671029182696714241(newEntity) { if(this.isRongyuReadOnly) return; this.entity=newEntity; },
-loadOriginalOptions2200000000000000087() {const that=this;that.yz_admin_type_list=[];(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["2200000000000000087"]||0)+1;that._originalOptions["2200000000000000087"]=optionSequence;const optionParent=null;that.originalRequest({url:"/admin/auto/config_table/6191083005411328/findNameIdYzAdminType2200000000000000087",isCurrent:()=>optionSequence===that._originalOptions["2200000000000000087"]&&true,data:{parentId:that.parent_id,formParameters:uni.getStorageSync(that.formParametersName),...(that.readOnlyCondition?{id:that.entity.yzAdminTypeId}:{})},method:'POST',sendSessionId:true,success(res){if(res.code===200){that.yz_admin_type_list=res.data||[];}else uni.showModal({showCancel:false,content:res.msg});}});})();},
+loadOriginalOptions2200000000000000087() {this.loadOriginalRemoteOptions("2200000000000000087");},
 yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : '';  },
 customerButtonHandler1676828142707372033() { this.runOriginalButton("1676828142707372033"); },
 customerButtonHandler2076978804953321472() { this.runOriginalButton("2076978804953321472"); },
