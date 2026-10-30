@@ -48,6 +48,8 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         var packageVersion = System.Xml.Linq.XDocument.Load(Path.Combine(output, "Directory.Packages.props")).Descendants("PackageVersion").Single(item => item.Attribute("Include")?.Value == "AWSSDK.S3").Attribute("Version")!.Value;
         Assert.Equal("[" + sourceVersion + "]", packageVersion);
         Assert.True(File.Exists(Path.Combine(output, "src/Metarill.Files/FileObjectStorage.cs")));
+        Assert.Equal(File.ReadAllText(Path.Combine(source,"backend/src/Metarill.Core/Metadata/DetailLayoutConfiguration.cs")).Replace("\r\n","\n"),
+            File.ReadAllText(Path.Combine(output,"src/Metarill.Core/Metadata/DetailLayoutConfiguration.cs")));
         var notice = File.ReadAllText(Path.Combine(output, "src/Metarill.Files/licenses/THIRD-PARTY-NOTICES.txt"));
         Assert.Contains("AWS SDK for .NET - AWSSDK.S3 / AWSSDK.Core", notice);
         Assert.Equal(File.ReadAllText(Path.Combine(source, "backend/src/Metarill.Files/licenses/THIRD-PARTY-NOTICES.txt")).Replace("\r\n", "\n"), notice);

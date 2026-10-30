@@ -18,6 +18,16 @@ public sealed class MetadataWorkbenchRulesTests
     [InlineData("{\"version\":1,\"mode\":\"tabs\",\"groups\":[],\"sql\":\"DELETE\"}")]
     public void Layout_rejects_missing_null_duplicate_and_unknown(string body) => Assert.Throws<InvalidOperationException>(() => MetadataWorkbenchRules.Layout(Json(body)));
 
+    /// <summary>保存入口不能接受原生成器无法生成的65至100字符标识。</summary>
+    [Theory]
+    [InlineData(64,true)][InlineData(65,false)][InlineData(100,false)]
+    public void Layout_key_length_matches_original_generator(int length,bool accepted)
+    {
+        var input=JsonSerializer.SerializeToElement(new{version=1,mode="tabs",groups=new[]{new{key=new string('a',length),name="基础"}}});
+        if(accepted)Assert.Equal(length,Assert.Single(MetadataWorkbenchRules.Layout(input).Groups).Key.Length);
+        else Assert.Throws<InvalidOperationException>(()=>MetadataWorkbenchRules.Layout(input));
+    }
+
     /// <summary>停用布局保留定义，显式空归属表示常显，不隐式创建标签。</summary>
     [Fact]
     public void Layout_save_preserves_none_groups_and_requires_explicit_assignments()

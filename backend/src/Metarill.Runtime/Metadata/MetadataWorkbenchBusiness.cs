@@ -1,3 +1,4 @@
+using Metarill.Core.Metadata;
 using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -46,8 +47,10 @@ public sealed partial class MetadataWorkbenchBusiness(SqlRowStore store, HttpRun
             if (!currentIds.SetEquals(input.Fields.Keys)) throw new InvalidOperationException("布局字段必须完整且属于当前页面，请刷新后重试。");
             var actor = authorization.RequireAdministrator();
             foreach (var field in scope.Fields)
-                await store.UpdateAsync("config_page_column", SqlRowStore.Id(field), Audit(new() { ["detail_group_key"] = input.Fields[SqlRowStore.Id(field)] }, actor), cancellationToken);
-            await store.UpdateAsync("config_page", input.PageId, Audit(new() { ["detail_layout"] = JsonSerializer.Serialize(input.Layout, JsonDefaults.Options) }, actor), cancellationToken);
+                if(await store.UpdateAsync("config_page_column",SqlRowStore.Id(field),Audit(new(){["detail_group_key"]=input.Fields[SqlRowStore.Id(field)]},actor),cancellationToken)!=1)
+                    throw new InvalidOperationException("详情布局字段已变化，请刷新后重试。");
+            if(await store.UpdateAsync("config_page",input.PageId,Audit(new(){["detail_layout"]=JsonSerializer.Serialize(input.Layout,JsonDefaults.Options)},actor),cancellationToken)!=1)
+                throw new InvalidOperationException("详情布局页面已变化，请刷新后重试。");
             return BuildLayoutSnapshot(await ReadPageScopeAsync(input.PageId, cancellationToken));
         }, cancellationToken);
     }
@@ -174,11 +177,16 @@ public sealed partial class MetadataWorkbenchBusiness(SqlRowStore store, HttpRun
     private static DetailLayoutDefinition ReadLayout(Dictionary<string, object?> page)
     { var raw = SqlRowStore.Text(page, "detail_layout"); if (string.IsNullOrWhiteSpace(raw)) return new(1, "none", []); using var document = JsonDocument.Parse(raw); return MetadataWorkbenchRules.Layout(document.RootElement); }
     /// <summary>详情布局只返回设计元数据，不读取业务表数据。</summary>
-    private static object BuildLayoutSnapshot(PageScope scope) => new
+    private static object BuildLayoutSnapshot(PageScope scope)
     {
-        pageId = SqlRowStore.Text(scope.Page, "id"), pageName = SqlRowStore.Text(scope.Page, "name"), revision = PageRevision(scope), detailLayout = ReadLayout(scope.Page),
-        fields = FieldRows(scope).Select(row => new { pageColumnId = row["id"], name = row["configColumnName"], columnName = row["configColumnColumnName"], sortNo = row["sortNo"], isInEdit = row["isInEdit"], detailGroupKey = row["detailGroupKey"] }).ToArray()
-    };
+        // 保留原快照的两个不同ID，避免前端或MCP把页面字段ID误当成表字段ID；整批一次建索引。
+        var columns=scope.Fields.ToDictionary(field=>SqlRowStore.Text(field,"id"),field=>SqlRowStore.Text(field,"config_column_id"),StringComparer.Ordinal);
+        return new
+        {
+            pageId=SqlRowStore.Text(scope.Page,"id"),pageName=SqlRowStore.Text(scope.Page,"name"),revision=PageRevision(scope),detailLayout=ReadLayout(scope.Page),
+            fields=FieldRows(scope).Select(row=>new{pageColumnId=row["id"],columnId=columns[(string)row["id"]!],name=row["configColumnName"],columnName=row["configColumnColumnName"],sortNo=row["sortNo"],isInEdit=row["isInEdit"],detailGroupKey=row["detailGroupKey"]}).ToArray()
+        };
+    }
     /// <summary>只投影工作台展示所需属性，字段顺序跟随原列排序。</summary>
     private static IReadOnlyList<Dictionary<string, object?>> FieldRows(PageScope scope)
     {
@@ -220,19 +228,8 @@ internal static class MetadataWorkbenchRules
     /// <summary>只接受版本1布局、唯一标签标识与有效名称。</summary>
     internal static DetailLayoutDefinition Layout(JsonElement value)
     {
-        Object(value, "version", "mode", "groups");
-        if (!value.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number) || number != 1) throw new InvalidOperationException("不支持的布局版本。");
-        var mode = Text(value, "mode"); if (mode is not ("none" or "tabs")) throw new InvalidOperationException("布局模式无效。");
-        if (!value.TryGetProperty("groups", out var groups) || groups.ValueKind != JsonValueKind.Array) throw new InvalidOperationException("布局标签集合不能为空或省略。");
-        var keys = new HashSet<string>(StringComparer.Ordinal); var names = new HashSet<string>(StringComparer.Ordinal); var result = new List<DetailLayoutGroup>();
-        foreach (var group in groups.EnumerateArray())
-        {
-            Object(group, "key", "name"); var key = Text(group, "key"); var name = Text(group, "name").Trim();
-            if (!Regex.IsMatch(key, "^[A-Za-z][A-Za-z0-9_-]{0,99}$") || !keys.Add(key)) throw new InvalidOperationException("布局标签标识无效或重复。");
-            if (name.Length is 0 or > 100 || !names.Add(name)) throw new InvalidOperationException("布局标签名称为空、重复或超过100字符。");
-            result.Add(new(key, name));
-        }
-        return new(1, mode, result);
+        var layout=DetailLayoutConfiguration.Parse(value);
+        return new(layout.Version,layout.Mode,layout.Groups.Select(group=>new DetailLayoutGroup(group.Key,group.Name)).ToArray());
     }
     /// <summary>完整解析保存聚合，字段只能引用本次定义中的标签。</summary>
     internal static DetailLayoutSave LayoutSave(JsonElement request)

@@ -30,16 +30,35 @@ public sealed class OriginalUniappDetailTests
     }
     /// <summary>损坏布局、未知控件/按钮或目标页缺失必须暴露，不能降级为另一套界面。</summary>
     [Theory]
-    [InlineData("layoutVersion")] [InlineData("layoutKey")] [InlineData("control")] [InlineData("buttonAction")] [InlineData("buttonSave")]
+    [InlineData("layoutVersion")] [InlineData("layoutKey")] [InlineData("layoutMissingGroup")] [InlineData("layoutHiddenGroup")] [InlineData("layoutMissingGroupNone")] [InlineData("control")] [InlineData("buttonAction")] [InlineData("buttonSave")]
     public void Original_detail_rejects_unknown_or_incomplete_configuration(string scenario)
     {
         var catalog=Catalog();var page=catalog.ConfigPages[0];
         if(scenario=="layoutVersion")page.Extra["detailLayout"]=JsonSerializer.SerializeToElement("{\"version\":2,\"mode\":\"tabs\",\"groups\":[]}");
         if(scenario=="layoutKey")page.Extra["detailLayout"]=JsonSerializer.SerializeToElement("{\"version\":1,\"mode\":\"tabs\",\"groups\":[{\"key\":\"same\",\"name\":\"甲\"},{\"key\":\"same\",\"name\":\"乙\"}]}");
+        if(scenario is "layoutMissingGroup" or "layoutHiddenGroup" or "layoutMissingGroupNone")
+        {
+            catalog.ConfigPageColumns[0].Extra["detailGroupKey"]=JsonSerializer.SerializeToElement("missing_group");
+            if(scenario=="layoutHiddenGroup"){catalog.ConfigPageColumns[0].IsEdit=0;catalog.ConfigPageColumns[0].Extra["isInEdit"]=JsonSerializer.SerializeToElement(0);}
+            if(scenario=="layoutMissingGroupNone")page.Extra["detailLayout"]=JsonSerializer.SerializeToElement(page.Extra["detailLayout"].GetString()!.Replace("tabs","none",StringComparison.Ordinal));
+        }
         if(scenario=="control")catalog.ConfigColumns.Single(column=>column.ColumnName=="notes").ControlKind="UnknownNewControl";
         if(scenario is "buttonAction" or "buttonSave")catalog.ConfigButtons[0]=JsonSerializer.SerializeToElement(new {id="900",name="未知按钮",configPageId=page.Id,place="Edit",visibleScheme="Normal",actionType=scenario=="buttonAction"?4:1,saveOption=scenario=="buttonSave"?"Invented":"NotSave"});
         var model=GenerationModel.Create(catalog,"Example.Reject");var table=model.Tables.Single();Assert.Throws<InvalidOperationException>(()=>OriginalUniappDetailRenderer.Render(model,table,table.Pages.Single(),[]));
     }
+    /// <summary>保存与实际原模板渲染共同遵循64字符边界，不让非法配置进入发布。</summary>
+    [Theory][InlineData(64,true)][InlineData(65,false)][InlineData(100,false)]
+    public void Original_detail_group_key_length_matches_workbench(int length,bool accepted)
+    {
+        var catalog=Catalog();var key=new string('a',length);
+        catalog.ConfigPages[0].Extra["detailLayout"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{version=1,mode="tabs",groups=new[]{new{key,name="基础信息"},new{key="other",name="更多内容"}}}));
+        foreach(var field in catalog.ConfigPageColumns)
+            if(field.Extra.TryGetValue("detailGroupKey",out var value)&&value.GetString()=="basic")field.Extra["detailGroupKey"]=JsonSerializer.SerializeToElement(key);
+        var model=GenerationModel.Create(catalog,"Example.LayoutLength");var table=model.Tables.Single();var page=table.Pages.Single();
+        if(accepted)Assert.Contains(key,OriginalUniappDetailRenderer.Render(model,table,page,[]));
+        else Assert.Throws<InvalidOperationException>(()=>OriginalUniappDetailRenderer.Render(model,table,page,[]));
+    }
+
     /// <summary>原子表结构继续在表单之外，保存前不挂载；原props/打开方式与刷新事件全部保留。</summary>
     [Fact]
     public async Task Original_detail_keeps_parent_child_lifecycle_and_original_component_contract()

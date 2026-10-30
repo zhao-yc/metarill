@@ -1,3 +1,4 @@
+using Metarill.Core.Metadata;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -11,8 +12,11 @@ internal static class OriginalUniappDetailRenderer
     /// <summary>完整渲染单个原详情页，不写生成产物，不依赖旧Java服务或开发机绝对路径。</summary>
     internal static string Render(GenerationModel model, TableModel table, PageModel page, IReadOnlyList<ChildModel> children)
     {
-        var c=new OriginalDetailContext(model,table,page,children); var layout=Layout(page);var tabs=Property(layout,"mode")=="tabs";
-        var groups=layout.GetProperty("groups").EnumerateArray().Select(group=>Property(group,"key")).ToArray();
+        var c=new OriginalDetailContext(model,table,page,children);var layout=Layout(page);var definition=DetailLayoutConfiguration.Parse(layout);
+        var tabs=definition.Mode=="tabs";var groups=definition.Groups.Select(group=>group.Key).ToArray();
+        // 隐藏字段与关闭布局也遵守同一引用规则，禁止生成时静默移到常显区。
+        foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==page.Source.Id))
+            definition.RequireGroup(Text(field.Extra,"detailGroupKey"));
         var fields=page.DetailColumns.Select(c.Field).ToArray();
         if(tabs)fields=fields.OrderBy(field=>Array.IndexOf(groups,field.GroupKey)).ToArray();
         var inserted=false;
@@ -63,12 +67,11 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
         var result=Template("original-detail.vue.tpl");foreach(var (marker,value)in values)result=result.Replace(marker,value,StringComparison.Ordinal);
         if(Regex.IsMatch(result,"##[A-Za-z_$][A-Za-z0-9_$]*##"))throw new InvalidOperationException("原详情模板仍有未填充占位符。");return result;
     }
-    /// <summary>直接移植原详情分组协议，关闭tabs仍保留定义；未知版本或重复key拒绝。</summary>
+    /// <summary>读取原布局JSON且保留原模板文本，结构和引用统一交给共享规则验证。</summary>
     private static JsonElement Layout(PageModel page)
     {
         var text=Text(page.Source.Extra,"detailLayout");var value=Object(text.Length==0?"{\"version\":1,\"mode\":\"none\",\"groups\":[]}":text,"布局");
-        if(!value.TryGetProperty("version",out var version)||Integer(version,0)!=1||Property(value,"mode") is not("none" or "tabs")||!value.TryGetProperty("groups",out var groups)||groups.ValueKind!=JsonValueKind.Array)throw new InvalidOperationException("原详情布局必须包含version=1、mode和groups。");
-        var keys=new HashSet<string>(StringComparer.Ordinal);foreach(var group in groups.EnumerateArray()){var key=Property(group,"key");var name=Property(group,"name");if(!Regex.IsMatch(key,"^[A-Za-z][A-Za-z0-9_-]{0,63}$")||!keys.Add(key)||string.IsNullOrWhiteSpace(name)||name.Length>100)throw new InvalidOperationException("原详情分组key或名称无效。");}return value;
+        return value;
     }
     /// <summary>原主子Tab/顺排结构，只有真实已读/已存父记录才能挂载；刷新子页不会写父表。</summary>
     private static string Children(OriginalDetailContext c)

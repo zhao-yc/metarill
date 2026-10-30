@@ -19,7 +19,7 @@ using Xunit;
 namespace Metarill.Metadata.Tests;
 
 /// <summary>真实SqlRowStore/观察器/工作台的离线命令回归；内存命令适配器不证明MySQL锁或隔离行为。</summary>
-public sealed class ConfigurationMaterializedValueTests
+public sealed partial class ConfigurationMaterializedValueTests
 {
     [Fact]
     public void Fixed_values_overwrite_stale_copy_and_preserve_real_null()
@@ -534,7 +534,7 @@ public sealed class ConfigurationMaterializedValueTests
     /// <summary>仅解释SqlRowStore固定生成的参数化单表命令；不支持任意SQL，也不建立网络连接。</summary>
     private sealed class MemoryProvider:IDatabaseProvider
     {
-        internal Dictionary<string,List<Dictionary<string,object?>>> Rows{get;set;}=new(StringComparer.Ordinal);internal List<string> Commands{get;}=[];internal List<(string Sql,Dictionary<string,object?> Values,DbTransaction? Transaction)> Reads{get;}=[];internal int Rollbacks;
+        internal Dictionary<string,List<Dictionary<string,object?>>> Rows{get;set;}=new(StringComparer.Ordinal);internal List<string> Commands{get;}=[];internal List<(string Sql,Dictionary<string,object?> Values,DbTransaction? Transaction)> Reads{get;}=[];internal int Rollbacks;internal Func<string,DbParameterCollection,bool>? SkipWrite;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new MemoryConnection(this);public string QuoteIdentifier(string id)=>new MySqlDatabaseProvider().QuoteIdentifier(id);public string ParameterPlaceholder(string name)=>"@"+name;public string BuildSelectForUpdate(string sql)=>new MySqlDatabaseProvider().BuildSelectForUpdate(sql);
         internal DbDataReader Read(string sql,DbParameterCollection parameters,DbTransaction? transaction)
         {
@@ -552,7 +552,7 @@ public sealed class ConfigurationMaterializedValueTests
         }
         internal int Write(string sql,DbParameterCollection parameters)
         {
-            Commands.Add(sql);var update=Regex.Match(sql,@"^UPDATE `([^`]+)` SET (.+) WHERE `id`=@record_id$");
+            Commands.Add(sql);if(SkipWrite?.Invoke(sql,parameters)==true)return 0;var update=Regex.Match(sql,@"^UPDATE `([^`]+)` SET (.+) WHERE `id`=@record_id$");
             if(update.Success)
             {
                 var row=(Rows.GetValueOrDefault(update.Groups[1].Value)??[]).SingleOrDefault(row=>Equal(row.GetValueOrDefault("id"),parameters["record_id"].Value));if(row is null)return 0;

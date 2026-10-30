@@ -1,3 +1,4 @@
+using Metarill.Core.Metadata;
 using Metarill.Core.Contracts;
 using System.Text.Json;
 using Metarill.Core.Persistence;
@@ -96,7 +97,11 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             if(context.IsCreate||context.SubmittedFields.ContainsKey("config_table_id"))
                 ConfigurationMaterializedValues.RequirePage(row,tables[0]);
             await ValidateAdminTypeAsync(row,project,true,token);
-            await ValidatePageFieldsAsync(row,project,token);
+            var layout=await ValidatePageFieldsAsync(row,project,token);
+            // 只归一明确写入的布局；普通改名不重写历史配置，失败仍由原事务整笔回滚。
+            if(context.IsCreate||context.SubmittedFields.ContainsKey("detail_layout"))
+                if(await store.UpdateAsync("config_page",context.RecordId,new Dictionary<string,object?>{{"detail_layout",JsonSerializer.Serialize(layout,JsonDefaults.Options)}},token)!=1)
+                    throw new InvalidOperationException("详情布局保存未命中当前页面。");
             await ValidateMenusAsync("config_page_id",row,project,token);
             return;
         }
@@ -133,15 +138,17 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         await OwnedRowAsync("yz_admin_type",Convert.ToInt64(admin),project,token);
     }
     /// <summary>页面换表前检查全部既有字段，不能保留旧表引用或静默挪动页面字段。</summary>
-    private async Task ValidatePageFieldsAsync(IReadOnlyDictionary<string,object?> page,long project,CancellationToken token)
+    private async Task<DetailLayoutConfiguration> ValidatePageFieldsAsync(IReadOnlyDictionary<string,object?> page,long project,CancellationToken token)
     {
         var table=SqlRowStore.Id(page,"config_table_id");
+        var layout=DetailLayoutConfiguration.Parse(SqlRowStore.Text(page,"detail_layout"));
         foreach(var field in await store.ReadForUpdateAsync("config_page_column",new Dictionary<string,object?>{{"config_page_id",SqlRowStore.Id(page)}},token))
         {
-            RequireProject(field,project);
+            RequireProject(field,project);layout.RequireGroup(SqlRowStore.Text(field,"detail_group_key"));
             var column=await OwnedRowAsync("config_column",SqlRowStore.Id(field,"config_column_id"),project,token);
             if(SqlRowStore.Id(column,"config_table_id")!=table)throw new InvalidOperationException("页面已有字段属于其他表，不能直接修改页面所属表。");
         }
+        return layout;
     }
     /// <summary>页面换后台时不能留下无法导航的菜单；所有引用均必须同项目同后台。</summary>
     private async Task ValidateMenusAsync(string field,IReadOnlyDictionary<string,object?> page,long project,CancellationToken token)

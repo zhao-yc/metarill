@@ -10,6 +10,12 @@ public sealed partial class ConfigurationMutationObserver
     {
         var row=await OwnedRowAsync("config_page_column",context.RecordId,project,token);
         var page=await OwnedRowAsync("config_page",SqlRowStore.Id(row,"config_page_id"),project,token);
+        var layout=Metarill.Core.Metadata.DetailLayoutConfiguration.Parse(SqlRowStore.Text(page,"detail_layout"));
+        layout.RequireGroup(SqlRowStore.Text(row,"detail_group_key"));
+        // 沿原明确清空语义：只归一此次提交的null，不触碰其它字段或页面布局。
+        if(context.SubmittedFields.ContainsKey("detail_group_key")&&row.GetValueOrDefault("detail_group_key") is null)
+            if(await store.UpdateAsync("config_page_column",context.RecordId,new Dictionary<string,object?>{{"detail_group_key",""}},token)!=1)
+                throw new InvalidOperationException("详情布局字段已失效。");
         var column=await OwnedRowAsync("config_column",SqlRowStore.Id(row,"config_column_id"),project,token);
         if(SqlRowStore.Id(page,"config_table_id")!=SqlRowStore.Id(column,"config_table_id"))throw new InvalidOperationException("页面字段必须引用所属表的字段。");
         await OwnedRowAsync("config_table",SqlRowStore.Id(page,"config_table_id"),project,token);
