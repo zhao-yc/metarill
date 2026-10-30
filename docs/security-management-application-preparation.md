@@ -55,4 +55,4 @@ C20准备时C06规则仍待确认、未注册HTTP或DI。2026-10-29用户已确�
 
 新增 `CreateManagement` 与CLI `--management-admin-type`，明确选择原业务已发布后台，生成独立模式 `FullManagementApplication`。原准备路径仍保留未发布状态；新路径将来源独立为五份固定元数据的通用声明，外层完整清单绑定实际模块/后台/来源，成套提供当前源码、原三管理页/工作台和Web/Agent/MCP。已绑定实际受守卫模板时不再把“验收待做”当成“协调未接线”，普通模型原门禁保留；RequiredBackendAdapters继续表示四项实际依赖。
 
-完整包自身源码严格构建、Production/Web匿名边界、真实CLI、旧普通更新/回滚等133项通过；最终来源/管理/基础/工厂45项复验通过，严格零警告错误，普通生成两轮不变。现有更新器明确拒绝新模式，C05受管更新与正式同包矩阵仍须继续，不以这些验证宣告完整发布。入口、限制和原失败记录见[完整管理打包](testing/management-full-package.md)。
+完整包自身源码严格构建、Production/Web匿名边界、真实CLI、旧普通更新/回滚等133项通过；最终来源/管理/基础/工厂45项复验通过，严格零警告错误，普通生成两轮不变。C51当时的更新器明确拒绝新模式；后续C52已接当前固定模块更新，见[更新证据](testing/management-generation-update.md)。C05正式同包矩阵仍须继续，不以这些验证宣告完整发布。入口、限制和原失败记录见[完整管理打包](testing/management-full-package.md)。

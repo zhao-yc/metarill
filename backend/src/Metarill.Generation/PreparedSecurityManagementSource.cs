@@ -11,10 +11,6 @@ internal sealed record PreparedSecurityManagementSource(SecurityManagementModelS
     private const string ProjectPath="backend/metadata/project.json",GenerationPath="backend/generated/.metarill-generation.json";
     internal static IReadOnlyList<string> OwnedMetadataPaths {get;}=Array.AsReadOnly(new[]{ApplicationPath,ProjectPath,GenerationPath,"backend/metadata/files.json","backend/metadata/security.json"});
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
-    // 只将顶层已声明元数据/归属集合的元素当模型；业务扩展字典保留大小写不同的键。
-    private static readonly HashSet<string> ModelCollections=new(StringComparer.OrdinalIgnoreCase)
-    {"yzAdminTypes","configTables","configColumns","configPages","configPageColumns","configMenus","configChildren","configButtons","configCustomPages","configIndexes","configIndexColumns","files","requiredBackendAdapters","backendGaps"};
-
     /// <summary>磁盘声明只用于归属核验；管理模型始终由当前工厂按原业务输入重新构造，不相信自报可信标志。</summary>
     internal static PreparedSecurityManagementSource Read(string packageDirectory)
     {
@@ -73,21 +69,7 @@ internal sealed record PreparedSecurityManagementSource(SecurityManagementModelS
     private static JsonDocument ReadDocument(byte[] bytes)
     {
         var document=JsonDocument.Parse(bytes);
-        try{RequireUnique(document.RootElement);return document;}catch{document.Dispose();throw;}
-    }
-    /// <summary>模型拒绝别名歧义；嵌套业务JSON按原大小写敏感字典处理，不改变扩展值语义。</summary>
-    private static void RequireUnique(JsonElement value,bool model=true,int depth=0)
-    {
-        if(value.ValueKind==JsonValueKind.Object)
-        {
-            var names=new HashSet<string>(model?StringComparer.OrdinalIgnoreCase:StringComparer.Ordinal);
-            foreach(var property in value.EnumerateObject())
-            {
-                if(!names.Add(property.Name))throw Invalid();
-                RequireUnique(property.Value,depth==0&&ModelCollections.Contains(property.Name),depth+1);
-            }
-        }
-        else if(value.ValueKind==JsonValueKind.Array)foreach(var item in value.EnumerateArray())RequireUnique(item,model,depth+1);
+        try{GenerationMetadataJson.RequireUnique(document.RootElement);return document;}catch{document.Dispose();throw;}
     }
     /// <summary>错误不回显原业务字段或凭据，旧准备包缺少快照时要求重新准备。</summary>
     private static InvalidOperationException Invalid()=>new("管理准备包业务来源或固定模块归属不一致，请重新准备。");

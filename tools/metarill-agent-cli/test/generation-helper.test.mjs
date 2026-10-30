@@ -27,6 +27,7 @@ before(async () => {
  await writeFile(join(folder, 'Probe.csproj'), `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings></PropertyGroup><ItemGroup><ProjectReference Include="${escape(join(source, 'backend/src/Metarill.Generation/Metarill.Generation.csproj'))}"/></ItemGroup></Project>`);
  await writeFile(join(folder, 'Program.cs'), `using System.Text.Json; using Metarill.Core.Metadata; using Metarill.Generation;
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
+var managed=args[0]=="managed";if(managed)args=args.Skip(1).ToArray();
 // 独占测试包用原Updater在实际替换后注入异常，生产CLI没有故障参数。
 if(args.Length>2) {
  var plan=LocalGenerationUpdater.ReadPlan(args[2]); var updater=new LocalGenerationUpdater(); string changed=null;
@@ -48,7 +49,8 @@ if(args.Length>2) {
  return;
 }
 var catalog = JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.Combine(args[1], "backend/metadata/demo.json")), json)!;
-new ApplicationPackager().Create(catalog, Path.Combine(args[0], "target"), "Example.Assistant", args[1]);
+if(managed)new ApplicationPackager().CreateManagement(catalog,Path.Combine(args[0],"target"),"Example.Assistant",args[1],catalog.YzAdminTypes[0].Id);
+else new ApplicationPackager().Create(catalog, Path.Combine(args[0], "target"), "Example.Assistant", args[1]);
 catalog.YzProjectName = "在线助手预览"; catalog.ConfigColumns.First(c => c.ColumnName == "name").Name = "助手验收名称";
 File.WriteAllText(Path.Combine(args[0],"snapshots.json"),JsonSerializer.Serialize(new[]{"generate-project-config","sync-runtime","generate-all-page"}.Select(action => LocalGenerationUpdater.CreateRequest(catalog,action)),json));
 File.WriteAllText(Path.Combine(args[0], "snapshot.json"), JsonSerializer.Serialize(LocalGenerationUpdater.CreateRequest(catalog, "generate-project-config"), json));`);
@@ -57,8 +59,8 @@ File.WriteAllText(Path.Combine(args[0], "snapshot.json"), JsonSerializer.Seriali
 after(async () => { if (shared) { assert.ok(shared.startsWith(tmpdir())); await rm(shared, { recursive: true }); } });
 
 /** 本地真实HTTP通道配合真实C#离线程序；网络认证是合约替身，实际grant另由后端MySQL用例验证。 */
-async function fixture(t) {
- const root = await mkdtemp(join(tmpdir(), 'metarill-helper-node-')); await processRun(dotnet, [probe, root, source]); await cp(cli, join(root, 'cli'), { recursive: true });
+async function fixture(t, managed=false) {
+ const root = await mkdtemp(join(tmpdir(), 'metarill-helper-node-')); await processRun(dotnet, [probe,...(managed?['managed']:[]),root,source]); await cp(cli, join(root, 'cli'), { recursive: true });
  const store = new ConfigStore(join(root, 'config/config.json')); const snapshot = JSON.parse(await readFile(join(root, 'snapshot.json'), 'utf8'));
  const snapshots=JSON.parse(await readFile(join(root,'snapshots.json'),'utf8'));
  const state = { snapshots, approvals: [], requests: [], binding: null, reports: [], requestId: randomUUID(), leaseId: randomUUID(), snapshot, failReport: false, failBind: false, failApplicationReport: false, applications: [], accountId: '1', projectId: snapshot.projectId, grantId: '11', foreign: false };
@@ -130,6 +132,22 @@ test('本机显式允许后仅合并同快照分别确认的动作，真实应�
  // 已实际提交的同一日志，回放持久applying切点，必须只读核验committed而不重跑apply。
  const applicationPath=join(task,'application.json'); const interrupted=JSON.parse(await readFile(applicationPath,'utf8')); interrupted.phase='applying'; delete interrupted.receipt; await writeFile(applicationPath,JSON.stringify(interrupted));
  const result=await f.run(['helper','poll','--once']); assert.equal(result.code,0,result.stderr); assert.equal(result.data.status,'applied'); assert.equal(result.data.applied,true); assert.equal(f.state.applications.length,3); assert.deepEqual(f.state.applications[0],f.state.applications[2]); assert.equal((await stat(join(task,'application-plan.json'))).mtimeMs,stamp); assert.equal(JSON.parse(await readFile(appid,'utf8')).appid,'__UNI__TEST_ASSISTANT'); assert.equal(await readFile(service,'utf8'),manual);
+});
+
+test('管理完整包沿真实CLI助手合并原确认动作，应用及回执重放保留管理来源和手写扩展', {timeout:360000}, async t => {
+ const f=await fixture(t,true); const configAction='generate-project-config',pagesAction='generate-all-page';
+ assert.equal((await f.bind(['--mode','apply','--allow-actions',configAction+','+pagesAction,'--confirm'])).code,0);
+ const appid=join(f.root,'target/frontend/manifest.json'); const manifest=JSON.parse(await readFile(appid,'utf8')); manifest.appid='__UNI__TEST_ASSISTANT'; await writeFile(appid,JSON.stringify(manifest));
+ const service=join(f.root,'target/backend/generated/Services/YzRoleService.cs'); await writeFile(service,(await readFile(service,'utf8'))+'\n// 本机手写扩展必须保持\n'); const manual=await readFile(service,'utf8');
+ const firstProof={requestId:f.state.requestId,action:configAction,requestSha256:f.state.snapshot.requestSha256,metadataSha256:f.state.snapshot.metadataSha256}; f.state.approvals=[firstProof];
+ const before=await fingerprint(join(f.root,'target')); const missing=await f.run(['helper','poll','--once']); assert.equal(missing.code,0,missing.stderr); assert.equal(missing.data.applied,false); assert.ok(missing.data.requiredActions.includes(pagesAction)); assert.equal(await fingerprint(join(f.root,'target')),before); assert.equal(f.state.requests.filter(item=>item.path.endsWith('/helper/authorize')).length,0);
+ f.state.snapshot=f.state.snapshots.find(item=>item.action===pagesAction); f.state.requestId=randomUUID(); f.state.leaseId=randomUUID(); f.state.done=false; f.state.approvals.push({requestId:f.state.requestId,action:pagesAction,requestSha256:f.state.snapshot.requestSha256,metadataSha256:f.state.snapshot.metadataSha256}); f.state.failApplicationReport=true;
+ const apply=await f.run(['helper','poll','--once']); assert.equal(apply.code,1,apply.stderr); assert.equal(f.state.applicationDone,true); assert.notEqual(await fingerprint(join(f.root,'target')),before); assert.deepEqual(f.state.ticket.actions,[pagesAction,configAction].sort()); assert.ok(!f.state.ticket.actions.includes('sync-runtime'));
+ const task=join(f.root,'work',f.state.requestId); const stamp=(await stat(join(task,'application-plan.json'))).mtimeMs; f.state.failApplicationReport=true; const replay=await f.run(['helper','poll','--once']); assert.equal(replay.code,1); assert.equal(f.state.applications.length,2); assert.deepEqual(f.state.applications[0],f.state.applications[1]);
+ // 已实际提交的同一日志，回放持久applying切点，必须只读核验committed而不重跑apply。
+ const applicationPath=join(task,'application.json'); const interrupted=JSON.parse(await readFile(applicationPath,'utf8')); interrupted.phase='applying'; delete interrupted.receipt; await writeFile(applicationPath,JSON.stringify(interrupted));
+ const result=await f.run(['helper','poll','--once']); assert.equal(result.code,0,result.stderr); assert.equal(result.data.status,'applied'); assert.equal(result.data.applied,true); assert.equal(f.state.applications.length,3); assert.deepEqual(f.state.applications[0],f.state.applications[2]); assert.equal((await stat(join(task,'application-plan.json'))).mtimeMs,stamp); assert.equal(JSON.parse(await readFile(appid,'utf8')).appid,'__UNI__TEST_ASSISTANT'); assert.equal(await readFile(service,'utf8'),manual);
+ const packageJson=JSON.parse(await readFile(join(f.root,'target/.metarill-package.json'),'utf8')); assert.equal(packageJson.packageMode,'FullManagementApplication'); assert.equal(packageJson.managementModule.managementAdminTypeId,'2200000000000100001'); assert.ok(packageJson.files.some(file=>file.path==='backend/metadata/application-source.json')); const identity=JSON.parse(await processRun(dotnet,[join(f.root,'cli/Metarill.Cli.dll'),'update','target-identity','--target',join(f.root,'target')])); assert.equal(identity.rootNamespace,'Example.Assistant'); assert.equal(identity.projectId,f.state.projectId);
 });
 
 test('已领取且准备完成后撤权复核失败，实际目标仍保持原字节，不运行apply', {timeout:180000}, async t => {

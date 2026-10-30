@@ -1,6 +1,7 @@
 using Metarill.Core.Contracts;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Metarill.Core.Metadata;
 
@@ -9,11 +10,14 @@ namespace Metarill.Generation;
 public sealed partial class LocalGenerationUpdater
 {
     private sealed record UpdateEntry(string Path, string Sha256);
-    private sealed record PackageManifest(int SchemaVersion, string RootNamespace, string PackageMode, bool FrontendIncluded, string[] Warnings, string MetadataSha256, UpdateEntry[] Files, string? AuthenticationProfile=null,string? SecurityCatalogSha256=null);
+    private sealed record ManagementBinding(string ModuleId,string ModuleSha256,string ManagementAdminTypeId,string ApplicationMetadataSha256);
+    private sealed record PackageManifest(int SchemaVersion, string RootNamespace, string PackageMode, bool FrontendIncluded, string[] Warnings, string MetadataSha256, UpdateEntry[] Files, string? AuthenticationProfile=null,string? SecurityCatalogSha256=null,
+        [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] ManagementBinding? ManagementModule=null,
+        [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] string[]? RedactedPaths=null);
     private sealed record GeneratedManifest(int Version, string ProjectId, string RootNamespace, string MetadataSha256, UpdateEntry[] Files);
     private sealed record FrontendManifest(int SchemaVersion, string ProjectId, string Authentication, UpdateEntry[] Files);
     private sealed record PackageSnapshot(string Root, PackageManifest Package, GeneratedManifest Generated, FrontendManifest Frontend, MetadataCatalog Metadata, Dictionary<string, UpdateEntry> Entries)
-    { public string ProjectId => Generated.ProjectId; }
+    { public string ProjectId => Generated.ProjectId; public PreparedSecurityManagementSource? Management {get;init;} }
     private static readonly HashSet<string> Protected = new(StringComparer.Ordinal)
     { "README.md", ".gitignore", "backend/Application.Host/appsettings.example.json", "frontend/README.md", "frontend/.gitignore", "frontend/manifest.json", "frontend/common/application.config.js", "frontend/common/project.js", "frontend/static/logo.png", "frontend/App.vue", "frontend/main.js", "frontend/pages/main/index.vue", "frontend/pages/main/main.vue", "frontend/pages/main/left.vue", "frontend/pages/main/top.vue", "frontend/pages/main/menu.vue", "frontend/pages/main/my.vue", "frontend/pages/main/change_password.vue" };
     // 固定原壳骨架只能在完全缺失时首次创建；已有字节始终属于开发者，不包含AppID/API配置或私有凭据。
@@ -47,15 +51,10 @@ public sealed partial class LocalGenerationUpdater
     private static PackageSnapshot ReadPackage(string root, bool candidate)
     {
         var packageBytes=ReadBytes(root,PackageMarker);
-        // 新模式不能先落入旧字段解码，更不能按普通Full继续更新；正式管理更新将单独接入绑定校验。
-        using(var declaration=JsonDocument.Parse(packageBytes))
-            if(declaration.RootElement.ValueKind==JsonValueKind.Object&&declaration.RootElement.TryGetProperty("packageMode",out var mode)
-                &&mode.ValueKind==JsonValueKind.String&&mode.GetString()=="FullManagementApplication")
-                throw new InvalidOperationException("当前更新器尚未支持FullManagementApplication完整管理模式，未执行工程更新。");
         var package = Decode<PackageManifest>(packageBytes); var generated = Decode<GeneratedManifest>(ReadBytes(root, GenerationMarker)); var frontend = Decode<FrontendManifest>(ReadBytes(root, FrontendMarker));
         if (package.SchemaVersion != 1 || generated.Version != 1 || frontend.SchemaVersion != 1 || frontend.Authentication is not("development-only" or "web-database-v1")) throw new InvalidOperationException("未知包、生成或前端清单版本，当前更新器不能证明兼容。");
         if(package.AuthenticationProfile is not null && package.AuthenticationProfile!=frontend.Authentication || candidate && frontend.Authentication!="web-database-v1")throw new InvalidOperationException("包认证profile与当前候选宿主不一致。旧开发包不能伪称数据库Web。 ");
-        if (package.PackageMode != "FullApplication" || !package.FrontendIncluded) throw new InvalidOperationException("首期已有项目更新只支持FullApplication，BackendOnly需独立适配。");
+        if (package.PackageMode is not("FullApplication" or "FullManagementApplication") || !package.FrontendIncluded) throw new InvalidOperationException("已有项目更新仅支持完整应用模式，BackendOnly需独立适配。");
         if (!Regex.IsMatch(package.RootNamespace ?? "", @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$") || generated.RootNamespace != package.RootNamespace || !ValidHash(package.MetadataSha256) || package.MetadataSha256 != generated.MetadataSha256) throw new InvalidOperationException("namespace或元数据摘要不一致。");
         if (!long.TryParse(generated.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var project) || project <= 0 || project.ToString(CultureInfo.InvariantCulture) != generated.ProjectId || generated.ProjectId != frontend.ProjectId) throw new InvalidOperationException("项目标识不一致或无效。");
         var entries = Entries(package.Files); var generatedEntries = Entries(generated.Files); var frontendEntries = Entries(frontend.Files);
@@ -69,12 +68,14 @@ public sealed partial class LocalGenerationUpdater
         var metadata = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/project.json"));
         var infrastructure = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/files.json"));
         if(candidate)FileUploadLifetime.ValidateMetadata(infrastructure);
-        MetadataCatalogComposition.MergePhysical(metadata, infrastructure);
-        if(frontend.Authentication=="web-database-v1")MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(metadata,infrastructure),Decode<MetadataCatalog>(ReadBytes(root,"backend/metadata/security.json")));
+        var management=ReadManagement(root,package,generated,entries);
+        var physical=management is null?metadata:management.Module.Physical;
+        MetadataCatalogComposition.MergePhysical(physical, infrastructure);
+        if(frontend.Authentication=="web-database-v1")MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(physical,infrastructure),Decode<MetadataCatalog>(ReadBytes(root,"backend/metadata/security.json")));
         MetadataValidation.Validate(metadata);
         if (metadata.YzProjectId != generated.ProjectId || CanonicalHash(metadata) != generated.MetadataSha256) throw new InvalidOperationException("应用元数据与生成清单摘要不一致。");
         if (package.Warnings is null || package.Warnings.Any(warning => warning is null)) throw new InvalidOperationException("包提示列表无效。");
-        var snapshot = new PackageSnapshot(root, package, generated, frontend, metadata, entries);
+        var snapshot = new PackageSnapshot(root, package, generated, frontend, metadata, entries){Management=management};
         // FullApplication的启动入口不能通过同时删文件和删归属来伪装成可选运行时删除。
         var bootstrap = new[] { GenerationMarker, FrontendMarker, "Directory.Build.props", "Directory.Packages.props", "global.json", "LICENSE",
             "backend/metadata/project.json", "backend/metadata/files.json", "backend/Application.Host/Program.cs", "backend/Application.Host/Application.Host.csproj", "backend/Application.Host/DevelopmentAuthentication.cs", "backend/Application.Host/DevelopmentNavigation.cs",
@@ -99,6 +100,9 @@ public sealed partial class LocalGenerationUpdater
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/ClockTimeValue.cs","src/Metarill.Core/Contracts/ClockTimeJsonConverter.cs","src/Metarill.Core/Contracts/SqlTimeValue.cs","src/Metarill.Core/Contracts/SqlTimeJsonConverter.cs","src/Metarill.Data/MySqlPersistedTimeValues.cs"});
         // 当前时间精度解释与结构反查共用Core/Data源码，不能删文件及归属后冒充完整候选。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FileUploadLifetime.cs","src/Metarill.Core/Contracts/BusinessCalendar.cs","src/Metarill.Core/Metadata/MetadataColumnTypePolicy.cs","src/Metarill.Core/Metadata/MetadataCatalogComposition.cs","src/Metarill.Data/Schema/MySqlSchemaPlanner.cs","src/Metarill.Data/Schema/SchemaImportDraft.cs","src/Metarill.Data/Schema/SchemaService.cs"});
+        if(management is not null)bootstrap=bootstrap.Concat(new[]{PreparedSecurityManagementSource.SourceMarker,PreparedSecurityManagementSource.ApplicationPath,
+            "backend/generated/Controllers/RolePermissionWorkbenchController.g.cs","backend/generated/Controllers/AdminAccountInitializationController.g.cs"}
+            .Concat(ManagementFrontend.Select(path=>"backend/generated/"+path)).Concat(ManagementFrontend));
         foreach (var required in bootstrap)
             if (!entries.ContainsKey(required)) throw new InvalidOperationException("完整包缺少必要启动归属：" + required);
         foreach (var entry in generatedEntries.Values)
@@ -123,9 +127,9 @@ public sealed partial class LocalGenerationUpdater
         if (candidate)
         {
             // 候选必须满足完整前端能力合同；旧目标只读归属验证不反向强加新能力门禁。
-            new FrontendPackager().Validate(metadata);
-            var model = GenerationModel.Create(metadata, package.RootNamespace);
-            var rendered = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(WriteSchemaRenderer.Render(model)).ToArray();
+            if(management is null)new FrontendPackager().Validate(metadata);
+            var model = management is null?GenerationModel.Create(metadata, package.RootNamespace):FrontendPackager.ValidateSecurityManagement(management.Module,package.RootNamespace);
+            var rendered = BackendRenderer.Render(model).Concat(UniappRenderer.Render(model)).Concat(TrustedSecurityWorkbenchRenderer.Frontend(model)).Concat(WriteSchemaRenderer.Render(model)).ToArray();
             var expected = rendered.Where(file => !file.Handwritten).Select(file => new UpdateEntry(file.Path, Hash(System.Text.Encoding.UTF8.GetBytes(file.Content.Replace("\r\n", "\n").Replace("\r", "\n"))))).ToArray();
             if (!SameEntries(expected, generated.Files)) throw new InvalidOperationException("候选生成器输出与当前CLI不兼容，请使用对应版本重新导出。");
             foreach (var shell in rendered.Where(file => file.Handwritten))
@@ -139,12 +143,14 @@ public sealed partial class LocalGenerationUpdater
     private static string Role(string path, PackageSnapshot package)
     {
         ValidateRelative(path);
-        if (path is PackageMarker or GenerationMarker or FrontendMarker) return "manifest";
+        if (path is PackageMarker or GenerationMarker or FrontendMarker || package.Management is not null&&path==PreparedSecurityManagementSource.SourceMarker) return "manifest";
+        if(package.Management is not null&&path==PreparedSecurityManagementSource.ApplicationPath)return Config;
         if (Protected.Contains(path)) return "preserve";
         if (Configuration.Contains(path)) return Config;
         if (path.StartsWith("backend/generated/", StringComparison.Ordinal))
         {
             var relative = path["backend/generated/".Length..];
+            if(package.Management is not null&&ManagementFrontend.Contains(relative)&&package.Generated.Files.Any(entry=>entry.Path==relative))return Pages;
             if (package.Generated.Files.Any(entry => entry.Path == relative) && Regex.IsMatch(relative, @"^(?:Entities/[A-Za-z0-9_]+\.g\.cs|Mappers/[A-Za-z0-9_]+Mapper\.g\.cs|Services/[A-Za-z0-9_]+Service\.g\.cs|DTOs/[A-Za-z0-9_]+Requests\.g\.cs|VOs/[A-Za-z0-9_]+\.g\.cs|Controllers/[A-Za-z0-9_]+Controller\.g\.cs|GeneratedRegistration\.g\.cs|GeneratedWriteSchema\.g\.cs|generation-capabilities\.json|frontend/pages/yzp/[A-Za-z0-9_-]+\.vue|frontend/common/yzp_runtime/page-write-schema\.generated\.json)$")) return Pages;
             if (Regex.IsMatch(relative, @"^Services/[A-Za-z0-9_]+Service\.cs$") && package.Generated.Files.Any(entry => entry.Path == relative.Replace("Service.cs", "Service.g.cs", StringComparison.Ordinal))) return "handwritten";
             throw new InvalidOperationException("未知生成文件归属：" + path);
@@ -213,8 +219,22 @@ public sealed partial class LocalGenerationUpdater
     private static T Decode<T>(byte[] bytes)
     {
         if (bytes.Length > 4 * 1024 * 1024) throw new InvalidOperationException("协议清单超过4MiB限制。");
-        using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 64 }); CheckKeys(document.RootElement);
+        using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 64 });
+        if(typeof(T)==typeof(MetadataCatalog))GenerationMetadataJson.RequireUnique(document.RootElement);
+        else if(typeof(T)==typeof(GenerationUpdateRequest))CheckRequestKeys(document.RootElement);
+        else CheckKeys(document.RootElement);
         return JsonSerializer.Deserialize<T>(bytes, Json) ?? throw new InvalidOperationException("协议清单为空。");
+    }
+    /// <summary>请求封套仍严格拒绝别名，仅metadata内部沿固定模型/业务字典边界核验。</summary>
+    private static void CheckRequestKeys(JsonElement value)
+    {
+        if(value.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("生成请求必须是JSON对象。");
+        var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(var property in value.EnumerateObject())
+        {
+            if(!names.Add(property.Name))throw new InvalidOperationException("JSON包含重复字段。");
+            if(property.Name=="metadata")GenerationMetadataJson.RequireUnique(property.Value);else CheckKeys(property.Value);
+        }
     }
     /// <summary>逐层拒绝重复JSON键，避免不同解析器采用不同覆盖结果。</summary>
     private static void CheckKeys(JsonElement value)

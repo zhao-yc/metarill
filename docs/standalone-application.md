@@ -20,7 +20,7 @@ $managementAdminTypeId = (Get-Content backend/metadata/demo.json -Raw | ConvertF
 dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/metadata/demo.json --output .local/demo-management --namespace Example.Demo --source-root . --management-admin-type $managementAdminTypeId
 ```
 
-管理模式不能与 `--backend-only` 混用，输出必须是新空目录。当前管理工程受管更新尚未接线，已有更新器明确拒绝；正式身份、数据库、初始化及工作台矩阵仍待完整验收。模式标识、来源声明和打包成功均不等于正式发布；具体实现和证据见[完整管理打包](testing/management-full-package.md)。
+管理模式不能与 `--backend-only` 混用，输出必须是新空目录。当前固定管理模块已接原三范围受管更新及来源核验，不能切换模式或改绑后台，见[管理工程更新](testing/management-generation-update.md)；正式身份、数据库、初始化及工作台矩阵仍待完整验收。模式标识、来源声明和打包成功均不等于正式发布；具体实现和证据见[完整管理打包](testing/management-full-package.md)。
 
 平台生成下载 API 根据服务端已发布平台项目身份显式选择 BackendOnly，业务项目选择 FullApplication。ZIP 的 `.metarill-package.json`、README 与响应头 `X-Metarill-Package-Mode`、`X-Metarill-Frontend-Included`、`X-Metarill-Package-Warnings` 均记录模式；warnings 头为 URI 编码的 JSON 字符串数组。平台行为不由客户端另传模式或路径决定。
 

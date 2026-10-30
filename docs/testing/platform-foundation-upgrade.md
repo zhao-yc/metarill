@@ -49,4 +49,4 @@ C46真实只读当前库发现缺少upload_expires_at固定元数据、四个固
 
 执行后原冻结58文件摘要仍全部一致。私有证据为authorization-20261030-0826.json、authorized-preview-20261030-0826.json、authorized-apply-20261030-0826.jsonl、authorized-verify-20261030-0827.jsonl，以及authorized-platform-current-readonly日志/TRX。frozen-receipt.json保留执行前状态，不回写为执行后证明。
 
-仅本固定开发平台基础升级范围完成；原运行服务没有重启或部署，初始化真实写入/并发、平台与业务库组合、完整管理更新、正式同包矩阵、浏览器/真机及性能仍按各行待办。该profile已执行一次，禁止再次apply或用当前ID占用错误当成新插入许可；未来新增变更须另行准备明确计划。
+仅本固定开发平台基础升级范围完成；原运行服务没有重启或部署，初始化真实写入/并发、平台与业务库组合、管理工程正式同包矩阵、浏览器/真机及性能仍按各行待办。该profile已执行一次，禁止再次apply或用当前ID占用错误当成新插入许可；未来新增变更须另行准备明确计划。

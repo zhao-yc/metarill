@@ -25,7 +25,7 @@ public sealed partial class ApplicationPackager
             // 通用来源声明只登记其实际读取的五份元数据，完整源码归属由外层包清单负责。
             sourceBinding["files"]=new JsonArray(binding["files"]!.AsArray().Where(file=>PreparedSecurityManagementSource.OwnedMetadataPaths.Contains(file!["path"]!.GetValue<string>(),StringComparer.Ordinal)).Select(file=>file!.DeepClone()).ToArray());
             Write(candidate,PreparedSecurityManagementSource.SourceMarker,sourceBinding.ToJsonString(JsonOptions)+"\n");File.Delete(preparation);
-            var warnings=new[]{"完整管理模式的受管更新尚未接通；正式身份、数据库、初始化和工作台矩阵仍待完整验收。","初始化遇到有效Agent刷新授权时当前会拒绝，处理策略仍待确认。"};
+            var warnings=new[]{"完整管理模式支持预览、确认应用与恢复；正式身份、数据库、初始化和工作台矩阵仍待完整验收。","初始化遇到有效Agent刷新授权时当前会拒绝，处理策略仍待确认。"};
             var readme=File.ReadAllText(CSharpGenerator.SafePath(candidate,"README.md"));var newline=readme.IndexOf('\n');
             if(newline<0)throw new InvalidOperationException("管理准备说明格式不完整。");
             readme=readme[(newline+1)..].TrimStart('\r','\n').Replace("FullApplication：","FullManagementApplication：",StringComparison.Ordinal);

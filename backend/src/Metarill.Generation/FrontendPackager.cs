@@ -71,12 +71,20 @@ public sealed class FrontendPackager
         CSharpGenerator.ValidateNamespace(rootNamespace);
         var expected=Convert.ToHexStringLower(SHA256.HashData(CSharpGenerator.CanonicalMetadata(catalog)));
         if(declaration.GetProperty("version").GetInt32()!=1||declaration.GetProperty("projectId").GetString()!=catalog.YzProjectId||declaration.GetProperty("metadataSha256").GetString()!=expected)throw new InvalidOperationException("管理前端生成归属不匹配，未准备资源。");
+        var model=ValidateSecurityManagement(module,rootNamespace);
+        var boundary=Path.Combine(generated,".frontend-assets-plan");
+        return new(BuildFiles(catalog,generated,boundary,sourceRoot,model,includeAgent),module.PendingAdapters,GenerationCapabilityAudit.Collect(model));
+    }
+
+    /// <summary>只验证当前工厂签发目录的原管理入口，不读取源码根、不写文件；更新候选与打包共用。</summary>
+    internal static GenerationModel ValidateSecurityManagement(SecurityManagementModelSet module,string rootNamespace)
+    {
+        var catalog=SecurityManagementModuleFactory.RequirePublishedForGeneration(module);MetadataValidation.Validate(catalog);ValidateMenus(catalog);CSharpGenerator.ValidateNamespace(rootNamespace);
         var model=TrustedSecurityServiceCompilation.Bind(GenerationModel.Create(catalog,rootNamespace),module);
         var custom=catalog.ConfigCustomPages.Single(page=>page.Id=="2062363000000000002");
         if(catalog.ConfigCustomPages.Any(page=>page.Id!=custom.Id)||catalog.ConfigMenus.Any(menu=>menu.Kind is not("DIRECTORY" or "GENERATED_PAGE")&&!(menu.Kind=="CUSTOM_PAGE"&&menu.ConfigCustomPageId==custom.Id&&menu.YzAdminTypeId==custom.YzAdminTypeId)))throw new InvalidOperationException("管理前端存在未接线的自定义或外部入口。");
         if(model.Tables.SelectMany(table=>table.Pages).SelectMany(page=>page.DetailColumns).Any(column=>column.Source.ControlKind=="CustomControl"))throw new InvalidOperationException("管理前端存在未接线的自定义控件。");
-        var boundary=Path.Combine(generated,".frontend-assets-plan");
-        return new(BuildFiles(catalog,generated,boundary,sourceRoot,model,includeAgent),module.PendingAdapters,GenerationCapabilityAudit.Collect(model));
+        return model;
     }
 
     /// <summary>内部Excel验收资源仍记录缺口；逐项核对生成归属和基底，不接受JSON豁免标记。</summary>

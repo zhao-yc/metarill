@@ -68,7 +68,8 @@ public sealed partial class LocalGenerationUpdater
         if (before.ProjectId != request.ProjectId || before.Metadata.DatabaseProvider != request.Metadata.DatabaseProvider)
             throw new InvalidOperationException("离线请求与目标的项目或数据库品牌不一致。");
         // 命名空间只能来自已验证的目标三层归属，平台请求无权用默认值改绑现有工程。
-        new ApplicationPackager().Create(request.Metadata, candidate, before.Package.RootNamespace, source);
+        if(before.Management is not null)new ApplicationPackager().CreateManagement(request.Metadata,candidate,before.Package.RootNamespace,source,before.Management.Module.Binding.ManagementAdminTypeId);
+        else new ApplicationPackager().Create(request.Metadata, candidate, before.Package.RootNamespace, source);
         try
         {
             var plan = Preview(target, candidate, [request.Action]);

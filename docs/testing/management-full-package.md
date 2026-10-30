@@ -24,7 +24,7 @@ metarill package --metadata 原业务.json --output 新空目录 --namespace 根
 
 ## 当前使用边界
 
-本批尚未接完整管理工程的受管更新。现有更新器明确拒绝该新模式，CLI和生成README也说明这一点；不能把它冒充普通Full接入原更新流程。该边界是尚未完成的C05功能，后续必须继续接线。
+C51创建批次的旧更新器曾明确拒绝管理模式；C52现在沿原受管更新接入当前固定模块的三范围预览、来源重新核验、确认应用与恢复，详见[管理完整工程更新](management-generation-update.md)。普通/管理模式互换、后台改绑及未知历史模块版本仍拒绝，正式同包矩阵继续待验。
 
 正式初始化中有效Agent刷新授权的处理决定仍待确认，当前保持原明确拒绝。新包不自动连接数据库、安装结构或初始化账号；此批未消费任何待确认实库范围，也没有容器或生产部署。
 
@@ -40,7 +40,7 @@ metarill package --metadata 原业务.json --output 新空目录 --namespace 根
 
 C50跨进程工具引用共享生成器源码，补用既有SharedSourceBuildGate与CLI构建共同串行，避免各测试类同时改写同一obj/bin；不放宽测试门槛或缩小验证范围。
 
-私有日志/TRX位于交付根 `.local/management-full-package-20261030`，宿主运行日志在任务克隆 `.local/management-full-package`。完整管理更新、正式同包矩阵、MySQL首版、原浏览器/多端与性能继续待完成。
+私有日志/TRX位于交付根 `.local/management-full-package-20261030`，宿主运行日志在任务克隆 `.local/management-full-package`。C51创建批次未覆盖管理更新；后续C52更新证据独立记录。正式同包矩阵、MySQL首版、原浏览器/多端与性能继续待完成。
 
 ## 同期固定开发平台升级
 

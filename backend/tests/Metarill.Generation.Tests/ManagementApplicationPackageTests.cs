@@ -45,8 +45,8 @@ public sealed class ManagementApplicationPackageTests
                     Assert.DoesNotContain(secret,System.Text.Encoding.UTF8.GetString(bytes));
                 }
             }
-            // 当前普通更新器不能把新模式当普通Full接受；后续管理更新需显式适配同一绑定。
-            var unsupported=Assert.Throws<InvalidOperationException>(()=>new LocalGenerationUpdater().InspectTarget(output));Assert.Contains("FullManagementApplication",unsupported.Message);
+            // 管理模式按同一固定来源与后台绑定识别，不能仅凭模式字符串接受。
+            Assert.Equal(app.YzProjectId,new LocalGenerationUpdater().InspectTarget(output).ProjectId);
             foreach(var relative in new[]{"pages/main/set_role_permission.vue","components/yzp-permission-workbench/yzp-permission-workbench.vue","components/yzp-permission-legacy/yzp-permission-legacy.vue"})
                 Assert.Equal(File.ReadAllText(Path.Combine(source,"frontend/metarill_uni_admin",relative)).Replace("\r\n","\n"),File.ReadAllText(Path.Combine(output,"frontend",relative)).Replace("\r\n","\n"));
             var build=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",output);

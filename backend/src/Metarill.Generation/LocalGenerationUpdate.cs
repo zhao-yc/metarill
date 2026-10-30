@@ -13,7 +13,7 @@ public sealed record GenerationUpdatePlan(int SchemaVersion, string TargetDirect
     IReadOnlyList<GenerationUpdateFile> Files, string PlanSha256);
 public sealed record GenerationUpdateReceipt(string TransactionId, string PlanSha256, string Status, int WrittenFiles, int DeletedFiles, int PreservedFiles);
 
-/// <summary>既有独立FullApplication源码更新器；所有写入经过预览、旧摘要、路径策略和持久化恢复日志。</summary>
+/// <summary>既有普通或固定管理完整工程源码更新器；所有写入经过预览、旧摘要、路径策略和持久化恢复日志。</summary>
 public sealed partial class LocalGenerationUpdater
 {
     internal const string Config = "generate-project-config", Runtime = "sync-runtime", Pages = "generate-all-page";
@@ -40,6 +40,8 @@ public sealed partial class LocalGenerationUpdater
         RejectPending(target);
         var before = ReadPackage(target, false); var after = ReadPackage(candidate, true);
         if (before.ProjectId != after.ProjectId || before.Package.RootNamespace != after.Package.RootNamespace) throw new InvalidOperationException("候选项目或namespace与目标不匹配。");
+        if(before.Package.PackageMode!=after.Package.PackageMode||before.Package.ManagementModule?.ManagementAdminTypeId!=after.Package.ManagementModule?.ManagementAdminTypeId)
+            throw new InvalidOperationException("源码更新不能切换应用模式或管理后台归属。");
         if (before.Metadata.DatabaseProvider != after.Metadata.DatabaseProvider) throw new InvalidOperationException("源码更新不负责数据库品牌或存量数据转换。");
         var files = new List<GenerationUpdateFile>(); var required = new HashSet<string>(StringComparer.Ordinal);
         foreach (var path in before.Entries.Keys.Concat(after.Entries.Keys).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal))
@@ -127,7 +129,8 @@ public sealed partial class LocalGenerationUpdater
         bytes[GenerationMarker] = Encode(before.Generated with { MetadataSha256 = after.Generated.MetadataSha256, Files = generated.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
         bytes[FrontendMarker] = Encode(before.Frontend with { Authentication = after.Frontend.Authentication, Files = frontend.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
         foreach (var marker in new[] { GenerationMarker, FrontendMarker }) package[marker] = new(marker, Hash(bytes[marker]));
-        bytes[PackageMarker] = Encode(before.Package with { AuthenticationProfile = after.Package.AuthenticationProfile, SecurityCatalogSha256=after.Package.SecurityCatalogSha256, MetadataSha256 = after.Package.MetadataSha256, Warnings = after.Package.Warnings, Files = package.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
+        AddManagementSource(before,after,package,bytes);
+        bytes[PackageMarker] = Encode(before.Package with { AuthenticationProfile = after.Package.AuthenticationProfile, SecurityCatalogSha256=after.Package.SecurityCatalogSha256, ManagementModule=after.Package.ManagementModule, RedactedPaths=after.Package.RedactedPaths, MetadataSha256 = after.Package.MetadataSha256, Warnings = after.Package.Warnings, Files = package.Values.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray() });
         return bytes;
     }
 
@@ -135,7 +138,7 @@ public sealed partial class LocalGenerationUpdater
     private static void AddManifestChanges(PackageSnapshot before, PackageSnapshot after, List<GenerationUpdateFile> files)
     {
         var payload = Payload(before, after, files);
-        foreach (var marker in new[] { GenerationMarker, FrontendMarker, PackageMarker })
+        foreach (var marker in ManifestPaths(before))
         {
             var oldHash = ExistingHash(before.Root, marker); var hash = Hash(payload[marker]);
             if (oldHash != hash) files.Add(new(marker, "replace", "manifest", oldHash, hash));

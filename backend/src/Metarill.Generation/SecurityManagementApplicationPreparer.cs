@@ -45,7 +45,7 @@ internal sealed class SecurityManagementApplicationPreparer
             Write(candidate,"backend/Application.Host/PackageSecurityCatalogBinding.g.cs",ApplicationPackager.SecurityCatalogBindingSource(rootNamespace,hash));
             // 初始化完整验收及其余缺口明确保留；没有普通包标记，因此不能被更新器误当正式Full候选。
             File.Delete(CSharpGenerator.SafePath(candidate,".metarill-package.json"));
-            var warning="管理模块同源准备包，尚未发布。原后台初始化正式验收及完整管理更新接线尚未完成，不能作为完整可用管理应用交付。";
+            var warning="管理模块同源准备包，尚未发布。原后台初始化及完整管理正式矩阵尚未完成，不能作为完整可用管理应用交付。";
             Write(candidate,"README.md",warning+"\n\n"+File.ReadAllText(CSharpGenerator.SafePath(candidate,"README.md")));
             var files=Directory.EnumerateFiles(candidate,"*",SearchOption.AllDirectories).Select(path=>new{path=Path.GetRelativePath(candidate,path).Replace('\\','/'),sha256=Hash(File.ReadAllBytes(path))}).OrderBy(file=>file.path,StringComparer.Ordinal).ToArray();
             Write(candidate,".metarill-management-preparation.json",JsonSerializer.Serialize(new{schemaVersion=1,profile="management-preparation-v1",readyForPublication=false,rootNamespace,projectId=catalog.YzProjectId,managementAdminTypeId=trusted.Binding.ManagementAdminTypeId,moduleSha256=trusted.Binding.ModuleSha256,applicationMetadataSha256,metadataSha256=generated.MetadataSha256,securityCatalogSha256=hash,redactedPaths=ordinary.RedactedPaths,requiredBackendAdapters=frontend.RequiredBackendAdapters,backendGaps=frontend.BackendGaps,files},Json)+"\n");
