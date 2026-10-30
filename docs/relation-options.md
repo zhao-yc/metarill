@@ -1,6 +1,8 @@
 # List 关系候选分页与已选回读
 
-**当前接线（2026-10-30，C54/C55）：用户已确认保留原控件接入搜索／滚动分页。原List生成详情/筛选与主前端十二原页十六字段直接给zxz绑定 `/page`、`/selected`，页面/样式/原回调保持；两个平台旧104地址由手写partial复用105入口。** 316前端、MVC专项4零跳过及API85通过/49条件跳过，原工程HBuilderX与ego两原页5014合成候选、软件滚轮/保存回读/失败重试已验。真实MySQL/普通身份、完整父范围、其它控件与物理硬件仍待；见[原平台接线](original-platform-list-pagination.md)及[生成器记录](original-list-pagination-decision.md)。
+**当前接线（2026-10-30，C54/C55/C56）：用户已确认保留原控件接入搜索／滚动分页。原List生成详情/筛选与主前端十二原页十六字段直接给zxz绑定 `/page`、`/selected`，页面/样式/原回调保持；两个平台旧104地址由手写partial复用105入口。** 316前端、MVC专项4零跳过及API85通过/49条件跳过，原工程HBuilderX与ego两原页5014合成候选、软件滚轮/保存回读/失败重试已验。真实MySQL/普通身份、完整父范围、其它控件与物理硬件仍待；见[原平台接线](original-platform-list-pagination.md)及[生成器记录](original-list-pagination-decision.md)。
+
+C56补齐带表单条件的原槽传递及条件变化失效，最新320项前端与21项表单/实际原Vue/独立包零失败零跳过；详见[表单联动修复与项目跟进](original-list-form-context.md)。C55浏览器与API结果保留各自来源，不代表本轮表单场景已在实库验收。
 
 本能力的后端由 `RelationCompilation` 与 `BackendRenderer` 生成，只支持已有明确目标的 `List`。下文后端合同仍有效；2026-10-19 的 wrapper 接线及浏览器结果属于恢复原前端之前的历史子集。共享组件支持多选并不代表标准 List 元数据已编译多选。现有生成应用须维护元数据/模板/共享运行时并配套生成，不能手改可覆盖产物。
 
@@ -11,8 +13,8 @@
 | 入口 | POST 请求 | 响应 data |
 |---|---|---|
 | 原地址 | 原 `parentId`、可选 `formParameters`；兼容已知 PageRequest 空配置 | 原 id/name/value/text 数组；超过 5000 条整体报中文错误，指向同地址 `/page`，没有截断数组 |
-| 原地址 + `/page` | `pageNo` 默认 1、`pageSize` 默认 20 且最多 100、`keyword` 最多 100 字符、可选 `parentId` / `targetParentId` | 既有 PageResult：records/total/pages/current/size，records 每项仍为 id/name/value/text |
-| 原地址 + `/selected` | `selectedIds` 字符串数组，原始数量最多 200；可选 `parentId` / `targetParentId` | 同四字段数组；重复 ID 去重，任何不存在、软删或越界项使整个请求失败 |
+| 原地址 + `/page` | `pageNo` 默认 1、`pageSize` 默认 20 且最多 100、`keyword` 最多 100 字符、可选 `parentId` / `targetParentId` / `formParameters` | 既有 PageResult：records/total/pages/current/size，records 每项仍为 id/name/value/text |
+| 原地址 + `/selected` | `selectedIds` 字符串数组，原始数量最多 200；可选 `parentId` / `targetParentId` / `formParameters` | 同四字段数组；重复 ID 去重，任何不存在、软删或越界项使整个请求失败 |
 
 `id` 和 `value` 保持完整字符串长 ID。`total/pages` 沿用当前宿主的长整数序列化约定，`current/size` 为整数。`pageNo` 范围 1–1000000，防止无限或溢出偏移。候选固定按名称、ID 升序，名称相同时仍有稳定顺序；接口不接受客户端排序。
 

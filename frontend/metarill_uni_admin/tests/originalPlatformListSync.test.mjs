@@ -100,3 +100,13 @@ test('请求或数据的重复键、自定义参数求值均拒绝，不删除�
  assert.throws(()=>planOriginalPlatformLists(clean.original.replace('uni.getStorageSync(that.formParametersName)','loadBusinessOptions()'),clean.generated),/参数值存在未知扩展/)
  assert.throws(()=>planOriginalPlatformLists(clean.original.replace('formParameters:uni.getStorageSync(that.formParametersName)','formParameters:uni.getStorageSync(that.formParametersName),formParameters:uni.getStorageSync(that.formParametersName)'),clean.generated),/重复属性/)
 })
+
+test('生成表单依赖只接明确字段和原表槽，空/重复/额外路径描述拒绝',()=>{
+ const f=fixture(),fields=[{field:'allowed',table:'source'}]
+ const withFields=value=>f.generated.replace('"readonlyField":"targetIdReadOnly"','"readonlyField":"targetIdReadOnly","formFields":'+JSON.stringify(value))
+ const generated=withFields(fields),plan=planOriginalPlatformLists(f.original,generated)
+ assert(plan.content.includes('"formFields":[{"field":"allowed","table":"source"}]'))
+ assert.equal(planOriginalPlatformLists(plan.content,generated).content,plan.content)
+ for(const value of [null,[],[fields[0],fields[0]],[{field:'x.y',table:'source'}],[{field:'allowed',table:'source',sql:'不接收'}],[{field:1,table:'source'}]])
+  assert.throws(()=>planOriginalPlatformLists(f.original,withFields(value)),/生成表单依赖槽无效/)
+})

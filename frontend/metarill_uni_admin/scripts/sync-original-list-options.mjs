@@ -57,7 +57,11 @@ function definitions(doc) {
  if(!Array.isArray(items)||new Set(items.map(item=>item.id)).size!==items.length)throw Error('生成字段重复')
  for(const item of items)if(typeof item.id!=='string'||!/^[A-Za-z0-9_]+$/.test(item.id)||typeof item.field!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(item.field)||!/^\/admin\/auto\/[A-Za-z0-9_]+\/[A-Za-z0-9_]+\/findNameId[A-Za-z0-9_]+$/.test(item.endpoint))throw Error('生成字段或端点无效')
  const known=new Set(['id','field','list','endpoint','requireParent','requireTargetParent','sameParent','targetParentField','readonlyField'])
- for(const item of items)if(Object.keys(item).length!==known.size||Object.keys(item).some(key=>!known.has(key))||!['list'].every(key=>typeof item[key]==='string'&&/^[A-Za-z_][A-Za-z0-9_]*$/.test(item[key]))||['targetParentField','readonlyField'].some(key=>item[key]!==null&&(typeof item[key]!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(item[key])))||['requireParent','requireTargetParent','sameParent'].some(key=>typeof item[key]!=='boolean'))throw Error('生成页描述属性不完整或未知')
+ for(const item of items)if(Object.keys(item).length!==known.size+(Object.hasOwn(item,'formFields')?1:0)||Object.keys(item).some(key=>!known.has(key)&&key!=='formFields')||!['list'].every(key=>typeof item[key]==='string'&&/^[A-Za-z_][A-Za-z0-9_]*$/.test(item[key]))||['targetParentField','readonlyField'].some(key=>item[key]!==null&&(typeof item[key]!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(item[key])))||['requireParent','requireTargetParent','sameParent'].some(key=>typeof item[key]!=='boolean'))throw Error('生成页描述属性不完整或未知')
+ // 联动槽只接受当前生成器发布的两个标识，不能将未知缓存或任意路径加入请求。
+ for(const item of items)if(Object.hasOwn(item,'formFields')){
+  if(!Array.isArray(item.formFields)||!item.formFields.length||item.formFields.some(field=>!field||Array.isArray(field)||Object.keys(field).length!==2||Object.keys(field).some(key=>!['field','table'].includes(key))||['field','table'].some(key=>typeof field[key]!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(field[key])))||new Set(item.formFields.map(field=>field.table+'.'+field.field)).size!==item.formFields.length)throw Error('生成表单依赖槽无效')
+ }
  return{items,owner}
 }
 /** 请求中若混入手写回调或额外参数则拒绝，不能为接分页而删除业务扩展。 */

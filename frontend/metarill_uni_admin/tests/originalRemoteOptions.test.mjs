@@ -8,14 +8,14 @@ const { createRemoteRelationOptions }=await import('data:text/javascript;base64,
 const id='9007199254750011',parent='9007199254742001',otherParent='9007199254742002',endpoint='/admin/auto/source/201/findNameIdTarget25'
 const row=(id,name='候选'+id)=>({id:String(id),value:String(id),name,text:name})
 /** 挂载真实共享mixin与分页状态机，只替换uni宿主和HTTP传输，不复制生产控制逻辑。 */
-function fixture(owner='entity',readonly=false,originalHost=false) {
+function fixture(owner='entity',readonly=false,originalHost=false,formFields) {
  const requests=[],dialogs=[],events=new Map(),storage={loginStateId:'合成会话',sysParams:{yzProjectId:'100'}}
  const uni={getStorageSync:key=>storage[key],showModal:options=>dialogs.push(options),$on(name,fn){if(!events.has(name))events.set(name,new Set());events.get(name).add(fn)},$off(name,fn){events.get(name)?.delete(fn)}}
  const yzp={request(options){const request={options,aborted:false};requests.push(request);return{abort(){request.aborted=true;options.fail?.();options.complete?.()}}}}
  const factory=new Function('uni','yzp','createRemoteRelationOptions',source.replace(/^import .*;\s*$/gm,'').replace('export function','function')+';return createOriginalRemoteOptionsMixin')(uni,yzp,createRemoteRelationOptions)
- const definition={id:'25',field:'targetId',list:'target_list',endpoint,requireParent:true,requireTargetParent:true,sameParent:false,targetParentField:'ownerId',readonlyField:owner==='entity'?'targetIdReadOnly':null}
+ const definition={id:'25',field:'targetId',list:'target_list',endpoint,requireParent:true,requireTargetParent:true,sameParent:false,targetParentField:'ownerId',readonlyField:owner==='entity'?'targetIdReadOnly':null,...(formFields?{formFields}:{})}
  const node=()=>({children:[],parent:null}),renderer=createRenderer({createElement:node,createText:node,createComment:node,setElementText(){},setText(){},patchProp(){},insert(n,p){n.parent=p;p.children.push(n)},remove(n){if(n.parent)n.parent.children.splice(n.parent.children.indexOf(n),1)},parentNode:n=>n.parent,nextSibling:()=>null})
- const app=renderer.createApp({mixins:[factory([definition],owner,{originalHost})],data(){return{entity:{targetId:id,ownerId:parent},filters:{targetId:id,ownerId:parent},target_list:[],id:'9007199254741000',parent_id:parent,permissionsReady:false,recordReady:false,loadEntitySuccess:false,targetIdReadOnly:readonly}},created(){this._alive=true;this._detailEpoch=1},render(){return h('view')}})
+ const app=renderer.createApp({mixins:[factory([definition],owner,{originalHost})],data(){return{entity:{targetId:id,ownerId:parent},filters:{targetId:id,ownerId:parent},target_list:[],id:'9007199254741000',parent_id:parent,formParametersName:'dynamic-form',permissionsReady:false,recordReady:false,loadEntitySuccess:false,targetIdReadOnly:readonly}},created(){this._alive=true;this._detailEpoch=1},render(){return h('view')}})
  const vm=app.mount(node())
  const respond=(request,data,code=200)=>{assert(request);request.options.success({code,data});request.options.complete?.()}
  return{app,vm,requests,storage,dialogs,respond,events,emit(name){for(const listener of events.get(name)||[])listener()},value:()=>vm[owner].targetId,selected:()=>requests.filter(r=>r.options.url.endsWith('/selected')),pages:()=>requests.filter(r=>r.options.url.endsWith('/page')),ready(){vm.permissionsReady=true;vm.recordReady=true;vm.loadOriginalRemoteOptions('25')}}
@@ -102,4 +102,50 @@ test('兼容原宿主未提供加载标记时仍未准备，不因undefined默�
  const f=fixture('entity',false,true);try{
  f.vm.loadEntitySuccess=undefined;f.vm.loadOriginalRemoteOptions('25');assert.equal(f.requests.length,0)
  }finally{f.app.unmount()}
+})
+
+test('原详情与筛选按发布依赖传原表单槽，联动变化隔离迟到并独立重读',()=>{
+ for(const owner of ['entity','filters']){
+  const f=fixture(owner,false,false,[{field:'allowed',table:'source'},{field:'minimum',table:'source'}]);try{
+   f.storage['dynamic-form']={allowed:'平铺',source:{allowed:"甲%_'",minimum:'9007199254743000',password:'不发送'},minimum:'1',current_yz_project_id:'不能覆盖身份',sql:'不能传入SQL'}
+   f.ready();const old=f.selected().at(-1)
+   assert.deepEqual(old.options.data.formParameters,{allowed:'平铺',source:{allowed:"甲%_'",minimum:'9007199254743000'},minimum:'1'})
+   f.respond(old,[row(id,'旧条件已选')]);f.vm.openOriginalRemoteOptions('25');const pending=f.pages().at(-1)
+   assert.deepEqual(pending.options.data.formParameters,old.options.data.formParameters)
+   f.storage['dynamic-form'].source.allowed='乙';f.respond(pending,{records:[row(id,'旧条件迟到')],pages:'1'})
+   assert.notEqual(f.vm.target_list[0]?.name,'旧条件迟到');f.vm.loadOriginalRemoteOptions('25')
+   const next=f.selected().at(-1);assert.notEqual(next,old);assert.equal(next.options.data.formParameters.source.allowed,'乙')
+   assert.equal(old.options.data.formParameters.source.allowed,"甲%_'");assert.equal(f.value(),id)
+   f.vm.openOriginalRemoteOptions('25');assert.equal(f.pages().at(-1).options.data.pageNo,1)
+  }finally{f.app.unmount()}
+ }
+})
+test('表单槽缺失与显式null不混同，无发布依赖时不发送缓存或使候选失效',()=>{
+ let f=fixture('entity',false,false,[{field:'allowed',table:'source'}]);try{
+  f.storage['dynamic-form']={source:{allowed:null,password:'不能泄漏'}};f.ready()
+  assert.deepEqual(f.selected().at(-1).options.data.formParameters,{source:{allowed:null}})
+  f.storage['dynamic-form']={};f.vm.loadOriginalRemoteOptions('25');assert.deepEqual(f.selected().at(-1).options.data.formParameters,{})
+  f.storage['dynamic-form']={source:{allowed:{password:'错误容器不原样发送'}}};f.vm.loadOriginalRemoteOptions('25')
+  assert.deepEqual(f.selected().at(-1).options.data.formParameters,{source:{allowed:{}}})
+ }finally{f.app.unmount()}
+ f=fixture();try{
+  f.storage['dynamic-form']={password:'其它无关缓存'};f.ready();const first=f.selected().at(-1);assert(!Object.hasOwn(first.options.data,'formParameters'))
+  f.storage['dynamic-form'].password='变化';f.vm.loadOriginalRemoteOptions('25');assert.equal(f.selected().length,1)
+ }finally{f.app.unmount()}
+})
+
+test('发布表名与字段同名或特殊对象键时，窄投影不改变原标量/容器语义',()=>{
+ const fields=[{field:'allowed',table:'source'},{field:'source',table:'source'}]
+ const f=fixture('entity',false,false,fields);try{
+  f.storage['dynamic-form']={source:'原平铺标量'};f.ready()
+  assert.deepEqual(f.selected().at(-1).options.data.formParameters,{source:'原平铺标量'})
+  f.storage['dynamic-form']={source:{source:'原嵌套标量',allowed:'甲',password:'不发送'}}
+  f.vm.loadOriginalRemoteOptions('25');assert.deepEqual(f.selected().at(-1).options.data.formParameters,{source:{source:'原嵌套标量',allowed:'甲'}})
+ }finally{f.app.unmount()}
+ const special=fixture('entity',false,false,[{field:'__proto__',table:'source'},{field:'constructor',table:'source'}]);try{
+  special.storage['dynamic-form']=JSON.parse('{"__proto__":"原标量","source":{"constructor":"嵌套标量","secret":"不发送"}}');special.ready()
+  const form=special.selected().at(-1).options.data.formParameters
+  assert.equal(Object.getPrototypeOf(form),Object.prototype);assert.equal(Object.getOwnPropertyDescriptor(form,'__proto__').value,'原标量')
+  assert.deepEqual(form.source,{constructor:'嵌套标量'})
+ }finally{special.app.unmount()}
 })

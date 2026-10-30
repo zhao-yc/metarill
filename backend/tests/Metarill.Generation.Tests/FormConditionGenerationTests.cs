@@ -45,6 +45,39 @@ public sealed class FormConditionGenerationTests
     {
         var catalog=Catalog();catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="27");var model=GenerationModel.Create(catalog,"Example.FormHidden");Assert.Throws<InvalidOperationException>(()=>RelationCompilation.ForPage(model,model.Tables.Single(table=>table.Source.Id=="2").Pages.Single()));
     }
+
+    /// <summary>实际生成原详情和筛选并挂载Vue，证明发布槽经过分页与已选且旧联动watch仍生效。</summary>
+    [Fact]
+    public async Task Original_list_form_conditions_reach_paging_and_selected_from_declared_cache_slots()
+    {
+        var catalog=Catalog();
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "27" or "28"))column.Extra["isAutoPostBack"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigColumns.Single(column=>column.Id=="25").Extra["isAutoPostBackQuery"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-form-list-ui");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,output,"Example.FormListUi");
+            foreach(var kind in new[]{"detail","list"})
+            {
+                var source=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/relation_source-"+kind+"-201.vue"));
+                Assert.Contains(JsonSerializer.Serialize("formFields")+":"+JsonSerializer.Serialize(new[]{new{field="allowed",table="relationSource"},new{field="minimum",table="relationSource"}}),source);
+                Assert.Contains("<zxz-uni-data-select",source);
+            }
+            await Probe(output);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(output,boundary);}
+    }
+
+    /// <summary>仅替换网络/uni宿主，Node从本仓库锁定依赖加载实际生成Vue和真实运行时。</summary>
+    private static async Task Probe(string output,[System.Runtime.CompilerServices.CallerFilePath]string file="")
+    {
+        var start=new System.Diagnostics.ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true,StandardOutputEncoding=System.Text.Encoding.UTF8,StandardErrorEncoding=System.Text.Encoding.UTF8};
+        start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(file)!,"GeneratedRelationFormUiProbe.mjs"));start.ArgumentList.Add(output);
+        using var process=System.Diagnostics.Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();
+        using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));await process.WaitForExitAsync(timeout.Token);Assert.True(process.ExitCode==0,await stdout+await stderr);
+    }
+
     /// <summary>只构造本轮元数据，前端复用原槽，不手写生成Service或物理建表SQL。</summary>
     internal static MetadataCatalog Catalog()
     {
