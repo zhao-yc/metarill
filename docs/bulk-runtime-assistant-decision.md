@@ -21,3 +21,5 @@ C70加入只读逐项目计划入口：`POST /api/admin/sys/generation-assistant
 C71增加逐项目授权预检：对每个configured项目重新认证同账号目标Web项目并检查批准grant/绑定，返回ready或明确缺口；不创建任务、不应用源码。真实OAuth、批量入队和逐项汇总仍待完成。
 
 C72增加明确确认后的逐项目v2入队：批次/项目稳定UUID、目标项目重新认证、当前设备关联/批准grant/绑定检查和单项失败隔离已接入。专项5通过，尚未完成真实OAuth/MySQL、Node领取应用、原页面汇总。
+
+C73补Node `helper poll --all-profiles`，批量任务按已绑定项目profile逐项领取，凭据、目录、任务锁相互隔离；单profile原错误合同保持。现有回归22项通过，真实跨项目OAuth/MySQL仍待验收。

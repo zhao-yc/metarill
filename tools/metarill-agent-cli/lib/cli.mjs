@@ -24,7 +24,7 @@ const HELP = `Metarill 项目 Agent CLI（Node.js 20+）
   helper bind --target 绝对目录 --source-root 可信源码 --cli 固定Metarill.Cli.dll --dotnet dotnet绝对路径 --work-root 独立工作目录 [--mode apply --allow-actions 明确动作集合 --confirm] [--device-id 原设备ID]
   helper device-bind --device-id 原设备ID --confirm [--replace-device-binding 回读的旧摘要]
   helper device-status --device-id 原设备ID（只读设备关联状态）
-  helper poll [--once]（默认只预览；绑定mode=apply且已确认allow-actions时受控应用）
+  helper poll [--once] [--all-profiles]（默认只预览；绑定mode=apply且已确认allow-actions时受控应用）
   tasks show 请求UUID
   skill install [--dir 技能父目录] [--project] [--force]
 
@@ -36,7 +36,7 @@ function parseArgs(argv) {
   const positional = [];
   const options = { param: [] };
   const values = new Set(['profile', 'url', 'name', 'json', 'id', 'parent-id', 'param', 'timeout', 'dir', 'request-id', 'target', 'source-root', 'work-root', 'cli', 'dotnet', 'mode', 'allow-actions', 'device-id', 'replace-device-binding']);
-  const flags = new Set(['confirm', 'local-only', 'project', 'force', 'help', 'preview', 'once']);
+  const flags = new Set(['confirm', 'local-only', 'project', 'force', 'help', 'preview', 'once', 'all-profiles']);
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     if (!argument.startsWith('--')) { positional.push(argument); continue; }
@@ -395,25 +395,33 @@ async function installSkill(store, options, output) {
   output({ installed: target, source: options.project ? 'project' : 'bundled' });
 }
 
+/** 选择需要轮询的本机绑定；all模式只接管已有助手绑定的profile，不改变activeProfile。 */
+export function selectHelperProfiles(config,requested,all=false){
+  if(all&&requested)throw new CliError('--all-profiles不能与--profile同时使用。','invalid_argument');
+  if(all){const names=Object.entries(config.profiles).filter(([,profile])=>profile.generationAssistant).map(([name])=>name).sort();if(!names.length)throw new CliError('没有已绑定助手的项目配置。','profile_missing');return names;}
+  return [selectProfile(config,requested).name];
+}
+
 /** 在线助手复用原配置锁、真实身份和刷新网络栈；写权限只来自本机明确绑定策略。 */
 async function helper(store, positional, options, output, log) {
   if (positional.length !== 2 || !['bind', 'poll','device-bind','device-status'].includes(positional[1])) throw new CliError('助手命令必须为bind、poll、device-bind或device-status。', 'invalid_argument');
-  allowOptions(options, positional[1] === 'bind' ? ['target', 'source-root', 'work-root', 'cli', 'dotnet', 'mode', 'allow-actions', 'confirm','device-id','replace-device-binding'] : positional[1]==='device-bind'?['device-id','replace-device-binding','confirm']:positional[1]==='device-status'?['device-id']:['once']);
-  let selectedName = options.profile;
-  const context = { store, timeoutMs: options.timeout ?? DEFAULT_TIMEOUT,
-    local: async () => { const value = selectProfile(await store.read(), selectedName); selectedName = value.name; return value; },
-    identity: async () => { const value = await identity(store, selectedName, options.timeout ?? DEFAULT_TIMEOUT); selectedName = value.selected.name; return value; },
+  const all=options['all-profiles']===true;if(all&&positional[1]!=='poll')throw new CliError('--all-profiles只适用于helper poll。','invalid_argument');
+  allowOptions(options, positional[1] === 'bind' ? ['target', 'source-root', 'work-root', 'cli', 'dotnet', 'mode', 'allow-actions', 'confirm','device-id','replace-device-binding'] : positional[1]==='device-bind'?['device-id','replace-device-binding','confirm']:positional[1]==='device-status'?['device-id']:['once','all-profiles']);
+  const makeContext=(selectedName)=>({ store, timeoutMs: options.timeout ?? DEFAULT_TIMEOUT,
+    local: async () => selectProfile(await store.read(), selectedName),
+    identity: async () => identity(store, selectedName, options.timeout ?? DEFAULT_TIMEOUT),
     rpc: async (path, data) => { const { result } = await authenticated(store, selectedName, options.timeout ?? DEFAULT_TIMEOUT, path, { method: 'POST', data }); return unwrap(result); }
-  };
-  if (positional[1] === 'bind') { output(await bindGenerationHelper(context, options)); return; }
-  if(positional[1]==='device-bind'){output(await associateGenerationDevice(context,options));return}
-  if(positional[1]==='device-status'){output(await statusGenerationDevice(context,options));return}
-  if (options.once) { output(await pollGenerationHelperOnce(context)); return; }
+  });
+  const selectedName = options.profile;
+  if (positional[1] === 'bind') { output(await bindGenerationHelper(makeContext(selectedName), options)); return; }
+  if(positional[1]==='device-bind'){output(await associateGenerationDevice(makeContext(selectedName),options));return}
+  if(positional[1]==='device-status'){output(await statusGenerationDevice(makeContext(selectedName),options));return}
+  const names=selectHelperProfiles(await store.read(),selectedName,all);
+  const pollOne=async name=>{try{return {profile:name,result:await pollGenerationHelperOnce(makeContext(name))}}catch(error){if(!all)throw error;return {profile:name,result:{status:'failed',applied:false,errorCode:error.code??'helper_failed'}}}};
+  if (options.once) { output(all?await Promise.all(names.map(pollOne)):(await pollOne(names[0])).result); return; }
   let stopped = false; const stop = () => { stopped = true; }; process.once('SIGINT', stop);
-  try {
-    while (!stopped) { const result = await pollGenerationHelperOnce(context); if (result.status !== 'idle') log(JSON.stringify(result)); if (!stopped) await sleep(1000); }
-    output({ status: 'stopped', applied: false });
-  } finally { process.off('SIGINT', stop); }
+  try { while (!stopped) { for(const name of names){const item=await pollOne(name);if(item.result.status!=='idle')log(JSON.stringify(item));} if (!stopped) await sleep(1000); } output({ status: 'stopped', applied: false, profiles: names }); }
+  finally { process.off('SIGINT', stop); }
 }
 
 /** 可注入输出与配置存储以完成真实 HTTP 合约测试，入口仍使用同一实现。 */

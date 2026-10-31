@@ -26,3 +26,9 @@
 ## 未完成边界
 
 原批量按钮仍未接通服务端批量任务；还须逐项目真实 Web 会话/grant、设备专用控制通道授权、批量固定意图/租约、结果逐项汇总和正式 MySQL/OAuth/CLI 验收。C69 只证明本机 v2 计划应用可以沿原范围工作，不能把合成身份或独占临时包写作正式跨项目验收。
+
+## 多项目 profile 轮询
+
+C73新增 `helper poll --all-profiles`。它只选择配置文件中已有 `generationAssistant` 的 profile，按名称稳定排序逐个轮询；每个 profile 仍使用自己的 API 地址、项目凭据、target、sourceRoot、workRoot、设备意图和任务锁。单 profile 模式继续沿原错误退出合同；all 模式把某一 profile 的失败压缩为该 profile 的稳定失败状态后继续处理其他 profile。
+
+`--all-profiles` 不能与 `--profile` 混用，也不适用于 bind/device-bind/device-status。activeProfile 不会被改写。纯 profile 选择测试3项通过，现有助手/C# CLI回归22项通过、0失败/跳过；没有真实跨项目 OAuth、MySQL 或用户工程写入。
