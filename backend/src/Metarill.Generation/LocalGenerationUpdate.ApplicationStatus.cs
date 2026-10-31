@@ -79,7 +79,8 @@ public sealed partial class LocalGenerationUpdater
     private static void ValidateApplicationStatusPlan(string target, GenerationUpdatePlan plan, string confirmation)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        if (plan.SchemaVersion != 1 || !plan.CanApply || plan.TargetDirectory != target || !ValidHash(confirmation) || confirmation != plan.PlanSha256
+        ValidateScopedPlan(plan);
+        if (plan.SchemaVersion is not (1 or 2) || !plan.CanApply || plan.TargetDirectory != target || !ValidHash(confirmation) || confirmation != plan.PlanSha256
             || Hash(Encode(plan with { PlanSha256 = "" })) != confirmation || !ValidHash(plan.TargetFingerprint) || !ValidHash(plan.CandidateFingerprint)
             || !long.TryParse(plan.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var project) || project <= 0 || project.ToString(CultureInfo.InvariantCulture) != plan.ProjectId
             || !Regex.IsMatch(plan.RootNamespace ?? "", @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")

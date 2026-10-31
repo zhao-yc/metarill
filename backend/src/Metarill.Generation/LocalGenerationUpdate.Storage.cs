@@ -173,7 +173,8 @@ public sealed partial class LocalGenerationUpdater
     private static void ValidateRecoveryPlan(string target, string id, UpdateJournal journal, Dictionary<string, UpdateEntry> oldEntries)
     {
         var plan = Decode<GenerationUpdatePlan>(ReadBytes(target, Transaction(id) + "/plan.json"));
-        if (plan.SchemaVersion != 1 || !plan.CanApply || plan.RequiredActions is null || plan.RequiredActions.Count != 0 || plan.Actions is null || plan.Files is null || plan.Files.Count is 0 or > 20000
+        ValidateScopedPlan(plan);
+        if (plan.SchemaVersion is not (1 or 2) || !plan.CanApply || plan.RequiredActions is null || plan.RequiredActions.Count != 0 || plan.Actions is null || plan.Files is null || plan.Files.Count is 0 or > 20000
             || plan.TargetDirectory != target || plan.ProjectId != journal.ProjectId || plan.RootNamespace != journal.RootNamespace
             || plan.PlanSha256 != journal.PlanSha256 || Hash(Encode(plan with { PlanSha256 = "" })) != journal.PlanSha256
             || !ValidHash(plan.TargetFingerprint) || !ValidHash(plan.CandidateFingerprint) || !plan.Actions.SequenceEqual(journal.Actions, StringComparer.Ordinal)) throw new InvalidOperationException("持久化计划摘要、身份或动作与恢复日志不一致。");

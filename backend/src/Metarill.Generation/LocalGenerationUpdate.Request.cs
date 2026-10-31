@@ -1,11 +1,13 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
 /// <summary>平台导出的离线请求只含单个动作与已发布元数据，不含路径、命令或任何写入授权。</summary>
 public sealed record GenerationUpdateRequest(string Type, int SchemaVersion, string Action, string ProjectId,
-    string MetadataSha256, MetadataCatalog Metadata, string RequestSha256);
+    string MetadataSha256, MetadataCatalog Metadata, string RequestSha256,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] GenerationRuntimeParts? RuntimeParts=null);
 public sealed record GenerationTargetIdentity(string ProjectId, string RootNamespace, string DatabaseProvider);
 public sealed record GenerationRequestPreparation(string Status, string RequestSha256, string CandidateDirectory, string PlanPath, GenerationUpdatePlan Plan);
 
@@ -19,13 +21,14 @@ public sealed partial class LocalGenerationUpdater
     }
 
     /// <summary>固定版本与单动作；元数据复制脱敏后计算摘要，不能把原始平台配置直接交给浏览器保存。</summary>
-    public static GenerationUpdateRequest CreateRequest(MetadataCatalog catalog, string action)
+    public static GenerationUpdateRequest CreateRequest(MetadataCatalog catalog, string action, GenerationRuntimeParts? runtimeParts=null)
     {
         if (!Scopes.Contains(action, StringComparer.Ordinal)) throw new InvalidOperationException("离线生成动作无效。");
+        ValidateRuntimeParts(runtimeParts is null?1:2,[action],runtimeParts);
         var published = GenerationMetadataPublisher.Publish(catalog).Metadata;
         MetadataValidation.Validate(published);
         new FrontendPackager().Validate(published);
-        var request = new GenerationUpdateRequest("metarillUpdateRequest", 1, action, published.YzProjectId, CanonicalHash(published), published, "");
+        var request = new GenerationUpdateRequest("metarillUpdateRequest", runtimeParts is null?1:2, action, published.YzProjectId, CanonicalHash(published), published, "",runtimeParts);
         request = request with { RequestSha256 = Hash(Encode(request)) };
         ValidateRequest(request);
         return request;
@@ -72,7 +75,7 @@ public sealed partial class LocalGenerationUpdater
         else new ApplicationPackager().Create(request.Metadata, candidate, before.Package.RootNamespace, source);
         try
         {
-            var plan = Preview(target, candidate, [request.Action]);
+            var plan = Preview(target, candidate, [request.Action],request.RuntimeParts);
             WritePlan(plan, output);
             return new(plan.CanApply ? "preview-ready" : "dependencies-required", request.RequestSha256, candidate, output, plan);
         }
@@ -86,7 +89,8 @@ public sealed partial class LocalGenerationUpdater
     public static void ValidateRequest(GenerationUpdateRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Type != "metarillUpdateRequest" || request.SchemaVersion != 1 || !Scopes.Contains(request.Action, StringComparer.Ordinal)
+        ValidateRuntimeParts(request.SchemaVersion,[request.Action],request.RuntimeParts);
+        if (request.Type != "metarillUpdateRequest" || request.SchemaVersion is not (1 or 2) || !Scopes.Contains(request.Action, StringComparer.Ordinal)
             || request.Metadata is null || !long.TryParse(request.ProjectId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0 || id.ToString(CultureInfo.InvariantCulture) != request.ProjectId
             || request.Metadata.YzProjectId != request.ProjectId || !ValidHash(request.MetadataSha256) || !ValidHash(request.RequestSha256)) throw new InvalidOperationException("离线请求版本、动作或项目身份无效。");
         MetadataValidation.Validate(request.Metadata);

@@ -10,7 +10,8 @@ namespace Metarill.Generation;
 public sealed record GenerationUpdateFile(string Path, string Action, string Scope, string? BeforeSha256, string? AfterSha256);
 public sealed record GenerationUpdatePlan(int SchemaVersion, string TargetDirectory, string CandidateDirectory, string ProjectId, string RootNamespace,
     IReadOnlyList<string> Actions, IReadOnlyList<string> RequiredActions, bool CanApply, string TargetFingerprint, string CandidateFingerprint,
-    IReadOnlyList<GenerationUpdateFile> Files, string PlanSha256);
+    IReadOnlyList<GenerationUpdateFile> Files, string PlanSha256,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] GenerationRuntimeParts? RuntimeParts=null);
 public sealed record GenerationUpdateReceipt(string TransactionId, string PlanSha256, string Status, int WrittenFiles, int DeletedFiles, int PreservedFiles);
 
 /// <summary>既有普通或固定管理完整工程源码更新器；所有写入经过预览、旧摘要、路径策略和持久化恢复日志。</summary>
@@ -31,8 +32,9 @@ public sealed partial class LocalGenerationUpdater
     internal Action<string>? BeforeRestore { get; init; }
 
     /// <summary>只读目标并输出确定性差异；未选择的其他受管差异一律作为显式依赖拒绝，不猜框架ABI。</summary>
-    public GenerationUpdatePlan Preview(string targetDirectory, string candidateDirectory, IReadOnlyList<string> actions)
+    public GenerationUpdatePlan Preview(string targetDirectory, string candidateDirectory, IReadOnlyList<string> actions, GenerationRuntimeParts? runtimeParts=null)
     {
+        ValidateRuntimeParts(runtimeParts is null?1:2,actions,runtimeParts);
         var target = Root(targetDirectory); var candidate = Root(candidateDirectory);
         if (IsWithin(target, candidate) || IsWithin(candidate, target)) throw new InvalidOperationException("目标与候选目录不能相同或互相包含。");
         var chosen = actions.Order(StringComparer.Ordinal).ToArray();
@@ -43,6 +45,7 @@ public sealed partial class LocalGenerationUpdater
         if(before.Package.PackageMode!=after.Package.PackageMode||before.Package.ManagementModule?.ManagementAdminTypeId!=after.Package.ManagementModule?.ManagementAdminTypeId)
             throw new InvalidOperationException("源码更新不能切换应用模式或管理后台归属。");
         if (before.Metadata.DatabaseProvider != after.Metadata.DatabaseProvider) throw new InvalidOperationException("源码更新不负责数据库品牌或存量数据转换。");
+        if(runtimeParts is not null&&before.Frontend.Authentication!=after.Frontend.Authentication)throw new InvalidOperationException("分端运行时同步不负责认证profile迁移，请先配套升级完整认证闭包。");
         var files = new List<GenerationUpdateFile>(); var required = new HashSet<string>(StringComparer.Ordinal);
         foreach (var path in before.Entries.Keys.Concat(after.Entries.Keys).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal))
         {
@@ -50,6 +53,12 @@ public sealed partial class LocalGenerationUpdater
             var role = Role(path, oldEntry is not null ? before : after);
             if (role == "manifest") continue;
             var actual = ExistingHash(target, path);
+            // 原设备只勾选一端时，另一端的新增/替换/删除都排除；旧实际文件及归属保留。
+            if(runtimeParts is not null&&(role==Runtime||FirstCreateFrontend.Contains(path))&&!RuntimePartAllows(runtimeParts,path))
+            {
+                if(actual is not null)files.Add(new(path,"preserve","preserve",actual,actual));
+                continue;
+            }
             if (role is "preserve" or "handwritten")
             {
                 // 原壳仅允许固定清单路径缺失时首次补建；不把同名已有文件纳入受管替换。
@@ -69,19 +78,20 @@ public sealed partial class LocalGenerationUpdater
             files.Add(new(path, newEntry is null ? "delete" : oldEntry is null ? "create" : "replace", role, actual, newEntry?.Sha256));
         }
         if (required.Count == 0) AddManifestChanges(before, after, files);
-        var plan = new GenerationUpdatePlan(1, target, candidate, before.ProjectId, before.Package.RootNamespace, chosen,
-            required.Order(StringComparer.Ordinal).ToArray(), required.Count == 0, Fingerprint(before), Fingerprint(after), files.OrderBy(file => file.Action == "preserve" ? 1 : 0).ThenBy(file => file.Path, StringComparer.Ordinal).ToArray(), "");
+        var plan = new GenerationUpdatePlan(runtimeParts is null?1:2, target, candidate, before.ProjectId, before.Package.RootNamespace, chosen,
+            required.Order(StringComparer.Ordinal).ToArray(), required.Count == 0, Fingerprint(before), Fingerprint(after), files.OrderBy(file => file.Action == "preserve" ? 1 : 0).ThenBy(file => file.Path, StringComparer.Ordinal).ToArray(), "",runtimeParts);
         return plan with { PlanSha256 = Hash(Encode(plan)) };
     }
 
     /// <summary>只在显式确认且当前重新预览完全相同时写入；不执行SQL、构建、安装或服务启动。</summary>
     public GenerationUpdateReceipt Apply(GenerationUpdatePlan plan, string confirmation)
     {
-        if (plan.SchemaVersion != 1 || !plan.CanApply || plan.RequiredActions.Count != 0 || confirmation != plan.PlanSha256 || Hash(Encode(plan with { PlanSha256 = "" })) != plan.PlanSha256) throw new InvalidOperationException("更新计划无效、未满足依赖或确认摘要不匹配。");
+        ValidateScopedPlan(plan);
+        if (plan.SchemaVersion is not (1 or 2) || !plan.CanApply || plan.RequiredActions.Count != 0 || confirmation != plan.PlanSha256 || Hash(Encode(plan with { PlanSha256 = "" })) != plan.PlanSha256) throw new InvalidOperationException("更新计划无效、未满足依赖或确认摘要不匹配。");
         var target = Root(plan.TargetDirectory); var candidate = Root(plan.CandidateDirectory);
         using var updateLock = AcquireLock(target, ".metarill-update.lock");
         using var generationLock = AcquireLock(target, "backend/generated/.metarill-generation.lock");
-        var current = Preview(target, candidate, plan.Actions);
+        var current = Preview(target, candidate, plan.Actions,plan.RuntimeParts);
         if (current.PlanSha256 != plan.PlanSha256) throw new InvalidOperationException("预览后候选、目标或受保护文件发生变化，请重新预览。");
         var source = ReadPackage(candidate, true); var baseline = ReadPackage(target, false); var payload = Payload(baseline, source, plan.Files);
         return Commit(plan, payload);
