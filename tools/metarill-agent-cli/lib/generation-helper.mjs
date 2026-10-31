@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process';
 import { restrictPermissions } from './config.mjs';
 import { CliError } from './errors.mjs';
 import { attemptApplication, resumeApplications } from './generation-application.mjs';
-import { bindGenerationDevice,resumeGenerationDevice,generationDeviceStatus,validateDeviceOptions } from './generation-device.mjs';
+import { validateRuntimeSnapshot,validateRuntimePlan } from './generation-runtime-scope.mjs';
+import { bindGenerationDevice,resumeGenerationDevice,generationDeviceStatus,validateDeviceOptions,verifyGenerationRuntimeDevice } from './generation-device.mjs';
 
 const HASH = /^[a-f0-9]{64}$/;
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
@@ -130,7 +131,7 @@ async function flushPreparedOutbox(context, binding) {
   try { await safePath(path); const stat = await lstat(path); if (!stat.isFile() || stat.size > 65536) throw new CliError('本机任务状态无效。', 'helper_invalid_state'); state = JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
   if (!['prepared','preview-acked'].includes(state.status)) continue;
   const receipt = state.receipt;
-  if (state.schemaVersion !== 1 || state.bindingId !== binding.bindingId || state.requestId !== entry.name || !UUID.test(state.leaseId || '') || !HASH.test(state.requestSha256 || '') || !receipt || receipt.bindingId !== binding.bindingId || receipt.requestId !== state.requestId || receipt.leaseId !== state.leaseId || receipt.requestSha256 !== state.requestSha256) throw new CliError('待确认出箱与本机绑定不一致，保留现场。', 'helper_invalid_state');
+  if (state.schemaVersion !== (state.runtimeOrigin?2:1) || state.bindingId !== binding.bindingId || state.requestId !== entry.name || !UUID.test(state.leaseId || '') || !HASH.test(state.requestSha256 || '') || !receipt || receipt.bindingId !== binding.bindingId || receipt.requestId !== state.requestId || receipt.leaseId !== state.leaseId || receipt.requestSha256 !== state.requestSha256) throw new CliError('待确认出箱与本机绑定不一致，保留现场。', 'helper_invalid_state');
   return finishPreview(context,binding,{ runCli,atomicJson,safePath },folder,path,state);
 
  }
@@ -153,7 +154,8 @@ async function finishPreview(context,binding,io,task,statePath,state) {
   } catch(error) { if(error.code!=='ENOENT') throw error; }
   const requestPath=join(task,'request.json'); await safePath(requestPath); const info=await lstat(requestPath); if(!info.isFile()||info.size>4*1024*1024) throw new CliError('原请求快照无效。','helper_invalid_state');
   const snapshot=JSON.parse(await readFile(requestPath,'utf8')); if(snapshot.requestSha256!==state.requestSha256 || snapshot.projectId!==binding.projectId) throw new CliError('原请求与待应用意图不一致。','helper_invalid_state');
-  const applied=await attemptApplication(context,binding,io,{requestId:state.requestId,snapshot},task,{requiredActions:receipt.requiredActions});
+  validateRuntimeSnapshot(snapshot,state.runtimeOrigin,binding);
+  const applied=await attemptApplication(context,binding,io,{requestId:state.requestId,snapshot,...(state.runtimeOrigin?{runtimeOrigin:state.runtimeOrigin}:{})},task,{requiredActions:receipt.requiredActions,planSha256:receipt.planSha256});
   await atomicJson(statePath,{...state,status:'reported'}); if(applied) return applied;
  }
  await atomicJson(statePath,{...state,status:'reported'});
@@ -186,20 +188,23 @@ export async function pollGenerationHelperOnce(context) {
   if (identity.projectId !== binding.projectId || identity.rootNamespace !== binding.rootNamespace || identity.databaseProvider !== binding.databaseProvider) throw new CliError('本机工程归属已变化。', 'helper_binding_changed');
   const work = await context.rpc('/admin/sys/generation-assistant/helper/claim', { bindingId: binding.bindingId });
   if (work === null) return { status: 'idle', applied: false };
-  if (!work || !UUID.test(work.requestId || '') || !UUID.test(work.leaseId || '') || work.bindingId !== binding.bindingId || work.projectId !== binding.projectId || work.rootNamespace !== binding.rootNamespace || work.localBindingSha256 !== binding.localBindingSha256 || work.applied !== false || !work.snapshot || work.snapshot.type !== 'metarillUpdateRequest' || work.snapshot.schemaVersion !== 1 || work.snapshot.projectId !== binding.projectId || !ACTIONS.includes(work.snapshot.action) || !HASH.test(work.snapshot.requestSha256 || '') || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || Date.parse(work.leaseExpiresAt) <= Date.now()) throw new CliError('助手任务身份、lease或快照无效。', 'helper_invalid_work');
+  if (!work || !UUID.test(work.requestId || '') || !UUID.test(work.leaseId || '') || work.bindingId !== binding.bindingId || work.projectId !== binding.projectId || work.rootNamespace !== binding.rootNamespace || work.localBindingSha256 !== binding.localBindingSha256 || work.applied !== false || !work.snapshot || work.snapshot.type !== 'metarillUpdateRequest' || ![1,2].includes(work.snapshot.schemaVersion) || work.snapshot.projectId !== binding.projectId || !ACTIONS.includes(work.snapshot.action) || !HASH.test(work.snapshot.requestSha256 || '') || !Number.isFinite(Date.parse(work.leaseExpiresAt)) || Date.parse(work.leaseExpiresAt) <= Date.now()) throw new CliError('助手任务身份、lease或快照无效。', 'helper_invalid_work');
+  validateRuntimeSnapshot(work.snapshot,work.runtimeOrigin,binding);
+  if(work.runtimeOrigin)await verifyGenerationRuntimeDevice(binding,io,work.runtimeOrigin);
   const task = join(binding.workRoot, work.requestId); await safePath(task); const statePath = join(task, 'helper-task.json'); let state;
   try { const info = await lstat(statePath); if (!info.isFile() || info.size > 65536) throw new CliError('本机任务状态无效。', 'helper_invalid_state'); await safePath(statePath); state = JSON.parse(await readFile(statePath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (state && (state.schemaVersion !== 1 || state.bindingId !== binding.bindingId || state.requestId !== work.requestId || state.requestSha256 !== work.snapshot.requestSha256 || state.leaseId !== work.leaseId)) throw new CliError('本机任务与服务端快照或lease不一致，保留现场。', 'helper_invalid_state');
+  if (state && (state.schemaVersion !== (work.runtimeOrigin?2:1) || JSON.stringify(state.runtimeOrigin??null)!==JSON.stringify(work.runtimeOrigin??null) || state.bindingId !== binding.bindingId || state.requestId !== work.requestId || state.requestSha256 !== work.snapshot.requestSha256 || state.leaseId !== work.leaseId)) throw new CliError('本机任务与服务端快照或lease不一致，保留现场。', 'helper_invalid_state');
   let receipt = state?.receipt;
   if (!receipt && state) receipt = failure(work, 'local_prepare_interrupted');
   if (!state) {
    try { await mkdir(task, { mode: 0o700 }); await restrictPermissions(task, true); } catch (error) { if (error.code === 'EEXIST') throw new CliError('任务目录已有未登记内容，保留现场。', 'helper_invalid_state'); throw error; }
-   state = { schemaVersion: 1, bindingId: binding.bindingId, requestId: work.requestId, requestSha256: work.snapshot.requestSha256, leaseId: work.leaseId, status: 'preparing' }; await atomicJson(statePath, state);
+   state = { schemaVersion: work.runtimeOrigin?2:1,...(work.runtimeOrigin?{runtimeOrigin:work.runtimeOrigin}:{}), bindingId: binding.bindingId, requestId: work.requestId, requestSha256: work.snapshot.requestSha256, leaseId: work.leaseId, status: 'preparing' }; await atomicJson(statePath, state);
    const request = join(task, 'request.json'), candidate = join(task, 'candidate'), plan = join(task, 'plan.json');
    try {
     const text = JSON.stringify(work.snapshot, null, 2) + '\n'; if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new CliError('任务快照超限。', 'helper_invalid_work'); await atomicJson(request, work.snapshot);
     const result = await runCli(binding, ['update', 'prepare', '--request', request, '--target', binding.target, '--candidate', candidate, '--source-root', binding.sourceRoot, '--plan', plan], Math.max(120000, context.timeoutMs)); const output = result.value, preview = output.plan;
     if (!['preview-ready','dependencies-required'].includes(output.status) || output.requestSha256 !== work.snapshot.requestSha256 || output.candidateDirectory !== candidate || output.planPath !== plan || preview?.targetDirectory !== binding.target || preview?.candidateDirectory !== candidate || preview?.rootNamespace !== binding.rootNamespace || preview?.projectId !== binding.projectId || !Array.isArray(preview.actions) || preview.actions.length !== 1 || preview.actions[0] !== work.snapshot.action || !HASH.test(preview.planSha256 || '') || !Array.isArray(preview.requiredActions) || preview.requiredActions.some(action => !ACTIONS.includes(action)) || preview.canApply !== (output.status === 'preview-ready') || !Array.isArray(preview.files)) throw new CliError('CLI预览回执不匹配，现场保留。', 'helper_invalid_result');
+    validateRuntimePlan(preview,work.runtimeOrigin);
     const count = action => preview.files.filter(file => file.action === action).length;
     receipt = { bindingId: binding.bindingId, requestId: work.requestId, leaseId: work.leaseId, requestSha256: work.snapshot.requestSha256, status: output.status, planSha256: preview.planSha256, requiredActions: preview.requiredActions, createdFiles: count('create'), replacedFiles: count('replace'), deletedFiles: count('delete'), preservedFiles: count('preserve'), errorCode: null };
    } catch (error) { if (error?.localDiagnostic) await atomicJson(join(task, 'diagnostic.json'), { status: 'prepare_failed', ...error.localDiagnostic }); receipt = failure(work, 'prepare_failed'); }

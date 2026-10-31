@@ -2,6 +2,7 @@ import { readFile,lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { CliError } from './errors.mjs';
+import { validateRuntimeOrigin } from './generation-runtime-scope.mjs';
 import { deviceProjectPathFingerprint } from './device-project-path.mjs';
 const hash=/^[a-f0-9]{64}$/;const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const validHash=value=>typeof value==='string'&&hash.test(value);const validUuid=value=>typeof value==='string'&&uuid.test(value);
@@ -74,4 +75,12 @@ async function submit(context,binding,io,state){
 /** 轮询只重放原pending请求，不重新预检采纳新配置，不新增bindingId或默认覆盖旧ETag。 */
 export async function resumeGenerationDevice(context,binding,io){
  const state=await readIntent(binding,io);if(!state||state.status==='bound')return null;await ready(context,binding,io);return submit(context,binding,io,state);
+}
+
+/** 新应用只使用本机已明确登记的同设备/配置/CAS意图；恢复旧事务不调用此当前绑定检查。 */
+export async function verifyGenerationRuntimeDevice(binding,io,origin){
+ validateRuntimeOrigin(origin,binding);const intent=await readIntent(binding,io);const device=origin.device;
+ if(binding.mode!=='apply'||!binding.allowedActions.includes('sync-runtime')||!intent||intent.status!=='bound'||intent.deviceId!==device.deviceId||intent.associationSha256!==origin.associationSha256||intent.body.expectedDeviceSha256!==device.deviceSha256||intent.body.expectedConfigurationSha256!==device.configurationSha256||device.parts.backend&&(intent.body.backendPathSha256!==device.backendPathSha256||deviceProjectPathFingerprint(binding.target)!==device.backendPathSha256)||device.parts.frontend&&(intent.body.frontendPathSha256!==device.frontendPathSha256||deviceProjectPathFingerprint(join(binding.target,'frontend'))!==device.frontendPathSha256))
+  throw new CliError('分端任务不匹配本机已确认设备意图；请保留原任务并核对关联。','helper_runtime_device_changed');
+ return origin;
 }

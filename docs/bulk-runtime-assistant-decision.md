@@ -13,3 +13,5 @@ C64已先完成[普通完整工程分端离线基础](testing/runtime-parts-upda
 C67已完成[设备全部项目只读发现](testing/device-assistant-discovery.md)：不按当前工作项目截断，按项目固定最新配置、保留原开关/路径跳过，坏配置逐项失败且不回退；真实项目名定向读取，旧C65设备摘要保持。元数据551/25、API120/49条件跳过零失败。尚未接入批量HTTP、持久计划或助手应用，不能把configured标成同步成功。
 
 C68已完成[服务端分端任务来源隔离](testing/runtime-assistant-origin.md)：入队固定设备/配置/关联/启用端，原领取/批准/ticket重验通过当前真实Actor查库，拒绝混入旧确认聚合；保留v1字节与领取路径。最终API149/49、Agent444/25条件跳过零失败。Node仍拒绝v2，批量持久意图、逐项目Web认证与按钮汇总未完成，原批量路由未启用。
+
+C69完成[Node助手v2分端计划应用](testing/runtime-assistant-node-v2.md)：普通/管理工程三种端范围沿原plan应用，回执未知恢复与设备意图失配保护通过，完整Node129项通过。仍未接通批量HTTP、逐项目真实授权、设备控制动作和原按钮汇总。

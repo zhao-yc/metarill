@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import { mkdtemp,mkdir,readFile,writeFile,rm,lstat } from 'node:fs/promises';import { tmpdir } from 'node:os';import { join,resolve,sep } from 'node:path';import { randomUUID } from 'node:crypto';
-import { bindGenerationDevice,resumeGenerationDevice,generationDeviceStatus } from '../lib/generation-device.mjs';import { deviceProjectPathFingerprint } from '../lib/device-project-path.mjs';import { CliError } from '../lib/errors.mjs';
+import { bindGenerationDevice,resumeGenerationDevice,generationDeviceStatus,verifyGenerationRuntimeDevice } from '../lib/generation-device.mjs';import { deviceProjectPathFingerprint } from '../lib/device-project-path.mjs';import { CliError } from '../lib/errors.mjs';
 /** 受控RPC/CLI只验证设备意图状态机；真实C#CLI、HTTP与OAuth另验，不作本用例的隐含前提。 */
 async function fixture(t){
  const root=await mkdtemp(join(tmpdir(),'metarill-device-intent-'));const work=join(root,'work');await mkdir(work);
@@ -59,4 +59,11 @@ test('本机身份变化、坏服务端hash类型或坏私有意图不成为成�
  const first=await fixture(t);first.state.identityChanged=true;await assert.rejects(bindGenerationDevice(first.context,first.binding,first.options,first.io),{code:'helper_identity_changed'});assert.equal(first.posts().length,0);
  const second=await fixture(t);second.state.current.deviceSha256=['2'.repeat(64)];await assert.rejects(bindGenerationDevice(second.context,second.binding,second.options,second.io),{code:'helper_invalid_device_receipt'});assert.equal(second.posts().length,0);
  const third=await fixture(t);await bindGenerationDevice(third.context,third.binding,third.options,third.io);const json=JSON.parse(await readFile(third.intent,'utf8'));json.body.deviceId='12';await writeFile(third.intent,JSON.stringify(json));await assert.rejects(resumeGenerationDevice(third.context,third.binding,third.io),{code:'helper_invalid_device_state'});
+});
+
+/** 当前设备意图是明确本机授权，不为新任务自动登记；检查本身只读。 */
+test('分端新任务匹配已登记意图且不产生额外RPC',async t=>{
+ const f=await fixture(t);await bindGenerationDevice(f.context,f.binding,f.options,f.io);const source={device:{accountId:'1',deviceId:'11',projectId:'2',configurationId:'21',deviceSha256:f.state.current.deviceSha256,configurationSha256:f.state.current.configurationSha256,parts:f.state.current.parts,backendPathSha256:f.state.current.backendPathSha256,frontendPathSha256:f.state.current.frontendPathSha256},associationSha256:f.state.association.associationSha256};
+ const before=await readFile(f.intent,'utf8'),calls=f.state.calls.length;await verifyGenerationRuntimeDevice(f.binding,f.io,source);assert.equal(await readFile(f.intent,'utf8'),before);assert.equal(f.state.calls.length,calls);
+ for(const kind of ['device','configuration','association','path']){const changed=structuredClone(source);if(kind==='device')changed.device.deviceSha256='6'.repeat(64);if(kind==='configuration')changed.device.configurationSha256='6'.repeat(64);if(kind==='association')changed.associationSha256='6'.repeat(64);if(kind==='path')changed.device.backendPathSha256='6'.repeat(64);await assert.rejects(verifyGenerationRuntimeDevice(f.binding,f.io,changed),{code:'helper_runtime_device_changed'})}
 });
