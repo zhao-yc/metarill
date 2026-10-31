@@ -15,6 +15,7 @@
     <Compile Include="../../src/Metarill.Api/GenerationAssistant/DeviceProjectPath.cs" Link="Boundary/DeviceProjectPath.cs" />
     <Compile Include="../../src/Metarill.Api/GenerationAssistant/GenerationAssistantDeviceModels.cs" Link="Boundary/GenerationAssistantDeviceModels.cs" />
     <Compile Include="../../src/Metarill.Api/GenerationAssistant/GenerationAssistantDeviceScopeReader.cs" Link="Boundary/GenerationAssistantDeviceScopeReader.cs" />
+    <Compile Include="../../src/Metarill.Api/GenerationAssistant/GenerationAssistantDeviceDiscovery.cs" Link="Boundary/GenerationAssistantDeviceDiscovery.cs" />
 
   </ItemGroup>
 </Project>

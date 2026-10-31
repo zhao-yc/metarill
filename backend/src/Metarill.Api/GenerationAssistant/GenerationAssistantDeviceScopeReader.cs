@@ -8,7 +8,7 @@ using Metarill.Runtime.Persistence;
 namespace Metarill.Api.GenerationAssistant;
 
 /// <summary>设备摘要只能来自实际活动设备及项目配置，不把客户端设备选择、目录或摘要当作授权。</summary>
-public sealed class GenerationAssistantDeviceScopeReader(SqlRowStore store)
+public sealed partial class GenerationAssistantDeviceScopeReader(SqlRowStore store)
 {
     /// <summary>一次性设备绑定先验证真实设备拥有者，再取本项目原最新配置；读取不修改任何配置或结构。</summary>
     public async Task<AssistantDeviceScope> LoadAsync(RuntimeActor actor,string deviceId,CancellationToken token=default)
@@ -23,7 +23,12 @@ public sealed class GenerationAssistantDeviceScopeReader(SqlRowStore store)
             new Dictionary<string,object?>{{"yz_manager_devices_id",device},{"yz_project_id",project}},token);
         var row=rows.OrderByDescending(Updated).ThenByDescending(value=>SqlRowStore.Id(value)).FirstOrDefault()
             ??throw new InvalidOperationException("当前设备未配置该项目。");
-        if(SqlRowStore.Id(row,"yz_manager_id")!=actor.AccountId)throw new UnauthorizedAccessException("项目配置账号与当前设备拥有者不一致。");
+        return ConfigurationScope(actor.AccountId,actor.ProjectId,deviceId,owned,row);
+    }
+    /// <summary>单项目与批量发现共用真实配置摘要；接收已查库的账号/项目值，不构造或修改认证Actor。</summary>
+    private static AssistantDeviceScope ConfigurationScope(long accountId,string projectId,string deviceId,IReadOnlyDictionary<string,object?> owned,IReadOnlyDictionary<string,object?> row)
+    {
+        if(SqlRowStore.Id(row,"yz_manager_id")!=accountId)throw new UnauthorizedAccessException("项目配置账号与当前设备拥有者不一致。");
         var parts=new GenerationRuntimeParts(Enabled(row,"is_java"),Enabled(row,"is_uniapp"));
         if(!parts.Backend&&!parts.Frontend)throw new InvalidOperationException("当前设备项目未启用生成。");
         string? PathHash(string field,bool enabled)
@@ -34,9 +39,9 @@ public sealed class GenerationAssistantDeviceScopeReader(SqlRowStore store)
         }
         var backend=PathHash("java_path",parts.Backend);var frontend=PathHash("uniapp_path",parts.Frontend);
         var configurationId=SqlRowStore.Text(row,"id");_=Id(configurationId);
-        var deviceHash=Hash(new{deviceId,actor.AccountId,token=SqlRowStore.Text(owned,"token")});
-        var configurationHash=Hash(new{deviceId,actor.AccountId,projectId=actor.ProjectId,configurationId,parts,backend,frontend});
-        return new(actor.AccountId,deviceId,actor.ProjectId,configurationId,deviceHash,configurationHash,parts,backend,frontend);
+        var deviceHash=Hash(new{deviceId,AccountId=accountId,token=SqlRowStore.Text(owned,"token")});
+        var configurationHash=Hash(new{deviceId,AccountId=accountId,projectId,configurationId,parts,backend,frontend});
+        return new(accountId,deviceId,projectId,configurationId,deviceHash,configurationHash,parts,backend,frontend);
     }
     /// <summary>规范主键使用固定十进制字符串，禁止点层级、前导零或越界值进入状态文件名。</summary>
     private static long Id(string value)
