@@ -18,7 +18,7 @@ public sealed class LegacyRuntimeBatchController(GenerationAssistantBatchEnqueue
     public async Task<R<AssistantRuntimeBatchEnqueueResult>> Execute(CancellationToken token)
     {
         var identity=AgentRequestAuthentication.RequireWeb(HttpContext);authorization.RequireAdministrator();
-        var deviceId=ReadDeviceId(Request);
+        await RequireEmptyLegacyBodyAsync(Request,token);var deviceId=ReadDeviceId(Request,true);
         var login=Request.Headers["loginStateId"];var bearer=Request.Headers.Authorization;if(login.Count>1||bearer.Count>1||login.Count==1&&bearer.Count==1)throw new UnauthorizedAccessException("登录超时");
         var batch=Request.Headers["X-Yzp-Agent-Request-Id"];if(batch.Count>1)throw new InvalidOperationException("批次编号不能重复。");
         var batchId=batch.Count==1?batch.ToString():Guid.NewGuid().ToString("D");AgentTaskStore.ValidateRequestId(batchId);
@@ -28,9 +28,9 @@ public sealed class LegacyRuntimeBatchController(GenerationAssistantBatchEnqueue
     }
 
     /// <summary>兼容原已编码sysParams头，设备只作选择且后续仍须真实拥有权查库；不输出原始头或解析正文。</summary>
-    public static string ReadDeviceId(HttpRequest request)
+    public static string ReadDeviceId(HttpRequest request,bool emptyBodyValidated=false)
     {
-        if(request.Query.Keys.Any(key=>key!="parentId")||request.Query["parentId"].Count>1||request.ContentLength>0||request.Headers.TransferEncoding.Count!=0)
+        if(request.Query.Keys.Any(key=>key!="parentId")||request.Query["parentId"].Count>1||(!emptyBodyValidated&&request.ContentLength>0)||request.Headers.TransferEncoding.Count!=0)
             throw new InvalidOperationException("批量入口只允许原parentId上下文且不接受正文。");
         var values=request.Headers["sysParams"];
         if(values.Count!=1||values[0] is not{Length:>0 and <=8192} raw)throw new InvalidOperationException("缺少系统参数，请先选择设备。");
@@ -41,6 +41,21 @@ public sealed class LegacyRuntimeBatchController(GenerationAssistantBatchEnqueue
         if(!json.RootElement.TryGetProperty("yzManagerDevicesId",out var value)||value.ValueKind!=JsonValueKind.String||value.GetString() is not{} id||!long.TryParse(id,NumberStyles.None,CultureInfo.InvariantCulture,out var device)||device<=0||device.ToString(CultureInfo.InvariantCulture)!=id)
             throw new InvalidOperationException("缺少系统参数，请先选择有效设备。");
         return id;
+    }
+    /// <summary>原uni-app共享请求把无data的POST补为{}；有界接受空正文/空对象，任何字段均拒绝。</summary>
+    public static async Task RequireEmptyLegacyBodyAsync(HttpRequest request,CancellationToken token=default)
+    {
+        if(request.ContentLength>256||request.Headers.TransferEncoding.Count!=0)throw new InvalidOperationException("批量入口正文超出原协议范围。");
+        var buffer=new byte[257];var count=0;
+        while(count<buffer.Length){var read=await request.Body.ReadAsync(buffer.AsMemory(count),token);if(read==0)break;count+=read;}
+        if(count>256)throw new InvalidOperationException("批量入口正文过长。");
+        if(count==0)return;
+        try
+        {
+            using var body=JsonDocument.Parse(buffer.AsMemory(0,count));
+            if(body.RootElement.ValueKind!=JsonValueKind.Object||body.RootElement.EnumerateObject().Any())throw new InvalidOperationException("批量入口只接受原空对象正文。");
+        }
+        catch(JsonException){throw new InvalidOperationException("批量入口正文无效。");}
     }
     /// <summary>只有全部实际applied且至少一项执行完成才可沿旧成功UI；排队、失败、未知和空集合均明确未完成。</summary>
     public static R<AssistantRuntimeBatchEnqueueResult> LegacyReceipt(AssistantRuntimeBatchEnqueueResult result)

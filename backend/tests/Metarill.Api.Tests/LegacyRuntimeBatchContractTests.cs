@@ -27,6 +27,21 @@ public sealed class LegacyRuntimeBatchContractTests
         request.Headers["sysParams"]=Uri.EscapeDataString(text);if(kind=="missing")request.Headers.Remove("sysParams");if(kind=="duplicate-header")request.Headers["sysParams"]=new Microsoft.Extensions.Primitives.StringValues([text,text]);if(kind=="body")request.ContentLength=2;if(kind=="chunked")request.Headers.TransferEncoding="chunked";if(kind=="query")request.QueryString=new("?parentId=11&deviceId=12");if(kind=="parent-repeat")request.QueryString=new("?parentId=11&parentId=12");
         Assert.Throws<InvalidOperationException>(()=>LegacyRuntimeBatchController.ReadDeviceId(request));
     }
+    /// <summary>真实公共request会传空对象，兼容该正文但不接受字段、标量或超限数据。</summary>
+    [Theory]
+    [InlineData("",true)][InlineData("{}",true)][InlineData(" { } ",true)][InlineData("{\"deviceId\":\"12\"}",false)][InlineData("null",false)][InlineData("[]",false)][InlineData(" ",false)]
+    public async Task Legacy_empty_object_body_matches_original_shared_request(string body,bool accepted)
+    {
+        var request=new DefaultHttpContext().Request;request.Body=new MemoryStream(System.Text.Encoding.UTF8.GetBytes(body));request.ContentLength=request.Body.Length;request.Headers["sysParams"]=Uri.EscapeDataString("{\"yzManagerDevicesId\":\"11\"}");
+        if(!accepted){await Assert.ThrowsAsync<InvalidOperationException>(()=>LegacyRuntimeBatchController.RequireEmptyLegacyBodyAsync(request));return;}
+        await LegacyRuntimeBatchController.RequireEmptyLegacyBodyAsync(request);Assert.Equal("11",LegacyRuntimeBatchController.ReadDeviceId(request,true));
+    }
+    /// <summary>无长度声明仍有界读取，不允许借空对象后的填充突破限制。</summary>
+    [Fact]
+    public async Task Legacy_body_is_bounded_even_without_content_length()
+    {
+        var request=new DefaultHttpContext().Request;request.Body=new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{}"+new string(' ',255)));await Assert.ThrowsAsync<InvalidOperationException>(()=>LegacyRuntimeBatchController.RequireEmptyLegacyBodyAsync(request));
+    }
     /// <summary>原UI按R200直接成功，所有未应用及空/仅跳过结果必须返回R500且保留逐项数据。</summary>
     [Theory]
     [InlineData("queued")][InlineData("leased")][InlineData("preview_ready")][InlineData("failed")][InlineData("expired")][InlineData("awaiting_application")][InlineData("manual_recovery")][InlineData("rolled_back")][InlineData("skipped")]

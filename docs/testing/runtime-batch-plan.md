@@ -1,6 +1,6 @@
 # 批量运行时：计划、入队及原协议边界
 
-当前状态（2026-10-31，C78）：C77已纠正原sysParams设备及入队假成功；C78增加服务端持久批次和只读状态查询。原按钮的客户端固定批次、等待/逐项汇总与网络未知恢复尚未接入，真实Web/OAuth/MySQL仍未执行。以下各切片的离线证据不能代替完整批量同步验收。
+当前状态（2026-10-31，C79）：C77纠正原sysParams设备及入队假成功，C78补服务端持久批次/只读查询，C79已接入原按钮的客户端预存、等待、逐项汇总及刷新后只读恢复。原项目列表、样式、组件和生成模板未改。真实Web/OAuth/MySQL/跨项目本机工程闭环尚未验收，设备控制三个动作仍待既有审批；不能将前端合成HTTP验收标作整体同步完成。
 
 2026-10-31，C70，起点a3e9843。该切片为原“同步当前设备全部项目运行时”按钮提供只读计划入口，保留原页面操作，不创建任务、不应用源码。
 
@@ -79,3 +79,21 @@ C76修正同来源活动任务去重后的专项断言，并重跑来源专项29
 证据：E:\git\metarill\.local\runtime-batch-persistence-api-final.log、runtime-batch-persistence-agent-final.log及TestResults同名TRX；专项初轮19通过，后续补充期限与协调器状态用例包含于最终API。命令沿C77固定DOTNET_HOST_PATH，对两个测试项目执行 `dotnet test -c Release --nologo --disable-build-servers --verbosity quiet -warnaserror`。
 
 原页面、样式、生成模板、backend/generated和待批准AgentTaskMiddleware未改；无需DDL、回填或再生成。客户端预存批次、原按钮等待和最终逐项汇总继续实施；设备控制三个动作的登记豁免仍待此前用户确认，不作旁路。
+
+
+## C79：原按钮等待、逐项汇总与刷新恢复
+
+起点3543e69。保持原项目列表文件逐字节不变，保留原POST地址、parentId列表上下文、按钮、样式、原一次确认及customButtonHandler。只在平台手写 `common/yzp.js` 对该精确POST接线到 `common/runtimeBatchBridge.js`；其余请求原样转发，公共运行时与独立应用模板不增加平台设备管理逻辑。
+
+1. 原确认后先在本机可靠保存批次UUID、上下文SHA256和时间，再发原POST。上下文含当前API环境/账号/项目/设备/会话的摘要，不复制原始会话、路径、元数据或命令。回读确认保存失败、坏缓存或20项未结上限均停止，不能驱逐旧未知批次。
+2. 原回执后按原批次POST只读status，最长等待16分钟。排队、领取、预览及等待应用不触发原成功处理；至少一项applied且其余全部applied/skipped才回原成功并展示逐项结果；部分失败沿原错误弹窗，保留每项真实任务编号与明确错误。依赖项不会扩大授权或自动确认其它动作。
+3. 首次响应未知、查询未知或页面刷新后再次点击原按钮，只查询本机保存的原UUID，不自动重发原同步POST。pending/prepared/manual-recovery保持记录并明确尚未应用；确定终态才清理本机索引。换账号/会话/项目/设备/API环境与取消/超时阻断迟到刷新和成功提示，原编号仍保留。
+4. 执行真实共享request探针发现：无data的原POST会发送空对象 `{}`。C77仅允许零正文会拒绝该原调用，现已在控制器有界读取≤256字节，仅接受空正文或空JSON对象；字段、标量、数组、无效JSON、超限及原不允许的chunked拒绝。设备仍只由原sysParams选取并经后续真实拥有权检查，正文不能覆盖。
+
+验证：新增前端专项26项通过，完整前端346项全部通过/零跳过；完整API严格214通过、49条件跳过、零失败（42秒）。本次未重复未改动的Agent全量，C78同起点已444通过/25条件跳过。HBuilderX 5.34.2026102909实际 `publish web --project <本工作树frontend绝对目录> --webTitle Metarill` 导出Web成功；仅增加中文注释后算法未变。没有上传、部署或数据库写入。
+
+浏览器：ego lite 0.6.1.13，使用本轮独占 `metarill-batch-ui.localhost:18788` 承载实际Web产物及合成HTTP，明确屏蔽原本机8088地址、不代理真实API。原登录/工作区选择/原项目列表实际执行，验证全部应用+跳过、部分失败、首次断网未知、刷新后原UUID只读恢复。前两种每轮同步POST1次+状态查询2次；三轮场景浏览器资源总记3条同步XHR，服务器在断连一轮实际收到2次原同步HTTP，与浏览器传输层重试一致；不能把断网当成“HTTP恰好一次”，服务端C78固定UUID幂等仍必要。刷新恢复保持批次，额外同步POST=0、额外状态查询=1。初版断网脚本错误地断言HTTP恰好1次，失败后已保留现场并纠正为前后计数；不隐藏该观测。合成回执不是C#任务/真实OAuth/本机应用证明。
+
+证据：E:\git\metarill\.local\runtime-batch-original-button-{frontend,api,h5}.log，API同名TRX，runtime-batch-browser-contract-final.log，以及runtime-batch-original-browser-20261031下complete/partial/unknown/restored-receipt.json与01—05截图。浏览器任务空间40按技能finish关闭，本轮Node夹具PID4748已核对归属后停止、18788端口无监听。未清除用户浏览器资料，未升级ego lite。
+
+无需DDL、回填、前端再生成或修改生成模板；平台手写适配器由现有main.js加载，与原页面导入的公共对象共享。仍待：真实逐项目Web/OAuth、批准grant/设备关联、Node领取/原计划写入/最终回执的端到端验收，以及Web之外的目标端验证。AgentTaskMiddleware三个设备控制动作的豁免仍保持原待批方案，未改名、借道或绕过。

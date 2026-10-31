@@ -1,6 +1,8 @@
 # 原批量运行时按钮的在线助手接线决定
 
-核对日期：2026-10-31；起点c4cdee6。原项目列表保留“同步当前设备全部项目运行时”按钮，POST `/admin/custom/index/sync_runtime_all_projects`，只发parentId并由原通用按钮处理回执。实际Program探针已复现404，证据在私有original-frontend-routes-second.trx。
+当前进度（C79）：用户确认的原批量按钮接线已实现客户端等待/汇总/刷新恢复，前端原页逐字节未改；API、前端回归及实际Web产物合成HTTP浏览器验收通过。真实OAuth/跨项目本机工程闭环仍待验收，详见[当前证据与边界](testing/runtime-batch-plan.md)。下文C64—C77保留历史状态，不代表最新缺口。
+
+核对日期：2026-10-31；起点c4cdee6。原项目列表保留“同步当前设备全部项目运行时”按钮，POST `/admin/custom/index/sync_runtime_all_projects`，parentId仅为列表父上下文，设备由原编码sysParams头选择，并由原通用按钮处理回执。实际Program探针已复现404，证据在私有original-frontend-routes-second.trx。
 
 原Java按当前设备配置的项目路径逐项目同步并汇总成功/失败。新在线助手目前每个绑定和OAuth grant均固定账号/项目；批量按钮未提供绑定ID、幂等请求ID或有效grant。不能将请求改成“全部成功”、只同步当前项目或绕过逐项目授权。
 
@@ -31,3 +33,6 @@ C75在真实Program下确认旧批量POST地址不再404，匿名统一登录拒
 C76完成活动v2任务去重回归：来源专项29项、API全量155通过/49条件跳过/0失败；同来源活动任务复用，混合确认拒绝。真实跨项目OAuth/MySQL、Node领取和浏览器汇总仍待完成。
 
 C77纠正C74/C76证据边界：原Java设备来自sysParams.yzManagerDevicesId而非parentId，两个协调器必须回传实际去重任务ID/状态；已修复UUID冲突优先、终态槽占用及原UI将排队误当成功。新增31项、完整API186/49和Agent444/25条件跳过零失败。前端未改，旧入口仍不等待最终回执，持久批次/未知恢复/汇总及真实OAuth验收不能标完成。
+
+
+C78已持久化服务端批次清单/逐项意图/实际任务别名并提供只读状态；C79在平台手写请求适配器接回原按钮的预存、等待、逐项汇总和刷新后只读恢复，原页与模板未改。完整前端346、API214/49条件跳过零失败；HBuilderX实际Web导出与ego lite合成HTTP三类浏览器场景通过。真实OAuth/跨项目工程闭环、其它目标端及设备控制动作的既有审批仍未完成。
