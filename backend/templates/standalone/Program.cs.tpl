@@ -284,11 +284,12 @@ static async Task<DevelopmentLogin> ReadLogin(HttpRequest request)
     if(request.ContentType?.StartsWith("application/x-www-form-urlencoded",StringComparison.OrdinalIgnoreCase)==true)
     {
         var form=Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(System.Text.Encoding.UTF8.GetString(bytes,0,length));
-        if(form.Count!=2||form.Keys.Any(key=>key is not("username" or "password"))||form["username"].Count!=1||form["password"].Count!=1)throw new ArgumentException("登录字段无效。");
+        // 原登录页会提交captchaVerification；本宿主Cap关闭，该兼容字段不参与身份认证。
+        if(form.Count is <2 or >3||form.Keys.Any(key=>key is not("username" or "password" or "captchaVerification"))||form.Any(field=>field.Value.Count!=1)||!form.ContainsKey("username")||!form.ContainsKey("password"))throw new ArgumentException("登录字段无效。");
         return new(form["username"].ToString(),form["password"].ToString());
     }
     using var json=JsonDocument.Parse(bytes.AsMemory(0,length));var fields=new HashSet<string>(StringComparer.Ordinal);
-    if(json.RootElement.ValueKind!=JsonValueKind.Object||json.RootElement.EnumerateObject().Any(field=>!fields.Add(field.Name)||field.Name is not("username" or "password")||field.Value.ValueKind!=JsonValueKind.String)||fields.Count!=2)throw new ArgumentException("登录字段无效。");
+    if(json.RootElement.ValueKind!=JsonValueKind.Object||json.RootElement.EnumerateObject().Any(field=>!fields.Add(field.Name)||field.Name is not("username" or "password" or "captchaVerification")||field.Value.ValueKind!=JsonValueKind.String)||!fields.Contains("username")||!fields.Contains("password"))throw new ArgumentException("登录字段无效。");
     return new(json.RootElement.GetProperty("username").GetString(),json.RootElement.GetProperty("password").GetString());
 }
 
