@@ -7,6 +7,9 @@ public sealed record GenerationRuntimeParts([property:JsonRequired] bool Backend
 
 public sealed partial class LocalGenerationUpdater
 {
+    /// <summary>只读协议能力来自实际更新器，不从用户配置声称分端支持。</summary>
+    public static object ProtocolCapabilities()=>new{schemaVersion=1,requestSchemaVersions=new[]{1,2},planSchemaVersions=new[]{1,2},runtimePartsProtocol=2};
+
     /// <summary>无范围保持原v1字节/行为；分端必须v2且仅单个运行时动作，旧CLI会按版本拒绝。</summary>
     private static void ValidateRuntimeParts(int version,IReadOnlyList<string> actions,GenerationRuntimeParts? parts)
     {

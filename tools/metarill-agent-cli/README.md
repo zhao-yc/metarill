@@ -119,3 +119,23 @@ metarill-agent skill install --force
 本机只运行固定、复核摘要、无shell的C#CLI；不上传目录/连接/日志，不执行安装、SQL/DDL或服务启动。缺依赖回原按钮分别确认，仅同快照真实确认集合可合组；短ticket在应用前再核对grant与平台metadata SHA。预览/排队/未知不是应用成功。
 
 回执先落本机出箱，服务器已保存但ACK丢失仍按原编号幂等重传；中断apply只核对严格原journal，再恢复同一个本机反查事务，证据不全或用户后来编辑保持unknown并保留现场，绝不盲目重新apply。具体授权、路径、TTL、恢复和实际验收边界见 [在线助手说明](../../docs/generation-assistant.md)。
+
+
+### 原设备项目的一次性关联（C65，服务端通道待批准）
+
+新增CLI和服务端关联代码已完成受控验证，但真实Agent控制动作尚未登记，正式服务仍会拒绝这三个新入口。不能把下列准备命令或替身HTTP结果当作真实设备已接通；状态及待审阅范围见 [设备控制通道决定](../../docs/device-control-gate-decision.md)。原三个单项目按钮不依赖此项。
+
+服务端通道明确批准并接通后，按已授权项目选择自己的原设备ID；原设备后端路径应为C#完整应用根，前端路径为该根的frontend目录。保留原字段is_java/java_path/is_uniapp/uniapp_path及开关，不从服务器下发本机目录。
+
+```bash
+# 使用已有的apply+sync-runtime核心绑定，明确关联一个原设备。
+metarill-agent helper device-bind --device-id 原设备ID --confirm --profile 项目配置名
+# 也可首次helper bind时带--device-id；仍须apply、allow-actions含sync-runtime和--confirm。
+metarill-agent helper device-status --device-id 原设备ID --profile 项目配置名
+# 旧关联不再匹配或指向另一绑定时，只能回读旧摘要后明确替换。
+metarill-agent helper device-bind --device-id 同一设备ID --replace-device-binding 回读的旧摘要 --confirm --profile 同一项目配置名
+```
+
+实际固定C#CLI需支持`update capabilities`所声明的分端协议2。预检会固定当前设备/配置摘要；启用端目录摘要必须与本机完整工程匹配。Windows仅统一ASCII大小写和分隔符，POSIX保留大小写；相对路径、点层级、盘根、特殊设备名及含糊目录不自动猜测。
+
+独立私有意图位于绑定work-root下device-binding.json，不改核心v1绑定摘要，不存令牌或路径。响应未知先回读；`helper poll`只重放原pending请求，配置变化不会被自动采纳。此处`applied:false`始终表示没有应用工程源码，关联登记完成也不是批量同步成功。

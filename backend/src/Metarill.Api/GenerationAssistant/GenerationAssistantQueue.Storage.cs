@@ -24,7 +24,7 @@ public sealed partial class GenerationAssistantQueue
     /// <summary>服务器根目录只与固定文件名组合，逐层拒绝链接，无法由binding或UUID变成任意路径。</summary>
     private string Safe(string name)
     {
-        if (name != ".queue.lock" && !Regex.IsMatch(name, @"^(?:(?:binding|task|group)-[a-f0-9-]{36}\.json|\.write-[a-f0-9]{32}\.tmp)$")) throw new InvalidOperationException("生成助手状态文件名无效。");
+        if (name != ".queue.lock" && !Regex.IsMatch(name,@"^device-[1-9][0-9]{0,18}-[1-9][0-9]{0,18}-[1-9][0-9]{0,18}\.json$") && !Regex.IsMatch(name, @"^(?:(?:binding|task|group)-[a-f0-9-]{36}\.json|\.write-[a-f0-9]{32}\.tmp)$")) throw new InvalidOperationException("生成助手状态文件名无效。");
         var path = Path.Combine(options.RootDirectory, name); GuardPath(path); return path;
     }
     /// <summary>普通目录联接、符号链接及文件链接均不作为状态来源。</summary>

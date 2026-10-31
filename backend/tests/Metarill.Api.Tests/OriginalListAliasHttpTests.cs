@@ -60,6 +60,23 @@ public sealed class OriginalListAliasHttpTests
             }
         });
 
+    /// <summary>实际Program注册了三个设备入口且匿名拒绝/no-store保持，不接数据库或清理真实导出。</summary>
+    [Fact]
+    public async Task Device_association_routes_are_registered_with_real_anonymous_boundary()
+        =>await WithOfflineSettings(async()=>
+        {
+            await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>builder.ConfigureTestServices(services=>
+            {
+                foreach(var descriptor in services.Where(item=>item.ServiceType==typeof(Microsoft.Extensions.Hosting.IHostedService)&&item.ImplementationType?.Name=="ExportCleanupWorker").ToArray())services.Remove(descriptor);
+            }));using var client=factory.CreateClient();
+            foreach(var action in new[]{"bind-device","device-binding","device-configuration"})
+            {
+                using var response=await client.PostAsJsonAsync("/api/admin/sys/generation-assistant/helper/"+action,new{deviceId="11"});
+                Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.True(response.Headers.CacheControl?.NoStore);
+                using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());
+            }
+        });
+
     /// <summary>请求固定在已发布页与旧/新字段号，测试不允许指定表或任意路由。</summary>
     private static string Route(string page,string field,string kind)=>"/api/admin/auto/config_page/"+page+"/findNameIdYzAdminType2200000000000000"+field+(kind.Length==0?"":"/"+kind);
 

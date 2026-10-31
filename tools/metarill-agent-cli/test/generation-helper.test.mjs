@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { main } from '../lib/cli.mjs';
 import { ConfigStore } from '../lib/config.mjs';
+import { deviceProjectPathFingerprint } from '../lib/device-project-path.mjs';
 
 const source = fileURLToPath(new URL('../../../', import.meta.url));
 let shared, dotnet, cli, probe;
@@ -64,12 +65,25 @@ async function fixture(t, managed=false) {
  const store = new ConfigStore(join(root, 'config/config.json')); const snapshot = JSON.parse(await readFile(join(root, 'snapshot.json'), 'utf8'));
  const snapshots=JSON.parse(await readFile(join(root,'snapshots.json'),'utf8'));
  const state = { snapshots, approvals: [], requests: [], binding: null, reports: [], requestId: randomUUID(), leaseId: randomUUID(), snapshot, failReport: false, failBind: false, failApplicationReport: false, applications: [], accountId: '1', projectId: snapshot.projectId, grantId: '11', foreign: false };
+ state.deviceConfiguration={deviceId:'11',projectId:state.projectId,deviceSha256:'2'.repeat(64),configurationSha256:'3'.repeat(64),parts:{backend:true,frontend:true},backendPathSha256:deviceProjectPathFingerprint(join(root,'target')),frontendPathSha256:deviceProjectPathFingerprint(join(root,'target/frontend'))};
+ state.deviceAssociation=null;state.failDeviceBefore=false;state.failDeviceAfter=false;
  const server = createServer(async (request, response) => {
   const chunks = []; for await (const chunk of request) chunks.push(chunk); const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null; state.requests.push({ path: request.url, body });
   const send = (data, code = 200, status = 200) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify({ code, data, msg: code === 200 ? null : '测试模拟回执响应丢失' })); };
   if (request.headers.authorization !== 'Bearer helper-test-access') return send(null, 500, 401);
   if (request.url === '/api/admin/sys/agent/me') return send({ projectId: state.projectId, accountId: state.accountId, grantId: state.grantId });
   if (request.url === '/api/admin/sys/generation-assistant/helper/bind') { assert.deepEqual(Object.keys(body).sort(), ['allowedActions','bindingId','localBindingSha256','mode','rootNamespace']); state.binding = body; if (state.failBind) { state.failBind = false; return send(null, 500, 503); } return send({ ...body, projectId: state.projectId }); }
+  if(request.url==='/api/admin/sys/generation-assistant/helper/device-configuration'){assert.deepEqual(body,{deviceId:'11'});return send(state.deviceConfiguration)}
+  if(request.url==='/api/admin/sys/generation-assistant/helper/device-binding'){assert.deepEqual(body,{deviceId:'11'});return send(state.deviceAssociation)}
+  if(request.url==='/api/admin/sys/generation-assistant/helper/bind-device'){
+   assert.deepEqual(Object.keys(body).sort(),['bindingId','deviceId','backendPathSha256','frontendPathSha256','runtimePartsProtocol','expectedDeviceSha256','expectedConfigurationSha256','expectedAssociationSha256'].sort());
+   assert.equal(body.runtimePartsProtocol,2);assert.equal(body.backendPathSha256,state.deviceConfiguration.backendPathSha256);assert.equal(body.frontendPathSha256,state.deviceConfiguration.frontendPathSha256);
+   if(state.failDeviceBefore)return send(null,500,503);
+   if(body.expectedDeviceSha256!==state.deviceConfiguration.deviceSha256||body.expectedConfigurationSha256!==state.deviceConfiguration.configurationSha256)return send(null,500);
+   if(state.deviceAssociation&&(state.deviceAssociation.bindingId!==body.bindingId||!state.deviceAssociation.matchesCurrentConfiguration)&&body.expectedAssociationSha256!==state.deviceAssociation.associationSha256)return send(null,500);
+   state.deviceAssociation={deviceId:'11',projectId:state.projectId,bindingId:body.bindingId,associationSha256:'d'.repeat(64),matchesCurrentConfiguration:true};
+   if(state.failDeviceAfter)return send(null,500,503);return send(state.deviceAssociation);
+  }
   if (request.url === '/api/admin/sys/generation-assistant/helper/claim') return send(state.done ? null : { requestId: state.requestId, bindingId: state.binding.bindingId, projectId: state.foreign ? '999' : state.projectId, rootNamespace: state.binding.rootNamespace, localBindingSha256: state.binding.localBindingSha256, leaseId: state.leaseId, leaseExpiresAt: new Date(Date.now() + 300000).toISOString(), snapshot: state.snapshot, applied: false });
   if (request.url === '/api/admin/sys/generation-assistant/helper/report') { state.reports.push(body); state.done = true; if (state.failReport) { state.failReport = false; return send(null, 500, 503); } return send({ requestId: state.requestId, status: body.status.replaceAll('-', '_'), applied: false, outcome: 'not_applied' }); }
   if (request.url === '/api/admin/sys/generation-assistant/helper/approvals') return send(state.approvals);
@@ -184,4 +198,24 @@ test('原壳已发布但未确认的v3事务回放不误报applied且保留同�
  await processRun(dotnet,[probe,f.root,source,planPath,'shell-unconfirmed']); app.phase='applying'; await writeFile(appPath,JSON.stringify(app)); const bytes=await readFile(shell); const stamp=(await stat(planPath)).mtimeMs;
  const activePath=join(f.root,'target/.local/metarill-updates/active.json'); const active=JSON.parse(await readFile(activePath,'utf8')); const journalPath=join(f.root,'target/.local/metarill-updates/transactions',active.transactionId,'journal.json'); const journal=JSON.parse(await readFile(journalPath,'utf8')); assert.equal(journal.schemaVersion,3); assert.deepEqual(journal.confirmedFrontendCreates,[]); assert.equal(journal.status,'manual-recovery');
  const result=await f.run(['helper','poll','--once']); assert.equal(result.code,0,result.stderr); assert.equal(result.data.status,'manual_recovery'); assert.equal(result.data.applied,false); assert.deepEqual(await readFile(shell),bytes); assert.equal((await stat(planPath)).mtimeMs,stamp); assert.equal(f.state.applications[0].status,'manual-recovery'); assert.equal(f.state.applications[0].writtenFiles,0); assert.equal(f.state.requests.filter(item=>item.path.endsWith('/helper/verify-ticket')).length,1); assert.equal(JSON.parse(await readFile(journalPath,'utf8')).status,'manual-recovery'); assert.ok(await stat(activePath));
+});
+
+const deviceApply=['--mode','apply','--allow-actions','sync-runtime','--confirm'];
+/** 实际C#CLI提供能力和工程归属，本地HTTP替身只确认设备注册协议；不是实际OAuth或源码应用验收。 */
+test('真实CLI设备一次关联保持原v1绑定且目标源码逐字不变',{timeout:180000},async t=>{
+ const f=await fixture(t);const before=await fingerprint(join(f.root,'target'));const result=await f.bind([...deviceApply,'--device-id','11']);assert.equal(result.code,0,result.stderr);assert.equal(result.data.deviceAssociation.applied,false);assert.equal(result.data.deviceAssociation.matchesCurrentConfiguration,true);
+ const profile=(await f.store.read()).profiles.helper.generationAssistant;assert.equal(profile.version,1);assert.ok(!Object.hasOwn(profile,'deviceId'));const intent=JSON.parse(await readFile(join(f.root,'work/device-binding.json'),'utf8'));assert.equal(intent.status,'bound');assert.equal(intent.localBindingSha256,profile.localBindingSha256);
+ assert.equal(await fingerprint(join(f.root,'target')),before);const status=await f.run(['helper','device-status','--device-id','11']);assert.equal(status.code,0,status.stderr);assert.equal(status.data.association.bindingId,profile.bindingId);assert.equal(status.data.applied,false);
+ const capabilities=JSON.parse(await processRun(dotnet,[join(f.root,'cli/Metarill.Cli.dll'),'update','capabilities']));assert.equal(capabilities.runtimePartsProtocol,2);assert.deepEqual(capabilities.requestSchemaVersions,[1,2]);
+ const bodies=f.state.requests.filter(item=>item.path.endsWith('/bind-device')).map(item=>item.body);assert.equal(bodies.length,1);for(const body of bodies)assert.ok(Object.values(body).every(value=>value!==f.root&&value!==join(f.root,'target')));
+});
+test('真实CLI设备请求未知后固定原快照，配置改变不自动登记新范围',{timeout:180000},async t=>{
+ const f=await fixture(t);const before=await fingerprint(join(f.root,'target'));f.state.failDeviceBefore=true;const first=await f.bind([...deviceApply,'--device-id','11']);assert.equal(first.code,1);const intentPath=join(f.root,'work/device-binding.json');const original=await readFile(intentPath,'utf8');assert.equal(JSON.parse(original).status,'pending');
+ f.state.failDeviceBefore=false;f.state.deviceConfiguration.configurationSha256='e'.repeat(64);const retry=await f.run(['helper','poll','--once']);assert.equal(retry.code,1);const bodies=f.state.requests.filter(item=>item.path.endsWith('/bind-device')).map(item=>item.body);assert.equal(bodies.length,2);assert.deepEqual(bodies[0],bodies[1]);assert.equal(await readFile(intentPath,'utf8'),original);assert.equal(f.state.deviceAssociation,null);assert.equal(await fingerprint(join(f.root,'target')),before);
+});
+test('真实CLI明确回读旧摘要后换绑，不由新授权自动接管旧设备关联',{timeout:180000},async t=>{
+ const f=await fixture(t);assert.equal((await f.bind(deviceApply)).code,0);const before=await fingerprint(join(f.root,'target'));f.state.deviceAssociation={deviceId:'11',projectId:f.state.projectId,bindingId:randomUUID(),associationSha256:'f'.repeat(64),matchesCurrentConfiguration:false};
+ const denied=await f.run(['helper','device-bind','--device-id','11','--confirm']);assert.equal(denied.code,1);assert.match(denied.stderr,/helper_device_conflict/);assert.equal(f.state.requests.filter(item=>item.path.endsWith('/bind-device')).length,0);
+ const status=await f.run(['helper','device-status','--device-id','11']);assert.equal(status.code,0);assert.equal(status.data.association.matchesCurrentConfiguration,false);
+ const replaced=await f.run(['helper','device-bind','--device-id','11','--replace-device-binding',status.data.association.associationSha256,'--confirm']);assert.equal(replaced.code,0,replaced.stderr);assert.equal(replaced.data.bindingId,f.state.binding.bindingId);assert.equal(replaced.data.applied,false);assert.equal(await fingerprint(join(f.root,'target')),before);
 });

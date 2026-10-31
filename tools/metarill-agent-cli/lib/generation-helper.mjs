@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { restrictPermissions } from './config.mjs';
 import { CliError } from './errors.mjs';
 import { attemptApplication, resumeApplications } from './generation-application.mjs';
+import { bindGenerationDevice,resumeGenerationDevice,generationDeviceStatus,validateDeviceOptions } from './generation-device.mjs';
 
 const HASH = /^[a-f0-9]{64}$/;
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
@@ -101,6 +102,7 @@ export async function bindGenerationHelper(context, options) {
  const current = await context.identity();
  const mode = options.mode ?? 'preview'; const allowedActions = options['allow-actions']?.split(',').sort() ?? [];
  if (!['preview','apply'].includes(mode) || mode === 'preview' && allowedActions.length || mode === 'apply' && (!options.confirm || !allowedActions.length) || allowedActions.length > 3 || new Set(allowedActions).size !== allowedActions.length || allowedActions.some(action => !ACTIONS.includes(action))) throw new CliError('apply绑定必须显式--confirm并指定唯一allow-actions；默认preview不能写入。', 'helper_invalid_policy');
+ if(options['device-id']!==undefined){validateDeviceOptions(options);if(mode!=='apply'||!allowedActions.includes('sync-runtime'))throw new CliError('设备关联要求apply并允许sync-runtime。','helper_invalid_policy')}else if(options['replace-device-binding']!==undefined)throw new CliError('替换设备关联必须指定device-id。','helper_invalid_device');
  if (current.selected.profile.generationAssistant) throw new CliError('本机profile已有绑定；待注册绑定请运行helper poll恢复原编号。', 'helper_binding_conflict');
  const target = await directory(options.target); const sourceRoot = await directory(options['source-root']); const workRoot = await directory(options['work-root'], false);
  if ([target, sourceRoot].some(path => within(path, workRoot) || within(workRoot, path)) || within(target, sourceRoot) || within(sourceRoot, target)) throw new CliError('目标、源码与助手工作目录必须互不包含。', 'helper_invalid_binding');
@@ -114,7 +116,8 @@ export async function bindGenerationHelper(context, options) {
  binding.localBindingSha256 = bindingHash(binding); binding.registrationStatus = 'pending'; await privateDirectory(workRoot);
  await context.store.locked(async config => { const profile = config.profiles[current.selected.name]; if (!profile || profile.url !== binding.apiBaseUrl || String(profile.projectId) !== binding.projectId || profile.generationAssistant) throw new CliError('本机profile已变化或存在绑定，请先审阅原配置。', 'helper_binding_conflict'); profile.generationAssistant = binding; await context.store.write(config); });
  await finishRegistration(context, binding);
- return { bindingId: binding.bindingId, projectId: binding.projectId, rootNamespace: binding.rootNamespace, preparationOnly: mode === 'preview', mode, allowedActions, recoveryAuthorized: mode === 'apply', applied: false };
+ const device=options['device-id']!==undefined?await associateGenerationDevice(context,options):null;
+ return { ...(device?{deviceAssociation:device}:{}),bindingId: binding.bindingId, projectId: binding.projectId, rootNamespace: binding.rootNamespace, preparationOnly: mode === 'preview', mode, allowedActions, recoveryAuthorized: mode === 'apply', applied: false };
 }
 
 /** 先恢复已刷盘但网络未确认的出箱；即使服务器Claim已跳过终态，也只重传原回执。 */
@@ -157,12 +160,18 @@ async function finishPreview(context,binding,io,task,statePath,state) {
  return {requestId:state.requestId,status:receipt.status.replaceAll('-','_'),requiredActions:receipt.requiredActions,applied:false,outcome:'not_applied'};
 }
 
-/** 领取前重验本机身份和执行文件，重启时只重传已持久化回执，不重新运行中断的prepare。 */
-export async function pollGenerationHelperOnce(context) {
- const selected = await context.local(); const binding = selected.profile.generationAssistant;
+/** 所有助手命令共用v1核心绑定校验，新增设备意图不修改原BIND_KEYS或静默升级旧profile。 */
+function boundProfile(selected){
+ const binding=selected.profile.generationAssistant;
  if (binding && binding.mode === undefined && binding.allowedActions === undefined) throw new CliError('检测到阶段一旧preview绑定；保留原profile，使用新profile重新auth login和helper bind，默认仍只预览；不得编辑摘要或静默升权。','helper_legacy_binding');
  if (!binding || binding.version !== 1 || !UUID.test(binding.bindingId || '') || Object.keys(binding).some(key => ![...BIND_KEYS, 'localBindingSha256', 'registrationStatus'].includes(key)) || bindingHash(binding) !== binding.localBindingSha256 || !['pending','bound'].includes(binding.registrationStatus)) throw new CliError('助手尚未绑定或绑定摘要变化。', 'helper_invalid_binding');
  if (selected.profile.url !== binding.apiBaseUrl || String(selected.profile.projectId) !== binding.projectId || !['preview','apply'].includes(binding.mode) || !Array.isArray(binding.allowedActions) || binding.allowedActions.some(action => !ACTIONS.includes(action)) || new Set(binding.allowedActions).size !== binding.allowedActions.length || binding.mode === 'preview' && binding.allowedActions.length || binding.mode === 'apply' && !binding.allowedActions.length) throw new CliError('本机写策略或profile已变化。', 'helper_invalid_binding');
+ return binding;
+}
+
+/** 领取前重验本机身份和执行文件，重启时只重传已持久化回执，不重新运行中断的prepare。 */
+export async function pollGenerationHelperOnce(context) {
+ const selected=await context.local();const binding=boundProfile(selected);
  for (const path of [binding.target, binding.sourceRoot, binding.workRoot]) await directory(path);
  const release = await lockBinding(binding);
  try {
@@ -170,6 +179,7 @@ export async function pollGenerationHelperOnce(context) {
   const recovery = await resumeApplications(context,binding,io,true); if (recovery) return recovery;
   const current = await context.identity(); sameIdentity(binding,current);
   if (binding.registrationStatus === 'pending') await finishRegistration(context,binding);
+  const device=await resumeGenerationDevice(context,binding,{runCli,atomicJson,safePath,sameIdentity});if(device)return {status:'device_bound',...device};
   const pending = await resumeApplications(context,binding,io); if (pending) return pending;
   const replay = await flushPreparedOutbox(context, binding); if (replay) return replay;
   const identity = (await runCli(binding, ['update', 'target-identity', '--target', binding.target], context.timeoutMs)).value;
@@ -197,4 +207,16 @@ export async function pollGenerationHelperOnce(context) {
   await atomicJson(statePath, { ...state, status: 'prepared', receipt });
   return await finishPreview(context,binding,io,task,statePath,{...state,status:'prepared',receipt});
  } finally { await release(); }
+}
+
+/** 复用本机原锁和固定执行器完成一次明确设备关联；不会入队生成或写业务工程。 */
+export async function associateGenerationDevice(context,options){
+ validateDeviceOptions(options);const binding=boundProfile(await context.local());
+ for(const path of [binding.target,binding.sourceRoot,binding.workRoot])await directory(path);
+ const release=await lockBinding(binding);
+ try{sameIdentity(binding,await context.identity());if(binding.registrationStatus==='pending')await finishRegistration(context,binding);return await bindGenerationDevice(context,binding,options,{runCli,atomicJson,safePath,sameIdentity})}finally{await release()}
+}
+/** 只读回查设备旧摘要，目录已移动也可用于取得明确换绑所需的ETag。 */
+export async function statusGenerationDevice(context,options){
+ validateDeviceOptions(options,false);const binding=boundProfile(await context.local());sameIdentity(binding,await context.identity());return generationDeviceStatus(context,binding,options);
 }

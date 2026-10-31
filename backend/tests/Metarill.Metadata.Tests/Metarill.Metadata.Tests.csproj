@@ -12,5 +12,9 @@
     <Compile Include="../../src/Metarill.Api/Mcp/MetadataWorkbenchMcpTools.cs" Link="Boundary/MetadataWorkbenchMcpTools.cs" />
     <Compile Include="../../src/Metarill.Api/Controllers/MetadataWorkbenchController.cs" Link="Boundary/MetadataWorkbenchController.cs" />
     <Compile Include="../../src/Metarill.Api/Controllers/IdentityController.cs" Link="Boundary/IdentityController.cs" />
+    <Compile Include="../../src/Metarill.Api/GenerationAssistant/DeviceProjectPath.cs" Link="Boundary/DeviceProjectPath.cs" />
+    <Compile Include="../../src/Metarill.Api/GenerationAssistant/GenerationAssistantDeviceModels.cs" Link="Boundary/GenerationAssistantDeviceModels.cs" />
+    <Compile Include="../../src/Metarill.Api/GenerationAssistant/GenerationAssistantDeviceScopeReader.cs" Link="Boundary/GenerationAssistantDeviceScopeReader.cs" />
+
   </ItemGroup>
 </Project>

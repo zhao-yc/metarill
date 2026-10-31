@@ -96,3 +96,7 @@ Agent专用POST控制面是 `helper/bind`、`helper/claim`、`helper/report`、`
 | Node工具与真实本机CLI | 通用CLI19/19及check通过；helper原9项首批通过，新v3第10项末尾误断言回执不存在字段，修正测试后单独1/1通过。见`node-helper.log`与`node-helper-v3-final.log`；不写成单次10/10。 |
 
 初次C#编译中测试hook的init-only赋值写法已改为构造初始化；新测试曾把应用回执的固定status合同与展示view的applied字段混淆，只纠正断言，不改产品协议。可信源夹具的修正也没有放松原菜单能力门禁。全部失败及复验日志留存，未将失败日志改写成通过。
+
+## C65设备关联准备状态（2026-10-31）
+
+原设备与本机助手对应、目录/配置摘要及CLI一次性关联代码已补齐，但实际Agent控制通道尚未登记，自动权限审核要求明确批准，正式请求仍会被拒绝。原三个单项目动作保持，原批量按钮尚未接通。详见[实际验证与未完成](testing/device-assistant-association.md)和[精确待审阅方案](device-control-gate-decision.md)，不能将本地替身HTTP或applied=false的登记成功计为批量同步完成。

@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { ConfigStore, normalizeBaseUrl, publicProfile, assertProfileName } from './config.mjs';
 import { requestJson, unwrap, capabilityUrl, redactValue } from './http.mjs';
 import { CliError } from './errors.mjs';
-import { bindGenerationHelper, pollGenerationHelperOnce } from './generation-helper.mjs';
+import { bindGenerationHelper, pollGenerationHelperOnce,associateGenerationDevice,statusGenerationDevice } from './generation-helper.mjs';
 
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -21,7 +21,9 @@ const HELP = `Metarill 项目 Agent CLI（Node.js 20+）
   profiles add 名称 --url 地址 | profiles list | profiles use 名称 | profiles remove 名称
   capabilities list | capabilities describe 能力标识
   call 能力标识 [--json JSON或@文件] [--id 值] [--parent-id 值] [--param 名称=值] [--preview] [--confirm] [--request-id UUID]
-  helper bind --target 绝对目录 --source-root 可信源码 --cli 固定Metarill.Cli.dll --dotnet dotnet绝对路径 --work-root 独立工作目录 [--mode apply --allow-actions 明确动作集合 --confirm]
+  helper bind --target 绝对目录 --source-root 可信源码 --cli 固定Metarill.Cli.dll --dotnet dotnet绝对路径 --work-root 独立工作目录 [--mode apply --allow-actions 明确动作集合 --confirm] [--device-id 原设备ID]
+  helper device-bind --device-id 原设备ID --confirm [--replace-device-binding 回读的旧摘要]
+  helper device-status --device-id 原设备ID（只读设备关联状态）
   helper poll [--once]（默认只预览；绑定mode=apply且已确认allow-actions时受控应用）
   tasks show 请求UUID
   skill install [--dir 技能父目录] [--project] [--force]
@@ -33,7 +35,7 @@ stdout 输出 JSON；授权链接、提示和错误写到 stderr。默认配置�
 function parseArgs(argv) {
   const positional = [];
   const options = { param: [] };
-  const values = new Set(['profile', 'url', 'name', 'json', 'id', 'parent-id', 'param', 'timeout', 'dir', 'request-id', 'target', 'source-root', 'work-root', 'cli', 'dotnet', 'mode', 'allow-actions']);
+  const values = new Set(['profile', 'url', 'name', 'json', 'id', 'parent-id', 'param', 'timeout', 'dir', 'request-id', 'target', 'source-root', 'work-root', 'cli', 'dotnet', 'mode', 'allow-actions', 'device-id', 'replace-device-binding']);
   const flags = new Set(['confirm', 'local-only', 'project', 'force', 'help', 'preview', 'once']);
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
@@ -395,8 +397,8 @@ async function installSkill(store, options, output) {
 
 /** 在线助手复用原配置锁、真实身份和刷新网络栈；写权限只来自本机明确绑定策略。 */
 async function helper(store, positional, options, output, log) {
-  if (positional.length !== 2 || !['bind', 'poll'].includes(positional[1])) throw new CliError('助手命令必须为bind或poll。', 'invalid_argument');
-  allowOptions(options, positional[1] === 'bind' ? ['target', 'source-root', 'work-root', 'cli', 'dotnet', 'mode', 'allow-actions', 'confirm'] : ['once']);
+  if (positional.length !== 2 || !['bind', 'poll','device-bind','device-status'].includes(positional[1])) throw new CliError('助手命令必须为bind、poll、device-bind或device-status。', 'invalid_argument');
+  allowOptions(options, positional[1] === 'bind' ? ['target', 'source-root', 'work-root', 'cli', 'dotnet', 'mode', 'allow-actions', 'confirm','device-id','replace-device-binding'] : positional[1]==='device-bind'?['device-id','replace-device-binding','confirm']:positional[1]==='device-status'?['device-id']:['once']);
   let selectedName = options.profile;
   const context = { store, timeoutMs: options.timeout ?? DEFAULT_TIMEOUT,
     local: async () => { const value = selectProfile(await store.read(), selectedName); selectedName = value.name; return value; },
@@ -404,6 +406,8 @@ async function helper(store, positional, options, output, log) {
     rpc: async (path, data) => { const { result } = await authenticated(store, selectedName, options.timeout ?? DEFAULT_TIMEOUT, path, { method: 'POST', data }); return unwrap(result); }
   };
   if (positional[1] === 'bind') { output(await bindGenerationHelper(context, options)); return; }
+  if(positional[1]==='device-bind'){output(await associateGenerationDevice(context,options));return}
+  if(positional[1]==='device-status'){output(await statusGenerationDevice(context,options));return}
   if (options.once) { output(await pollGenerationHelperOnce(context)); return; }
   let stopped = false; const stop = () => { stopped = true; }; process.once('SIGINT', stop);
   try {
