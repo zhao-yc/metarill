@@ -43,3 +43,16 @@ C19执行器准备改用已推送产品`23db83877a46736e04c57f9ffae47a1d936f6c80
 当前尚未创建远端库或账号、未运行正式Web/OAuth/CLI场景；后续须提交并独立归档当前执行器、固定完整包及程序集，实际pending入口拒绝与Python零外部调用通过后，再提交精确新单库/账号计划供批准。C19仍待正式验收，旧范围和租约不能复用。
 
 证据：交付根忽略目录`.local/sample-actions-current-offline.log`、`.local/sample-actions-current-lease-final.log`及对应TestResults的TRX。命令使用固定DOTNET_HOST_PATH，对Metarill.Generation.Tests执行Release、-warnaserror、--disable-build-servers，并仅过滤SampleActionsNativePreparationTests与SampleActionsNativeLeaseTests；显式清除通用旧设置、独立运行号及准备导出变量，不包含正式MySQL测试。
+
+
+## 当前执行器及单库计划已固定（2026-10-31）
+
+执行器`21236c29a8013a096a4eaf3c5221c779c8c34193`已从Git独立归档2238源码并严格编译，152个输出和946文件原Full包逐项固定；原准备测试实际导出固定包。固定程序集13项离线门禁/完整包准备全部通过，零失败/跳过；与前述本地12+1范围重叠，不累计为更多模型。
+
+实际正式入口在pending配置（没有数据库连接串）下于SampleActionsNativeLease明确拒绝、未创建执行目录；该1个Failed是连接前拒绝证明，不是业务通过。Python驱动实际pending时子进程/SSH调用0，实例/独立核零两个程序已离线核对；原驱动本地清理方法另用合成临时目录验证2项，只删指定CLI/上传/导出目录，保留应用/其他CLI目录并拒绝越界根。
+
+产品输入955份与23db838归档逐字相同，包内208份受管运行时源码同版，7份NuGet锁文件按构建输出单列。六份公开手写及原生成器/模板/元数据/前端没有私有替换；固定源与程序集/包在所有校验后摘要保持。真实CLI入口/探针语法核对通过，无额外npm依赖。
+
+Server-200只读确认固定实例及本轮唯一库/账号均不存在，没有创建任何远端对象。精确计划和单次驱动位于交付根忽略目录`.local/sample-actions-native-20261031`；lease-intent仍为pending/not-started，须获得该计划的新单库/账号创建、正式验收及清理直接授权后才执行。旧租约和V17性能产物不复用，待批设备控制动作的权限通道不包含在内。
+
+冻结、产品来源、实际pending拒绝和只读前检分别记录于freeze-receipt.json、product-source-proof.json、pending-actual-entry.trx、readonly-preflight.json；驱动及本地清理的离线证明另列。C19仍未正式通过。
