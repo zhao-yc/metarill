@@ -62,7 +62,8 @@ public sealed partial class GenerationAssistantQueue
     private AssistantTask ReadTask(string id)
     {
         Uuid(id); var value = Read<AssistantTask>("task-" + id + ".json"); RequireOwner(new(value.AccountId, value.ProjectId, value.GrantId), true); Namespace(value.RootNamespace); RequireHash(value.LocalBindingSha256); LocalGenerationUpdater.ValidateRequest(value.Snapshot);
-        if (value.SchemaVersion != 1 || value.RequestId != id || value.Snapshot.ProjectId != value.ProjectId || value.ExpiresAt <= value.CreatedAt || value.Status is not ("queued" or "leased" or "preview_ready" or "dependencies_required" or "failed" or "expired") || value.IntegritySha256 != Hash(value with { IntegritySha256 = "" })) throw new InvalidOperationException("生成助手任务持久摘要或状态无效。");
+        if (value.SchemaVersion != (value.RuntimeOrigin is null?1:2) || value.RequestId != id || value.Snapshot.ProjectId != value.ProjectId || value.ExpiresAt <= value.CreatedAt || value.Status is not ("queued" or "leased" or "preview_ready" or "dependencies_required" or "failed" or "expired") || value.IntegritySha256 != Hash(value with { IntegritySha256 = "" })) throw new InvalidOperationException("生成助手任务持久摘要或状态无效。");
+        ValidateRuntimeSnapshot(new(value.AccountId,value.ProjectId,value.GrantId),value.Snapshot,value.RuntimeOrigin);
         var binding = ReadBinding(value.BindingId);
         if (binding.AccountId != value.AccountId || binding.ProjectId != value.ProjectId || binding.GrantId != value.GrantId || binding.RootNamespace != value.RootNamespace || binding.LocalBindingSha256 != value.LocalBindingSha256) throw new InvalidOperationException("任务与持久本机绑定不一致。");
         if (value.Status != "queued" && value.LeaseId is not null) Uuid(value.LeaseId);

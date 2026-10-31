@@ -100,3 +100,5 @@ Agent专用POST控制面是 `helper/bind`、`helper/claim`、`helper/report`、`
 ## C65设备关联准备状态（2026-10-31）
 
 原设备与本机助手对应、目录/配置摘要及CLI一次性关联代码已补齐，但实际Agent控制通道尚未登记，自动权限审核要求明确批准，正式请求仍会被拒绝。原三个单项目动作保持，原批量按钮尚未接通。详见[实际验证与未完成](testing/device-assistant-association.md)和[精确待审阅方案](device-control-gate-decision.md)，不能将本地替身HTTP或applied=false的登记成功计为批量同步完成。
+
+C68加入[分端任务固定来源与当前复核](testing/runtime-assistant-origin.md)：旧v1不新增null字段，v2内部任务固定设备配置/关联并逐次重验，禁止与普通确认合并。Node v2应用与批量HTTP尚未启用；设备三个专用控制动作仍待明确批准，不能把组件测试写作在线批量成功。

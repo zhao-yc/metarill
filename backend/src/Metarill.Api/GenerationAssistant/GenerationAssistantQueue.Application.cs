@@ -19,12 +19,12 @@ public sealed partial class GenerationAssistantQueue
         var used = Groups().SelectMany(group => group.Ticket.Approvals.Select(approval => approval.RequestId)).ToHashSet(StringComparer.Ordinal);
         return Directory.GetFiles(options.RootDirectory, "task-*.json").Select(path => Expire(ReadTask(Path.GetFileName(path)[5..^5])))
             .Where(task => task.BindingId == binding.BindingId && task.AccountId == owner.AccountId && task.ProjectId == owner.ProjectId && task.GrantId == owner.GrantId
-                && task.Snapshot.MetadataSha256 == request.MetadataSha256 && clock.GetUtcNow() < task.ExpiresAt && (task.Status is "queued" or "leased" or "preview_ready" or "dependencies_required") && !used.Contains(task.RequestId))
+                && task.RuntimeOrigin is null && task.Snapshot.MetadataSha256 == request.MetadataSha256 && clock.GetUtcNow() < task.ExpiresAt && (task.Status is "queued" or "leased" or "preview_ready" or "dependencies_required") && !used.Contains(task.RequestId))
             .OrderBy(task => task.CreatedAt).ThenBy(task => task.RequestId, StringComparer.Ordinal).GroupBy(task => task.Snapshot.Action).Select(group => Approval(group.First())).OrderBy(approval => approval.Action, StringComparer.Ordinal).ToArray();
     });
 
     /// <summary>短ticket只批准真实确认集合和本机允许范围；完整组先原子持久化，响应未知可按同UUID回读。</summary>
-    public AssistantApplyTicket Authorize(AssistantOwner owner, AssistantAuthorizeRequest request, string currentMetadataSha256) => Locked(() =>
+    public AssistantApplyTicket Authorize(AssistantOwner owner, AssistantAuthorizeRequest request, string currentMetadataSha256,AssistantRuntimeOriginProof? proof=null) => Locked(() =>
     {
         RequireOwner(owner, true); var binding = ReadBinding(request.BindingId); RequireScope(binding, owner); Uuid(request.GroupId); RequireHash(request.MetadataSha256); RequireHash(request.PlanSha256);
         var actions = Policy("apply", request.Actions);
@@ -32,6 +32,7 @@ public sealed partial class GenerationAssistantQueue
         if (currentMetadataSha256 != request.MetadataSha256) throw new InvalidOperationException("平台元数据已变化，请重新点击对应原按钮确认最新快照。");
         if (request.RequestIds is null || request.RequestIds.Length is < 1 or > 3 || request.RequestIds.Distinct(StringComparer.Ordinal).Count() != request.RequestIds.Length) throw new InvalidOperationException("应用组必须明确列出唯一人工确认UUID。");
         foreach (var id in request.RequestIds) Uuid(id);
+        var tasks=request.RequestIds.Select(ReadTask).ToArray();var origin=RequireRuntimeSet(owner,binding,tasks,proof);
         var existing = Groups().SingleOrDefault(group => group.Ticket.GroupId == request.GroupId);
         if (existing is not null)
         {
@@ -42,7 +43,6 @@ public sealed partial class GenerationAssistantQueue
         }
         if (Directory.GetFiles(options.RootDirectory, "group-*.json").Length >= options.MaxTasks) throw new InvalidOperationException("应用组达到保留上限，请先审阅归档。");
         var used = Groups().SelectMany(group => group.Ticket.Approvals.Select(approval => approval.RequestId)).ToHashSet(StringComparer.Ordinal);
-        var tasks = request.RequestIds.Select(ReadTask).ToArray();
         foreach (var task in tasks)
         {
             RequireScope(task, owner);
@@ -51,15 +51,16 @@ public sealed partial class GenerationAssistantQueue
         }
         if (!tasks.Select(task => task.Snapshot.Action).Order(StringComparer.Ordinal).SequenceEqual(actions)) throw new InvalidOperationException("计划动作必须恰好等于用户分别确认的动作集合。");
         var now = clock.GetUtcNow(); var expires = now.AddSeconds(options.ApplyTicketSeconds); var earliest = tasks.Min(task => task.ExpiresAt); if (expires > earliest) expires = earliest;
-        var ticket = new AssistantApplyTicket(request.GroupId, binding.BindingId, request.MetadataSha256, tasks.Select(Approval).OrderBy(approval => approval.Action, StringComparer.Ordinal).ToArray(), actions, request.PlanSha256, now, expires, "");
+        var ticket = new AssistantApplyTicket(request.GroupId, binding.BindingId, request.MetadataSha256, tasks.Select(Approval).OrderBy(approval => approval.Action, StringComparer.Ordinal).ToArray(), actions, request.PlanSha256, now, expires, "",origin);
         ticket = ticket with { TicketSha256 = Hash(ticket) };
-        SaveGroup(new(1, owner.AccountId, owner.ProjectId, owner.GrantId!.Value, binding.RootNamespace, binding.LocalBindingSha256, ticket, null, "")); return ticket;
+        SaveGroup(new(origin is null?1:2, owner.AccountId, owner.ProjectId, owner.GrantId!.Value, binding.RootNamespace, binding.LocalBindingSha256, ticket, null, "")); return ticket;
     });
 
     /// <summary>本机应用前再次在线复核短ticket和当前发布快照；撤权由每次真实Agent认证拒绝。</summary>
-    public AssistantApplyTicket VerifyTicket(AssistantOwner owner, AssistantTicketRequest request, string currentMetadataSha256) => Locked(() =>
+    public AssistantApplyTicket VerifyTicket(AssistantOwner owner, AssistantTicketRequest request, string currentMetadataSha256,AssistantRuntimeOriginProof? proof=null) => Locked(() =>
     {
         RequireOwner(owner, true); var binding = ReadBinding(request.BindingId); RequireScope(binding, owner); var group = ReadGroup(request.GroupId); RequireGroup(group, owner, binding);
+        _=RequireRuntimeSet(owner,binding,group.Ticket.Approvals.Select(item=>ReadTask(item.RequestId)).ToArray(),proof);
         if (group.Ticket.TicketSha256 != request.TicketSha256 || group.Ticket.PlanSha256 != request.PlanSha256 || group.Ticket.MetadataSha256 != currentMetadataSha256 || clock.GetUtcNow() >= group.Ticket.ExpiresAt || group.Receipt is not null) throw new InvalidOperationException("ticket过期、快照变化或已有结果，未授权新的应用。");
         return group.Ticket;
     });
@@ -96,10 +97,10 @@ public sealed partial class GenerationAssistantQueue
     private AssistantApplyGroup ReadGroup(string id)
     {
         Uuid(id); var group = Read<AssistantApplyGroup>("group-" + id + ".json"); var ticket = group.Ticket; var binding = ReadBinding(ticket.BindingId); RequireGroup(group, new(group.AccountId, group.ProjectId, group.GrantId), binding);
-        if (group.SchemaVersion != 1 || ticket.GroupId != id || ticket.ExpiresAt <= ticket.IssuedAt || ticket.TicketSha256 != Hash(ticket with { TicketSha256 = "" }) || group.IntegritySha256 != Hash(group with { IntegritySha256 = "" })) throw new InvalidOperationException("持久应用组或ticket摘要无效。");
+        if (group.SchemaVersion != (ticket.RuntimeOrigin is null?1:2) || ticket.GroupId != id || ticket.ExpiresAt <= ticket.IssuedAt || ticket.TicketSha256 != Hash(ticket with { TicketSha256 = "" }) || group.IntegritySha256 != Hash(group with { IntegritySha256 = "" })) throw new InvalidOperationException("持久应用组或ticket摘要无效。");
         Policy("apply", ticket.Actions); RequireHash(ticket.MetadataSha256); RequireHash(ticket.PlanSha256);
         if (ticket.Approvals is null || ticket.Approvals.Length != ticket.Actions.Length || !ticket.Approvals.Select(approval => approval.Action).SequenceEqual(ticket.Actions)) throw new InvalidOperationException("持久组动作与确认不一致。");
-        foreach (var approval in ticket.Approvals) { var task = ReadTask(approval.RequestId); if (Approval(task) != approval || task.BindingId != binding.BindingId || task.GrantId != group.GrantId || task.AccountId != group.AccountId || task.ProjectId != group.ProjectId || approval.MetadataSha256 != ticket.MetadataSha256) throw new InvalidOperationException("持久应用组确认身份无效。"); }
+        foreach (var approval in ticket.Approvals) { var task = ReadTask(approval.RequestId); if (task.RuntimeOrigin!=ticket.RuntimeOrigin || ticket.RuntimeOrigin is not null&&ticket.Approvals.Length!=1 || Approval(task) != approval || task.BindingId != binding.BindingId || task.GrantId != group.GrantId || task.AccountId != group.AccountId || task.ProjectId != group.ProjectId || approval.MetadataSha256 != ticket.MetadataSha256) throw new InvalidOperationException("持久应用组确认身份无效。"); }
         if (group.Receipt is { } receipt) { ValidateApplication(receipt); if (receipt.GroupId != id || receipt.BindingId != binding.BindingId || receipt.TicketSha256 != ticket.TicketSha256 || receipt.PlanSha256 != ticket.PlanSha256) throw new InvalidOperationException("应用结果与原ticket不符。"); }
         return group;
     }

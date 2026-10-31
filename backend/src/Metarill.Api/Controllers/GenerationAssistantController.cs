@@ -12,7 +12,7 @@ namespace Metarill.Api.Controllers;
 /// <summary>在线助手只传固定动作与回执，源码写入仍由本机显式策略和短ticket约束，没有SQL或任意脚本入口。</summary>
 [ApiController, Route("api/admin/sys/generation-assistant"), RequestSizeLimit(32768)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class GenerationAssistantController(GenerationAssistantQueue queue, MetadataRepository metadata, MetadataRegistry registry, HttpRuntimeAuthorization authorization, AgentOAuthService oauth) : ControllerBase
+public sealed class GenerationAssistantController(GenerationAssistantQueue queue, MetadataRepository metadata, MetadataRegistry registry, HttpRuntimeAuthorization authorization, AgentOAuthService oauth,GenerationAssistantDeviceScopeReader scopes) : ControllerBase
 {
     /// <summary>网页人工确认固定action后入队，绑定与项目先鉴权再读取发布元数据。</summary>
     [HttpPost("requests")]
@@ -35,7 +35,12 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
     public R<AssistantBindingView> Bind(JsonElement body) => R<AssistantBindingView>.Success(queue.Bind(Agent(), GenerationAssistantQueue.Parse<AssistantBindRequest>(body)));
     /// <summary>出站轮询领取一个有界lease，真实grant在每次HTTP请求重新验证。</summary>
     [HttpPost("helper/claim")]
-    public R<AssistantWork?> Claim(JsonElement body) => R<AssistantWork?>.Success(queue.Claim(Agent(), GenerationAssistantQueue.Parse<AssistantClaimRequest>(body).BindingId));
+    public async Task<R<AssistantWork?>> Claim(JsonElement body,CancellationToken token)
+    {
+        var owner=Agent();var request=GenerationAssistantQueue.Parse<AssistantClaimRequest>(body);
+        var prepared=queue.PrepareClaim(owner,request.BindingId);
+        return R<AssistantWork?>.Success(prepared.PendingOrigin is null?prepared.Work:queue.Claim(owner,request.BindingId,await CurrentOrigin(prepared.PendingOrigin,token)));
+    }
     /// <summary>只接收preview或失败，不提供伪造本机应用成功的状态。</summary>
     [HttpPost("helper/report")]
     public R<AssistantTaskView> Report(JsonElement body) => R<AssistantTaskView>.Success(queue.Report(Agent(), GenerationAssistantQueue.Parse<AssistantPreviewReceipt>(body)));
@@ -60,17 +65,21 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
     public async Task<R<AssistantApplyTicket>> Authorize(JsonElement body, CancellationToken token)
     {
         var owner = Agent(); var request = GenerationAssistantQueue.Parse<AssistantAuthorizeRequest>(body);
-        return R<AssistantApplyTicket>.Success(queue.Authorize(owner, request, await CurrentMetadata(owner, token)));
+        return R<AssistantApplyTicket>.Success(queue.Authorize(owner, request, await CurrentMetadata(owner, token),await CurrentOrigin(queue.PendingAuthorizeOrigin(owner,request),token)));
     }
     /// <summary>紧邻本机写入再次通过真实grant和当前hash复核，不能拿领取时授权替代。</summary>
     [HttpPost("helper/verify-ticket")]
     public async Task<R<AssistantApplyTicket>> VerifyTicket(JsonElement body, CancellationToken token)
     {
-        var owner = Agent(); return R<AssistantApplyTicket>.Success(queue.VerifyTicket(owner, GenerationAssistantQueue.Parse<AssistantTicketRequest>(body), await CurrentMetadata(owner, token)));
+        var owner=Agent();var request=GenerationAssistantQueue.Parse<AssistantTicketRequest>(body);
+        return R<AssistantApplyTicket>.Success(queue.VerifyTicket(owner,request,await CurrentMetadata(owner,token),await CurrentOrigin(queue.PendingTicketOrigin(owner,request),token)));
     }
     /// <summary>只有独立应用回执能表达applied，preview状态继续明确未应用。</summary>
     [HttpPost("helper/application-report")]
     public R<AssistantApplicationReceipt> ApplicationReport(JsonElement body) => R<AssistantApplicationReceipt>.Success(queue.ReportApplication(Agent(), GenerationAssistantQueue.Parse<AssistantApplicationReceipt>(body)));
+    /// <summary>只用本次真实Agent的Actor查当前设备配置，不克隆Actor或采用客户端声称的来源。</summary>
+    private async Task<AssistantRuntimeOriginProof?> CurrentOrigin(AssistantPendingRuntimeOrigin? pending,CancellationToken token)
+        =>pending is null?null:new(pending.RequestId,await scopes.LoadAsync(authorization.RequireActor(),pending.RuntimeOrigin.Device.DeviceId,token));
     /// <summary>服务端以同一发布脱敏规则计算摘要，不接收客户端声称的最新hash。</summary>
     private async Task<string> CurrentMetadata(AssistantOwner owner, CancellationToken token)
     {
