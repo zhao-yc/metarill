@@ -112,3 +112,10 @@ Server-200保留原024b3fb镜像，以核对内容ID的原缓存tag和19个摘�
 新镜像在非root、只读根、network=none、0.5CPU/512MiB、无端口发布容器中，先逐项核对65个真实运行文件摘要，再启动实际Production/Web原宿主。两组分别完成：21个公开配置/保护方法/两字段/原三字段form与JSON/原限流检查；9个重复、未知身份、大小写、缺字段及JSON类型拒绝检查。第11次登录明确429，正常认证拒绝401、严格参数拒绝400，未放开任何边界。首轮探针把14笔登录放进一个分钟窗口，第11笔触发现有限流使该轮未通过；结果保留，拆为两个独立宿主验证，未增加额度或伪造通过。失败轮及两成功轮三容器均经新SSH独立检查不存在。没有数据库、账号、Redis键或业务写入，也不是负载/性能成绩。
 
 公开双端协调器及pending正式计划还需固定新镜像和原三字段请求；不能把原024镜像/旧来源审批自动解释为新来源批准。固定原前端、模型和权限不变。私有original-login-captcha-compat-20261101保存归档/首次发布失败/新包/新镜像、21项/9项实际HTTP、首轮限流失败及独立核零回执。
+
+
+### 同版前端装包与在线更新保护扩大回归
+
+2026-11-01，沿用e210c31的本次模板/Core实现，选定的172项实际回归全部通过，零失败/零跳过，持续52分31秒。TRX定义分别为LocalGenerationUpdateTests 152、FrontendPackagerTests 19、LocalGenerationUpdateShellProtectionTests 1；涵盖实际Full、原页面金样/脚本、运行时更新部件/范围、AppID/私有配置/手写partial保护及既有更新事务边界。没有把152项拆文件误记为多个套件，也不与前144项累加成独立覆盖数。
+
+原始证据original-login-captcha-compat-20261101/original-login-frontend-update.trx，SHA256 bc759e3003aa08115f70de9e55e6e27abe72721ac26aa328f66b298c9e08184f。该组运行期间模板/Core未再修改；后续性能工具四文件不在本组读取范围，独立119项已有对应证据。新2f0e1fe云端CI前端已成功，Windows/Linux后端仍在运行；旧7ab0c7b批次因新源码推送取消，旧Windows未通过，不能沿用旧前端/Linux结果冒充新完整CI。
