@@ -36,3 +36,7 @@ C74增加后端兼容路由 `POST /api/admin/custom/index/sync_runtime_all_proje
 旧页面未带批次请求头时服务端生成本次批次 UUID；活动中同设备/项目/绑定/快照任务会按 v2 来源去重，避免重复点击产生并行任务。返回仍是标准 `R<T>`，原页面继续刷新列表；逐项目状态和任务编号保留在响应数据中。Node 多 profile 轮询随后按各项目绑定领取。
 
 API 严格编译0警告错误，未修改原前端/生成页面；真实跨项目 OAuth、MySQL和页面浏览器验收仍待执行。
+
+## 原旧路由验收
+
+C75在真实 `WebApplicationFactory<Program>` 下验证原旧批量 POST 地址：匿名请求返回原统一 `R` 登录拒绝、HTTP 200 包装、`Cache-Control: no-store`，没有404或绕过认证。该专项与原关系选项/首页接口回归共7项通过，使用不可达回环数据库配置，不创建库、账号或任务。

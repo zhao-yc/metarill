@@ -77,6 +77,17 @@ public sealed class OriginalListAliasHttpTests
             }
         });
 
+    /// <summary>原项目列表批量POST旧地址继续进入真实匿名边界，不回退404或绕过登录。</summary>
+    [Fact]
+    public async Task Legacy_runtime_batch_route_keeps_original_anonymous_boundary()
+        =>await WithOfflineSettings(async()=>
+        {
+            await using var factory=new WebApplicationFactory<Program>();using var client=factory.CreateClient();
+            using var response=await client.PostAsync("/api/admin/custom/index/sync_runtime_all_projects?parentId=11",null);
+            Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.True(response.Headers.CacheControl?.NoStore);
+            using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());
+        });
+
     /// <summary>请求固定在已发布页与旧/新字段号，测试不允许指定表或任意路由。</summary>
     private static string Route(string page,string field,string kind)=>"/api/admin/auto/config_page/"+page+"/findNameIdYzAdminType2200000000000000"+field+(kind.Length==0?"":"/"+kind);
 
