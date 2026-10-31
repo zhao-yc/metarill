@@ -43,3 +43,15 @@ D:\HBuilderX\cli.exe project close --path <独立前端副本绝对路径>
 ## 未完成边界
 
 HBuilderX启动后再次查询的真实设备列表仍为空；本轮两个独占工程已关闭，未停止用户其它工程或HBuilderX。当前没有连接的原生设备；没有APK／IPA、签名、Xcode／Gradle原生编译或设备安装，没有原生登录、CRUD、关系、权限、文件／Excel与网络配置验收，也没有执行新MySQL／SSH／Docker或性能负载。Tiny Cloud key仍按用户要求留空，不能声称原生富文本验收完成。V05／V06／V07、完整原界面回归和MySQL首版总验收均继续待办。本轮只完成V15明确的App资源编译子集，不合main、不部署生产。
+
+
+## 2026-10-31 宿主环境复核
+
+本次仅复核设备验收前提，没有重新编译、安装、上传或操作业务数据；V15 的四次资源编译证据仍以原冻结来源为准。
+
+- 实际宿主 HBuilderX 为 `D:\HBuilderX\HBuilderX.exe`，进程自 17:11:57 已运行；复用原进程，未关闭用户应用。实际 CLI 版本为 `5.34.2026102909`。
+- 受限会话不能正常看到宿主进程或访问 HBuilderX IPC，曾返回“未运行”；宿主只读查询已纠正，不能据此认定未安装或未启动。
+- 按本机 `devices list --help` 的实际参数，分别运行 `devices list --platform android`、`devices list --platform ios-iPhone`、`devices list --platform ios-simulator`。三个输出均只有 CRLF（2 字节），没有设备标识或明确的空列表。设备清单尚未取得，不能把空白输出当作“已确认无设备”。
+- 本机 `publish app-android --help` 仅列出 `--type appResource`。资源导出不能替代 APK、签名、安装或真机业务验收；Android/iOS 总项继续待验。
+
+原始 CLI 帮助、版本、三平台查询输出保存在忽略目录 `.local/native-device-check-20261031`。本次没有创建新工程、启动项目服务或留下待停止的测试进程；原 HBuilderX 继续运行。
