@@ -202,7 +202,7 @@ def send(port, method, path, body=None, token=None, form=False):
 
 
 def identity_http(value, fixture, credentials):
-    """真实密码form登录与普通权限读/拒绝；不预置Redis会话、不使用开发身份或super。"""
+    """原三字段密码form登录与普通权限读/拒绝；Cap关闭时仍提交空兼容值，不预置身份。"""
     facts = []; tokens = {}
     for target in ("java", "csharp"):
         port = value["ports"][target]; ready_path = "/api/admin/sys/yz_manager/cap-config"
@@ -215,12 +215,12 @@ def identity_http(value, fixture, credentials):
             if time.monotonic() >= deadline: raise RuntimeError("真实宿主公开配置未就绪")
             time.sleep(0.2)
         writer = fixture["common"][0]
-        status, failure = send(port, "POST", "/api/admin/sys/yz_manager/login", {"username": writer["name"], "password": "wrong-" + credentials["writer"]["password"]}, form=True)
+        status, failure = send(port, "POST", "/api/admin/sys/yz_manager/login", {"username": writer["name"], "password": "wrong-" + credentials["writer"]["password"], "captchaVerification": ""}, form=True)
         if (status, failure.get("code")) != ((200, 500) if target == "java" else (401, 401)) or failure.get("map", {}).get("loginStateId"):
             raise RuntimeError("错误密码未按原实际宿主合同拒绝")
         for principal in fixture["common"]:
             kind = principal["kind"]
-            status, body = send(port, "POST", "/api/admin/sys/yz_manager/login", {"username": principal["name"], "password": credentials[kind]["password"]}, form=True)
+            status, body = send(port, "POST", "/api/admin/sys/yz_manager/login", {"username": principal["name"], "password": credentials[kind]["password"], "captchaVerification": ""}, form=True)
             user = body.get("data", {}); token = body.get("map", {}).get("loginStateId")
             if status != 200 or body.get("code") != 200 or user.get("id") != principal["accountId"] or user.get("name") != principal["name"] or user.get("yzAdminTypeId") != str(seed.ADMIN):
                 raise RuntimeError("原密码登录或字符串ID/后台回执不符")

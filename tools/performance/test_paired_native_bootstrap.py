@@ -276,6 +276,9 @@ class IdentityHttpTests(unittest.TestCase):
         target="java" if port==28071 else "csharp";failure=(200,500) if target=="java" else (403,403)
         if method=="GET":return 200,{"code":200,"data":{"enabled":False,"apiEndpoint":""}}
         if path.endswith("/login"):
+            self.assertTrue(form)
+            self.assertEqual(set(body),{"username","password","captchaVerification"})
+            self.assertEqual(body["captchaVerification"],"")
             if body["password"].startswith("wrong-"):return (200,{"code":500}) if target=="java" else (401,{"code":401})
             principal=next(p for p in self.fixture["common"] if p["name"]==body["username"]);index=subject.seed.KINDS.index(principal["kind"])+1
             issued=f"11111111-1111-1111-1111-{index:012x}" if target=="java" else f"{index:064x}"
@@ -321,9 +324,9 @@ class ActualTransportTests(unittest.TestCase):
         server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
             with mock.patch.dict(os.environ,{'HTTP_PROXY':'http://127.0.0.1:1','NO_PROXY':''}):
-                self.assertEqual(subject.send(server.server_port,'POST','/login',{'username':'测试','password':'fake'},form=True),(200,{'code':200}))
+                self.assertEqual(subject.send(server.server_port,'POST','/login',{'username':'测试','password':'fake','captchaVerification':''},form=True),(200,{'code':200}))
                 self.assertEqual(subject.send(server.server_port,'GET','/redirect',token='fake-token'),(302,{'code':302}))
-            self.assertEqual(len(calls),2);self.assertEqual(calls[0][0],'/login');self.assertIn('application/x-www-form-urlencoded',calls[0][1]);self.assertIn(b'password=fake',calls[0][2]);self.assertNotIn('?',calls[0][0]);self.assertEqual(calls[1][0],'/redirect')
+            self.assertEqual(len(calls),2);self.assertEqual(calls[0][0],'/login');self.assertIn('application/x-www-form-urlencoded',calls[0][1]);self.assertIn(b'password=fake',calls[0][2]);self.assertIn(b'captchaVerification=',calls[0][2]);self.assertNotIn('?',calls[0][0]);self.assertEqual(calls[1][0],'/redirect')
         finally:server.shutdown();server.server_close();thread.join()
 
 

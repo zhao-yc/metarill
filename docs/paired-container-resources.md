@@ -38,3 +38,8 @@ Java与C#均非root10001、只读根、丢弃所有能力、no-new-privileges、
 ## V25 当前C#镜像
 
 原4820313镜像在禁网真实宿主复现登录前cap-config401后，来源3e0b1b1已通过原模板修复、141项认证/装配、完整包严格构建及两轮34文件稳定。新固定镜像为sha256:024b3fb9d9bcc52916ba67eb93010f1339b128d5a8d19e8ff2006f4b89c59a31，200禁网11项实际HTTP通过并独立核零；当前资源工具/示例使用此ID，Java329f43e及Redisff02b58不变。常量更新后的全组94项92过/2POSIX跳过，无失败；旧镜像保留失败身份。详见[原登录修复证据](standalone-web-authentication.md)，这不替代双库初始化、真实账号/角色或负载验收。
+
+
+## 2026-11-01 固定C#镜像更新
+
+V28修正原登录可选captchaVerification并完成原Android及Linux无库HTTP验证后，白名单和示例固定到sha256:49649d47669f6b71db535f0221bd81855ae6792fe0325b341218b214662fc02c。原024镜像保留为历史，Java/Redis不变。全组Windows119项115过/4个POSIX跳过，200同88文件来源119项全过，Docker/MySQL均为桩。旧024范围被拒绝，不将旧pending方案或历史授权套用新镜像；正式双库计划需重新冻结并直接授权，详见[执行整链](paired-native-execution.md)。

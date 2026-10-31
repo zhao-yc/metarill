@@ -6,7 +6,7 @@
   "leaseStatus": "not-started",
   "images": {
     "java": "sha256:329f43e4d3678bf2d81cfd6d7f73baa3ad73676134798dc7018d3ab28fb85936",
-    "csharp": "sha256:024b3fb9d9bcc52916ba67eb93010f1339b128d5a8d19e8ff2006f4b89c59a31",
+    "csharp": "sha256:49649d47669f6b71db535f0221bd81855ae6792fe0325b341218b214662fc02c",
     "redis": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf"
   },
   "ports": {
