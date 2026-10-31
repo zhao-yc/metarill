@@ -97,6 +97,57 @@ def percentile(values, percent):
     return ordered[max(0, math.ceil(len(ordered) * percent / 100) - 1)]
 
 
+class BinaryResponse:
+    """只携带已验证下载的字节数和摘要，原始文件不会进入报告或内存缓存。"""
+    def __init__(self, byte_length, sha256):
+        """保存实体字节证据，指纹显式区分JSON与二进制响应。"""
+        self.byte_length = byte_length
+        self.sha256 = sha256
+        self.fingerprint = digest({"kind": "binary", "byteLength": byte_length, "sha256": sha256})
+
+
+def response_kind(step):
+    """下载必须固定整个文件的长度和摘要，不能通过忽略字段或成功HTTP掩盖错文件。"""
+    kind = step.get("responseKind", "json")
+    if kind not in ("json", "binary"):
+        raise ContractError("响应类型只能为json或binary")
+    if kind == "binary":
+        size, checksum = step.get("expectedBytes"), step.get("expectedSha256")
+        if type(size) is not int or not 0 <= size <= 64 * 1024 * 1024:
+            raise ContractError("二进制下载必须明确0至64MiB的完整字节数")
+        if not isinstance(checksum, str) or not re.fullmatch(r"[a-f0-9]{64}", checksum):
+            raise ContractError("二进制下载必须明确小写SHA-256")
+        if type(step.get("status")) is not int or step["status"] != 200:
+            raise ContractError("完整二进制下载只接受HTTP200")
+        if step.get("checks") or step.get("capture") or step.get("ignorePointers"):
+            raise ContractError("二进制响应不能套用JSON断言、捕获或忽略字段")
+    elif "expectedBytes" in step or "expectedSha256" in step:
+        raise ContractError("二进制完整性声明不能被JSON模式忽略")
+    return kind
+
+
+def read_binary(response, step):
+    """以64KiB块校验完整实体；多读至多一字节检查越界，不按Content-Length代替真实内容。"""
+    if response.headers.get("Content-Encoding", "identity").strip().lower() != "identity" or response.headers.get("Content-Range"):
+        raise ContractError("完整下载不接受编码变换或分段响应")
+    lengths = response.headers.get_all("Content-Length", [])
+    if lengths and (len(lengths) != 1 or not re.fullmatch(r"[0-9]+", lengths[0]) or int(lengths[0]) != step["expectedBytes"] or response.headers.get("Transfer-Encoding")):
+        raise ContractError("下载长度头与固定完整实体不符")
+    received, checksum = 0, hashlib.sha256()
+    while True:
+        chunk = response.read(min(64 * 1024, step["expectedBytes"] - received + 1))
+        if not chunk:
+            break
+        received += len(chunk)
+        if received > step["expectedBytes"]:
+            raise ContractError("下载实体超过固定字节上限")
+        checksum.update(chunk)
+    actual = checksum.hexdigest()
+    if received != step["expectedBytes"] or actual != step["expectedSha256"]:
+        raise ContractError("下载完整性不符合固定长度与SHA-256")
+    return BinaryResponse(received, actual)
+
+
 def validate(config):
     """连接前验证完整实验配置；绝不替缺失证明补造默认成功。"""
     if config.get("version") != 1 or not re.fullmatch(r"[a-f0-9]{32}", config.get("runId", "")):
@@ -140,13 +191,18 @@ def validate(config):
             path = step.get("path", "")
             if step.get("method") not in ("GET", "POST", "PUT", "PATCH", "DELETE") or not path.startswith("/") or path.startswith("//") or "#" in path:
                 raise ContractError("请求必须使用固定相对路径及明确方法")
-            if type(step.get("status")) is not int or not 200 <= step["status"] < 300 or not step.get("checks"):
-                raise ContractError("必须断言HTTP状态及业务响应，不能把HTTP200当业务成功")
-            for check in step["checks"]:
-                if set(check) != {"pointer", "equals"} or not isinstance(check["pointer"], str) or not check["pointer"].startswith("/"):
-                    raise ContractError("响应断言格式错误")
-            if not any(check["pointer"] == "/code" and type(check["equals"]) is int and check["equals"] == 200 for check in step["checks"]):
-                raise ContractError("原R响应必须显式断言code为数值200")
+            if type(step.get("status")) is not int or not 200 <= step["status"] < 300:
+                raise ContractError("必须明确成功HTTP状态")
+            if response_kind(step) == "json":
+                if not isinstance(step.get("checks"), list) or not step["checks"]:
+                    raise ContractError("必须断言业务响应，不能把HTTP200当业务成功")
+                for check in step["checks"]:
+                    if set(check) != {"pointer", "equals"} or not isinstance(check["pointer"], str) or not check["pointer"].startswith("/"):
+                        raise ContractError("响应断言格式错误")
+                if not any(check["pointer"] == "/code" and type(check["equals"]) is int and check["equals"] == 200 for check in step["checks"]):
+                    raise ContractError("原R响应必须显式断言code为数值200")
+            elif any(key.lower() in ("range", "if-range") for target in targets.values() for key in target.get("headers", {})):
+                raise ContractError("完整下载实验不能带Range或If-Range请求头")
             for name in step.get("capture", {}):
                 if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) or name in ("run", "round", "iteration", "phase", "scenario", "concurrency"):
                     raise ContractError("捕获变量不可覆盖实验身份")
@@ -161,10 +217,16 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def request(target, step, variables, timeout):
-    """响应限8MiB、显式业务校验；保留原数字/字符串/null类型差别。"""
+    """JSON保留8MiB及原类型语义；下载流式校验，不缓存或落盘原始文件。"""
+    kind = response_kind(step)
     path = expand(step["path"], variables, path=True)
     headers = dict(target.get("headers", {}))
-    headers["Accept"] = "application/json"
+    headers["Accept"] = "*/*" if kind == "binary" else "application/json"
+    if kind == "binary":
+        if any(key.lower() in ("range", "if-range") for key in headers):
+            raise ContractError("完整下载不接受Range或If-Range")
+        headers = {key: value for key, value in headers.items() if key.lower() != "accept-encoding"}
+        headers["Accept-Encoding"] = "identity"
     data = None
     if "json" in step:
         headers["Content-Type"] = "application/json"
@@ -175,6 +237,8 @@ def request(target, step, variables, timeout):
     with opener.open(req, timeout=timeout) as response:
         if response.status != step["status"]:
             raise ContractError("HTTP状态不符合断言")
+        if kind == "binary":
+            return read_binary(response, step)
         payload = response.read(8 * 1024 * 1024 + 1)
     if len(payload) > 8 * 1024 * 1024:
         raise ContractError("响应超过8MiB")
@@ -284,18 +348,31 @@ def run_trial(config, target, scenario, concurrency, round_index, phase, iterati
         result = []
         for index in range(worker_index, iterations, concurrency):
             variables = {"run": config["runId"], "round": round_index, "iteration": index, "phase": phase, "scenario": scenario["name"], "concurrency": concurrency}
-            fingerprints, latencies = [], []
+            fingerprints, latencies, binary_responses = [], [], []
             start = time.perf_counter()
             error_name = None
-            for step in scenario["steps"]:
+            for step_index, step in enumerate(scenario["steps"]):
                 step_start = time.perf_counter()
                 try:
-                    fingerprints.append(transport(target, step, variables, config["requestTimeoutSeconds"]))
-                    latencies.append((time.perf_counter() - step_start) * 1000)
+                    response = transport(target, step, variables, config["requestTimeoutSeconds"])
+                    latency = (time.perf_counter() - step_start) * 1000
+                    if step.get("responseKind", "json") == "binary":
+                        if not isinstance(response, BinaryResponse) or type(response.byte_length) is not int or response.byte_length != step["expectedBytes"] or response.sha256 != step["expectedSha256"] or latency <= 0:
+                            raise ContractError("缺少有效完整下载证据或计时")
+                        fingerprints.append(response.fingerprint)
+                        binary_responses.append({"stepIndex": step_index, "byteLength": response.byte_length, "sha256": response.sha256, "elapsedMs": latency})
+                    else:
+                        if not isinstance(response, str):
+                            raise ContractError("JSON传输必须返回原响应摘要")
+                        fingerprints.append(response)
+                    latencies.append(latency)
                 except Exception as error:
                     error_name = type(error).__name__
                     break
-            result.append({"iteration": index, "elapsedMs": (time.perf_counter() - start) * 1000, "requestMs": latencies, "fingerprints": fingerprints, "error": error_name, "failedStep": len(fingerprints) if error_name else None, "attemptedRequests": len(fingerprints) + (1 if error_name else 0)})
+            row = {"iteration": index, "elapsedMs": (time.perf_counter() - start) * 1000, "requestMs": latencies, "fingerprints": fingerprints, "error": error_name, "failedStep": len(fingerprints) if error_name else None, "attemptedRequests": len(fingerprints) + (1 if error_name else 0)}
+            if any(step.get("responseKind") == "binary" for step in scenario["steps"]):
+                row["binaryResponses"] = binary_responses
+            result.append(row)
         return result
     started = time.perf_counter()
     sampler = threading.Thread(target=sample_resources, daemon=True) if probe else None
@@ -313,10 +390,20 @@ def run_trial(config, target, scenario, concurrency, round_index, phase, iterati
                 sample_errors.append("SamplerDeadlineExceeded")
     rows.sort(key=lambda row: row["iteration"])
     successful = [row for row in rows if not row["error"]]
-    return {"elapsedSeconds": elapsed, "completedScenarios": len(successful), "failedScenarios": len(rows) - len(successful), "scenarioThroughput": len(successful) / elapsed if elapsed > 0 else 0,
+    report = {"elapsedSeconds": elapsed, "completedScenarios": len(successful), "failedScenarios": len(rows) - len(successful), "scenarioThroughput": len(successful) / elapsed if elapsed > 0 else 0,
             "p50Ms": percentile([row["elapsedMs"] for row in successful], 50), "p95Ms": percentile([row["elapsedMs"] for row in successful], 95), "p99Ms": percentile([row["elapsedMs"] for row in successful], 99),
             "rows": rows, "resources": samples, "resourceErrors": sample_errors, "resourceSampleCount": len(samples),
             "sampledResources": {"meanCpuPercent": statistics.mean(item["values"]["cpuPercent"] for item in samples) if samples else None, "observedMaxMemoryBytes": max((item["values"]["memoryBytes"] for item in samples), default=None)}}
+    if any(step.get("responseKind") == "binary" for step in scenario["steps"]):
+        # 只统计完整成功场景的已验证字节；部分失败的已读数据不能抬高有效业务吞吐。
+        downloads = [item for row in successful for item in row["binaryResponses"]]
+        byte_length = sum(item["byteLength"] for item in downloads)
+        report["binaryDownload"] = {"verifiedResponses": len(downloads), "verifiedBytes": byte_length,
+            "goodputBytesPerSecond": byte_length / elapsed if elapsed > 0 else 0,
+            "requestP50Ms": percentile([item["elapsedMs"] for item in downloads], 50),
+            "requestP95Ms": percentile([item["elapsedMs"] for item in downloads], 95),
+            "requestP99Ms": percentile([item["elapsedMs"] for item in downloads], 99)}
+    return report
 
 
 def compare_pair(java, csharp, config):
@@ -330,7 +417,25 @@ def compare_pair(java, csharp, config):
         return {"valid": False, "reason": "缺少有效延迟或吞吐样本"}
     latency = csharp["p95Ms"] / java["p95Ms"]
     throughput = csharp["scenarioThroughput"] / java["scenarioThroughput"]
-    return {"valid": True, "p95Ratio": latency, "throughputRatio": throughput, "regression": latency > config["maxP95Ratio"] or throughput < config["minThroughputRatio"]}
+    result = {"valid": True, "p95Ratio": latency, "throughputRatio": throughput, "regression": latency > config["maxP95Ratio"] or throughput < config["minThroughputRatio"]}
+    if "binaryDownload" in java or "binaryDownload" in csharp or any("binaryResponses" in row for trial in (java, csharp) for row in trial["rows"]):
+        # 下载汇总还须与原逐项证据吻合，不能由缺失或非有限统计值制造快成绩。
+        for trial in (java, csharp):
+            summary = trial.get("binaryDownload")
+            downloads = [item for row in trial["rows"] for item in row.get("binaryResponses", [])]
+            if not summary or not downloads or type(summary.get("verifiedBytes")) is not int or type(summary.get("verifiedResponses")) is not int:
+                return {"valid": False, "reason": "缺少完整下载统计证据"}
+            if any(type(item.get("byteLength")) is not int or item["byteLength"] < 0 for item in downloads):
+                return {"valid": False, "reason": "下载字节证据无效"}
+            byte_length = sum(item["byteLength"] for item in downloads)
+            goodput, elapsed = summary.get("goodputBytesPerSecond"), trial.get("elapsedSeconds")
+            if summary["verifiedBytes"] != byte_length or summary["verifiedResponses"] != len(downloads) or type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0 or type(goodput) not in (int, float) or not math.isfinite(goodput) or goodput < 0 or not math.isclose(goodput, byte_length / elapsed, rel_tol=1e-9):
+                return {"valid": False, "reason": "下载汇总与逐项证据不一致"}
+        left, right = java["binaryDownload"], csharp["binaryDownload"]
+        if left["verifiedBytes"] != right["verifiedBytes"] or left["verifiedResponses"] != right["verifiedResponses"]:
+            return {"valid": False, "reason": "两端完整下载证据不一致"}
+        result["binaryGoodputRatio"] = right["goodputBytesPerSecond"] / left["goodputBytesPerSecond"] if left["verifiedBytes"] > 0 else None
+    return result
 
 
 def run(config, probe, transport=request, on_event=lambda _: None):
@@ -364,7 +469,7 @@ def run(config, probe, transport=request, on_event=lambda _: None):
         raise ContractError("实验前后容器资源限制变化，结果不可作为同条件证据")
     return {"version": 1, "runId": config["runId"], "configSha256": digest(config), "actualLimits": before, "results": results, "releaseAccepted": False,
             "remainingEvidence": ["独立测试数据/索引及SQL实际等价核验", "URL与容器实例的真实接线及共享MySQL/主机负载核验", "两端应用/运行时/镜像及MySQL资源固定", "写入失败后的独占样本核验及清理", "浏览器/设备及完整首版验收"],
-            "clientBoundary": "Python urllib独立HTTP连接；未测连接池或浏览器；Docker采样峰值不等于真实峰值"}
+            "clientBoundary": "Python urllib独立HTTP连接；二进制含流式SHA256客户端成本；未测连接池或浏览器；Docker采样峰值不等于真实峰值"}
 
 
 def main():
