@@ -43,3 +43,7 @@
 真实MySQL流程发现config_page/copy_page旧POST入口返回404，原sys/config_button/execute网关仍能工作。原因是三条兼容路由把URL末段命名为MVC保留值action，与Legacy动作的固定必需值冲突；现只改为operation占位名，原URL、请求、数据库按钮白名单、管理员和项目校验均不改。
 
 最小ASP.NET TestServer通过真实MVC端点选择核对8个旧URL；修前5条动态别名404、3条固定/网关匹配，修后8/8通过、0跳过。测试在实际动作执行前停止，不注册数据库或替身Business，因此只声明路由匹配，不替代复制/生成授权或真实事务验收。红/绿证据为.local/original-alias-route-before.trx与original-alias-route-after.trx。
+
+## 2026-10-31固定请求补漏
+
+C63从原110源码按三个条件编译集合盘点62组固定方法/地址，实际Program探针复现4处404；本轮恢复首页搜索、账号候选及旧二级菜单候选地址，保留原响应和真实页权限，仍余批量运行时接口未实现。旧菜单别名指向单表菜单，不恢复旧双表/普通权限表写入口。具体回归、原失败与未验收边界见[原接口恢复](testing/original-frontend-route-restoration.md)；批量逐项目在线助手方案已确认，不能将排队计为同步完成。

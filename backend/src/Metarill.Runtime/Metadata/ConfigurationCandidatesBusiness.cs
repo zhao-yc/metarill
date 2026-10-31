@@ -17,6 +17,52 @@ public sealed record ConfigurationControlMetadata(string ControlKind, string Col
 public sealed class ConfigurationCandidatesBusiness(SqlRowStore store, MetadataRepository metadata, MetadataRegistry registry,
     HttpRuntimeAuthorization authorization, ConfigurationMutationGuard preparation)
 {
+    /// <summary>恢复原首页表/页聚焦搜索，身份沿用平台配置工作台，客户端只能提交关键词。</summary>
+    public async Task<object> SearchAsync(JsonElement request,CancellationToken token=default)
+    {
+        MetadataWorkbenchRules.Object(request,"keyword");var actor=RequireAdministrator();string? keyword=null;
+        if(request.TryGetProperty("keyword",out var value))
+            keyword=value.ValueKind switch{JsonValueKind.Null=>null,JsonValueKind.String=>value.GetString(),_=>throw new ArgumentException("关键词必须是字符串。")};
+        var project=MetadataWorkbenchRules.ParseId(actor.ProjectId);
+        var tables=await store.SearchConfigurationAsync("config_table",project,keyword,token);
+        var pages=await store.SearchConfigurationAsync("config_page",project,keyword,token);
+        var filters=Project(actor);
+        var adminIds=tables.Concat(pages).Select(row=>SqlRowStore.Id(row,"yz_admin_type_id")).Where(id=>id>0).Distinct().ToArray();
+        var tableIds=pages.Select(row=>SqlRowStore.Id(row,"config_table_id")).Where(id=>id>0).Distinct().ToArray();
+        var admins=(await store.ReadProjectedByIdsAsync("yz_admin_type",["id","name"],adminIds,filters,token)).ToDictionary(row=>SqlRowStore.Id(row));
+        var parents=(await store.ReadProjectedByIdsAsync("config_table",["id","name","table_name"],tableIds,filters,token)).ToDictionary(row=>SqlRowStore.Id(row));
+        return new{configTables=tables.Select(row=>SearchRow(row,false,admins,parents)).ToArray(),configPages=pages.Select(row=>SearchRow(row,true,admins,parents)).ToArray()};
+    }
+    /// <summary>基础设施列恢复原驼峰字段；整数ID沿用宿主字符串长整数合同，页面类型显示遵循原固定目录。</summary>
+    private Dictionary<string,object?> SearchRow(Dictionary<string,object?> row,bool page,IReadOnlyDictionary<long,Dictionary<string,object?>> admins,IReadOnlyDictionary<long,Dictionary<string,object?>> parents)
+    {
+        string Camel(string name)=>string.Concat(name.Split('_').Select((part,index)=>index==0?part:part.Length==0?"":char.ToUpperInvariant(part[0])+part[1..]));
+        var result=row.ToDictionary(pair=>Camel(pair.Key),pair=>pair.Value,StringComparer.Ordinal);
+        // 单表优化后名称可能不是物理列；只从同项目活动目标定向读取，不把旧缓存空值当作完整原响应。
+        result["yzAdminTypeName"]=admins.TryGetValue(SqlRowStore.Id(row,"yz_admin_type_id"),out var admin)?SqlRowStore.Text(admin,"name"):null;
+        if(page)
+        {
+            var parent=parents.GetValueOrDefault(SqlRowStore.Id(row,"config_table_id"));
+            result["configTableName"]=parent is null?null:SqlRowStore.Text(parent,"name");
+            result["configTableTableName"]=parent is null?null:SqlRowStore.Text(parent,"table_name");
+        }
+        if(page)result["typeShow"]=PageTypeShow(row.GetValueOrDefault("type"));
+        return result;
+    }
+
+    private IReadOnlyDictionary<int,string>? pageTypeNames;
+    /// <summary>同一服务调用只解析一次发布的页面类型常量，保持生成VO的label|value、不裁剪标签与未知值回显。</summary>
+    private string? PageTypeShow(object? value)
+    {
+        if(value is null)return null;
+        pageTypeNames??=registry.Platform.ConfigColumns.Single(column=>column.ConfigTableId==registry.Platform.ConfigTables.Single(table=>table.TableName=="config_page").Id&&column.ColumnName=="type")
+            .ControlDetail.Split(',',StringSplitOptions.RemoveEmptyEntries).Select(item=>item.Split('|',2))
+            .Where(parts=>(parts.Length==2?parts[1]:parts[0]).Length>0)
+            .ToDictionary(parts=>int.Parse(parts.Length==2?parts[1]:parts[0],CultureInfo.InvariantCulture),parts=>parts[0]);
+        var text=Convert.ToString(value,CultureInfo.InvariantCulture);
+        return int.TryParse(text,NumberStyles.Integer,CultureInfo.InvariantCulture,out var key)&&pageTypeNames.TryGetValue(key,out var label)?label:text;
+    }
+
     /// <summary>表候选只返回旧选择器所需四字段，项目和连接不能由请求提供。</summary>
     public async Task<IReadOnlyList<ConfigurationCandidateOption>> TablesAsync(JsonElement request, CancellationToken token = default)
     {

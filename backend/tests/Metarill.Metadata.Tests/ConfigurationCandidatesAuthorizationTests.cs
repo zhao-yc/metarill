@@ -26,6 +26,7 @@ public sealed class ConfigurationCandidatesAuthorizationTests
         var business = new ConfigurationCandidatesBusiness(store, metadata, fixture.Registry, authorization, new(store, fixture.Registry, authorization, security));
         var empty = JsonSerializer.SerializeToElement(new { }); var id = JsonSerializer.SerializeToElement(new { id = "11" });
         // 虚构连接位于回环无效端口；若鉴权顺序错误，测试会出现连接错误而非权限拒绝。
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.SearchAsync(empty));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.TablesAsync(empty));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.PagesAsync(empty));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => business.ControlMetadataAsync(id));

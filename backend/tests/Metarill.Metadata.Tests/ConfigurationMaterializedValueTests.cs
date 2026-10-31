@@ -535,19 +535,39 @@ public sealed partial class ConfigurationMaterializedValueTests
     private sealed class MemoryProvider:IDatabaseProvider
     {
         internal Dictionary<string,List<Dictionary<string,object?>>> Rows{get;set;}=new(StringComparer.Ordinal);internal List<string> Commands{get;}=[];internal List<(string Sql,Dictionary<string,object?> Values,DbTransaction? Transaction)> Reads{get;}=[];internal int Rollbacks;internal Func<string,DbParameterCollection,bool>? SkipWrite;
-        public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new MemoryConnection(this);public string QuoteIdentifier(string id)=>new MySqlDatabaseProvider().QuoteIdentifier(id);public string ParameterPlaceholder(string name)=>"@"+name;public string BuildSelectForUpdate(string sql)=>new MySqlDatabaseProvider().BuildSelectForUpdate(sql);
+        public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new MemoryConnection(this);public string QuoteIdentifier(string id)=>new MySqlDatabaseProvider().QuoteIdentifier(id);public string ParameterPlaceholder(string name)=>"@"+name;public string BuildSelectForUpdate(string sql)=>new MySqlDatabaseProvider().BuildSelectForUpdate(sql);public string BuildTextSearchPredicate(string column,string parameter,bool numeric)=>new MySqlDatabaseProvider().BuildTextSearchPredicate(column,parameter,numeric);public string BuildBoundedRead(string sql,int maximum)=>new MySqlDatabaseProvider().BuildBoundedRead(sql,maximum);
         internal DbDataReader Read(string sql,DbParameterCollection parameters,DbTransaction? transaction)
         {
             Reads.Add((sql,parameters.Cast<DbParameter>().ToDictionary(parameter=>parameter.ParameterName,parameter=>parameter.Value),transaction));
-            Commands.Add(sql);var match=Regex.Match(sql,@"^SELECT (.+) FROM `([^`]+)`(?: WHERE (.*?))?(?: FOR UPDATE)?$");if(!match.Success)throw new NotSupportedException(sql);
+            Commands.Add(sql);if(sql.EndsWith(" ORDER BY `id` DESC LIMIT 50",StringComparison.Ordinal))return Search(sql,parameters);var match=Regex.Match(sql,@"^SELECT (.+) FROM `([^`]+)`(?: WHERE (.*?))?(?: ORDER BY `id`)?(?: FOR UPDATE)?$");if(!match.Success)throw new NotSupportedException(sql);
             var names=match.Groups[1].Value.Split(',').Select(value=>value.Trim('`')).ToArray();var data=new DataTable();foreach(var name in names)data.Columns.Add(name,typeof(object));
             foreach(var row in Rows.GetValueOrDefault(match.Groups[2].Value)??[])
             {
                 var conditions=match.Groups[3].Value;var accepted=true;
                 foreach(Match item in Regex.Matches(conditions,@"`([^`]+)`( IS NULL|=@([a-zA-Z0-9_]+))"))
                 {var actual=row.GetValueOrDefault(item.Groups[1].Value);var expected=item.Groups[2].Value==" IS NULL"?null:parameters[item.Groups[3].Value].Value;accepted&=Equal(actual,expected);}
+                var selected=Regex.Match(conditions,@"`id` IN \((@[a-zA-Z0-9_]+(?:,@[a-zA-Z0-9_]+)*)\)");
+                if(selected.Success)accepted&=selected.Groups[1].Value.Split(',').Any(name=>Equal(row.GetValueOrDefault("id"),parameters[name.TrimStart('@')].Value));
                 if(accepted)data.Rows.Add(names.Select(name=>row.GetValueOrDefault(name)??DBNull.Value).ToArray());
             }
+            return data.CreateDataReader();
+        }
+        /// <summary>只解释新增首页搜索的精确固定SQL；由原生产方言生成，未知条件不静默放过。</summary>
+        private DbDataReader Search(string sql,DbParameterCollection parameters)
+        {
+            var match=Regex.Match(sql,@"^SELECT (.+) FROM `(config_table|config_page)` WHERE `delete_no` IS NULL AND `yz_project_id`=@project(?: AND \((.+)\))? ORDER BY `id` DESC LIMIT 50$");
+            if(!match.Success)throw new NotSupportedException("未登记的受控搜索SQL。");
+            var table=match.Groups[2].Value;var expected=table=="config_table"?"CAST(`id` AS CHAR) LIKE @keyword OR `name` LIKE @keyword OR `table_name` LIKE @keyword":"CAST(`id` AS CHAR) LIKE @keyword OR `name` LIKE @keyword OR `config_table_name` LIKE @keyword";
+            var conditions=match.Groups[3].Value;if(conditions.Length>0&&conditions!=expected)throw new NotSupportedException("搜索条件不符合固定模型。");
+            var columns=match.Groups[1].Value.Split(',').Select(value=>value.Trim('`')).ToArray();var data=new DataTable();foreach(var column in columns)data.Columns.Add(column,typeof(object));
+            bool NameMatch(Dictionary<string,object?> row)
+            {
+                if(conditions.Length==0)return true;
+                var expression="\\A"+Regex.Escape(Convert.ToString(parameters["keyword"].Value,CultureInfo.InvariantCulture)!).Replace("%",".*").Replace("_",".")+"\\z";
+                return (table=="config_table"?new[]{"id","name","table_name"}:new[]{"id","name","config_table_name"}).Any(name=>Regex.IsMatch(Convert.ToString(row.GetValueOrDefault(name),CultureInfo.InvariantCulture)??"",expression,RegexOptions.CultureInvariant));
+            }
+            foreach(var row in (Rows.GetValueOrDefault(table)??[]).Where(row=>row.GetValueOrDefault("delete_no") is null&&Equal(row.GetValueOrDefault("yz_project_id"),parameters["project"].Value)&&NameMatch(row)).OrderByDescending(row=>SqlRowStore.Id(row)).Take(50))
+                data.Rows.Add(columns.Select(column=>row.GetValueOrDefault(column)??DBNull.Value).ToArray());
             return data.CreateDataReader();
         }
         internal int Write(string sql,DbParameterCollection parameters)

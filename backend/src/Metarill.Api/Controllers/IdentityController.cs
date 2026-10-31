@@ -43,6 +43,17 @@ public sealed class IdentityController(AuthenticationService authentication,Http
 [ApiController,Route("api/admin/sys/index")]
 public sealed class WorkspaceController(SqlRowStore store,HttpRuntimeAuthorization authorization):ControllerBase
 {
+    /// <summary>恢复原管理员选择器，只读当前账号页允许查询的项目账户，不返回密码、令牌或会话字段。</summary>
+    [HttpGet("findNameIdYzManager"),ResponseCache(NoStore=true,Location=ResponseCacheLocation.None)]
+    public async Task<R<object>> Managers(CancellationToken cancellationToken)
+    {
+        var actor=authorization.RequireActor();authorization.RequirePagePermission("6031906822946816","list");
+        var rows=await store.ReadProjectedAsync("yz_manager",["id","real_name","name"],
+            new Dictionary<string,object?>{{"yz_project_id",long.Parse(actor.ProjectId,System.Globalization.CultureInfo.InvariantCulture)}},cancellationToken);
+        // 原选择器文本固定为姓名—用户名；null遵循原Java字符串拼接语义，标识始终为字符串。
+        string Text(Dictionary<string,object?> row,string name)=>row.GetValueOrDefault(name) is null?"null":SqlRowStore.Text(row,name);
+        return R<object>.Success(rows.Select(row=>new{value=SqlRowStore.Text(row,"id"),text=Text(row,"real_name")+"—"+Text(row,"name")}).ToArray());
+    }
     [HttpGet("findNameIdYzManagerDevices")]public async Task<R<object>> Devices(CancellationToken cancellationToken)
     {
         var actor=authorization.RequireActor();var rows=await store.ReadAsync("yz_manager_devices",new Dictionary<string,object?>{{"yz_manager_id",actor.AccountId}},cancellationToken);

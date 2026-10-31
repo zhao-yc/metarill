@@ -24,6 +24,10 @@ public interface IDatabaseProvider
     void Validate(DatabaseOptions options);
     string QuoteIdentifier(string identifier);
     string ParameterPlaceholder(string name);
+    /// <summary>基础设施文本搜索由方言提供，数值列不能由业务层自行拼接类型转换。</summary>
+    string BuildTextSearchPredicate(string column,string parameter,bool numeric)=>throw new NotSupportedException("当前数据库尚未实现文本搜索。");
+    /// <summary>固定内部SELECT的有界结果，由适配器处理LIMIT/TOP等差异。</summary>
+    string BuildBoundedRead(string selectSql,int maximum)=>throw new NotSupportedException("当前数据库尚未实现有界读取。");
     /// <summary>同一实际事务返回物理服务器/数据库身份；跨库操作不得依赖连接别名推测隔离。</summary>
     Task<PhysicalDatabaseIdentity> ReadPhysicalDatabaseIdentityAsync(DatabaseOptions options,DbTransaction transaction,CancellationToken cancellationToken=default)
         =>throw new NotSupportedException("当前数据库尚未实现跨库目标身份核验。");
@@ -98,6 +102,15 @@ public sealed partial class MySqlDatabaseProvider : IDatabaseProvider
         if (!selectSql.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase) || selectSql.Contains(';') || selectSql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("锁定读取必须是单条内部 SELECT。");
         return selectSql + " FOR UPDATE";
+    }
+    /// <summary>对齐原LIKE语义，模式作为参数；只有整数ID使用字符转换，文本列保留自身排序规则。</summary>
+    public string BuildTextSearchPredicate(string column,string parameter,bool numeric)
+        =>(numeric?"CAST("+QuoteIdentifier(column)+" AS CHAR)":QuoteIdentifier(column))+" LIKE "+ParameterPlaceholder(parameter);
+    /// <summary>只给单条内部SELECT追加固定上限，不能接收客户端SQL或无界值。</summary>
+    public string BuildBoundedRead(string selectSql,int maximum)
+    {
+        if(maximum is <1 or >1000||!selectSql.StartsWith("SELECT ",StringComparison.Ordinal)||selectSql.Contains(';'))throw new ArgumentException("有界读取要求内部SELECT和固定行数。");
+        return selectSql+" LIMIT "+maximum.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
     public DatabaseCapabilities Capabilities => DatabaseProviders.Capabilities[0];
 

@@ -48,3 +48,23 @@ public sealed partial class ConfigPagePage6191175925956608Controller
         [FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken)
         => findNameIdYzAdminType2200000000000000105Selected(request, cancellationToken);
 }
+
+/// <summary>单表菜单保留原二级菜单候选地址；读取仍经过当前来源页与真实菜单页的权限和范围。</summary>
+public sealed partial class YzRolePermissionPage2063264600601714690Controller
+{
+    /// <summary>旧数组及空正文直接复用当前菜单候选，不恢复旧双表或绕过原5000上限。</summary>
+    [HttpPost("findNameIdConfigSecondMenu2063264600681406465")]
+    public Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigSecondMenu2063264600681406465(
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] RelationOptionsLegacyRequest? request,CancellationToken cancellationToken)
+        =>findNameIdConfigMenu2063264600681406465(request,cancellationToken);
+    /// <summary>旧地址分页与当前单表菜单采用完全相同的查询合同。</summary>
+    [HttpPost("findNameIdConfigSecondMenu2063264600681406465/page")]
+    public Task<R<PageResult<GeneratedOption>>> findNameIdConfigSecondMenu2063264600681406465Page(
+        [FromBody]RelationOptionsPageRequest request,CancellationToken cancellationToken)
+        =>findNameIdConfigMenu2063264600681406465Page(request,cancellationToken);
+    /// <summary>旧地址已选回读不接受客户端指定菜单表，逐项使用当前授权范围。</summary>
+    [HttpPost("findNameIdConfigSecondMenu2063264600681406465/selected")]
+    public Task<R<IReadOnlyList<GeneratedOption>>> findNameIdConfigSecondMenu2063264600681406465Selected(
+        [FromBody]RelationOptionsSelectedRequest request,CancellationToken cancellationToken)
+        =>findNameIdConfigMenu2063264600681406465Selected(request,cancellationToken);
+}

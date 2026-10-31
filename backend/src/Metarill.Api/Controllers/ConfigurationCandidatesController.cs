@@ -9,6 +9,9 @@ namespace Metarill.Api.Controllers;
 [ApiController, Route("api/admin/custom/config_column")]
 public sealed class ConfigurationCandidatesController(ConfigurationCandidatesBusiness business) : ControllerBase
 {
+    /// <summary>原首页搜索地址直接复用配置身份、固定SQL范围及原表/页响应。</summary>
+    [HttpPost("/api/admin/custom/index/search"),ResponseCache(NoStore=true,Location=ResponseCacheLocation.None)]
+    public async Task<R<object>> Search(CancellationToken token)=>R<object>.Success(await business.SearchAsync(await RequestObject(token),token));
     /// <summary>表候选支持原控件空对象请求及无请求体调用。</summary>
     [HttpPost("list_control_tables")]
     public async Task<R<object>> Tables(CancellationToken token) => R<object>.Success(await business.TablesAsync(await RequestObject(token), token));

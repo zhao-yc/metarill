@@ -28,6 +28,46 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if(filters is not null&&filters.Keys.Any(name=>!allowed.Contains(name)))throw new InvalidOperationException("查询字段未登记。");
         return ReadInternalAsync(table,filters,false,cancellationToken,selectedColumns:selected.ToArray());
     }
+    /// <summary>只读关联名称按固定主键集合定向回读；复用投影白名单，不借用写锁入口或全表回退。</summary>
+    public Task<List<Dictionary<string,object?>>> ReadProjectedByIdsAsync(string table,IReadOnlyList<string> selected,IReadOnlyCollection<long> ids,
+        IReadOnlyDictionary<string,object?>? filters=null,CancellationToken token=default)
+    {
+        token.ThrowIfCancellationRequested();ArgumentNullException.ThrowIfNull(ids);ArgumentNullException.ThrowIfNull(selected);
+        var columns=Columns(table);var allowed=columns.Select(column=>column.ColumnName).ToHashSet(StringComparer.Ordinal);
+        if(ids.Count>1000||ids.Any(id=>id<=0)||ids.Distinct().Count()!=ids.Count)throw new ArgumentException("只读名称回读要求至多1000个唯一正整数标识。");
+        if(selected.Count==0||selected.Distinct(StringComparer.Ordinal).Count()!=selected.Count||selected.Any(name=>!allowed.Contains(name)))throw new ArgumentException("只读名称投影必须为已登记物理字段。");
+        if(!columns.Any(column=>column.ColumnName=="id"&&column.LogicalType is "id" or "int64"))throw new InvalidOperationException("只读名称回读要求整数主键。");
+        if(filters is not null&&filters.Keys.Any(name=>!allowed.Contains(name)))throw new InvalidOperationException("查询字段未登记。");
+        if(ids.Count==0)return Task.FromResult(new List<Dictionary<string,object?>>());
+        return ReadInternalAsync(table,filters,false,token,idColumn:"id",ids:ids.Order().ToArray(),selectedColumns:selected.ToArray());
+    }
+    /// <summary>原首页聚焦搜索仅限两张配置表，范围/OR条件/排序/50条上限都进入SQL，不接受客户端表名或列。</summary>
+    public Task<List<Dictionary<string,object?>>> SearchConfigurationAsync(string table,long projectId,string? keyword,CancellationToken token=default)
+    {
+        token.ThrowIfCancellationRequested();if(projectId<=0)throw new ArgumentException("搜索要求有效项目。");
+        var search=table switch{"config_table"=>new[]{"id","name","table_name"},"config_page"=>new[]{"id","name","config_table_name"},_=>throw new ArgumentException("首页搜索只允许已登记配置表。")};
+        var columns=Columns(table);var allowed=columns.Select(column=>column.ColumnName).ToHashSet(StringComparer.Ordinal);
+        if(search.Concat(new[]{"id","yz_project_id","delete_no"}).Any(name=>!allowed.Contains(name)))throw new InvalidOperationException("首页搜索所需物理字段未发布。");
+        var hasKeyword=!string.IsNullOrWhiteSpace(keyword);
+        return CommandAsync(async command=>
+        {
+            var sql="SELECT "+string.Join(",",columns.Select(column=>Q(column.ColumnName)))+" FROM "+Q(table)+" WHERE "+Q("delete_no")+" IS NULL AND "+Q("yz_project_id")+"="+AddParameter(command,"project",projectId);
+            if(hasKeyword)
+            {
+                _=AddParameter(command,"keyword","%"+keyword+"%");
+                sql+=" AND ("+string.Join(" OR ",search.Select(name=>session.Provider.BuildTextSearchPredicate(name,"keyword",name=="id")))+")";
+            }
+            command.CommandText=session.Provider.BuildBoundedRead(sql+" ORDER BY "+Q("id")+" DESC",50);
+            var rows=new List<Dictionary<string,object?>>();await using var reader=await command.ExecuteReaderAsync(token);
+            while(await reader.ReadAsync(token))
+            {
+                var row=new Dictionary<string,object?>(StringComparer.Ordinal);
+                for(var index=0;index<reader.FieldCount;index++)row[reader.GetName(index)]=await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index);
+                rows.Add(row);
+            }
+            return rows;
+        },token);
+    }
     /// <summary>只用于种子存在性与开发备份，包含逻辑删除记录；业务查询不得使用此入口。</summary>
     public Task<List<Dictionary<string,object?>>> ReadIncludingDeletedAsync(string table,IReadOnlyDictionary<string,object?>? filters=null,CancellationToken cancellationToken=default)=>ReadInternalAsync(table,filters,false,cancellationToken,true);
     /// <summary>账号初始化按用户名唯一索引检查墓碑冲突；只允许在既有事务中读取，不能用于恢复已删除账号。</summary>

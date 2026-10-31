@@ -11,5 +11,6 @@
     <!-- 链接实际边界源码，SDK/HTTP测试不复制另一套工具或控制器实现。 -->
     <Compile Include="../../src/Metarill.Api/Mcp/MetadataWorkbenchMcpTools.cs" Link="Boundary/MetadataWorkbenchMcpTools.cs" />
     <Compile Include="../../src/Metarill.Api/Controllers/MetadataWorkbenchController.cs" Link="Boundary/MetadataWorkbenchController.cs" />
+    <Compile Include="../../src/Metarill.Api/Controllers/IdentityController.cs" Link="Boundary/IdentityController.cs" />
   </ItemGroup>
 </Project>

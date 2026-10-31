@@ -64,6 +64,61 @@ public sealed class OriginalListAliasHttpTests
     private static string Route(string page,string field,string kind)=>"/api/admin/auto/config_page/"+page+"/findNameIdYzAdminType2200000000000000"+field+(kind.Length==0?"":"/"+kind);
 
     /// <summary>记录真实MVC响应状态和原R，不把找不到路由或绑定失败当作拒权通过。</summary>
+    /// <summary>恢复接口仍返回原匿名R错误，并禁止共享缓存账号/配置内容；不可达配置保证未绕过身份去读库。</summary>
+    [Fact]
+    public async Task Restored_home_search_and_manager_picker_keep_anonymous_and_no_store_contracts()
+        =>await WithOfflineSettings(async ()=>
+        {
+            await using var factory=new WebApplicationFactory<Program>();using var client=factory.CreateClient();
+            using var search=await client.PostAsJsonAsync("/api/admin/custom/index/search",new{keyword="原首页"});
+            using var managers=await client.GetAsync("/api/admin/sys/index/findNameIdYzManager");
+            foreach(var response in new[]{search,managers})
+            {
+                Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+                using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());
+                Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());Assert.True(response.Headers.CacheControl?.NoStore==true);
+            }
+        });
+
+    /// <summary>菜单表归并后原地址仍经同一来源/目标页权限；三种请求和空正文都不恢复旧菜单表。</summary>
+    [Fact]
+    public async Task Legacy_second_menu_options_share_current_menu_action_and_both_permissions()
+        =>await WithOfflineSettings(async ()=>
+        {
+            var baseRoute="/api/admin/auto/yz_role_permission/2063264600601714690/findNameId";
+            foreach(var targetDenied in new[]{false,true})
+            {
+                var authorization=new MenuDeniedAuthorization(targetDenied);
+                await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>builder.ConfigureTestServices(services=>
+                {services.RemoveAll<IRuntimeAuthorization>();services.AddSingleton<IRuntimeAuthorization>(authorization);}));
+                using var client=factory.CreateClient();
+                foreach(var kind in new[]{"","/page","/selected"})
+                {
+                    object body=kind switch{"/page"=>new{pageNo=1,pageSize=50},"/selected"=>new{selectedIds=new[]{"9007199254740993"}},_=>new{}};
+                    authorization.Calls.Clear();using var current=await client.PostAsJsonAsync(baseRoute+"ConfigMenu2063264600681406465"+kind,body);
+                    var expectedCalls=authorization.Calls.ToArray();var expectedBody=await current.Content.ReadAsStringAsync();
+                    authorization.Calls.Clear();using var legacy=await client.PostAsJsonAsync(baseRoute+"ConfigSecondMenu2063264600681406465"+kind,body);
+                    Assert.Equal(current.StatusCode,legacy.StatusCode);Assert.Equal(expectedBody,await legacy.Content.ReadAsStringAsync());
+                    Assert.Equal(expectedCalls,authorization.Calls);
+                    Assert.Equal(targetDenied?new[]{"2063264600601714690:list","actor","2200000000000099000:list"}:new[]{"2063264600601714690:list"},authorization.Calls);
+                }
+                authorization.Calls.Clear();using var empty=await client.PostAsync(baseRoute+"ConfigSecondMenu2063264600681406465",null);
+                Assert.Equal(HttpStatusCode.OK,empty.StatusCode);Assert.NotEmpty(authorization.Calls);
+            }
+        });
+
+    /// <summary>只记录真实控制器调用顺序，在来源或目标拒绝后不允许进入存储。</summary>
+    private sealed class MenuDeniedAuthorization(bool targetDenied):IRuntimeAuthorization
+    {
+        internal List<string> Calls{get;}=[];
+        public RuntimeActor RequireActor(){Calls.Add("actor");return new(7,"仅权限顺序验证",false,"1","");}
+        public void RequirePagePermission(string pageId,string operation)
+        {
+            Calls.Add(pageId+":"+operation);
+            if(pageId=="2063264600601714690"&&!targetDenied||pageId=="2200000000000099000")throw new UnauthorizedAccessException("受控拒绝");
+        }
+    }
+
     private static async Task<(HttpStatusCode Status,int Code,string? Message)> Send(HttpClient client,string page,string field,string kind)
     {
         object request=kind=="selected"?new{selectedIds=Array.Empty<string>()}:kind=="page"?new{pageNo=1,pageSize=20}:new{};
