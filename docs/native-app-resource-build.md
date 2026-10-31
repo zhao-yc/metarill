@@ -55,3 +55,8 @@ HBuilderX启动后再次查询的真实设备列表仍为空；本轮两个独�
 - 本机 `publish app-android --help` 仅列出 `--type appResource`。资源导出不能替代 APK、签名、安装或真机业务验收；Android/iOS 总项继续待验。
 
 原始 CLI 帮助、版本、三平台查询输出保存在忽略目录 `.local/native-device-check-20261031`。本次没有创建新工程、启动项目服务或留下待停止的测试进程；原 HBuilderX 继续运行。
+
+
+## 2026-11-01 独占Android模拟器实际启动失败
+
+V27从1fd2ef5实际冻结499份原前端，HBuilderX5.34编译60/60页、87文件并安装固定15.34经典标准基座；原源码不变。独占Android15模拟器启动后出现WXBridge.nativeResetWXBridge的UnsatisfiedLinkError，未验证原登录页运行成功，单页对照又停在ADB反向连接阶段，原因尚未证明。基座安装/编译不代表Android运行通过，也不是Metarill独立APK/签名或真机验收。原失败、准备阶段的headless子进程核对修正及自有API/AVD精确收尾见[本轮实际记录](testing/android-emulator-native-smoke.md)。原SimDock模拟器未安装或运行Metarill，前台保持；本轮独占设备/临时数据已清理。V06/V07仍待验收。
