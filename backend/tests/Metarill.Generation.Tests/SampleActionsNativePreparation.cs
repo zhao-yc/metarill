@@ -8,7 +8,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>原六份手写业务、完整包源码与编译产物共同冻结；不访问数据库或创建租约。</summary>
 internal static class SampleActionsNativePreparation
 {
-    internal const string ProductCommit="e0512975301c2ef3afc51aea6c2f66fc428930a3";
+    internal const string ProductCommit="23db83877a46736e04c57f9ffae47a1d936f6c80";
     internal const string RootNamespace="Metarill.GlobalSample";
     private static readonly string[] HandNames=["SampleHostCustomization.cs","SampleContractService.cs","SampleContractDigest.cs","SampleContractButtonHandler.cs","SampleContractAgentController.cs","SampleContractAgentBusiness.cs"];
     /// <summary>复用同一原三表/三按钮目录，不另造测试专用业务模型。</summary>

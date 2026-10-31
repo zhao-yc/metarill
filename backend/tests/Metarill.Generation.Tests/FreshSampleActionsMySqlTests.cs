@@ -26,10 +26,10 @@ public sealed class FreshSampleActionsMySqlTests
     public async Task Fixed_original_actions_use_real_web_cli_transactions_and_two_hosts()
     {
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));var config=settings.RootElement;
-        var options=FreshInstallConfiguration.Read("AgentDatabase","agent");var run=config.GetProperty("RunId").GetString()!;
-        if(Environment.GetEnvironmentVariable(SampleActionsNativeMySqlFactAttribute.RunVariable)!=run)throw new InvalidOperationException("缺少本轮独立正式验收运行标识，未连接数据库。");
-        Assert.Equal(SampleActionsNativePreparation.ProductCommit,config.GetProperty("SampleActionsProductCommit").GetString());
         var source=Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_SAMPLE_ACTION_NATIVE_SOURCE_ROOT")??NonRedundantApplicationFixture.Root());
+        // 先验证本轮专属批准/来源/固定根，再读取连接配置；通用旧租约与同名运行号不能触发正式副作用。
+        var run=SampleActionsNativeLease.Validate(config,Environment.GetEnvironmentVariable(SampleActionsNativeMySqlFactAttribute.RunVariable),source);
+        var options=FreshInstallConfiguration.Read("AgentDatabase","agent");
         var prepared=config.GetProperty("SampleActionsPreparation").Deserialize<GlobalCachedPackageProof>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.Equal(CSharpGenerator.SafePath(source,".local/sample-actions-native/prepared"),prepared.PackageRoot);
         var catalog=SampleActionsNativePreparation.Verify(prepared,source);var evidence=CSharpGenerator.SafePath(source,".local/sample-actions-native/"+run);Directory.CreateDirectory(evidence);

@@ -30,3 +30,16 @@
 首个包含正式用例的命令被自动权限审核拒绝：若继承旧通用租约环境，可能访问未授权的新对象。该命令没有执行。后续清除相关变量，只运行明确的纯离线准备测试；正式用例另加独立运行标识，不能复用旧授权。准备阶段的实际记录在 `.local/sample-actions-native-20261029`，正式执行须另固定源码/程序集/完整包和新精确单库租约，获授权后才能开始。
 
 没有产品/接口/操作变化，不需更新现有项目、DDL、回填或再生成。首版目标保持进行中；父级请求协议继续待用户决定，Tiny Cloud key仍按原决定留空。
+
+
+## 2026-10-31：当前产品与连接前专属门禁
+
+C19执行器准备改用已推送产品`23db83877a46736e04c57f9ffae47a1d936f6c80`；保留原三表/三动作模型与六份公开手写源，不改产品授权、前端、元数据或受管Program。V17时间零精度的双端性能模型是独立来源，本轮不把该新模型混入C19既有正式场景。
+
+新增`SampleActionsNativeLease`在`FreshInstallConfiguration.Read`之前验证用途`sample-actions-native-v1`、AuthorizationStatus=approved、LeaseStatus=running、精确产品、16位独立运行号与环境标识一致、规范绝对来源根、唯一固定包根。旧通用租约、pending/ended、错来源/包根均拒绝；只设置独立环境标识不能触发读取连接配置、复制或外部进程。旧正式入口曾因可能继承通用租约而被自动审核拒绝，本次强化边界，不借旧授权运行。
+
+本任务源码实际验证：原完整包专项1通过，包含六手写、独立严格编译、固定/复制/漂移与审计白名单；纯门禁12项在规范有效夹具后全部通过，零跳过。首轮12失败来自正例包路径混用Windows分隔符，发生在预期反例之前，原完整包1项仍通过；只对测试正例调用Path.GetFullPath，固定路径拒绝守卫没有放宽。两轮日志/TRX分别保留，不相加为一次全量通过。
+
+当前尚未创建远端库或账号、未运行正式Web/OAuth/CLI场景；后续须提交并独立归档当前执行器、固定完整包及程序集，实际pending入口拒绝与Python零外部调用通过后，再提交精确新单库/账号计划供批准。C19仍待正式验收，旧范围和租约不能复用。
+
+证据：交付根忽略目录`.local/sample-actions-current-offline.log`、`.local/sample-actions-current-lease-final.log`及对应TestResults的TRX。命令使用固定DOTNET_HOST_PATH，对Metarill.Generation.Tests执行Release、-warnaserror、--disable-build-servers，并仅过滤SampleActionsNativePreparationTests与SampleActionsNativeLeaseTests；显式清除通用旧设置、独立运行号及准备导出变量，不包含正式MySQL测试。
