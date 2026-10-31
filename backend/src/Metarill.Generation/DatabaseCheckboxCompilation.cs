@@ -52,9 +52,11 @@ internal static class DatabaseCheckboxCompilation
             var target=Target(model,source,definition);if(target.Source.Id!=Target(model,source,baseline).Source.Id)return Gap("页级目标覆盖未绑定同一物理关系，不能错读名称。");
             if(Protected(target))return Gap("目标必须是普通业务表。");
             if(target.IsGlobal){var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)return Gap("全局复选页级目标覆盖与固定关系不一致。");}
-            var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="name");
-            if(name is null||name.Type!="string?"||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))return Gap("名称必须为非凭据字符串name。");
-            var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn"))return Gap("物理Join名称仍需独立缓存证明。");
+            if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
+            if(definition.NameField!="name"&&!target.IsGlobal)return Gap("自定义复选名称当前只开放已证明的全局目标。");
+            var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
+            if(name is null||name.Type!="string?"||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))return Gap("名称必须为已声明的非凭据字符串。");
+            var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&(!target.IsGlobal||!GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source)))return Gap("物理Join名称仍需独立缓存证明。");
             if(!target.IsGlobal&&!HasIdentity(model,target))return Gap("目标缺少真实项目归属。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
@@ -63,7 +65,7 @@ internal static class DatabaseCheckboxCompilation
             var sourceParent=parentScopes.FirstOrDefault().Column;if(sourceParent is not null&&(!NonRedundantReadCompilation.Physical(model,table,sourceParent)||sourceParent.IsJsonArray||sourceParent.Type is not("long?" or "string?")))return Gap("来源父必须为物理标量ID。");var parents=parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
             if(parents.Any(parent=>Protected(parent)||!HasIdentity(model,parent)))return Gap("来源父必须具有普通业务表的真实物理项目归属。");
             foreach(var scope in scopes.Where(scope=>scope.Source=="parent"))if(sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id)return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
-            var order=GenerationModel.ValidateOrderBy(definition.OrderBy.Length>0?definition.OrderBy:"name asc",target.Columns).ToList();
+            var order=GenerationModel.ValidateOrderBy(definition.OrderBy.Length>0?definition.OrderBy:definition.NameField+" asc",target.Columns).ToList();
             if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
             var names=SelectionDisplayFieldCompilation.Resolve(table,source);
             if(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");

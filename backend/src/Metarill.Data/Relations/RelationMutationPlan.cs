@@ -65,8 +65,8 @@ public sealed class RelationMutationPlan
             {
                 if(cross){if(definition.Multiple)throw new InvalidOperationException("跨表缓存不能冒充多值。");}
                 else if(definition.Multiple){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");}else _=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
-                // 普通单值可引用已证明的全局名称副本；跨表和多值仍保持原物理终点门槛。
-                var published=!cross&&!definition.Multiple?GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,value):GlobalPhysicalRelationValue.IsScalar(targetStorage,target,value);
+                // 普通单值与多值可引用已证明的全局名称副本；跨表继续原物理终点门槛。
+                var published=!cross?GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,value):GlobalPhysicalRelationValue.IsScalar(targetStorage,target,value);
                 if(!published)throw new NotSupportedException("全局缓存终点必须为非凭据物理标量或已证明的全局单值名称缓存。");
             }
             result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000));

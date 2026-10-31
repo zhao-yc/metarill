@@ -5,6 +5,8 @@ namespace Metarill.Core.Metadata;
 /// <summary>原数据库复选的候选配置；只解析结构，不接受请求SQL或修改发布元数据。</summary>
 public sealed record DatabaseCheckboxDefinition(string TableId,string Table,string PageId,string WhereSql,string OrderBy,string LegacyTargetHint)
 {
+    /// <summary>旧空值/四段仍用name；新JSON名称仅声明标识符，目标用途由编译器证明。</summary>
+    public string NameField { get; init; }="name";
     /// <summary>空定义、旧目标字面值、四段及JSON格式共用解释；四段前两项不参与原候选查询。</summary>
     public static DatabaseCheckboxDefinition Parse(string? text)
     {
@@ -29,9 +31,10 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
                 if(!root.TryGetProperty(name,out var value)||value.ValueKind==JsonValueKind.Null)return "";
                 return value.ValueKind==JsonValueKind.String?value.GetString()!:value.ValueKind==JsonValueKind.Number&&name is "tableId" or "pageId"&&value.TryGetInt64(out var id)?id.ToString(System.Globalization.CultureInfo.InvariantCulture):throw new InvalidOperationException("数据库复选已知配置字段必须为文本。");
             }
-            var label=Read("nameField");if(label.Length>0&&label!="name")throw new NotSupportedException("数据库复选当前名称固定为name，其它名称用途尚待编译。");
+            var label=Read("nameField");if(label.Length==0)label="name";MetadataValidation.RequireIdentifier(label);
+            if(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(label))throw new NotSupportedException("数据库复选名称不能读取凭据。");
             var table=Read("table");if(table.Length>0)MetadataValidation.RequireIdentifier(table);
-            return new(Read("tableId"),table,Read("pageId"),Read("whereSql"),Read("orderBy"),"");
+            return new(Read("tableId"),table,Read("pageId"),Read("whereSql"),Read("orderBy"),""){NameField=label};
         }
         catch(JsonException error){throw new InvalidOperationException("数据库复选配置不是有效JSON。",error);}
     }
@@ -41,6 +44,6 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
         var table=Table;
         // 明确表或页面声明优先，旧字面值不得在数据层重新参与目标匹配。
         if(table.Length==0&&TableId.Length==0&&PageId.Length==0&&source.LinkConfigTableId.Length==0&&string.IsNullOrWhiteSpace(source.Extra.GetValueOrDefault("joinTable").ToString())&&string.IsNullOrWhiteSpace(source.Extra.GetValueOrDefault("linkConfigPageId").ToString()))table=LegacyTargetHint;
-        return JsonSerializer.SerializeToElement(new{tableId=TableId,table,pageId=PageId,nameField="name",whereSql=WhereSql,orderBy=OrderBy});
+        return JsonSerializer.SerializeToElement(new{tableId=TableId,table,pageId=PageId,nameField=NameField,whereSql=WhereSql,orderBy=OrderBy});
     }
 }

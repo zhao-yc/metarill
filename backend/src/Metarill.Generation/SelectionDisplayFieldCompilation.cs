@@ -9,7 +9,7 @@ internal static class SelectionDisplayFieldCompilation
     internal static ColumnModel Resolve(TableModel table,ColumnModel source)
     {
         if(source.Source.ConfigTableId!=table.Source.Id)throw new ArgumentException("显示字段必须属于当前表。");
-        var display="name";
+        var display=DatabaseCheckboxCompilation.Generic(table,source)?Metarill.Core.Metadata.DatabaseCheckboxDefinition.Parse(source.Source.ControlDetail).NameField:"name";
         if(source.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage")
         {
             try

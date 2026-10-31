@@ -32,7 +32,7 @@ public static class MultiNameStorageColumns
     {
         try
         {
-            if(source.ControlKind=="MultiCheckBoxDatabase"){DatabaseCheckboxDefinition.Parse(source.ControlDetail);return "name";}
+            if(source.ControlKind=="MultiCheckBoxDatabase")return DatabaseCheckboxDefinition.Parse(source.ControlDetail).NameField;
             if(string.IsNullOrWhiteSpace(source.ControlDetail))return "name";
             using var document=JsonDocument.Parse(source.ControlDetail);var root=document.RootElement;
             if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Select(field=>field.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=root.EnumerateObject().Count())return null;

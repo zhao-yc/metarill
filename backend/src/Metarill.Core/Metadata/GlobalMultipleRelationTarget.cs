@@ -4,7 +4,7 @@ namespace Metarill.Core.Metadata;
 
 public sealed record GlobalMultipleRelationPlan(PageMetadata Page,ColumnMetadata Name);
 
-/// <summary>全局多值关系分别证明普通R0实时读取与普通R1缓存消费者，目标必须为明确发布的物理名称。</summary>
+/// <summary>全局多值关系分别证明普通R0实时读取与普通R1缓存消费者，目标名称必须为明确发布的物理值或已证明的全局R1名称缓存。</summary>
 public static class GlobalMultipleRelationTarget
 {
     /// <summary>读取原多选或复选定义；目标页面只是已发布关系归属，复选仍使用自己的原候选条件。</summary>
@@ -26,7 +26,7 @@ public static class GlobalMultipleRelationTarget
         if(pageId.Length==0)pageId=linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局多值关系必须明确指定真实目标页，省略时目标页必须唯一。");var page=pages[0];GlobalCrossTableTarget.Require(catalog,target,page);
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var physical=MetadataStoragePolicy.ForTable(catalog,target);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(physical,target,column);
-        var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);if(name is null||name.LogicalType!="string"||!Scalar(name))throw new NotSupportedException("全局多值名称必须为非凭据物理字符串。");var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
+        var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);if(name is null||name.LogicalType!="string"||!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))throw new NotSupportedException("全局多值名称必须为非凭据物理字符串或已证明的全局名称缓存。");var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");return new(page,name);
     }
 }
