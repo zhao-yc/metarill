@@ -12,6 +12,7 @@ import re
 import shlex
 import statistics
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -179,6 +180,22 @@ def validate(config):
             raise ContractError("必须提供精确容器名")
     if targets["java"]["baseUrl"] == targets["csharp"]["baseUrl"] or targets["java"]["container"] == targets["csharp"]["container"]:
         raise ContractError("两端必须为不同实例及容器")
+    profile = config.get("transportProof")
+    if profile not in (None, "server200-loopback-v1"):
+        raise ContractError("未知HTTP接线证明模式")
+    if profile:
+        for name, target in targets.items():
+            url = urllib.parse.urlsplit(target["baseUrl"])
+            if target["baseUrl"] != f"http://127.0.0.1:{url.port}/api" or url.port is None:
+                raise ContractError("本机证明只接受带明确端口的HTTP回环/api地址")
+            if target["container"] != f"metarill-perf-{config['runId']}-{name}":
+                raise ContractError("证明容器必须对应本轮及语言")
+            if not re.fullmatch(r"sha256:[a-f0-9]{64}", target.get("expectedImageId", "")):
+                raise ContractError("证明模式必须固定完整镜像ID")
+            if type(target.get("containerPort")) is not int or not 1 <= target["containerPort"] <= 65535:
+                raise ContractError("证明模式必须明确容器TCP端口")
+    elif any("expectedImageId" in target or "containerPort" in target for target in targets.values()):
+        raise ContractError("镜像或端口证明声明必须启用接线证明模式，不能静默忽略")
     names = set()
     if not isinstance(config.get("scenarios"), list) or not config["scenarios"]:
         raise ContractError("缺少原接口业务场景")
@@ -261,7 +278,7 @@ def request(target, step, variables, timeout):
 
 
 class DockerProbe:
-    """每条Docker命令先经SSH核验200的本机IP，强制使用该机Unix socket。"""
+    """每条Docker命令先核验200的主机名和本机IP，强制使用该机Unix socket。"""
     def __init__(self, host, invoke=subprocess.run):
         if not re.fullmatch(r"(?:[A-Za-z0-9_.-]+@)?[A-Za-z0-9][A-Za-z0-9_.-]*", host):
             raise ContractError("SSH别名不合法")
@@ -270,15 +287,21 @@ class DockerProbe:
 
     def docker(self, arguments):
         """禁止本机Docker、未知主机自动信任和任意远端Docker context。"""
-        command = ('set -eu; case " $(hostname -I) " in *" 192.168.31.200 "*) ;; *) exit 71;; esac; '
-                   'env -u DOCKER_HOST -u DOCKER_CONTEXT docker --host unix:///var/run/docker.sock ' + shlex.join(arguments))
+        command = self.checked_command(arguments)
         result = self.invoke(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", self.host, command], capture_output=True, text=True, timeout=20, check=True)
         return read_json(result.stdout)
+
+    @staticmethod
+    def checked_command(arguments):
+        """每次命令均在执行Docker之前检查身份，不能复用一次过期主机判断。"""
+        return ('set -eu; test "$(hostname)" = "Server-200"; '
+                'case " $(hostname -I) " in *" 192.168.31.200 "*) ;; *) exit 71;; esac; '
+                'env -u DOCKER_HOST -u DOCKER_CONTEXT docker --host unix:///var/run/docker.sock ' + shlex.join(arguments))
 
     def limits(self, container):
         """只读取同条件限制及镜像/容器身份，不读取环境变量或凭据。"""
         self.check_name(container)
-        return self.docker(["inspect", "--format", '{"running":{{json .State.Running}},"id":{{json .Id}},"image":{{json .Image}},"nanoCpus":{{json .HostConfig.NanoCpus}},"memoryBytes":{{json .HostConfig.Memory}},"memorySwap":{{json .HostConfig.MemorySwap}},"cpuQuota":{{json .HostConfig.CpuQuota}},"cpuPeriod":{{json .HostConfig.CpuPeriod}},"cpusetCpus":{{json .HostConfig.CpusetCpus}}}', container])
+        return self.docker(["inspect", "--format", '{"running":{{json .State.Running}},"id":{{json .Id}},"image":{{json .Image}},"nanoCpus":{{json .HostConfig.NanoCpus}},"memoryBytes":{{json .HostConfig.Memory}},"memorySwap":{{json .HostConfig.MemorySwap}},"cpuQuota":{{json .HostConfig.CpuQuota}},"cpuPeriod":{{json .HostConfig.CpuPeriod}},"cpusetCpus":{{json .HostConfig.CpusetCpus}},"name":{{json .Name}},"networkMode":{{json .HostConfig.NetworkMode}},"ports":{{json .NetworkSettings.Ports}},"leaseRun":{{json (index .Config.Labels "metarill.performance.run")}},"leaseTarget":{{json (index .Config.Labels "metarill.performance.target")}}}', container])
 
     @staticmethod
     def check_name(container):
@@ -290,6 +313,46 @@ class DockerProbe:
         """采集原始Docker百分比及内存文本，不能把采样峰值称为进程真实峰值。"""
         self.check_name(container)
         return self.docker(["stats", "--no-stream", "--format", '{{json .}}', container])
+
+
+class Server200LocalProbe(DockerProbe):
+    """仅在Linux宿主执行；每条Docker命令仍先确认实际是Server-200。"""
+    def __init__(self, invoke=subprocess.run):
+        """Windows开发机不能以本机模式运行；不在构造器启动任何进程。"""
+        if sys.platform != "linux":
+            raise ContractError("本机探针只允许Linux Server-200宿主")
+        self.invoke = invoke
+
+    def docker(self, arguments):
+        """不使用SSH隧道；先验证主机名/IP，再访问本机显式Unix socket。"""
+        result = self.invoke(["sh", "-c", self.checked_command(arguments)], capture_output=True, text=True, timeout=20, check=True)
+        return read_json(result.stdout)
+
+
+def verify_transport(config, probe, values):
+    """只证明当前支持的宿主回环到单一发布端口，不把标签当作源码或权限证明。"""
+    if not config.get("transportProof"):
+        return {"mode": "unproven", "verified": False}
+    if not isinstance(probe, Server200LocalProbe):
+        raise ContractError("接线证明必须由Server-200本机探针执行，不能使用SSH或本机隧道")
+    for name, target in config["targets"].items():
+        item = values[name]
+        if item.get("name") != "/" + target["container"] or item.get("leaseRun") != config["runId"] or item.get("leaseTarget") != name:
+            raise ContractError("运行容器名称或本轮标识不符")
+        if not re.fullmatch(r"[a-f0-9]{64}", item.get("id", "")) or item.get("image") != target["expectedImageId"]:
+            raise ContractError("运行容器或固定镜像身份不符")
+        network = item.get("networkMode")
+        if not isinstance(network, str) or not network or network in ("host", "none") or network.startswith("container:"):
+            raise ContractError("证明模式不接受共享宿主或其它容器网络")
+        ports = item.get("ports")
+        if not isinstance(ports, dict):
+            raise ContractError("缺少实际Docker端口绑定")
+        published = {key: value for key, value in ports.items() if value is not None and value != []}
+        expected = {f"{target['containerPort']}/tcp": [{"HostIp": "127.0.0.1", "HostPort": str(urllib.parse.urlsplit(target["baseUrl"]).port)}]}
+        if published != expected:
+            raise ContractError("HTTP回环地址与唯一实际发布端口不符")
+    return {"mode": config["transportProof"], "verified": True, "proxyBypassed": True,
+            "boundary": "Server-200宿主回环到Docker发布端口；不证明镜像内源码、应用身份或SQL等价"}
 
 
 def equal_limits(probe, targets):
@@ -442,6 +505,8 @@ def run(config, probe, transport=request, on_event=lambda _: None):
     """预热不计正式结果，逐轮交替顺序；写入场景必须自带正常清理步骤。"""
     validate(config)
     before = equal_limits(probe, config["targets"])
+    transport_evidence = verify_transport(config, probe, before)
+    on_event({"kind": "container-preflight", "actualLimits": before, "transportEvidence": transport_evidence})
     results = []
     for scenario in config["scenarios"]:
         for concurrency in config["concurrency"]:
@@ -465,10 +530,11 @@ def run(config, probe, transport=request, on_event=lambda _: None):
             regressions = sum(pair["comparison"].get("regression", False) for pair in pairs)
             results.append({"scenario": scenario["name"], "concurrency": concurrency, "measurementValid": valid, "regressionRounds": regressions, "stableRegression": valid and regressions >= math.ceil(config["rounds"] * 2 / 3), "pairs": pairs})
     after = equal_limits(probe, config["targets"])
+    verify_transport(config, probe, after)
     if before != after:
         raise ContractError("实验前后容器资源限制变化，结果不可作为同条件证据")
-    return {"version": 1, "runId": config["runId"], "configSha256": digest(config), "actualLimits": before, "results": results, "releaseAccepted": False,
-            "remainingEvidence": ["独立测试数据/索引及SQL实际等价核验", "URL与容器实例的真实接线及共享MySQL/主机负载核验", "两端应用/运行时/镜像及MySQL资源固定", "写入失败后的独占样本核验及清理", "浏览器/设备及完整首版验收"],
+    return {"version": 1, "runId": config["runId"], "configSha256": digest(config), "actualLimits": before, "transportEvidence": transport_evidence, "results": results, "releaseAccepted": False,
+            "remainingEvidence": ["独立测试数据/索引及SQL实际等价核验", *([] if transport_evidence["verified"] else ["URL与容器实例的真实接线核验"]), "共享MySQL/主机负载核验", "两端应用/运行时/镜像及MySQL资源固定", "写入失败后的独占样本核验及清理", "浏览器/设备及完整首版验收"],
             "clientBoundary": "Python urllib独立HTTP连接；二进制含流式SHA256客户端成本；未测连接池或浏览器；Docker采样峰值不等于真实峰值"}
 
 
@@ -477,7 +543,9 @@ def main():
     parser = argparse.ArgumentParser(description="Java/C#同条件HTTP回放与200容器采样")
     parser.add_argument("operation", choices=("validate", "run"))
     parser.add_argument("--config", required=True)
-    parser.add_argument("--ssh-host")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--ssh-host")
+    mode.add_argument("--server-local", action="store_true", help="仅在Server-200 Linux宿主执行并核验回环接线")
     parser.add_argument("--output")
     args = parser.parse_args()
     try:
@@ -485,8 +553,11 @@ def main():
         if args.operation == "validate":
             print("离线配置验证通过；未执行HTTP、SSH或Docker。")
             return 0
-        if not args.ssh_host or not args.output:
-            raise ContractError("run必须提供SSH别名和私有输出目录")
+        if not (args.ssh_host or args.server_local) or not args.output:
+            raise ContractError("run必须提供SSH别名或200本机模式及私有输出目录")
+        if bool(config.get("transportProof")) != args.server_local:
+            raise ContractError("200本机模式必须配套完整接线证明配置，SSH模式不提供此证明")
+        probe = Server200LocalProbe() if args.server_local else DockerProbe(args.ssh_host)
         output = pathlib.Path(args.output)
         output.mkdir(parents=True, exist_ok=False)
         # 先登记意图；中断也留有精确配置摘要，不复用旧报告目录重跑。
@@ -498,7 +569,7 @@ def main():
                     stream.write(canonical({"observedAt": time.time(), **event}) + b"\n")
                     stream.flush()
                     os.fsync(stream.fileno())
-            report = run(config, DockerProbe(args.ssh_host), on_event=journal)
+            report = run(config, probe, on_event=journal)
             (output / "measurement.json").write_bytes(canonical(report))
         except Exception as error:
             (output / "failure.json").write_bytes(canonical({"errorType": type(error).__name__, "runId": config["runId"], "retryAttempted": False}))

@@ -9,8 +9,8 @@
 | Java／C# 版本 | 两套独立生成应用的源码提交、元数据、手写扩展、构建命令和镜像摘要 | 尚未建立正式配对基线；不是拿现有在线 YZP 与新应用直接压测 |
 | 数据与索引 | 同样规模／分布／固定ID、逻辑删除／项目范围、种子和索引快照，实验前后核对 | 尚未采集，不由HTTP响应散列替代 |
 | 实际SQL | 各场景执行SQL／参数类型／查询次数及事务范围；分页COUNT、关系、锁和写入钩子不能缺省 | 尚未采集，不由方法名或SQL模板推断 |
-| 计算及数据库资源 | 同一200主机、两个独占应用容器，明确相同CPU/内存/交换/CFS/CPU集合；共享MySQL版本、限制、缓冲和并发负载固定 | 工具能真实读取应用容器前后状态；本轮尚未执行Docker，MySQL仍须另核 |
-| 接线与身份 | 证明URL属于对应容器，页权限／数据范围及账号角色相同 | 不能仅凭配置写了java/csharp就认为成立 |
+| 计算及数据库资源 | 同一200主机、两个独占应用容器，明确相同CPU/内存/交换/CFS/CPU集合；共享MySQL版本、限制、缓冲和并发负载固定 | 工具读取容器前后状态；V18只对既有MySQL容器做一次只读格式核验，正式应用/数据库资源仍未采集 |
+| 接线与身份 | 证明URL属于对应容器，页权限／数据范围及账号角色相同 | V18补200宿主回环/固定镜像/唯一发布端口前后核验；双端真实接线、账号角色及页权仍待 |
 | 业务与清理 | 原接口场景响应一致；写入仅限独占样本，保存失败／晚期回滚及清理记录 | 工具支持多步回放和失败留证；隔离样本租约及清理程序尚未准备 |
 
 上述证据未全时，工具结果只是测量数据。`releaseAccepted` 始终为false，不自动签发首版性能验收，也不证明CPU/内存整体没有退化。计划仍需完成简单CRUD、带COUNT分页、权限/关系读取、复制/批量导入、文件及传播维护等代表性场景；V16已补固定完整性的二进制下载及有效字节吞吐；真实原附件/ZIP接口与双端样本、资源和负载仍未验收。必须保留同条件比较，不能换用微基准代替端到端要求。
@@ -32,7 +32,7 @@ python tools/performance/paired_http.py run --config .local/performance/<本轮>
 python -m unittest discover -s tools/performance -p test_paired_http.py -v
 ```
 
-每条Docker命令由SSH在远端先验证本机地址含192.168.31.200，再显式使用该机Unix socket，并清除DOCKER_HOST/DOCKER_CONTEXT影响；严格校验已有主机密钥，不自动信任新指纹。首次连接仍应按既有服务器接入规则确认指纹。只读精确容器的运行状态、镜像ID、CPU/内存限制及stats，不读容器环境或凭据，不执行本机Docker。
+每条Docker命令先验证主机名为Server-200、本机地址含192.168.31.200，再显式使用该机Unix socket，并清除DOCKER_HOST/DOCKER_CONTEXT影响；严格校验已有主机密钥，不自动信任新指纹。首次连接仍应按既有服务器接入规则确认指纹。只读精确容器的运行状态、镜像ID、CPU/内存限制及stats，不读容器环境或凭据，不在两台开发电脑执行Docker；server-local只允许核验后的Server-200宿主。
 
 ## 回放与统计合同
 
@@ -91,3 +91,33 @@ CLI失败/中断已完成阶段保留、凭据/异常正文不落报告、旧输
 ## V17当前准备边界（2026-10-31）
 
 新的[双端独立构建](paired-runtime-build.md)已固定Java b6d64fb/C#23db838及完整原三动作，实际C#包内全文元数据语义和3表46列6索引/时间默认离线等价均核对。Java类路径与C#严格构建、手写/再生成保护通过，未启动两端真实身份/SQL或负载。Server-200所查官方.NET/Java镜像仓库无缓存，后续仍需Linux容器与隔离执行/清理协调器和明确新范围。已有原readiness/正式角色及全部性能前置条件不放宽；不可把此构建包当作已运行的可比基线。
+
+
+## V18：Server-200本机回环接线校验（2026-10-31）
+
+此前容器资源相同不等于HTTP地址对应这些容器。新增可选`transportProof: "server200-loopback-v1"`及`--server-local`，供后续独占双端实验在**Server-200 Linux宿主**执行。该模式并不在Windows开发机启动Docker，也不能通过本机SSH隧道把地址对照当成宿主直连证据；原SSH测量方式继续保留，但报告明确`transportEvidence.verified=false`并保留接线待证项。
+
+复制`tools/performance/paired.loopback.example.json`到本轮私有配置后，必须替换以下值。示例1/2端口、重复数字镜像ID及runId均为虚拟数据，仅通过语法验证，不是已准备的容器或正式配对基线。
+
+| 配置/实际观察 | 必须满足的合同 |
+| --- | --- |
+| `baseUrl` | 精确`http://127.0.0.1:<明确端口>/api`；两端端口不同；不接受域名、隧道地址、TLS或反向代理路径 |
+| `container` | `metarill-perf-<本轮32位runId>-java`或`-csharp` |
+| `expectedImageId` | 明确完整`sha256:<64位小写hex>`，必须与实际inspect的`.Image`相同；源码到镜像的证明另行建立 |
+| `containerPort` | 明确1～65535的TCP容器端口；实际Docker只能有一条发布映射，且HostIp精确127.0.0.1、HostPort等于本端HTTP端口；非发布的exposed端口可保留 |
+| 容器标签 | 只读取`metarill.performance.run`与`metarill.performance.target`，分别等于本轮runId及java/csharp；标签是对象归属检查，不是应用或源码证明 |
+| 运行观察 | 非host/none/共享容器网络，明确独立容器ID、固定镜像及相同硬资源限制；回放前后重新核对，变化拒绝；不声称连续监控了每个请求的路由 |
+
+原HTTP层已显式禁用环境代理且不跟随重定向，继续沿用。每次本机Docker命令同样先检查Server-200主机名和192.168.31.200，清除Docker环境context并显式指定Unix socket；其它Linux宿主也会在Docker之前拒绝。模式配置不完整、错镜像/标签/端口均在预热和HTTP之前失败；不会为通过校验修改或重建容器。预检通过后，实际资源及接线摘要首先写入`events.jsonl`，后续失败仍保留该阶段证据；不读取环境变量或整个标签表。
+
+```bash
+# 任意平台离线校验；无Docker/SSH/HTTP，虚拟示例也只证明格式。
+python tools/performance/paired_http.py validate --config tools/performance/paired.loopback.example.json
+
+# 以下仅供后续已准备、授权的独占实验，在Server-200宿主执行；本轮未运行。
+python3 tools/performance/paired_http.py run --config /本轮私有目录/settings.json --server-local --output /本轮私有目录/new-measurement
+```
+
+本轮性能工具全组56项通过、0失败/跳过，新增14项覆盖接线、错误预检、前后替换、模式分离及离线校验；Docker和SSH在回归中均为内存桩。另外将当前探针经既有严格SSH送到Server-200内存执行，对已知既有MySQL容器做**1次真实只读inspect**，确认Linux本机身份检查、缺少专属标签时的模板解析及JSON返回形状有效。没有读取SQL/容器环境、创建对象、双端HTTP、负载或性能成绩；该既有MySQL容器不是性能应用目标，也不满足本轮专属归属标签，不能据此标为正式接线通过。
+
+`releaseAccepted`仍为false；同数据/索引/SQL/实际账号权限、镜像产物来源、数据库资源/共享主机负载、独占样本清理和稳定退化比较均须正式补齐。V18只完成工具及格式核验，V08及MySQL首版总验收保持未完成。
