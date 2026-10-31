@@ -90,3 +90,18 @@ B106独立固定执行器 `1cca7c6` 已严格构建：2217源码、152编译输�
 新增四模型直接执行同一生产权限聚合器，验证只继承查询、不继承修改/导出/独立文件读取，来源权为空后查询消失。生产聚合器保持internal，测试反射调用，无新增友元。连同原11项租约/节点门禁最终15项通过、零失败/跳过；首轮误把internal方法当public导致的编译失败保留，不改产品可见性。
 
 本轮finally清理四库及唯一账号成功，另起独立连接再次核零，临时连接设置已删除，租约ended，不重跑或复用。原固定执行器源码/程序集及四包摘要保持。私有证据：`.local/global-cached-target-native-20261031/dc615254c43349e4/{fresh.trx,test-result.json,cleanup.json,post-observation.json,result.json}`。修正后正式复验需另行冻结来源并取得新精确租约，当前B106仍未完成。
+
+
+## B106修正后正式四模型完成（2026-10-31）
+
+用户另行批准2eef3ab8543d9d5d四库及账号后，使用已推送执行器`d91af535cd0090ea2625b8f5e145403cf4876692`独立归档/严格构建的固定程序集，复用产品`9f798ebec4a0fda0ff36ff83f4aa39d8d14354ca`原四个941文件完整包。2233来源、152编译输出、每包208份受管运行时源码及7份单列NuGet锁文件均核对；正式前15门禁通过，四个实际入口pending拒绝和Python外部调用零次另列，不能算正式业务通过。
+
+本轮真实Production/Web四模型 **4通过、0失败、0跳过**：R0/R1来源各string/int64 List键，原type=1单选均int64。实际空库预览不写DDL、显式安装/重复同步零差异、安全初始化与重复不改密码、普通账号登录、原候选分页/已选回读和保存、精确大ID与R0无名称存储/R1物理名称、上游改名经全局中间缓存传播到消费者、异项目记录保持、原维护回填/重复零变化、原导入导出及整批失败回滚均通过。实际CHECK故障证明目标/中间/消费改名整体回滚，晚期文件引用故障证明主记录/关系/引用状态整体回滚；复制及文件引用、来源撤权、原type=1查询继承、重启后原会话及注销亦通过。
+
+目标直接权限撤销时来源继承仍有效；来源权限撤销后原List/SelectPage已选都拒绝。此处不是“独立目标直接撤权即403”，也没有放宽产品权限。首轮四失败及其清理证据保留，不能用本轮结果覆盖或改写旧TRX。
+
+finally已删除本轮四库与唯一账号，独立SSH/MySQL连接再次核对四库/账号全部不存在；临时连接设置删除，租约ended。事后再次核对2233来源、152输出及四包完整文件集合/摘要一致，本轮dotnet/testhost/应用宿主残留0。原metarill_dev/metarill_test/metarill_business_test未改，未部署、未合main。
+
+证据在交付根忽略目录 `.local/global-cached-target-native-retry-20261031`：`freeze-receipt.json`、`product-source-proof-rechecked.json`、`readonly-preflight.json`、`post-execution-verification.json`，以及`2eef3ab8543d9d5d/{fresh.trx,test-result.json,cleanup.json,post-observation.json,result.json}`。四模型完成回执位于固定执行器私有`.local/global-cached-target-native/2eef3ab8543d9d5d/<suffix>/receipt.json`。实际命令为原`run-native.py`调用固定`formal-assembly/Metarill.Generation.Tests.dll`，只筛选FreshGlobalCachedTargetMySqlTests，不从可变工作区重建正式应用。
+
+该完成范围只覆盖上述普通单值缓存链及固定产品来源；B107多值、B108/B109级联/共享缓存名称和B110跨表Excel不因此获得实库证明。浏览器、设备、并发锁与同条件性能未执行，B11/B14/B20/B21/B22和MySQL首版总验收继续按各自待办。
