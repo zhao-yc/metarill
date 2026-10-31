@@ -14,3 +14,9 @@
 4项专项通过、0失败/跳过：配置可用转待授权，跳过/失败结果逐项保留，缺Scope不创建任务，计划不接收客户端Actor且不泄露路径/令牌。测试使用合成发现结果，未连接数据库、OAuth或本机助手。
 
 C67发现与C68服务端来源校验、C69 Node v2原计划应用分别提供后续边界；本入口尚未接通原页面的网络回调和逐项目授权入队，不能写作批量同步完成。
+
+## 授权预检增量
+
+C71在同一控制器增加 `POST /api/admin/sys/generation-assistant/runtime-batch/preflight`。它先重新发现全部项目，再对每个可用项目使用同一账号的真实网页登录会话重新认证目标项目；目标项目身份必须是管理员且账号不变。服务端随后只回读该项目已有绑定，并逐个调用批准grant检查，返回 `ready-for-enqueue`、`needs-agent-binding`、`target-project-reauthentication-required`、跳过或失败。
+
+预检不创建队列任务、v2 ticket或源码计划，不返回grant、令牌、本机路径或异常正文。当前项目复用已认证身份，其他项目必须提供原认证头对应的Web会话；选择字段不会切换Actor。严格编译通过，真实OAuth/MySQL未执行。

@@ -22,3 +22,7 @@ public static class GenerationAssistantBatchPlanning
         return new(discovery.DeviceId,items,false);
     }
 }
+
+/// <summary>授权预检只返回逐项目状态；不返回token、路径或grant原始凭据。</summary>
+public sealed record AssistantRuntimeBatchAuthorizationItem(string? ProjectId,string ProjectName,string Status,string? ErrorCode,string? BindingId);
+public sealed record AssistantRuntimeBatchAuthorizationPlan(string DeviceId,AssistantRuntimeBatchAuthorizationItem[] Items,bool CanCreateTasks);

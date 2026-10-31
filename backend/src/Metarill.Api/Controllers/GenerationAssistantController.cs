@@ -12,7 +12,7 @@ namespace Metarill.Api.Controllers;
 /// <summary>在线助手只传固定动作与回执，源码写入仍由本机显式策略和短ticket约束，没有SQL或任意脚本入口。</summary>
 [ApiController, Route("api/admin/sys/generation-assistant"), RequestSizeLimit(32768)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class GenerationAssistantController(GenerationAssistantQueue queue, MetadataRepository metadata, MetadataRegistry registry, HttpRuntimeAuthorization authorization, AgentOAuthService oauth,GenerationAssistantDeviceScopeReader scopes) : ControllerBase
+public sealed class GenerationAssistantController(GenerationAssistantQueue queue, MetadataRepository metadata, MetadataRegistry registry, HttpRuntimeAuthorization authorization, AgentOAuthService oauth,GenerationAssistantDeviceScopeReader scopes,AgentAuthenticationService authentication) : ControllerBase
 {
     /// <summary>网页人工确认固定action后入队，绑定与项目先鉴权再读取发布元数据。</summary>
     [HttpPost("requests")]
@@ -36,6 +36,28 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
         var discovery=await scopes.DiscoverAsync(identity.Identity.Actor,request.DeviceId,token);
         return R<AssistantRuntimeBatchPlan>.Success(GenerationAssistantBatchPlanning.Create(discovery));
     }
+    /// <summary>逐项目授权预检：同一账号重新认证目标项目并检查已批准助手绑定，不创建任务或源码计划。</summary>
+    [HttpPost("runtime-batch/preflight")]
+    public async Task<R<AssistantRuntimeBatchAuthorizationPlan>> RuntimeBatchPreflight(JsonElement body,CancellationToken token)
+    {
+        var current=AgentRequestAuthentication.RequireWeb(HttpContext);authorization.RequireAdministrator();
+        var request=GenerationAssistantQueue.Parse<AssistantRuntimeBatchPlanRequest>(body);
+        var discovery=await scopes.DiscoverAsync(current.Identity.Actor,request.DeviceId,token);var items=new List<AssistantRuntimeBatchAuthorizationItem>();
+        foreach(var project in discovery.Projects)
+        {
+            token.ThrowIfCancellationRequested();
+            if(project.Status!="configured"||project.ProjectId is null){items.Add(new(project.ProjectId,project.ProjectName,project.Status,project.ErrorCode,null));continue;}
+            try
+            {
+                var target=await AuthenticateTargetWebAsync(current.Identity,project.ProjectId,token);
+                var owner=new AssistantOwner(target.Actor.AccountId,target.Actor.ProjectId);var binding=await FindApprovedBindingAsync(owner,target,token);
+                items.Add(binding is null?new(project.ProjectId,project.ProjectName,"needs-agent-binding","approved_grant_or_binding_missing",null):new(project.ProjectId,project.ProjectName,"ready-for-enqueue",null,binding.BindingId));
+            }
+            catch(UnauthorizedAccessException){items.Add(new(project.ProjectId,project.ProjectName,"failed","target-project-reauthentication-required",null));}
+        }
+        return R<AssistantRuntimeBatchAuthorizationPlan>.Success(new(request.DeviceId,items.ToArray(),false));
+    }
+
     /// <summary>只展示当前网页账号项目的任务状态和脱敏预览回执。</summary>
     [HttpGet("requests/{requestId}")]
     public R<AssistantTaskView> Status(string requestId) => R<AssistantTaskView>.Success(queue.Get(Web(), requestId));
@@ -89,6 +111,27 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
     /// <summary>只用本次真实Agent的Actor查当前设备配置，不克隆Actor或采用客户端声称的来源。</summary>
     private async Task<AssistantRuntimeOriginProof?> CurrentOrigin(AssistantPendingRuntimeOrigin? pending,CancellationToken token)
         =>pending is null?null:new(pending.RequestId,await scopes.LoadAsync(authorization.RequireActor(),pending.RuntimeOrigin.Device.DeviceId,token));
+    /// <summary>目标项目必须由同一账号的真实网页会话重新认证，不能从客户端项目ID切换Actor。</summary>
+    private async Task<AuthenticatedIdentity> AuthenticateTargetWebAsync(AuthenticatedIdentity current,string projectId,CancellationToken token)
+    {
+        if(current.Actor.ProjectId==projectId)return current;
+        var login=Request.Headers["loginStateId"];var bearer=Request.Headers.Authorization;
+        if(login.Count!=1&&bearer.Count!=1||login.Count==1&&bearer.Count==1)throw new UnauthorizedAccessException("目标项目需要重新登录。");
+        var raw=login.Count==1?login.ToString():bearer.ToString();if(bearer.Count==1&&!raw.StartsWith("Bearer ",StringComparison.OrdinalIgnoreCase))throw new UnauthorizedAccessException("目标项目需要重新登录。");
+        var identity=await authentication.AuthenticateAsync(bearer.Count==1?raw[7..]:raw,"web",projectId,token);
+        if(identity.Identity.Actor.AccountId!=current.Actor.AccountId||!identity.Identity.Actor.IsAdministrator||identity.Kind!="web")throw new UnauthorizedAccessException("目标项目身份不匹配。");
+        return identity.Identity;
+    }
+    /// <summary>绑定文件只用于定位同项目助手，不把grant或令牌返回给浏览器；每个绑定逐个复核批准状态。</summary>
+    private async Task<AssistantBindingView?> FindApprovedBindingAsync(AssistantOwner owner,AuthenticatedIdentity identity,CancellationToken token)
+    {
+        foreach(var binding in queue.Bindings(owner))
+        {
+            try{await oauth.RequireApprovedGrantAsync(queue.RequireBinding(owner,binding.BindingId),identity,token);return binding;}
+            catch(UnauthorizedAccessException){ }
+        }
+        return null;
+    }
     /// <summary>服务端以同一发布脱敏规则计算摘要，不接收客户端声称的最新hash。</summary>
     private async Task<string> CurrentMetadata(AssistantOwner owner, CancellationToken token)
     {

@@ -17,3 +17,5 @@ C68已完成[服务端分端任务来源隔离](testing/runtime-assistant-origin
 C69完成[Node助手v2分端计划应用](testing/runtime-assistant-node-v2.md)：普通/管理工程三种端范围沿原plan应用，回执未知恢复与设备意图失配保护通过，完整Node129项通过。仍未接通批量HTTP、逐项目真实授权、设备控制动作和原按钮汇总。
 
 C70加入只读逐项目计划入口：`POST /api/admin/sys/generation-assistant/runtime-batch/plan` 复用网页登录/管理员与设备发现，只返回跳过、失败、待项目授权，不创建任务或应用。专项4项通过。原批量页面回调、逐项目真实grant/设备关联、入队和汇总仍未完成。
+
+C71增加逐项目授权预检：对每个configured项目重新认证同账号目标Web项目并检查批准grant/绑定，返回ready或明确缺口；不创建任务、不应用源码。真实OAuth、批量入队和逐项汇总仍待完成。
