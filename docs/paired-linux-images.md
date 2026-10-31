@@ -62,3 +62,9 @@ V08/MySQL首版仍缺两端显式结构/初始化、真实身份/权限及readin
 后续要在新的可审查宿主基线补齐原登录所需接线，并实测正确/错误密码、禁用/撤权及相同账号角色；不得修改本批固定JAR后仍沿用旧摘要，也不能将readiness恒真、测试授权器或移除验证码作为省略接线的办法。本项是静态缺口，不冒充已执行HTTP404、应用启动或登录失败；`java-login-static-audit.json`保留原Controller来源摘要及包内类清单。当前镜像版本/依赖探针即使通过，也不消除此缺口。
 
 V20已另建[原密码入口对照宿主](paired-java-login.md)，逐字接入原9方法及Cap/失败锁等依赖，独立构建17项/提取边界5项通过；原V19 JAR/镜像保持；新329f43e镜像及禁网版本/JAR内容探针已完成，Spring真实登录仍待，不将离线方法或内容探针转记为本批业务通过。
+
+## V23 Windows CI编码修正
+
+2026-11-01，新提交d8a09ec的CI run 41225573277在Windows性能工具步骤失败（66项中1 error），前端成功；Ubuntu当时仍运行。公开失败日志定位到test_prepare_paired_images.py三处read_text()未指定UTF-8，中文Dockerfile被cp1252解码失败。相同单项在本机-X utf8=0、默认cp936下复现gbk解码错误；此前本机UTF-8模式掩盖该测试差异。
+
+仅将三处读取显式设为encoding=utf-8，不改生成上下文工具、Dockerfile、原二进制或镜像。修正后在同一Windows非UTF-8默认环境运行完整性能工具84项：82通过、2项POSIX专属跳过，无失败；POSIX资源18项另已在200真实Linux离线全过。完整GitHub CI须以新提交实际结果为准，不能因这次本机工具回归就宣称新CI或MySQL首版通过。旧23db838的run41206367405则已确认Windows/Ubuntu/前端全部success；该旧结果不覆盖后续工具提交。

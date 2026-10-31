@@ -47,9 +47,9 @@ class ImageContextTests(unittest.TestCase):
             self.assertIn("FROM " + self.settings[name]["runtimeImage"], text)
             self.assertIn('metarill.performance.run="' + "a" * 32 + '"', text)
             self.assertIn("USER 10001:10001", text); self.assertNotIn("Password", text)
-        self.assertIn('ENTRYPOINT ["dotnet", "/app/Application.Host.dll"]', (output / "csharp/Dockerfile").read_text())
-        self.assertIn("SERVER_ADDRESS=0.0.0.0", (output / "java/Dockerfile").read_text())
-        self.assertIn("SPRING_APPLICATION_NAME=metarill-perf-" + "a" * 32 + "-java", (output / "java/Dockerfile").read_text())
+        self.assertIn('ENTRYPOINT ["dotnet", "/app/Application.Host.dll"]', (output / "csharp/Dockerfile").read_text(encoding="utf-8"))
+        self.assertIn("SERVER_ADDRESS=0.0.0.0", (output / "java/Dockerfile").read_text(encoding="utf-8"))
+        self.assertIn("SPRING_APPLICATION_NAME=metarill-perf-" + "a" * 32 + "-java", (output / "java/Dockerfile").read_text(encoding="utf-8"))
         self.assertFalse(receipt["dockerExecuted"]); self.assertFalse(receipt["runtimeAccepted"]); self.assertFalse(receipt["performanceAccepted"])
         for path, checksum in receipt["contextFiles"].items(): self.assertEqual(subject.sha256(output / path), checksum)
 
