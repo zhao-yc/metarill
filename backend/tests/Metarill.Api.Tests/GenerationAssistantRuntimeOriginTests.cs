@@ -74,9 +74,10 @@ public sealed class GenerationAssistantRuntimeOriginTests:IDisposable
     {
         var q=Queue();var origin=Setup(q);var snapshot=Snapshot();var id=Guid.NewGuid().ToString("D");q.EnqueueRuntime(Web,id,binding,snapshot,origin,Scope());
         Assert.Empty(q.Approvals(Agent,new(binding,snapshot.MetadataSha256)));var other=Guid.NewGuid().ToString("D");
-        if(anotherScoped)q.EnqueueRuntime(Web,other,binding,snapshot,origin,Scope());else q.Enqueue(Web,other,binding,LocalGenerationUpdater.CreateRequest(metadata,"sync-runtime"));
+        if(anotherScoped){var duplicate=q.EnqueueRuntime(Web,other,binding,snapshot,origin,Scope());Assert.Equal(id,duplicate.RequestId);Assert.Single(Directory.GetFiles(root,"task-*.json"));}
+        else q.Enqueue(Web,other,binding,LocalGenerationUpdater.CreateRequest(metadata,"sync-runtime"));
         var approvals=q.Approvals(Agent,new(binding,snapshot.MetadataSha256));if(anotherScoped)Assert.Empty(approvals);else Assert.Equal(other,Assert.Single(approvals).RequestId);
-        var request=Authorization(id,snapshot) with{RequestIds=[id,other]};Assert.Throws<InvalidOperationException>(()=>q.PendingAuthorizeOrigin(Agent,request));Assert.Throws<UnauthorizedAccessException>(()=>q.Authorize(Agent,request,snapshot.MetadataSha256,new(id,Scope())));Assert.Empty(Directory.GetFiles(root,"group-*.json"));
+        var request=Authorization(id,snapshot) with{RequestIds=[id,other]};Assert.Throws<InvalidOperationException>(()=>q.PendingAuthorizeOrigin(Agent,request));if(anotherScoped)Assert.Throws<InvalidOperationException>(()=>q.Authorize(Agent,request,snapshot.MetadataSha256,new(id,Scope())));else Assert.Throws<UnauthorizedAccessException>(()=>q.Authorize(Agent,request,snapshot.MetadataSha256,new(id,Scope())));Assert.Empty(Directory.GetFiles(root,"group-*.json"));
     }
 
     /// <summary>每次批准及ticket重验都要求本次当前Scope；重复短ticket回读仍复核来源，不沿用签发时的旧证明。</summary>

@@ -238,6 +238,7 @@
 | C73 | ✅ Node助手多项目profile轮询子集完成 | 批量任务跨项目领取隔离 | 新增`helper poll --all-profiles`，只轮询已有绑定profile，逐项目复用各自凭据/目录/锁；单profile错误合同保持，多profile单项失败隔离。profile专项3项及现有助手/C#CLI回归22项通过。真实跨项目OAuth/MySQL/用户工程未执行，前端和中间件不变。 | [多profile轮询边界](testing/runtime-assistant-node-v2.md)，2026-10-31；起点a46b68c，本任务同提交 |
 | C74 | ✅ 原页面批量按钮兼容接线完成 | 保持原按钮、交互和旧路由的逐项目入队 | 后端恢复原`POST /api/admin/custom/index/sync_runtime_all_projects?parentId=`路由，页面和生成产物未改；内部逐项目重新认证/查配置/查当前关联和绑定后入队，活动同来源任务去重。API严格编译0警告错误；真实跨项目OAuth/MySQL、浏览器汇总和Node领取仍待验收。 | [旧路由兼容与边界](testing/runtime-batch-plan.md)，2026-10-31；起点b16a6d1，本任务同提交 |
 | C75 | ✅ 原旧批量POST路由匿名边界验收完成 | 旧地址不404、不绕过统一认证 | `WebApplicationFactory<Program>`验证旧`sync_runtime_all_projects?parentId=`返回统一登录拒绝/no-store；与原关系/首页接口回归共7项通过。使用不可达回环配置，无数据库/OAuth/任务写入；真实登录、逐项应用和浏览器汇总仍待验收。 | [旧路由验收](testing/runtime-batch-plan.md)，2026-10-31；起点31217bc，本任务同提交 |
+| C76 | ✅ 批量旧路由与活动任务去重回归收口 | 旧页面路由、逐项目v2入队、同来源去重 | 修正并通过来源专项29项；API全量严格155通过、49条件跳过、0失败。确认同设备/项目/绑定/配置摘要活动任务复用，混合确认拒绝；原前端/生成产物未改。真实跨项目OAuth/MySQL、Node领取和浏览器汇总仍待验收。 | [批量回归收口](testing/runtime-batch-plan.md)，2026-10-31；起点31217bc，本任务同提交 |
 
 ## 四、MySQL 首版验收与交付门槛
 
@@ -281,6 +282,7 @@
 | 2026-10-29 | C36按确认修复time输入并分离日内时刻/原生TIME；生成与更新器、字段schema及相关模块回归通过，215产物/24partial/492前端逐字保持。仅Server-200只读表达式核验，无DDL/DML，参数持久化、精度组合及原界面实测仍待。 | [time合同与证据](time-logical-type.md)，本任务同提交 |
 | 2026-10-29 | C37通过真实只读驱动/ORM参数对照发现并修复TIME内存回执精度不一致，新增同事务批量回读与失败回滚；19项生成/升级及15项适配器通过，既有产物/partial/原前端保持。持久化、HTTP、多SQL模式及性能仍待正式样本验收。 | [写后值专项](persisted-time-values.md)，本任务同提交 |
 | 2026-10-29 | C39补驱动2.6.1当前Server-200的只读TLS五模式与公开证书对照；不改服务端或应用配置，不创建/写入数据库对象，不消费C38待批租约。完整TLS部署与首版继续。 | [真实连接范围](testing/mysql-tls-readonly.md)，本任务同提交 |
+| 2026-10-31 | C76修正活动v2任务去重断言并重跑来源专项29项、API全量155/49条件跳过零失败；旧页面和生成产物未改，真实OAuth/MySQL/Node领取/浏览器汇总继续。 | [回归收口](testing/runtime-batch-plan.md)，起点31217bc；本任务同提交 |
 | 2026-10-31 | C75在真实Program下验收原批量旧POST路由匿名/no-store边界，和原关系/首页接口共7项通过；页面未改，无实库/OAuth/任务写入。 | [旧路由验收证据](testing/runtime-batch-plan.md)，起点31217bc；本任务同提交 |
 | 2026-10-31 | C74恢复原项目列表批量POST路由，保持前端页面/按钮/确认/样式和生成产物不变，后端转逐项目v2入队并去重；API严格编译零警告错误。真实OAuth/MySQL、浏览器汇总和Node领取继续。 | [旧路由证据](testing/runtime-batch-plan.md)，起点b16a6d1；本任务同提交 |
 | 2026-10-31 | C73增加Node助手`--all-profiles`逐项目轮询，隔离各绑定的凭据、目录和锁，保持单profile错误合同；专项3及助手/C#CLI回归22通过。未做真实跨项目OAuth/MySQL或用户工程写入。 | [多profile证据](testing/runtime-assistant-node-v2.md)，起点a46b68c；本任务同提交 |
