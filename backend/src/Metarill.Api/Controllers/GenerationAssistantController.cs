@@ -27,6 +27,15 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
         var snapshot = LocalGenerationUpdater.CreateRequest(await metadata.LoadProjectAsync(owner.ProjectId, token), request.Action);
         return R<AssistantTaskView>.Success(queue.Enqueue(owner, requestId, request.BindingId, snapshot));
     }
+    /// <summary>原批量按钮的只读计划入口：枚举全部项目并逐项给出跳过/失败/待授权，不创建任务或应用源码。</summary>
+    [HttpPost("runtime-batch/plan")]
+    public async Task<R<AssistantRuntimeBatchPlan>> RuntimeBatchPlan(JsonElement body,CancellationToken token)
+    {
+        var identity=AgentRequestAuthentication.RequireWeb(HttpContext);authorization.RequireAdministrator();
+        var request=GenerationAssistantQueue.Parse<AssistantRuntimeBatchPlanRequest>(body);
+        var discovery=await scopes.DiscoverAsync(identity.Identity.Actor,request.DeviceId,token);
+        return R<AssistantRuntimeBatchPlan>.Success(GenerationAssistantBatchPlanning.Create(discovery));
+    }
     /// <summary>只展示当前网页账号项目的任务状态和脱敏预览回执。</summary>
     [HttpGet("requests/{requestId}")]
     public R<AssistantTaskView> Status(string requestId) => R<AssistantTaskView>.Success(queue.Get(Web(), requestId));

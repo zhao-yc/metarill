@@ -15,3 +15,5 @@ C67已完成[设备全部项目只读发现](testing/device-assistant-discovery.
 C68已完成[服务端分端任务来源隔离](testing/runtime-assistant-origin.md)：入队固定设备/配置/关联/启用端，原领取/批准/ticket重验通过当前真实Actor查库，拒绝混入旧确认聚合；保留v1字节与领取路径。最终API149/49、Agent444/25条件跳过零失败。Node仍拒绝v2，批量持久意图、逐项目Web认证与按钮汇总未完成，原批量路由未启用。
 
 C69完成[Node助手v2分端计划应用](testing/runtime-assistant-node-v2.md)：普通/管理工程三种端范围沿原plan应用，回执未知恢复与设备意图失配保护通过，完整Node129项通过。仍未接通批量HTTP、逐项目真实授权、设备控制动作和原按钮汇总。
+
+C70加入只读逐项目计划入口：`POST /api/admin/sys/generation-assistant/runtime-batch/plan` 复用网页登录/管理员与设备发现，只返回跳过、失败、待项目授权，不创建任务或应用。专项4项通过。原批量页面回调、逐项目真实grant/设备关联、入队和汇总仍未完成。
