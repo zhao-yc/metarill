@@ -223,7 +223,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var kind=Kind(table,alias,column);
                     if(kind==MetadataFieldStorage.Physical)
                     {
-                        if(globalSingleAliases.Contains(alias)&&!GlobalPhysicalRelationValue.IsScalar(storage[table.Id],table,column))throw new NotSupportedException("全局单值路径不能读取凭据、文件或数组。");
+                        if(globalSingleAliases.Contains(alias)&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[table.Id],table,column))throw new NotSupportedException("全局单值路径不能读取凭据、文件或数组。");
                         if(refreshFields is not null&&(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||table.TableName=="yz_manager"&&column.ColumnName=="salt"))throw new NotSupportedException("维护回填不能读取凭据或令牌字段。");
                         if(matching)
                         {

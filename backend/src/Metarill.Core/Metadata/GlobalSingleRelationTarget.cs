@@ -11,8 +11,10 @@ public static class GlobalSingleRelationTarget
     public static GlobalSingleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,false);
     /// <summary>仅供物理R1消费者的冻结缓存计划使用；普通来源保留行项目范围，全局来源须另证发布目录。</summary>
     public static GlobalSingleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
+    /// <summary>嵌套缓存沿同一证明栈验证，不能在递归入口重置循环/深度检查。</summary>
+    internal static GlobalSingleRelationPlan RequireCachedValue(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,ISet<string> resolving)=>RequireSource(catalog,owner,foreign,target,true,resolving);
     /// <summary>实时派生与缓存维护分别验证来源存储模式，其余发布和终点约束完全相同。</summary>
-    private static GlobalSingleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached)
+    private static GlobalSingleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached,ISet<string>? resolving=null)
     {
         var fields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==owner.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,owner);var project=fields.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
         // 无项目列来源只能进入独立发布证明；原项目来源及R0路径保持原门槛。
@@ -27,7 +29,7 @@ public static class GlobalSingleRelationTarget
         var pageId=declaredPage.Length>0?declaredPage:linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局单值关系必须指定真实目标页，省略时目标页必须唯一。");var page=pages[0];GlobalCrossTableTarget.Require(catalog,target,page);
         var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
-        if(name is null||name.LogicalType!="string"||!Scalar(name))throw new NotSupportedException("全局单值名称必须为非凭据物理字符串。");var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
+        if(name is null||name.LogicalType!="string"||!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,name,resolving??new HashSet<string>(StringComparer.Ordinal)))throw new NotSupportedException("全局单值名称必须为非凭据物理字符串或已证明的全局名称缓存。");var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
         if(FixedConditionPlan.Compile(page.WhereSql,targetColumns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(targetColumns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("全局目标条件必须使用非凭据物理标量。");return new(page,name);
     }
 }

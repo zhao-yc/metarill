@@ -29,6 +29,9 @@ public static class GlobalCachedRelationSource
     }
     /// <summary>物理名称副本须有精确单层路径和同一List目标，不能把任意join列作为全局写入。</summary>
     public static GlobalCachedRelationBinding RequireCache(MetadataCatalog catalog,TableMetadata source,ColumnMetadata cache)
+        =>RequireCache(catalog,source,cache,new HashSet<string>(StringComparer.Ordinal));
+    /// <summary>缓存被其它全局关系引用时复用调用者的证明栈，所有上游仍须通过相同目录和目标检查。</summary>
+    internal static GlobalCachedRelationBinding RequireCache(MetadataCatalog catalog,TableMetadata source,ColumnMetadata cache,ISet<string> resolving)
     {
         Require(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);var path=cache.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
         if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||cache.LogicalType!="string"||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
@@ -38,7 +41,7 @@ public static class GlobalCachedRelationSource
         string Value(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():"";
         var targetId=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");var name=Value("table");
         var targets=catalog.ConfigTables.Where(table=>targetId.Length>0?table.Id==targetId:table.TableName==name).ToArray();if(targets.Length!=1||!GlobalCrossTableTarget.Declared(targets[0]))throw Invalid();
-        var proof=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,targets[0]);var stem=foreign.ColumnName[..^3];
+        var proof=GlobalSingleRelationTarget.RequireCachedValue(catalog,source,foreign,targets[0],resolving);var stem=foreign.ColumnName[..^3];
         if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName)throw Invalid();
         return new(foreign,targets[0],proof.Page,proof.Name,cache);
     }
