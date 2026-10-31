@@ -88,7 +88,7 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
 
     def test_cross_and_all_profiles_grant_only_their_exact_owned_databases(self):
         """新矩阵只增加白名单库，不给通配全局授权，清理与创建使用同一场景。"""
-        for scenario, suffixes in (("cached_source", ("cached_original", "cached_parent")), ("agent", ("agent",)), ("imported", ("import_without", "import_with")), ("derived", ("derived_declared", "derived_auto")), ("cross", ("cross_ss", "cross_sl", "cross_ls", "cross_ll")), ("all", ("platform", "business", "package", "nonred", "cross_ss", "cross_sl", "cross_ls", "cross_ll"))):
+        for scenario, suffixes in (("paired", ("paired_java", "paired_csharp")), ("cached_source", ("cached_original", "cached_parent")), ("agent", ("agent",)), ("imported", ("import_without", "import_with")), ("derived", ("derived_declared", "derived_auto")), ("cross", ("cross_ss", "cross_sl", "cross_ls", "cross_ll")), ("all", ("platform", "business", "package", "nonred", "cross_ss", "cross_sl", "cross_ls", "cross_ll"))):
             with self.subTest(scenario=scenario):
                 self.commands.clear()
                 result = json.loads(self.invoke("create", scenario=scenario))
@@ -107,6 +107,39 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
         with self.assertRaises(RuntimeError): self.invoke("cleanup", scenario="all")
         self.assertEqual(before, self.state.read_bytes()); self.assertFalse(any(sql.startswith("DROP") for sql in self.commands))
         self.invoke("cleanup", scenario="cross")
+
+    def test_paired_lease_cannot_be_cleaned_as_old_baseline(self):
+        """双端记录不能被旧场景消费，即使运行号相同也不执行任何DROP。"""
+        self.invoke("create", scenario="paired"); before=self.state.read_bytes(); self.commands.clear()
+        with self.assertRaises(RuntimeError): self.invoke("cleanup", scenario="baseline")
+        self.assertEqual(before,self.state.read_bytes())
+        self.assertFalse(any(sql.startswith("DROP") for sql in self.commands))
+        self.commands.clear(); result=json.loads(self.invoke("cleanup", scenario="paired"))
+        self.assertEqual(2,result["databaseCount"])
+
+    def test_paired_partial_create_cleans_only_successfully_owned_java_database(self):
+        """C#库创建失败时，只回收有清单证明的Java库，不猜测删除第二库或账号。"""
+        java=f"metarill_fresh_{self.run}_paired_java"; csharp=f"metarill_fresh_{self.run}_paired_csharp"
+        def sql(value):
+            self.commands.append(value)
+            if value=="SELECT @@hostname,@@server_uuid;": return "fixture\t"+self.instance["serverUuid"]
+            if value.startswith("CREATE DATABASE") and csharp in value: raise RuntimeError("模拟第二库创建中断")
+            return "0" if value.startswith("SELECT ") else ""
+        with self.assertRaises(RuntimeError): self.invoke("create",mysql=sql,scenario="paired")
+        self.assertEqual([java],json.loads(self.state.read_text())["databases"])
+        self.commands.clear(); self.invoke("cleanup",scenario="paired")
+        self.assertEqual([f"DROP DATABASE `{java}`;"],[value for value in self.commands if value.startswith("DROP")])
+
+    def test_paired_instance_change_keeps_ownership_and_executes_no_drop(self):
+        """实例已变更时不能依据相同名称删除其它实例的库或账号。"""
+        self.invoke("create",scenario="paired"); before=self.state.read_bytes(); self.commands.clear()
+        def sql(value):
+            self.commands.append(value)
+            return "fixture\t00000000-0000-0000-0000-000000000002" if value=="SELECT @@hostname,@@server_uuid;" else "0"
+        with self.assertRaises(RuntimeError): self.invoke("cleanup",mysql=sql,scenario="paired")
+        self.assertEqual(before,self.state.read_bytes())
+        self.assertFalse(any(value.startswith("DROP") for value in self.commands))
+        self.commands.clear(); self.invoke("cleanup",scenario="paired")
 
     def test_unknown_profile_fails_before_mysql(self):
         """未知场景不能被当作默认场景连接或创建对象。"""

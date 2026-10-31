@@ -44,7 +44,8 @@ def main():
     cross = ("cross_ss", "cross_sl", "cross_ls", "cross_ll")
     derived = ("derived_declared", "derived_auto")
     imported = ("import_without", "import_with")
-    profiles = {"baseline": baseline, "cross": cross, "derived": derived, "imported": imported, "agent": ("agent",), "cached_source": ("cached_original", "cached_parent"), "all": baseline + cross}
+    # 双端运行只允许这两个新后缀；all保持旧八库，不能扩张已批准的历史范围。
+    profiles = {"baseline": baseline, "cross": cross, "derived": derived, "imported": imported, "agent": ("agent",), "cached_source": ("cached_original", "cached_parent"), "paired": ("paired_java", "paired_csharp"), "all": baseline + cross}
     if not isinstance(scenario, str) or scenario not in profiles:
         raise RuntimeError("未知空库验收场景。")
     databases = [f"metarill_fresh_{run}_{kind}" for kind in profiles[scenario]]

@@ -52,3 +52,5 @@ mvn -B -o -f <新宿主根>/backend/pom.xml -Dtest=SampleClasspathTest,AdminCapC
 禁网、只读根、非root、丢弃能力、0.5CPU/256MiB/64PID的单个短时容器实际执行`java -version`及`sha256sum /app/application.jar`，JDK21.0.13+9及镜像内新JAR摘要e97ca4f均符合固定输入，退出0；随后新Docker命令独立确认该探针容器不存在。上下文3文件复制前后摘要保持，每次Docker前都验证Server-200主机名/192.168.31.200并指定Unix socket。
 
 新镜像及唯一`/tmp/metarill-java-login-image-f85f7ad246414026a3f257ee936f0a5c`准备目录保留，原V19镜像未被本轮命令改动。没有启动Spring、发送应用HTTP、连接MySQL/Redis或创建库/账号/键，版本和内容探针不算真实登录、Bean完整接线、图像/文件业务或性能通过。私有image-intent、image-build-scope、image-result及native-image-proof保留构建和探针证据。
+
+V21后续已补[显式配置初始化与双库资源准备](paired-native-preparation.md)：原20项输入及外置初始化入口、10项自检、200禁网加载/门禁通过；没有建库、实际DDL、播种或真实登录，不替代本页待验范围。
