@@ -1,6 +1,6 @@
 # 批量运行时：计划、入队及原协议边界
 
-当前状态（2026-10-31，C77）：原按钮的设备选择已按Java恢复为sysParams.yzManagerDevicesId；parentId不作设备。旧入口尚未等待最终应用，排队/失败/未知结果明确非成功。持久批次、跨项目状态查询、网络未知恢复、原按钮等待/汇总及真实Web/OAuth/MySQL仍未完成。以下C70—C76为各次提交的历史证据，不能单独证明完整批量同步可用。
+当前状态（2026-10-31，C78）：C77已纠正原sysParams设备及入队假成功；C78增加服务端持久批次和只读状态查询。原按钮的客户端固定批次、等待/逐项汇总与网络未知恢复尚未接入，真实Web/OAuth/MySQL仍未执行。以下各切片的离线证据不能代替完整批量同步验收。
 
 2026-10-31，C70，起点a3e9843。该切片为原“同步当前设备全部项目运行时”按钮提供只读计划入口，保留原页面操作，不创建任务、不应用源码。
 
@@ -63,3 +63,19 @@ C76修正同来源活动任务去重后的专项断言，并重跑来源专项29
 证据：E:\git\metarill\.local\batch-contract-first.log、batch-contract-api-final.log、batch-contract-agent-final.log及TestResults同名TRX。命令为项目固定DOTNET_HOST_PATH下对Metarill.Api.Tests和Metarill.Agent.Tests执行 `dotnet test -c Release --nologo --disable-build-servers --verbosity quiet -warnaserror`，另用filter执行新增专项。
 
 原前端页面、样式、生成模板、backend/generated和待批准AgentTaskMiddleware均未改。无需DDL/回填/前端再生成。批量持久意图、跨项目只读查询及最终汇总未实现，不能靠再次点击/新UUID当未知恢复；原按钮最终闭环继续保留未完成状态。设备控制通道豁免仍待此前明确批准。
+
+
+## C78：持久批次与只读状态恢复
+
+起点4cf8d2d。两个入队入口统一使用同一协调器：先以批次UUID固定服务端发现的项目清单，再为每项目分别保存绑定、快照和实际任务指向，最后写精确任务编号。每项快照独立有界文件，复用现有文件锁、刷盘与原子替换；不引入数据库DDL。批次归属固定实际Web账号、工作项目和原会话ID，重新登录不能冒领旧会话批次。
+
+- 重试同批次沿原清单，不吸纳新增项目或延长原期限；任务到期不晚于批次期限。准备后配置、元数据或关联变化明确拒绝，不换新快照/绑定。
+- 命中现有活动任务时，先落盘保存实际别名，再允许发布；旧别名完成后即使产生新的活动任务，恢复仍读原别名。原别名丢失明确报错，不创建替代任务。原意图落盘后的未知异常向外保留，不伪装明确失败。
+- 新增 `POST /api/admin/sys/generation-assistant/runtime-batch/status`，严格接收 `{batchId}`，继续实际网页登录和管理员检查；每个配置项目重新认证同账号同会话的真实目标项目身份。查询仅回读原记录与任务，不进行发现、prepare、claim、入队或过期落盘；按当前时间只读投影过期。
+- 回执增加batchId，原按钮客户端尚未预存UUID。仅服务器持久记录不能解决HTTP响应丢失后客户端找不到批次的问题，此项保持未完成。状态入口的R200只表示查询成功，不能由原通用按钮直接当作应用成功。
+
+验证：完整API严格206通过、49条件跳过、0失败（43秒），完整Agent严格444通过、25条件跳过、0失败（40秒）；新专项覆盖真实临时文件队列重启、别名稳定、丢失/损坏不替代、账号/项目/会话隔离、配置/快照漂移、固定期限、容量及只读协调器查询。严格编译0警告错误。匿名真实Program状态路由返回登录拒绝/no-store。身份、Scope及时间为受控样本，没有真实OAuth、MySQL、本机工程应用或浏览器登录验收。
+
+证据：E:\git\metarill\.local\runtime-batch-persistence-api-final.log、runtime-batch-persistence-agent-final.log及TestResults同名TRX；专项初轮19通过，后续补充期限与协调器状态用例包含于最终API。命令沿C77固定DOTNET_HOST_PATH，对两个测试项目执行 `dotnet test -c Release --nologo --disable-build-servers --verbosity quiet -warnaserror`。
+
+原页面、样式、生成模板、backend/generated和待批准AgentTaskMiddleware未改；无需DDL、回填或再生成。客户端预存批次、原按钮等待和最终逐项汇总继续实施；设备控制三个动作的登记豁免仍待此前用户确认，不作旁路。

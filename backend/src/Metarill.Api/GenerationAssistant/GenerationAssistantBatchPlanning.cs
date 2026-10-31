@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Metarill.Generation;
 
 namespace Metarill.Api.GenerationAssistant;
 
@@ -45,4 +46,11 @@ public sealed record AssistantRuntimeBatchAuthorizationPlan(string DeviceId,Assi
 /// <summary>批量入队回执只报告逐项目任务编号和稳定状态，不返回路径、令牌或应用成功。</summary>
 public sealed record AssistantRuntimeBatchEnqueueRequest(string DeviceId);
 public sealed record AssistantRuntimeBatchEnqueueItem(string? ProjectId,string ProjectName,string Status,string? ErrorCode,string? RequestId);
-public sealed record AssistantRuntimeBatchEnqueueResult(string DeviceId,AssistantRuntimeBatchEnqueueItem[] Items,bool AnyQueued);
+public sealed record AssistantRuntimeBatchEnqueueResult(string DeviceId,AssistantRuntimeBatchEnqueueItem[] Items,bool AnyQueued,string? BatchId=null);
+
+/// <summary>批次归属固定真实Web账号、工作项目及会话；项目清单只由服务端发现，不能由客户端增删。</summary>
+public sealed record AssistantRuntimeBatchOwner(long AccountId,string ProjectId,long SessionId);
+public sealed record AssistantRuntimeBatchStatusRequest(string BatchId);
+public sealed record AssistantRuntimeBatchDefinition(string BatchId,string DeviceId,DateTimeOffset ExpiresAt,AssistantDeviceProjectSelection[] Projects);
+/// <summary>仅供服务器协调器读取的持久意图，不作为HTTP请求模型或响应。</summary>
+public sealed record AssistantRuntimeBatchIntent(string BindingId,string AssignedRequestId,bool ExistingTask,GenerationUpdateRequest Snapshot,AssistantRuntimeOrigin RuntimeOrigin);

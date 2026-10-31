@@ -88,6 +88,15 @@ public sealed class OriginalListAliasHttpTests
             using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());
         });
 
+    /// <summary>批次状态入口为真实Web只读边界；匿名返回原登录拒绝和no-store，不连接真实数据库。</summary>
+    [Fact]
+    public async Task Runtime_batch_status_route_requires_web_identity_and_no_store()
+        =>await WithOfflineSettings(async()=>
+        {
+            await using var factory=new WebApplicationFactory<Program>();using var client=factory.CreateClient();using var response=await client.PostAsJsonAsync("/api/admin/sys/generation-assistant/runtime-batch/status",new{batchId="11111111-1111-4111-8111-111111111111"});
+            Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.True(response.Headers.CacheControl?.NoStore);using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());
+        });
+
     /// <summary>请求固定在已发布页与旧/新字段号，测试不允许指定表或任意路由。</summary>
     private static string Route(string page,string field,string kind)=>"/api/admin/auto/config_page/"+page+"/findNameIdYzAdminType2200000000000000"+field+(kind.Length==0?"":"/"+kind);
 

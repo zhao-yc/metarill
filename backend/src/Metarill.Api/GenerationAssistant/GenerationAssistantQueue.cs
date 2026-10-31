@@ -49,7 +49,7 @@ public sealed partial class GenerationAssistantQueue
         =>Locked(()=>EnqueueCore(owner,requestId,bindingId,snapshot,origin,current));
 
     /// <summary>两种协议共享有界、幂等和刷盘顺序；v1缺省字段仍不序列化。</summary>
-    private AssistantTaskView EnqueueCore(AssistantOwner owner,string requestId,string bindingId,GenerationUpdateRequest snapshot,AssistantRuntimeOrigin? origin,AssistantDeviceScope? current)
+    private AssistantTaskView EnqueueCore(AssistantOwner owner,string requestId,string bindingId,GenerationUpdateRequest snapshot,AssistantRuntimeOrigin? origin,AssistantDeviceScope? current,bool deduplicate=true,DateTimeOffset? expiresAt=null)
     {
         RequireOwner(owner, false); Uuid(requestId); var binding = ReadBinding(bindingId); RequireScope(binding, owner);
         LocalGenerationUpdater.ValidateRequest(snapshot);
@@ -64,7 +64,7 @@ public sealed partial class GenerationAssistantQueue
             if (old.BindingId != bindingId || old.Snapshot.RequestSha256 != snapshot.RequestSha256 || old.RuntimeOrigin!=origin) throw new InvalidOperationException("同一任务UUID不能绑定其他动作或快照。");
             return View(old);
         }
-        if(origin is not null)
+        if(origin is not null&&deduplicate)
         {
             // 已有应用回执的任务不再占用活动槽；新批次不能被旧applied/回滚/未知结果永久合并。
             var duplicate=Directory.GetFiles(options.RootDirectory,"task-*.json").Select(file=>Expire(ReadTask(Path.GetFileName(file)[5..^5])))
@@ -73,8 +73,10 @@ public sealed partial class GenerationAssistantQueue
             if(duplicate is not null)return View(duplicate);
         }
         if (Directory.GetFiles(options.RootDirectory, "task-*.json").Length >= options.MaxTasks) throw new InvalidOperationException("生成助手任务已达到有界保留上限，请先审阅和归档旧记录。");
-        var now = clock.GetUtcNow();
-        var task = new AssistantTask(origin is null?1:2, owner.AccountId, owner.ProjectId, binding.GrantId, requestId, bindingId, binding.RootNamespace, binding.LocalBindingSha256, snapshot, now, now.AddSeconds(options.RequestTtlSeconds), "queued", null, null, null, "",origin);
+        var now = clock.GetUtcNow();var expiry=now.AddSeconds(options.RequestTtlSeconds);
+        if(expiresAt is{} deadline&&deadline<expiry)expiry=deadline;
+        if(expiry<=now)throw new InvalidOperationException("原确认已过期，不能创建新任务。");
+        var task = new AssistantTask(origin is null?1:2, owner.AccountId, owner.ProjectId, binding.GrantId, requestId, bindingId, binding.RootNamespace, binding.LocalBindingSha256, snapshot, now, expiry, "queued", null, null, null, "",origin);
         SaveTask(task); return View(task);
     }
 
