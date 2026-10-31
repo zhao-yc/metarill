@@ -33,6 +33,8 @@ def validate(value):
         raise ValueError("需要两个不同的明确回环端口")
     if not re.fullmatch(r"[a-f0-9]{64}", value.get("materialsSha256", "")):
         raise ValueError("缺少私有输入清单摘要")
+    if "ownerToken" in value and (not isinstance(value["ownerToken"], str) or not re.fullmatch(r"[a-f0-9]{64}", value["ownerToken"])):
+        raise ValueError("上层资源归属token无效")
     return run
 
 
@@ -154,7 +156,7 @@ def provision(value, root, path):
     for item in items:
         if inspect(item["kind"], item["name"]) is not None:
             raise ValueError("本轮名称已存在，拒绝复用")
-    state = {"runId": run, "ownerToken": secrets.token_hex(32), "descriptorSha256": digest(value), "status": "creating", "items": [], "hostsStarted": False}
+    state = {"runId": run, "ownerToken": value.get("ownerToken") or secrets.token_hex(32), "descriptorSha256": digest(value), "status": "creating", "items": [], "hostsStarted": False}
     write_state(path, state)
     for target in ("java", "csharp"):
         data = root / ("data-" + target)

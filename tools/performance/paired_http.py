@@ -355,11 +355,19 @@ def verify_transport(config, probe, values):
             "boundary": "Server-200宿主回环到Docker发布端口；不证明镜像内源码、应用身份或SQL等价"}
 
 
+def explicit_cpu_limit(item):
+    """Docker的NanoCpus或正数CFS quota/period均可证明硬限额；零/无限制不能算通过。"""
+    nano, quota, period = (item.get(k) for k in ("nanoCpus", "cpuQuota", "cpuPeriod"))
+    if any(type(v) is not int for v in (nano, quota, period)) or nano < 0:
+        return False
+    return nano > 0 or quota > 0 and period > 0
+
+
 def equal_limits(probe, targets):
     """无实际硬限制或配置不同都拒绝比较，不能把两个无限制容器当等资源。"""
     values = {name: probe.limits(target["container"]) for name, target in targets.items()}
     for item in values.values():
-        if item.get("running") is not True or type(item.get("nanoCpus")) is not int or item["nanoCpus"] <= 0 or type(item.get("memoryBytes")) is not int or item["memoryBytes"] <= 0:
+        if item.get("running") is not True or not explicit_cpu_limit(item) or type(item.get("memoryBytes")) is not int or item["memoryBytes"] <= 0:
             raise ContractError("容器必须运行且有明确CPU/内存硬限制")
     conditions = lambda value: {key: value[key] for key in ("nanoCpus", "memoryBytes", "memorySwap", "cpuQuota", "cpuPeriod", "cpusetCpus")}
     if not all(item.get("id") and item.get("image") for item in values.values()) or values["java"]["id"] == values["csharp"]["id"]:

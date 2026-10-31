@@ -37,6 +37,23 @@ class Probe:
 
 class ContractTests(unittest.TestCase):
     """配置和比较结论必须拒绝不公平或不完整输入。"""
+    def test_cfs_quota_is_an_explicit_hard_limit_without_nanocpus(self):
+        """真实资源工具使用CFS；原始配额仍逐项一致，不能把零NanoCpus误判成无限制。"""
+        probe=Probe();original=probe.limits
+        probe.limits=lambda name:{**original(name),"nanoCpus":0,"cpuQuota":100000,"cpuPeriod":100000,"cpusetCpus":"0"}
+        values=subject.equal_limits(probe,config()["targets"])
+        self.assertEqual(values["java"]["cpuQuota"],100000);self.assertEqual(values["java"]["nanoCpus"],0)
+
+    def test_unlimited_malformed_or_different_cfs_is_rejected(self):
+        """缺周期、负配额、bool及两侧不同均不构成公平实验。"""
+        for change in ({"cpuQuota":-1},{"cpuPeriod":0},{"cpuQuota":True},{"cpuPeriod":True},{"nanoCpus":-1}):
+            probe=Probe();original=probe.limits
+            probe.limits=lambda name:{**original(name),"nanoCpus":0,"cpuQuota":100000,"cpuPeriod":100000,**change}
+            with self.subTest(change=change),self.assertRaises(subject.ContractError):subject.equal_limits(probe,config()["targets"])
+        probe=Probe();original=probe.limits
+        probe.limits=lambda name:{**original(name),"nanoCpus":0,"cpuQuota":100000 if name==config()["targets"]["java"]["container"] else 50000,"cpuPeriod":100000}
+        with self.assertRaises(subject.ContractError):subject.equal_limits(probe,config()["targets"])
+
     def test_validate_is_offline_and_does_not_fill_missing_measurements(self):
         with mock.patch.object(subject.urllib.request, "build_opener", side_effect=AssertionError("不应联网")), mock.patch.object(subject.subprocess, "run", side_effect=AssertionError("不应运行进程")):
             self.assertEqual(subject.validate(config())["rounds"], 3)

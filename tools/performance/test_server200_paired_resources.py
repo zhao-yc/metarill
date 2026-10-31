@@ -86,6 +86,16 @@ class Fixture(unittest.TestCase):
         """读取没有口令的独占归属状态。"""
         return json.loads((self.root/"resource-state.json").read_text())
 
+    def test_upper_coordinator_token_is_used_and_invalid_token_has_no_io(self):
+        """上层固定同一随机token贯穿资源/库；外部非法值不能进入创建。"""
+        for invalid in (None,True,"short"):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):subject.manage({**self.value,"ownerToken":invalid},"create")
+        self.assertFalse(self.engine.calls)
+        self.value["ownerToken"]="a"*64;subject.manage(self.value,"create")
+        self.assertEqual(self.state()["ownerToken"],"a"*64)
+        self.assertTrue(all(item[2]=="a"*64 for item in self.engine.objects.values()))
+        self.assertTrue(subject.manage(self.value,"cleanup")["resourcesCleaned"])
+
     def test_create_only_redis_started_then_cleanup_independent_zero(self):
         """宿主必须created等待上层初始化；清理按容器后网络执行并逐个再观察。"""
         result = subject.manage(self.value, "create")

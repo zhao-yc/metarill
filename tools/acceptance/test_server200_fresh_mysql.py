@@ -39,6 +39,43 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
             subject.main()
         return captured.getvalue()
 
+    def test_explicit_expected_instance_mismatch_blocks_before_ownership_and_ddl(self):
+        """新上层租约不能在同名服务器的另一MySQL实例创建任何对象。"""
+        payload={"runId":self.run,"operation":"create","scenario":"paired","password":self.password,"expectedInstance":{**self.instance,"hostname":"other"}}
+        with patch.object(subject,"ownership_path",return_value=self.state),patch.object(subject,"verify_server"),patch.object(subject,"mysql",return_value="fixture\t"+self.instance["serverUuid"]) as query,patch("sys.stdin",io.StringIO(json.dumps(payload))),self.assertRaises(RuntimeError):
+            subject.main()
+        self.assertFalse(self.state.exists());query.assert_called_once_with("SELECT @@hostname,@@server_uuid;")
+
+    def test_explicit_expected_instance_is_optional_for_original_profiles(self):
+        """已有profile调用保持，匹配的新pin只增加前置核对，不扩大授权。"""
+        payload={"runId":self.run,"operation":"create","scenario":"paired","password":self.password,"expectedInstance":self.instance}
+        def query(sql):return "fixture\t"+self.instance["serverUuid"] if sql=="SELECT @@hostname,@@server_uuid;" else "0" if sql.startswith("SELECT ") else ""
+        with patch.object(subject,"ownership_path",return_value=self.state),patch.object(subject,"verify_server"),patch.object(subject,"mysql",side_effect=query),patch("sys.stdin",io.StringIO(json.dumps(payload))),contextlib.redirect_stdout(io.StringIO()):subject.main()
+        self.assertEqual(2,len(json.loads(self.state.read_text(encoding="utf-8"))["databases"]))
+
+    def test_owned_scope_requires_the_same_upper_token_even_if_caller_omits_it(self):
+        """旧无token调用不能清理由完整执行器登记的双库租约。"""
+        owned={"runId":self.run,"scenario":"paired","databases":["metarill_fresh_"+self.run+"_paired_java"],"user":"mtf_"+self.run,"instance":self.instance,"ownerToken":"a"*64}
+        self.state.write_text(json.dumps(owned),encoding="utf-8")
+        for token in (None,"b"*64):
+            payload={"runId":self.run,"operation":"cleanup","scenario":"paired"}
+            if token is not None:payload["ownerToken"]=token
+            with patch.object(subject,"ownership_path",return_value=self.state),patch.object(subject,"verify_server"),patch.object(subject,"mysql",return_value="fixture\t"+self.instance["serverUuid"]) as query,patch("sys.stdin",io.StringIO(json.dumps(payload))),self.assertRaises(RuntimeError):subject.main()
+            query.assert_called_once_with("SELECT @@hostname,@@server_uuid;")
+        self.assertEqual(owned,json.loads(self.state.read_text(encoding="utf-8")))
+
+    def test_matching_upper_token_is_recorded_and_cleans_only_owned_objects(self):
+        """新token跨create/cleanup保存，旧不带token场景保持不变。"""
+        token="c"*64
+        def invoke(operation):
+            payload={"runId":self.run,"operation":operation,"scenario":"paired","ownerToken":token,"password":self.password,"expectedInstance":self.instance}
+            def query(sql):
+                self.commands.append(sql)
+                return "fixture\t"+self.instance["serverUuid"] if sql=="SELECT @@hostname,@@server_uuid;" else "0" if sql.startswith("SELECT ") else ""
+            with patch.object(subject,"ownership_path",return_value=self.state),patch.object(subject,"verify_server"),patch.object(subject,"mysql",side_effect=query),patch("sys.stdin",io.StringIO(json.dumps(payload))),contextlib.redirect_stdout(io.StringIO()):subject.main()
+        invoke("create");self.assertEqual(token,json.loads(self.state.read_text(encoding="utf-8"))["ownerToken"])
+        invoke("cleanup");self.assertFalse(self.state.exists());self.assertEqual(2,sum(s.startswith("DROP DATABASE") for s in self.commands))
+
     def test_wrong_server_name_stops_before_any_docker_command(self):
         """其他服务器即便可访问，也不可运行该开发验收工具。"""
         with patch.object(subject.subprocess, "check_output", return_value="Production-Server\n") as call:

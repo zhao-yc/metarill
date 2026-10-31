@@ -56,11 +56,18 @@ def main():
     if len(fingerprint) != 2 or not re.fullmatch(r"[0-9a-f-]{36}", fingerprint[1]):
         raise RuntimeError("MySQL 实例指纹无效。")
     instance = {"hostname": fingerprint[0], "serverUuid": fingerprint[1]}
+    # 上层完整执行器可固定已确认实例；不匹配时在建立所有权记录/DDL前拒绝。
+    if "expectedInstance" in payload and payload["expectedInstance"] != instance:
+        raise RuntimeError("MySQL 实际实例与本轮预期不符。")
+    owner_token = payload.get("ownerToken")
+    if owner_token is not None and (not isinstance(owner_token, str) or not re.fullmatch(r"[a-f0-9]{64}", owner_token)):
+        raise RuntimeError("上层所有权标识无效。")
     if payload["operation"] == "create":
         password = payload["password"]
         if not re.fullmatch(r"[a-f0-9]{64}", password) or state.exists():
             raise RuntimeError("验收凭据或所有权清单状态不合法。")
         expected = {"runId": run, "scenario": scenario, "databases": [], "user": None, "instance": instance}
+        if owner_token is not None: expected["ownerToken"] = owner_token
         descriptor = os.open(state, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as stream:
             json.dump(expected, stream)
@@ -86,6 +93,8 @@ def main():
         expected = json.loads(state.read_text(encoding="utf-8"))
         if expected.get("scenario", "baseline") != scenario or expected.get("instance") != instance or expected.get("runId") != run or any(name not in databases for name in expected.get("databases", [])) or expected.get("user") not in (None, user):
             raise RuntimeError("所有权清单不匹配，拒绝清理。")
+        if expected.get("ownerToken") != owner_token:
+            raise RuntimeError("本轮上层所有权标识不匹配，拒绝清理。")
         owned_databases = list(expected["databases"])
         owned_user = expected["user"]
         if expected["user"]:
