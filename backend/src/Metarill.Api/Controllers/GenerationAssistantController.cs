@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Metarill.Api.GenerationAssistant;
 using Metarill.Core.Contracts;
 using Metarill.Generation;
@@ -56,6 +58,30 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
             catch(UnauthorizedAccessException){items.Add(new(project.ProjectId,project.ProjectName,"failed","target-project-reauthentication-required",null));}
         }
         return R<AssistantRuntimeBatchAuthorizationPlan>.Success(new(request.DeviceId,items.ToArray(),false));
+    }
+
+    /// <summary>一次明确确认逐项目创建固定v2运行时任务；每项重新认证、查配置、查关联并使用确定性UUID幂等入队。</summary>
+    [HttpPost("runtime-batch/enqueue")]
+    public async Task<R<AssistantRuntimeBatchEnqueueResult>> RuntimeBatchEnqueue(JsonElement body,CancellationToken token)
+    {
+        var current=AgentRequestAuthentication.RequireWeb(HttpContext);authorization.RequireAdministrator();
+        var request=GenerationAssistantQueue.Parse<AssistantRuntimeBatchEnqueueRequest>(body);if(Header("X-Yzp-Agent-Confirm")!="true")throw new InvalidOperationException("批量入队必须来自本次明确确认。");
+        var batchId=Header("X-Yzp-Agent-Request-Id");AgentTaskStore.ValidateRequestId(batchId);var discovery=await scopes.DiscoverAsync(current.Identity.Actor,request.DeviceId,token);var items=new List<AssistantRuntimeBatchEnqueueItem>();
+        foreach(var project in discovery.Projects)
+        {
+            token.ThrowIfCancellationRequested();if(project.Status!="configured"||project.ProjectId is null){items.Add(new(project.ProjectId,project.ProjectName,project.Status,project.ErrorCode,null));continue;}
+            var requestId=StableBatchRequestId(batchId,project.ProjectId);
+            try
+            {
+                var target=await AuthenticateTargetWebAsync(current.Identity,project.ProjectId,token);var scope=await scopes.LoadAsync(target.Actor,request.DeviceId,token);var owner=new AssistantOwner(target.Actor.AccountId,target.Actor.ProjectId);var binding=await FindApprovedRuntimeBindingAsync(owner,target,scope,token);
+                if(binding is null){items.Add(new(project.ProjectId,project.ProjectName,"failed","approved_runtime_binding_missing",null));continue;}
+                var snapshot=LocalGenerationUpdater.CreateRequest(await metadata.LoadProjectAsync(target.Actor.ProjectId,token),"sync-runtime",scope.Parts);var origin=new AssistantRuntimeOrigin(scope,binding.Value.Association.AssociationSha256);
+                queue.EnqueueRuntime(owner,requestId,binding.Value.Binding.BindingId,snapshot,origin,scope);items.Add(new(project.ProjectId,project.ProjectName,"queued",null,requestId));
+            }
+            catch(UnauthorizedAccessException){items.Add(new(project.ProjectId,project.ProjectName,"failed","target-project-reauthentication-required",null));}
+            catch(InvalidOperationException error) when(error.Message is not "批量入队必须来自本次明确确认。"){items.Add(new(project.ProjectId,project.ProjectName,"failed","runtime_enqueue_rejected",null));}
+        }
+        return R<AssistantRuntimeBatchEnqueueResult>.Success(new(request.DeviceId,items.ToArray(),items.Any(item=>item.Status=="queued")));
     }
 
     /// <summary>只展示当前网页账号项目的任务状态和脱敏预览回执。</summary>
@@ -128,6 +154,22 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
         foreach(var binding in queue.Bindings(owner))
         {
             try{await oauth.RequireApprovedGrantAsync(queue.RequireBinding(owner,binding.BindingId),identity,token);return binding;}
+            catch(UnauthorizedAccessException){ }
+        }
+        return null;
+    }
+    /// <summary>固定批量/项目组合的UUID，重复确认回到同一任务；不把项目ID直接当作客户端请求编号。</summary>
+    private static string StableBatchRequestId(string batchId,string projectId)=>GenerationAssistantBatchPlanning.StableRequestId(batchId,projectId);
+    /// <summary>只接受同项目当前配置与匹配关联的已批准绑定，换绑或旧路径立即跳过。</summary>
+    private async Task<(AssistantBindingView Binding,AssistantDeviceBindingView Association)?> FindApprovedRuntimeBindingAsync(AssistantOwner owner,AuthenticatedIdentity identity,AssistantDeviceScope scope,CancellationToken token)
+    {
+        foreach(var binding in queue.Bindings(owner))
+        {
+            try
+            {
+                await oauth.RequireApprovedGrantAsync(queue.RequireBinding(owner,binding.BindingId),identity,token);var association=queue.FindDeviceBinding(owner,scope);
+                if(association is { MatchesCurrentConfiguration:true, BindingId:var id }&&id==binding.BindingId)return(binding,association);
+            }
             catch(UnauthorizedAccessException){ }
         }
         return null;

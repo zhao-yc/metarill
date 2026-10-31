@@ -19,3 +19,5 @@ C69完成[Node助手v2分端计划应用](testing/runtime-assistant-node-v2.md)�
 C70加入只读逐项目计划入口：`POST /api/admin/sys/generation-assistant/runtime-batch/plan` 复用网页登录/管理员与设备发现，只返回跳过、失败、待项目授权，不创建任务或应用。专项4项通过。原批量页面回调、逐项目真实grant/设备关联、入队和汇总仍未完成。
 
 C71增加逐项目授权预检：对每个configured项目重新认证同账号目标Web项目并检查批准grant/绑定，返回ready或明确缺口；不创建任务、不应用源码。真实OAuth、批量入队和逐项汇总仍待完成。
+
+C72增加明确确认后的逐项目v2入队：批次/项目稳定UUID、目标项目重新认证、当前设备关联/批准grant/绑定检查和单项失败隔离已接入。专项5通过，尚未完成真实OAuth/MySQL、Node领取应用、原页面汇总。

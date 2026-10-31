@@ -11,6 +11,14 @@ public sealed class GenerationAssistantBatchPlanningTests
     private static AssistantDeviceScope Scope(string project)=>new(1,"11",project,"21",H('2'),H('3'),new(true,false),H('4'),null);
     private static string H(char value)=>new(value,64);
     [Fact]
+    public void Stable_batch_request_id_is_deterministic_and_project_scoped()
+    {
+        var batch="11111111-1111-4111-8111-111111111111";var first=GenerationAssistantBatchPlanning.StableRequestId(batch,"1");
+        Assert.Equal(first,GenerationAssistantBatchPlanning.StableRequestId(batch,"1"));Assert.NotEqual(first,GenerationAssistantBatchPlanning.StableRequestId(batch,"2"));Assert.True(Guid.TryParseExact(first,"D",out _));
+        Assert.Throws<ArgumentException>(()=>GenerationAssistantBatchPlanning.StableRequestId(batch,""));Assert.Throws<ArgumentException>(()=>GenerationAssistantBatchPlanning.StableRequestId("bad","1"));
+    }
+
+    [Fact]
     public void Plan_preserves_each_project_result_and_marks_configured_as_authorization_pending()
     {
         var discovery=new AssistantDeviceProjectDiscovery("11",[

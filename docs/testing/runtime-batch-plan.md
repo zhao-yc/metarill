@@ -20,3 +20,11 @@ C67发现与C68服务端来源校验、C69 Node v2原计划应用分别提供后
 C71在同一控制器增加 `POST /api/admin/sys/generation-assistant/runtime-batch/preflight`。它先重新发现全部项目，再对每个可用项目使用同一账号的真实网页登录会话重新认证目标项目；目标项目身份必须是管理员且账号不变。服务端随后只回读该项目已有绑定，并逐个调用批准grant检查，返回 `ready-for-enqueue`、`needs-agent-binding`、`target-project-reauthentication-required`、跳过或失败。
 
 预检不创建队列任务、v2 ticket或源码计划，不返回grant、令牌、本机路径或异常正文。当前项目复用已认证身份，其他项目必须提供原认证头对应的Web会话；选择字段不会切换Actor。严格编译通过，真实OAuth/MySQL未执行。
+
+## 确认后的逐项目入队
+
+C72增加 `POST /api/admin/sys/generation-assistant/runtime-batch/enqueue`。请求必须带原按钮的一次确认头和批次UUID；服务器重新发现配置、重新认证每个目标项目，重新读取当前设备配置，检查同项目当前关联、批准grant和绑定，再创建单个v2 `sync-runtime` 任务。
+
+项目任务UUID由批次UUID和规范项目ID通过固定摘要生成，同一批次重复点击回到原任务；不同项目不会共享任务。任务来源固定当前DeviceScope和关联摘要，服务端不接受客户端路径/摘要。项目失败只影响该项目，取消和基础设施异常继续抛出；回执只返回任务编号和稳定状态。
+
+本层仅完成入队，不能代表本机助手已领取、准备或应用；Node v2和C68/C69的来源/ticket校验仍是后续执行门槛。当前 API 严格编译通过，专项5项通过；真实OAuth、MySQL和原页面网络接线仍未验收。
