@@ -43,3 +43,22 @@ D:\HBuilderX\cli.exe logcat app-android --project <本轮原前端副本> --devi
 原始证据在忽略目录`E:\git\metarill\.local\android-native-20261101\d0338f4830ea`：`native-smoke-result.json`、`original-frontend-compiled-proof.json`、`installed-base-proof.json`、原/对照HBuilderX日志、原生崩溃和进程日志、截图、准备失败记录、AVD配置及独立收尾记录。结果passed=false。
 
 后续需先解决此精确调试运行链或使用独占ARM物理设备/适配基座复验，并验证原登录页实际请求、有效登录及完整业务；不能跳过原界面、替换控件、拿单页诊断程序冒充Metarill，或仅因编译与安装成功勾选V06。iOS本轮查询仍只有空白输出，不算设备不存在或运行证据；MySQL首版、跨端与性能总验收继续未完成。
+
+
+## 后续：x86环境原登录未认证子集完成（2026-11-01，V29）
+
+前述V27失败原样保留。DCloud官方[Android CPU架构说明](https://uniapp.dcloud.net.cn/tutorial/app-android-abifilters.html)明确经典uni-app不支持x86_64；这条支持范围不能单独证明V27崩溃的唯一原因。另通过现有sdkmanager安装精确system-images;android-30;google_apis;x86 rev16，没有升级已有API35、SDK或接受新的许可证。独占AVD Metarill_API30_X86_2351ebe08988实际ABI=x86，仍为2核/2GiB、host GPU、无窗口；标准基座仍为同一15.34 APK，设备实际使用x86。
+
+HBuilderX5.34在独立原前端副本实际编译、安装与同步，原登录页已真实显示。源码499份执行前后逐项摘要相同，没有换成诊断页面。空用户名/空密码两次分别显示原提示、未发送登录请求；假文本在旧宿主实际发出一笔URL编码三字段请求，返回400。V28定位并修复后端ReadLogin遗漏captchaVerification，以及生成登录script静默吞掉非200反馈，详见[原登录协议](../standalone-web-authentication.md)。
+
+从e210c31归档2264来源重新生成661文件Full，加入原六份手写扩展，严格Release publish成功；两轮34个生成文件稳定、六手写及完整项目元数据逐字保持，生成登录template/style与旧包相同。新Application.Host.dll SHA256为6a7db65e784b7a1a27d86c506a57e6a53850cc0066e16796d0657ea63c8b5784。首次包发布重命名staging时0x80070005拒绝，保留目录/回执；同父目录空目录改名控制通过后，在新目标显式重建成功，未更改ACL或删除失败现场，持有句柄进程仍未确定。
+
+只替换自有8088无库Production/Web宿主，不改App来源。原表单再点击一次：请求总数1→2，实际服务器返回401，设备原模态显示“请先登录，或确认应用认证配置。”。这是无库情况下预期认证拒绝和原界面反馈，不是有效密码登录。原平台前端保持；生成登录错误提示另由实际Vue方法/宿主回归证明，不能把平台原生测试冒充生成包已经设备验收。
+
+原基座的READ_PHONE_STATE拒绝分支曾实际出现说明并取消返回；只在本轮空白自有模拟器授予该项后完成正向运行，CALL_PHONE仍未授权，未改manifest/产品权限。标准调试基座的权限不代表最终独立APK权限已验。
+
+仅对本轮设备force-stop基座后从实际解析的PandoraEntry冷启动。首次采集脚本在PID断言失败，未保存当时原始PID值，不能据此推断原因；没有重放启动。随后独立读取系统日志确认5264被杀、8623新启动，再取真实页面截图、原生进程日志及499来源核对；崩溃缓冲区未见FATAL EXCEPTION或原nativeResetWXBridge异常。新宿主也实际收到冷启动后的公开配置GET200。仅证明这次冷启动子集，不能宣称所有设备稳定。
+
+收尾已关闭本轮HBuilder工程，按PID/UTC ticks/完整DLL停止API；按真实AVD名关闭模拟器，再独立核对wrapper/headless/crashpad/端口0。保留配置、日志和截图后，解析绝对路径并拒绝重解析点，删除本轮avd/android-user/emulator-home，包括临时测试密钥。共享ADB/HBuilderX未重启，原emulator-5554仍在且前台仍为SimDock。精确私有证据目录：E:\git\metarill\.local\android-x86-20261101\2351ebe08988，native-smoke-result.json按“未认证登录子集通过、Android整体验收未通过”分开记录。
+
+V06仍待有效账号原登录、权限/CRUD/文件/Excel/复杂关系、独立签名APK及物理真机；iOS、正式双库和同条件性能也未因此完成。没有数据库/账号/业务写入，没有生产部署。

@@ -60,3 +60,8 @@ HBuilderX启动后再次查询的真实设备列表仍为空；本轮两个独�
 ## 2026-11-01 独占Android模拟器实际启动失败
 
 V27从1fd2ef5实际冻结499份原前端，HBuilderX5.34编译60/60页、87文件并安装固定15.34经典标准基座；原源码不变。独占Android15模拟器启动后出现WXBridge.nativeResetWXBridge的UnsatisfiedLinkError，未验证原登录页运行成功，单页对照又停在ADB反向连接阶段，原因尚未证明。基座安装/编译不代表Android运行通过，也不是Metarill独立APK/签名或真机验收。原失败、准备阶段的headless子进程核对修正及自有API/AVD精确收尾见[本轮实际记录](testing/android-emulator-native-smoke.md)。原SimDock模拟器未安装或运行Metarill，前台保持；本轮独占设备/临时数据已清理。V06/V07仍待验收。
+
+
+### 2026-11-01 原平台Android x86未认证运行
+
+V29已在独占API30 x86标准基座实际显示原登录页，验证空值提示、原三字段请求修正前400/后401及冷启动；499源码逐项保持，本轮环境及临时密钥已清理。V27失败、首次包发布拒绝与冷启动采集断言失败保留，具体证据见[原生专项](testing/android-emulator-native-smoke.md)。仅未认证登录子集，没有有效账号/业务、生成包设备运行、独立APK或物理真机，V06继续待验。
