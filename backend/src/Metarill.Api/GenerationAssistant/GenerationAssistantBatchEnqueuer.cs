@@ -20,8 +20,8 @@ public sealed class GenerationAssistantBatchEnqueuer(GenerationAssistantQueue qu
             {
                 var target=await AuthenticateTargetAsync(current,project.ProjectId,loginStateId,authorizationHeader,token);var scope=await scopes.LoadAsync(target.Actor,deviceId,token);var owner=new AssistantOwner(target.Actor.AccountId,target.Actor.ProjectId);var binding=await FindBindingAsync(owner,target,scope,token);
                 if(binding is null){items.Add(new(project.ProjectId,project.ProjectName,"failed","approved_runtime_binding_missing",null));continue;}
-                var snapshot=LocalGenerationUpdater.CreateRequest(await metadata.LoadProjectAsync(target.Actor.ProjectId,token),"sync-runtime",scope.Parts);queue.EnqueueRuntime(owner,requestId,binding.Value.Binding.BindingId,snapshot,new AssistantRuntimeOrigin(scope,binding.Value.Association.AssociationSha256),scope);
-                items.Add(new(project.ProjectId,project.ProjectName,"queued",null,requestId));
+                var snapshot=LocalGenerationUpdater.CreateRequest(await metadata.LoadProjectAsync(target.Actor.ProjectId,token),"sync-runtime",scope.Parts);var task=queue.EnqueueRuntime(owner,requestId,binding.Value.Binding.BindingId,snapshot,new AssistantRuntimeOrigin(scope,binding.Value.Association.AssociationSha256),scope);
+                items.Add(GenerationAssistantBatchPlanning.FromTask(project.ProjectId,project.ProjectName,task));
             }
             catch(UnauthorizedAccessException){items.Add(new(project.ProjectId,project.ProjectName,"failed","target-project-reauthentication-required",null));}
             catch(InvalidOperationException){items.Add(new(project.ProjectId,project.ProjectName,"failed","runtime_enqueue_rejected",null));}

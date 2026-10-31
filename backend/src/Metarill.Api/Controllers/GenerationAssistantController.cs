@@ -76,7 +76,7 @@ public sealed class GenerationAssistantController(GenerationAssistantQueue queue
                 var target=await AuthenticateTargetWebAsync(current.Identity,project.ProjectId,token);var scope=await scopes.LoadAsync(target.Actor,request.DeviceId,token);var owner=new AssistantOwner(target.Actor.AccountId,target.Actor.ProjectId);var binding=await FindApprovedRuntimeBindingAsync(owner,target,scope,token);
                 if(binding is null){items.Add(new(project.ProjectId,project.ProjectName,"failed","approved_runtime_binding_missing",null));continue;}
                 var snapshot=LocalGenerationUpdater.CreateRequest(await metadata.LoadProjectAsync(target.Actor.ProjectId,token),"sync-runtime",scope.Parts);var origin=new AssistantRuntimeOrigin(scope,binding.Value.Association.AssociationSha256);
-                queue.EnqueueRuntime(owner,requestId,binding.Value.Binding.BindingId,snapshot,origin,scope);items.Add(new(project.ProjectId,project.ProjectName,"queued",null,requestId));
+                var task=queue.EnqueueRuntime(owner,requestId,binding.Value.Binding.BindingId,snapshot,origin,scope);items.Add(GenerationAssistantBatchPlanning.FromTask(project.ProjectId,project.ProjectName,task));
             }
             catch(UnauthorizedAccessException){items.Add(new(project.ProjectId,project.ProjectName,"failed","target-project-reauthentication-required",null));}
             catch(InvalidOperationException error) when(error.Message is not "批量入队必须来自本次明确确认。"){items.Add(new(project.ProjectId,project.ProjectName,"failed","runtime_enqueue_rejected",null));}

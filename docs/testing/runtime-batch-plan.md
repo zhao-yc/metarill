@@ -1,4 +1,6 @@
-# 批量运行时逐项目只读计划
+# 批量运行时：计划、入队及原协议边界
+
+当前状态（2026-10-31，C77）：原按钮的设备选择已按Java恢复为sysParams.yzManagerDevicesId；parentId不作设备。旧入口尚未等待最终应用，排队/失败/未知结果明确非成功。持久批次、跨项目状态查询、网络未知恢复、原按钮等待/汇总及真实Web/OAuth/MySQL仍未完成。以下C70—C76为各次提交的历史证据，不能单独证明完整批量同步可用。
 
 2026-10-31，C70，起点a3e9843。该切片为原“同步当前设备全部项目运行时”按钮提供只读计划入口，保留原页面操作，不创建任务、不应用源码。
 
@@ -33,7 +35,7 @@ C72增加 `POST /api/admin/sys/generation-assistant/runtime-batch/enqueue`。请
 
 C74增加后端兼容路由 `POST /api/admin/custom/index/sync_runtime_all_projects?parentId=...`，与原项目列表页面保持同一 URL、POST、parentId 和一次确认交互。页面、按钮、样式、`customButtonHandler` 和刷新流程没有改动；服务器把旧请求转换为逐项目 v2 入队，仍重新查设备拥有权、项目配置、目标项目 Web 身份、批准 grant、当前关联和助手绑定。
 
-旧页面未带批次请求头时服务端生成本次批次 UUID；活动中同设备/项目/绑定/快照任务会按 v2 来源去重，避免重复点击产生并行任务。返回仍是标准 `R<T>`，原页面继续刷新列表；逐项目状态和任务编号保留在响应数据中。Node 多 profile 轮询随后按各项目绑定领取。
+旧页面未带批次请求头时服务端生成本次批次 UUID；活动中同设备/项目/绑定/快照任务会按 v2 来源去重，避免重复点击产生并行任务。当时返回标准 `R<T>` 的R200会使原页面直接刷新并提示成功，这不符合“排队不能算成功”的要求，已由C77修正；逐项目实际状态/编号仍保留在响应数据中。Node 多 profile 轮询随后按各项目绑定领取。
 
 API 严格编译0警告错误，未修改原前端/生成页面；真实跨项目 OAuth、MySQL和页面浏览器验收仍待执行。
 
@@ -43,4 +45,21 @@ C75在真实 `WebApplicationFactory<Program>` 下验证原旧批量 POST 地址�
 
 ## 去重回归收口
 
-C76修正同来源活动任务去重后的专项断言，并重跑来源专项29项；随后重跑API全量，严格155通过、49条件跳过、0失败。去重规则保持：同设备/项目/绑定/配置摘要的活动v2任务复用原任务，已完成任务不阻断新的明确批次；混合普通/v2确认仍拒绝。
+C76修正同来源活动任务去重后的专项断言，并重跑来源专项29项；随后重跑API全量，严格155通过、49条件跳过、0失败。去重规则保持：同设备/项目/绑定/配置摘要的活动v2任务复用原任务，混合普通/v2确认仍拒绝。当时“已完成任务不阻断新批次”的结论缺少实际终态覆盖，C77后续复现出阻断问题并修复，不能用C76的155项替代该证据。
+
+## C77：原设备上下文、实际任务编号及假成功修复
+
+起点c90154c。按原Java `IndexController.sync_runtime_all_projects` 与 `ConfigPageBusiness.buildDeviceGenerateContext` 追踪，设备来自 `PowerInterceptor.getCurrentSysParams().getYzManagerDevicesId()`，不读取parentId。原uni-app共享请求确实发送编码sysParams头，项目列表parentId可能为空、undefined或其它父实体编号。C74虽然路由恢复且匿名测试通过，实际设备语义并不兼容；本次明确修正，不能称C74已经完成业务接线。
+
+修复包括：
+
+- 旧POST沿单一、有界、无重复字段的sysParams头取规范字符串设备ID；parentId仅兼容原列表上下文，不回退为设备。缺设备、错误类型、溢出/前导零、重复头/键、附加设备query及正文在查库前拒绝。拥有权仍由实际读取器复核，头字段不授予权限。
+- 两个批量协调入口使用 `EnqueueRuntime` 返回的实际 `AssistantTaskView`，同步回传真实任务ID和状态。不能在活动去重后回传未持久化的新推导UUID，也不能把leased/applied等状态固定写成queued。
+- 队列先核对精确UUID的原快照，再考虑其它活动任务；UUID冲突不能被另一条活动任务掩盖，重试精确旧UUID仍回旧结果。已有applied/rolled-back/manual-recovery回执的任务不占用新批次活动槽；活跃同来源任务仍稳定复用。
+- 原共享customButtonHandler收到R200会直接提示成功。因此旧批量入口的排队、失败、过期、回滚、未知、仅跳过及空集合返回R500并保留完整逐项数据，消息用中文说明及实际任务ID，不能把入队当成应用完成。只有至少一项实际applied且其它全部applied/skipped才可返回旧成功码。该兼容拒绝误报不等同于已经实现原按钮等待最终回执。
+
+验证：新增31项专项通过、0失败/跳过；最终完整API严格186通过、49条件跳过、0失败（42秒），完整Agent严格444通过、25条件跳过、0失败（41秒）。包含原sysParams长ID、parentId独立性、坏输入拒绝，精确UUID冲突、leased实际编号、三种实际应用终态释放槽/旧UUID回读，以及原成功UI判定。文件队列真实落盘，身份/Scope为明确合成；没有真实MySQL/OAuth/用户工程或浏览器登录操作。语法/编译由严格测试命令完成，所有进程正常结束后才写文档。
+
+证据：E:\git\metarill\.local\batch-contract-first.log、batch-contract-api-final.log、batch-contract-agent-final.log及TestResults同名TRX。命令为项目固定DOTNET_HOST_PATH下对Metarill.Api.Tests和Metarill.Agent.Tests执行 `dotnet test -c Release --nologo --disable-build-servers --verbosity quiet -warnaserror`，另用filter执行新增专项。
+
+原前端页面、样式、生成模板、backend/generated和待批准AgentTaskMiddleware均未改。无需DDL/回填/前端再生成。批量持久意图、跨项目只读查询及最终汇总未实现，不能靠再次点击/新UUID当未知恢复；原按钮最终闭环继续保留未完成状态。设备控制通道豁免仍待此前明确批准。

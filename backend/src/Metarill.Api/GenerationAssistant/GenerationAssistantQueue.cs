@@ -56,18 +56,21 @@ public sealed partial class GenerationAssistantQueue
         if (snapshot.ProjectId != owner.ProjectId) throw new UnauthorizedAccessException("离线快照不属于当前项目。");
         ValidateRuntimeSnapshot(owner,snapshot,origin);
         if(origin is not null)RequireCurrentRuntimeOrigin(owner,binding,origin,current??throw new UnauthorizedAccessException("分端入队缺少本次实际配置复核。"));
-        if(origin is not null)
-        {
-            var duplicate=Directory.GetFiles(options.RootDirectory,"task-*.json").Select(path=>Expire(ReadTask(Path.GetFileName(path)[5..^5])))
-                .FirstOrDefault(task=>task.BindingId==bindingId&&task.Snapshot.RequestSha256==snapshot.RequestSha256&&task.RuntimeOrigin==origin&&task.Status is "queued" or "leased" or "preview_ready" or "dependencies_required");
-            if(duplicate is not null)return View(duplicate);
-        }
         var path = "task-" + requestId + ".json";
+        // 精确UUID先核对原请求，不能让另一条活动任务掩盖UUID冲突或替换已终结的历史回执。
         if (File.Exists(Safe(path)))
         {
             var old = Expire(ReadTask(requestId)); RequireScope(old, owner);
             if (old.BindingId != bindingId || old.Snapshot.RequestSha256 != snapshot.RequestSha256 || old.RuntimeOrigin!=origin) throw new InvalidOperationException("同一任务UUID不能绑定其他动作或快照。");
             return View(old);
+        }
+        if(origin is not null)
+        {
+            // 已有应用回执的任务不再占用活动槽；新批次不能被旧applied/回滚/未知结果永久合并。
+            var duplicate=Directory.GetFiles(options.RootDirectory,"task-*.json").Select(file=>Expire(ReadTask(Path.GetFileName(file)[5..^5])))
+                .Where(task=>task.BindingId==bindingId&&task.Snapshot.RequestSha256==snapshot.RequestSha256&&task.RuntimeOrigin==origin&&task.Status is "queued" or "leased" or "preview_ready" or "dependencies_required")
+                .OrderBy(task=>task.CreatedAt).ThenBy(task=>task.RequestId,StringComparer.Ordinal).FirstOrDefault(task=>View(task).Application is null);
+            if(duplicate is not null)return View(duplicate);
         }
         if (Directory.GetFiles(options.RootDirectory, "task-*.json").Length >= options.MaxTasks) throw new InvalidOperationException("生成助手任务已达到有界保留上限，请先审阅和归档旧记录。");
         var now = clock.GetUtcNow();

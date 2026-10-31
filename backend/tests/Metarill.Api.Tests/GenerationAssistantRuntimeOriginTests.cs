@@ -11,7 +11,7 @@ using Xunit;
 namespace Metarill.Api.Tests;
 
 /// <summary>真实文件队列验证固定分端来源；Scope及身份均显式合成，不证明真实数据库/OAuth或本机源码已应用。</summary>
-public sealed class GenerationAssistantRuntimeOriginTests:IDisposable
+public sealed partial class GenerationAssistantRuntimeOriginTests:IDisposable
 {
     private readonly string root=Path.Combine(Path.GetTempPath(),"metarill-runtime-origin",Guid.NewGuid().ToString("N"));
     private readonly MetadataCatalog metadata=Catalog();

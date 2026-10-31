@@ -16,6 +16,12 @@ public static class GenerationAssistantBatchPlanning
         if(!Guid.TryParseExact(batchId,"D",out var batch)||batch.ToString("D")!=batchId||string.IsNullOrWhiteSpace(projectId))throw new ArgumentException("批次或项目标识无效。");
         var bytes=SHA256.HashData(Encoding.UTF8.GetBytes("metarill-runtime-batch-v1\n"+batchId+"\n"+projectId));bytes[6]=(byte)((bytes[6]&15)|80);bytes[8]=(byte)((bytes[8]&63)|128);return new Guid(bytes[..16]).ToString("D");
     }
+    /// <summary>批量结果必须沿实际队列回执的编号/终态；去重或重复批次不能回传不存在的新编号或把已应用重新标成排队。</summary>
+    public static AssistantRuntimeBatchEnqueueItem FromTask(string projectId,string projectName,AssistantTaskView task)
+    {
+        if(task.ProjectId!=projectId||task.Action!="sync-runtime")throw new InvalidOperationException("批量任务回执项目或动作不符。");
+        return new(projectId,projectName,task.Status,task.Preview?.ErrorCode??task.Application?.ErrorCode,task.RequestId);
+    }
     /// <summary>将设备发现映射为原按钮需要的逐项目结果；configured仍需后续目标项目的真实Web/grant授权。</summary>
     public static AssistantRuntimeBatchPlan Create(AssistantDeviceProjectDiscovery discovery)
     {
