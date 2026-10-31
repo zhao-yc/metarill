@@ -40,6 +40,15 @@ mvn -B -o -f <新宿主根>/backend/pom.xml -Dtest=SampleClasspathTest,AdminCapC
 
 ## 尚未完成的实际接入
 
-新Jar尚未构建为Linux镜像或启动真实Spring业务宿主。后续应另固定该新JAR和工具提交、构建新的独占镜像，不重写旧V19标签冒充旧产物；显式准备独占业务/基础库及Redis命名空间、原日志表DDL、真实密码与同角色权限、普通/禁用/撤权、导航及工作台readiness、文件/三业务动作后再进入性能回放。当前没有建库/账号、Redis键、Cap私有配置或部署；原登录Properties默认及启用后的拒绝规则均保持，不因缺少真实配置关闭验证。
+新Jar已固定到下述独占Linux镜像，但尚未启动真实Spring业务宿主。后续仍须显式准备独占业务/基础库及Redis命名空间、原日志表DDL、真实密码与同角色权限、普通/禁用/撤权、导航及工作台readiness、文件/三业务动作后再进入性能回放；没有重写旧V19标签冒充旧产物。当前没有建库/账号、Redis键、Cap私有配置或部署；原登录Properties默认及启用后的拒绝规则均保持，不因缺少真实配置关闭验证。
 
 私有证据：`E:\git\metarill\.local\paired-java-login-20261101`，包含原Git来源、14项清单、提取前后记录、5个边界用例、源/构建后逐项摘要、login-host-preparation-receipt、原始Maven日志及Surefire报告。V08/MySQL首版总验收保持未通过；新Jar不混入待批C19固定包或其单库租约。
+
+
+## Server-200新镜像与内容探针（2026-11-01）
+
+提取工具/清单/测试源的原始字节均与提交`4e8d0cb386de7d69b322596061886faedf748b6b`匹配；原Java上游仍为b6d64fb，两者分别记录，不能把提取工具提交说成原JAR全部源码提交。沿用V19已固定的Java21基础manifest，在Server-200构建唯一镜像`metarill-perf-f85f7ad246414026a3f257ee936f0a5c-java:login-v1`，实际ID`sha256:329f43e4d3678bf2d81cfd6d7f73baa3ad73676134798dc7018d3ab28fb85936`。镜像标签记录本轮工具提交，JAR内容摘要另行固定。
+
+禁网、只读根、非root、丢弃能力、0.5CPU/256MiB/64PID的单个短时容器实际执行`java -version`及`sha256sum /app/application.jar`，JDK21.0.13+9及镜像内新JAR摘要e97ca4f均符合固定输入，退出0；随后新Docker命令独立确认该探针容器不存在。上下文3文件复制前后摘要保持，每次Docker前都验证Server-200主机名/192.168.31.200并指定Unix socket。
+
+新镜像及唯一`/tmp/metarill-java-login-image-f85f7ad246414026a3f257ee936f0a5c`准备目录保留，原V19镜像未被本轮命令改动。没有启动Spring、发送应用HTTP、连接MySQL/Redis或创建库/账号/键，版本和内容探针不算真实登录、Bean完整接线、图像/文件业务或性能通过。私有image-intent、image-build-scope、image-result及native-image-proof保留构建和探针证据。
