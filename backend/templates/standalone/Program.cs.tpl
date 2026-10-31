@@ -182,9 +182,9 @@ app.Use(async (context, next) =>
         await context.Response.WriteAsJsonAsync(R<object>.Error(message, status));
     }
 });
-// 原公开登录、受保护下载票据和公开文件不读取旧会话；其余API采用严格Web/Agent分流。
+// 原登录前GET配置、登录、下载票据和公开文件不读取旧会话；其余API采用严格Web/Agent分流。
 bool RequiresIdentity(HttpContext context)=>context.Request.Path.StartsWithSegments("/api")&&context.Request.Path!="/api/admin/sys/yz_manager/login"
-    &&!context.Request.Path.StartsWithSegments("/api/agent/oauth")&&!IsPublicFileContent(context.Request)&&!ExportDownloadAccess.CanUseGrant(context.Request);
+    &&!IsPublicLoginConfiguration(context.Request)&&!context.Request.Path.StartsWithSegments("/api/agent/oauth")&&!IsPublicFileContent(context.Request)&&!ExportDownloadAccess.CanUseGrant(context.Request);
 if(!authenticationMode.Development)
 {
     app.UseWhen(RequiresIdentity,branch=>
@@ -253,6 +253,9 @@ app.MapGet("/api/admin/sys/yz_manager/cap-config", () => R<object>.Success(new {
 ApplicationMcpIntegration.Map(app,authenticationMode);
 app.MapControllers();
 await app.RunAsync();
+
+// 原登录页先读取这两个公开开关，不需要会话；其它方法或相似路径仍走完整认证。
+static bool IsPublicLoginConfiguration(HttpRequest request)=>HttpMethods.IsGet(request.Method)&&request.Path=="/api/admin/sys/yz_manager/cap-config";
 
 // 仅正整数文件标识的 GET/HEAD 公开流可匿名；写入、解析、私有流和相似路径仍须认证。
 static bool IsPublicFileContent(HttpRequest request)

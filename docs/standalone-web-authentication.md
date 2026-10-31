@@ -58,3 +58,17 @@ Full在原文件/业务CRUD之后新增以下真实进程、HTTP和MySQL顺序�
 同目录 `test.log`、`build.log` 保留；本机 `settings.json` 已不存在，结果另记凭据文件已删。辅助 `.local/fresh-web-http-integrated.trx` 的5/5是纯HttpMessageHandler协议合同，SHA256 `4d17ff10d02c111513cbda63451f35e655fd0475fcff3f0d781708d2e37faa1d`；不计作五项实库或与Fresh相加成一个完整套件。
 
 旧1ce30 Fresh、84项加单独1项定向、487文件包Release/Node/HBuilderX证据仍按原冻结保留，见[验收台账](acceptance.md)，不累计重复运行。本次没有浏览器DOM/账号管理写入、设备、生产部署或新RR并发验收。角色工作台Business提取到共享Security只是工程闭包，不代表独立宿主已接入完整目录证明、协调器、三个安全Service手写partial或安全管理CRUD；Runtime A、五处Custom、Agent等既有门禁不因此关闭。
+
+## 2026-11-01 原登录前公开配置修复
+
+原前端login.vue在onLoad及提交密码前，以notSendSessionId=true读取GET /api/admin/sys/yz_manager/cap-config。独立Full模板虽然映射了此接口，但RequiresIdentity遗漏它，Production/Web匿名请求被中间件401拒绝，导致原页面不能完成配置读取。平台主服务的控制器/登录交互不在本次改动范围。
+
+已修复Program.cs.tpl，仅将原路径GET识别为登录前公开配置；返回仍只有enabled=false和apiEndpoint空串。不改变Cap验证配置、前端、密码/会话/权限判定，不公开POST/PUT/HEAD、相似前缀/子路径或菜单/权限/改密/退出。匿名与旧失效loginStateId头两种GET均验证，其余接口继续要求身份。
+
+先保留原模板新增9项实际编译/HTTP检查：7通过、2失败，两个失败分别是公开GET被判定需要身份和真实生成宿主HTTP401；修正后完整认证/装配回归141通过、0失败/跳过，包含真实Production/Web无数据库进程的公开GET与8个保护路径/方法、未初始化账号登录仍401。这里没有连接MySQL，不冒称真实密码登录/数据库事务再次通过。
+
+Server-200另用V19原4820313固定镜像启动禁网、只读、非root容器，实际运行原应用的回环HTTP，再次取得cap-config阶段401、探针退出1；独占容器已移除并独立核零。旧镜像/JAR/原包不覆盖；新C#包和镜像需从本次源码重新生成固定，并补修正后Linux HTTP证据，不能用旧镜像或本机工具回归代替。
+
+新Full包自动取得此模板；已有web-database-v1完整包通过原在线助手sync-runtime审查/更新受管Program.cs，保留手写partial、原前端、AppID及私有配置。单纯generate-project-config不能替代运行时更新。无需元数据、DDL、数据回填或账号重置；BackendOnly开发模板不属于此数据库Web缺口，不要求因此迁移profile。未实际更新的旧发布包仍可能存在该问题，本次不部署生产。
+
+原失败TRX、141项结果与旧Linux HTTP证据分别保留在私有paired-identity-seed-20261101/cap-config-before、cap-config-after及paired-cap-config-20261101，不修改历史结果。V08和MySQL首版仍待完整初始化/身份/业务/SQL/资源/性能验收。

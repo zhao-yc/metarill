@@ -213,6 +213,8 @@ public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPa
 public sealed class WebAuthenticationPackageFixture:IAsyncLifetime
 {
     internal const string Namespace="Example.PackagedWebAuthentication";private readonly string root=Path.Combine(Path.GetTempPath(),"metarill-web-auth-source",Guid.NewGuid().ToString("N"));private Assembly assembly=null!;
+    /// <summary>公开同一已编译包的宿主目录供真实回环HTTP验证，不另生成或改写Program。</summary>
+    internal string HostDirectory=>Path.Combine(root,"backend/Application.Host");
     internal MetadataCatalog Metadata{get;private set;}=null!;internal MetadataCatalog Security{get;private set;}=null!;internal byte[] CatalogBytes{get;private set;}=[];
     public async Task InitializeAsync()
     {
