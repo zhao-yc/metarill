@@ -33,11 +33,20 @@ Java额外核对Spring Boot启动器及原应用入口；C#核对net10.0、两�
 
 ## 当前远端阶段与边界
 
-本轮唯一runId `4c4ef93d9e4d432b8699e1cb10efc4cf`。固定归档已上传Server-200，远端71个归档文件摘要核验后，已提交Java镜像构建。当前尚未取得两个成功镜像及三个探针的完成回执；实际构建进度以私有执行日志核对，不能把Dockerfile或构建中状态写为运行通过。
+本轮唯一runId `4c4ef93d9e4d432b8699e1cb10efc4cf`。固定归档已上传Server-200，远端71个归档文件摘要核验后，两个镜像构建及三个禁网只读探针均实际通过；探针退出后由独立Docker命令核验三个精确容器名均不存在。全程没有启动Spring/ASP.NET业务宿主、发送应用HTTP或连接数据库/Redis。基础层下载慢时沿用同一活跃构建至完成，没有另起或重跑本轮构建。
 
 唯一准备目录为`/tmp/metarill-perf-images-4c4ef93d9e4d432b8699e1cb10efc4cf`，两目标镜像为`metarill-perf-4c4ef93d9e4d432b8699e1cb10efc4cf-java:artifact-v1`与`metarill-perf-4c4ef93d9e4d432b8699e1cb10efc4cf-csharp:artifact-v1`。构建的RUN只有创建本轮应用目录，不访问网络；固定基础层由Docker按digest取得。归档、归属和构建日志保留；没有删除共享基础镜像/缓存或其它任务对象。
 
-准备完成后预定三个精确名字的短时探针，仅执行`java -version`、`dotnet --list-runtimes`和固定SkiaSharp原生库的ldd依赖检查。探针禁网、只读根、非root、丢弃能力、0.5CPU/256MiB/64PID，退出自动删除并另行核验不存在；这些是待核实步骤，不是已通过。不会启动Spring/ASP.NET业务宿主、HTTP、数据库、Redis或实际文件操作。
+三个精确名字的短时探针实际执行`java -version`、`dotnet --list-runtimes`和固定SkiaSharp原生库的ldd依赖检查，均退出0并独立核零。探针禁网、只读根、非root、丢弃能力、0.5CPU/256MiB/64PID；这些资源仅用于版本检查，不是后续同条件负载的资源证明。ldd无缺失依赖，不代表已经调用SkiaSharp图像API、生成缩略图或验证字体。
+
+实际镜像与版本：
+
+| 目标 | 构建后的应用镜像ID | 实测运行时 |
+| --- | --- | --- |
+| Java | `sha256:13634ed450e7c8e6165331f032fd5ebaee8e5ffe28d839d3d77fcf626329353f` | Temurin 21.0.13+9；V17原JAR仍为JDK21.0.12构建，区分构建/运行补丁版本 |
+| C# | `sha256:4820313d7bf5f1684294251c496b46300102572eaba3c471c616d7f86455c81c` | Microsoft.NETCore.App和Microsoft.AspNetCore.App均10.0.14 |
+
+两个镜像和唯一准备目录保留供后续使用；没有删除共享基础镜像或缓存。V18的镜像ID只能在正式应用容器确实使用上述镜像时采用，还须重新核对容器标签、实际回环绑定及资源。当前无应用容器，不能把三个版本探针当作正式接线或业务验收。
 
 V08/MySQL首版仍缺两端显式结构/初始化、真实身份/权限及readiness、完整关系/父子/手写业务/文件等价、同数据/索引/SQL/资源/共享负载、正式性能和独占数据库/账号/样本清理协调器。当前镜像准备不建库、账号或授权，不复用旧随机租约，也不合main或生产部署。
 

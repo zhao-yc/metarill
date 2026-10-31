@@ -45,6 +45,6 @@ C#实际使用固定CLI执行`package --metadata ... --output ... --namespace Me
 原46列/15差异及B98历史包/失败保持原身份；本批更新的是新的双端产物。平台原前端/模板/元数据与生成776项保护核对不变；本批无需产品DDL、回填或旧项目迁移。
 
 
-V19后续已补[固定Linux镜像准备](paired-linux-images.md)：由本批原JAR/64个运行输出生成上下文，实取官方linux/amd64 manifest，200架构/磁盘及唯一目标名核对后已进入实际镜像构建；尚未取得完整镜像/探针完成回执，原应用、数据库及性能门槛继续保持。
+V19后续已补[固定Linux镜像准备](paired-linux-images.md)：由本批原JAR/64个运行输出生成上下文，实取官方linux/amd64 manifest，200架构/磁盘及唯一目标名核对后实际构建双镜像，Java21.0.13/.NET10.0.14/Skia依赖三个禁网只读探针通过并独立核零；镜像保留但未启动业务宿主，原应用、数据库及性能门槛继续保持。
 
 V19后续对同一JAR的静态审计另确认：三份基础账号/角色Service已装配，但原网页登录Controller不在包内；旧样板说明的Web会话来自测试准备。需另补原认证接线和真正登录，不能以镜像版本探针、预置Redis会话或放宽readiness替代。详情及未执行的HTTP边界见[Linux准备登录缺口](paired-linux-images.md)。
