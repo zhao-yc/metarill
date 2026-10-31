@@ -14,6 +14,13 @@ public static class GlobalPhysicalRelationValue
     internal static bool IsPublishedScalar(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column,ISet<string> resolving)
     {
         if(IsScalar(storage,target,column))return true;
+        if(target.IsRongyu==0&&column.ConfigTableId==target.Id&&!storage.IsPhysical(column))
+        {
+            var derivedKey=target.Id+":"+column.Id;
+            if(resolving.Count>=16||!resolving.Add(derivedKey))throw new NotSupportedException("全局名称依赖存在循环或超过16层。");
+            try{GlobalDerivedRelationSource.RequireName(catalog,target,column,resolving);return true;}
+            finally{resolving.Remove(derivedKey);}
+        }
         if(column.ConfigTableId!=target.Id||!storage.IsPhysical(column)||column.IsVirtualColumn!=0||column.LogicalType!="string"||column.ControlKind is not("" or "TextArea")||ExactDataManageValues.IsSensitiveField(column.ColumnName)||!column.Extra.TryGetValue("isJoinColumn",out var cached)||!(cached.ValueKind==JsonValueKind.True||cached.ToString()=="1"))return false;
         var key=target.Id+":"+column.Id;
         if(resolving.Count>=16||!resolving.Add(key))throw new NotSupportedException("全局名称缓存依赖存在循环或超过16层。");

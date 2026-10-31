@@ -25,7 +25,7 @@ internal static class GlobalCachedSourceCompilation
             if(!catalog.MixedSourceColumns.GetValueOrDefault(binding.Source.Source.TableName,[]).Contains(binding.Cache.Source.ColumnName,StringComparer.Ordinal))throw new NotSupportedException("全局List来源尚未形成完整保存/传播/维护计划："+binding.Source.Source.TableName+"."+binding.Cache.Source.ColumnName);
     }
     /// <summary>完整目录的全局来源存在时，所有生成服务均固定Actor项目，目标事件也不能切换消费者目录。</summary>
-    internal static bool BindsActor(GenerationModel model)=>ForModel(model).Count>0;
+    internal static bool BindsActor(GenerationModel model)=>ForModel(model).Count>0||model.Tables.Any(table=>table.IsGlobal&&table.Source.IsRongyu==0);
     /// <summary>来源字段不接受改变目标含义的页级覆盖，所有页面共享同一物理名称副本。</summary>
     private static IReadOnlyList<GlobalCachedSourceBinding> Compile(GenerationModel model)
     {

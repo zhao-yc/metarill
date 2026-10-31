@@ -90,6 +90,8 @@ public sealed partial class LocalGenerationUpdater
         if(candidate&&frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"src/Metarill.Security/PlatformAdminInitializationScope.cs","src/Metarill.Security/PlatformAdminAccountTarget.cs","src/Metarill.Security/IAdminInitializationAgentPolicy.cs","src/Metarill.Agent/AgentAdminInitializationPolicy.cs"});
         // Data接口直接引用物理身份类型，当前候选必须带适配源码。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Data/MySqlDatabaseIdentity.cs"});
+        // 当前全局证明直接引用R0路径类型，候选不能同时删源码和归属冒充完整运行时。
+        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Metadata/GlobalDerivedRelationSource.cs"});
         // 通用行存储引用二进制合同；当前候选必须带源，旧目标可显式同步后升级。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/BinaryFieldValue.cs","src/Metarill.Data/Schema/MySqlBinaryDefault.cs"});
         // 新级联导入/导出依赖整层路径及整行聚合；当前候选必须带齐，旧目标可预览完整运行时升级。

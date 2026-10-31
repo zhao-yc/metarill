@@ -1,5 +1,7 @@
 # 普通来源引用全局R1名称缓存
 
+后续B111已补普通List／SelectPage引用全局R0实时名称的固定本地子集，正式MySQL与其它组合仍待，见[全局R0单值名称](global-derived-target-names.md)。本页B105／B106旧证据不扩大到该新组合。
+
 后续B108补级联根/中/末引用受管全局R1名称缓存的本地子集，原导入导出开关及公开Full门槛保留，详见[级联缓存名称目标](global-cross-cached-target-names.md)。本页旧批次的验证证据和范围保持原样。
 
 后续B107已补普通多选/复选引用全局R1受管名称的本地生成子集，正式传播/回填仍待验，见[多值缓存名称目标](global-multiple-cached-target-names.md)。本页旧批次的验证证据和适用范围保持原样。

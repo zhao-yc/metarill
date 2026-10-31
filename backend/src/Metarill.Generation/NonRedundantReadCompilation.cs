@@ -18,7 +18,13 @@ internal static class NonRedundantReadCompilation
     /// <summary>只编译已经接通的标量用途；完整包还须通过全部控件、范围及独立宿主验证。</summary>
     internal static NonRedundantPagePlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
-        if(table.IsGlobal)throw new InvalidOperationException("非冗余全局读取仍待完整接线。");
+        // 全局R0仅开放明确发布的固定目标页；原页面变量和精确管理范围仍由共享证明拒绝。
+        if(table.IsGlobal)
+        {
+            GlobalCrossTableTarget.RequireSingle(model.Catalog,table.Source,page.Source);
+            // 全局候选和对象自身项目读取是两个用途；带行项目的R0目标尚需独立候选范围接线。
+            if(table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new NotSupportedException("全局R0候选页暂不发布带行项目的来源组合。");
+        }
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿原FileLibrary事务写入；其它多值、派生文件及布局仍须独立编译。
