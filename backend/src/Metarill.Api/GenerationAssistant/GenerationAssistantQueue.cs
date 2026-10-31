@@ -56,6 +56,12 @@ public sealed partial class GenerationAssistantQueue
         if (snapshot.ProjectId != owner.ProjectId) throw new UnauthorizedAccessException("离线快照不属于当前项目。");
         ValidateRuntimeSnapshot(owner,snapshot,origin);
         if(origin is not null)RequireCurrentRuntimeOrigin(owner,binding,origin,current??throw new UnauthorizedAccessException("分端入队缺少本次实际配置复核。"));
+        if(origin is not null)
+        {
+            var duplicate=Directory.GetFiles(options.RootDirectory,"task-*.json").Select(path=>Expire(ReadTask(Path.GetFileName(path)[5..^5])))
+                .FirstOrDefault(task=>task.BindingId==bindingId&&task.Snapshot.RequestSha256==snapshot.RequestSha256&&task.RuntimeOrigin==origin&&task.Status is "queued" or "leased" or "preview_ready" or "dependencies_required");
+            if(duplicate is not null)return View(duplicate);
+        }
         var path = "task-" + requestId + ".json";
         if (File.Exists(Safe(path)))
         {

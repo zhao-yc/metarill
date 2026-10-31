@@ -28,3 +28,11 @@ C72增加 `POST /api/admin/sys/generation-assistant/runtime-batch/enqueue`。请
 项目任务UUID由批次UUID和规范项目ID通过固定摘要生成，同一批次重复点击回到原任务；不同项目不会共享任务。任务来源固定当前DeviceScope和关联摘要，服务端不接受客户端路径/摘要。项目失败只影响该项目，取消和基础设施异常继续抛出；回执只返回任务编号和稳定状态。
 
 本层仅完成入队，不能代表本机助手已领取、准备或应用；Node v2和C68/C69的来源/ticket校验仍是后续执行门槛。当前 API 严格编译通过，专项5项通过；真实OAuth、MySQL和原页面网络接线仍未验收。
+
+## 原页面旧路由兼容
+
+C74增加后端兼容路由 `POST /api/admin/custom/index/sync_runtime_all_projects?parentId=...`，与原项目列表页面保持同一 URL、POST、parentId 和一次确认交互。页面、按钮、样式、`customButtonHandler` 和刷新流程没有改动；服务器把旧请求转换为逐项目 v2 入队，仍重新查设备拥有权、项目配置、目标项目 Web 身份、批准 grant、当前关联和助手绑定。
+
+旧页面未带批次请求头时服务端生成本次批次 UUID；活动中同设备/项目/绑定/快照任务会按 v2 来源去重，避免重复点击产生并行任务。返回仍是标准 `R<T>`，原页面继续刷新列表；逐项目状态和任务编号保留在响应数据中。Node 多 profile 轮询随后按各项目绑定领取。
+
+API 严格编译0警告错误，未修改原前端/生成页面；真实跨项目 OAuth、MySQL和页面浏览器验收仍待执行。
