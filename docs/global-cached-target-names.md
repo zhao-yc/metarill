@@ -79,3 +79,14 @@ Core三个现有文件扩展递归名称证明，Data两个现有文件复用该
 准备日志/TRX：私有 `.local/global-cached-target-native-preparation-v2.log`、`.local/TestResults/global-cached-target-native-preparation-v2.trx`；4包在本任务源码根 `.local/global-cached-target-native/prepared`。交付目录私有 `.local/global-cached-target-native-20261031` 后续保存独立执行器归档、固定清单及精确计划；未授权前不创建远端对象。
 
 B106独立固定执行器 `1cca7c6` 已严格构建：2217源码、152编译输出、四包各941文件；每包208份受管运行时源码与产品9f798eb逐字一致。固定程序集11门禁通过（与原准备重叠），实际四模型pending入口均连接前拒绝；Python pending外部调用0。Server-200只读确认本轮新对象不存在，精确计划位于交付根私有 `.local/global-cached-target-native-20261031/permission-plan.md`，仍待本轮四库及账号创建/验收/清理授权。没有真实业务通过，未复用旧租约。
+
+
+## B106首次正式执行与测试修正（2026-10-31）
+
+用户明确批准dc615254c43349e4本轮四库/账号后，重新只读核对Server-200实例及四库/账号不存在，使用原冻结1cca7c6执行器与四个941文件完整包正式运行。四模型均失败、无通过/跳过，停在FreshGlobalCachedTargetMySqlTests原107行：撤销目标10直接权限后错误预期403，实际200。到达此处前的改名传播、维护/重复零变化、原导入导出、改名约束故障与晚期文件回滚断言已执行；未完成后续来源撤权及会话重启，不把前段成功转记为整项正式通过。
+
+核对原模型、已冻结Controller和生产权限聚合：10为type=1，来源30的SelectPage实际编译30→10查询继承。因此目标直接授权为空不等于撤销继承；原全局单值合同已记载该规则。本次只修正测试：目标直接权撤销后原List/SelectPage已选仍成功；来源30撤权后两者都应拒绝；回执分开记录来源撤权、目标查询继承，不再声称独立目标撤权。产品权限、页面、模型、包均未放宽。
+
+新增四模型直接执行同一生产权限聚合器，验证只继承查询、不继承修改/导出/独立文件读取，来源权为空后查询消失。生产聚合器保持internal，测试反射调用，无新增友元。连同原11项租约/节点门禁最终15项通过、零失败/跳过；首轮误把internal方法当public导致的编译失败保留，不改产品可见性。
+
+本轮finally清理四库及唯一账号成功，另起独立连接再次核零，临时连接设置已删除，租约ended，不重跑或复用。原固定执行器源码/程序集及四包摘要保持。私有证据：`.local/global-cached-target-native-20261031/dc615254c43349e4/{fresh.trx,test-result.json,cleanup.json,post-observation.json,result.json}`。修正后正式复验需另行冻结来源并取得新精确租约，当前B106仍未完成。

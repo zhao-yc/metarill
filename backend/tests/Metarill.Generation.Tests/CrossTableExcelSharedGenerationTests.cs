@@ -142,21 +142,21 @@ public sealed class CrossTableExcelSharedGenerationTests
 internal sealed class SharedExcelReadTransport:IDisposable
 {
     internal readonly TrustedSecurityMemoryProvider Transport=new();internal readonly List<string> Reads=[];
-    private readonly Dictionary<Type,List<object>> rows=[];private readonly Assembly assembly;private readonly string rootNamespace;private readonly Type serviceType;private readonly object service;private readonly SnapshotProvider provider;private readonly string sourceEntity;private readonly bool sourceCondition;
-    private readonly RuntimeActor actor=new(901,"共享Excel解析",false,"9007199254740993","5");
+    private readonly Dictionary<Type,List<object>> rows=[];private readonly Assembly assembly;private readonly string rootNamespace;private readonly Type serviceType;private readonly object service;private readonly SnapshotProvider provider;private readonly string sourceEntity;private readonly bool sourceCondition;private readonly string pageId;
+    private readonly RuntimeActor actor;
     internal DatabaseSession Session{get;}
     internal int Snapshots=>provider.Snapshots;
     internal Exception? FindFailure{get;set;}
     internal int ExportLockCount{get;private set;}
     /// <summary>仅用实际生成Mapper与Service；额外目标list授权、ADO写入和网络访问均拒绝。</summary>
-    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false)
+    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false,string pageId="201",RuntimeActor? actor=null)
     {
-        this.assembly=assembly;this.rootNamespace=rootNamespace;sourceEntity=serviceName;this.sourceCondition=sourceCondition;
+        this.assembly=assembly;this.rootNamespace=rootNamespace;sourceEntity=serviceName;this.sourceCondition=sourceCondition;this.pageId=pageId;this.actor=actor??new(901,"共享Excel解析",false,"9007199254740993","5");
         var orm=(IFreeSql)Proxy(typeof(IFreeSql),(method,args)=>method.Name=="Select"?Select(method.GetGenericArguments()[0]):throw new InvalidOperationException("共享Excel离线读取禁止ORM写入或联网。"));
         provider=new(Transport,orm);Session=new(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);
         var mapper=Activator.CreateInstance(assembly.GetType(rootNamespace+".Generated.Mappers."+serviceName+"Mapper",true)!,Session)!;
         serviceType=assembly.GetType(rootNamespace+".Generated.Services."+serviceName+"Service",true)!;
-        service=Activator.CreateInstance(serviceType,Session,mapper,new SnowflakeIdGenerator(951),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),new ImportOnly(actor))!;
+        service=Activator.CreateInstance(serviceType,Session,mapper,new SnowflakeIdGenerator(951),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),new ImportOnly(this.actor))!;
     }
     /// <summary>只向明确生成类型赋值，未知属性不被忽略；键值转换保持精确整数。</summary>
     internal void Add(string entity,IReadOnlyDictionary<string,object?> fields)
@@ -168,7 +168,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
     /// <summary>真实私有解析加入原会话事务；不直接调用共享工具伪造生成方法已接线。</summary>
     internal Task<Dictionary<string,JsonElement>> Parse(Dictionary<string,object?> row)=>Session.InTransactionAsync(async()=>
     {
-        var method=serviceType.GetMethod("ParseImport201Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
+        var method=serviceType.GetMethod("ParseImport"+pageId+"Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
         var arguments=method.GetParameters().Select(parameter=>parameter.Name switch{"row"=>(object?)JsonSerializer.SerializeToElement(row),"parentId"=>null,"actor"=>actor,"existing"=>null,"keyOnly"=>false,"cancellationToken"=>CancellationToken.None,_=>throw new InvalidOperationException("未知生成解析参数。")}).ToArray();
         try{return await (Task<Dictionary<string,JsonElement>>)method.Invoke(service,arguments)!;}
         catch(TargetInvocationException error)when(error.InnerException is not null){System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
@@ -176,7 +176,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
     /// <summary>公开导出方法实际产生原列及单元格，记录导出结束时的锁数。</summary>
     internal async Task<PageExportRequest> Export(PageRequest? request=null)
     {
-        try{return await (Task<PageExportRequest>)serviceType.GetMethod("Export201Async")!.Invoke(service,[request??new PageRequest(),actor,100,CancellationToken.None])!;}
+        try{return await (Task<PageExportRequest>)serviceType.GetMethod("Export"+pageId+"Async")!.Invoke(service,[request??new PageRequest(),actor,100,CancellationToken.None])!;}
         finally{ExportLockCount=Reads.Count(value=>value.StartsWith("lock:",StringComparison.Ordinal));}
     }
     /// <summary>表达式按真实委托执行；固定SQL只接受明确的状态或来源复合条件，不忽略范围。</summary>
