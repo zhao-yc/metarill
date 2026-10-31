@@ -73,3 +73,5 @@ Core三个现有文件扩展递归名称证明，Data两个现有文件复用该
 本轮租约必须单独批准。`global-cached-target-v1`、本轮产品提交、`approved/running`和4个固定包根全部核对通过后，才允许包复制、进程及连接；原B98缓存来源或其他已结束四库授权均不能复用。临时库/账号创建和清理继续由原Server-200所有权协调器承接，真实执行前后需重新核验实例与摘要，清理后独立核零。正式执行不包括并发锁、浏览器、真机或性能；不因此完成B105、相关总关系条目或MySQL首版验收。
 
 准备日志/TRX：私有 `.local/global-cached-target-native-preparation-v2.log`、`.local/TestResults/global-cached-target-native-preparation-v2.trx`；4包在本任务源码根 `.local/global-cached-target-native/prepared`。交付目录私有 `.local/global-cached-target-native-20261031` 后续保存独立执行器归档、固定清单及精确计划；未授权前不创建远端对象。
+
+B106独立固定执行器 `1cca7c6` 已严格构建：2217源码、152编译输出、四包各941文件；每包208份受管运行时源码与产品9f798eb逐字一致。固定程序集11门禁通过（与原准备重叠），实际四模型pending入口均连接前拒绝；Python pending外部调用0。Server-200只读确认本轮新对象不存在，精确计划位于交付根私有 `.local/global-cached-target-native-20261031/permission-plan.md`，仍待本轮四库及账号创建/验收/清理授权。没有真实业务通过，未复用旧租约。
