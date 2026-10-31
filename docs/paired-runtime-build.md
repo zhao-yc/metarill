@@ -43,3 +43,6 @@ V08/V11/MySQL首版总验收保持未通过；本批不推进后续数据库，�
 C#实际使用固定CLI执行`package --metadata ... --output ... --namespace Metarill.GlobalSample --source-root ...`；六份源来自`tools/acceptance/sample-host`，实际build为Release/-warnaserror/--disable-build-servers；随后同一CLI对backend/generated执行两次generate。结构及完整语义审计是私有只读.NET控制台，分别直接调用实际MySqlSchemaPlanner和MetadataCatalog，不创建DatabaseSession。Java直接用已缓存Maven classworlds启动器执行`-B -o -f pom.xml -DskipTests package`及`-Dtest=SampleClasspathTest test`；没有升级工具链或依赖。
 
 原46列/15差异及B98历史包/失败保持原身份；本批更新的是新的双端产物。平台原前端/模板/元数据与生成776项保护核对不变；本批无需产品DDL、回填或旧项目迁移。
+
+
+V19后续已补[固定Linux镜像准备](paired-linux-images.md)：由本批原JAR/64个运行输出生成上下文，实取官方linux/amd64 manifest，200架构/磁盘及唯一目标名核对后已进入实际镜像构建；尚未取得完整镜像/探针完成回执，原应用、数据库及性能门槛继续保持。
