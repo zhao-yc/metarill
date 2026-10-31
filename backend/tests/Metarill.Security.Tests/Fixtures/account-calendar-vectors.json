@@ -1,0 +1,75 @@
+{
+  "source": "JDK21.0.12 LocalDateTime.atZone，与原V8账号有效期转换相同；不是实库或HTTP验收。",
+  "vectors": [
+    {
+      "zone": "UTC",
+      "calendar": "2026-10-29T12:34:56.123456",
+      "utcTicks": "639288740961234560"
+    },
+    {
+      "zone": "Asia/Shanghai",
+      "calendar": "2026-10-29T12:34:56.123456",
+      "utcTicks": "639288452961234560"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "calendar": "2026-10-29T12:34:56.123456",
+      "utcTicks": "639288533961234560"
+    },
+    {
+      "zone": "America/New_York",
+      "calendar": "2026-03-08T01:30:00",
+      "utcTicks": "639085482000000000"
+    },
+    {
+      "zone": "America/New_York",
+      "calendar": "2026-03-08T02:30:00",
+      "utcTicks": "639085518000000000"
+    },
+    {
+      "zone": "America/New_York",
+      "calendar": "2026-03-08T03:30:00",
+      "utcTicks": "639085518000000000"
+    },
+    {
+      "zone": "America/New_York",
+      "calendar": "2026-11-01T01:30:00",
+      "utcTicks": "639291078000000000"
+    },
+    {
+      "zone": "America/New_York",
+      "calendar": "2026-11-01T02:30:00",
+      "utcTicks": "639291150000000000"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "calendar": "2026-10-04T02:15:00",
+      "utcTicks": "639266391000000000"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "calendar": "2026-04-05T01:45:00",
+      "utcTicks": "639109107000000000"
+    },
+    {
+      "zone": "Europe/Berlin",
+      "calendar": "2026-03-29T02:30:00",
+      "utcTicks": "639103446000000000"
+    },
+    {
+      "zone": "Europe/Berlin",
+      "calendar": "2026-10-25T02:30:00",
+      "utcTicks": "639284850000000000"
+    },
+    {
+      "zone": "Asia/Shanghai",
+      "calendar": "0001-01-01T00:00:00",
+      "utcTicks": "-291430000000"
+    },
+    {
+      "zone": "America/New_York",
+      "calendar": "9999-12-31T23:59:59.999999",
+      "utcTicks": "3155379155999999990"
+    }
+  ]
+}

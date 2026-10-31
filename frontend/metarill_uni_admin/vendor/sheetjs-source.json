@@ -1,0 +1,25 @@
+{
+  "name": "xlsx",
+  "version": "0.20.3",
+  "author": "sheetjs",
+  "license": "Apache-2.0",
+  "url": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+  "installationGuide": "https://docs.sheetjs.com/docs/getting-started/installation/nodejs/",
+  "downloadedAt": "2026-10-19",
+  "sha256": "8dc73fc3b00203e72d176e85b50938627c7b086e607c682e8d3c22c02bb99fe8",
+  "integrity": "sha512-oLDq3jw7AcLqKWH2AhCpVTZl8mf6X2YReP+Neh0SJUzV/BdZYjth94tG5toiMB1PPrYtxOCfaoUCkvtuH+3AJA==",
+  "bytes": 2409319,
+  "note": "从官方文档指定HTTPS端点下载原始归档，无源码改动；SHA256和SRI由实际归档计算并锁定，不声称额外上游签名已核验。",
+  "fixedAdvisories": [
+    {
+      "id": "CVE-2023-30533",
+      "upstream": "https://cdn.sheetjs.com/advisories/CVE-2023-30533",
+      "fixedSince": "0.19.3"
+    },
+    {
+      "id": "CVE-2024-22363",
+      "upstream": "https://cdn.sheetjs.com/advisories/CVE-2024-22363",
+      "fixedSince": "0.20.2"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@metarill/agent-cli",
+  "version": "0.3.0",
+  "description": "使用用户授权操作 Metarill 项目的通用 Agent CLI",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "metarill-agent": "bin/metarill-agent.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/metarill-agent.mjs && node --check lib/cli.mjs && node --check lib/generation-helper.mjs && node --check lib/generation-application.mjs && node --check lib/generation-device.mjs && node --check lib/device-project-path.mjs && node --check lib/generation-runtime-scope.mjs"
+  },
+  "license": "Apache-2.0",
+  "private": false
+}

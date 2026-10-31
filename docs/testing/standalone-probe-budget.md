@@ -1,0 +1,19 @@
+# 独立宿主探针的预算回归
+
+393dc41的push CI成功，但PR的Windows后端失败，Linux与前端成功。专用GitHub日志接口确认失败用例为StandaloneCorsHttpProbeTests.Overall_deadline_bounds_the_active_health_request，错误是“启动整体预算未能取消仍在等待的HTTP探测”，日志中该用例耗时4秒。原失败保留：[Windows作业](https://github.com/zhao-yc/metarill/actions/runs/39741966675/job/119701114066)。
+
+原单元用例以80ms预算驱动真实计时器，然后要求整个异步测试在2秒内恢复。日志只能证明墙钟断言未满足，不能直接证明包内宿主忽略启动期限；CI调度与续执行等待也计入该墙钟。
+
+## 精确断言预算与取消
+
+只调整Generation.Tests的探针辅助代码和单元测试。WaitUntilReadyAsync允许传入预算TimeProvider，默认仍使用TimeProvider.System；实际包内宿主的30秒整体期限、5秒单次请求期限、重试、外部取消及输出收集保持。
+
+测试时钟记录实际注册的80ms一次计时器，保持标准ITimer重排/释放合同；health handler持续等待收到的请求token，单次HttpClient期限设为无限。触发真实预算取消回调后，直接断言该请求token被取消且探针返回false。这样可同时识别预算设错、未传取消token或把单次HTTP超时误当作整体预算的错误。
+
+10秒WaitAsync只防止错误测试永久挂起，不代替80ms的预算断言；80ms与请求token均独立验证。测试时钟不启动宿主、返回模拟业务成功或改变发布包。真实独立包仍由ApplicationPackagerTests构建并实际运行HTTP，覆盖Development开启/关闭及Production的CORS与认证顺序。
+
+## 验证范围
+
+最终探针与ApplicationPackagerTests组合14/14、零失败零跳过，实际从包内源码构建并运行宿主，验证Development开启/关闭及Production三种配置下的CORS与认证顺序。前序探针5项与最终组合重叠，不累加；探针单元与真实宿主HTTP分别说明。两份测试源码均在最终运行前保存，发布源码、生成产物、元数据和前端与b97ce89保持一致。
+
+本批不连接数据库，不重跑结构初始化或数据/权限实库用例；发布源码、元数据、生成产物、前端、部署设置及能力门禁均未改变。不合并main或部署生产，新提交CI须单独核对。

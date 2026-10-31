@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Metarill.Data/Metarill.Data.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 级联缓存名称的两层测试共用同一元数据，不复制近似模型。 -->
+    <Compile Include="../Fixtures/GlobalCrossCachedTargetFixture.cs" Link="Fixtures/GlobalCrossCachedTargetFixture.cs" />
+  </ItemGroup>
+</Project>

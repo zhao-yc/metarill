@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable><MetarillDataProject Condition="'$(METARILL_DATA_PROJECT)' != ''">$(METARILL_DATA_PROJECT)</MetarillDataProject><MetarillDataProject Condition="'$(MetarillDataProject)' == ''">../../src/Metarill.Data/Metarill.Data.csproj</MetarillDataProject></PropertyGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /><ProjectReference Include="$(MetarillDataProject)" />
+    <ProjectReference Include="../../src/Metarill.Generation/Metarill.Generation.csproj" />
+    <ProjectReference Include="../../src/Metarill.Mcp/Metarill.Mcp.csproj" />
+    <ProjectReference Include="../../src/Metarill.Runtime/Metarill.Runtime.csproj" />
+    <ProjectReference Include="../../src/Metarill.Files/Metarill.Files.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" /><PackageReference Include="xunit" /><PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <!-- 直接编译公开手写样板摘要，避免测试复制另一份近似算法。 -->
+    <Compile Include="../../../tools/acceptance/sample-host/SampleContractDigest.cs" Link="SampleHost/SampleContractDigest.cs" />
+    <!-- 将原维护控制器接入专项HTTP宿主，避免复制接口实现。 -->
+    <Compile Include="../../src/Metarill.Api/Controllers/SystemMaintenanceController.cs" Link="Boundary/SystemMaintenanceController.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 级联缓存名称的两层测试共用同一元数据，不复制近似模型。 -->
+    <Compile Include="../Fixtures/GlobalCrossCachedTargetFixture.cs" Link="Fixtures/GlobalCrossCachedTargetFixture.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {join} from 'node:path';
+import {mountGenerated} from './GeneratedOriginalVueHarness.mjs';
+const root=process.argv[2],require=createRequire(new URL('../../../frontend/metarill_uni_admin/package.json',import.meta.url)),Vue=require('vue'),{parse}=require('@vue/compiler-sfc');
+const source=await readFile(join(root,'frontend/pages/yzp/cross_consumer-detail-30.vue'),'utf8'),original=await readFile(join(root,'frontend/components/yzp-cascade-tree/yzp-cascade-tree.vue'),'utf8'),{descriptor,errors}=parse(original);assert.deepEqual(errors,[]);
+const calls=[],trees=[],yzp={request(options){calls.push(options);return{abort(){}}}},component=new Function('yzp',descriptor.script.content.replace(/^import[^\n]*\n/gm,'').replace('export default','return'))(yzp);component.render=Vue.compile(descriptor.template.content);component.mounted=function(){trees.push(this)};
+const Stub={render(){return Vue.h('host',{},this.$slots.default?.())}},id='9007199254748888',country='9007199254740993',area='9007199254742001',leaf='9007199254743002',next='9007199254744003',f=mountGenerated(source,{}, {id},{runtimeDirectory:join(root,'frontend/common/yzp_runtime'),components:{'yzp-cascade-tree':component,'uni-icons':Stub,'uni-load-more':Stub,'scroll-view':Stub}}),answered=new Set();
+async function pump(){for(let i=0;i<8;i++){for(const call of calls.filter(x=>!answered.has(x)&&x.url.endsWith('/cascadeTreeOptions334'))){answered.add(call);assert.equal(call.method,'POST');const key=call.data.levelKey;call.success({code:200,data:key==='country'?[{id:country,name:'国缓存',hasChildren:true}]:key==='area'?[{id:area,name:'区缓存',hasChildren:true},{id:next,name:'新区缓存',hasChildren:true}]:[{id:leaf,name:'城缓存',hasChildren:false}]});call.complete?.({});}await f.flush();}}
+try {
+ f.respond(f.requests.find(x=>x.options.url.includes('/detail/')),{id,name:'原消费',countryId:country,countryName:'国缓存',areaId:area,areaName:'区缓存',placeId:leaf,placeName:'城缓存',placeIdDisplayText:'国缓存/区缓存/城缓存'});await f.flush();await pump();const tree=trees.find(x=>x.leafIdProperty==='placeId');assert(tree);assert.equal(tree.displayText,'国缓存/区缓存/城缓存');
+ tree.activeLevelIndex=0;tree.handleOptionSelect({id:country,name:'国缓存'},0);await f.flush();await pump();assert.equal(f.state.entity.countryId,country);assert.equal(f.state.entity.areaId,'');assert.equal(f.state.entity.placeId,'');assert.equal(tree.displayText,'国缓存');
+ tree.activeLevelIndex=1;tree.handleOptionSelect({id:next,name:'新区缓存'},1);await f.flush();await pump();assert.equal(f.state.entity.areaId,next);assert.equal(f.state.entity.placeId,'');tree.activeLevelIndex=2;tree.handleOptionSelect({id:leaf,name:'新城缓存'},0);await f.flush();assert.equal(tree.displayText,'国缓存/新区缓存/新城缓存');assert.equal(f.writes().length,0);
+ f.state.saveEntity();await f.flush();const write=f.writes().at(-1);assert(write);assert.strictEqual(write.options.data,f.state.entity);assert.equal(write.options.data.placeId,leaf);assert.equal(write.options.data.placeName,'新城缓存');assert.equal(write.options.data.areaId,next);
+ tree.clear();await f.flush();for(const field of ['countryId','countryName','areaId','areaName','placeId','placeName'])assert.equal(f.state.entity[field],'');f.setProps({parentReadOnlyCondition:true});await f.flush();f.state.receiveCascadeTree334({countryId:country,placeId:leaf});await f.flush();assert.equal(f.state.entity.placeId,'');assert.equal(f.writes().length,1);
+} finally {f.app.unmount();}
+console.log('级联缓存名称：原组件/详情、部分选择、长ID、上级变更清空下级、清空/只读及整entity回传通过；非浏览器或实库验收');

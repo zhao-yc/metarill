@@ -1,0 +1,18 @@
+using System.Text.Json;
+using Metarill.Core.Metadata;
+using Metarill.Runtime.Files;
+using Xunit;
+namespace Metarill.Generation.Tests;
+
+/// <summary>共享父页面的原文件字段与完整源码包共用正式文件运行时，不手改生成代码。</summary>
+[Collection(StandaloneProcessBudgetCollection.Name)]
+public sealed class SharedRedundantFilesGenerationTests
+{
+    /// <summary>普通、短主叶和派生目标三种Full实际更新、保护手写partial并核对原文件上下文／挂载级联组件。</summary>
+    [Theory][InlineData("string","string",false,0,false,false,false)][InlineData("string","int64",true,2,true,false,true)][InlineData("int64","string",false,1,true,false,false)][InlineData("int64","int64",false,15,true,false,true)][InlineData("string","int64",false,0,false,true,false)][InlineData("int64","string",true,0,false,false,true)]
+    public async Task Full_r1_file_packages_build_update_and_keep_original_controls(string type,string parent,bool shorter,int mask,bool noProject,bool derived,bool physicalDelete)
+    {
+        var c=SharedCrossFilesGenerationTests.Catalog("shared_parent",type,parent,shorter,derived,physicalDelete);c.ConfigTables.Single(t=>t.Id=="2").IsRongyu=1;foreach(var record in c.ConfigTables.Cast<MetadataRecord>().Concat(c.ConfigColumns).Concat(c.ConfigPages).Concat(c.ConfigPageColumns))record.YzProjectId=c.YzProjectId;foreach(var page in c.ConfigPages)page.YzAdminTypeId="5";GlobalSharedCrossGenerationTests.ApplyGlobals(c,mask,noProject);Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(c,"Example.SharedR1FileFull")));var root=NonRedundantApplicationFixture.Root();var context=new FileMetadataContext([c]);Assert.Single(context.Catalogs);var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-r1-files-full");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(directory,"app");
+        try{new ApplicationPackager().Create(c,output,"Example.SharedR1FileFull",root);var hand=Path.Combine(output,"backend/generated/Services/SharedParentSourceService.cs");await File.AppendAllTextAsync(hand,"\n// R1共享实际父范围文件手写业务保留。\n");var bytes=await File.ReadAllBytesAsync(hand);var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(c,candidate,"Example.SharedR1FileFull",root);var updater=new LocalGenerationUpdater();var actions=new[]{"generate-project-config","sync-runtime","generate-all-page"};var plan=updater.Preview(output,candidate,actions);Assert.True(plan.CanApply);updater.Apply(plan,plan.PlanSha256);Assert.Equal(bytes,await File.ReadAllBytesAsync(hand));var repeated=updater.Preview(output,candidate,actions);Assert.Equal("unchanged",updater.Apply(repeated,repeated.PlanSha256).Status);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);foreach(var name in new[]{"yzp-cascade-tree","yzp-file-library"})Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin/components/"+name+"/"+name+".vue")),File.ReadAllBytes(Path.Combine(output,"frontend/components/"+name+"/"+name+".vue")));var probe=NonRedundantApplicationFixture.Start("node",output);probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"SharedCrossParentVueProbe.mjs"));probe.ArgumentList.Add(Path.Combine(output,"frontend"));probe.ArgumentList.Add(shorter.ToString().ToLowerInvariant());await NonRedundantApplicationFixture.RunAsync(probe);var fileProbe=NonRedundantApplicationFixture.Start("node",output);fileProbe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"SharedCrossFilesVueProbe.mjs"));fileProbe.ArgumentList.Add(Path.Combine(output,"frontend"));await NonRedundantApplicationFixture.RunAsync(fileProbe);}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+}

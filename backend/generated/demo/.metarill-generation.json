@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "projectId": "2200000000000100000",
+  "rootNamespace": "Metarill.Demo",
+  "metadataSha256": "58ed1e8a8db53a9cbf9fcbd207bc64621a2340083383416e7b047e47e8d97add",
+  "files": [
+    {
+      "path": "Controllers/DemoCustomerPage2200000000000100020Controller.g.cs",
+      "sha256": "166a6deaa999b2cda587afe02eba28884844d7cc64fdeaa59d1885412028a946"
+    },
+    {
+      "path": "DTOs/DemoCustomerPage2200000000000100020Requests.g.cs",
+      "sha256": "fc36a662a647e23b4904d8c1dbfcdefa767a049817d46a8b22c08c663ff25e4e"
+    },
+    {
+      "path": "Entities/DemoCustomer.g.cs",
+      "sha256": "7778635cb6122e78aaf91cae5ec70a63b3429a377c1948a1a75f60cd29069cce"
+    },
+    {
+      "path": "GeneratedRegistration.g.cs",
+      "sha256": "5d789395c0d355dc219f1e6051eb86226318da0a5ab3a9658f11f62958caf83c"
+    },
+    {
+      "path": "GeneratedWriteSchema.g.cs",
+      "sha256": "a2de47bede438a60a6e0b2a7cf20bc33b7318e3c29fa71ad2e3725c49537b4a0"
+    },
+    {
+      "path": "Mappers/DemoCustomerMapper.g.cs",
+      "sha256": "0e01bc68155ceba92cde740d958b98fa7949c14a78f158c89080186753183551"
+    },
+    {
+      "path": "Services/DemoCustomerService.g.cs",
+      "sha256": "de8dffbe5d2aa78c1be2d9396d2bfa36499fcfb7d55d5eee3f1461aac4be61fe"
+    },
+    {
+      "path": "VOs/DemoCustomerPage2200000000000100020Vo.g.cs",
+      "sha256": "d36b16b9f218a28782d641522b758b13f4eb8c979480a666089e02d1d4b78fd2"
+    },
+    {
+      "path": "VOs/GeneratedOption.g.cs",
+      "sha256": "10b13caf4a916a578d3f745c1ce22202165bb8caa55acfb3db76225fdc94afe6"
+    },
+    {
+      "path": "frontend/common/yzp_runtime/page-write-schema.generated.json",
+      "sha256": "cdb9bac4712ad99f7b41a0a9f9b9e6548d0d7fcaf6eeff091006584ed80a38d2"
+    },
+    {
+      "path": "frontend/pages.generated.json",
+      "sha256": "e4e714b8ce9f480d34daed0c1b61a91d5a43e3a28426d3e9803c9d63bbf272b7"
+    },
+    {
+      "path": "frontend/pages/yzp/demo_customer-detail-2200000000000100020.vue",
+      "sha256": "bdb3175a756d7fa1ba4ba49cdb98aae8247d53d5108c95e0b4037f2b14f1243c"
+    },
+    {
+      "path": "frontend/pages/yzp/demo_customer-list-2200000000000100020.vue",
+      "sha256": "1448ffa215eb1da3abd2027cedc17b7957940196066375009e50eaf78bb6fde7"
+    },
+    {
+      "path": "generation-capabilities.json",
+      "sha256": "36d4119c3e99a4b9931d958b24bef015b74183670ad78bbb2e4e2e4474dae3b2"
+    }
+  ]
+}

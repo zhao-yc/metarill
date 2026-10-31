@@ -1,0 +1,100 @@
+using Metarill.Core.Contracts;
+using System.Globalization;
+using System.Text.Json;
+using Metarill.Core.Security;
+using Metarill.Runtime.Persistence;
+
+namespace Metarill.Runtime.Security;
+
+public sealed record AdminAccountInitializationResult(bool Applied,string? AccountId=null);
+
+/// <summary>原按钮仅按已保存后台ID执行，宿主不能用客户端密码替代配置。</summary>
+public interface IAdminAccountInitializer
+{
+    /// <summary>只按已保存后台初始化，事务内核对当前身份、权限、账号与会话。</summary>
+    Task<AdminAccountInitializationResult> InitializeAsync(string adminTypeId,CancellationToken token=default);
+}
+
+/// <summary>原初始化按钮的同库事务实现；HTTP入口只由可信管理模块显式注册。</summary>
+public sealed class AdminAccountInitializationBusiness(SqlRowStore store,SecurityRealmMutationGuard coordinator,IIdGenerator ids,IAdminInitializationAgentPolicy agentPolicy):IAdminAccountInitializer
+{
+    public const string ButtonId=SecurityRealmMutationGuard.InitializationButtonId;
+    /// <summary>字符串大ID与原entity回显只作一致性检查，其他客户端字段不参与初始化。</summary>
+    public static string RequireTargetId(string? raw,JsonElement? entity=null)
+    {
+        if(!long.TryParse(raw,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||raw!=id.ToString(CultureInfo.InvariantCulture))
+            throw new ArgumentException("初始化后台标识无效。");
+        if(entity is{} body&&body.ValueKind!=JsonValueKind.Null)
+        {
+            if(body.ValueKind!=JsonValueKind.Object)throw new ArgumentException("按钮实体必须是对象。");
+            var fields=body.EnumerateObject().Where(field=>field.Name.Equals("id",StringComparison.OrdinalIgnoreCase)).ToArray();
+            if(fields.Length>1||fields.Length==1&&(fields[0].Name!="id"||fields[0].Value.ValueKind is not(JsonValueKind.String or JsonValueKind.Number)||
+                (fields[0].Value.ValueKind==JsonValueKind.String?fields[0].Value.GetString():fields[0].Value.GetRawText())!=raw))
+                throw new ArgumentException("按钮对象标识冲突。");
+        }
+        return raw;
+    }
+    /// <summary>只接已保存后台ID；配置、权限、角色与账号全部在同一事务中重新取得，不接客户端密码或后台归属。</summary>
+    public Task<AdminAccountInitializationResult> InitializeAsync(string adminTypeId,CancellationToken token=default)
+    {
+        adminTypeId=RequireTargetId(adminTypeId);
+        return store.Session.InTransactionAsync<AdminAccountInitializationResult>(async()=>
+        {
+            var admin=await coordinator.PrepareAdminInitializationAsync(adminTypeId,token);
+            return await ApplySavedAdminAsync(store,ids,admin,agentPolicy,token);
+        },token);
+    }
+    /// <summary>同库和跨库入口复用账号/角色/会话原子规则；调用方必须先取得初始化权限并保持目标事务。</summary>
+    internal static async Task<AdminAccountInitializationResult> ApplySavedAdminAsync(SqlRowStore store,IIdGenerator ids,IReadOnlyDictionary<string,object?> admin,IAdminInitializationAgentPolicy agentPolicy,CancellationToken token)
+    {
+        if(store.Session.CurrentTransaction is null)throw new InvalidOperationException("账号初始化写入必须加入目标事务。");
+        var adminTypeId=SqlRowStore.Text(admin,"id");
+        var name=SqlRowStore.Text(admin,"user_name");var configuredPassword=SqlRowStore.Text(admin,"password");
+        if(string.IsNullOrWhiteSpace(name)||string.IsNullOrWhiteSpace(configuredPassword))return new(false);
+        if(name.Length>50||configuredPassword.Length>50)throw new ArgumentException("初始化用户名和密码不能超过50个字符。");
+        // 先锁角色，再锁用户名唯一索引；墓碑也参与唯一约束，不复活或删除任何同名对象。
+        var roles=await store.ReadForUpdateAsync("yz_role",new Dictionary<string,object?>{{"yz_admin_type_id",long.Parse(adminTypeId,CultureInfo.InvariantCulture)}},token);
+        var accounts=await store.ReadAccountNameForInitializationAsync(name,token);
+        if(accounts.Count>1||accounts.Any(account=>account.GetValueOrDefault("delete_no") is not null||SqlRowStore.Text(account,"yz_admin_type_id")!=adminTypeId))
+            throw new InvalidOperationException("初始化账号名已被其他后台或已删除记录占用，请修改已保存的初始化用户名。");
+        var expectedProject=SqlRowStore.Text(admin,"yz_project_id");
+        if(roles.Concat(accounts).Any(row=>SqlRowStore.Text(row,"yz_project_id") is{Length:>0} project&&project!=expectedProject))
+            throw new InvalidOperationException("目标账号或角色的项目归属与后台不一致，未执行初始化。");
+        var existing=accounts.SingleOrDefault();
+        // Agent表协议由独立模块负责；保持账号→grant→session锁序，共享账号核心不读取OAuth表。
+        if(existing is not null)await agentPolicy.PrepareAsync(store,SqlRowStore.Id(existing),token);
+        var sessions=existing is null?[]:await store.ReadForUpdateAsync("sys_session",new Dictionary<string,object?>{{"account_id",SqlRowStore.Id(existing)}},token);
+        if(sessions.Any(session=>SqlRowStore.Text(session,"kind")!="web"))
+            throw new InvalidOperationException("目标账号存在未接线的非Web会话，未执行账号初始化。");
+        // 保留原非空、最长50字符配置语义；普通新账号的12字符规则不在此入口强加到原页面。
+        var digest=PasswordHasher.HashInitializationConfiguration(configuredPassword);
+        var superRole=roles.Where(role=>SqlRowStore.Text(role,"is_super")=="1").OrderByDescending(role=>SqlRowStore.Id(role)).FirstOrDefault();
+        var now=BusinessCalendar.Now;var projectId=long.Parse(SqlRowStore.Text(admin,"yz_project_id"),CultureInfo.InvariantCulture);
+        if(superRole is null)
+        {
+            var roleId=ids.NextId();
+            await store.InsertAsync("yz_role",new Dictionary<string,object?>{{"id",roleId},{"yz_admin_type_id",long.Parse(adminTypeId,CultureInfo.InvariantCulture)},
+                {"yz_project_id",projectId},{"name","超级管理员"},{"is_super",1},{"is_built_in",1},{"sort_no",99},{"insert_time",now}},token);
+            superRole=new(){{"id",roleId}};
+        }
+        var accountId=existing is null?ids.NextId():SqlRowStore.Id(existing);
+        var values=new Dictionary<string,object?>{{"name",name},{"password",digest},{"salt",null},{"old_password",null},
+            {"yz_admin_type_id",long.Parse(adminTypeId,CultureInfo.InvariantCulture)},{"yz_project_id",projectId},
+            {"yz_role_ids",JsonSerializer.Serialize(new[]{SqlRowStore.Text(superRole,"id")})}};
+        if(existing is null)
+        {
+            values["id"]=accountId;values["insert_time"]=now;values["is_disabled"]=0;values["real_name"]=name;
+            await store.InsertAsync("yz_manager",values,token);
+        }
+        else
+        {
+            values["update_time"]=now;
+            if(await store.UpdateAsync("yz_manager",accountId,values,token)!=1)throw new InvalidOperationException("YZP_CONFLICT：初始化账号已变化。");
+        }
+        foreach(var session in sessions)
+            if(await store.UpdateAsync("sys_session",SqlRowStore.Id(session),new Dictionary<string,object?>{{"delete_no",DateTime.UtcNow}},token)!=1)
+                throw new InvalidOperationException("YZP_CONFLICT：初始化会话已变化。");
+        return new(true,accountId.ToString(CultureInfo.InvariantCulture));
+    }
+
+}

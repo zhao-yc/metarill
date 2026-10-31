@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "runId": "00000000000000000000000000000002",
+  "rounds": 3,
+  "iterations": 2000,
+  "warmupIterations": 20,
+  "concurrency": [
+    1,
+    8
+  ],
+  "requestTimeoutSeconds": 15,
+  "maxP95Ratio": 1.1,
+  "minThroughputRatio": 0.95,
+  "targets": {
+    "java": {
+      "baseUrl": "http://127.0.0.1:1/api",
+      "container": "owned-java-benchmark",
+      "headers": {}
+    },
+    "csharp": {
+      "baseUrl": "http://127.0.0.1:2/api",
+      "container": "owned-csharp-benchmark",
+      "headers": {}
+    }
+  },
+  "scenarios": [
+    {
+      "name": "binary_download",
+      "steps": [
+        {
+          "method": "GET",
+          "path": "/__replace_with_original_ticket_endpoint__",
+          "status": 200,
+          "checks": [
+            {
+              "pointer": "/code",
+              "equals": 200
+            }
+          ],
+          "capture": {
+            "downloadTicket": "/data/ticket"
+          },
+          "ignorePointers": [
+            "/data/ticket"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/__replace_with_original_download_endpoint__?ticket=${downloadTicket}",
+          "status": 200,
+          "responseKind": "binary",
+          "expectedBytes": 1048576,
+          "expectedSha256": "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58"
+        }
+      ]
+    }
+  ]
+}

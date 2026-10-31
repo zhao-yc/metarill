@@ -1,0 +1,18 @@
+/* 需要放到文件最上面 */
+@import '@/uni_modules/uni-scss/variables.scss';
+
+/*
+ * YZP 只覆盖项目主题必需变量，其余变量沿用 uni-scss 默认值。
+ * 公共样式当前使用 $uni-primary / $uni-spacing-base / $uni-border-radius 体系，
+ * 不混入旧模板里的 $uni-color-* / $uni-text-color-* 命名。
+ */
+
+// 主色
+$uni-primary: #0ab3ad;
+$uni-primary-disable: mix(#fff, $uni-primary, 50%);
+
+// 边框圆角
+$uni-border-radius: 8px;
+
+// 背景色
+$uni-bg-color: #ffffff;

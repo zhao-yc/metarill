@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../Metarill.Agent/Metarill.Agent.csproj" /><ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" /><ProjectReference Include="../Metarill.Data/Metarill.Data.csproj" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../../templates/uniapp/*.tpl" /><EmbeddedResource Include="../../templates/standalone/*.tpl" WithCulture="false" /><EmbeddedResource Include="../../templates/standalone-frontend/*.tpl" WithCulture="false" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../../metadata/modules/security-management-v1.json" LogicalName="Metarill.Generation.SecurityManagement.V1.json" WithCulture="false" /><EmbeddedResource Include="../../metadata/modules/security-management-v1.sha256" LogicalName="Metarill.Generation.SecurityManagement.V1.sha256" WithCulture="false" /></ItemGroup>
+  <!-- 直接嵌入现有原页面与组件，不另建可漂移的页面模板副本。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../../frontend/metarill_uni_admin/pages.json" LogicalName="Metarill.Generation.SecurityWorkbench.RouteCatalog.json" WithCulture="false" />
+    <EmbeddedResource Include="../../../frontend/metarill_uni_admin/pages/main/set_role_permission.vue" LogicalName="Metarill.Generation.SecurityWorkbench.Page.vue" WithCulture="false" />
+    <EmbeddedResource Include="../../../frontend/metarill_uni_admin/components/yzp-permission-workbench/yzp-permission-workbench.vue" LogicalName="Metarill.Generation.SecurityWorkbench.Workbench.vue" WithCulture="false" />
+    <EmbeddedResource Include="../../../frontend/metarill_uni_admin/components/yzp-permission-legacy/yzp-permission-legacy.vue" LogicalName="Metarill.Generation.SecurityWorkbench.Legacy.vue" WithCulture="false" />
+    <EmbeddedResource Include="../../../frontend/metarill_uni_admin/common/yzp_runtime/permissionWorkbench.js" LogicalName="Metarill.Generation.SecurityWorkbench.Runtime.js" WithCulture="false" />
+  </ItemGroup>
+</Project>

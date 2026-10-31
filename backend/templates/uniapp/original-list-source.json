@@ -1,0 +1,12 @@
+{
+  "sourceFile": "backend/yzp/src/main/java/com/yinzon/service/yzp/v8/UniappService.java",
+  "sourceSha256": "41eeda401cf5b8877344a9e8bfba57f4b992c35529c3a8947d2908ca6c9c9a94",
+  "normalization": "UTF8无BOM及LF，Java字符串按原转义展开；DOM和脚本保留原文本",
+  "templates": {
+    "original-list-ordinary.vue.tpl": "06cf43c5edc4d18acc8870e2732911ed8685826da23cdff9d2a41b624b26e1c9",
+    "original-list-selection.vue.tpl": "32564a3589898af3b363272b109b6ee4e71505f843be3919d2e813a697984225",
+    "original-list-mobile-1.vue.tpl": "f3022a16eacf3aa98ee3340c43a66417d2aa5c929da55a6c58087b74334b6cec",
+    "original-list-mobile-2.vue.tpl": "e3ff0ec88d3788d87748474f79690c6b2e276b4de6cafb3a47a5ff10e46b621c",
+    "original-list-mobile-3.vue.tpl": "2ba1e550f301ff2d20bb299efa5d7dec19681aba0375c4071268b2bb2edbb546"
+  }
+}
