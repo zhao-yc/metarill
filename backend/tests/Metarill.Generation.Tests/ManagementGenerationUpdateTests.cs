@@ -7,7 +7,7 @@ namespace Metarill.Generation.Tests;
 
 /// <summary>完整管理工程沿原三范围更新与恢复，不改原页面或把磁盘标记当作安全模块授权。</summary>
 [Collection(StandaloneProcessBudgetCollection.Name)]
-public sealed class ManagementGenerationUpdateTests
+public sealed partial class ManagementGenerationUpdateTests
 {
     /// <summary>真实管理包必须能识别原项目/命名空间，而不是继续停在新模式未接线错误。</summary>
     [Fact]

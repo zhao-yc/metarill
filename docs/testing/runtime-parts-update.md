@@ -34,4 +34,14 @@
 
 无需DDL、数据迁移、回填或前端再生成。API/CLI/Generation依赖需从配套源码完整重编译，不支持单独替换Generation.dll。现有三个单项目按钮继续使用v1协议；批量v2需后续CLI能力声明、设备关联、逐项目真实grant校验及Node助手保留原v2计划的接线，不能重新用不带分端范围的旧preview覆盖计划。
 
-后续还须验证管理完整工程的v2分端、真实设备配置及目录、实际Web/OAuth/CLI应用与撤权/改路径、原按钮逐项汇总、网络未知回读与恢复。独立私有路径指纹/设备关联原型已做合成核对，但尚未接入产品、真实数据库或授权流程，不计批量功能完成。整个C63批量项和MySQL首版验收继续保留未完成状态。
+管理完整工程的v2离线分端已由下列C66专项验证；C65设备关联组件及CLI已接入源码，但真实控制通道仍待明确批准。后续还须真实设备配置及目录、实际Web/OAuth/CLI应用与撤权/改路径、原按钮逐项汇总、网络未知回读与恢复，不计批量功能完成。整个C63批量项和MySQL首版验收继续保留未完成状态。
+
+## C66：完整管理工程v2离线分端
+
+2026-10-31，起点74e5830。本次只补测试，产品更新器、中间件、原前端/模板与生成产物均未修改。
+
+严格专项5通过、0失败/跳过，持续4分39秒：实际生成两份FullManagementApplication，分别仅后端、仅前端、两端同步；同时核对预览无写入、持久v2计划、实际应用/独立状态、未选端源码与外层/前端两层归属保留、第四份管理来源声明及管理绑定有效、重复空操作、另一端随后独立更新。另两项在所选端实际替换后注入故障，独立更新器证实rolled-back，所有原工程字节及来源身份恢复。
+
+命令：`dotnet test backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj -c Release --nologo --disable-build-servers --verbosity quiet -warnaserror --filter FullyQualifiedName~Managed_runtime_parts_`（通过DOTNET_HOST_PATH固定本项目SDK，另输出TRX）。证据：E:\git\metarill\.local\management-runtime-parts.log及TestResults\management-runtime-parts.trx。所有测试正常结束后才编辑本说明；没有重跑上一轮137项，未虚增回归次数。
+
+不访问MySQL、OAuth、本机真实助手或用户工程，不替代设备/批量端到端验收。C65实际Agent中间件漏接仍待用户明确批准，原批量接口仍未接通。上轮49c6e84的GitHub两后端任务被后续推送取消，前端成功；不能记全量通过。74e5830的最新流水线此时前端成功、两后端仍在运行，尚无全量结论。
