@@ -1,11 +1,11 @@
 """实际回环下载验证完整性、失败边界及有效字节吞吐，不执行SSH、Docker或MySQL。"""
 import copy
+import concurrent.futures
 import hashlib
 import http.server
 import io
 import json
 import threading
-import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -79,7 +79,7 @@ class BinaryHttpTests(unittest.TestCase):
     """真实HTTP流式下载，认证和票据保留原传输，报告只留长度、摘要和耗时。"""
     def setUp(self):
         """为当前用例创建独占回环端口和内存样本。"""
-        self.calls = []; self.lock = threading.Lock(); outer = self
+        self.calls = []; self.lock = threading.Lock(); self.download_waiting = threading.Event(); self.release_download = threading.Event(); outer = self
         class Handler(http.server.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
             def log_message(self, *args):
@@ -111,7 +111,9 @@ class BinaryHttpTests(unittest.TestCase):
                     self.send_header("Content-Length", str(len(PAYLOAD) if path == "/cut" else len(payload)))
                 self.end_headers()
                 try:
-                    if path == "/slow": time.sleep(0.2)
+                    if path == "/slow":
+                        # 用实际响应就绪事件保持正文未发出，不依赖50毫秒调度窗口。
+                        self.wfile.flush(); outer.download_waiting.set(); outer.release_download.wait(5)
                     if path == "/chunked":
                         for offset in range(0, len(payload), 16384):
                             chunk = payload[offset:offset + 16384]; self.wfile.write(("%X\r\n" % len(chunk)).encode() + chunk + b"\r\n")
@@ -185,7 +187,13 @@ class BinaryHttpTests(unittest.TestCase):
 
     def test_socket_timeout_stops_download_and_does_not_retry(self):
         """实际读取超时不重试原下载。"""
-        with self.assertRaises(TimeoutError): subject.request(self.target, binary_step("/slow"), {}, 0.05)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(subject.request, self.target, binary_step("/slow"), {}, 0.5)
+            try:
+                self.assertTrue(self.download_waiting.wait(3), "回环响应尚未进入受控正文等待。")
+                with self.assertRaises(TimeoutError): future.result(timeout=3)
+                self.assertTrue(future.done(), "不能把观察future超时当作实际socket超时。")
+            finally: self.release_download.set()
         self.assertEqual([call[0] for call in self.calls], ["/slow"])
 
     def test_later_business_failure_retains_download_evidence_without_success_goodput(self):
