@@ -42,3 +42,12 @@ Java额外核对Spring Boot启动器及原应用入口；C#核对net10.0、两�
 V08/MySQL首版仍缺两端显式结构/初始化、真实身份/权限及readiness、完整关系/父子/手写业务/文件等价、同数据/索引/SQL/资源/共享负载、正式性能和独占数据库/账号/样本清理协调器。当前镜像准备不建库、账号或授权，不复用旧随机租约，也不合main或生产部署。
 
 私有证据根：`E:\git\metarill\.local\paired-linux-images-20261031`。保留runtime-image-proof、原manifest正文、context-settings、contexts/context-receipt、固定归档、image-build-scope、一次性执行器、Server-200只读预检及构建控制日志；不提交这些产物或私有路径配置。
+
+
+## 固定Java宿主的登录缺口（后续静态核对）
+
+对同一固定JAR重新核对SHA256后检查实际应用类：`SampleManagerService`、`SampleRoleService`、`SampleRolePermissionService`三份基础服务均在包内，`com.yinzon.controller.admin.sys.YzManagerControllerSys`不在包内。源文件也只装配这些基础服务和真实权限拦截器；既有WebMvcConfig只是排除了原登录路径，不能据此认为已提供登录实现。
+
+原b6d64fb样板验收文档明确记录“网页登录态由测试准备，未覆盖真人密码登录”。该证据不能转记为密码登录通过。原平台登录Controller另有账号/IP失败锁、Cap验证码、密码校验、登录审计更新及Redis会话建立，不能仅取成功分支或预置Redis会话当作已经接入原认证。
+
+后续要在新的可审查宿主基线补齐原登录所需接线，并实测正确/错误密码、禁用/撤权及相同账号角色；不得修改本批固定JAR后仍沿用旧摘要，也不能将readiness恒真、测试授权器或移除验证码作为省略接线的办法。本项是静态缺口，不冒充已执行HTTP404、应用启动或登录失败；`java-login-static-audit.json`保留原Controller来源摘要及包内类清单。当前镜像版本/依赖探针即使通过，也不消除此缺口。

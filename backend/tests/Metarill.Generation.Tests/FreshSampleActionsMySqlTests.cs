@@ -110,12 +110,9 @@ public sealed class FreshSampleActionsMySqlTests
                 try{if(second is not null)await second.DisposeAsync();}
                 finally
                 {
-                    try{if(Directory.Exists(privateCli))await TestDirectoryCleanup.DeleteAsync(privateCli,evidence);}
-                    finally
-                    {
-                        foreach(var folder in new[]{"files","exports"}){var owned=Path.Combine(evidence,folder);if(Directory.Exists(owned))await TestDirectoryCleanup.DeleteAsync(owned,evidence);}
-                        if(!passed)await Receipt("failed",new{run,passed=false,cleanupByLease=true});
-                    }
+                    // CLI凭据、上传和导出由固定单次租约协调器按精确目录统一清理并独立核验。
+                    // 通用临时目录清理器只接受纯GUID，不可用它处理cli-前缀或files/exports固定名；其守卫保持不变。
+                    if(!passed)await Receipt("failed",new{run,passed=false,cleanupByLease=true});
                 }
             }
         }

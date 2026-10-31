@@ -46,3 +46,5 @@ C#实际使用固定CLI执行`package --metadata ... --output ... --namespace Me
 
 
 V19后续已补[固定Linux镜像准备](paired-linux-images.md)：由本批原JAR/64个运行输出生成上下文，实取官方linux/amd64 manifest，200架构/磁盘及唯一目标名核对后已进入实际镜像构建；尚未取得完整镜像/探针完成回执，原应用、数据库及性能门槛继续保持。
+
+V19后续对同一JAR的静态审计另确认：三份基础账号/角色Service已装配，但原网页登录Controller不在包内；旧样板说明的Web会话来自测试准备。需另补原认证接线和真正登录，不能以镜像版本探针、预置Redis会话或放宽readiness替代。详情及未执行的HTTP边界见[Linux准备登录缺口](paired-linux-images.md)。
