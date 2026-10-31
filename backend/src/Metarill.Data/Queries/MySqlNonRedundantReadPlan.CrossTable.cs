@@ -42,6 +42,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         var proof=new Builder(catalog,target.Id,matching:true).Compile([display.ColumnName],[]);if(proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
                     }
+                    else if(global)GlobalCrossTableTarget.RequireName(catalog,target,page,display);
                     else if(!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
                     ColumnMetadata? parent=null;
                     if(index>0)

@@ -11,4 +11,8 @@
     <!-- 将原维护控制器接入专项HTTP宿主，避免复制接口实现。 -->
     <Compile Include="../../src/Metarill.Api/Controllers/SystemMaintenanceController.cs" Link="Boundary/SystemMaintenanceController.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- 级联缓存名称的两层测试共用同一元数据，不复制近似模型。 -->
+    <Compile Include="../Fixtures/GlobalCrossCachedTargetFixture.cs" Link="Fixtures/GlobalCrossCachedTargetFixture.cs" />
+  </ItemGroup>
 </Project>
