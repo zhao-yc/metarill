@@ -99,3 +99,14 @@ C84将在新提交上重新固定并申请独立新范围；当前仅准备，�
 执行器55bbad3独立检出，2298份来源／152份正式输出／990文件完整管理包均固定并严格构建。backend/src、backend/templates、backend/metadata、frontend与产品1e57bb9无差异。固定来源准备11项零失败零跳过（包含真实探针／CLI安全诊断，与前13重叠），9项入口门禁及3项实例传递合同通过；正式回执还必须验证ordinaryAgentApprovalRejected。只读确认原Server-200实例和新库／账号／所有权均不存在，没有创建正式凭据。
 
 新编号20d65f200584611f，精确计划位于`.local/management-full-approver-retry-20261101/permission-plan.md`；当前pending／not-started，等待本轮唯一库／账号与独占CLI凭据／files／exports合成对象的创建、复验及清理直接授权。C82／C83已结束，旧失败、源码及清理证据全部保持，不复用旧范围。
+
+
+## 2026-11-01 C84 CLI／MCP阶段完成与初始化拒绝分类失败
+
+用户经`call_0d06c90f20c7408fafa8c02090ddfa29/0`明确批准20d65f200584611f。固定产品1e57bb9／执行器55bbad3运行唯一正式用例，1失败／0通过／0跳过，**整体仍未通过**。本次真实普通审批401／grant不变及管理员收尾已执行，真实CLI的14个旗标全部true：拒绝／批准、目录、预览／CRUD、显式null／字符串ID、任务、重复UUID拒绝、删除／撤权／刷新重放。普通账号管理CRUD、同后台super绑定、异后台失败不改行及旧revision已进入后续；同包实际MCP探针最终为logout-verified，完成发现／CRUD／撤权／注销。这些是本固定样例阶段证据，不是完整首版或其它组合通过。
+
+最终停在`保留账号ID初始化及异后台同名拒绝`的同名阴性：服务按既定规则抛`初始化账号名已被其他后台或已删除记录占用...`，但类型为普通InvalidOperationException，公开宿主返回HTTP500及泛化内部错误；旧夹具预期400也未遵循原业务提示协议。根据已有BusinessRuleException合同，修复唯一同名分支归为可展示业务规则，采用原HTTP200／R500和静态提示，不扩大其它异常。正式夹具同时核对该固定失败封装，并比较目标及异后台账号完整行；未放松为接受任意服务器500。成功保留ID重置及重启会话本轮未执行到。
+
+跨后台／墓碑两项旧类型红灯保留；修正后初始化／Agent审批域68项、实际完整宿主错误封装／管理配置／原生准备17项零失败零跳过，严格构建。仅此共享Security分支与对应验收调整，原776文件保持；无DDL、元数据、原UI或模板改动。旧Native失败回执中的realCli等字段按整条用例passed设置，因此仍false；阶段证据以real-cli.log、mcp-probe.json及固定执行顺序为准，不倒推整条通过。
+
+finally已清理唯一库／账号并独立SSH核零，远端所有权再次只读核零，CLI及存储剩余目录0、私有连接与owner文件清除，租约ended；原源码、正式1失败、CLI／MCP及清理证据保留于`.local/management-full-approver-retry-20261101/`。修正红绿记录在`.local/management-full-initialization-rule-fix-20261101/`。C85需以新产品提交重新固定、精确新租约复验，不复用C82～C84授权。

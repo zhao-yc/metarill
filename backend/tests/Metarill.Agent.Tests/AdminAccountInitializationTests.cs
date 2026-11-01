@@ -1,4 +1,5 @@
 using System.Data.Common;
+using Metarill.Core.Contracts;
 using System.Text.Json;
 using Metarill.Data;
 using Metarill.Runtime.Persistence;
@@ -64,9 +65,10 @@ public sealed partial class AdminAccountInitializationTests
     {
         using var f=new Fixture();f.ExistingAccount();var account=f.Memory.Row("yz_manager",30);
         if(deleted)account["delete_no"]=DateTime.UtcNow;else account["yz_admin_type_id"]=long.Parse(f.Memory.DemoAdmin);
-        var business=await f.Business();f.Memory.Provider.Commands.Clear();
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>business.InitializeAsync("91"));Assert.Single(f.TargetAccounts);
-        Assert.Empty(f.TargetRoles);NoWrites(f);Assert.Equal("旧摘要",f.Memory.Row("yz_manager",30)["password"]);
+        var business=await f.Business();f.Memory.Provider.Commands.Clear();var before=JsonSerializer.Serialize(f.Memory.Provider.Rows);
+        var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>business.InitializeAsync("91"));Assert.Single(f.TargetAccounts);
+        Assert.Equal("初始化账号名已被其他后台或已删除记录占用，请修改已保存的初始化用户名。",error.Message);
+        Assert.Equal(before,JsonSerializer.Serialize(f.Memory.Provider.Rows));Assert.Empty(f.TargetRoles);NoWrites(f);Assert.Equal("旧摘要",f.Memory.Row("yz_manager",30)["password"]);
     }
 
     /// <summary>沿用原50字符限制，历史超限配置不能产生部分写入。</summary>

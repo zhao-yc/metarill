@@ -55,8 +55,9 @@ public sealed class AdminAccountInitializationBusiness(SqlRowStore store,Securit
         // 先锁角色，再锁用户名唯一索引；墓碑也参与唯一约束，不复活或删除任何同名对象。
         var roles=await store.ReadForUpdateAsync("yz_role",new Dictionary<string,object?>{{"yz_admin_type_id",long.Parse(adminTypeId,CultureInfo.InvariantCulture)}},token);
         var accounts=await store.ReadAccountNameForInitializationAsync(name,token);
+        // 同名是已确认的业务配置冲突，沿原HTTP200/R500明确提示，事务仍在任何写入前拒绝。
         if(accounts.Count>1||accounts.Any(account=>account.GetValueOrDefault("delete_no") is not null||SqlRowStore.Text(account,"yz_admin_type_id")!=adminTypeId))
-            throw new InvalidOperationException("初始化账号名已被其他后台或已删除记录占用，请修改已保存的初始化用户名。");
+            throw new BusinessRuleException("初始化账号名已被其他后台或已删除记录占用，请修改已保存的初始化用户名。");
         var expectedProject=SqlRowStore.Text(admin,"yz_project_id");
         if(roles.Concat(accounts).Any(row=>SqlRowStore.Text(row,"yz_project_id") is{Length:>0} project&&project!=expectedProject))
             throw new InvalidOperationException("目标账号或角色的项目归属与后台不一致，未执行初始化。");
