@@ -53,6 +53,18 @@ public static class NonRedundantReads
         if(!row.TryGetValue(name,out var value))throw new InvalidOperationException("已编译读取未返回声明字段。");
         if(value is null)return default;
         var target=Nullable.GetUnderlyingType(typeof(T))??typeof(T);
+        // double在精确类型快捷返回前校验，防止驱动非有限值或文本下溢进入原VO。
+        if(target==typeof(double))
+        {
+            double real;
+            if(value is string text)
+            {
+                if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(text,out real))throw new InvalidOperationException("非冗余浮点读取必须是有限值，不能溢出或下溢为零。");
+            }
+            else real=Convert.ToDouble(value,CultureInfo.InvariantCulture);
+            if(!double.IsFinite(real))throw new InvalidOperationException("非冗余浮点读取必须是有限值。");
+            return (T)(object)real;
+        }
         if(value is T exact)return exact;
         if(target==typeof(TimeSpan))return (T)(object)(value is TimeSpan span?span:Metarill.Core.Contracts.SqlTimeValue.ParseText(Convert.ToString(value,CultureInfo.InvariantCulture))!.Value);
         return (T)Convert.ChangeType(value,target,CultureInfo.InvariantCulture);

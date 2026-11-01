@@ -49,7 +49,11 @@ public sealed class NonRedundantApplicationPackageTests
         if(scenario=="missingRealm")catalog.ConfigPages.Single(page=>page.Id=="101").YzProjectId="";
         if(scenario=="foreignRealm")catalog.ConfigPages.Single(page=>page.Id=="201").YzProjectId="55";
         var directory=Path.Combine(Path.GetTempPath(),"metarill-nonred-package-reject",Guid.NewGuid().ToString("N"));
-        Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,directory,"Example.NonRedPackage",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(directory));if(Directory.Exists(Path.GetDirectoryName(directory)))Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(directory)!,Path.GetFileName(directory)+".staging-*"));
+        Action create=()=>new ApplicationPackager().Create(catalog,directory,"Example.NonRedPackage",NonRedundantApplicationFixture.Root());
+        // 非法全局父变量由共享范围证明明确拒绝；精确异常与原因不能改成任意失败即通过。
+        if(scenario=="global")Assert.Equal("全局跨表目标只能使用固定条件，不能混入项目或父上下文变量。",Assert.Throws<NotSupportedException>(create).Message);
+        else Assert.Throws<InvalidOperationException>(create);
+        Assert.False(Directory.Exists(directory));if(Directory.Exists(Path.GetDirectoryName(directory)))Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(directory)!,Path.GetFileName(directory)+".staging-*"));
     }
 }
 

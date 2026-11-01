@@ -142,7 +142,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             "decimal" when value is decimal or int or long=>Convert.ToDecimal(value,culture),
             "decimal" when value is string text&&decimal.TryParse(text,System.Globalization.NumberStyles.AllowLeadingSign|System.Globalization.NumberStyles.AllowDecimalPoint,culture,out var number)=>number,
             "double" when value is double or float or decimal or int or long && double.IsFinite(Convert.ToDouble(value,culture))=>Convert.ToDouble(value,culture),
-            "double" when value is string text&&double.TryParse(text,System.Globalization.NumberStyles.Float,culture,out var real)&&double.IsFinite(real)=>real,
+            // 与普通字段、固定条件共用有限double规则，非零指数下溢不能变成匹配零值。
+            "double" when value is string text&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(text,out var real)=>real,
             "string" when value is string=>value,
             "bool" when value is bool=>value,
             "datetime" or "date" when value is DateTime=>value,
