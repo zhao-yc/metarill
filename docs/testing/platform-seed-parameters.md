@@ -2,6 +2,8 @@
 
 2026-11-01，A20；来源796c34c。只新增测试和文档，未修改初始化、持久化或发布元数据。真实MySQL空库安装另验。
 
+**当前补充：A21已于2026-11-01在Server-200以固定4dea24a生产宿主完成真实双库空库安装，平台23表／业务12表、11类1531种子、重复保留编辑／墓碑／密码及真实Web／重启会话1/1通过，清理独立核零。下文为保留的起始离线证据；末表故障回滚仍只有受控ADO证据，未计真实MySQL通过。** 见[完整正式结果](platform-bootstrap-native.md)。
+
 通过生产 `MetadataRepository.SeedAsync`、`SqlRowStore` 与 `MySqlSchemaPlanner.Compile` 执行平台和demo完整种子；仅ADO传输替换为原测试内存驱动，ORM禁止自动同步，不能称实库事务或DDL验收。
 
 | 检查 | 实际结果 | 边界 |
