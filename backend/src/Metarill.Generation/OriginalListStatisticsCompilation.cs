@@ -20,7 +20,7 @@ internal static class OriginalListStatisticsCompilation
             if(kind is not (1 or 2 or 3))continue;
             var type=column.Type.TrimEnd('?');
             if(!table.Columns.Any(item=>item.Source.Id==column.Source.Id)||column.IsManagedMultiNames||column.Source.IsVirtualColumn!=0||
-                type is not ("decimal" or "int" or "long"))
+                type is not ("decimal" or "int" or "long" or "double"))
                 throw new InvalidOperationException("列表统计字段必须是已支持的固定数值读取："+column.Source.ColumnName);
             // 启用翻转复用已有SQL显示表达式，不能把DTO显示值与物理值按不同口径统计。
             result.Add(new(column,kind,ManagerCredentialCompilation.Order(table,page,column)));
@@ -44,6 +44,13 @@ internal static class OriginalListStatisticsCompilation
             var local="stat"+column.Property;
             if(definition.Kind==1)
             {
+                if(column.Type.TrimEnd('?')=="double")
+                {
+                    // ORM的Sum返回decimal；显式double结果让驱动按浮点取值，真实SQL翻译另有无decimal转换回归。
+                    source.AppendLine($"        var {local}Total=await {(CascadeTreeQueryCompilation.Async(page)?CascadeTreeQueryCompilation.Call(page):$"Query{suffix}(request,actor)")}.ToAggregateAsync(aggregate=>(double?)global::FreeSql.SqlExt.AggregateSum(aggregate.Key.{column.Property}),cancellationToken);")
+                        .AppendLine($"        statistics[{key}]=new{{currentPage=LegacyStatisticsMath.SumDouble(page.Records.Select(row=>(double?)row.{column.Property})),total=LegacyStatisticsMath.DoubleSumResult({local}Total)??0d}};");
+                    continue;
+                }
                 var current=column.Type.EndsWith('?')?"(decimal)(row."+column.Property+" ?? 0)":"(decimal)row."+column.Property;
                 source.AppendLine($"        var {local}Total=await {(CascadeTreeQueryCompilation.Async(page)?CascadeTreeQueryCompilation.Call(page):$"Query{suffix}(request,actor)")}.SumAsync(entity=>{definition.SqlValue},cancellationToken);")
                     .AppendLine($"        statistics[{key}]=new{{currentPage=page.Records.Sum(row=>{current}),total={local}Total}};");

@@ -6,7 +6,11 @@ public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less
 public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison,object? Value=null);
 public sealed record FixedReadOrder(string Field,bool Descending=false);
 public sealed record FixedReadPage(long Total,IReadOnlyList<IReadOnlyDictionary<string,object?>> Records);
-public sealed record FixedReadStatistics(long Total,IReadOnlyDictionary<string,decimal?> Sums);
+public sealed record FixedReadStatistics(long Total,IReadOnlyDictionary<string,decimal?> Sums)
+{
+    /// <summary>浮点统计独立保存，不把整数／decimal合计经double中转。</summary>
+    public IReadOnlyDictionary<string,double?> DoubleSums {get;init;}=new System.Collections.ObjectModel.ReadOnlyDictionary<string,double?>(new Dictionary<string,double?>());
+}
 
 /// <summary>执行固定单值及多选读计划；调用方仍须先建立原页面授权和父对象读取范围。</summary>
 public sealed class MySqlNonRedundantReader(DatabaseSession session)
@@ -102,7 +106,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(sumFields);
         projectId=RequirePlanProject(plan,projectId);var fields=sumFields.ToArray();
         if(fields.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=fields.Length)throw new InvalidOperationException("统计字段重复。");
-        foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
+        foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal" or "double"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();
         var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",plan.Expression);
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(filters.Select((filter,index)=>Filter(plan,filter,index))).Where(part=>part.Length>0));
@@ -113,8 +117,15 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             await using var reader=await command.ExecuteReaderAsync(cancellationToken);if(!await reader.ReadAsync(cancellationToken))throw new InvalidOperationException("固定统计未返回结果。");
             if(plan.Crosses.Count>0)RequireValidCross(reader,fields.Length+1);
             var total=reader.GetInt64(0);var sums=new Dictionary<string,decimal?>(StringComparer.OrdinalIgnoreCase);
-            for(var index=0;index<fields.Length;index++)sums.Add(fields[index],await reader.IsDBNullAsync(index+1,cancellationToken)?null:Convert.ToDecimal(reader.GetValue(index+1),System.Globalization.CultureInfo.InvariantCulture));
-            return new FixedReadStatistics(total,new System.Collections.ObjectModel.ReadOnlyDictionary<string,decimal?>(sums));
+            var doubles=new Dictionary<string,double?>(StringComparer.OrdinalIgnoreCase);
+            for(var index=0;index<fields.Length;index++)
+            {
+                var field=fields[index];var value=await reader.IsDBNullAsync(index+1,cancellationToken)?null:reader.GetValue(index+1);
+                if(plan.Types[field]=="double")doubles.Add(field,Metarill.Core.Contracts.LegacyStatisticsMath.DoubleSumResult(value));
+                else sums.Add(field,value is null?null:Convert.ToDecimal(value,System.Globalization.CultureInfo.InvariantCulture));
+            }
+            return new FixedReadStatistics(total,new System.Collections.ObjectModel.ReadOnlyDictionary<string,decimal?>(sums))
+            {DoubleSums=new System.Collections.ObjectModel.ReadOnlyDictionary<string,double?>(doubles)};
         },cancellationToken);
     }
     /// <summary>复制请求并按发布类型绑定，长ID字符串不经double，防止高位项目/记录误匹配。</summary>

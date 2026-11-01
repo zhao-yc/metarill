@@ -208,7 +208,7 @@ internal sealed class StatisticsAuthorization:IRuntimeAuthorization
 
 internal sealed class StatisticsMemoryProvider:IDatabaseProvider
 {
-    internal object[] Rows=[];internal List<(string Method,int Page)> Calls {get;}=[];
+    internal object[] Rows=[];internal double? DoubleAggregateOverride;internal LambdaExpression? DoubleAggregateExpression;internal List<(string Method,int Page)> Calls {get;}=[];
     internal IFreeSql Orm {get;}
     /// <summary>仅注册可审计的Select代理，不建立连接。</summary>
     internal StatisticsMemoryProvider(){Orm=DispatchProxy.Create<IFreeSql,StatisticsOrmProxy>();((StatisticsOrmProxy)(object)Orm).Provider=this;}
@@ -262,6 +262,17 @@ public class StatisticsSelectProxy<T>:DispatchProxy where T:class
         if(name=="Page"){page=(int)args[0]!;size=(int)args[1]!;return this;}
         var rows=Provider.Rows.Cast<T>().Where(row=>predicates.All(predicate=>(bool)predicate.DynamicInvoke(row)!));
         if(name=="CountAsync"){Provider.Calls.Add((name,page));return Task.FromResult(rows.LongCount());}
+        if(name=="ToAggregateAsync")
+        {
+            // 执行真实生成聚合的表达式路径，只替换终端传输；不使用产品有限值辅助方法伪造驱动正确性。
+            Provider.Calls.Add((name,page));Provider.DoubleAggregateExpression=lambda;Assert.Equal(typeof(double?),method.ReturnType.GetGenericArguments()[0]);
+            Expression body=lambda!.Body;Assert.Equal(typeof(double?),body.Type);
+            while(body is UnaryExpression conversion){Assert.Equal(ExpressionType.Convert,conversion.NodeType);Assert.True(conversion.Type==typeof(double?)||conversion.Type==typeof(double));body=conversion.Operand;}
+            var sum=Assert.IsAssignableFrom<MethodCallExpression>(body);Assert.Equal("AggregateSum",sum.Method.Name);
+            var member=Assert.IsAssignableFrom<MemberExpression>(Assert.Single(sum.Arguments));var property=typeof(T).GetProperty(member.Member.Name)!;
+            var values=rows.Select(row=>(double?)property.GetValue(row)).ToArray();
+            double? total=Provider.DoubleAggregateOverride??(values.Length==0?null:values.Sum(value=>value??0d));return Task.FromResult(total);
+        }
         if(name=="SumAsync"){Provider.Calls.Add((name,page));var selector=lambda!.Compile();return Task.FromResult(rows.Sum(row=>Convert.ToDecimal(selector.DynamicInvoke(row)??0,System.Globalization.CultureInfo.InvariantCulture)));}
         if(name=="ToListAsync")
         {

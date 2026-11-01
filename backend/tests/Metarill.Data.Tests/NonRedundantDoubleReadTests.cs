@@ -33,13 +33,13 @@ public sealed class NonRedundantDoubleReadTests
         object input=list?new object?[]{1.25d,"1e-999"}:"1e-999";
         await Assert.ThrowsAsync<InvalidOperationException>(()=>new MySqlNonRedundantReader(session).ReadPageAsync(plan,[new("bill_amount",list?FixedReadComparison.In:FixedReadComparison.Equal,input)],[],1,10));
     }
-    /// <summary>此范围不改变SUM返回decimal的既有合同，double统计仍在连接前明确拒绝。</summary>
+    /// <summary>浮点合计接通后，非法筛选仍须在连接前拒绝，不能下溢为零。</summary>
     [Fact]
-    public async Task Double_statistics_do_not_silently_enter_decimal_sum()
+    public async Task Double_statistics_reject_underflow_filters_before_connecting()
     {
         var catalog=NonRedundantReadTests.Catalog("mt_double_root","mt_double_target");foreach(var field in catalog.ConfigColumns.Where(column=>column.ColumnName is "bill_amount" or "amount"))field.LogicalType="double";
         var plan=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["id","bill_amount"]);
         using var session=new DatabaseSession(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>new MySqlNonRedundantReader(session).ReadStatisticsAsync(plan,[],["bill_amount"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>new MySqlNonRedundantReader(session).ReadStatisticsAsync(plan,[new("bill_amount",FixedReadComparison.Equal,"1e-999")],["bill_amount"]));
     }
 }

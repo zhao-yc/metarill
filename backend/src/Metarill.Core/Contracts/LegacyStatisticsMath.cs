@@ -5,6 +5,31 @@ namespace Metarill.Core.Contracts;
 /// <summary>保留原Java列表百分比的float运算和两位四舍五入口径，不改成另一套小数计算结果。</summary>
 public static class LegacyStatisticsMath
 {
+    /// <summary>浮点合计保持double；数据库空合计保留null，拒绝非有限值及文本溢出／下溢。</summary>
+    public static double? DoubleSumResult(object? value)
+    {
+        if(value is null)return null;
+        double result;
+        if(value is string text)
+        {
+            if(!ExactNumericValue.TryDouble(text,out result))throw new InvalidOperationException("浮点统计必须是有限值，不能溢出或下溢为零。");
+        }
+        else if(value is double or float or decimal or int or long)result=Convert.ToDouble(value,System.Globalization.CultureInfo.InvariantCulture);
+        else throw new InvalidOperationException("浮点统计返回了非数值类型。");
+        if(!double.IsFinite(result))throw new InvalidOperationException("浮点统计必须是有限值。");
+        return result;
+    }
+    /// <summary>本页浮点合计不转decimal，null按零；输入或累加溢出明确拒绝。</summary>
+    public static double SumDouble(IEnumerable<double?> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);var total=0d;
+        foreach(var value in values)
+        {
+            total+=DoubleSumResult(value)??0d;
+            if(!double.IsFinite(total))throw new InvalidOperationException("浮点统计累加超出有限double范围。");
+        }
+        return total;
+    }
     /// <summary>按float的精确二进制有理数舍入，避免double转decimal时的有效位数损失；零分母由调用方省略键。</summary>
     public static decimal Percentage(long matching,long total)
     {

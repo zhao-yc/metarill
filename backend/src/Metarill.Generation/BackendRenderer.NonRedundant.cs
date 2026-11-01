@@ -171,7 +171,12 @@ internal static class GeneratedNonRedundantReadCatalog
         foreach(var definition in definitions)
         {
             var column=definition.Column;var key=Literal(column.JsonName);var local="stat"+column.Property;
-            if(definition.Kind==1)
+            if(definition.Kind==1&&column.Type.TrimEnd('?')=="double")
+            {
+                result.AppendLine($"        var {local}=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},{NonRedundantFilterCall(model,table,page)},new string[]{{{Literal(column.Source.ColumnName)}}},cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});")
+                    .AppendLine($"        statistics[{key}]=new{{currentPage=LegacyStatisticsMath.SumDouble(page.Records.Select(row=>(double?)row.{column.Property})),total={local}.DoubleSums[{Literal(column.Source.ColumnName)}]??0d}};");
+            }
+            else if(definition.Kind==1)
             {var current=column.Type.EndsWith('?')?"(decimal)(row."+column.Property+"??0)":"(decimal)row."+column.Property;result.AppendLine($"        var {local}=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},{NonRedundantFilterCall(model,table,page)},new string[]{{{Literal(column.Source.ColumnName)}}},cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});").AppendLine($"        statistics[{key}]=new{{currentPage=page.Records.Sum(row=>{current}),total={local}.Sums[{Literal(column.Source.ColumnName)}]??0m}};");}
             else
             {result.AppendLine($"        var {local}=new Dictionary<string,object?>();if(page.Records.Count>0){local}[\"currentPage\"]=LegacyStatisticsMath.Percentage(page.Records.LongCount(row=>row.{column.Property}==2),page.Records.Count);").AppendLine($"        if(page.Total>0){{var filters={NonRedundantFilterCall(model,table,page)};filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,2));var matches=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},filters,Array.Empty<string>(),cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});{local}[\"total\"]=LegacyStatisticsMath.Percentage(matches.Total,page.Total);}}").AppendLine($"        statistics[{key}]={local};");}

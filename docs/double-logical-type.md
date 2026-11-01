@@ -44,3 +44,5 @@ A16 新增的 `SchemaService.IndexDirections.cs` 漏登生成助手运行时精�
 ## 2026-11-02：A23非冗余读取补齐
 
 补齐非冗余页double筛选发布，并统一固定筛选与VO投影的有限数／下溢拒绝；实际生成和同一模型Full独立严格构建通过。数据相邻61项与最终生成／拒绝／更新器12项零失败零跳过，批次重叠不累加。原776文件及B120固定源／包保持。double SUM、真实MySQL／浏览器／性能仍待，详细红灯、旧全局断言校准及更新步骤见[非冗余double专项](testing/nonredundant-double-read.md)。
+
+后续A24已补普通与非冗余double列表统计的离线实现，见[数值合同、真实生成及剩余验收](double-list-statistics.md)。此处原批次未支持统计的结论保留为历史边界，不将A24离线证据倒记为真实MySQL／浏览器或性能验收。
