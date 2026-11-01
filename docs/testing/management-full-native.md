@@ -76,6 +76,19 @@ C83将从修正后的提交重新冻结完整来源、包和执行器，使用�
 
 ### C83 修正后独立固定准备结果
 
-执行器031962f已独立检出并严格构建，2297份来源、152份输出、990文件FullManagementApplication完整固定；与产品1e57bb9对照backend/src、templates、backend/metadata、frontend无差异。固定来源准备10项及新增实际根菜单控制器回归1项通过（与原51项重叠），9项未批准门禁及3项实例pin传递／错实例拒绝合同通过；不连接数据库。只读核对Server-200、原实例及新唯一库／账号／所有权均不存在。
+执行器031962f已独立检出并严格构建，2297份来源、152份输出、990文件FullManagementApplication完整固定；与产品1e57bb9对照backend/src、backend/templates、backend/metadata、frontend无差异。固定来源准备10项及新增实际根菜单控制器回归1项通过（与原51项重叠），9项未批准门禁及3项实例pin传递／错实例拒绝合同通过；不连接数据库。只读核对Server-200、原实例及新唯一库／账号／所有权均不存在。
 
 本轮f307ea73c90b9369，精确计划在`.local/management-full-menu-retry-20261101/permission-plan.md`，来源、包、SDK和执行器固定摘要绑定新范围；当前pending／not-started，正式未执行。C82原1失败、清理及冻结来源不修改；本轮仅在获得新单库／账号与同轮CLI凭据／files／exports合成对象创建、复验、清理的直接授权后执行。
+
+
+## 2026-11-01 C83正式复验失败与审批身份修正
+
+本轮用户通过`call_369d1a2a86de49ac9001dabf7adfca61/0`明确批准f307ea73c90b9369。固定产品1e57bb9／执行器031962f执行唯一正式用例，1失败／0通过／0跳过，未计完整通过。已越过C82的根菜单输入问题：工作台授权、普通账号创建及表单登录／非super回读、异后台403已执行；停在`同包真实OAuth和CLI`。真实设备创建为200，而首个设备决定的`/api/admin/sys/agent/approve`返回401，子CLI随后被夹具终止，旧探针只留下unknown，尚未完成CLI业务或MCP／重置／重启。
+
+首因是夹具把普通编辑者Web令牌交给CLI审批。现有`AgentHostCatalog.CanApprove`对普通应用明确要求同应用已发布后台super；页面动作权不等于Agent审批资格。产品按原规则拒绝，不能为了测试通过而放宽。修正只在测试：先建立真实设备，验证普通编辑者审批401且grant完整行不变，再由后台管理员拒绝收尾；真实CLI使用已有同包后台管理员令牌，普通Web／MCP仍使用编辑者身份。正式回执增加ordinaryAgentApprovalRejected，下一轮执行器必须核对此标记。
+
+旧Node探针会用杀停CLI产生的unknown遮住审批HTTP拒绝。本次仅增加安全诊断：保留device-decision阶段、固定profile及HTTP数值状态，不输出远端正文或会话。新增回环HTTP用例执行真实探针与CLI：旧探针红灯1失败，修正后1通过并验证测试秘密均未出现在stderr；C#准备回归直接运行该测试，纳入正常CI。严格生成／准备／实际身份13项、现有Agent审批域8项通过，均0失败／0跳过；Node直接1与前13重叠，不相加。不将回环替身计为真实OAuth或MySQL通过。
+
+本轮finally已完成：唯一库／账号清理并独立SSH核零，远端所有权再次独立只读核零；CLI私有目录由原finally移除，剩余合成文件清理完成，连接和owner token私有文件删除，租约ended。原正式失败、日志、固定来源及凭据删除证明保留于`.local/management-full-menu-retry-20261101/`，安全诊断与身份回归于`.local/management-full-approver-fix-20261101/`。原776文件未变，产品及原界面不变。
+
+C84将在新提交上重新固定并申请独立新范围；当前仅准备，不复用C82/C83授权。有效Agent刷新授权重置策略、C65设备整链及其余首版边界不变。

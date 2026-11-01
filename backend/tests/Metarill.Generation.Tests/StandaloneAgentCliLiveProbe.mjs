@@ -20,7 +20,7 @@ let loginProcess;
 // 业务状态与正文独立校验，错误不输出HTTP响应、连接或凭据。
 async function request(route,body,headers={},expected=200,form=false){
  const response=await fetch(base+route,{method:body===undefined?'GET':'POST',redirect:'error',headers:{...headers,...(body===undefined?{}:{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'})},body:body===undefined?undefined:form?new URLSearchParams(body):JSON.stringify(body)});
- const value=await response.json();if(response.status!==expected||value.code!==undefined&&Number(value.code)!==expected)throw new Error('正式Agent接口状态不符。');return value;
+ const value=await response.json();if(response.status!==expected||value.code!==undefined&&Number(value.code)!==expected)throw Object.assign(new Error('正式Agent接口状态不符。'),{httpStatus:response.status});return value;
 }
 
 // 所有CLI命令用真实入口；不向stdout或异常打印原始stderr中的登录上下文。
@@ -42,11 +42,15 @@ async function login(profile,approve){
  let decided=false,approvalError;
  loginProcess=run(['auth','login','--url',base,'--profile',profile,'--name','独立Agent正式验收'],text=>{
   const code=/用户码：([A-Z2-9]{8})/.exec(text)?.[1];if(decided||!code)return;decided=true;
-  request('/admin/sys/agent/approve',{userCode:code,approve},web).catch(()=>{approvalError=true;loginProcess.child.kill();});
+  request('/admin/sys/agent/approve',{userCode:code,approve},web).catch(error=>{approvalError=error;loginProcess?.child.kill();});
  });
  const timeout=setTimeout(()=>loginProcess.child.kill(),30000);
  try{await loginProcess.complete;if(!approve||approvalError||!decided)throw new Error('正式设备决定不符。');}
- catch(error){if(approve||approvalError||!decided||error.cliError!=='access_denied')throw error;}
+ catch(error){
+  // 审批HTTP拒绝不能被随后终止CLI产生的unknown掩盖；只输出阶段、固定profile和数值状态。
+  if(approvalError)throw Object.assign(new Error('真实设备授权审批失败。'),{phase:'device-decision',profile,httpStatus:approvalError.httpStatus??0});
+  if(approve||!decided||error.cliError!=='access_denied')throw error;
+ }
  finally{clearTimeout(timeout);loginProcess=null;}
 }
 

@@ -26,6 +26,14 @@ public sealed class ManagementNativePreparationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
     }
+    /// <summary>真实探针及CLI的审批失败只输出安全阶段和状态，不回显会话或远端正文。</summary>
+    [Fact]
+    public async Task Actual_cli_probe_reports_approval_failure_without_private_context()
+    {
+        var source=NonRedundantApplicationFixture.Root();var start=NonRedundantApplicationFixture.Start("node",source);
+        start.ArgumentList.Add("--test");start.ArgumentList.Add(Path.Combine(source,"backend/tests/Metarill.Generation.Tests/StandaloneAgentCliLiveProbe.test.mjs"));
+        await NonRedundantApplicationFixture.RunAsync(start);
+    }
     /// <summary>在独立进程运行真实正式入口；配置故意没有数据库字段，必须先因未授权而拒绝且不建副本。</summary>
     [Fact]
     public async Task Actual_native_entry_rejects_pending_authorization_before_reading_database_configuration()
