@@ -29,3 +29,13 @@
 私有离线结果：.local/platform-seed-rollback-native-20261101/preparation.log及results/preparation.trx。实际.NET10.0.402使用独占--artifacts-path、Release、-warnaserror、--disable-build-servers，定向运行PlatformSeedRollbackNativePreparationTests与PlatformBootstrapNativePreparationTests；无真实数据库配置或外部测试对象。
 
 后续须先从提交独立固定源码、生产宿主和正式程序集，核对精确Server-200实例及新对象不存在，再取得本轮双库／临时账号及清理授权。未执行的正式故障、回滚、浏览器、跨端、并发、性能均不计通过。
+
+## 2026-11-01 固定当前来源与精确新范围
+
+c4347a40ebe3f23155b042ea2c220e8e576974bb已推送并独立固定2318源码、65生产宿主文件及152正式输出；Release严格构建零警告错误，固定程序集14护栏再次通过（与前14重叠，不累计）。固定来源、完整宿主、元数据、执行器及租约脚本摘要全部核对，--check-only无子进程／数据库写入。
+
+外层4种失效租约拒绝且外部调用0；实际正式FQN以pending、ended及旧管理用途3次运行，均在连接前按预期拒绝，不计真实事务验收。只读核对Server-200 MySQL8.4.11及既定UUID，确认本轮两个新库／账号／所有权记录均不存在。
+
+本轮编号da4fc62579c2cffe，精确范围为metarill_fresh_da4fc62579c2cffe_platform、metarill_fresh_da4fc62579c2cffe_business及mtf_da4fc62579c2cffe@%；只限这两库的建表、两个临时末段CHECK、种子／账号样本、恢复和同轮清理，不修改旧库。计划.local/platform-seed-rollback-native-20261101/permission-plan.md，scope摘要db3a4a521b2bc501046d2999ea1fcac1bd32f21c1093320dea3952b5449fdcc3，仍pending／not-started。旧A21／C88已结束的精确租约不覆盖新名字及故障用途，正式尚未执行。
+
+证据：source-snapshot.json、fixed-build-state.json、prepared-receipt.json、formal-assembly-files.json、fixed-preparation.trx、pending-guards.json、pending-0/1/2.trx、readonly-preflight.json与protected-files-result.json。原776份保护文件保持。未生成批准记录、临时数据库密码或真实宿主凭据；未执行的故障／回滚／恢复仍标待验。
