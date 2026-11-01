@@ -103,7 +103,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             }
             Assert.Equal(Full,(await Post(reader,Route+"cascadeTreePath"+field.Id,new{leafId=Id(At(shorter?Area:Place))})).GetProperty("displayText").GetString());
             var firstTable=catalog.ConfigTables.Single(table=>table.TableName==levels[0].GetProperty("table").GetString());var targetPage=catalog.ConfigPages.Single(page=>page.ConfigTableId==firstTable.Id).Id;await Grant(targetPage,"[]");
-            await Send(reader,HttpMethod.Post,Route+"cascadeTreeOptions"+field.Id,new{levelKey="country",selectedPath=selected},HttpStatusCode.Unauthorized);await Grant(targetPage,"[\"is_all\"]");
+            await Send(reader,HttpMethod.Post,Route+"cascadeTreeOptions"+field.Id,new{levelKey="country",selectedPath=selected},HttpStatusCode.Forbidden);await Grant(targetPage,"[\"is_all\"]");
         }
         /// <summary>原维护只认具体按钮；普通页面is_all不自动获得维护权，管理员修复与重复零变化沿原接口。</summary>
         private async Task Maintenance(int changed)
@@ -145,11 +145,11 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             using(var download=await reader.GetAsync(route+"protected-content/"+file)){Assert.Equal(HttpStatusCode.OK,download.StatusCode);Assert.Equal(bytes,await download.Content.ReadAsByteArrayAsync());}
             await Send(reader,HttpMethod.Delete,Route.TrimEnd('/'),new{id=copied});Assert.Single(await files.ReadAsync("yz_file_ref",Row("file_id",long.Parse(file,CultureInfo.InvariantCulture))));
         }
-        /// <summary>来源撤权后普通导入导出均401且业务/文件全量摘要不变，再恢复原明确许可。</summary>
+        /// <summary>来源撤权后普通导入导出均403、文件401且业务/文件全量摘要不变，再恢复原明确许可。</summary>
         private async Task Revoke(ColumnMetadata main)
         {
             var before=await Snapshot();await Grant(SourcePage,"[]");
-            await Import(HttpStatusCode.Unauthorized,Input("拒权不得写入",Full,shared?Secondary:null));await Send(reader,HttpMethod.Post,Route+"initExport",new{},HttpStatusCode.Unauthorized);await Send(reader,HttpMethod.Post,Route+"cascadeTreeOptions"+main.Id,new{levelKey="country",selectedPath=new{}},HttpStatusCode.Unauthorized);Assert.Equal(before,await Snapshot());
+            await Import(HttpStatusCode.Forbidden,Input("拒权不得写入",Full,shared?Secondary:null));await Send(reader,HttpMethod.Post,Route+"initExport",new{},HttpStatusCode.Forbidden);await Send(reader,HttpMethod.Post,Route+"cascadeTreeOptions"+main.Id,new{levelKey="country",selectedPath=new{}},HttpStatusCode.Forbidden);Assert.Equal(before,await Snapshot());
             Assert.NotNull(lastFile);using(var denied=await reader.GetAsync("/api/admin/sys/file-library/protected-content/"+lastFile))Assert.Equal(HttpStatusCode.Unauthorized,denied.StatusCode);
             await Grant(SourcePage,"[\"is_all\"]");
         }
