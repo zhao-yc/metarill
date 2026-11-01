@@ -6,7 +6,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>完整管理公开包与编译输出共同冻结；不连接数据库，不创建或批准租约。</summary>
 internal static class ManagementNativePreparation
 {
-    internal const string ProductCommit="1e57bb94acbb8f74538be9d4b10647bca1d884f3",RootNamespace="Metarill.ManagementNative";
+    internal const string ProductCommit="a86eeb7923ff68e63e12baa85fb9293da5f6ba99",RootNamespace="Metarill.ManagementNative";
     internal const string Admin="2200000000000100001",ForeignAdmin="2300000000000000099";
     /// <summary>原普通业务样例增加第二个已发布后台，用同一包验证管理页面后台边界。</summary>
     internal static MetadataCatalog Catalog(string sourceRoot)
