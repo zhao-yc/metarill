@@ -13,7 +13,7 @@ using Xunit;
 namespace Metarill.Metadata.Tests;
 
 /// <summary>实际调用MetadataRepository.SeedAsync的离线索引ID幂等合同；不连接实库、不更改种子语义。</summary>
-public sealed class SecurityIndexSeedIdentityTests
+public sealed partial class SecurityIndexSeedIdentityTests
 {
     /// <summary>模拟工作台已经生成的真实9ID与既有用户内容，连续Seed不得再次插入/复写或复活墓碑。</summary>
     [Fact]
@@ -52,6 +52,7 @@ public sealed class SecurityIndexSeedIdentityTests
     private sealed class MemoryProvider:IDatabaseProvider
     {
         internal Dictionary<string,List<Dictionary<string,object?>>> Rows{get;set;}=new(StringComparer.Ordinal);internal List<string> Commands{get;}=[];internal int Rollbacks;
+        internal Action<string,IReadOnlyDictionary<string,object?>>? BeforeInsert;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new MemoryConnection(this);public string QuoteIdentifier(string id)=>new MySqlDatabaseProvider().QuoteIdentifier(id);public string ParameterPlaceholder(string name)=>"@"+name;public string BuildSelectForUpdate(string sql)=>new MySqlDatabaseProvider().BuildSelectForUpdate(sql);
         internal DbDataReader Read(string sql,DbParameterCollection parameters)
         {
@@ -75,7 +76,7 @@ public sealed class SecurityIndexSeedIdentityTests
                 foreach(Match field in Regex.Matches(update.Groups[2].Value,@"`([^`]+)`=@([a-zA-Z0-9_]+)"))row[field.Groups[1].Value]=Unwrap(parameters[field.Groups[2].Value].Value);return 1;
             }
             var insert=Regex.Match(sql,@"^INSERT INTO `([^`]+)` \((.+)\) VALUES \((.+)\)$");if(!insert.Success)throw new NotSupportedException(sql);
-            var names=insert.Groups[2].Value.Split(',').Select(name=>name.Trim('`')).ToArray();var values=insert.Groups[3].Value.Split(',').Select(name=>Unwrap(parameters[name.TrimStart('@')].Value)).ToArray();var target=insert.Groups[1].Value;if(!Rows.TryGetValue(target,out var list))Rows[target]=list=[];list.Add(names.Select((name,index)=>(name,index)).ToDictionary(item=>item.name,item=>values[item.index],StringComparer.Ordinal));return 1;
+            var names=insert.Groups[2].Value.Split(',').Select(name=>name.Trim('`')).ToArray();var values=insert.Groups[3].Value.Split(',').Select(name=>Unwrap(parameters[name.TrimStart('@')].Value)).ToArray();var target=insert.Groups[1].Value;var record=names.Select((name,index)=>(name,index)).ToDictionary(item=>item.name,item=>values[item.index],StringComparer.Ordinal);BeforeInsert?.Invoke(target,record);if(!Rows.TryGetValue(target,out var list))Rows[target]=list=[];list.Add(record);return 1;
         }
         private static object? Unwrap(object? value)=>value is DBNull?null:value;
         private static bool Equal(object? first,object? second)=>string.Equals(Convert.ToString(Unwrap(first),CultureInfo.InvariantCulture),Convert.ToString(Unwrap(second),CultureInfo.InvariantCulture),StringComparison.Ordinal)&&((Unwrap(first)is null)==(Unwrap(second)is null));
