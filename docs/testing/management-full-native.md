@@ -92,3 +92,10 @@ C83将从修正后的提交重新冻结完整来源、包和执行器，使用�
 本轮finally已完成：唯一库／账号清理并独立SSH核零，远端所有权再次独立只读核零；CLI私有目录由原finally移除，剩余合成文件清理完成，连接和owner token私有文件删除，租约ended。原正式失败、日志、固定来源及凭据删除证明保留于`.local/management-full-menu-retry-20261101/`，安全诊断与身份回归于`.local/management-full-approver-fix-20261101/`。原776文件未变，产品及原界面不变。
 
 C84将在新提交上重新固定并申请独立新范围；当前仅准备，不复用C82/C83授权。有效Agent刷新授权重置策略、C65设备整链及其余首版边界不变。
+
+
+### C84审批身份修正后固定准备结果
+
+执行器55bbad3独立检出，2298份来源／152份正式输出／990文件完整管理包均固定并严格构建。backend/src、backend/templates、backend/metadata、frontend与产品1e57bb9无差异。固定来源准备11项零失败零跳过（包含真实探针／CLI安全诊断，与前13重叠），9项入口门禁及3项实例传递合同通过；正式回执还必须验证ordinaryAgentApprovalRejected。只读确认原Server-200实例和新库／账号／所有权均不存在，没有创建正式凭据。
+
+新编号20d65f200584611f，精确计划位于`.local/management-full-approver-retry-20261101/permission-plan.md`；当前pending／not-started，等待本轮唯一库／账号与独占CLI凭据／files／exports合成对象的创建、复验及清理直接授权。C82／C83已结束，旧失败、源码及清理证据全部保持，不复用旧范围。
