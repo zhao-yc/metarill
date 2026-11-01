@@ -382,9 +382,11 @@ internal sealed class FreshHost : IAsyncDisposable
         Client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(15) };
     }
     /// <summary>取得临时端口并启动实际平台二进制，等待健康响应。</summary>
-    public static async Task<FreshHost> StartAsync(ProcessStartInfo info, string health)
+    public static async Task<FreshHost> StartAsync(ProcessStartInfo info, string health, Uri? previousAddress = null)
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+        // 正式助手profile固定API地址，重启必须复用本fixture此前的回环端口；端口被占用时拒绝，不终止其它进程。
+        if (previousAddress is not null && (previousAddress.Scheme != "http" || previousAddress.Host != "127.0.0.1" || previousAddress.Port <= 0 || previousAddress.AbsolutePath != "/" || previousAddress.Query.Length != 0 || previousAddress.Fragment.Length != 0)) throw new InvalidOperationException("验收重启只允许原回环根地址。");
+        var listener = new TcpListener(IPAddress.Loopback, previousAddress?.Port ?? 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
         var address = new Uri($"http://127.0.0.1:{port}"); info.ArgumentList.Add("--urls"); info.ArgumentList.Add(address.ToString());
         var host = new FreshHost(info, address);
         for (var attempt = 0; attempt < 150 && !host.process.HasExited; attempt++)
