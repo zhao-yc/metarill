@@ -73,6 +73,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
     public async Task Platform_initialize_bootstraps_an_empty_database_and_is_idempotent()
     {
         var root = SourceRoot();
+        var native = PlatformBootstrapNativePreparation.ReadIfRequested(root);
         var platform = FreshInstallConfiguration.Read("Database", "platform");
         var business = FreshInstallConfiguration.Read("BusinessDatabase", "business");
         using var platformSession = new DatabaseSession(platform); using var businessSession = new DatabaseSession(business);
@@ -82,13 +83,18 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         var password = Guid.NewGuid().ToString("N"); var alternatePassword = Guid.NewGuid().ToString("N");
         var settings = Path.Combine(directory, "settings.json");
         await File.WriteAllTextAsync(settings, JsonSerializer.Serialize(new { Metarill = new { Database = platform, BusinessDatabase = business, WorkerId = 854, Bootstrap = new { Username = "fresh-admin", Password = password } } }));
-        var assembly = Path.Combine(root, "backend/src/Metarill.Api/bin/Debug/net10.0/Metarill.Api.dll");
+        var assembly = native?.AssemblyPath ?? Path.Combine(root, "backend/src/Metarill.Api/bin/Debug/net10.0/Metarill.Api.dll");
         Assert.True(File.Exists(assembly), "请使用 fresh-mysql.ps1 先构建当前平台宿主。");
         ProcessStartInfo StartInfo(string? operation = null)
         {
             var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = root, CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
             start.ArgumentList.Add(assembly); if (operation is not null) start.ArgumentList.Add(operation);
-            start.Environment["METARILL_SETTINGS"] = settings; start.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
+            start.Environment["METARILL_SETTINGS"] = settings; start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+            // 只供既有脱敏日志器收集秘密；连接及身份仍由同一正式配置建立。
+            start.Environment["Metarill__Bootstrap__Password"] = password;
+            start.Environment["Metarill__Database__ConnectionString"] = platform.ConnectionString;
+            start.Environment["Metarill__BusinessDatabase__ConnectionString"] = business.ConnectionString;
+            if (native is not null) start.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"] = native.EvidenceDirectory;
             return start;
         }
         try
@@ -119,21 +125,58 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             foreach (var (table, count) in expected) Assert.Equal(count, Convert.ToInt32(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table + "` WHERE `delete_no` IS NULL")));
             Assert.Equal(2L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `yz_project` WHERE `delete_no` IS NULL")));
             Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `yz_manager` WHERE `delete_no` IS NULL")));
+            // 在本轮独占库内制造用户编辑和墓碑，再逐行证明重复播种不会覆盖或复活。
+            var seedStore = new SqlRowStore(platformSession, catalog);
+            var editedId = long.Parse(catalog.ConfigTables[0].Id, CultureInfo.InvariantCulture);
+            var deletedId = long.Parse(catalog.ConfigButtons[0].GetProperty("id").ToString(), CultureInfo.InvariantCulture);
+            Assert.Equal(1, await seedStore.UpdateAsync("config_table", editedId, new Dictionary<string, object?> { ["name"] = "本轮空库验收保留的用户编辑" }));
+            Assert.Equal(1, await seedStore.UpdateAsync("config_button", deletedId, new Dictionary<string, object?> { ["delete_no"] = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Unspecified) }));
+            var seedBefore = await SeedSnapshotAsync(seedStore, expected.Keys);
             var hash = await ScalarAsync(platformSession, "SELECT `password` FROM `yz_manager` WHERE `id`=1");
             var repeated = StartInfo("--initialize"); repeated.Environment["Metarill__Bootstrap__Password"] = alternatePassword;
             await RunAsync(repeated);
             Assert.Equal(hash, await ScalarAsync(platformSession, "SELECT `password` FROM `yz_manager` WHERE `id`=1"));
-            foreach (var (table, count) in expected) Assert.Equal(count, Convert.ToInt32(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table + "` WHERE `delete_no` IS NULL")));
-            await using var host = await FreshHost.StartAsync(StartInfo(), "/api/runtime/health/check");
-            using var login = await host.Client.PostAsync("/api/admin/sys/yz_manager/login", new FormUrlEncodedContent(new Dictionary<string,string> { ["username"] = "fresh-admin", ["password"] = password }));
-            var identity = await login.Content.ReadFromJsonAsync<JsonElement>(); Assert.Equal(200, identity.GetProperty("code").GetInt32());
-            host.Client.DefaultRequestHeaders.Add("loginStateId", identity.GetProperty("map").GetProperty("loginStateId").GetString());
-            var permissions = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
-            Assert.Equal(200, permissions.GetProperty("code").GetInt32()); Assert.True(permissions.GetProperty("data").GetProperty("isSuper").GetBoolean());
-            var menu = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getMenu"); Assert.Equal(200, menu.GetProperty("code").GetInt32()); Assert.NotEmpty(menu.GetProperty("menu").EnumerateArray());
-            output.WriteLine($"平台：普通启动保持0表，显式初始化创建{catalog.ConfigTables.Count}表并播种元数据，业务库创建{businessCatalog.ConfigTables.Count}表；重复初始化无重复且密码未重置，真实登录/权限/菜单通过。");
+            foreach (var (table, count) in expected) Assert.Equal(count - (table == "config_button" ? 1 : 0), Convert.ToInt32(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table + "` WHERE `delete_no` IS NULL")));
+            Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, expected.Keys));
+            Assert.Empty((await schema.PreviewAsync(catalog)).Changes);
+            Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
+            string loginToken;
+            await using (var host = await FreshHost.StartAsync(StartInfo(), "/api/runtime/health/check"))
+            {
+                using var login = await host.Client.PostAsync("/api/admin/sys/yz_manager/login", new FormUrlEncodedContent(new Dictionary<string,string> { ["username"] = "fresh-admin", ["password"] = password }));
+                var identity = await login.Content.ReadFromJsonAsync<JsonElement>(); Assert.Equal(200, identity.GetProperty("code").GetInt32());
+                host.Client.DefaultRequestHeaders.Add("loginStateId", identity.GetProperty("map").GetProperty("loginStateId").GetString());
+                var permissions = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
+                Assert.Equal(200, permissions.GetProperty("code").GetInt32()); Assert.True(permissions.GetProperty("data").GetProperty("isSuper").GetBoolean());
+                var menu = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getMenu"); Assert.Equal(200, menu.GetProperty("code").GetInt32()); Assert.NotEmpty(menu.GetProperty("menu").EnumerateArray());
+                loginToken = identity.GetProperty("map").GetProperty("loginStateId").GetString()!;
+                using (var wrongPassword = await host.Client.PostAsync("/api/admin/sys/yz_manager/login", new FormUrlEncodedContent(new Dictionary<string,string> { ["username"] = "fresh-admin", ["password"] = alternatePassword })))
+                    Assert.NotEqual(200, (await wrongPassword.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetInt32());
+            }
+            await using (var restarted = await FreshHost.StartAsync(StartInfo(), "/api/runtime/health/check"))
+            {
+                restarted.Client.DefaultRequestHeaders.Add("loginStateId", loginToken);
+                var persisted = await restarted.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
+                Assert.Equal(200, persisted.GetProperty("code").GetInt32()); Assert.True(persisted.GetProperty("data").GetProperty("isSuper").GetBoolean());
+                Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, expected.Keys));
+            }
+            if (native is not null)
+            {
+                native.Verify(root);
+                await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformTables = catalog.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = expected.Count, seedRows = expected.Values.Sum(), distinctDatabases = platform.ExpectedDatabase != business.ExpectedDatabase, ordinaryStartupNoDdl = true, repeatedSeedUnchanged = true, userEditPreserved = true, tombstonePreserved = true, passwordPreserved = true, realWeb = true, restartSession = true, browserExecuted = false, performanceExecuted = false }));
+            }
+            output.WriteLine($"平台：Production普通启动保持0表，显式初始化创建{catalog.ConfigTables.Count}表／业务{businessCatalog.ConfigTables.Count}表；{expected.Count}类{expected.Values.Sum()}条种子，重复保留编辑、墓碑及密码，真实登录/权限/菜单及重启会话通过。");
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, temporaryRoot); }
+    }
+
+    /// <summary>只比较同一实库11类种子的完整行，排序固定并包含墓碑，不在日志输出行内容。</summary>
+    private static async Task<string> SeedSnapshotAsync(SqlRowStore store, IEnumerable<string> tables)
+    {
+        var snapshot = new SortedDictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var table in tables)
+            snapshot[table] = (await store.ReadIncludingDeletedAsync(table)).OrderBy(row => Convert.ToString(row["id"], CultureInfo.InvariantCulture), StringComparer.Ordinal).Select(row => new SortedDictionary<string, object?>(row, StringComparer.Ordinal)).ToArray();
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(snapshot)));
     }
 
     /// <summary>仅在专属随机package库、文件CRUD完成后验证正式Web顺序合同；安全表种子不是已下发安全CRUD能力。</summary>
