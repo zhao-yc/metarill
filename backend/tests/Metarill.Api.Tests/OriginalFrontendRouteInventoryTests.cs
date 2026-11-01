@@ -1,6 +1,10 @@
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Text;
+using Metarill.Core.Contracts;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 using Metarill.Runtime.Compatibility;
 using Metarill.Runtime.Metadata;
@@ -97,6 +101,47 @@ public sealed class OriginalFrontendRouteInventoryTests(ITestOutputHelper output
         finally{Environment.SetEnvironmentVariable("METARILL_SETTINGS",previous);File.Delete(settings);Directory.Delete(directory);}
     }
 
+    /// <summary>原列表实际正文使用真实Program的JSON设置及动作参数类型解码；仍不执行MVC业务／权限／SQL。</summary>
+    [Fact]
+    public async Task Original_list_payloads_match_actual_page_request_contract_and_program_routes()
+    {
+        var inventory=await Inventory(Root(),"original-list-requests.mjs");Assert.Empty(inventory.Errors);Assert.Equal(20,inventory.ScannedFiles);
+        Assert.Equal(19,inventory.StandardFiles);Assert.Equal(16,inventory.LegacyFiles);Assert.Equal(3,inventory.MixinFiles);
+        Assert.Equal(3,inventory.Unresolved.Length);Assert.All(inventory.Unresolved,item=>{Assert.EndsWith("config_menu-list-2200000000000099000.vue",item.File);Assert.Contains("菜单工作台",item.Reason);});
+        var directory=Path.Combine(Path.GetTempPath(),"metarill-original-list-body-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);var settings=Path.Combine(directory,"settings.json");var previous=Environment.GetEnvironmentVariable("METARILL_SETTINGS");
+        var database=new{ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Password=unused;Connection Timeout=1"};
+        await File.WriteAllTextAsync(settings,JsonSerializer.Serialize(new{Metarill=new{Database=database,BusinessDatabase=database}}));Environment.SetEnvironmentVariable("METARILL_SETTINGS",settings);
+        try
+        {
+            await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>builder.ConfigureTestServices(services=>
+            {
+                services.Configure<MvcOptions>(options=>options.Filters.Insert(0,new Probe()));
+                foreach(var service in services.Where(item=>item.ServiceType==typeof(IHostedService)&&item.ImplementationType?.Name=="ExportCleanupWorker").ToArray())services.Remove(service);
+            }));
+            using var client=factory.CreateClient(new(){AllowAutoRedirect=false});var options=factory.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.Mvc.JsonOptions>>().Value.JsonSerializerOptions;var routes=new HashSet<string>(StringComparer.Ordinal);var decoded=0;
+            foreach(var item in inventory.Fixed)
+            {
+                Assert.Equal("page",item.Action);var body=item.Payload??throw new InvalidOperationException("原列表请求正文缺失。");
+                // 真实动作声明须仍为标准PageRequest，不能只因JSON能解成另一种对象就算接通。
+                if(routes.Add(item.Route))
+                {
+                    using var request=new HttpRequestMessage(HttpMethod.Post,"/api"+item.Route){Content=new StringContent(body.GetRawText(),Encoding.UTF8,"application/json")};request.Headers.Add("X-Original-List-Body-Type","inspect");using var response=await client.SendAsync(request);
+                    Assert.Equal(HttpStatusCode.NoContent,response.StatusCode);Assert.Equal(typeof(PageRequest).FullName,Assert.Single(response.Headers.GetValues("X-Original-List-Body-Type")));
+                }
+                var parsed=JsonSerializer.Deserialize<PageRequest>(body.GetRawText(),options)!;Assert.Equal(body.GetProperty("pageNo").GetInt32(),parsed.PageNo);Assert.Equal(body.GetProperty("pageSize").GetInt32(),parsed.PageSize);Assert.Empty(parsed.Filters);Assert.Empty(parsed.SelectedIds);
+                Assert.NotNull(parsed.OrderBy);Assert.Null(parsed.OrderBy.Column);Assert.Null(parsed.OrderBy.Field);Assert.Null(parsed.OrderBy.Order);
+                Assert.Equal(body.TryGetProperty("parentId",out var parent)&&parent.ValueKind!=JsonValueKind.Null?parent.GetString():null,parsed.ParentId);decoded++;
+            }
+            Assert.Equal(19,routes.Count);Assert.Equal(inventory.Fixed.Length,decoded);Assert.True(decoded>1500);
+            foreach(var bad in new[]{"{\"filters\":[]}","{\"pageNo\":\"NaN\"}","{\"pageSize\":1.5}"})Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize<PageRequest>(bad,options));
+            // PageRequest既有兼容合同忽略未映射字段；额外身份提示不能成为DTO状态，本探针不声明真实授权通过。
+            var hinted=JsonSerializer.Deserialize<PageRequest>("{\"projectId\":\"9007199254740995\",\"adminTypeId\":\"7\",\"isSuper\":true}",options)!;
+            Assert.Equal(JsonSerializer.Serialize(new PageRequest(),options),JsonSerializer.Serialize(hinted,options));
+            output.WriteLine($"原20列表中19标准页、16页内／3原状态机；{decoded}实际正文由Program JSON配置解码，19真实动作声明PageRequest。菜单包装3条未覆盖保持；无动作、权限、SQL或浏览器执行。");
+        }
+        finally{Environment.SetEnvironmentVariable("METARILL_SETTINGS",previous);File.Delete(settings);Directory.Delete(directory);}
+    }
+
     /// <summary>在资源阶段结束请求，早于模型绑定与控制器实例/动作执行；只验证实际路由选择。</summary>
     private sealed class Probe:IAsyncResourceFilter
     {
@@ -118,6 +163,11 @@ public sealed class OriginalFrontendRouteInventoryTests(ITestOutputHelper output
                 }
                 catch(InvalidOperationException){supported=false;}
             }
+            if(context.HttpContext.Request.Headers.ContainsKey("X-Original-List-Body-Type"))
+            {
+                var body=Assert.Single(action.Parameters,parameter=>parameter.BindingInfo?.BindingSource==BindingSource.Body);
+                context.HttpContext.Response.Headers["X-Original-List-Body-Type"]=body.ParameterType.FullName;
+            }
             context.HttpContext.Response.Headers["X-Original-Route-Probe"]=supported?"supported":"unsupported-legacy";
             context.Result=new StatusCodeResult(StatusCodes.Status204NoContent);return Task.CompletedTask;
         }
@@ -126,7 +176,7 @@ public sealed class OriginalFrontendRouteInventoryTests(ITestOutputHelper output
     /// <summary>仅运行固定审查脚本：AST扫描或隔离捕获原详情方法；不执行模块顶层、生命周期或发送外部请求。</summary>
     private static async Task<RouteInventory> Inventory(string root,string tool="original-frontend-routes.mjs")
     {
-        var start=new ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=root};
+        var start=new ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8,WorkingDirectory=root};
         start.ArgumentList.Add(Path.Combine(root,"tools/acceptance",tool));start.ArgumentList.Add(Path.Combine(root,"frontend/metarill_uni_admin"));
         using var process=Process.Start(start)!;var output=process.StandardOutput.ReadToEndAsync();var errors=process.StandardError.ReadToEndAsync();
         using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(90));
@@ -138,8 +188,8 @@ public sealed class OriginalFrontendRouteInventoryTests(ITestOutputHelper output
 
     /// <summary>测试源码位置确定真实仓库，不读取调用者提供的任意目录。</summary>
     private static string Root([CallerFilePath]string source="")=>Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!,"../../.."));
-    private sealed record RouteSource(string File,int Line,string Method,string Route,string Platform,string? Action=null);
+    private sealed record RouteSource(string File,int Line,string Method,string Route,string Platform,string? Action=null,JsonElement? Payload=null);
     private sealed record RouteUnresolved(string File,int Line,string Reason,string Platform);
     private sealed record RouteError(string File,string Reason,string Platform);
-    private sealed record RouteInventory(int ScannedFiles,RouteSource[] Fixed,RouteUnresolved[] Unresolved,RouteError[] Errors);
+    private sealed record RouteInventory(int ScannedFiles,RouteSource[] Fixed,RouteUnresolved[] Unresolved,RouteError[] Errors,int StandardFiles=0,int LegacyFiles=0,int MixinFiles=0);
 }

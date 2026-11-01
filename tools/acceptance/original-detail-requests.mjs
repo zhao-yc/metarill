@@ -36,7 +36,7 @@ export function definition(script, parser, context, filename) {
 }
 
 /** 原isBlank函数按AST原文装载；不为新增/更新分支另写一套空值规则。 */
-function blankFunction(frontend, parser) {
+export function blankFunction(frontend, parser) {
   const source = fs.readFileSync(path.join(frontend, 'common/utils.js'), 'utf8')
   const ast = parser.parse(source, { sourceType: 'module' })
   const declarations = ast.program.body.filter(node => node.type === 'VariableDeclaration').flatMap(node => node.declarations)
