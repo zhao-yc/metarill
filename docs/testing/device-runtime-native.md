@@ -50,3 +50,10 @@ C87修正：正式夹具复用有长度StringContent请求工厂，真实wire测
 外层执行器已按批准范围删除本轮两库和账号，独立连接及另一次SSH确认库／账号／远端所有权均不存在；外层连接／所有权秘密删除，fixture因保护拒绝遗留的凭据已由外层按本轮固定落点删除，租约ended。保留旧固定源码、目标、缺失verified的事实、TRX、两份CLI回执和host日志；精确计划执行前副本独立归档。
 
 证据在.local/device-runtime-native-20261101：正式b49c40faf50365a0下native.trx、execution／cleanup／independent-absence／credentials-cleanup；formal-closure.json、readonly-final-zero.json及wire-repair-closed.log/TRX。C87尚未正式运行，原C86一次性固定来源／租约已结束，修正后需新固定范围，不能原地修改或重放旧包。
+
+
+## 2026-11-01 C87 修正后固定准备
+
+a36e1213612a592c41713bd48c463fb15d6729ad独立固定2308来源／65宿主发布文件／23 CLI输出／152正式输出；旧源码2297文件另行普通克隆完整固定。全新来源严格构建零警告错误，固定16项通过／0跳过，包括实际Kestrel wire正反例；与先前16项重叠。固定正式程序集自身的纯文件Verify再检查真实证明通过，外层4项拒绝零外部调用，实际pending／ended／旧用途FQN三次预期拒绝；不计正式通过。原776保护文件保持，产品／原页面／模板无差异。
+
+本轮c3757c130b5b82e8仅两个新库metarill_fresh_c3757c130b5b82e8_platform／metarill_fresh_c3757c130b5b82e8_business及mtf_c3757c130b5b82e8@%；Server-200只读预检两库／账号／所有权不存在，精确计划位于.local/device-runtime-native-retry-20261101/permission-plan.md，仍pending／not-started。旧C86清理及失败保持，修正后正式尚未执行，不复用旧scope。
