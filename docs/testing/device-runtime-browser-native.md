@@ -1,6 +1,6 @@
 # 原浏览器真实双项目批量运行时验收
 
-2026-11-01，C88；起点c86618a。当前已实现完整编排、原Web构建和离线护栏，**尚未执行真实浏览器业务或新MySQL租约**。C87的真实后端／CLI与本项原页面分别记录，不拼称UI已经通过。
+2026-11-01，C88；固定6f85c8d，正式原浏览器／MySQL／OAuth／双本机工程完整场景已通过：1通过／0失败／0跳过。原页面、样式与交互保持；三批业务、回执丢失后刷新只读恢复、退出及精确清理均有独立证据。下方准备与pending记录为执行前历史，最终结果见文末；不代表其它设备或MySQL首版全部通过。
 
 ## 完整场景
 
@@ -43,3 +43,25 @@ H5输入／产物证明及日志位于.local/device-runtime-browser-20261101：f
 新的精确范围：metarill_fresh_2ab4b0e2847d0414_platform、metarill_fresh_2ab4b0e2847d0414_business及mtf_2ab4b0e2847d0414@%。Server-200 MySQL8.4.11只读确认两库／账号／所有权不存在。计划在.local/device-runtime-browser-20261101/permission-plan.md，pending／not-started；同轮唯一浏览器origin为metarill-runtime-2ab4b0e2847d0414.localhost加专属端口，只清本origin及本次agent空间。未执行真实浏览器业务，新租约不得复用C87已结束授权。
 
 新增固定证据：fixed-preparation.trx、fixed-build-state.json、browser-prepared-receipt.json、frontend-fixed-build-receipt.json、h5-fixed-build.log、frontend-line-endings.json、compiled-proof-verification.log、pending-guards.json与readonly-preflight.json。源码及原工作区产物分别保留，不将原工作区差异覆盖进固定源。
+
+## 2026-11-01 C88 原浏览器正式通过与清理
+
+用户call_a93c0c0acebe4b55b827becb3f64f02f批准本轮精确两库／账号／凭据与唯一origin范围后，固定6f85c8d28f5e61c563562af885427def02e9a045的正式FQN单次执行：1通过／0失败／0跳过，primaryErrorType=null、cleanupErrors=[]。真实浏览器使用ego lite空间27和原HBuilderX产物，经原登录表单、工作区／设备、原菜单进入项目页，实际点击原批量按钮与一次确认；没有合成业务成功或更改产品权限、页面、样式、模板。
+
+| 场景 | 实际结果 |
+| --- | --- |
+| 部分失败 | a369e768-6a40-4dc8-a987-83a245aacd0d；两个真实CLI任务applied，未绑定项目failed、禁用项目skipped，原页面显示逐项失败汇总 |
+| 完整成功 | f4ca822c-9eaa-48d4-b2a3-b0b9012c30dc；移除本轮未绑定配置后由原按钮发起，两项目applied、禁用跳过，原页面显示成功汇总 |
+| 回执未知 | 30a8a09f-71e2-41fb-af74-d305ebeaea99；原POST先真实入队，再注入运输回执丢失／状态503；原提示保留UUID，不把排队或网络未知当成功 |
+| 刷新恢复 | 真实刷新后同账号／项目／设备及原UUID保持，再点原按钮只读恢复；同步POST保持3次，状态查询20→21，新增同步POST为0；原两个任务完成并显示成功汇总 |
+| 目标文件 | 三批共6个真实CLI任务均reported/applied；首批每工程写2文件（1份运行时源码及归属清单），后两批每任务0写入、删除均0。目标运行时精确匹配当前源码，第二工程前端及两份手写文件摘要保持 |
+| 退出 | 原账号菜单→退出→原确认后回原登录表单，标题“登录 - Metarill”；旧浏览器会话真实接口返回HTTP200／R500“登录超时” |
+| 浏览器清理 | 仅清理http://metarill-runtime-2ab4b0e2847d0414.localhost:62429的存储，localStorage／sessionStorage均0；空间27通过finish关闭一次，未清其它网站／profile |
+| 远端及凭据 | 两CLI真实注销；本轮两库／账号／所有权删除后独立连接及新SSH只读核零。GUID密码／CLI／浏览器会话与外层临时连接／所有权凭据删除，租约ended |
+| 文件保护 | 2314固定来源／65宿主／23 CLI／152输出、旧源2297与原Web156文件再次严格Verify通过；原776产物／手写／前端／模板／元数据字节保持 |
+
+退出后曾按hash包含pages/login等待而超时，但原退出实际返回/#/；保留round19观察失败，没有重做退出或重放租约。后续以原登录表单、标题及旧会话拒绝独立核验，确认成功后才清理origin。该问题属于观察条件，产品界面未修改。
+
+证据保留于.local/device-runtime-browser-20261101：2ab4b0e2847d0414下native.trx、test-result／verified／browser-verified／cleanup／independent-absence／credentials-cleanup；formal-closure.json、readonly-final-zero.json、delivery-protected-after.json；正式evidence内五个UI回执及01—07截图、restore-request-audit.json和logout-auth-audit.json。两完整工程、六任务计划／文件回执保留；原执行前计划单独备份，已结束租约不能重放。
+
+本轮验证浏览器刷新恢复；verified.json的restartOriginalBatch=false如实保留，服务端同地址重启由C87独立证明。本轮未验配置变化CAS／换绑／全部撤权矩阵、Android／微信／iOS／物理硬件、并发或同条件性能，C65和MySQL首版其余范围继续保持未完成。
