@@ -6,7 +6,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>八种普通数组来源引用全局缓存或实时链；仅准备完整包，不连接数据库或创建对象。</summary>
 internal static class GlobalArrayTargetNativePreparation
 {
-    internal const string RootNamespace="Metarill.GlobalArrayTargetNative",ProductCommit="1fe937f74a42c59a492e95e421371e44c3b4246c";
+    internal const string RootNamespace="Metarill.GlobalArrayTargetNative",ProductCommit="efe9ee2263552f1425964954ab5461231afcf594";
     /// <summary>固定全部源码、程序集和手写文件，复用既有不跟随链接的清单捕获。</summary>
     internal static GlobalCachedPackageProof Capture(string package)=>GlobalCachedSourceNativePreparation.Capture(package);
     /// <summary>先证明包集合及整份原模型；运行副本只容许模板固定的结构审计日志。</summary>
