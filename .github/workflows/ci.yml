@@ -34,7 +34,7 @@ jobs:
       - name: 核对性能测量合同和回环HTTP
         run: python -m unittest discover -s tools/performance -p 'test_*.py'
       - name: 核对管理页面私有预览传输边界
-        run: node --test tools/acceptance/serve-management-browser.test.mjs
+        run: node --test tools/acceptance/serve-management-browser.test.mjs tools/acceptance/serve-runtime-browser.test.mjs
       - name: 核对平台元数据重建与已发布声明
         run: node --test tools/metadata/platform-builder.test.mjs
       - name: 核对文件基础表派生元数据

@@ -22,11 +22,11 @@ internal sealed record DeviceRuntimeNativePreparation(PlatformBootstrapNativePre
     internal const string SecondProject = "2200000000000200000", UnboundProject = "2200000000000300000", DisabledProject = "2200000000000400000";
 
     /// <summary>专用用途和running状态必须先于读连接、生成目标、启动进程及任何SQL。</summary>
-    internal static (string Run, DeviceRuntimeNativePreparation Proof) Read(JsonElement settings, string sourceRoot)
+    internal static (string Run, DeviceRuntimeNativePreparation Proof) Read(JsonElement settings, string sourceRoot, bool browser = false)
     {
         string Text(string key) => settings.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()! : "";
         var run = Text("RunId");
-        if (Text("Purpose") != Purpose || Text("AuthorizationStatus") != "approved" || Text("LeaseStatus") != "running" || !Regex.IsMatch(run, "^[a-f0-9]{16}$")) throw new InvalidOperationException("设备批量正式验收未取得本轮精确运行租约。");
+        if (Text("Purpose") != (browser ? DeviceRuntimeBrowserPreparation.Purpose : Purpose) || Text("AuthorizationStatus") != "approved" || Text("LeaseStatus") != "running" || !Regex.IsMatch(run, "^[a-f0-9]{16}$")) throw new InvalidOperationException("设备批量正式验收未取得本轮精确运行租约。");
         var proof = settings.GetProperty("DeviceRuntimePreparation").Deserialize<DeviceRuntimeNativePreparation>() ?? throw new InvalidOperationException("设备批量固定来源缺失。");
         var parent = Directory.GetParent(Path.GetFullPath(sourceRoot))!.FullName;
         if (proof.Host.HostRoot != Path.Combine(parent, "production-host") || proof.CliRoot != Path.Combine(parent, "fixed-cli") || proof.ExecutionRoot != Path.Combine(parent, "execution", run) || Directory.Exists(proof.ExecutionRoot) || proof.BaselineSourceRoot != Path.Combine(parent, "baseline-source") || proof.Host.EvidenceDirectory != Path.Combine(sourceRoot, ".local", "device-runtime-native", run, "evidence")) throw new InvalidOperationException("设备批量正式目录不规范或已消费。");

@@ -22,13 +22,21 @@ public sealed class DeviceRuntimeNativeMySqlTests
 
     /// <summary>两项目原按钮批次逐项应用、未绑定失败、禁用跳过，以及固定地址重启恢复原批次。</summary>
     [DeviceRuntimeNativeMySqlFact]
-    public async Task Original_batch_uses_real_device_bindings_two_projects_and_restart_recovery()
+    public Task Original_batch_uses_real_device_bindings_two_projects_and_restart_recovery() => RunAsync(false);
+
+    /// <summary>同一真实初始化／绑定基础上由原页面实际操作，代理只观察或注入运输故障，不制造业务成功。</summary>
+    [DeviceRuntimeBrowserNativeFact]
+    public Task Original_browser_drives_real_batch_and_unknown_refresh_recovery() => RunAsync(true);
+
+    /// <summary>共用真实平台、数据库和本机工程准备，浏览器与纯HTTP只在明确专属入口处分流。</summary>
+    private async Task RunAsync(bool browserMode)
     {
-        var nativeSettings = Environment.GetEnvironmentVariable("METARILL_DEVICE_RUNTIME_NATIVE_SETTINGS")!;
+        var nativeSettings = Environment.GetEnvironmentVariable(browserMode ? "METARILL_DEVICE_RUNTIME_BROWSER_SETTINGS" : "METARILL_DEVICE_RUNTIME_NATIVE_SETTINGS")!;
         Assert.Equal(nativeSettings, Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS"));
         var source = Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT") ?? NonRedundantApplicationFixture.Root());
         using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(nativeSettings));
-        var (run, proof) = DeviceRuntimeNativePreparation.Read(settings.RootElement, source);
+        var (run, proof) = DeviceRuntimeNativePreparation.Read(settings.RootElement, source, browserMode);
+        var browserPreparation = browserMode ? DeviceRuntimeBrowserPreparation.Read(settings.RootElement, source) : null;
         var platform = FreshInstallConfiguration.Read("Database", "platform"); var business = FreshInstallConfiguration.Read("BusinessDatabase", "business");
         using var session = new DatabaseSession(platform); using var businessSession = new DatabaseSession(business);
         Assert.Equal(0L, await Scalar(session, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()"));
@@ -98,18 +106,24 @@ public sealed class DeviceRuntimeNativeMySqlTests
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode); Assert.Equal(code, value.GetProperty("code").GetInt32()); return value.GetProperty("data").Clone();
             }
             stage = "真实OAuth与两个原设备关联"; for (var index = 0; index < 2; index++) { var bound = await Probe("bind", index); Assert.True(bound.GetProperty("deviceBound").GetBoolean()); bindings++; Assert.Equal(before[index], Snapshot(targets[index])); }
+            if (browserPreparation is not null)
+            {
+                stage = "原浏览器真实页面及未知刷新恢复";
+                await DeviceRuntimeBrowserScenario.RunAsync(source, run, browserPreparation, proof, host, credentials, username, password, projects, Probe,
+                    async () => { await store.UpdateAsync("yz_manager_devices_project", unboundConfig, new Dictionary<string, object?> { ["delete_no"] = new DateTime(2026, 11, 1) }); });
+                await AuditUpdatedTargetsAsync(source, targets, before);
+                foreach (var project in projects) applied.Add(project);
+                queueRejectedSuccess = true; unboundFailed = true; disabledSkipped = true; runtimeWrites = true; frontendPreserved = true;
+                stage = "原浏览器收尾及真实CLI注销";
+                for (var index = 0; index < 2; index++) Assert.True((await Probe("logout", index)).GetProperty("loggedOut").GetBoolean());
+                proof.Verify(source); browserPreparation.Verify(source); passed = true; return;
+            }
             stage = "原批量按钮入队不得假成功"; var firstBatch = Guid.NewGuid().ToString("D"); var first = await Send(Legacy, new { }, firstBatch, 500); AssertItems(first, projects, "queued", includeUnbound: true); queueRejectedSuccess = true; unboundFailed = true; disabledSkipped = true;
             var ids = first.GetProperty("items").EnumerateArray().Where(item => projects.Contains(item.GetProperty("projectId").GetString())).ToDictionary(item => item.GetProperty("projectId").GetString()!, item => item.GetProperty("requestId").GetString()); Assert.Equal(2, ids.Values.Distinct().Count());
             for (var index = 0; index < 2; index++) { var result = await Probe("poll", index); Assert.Equal(ids[projects[index]], result.GetProperty("requestId").GetString()); applied.Add(projects[index]); }
             var complete = await Send(Batch + "status", new { batchId = firstBatch }); AssertItems(complete, projects, "applied", includeUnbound: true);
             stage = "核对实际运行时写入与未选前端";
-            for (var index = 0; index < 2; index++)
-            {
-                var after = Snapshot(targets[index]); const string runtimePath = "src/Metarill.Security/AdminAccountInitializationBusiness.cs";
-                Assert.NotEqual(before[index][runtimePath], after[runtimePath]);
-                Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(source, "backend", runtimePath)))), after[runtimePath]); Assert.Equal("本轮手写文件必须保持原样", await File.ReadAllTextAsync(Path.Combine(targets[index], "业务手写保留.txt")));
-                if (index == 1) Assert.Equal(before[index].Where(file => file.Key.StartsWith("frontend/", StringComparison.Ordinal)).ToArray(), after.Where(file => file.Key.StartsWith("frontend/", StringComparison.Ordinal)).ToArray());
-            }
+            await AuditUpdatedTargetsAsync(source, targets, before);
             runtimeWrites = true; frontendPreserved = true;
             stage = "重启恢复原批次及相同任务UUID";
             await store.UpdateAsync("yz_manager_devices_project", unboundConfig, new Dictionary<string, object?> { ["delete_no"] = new DateTime(2026, 11, 1) });
@@ -130,15 +144,27 @@ public sealed class DeviceRuntimeNativeMySqlTests
             try { await TestDirectoryCleanup.DeleteAsync(credentials, credentialsRoot); } catch (Exception error) { cleanupErrors.Add("本轮凭据：" + error.GetType().Name); }
             try
             {
-                await File.WriteAllTextAsync(Path.Combine(evidence, "verified.json"), JsonSerializer.Serialize(new { passed = passed && cleanupErrors.Count == 0, stage, primaryErrorType = primaryFailure?.GetType().Name, cleanupErrors, realWeb, realOAuth = bindings > 0, realCli = bindings > 0, deviceBindings = bindings, appliedProjects = applied.Count, originalBatchRoute = queueRejectedSuccess, actualRuntimeWrites = runtimeWrites, backendOnlyPreservedFrontend = frontendPreserved, queuedWasNotSuccess = queueRejectedSuccess, unboundFailed, disabledSkipped, restartOriginalBatch = restartBatch, browserExecuted = false, hardwareExecuted = false, performanceExecuted = false }));
+                await File.WriteAllTextAsync(Path.Combine(evidence, "verified.json"), JsonSerializer.Serialize(new { passed = passed && cleanupErrors.Count == 0, stage, primaryErrorType = primaryFailure?.GetType().Name, cleanupErrors, realWeb, realOAuth = bindings > 0, realCli = bindings > 0, deviceBindings = bindings, appliedProjects = applied.Count, originalBatchRoute = queueRejectedSuccess, actualRuntimeWrites = runtimeWrites, backendOnlyPreservedFrontend = frontendPreserved, queuedWasNotSuccess = queueRejectedSuccess, unboundFailed, disabledSkipped, restartOriginalBatch = restartBatch, browserExecuted = browserMode && passed && cleanupErrors.Count == 0, hardwareExecuted = false, performanceExecuted = false }));
             }
             catch when (primaryFailure is not null) { /* 原始故障仍由TRX保留；外层固定目录清理继续执行。 */ }
             if (primaryFailure is null && cleanupErrors.Count != 0) throw new InvalidOperationException("设备批量收尾未完成，见本轮脱敏记录。");
         }
     }
 
+    /// <summary>HTTP与真实浏览器共用逐字文件核验，不能以服务器applied标签代替本机真实写入。</summary>
+    private static async Task AuditUpdatedTargetsAsync(string source, string[] targets, SortedDictionary<string, string>[] before)
+    {
+        for (var index = 0; index < 2; index++)
+        {
+            var after = Snapshot(targets[index]); const string runtimePath = "src/Metarill.Security/AdminAccountInitializationBusiness.cs";
+            Assert.NotEqual(before[index][runtimePath], after[runtimePath]);
+            Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(source, "backend", runtimePath)))), after[runtimePath]); Assert.Equal("本轮手写文件必须保持原样", await File.ReadAllTextAsync(Path.Combine(targets[index], "业务手写保留.txt")));
+            if (index == 1) Assert.Equal(before[index].Where(file => file.Key.StartsWith("frontend/", StringComparison.Ordinal)).ToArray(), after.Where(file => file.Key.StartsWith("frontend/", StringComparison.Ordinal)).ToArray());
+        }
+    }
+
     /// <summary>固定项目逐项核验；不能把排队、未绑定或禁用状态合并成整体成功。</summary>
-    private static void AssertItems(JsonElement result, string[] projects, string status, bool includeUnbound)
+    internal static void AssertItems(JsonElement result, string[] projects, string status, bool includeUnbound)
     {
         var items = result.GetProperty("items").EnumerateArray().ToArray(); Assert.Equal(includeUnbound ? 4 : 3, items.Length);
         foreach (var project in projects) Assert.Equal(status, Assert.Single(items, item => item.GetProperty("projectId").GetString() == project).GetProperty("status").GetString());
