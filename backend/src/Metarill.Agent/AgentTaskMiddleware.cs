@@ -22,6 +22,8 @@ public sealed class AgentTaskMiddleware(RequestDelegate next)
         if (action?.ControllerTypeInfo.FullName == "Metarill.Api.AgentControllers.AgentManagementController" && action.ActionName is "Me" or "Capabilities" or "Describe" or "Skill" or "Tasks" or "Revoke" or "Device" or "Approve" or "Grants") { await next(context); return; }
         // 助手控制通道由控制器再次校验Agent管理员及精确grant/lease；不放宽普通能力目录。
         if (action?.ControllerTypeInfo.FullName == "Metarill.Api.Controllers.GenerationAssistantController" && action.ActionName is "Bind" or "Claim" or "Report" or "Approvals" or "Authorize" or "VerifyTicket" or "ApplicationReport") { await next(context); return; }
+        // 仅登记真实设备控制器三动作；前置Agent认证及控制器管理员/设备/摘要/CAS复核仍必须通过。
+        if(action?.ControllerTypeInfo.FullName=="Metarill.Api.Controllers.GenerationAssistantDeviceController"&&action.ActionName is "Bind" or "Lookup" or "Configuration"){await next(context);return;}
         AgentTaskClaim? claim = null;
         AgentTaskStore? tasks = null;
         try
