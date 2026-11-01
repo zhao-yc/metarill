@@ -46,3 +46,8 @@ A16 新增的 `SchemaService.IndexDirections.cs` 漏登生成助手运行时精�
 补齐非冗余页double筛选发布，并统一固定筛选与VO投影的有限数／下溢拒绝；实际生成和同一模型Full独立严格构建通过。数据相邻61项与最终生成／拒绝／更新器12项零失败零跳过，批次重叠不累加。原776文件及B120固定源／包保持。double SUM、真实MySQL／浏览器／性能仍待，详细红灯、旧全局断言校准及更新步骤见[非冗余double专项](testing/nonredundant-double-read.md)。
 
 后续A24已补普通与非冗余double列表统计的离线实现，见[数值合同、真实生成及剩余验收](double-list-statistics.md)。此处原批次未支持统计的结论保留为历史边界，不将A24离线证据倒记为真实MySQL／浏览器或性能验收。
+
+
+## 2026-11-02：A26真实参数传输修复
+
+A25的文本输入差异已在生产ORM等值筛选复现；A26通过执行时浮点参数预处理修复，当前普通ORM、基础设施和非冗余固定读命令共用该边界。真实合成SELECT／原事务／混合参数／明确忽略Prepare拒绝通过；未进行实表写入或DDL默认值验收，不能据此将A17整体完成。范围、失败与成套更新见[参数传输专项](testing/double-parameter-transport.md)。

@@ -134,7 +134,7 @@ public sealed partial class MySqlDatabaseProvider : IDatabaseProvider
     public IFreeSql CreateOrm(DatabaseOptions options)
     {
         Validate(options);
-        return new FreeSqlBuilder().UseConnectionString(DataType.MySql, options.ConnectionString)
+        return new FreeSqlBuilder().UseConnectionString(DataType.MySql, options.ConnectionString, typeof(FloatingMySqlProvider<>))
             .UseAutoSyncStructure(false).UseNoneCommandParameter(false)
             .UseGenerateCommandParameterWithLambda(true).Build();
     }

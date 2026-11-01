@@ -252,7 +252,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         await using var connection=session.Provider.CreateConnection(session.Options);await connection.OpenAsync(token);return await action(connection);
     }
     /// <summary>每个命令加入现有业务事务，不另开隐式事务或修改结构。</summary>
-    private DbCommand Command(DbConnection connection){var command=connection.CreateCommand();command.Transaction=session.CurrentTransaction;return command;}
+    private DbCommand Command(DbConnection connection){var command=MySqlFloatingCommand.Wrap(connection.CreateCommand());command.Transaction=session.CurrentTransaction;return command;}
     /// <summary>驱动参数承载值，不插入SQL文本。</summary>
     private static void Add(DbCommand command,string name,object value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value;command.Parameters.Add(parameter);}
     /// <summary>输出别名也只能是已校验单段标识符。</summary>

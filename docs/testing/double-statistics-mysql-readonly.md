@@ -65,3 +65,8 @@ A24的DoubleSumResult只拒绝非有限值，无法识别已经错误变成0的�
 .tools/dotnet/dotnet.exe test backend/tests/Metarill.Generation.Tests -c Release --nologo --no-restore --disable-build-servers --verbosity quiet -warnaserror --filter "FullyQualifiedName~DoubleStatisticsGenerationTests|FullyQualifiedName~OriginalListStatisticsTests|FullyQualifiedName~Statistics_upgrade_requires_missing_core_runtime_and_preserves_handwritten_service|FullyQualifiedName~Floating_statistics_candidate_requires_the_complete_bounded_runtime|FullyQualifiedName~NonRedundantDoubleGenerationTests"
 .tools/dotnet/dotnet.exe build backend/src/Metarill.Cli -c Release --nologo --no-restore --disable-build-servers -warnaserror
 ```
+
+
+## 后续A26：真实ORM参数筛选
+
+上述输入位型差异随后已在生产ORM等值筛选复现；A26将浮点参数准备接至实际执行边界，真实合成读取、分桶统计筛选和原事务验证通过。这里的A25原失败与范围保持，不把A26证据倒记。当前参数传输、完整包依赖、成本及持久化／DDL未验边界见[后续专项](double-parameter-transport.md)。

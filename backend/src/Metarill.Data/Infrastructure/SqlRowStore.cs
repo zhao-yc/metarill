@@ -190,11 +190,11 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         var transaction=session.CurrentTransaction;
         if(transaction is not null)
         {
-            await using var command=transaction.Connection!.CreateCommand();command.Transaction=transaction;
+            await using var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());command.Transaction=transaction;
             return await operation(command);
         }
         await using var connection=session.Provider.CreateConnection(session.Options);await connection.OpenAsync(cancellationToken);
-        await using var ownCommand=connection.CreateCommand();return await operation(ownCommand);
+        await using var ownCommand=MySqlFloatingCommand.Wrap(connection.CreateCommand());return await operation(ownCommand);
     }
     private string AddParameter(DbCommand command,string name,object? value)
     {
