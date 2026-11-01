@@ -48,3 +48,14 @@
 产品 `1e57bb9`，执行器 `7514ada` 已从独立干净来源严格构建；固定源码2297份、正式输出152份、完整包990份。固定来源准备10项零跳过通过；9项门禁确认pending／ended／拒绝审计／缺人类回复／错误用途／产品／入口／来源均先于子进程拒绝，check-only仅逐文件核验。Server-200 MySQL 8.4.11只读确认新单库／账号／所有权均不存在。
 
 精确范围和清理计划在私有 `.local/management-full-current-20261101/permission-plan.md`；当前pending／not-started，尚未执行正式用例。需本轮单库／账号及独占CLI凭据、files／exports合成对象的创建、验收与清理直接授权。旧C53包、旧租约及失败证据保持，不使用其他批次授权。
+
+
+### C82 当前固定包生产启动与匿名HTTP检查
+
+2026-11-01，使用原已固定的产品1e57bb9／执行器7514ada、990文件FullManagementApplication，不改变pending／not-started租约。新独占副本逐文件核验后，实际启动编译好的Application.Host，显式Production／Web模式并关闭开发认证；没有替换身份、控制器、中间件或仓储。数据库配置只指向本机立即断开的TCP连接计数器，不提供MySQL协议、不连接Server-200；测试不提供有效凭据。
+
+12项实际HTTP全部通过：生产health为UP；登录前cap-config为200且Cap关闭；相同路径POST、原权限／菜单、角色页、后台初始化及MCP匿名请求均401；原form缺字段／未知字段、JSON错误类型／重复captcha字段均400。最终数据库连接尝试0，原准备包和执行副本全部990文件摘要保持，唯一自有宿主正常退出。只保留本轮私有执行副本、启动日志及HTTP状态／响应摘要，没有数据库对象或授权审计。
+
+证据：`.local/management-package-offline-startup-20261101/receipt.json`、`driver.log`、`host.log`和`run-offline.py`。实际命令由固定`.tools/dotnet/dotnet.exe`执行独占副本的`backend/Application.Host/bin/Release/net10.0/Application.Host.dll`，随机回环端口和非数据库计数器；不使用Docker或外部数据库。
+
+这批覆盖启动及匿名／输入边界，不能写为正式MySQL空库安装、真实Web登录、OAuth／CLI／MCP业务、设备、浏览器或性能通过。本轮精确库／账号尚未创建，仍等待直接授权；已准备的实库FQN和清理范围没有扩大。平台A20的双库初始化亦未执行。
