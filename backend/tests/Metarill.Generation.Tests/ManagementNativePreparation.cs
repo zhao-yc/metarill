@@ -14,6 +14,8 @@ internal static class ManagementNativePreparation
         var app=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(CSharpGenerator.SafePath(sourceRoot,"backend/metadata/demo.json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         app.YzAdminTypes.Add(new(){Id=ForeignAdmin,Name="独占异后台",YzProjectId=app.YzProjectId});return app;
     }
+    /// <summary>固定原生验收的同后台菜单输入；根分组仅供展示，正向授权由真实工作台再次校验。</summary>
+    internal static string[] GrantableMenuIds(SecurityManagementModelSet model)=>model.Published.ConfigMenus.Where(menu=>menu.YzAdminTypeId==model.Binding.ManagementAdminTypeId&&!string.IsNullOrEmpty(menu.ParentMenuId)).Select(menu=>menu.Id).ToArray();
     /// <summary>只调用公开完整管理入口，不换生产Program、身份、Service或工作台。</summary>
     internal static void Create(string sourceRoot,string package)=>new ApplicationPackager().CreateManagement(Catalog(sourceRoot),package,RootNamespace,sourceRoot,Admin);
     /// <summary>编译后冻结全部源码、依赖和bin/obj，未编译包不能取得正式包证明。</summary>

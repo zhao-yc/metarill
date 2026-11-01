@@ -73,6 +73,24 @@ public sealed class TrustedSecurityWorkbenchTests(TrustedSecurityServiceFixture 
         await Assert.ThrowsAsync<SecurityException>(()=>run.Call(controller,"Snapshot",Snapshot("12"),CancellationToken.None));
     }
 
+    /// <summary>复现原生夹具误传根分组；真实控制器仍整笔拒绝，正向输入只授权原组件允许的子节点。</summary>
+    [Fact]
+    public async Task Native_menu_grants_follow_original_non_root_rule_and_preserve_rejection()
+    {
+        await using var run=await TrustedSecurityServiceRun.Create(fixture);var controller=Controller(run);
+        var snapshot=Data(await run.Call(controller,"Snapshot",Snapshot("10"),CancellationToken.None));var revision=snapshot.GetProperty("revision").GetString()!;
+        var menus=fixture.Models.Published.ConfigMenus.Where(menu=>menu.YzAdminTypeId==fixture.Models.Binding.ManagementAdminTypeId).ToArray();
+        var root=menus.First(menu=>string.IsNullOrEmpty(menu.ParentMenuId));var before=run.Fingerprint();
+        var rejected=new RolePermissionSave("10",revision,new([root.Id],new(),[]));
+        var error=await Assert.ThrowsAsync<ArgumentException>(()=>run.Call(controller,"Save",rejected,CancellationToken.None));
+        Assert.Equal("菜单授权包含不存在或不可授权的节点。",error.Message);Assert.Equal(before,run.Fingerprint());
+        var request=new RolePermissionSave("10",revision,new(ManagementNativePreparation.GrantableMenuIds(fixture.Models),new(),[]));
+        var saved=Data(await run.Call(controller,"Save",request,CancellationToken.None));
+        var expected=menus.Where(menu=>!string.IsNullOrEmpty(menu.ParentMenuId)).Select(menu=>menu.Id).Order(StringComparer.Ordinal).ToArray();Assert.NotEmpty(expected);
+        Assert.Equal(expected,saved.GetProperty("grants").GetProperty("menuIds").EnumerateArray().Select(id=>id.GetString()!).Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(run.Transport.Rows["yz_role_permission"].Where(row=>row.GetValueOrDefault("delete_no") is null),row=>Convert.ToString(row.GetValueOrDefault("config_menu_id"))==root.Id);
+    }
+
     /// <summary>匿名、Agent、开发超级标志及包外身份均在调用Business或读取SQL之前拒绝。</summary>
     [Theory]
     [InlineData("anonymous")][InlineData("agent")][InlineData("session")][InlineData("account")][InlineData("platform")]

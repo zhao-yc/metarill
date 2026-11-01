@@ -59,3 +59,16 @@
 证据：`.local/management-package-offline-startup-20261101/receipt.json`、`driver.log`、`host.log`和`run-offline.py`。实际命令由固定`.tools/dotnet/dotnet.exe`执行独占副本的`backend/Application.Host/bin/Release/net10.0/Application.Host.dll`，随机回环端口和非数据库计数器；不使用Docker或外部数据库。
 
 这批覆盖启动及匿名／输入边界，不能写为正式MySQL空库安装、真实Web登录、OAuth／CLI／MCP业务、设备、浏览器或性能通过。本轮精确库／账号尚未创建，仍等待直接授权；已准备的实库FQN和清理范围没有扩大。平台A20的双库初始化亦未执行。
+
+
+## 2026-11-01 C82正式首轮失败与菜单输入修正
+
+用户通过`call_119885eec745432a94c81867cc359018/0`明确批准唯一库`metarill_fresh_a21be3a8548b46af_agent`及账号`mtf_a21be3a8548b46af@%`的创建、验收与清理。固定产品1e57bb9／执行器7514ada、2297来源／152输出／990文件包在实际Server-200 MySQL 8.4.11执行，普通启动0表、显式预览／安装12表、两后台初始化、重复不重置及真实管理员表单登录已进入后续流程；**唯一正式用例1失败、0通过／0跳过，不计同包完整通过**。
+
+首个失败停在`原工作台为普通身份配置动作`的首次`/api/admin/sys/yzp_permission/save`：HTTP400，预期200。原夹具把同后台全部菜单ID（含根分组）作为授权草稿。原组件`permissionMenuRows`明确根分组只展示，`RolePermissionBusiness`也拒绝没有ParentMenuId的节点。未执行到普通账号登录、真实CLI／MCP、目标账号保留ID重置或重启会话；不能因前置阶段已执行而把后续旗标写为通过。
+
+修正只在测试源码：正式夹具统一从`ManagementNativePreparation.GrantableMenuIds`取同后台非根菜单，不改资源目录、权限规则、原页面或产品。新增回归经实际生成控制器／共享Business，先证明根分组请求按原消息拒绝且整库摘要不变，再用原生夹具同一输入方法成功保存可授权子节点；旧输入红灯1失败，过滤根节点后工作台／管理Service／完整包准备相关51项全部通过，零失败／零跳过，严格构建。ADO与身份在该回归中受控，不替代正式复验。后续账号启停输入已与原复选协议映射及既有真实Service回归核对，未擅自改值。
+
+C82无论失败仍完成finally：唯一库／账号删除，独立SSH确认均不存在，远端所有权记录再次只读核零；本轮CLI及存储尚未生成对象（清理目录0），私有连接及所有权秘密已删除，租约ended。原776文件逐字保持。原首因、TRX和冻结来源保留在`.local/management-full-current-20261101/`；红绿回归在`.local/management-full-menu-fix-20261101/`。不得复用本次一次性授权。
+
+C83将从修正后的提交重新冻结完整来源、包和执行器，使用独立新名字及直接授权后复验；当前只准备、不创建远端对象。有效Agent刷新授权重置策略、C65设备整链及浏览器／跨端／性能仍在原待办边界内。
