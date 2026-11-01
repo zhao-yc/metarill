@@ -33,6 +33,7 @@ public sealed partial class LocalGenerationUpdateTests
     [InlineData("src/Metarill.Core/Contracts/BinaryDoubleSum.cs")]
     [InlineData("src/Metarill.Data/Queries/FloatingStatistics.cs")]
     [InlineData("src/Metarill.Data/MySqlFloatingCommand.cs")]
+    [InlineData("src/Metarill.Exports/FloatingWorkbookWriter.cs")]
     public void Floating_statistics_candidate_requires_the_complete_bounded_runtime(string runtime)
     {
         var(target,candidate)=Packages(Catalog(),Catalog());

@@ -32,6 +32,7 @@ public sealed partial class GeneratedDoubleValueTests
                 var row=numberToken?JsonSerializer.Deserialize<JsonElement>("{\"测量上值\":"+input+"}"):JsonSerializer.SerializeToElement(new Dictionary<string,string>{{"测量上值",input}});object?[] args=parse.GetParameters().Length==4?[row,null,run.Actor,CancellationToken.None]:[row,null,run.Actor,null,false,CancellationToken.None];
                 var parsed=(Task)parse.Invoke(run.Service([]),args)!;await parsed;var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,JsonElement>>(parsed.GetType().GetProperty("Result")!.GetValue(parsed));Assert.Equal(bits,BitConverter.DoubleToInt64Bits(JsonSerializer.Deserialize<double>(values["score"].GetRawText(),JsonDefaults.Options)));
             }
+            await AssertOriginalWorkbookImport(run, root);
             Assert.Contains("write:Insert",run.Trace);var response=Path.Combine(root,"response.json");await File.WriteAllTextAsync(response,JsonSerializer.Serialize(result,JsonDefaults.Options));
             var detail=Assert.Single(Directory.EnumerateFiles(Path.Combine(output,"frontend/pages/yzp"),"*-detail-101.vue"));await RunDefaultPrecisionVue(detail,response);
         }

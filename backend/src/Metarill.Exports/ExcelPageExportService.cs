@@ -87,7 +87,22 @@ public sealed partial class ExcelPageExportService : IPageExportService
                 await file.FlushAsync(cancellationToken);
             }
             cancellationToken.ThrowIfCancellationRequested();
-            File.Move(temporary, destination); temporary = null;
+            var corrections = FloatingWorkbookWriter.Corrections(request, cancellationToken);
+            if (corrections.Count == 0) File.Move(temporary, destination);
+            else
+            {
+                // 原始与修正文件均受同一大小限制；成功前不签发票据，异常沿原finally清理两者。
+                await using (var source = new FileStream(temporary, FileMode.Open, FileAccess.Read, FileShare.None, 65536, FileOptions.Asynchronous))
+                await using (var file = new FileStream(destination, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 65536, FileOptions.Asynchronous))
+                using (var limited = new LimitedWriteStream(file, _options.MaxFileBytes, cancellationToken))
+                {
+                    await FloatingWorkbookWriter.RewriteAsync(source, limited, corrections, cancellationToken);
+                    await file.FlushAsync(cancellationToken);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Delete(temporary);
+            }
+            temporary = null;
             var exportId = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             lock (_sync)
             {

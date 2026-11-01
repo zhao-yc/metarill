@@ -17,7 +17,7 @@ public sealed partial class DoubleStatisticsGenerationTests
         try
         {
             var package=new ApplicationPackager().Create(catalog,output,"Example.DoubleStatisticsPackage",root);Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);Assert.True(package.FrontendIncluded);
-            foreach(var file in new[]{"Metarill.Core/Contracts/LegacyStatisticsMath.cs","Metarill.Data/Queries/MySqlNonRedundantReader.cs"})
+            foreach(var file in new[]{"Metarill.Core/Contracts/LegacyStatisticsMath.cs","Metarill.Data/Queries/MySqlNonRedundantReader.cs","Metarill.Exports/FloatingWorkbookWriter.cs","Metarill.Exports/ExcelPageExportService.cs"})
             {
                 var expected=(await File.ReadAllTextAsync(Path.Combine(root,"backend/src",file))).Replace("\r\n","\n",StringComparison.Ordinal).Replace('\r','\n');Assert.Equal(expected,await File.ReadAllTextAsync(Path.Combine(output,"src",file)));
             }
