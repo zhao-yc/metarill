@@ -120,3 +120,12 @@ R1目标／R1来源的int64与string两模型均在130消费者维护阶段停�
 新增10个纯内存审计正负合同，与既有发布／实际生成SQL最终27通过，0失败／跳过；首次测试方法组推断编译错误日志保留。未修改任何产品代码或八个固定包，没有用测试桩冒充正式回填。两个实际pending入口筛选已验证，只取targetMode=1、sourceMode=1及两种内层键，并在租约处先拒绝。
 
 协调器仅新增 `array_cached_targets` 显式双库profile，后缀固定array_t1_s1_long／array_t1_s1_text；原array_targets八库及all旧范围不变。25个离线保护通过，包括双库独占及错用八库清理在DROP前拒绝。后续只申请这两个未通过模型的新库／账号，复用已逐字固定的原八包；新范围固定与批准前不创建对象。浏览器、设备、并发和性能继续另验。
+
+
+### B117 固定完成，等待精确双库批准
+
+产品efe9ee2不变；执行器d602210归档2296文件，正式152输出严格0警告／错误，PDB375输入匹配。39固定离线合同及25固定协调器保护通过，实际两个pending入口均在租约处拒绝；驱动pending秘密／外部调用0，同token与摘要清理的隔离双模型模拟通过。模拟器首次仍期待旧的完整类过滤器，修正为已核对的精确双模型过滤器后通过；没有真实外部调用。原776文件保持。
+
+B116原八包各943文件逐字复用，没有重新生成或编译；每包210运行时源与7锁匹配。正式只筛targetMode=1、sourceMode=1两模型，其他六个已通过模型不重跑。新范围为metarill_fresh_08ac8b7bc4f14e8c_array_t1_s1_long、metarill_fresh_08ac8b7bc4f14e8c_array_t1_s1_text及mtf_08ac8b7bc4f14e8c@%；只读确认两库／账号／账本均不存在，当前pending／not-started，没有真实口令或正式执行。
+
+固定证据与权限计划位于忽略目录 `.local/global-array-maintenance-native-20261101/`，含permission-plan、ready-summary、freeze-receipt、compiled-source-proof、pending-gate-result、driver-mock-result、readonly-preflight及results。必须直接批准新范围后执行，不借用已结束的B116；264是否仅为额外格式规范化尚未由新轮证明。
