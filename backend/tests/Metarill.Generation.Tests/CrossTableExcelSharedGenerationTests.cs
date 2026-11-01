@@ -148,16 +148,17 @@ internal sealed class SharedExcelReadTransport:IDisposable
     internal DatabaseSession Session{get;}
     internal int Snapshots=>provider.Snapshots;
     internal Exception? FindFailure{get;set;}
+    internal Action<string,int>? AfterRead{get;set;}
     internal int ExportLockCount{get;private set;}
     /// <summary>仅用实际生成Mapper与Service；额外目标list授权、ADO写入和网络访问均拒绝。</summary>
-    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false,string pageId="201",RuntimeActor? actor=null)
+    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false,string pageId="201",RuntimeActor? actor=null,IRuntimeAuthorization? authorization=null)
     {
         this.assembly=assembly;this.rootNamespace=rootNamespace;sourceEntity=serviceName;this.sourceCondition=sourceCondition;this.pageId=pageId;this.actor=actor??new(901,"共享Excel解析",false,"9007199254740993","5");
         var orm=(IFreeSql)Proxy(typeof(IFreeSql),(method,args)=>method.Name=="Select"?Select(method.GetGenericArguments()[0]):throw new InvalidOperationException("共享Excel离线读取禁止ORM写入或联网。"));
         provider=new(Transport,orm);Session=new(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);
         var mapper=Activator.CreateInstance(assembly.GetType(rootNamespace+".Generated.Mappers."+serviceName+"Mapper",true)!,Session)!;
         serviceType=assembly.GetType(rootNamespace+".Generated.Services."+serviceName+"Service",true)!;
-        service=Activator.CreateInstance(serviceType,Session,mapper,new SnowflakeIdGenerator(951),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),new ImportOnly(this.actor))!;
+        service=Activator.CreateInstance(serviceType,Session,mapper,new SnowflakeIdGenerator(951),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization??new ImportOnly(this.actor))!;
     }
     /// <summary>只向明确生成类型赋值，未知属性不被忽略；键值转换保持精确整数。</summary>
     internal void Add(string entity,IReadOnlyDictionary<string,object?> fields)
@@ -210,7 +211,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
             IOrderedEnumerable<object>? ordered=null;foreach(var order in orders)ordered=ordered is null?order.Desc?filtered.OrderByDescending(order.Key):filtered.OrderBy(order.Key):order.Desc?ordered.ThenByDescending(order.Key):ordered.ThenBy(order.Key);
             filtered=(ordered??filtered).Take(limit);var projection=args.OfType<LambdaExpression>().SingleOrDefault();var output=projection?.ReturnType??type;var compiledProjection=projection?.Compile();
             if(method.Name=="FirstAsync"){var row=filtered.FirstOrDefault();ReadCalls.Add((type.Name,method.Name,row is null?0:1));return TaskValue(output,row is null||compiledProjection is null?row:compiledProjection.DynamicInvoke(row));}
-            var list=(IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(output))!;foreach(var row in filtered)list.Add(compiledProjection is null?row:compiledProjection.DynamicInvoke(row));ReadCalls.Add((type.Name,method.Name,list.Count));return TaskValue(list.GetType(),list);
+            var list=(IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(output))!;foreach(var row in filtered)list.Add(compiledProjection is null?row:compiledProjection.DynamicInvoke(row));ReadCalls.Add((type.Name,method.Name,list.Count));AfterRead?.Invoke(type.Name,limit);return TaskValue(list.GetType(),list);
         });return query;
     }
     /// <summary>只解释status或明确来源模型的三个AND参数比较；括号／运算／字段／值均固定，未知语法拒绝。</summary>
