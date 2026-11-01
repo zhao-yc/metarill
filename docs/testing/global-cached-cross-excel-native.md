@@ -57,3 +57,9 @@
 私有执行器／计划位于 `.local/global-cached-cross-excel-web-native-20261102`。新范围为单库 `metarill_fresh_5383e84c9fc9e9f0_agent`、临时账号 `mtf_5383e84c9fc9e9f0@%`，库内 32 业务表＋11 基础表、六个暂时 CHECK，以及同轮 `evidence/storage/<GUID>` 下的合成 uploads／exports。限15分钟，完成后按所有权清理并新连接／新SSH独立核零；只读预检已确认库／账号／所有权记录不存在。
 
 范围摘要 `dee615ff99552482bed6ac8a3bd42192e8a29e292522fef2a27063ac9c0a870d`。执行器的源码／程序集／包／SDK／脚本／模型／表／约束／存储根逐项固定，`--check-only` 纯文件核验通过；未取得新范围授权，租约 pending／not-started，正式 Web／MySQL 业务尚未执行，不记通过。B119 旧授权结束且范围不同，不适用于本轮。
+
+## 正式启动前补充请求审查
+
+审查 `CrossTableReader.OptionsAsync` 的真实未知层级拒绝规则发现：新驱动给全部模型固定提交 countryId／areaId／placeId，短级联只声明前两级，会正确拒绝多余 placeId。仅将候选请求按该原控件实际 levels 的 columnPrefix 构造，产品、原组件和权限不变。未运行正式业务、未建库或账号，不存在失败后复用租约；e2955b8 的固定材料与准备记录保留，最终执行器须重新固定修正来源后再启用。
+
+此前 B120 精确问题指向的 e2955b8 固定准备暂不执行。远端单库／账号／43表、六CHECK、时间和合成存储范围不扩大；不能将旧固定摘要直接标为新来源已验证或执行。

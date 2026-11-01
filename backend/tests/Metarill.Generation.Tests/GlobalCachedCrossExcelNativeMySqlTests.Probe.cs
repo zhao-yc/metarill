@@ -95,7 +95,8 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
         {
             var field=catalog.ConfigColumns.Single(column=>column.ConfigTableId==SourceTable.Id&&column.ControlKind=="CascadeTree"&&column.Name=="区域");
             using var definition=JsonDocument.Parse(field.ControlDetail);var levels=definition.RootElement.GetProperty("levels").EnumerateArray().Select(value=>value.Clone()).ToArray();
-            var selected=new{countryId=Id(At(Country)),areaId=Id(At(Area)),placeId=Id(At(Place))};
+            // 原协议拒绝未知层级；短级联只提交其实际声明的两个已选键。
+            var selected=levels.Select((level,index)=>(Property:GenerationModel.Camel(level.GetProperty("columnPrefix").GetString()!+"_id"),Value:Id(At(new[]{Country,Area,Place}[index])))).ToDictionary(value=>value.Property,value=>value.Value,StringComparer.Ordinal);
             for(var index=0;index<levels.Length;index++)
             {
                 var rows=await Post(reader,Route+"cascadeTreeOptions"+field.Id,new{levelKey=levels[index].GetProperty("key").GetString(),selectedPath=selected});
