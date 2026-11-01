@@ -1,6 +1,6 @@
 # 原设备与双项目批量运行时完整链路
 
-2026-11-01，C86；起点1756575。当前只实现正式用例和完成必要离线验证，尚未执行真实数据库／OAuth，不能将本页准备标作C65完成。
+2026-11-01，C86；起点1756575。当前C86正式1失败／0跳过且已清理结束。真实MySQL／Web及两个项目OAuth、设备关联已执行通过；原批量尚未通过，C87只修复夹具传输及收尾后待重新固定复验，不能标作C65完整完成。
 
 ## 正式目标
 
@@ -28,10 +28,25 @@
 私有离线证据：.local/device-runtime-native-20261101下build.log、preparation-namespace-error.log、preparation-final/closed.log及TRX；offline-targets.log、offline-targets-retry.log保留前两次失败，offline-targets-final.log及verified.json为最终两模型结果。当前仅只读核对Server-200及实例，没有数据库写入或消费任何租约。原前端／模板／元数据／生成文件不改；设备／浏览器／多数据库／性能与全首版仍单独待验。
 
 
-## 2026-11-01 当前固定来源与专属范围
+## 2026-11-01 C86首次固定来源与专属范围（历史准备）
+
+本节保留执行前准备状态；实际正式结果与清理以下节为准。
 
 7912fdeb10affc2745c73f04723ac55380fd8c1a已独立固定2306源码、65生产宿主文件、23份C#CLI输出及152份正式测试输出；旧1e57bb9共2297文件及完整集合固定，严格构建零警告错误，固定程序集15项护栏再次通过（与前述15项重叠）。另直接调用固定正式程序集的纯文件Verify，真实证明正确解码，当前宿主／CLI／旧源全部匹配；没有调用Read、正式Fact、构造批准或连接数据库。
 
 外层4种失效租约在拦截所有子进程时拒绝，外部调用0；固定正式FQN分别以pending、ended、旧管理用途运行3次，均在查连接／数据库前按预期拒绝，不计正式通过。Server-200 MySQL8.4.11只读确认新两库／账号／所有权均不存在；776保护文件保持。
 
 本轮b49c40faf50365a0：仅metarill_fresh_b49c40faf50365a0_platform、metarill_fresh_b49c40faf50365a0_business及mtf_b49c40faf50365a0@%；本机目标／工作目录固定为私有execution/b49c40faf50365a0。精确计划在.local/device-runtime-native-20261101/permission-plan.md，状态pending／not-started，未创建正式对象。旧A21已结束，不能借旧授权执行本轮；收到明确授权后才创建、完整运行并按同一所有权清理、独立核零及删除临时凭据，保留代码与审查证据。
+
+
+## 2026-11-01 C86正式失败、阶段事实与C87夹具修复
+
+用户call_b3966d5267f84e29abf1f6a8745bd12f批准后，固定7912fde在Server-200正式1失败／0跳过。平台空库初始化、数据库播种、两个旧完整工程创建及两份真实CLI设备码OAuth／原设备绑定和回读已执行，两个cli-bind回执均realOAuth/deviceBound=true且项目ID各自正确。助手状态仅2 binding／2 device，没有batch或task文件。整条用例仍失败，不能把绑定阶段推成批量应用成功。
+
+最终TRX显示TestDirectoryCleanup拒绝非GUID的credentials目录，遮蔽了原始批量阶段异常，verified.json未能写出；原异常正文无法从该TRX恢复，不补造其逐字信息。宿主日志证明原POST到达控制器、HTTP200但请求没有Content-Length；真实Kestrel新回归复现旧JsonContent使用chunked，而原控制器在进入批次前明确拒绝Transfer-Encoding。结合零batch/task，将夹具改为原页面有长度的空JSON对象，保持产品chunked门禁不变；这不是放宽产品协议或接受任意失败。
+
+C87修正：正式夹具复用有长度StringContent请求工厂，真实wire测试同时证明旧chunked与新length=2/body={}；凭据改为credentials下的GUID目录再调用原安全清理器。finally单独记录收尾问题并保持原异常，HTTP断言前只记录状态／code／dataKind，不输出正文／令牌；阶段计数独立于整链passed，避免再次把已完成阶段全部记false。严格最终16项通过／0失败／0跳过（含原15项），只新增传输专项，没有修改产品、页面、模板或数据库规则。
+
+外层执行器已按批准范围删除本轮两库和账号，独立连接及另一次SSH确认库／账号／远端所有权均不存在；外层连接／所有权秘密删除，fixture因保护拒绝遗留的凭据已由外层按本轮固定落点删除，租约ended。保留旧固定源码、目标、缺失verified的事实、TRX、两份CLI回执和host日志；精确计划执行前副本独立归档。
+
+证据在.local/device-runtime-native-20261101：正式b49c40faf50365a0下native.trx、execution／cleanup／independent-absence／credentials-cleanup；formal-closure.json、readonly-final-zero.json及wire-repair-closed.log/TRX。C87尚未正式运行，原C86一次性固定来源／租约已结束，修正后需新固定范围，不能原地修改或重放旧包。
