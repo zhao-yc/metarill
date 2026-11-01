@@ -97,3 +97,10 @@ C76修正同来源活动任务去重后的专项断言，并重跑来源专项29
 证据：E:\git\metarill\.local\runtime-batch-original-button-{frontend,api,h5}.log，API同名TRX，runtime-batch-browser-contract-final.log，以及runtime-batch-original-browser-20261031下complete/partial/unknown/restored-receipt.json与01—05截图。浏览器任务空间40按技能finish关闭，本轮Node夹具PID4748已核对归属后停止、18788端口无监听。未清除用户浏览器资料，未升级ego lite。
 
 无需DDL、回填、前端再生成或修改生成模板；平台手写适配器由现有main.js加载，与原页面导入的公共对象共享。仍待：真实逐项目Web/OAuth、批准grant/设备关联、Node领取/原计划写入/最终回执的端到端验收，以及Web之外的目标端验证。AgentTaskMiddleware三个设备控制动作的豁免仍保持原待批方案，未改名、借道或绕过。
+
+
+## 2026-11-01 C87 当前真实双项目闭环
+
+C81登记后，C87固定a36e121已在真实Server-200 MySQL／Production平台／Web／OAuth／Node CLI下完整1/1通过：原旧POST及sysParams设备、两个项目各自绑定、双端／仅后端v2原计划及短ticket应用、未绑定失败／禁用跳过、同地址重启原批次／任务恢复、重复status及CLI注销。首批两工程各写2文件，第二批重启后两任务各0写入明确完成；排队HTTP200/R500未假报成功。全部临时库／账号／凭据已清理并独立核零，原页面／模板不改。C86夹具失败保留。
+
+详见[实际范围和证据](device-runtime-native.md)。本批未实际点击原浏览器按钮或制造前端网络未知，C79的合成UI与本次真实后端证据不得合并为原UI整体验收；配置变化／CAS、其它端和性能继续待验。
