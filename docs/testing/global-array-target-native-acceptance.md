@@ -103,3 +103,20 @@ B112单值四库冻结包及其待批状态、C19已结束旧授权与新复验�
 新运行 `d442203ff3ef4b6a` 使用 `metarill_fresh_d442203ff3ef4b6a_array_t{0,1}_s{0,1}_{long,text}` 八库与 `mtf_d442203ff3ef4b6a@%`。只读预检确认Server-200、MySQL8.4.11及实例pin，新八库／账号／账本均不存在；目前pending／not-started，没有创建对象或真实口令。旧d8682c74c0344d5e已结束，不复用旧租约。
 
 权限范围及逐对象清理规则位于忽略目录 `.local/global-array-target-native-retry-20261101/permission-plan.md`；同根保留 `freeze-receipt.json`、`compiled-source-proof.json`、`pending-gate-result.json`、`driver-mock-result.json`、`readonly-preflight.json`、`ready-summary.json` 与results。正式仅在直接批准后启动，固定来源／输出／八包执行前后核验，不重新编译或再生成；原776文件逐字保持，尚无新轮正式通过或部署。
+
+
+## B116 新轮正式结果：6通过／2计数差异，已清理
+
+2026-11-01收到本轮直接批准后，固定产品efe9ee2／执行器35be9a6、八包各943文件正式执行：6通过、2失败、0跳过。R0目标的四模型与R1目标／R0来源的两模型全部完成；R0目标／R1来源两个模型实际验证130消费者末批传播／维护回滚，string自动名称模型实际验证5000复选及5001拒绝。原候选初始化、中文名称筛选和Excel期待的旧失败没有复现。
+
+R1目标／R1来源的int64与string两模型均在130消费者维护阶段停下：故障注入的整批回滚断言通过，随后成功回填返回264，原测试期待260。返回值按实际缓存字段变化计数；除130条故意旧名样本外还存在前面流程留下的记录，原测试没有逐字段观察额外四格。源码显示维护比较物理值，JSON格式变化是一种待验证解释，不能据此直接断言计数错误或产品正确。两模型没有完成后续文件回滚／重启注销，不冒称整轮通过。
+
+同token清理八库及账号并另起只读查询独立核零；本轮合成uploads/exports先记字节数／SHA256再删除，临时设置／所有权凭据移除，租约ended。`result.json`为passed=false、cleanupConfirmed=true；无本轮遗留对象，未重试或使用其它租约。实际证据见 `.local/global-array-target-native-retry-20261101/d442203ff3ef4b6a/` 的fresh.trx、test-result、cleanup、post-observation、local-objects-cleanup和result回执；六模型receipt及两模型failure保留在同轮执行副本。
+
+## B117 仅两个未通过模型的维护逐格审计
+
+不将260直接改成264。正式测试在成功维护前后读取同表完整物理记录，要求主键及字段集合保持、非缓存字段／外项目／墓碑逐字不变；固定130条的两个故障缓存全部实际变化，其他活动同项目记录只有JSON语义完全相等的格式规范化可额外计数。返回affectedRows必须与实际变化格数相等，之后仍要求重复维护0及130条名称逐行正确。通过回执新增实际batch／格式／总格数统计；若额外四格改变名称语义则明确失败。
+
+新增10个纯内存审计正负合同，与既有发布／实际生成SQL最终27通过，0失败／跳过；首次测试方法组推断编译错误日志保留。未修改任何产品代码或八个固定包，没有用测试桩冒充正式回填。两个实际pending入口筛选已验证，只取targetMode=1、sourceMode=1及两种内层键，并在租约处先拒绝。
+
+协调器仅新增 `array_cached_targets` 显式双库profile，后缀固定array_t1_s1_long／array_t1_s1_text；原array_targets八库及all旧范围不变。25个离线保护通过，包括双库独占及错用八库清理在DROP前拒绝。后续只申请这两个未通过模型的新库／账号，复用已逐字固定的原八包；新范围固定与批准前不创建对象。浏览器、设备、并发和性能继续另验。

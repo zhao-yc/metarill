@@ -89,6 +89,23 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
         self.assertEqual(8, len(json.loads(self.state.read_text(encoding="utf-8"))["databases"]))
         self.assertFalse(any("array_t" in command for command in self.commands))
 
+    def test_cached_array_pair_creates_and_cleans_only_two_databases(self):
+        """仅剩两模型复验不再申请八库，旧all与原八模型范围保持。"""
+        result=json.loads(self.invoke("create",scenario="array_cached_targets"))
+        expected=[f"metarill_fresh_{self.run}_array_t1_s1_{key}" for key in ("long","text")]
+        self.assertEqual(expected,result["createdDatabases"])
+        self.assertEqual(expected,json.loads(self.state.read_text(encoding="utf-8"))["databases"])
+        self.commands.clear();self.invoke("cleanup",scenario="array_cached_targets")
+        self.assertEqual(2,sum(command.startswith("DROP DATABASE") for command in self.commands));self.assertFalse(self.state.exists())
+        self.assertFalse(any("array_t0" in command or "_s0_" in command for command in self.commands))
+
+    def test_cached_array_pair_cannot_borrow_eight_model_cleanup(self):
+        """场景更换在DROP之前拒绝，保留原所有权供正确范围清理。"""
+        self.invoke("create",scenario="array_cached_targets");before=self.state.read_bytes();self.commands.clear()
+        with self.assertRaises(RuntimeError):self.invoke("cleanup",scenario="array_targets")
+        self.assertEqual(before,self.state.read_bytes());self.assertFalse(any(command.startswith("DROP") for command in self.commands))
+        self.invoke("cleanup",scenario="array_cached_targets")
+
     def test_wrong_server_name_stops_before_any_docker_command(self):
         """其他服务器即便可访问，也不可运行该开发验收工具。"""
         with patch.object(subject.subprocess, "check_output", return_value="Production-Server\n") as call:
