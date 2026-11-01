@@ -19,16 +19,10 @@ public static class LegacyStatisticsMath
         if(!double.IsFinite(result))throw new InvalidOperationException("浮点统计必须是有限值。");
         return result;
     }
-    /// <summary>本页浮点合计不转decimal，null按零；输入或累加溢出明确拒绝。</summary>
+    /// <summary>本页浮点合计不转decimal，null按零；精确抵消后只对最终不可表示结果拒绝。</summary>
     public static double SumDouble(IEnumerable<double?> values)
     {
-        ArgumentNullException.ThrowIfNull(values);var total=0d;
-        foreach(var value in values)
-        {
-            total+=DoubleSumResult(value)??0d;
-            if(!double.IsFinite(total))throw new InvalidOperationException("浮点统计累加超出有限double范围。");
-        }
-        return total;
+        ArgumentNullException.ThrowIfNull(values);var sum=new BinaryDoubleSum();foreach(var value in values)sum.Add(value);return sum.Value()??0d;
     }
     /// <summary>按float的精确二进制有理数舍入，避免double转decimal时的有效位数损失；零分母由调用方省略键。</summary>
     public static decimal Percentage(long matching,long total)

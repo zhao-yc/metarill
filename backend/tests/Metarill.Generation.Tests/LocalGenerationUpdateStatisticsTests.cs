@@ -28,4 +28,17 @@ public sealed partial class LocalGenerationUpdateTests
         Assert.Equal(before,SHA256.HashData(File.ReadAllBytes(handwritten)));Assert.True(File.Exists(Path.Combine(target,runtime)));
         Assert.DoesNotContain(updater.Preview(target,candidate,All).Files,file=>file.Action!="preserve");
     }
+    /// <summary>当前SDK不能双删精确累加器或分桶源及归属，缺失候选在预览前拒绝且目标逐字保持。</summary>
+    [Theory]
+    [InlineData("src/Metarill.Core/Contracts/BinaryDoubleSum.cs")]
+    [InlineData("src/Metarill.Data/Queries/FloatingStatistics.cs")]
+    public void Floating_statistics_candidate_requires_the_complete_bounded_runtime(string runtime)
+    {
+        var(target,candidate)=Packages(Catalog(),Catalog());
+        string[] Snapshot()=>Directory.EnumerateFiles(target,"*",SearchOption.AllDirectories).Order(StringComparer.Ordinal).Select(path=>Path.GetRelativePath(target,path)+"="+Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)))).ToArray();
+        var before=Snapshot();var marker=Path.Combine(candidate,".metarill-package.json");var data=JsonNode.Parse(File.ReadAllText(marker))!;var files=data["files"]!.AsArray();files.Remove(files.Single(file=>file!["path"]!.GetValue<string>()==runtime));
+        File.Delete(Path.Combine(candidate,runtime));File.WriteAllText(marker,data.ToJsonString(Json));
+        var error=Assert.Throws<InvalidOperationException>(()=>new LocalGenerationUpdater().Preview(target,candidate,All));Assert.Equal("完整包缺少必要启动归属："+runtime,error.Message);Assert.Equal(before,Snapshot());
+    }
+
 }

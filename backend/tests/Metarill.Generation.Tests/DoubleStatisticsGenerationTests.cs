@@ -22,7 +22,7 @@ public sealed partial class DoubleStatisticsGenerationTests
             new CSharpGenerator().Generate(catalog,output,model.Namespace);
             var source=File.ReadAllText(Path.Combine(output,"Services",table.Name+"Service.g.cs"));
             Assert.Contains("LegacyStatisticsMath.SumDouble",source);
-            Assert.Contains(nonredundant?"DoubleSums":"ToAggregateAsync",source);
+            Assert.Contains(nonredundant?"DoubleSums":"FloatingStatistics.SumAsync",source);
             await File.WriteAllTextAsync(Path.Combine(output,"Directory.Build.props"),"<Project><PropertyGroup><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>");
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(output);
             if(!nonredundant)await ExerciseOrdinaryStatistics(assembly);

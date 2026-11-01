@@ -98,6 +98,8 @@ public sealed partial class LocalGenerationUpdater
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Cascades/CrossTableReader.Paths.cs", "src/Metarill.Core/Cascades/CrossTableExcelPath.cs","src/Metarill.Core/Cascades/CrossTableExcelRow.cs"});
         // 公共JsonDefaults始终引用浮点转换器；无double业务列的当前候选也必须带齐其解析依赖。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs","src/Metarill.Core/Contracts/ExactNumericValue.cs"});
+        // 浮点统计必须成套带上精确整数累加和分桶读取；旧目标允许明确同步后升级。
+        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/BinaryDoubleSum.cs","src/Metarill.Data/Queries/FloatingStatistics.cs"});
         // 当前完整Core包含字段级时钟合同，旧目标仍可预览升级；双删源码/归属不能伪装完整候选。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/ClockTimeValue.cs","src/Metarill.Core/Contracts/ClockTimeJsonConverter.cs","src/Metarill.Core/Contracts/SqlTimeValue.cs","src/Metarill.Core/Contracts/SqlTimeJsonConverter.cs","src/Metarill.Data/MySqlPersistedTimeValues.cs"});
         // 当前时间精度解释与结构反查共用Core/Data源码，不能删文件及归属后冒充完整候选。

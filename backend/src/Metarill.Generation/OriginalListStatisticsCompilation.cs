@@ -46,8 +46,8 @@ internal static class OriginalListStatisticsCompilation
             {
                 if(column.Type.TrimEnd('?')=="double")
                 {
-                    // ORM的Sum返回decimal；显式double结果让驱动按浮点取值，真实SQL翻译另有无decimal转换回归。
-                    source.AppendLine($"        var {local}Total=await {(CascadeTreeQueryCompilation.Async(page)?CascadeTreeQueryCompilation.Call(page):$"Query{suffix}(request,actor)")}.ToAggregateAsync(aggregate=>(double?)global::FreeSql.SqlExt.AggregateSum(aggregate.Key.{column.Property}),cancellationToken);")
+                    // MySQL原生double SUM溢出可能静默返回零，必须沿固定列使用有界整数分桶。
+                    source.AppendLine($"        var {local}Total=await global::Metarill.Data.Queries.FloatingStatistics.SumAsync(session,{(CascadeTreeQueryCompilation.Async(page)?CascadeTreeQueryCompilation.Call(page):$"Query{suffix}(request,actor)")},{JsonSerializer.Serialize(column.Source.ColumnName)},cancellationToken);")
                         .AppendLine($"        statistics[{key}]=new{{currentPage=LegacyStatisticsMath.SumDouble(page.Records.Select(row=>(double?)row.{column.Property})),total=LegacyStatisticsMath.DoubleSumResult({local}Total)??0d}};");
                     continue;
                 }

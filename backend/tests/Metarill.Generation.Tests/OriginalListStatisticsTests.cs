@@ -208,11 +208,11 @@ internal sealed class StatisticsAuthorization:IRuntimeAuthorization
 
 internal sealed class StatisticsMemoryProvider:IDatabaseProvider
 {
-    internal object[] Rows=[];internal double? DoubleAggregateOverride;internal LambdaExpression? DoubleAggregateExpression;internal List<(string Method,int Page)> Calls {get;}=[];
+    internal object[] Rows=[];internal double? DoubleAggregateOverride;internal bool SupportsFloatingStatistics;internal List<(string Method,int Page)> Calls {get;}=[];
     internal IFreeSql Orm {get;}
     /// <summary>仅注册可审计的Select代理，不建立连接。</summary>
     internal StatisticsMemoryProvider(){Orm=DispatchProxy.Create<IFreeSql,StatisticsOrmProxy>();((StatisticsOrmProxy)(object)Orm).Provider=this;}
-    public string Name=>"offline";public DatabaseCapabilities Capabilities=>new("offline",true,false);
+    public string Name=>SupportsFloatingStatistics?"mysql":"offline";public DatabaseCapabilities Capabilities=>new(Name,true,false);
     /// <summary>离线配置只用于定位测试，不解析数据库凭据。</summary>
     public void Validate(DatabaseOptions options){}
     /// <summary>所有读取统一回到本实例代理。</summary>
@@ -250,7 +250,7 @@ public class StatisticsSelectProxy<T>:DispatchProxy where T:class
 {
     internal StatisticsMemoryProvider Provider=null!;
     private readonly List<Delegate> predicates=[];private readonly List<(Delegate Key,bool Descending)> orders=[];
-    private int page,size;
+    private int page,size,limit;private bool floating;
     /// <summary>真实生成谓词在强类型实体上执行，分页和聚合调用各自记录，禁止未知API静默成功。</summary>
     protected override object? Invoke(MethodInfo? method,object?[]? args)
     {
@@ -258,20 +258,34 @@ public class StatisticsSelectProxy<T>:DispatchProxy where T:class
         var lambda=args.OfType<LambdaExpression>().FirstOrDefault();
         if(name=="WithTransaction")return this;
         if(name=="Where"){predicates.Add(lambda!.Compile());return this;}
+        if(name=="OrderBy"&&lambda is null){Assert.Null(args[0]);orders.Clear();return this;}
         if(name is "OrderBy" or "OrderByDescending"){orders.Add((lambda!.Compile(),name=="OrderByDescending"));return this;}
+        if(name=="Offset"){Assert.Equal(0,args[0]);return this;}
+        if(name=="Limit"){limit=(int)args[0]!;return this;}
+        if(name=="GroupBy"){Assert.Contains("LOG2",Assert.IsType<string>(args[0]));floating=true;return this;}
         if(name=="Page"){page=(int)args[0]!;size=(int)args[1]!;return this;}
         var rows=Provider.Rows.Cast<T>().Where(row=>predicates.All(predicate=>(bool)predicate.DynamicInvoke(row)!));
         if(name=="CountAsync"){Provider.Calls.Add((name,page));return Task.FromResult(rows.LongCount());}
-        if(name=="ToAggregateAsync")
+        if(name=="ToListAsync"&&floating)
         {
-            // 执行真实生成聚合的表达式路径，只替换终端传输；不使用产品有限值辅助方法伪造驱动正确性。
-            Provider.Calls.Add((name,page));Provider.DoubleAggregateExpression=lambda;Assert.Equal(typeof(double?),method.ReturnType.GetGenericArguments()[0]);
-            Expression body=lambda!.Body;Assert.Equal(typeof(double?),body.Type);
-            while(body is UnaryExpression conversion){Assert.Equal(ExpressionType.Convert,conversion.NodeType);Assert.True(conversion.Type==typeof(double?)||conversion.Type==typeof(double));body=conversion.Operand;}
-            var sum=Assert.IsAssignableFrom<MethodCallExpression>(body);Assert.Equal("AggregateSum",sum.Method.Name);
-            var member=Assert.IsAssignableFrom<MemberExpression>(Assert.Single(sum.Arguments));var property=typeof(T).GetProperty(member.Member.Name)!;
-            var values=rows.Select(row=>(double?)property.GetValue(row)).ToArray();
-            double? total=Provider.DoubleAggregateOverride??(values.Length==0?null:values.Sum(value=>value??0d));return Task.FromResult(total);
+            // 仅替代终端桶传输，系数从独立IEEE位型构造；实际SQL另交真实ORM和MySQL验证。
+            Provider.Calls.Add(("FloatingBuckets",page));Assert.Equal(2048,limit);Assert.Contains("DECIMAL(65,0)",Assert.IsType<string>(args[0]));
+            var property=typeof(T).GetProperties().Single(property=>(Nullable.GetUnderlyingType(property.PropertyType)??property.PropertyType)==typeof(double));
+            var values=rows.Select(row=>(double?)property.GetValue(row)).ToArray();var listType=method.ReturnType.GetGenericArguments()[0];var element=listType.GetGenericArguments()[0];var list=(System.Collections.IList)Activator.CreateInstance(listType)!;
+            void Bucket(int? exponent,string? coefficient,long count,long nonnull)
+            {var row=Activator.CreateInstance(element)!;element.GetProperty("Exponent")!.SetValue(row,exponent);element.GetProperty("Coefficient")!.SetValue(row,coefficient);element.GetProperty("Rows")!.SetValue(row,count);element.GetProperty("Values")!.SetValue(row,nonnull);list.Add(row);}
+            if(values.Length>0&&Provider.DoubleAggregateOverride is {} forced)Bucket(0,double.IsFinite(forced)?"0":"Infinity",values.Length,values.Length);
+            else
+            {
+                var decoded=values.Select(value=>
+                {
+                    if(value is null)return(Exponent:(int?)null,Coefficient:System.Numerics.BigInteger.Zero);
+                    var bits=BitConverter.DoubleToInt64Bits(value.Value);var stored=(int)((bits>>52)&0x7ff);var mantissa=bits&0x000f_ffff_ffff_ffffL;if(stored!=0)mantissa|=1L<<52;
+                    return(Exponent:(int?)(stored==0?-1074:stored-1075),Coefficient:bits<0?-new System.Numerics.BigInteger(mantissa):new System.Numerics.BigInteger(mantissa));
+                });
+                foreach(var group in decoded.GroupBy(value=>value.Exponent))Bucket(group.Key,group.Key is null?null:group.Aggregate(System.Numerics.BigInteger.Zero,(total,value)=>total+value.Coefficient).ToString(System.Globalization.CultureInfo.InvariantCulture),group.LongCount(),group.Key is null?0:group.LongCount());
+            }
+            return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(listType).Invoke(null,[list]);
         }
         if(name=="SumAsync"){Provider.Calls.Add((name,page));var selector=lambda!.Compile();return Task.FromResult(rows.Sum(row=>Convert.ToDecimal(selector.DynamicInvoke(row)??0,System.Globalization.CultureInfo.InvariantCulture)));}
         if(name=="ToListAsync")

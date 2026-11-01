@@ -110,6 +110,46 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();
         var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",plan.Expression);
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(filters.Select((filter,index)=>Filter(plan,filter,index))).Where(part=>part.Length>0));
+        if(fields.Any(field=>plan.Types[field]=="double"))
+        {
+            // 每个浮点字段最多2047桶；混合统计用一条UNION语句共享同一读视图，精确类型继续原SUM。
+            var floatingFields=fields.Where(field=>plan.Types[field]=="double").ToArray();var exactFields=fields.Where(field=>plan.Types[field]!="double").ToArray();var needsBase=fields.Length!=1;
+            var scope=plan.From+(where.Length==0?"":" WHERE "+where);
+            string Projection(int index,string? field)
+            {
+                var prefix=field is null?"SELECT -1 AS field_no,NULL AS `Exponent`,NULL AS `Coefficient`,COUNT(*) AS `Rows`,0 AS `Values`":"SELECT "+index+" AS field_no,"+MySqlFloatingSum.Fields(plan.Expression(field));
+                prefix+=string.Concat(exactFields.Select((name,ordinal)=>","+(field is null?"SUM("+plan.Expression(name)+")":"NULL")+" AS exact_"+ordinal));
+                prefix+=","+(plan.Crosses.Count==0?"0":CrossValidity(plan))+" AS cross_invalid"+scope;
+                return field is null?prefix:prefix+" GROUP BY "+MySqlFloatingSum.Exponent(plan.Expression(field))+" LIMIT "+(MySqlFloatingSum.MaximumBuckets+1);
+            }
+            var branches=floatingFields.Select((field,index)=>Projection(index,field)).ToArray();
+            var bucketSql=needsBase?"SELECT * FROM ("+string.Join(" UNION ALL ",new[]{Projection(-1,null)}.Concat(branches).Select(branch=>"("+branch+")"))+") metarill_float_rows":branches[0];
+            return await OnConnection(async connection=>
+            {
+                await using var command=Command(connection);Bind(command,projectId,filters);BindCross(command,plan);BindCondition(command,conditionClause);command.CommandText=bucketSql;
+                await using var reader=await command.ExecuteReaderAsync(cancellationToken);var buckets=floatingFields.Select(_=>new List<FloatingSumRow>()).ToArray();var exact=new Dictionary<string,decimal?>(StringComparer.OrdinalIgnoreCase);long? total=null;var baseSeen=false;
+                while(await reader.ReadAsync(cancellationToken))
+                {
+                    if(plan.Crosses.Count>0)RequireValidCross(reader,5+exactFields.Length);
+                    var index=Convert.ToInt32(reader.GetValue(0),System.Globalization.CultureInfo.InvariantCulture);
+                    if(index==-1)
+                    {
+                        if(!needsBase||baseSeen)throw new InvalidOperationException("浮点混合统计基础行无效。");baseSeen=true;total=reader.GetInt64(3);if(total<0)throw new InvalidOperationException("浮点统计总行数无效。");
+                        for(var ordinal=0;ordinal<exactFields.Length;ordinal++)exact.Add(exactFields[ordinal],await reader.IsDBNullAsync(5+ordinal,cancellationToken)?null:Convert.ToDecimal(reader.GetValue(5+ordinal),System.Globalization.CultureInfo.InvariantCulture));
+                        continue;
+                    }
+                    if(index<0||index>=floatingFields.Length||buckets[index].Count>=MySqlFloatingSum.MaximumBuckets)throw new InvalidOperationException("浮点统计字段或桶数量无效。");
+                    buckets[index].Add(new(){Exponent=reader.IsDBNull(1)?null:Convert.ToInt32(reader.GetValue(1),System.Globalization.CultureInfo.InvariantCulture),Coefficient=reader.IsDBNull(2)?null:reader.GetString(2),Rows=reader.GetInt64(3),Values=reader.GetInt64(4)});
+                }
+                if(needsBase&&!baseSeen)throw new InvalidOperationException("浮点混合统计缺少基础行。");
+                var doubles=new Dictionary<string,double?>(StringComparer.OrdinalIgnoreCase);
+                for(var index=0;index<floatingFields.Length;index++)
+                {
+                    var value=MySqlFloatingSum.Reduce(buckets[index]);if(total is {} count&&count!=value.Rows)throw new InvalidOperationException("浮点统计字段未读取同一完整范围。");total??=value.Rows;doubles.Add(floatingFields[index],value.Value);
+                }
+                return new FixedReadStatistics(total??0,new System.Collections.ObjectModel.ReadOnlyDictionary<string,decimal?>(exact)){DoubleSums=new System.Collections.ObjectModel.ReadOnlyDictionary<string,double?>(doubles)};
+            },cancellationToken);
+        }
         var sql="SELECT COUNT(*) AS total"+string.Concat(fields.Select((field,index)=>",SUM("+plan.Expression(field)+") AS sum_"+index))+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+plan.From+(where.Length==0?"":" WHERE "+where);
         return await OnConnection(async connection=>
         {
@@ -117,15 +157,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             await using var reader=await command.ExecuteReaderAsync(cancellationToken);if(!await reader.ReadAsync(cancellationToken))throw new InvalidOperationException("固定统计未返回结果。");
             if(plan.Crosses.Count>0)RequireValidCross(reader,fields.Length+1);
             var total=reader.GetInt64(0);var sums=new Dictionary<string,decimal?>(StringComparer.OrdinalIgnoreCase);
-            var doubles=new Dictionary<string,double?>(StringComparer.OrdinalIgnoreCase);
-            for(var index=0;index<fields.Length;index++)
-            {
-                var field=fields[index];var value=await reader.IsDBNullAsync(index+1,cancellationToken)?null:reader.GetValue(index+1);
-                if(plan.Types[field]=="double")doubles.Add(field,Metarill.Core.Contracts.LegacyStatisticsMath.DoubleSumResult(value));
-                else sums.Add(field,value is null?null:Convert.ToDecimal(value,System.Globalization.CultureInfo.InvariantCulture));
-            }
-            return new FixedReadStatistics(total,new System.Collections.ObjectModel.ReadOnlyDictionary<string,decimal?>(sums))
-            {DoubleSums=new System.Collections.ObjectModel.ReadOnlyDictionary<string,double?>(doubles)};
+            for(var index=0;index<fields.Length;index++)sums.Add(fields[index],await reader.IsDBNullAsync(index+1,cancellationToken)?null:Convert.ToDecimal(reader.GetValue(index+1),System.Globalization.CultureInfo.InvariantCulture));
+            return new FixedReadStatistics(total,new System.Collections.ObjectModel.ReadOnlyDictionary<string,decimal?>(sums));
         },cancellationToken);
     }
     /// <summary>复制请求并按发布类型绑定，长ID字符串不经double，防止高位项目/记录误匹配。</summary>
