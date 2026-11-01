@@ -26,3 +26,12 @@
 此项不含完整自举再生成、配置后结构同步、业务CRUD、助手设备绑定、浏览器／真机、跨数据库或性能；A20和MySQL首版整体继续保持未完成。原已有库六个旧varchar及703个空字符串格仍未修改。
 
 私有准备证据：`.local/platform-bootstrap-native-20261101/`，包括preparation.log、preparation-retry.log、lease-tests.log及results终态TRX。正式固定来源与精确计划准备后另记，不把普通CI跳过计为通过。
+
+
+## 2026-11-01 固定来源与待授权范围
+
+源码4dea24a1d7d621ac8f76cce4d99778e845091b7c独立固定检出，2301份源码逐字保持；Production宿主发布65文件，正式程序集152输出，均严格构建零警告错误，固定程序集6项护栏再验通过（与前6项重叠，不相加）。首轮固定检出命令误写提交参数，尚未构建即失败；保留日志，读取实际提交号后仅复用未检出的独立克隆完成。
+
+外层4种失效租约拦截全部子进程，外部调用0；另以实际正式FQN分别运行pending、ended及旧管理用途，3次均在数据库连接前按预期拒绝，不能计正式通过。只读确认Server-200 MySQL8.4.11既定实例及本轮两库／账号／所有权记录均不存在。原776份产物／手写／前端／模板／元数据逐字保持。
+
+本轮随机编号451bd67d598adf91，范围仅metarill_fresh_451bd67d598adf91_platform、metarill_fresh_451bd67d598adf91_business及mtf_451bd67d598adf91@%。精确计划位于`.local/platform-bootstrap-native-20261101/permission-plan.md`；源码、宿主、正式程序集及执行器摘要均固定，状态pending／not-started，未创建任何对象。旧C85租约已结束；取得本轮明确授权后才执行及按同一所有权清理，不能以先前单库授权扩张本轮范围。
