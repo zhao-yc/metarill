@@ -265,6 +265,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         // 成功名称谓词与缺口拒绝共用固定键集合，不能落入普通JSON文本LIKE，也不能重复生成switch case。
         result.Append(SelectionNameFilterCompilation.RenderCases(new(names.Bindings, []), binding =>
             $"query = Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, entity => entity.{binding.StorageColumn.Property}, value);"));
+        result.Append(FixedRoleAdminNameRenderer.FilterCases(model,table,page));
         foreach (var gap in names.Gaps.GroupBy(gap => gap.FilterKey, StringComparer.Ordinal))
             result.AppendLine($"                case {Literal(gap.Key)}:")
                 .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;")

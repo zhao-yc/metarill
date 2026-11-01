@@ -132,7 +132,7 @@ public partial class ConfigPageService
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order1868973685063311361(query, request);
         var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, IsBeforeQuery = entity.IsBeforeQuery, IsNotGenerateDetailPage = entity.IsNotGenerateDetailPage, MobileListPageStyleType = entity.MobileListPageStyleType, IsAutoBackOnMobileSave = entity.IsAutoBackOnMobileSave, Cols = entity.Cols, IsBeforeGet = entity.IsBeforeGet, IsUpdateEditColumnsOnly = entity.IsUpdateEditColumnsOnly, DetailPageButtonsPosition = entity.DetailPageButtonsPosition, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
-        return new(entities.Select(ConfigPagePage1868973685063311361Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        return new(await ProjectRoleAdminNames1868973685063311361Async(entities, actor, "list", cancellationToken), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count1868973685063311361Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query1868973685063311361(request, actor).CountAsync(cancellationToken);
@@ -140,7 +140,7 @@ public partial class ConfigPageService
     public async Task<ConfigPagePage1868973685063311361Vo?> Detail1868973685063311361Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         var entity = await Scope1868973685063311361(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, IsBeforeQuery = entity.IsBeforeQuery, IsNotGenerateDetailPage = entity.IsNotGenerateDetailPage, MobileListPageStyleType = entity.MobileListPageStyleType, IsAutoBackOnMobileSave = entity.IsAutoBackOnMobileSave, Cols = entity.Cols, IsBeforeGet = entity.IsBeforeGet, IsUpdateEditColumnsOnly = entity.IsUpdateEditColumnsOnly, DetailPageButtonsPosition = entity.DetailPageButtonsPosition, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
-        return entity is null ? null : ConfigPagePage1868973685063311361Vo.FromEntity(entity);
+        return entity is null ? null : (await ProjectRoleAdminNames1868973685063311361Async([entity], actor, "detail", cancellationToken))[0];
     }
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
     public async Task<global::Metarill.Platform.Generated.Entities.ConfigPage?> ReadButtonRecord1868973685063311361Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery1868973685063311361(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
@@ -233,6 +233,27 @@ public partial class ConfigPageService
         var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>来源动作已经由对应入口确定；原冗余名读取不额外要求后台页面query。</summary>
+    private ISelect<global::Metarill.Platform.Generated.Entities.YzAdminType> RoleAdminNameScope1868973685063311361(RuntimeActor actor,string operation)
+    {
+        ValidateActor(actor);
+        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("后台名称要求真实来源身份。");
+        if (operation is not ("list" or "detail" or "create" or "update" or "copy" or "export")) throw new UnauthorizedAccessException("后台名称读取动作无效。");
+        relationAuthorization.RequirePagePermission("1868973685063311361",operation);
+        if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        return session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(admin => admin.DeleteNo == null && admin.YzProjectId == project);
+    }
+    /// <summary>最多5000个唯一后台ID，每200个串行一次；空值与不可见/已删除目标的名称为null。</summary>
+    private async Task<ConfigPagePage1868973685063311361Vo[]> ProjectRoleAdminNames1868973685063311361Async(IReadOnlyList<global::Metarill.Platform.Generated.Entities.ConfigPage> entities,RuntimeActor actor,string operation,CancellationToken cancellationToken)
+    {
+        _ = RoleAdminNameScope1868973685063311361(actor,operation);
+        var selected=entities.Select(entity=>entity.YzAdminTypeId).OfType<long>().Distinct().Take(5001).ToArray();
+        if (selected.Length > 5000 || selected.Any(id=>id<=0)) throw new InvalidOperationException("后台名称标识无效或超过5000项完整读取上限。");
+        var names=new Dictionary<long,string?>();
+        foreach(var chunk in selected.Chunk(200))
+            foreach(var row in await RoleAdminNameScope1868973685063311361(actor,operation).Where(admin=>chunk.Contains(admin.Id)).ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken)) names[row.Id]=row.Name;
+        return entities.Select(entity=>ConfigPagePage1868973685063311361Vo.FromEntity(entity,entity.YzAdminTypeId is {} id?names.GetValueOrDefault(id):null)).ToArray();
     }
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
     public Task<ConfigPagePage1868973685063311361Vo> Update1868973685063311361Async(ConfigPagePage1868973685063311361UpdateRequest request,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)=>Update1868973685063311361CoreAsync(request,parentId,actor,null,cancellationToken);
@@ -330,7 +351,7 @@ public partial class ConfigPageService
         if(businessButtonId is not null)await RequireButtonCurrent1868973685063311361Async(request.Id,businessButtonId,actor,cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigPageAsync("1868973685063311361", entity, actor, submitted, false, false, cancellationToken, businessButtonId);
-        return ConfigPagePage1868973685063311361Vo.FromEntity(entity);
+        return (await ProjectRoleAdminNames1868973685063311361Async([entity], actor, "update", cancellationToken))[0];
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete1868973685063311361Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
@@ -444,7 +465,7 @@ public partial class ConfigPageService
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order1869016706289577986(query, request);
         var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
-        return new(entities.Select(ConfigPagePage1869016706289577986Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        return new(await ProjectRoleAdminNames1869016706289577986Async(entities, actor, "list", cancellationToken), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count1869016706289577986Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query1869016706289577986(request, actor).CountAsync(cancellationToken);
@@ -452,7 +473,7 @@ public partial class ConfigPageService
     public async Task<ConfigPagePage1869016706289577986Vo?> Detail1869016706289577986Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         var entity = await Scope1869016706289577986(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
-        return entity is null ? null : ConfigPagePage1869016706289577986Vo.FromEntity(entity);
+        return entity is null ? null : (await ProjectRoleAdminNames1869016706289577986Async([entity], actor, "detail", cancellationToken))[0];
     }
     /// <summary>仅供宿主Agent记录写预检，路径及操作来自固定发布能力，不暴露HTTP读接口。</summary>
     public async Task<global::Metarill.Platform.Generated.Entities.ConfigPage?> ReadAgentRecord1869016706289577986Async(long id,string? parentId,string operation,RuntimeActor actor,global::Metarill.Core.Security.IRuntimeAuthorization authorization,CancellationToken cancellationToken)
@@ -512,6 +533,27 @@ public partial class ConfigPageService
         var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
+    }
+    /// <summary>来源动作已经由对应入口确定；原冗余名读取不额外要求后台页面query。</summary>
+    private ISelect<global::Metarill.Platform.Generated.Entities.YzAdminType> RoleAdminNameScope1869016706289577986(RuntimeActor actor,string operation)
+    {
+        ValidateActor(actor);
+        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("后台名称要求真实来源身份。");
+        if (operation is not ("list" or "detail" or "create" or "update" or "copy" or "export")) throw new UnauthorizedAccessException("后台名称读取动作无效。");
+        relationAuthorization.RequirePagePermission("1869016706289577986",operation);
+        if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        return session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(admin => admin.DeleteNo == null && admin.YzProjectId == project);
+    }
+    /// <summary>最多5000个唯一后台ID，每200个串行一次；空值与不可见/已删除目标的名称为null。</summary>
+    private async Task<ConfigPagePage1869016706289577986Vo[]> ProjectRoleAdminNames1869016706289577986Async(IReadOnlyList<global::Metarill.Platform.Generated.Entities.ConfigPage> entities,RuntimeActor actor,string operation,CancellationToken cancellationToken)
+    {
+        _ = RoleAdminNameScope1869016706289577986(actor,operation);
+        var selected=entities.Select(entity=>entity.YzAdminTypeId).OfType<long>().Distinct().Take(5001).ToArray();
+        if (selected.Length > 5000 || selected.Any(id=>id<=0)) throw new InvalidOperationException("后台名称标识无效或超过5000项完整读取上限。");
+        var names=new Dictionary<long,string?>();
+        foreach(var chunk in selected.Chunk(200))
+            foreach(var row in await RoleAdminNameScope1869016706289577986(actor,operation).Where(admin=>chunk.Contains(admin.Id)).ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken)) names[row.Id]=row.Name;
+        return entities.Select(entity=>ConfigPagePage1869016706289577986Vo.FromEntity(entity,entity.YzAdminTypeId is {} id?names.GetValueOrDefault(id):null)).ToArray();
     }
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
     public Task<ConfigPagePage1869016706289577986Vo> Update1869016706289577986Async(ConfigPagePage1869016706289577986UpdateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
@@ -582,7 +624,7 @@ public partial class ConfigPageService
         await ValidateMutationAsync("1869016706289577986", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigPageAsync("1869016706289577986", entity, actor, submitted, false, false, cancellationToken);
-        return ConfigPagePage1869016706289577986Vo.FromEntity(entity);
+        return (await ProjectRoleAdminNames1869016706289577986Async([entity], actor, "update", cancellationToken))[0];
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete1869016706289577986Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
@@ -647,6 +689,14 @@ public partial class ConfigPageService
         {
             switch (filter.Key)
             {
+                case "yzAdminTypeId":
+                {
+                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;
+                    long value=0;var valid=filter.Value.ValueKind==JsonValueKind.Number?filter.Value.TryGetInt64(out value):filter.Value.ValueKind==JsonValueKind.String&&long.TryParse(filter.Value.GetString(),NumberStyles.Integer,CultureInfo.InvariantCulture,out value);
+                    if(!valid)throw new ArgumentException("后台类型筛选只接受单个整数ID。");
+                    query=query.Where(entity=>entity.YzAdminTypeId==value);
+                    break;
+                }
                 case "name":
                 {
                     if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
@@ -709,7 +759,7 @@ public partial class ConfigPageService
         var total = await query.CountAsync(cancellationToken);
         var ordered = Order6191175925956608(query, request);
         var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, ConfigTableId = entity.ConfigTableId, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, IsBeforeQuery = entity.IsBeforeQuery, IsNotGenerateDetailPage = entity.IsNotGenerateDetailPage, MobileListPageStyleType = entity.MobileListPageStyleType, IsAutoBackOnMobileSave = entity.IsAutoBackOnMobileSave, Cols = entity.Cols, IsBeforeGet = entity.IsBeforeGet, IsUpdateEditColumnsOnly = entity.IsUpdateEditColumnsOnly, DetailPageButtonsPosition = entity.DetailPageButtonsPosition, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
-        return new(entities.Select(ConfigPagePage6191175925956608Vo.FromEntity).ToArray(), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
+        return new(await ProjectRoleAdminNames6191175925956608Async(entities, actor, "list", cancellationToken), total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>
     public Task<long> Count6191175925956608Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query6191175925956608(request, actor).CountAsync(cancellationToken);
@@ -717,7 +767,7 @@ public partial class ConfigPageService
     public async Task<ConfigPagePage6191175925956608Vo?> Detail6191175925956608Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
         var entity = await Scope6191175925956608(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigPage { Id = entity.Id, Name = entity.Name, OrderBy = entity.OrderBy, WhereSql = entity.WhereSql, ConfigTableId = entity.ConfigTableId, IsEdit = entity.IsEdit, PageSize = entity.PageSize, IsNew = entity.IsNew, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, IsSum = entity.IsSum, IsBatchDelete = entity.IsBatchDelete, IsUpdate = entity.IsUpdate, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsExportEdit = entity.IsExportEdit, ExportMethod = entity.ExportMethod, IsCopy = entity.IsCopy, ReadOnlyCondition = entity.ReadOnlyCondition, ImportMethod = entity.ImportMethod, ButtonVisible = entity.ButtonVisible, IsAfterAdd = entity.IsAfterAdd, IsAfterDelete = entity.IsAfterDelete, IsAfterSave = entity.IsAfterSave, IsBeforeSave = entity.IsBeforeSave, ChildPlace = entity.ChildPlace, IsRepeatPwd = entity.IsRepeatPwd, SaveAutoClose = entity.SaveAutoClose, ChildStyle = entity.ChildStyle, IsBeforeDelete = entity.IsBeforeDelete, ConfigTableTableName = entity.ConfigTableTableName, IsAutoHide = entity.IsAutoHide, IsListEdit = entity.IsListEdit, Type = entity.Type, IsBeforeQuery = entity.IsBeforeQuery, IsNotGenerateDetailPage = entity.IsNotGenerateDetailPage, MobileListPageStyleType = entity.MobileListPageStyleType, IsAutoBackOnMobileSave = entity.IsAutoBackOnMobileSave, Cols = entity.Cols, IsBeforeGet = entity.IsBeforeGet, IsUpdateEditColumnsOnly = entity.IsUpdateEditColumnsOnly, DetailPageButtonsPosition = entity.DetailPageButtonsPosition, ExactDataManageMatchField = entity.ExactDataManageMatchField, ConfigTableName = entity.ConfigTableName, ParentConfigTableId = entity.ParentConfigTableId, ParentConfigTableName = entity.ParentConfigTableName, ParentConfigPageId = entity.ParentConfigPageId, ParentConfigPageName = entity.ParentConfigPageName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzAdminTypeId = entity.YzAdminTypeId }, cancellationToken);
-        return entity is null ? null : ConfigPagePage6191175925956608Vo.FromEntity(entity);
+        return entity is null ? null : (await ProjectRoleAdminNames6191175925956608Async([entity], actor, "detail", cancellationToken))[0];
     }
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
     public async Task<global::Metarill.Platform.Generated.Entities.ConfigPage?> ReadButtonRecord6191175925956608Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6191175925956608(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
@@ -851,6 +901,27 @@ public partial class ConfigPageService
         if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
+    /// <summary>来源动作已经由对应入口确定；原冗余名读取不额外要求后台页面query。</summary>
+    private ISelect<global::Metarill.Platform.Generated.Entities.YzAdminType> RoleAdminNameScope6191175925956608(RuntimeActor actor,string operation)
+    {
+        ValidateActor(actor);
+        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException("后台名称要求真实来源身份。");
+        if (operation is not ("list" or "detail" or "create" or "update" or "copy" or "export")) throw new UnauthorizedAccessException("后台名称读取动作无效。");
+        relationAuthorization.RequirePagePermission("6191175925956608",operation);
+        if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        return session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(admin => admin.DeleteNo == null && admin.YzProjectId == project);
+    }
+    /// <summary>最多5000个唯一后台ID，每200个串行一次；空值与不可见/已删除目标的名称为null。</summary>
+    private async Task<ConfigPagePage6191175925956608Vo[]> ProjectRoleAdminNames6191175925956608Async(IReadOnlyList<global::Metarill.Platform.Generated.Entities.ConfigPage> entities,RuntimeActor actor,string operation,CancellationToken cancellationToken)
+    {
+        _ = RoleAdminNameScope6191175925956608(actor,operation);
+        var selected=entities.Select(entity=>entity.YzAdminTypeId).OfType<long>().Distinct().Take(5001).ToArray();
+        if (selected.Length > 5000 || selected.Any(id=>id<=0)) throw new InvalidOperationException("后台名称标识无效或超过5000项完整读取上限。");
+        var names=new Dictionary<long,string?>();
+        foreach(var chunk in selected.Chunk(200))
+            foreach(var row in await RoleAdminNameScope6191175925956608(actor,operation).Where(admin=>chunk.Contains(admin.Id)).ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken)) names[row.Id]=row.Name;
+        return entities.Select(entity=>ConfigPagePage6191175925956608Vo.FromEntity(entity,entity.YzAdminTypeId is {} id?names.GetValueOrDefault(id):null)).ToArray();
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<ConfigPagePage6191175925956608Vo> Create6191175925956608Async(ConfigPagePage6191175925956608CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
@@ -942,7 +1013,7 @@ public partial class ConfigPageService
         await ValidateMutationAsync("6191175925956608", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyConfigPageAsync("6191175925956608", entity, actor, submitted, false, true, cancellationToken);
-        return ConfigPagePage6191175925956608Vo.FromEntity(entity);
+        return (await ProjectRoleAdminNames6191175925956608Async([entity], actor, "create", cancellationToken))[0];
     }, cancellationToken);
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
     public Task<ConfigPagePage6191175925956608Vo> Update6191175925956608Async(ConfigPagePage6191175925956608UpdateRequest request,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)=>Update6191175925956608CoreAsync(request,parentId,actor,null,cancellationToken);
@@ -1041,7 +1112,7 @@ public partial class ConfigPageService
         if(businessButtonId is not null)await RequireButtonCurrent6191175925956608Async(request.Id,businessButtonId,actor,cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigPageAsync("6191175925956608", entity, actor, submitted, false, false, cancellationToken, businessButtonId);
-        return ConfigPagePage6191175925956608Vo.FromEntity(entity);
+        return (await ProjectRoleAdminNames6191175925956608Async([entity], actor, "update", cancellationToken))[0];
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6191175925956608Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>

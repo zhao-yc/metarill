@@ -41,3 +41,5 @@
 构建使用仓库固定SDK执行`dotnet publish backend/src/Metarill.Api -c Release --nologo --disable-build-servers -warnaserror`；前端使用HBuilderX CLI的`publish web --project <原管理端工程路径>`。这里的publish仅为本地构建，没有生产部署。
 
 完整发布日志、逐轮浏览器记录、产物清单、截图、配置摘要及会话注销证明仅留私有验收目录。独占浏览器空间已结束，仅清理本轮唯一站点数据；本轮宿主、代理及监听均核验停止，既有开发服务保持。私有配置副本与会话摘要已删除，原开发配置和正常审计保持。没有消费待批租约、建库、建账号、授新权、合main或部署生产。
+
+后续C96已从生成源头修复固定名称与原筛选槽，并完成原管理员读取子集复验，见[专项修复与剩余边界](configuration-admin-names.md)。本页仍保留C95当时的未修复结果，不将后续结果倒记到旧基线。

@@ -134,7 +134,7 @@
 <uni-easyinput primaryColor="#0ab3ad" v-if='!importNoReadOnly' v-model='entity.importNo' maxlength='45'   /><text v-if='importNoReadOnly'>{{entity.importNo}}</text>
 </uni-forms-item>
 <uni-forms-item label='所属后台' name='yzAdminTypeId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000000105-'+originalRemoteOptions['2200000000000000105'].revision" :remote-selected="originalRemoteOptions['2200000000000000105'].selected" :remote-loading="originalRemoteOptions['2200000000000000105'].loading" :remote-has-more="originalRemoteOptions['2200000000000000105'].hasMore" @open="openOriginalRemoteOptions('2200000000000000105')" @inputChange="searchOriginalRemoteOptions('2200000000000000105',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000105')" @change='yzAdminTypeIdDetailChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000000105-'+originalRemoteOptions['2200000000000000105'].revision" :remote-selected="originalRemoteOptions['2200000000000000105'].selected" :remote-loading="originalRemoteOptions['2200000000000000105'].loading" :remote-has-more="originalRemoteOptions['2200000000000000105'].hasMore" @open="openOriginalRemoteOptions('2200000000000000105')" @inputChange="searchOriginalRemoteOptions('2200000000000000105',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000105')" @change='yzAdminTypeIdDetailChange' /></template>
 </uni-forms-item>
 
         </uni-forms>
@@ -387,7 +387,7 @@ runOriginalButton(id) {
 },
 
     loadOriginalOptions2200000000000000105() {this.loadOriginalRemoteOptions("2200000000000000105");},
-yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : '';  },
+yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : ''; this.entity.yzAdminTypeName=item ? item.name : ''; },
 showCustomerButtons() { const current=this.originalContext(),actions=this.originalButtons.filter(button=>this['customerButtonShow'+button.id]);if(!actions.length){uni.showToast({title:'暂无可用操作',icon:'none'});return;}uni.showActionSheet({itemList:actions.map(button=>button.name),success:res=>{if(current()&&actions[res.tapIndex])this['customerButtonHandler'+actions[res.tapIndex].id]();}}); },
 
     

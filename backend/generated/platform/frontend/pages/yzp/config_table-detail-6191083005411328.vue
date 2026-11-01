@@ -224,7 +224,7 @@
 <uni-easyinput primaryColor="#0ab3ad" v-if='!isRepeatPwdReadOnly' v-model='entity.isRepeatPwd'  type='number'  /><text v-if='isRepeatPwdReadOnly'>{{entity.isRepeatPwd}}</text>
 </uni-forms-item>
 <uni-forms-item label='所属后台' name='yzAdminTypeId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000000087-'+originalRemoteOptions['2200000000000000087'].revision" :remote-selected="originalRemoteOptions['2200000000000000087'].selected" :remote-loading="originalRemoteOptions['2200000000000000087'].loading" :remote-has-more="originalRemoteOptions['2200000000000000087'].hasMore" @open="openOriginalRemoteOptions('2200000000000000087')" @inputChange="searchOriginalRemoteOptions('2200000000000000087',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000087')" @change='yzAdminTypeIdDetailChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000000087-'+originalRemoteOptions['2200000000000000087'].revision" :remote-selected="originalRemoteOptions['2200000000000000087'].selected" :remote-loading="originalRemoteOptions['2200000000000000087'].loading" :remote-has-more="originalRemoteOptions['2200000000000000087'].hasMore" @open="openOriginalRemoteOptions('2200000000000000087')" @inputChange="searchOriginalRemoteOptions('2200000000000000087',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000087')" @change='yzAdminTypeIdDetailChange' /></template>
 </uni-forms-item>
 <uni-forms-item label='数据归属模式' name='scopeKind'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
 <uni-easyinput primaryColor="#0ab3ad" v-if='!scopeKindReadOnly' v-model='entity.scopeKind' maxlength='30'   /><text v-if='scopeKindReadOnly'>{{entity.scopeKind}}</text>
@@ -540,7 +540,7 @@ runOriginalButton(id) {
 
     receive1671029182696714241(newEntity) { if(this.isRongyuReadOnly) return; this.entity=newEntity; },
 loadOriginalOptions2200000000000000087() {this.loadOriginalRemoteOptions("2200000000000000087");},
-yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : '';  },
+yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : ''; this.entity.yzAdminTypeName=item ? item.name : ''; },
 customerButtonHandler1676828142707372033() { this.runOriginalButton("1676828142707372033"); },
 customerButtonHandler2076978804953321472() { this.runOriginalButton("2076978804953321472"); },
 customerButtonHandler1861242035055382529() { this.runOriginalButton("1861242035055382529"); },

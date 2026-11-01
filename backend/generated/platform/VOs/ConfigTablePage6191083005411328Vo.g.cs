@@ -173,8 +173,10 @@ public sealed partial class ConfigTablePage6191083005411328Vo
     public string? ScopeKind { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
+    [JsonPropertyName("yzAdminTypeName")] public string? YzAdminTypeName { get; init; }
+    public static ConfigTablePage6191083005411328Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigTable entity) => FromEntity(entity,null);
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigTablePage6191083005411328Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigTable entity) => new()
+    public static ConfigTablePage6191083005411328Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigTable entity,string? roleAdminName) => new()
     {
         Name = entity.Name,
         TableName = entity.TableName,
@@ -260,5 +262,6 @@ public sealed partial class ConfigTablePage6191083005411328Vo
         YzAdminTypeId = entity.YzAdminTypeId,
         ScopeKind = entity.ScopeKind,
         Id = entity.Id,
+        YzAdminTypeName = roleAdminName,
     };
 }

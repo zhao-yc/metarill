@@ -124,6 +124,8 @@ public sealed partial class ConfigPagePage1868973685063311361Vo
     public long? YzAdminTypeId { get; init; }
     [JsonPropertyName("id")]
     public long Id { get; init; }
+    [JsonPropertyName("yzAdminTypeName")] public string? YzAdminTypeName { get; init; }
+    public static ConfigPagePage1868973685063311361Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigPage entity) => FromEntity(entity,null);
     [JsonPropertyName("childPlaceShow")]
     public string? ChildPlaceShow { get; init; }
     [JsonPropertyName("typeShow")]
@@ -133,7 +135,7 @@ public sealed partial class ConfigPagePage1868973685063311361Vo
     [JsonPropertyName("detailPageButtonsPositionShow")]
     public string? DetailPageButtonsPositionShow { get; init; }
     /// <summary>只投影本页声明可读字段；展示别名不参与写入。</summary>
-    public static ConfigPagePage1868973685063311361Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigPage entity) => new()
+    public static ConfigPagePage1868973685063311361Vo FromEntity(global::Metarill.Platform.Generated.Entities.ConfigPage entity,string? roleAdminName) => new()
     {
         Name = entity.Name,
         ConfigTableTableName = entity.ConfigTableTableName,
@@ -194,6 +196,7 @@ public sealed partial class ConfigPagePage1868973685063311361Vo
         DetailPageButtonsPosition = entity.DetailPageButtonsPosition,
         YzAdminTypeId = entity.YzAdminTypeId,
         Id = entity.Id,
+        YzAdminTypeName = roleAdminName,
         ChildPlaceShow = entity.ChildPlace switch { null => null, "OneWithMany" => "\u4E00\u62D6N", "Tab" => "\u6807\u7B7E\u663E\u793A", "NewPage" => "\u65B0\u9875\u9762\u6253\u5F00", var raw => Convert.ToString(raw, CultureInfo.InvariantCulture) },
         TypeShow = entity.Type switch { null => null, 0 => "\u9ED8\u8BA4", 1 => "\u9009\u62E9\u9875", 2 => "\u591A\u9009\u9875", var raw => Convert.ToString(raw, CultureInfo.InvariantCulture) },
         MobileListPageStyleTypeShow = entity.MobileListPageStyleType switch { null => null, 1 => "\u4F20\u7EDF\u6837\u5F0F", 2 => "Grid\u6837\u5F0F", 3 => "Grid\u5E26\u5934\u50CF", var raw => Convert.ToString(raw, CultureInfo.InvariantCulture) },

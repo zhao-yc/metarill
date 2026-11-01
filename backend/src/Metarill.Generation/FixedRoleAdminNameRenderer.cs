@@ -1,10 +1,40 @@
 namespace Metarill.Generation;
 
-/// <summary>原角色页后台名称按整页去重批量读取，不持久化显示值、不增加目标页query门槛。</summary>
+/// <summary>原固定页后台名称按整页去重批量读取，不持久化显示值、不增加目标页query门槛。</summary>
 internal static class FixedRoleAdminNameRenderer
 {
     /// <summary>固定动作来自生成方法，不接受客户端传入授权操作。</summary>
     internal static string ProjectCall(PageModel page,string entities,string operation) => $"await ProjectRoleAdminNames{page.Source.Id}Async({entities}, actor, \"{operation}\", cancellationToken)";
+
+    /// <summary>仅两个已知原输入槽进入兼容分支，普通页面的筛选白名单保持。</summary>
+    internal static string FilterCases(GenerationModel model,TableModel table,PageModel page)=>NameFilterCases(model,table,page)+IdFilterCases(model,table,page);
+
+    /// <summary>原单选ID保留字符串大整数、空值及标准整数字面量，不接受数组或SQL文本。</summary>
+    private static string IdFilterCases(GenerationModel model,TableModel table,PageModel page)=>FixedRoleAdminNameCompilation.LegacyIdFilter(model,table,page) is {} definition?$$"""
+                case "yzAdminTypeId":
+                {
+                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;
+                    long value=0;var valid=filter.Value.ValueKind==JsonValueKind.Number?filter.Value.TryGetInt64(out value):filter.Value.ValueKind==JsonValueKind.String&&long.TryParse(filter.Value.GetString(),NumberStyles.Integer,CultureInfo.InvariantCulture,out value);
+                    if(!valid)throw new ArgumentException("后台类型筛选只接受单个整数ID。");
+                    query=query.Where(entity=>entity.{{definition.Source.Property}}==value);
+                    break;
+                }
+
+""":"";
+
+    /// <summary>原配置表名称筛选只生成当前项目活动后台的相关EXISTS；请求只提供文本。</summary>
+    private static string NameFilterCases(GenerationModel model,TableModel table,PageModel page)=>FixedRoleAdminNameCompilation.LegacyNameFilter(model,table,page) is {} definition?$$"""
+                case "yzAdminTypeName":
+                {
+                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;
+                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException("后台名称筛选只接受文本。");
+                    var value=filter.Value.GetString()!;var project=long.Parse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture);
+                    query=query.Where(entity=>entity.{{definition.Source.Property}}!=null&&session.Orm.Select<{{definition.Admins.EntityType}}>()
+                        .Where(admin=>admin.Id==entity.{{definition.Source.Property}}&&admin.YzProjectId==project&&admin.DeleteNo==null&&admin.Name!=null&&admin.Name.Contains(value)).Any());
+                    break;
+                }
+
+""":"";
 
     /// <summary>读取仍要求当前真实来源动作，目标仅取当前项目未删除后台的ID和名称。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page) => FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} def ? $$"""

@@ -9,15 +9,41 @@ internal sealed record FixedRoleAdminNameModel(ColumnModel Source, TableModel Ad
 }
 internal sealed record FixedRoleAdminNameResult(bool Declared, FixedRoleAdminNameModel? Definition, string? Reason);
 
-/// <summary>只证明原角色页后台名称的固定归属图，不恢复冗余物理列或解释任意联接SQL。</summary>
+/// <summary>只证明原角色及配置页后台名称的固定归属图，不恢复冗余物理列或解释任意联接SQL。</summary>
 internal static class FixedRoleAdminNameCompilation
 {
     internal const string RoleTable = "1692532858499969026", RolePage = "1692532858529329154", AdminColumn = "1692533179766878209";
     internal const string AdminTable = "1696799308939239425", AdminPage = "1696799309006348290";
 
-    /// <summary>固定角色页上的原字段改名或改ID仍保留缺口，不能回退ID冒充原名称。</summary>
-    internal static bool Declared(TableModel table, PageModel page, ColumnMetadata source) => table.Source.Id == RoleTable && table.Source.TableName == "yz_role"
-        && page.Source.Id == RolePage && (source.Id == AdminColumn || source.ColumnName == "yz_admin_type_id");
+    internal const string ConfigurationTable="6191080026669056",ConfigurationTablePage="6191083005411328";
+    internal const string ConfigurationPageTable="6191173858623488",ConfigurationRootPage="6191175925956608",ConfigurationChildPage="1868973685063311361",ConfigurationSelectionPage="1869016706289577986";
+
+    /// <summary>固定原页按表／页／来源列共同定位；重命名或改ID仍需报告缺口。</summary>
+    private static string? SourceColumn(TableModel table,PageModel page)=>(table.Source.Id,table.Source.TableName,page.Source.Id) switch
+    {
+        (RoleTable,"yz_role",RolePage)=>AdminColumn,
+        (ConfigurationTable,"config_table",ConfigurationTablePage)=>"2200000000000000087",
+        (ConfigurationPageTable,"config_page",ConfigurationRootPage or ConfigurationChildPage or ConfigurationSelectionPage)=>"2200000000000000105",
+        _=>null
+    };
+    /// <summary>只恢复已知原页的后台名称，不把任意List都升级为隐式联接。</summary>
+    internal static bool Declared(TableModel table,PageModel page,ColumnMetadata source)=>SourceColumn(table,page) is {} expected&&(source.Id==expected||source.ColumnName=="yz_admin_type_id");
+
+    /// <summary>唯一配置子页保留原表父键；其它固定页不接受额外父范围。</summary>
+    private static bool ProveParent(GenerationModel model,PageModel page)
+    {
+        var scopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
+        if(page.Source.Id!=ConfigurationChildPage)return scopes.Length==0;
+        if(scopes.Length!=1)return false;var column=scopes[0].Column;
+        if(column.Source.Id!="1671100304320462849"||column.Source.ColumnName!="config_table_id"||column.Type!="long?"||column.Source.LinkConfigTableId!=ConfigurationTable||column.Source.IsVirtualColumn!=0||GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"))return false;
+        var parent=model.Tables.SingleOrDefault(table=>table.Source.Id==ConfigurationTable&&table.Source.TableName=="config_table");
+        return parent is not null&&!parent.IsGlobal&&parent.Source.IsRongyu==1&&parent.Columns.Any(c=>c.IsId&&c.Type=="long"&&c.Source.IsVirtualColumn==0&&!GenerationModel.Enabled(c.Source.Extra,"isJoinColumn"));
+    }
+    /// <summary>原配置表页已有后台名称文本筛选；仅该固定页原搜索开关和可读列允许恢复别名。</summary>
+    internal static FixedRoleAdminNameModel? LegacyNameFilter(GenerationModel model,TableModel table,PageModel page)=>table.Source.Id==ConfigurationTable&&page.Source.Id==ConfigurationTablePage&&GenerationModel.Enabled(page.Source.Extra,"isSearch")&&ForPage(model,table,page) is {} definition&&page.ListColumns.Any(column=>column.Source.Id==definition.Source.Source.Id)?definition:null;
+
+    /// <summary>原配置页面根列表使用后台ID下拉；只补既有固定槽，已声明的通用筛选不重复生成。</summary>
+    internal static FixedRoleAdminNameModel? LegacyIdFilter(GenerationModel model,TableModel table,PageModel page)=>table.Source.Id==ConfigurationPageTable&&page.Source.Id==ConfigurationRootPage&&GenerationModel.Enabled(page.Source.Extra,"isSearch")&&ForPage(model,table,page) is {} definition&&page.ListColumns.Any(column=>column.Source.Id==definition.Source.Source.Id)&&!page.Searchable.Any(column=>column.Source.Id==definition.Source.Source.Id)?definition:null;
 
     /// <summary>来源、页覆盖、目标物理字段及名称冲突必须一起证明，客户端不参与解释。</summary>
     internal static FixedRoleAdminNameResult Resolve(GenerationModel model, TableModel table, PageModel page, ColumnModel source)
@@ -25,8 +51,8 @@ internal static class FixedRoleAdminNameCompilation
         if (!Declared(table,page,source.Source)) return new(false,null,null);
         FixedRoleAdminNameResult Gap(string reason) => new(true,null,"固定角色后台名称尚未证明："+reason);
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
-        if (source.Source.Id!=AdminColumn || source.Source.ColumnName!="yz_admin_type_id" || source.Source.ControlKind!="List" || source.Type!="long?" || source.Source.LogicalType!="int64"
-            || source.Source.IsVirtualColumn!=0 || GenerationModel.Enabled(source.Source.Extra,"isJoinColumn") || table.IsGlobal || table.Source.IsRongyu!=1 || page.Scopes.Any(scope=>scope.Source=="parent")) return Gap("来源不是原非联接物理后台ID。");
+        if (source.Source.Id!=SourceColumn(table,page) || source.Source.ColumnName!="yz_admin_type_id" || source.Source.ControlKind!="List" || source.Type!="long?" || source.Source.LogicalType!="int64"
+            || source.Source.IsVirtualColumn!=0 || GenerationModel.Enabled(source.Source.Extra,"isJoinColumn") || table.IsGlobal || table.Source.IsRongyu!=1 || !ProveParent(model,page)) return Gap("来源不是原非联接物理后台ID。");
         if (field?.Extra.GetValueOrDefault("controlKind").ToString() is {Length:>0} kind && kind!="List") return Gap("页面控件覆盖不是原List。");
         if (!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId) && source.Source.LinkConfigTableId!=AdminTable
             || source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString() is {Length:>0} target && target!=AdminPage

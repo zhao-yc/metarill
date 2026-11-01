@@ -161,7 +161,7 @@
 <text v-if='detailPageButtonsPositionReadOnly'>{{entity.detailPageButtonsPositionShow}}</text><template v-if='!detailPageButtonsPositionReadOnly'><uni-data-checkbox :disabled='detailPageButtonsPositionReadOnly' v-model='entity.detailPageButtonsPosition' :localdata='detailPageButtonsPositionRange' /></template>
 </uni-forms-item>
 <uni-forms-item label='所属后台' name='yzAdminTypeId'  v-if='!loadEntitySuccess || $yzp.isColumnVisible({visibleCondition: &quot;&quot;}, entity)'>
-<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeId)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000000105-'+originalRemoteOptions['2200000000000000105'].revision" :remote-selected="originalRemoteOptions['2200000000000000105'].selected" :remote-loading="originalRemoteOptions['2200000000000000105'].loading" :remote-has-more="originalRemoteOptions['2200000000000000105'].hasMore" @open="openOriginalRemoteOptions('2200000000000000105')" @inputChange="searchOriginalRemoteOptions('2200000000000000105',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000105')" @change='yzAdminTypeIdDetailChange' /></template>
+<text v-if='yzAdminTypeIdReadOnly'>{{readonlyDisplayText(entity.yzAdminTypeName)}}</text><template v-if='!yzAdminTypeIdReadOnly'><zxz-uni-data-select v-model='entity.yzAdminTypeId' :localdata='yz_admin_type_list' filterable :disabled='yzAdminTypeIdReadOnly' dataKey='name' dataValue='id' remote :key="'original-options-2200000000000000105-'+originalRemoteOptions['2200000000000000105'].revision" :remote-selected="originalRemoteOptions['2200000000000000105'].selected" :remote-loading="originalRemoteOptions['2200000000000000105'].loading" :remote-has-more="originalRemoteOptions['2200000000000000105'].hasMore" @open="openOriginalRemoteOptions('2200000000000000105')" @inputChange="searchOriginalRemoteOptions('2200000000000000105',$event)" @loadMore="moreOriginalRemoteOptions('2200000000000000105')" @change='yzAdminTypeIdDetailChange' /></template>
 </uni-forms-item>
 
         </uni-forms>
@@ -443,7 +443,7 @@ runOriginalButton(id) {
     loadOriginalOptions1671100304320462849() {this.loadOriginalRemoteOptions("1671100304320462849");},
 configTableIdDetailChange(item) { if(this.configTableIdReadOnly) return; this.entity.configTableId=item ? item.id : ''; this.entity.configTableName=item ? item.name : ''; },
 loadOriginalOptions2200000000000000105() {this.loadOriginalRemoteOptions("2200000000000000105");},
-yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : '';  },
+yzAdminTypeIdDetailChange(item) { if(this.yzAdminTypeIdReadOnly) return; this.entity.yzAdminTypeId=item ? item.id : ''; this.entity.yzAdminTypeName=item ? item.name : ''; },
 customerButtonHandler1675705392114606082() { this.runOriginalButton("1675705392114606082"); },
 customerButtonHandler1676949833760571394() { this.runOriginalButton("1676949833760571394"); },
 customerButtonHandler1677942658826280962() { this.runOriginalButton("1677942658826280962"); },
