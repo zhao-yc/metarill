@@ -36,6 +36,21 @@ internal static class FixedRoleAdminNameRenderer
 
 """:"";
 
+    /// <summary>按钮更新回显沿原按钮当前证明，不暗中增加普通页面编辑或query门槛。</summary>
+    internal static string ButtonService(GenerationModel model,TableModel table,PageModel page) => FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} def && FixedRoleAdminNameCompilation.Used(page,def,"update") ? $$"""
+    /// <summary>只供固定按钮写核心回执调用；观察者后再次证明同一事务当前权限。</summary>
+    private async Task<{{page.Name}}Vo> ProjectButtonRoleAdminName{{page.Source.Id}}Async({{table.EntityType}} entity,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)
+    {
+        await RequireButtonCurrent{{page.Source.Id}}Async(entity.Id,buttonId,actor,cancellationToken);
+        if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        if (entity.{{def.Source.Property}} is not {} id) return {{page.Name}}Vo.FromEntity(entity,null);
+        if (id <= 0) throw new InvalidOperationException("后台名称标识无效。");
+        var names=await session.Select<{{def.Admins.EntityType}}>().Where(admin=>admin.Id==id&&admin.DeleteNo==null&&admin.YzProjectId==project)
+            .ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken);
+        return {{page.Name}}Vo.FromEntity(entity,names.FirstOrDefault()?.Name);
+    }
+
+""" : "";
     /// <summary>读取仍要求当前真实来源动作，目标仅取当前项目未删除后台的ID和名称。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page) => FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} def ? $$"""
     /// <summary>来源动作已经由对应入口确定；原冗余名读取不额外要求后台页面query。</summary>

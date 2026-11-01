@@ -311,7 +311,7 @@ public sealed class FixedRoleAdminNameTests
         protected override object? Invoke(MethodInfo? method,object?[]? args){if(method!.Name=="ExecuteAffrowsAsync"){rows.Writes.Add(operation);return Task.FromResult(1);}return self;}
     }
     /// <summary>只为真实DatabaseSession提供本机事务对象，绝不创建数据库连接或ORM。</summary>
-    private sealed class TransactionProvider:IDatabaseProvider
+    internal sealed class TransactionProvider:IDatabaseProvider
     {
         internal List<string> Trace{get;}=[];public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public string QuoteIdentifier(string value)=>new MySqlDatabaseProvider().QuoteIdentifier(value);public string ParameterPlaceholder(string value)=>"@"+value;public IFreeSql CreateOrm(DatabaseOptions options)=>throw new NotSupportedException();public DbConnection CreateConnection(DatabaseOptions options)=>new TransactionConnection(Trace);

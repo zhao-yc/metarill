@@ -197,6 +197,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(CascadeTreeViewRenderer.Service(model,table,page));
             result.Append(FixedRoleCheckboxRenderer.Service(model,table,page));
             result.Append(FixedRoleAdminNameRenderer.Service(model,table,page));
+            if(BusinessRecordButtons(model,page).Count>0)result.Append(FixedRoleAdminNameRenderer.ButtonService(model,table,page));
             result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(CrossTableExcelRenderer.Helpers(model,table,page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
         }
         result.Append(TimeFieldCompilation.PersistedValues(model,table));
@@ -785,6 +786,10 @@ public partial class {{table.Name}}Service
     private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation)
     {
         var expression=NonRedundantReadCompilation.Requires(model,table)?$"await {((ExactDataManageCompilation.Declared(page) || page.Condition is not null) && operation is "create" or "update" or "copy"?"MutationResult":operation is "create" or "update" or "copy"?"ReadDetail":"Detail")}{page.Source.Id}Async(entity.Id,parentId,actor,cancellationToken{(!ExactDataManageCompilation.Declared(page)&&page.Condition is null&&operation is "create" or "update" or "copy"?",true":"")}) ?? throw new InvalidOperationException(\"写入后的读取范围不一致。\")" : FixedRoleCheckboxCompilation.ForPage(model,table,page) is null && (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not {} admin || !FixedRoleAdminNameCompilation.Used(page,admin,operation)) ? $"{page.Name}Vo.FromEntity(entity)" : "("+ProjectResults(model,table,page,"[entity]",operation)+")[0]";
+        // 业务按钮是独立授权来源，回显不得重新索取普通update/query权；客户端没有此选择槽。
+        if(operation=="update"&&BusinessRecordButtons(model,page).Count>0&&FixedRoleCheckboxCompilation.ForPage(model,table,page) is null
+            &&FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} buttonAdmin&&FixedRoleAdminNameCompilation.Used(page,buttonAdmin,operation))
+            expression="(businessButtonId is null ? "+expression+" : await ProjectButtonRoleAdminName"+page.Source.Id+"Async(entity,businessButtonId,actor,cancellationToken))";
         return NonRedundantReadCompilation.Requires(model,table)?expression:CascadeTreeViewRenderer.One(model,table,page,expression,operation);
     }
     /// <summary>页读取和写回执共享整页名称计划，避免单个入口遗漏或逐行补名。</summary>

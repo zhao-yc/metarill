@@ -390,11 +390,11 @@
     },
     {
       "path": "Services/ConfigPageService.g.cs",
-      "sha256": "f84c5d71e4399688d259d3400cc474ecf13d5fa44e4935a617a365987e11f263"
+      "sha256": "5f96a05bf91ce7e22699257511b30e57096334b1d9e0057d16c0f27d86af102e"
     },
     {
       "path": "Services/ConfigTableService.g.cs",
-      "sha256": "f35e986139927fb8962e98758d16fc76596c3785bbeda754bc42e3219819c0e3"
+      "sha256": "de48dc889b5d132c05232d912639f3a39212869bad2de35aad54d4d5d78846a8"
     },
     {
       "path": "Services/SysAgentGrantService.g.cs",

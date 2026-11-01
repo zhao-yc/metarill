@@ -268,6 +268,17 @@ public partial class ConfigTableService
             foreach(var row in await RoleAdminNameScope6191083005411328(actor,operation).Where(admin=>chunk.Contains(admin.Id)).ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken)) names[row.Id]=row.Name;
         return entities.Select(entity=>ConfigTablePage6191083005411328Vo.FromEntity(entity,entity.YzAdminTypeId is {} id?names.GetValueOrDefault(id):null)).ToArray();
     }
+    /// <summary>只供固定按钮写核心回执调用；观察者后再次证明同一事务当前权限。</summary>
+    private async Task<ConfigTablePage6191083005411328Vo> ProjectButtonRoleAdminName6191083005411328Async(global::Metarill.Platform.Generated.Entities.ConfigTable entity,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)
+    {
+        await RequireButtonCurrent6191083005411328Async(entity.Id,buttonId,actor,cancellationToken);
+        if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        if (entity.YzAdminTypeId is not {} id) return ConfigTablePage6191083005411328Vo.FromEntity(entity,null);
+        if (id <= 0) throw new InvalidOperationException("后台名称标识无效。");
+        var names=await session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(admin=>admin.Id==id&&admin.DeleteNo==null&&admin.YzProjectId==project)
+            .ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken);
+        return ConfigTablePage6191083005411328Vo.FromEntity(entity,names.FirstOrDefault()?.Name);
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<ConfigTablePage6191083005411328Vo> Create6191083005411328Async(ConfigTablePage6191083005411328CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
@@ -494,7 +505,7 @@ public partial class ConfigTableService
         if(businessButtonId is not null)await RequireButtonCurrent6191083005411328Async(request.Id,businessButtonId,actor,cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigTableAsync("6191083005411328", entity, actor, submitted, false, false, cancellationToken, businessButtonId);
-        return (await ProjectRoleAdminNames6191083005411328Async([entity], actor, "update", cancellationToken))[0];
+        return (businessButtonId is null ? (await ProjectRoleAdminNames6191083005411328Async([entity], actor, "update", cancellationToken))[0] : await ProjectButtonRoleAdminName6191083005411328Async(entity,businessButtonId,actor,cancellationToken));
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6191083005411328Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>

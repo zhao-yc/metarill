@@ -255,6 +255,17 @@ public partial class ConfigPageService
             foreach(var row in await RoleAdminNameScope1868973685063311361(actor,operation).Where(admin=>chunk.Contains(admin.Id)).ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken)) names[row.Id]=row.Name;
         return entities.Select(entity=>ConfigPagePage1868973685063311361Vo.FromEntity(entity,entity.YzAdminTypeId is {} id?names.GetValueOrDefault(id):null)).ToArray();
     }
+    /// <summary>只供固定按钮写核心回执调用；观察者后再次证明同一事务当前权限。</summary>
+    private async Task<ConfigPagePage1868973685063311361Vo> ProjectButtonRoleAdminName1868973685063311361Async(global::Metarill.Platform.Generated.Entities.ConfigPage entity,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)
+    {
+        await RequireButtonCurrent1868973685063311361Async(entity.Id,buttonId,actor,cancellationToken);
+        if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        if (entity.YzAdminTypeId is not {} id) return ConfigPagePage1868973685063311361Vo.FromEntity(entity,null);
+        if (id <= 0) throw new InvalidOperationException("后台名称标识无效。");
+        var names=await session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(admin=>admin.Id==id&&admin.DeleteNo==null&&admin.YzProjectId==project)
+            .ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken);
+        return ConfigPagePage1868973685063311361Vo.FromEntity(entity,names.FirstOrDefault()?.Name);
+    }
     /// <summary>按存在性更新指定字段，省略不修改，显式 null 清空。</summary>
     public Task<ConfigPagePage1868973685063311361Vo> Update1868973685063311361Async(ConfigPagePage1868973685063311361UpdateRequest request,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)=>Update1868973685063311361CoreAsync(request,parentId,actor,null,cancellationToken);
     /// <summary>只供服务端固定业务动作调用；仍使用本页字段存在性、对象/关系规则和同一事务。</summary>
@@ -351,7 +362,7 @@ public partial class ConfigPageService
         if(businessButtonId is not null)await RequireButtonCurrent1868973685063311361Async(request.Id,businessButtonId,actor,cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigPageAsync("1868973685063311361", entity, actor, submitted, false, false, cancellationToken, businessButtonId);
-        return (await ProjectRoleAdminNames1868973685063311361Async([entity], actor, "update", cancellationToken))[0];
+        return (businessButtonId is null ? (await ProjectRoleAdminNames1868973685063311361Async([entity], actor, "update", cancellationToken))[0] : await ProjectButtonRoleAdminName1868973685063311361Async(entity,businessButtonId,actor,cancellationToken));
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete1868973685063311361Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
@@ -922,6 +933,17 @@ public partial class ConfigPageService
             foreach(var row in await RoleAdminNameScope6191175925956608(actor,operation).Where(admin=>chunk.Contains(admin.Id)).ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken)) names[row.Id]=row.Name;
         return entities.Select(entity=>ConfigPagePage6191175925956608Vo.FromEntity(entity,entity.YzAdminTypeId is {} id?names.GetValueOrDefault(id):null)).ToArray();
     }
+    /// <summary>只供固定按钮写核心回执调用；观察者后再次证明同一事务当前权限。</summary>
+    private async Task<ConfigPagePage6191175925956608Vo> ProjectButtonRoleAdminName6191175925956608Async(global::Metarill.Platform.Generated.Entities.ConfigPage entity,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)
+    {
+        await RequireButtonCurrent6191175925956608Async(entity.Id,buttonId,actor,cancellationToken);
+        if (!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project) || project <= 0) throw new UnauthorizedAccessException("当前项目无效。");
+        if (entity.YzAdminTypeId is not {} id) return ConfigPagePage6191175925956608Vo.FromEntity(entity,null);
+        if (id <= 0) throw new InvalidOperationException("后台名称标识无效。");
+        var names=await session.Select<global::Metarill.Platform.Generated.Entities.YzAdminType>().Where(admin=>admin.Id==id&&admin.DeleteNo==null&&admin.YzProjectId==project)
+            .ToListAsync(admin=>new {admin.Id,admin.Name},cancellationToken);
+        return ConfigPagePage6191175925956608Vo.FromEntity(entity,names.FirstOrDefault()?.Name);
+    }
     /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>
     public Task<ConfigPagePage6191175925956608Vo> Create6191175925956608Async(ConfigPagePage6191175925956608CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
     {
@@ -1112,7 +1134,7 @@ public partial class ConfigPageService
         if(businessButtonId is not null)await RequireButtonCurrent6191175925956608Async(request.Id,businessButtonId,actor,cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigPageAsync("6191175925956608", entity, actor, submitted, false, false, cancellationToken, businessButtonId);
-        return (await ProjectRoleAdminNames6191175925956608Async([entity], actor, "update", cancellationToken))[0];
+        return (businessButtonId is null ? (await ProjectRoleAdminNames6191175925956608Async([entity], actor, "update", cancellationToken))[0] : await ProjectButtonRoleAdminName6191175925956608Async(entity,businessButtonId,actor,cancellationToken));
     }, cancellationToken);
     /// <summary>先校验数据范围，再在同一事务内删除。</summary>
     public Task<bool> Delete6191175925956608Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>
