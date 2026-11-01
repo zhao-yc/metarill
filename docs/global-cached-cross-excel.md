@@ -24,3 +24,5 @@
 实际命令在固定DOTNET_HOST_PATH下对Metarill.Generation.Tests执行Release、--disable-build-servers、-warnaserror，并按GlobalCachedCrossExcelGenerationTests、CrossTableExcelSharedGenerationTests、CrossTableExcelSourceRoleGenerationTests筛选。日志在交付根忽略目录 `.local/global-cached-cross-excel-{first,second,final,strict}.log`，后三轮TRX在 `.local/TestResults` 同名前缀。最后保护核对776项原前端/模板/元数据和生成文件逐字一致；本批未重新运行平台CLI再生成。
 
 本批没有数据库或云对象操作。独立B106正式四库验收仍以其固定执行器、专属租约及结果为准，不由本测试替代，也未把此处新模型混入该冻结来源。
+
+2026-11-01 B118补R0六模型真实MySQL／原HTTP／XLSX／传播与回滚正式用例；六生成／静态读取计划与六租约护栏通过。实库命令被自动审核拒绝、尚未执行，公开门槛保持，见[R0真实SQL准备](testing/global-cached-cross-excel-mysql.md)。
