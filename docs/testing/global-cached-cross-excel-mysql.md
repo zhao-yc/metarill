@@ -38,3 +38,13 @@
 证据位于.local/global-cached-cross-excel-mysql-20261101：build.log、build-final.log、lease.log、preparation.log、preparation-retry.log、preparation-path-fixed.log及results对应TRX。自动审核拒绝的首次实库命令没有测试进程／TRX，不记为六模型业务失败或通过。
 
 下一步从提交独立固定源码和正式程序集、精确32表名单、只读实例及表不存在证明；经本轮明确批准后才执行及按范围清理。A22待答双库范围和已有其它冻结租约不变，不串用授权。
+
+## 2026-11-01 固定来源与精确32表范围
+
+e1aebe1537232bf459954db0584c03dab1ec2056独立固定2323源码／152正式输出；严格构建零警告错误，固定程序集12项复验通过（与前批重叠不累计）。实际正式程序集的纯ExpectedTables函数生成本轮六模型完整32表名单；不是按前缀授权任意表。
+
+本轮RunId为53ec79891b51d3d9，六组均以mt_gcxe_53ec79891b51d3d9_及各自八位固定模型摘要命名；既有metarill_business_test／metarill_test，Server-200 MySQL8.4.11及实例pin只读核实，32张精确表全部不存在。完整名单见.local/global-cached-cross-excel-mysql-20261101/permission-plan.md，scope摘要0c81b5084d9fa4dfda267d70f42aa7bc1244dc38c7be3e10b878b31549bfa9cc，状态pending／not-started。
+
+单次执行器4种失效租约零外部调用；实际六模型FQN分别在pending、ended与旧A22用途下共18次在连接配置读取前拒绝。三个负向批次不记为实库失败／通过；没有重试自动审核拒绝的原命令，没有生成本轮批准记录。
+
+固定证据：source-snapshot.json、formal-assembly-files.json、fixed-build-state.json、fixed-preparation.trx、tables.json、pending-guards.json、pending-entry-0/1/2.trx及readonly-preflight.json。运行只会在本轮人类明确批准后开始；授权不串用于A22或其它范围，公开Full继续关闭。

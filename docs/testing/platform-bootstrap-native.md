@@ -55,3 +55,5 @@
 没有改变当前开发库或其它既有库、账号、DDL、前端、模板；没有部署。完整配置后同步／生成／CRUD、自举再生成、真实末表故障回滚、C65助手链路、浏览器／真机、性能及多数据库仍待，不能将本项推为MySQL首版整体完成。
 
 私有证据：`451bd67d598adf91/native.trx`、`test-result.json`、`verified.json`、`execution.json`、`cleanup.json`、`independent-absence.json`，以及独立`readonly-final-zero.json`和`formal-closure.json`；生产进程的脱敏日志在固定检出的本轮evidence目录。原批准前permission-plan单独归档，不重新开放已结束租约。
+
+2026-11-01后续A22已独立完成固定c4347a4的真实末段故障与恢复1／1通过，平台及示例目录分别回滚、既有平台目录保留并恢复，清理核零。该结果不回填为本A21执行内容，见[A22正式结果](platform-seed-rollback-native.md)。
