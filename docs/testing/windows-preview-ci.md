@@ -1,6 +1,6 @@
 # Windows CI私有预览真实路径夹具修复
 
-2026-11-01，C89；起点71ce2fc。只修合成传输测试的临时根规范化，原代理代码、私有目录守卫、前端／模板／生成产物均未修改。本机Windows Node24.17.0的原两文件命令最终4通过／0失败／0跳过；远端新CI结果另行核对，不把本机绿色计为完整CI通过。
+2026-11-01，C89；固定修复cdbdd69。只修合成传输测试的临时根规范化，原代理代码、私有目录守卫、前端／模板／生成产物均未修改。本机Windows Node24.17.0的原两文件命令4通过／0失败／0跳过；远端同提交Windows／Ubuntu目标步骤均实际成功。本项闭环，全量CI及V10仍未完成。
 
 ## 真实失败与复现
 
@@ -17,3 +17,11 @@
 实际命令：`node --test tools/acceptance/serve-management-browser.test.mjs tools/acceptance/serve-runtime-browser.test.mjs`。Windows原生首次3项通过；受控别名新增红灯3／1，修复后4／0、零跳过。正常代理字节／头／正文、未知运输故障／同批次恢复、秘密不进日志及静态越界拒绝仍实际执行；这些是明确合成传输，不计C88原页面或其它正式业务新增通过。
 
 私有证据：.local/windows-preview-ci-20261101下first.log、red.log、green.log及github-windows-error.json。原运行和失败按17d38cc保留，新提交会按现有push规则启动CI，不能修改旧结果或宣布V10完整通过。
+
+## 2026-11-01 新CI双平台目标步骤实际通过
+
+修复提交cdbdd6997c4c08690e7ce9c2926b3c165e3bdea1的[实际运行41319808536](https://github.com/zhao-yc/metarill/actions/runs/41319808536)中，Windows作业124887454201和Ubuntu作业124887453986的“核对管理页面私有预览传输边界”均completed／success。该步按仓库命令运行原两个文件，四项测试无跳过分支；路径修复与原隐私／运输断言在两个平台实际通过。
+
+观察当时Windows继续“重新生成并核对提交产物”，Ubuntu继续“编译服务”，前端继续协议测试，整条workflow仍in_progress。因此仅C89目标步骤标完成，V10全量回归、生成校验、后端全部测试及最终发布不能据此打勾。没有通过重跑旧失败、放宽守卫或改写旧17d38cc结果取得绿色。
+
+私有ci-current.json和ci-current-jobs.json保存具体SHA／作业／步骤状态；原红灯、Windows本机4／0及原GitHub失败摘要继续保留。B119待批准的17d38cc固定来源及精确32表范围未改变，没有数据库写入、浏览器会话清理或生产部署。
