@@ -1,0 +1,31 @@
+# 平台种子末段真实故障与恢复验收
+
+2026-11-01，A22；起点5f18393。正式用例与离线护栏已实现，严格构建及14项护栏通过／0失败／0跳过（新8项＋既有平台6项，后续重复运行不累计）。真实MySQL故障／回滚尚未执行，A20不标完成。
+
+## 必须验证的真实边界
+
+使用固定当前Production的Metarill.Api和正式--initialize命令，沿用生产BootstrapService、MetadataRepository.SeedAsync及SqlRowStore。仅在本轮独占随机平台库中通过生产SchemaService显式创建23表；业务库起始0表。不修改生产代码、不插入自定义故障开关、不使用内存ADO证明实库回滚。
+
+| 阶段 | 真实故障与验收要求 |
+| --- | --- |
+| 平台目录失败 | 给config_index_column加只拒绝平台最后种子ID的临时CHECK；进程必须明确报该约束被违反，不能把连接／DDL／其它异常当作预期失败。该目录1506条中的最后一条应失败，独立连接确认23张平台表全0行，业务仍0表 |
+| 示例目录失败 | 移除本轮首个约束后，在config_menu给示例最后非空种子行加第二个CHECK；生产命令先提交平台1506条，再因示例第25条失败。逐类核对平台保留、示例全部0，账号／角色／项目／设备仍未创建，业务仍0表 |
+| 移除故障恢复 | 移除本轮第二个CHECK，再运行原初始化；平台目录完整行摘要保持，示例补全，11类1531种子及业务完整12表无结构差异 |
+| 再次初始化及身份 | 种子完整行摘要不变，原账号密码真实Web登录与超级权限成功 |
+| 证明及清理 | 固定来源与宿主集合再次校验；本轮凭据、两个库／账号按同轮所有权清理，独立连接及新SSH核零 |
+
+示例目录没有索引种子，其最后非空集合为菜单，不能套用平台的末索引字段故障点。故障点从实际发布目录及生产顺序计算，离线核对平台前缀1505条、示例前缀24条。约束仅作为本轮测试故障；产品表结构仍由元数据和SchemaService创建，不手写实体或改现有平台库。
+
+生产按每份目录独立事务提交。平台失败时23表DDL保持；示例失败时已成功提交的平台目录保持。这是预期的恢复边界，不宣称MySQL DDL回滚、跨目录原子初始化或跨数据库分布式事务。当前产品和原页面／样式／模板未改，原776份保护文件字节保持。
+
+## 专用入口与证据
+
+正式FQN：Metarill.Generation.Tests.FreshInstallMySqlTests.Platform_seed_late_failures_rollback_each_catalog_and_recover_in_production_host。
+
+只接受METARILL_PLATFORM_SEED_ROLLBACK_NATIVE_SETTINGS和METARILL_FRESH_INSTALL_SETTINGS同一路径、platform-seed-rollback-native-v1用途、approved/running及本轮随机编号；拒绝旧成功安装／助手用途、pending、not-started、ended和错误编号。固定生产宿主完整集合及四份发布元数据沿用既有校验，证据路径独立为.local/platform-seed-rollback-native/<run>/evidence，不能复用A21或C88已结束租约。
+
+成功和预期失败共用原进程超时、秘密脱敏与私有日志。正式用例逐阶段写platform-rollback.json、demo-rollback.json，只有恢复／重复／真实Web及固定文件复核全部通过才写verified.json。失败时保留首因和已完成检查点，凭据清理失败另记；不自动重放。
+
+私有离线结果：.local/platform-seed-rollback-native-20261101/preparation.log及results/preparation.trx。实际.NET10.0.402使用独占--artifacts-path、Release、-warnaserror、--disable-build-servers，定向运行PlatformSeedRollbackNativePreparationTests与PlatformBootstrapNativePreparationTests；无真实数据库配置或外部测试对象。
+
+后续须先从提交独立固定源码、生产宿主和正式程序集，核对精确Server-200实例及新对象不存在，再取得本轮双库／临时账号及清理授权。未执行的正式故障、回滚、浏览器、跨端、并发、性能均不计通过。

@@ -296,6 +296,12 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
     /// <summary>只消费子进程日志，避免错误信息携带环境配置。</summary>
     private static async Task RunAsync(ProcessStartInfo start)
     {
+        var result = await RunInitializationAsync(start);
+        Assert.True(result.ExitCode == 0, "首次初始化命令失败，请核对本轮脱敏私有诊断；配置不回显。");
+    }
+    /// <summary>成功和预期故障共用真实进程、超时及脱敏日志，不用退出失败代替明确数据库故障证明。</summary>
+    private static async Task<(int ExitCode, string Output, string Error)> RunInitializationAsync(ProcessStartInfo start)
+    {
         using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         try { await process.WaitForExitAsync(timeout.Token); } catch { if (!process.HasExited) process.Kill(true); throw; }
@@ -316,7 +322,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             foreach(var secret in secrets.Where(value=>!string.IsNullOrEmpty(value)).OrderByDescending(value=>value.Length)){outText=outText.Replace(secret,"[已脱敏]",StringComparison.Ordinal);errText=errText.Replace(secret,"[已脱敏]",StringComparison.Ordinal);}
             var id=Guid.NewGuid().ToString("N");await File.WriteAllTextAsync(Path.Combine(resolved,"initialize-"+id+".stdout.log"),outText);await File.WriteAllTextAsync(Path.Combine(resolved,"initialize-"+id+".stderr.log"),errText);
         }
-        Assert.True(process.ExitCode == 0, "首次初始化命令失败，请核对本轮脱敏私有诊断；配置不回显。");
+        return (process.ExitCode, outText, errText);
     }
     /// <summary>默认使用本普通克隆作为源码根。</summary>
     private static string SourceRoot([CallerFilePath] string file = "") => Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT") ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
