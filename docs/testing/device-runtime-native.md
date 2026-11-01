@@ -25,4 +25,13 @@
 
 新增正式用例只在METARILL_DEVICE_RUNTIME_NATIVE_SETTINGS存在且本轮专用approved/running证明通过后启用；普通CI不提供即跳过，不计正式成功。FreshHost可复用本fixture原回环地址，坏协议／非回环／路径／query在子进程前拒绝，端口被占用时不杀其它进程。原默认随机端口行为保持。
 
-私有离线证据：.local/device-runtime-native-20261101下build.log、preparation-namespace-error.log、preparation-final/closed.log及TRX；offline-targets.log、offline-targets-retry.log保留前两次失败，offline-targets-final.log及verified.json为最终两模型结果。当前未接触服务器或消费任何租约。原前端／模板／元数据／生成文件不改；设备／浏览器／多数据库／性能与全首版仍单独待验。
+私有离线证据：.local/device-runtime-native-20261101下build.log、preparation-namespace-error.log、preparation-final/closed.log及TRX；offline-targets.log、offline-targets-retry.log保留前两次失败，offline-targets-final.log及verified.json为最终两模型结果。当前仅只读核对Server-200及实例，没有数据库写入或消费任何租约。原前端／模板／元数据／生成文件不改；设备／浏览器／多数据库／性能与全首版仍单独待验。
+
+
+## 2026-11-01 当前固定来源与专属范围
+
+7912fdeb10affc2745c73f04723ac55380fd8c1a已独立固定2306源码、65生产宿主文件、23份C#CLI输出及152份正式测试输出；旧1e57bb9共2297文件及完整集合固定，严格构建零警告错误，固定程序集15项护栏再次通过（与前述15项重叠）。另直接调用固定正式程序集的纯文件Verify，真实证明正确解码，当前宿主／CLI／旧源全部匹配；没有调用Read、正式Fact、构造批准或连接数据库。
+
+外层4种失效租约在拦截所有子进程时拒绝，外部调用0；固定正式FQN分别以pending、ended、旧管理用途运行3次，均在查连接／数据库前按预期拒绝，不计正式通过。Server-200 MySQL8.4.11只读确认新两库／账号／所有权均不存在；776保护文件保持。
+
+本轮b49c40faf50365a0：仅metarill_fresh_b49c40faf50365a0_platform、metarill_fresh_b49c40faf50365a0_business及mtf_b49c40faf50365a0@%；本机目标／工作目录固定为私有execution/b49c40faf50365a0。精确计划在.local/device-runtime-native-20261101/permission-plan.md，状态pending／not-started，未创建正式对象。旧A21已结束，不能借旧授权执行本轮；收到明确授权后才创建、完整运行并按同一所有权清理、独立核零及删除临时凭据，保留代码与审查证据。
