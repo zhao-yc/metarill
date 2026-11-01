@@ -35,7 +35,7 @@ internal static class OriginalListStatisticsCompilation
         var definitions=ForPage(model,table,page);if(definitions is null)return "";
         var suffix=page.Source.Id;
         var source=new StringBuilder().AppendLine("    /// <summary>沿原列表统计口径复用页范围和筛选，聚合不继承分页或排序。</summary>")
-            .AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?" => session.InReadSnapshotAsync<Dictionary<string,object?>>(async () =>":"")}")
+            .AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async () =>":"")}")
             .AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
         if(definitions.Count==0)source.AppendLine("        await Task.CompletedTask;");
         foreach(var definition in definitions)

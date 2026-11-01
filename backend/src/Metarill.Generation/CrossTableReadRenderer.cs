@@ -56,9 +56,9 @@ internal static class CrossTableReadRenderer
             }
             output.AppendLine($"        default:throw new ArgumentException(\"跨表层号无效。\");}}}},{Literal(plan.Joiner)});")
                 .AppendLine("    /// <summary>逐级目标和祖先读取使用同一明确快照，弱外层事务不能混用。</summary>")
-                .AppendLine($"    public Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>> CrossOptions{suffix}Async(CascadeTreeOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InReadSnapshotAsync(async()=>{{RequireCrossSource{suffix}(actor);return await CrossReader{suffix}(actor).OptionsAsync(request.LevelKey,request.SelectedPath,cancellationToken);}},cancellationToken);")
+                .AppendLine($"    public Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>> CrossOptions{suffix}Async(CascadeTreeOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(async()=>{{RequireCrossSource{suffix}(actor);return await CrossReader{suffix}(actor).OptionsAsync(request.LevelKey,request.SelectedPath,cancellationToken);}},cancellationToken);")
                 .AppendLine("    /// <summary>独立路径按固定末级回读，空值仍执行全部页授权。</summary>")
-                .AppendLine($"    public Task<Metarill.Core.Cascades.CrossTablePath> CrossPath{suffix}Async(CascadeTreePathRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InReadSnapshotAsync(async()=>{{RequireCrossSource{suffix}(actor);return await CrossReader{suffix}(actor).PathAsync({plan.Levels.Count-1},request.ParseLeaf(),cancellationToken);}},cancellationToken);");
+                .AppendLine($"    public Task<Metarill.Core.Cascades.CrossTablePath> CrossPath{suffix}Async(CascadeTreePathRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(async()=>{{RequireCrossSource{suffix}(actor);return await CrossReader{suffix}(actor).PathAsync({plan.Levels.Count-1},request.ParseLeaf(),cancellationToken);}},cancellationToken);");
         }
         return output.ToString();
     }

@@ -4,7 +4,7 @@ namespace Metarill.Core.Metadata;
 
 public sealed record GlobalMultipleRelationPlan(PageMetadata Page,ColumnMetadata Name);
 
-/// <summary>全局多值关系分别证明普通R0实时读取与普通R1缓存消费者，目标名称必须为明确发布的物理值或已证明的全局R1名称缓存。</summary>
+/// <summary>全局多值关系分别证明普通R0实时读取与普通R1缓存消费者，目标名称必须为明确发布的物理值、R1缓存或已证明的R0单值名称。</summary>
 public static class GlobalMultipleRelationTarget
 {
     /// <summary>读取原多选或复选定义；目标页面只是已发布关系归属，复选仍使用自己的原候选条件。</summary>
@@ -23,7 +23,9 @@ public static class GlobalMultipleRelationTarget
         string Extra(string key)=>foreign.Extra.TryGetValue(key,out var value)&&value.ValueKind!=JsonValueKind.Null?value.ToString():"";
         var tableId=Value("tableId");var tableName=Value("table");var pageId=Value("pageId");var linkedPage=Extra("linkConfigPageId");
         if(tableId.Length>0&&tableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||Extra("joinTable") is {Length:>0} joined&&joined!=target.TableName||pageId.Length>0&&linkedPage.Length>0&&pageId!=linkedPage)throw new InvalidOperationException("全局多值的表、页面或显示来源声明冲突。");
-        if(pageId.Length==0)pageId=linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局多值关系必须明确指定真实目标页，省略时目标页必须唯一。");var page=pages[0];GlobalCrossTableTarget.Require(catalog,target,page);
+        if(pageId.Length==0)pageId=linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局多值关系必须明确指定真实目标页，省略时目标页必须唯一。");var page=pages[0];GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
+        // 带行项目的R0需分别证明目标候选与对象自身范围，本批不能默默复用其中之一。
+        if(target.IsRongyu==0&&(catalog.ConfigColumns.Any(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id")||foreign.ControlKind=="MultiSelectPage"&&page.Extra.GetValueOrDefault("type").ToString()!="2"))throw new NotSupportedException("全局R0多选要求无行项目的固定目标及原type=2页面；复选继续原独立候选规则。");
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var physical=MetadataStoragePolicy.ForTable(catalog,target);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(physical,target,column);
         var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);if(name is null||name.LogicalType!="string"||!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))throw new NotSupportedException("全局多值名称必须为非凭据物理字符串或已证明的全局名称缓存。");var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");

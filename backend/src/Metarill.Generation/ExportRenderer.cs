@@ -47,7 +47,7 @@ internal static class ExportRenderer
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
         var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).Concat(checkboxes.SelectMany(def=>def.Dependencies)).DistinctBy(column=>column.Source.Id);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
-            .AppendLine($"    public {(snapshot?"Task":"async Task")}<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken){(snapshot?" => session.InReadSnapshotAsync<Metarill.Core.Exports.PageExportRequest>(async () =>":"")}")
+            .AppendLine($"    public {(snapshot?"Task":"async Task")}<Metarill.Core.Exports.PageExportRequest> Export{page.Source.Id}Async(PageRequest request, RuntimeActor actor, int maxRows, CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Metarill.Core.Exports.PageExportRequest>(async () =>":"")}")
             .AppendLine("    {")
             .AppendLine("        if (maxRows is < 1 or > 1_048_575) throw new ArgumentOutOfRangeException(nameof(maxRows));");
         if (relations.Length > 0 || multis.Count>0 || checkboxes.Length>0 || role || admin is not null)

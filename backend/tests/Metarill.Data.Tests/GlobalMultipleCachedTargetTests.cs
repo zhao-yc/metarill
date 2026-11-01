@@ -37,7 +37,7 @@ public sealed class GlobalMultipleCachedTargetTests
     public void Array_cannot_become_a_scalar_match(string kind)
     {Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileMatch(Catalog(0,kind,"int64"),"3","global_source_global_target_names"));}
     /// <summary>缺来源/生产链/终点证明时读计划和R1传播均拒绝，动态条件不能借名称新能力进入。</summary>
-    [Theory][InlineData("sourceProject")][InlineData("sourceGlobal")][InlineData("producerProject")][InlineData("producerR0")][InlineData("privateTerminal")][InlineData("unpublished")][InlineData("missingPage")][InlineData("badPath")][InlineData("credential")][InlineData("virtual")][InlineData("file")][InlineData("array")][InlineData("conditionCache")][InlineData("cycle")][InlineData("multiProducer")]
+    [Theory][InlineData("sourceProject")][InlineData("sourceGlobal")][InlineData("producerProject")][InlineData("producerR0MissingKey")][InlineData("privateTerminal")][InlineData("unpublished")][InlineData("missingPage")][InlineData("badPath")][InlineData("credential")][InlineData("virtual")][InlineData("file")][InlineData("array")][InlineData("conditionCache")][InlineData("cycle")][InlineData("multiProducer")]
     public void Unproven_array_target_rejects_read_and_cache_before_connection(string invalid)
     {
         foreach(var kind in new[]{"MultiSelectPage","MultiCheckBoxDatabase"})foreach(var mode in new[]{0,1})
@@ -48,7 +48,7 @@ public sealed class GlobalMultipleCachedTargetTests
                 case "sourceProject":c.ConfigColumns.RemoveAll(x=>x.Id=="32");break;
                 case "sourceGlobal":c.ConfigTables.Single(x=>x.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");break;
                 case "producerProject":c.ConfigColumns.Add(new(){Id="19",YzProjectId=c.YzProjectId,ConfigTableId="1",ColumnName="yz_project_id",LogicalType="int64"});break;
-                case "producerR0":producer.IsRongyu=0;break;
+                case "producerR0MissingKey":producer.IsRongyu=0;c.ConfigColumns.Single(x=>x.Id=="11").IsDbNotNull=0;break;
                 case "privateTerminal":c.ConfigTables.Single(x=>x.Id=="2").Extra.Remove("scopeKind");break;
                 case "unpublished":c.ConfigPages.Single(x=>x.Id=="20").YzProjectId="101";break;
                 case "missingPage":c.ConfigPages.RemoveAll(x=>x.Id=="20");break;

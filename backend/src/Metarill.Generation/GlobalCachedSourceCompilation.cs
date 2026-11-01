@@ -26,6 +26,10 @@ internal static class GlobalCachedSourceCompilation
     }
     /// <summary>完整目录的全局来源存在时，所有生成服务均固定Actor项目，目标事件也不能切换消费者目录。</summary>
     internal static bool BindsActor(GenerationModel model)=>ForModel(model).Count>0||model.Tables.Any(table=>table.IsGlobal&&table.Source.IsRongyu==0);
+    /// <summary>快照获取连接前先核验原发布身份；普通目录保持原表达式和事务语义。</summary>
+    internal static string ReadSession(GenerationModel model)=>BindsActor(model)?"PublishedReadSession(actor)":"session";
+    /// <summary>只为固定发布身份的生成服务添加轻量守卫，不重写正文或元数据字面量。</summary>
+    internal static string ReadSessionDeclaration(GenerationModel model)=>BindsActor(model)?"    /// <summary>先核验发布身份再获取读快照，不向错误项目打开数据库连接。</summary>\n    private DatabaseSession PublishedReadSession(RuntimeActor actor) { ValidateActor(actor); return session; }\n":"";
     /// <summary>来源字段不接受改变目标含义的页级覆盖，所有页面共享同一物理名称副本。</summary>
     private static IReadOnlyList<GlobalCachedSourceBinding> Compile(GenerationModel model)
     {

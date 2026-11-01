@@ -7,7 +7,7 @@ internal static class DerivedCheckboxNamesCompilation
     /// <summary>只签发普通R0目标的单值字符串，条件仍限物理标量；R1缓存同时取得完整维护证明。</summary>
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,DatabaseCheckboxModel def)
     {
-        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0||def.Target.IsGlobal||def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||def.Name.Type!="string?"||def.Name.IsJsonArray)throw new InvalidOperationException("派生复选名称要求已证明来源与普通R0目标的固定字符串。");
+        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0||def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||def.Name.Type!="string?"||def.Name.IsJsonArray)throw new InvalidOperationException("派生复选名称要求已证明来源与普通R0目标的固定字符串。");
         var fields=def.Scopes.Select(scope=>scope.Column).Concat(def.Conditions?.Syntax.Fields.Select(field=>def.Target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,def.Target,column)))throw new InvalidOperationException("派生复选的身份、父及附加条件必须为物理标量。");
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(def.Order.Select(item=>item.Column.Source.ColumnName)).Concat(new[]{"id",def.Name.Source.ColumnName}).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

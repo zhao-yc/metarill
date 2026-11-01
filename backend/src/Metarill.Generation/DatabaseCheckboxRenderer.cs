@@ -65,7 +65,7 @@ internal static class DatabaseCheckboxRenderer
                     .AppendLine($"        if(relationAuthorization is null||RelationOptionAuthorization.Require(relationAuthorization,{Literal(page.Source.Id)},{Bool(page.Source.IsNew==1)},{Bool(Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))})!=actor)throw new UnauthorizedAccessException(\"复选读取身份已变化。\");")
                     .AppendLine("        if(request.Selected is {} ids&&(ids.Length>DatabaseCheckboxValue.MaximumItems||ids.Any(id=>id<=0)||ids.Distinct().Count()!=ids.Length))throw new ArgumentException(\"复选指定ID无效。\");")
                     .AppendLine($"        var form=ReadCheckboxForm{suffix}(request.FormParameters);")
-                    .AppendLine("        return session.InReadSnapshotAsync<IReadOnlyList<DatabaseCheckboxOption>>(async()=>")
+                    .AppendLine($"        return {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<IReadOnlyList<DatabaseCheckboxOption>>(async()=>")
                     .AppendLine("        {")
                     .Append(def.DerivedName?"":$"            var query=await CheckboxScope{suffix}Async(request.ParentId,actor,form,false,cancellationToken);\n")
                     .Append(def.DerivedName?"":"            if(request.Selected is {} selected){if(selected.Length==0)return [];query=query.Where(row=>selected.Contains(row.Id));}\n")

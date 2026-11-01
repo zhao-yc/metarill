@@ -45,7 +45,7 @@ internal static class DerivedRelationNamesRenderer
         var form=RelationConditionsCompilation.HasForms(relation)?"ReadOptionsForm"+suffix+"(request.FormParameters)":"null";
         result.Append($$"""
     /// <summary>保留旧数组5000项上限，使用同一固定名称排序，不静默截断。</summary>
-    public Task<IReadOnlyList<GeneratedOption>> Options{{suffix}}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken,string? targetParentId=null)=>session.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
+    public Task<IReadOnlyList<GeneratedOption>> Options{{suffix}}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken,string? targetParentId=null)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
     {
         ArgumentNullException.ThrowIfNull(request);var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,targetParentId,actor,cancellationToken,{{form}});
         var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[new({{Literal(name)}}),new("id")],5001,cancellationToken,actor.ProjectId,scope.Condition);
@@ -53,7 +53,7 @@ internal static class DerivedRelationNamesRenderer
         return rows.Select(row=>new GeneratedOption(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}),NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}))).ToArray();
     },cancellationToken);
     /// <summary>名称关键词先在SQL中筛选和排序，再按同一快照COUNT与分页。</summary>
-    public Task<PageResult<GeneratedOption>> OptionsPage{{suffix}}Async(RelationOptionsPageRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InReadSnapshotAsync<PageResult<GeneratedOption>>(async()=>
+    public Task<PageResult<GeneratedOption>> OptionsPage{{suffix}}Async(RelationOptionsPageRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<PageResult<GeneratedOption>>(async()=>
     {
         ArgumentNullException.ThrowIfNull(request);request.Validate();var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,request.TargetParentId,actor,cancellationToken,{{form}});
         if(!string.IsNullOrEmpty(request.Keyword))scope.Filters.Add(new({{Literal(name)}},FixedReadComparison.Contains,request.Keyword));
@@ -62,7 +62,7 @@ internal static class DerivedRelationNamesRenderer
         return new(options,rows.Total,(rows.Total+request.PageSize-1)/request.PageSize,request.PageNo,request.PageSize);
     },cancellationToken);
     /// <summary>已选回读不使用关键词，逐个核对实际候选范围，缺项整体拒绝。</summary>
-    public Task<IReadOnlyList<GeneratedOption>> OptionsSelected{{suffix}}Async(RelationOptionsSelectedRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
+    public Task<IReadOnlyList<GeneratedOption>> OptionsSelected{{suffix}}Async(RelationOptionsSelectedRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
     {
         ArgumentNullException.ThrowIfNull(request);var selected=request.ParseIds();var rows=await DerivedOptionsRows{{suffix}}Async(request.ParentId,request.TargetParentId,actor,selected,cancellationToken,{{form}});
         if(rows.Count!=selected.Length)throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");return rows;

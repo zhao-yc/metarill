@@ -39,7 +39,7 @@ internal static class SelectionPageRenderer
             result.AppendLine($"        if (!await parent{number}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"多选页父记录不存在、已删除或不属于当前项目。\");");
         }
         result.AppendLine("    }").AppendLine("    /// <summary>多选确认前重新读取本页完整可见行，任何失效项整体拒绝。</summary>")
-            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => session.InReadSnapshotAsync<IReadOnlyList<{page.Name}Vo>>(async () =>":"")}")
+            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<IReadOnlyList<{page.Name}Vo>>(async () =>":"")}")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
             .AppendLine($"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);");
         if(NonRedundantReadCompilation.Requires(model,table))
