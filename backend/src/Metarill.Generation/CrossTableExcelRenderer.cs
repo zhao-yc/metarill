@@ -45,7 +45,7 @@ internal static class CrossTableExcelRenderer
             }
             result.AppendLine("        default:throw new ArgumentException(\"跨表Excel层号无效。\");}}")
                 .AppendLine("    /// <summary>完整路径及唯一旧简写复用同一固定层图，不把排序第一条当作唯一匹配。</summary>")
-                .AppendLine($"    private Task<Metarill.Core.Cascades.CrossTablePath> CrossExcelResolve{suffix}Async(string text,bool currentRead,RuntimeActor actor,CancellationToken ct)=>Metarill.Core.Cascades.CrossTableExcelPath.ResolveAsync(text,{plan.Levels.Count},{L(plan.Read.Joiner)},(index,name,parent,bound,token)=>CrossExcelFind{suffix}Async(index,name,parent,bound,currentRead,actor,token),(index,id,token)=>CrossReader{suffix}(actor,currentRead,false).PathAsync(index,id,token),ct);");
+                .AppendLine($"    private Task<Metarill.Core.Cascades.CrossTablePath> CrossExcelResolve{suffix}Async(string text,bool currentRead,RuntimeActor actor,CancellationToken ct,Func<int,long,CancellationToken,Task<Metarill.Core.Cascades.CrossTablePath>>? readPath=null)=>Metarill.Core.Cascades.CrossTableExcelPath.ResolveAsync(text,{plan.Levels.Count},{L(plan.Read.Joiner)},(index,name,parent,bound,token)=>CrossExcelFind{suffix}Async(index,name,parent,bound,currentRead,actor,token),readPath??((index,id,token)=>CrossReader{suffix}(actor,currentRead,false).PathAsync(index,id,token)),ct);");
         }
         return result.ToString();
     }
@@ -71,31 +71,37 @@ internal static class CrossTableExcelRenderer
         return result.AppendLine("        return values;").AppendLine("    }").ToString();
     }
 
-    /// <summary>导出保留原表头，以固定ID读取实际路径并验证名称可唯一反查；按路径缓存同一快照内的重复选择。</summary>
+    /// <summary>导出保留原表头，以固定ID读取实际路径并验证名称可唯一反查；按层批读并缓存同一快照内的重复选择。</summary>
     internal static string Export(TableModel table,PageModel page,CrossTableWriteModel plan)
     {
-        var source=plan.Read.Source;var suffix=page.Source.Id+"_"+source.Source.Id;var name=source.Property;
+        var source=plan.Read.Source;var suffix=page.Source.Id+"_"+source.Source.Id;var name=suffix;
+        // 局部变量按固定数字ID命名，避免合法字段CachePlaceId／PathsPlaceId与另一控件前缀碰撞。
         var result=new StringBuilder()
             .AppendLine($"        var crossExcel{name}=new Dictionary<long,string?>();var crossExcelCache{name}=new Dictionary<(int Depth,long Id),Metarill.Core.Cascades.CrossTablePath>();")
+            .AppendLine($"        var crossExcelSelections{name}=new Dictionary<long,(int Depth,long Id,string?[] Ancestors)>();")
             .AppendLine("        foreach(var entity in entities){")
             .AppendLine($"            var ids=new string?[]{{{string.Join(",",plan.Levels.Select(level=>$"Convert.ToString(entity.{level.Id.Property},CultureInfo.InvariantCulture)"))}}};")
             .AppendLine("            var deepest=-1;for(var index=0;index<ids.Length;index++)if(!string.IsNullOrEmpty(ids[index]))deepest=index;")
             .AppendLine($"            if(deepest<0){{crossExcel{name}[entity.Id]=null;continue;}}")
             .AppendLine("            if(!long.TryParse(ids[deepest],NumberStyles.None,CultureInfo.InvariantCulture,out var selected)||selected<=0||ids[deepest]!=selected.ToString(CultureInfo.InvariantCulture))throw new InvalidOperationException(\"跨表导出ID无效。\");");
         if(table.Source.IsRongyu==1)result.AppendLine("            if(ids.Take(deepest+1).Any(string.IsNullOrEmpty))throw new InvalidOperationException(\"跨表导出路径存在空洞。\");");
-        result.AppendLine($"            if(!crossExcelCache{name}.TryGetValue((deepest,selected),out var path)){{")
-            .AppendLine($"                path=await CrossReader{suffix}(actor,false,false).PathAsync(deepest,selected,cancellationToken);")
-            .AppendLine("                // 路径格式化／反查复用输入校验；导出中坏数据不能被误报为导入输入错误。")
+        result.AppendLine($"            crossExcelSelections{name}.Add(entity.Id,(deepest,selected,ids));")
+            .AppendLine("        }")
+            .AppendLine($"        var crossExcelPaths{name}=await CrossReader{suffix}(actor,false,false).PathsAsync(crossExcelSelections{name}.Values.Select(item=>(item.Depth,item.Id)).ToArray(),cancellationToken);")
+            .AppendLine($"        foreach(var selection in crossExcelSelections{name}){{var (deepest,selected,ids)=selection.Value;")
+            .AppendLine($"            if(!crossExcelCache{name}.TryGetValue((deepest,selected),out var path)){{")
+            .AppendLine($"                path=crossExcelPaths{name}[(deepest,selected)];")
+            .AppendLine("                // 名称唯一性仍逐路径反查；回读只复用本次同一快照的已核验路径，不跳过ID对照。")
             .AppendLine("                try{")
             .AppendLine($"                    var text=Metarill.Core.Cascades.CrossTableExcelPath.Format(path,{plan.Levels.Count},{L(plan.Read.Joiner)})!;")
-            .AppendLine($"                    var restored=await CrossExcelResolve{suffix}Async(text,false,actor,cancellationToken);")
+            .AppendLine($"                    var restored=await CrossExcelResolve{suffix}Async(text,false,actor,cancellationToken,(depth,id,ct)=>{{ct.ThrowIfCancellationRequested();return Task.FromResult(crossExcelPaths{name}.TryGetValue((depth,id),out var cached)?cached:throw new InvalidOperationException(\"跨表导出路径不能唯一还原原ID。\"));}});")
             .AppendLine("                    if(!path.Path.Select(node=>node.Id).SequenceEqual(restored.Path.Select(node=>node.Id)))throw new InvalidOperationException(\"跨表导出路径不能唯一还原原ID。\");")
             .AppendLine("                }catch(PageImportException error)when(error.IsInputError){throw new InvalidOperationException(\"跨表导出路径不能唯一还原原ID。\",error);}")
             .AppendLine($"                crossExcelCache{name}[(deepest,selected)]=path;}}")
             .AppendLine("            for(var index=0;index<=deepest;index++)if(!string.IsNullOrEmpty(ids[index])&&ids[index]!=path.Path[index].Id)throw new InvalidOperationException(\"跨表导出祖先与实际路径不符。\");")
-            .AppendLine($"            crossExcel{name}[entity.Id]=Metarill.Core.Cascades.CrossTableExcelPath.Format(path,{plan.Levels.Count},{L(plan.Read.Joiner)});")
+            .AppendLine($"            crossExcel{name}[selection.Key]=Metarill.Core.Cascades.CrossTableExcelPath.Format(path,{plan.Levels.Count},{L(plan.Read.Joiner)});")
             .AppendLine("        }")
-            .AppendLine($"        string? ExcelCascade{name}({table.EntityType} entity)=>crossExcel{name}[entity.Id];");
+            .AppendLine($"        string? ExcelCascade{source.Property}({table.EntityType} entity)=>crossExcel{name}[entity.Id];");
         return result.ToString();
     }
     /// <summary>配置文本仅作为C#字面量，不成为代码或SQL。</summary>

@@ -54,7 +54,18 @@ internal static class CrossTableReadRenderer
                 var level=plan.Levels[index];var filter=level.Parent is{} parent?$"var parentKey={(parent.Type=="string?"?"parent?.ToString(CultureInfo.InvariantCulture)":"parent")};query=query.Where(row=>row.{parent.Property}==parentKey);":"";var order=string.Concat(level.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"));
                 output.AppendLine($"        case {index}:{{var query=CrossScope{suffix}_{index}(actor,false);{filter}var rows=await query{order}.ToListAsync({Projection(level)},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{level.Name.Property},{Parent(level)})).ToArray();}}");
             }
-            output.AppendLine($"        default:throw new ArgumentException(\"跨表层号无效。\");}}}},{Literal(plan.Joiner)});")
+            output.AppendLine($"        default:throw new ArgumentException(\"跨表层号无效。\");}}}},{Literal(plan.Joiner)},{(sameSource?"sourceOverride is not null?null:":"")}async(index,ids,ct)=>{{switch(index){{");
+            // 待写来源覆盖仅走原单路径委托，批读不会丢失尚未提交的名称或父键。
+            for(var index=0;index<plan.Levels.Count;index++)
+            {
+                var level=plan.Levels[index];
+                if(level.Target.Source.IsRongyu==0)
+                {
+                    output.AppendLine($"        case {index}:return await CrossTargetRows{suffix}_{index}Async(actor,[new(\"id\",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray())],ids.Count,currentRead,ct);");continue;
+                }
+                output.AppendLine($"        case {index}:{{var keys=ids.ToArray();var query=CrossScope{suffix}_{index}(actor,false).Where(row=>keys.Contains(row.Id));if(currentRead)query=query.ForUpdate();var rows=await query.ToListAsync({Projection(level)},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{level.Name.Property},{Parent(level)})).ToArray();}}");
+            }
+            output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}});")
                 .AppendLine("    /// <summary>逐级目标和祖先读取使用同一明确快照，弱外层事务不能混用。</summary>")
                 .AppendLine($"    public Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>> CrossOptions{suffix}Async(CascadeTreeOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(async()=>{{RequireCrossSource{suffix}(actor);return await CrossReader{suffix}(actor).OptionsAsync(request.LevelKey,request.SelectedPath,cancellationToken);}},cancellationToken);")
                 .AppendLine("    /// <summary>独立路径按固定末级回读，空值仍执行全部页授权。</summary>")

@@ -142,6 +142,7 @@ public sealed class CrossTableExcelSharedGenerationTests
 internal sealed class SharedExcelReadTransport:IDisposable
 {
     internal readonly TrustedSecurityMemoryProvider Transport=new();internal readonly List<string> Reads=[];
+    internal readonly List<(string Entity,string Method,int Count)> ReadCalls=[];
     private readonly Dictionary<Type,List<object>> rows=[];private readonly Assembly assembly;private readonly string rootNamespace;private readonly Type serviceType;private readonly object service;private readonly SnapshotProvider provider;private readonly string sourceEntity;private readonly bool sourceCondition;private readonly string pageId;
     private readonly RuntimeActor actor;
     internal DatabaseSession Session{get;}
@@ -208,8 +209,8 @@ internal sealed class SharedExcelReadTransport:IDisposable
             IEnumerable<object> filtered=rows.GetValueOrDefault(type,[]).Where(row=>predicates.All(predicate=>predicate(row)));
             IOrderedEnumerable<object>? ordered=null;foreach(var order in orders)ordered=ordered is null?order.Desc?filtered.OrderByDescending(order.Key):filtered.OrderBy(order.Key):order.Desc?ordered.ThenByDescending(order.Key):ordered.ThenBy(order.Key);
             filtered=(ordered??filtered).Take(limit);var projection=args.OfType<LambdaExpression>().SingleOrDefault();var output=projection?.ReturnType??type;var compiledProjection=projection?.Compile();
-            if(method.Name=="FirstAsync"){var row=filtered.FirstOrDefault();return TaskValue(output,row is null||compiledProjection is null?row:compiledProjection.DynamicInvoke(row));}
-            var list=(IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(output))!;foreach(var row in filtered)list.Add(compiledProjection is null?row:compiledProjection.DynamicInvoke(row));return TaskValue(list.GetType(),list);
+            if(method.Name=="FirstAsync"){var row=filtered.FirstOrDefault();ReadCalls.Add((type.Name,method.Name,row is null?0:1));return TaskValue(output,row is null||compiledProjection is null?row:compiledProjection.DynamicInvoke(row));}
+            var list=(IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(output))!;foreach(var row in filtered)list.Add(compiledProjection is null?row:compiledProjection.DynamicInvoke(row));ReadCalls.Add((type.Name,method.Name,list.Count));return TaskValue(list.GetType(),list);
         });return query;
     }
     /// <summary>只解释status或明确来源模型的三个AND参数比较；括号／运算／字段／值均固定，未知语法拒绝。</summary>

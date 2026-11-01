@@ -12,19 +12,26 @@ public sealed record CrossTablePathNode(string Id,string Name,string LevelKey);
 public sealed record CrossTablePath(IReadOnlyList<CrossTablePathNode> Path,string DisplayText);
 
 /// <summary>固定表链的候选及路径；只沿父键逆查，不接受请求提供表、SQL、条件或排序。</summary>
-public sealed class CrossTableReader
+public sealed partial class CrossTableReader
 {
     private readonly CrossTableLevel[] levels;
     private readonly Action<int> authorize;
     private readonly Func<int,long,CancellationToken,Task<CascadeTreeNode?>> find;
     private readonly Func<int,long?,CancellationToken,Task<IReadOnlyList<CascadeTreeNode>>> children;
     private readonly string joiner;
+    private readonly Func<int,IReadOnlyList<long>,CancellationToken,Task<IReadOnlyList<CascadeTreeNode>>>? findMany;
     /// <summary>复制冻结层级，禁止重复键与歧义JSON字段；授权委托即使空请求也必须执行。</summary>
     public CrossTableReader(IReadOnlyList<CrossTableLevel> levels,Action<int> authorize,
         Func<int,long,CancellationToken,Task<CascadeTreeNode?>> find,
         Func<int,long?,CancellationToken,Task<IReadOnlyList<CascadeTreeNode>>> children,string joiner)
+        :this(levels,authorize,find,children,joiner,null){}
+    /// <summary>附加固定层批读委托；保留旧构造签名及单路径、待写来源覆盖行为。</summary>
+    public CrossTableReader(IReadOnlyList<CrossTableLevel> levels,Action<int> authorize,
+        Func<int,long,CancellationToken,Task<CascadeTreeNode?>> find,
+        Func<int,long?,CancellationToken,Task<IReadOnlyList<CascadeTreeNode>>> children,string joiner,
+        Func<int,IReadOnlyList<long>,CancellationToken,Task<IReadOnlyList<CascadeTreeNode>>>? findMany)
     {
-        this.levels=levels.ToArray();this.authorize=authorize;this.find=find;this.children=children;this.joiner=joiner;
+        this.levels=levels.ToArray();this.authorize=authorize;this.find=find;this.children=children;this.joiner=joiner;this.findMany=findMany;
         if(this.levels.Length<2||this.levels.Any(level=>string.IsNullOrWhiteSpace(level.Key)||string.IsNullOrWhiteSpace(level.IdProperty))||this.levels.Select(level=>level.Key).Distinct(StringComparer.Ordinal).Count()!=this.levels.Length||this.levels.Select(level=>level.IdProperty).Distinct(StringComparer.Ordinal).Count()!=this.levels.Length)throw new ArgumentException("跨表级联层级无效或重复。");
     }
     /// <summary>原selectedPath允许全部已知层级ID；父缺省返回空，给出父时逐跳校验可读链及已选祖先一致性。</summary>

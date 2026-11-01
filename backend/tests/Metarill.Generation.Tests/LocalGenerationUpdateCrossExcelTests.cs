@@ -6,6 +6,7 @@ public sealed partial class LocalGenerationUpdateTests
 {
     /// <summary>级联Excel新增依赖必须随候选完整下发，双删文件及归属条目也不能绕过。</summary>
     [Theory]
+    [InlineData("src/Metarill.Core/Cascades/CrossTableReader.Paths.cs")]
     [InlineData("src/Metarill.Core/Cascades/CrossTableExcelPath.cs")]
     [InlineData("src/Metarill.Core/Cascades/CrossTableExcelRow.cs")]
     public void Candidate_requires_lossless_cross_excel_without_touching_target(string path)
@@ -24,7 +25,7 @@ public sealed partial class LocalGenerationUpdateTests
     public void Old_target_lossless_cross_excel_upgrade_requires_runtime_and_preserves_partial()
     {
         var(target,candidate)=Packages(Catalog(),Catalog());
-        var paths=new[]{"src/Metarill.Core/Cascades/CrossTableExcelPath.cs","src/Metarill.Core/Cascades/CrossTableExcelRow.cs"};
+        var paths=new[]{"src/Metarill.Core/Cascades/CrossTableReader.Paths.cs","src/Metarill.Core/Cascades/CrossTableExcelPath.cs","src/Metarill.Core/Cascades/CrossTableExcelRow.cs"};
         var marker=Path.Combine(target,".metarill-package.json");var data=JsonNode.Parse(File.ReadAllText(marker))!;var entries=data["files"]!.AsArray();
         foreach(var path in paths){entries.Remove(entries.Single(entry=>entry!["path"]!.GetValue<string>()==path));File.Delete(Path.Combine(target,path));}
         File.WriteAllText(marker,data.ToJsonString(Json));
