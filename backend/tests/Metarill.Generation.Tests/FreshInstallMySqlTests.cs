@@ -99,7 +99,10 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             }
             var catalog = await CatalogAsync(Path.Combine(root, "backend/metadata/platform.json"));
             var demo = await CatalogAsync(Path.Combine(root, "backend/metadata/demo.json"));
-            var businessCatalog = MetadataCatalogComposition.MergePhysical(demo, await CatalogAsync(Path.Combine(root, "backend/metadata/files.json")));
+            // 与BootstrapService共用完整业务物理图，不能漏掉安全及Agent基础表。
+            var files = await CatalogAsync(Path.Combine(root, "backend/metadata/files.json"));
+            var security = await CatalogAsync(Path.Combine(root, "backend/metadata/security.json"));
+            var businessCatalog = new Metarill.Runtime.ProjectPhysicalModels(files, security).Compose(demo);
             var schema = new SchemaService(platformSession); var initial = await schema.PreviewAsync(catalog);
             Assert.Equal(catalog.ConfigTables.Count, initial.Changes.Count(change => change.Kind == "createTable"));
             Assert.Equal(0L, await CountTablesAsync(platformSession));
@@ -108,7 +111,11 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             Assert.Equal(businessCatalog.ConfigTables.Count, await CountTablesAsync(businessSession));
             Assert.Empty((await schema.PreviewAsync(catalog)).Changes);
             Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
-            var expected = new Dictionary<string, int> { ["config_table"] = catalog.ConfigTables.Count + demo.ConfigTables.Count, ["config_column"] = catalog.ConfigColumns.Count + demo.ConfigColumns.Count, ["config_page"] = catalog.ConfigPages.Count + demo.ConfigPages.Count, ["config_page_column"] = catalog.ConfigPageColumns.Count + demo.ConfigPageColumns.Count };
+            // 覆盖SeedAsync写入的全部11类目录，而非仅前四张配置表。
+            var expected = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var source in new[] { catalog, demo })
+                foreach (var (table, count) in new[] { ("config_table", source.ConfigTables.Count), ("config_column", source.ConfigColumns.Count), ("config_page", source.ConfigPages.Count), ("config_page_column", source.ConfigPageColumns.Count), ("yz_admin_type", source.YzAdminTypes.Count), ("config_menu", source.ConfigMenus.Count), ("config_custom_page", source.ConfigCustomPages.Count), ("config_button", source.ConfigButtons.Count), ("config_child", source.ConfigChildren.Count), ("config_index", source.ConfigIndexes.Count), ("config_index_column", source.ConfigIndexColumns.Count) })
+                    expected[table] = expected.GetValueOrDefault(table) + count;
             foreach (var (table, count) in expected) Assert.Equal(count, Convert.ToInt32(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table + "` WHERE `delete_no` IS NULL")));
             Assert.Equal(2L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `yz_project` WHERE `delete_no` IS NULL")));
             Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `yz_manager` WHERE `delete_no` IS NULL")));

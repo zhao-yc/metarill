@@ -17,3 +17,14 @@
 首轮MSBuild子节点提前退出，未获得测试终态；确认原进程结束后，直接使用已编译程序集得到4通过／1失败。失败来自新测试把合法省略的可空引用误计为必须传出；修正为逐格检查物理可空性、实际类型并核对精确3351格，再严格串行构建及定向、全量验证通过。原构建中断与断言失败日志保留，没有修改生产规则让测试通过。
 
 私有证据位于 `.local/platform-seed-20261101/`：`focused.log`、`focused-retry.log`、`focused-final.log`、`metadata-all.log`及results下对应TRX。A19确认的开发库六列旧varchar和703个空字符串格仍未改动；空库正式安装、Web登录、结构同步、生成、业务CRUD和同条件性能仍需真实验证。
+
+
+## 2026-11-01 当前空库验收夹具跟进
+
+起点f58677d。`BootstrapService`已通过`ProjectPhysicalModels`创建业务、文件、安全和Agent完整物理结构，而原`FreshInstallMySqlTests`只把demo与文件基础表合成预期；这会在正式空库初始化后误报表数和结构差异。本次让原夹具共用生产的完整物理模型，并将首次及重复种子计数从四类配置扩展到`MetadataRepository.SeedAsync`实际写入的全部11类。未修改初始化、种子、ORM、DDL或发布目录。
+
+独占`--artifacts-path`严格编译后，现有实际独立宿主物理图对照首轮因共享测试夹具从bin相对层级找错metadata目录而失败。`TrustedSecurityServiceFixture`改为使用编译源码位置确定backend根，不以输出目录或环境选择可信模板；原失败日志保留。修正后物理图对照1项通过，受影响的实际生成管理Service partial及权限工作台40项通过，均0失败／0跳过。没有新建镜像测试或降低结构门槛。
+
+本批只有验收代码变化。真实平台空库用例没有执行，不代表MySQL种子、DDL、Web登录或事务通过；A20仍为部分完成。C82产品1e57bb9／执行器7514ada的固定来源、990文件包及pending租约未修改、未消费，亦不把本批测试计为C82正式验收。原776份产物／前端／模板／元数据逐字保持。
+
+证据位于`.local/platform-bootstrap-expectation-20261101/`：`physical-graph.log`及首轮TRX、`physical-graph-retry.log`、`trusted-fixture.log`及对应终态TRX。实际命令为固定.NET SDK对Generation.Tests使用`-c Release --artifacts-path ... -warnaserror --disable-build-servers`运行原物理图对照，再用该独占程序集运行`TrustedSecurityServicePartialsTests`及`TrustedSecurityWorkbenchTests`；没有设置真实MySQL租约。

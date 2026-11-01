@@ -29,7 +29,9 @@ public sealed class TrustedSecurityServiceFixture:IAsyncLifetime
     internal readonly string DirectoryPath=Path.Combine(Path.GetTempPath(),"metarill-trusted-security",Guid.NewGuid().ToString("N"));
     internal SecurityManagementModelSet Models=null!;internal MetadataCatalog Catalog=null!;internal Assembly Assembly=null!;internal byte[] CatalogBytes=[];
     internal static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){WriteIndented=true,NewLine="\n"};
-    internal static string SourceRoot=>Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"../../../../../"));
+    internal static string SourceRoot=>FindSourceRoot();
+    /// <summary>从固定编译源码定位backend，独占artifacts输出不能改变可信模板来源。</summary>
+    private static string FindSourceRoot([System.Runtime.CompilerServices.CallerFilePath]string file="")=>Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../.."));
     /// <summary>仅从本clone已提交公开模型和内部factory建立模块，整个过程不连接数据库。</summary>
     public async Task InitializeAsync()
     {
