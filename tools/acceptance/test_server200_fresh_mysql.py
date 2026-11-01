@@ -76,6 +76,19 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
         invoke("create");self.assertEqual(token,json.loads(self.state.read_text(encoding="utf-8"))["ownerToken"])
         invoke("cleanup");self.assertFalse(self.state.exists());self.assertEqual(2,sum(s.startswith("DROP DATABASE") for s in self.commands))
 
+    def test_array_targets_are_eight_exact_databases_and_do_not_expand_legacy_all(self):
+        """新八模型只有新显式profile可建立，旧all范围不能被改写。"""
+        self.invoke("create", scenario="array_targets")
+        expected = [f"metarill_fresh_{self.run}_array_t{target}_s{source}_{key}" for target in (0, 1) for source in (0, 1) for key in ("long", "text")]
+        self.assertEqual(expected, json.loads(self.state.read_text(encoding="utf-8"))["databases"])
+        self.invoke("cleanup", scenario="array_targets")
+        self.assertFalse(self.state.exists())
+        self.assertEqual(8, sum(command.startswith("DROP DATABASE") for command in self.commands))
+        self.commands.clear()
+        self.invoke("create", scenario="all")
+        self.assertEqual(8, len(json.loads(self.state.read_text(encoding="utf-8"))["databases"]))
+        self.assertFalse(any("array_t" in command for command in self.commands))
+
     def test_wrong_server_name_stops_before_any_docker_command(self):
         """其他服务器即便可访问，也不可运行该开发验收工具。"""
         with patch.object(subject.subprocess, "check_output", return_value="Production-Server\n") as call:
