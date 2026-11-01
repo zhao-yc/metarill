@@ -59,7 +59,7 @@ public sealed class GlobalCachedCrossExcelMySqlTests
         var names = catalog.ConfigTables.Select(table => table.TableName).ToArray();
         Assert.Equal(lease.Tables.Order(StringComparer.Ordinal), names.Order(StringComparer.Ordinal));
         var root = NonRedundantApplicationFixture.Root(); var evidence = Path.Combine(root, ".local/global-cached-cross-excel-mysql", nonce); Directory.CreateDirectory(evidence);
-        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-cached-cross-excel-sql"); var directory = Path.Combine(boundary, nonce);
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-cached-cross-excel-sql"); var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         using var session = new DatabaseSession(options); var schema = new SchemaService(session); var store = new SqlRowStore(session, catalog);
         var observer = new LateFailure(source); WebApplication? app = null; var created = false; var verified = false; Exception? primary = null;
         var exportActive = 0; var exportReadCount = 0;
@@ -70,7 +70,7 @@ public sealed class GlobalCachedCrossExcelMySqlTests
             if (Volatile.Read(ref exportActive) == 1 && args.Command.CommandText.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase))
             { Assert.Equal(System.Data.IsolationLevel.RepeatableRead, args.Command.Transaction?.IsolationLevel); Assert.False(args.Command.CommandText.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase)); Interlocked.Increment(ref exportReadCount); }
         };
-        await Receipt("intent", new { nonce, role, key, parent, allGlobal, shared, shorter, names, database = options.ExpectedDatabase, verified = false });
+        await Receipt("intent", new { nonce, role, key, parent, allGlobal, shared, shorter, names, temporaryDirectory = directory, database = options.ExpectedDatabase, verified = false });
         try
         {
             var generated = Path.Combine(directory, "generated"); new CSharpGenerator().Generate(catalog, generated, Namespace);
@@ -116,9 +116,11 @@ public sealed class GlobalCachedCrossExcelMySqlTests
             await Sparse("根级", 0, Country, shared ? 0 : -1, shared ? Country : null); await Sparse("中级", 1, Area, shared ? 1 : -1, shared ? Area : null); await Sparse("空值", -1, null, -1, null);
             await session.InTransactionAsync(async () => { await store.InsertAsync(source, Row("id", Lookup + 1, "name", "其它项目", "yz_project_id", 101L, shorter ? "area_id" : "place_id", Key(key, shorter ? Area : Place))); return true; });
             var cells = await Export(); Assert.Equal(4, cells.Count); Assert.False(cells.ContainsKey("其它项目")); Assert.Equal((full, shared ? "国甲/区甲/仓甲" : null), cells["完整"]); Assert.Equal((first, shared ? "国甲//" : null), cells["根级"]); Assert.Equal((middle, shared ? "国甲/区甲/" : null), cells["中级"]); Assert.Equal(((string?)null, (string?)null), cells["空值"]);
+            await Receipt("original-import-export", new { nonce, passed = true, exportRows = cells.Count, sparseStorage = true, originalHeaders = true });
             // 实际下载XLSX后的原文本再走原导入请求，不能用仅调用共享解析工具代替端点往返。
             Data(await Import(cells.Select(cell => Input("往返" + cell.Key, cell.Value.Main, cell.Value.Second)).ToArray())); await Sparse("往返完整", shorter ? 1 : 2, shorter ? Area : Place, shared ? 2 : -1, shared ? Warehouse : null);
             var before = await Snapshot(); Assert.Equal(500, (await Import(Input("回滚首行", full, shared ? "国甲/区甲/仓甲" : null), Input("后置拒绝", full, shared ? "国甲/区甲/仓甲" : null))).GetProperty("code").GetInt32()); Assert.True(observer.ObservedPartialDml); Assert.Equal(before, await Snapshot());
+            await Receipt("roundtrip-and-late-rollback", new { nonce, passed = true, realWorkbookRoundtrip = true, partialDmlRollback = observer.ObservedPartialDml });
             client.DefaultRequestHeaders.Add("denyImport", "1"); Assert.Equal(500, (await Import(Input("拒权", full, null))).GetProperty("code").GetInt32()); client.DefaultRequestHeaders.Remove("denyImport"); Assert.Equal(before, await Snapshot());
             client.DefaultRequestHeaders.Add("denyExport", "1"); Assert.Equal(500, (await Post("initExport", new { })).GetProperty("code").GetInt32()); client.DefaultRequestHeaders.Remove("denyExport");
             // 修改原始全局字典须通过真实生成更新／混合传播，随后Excel必须读取实际新缓存值。
@@ -152,16 +154,14 @@ public sealed class GlobalCachedCrossExcelMySqlTests
             {
                 JsonElement prepared; Volatile.Write(ref exportActive, 1); try { prepared = await Post("initExport", new { }); } finally { Volatile.Write(ref exportActive, 0); }
                 var ticket = Data(prepared).GetString()!; using var response = await client.GetAsync(ExportDownloadAccess.DownloadPath + "?exportId=" + Uri.EscapeDataString(ticket)); Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                using var book = new XLWorkbook(new MemoryStream(await response.Content.ReadAsByteArrayAsync())); var sheet = book.Worksheet(1); var headers = sheet.Row(1).CellsUsed().ToDictionary(cell => cell.GetString(), cell => cell.Address.ColumnNumber);
-                Assert.Contains("名称", headers.Keys); Assert.Contains("区域", headers.Keys); Assert.DoesNotContain("country_id", headers.Keys); Assert.DoesNotContain("area_id", headers.Keys); Assert.DoesNotContain("place_id", headers.Keys);
-                var result = new Dictionary<string, (string?, string?)>(StringComparer.Ordinal);
-                foreach (var row in sheet.RowsUsed().Skip(1)) { Assert.Equal(XLDataType.Text, row.Cell(headers["id"]).DataType); Assert.True(long.Parse(row.Cell(headers["id"]).GetString(), CultureInfo.InvariantCulture) > 9007199254740991); string? Cell(string header) => row.Cell(headers[header]).IsEmpty() ? null : row.Cell(headers[header]).GetString(); result.Add(row.Cell(headers["名称"]).GetString(), (Cell("区域"), shared ? Cell("仓库") : null)); }
-                return result;
+                return ReadOriginalWorkbook(await response.Content.ReadAsByteArrayAsync(), shared, shorter);
             }
             /// <summary>独立连接核对真实物理位，共享字段取两条路径并集的最深节点。</summary>
             async Task Sparse(string name, int depth, long? selected, int secondDepth, long? second)
             {
                 using var independent = new DatabaseSession(options); var row = Assert.Single(await new SqlRowStore(independent, catalog).ReadIncludingDeletedAsync(source), value => Equals(value["name"], name));
+                // 原表头没有ID；精度在真实物理记录与各级键上验证，不能为测试向导出新增列。
+                Assert.True(SqlRowStore.Id(row) > 9007199254740991);
                 var expected = new Dictionary<string, long?> { ["country_id"] = null, ["area_id"] = null }; if (!shorter) expected["place_id"] = null; if (shared) expected["warehouse_id"] = null;
                 var fields = shorter ? new[] { "country_id", "area_id" } : new[] { "country_id", "area_id", "place_id" }; if (depth >= 0) expected[fields[depth]] = selected;
                 if (shared && secondDepth >= 0) { var secondary = new[] { "country_id", "area_id", "warehouse_id" }; expected[secondary[secondDepth]] = second; if (depth > secondDepth || secondDepth > depth) foreach (var ancestor in secondary.Take(Math.Max(depth, secondDepth))) expected[ancestor] = null; }
@@ -185,6 +185,7 @@ public sealed class GlobalCachedCrossExcelMySqlTests
                 await Receipt("cleanup", new { nonce, names, verified, independentTableAbsenceChecked = true, remaining = 0 });
             }
             await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+            await Receipt("local-cleanup", new { nonce, temporaryDirectory = directory, allAbsent = !Directory.Exists(directory) });
             }
             catch (Exception cleanup) when (primary is not null) { throw new AggregateException("真实Excel业务失败且清理未完成，首因与清理异常同时保留。", primary, cleanup); }
         }
@@ -192,6 +193,23 @@ public sealed class GlobalCachedCrossExcelMySqlTests
         Task Receipt(string name, object value) => File.WriteAllTextAsync(Path.Combine(evidence, name + ".json"), JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }) + "\n");
         /// <summary>每次取独立已提交连接下的全部自有表摘要，既验证整批回滚也保护清理对象。</summary>
         async Task<string> Snapshot() { using var independent = new DatabaseSession(options); var data = new SortedDictionary<string, object?>(StringComparer.Ordinal); foreach (var name in names) data[name] = (await new SqlRowStore(independent, catalog).ReadIncludingDeletedAsync(name)).OrderBy(row => SqlRowStore.Id(row)).ToArray(); return Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(data))); }
+    }
+
+    /// <summary>核对实际原导出列及顺序，不假定隐式读取ID会成为Excel列；也供保留的真实失败工作簿离线复验。</summary>
+    internal static Dictionary<string, (string? Main, string? Second)> ReadOriginalWorkbook(byte[] bytes, bool shared, bool shorter)
+    {
+        using var stream = new MemoryStream(bytes); using var book = new XLWorkbook(stream); var sheet = book.Worksheet(1);
+        var labels = sheet.Row(1).CellsUsed().Select(cell => cell.GetString()).ToArray();
+        string[] expected = shared ? shorter ? ["区域", "附件", "名称", "仓库"] : ["附件", "名称", "区域", "仓库"] : ["附件", "名称", "区域"];
+        Assert.Equal(expected, labels);
+        var headers = sheet.Row(1).CellsUsed().ToDictionary(cell => cell.GetString(), cell => cell.Address.ColumnNumber);
+        var result = new Dictionary<string, (string?, string?)>(StringComparer.Ordinal);
+        foreach (var row in sheet.RowsUsed().Skip(1))
+        {
+            string? Cell(string label) => row.Cell(headers[label]).IsEmpty() ? null : row.Cell(headers[label]).GetString();
+            result.Add(row.Cell(headers["名称"]).GetString(), (Cell("区域"), shared ? Cell("仓库") : null));
+        }
+        return result;
     }
 
     /// <summary>只重命名夹具表及控件实际表引用；columnFullName是外键角色路径，不能误当物理表名改写。</summary>

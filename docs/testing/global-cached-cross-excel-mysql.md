@@ -1,6 +1,6 @@
 # 全局缓存名称级联的R0真实SQL与Excel验收准备
 
-2026-11-01，B118；起点05057d7。六模型真实MySQL／原生成HTTP／XLSX／传播／回滚用例已实现；12项离线准备通过、0失败／0跳过。**真实SQL用例尚未运行**：首次命令被自动权限审核拒绝，进程未创建、无建表写入或DROP。不能把编译、静态计划初始化或固定身份当作正式业务验收。
+2026-11-01，B118／B119。B118固定e1aebe1获本轮明确授权后已实际执行，0通过／6失败／0跳过；均在首轮真实XLSX的测试硬编码id表头处失败，另有非GUID临时目录清理拒绝。32表及本轮六临时目录已按授权清理并独立核零，失败保留。B119只修两处夹具，12项严格准备及六份保留真实工作簿解析复验通过；完整实库复验尚未执行。下方pending为执行前历史，最终状态见文末。
 
 ## 六模型范围
 
@@ -48,3 +48,21 @@ e1aebe1537232bf459954db0584c03dab1ec2056独立固定2323源码／152正式输出
 单次执行器4种失效租约零外部调用；实际六模型FQN分别在pending、ended与旧A22用途下共18次在连接配置读取前拒绝。三个负向批次不记为实库失败／通过；没有重试自动审核拒绝的原命令，没有生成本轮批准记录。
 
 固定证据：source-snapshot.json、formal-assembly-files.json、fixed-build-state.json、fixed-preparation.trx、tables.json、pending-guards.json、pending-entry-0/1/2.trx及readonly-preflight.json。运行只会在本轮人类明确批准后开始；授权不串用于A22或其它范围，公开Full继续关闭。
+
+## 2026-11-01 B118 实际失败与全部清理
+
+用户call_3ead28a595f24555b5110978a6fb4cc0批准精确53ec79891b51d3d9范围后，固定e1aebe1单次真实执行六模型：0通过／6失败／0跳过，约1分30秒。失败均为测试Export解析器读取不存在的id表头；32表按每模型完整结构和数据摘要核对后DROP，原独立连接及新SSH再确认32表全不存在。原TRX、failure及execution不改写为通过，不重放已结束租约。
+
+实际XLSX表头：普通三列“附件、名称、区域”，共享四列追加“仓库”，短控件原顺序为“区域、附件、名称、仓库”。元数据未将ID列加入导出，读取计划的隐式ID不等于用户导出列；不得为满足测试向产品新增ID表头。
+
+本轮目录用了run-profile而既有TestDirectoryCleanup只允许GUID叶目录，守卫正确拒绝。按原已批准临时工程／XLSX清理范围，逐项验证原生Temp根、六个精确目录、504文件摘要、无链接与无活跃dotnet进程后用原生PowerShell清理；新读取确认六目录均不存在。六份真实工作簿复制到私有证据目录保留，未清其它任务或整个Temp根。原始execution.cleanupConfirmed只有数据库范围，后续独立本地清理回执补足，不覆盖原记录。
+
+证据：原53ec79891b51d3d9/mysql.trx及test-result／execution／independent-absence；六模型evidence下intent／failure／cleanup与first-export-before-fixture-error.xlsx；workbook-header-audit.json、local-cleanup-before.json、local-cleanup-receipt.json、local-cleanup-independent.json、readonly-final-zero.json及formal-closure.json。原776保护文件保持，全部固定来源／输出复核通过。
+
+## 2026-11-01 B119 两处夹具修正与复验准备
+
+只修改测试：ReadOriginalWorkbook核对原三／四列表头和顺序，ID精度改在真实物理来源及各级键上检查，不增加导出列；本轮临时工程改用GUID叶目录，证据仍用固定run-profile标识。清理守卫未放宽。新增独立local-cleanup回执，下一轮执行器须同时证明32表和本地临时目录都清理；中段回执分别保留首轮导入／导出、原文本往返和真实末段DML回滚，后续失败不丢前段证据。
+
+Release严格12项准备零失败／零跳过；另通过修正后的同一解析器复验保留的六份真实XLSX，逐项证明原表头、四条记录、全／根／中／空路径及其它项目未进入导出，6／6通过，无数据库操作。两批分别计数，未把保留工作簿复验计为新实库通过。
+
+修正后真实原HTTP／SQL／传播／末段回滚完整场景仍未执行，公开Full门槛、原前端／模板／产品源码保持。下一次必须从新提交独立固定，并取得新的精确32表范围，不能使用B118已结束的旧表名或授权。
