@@ -21,7 +21,7 @@ public sealed class FloatingParameterReadOnlyFactAttribute:FactAttribute
 }
 
 /// <summary>真实生产ORM与驱动只执行合成SELECT，不创建持久对象或读取现有业务行。</summary>
-public sealed class MySqlFloatingParameterReadOnlyTests
+public sealed partial class MySqlFloatingParameterReadOnlyTests
 {
     /// <summary>固定二进制位型、真实等值筛选、混合类型、六种执行入口及IgnorePrepare明确拒绝。</summary>
     [FloatingParameterReadOnlyFact]

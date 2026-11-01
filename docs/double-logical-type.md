@@ -51,3 +51,8 @@ A16 新增的 `SchemaService.IndexDirections.cs` 漏登生成助手运行时精�
 ## 2026-11-02：A26真实参数传输修复
 
 A25的文本输入差异已在生产ORM等值筛选复现；A26通过执行时浮点参数预处理修复，当前普通ORM、基础设施和非冗余固定读命令共用该边界。真实合成SELECT／原事务／混合参数／明确忽略Prepare拒绝通过；未进行实表写入或DDL默认值验收，不能据此将A17整体完成。范围、失败与成套更新见[参数传输专项](testing/double-parameter-transport.md)。
+
+
+## 2026-11-02：A27根因补充与可靠文本
+
+后续A27已统一可靠double文本并复现／修复JSON、默认值、只读规则与固定条件证明中的相邻值碰撞；默认常量真实MySQL只读矩阵通过，实际DDL／持久化与完整矩阵仍待。当前源头、失败与成套升级见[规范文本专项](testing/double-text-roundtrip.md)。

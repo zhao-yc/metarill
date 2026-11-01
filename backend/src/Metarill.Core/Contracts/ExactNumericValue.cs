@@ -26,6 +26,13 @@ public static class ExactNumericValue
         result=0;if(!Normalize(value,out var expected)||!double.TryParse(value,NumberStyles.Float,CultureInfo.InvariantCulture,out var parsed)||!double.IsFinite(parsed)||parsed==0&&expected.Digits!="0")return false;
         result=parsed;return true;
     }
+    /// <summary>原文本逐位往返成立才保留；当前R格式失真时回退G17，兼容已有0.1等正常短文本。</summary>
+    public static string FormatDouble(double value)
+    {
+        if(!double.IsFinite(value))throw new ArgumentOutOfRangeException(nameof(value),"浮点文本必须来自有限值。");
+        var text=value.ToString("R",CultureInfo.InvariantCulture);
+        return double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out var parsed)&&BitConverter.DoubleToInt64Bits(value)==BitConverter.DoubleToInt64Bits(parsed)?text:value.ToString("G17",CultureInfo.InvariantCulture);
+    }
     /// <summary>只做有界字符串归一：去前导/尾随零后用十进制幂比较，不分配巨大整数或指数数组。</summary>
     private static bool Normalize(string? value,out Parts result)
     {

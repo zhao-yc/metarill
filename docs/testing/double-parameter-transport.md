@@ -68,3 +68,8 @@ SqlRowStore的事务／自有连接命令，以及MySqlNonRedundantReader的共�
 .tools/dotnet/dotnet.exe test backend/tests/Metarill.Generation.Tests -c Release --nologo --no-restore --disable-build-servers --verbosity quiet -warnaserror --filter "FullyQualifiedName~DoubleStatisticsGenerationTests|FullyQualifiedName~OriginalListStatisticsTests|FullyQualifiedName~Statistics_upgrade_requires_missing_core_runtime_and_preserves_handwritten_service|FullyQualifiedName~Floating_statistics_candidate_requires_the_complete_bounded_runtime|FullyQualifiedName~NonRedundantDoubleGenerationTests"
 .tools/dotnet/dotnet.exe build backend/src/Metarill.Cli -c Release --nologo --no-restore --disable-build-servers -warnaserror
 ```
+
+
+## 2026-11-02：A27根因补充与可靠文本
+
+A27独立在数据库连接前复现R／默认JSON的相邻值文本碰撞，补齐根因与统一格式化修复。A26二进制参数接线仍保留：驱动自身文本格式化不经过平台辅助方法。原A26实测及边界保持，当前JSON、默认值与规则合同见[后续A27专项](double-text-roundtrip.md)。

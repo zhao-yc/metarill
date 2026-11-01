@@ -147,7 +147,14 @@ public sealed class PlatformAdminInitializationTests
         if(kind=="project")f.Target.Row("yz_project",long.Parse(f.Source.DemoProject))["delete_no"]=DateTime.UtcNow;
         if(kind=="admin")f.Target.Row("yz_admin_type",long.Parse(f.Source.DemoAdmin))["delete_no"]=DateTime.UtcNow;
         if(kind=="account"){f.Target.Account["name"]="initial-account";f.Target.Account["delete_no"]=DateTime.UtcNow;}
-        var before=f.TargetSnapshot();await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Execute());Assert.Equal(before,f.TargetSnapshot());
+        var before=f.TargetSnapshot();
+        // C85已将同名账号冲突归为明确业务提示；项目／后台墓碑仍是原目标状态错误。
+        if(kind=="account")
+        {
+            var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Execute());Assert.Equal("初始化账号名已被其他后台或已删除记录占用，请修改已保存的初始化用户名。",error.Message);
+        }
+        else await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Execute());
+        Assert.Equal(before,f.TargetSnapshot());
     }
     /// <summary>重复执行只复用已有账号与超级角色；角色设置及会话按同一原子规则重新应用。</summary>
     [Fact]

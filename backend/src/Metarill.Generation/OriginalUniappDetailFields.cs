@@ -42,7 +42,7 @@ internal static class OriginalUniappDetailFields
         if(f.Column.Type=="double?"&&!string.IsNullOrWhiteSpace(f.Default))
         {
             if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(f.Default,out var floating))throw new InvalidOperationException("原详情浮点默认值无效："+f.Column.Source.ColumnName);
-            return floating==0?"0":floating.ToString("R",CultureInfo.InvariantCulture);
+            return floating==0?"0":global::Metarill.Core.Contracts.ExactNumericValue.FormatDouble(floating);
         }
         if (f.Column.Type is "long" or "long?" or "int?" or "decimal?" && !string.IsNullOrWhiteSpace(f.Default))
         {

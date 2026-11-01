@@ -10,7 +10,7 @@ namespace Metarill.Generation.Tests;
 
 /// <summary>编译执行实际生成Service／DTO；复用明确离线ORM传输，不宣称真实SQL或事务并发通过。</summary>
 [Collection(StandaloneProcessBudgetCollection.Name)]
-public sealed class GeneratedDoubleValueTests
+public sealed partial class GeneratedDoubleValueTests
 {
     /// <summary>普通创建／更新、默认值、主动null及手写非有限钩子走同一生成管线。</summary>
     [Fact]

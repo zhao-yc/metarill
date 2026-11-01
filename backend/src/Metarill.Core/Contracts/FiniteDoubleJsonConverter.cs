@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -26,6 +25,6 @@ public sealed class FiniteDoubleJsonConverter:JsonConverter<double>
     public override void Write(Utf8JsonWriter writer,double value,JsonSerializerOptions options)
     {
         if(!double.IsFinite(value))throw new JsonException("浮点数不能是NaN或无穷大。");
-        if((options.NumberHandling&JsonNumberHandling.WriteAsString)!=0)writer.WriteStringValue(value.ToString("R",CultureInfo.InvariantCulture));else writer.WriteNumberValue(value);
+        if((options.NumberHandling&JsonNumberHandling.WriteAsString)!=0)writer.WriteStringValue(ExactNumericValue.FormatDouble(value));else writer.WriteRawValue(ExactNumericValue.FormatDouble(value));
     }
 }

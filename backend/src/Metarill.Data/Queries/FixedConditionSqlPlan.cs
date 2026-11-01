@@ -64,7 +64,9 @@ public sealed class FixedConditionSqlPlan
         foreach(var term in terms)if(!physicalTypes.TryGetValue(term.Field,out var type)||term.Type.Length>0&&Type(type)!=term.Type)throw new InvalidOperationException("跨表目标条件与已发布物理字段不符。");
     }
     /// <summary>同一类型化常量计划逐项比较，精简目录不能让真实目标条件被遗漏或替换。</summary>
-    internal bool SameConstants(FixedConditionSqlPlan other)=>JsonSerializer.Serialize(terms)==JsonSerializer.Serialize(other.terms);
+    internal bool SameConstants(FixedConditionSqlPlan other)=>JsonSerializer.Serialize(terms,ComparisonJson)==JsonSerializer.Serialize(other.terms,ComparisonJson);
+    // 当前证明不能借默认JSON的R格式把相邻double值判为同一条件。
+    private static readonly JsonSerializerOptions ComparisonJson=new(){Converters={new FiniteDoubleJsonConverter()}};
     /// <summary>表单依赖先按发布的源字段类型绑定，再由目标条件复核，避免源int32借目标int64放宽范围。</summary>
     public static object? BindScalar(object? value,string logicalType)=>Scalar(value,Type(logicalType));
     /// <summary>条件总是作为原查询的AND追加，值用命名参数绑定；调用方仍须先建立真实身份和对象范围。</summary>

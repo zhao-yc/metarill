@@ -578,7 +578,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if(column.Type=="double?")
             {
                 if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(raw,out var floating))throw new InvalidOperationException("浮点默认值必须是有效有限值，不能溢出或下溢为零："+column.Source.ColumnName);
-                raw=floating==0?"0":floating.ToString("R",System.Globalization.CultureInfo.InvariantCulture);
+                raw=floating==0?"0":global::Metarill.Core.Contracts.ExactNumericValue.FormatDouble(floating);
             }
             if (column.Type is "DateTime?") raw = Literal(raw);
             using var parsed = JsonDocument.Parse(raw);

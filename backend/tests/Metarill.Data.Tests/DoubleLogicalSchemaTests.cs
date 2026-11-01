@@ -15,7 +15,7 @@ public sealed class DoubleLogicalSchemaTests
     [InlineData("1.5000","1.5")][InlineData("+1.5e100","1.5E+100")][InlineData("-0.0","0")][InlineData("1.7976931348623157e308","1.7976931348623157E+308")]
     public void Double_column_defaults_roundtrip_without_decimal_narrowing(string value,string expected)
     {
-        var column=Column();column.DefaultValue=value;var compiled=MySqlSchemaPlanner.CompileColumn(column);Assert.Equal("double",compiled.StoreType);Assert.Equal(expected,compiled.DefaultSql);
+        var column=Column();column.DefaultValue=value;var compiled=MySqlSchemaPlanner.CompileColumn(column);Assert.Equal("double",compiled.StoreType);Assert.Equal(expected,compiled.DefaultSql);Assert.Equal(BitConverter.DoubleToInt64Bits(double.Parse(value,CultureInfo.InvariantCulture)==0?0d:double.Parse(value,CultureInfo.InvariantCulture)),BitConverter.DoubleToInt64Bits(double.Parse(compiled.DefaultSql!,CultureInfo.InvariantCulture)));
         var schema=new DatabaseSchema("db",[new("record",[new("id","bigint",false,true),compiled])]);var draft=SchemaImportDraftCompiler.Compile(new(new("mysql",schema,"source"),[]),"123");Assert.True(draft.ColumnsAndIndexesRepresentable,string.Join(";",draft.Issues));Assert.Equal("double",draft.LogicalMetadata.ConfigColumns.Single(item=>item.ColumnName=="value").LogicalType);
         Assert.Empty(MySqlSchemaPlanner.Compare(schema,MySqlSchemaPlanner.Compile(draft.LogicalMetadata,"db")));
         Assert.Contains("`value` double",Assert.Single(MySqlSchemaPlanner.Compare(new("db",[]),schema)).Sql);

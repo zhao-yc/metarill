@@ -106,7 +106,8 @@ public sealed partial class ReadOnlyConditionRule
         if(value is JavaDecimalNumber number)return number;
         if(value is null)return ParseNumber("0");if(value is bool flag)return ParseNumber(flag?"1":"0");
         if(value is not string&&!IsNumber(value))throw Invalid();
-        var text=value is string raw?raw:((IFormattable)value).ToString(value is double or float?"R":null,CultureInfo.InvariantCulture);
+        if(value is double invalid&&!double.IsFinite(invalid))throw Invalid();
+        var text=value is string raw?raw:value is double real?Metarill.Core.Contracts.ExactNumericValue.FormatDouble(real):((IFormattable)value).ToString(value is float?"R":null,CultureInfo.InvariantCulture);
         var first=0;var last=text.Length;while(first<last&&text[first]<=' ')first++;while(last>first&&text[last-1]<=' ')last--;
         return ParseNumber(first==last?"0":text[first..last]);
     }
