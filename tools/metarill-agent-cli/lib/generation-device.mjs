@@ -64,17 +64,31 @@ export async function bindGenerationDevice(context,binding,options,io){
  if(old&&old.bindingId===binding.bindingId&&old.matchesCurrentConfiguration){await saveIntent(binding,io,{...state,status:'bound',associationSha256:old.associationSha256});return {...old,applied:false}}
  await saveIntent(binding,io,state);return submit(context,binding,io,state);
 }
+/** 恢复只核对原意图摘要；同一绑定且当前配置仍匹配，才可确认此前已经登记。 */
+async function readBound(context,binding,state){
+ const current=configuration(await context.rpc(endpoint+'device-configuration',{deviceId:state.deviceId}),binding,state.deviceId);
+ if(current.deviceSha256!==state.body.expectedDeviceSha256||current.configurationSha256!==state.body.expectedConfigurationSha256)return null;
+ const result=view(await context.rpc(endpoint+'device-binding',{deviceId:state.deviceId}),binding,state.deviceId);
+ return result?.bindingId===binding.bindingId&&result.matchesCurrentConfiguration?result:null;
+}
+/** 落盘前再次核对认证身份，原请求与旧CAS逐字保留，不将设备登记视作源码应用。 */
+async function confirmBound(context,binding,io,state,result){
+ io.sameIdentity(binding,await context.identity());await saveIntent(binding,io,{...state,status:'bound',associationSha256:result.associationSha256});return {...result,applied:false};
+}
 /** 响应未知时保留原意图；只在原配置摘要仍相等且回读到当前绑定时确认登记成功。 */
 async function submit(context,binding,io,state){
  let result;
  try{result=view(await context.rpc(endpoint+'bind-device',state.body),binding,state.deviceId,true)}catch(error){
-  try{const current=configuration(await context.rpc(endpoint+'device-configuration',{deviceId:state.deviceId}),binding,state.deviceId);if(current.deviceSha256!==state.body.expectedDeviceSha256||current.configurationSha256!==state.body.expectedConfigurationSha256)throw error;result=view(await context.rpc(endpoint+'device-binding',{deviceId:state.deviceId}),binding,state.deviceId,true)}catch{throw error}
+  try{result=await readBound(context,binding,state);if(!result)throw error}catch{throw error}
  }
- io.sameIdentity(binding,await context.identity());await saveIntent(binding,io,{...state,status:'bound',associationSha256:result.associationSha256});return {...result,applied:false};
+ return confirmBound(context,binding,io,state,result);
 }
-/** 轮询只重放原pending请求，不重新预检采纳新配置，不新增bindingId或默认覆盖旧ETag。 */
+/** 持久pending先回读原意图；无法确认时仅重放原请求，不采纳新配置或默认覆盖旧ETag。 */
 export async function resumeGenerationDevice(context,binding,io){
- const state=await readIntent(binding,io);if(!state||state.status==='bound')return null;await ready(context,binding,io);return submit(context,binding,io,state);
+ const state=await readIntent(binding,io);if(!state||state.status==='bound')return null;await ready(context,binding,io);
+ // 先前POST可能已提交而两次回执均丢失；只读可确认时不重复发起绑定写入。
+ let result;try{result=await readBound(context,binding,state)}catch{result=null}
+ return result?confirmBound(context,binding,io,state,result):submit(context,binding,io,state);
 }
 
 /** 新应用只使用本机已明确登记的同设备/配置/CAS意图；恢复旧事务不调用此当前绑定检查。 */

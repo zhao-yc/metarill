@@ -67,3 +67,47 @@ test('分端新任务匹配已登记意图且不产生额外RPC',async t=>{
  const before=await readFile(f.intent,'utf8'),calls=f.state.calls.length;await verifyGenerationRuntimeDevice(f.binding,f.io,source);assert.equal(await readFile(f.intent,'utf8'),before);assert.equal(f.state.calls.length,calls);
  for(const kind of ['device','configuration','association','path']){const changed=structuredClone(source);if(kind==='device')changed.device.deviceSha256='6'.repeat(64);if(kind==='configuration')changed.device.configurationSha256='6'.repeat(64);if(kind==='association')changed.associationSha256='6'.repeat(64);if(kind==='path')changed.device.backendPathSha256='6'.repeat(64);await assert.rejects(verifyGenerationRuntimeDevice(f.binding,f.io,changed),{code:'helper_runtime_device_changed'})}
 });
+
+/** 服务端已登记而响应和当次回读都未知，下一次恢复必须先查旧意图，不能先重发绑定。 */
+test('持久pending恢复先回读已登记状态，不重复绑定POST',async t=>{
+ const f=await fixture(t),rpc=f.context.rpc;let unavailable=false;
+ f.context.rpc=async(path,body)=>{
+  if(unavailable&&(path.endsWith('/device-configuration')||path.endsWith('/device-binding')))throw new CliError('合成回读暂不可用','network_error');
+  try{return await rpc(path,body)}catch(error){if(path.endsWith('/bind-device'))unavailable=true;throw error}
+ };
+ f.state.failAfter=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io),{code:'network_error'});
+ const pending=JSON.parse(await readFile(f.intent,'utf8'));assert.equal(pending.status,'pending');assert.equal(f.posts().length,1);assert.equal(f.state.association.bindingId,f.binding.bindingId);
+ unavailable=false;f.state.failAfter=false;const before=f.state.calls.length;
+ const result=await resumeGenerationDevice(f.context,f.binding,f.io);assert.equal(result.bindingId,f.binding.bindingId);assert.equal(result.applied,false);assert.equal(f.posts().length,1);
+ assert.deepEqual(f.state.calls.slice(before).map(call=>call.path),['/admin/sys/generation-assistant/helper/device-configuration','/admin/sys/generation-assistant/helper/device-binding']);
+ const bound=JSON.parse(await readFile(f.intent,'utf8'));assert.equal(bound.status,'bound');assert.deepEqual(bound.body,pending.body);
+});
+
+/** 同一绑定编号不够；当前设备／配置摘要不等于原pending时，不能用新配置登记成功或默认换CAS。 */
+test('pending回读的当前配置已变仍保留原请求和旧CAS',async t=>{
+ const f=await fixture(t);f.state.failBefore=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io));
+ const pending=await readFile(f.intent,'utf8'),request=f.posts()[0].body;f.state.failBefore=false;
+ f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true};f.state.current.configurationSha256='4'.repeat(64);
+ await assert.rejects(resumeGenerationDevice(f.context,f.binding,f.io),{code:'remote_error'});assert.equal(await readFile(f.intent,'utf8'),pending);assert.deepEqual(f.posts()[1].body,request);
+});
+
+/** 同binding编号不足以确认；失效关联、其它binding或设备摘要变化都必须交给原请求的服务端校验。 */
+test('pending先回读不将失效关联或变化设备误记成功',async t=>{
+ for(const mode of ['stale','other','device']){
+  const f=await fixture(t);f.state.failBefore=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io));
+  const pending=await readFile(f.intent,'utf8'),request=f.posts()[0].body;
+  f.state.association={deviceId:'11',projectId:'2',bindingId:mode==='other'?randomUUID():f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:mode!=='stale'};
+  if(mode==='device')f.state.current.deviceSha256='4'.repeat(64);
+  const rpc=f.context.rpc;f.context.rpc=async(path,body)=>{if(path.endsWith('/bind-device')){assert.deepEqual(body,request);throw new CliError('合成原请求被拒绝','remote_error')}return rpc(path,body)};
+  await assert.rejects(resumeGenerationDevice(f.context,f.binding,f.io),{code:'remote_error'});assert.equal(await readFile(f.intent,'utf8'),pending);
+ }
+});
+
+/** 先回读成功仍不免除落盘前身份复核；变化时保留pending且没有新增POST。 */
+test('pending回读已登记后身份变化不能落盘成功',async t=>{
+ const f=await fixture(t);f.state.failBefore=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io));
+ const pending=await readFile(f.intent,'utf8');f.state.failBefore=false;
+ f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true};
+ const rpc=f.context.rpc;f.context.rpc=async(path,body)=>{const result=await rpc(path,body);if(path.endsWith('/device-binding'))f.state.identityChanged=true;return result};
+ await assert.rejects(resumeGenerationDevice(f.context,f.binding,f.io),{code:'helper_identity_changed'});assert.equal(await readFile(f.intent,'utf8'),pending);assert.equal(f.posts().length,1);
+});

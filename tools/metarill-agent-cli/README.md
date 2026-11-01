@@ -138,4 +138,4 @@ metarill-agent helper device-bind --device-id 同一设备ID --replace-device-bi
 
 实际固定C#CLI需支持`update capabilities`所声明的分端协议2。预检会固定当前设备/配置摘要；启用端目录摘要必须与本机完整工程匹配。Windows仅统一ASCII大小写和分隔符，POSIX保留大小写；相对路径、点层级、盘根、特殊设备名及含糊目录不自动猜测。
 
-独立私有意图位于绑定work-root下device-binding.json，不改核心v1绑定摘要，不存令牌或路径。响应未知先回读；`helper poll`只重放原pending请求，配置变化不会被自动采纳。此处`applied:false`始终表示没有应用工程源码，关联登记完成也不是批量同步成功。
+独立私有意图位于绑定work-root下device-binding.json，不改核心v1绑定摘要，不存令牌或路径。响应未知先回读；`helper poll`恢复持久pending时也先回读原设备／配置及关联，确认此前已登记便不再POST；无法确认才重放原请求和旧摘要，配置变化不会被自动采纳。此处`applied:false`始终表示没有应用工程源码，关联登记完成也不是批量同步成功。
