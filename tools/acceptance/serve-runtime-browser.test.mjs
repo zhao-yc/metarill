@@ -1,11 +1,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import http from 'node:http';import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
+import http from 'node:http';import {mkdtemp,mkdir,writeFile,readFile,rm,realpath,symlink} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import {createRuntimeBrowserGateway,validateRuntimeBrowser} from './serve-runtime-browser.mjs';
 const listen=server=>new Promise(resolve=>server.listen(0,'127.0.0.1',()=>resolve(server.address().port))),stop=server=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve)});
 const id='11111111-1111-4111-8111-111111111111',run='0123456789abcdef';
+/** 系统临时路径可能含目录别名；只规范化本测试新建根，代理的显式私有目录校验保持原样。 */
+const fixtureRoot=async(base=os.tmpdir())=>realpath(await mkdtemp(path.join(base,'metarill-runtime-browser-')));
 /** 这里后端和静态文件是明确合成的运输合同；不计平台、OAuth或原UI业务验收。 */
 test('真实代理逐字转发、私有会话隔离、未知只丢运输并保持同一批次',async()=>{
- const root=await mkdtemp(path.join(os.tmpdir(),'metarill-runtime-browser-'));let backend,gateway;let posts=0;const receipts=[];
+ const root=await fixtureRoot();let backend,gateway;let posts=0;const receipts=[];
  try{
   const frontend=path.join(root,'frontend'),controls=path.join(root,'control'),credentials=path.join(root,'credentials');await mkdir(path.join(frontend,'unpackage/dist/build/web'),{recursive:true});await mkdir(controls);await mkdir(credentials);await writeFile(path.join(frontend,'unpackage/dist/build/web/index.html'),'本测试只验证运输');await writeFile(path.join(controls,'phase.json'),JSON.stringify({phase:'partial'}));
   backend=http.createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;receipts.push({path:req.url,body});if(req.url.endsWith('/login')){res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({code:200,map:{loginStateId:'仅供合成运输的非真实会话'}}));return}posts++;res.writeHead(200,{'content-type':'application/json','x-upstream-test':'unchanged'}).end(JSON.stringify({code:500,msg:'合成等待',data:{batchId:id,items:[]}}))});const backendPort=await listen(backend);
@@ -23,4 +25,22 @@ test('真实代理逐字转发、私有会话隔离、未知只丢运输并保�
   const trace=await readFile(path.join(controls,'gateway-trace.jsonl'),'utf8');assert.ok(!trace.includes('仅供合成运输的非真实会话'));assert.ok(!trace.includes('本测试不使用真实系统参数'));
   for(const patch of [{browserAddress:'http://example.com:'+port+'/'},{credentialDirectory:frontend},{runId:'invalid'}])assert.throws(()=>validateRuntimeBrowser({...config,...patch}));
  }finally{if(gateway)await stop(gateway);if(backend)await stop(backend);await rm(root,{recursive:true,force:true})}
+});
+
+/** 受控别名模拟借用的Windows临时根；正例要求规范真实路径，显式私有目录别名仍由原守卫拒绝。 */
+test('借用目录别名下的临时夹具可规范化，显式私有目录重解析仍拒绝',async()=>{
+ const temporary=await realpath(os.tmpdir()),owner=await mkdtemp(path.join(temporary,'metarill-runtime-browser-alias-'));let gateway;
+ try{
+  const actual=path.join(owner,'actual'),alias=path.join(owner,'alias');await mkdir(actual);await symlink(actual,alias,process.platform==='win32'?'junction':'dir');
+  assert.notEqual(await realpath(alias),path.resolve(alias));
+  const root=await fixtureRoot(alias),frontend=path.join(root,'frontend'),controls=path.join(root,'controls'),credentials=path.join(root,'credentials');
+  await mkdir(path.join(frontend,'unpackage/dist/build/web'),{recursive:true});await mkdir(controls);await mkdir(credentials);await writeFile(path.join(frontend,'unpackage/dist/build/web/index.html'),'只用于路径合同');
+  const config={runId:run,leaseId:'a'.repeat(32),expiresAt:new Date(Date.now()+60000).toISOString(),frontend,frontendAddress:'http://127.0.0.1:5191/',backendAddress:'http://127.0.0.1:5080/',browserAddress:'http://metarill-runtime-'+run+'.localhost:5191/',controlDirectory:controls,credentialDirectory:credentials};
+  gateway=await createRuntimeBrowserGateway(config);
+  const credentialAlias=path.join(alias,path.basename(root),'credentials');
+  await assert.rejects(createRuntimeBrowserGateway({...config,credentialDirectory:credentialAlias}),/原浏览器目录不允许链接或重解析跳转/);
+ }finally{
+  if(gateway)await stop(gateway);
+  assert.ok(path.resolve(owner).startsWith(temporary+path.sep+'metarill-runtime-browser-alias-'));await rm(owner,{recursive:true,force:true});
+ }
 });
