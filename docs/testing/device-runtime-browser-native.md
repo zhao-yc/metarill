@@ -32,3 +32,14 @@
 H5输入／产物证明及日志位于.local/device-runtime-browser-20261101：frontend-source-before.json、frontend-build-receipt.json、h5-build.log、preparation及retry／closed日志/TRX、gateway-tests首轮／retry／final及gateway-final.log。完整当前来源／65宿主／23 CLI等数量在新固定准备完成后记录，不能借C87已结束的两库租约执行。
 
 有持续进程时由本轮单一执行器保留PID、日志和停止句柄，未知只观察同一进程，不因为轮询超时重启。正式运行前保留精确Server-200新库／账号／临时凭据范围，逐Docker先验证远端身份；完成后按同轮所有权清理并独立核零。只清理本轮浏览器origin，不清用户整个profile。原完整原生HTTP模式继续独立运行，浏览器编排不改变产品、原界面或其它数据库的发布状态。
+
+
+## 2026-11-01 C88 固定来源与精确新范围
+
+6f85c8d28f5e61c563562af885427def02e9a045独立固定2314源码、65宿主文件、23 CLI输出、152正式输出；旧1e57bb9共2297文件完整固定，严格构建零警告错误，固定19项通过／0跳过。正式程序集自身纯文件Verify同时验证真实宿主／CLI／旧源和原Web证明；没有构造批准、连接数据库或启动Ego空间。外层4种失效租约零子进程，实际浏览器FQN以pending／ended／旧管理用途3次预期拒绝，不计正式通过。
+
+首次把工作区H5输入与Git固定检出逐字对照时发现两份历史CRLF差异（pages/main/index.vue及一个测试源），未放宽摘要门槛或改原文件；保留失败和原工作区产物，将现有无链接依赖复制到固定检出，用同一HBuilderX5.34及AppID重新实际发行。最终固定499输入／156 Web文件／4907948字节，2314固定源码再次逐字保持，原776文件亦保持。日志保留uniCloud本地调试workspaceFolder告警，但本项不使用uniCloud服务，随后实际编译／导出Web成功，不隐去该告警。
+
+新的精确范围：metarill_fresh_2ab4b0e2847d0414_platform、metarill_fresh_2ab4b0e2847d0414_business及mtf_2ab4b0e2847d0414@%。Server-200 MySQL8.4.11只读确认两库／账号／所有权不存在。计划在.local/device-runtime-browser-20261101/permission-plan.md，pending／not-started；同轮唯一浏览器origin为metarill-runtime-2ab4b0e2847d0414.localhost加专属端口，只清本origin及本次agent空间。未执行真实浏览器业务，新租约不得复用C87已结束授权。
+
+新增固定证据：fixed-preparation.trx、fixed-build-state.json、browser-prepared-receipt.json、frontend-fixed-build-receipt.json、h5-fixed-build.log、frontend-line-endings.json、compiled-proof-verification.log、pending-guards.json与readonly-preflight.json。源码及原工作区产物分别保留，不将原工作区差异覆盖进固定源。
