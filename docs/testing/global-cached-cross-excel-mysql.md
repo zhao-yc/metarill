@@ -66,3 +66,13 @@ e1aebe1537232bf459954db0584c03dab1ec2056独立固定2323源码／152正式输出
 Release严格12项准备零失败／零跳过；另通过修正后的同一解析器复验保留的六份真实XLSX，逐项证明原表头、四条记录、全／根／中／空路径及其它项目未进入导出，6／6通过，无数据库操作。两批分别计数，未把保留工作簿复验计为新实库通过。
 
 修正后真实原HTTP／SQL／传播／末段回滚完整场景仍未执行，公开Full门槛、原前端／模板／产品源码保持。下一次必须从新提交独立固定，并取得新的精确32表范围，不能使用B118已结束的旧表名或授权。
+
+## 2026-11-01 B119 新来源固定与待批准范围
+
+17d38cc1f3a90acb556287ad4d9dea83d504e592已推送并独立固定2323源码／152正式输出。严格构建零警告错误、固定12项准备复验通过；固定程序集的同一ReadOriginalWorkbook再对六份保留真实工作簿复验6／6通过，与前批重叠不累计。新执行器在连接前固定临时根，并要求每组local-cleanup回执、数据库与本地目录独立核零共同成立；不再将数据库核零等同本地文件清理完成。
+
+新RunId为a57ce58d8a22b4b9，六组32表以mt_gcxe_a57ce58d8a22b4b9_及原模型摘要命名，完整名单由正式程序集输出。Server-200 MySQL8.4.11既定实例只读确认32表全部不存在。精确计划.local/global-cached-cross-excel-mysql-retry-20261101/permission-plan.md，scope摘要3385c419b2c0fb7af32a47e9ea1c31dea0825a86dfe2494def3a54bb26f4022f，pending／not-started，未创建新对象或运行实库复验。
+
+外层4种失效租约零外部调用，六模型实际FQN在pending／ended／旧A22用途三批共18次连接前拒绝。源于B118旧范围的0／6失败、32表清理及六目录／504文件清理保持原记录；旧授权已结束，不覆盖新名字或修正源码。没有通过关闭原操作／增加ID列／放宽GUID守卫或公开Full门槛取得通过。
+
+新固定证据：source-snapshot.json、formal-assembly-files.json、fixed-preparation.trx、fixed-workbook-replay.json、tables.json、pending-guards.json、pending-entry-0/1/2.trx及readonly-preflight.json。原776保护文件保持，当前产品／前端／模板无变化；完整SQL／名称传播／末段回滚的修正后实库结果仍待本轮明确批准。
