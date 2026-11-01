@@ -1,6 +1,6 @@
-# 全局缓存名称级联的R0真实SQL与Excel验收准备
+# 全局缓存名称级联的R0真实SQL与Excel验收
 
-2026-11-01，B118／B119。B118固定e1aebe1获本轮明确授权后已实际执行，0通过／6失败／0跳过；均在首轮真实XLSX的测试硬编码id表头处失败，另有非GUID临时目录清理拒绝。32表及本轮六临时目录已按授权清理并独立核零，失败保留。B119只修两处夹具，12项严格准备及六份保留真实工作簿解析复验通过；完整实库复验尚未执行。下方pending为执行前历史，最终状态见文末。
+2026-11-01，B118／B119。B118固定e1aebe1获本轮明确授权后已实际执行，0通过／6失败／0跳过；均在首轮真实XLSX的测试硬编码id表头处失败，另有非GUID临时目录清理拒绝。32表及本轮六临时目录已按授权清理并独立核零，失败保留。B119只修两处夹具，12项严格准备及六份保留真实工作簿解析复验通过；固定17d38cc获新精确授权后，六模型真实SQL／生成HTTP／XLSX完整复验6通过、0失败／跳过，32表及六GUID临时目录独立核零。下方pending为执行前历史，最终状态见文末。
 
 ## 六模型范围
 
@@ -76,3 +76,22 @@ Release严格12项准备零失败／零跳过；另通过修正后的同一解�
 外层4种失效租约零外部调用，六模型实际FQN在pending／ended／旧A22用途三批共18次连接前拒绝。源于B118旧范围的0／6失败、32表清理及六目录／504文件清理保持原记录；旧授权已结束，不覆盖新名字或修正源码。没有通过关闭原操作／增加ID列／放宽GUID守卫或公开Full门槛取得通过。
 
 新固定证据：source-snapshot.json、formal-assembly-files.json、fixed-preparation.trx、fixed-workbook-replay.json、tables.json、pending-guards.json、pending-entry-0/1/2.trx及readonly-preflight.json。原776保护文件保持，当前产品／前端／模板无变化；完整SQL／名称传播／末段回滚的修正后实库结果仍待本轮明确批准。
+
+## 2026-11-01 B119 六模型真实SQL／XLSX通过并全部清理
+
+用户明确批准新a57ce58d8a22b4b9精确32表后，唯一执行固定17d38cc1f3a90acb556287ad4d9dea83d504e592：2323份源码、152份正式编译输出保持，Server-200 MySQL8.4.11及实例pin匹配。原用例6通过／0失败／0跳过，退出码0，约1分33秒；没有自动重试，未新建库／账号或增加数据库权限。
+
+六模型为根／中／末级全局缓存、其余两级均全局、共享地区分叉及短控件共享地区；来源键／父键按原string／int64组合。每组均实际验证：
+
+- 生产SchemaService建结构，R0只存最深必要ID、不新增名称物理列，大ID字符串及空／部分／完整路径保持。
+- 原生成HTTP导入、原票据下载真实XLSX、原三／四列表头与顺序、四条预期导出记录及原文本再导入；其它项目不进入导出。
+- 导出目标读取实际处于RepeatableRead事务且不使用FOR UPDATE；六模型分别记录12、12、12、12、24、20次目标读取，属于执行轨迹而非性能成绩。
+- 首行真实DML已由同一事务COUNT确认，第二行通知故障后整批快照不变；来源导入／导出减权分别拒绝。
+- 原生成字典更新的全局缓存与级联名称传播、旧名拒绝、重名拒绝，共享两模型的冲突拒绝及失败前后完整数据摘要不变。
+- 结束结构预览零差异，公开Full门槛仍必须拒绝；未借测试通过解除发布条件。
+
+每模型清理前完整结构指纹与数据摘要由独立连接核对，精确DROP五或六张本轮表，再以独立连接及新SSH核对32表全部不存在。原GUID守卫清除六临时工程和合成XLSX，外层再次确认六具体GUID目录均不存在；32表及本地目录两者都为零才记录cleanupConfirmed=true／ended。原776份前端、模板、元数据及生成／手写文件逐字保持，冻结来源／输出重新复核通过。
+
+证据在.local/global-cached-cross-excel-mysql-retry-20261101：authorization.json、a57ce58d8a22b4b9/mysql.trx、六个模型汇总、test-result.json、execution.json、independent-absence.json、independent-local-absence.json及delivery-closure.json；固定源码私有evidence保留每组original-import-export／roundtrip-and-late-rollback／verified／cleanup／local-cleanup。B118原0／6、六份原XLSX、32表及504文件清理证据继续保留，不覆写为成功。
+
+本项使用明确测试Actor，证明真实MySQL和实际生成HTTP／XLSX／事务，不证明Production Web／OAuth、原浏览器、并发或同条件性能。原导入导出开关、三／四列表头、页面、产品与清理守卫均未变化，公开Full继续关闭；其余组合、完整身份和首版门槛保持。
