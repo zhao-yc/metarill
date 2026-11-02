@@ -72,3 +72,5 @@ V35只修复执行链留证缺口：分端保存播种阶段及已成功回执�
 finally先停并独立核零同token全部容器／网络，再按所有权DROP唯一双库／账号、新连接核零，最后清理同轮秘密和数据副本；未知归属／未停进程禁止DROP。--cleanup只用同账本，不重建、不重放。中断／观察超时须核PID和/proc启动ticks，不能猜已停止；清理异常禁止后轮，恢复凭据按Metarill项目备份并附中文说明。DROP及秘密删除不可逆，仅本次合成样本；源码／无密材料／日志及失败证据保留。
 
 这只验初始化与普通身份子集，输出仍performanceAccepted=false／releaseAccepted=false。原三动作／OAuth／CLI、文件／Excel／复杂关系／维护、真实SQL／参数／同数据资源负载、跨端与首版总门槛没有因此关闭。V26／V08／V11继续待验。
+
+后续V37已按7cc3a77重新冻结2408来源／94工具，Linux性能128／管理27全过，单轮pending门禁、39假材料及只读预检通过；详见[1271修复后的单轮准备](paired-native-literal-fix-plan.md)。新轮尚未正式执行，旧三轮scope ended。
