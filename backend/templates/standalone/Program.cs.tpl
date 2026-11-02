@@ -95,7 +95,9 @@ builder.Services.AddScoped<IRecordMutationObserver, FileReferenceMutationObserve
 builder.Services.AddGeneratedServices();
 // 原维护只接已发布宿主目录与同一业务库；显式开发认证不伪造真实Web身份。
 builder.Services.AddScoped<Metarill.Runtime.Maintenance.SystemMaintenanceBusiness>(provider=>new(provider.GetRequiredService<DatabaseSession>(),GeneratedRelationMaintenance.Catalog,provider.GetService<ISecurityIdentityAccessor>()??throw new UnauthorizedAccessException("维护操作需要真实Web身份。")));
-builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddApplicationPart(typeof(Metarill.Api.AgentControllers.AgentOAuthController).Assembly).AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()));
+builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddApplicationPart(typeof(Metarill.Api.AgentControllers.AgentOAuthController).Assembly).AddJsonOptions(options => { options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()); options.JsonSerializerOptions.Converters.Add(new FiniteDoubleJsonConverter()); });
+// MVC与最小接口沿用同一有限浮点转换器，防止默认响应格式合并相邻double；其它JSON约定保持。
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new FiniteDoubleJsonConverter()));
 // 原管理页MVC解析/绑定错误沿平台API的HTTP200/R500；手动DTO及非管理接口保持原拒绝，不回显输入。
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options=>{var original=options.InvalidModelStateResponseFactory;options.InvalidModelStateResponseFactory=context=>context.HttpContext.Request.Path.StartsWithSegments("/api/admin")?new Microsoft.AspNetCore.Mvc.OkObjectResult(R<object>.Error("请求字段类型、字段名或必填项不正确。")):original(context);});
 

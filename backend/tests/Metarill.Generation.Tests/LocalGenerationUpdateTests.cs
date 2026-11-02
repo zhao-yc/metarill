@@ -71,11 +71,13 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
         await GeneratedRelationOptionsMySqlTests.BuildGenerated(compile);
     }
 
-    /// <summary>运行时只更新已登记公共代码；候选摘要也必须同步，文件漂移不允许冒充框架版本。</summary>
-    [Fact]
-    public void Runtime_update_only_changes_runtime_and_manifest_files()
+    /// <summary>前端公共代码及宿主入口均由运行时动作更新；候选摘要同步，私有配置和元数据保持。</summary>
+    [Theory]
+    [InlineData("frontend/common/utils.js")]
+    [InlineData("backend/Application.Host/Program.cs")]
+    public void Runtime_update_only_changes_runtime_and_manifest_files(string runtime)
     {
-        var (target, candidate) = Packages(Catalog(), Catalog()); const string runtime = "frontend/common/utils.js";
+        var (target, candidate) = Packages(Catalog(), Catalog());
         File.AppendAllText(Path.Combine(candidate, runtime), "\n// 新运行时修订。\n"); Rehash(candidate, runtime);
         var updater = new LocalGenerationUpdater(); var plan = updater.Preview(target, candidate, ["sync-runtime"]); Assert.True(plan.CanApply);
         Assert.All(plan.Files.Where(file => file.Action != "preserve"), file => Assert.Contains(file.Scope, new[] { "sync-runtime", "manifest" }));
@@ -136,14 +138,19 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
         catch (PackagePublicationException error) when (error.StageDirectory.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         { publicationFailure = error; PublicationHandleProbe.Capture(error); throw; }
     }
-    /// <summary>测试候选的新框架文件同步维护两层hash，与真实再打包的输出契约一致。</summary>
+    /// <summary>候选按所属清单固定摘要；后端入口不伪造前端归属，前端仍维护两层hash。</summary>
     private static void Rehash(string directory, string path)
     {
         var hash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(directory, path))));
-        var frontendPath = Path.Combine(directory, "frontend/.metarill-frontend.json"); var frontend = JsonNode.Parse(File.ReadAllText(frontendPath))!;
-        frontend["files"]!.AsArray().Single(entry => entry!["path"]!.GetValue<string>() == path["frontend/".Length..])!["sha256"] = hash; File.WriteAllText(frontendPath, frontend.ToJsonString(Json) + "\n");
+        var changed = new List<string> { path };
+        if (path.StartsWith("frontend/", StringComparison.Ordinal))
+        {
+            var frontendPath = Path.Combine(directory, "frontend/.metarill-frontend.json"); var frontend = JsonNode.Parse(File.ReadAllText(frontendPath))!;
+            frontend["files"]!.AsArray().Single(entry => entry!["path"]!.GetValue<string>() == path["frontend/".Length..])!["sha256"] = hash;
+            File.WriteAllText(frontendPath, frontend.ToJsonString(Json) + "\n"); changed.Add("frontend/.metarill-frontend.json");
+        }
         var packagePath = Path.Combine(directory, ".metarill-package.json"); var package = JsonNode.Parse(File.ReadAllText(packagePath))!;
-        foreach (var file in new[] { path, "frontend/.metarill-frontend.json" }) package["files"]!.AsArray().Single(entry => entry!["path"]!.GetValue<string>() == file)!["sha256"] = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(directory, file))));
+        foreach (var file in changed) package["files"]!.AsArray().Single(entry => entry!["path"]!.GetValue<string>() == file)!["sha256"] = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(directory, file))));
         File.WriteAllText(packagePath, package.ToJsonString(Json) + "\n");
     }
     /// <summary>源码快照排除事务控制目录，用实际字节校验应用或恢复结果。</summary>

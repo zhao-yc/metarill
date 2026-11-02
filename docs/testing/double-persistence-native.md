@@ -92,4 +92,14 @@
 
 新运行5fa7c6430b9c5588仅提议唯一库metarill_fresh_5fa7c6430b9c5588_agent、账号mtf_5fa7c6430b9c5588@%，3业务表加11基础表，逐业务表512条合成记录上限、900秒一次执行、不新增CHECK。数据模型仅将对照decimal改为28／9，原真实默认值、CRUD、位型、统计、Excel、首行DML后回滚、撤权和重启断言保持。全部精确表、权限和storage/GUID及不可逆清理范围见.local/double-persistence-range-native-20261102/permission-plan.md；scopeSha256为2c4c50e67d579d12d0c27ea4a882c383b3b60b2384b5f7e01be3347554f945d0。
 
-计划pending／not-started，待本轮直接授权。执行及清理失败不自动重试、不扩大范围；原A30库／账号已清理且一次性租约结束，不覆盖本组新对象。即使本轮通过，也不替代其它关系、实际浏览器／真机或同条件性能及MySQL首版总验收。
+该段记录A31执行前准备。用户随后直接授权，单次执行现已失败并清理结束，详见下一节；旧授权不再用于新批次。
+
+## A31 正式执行：默认值与反查通过，生成响应失败
+
+用户直接授权call_4cb06390e0e3485db1818270815ad0cc后，5fa7c6430b9c5588按原固定03177fb执行一次，正式0通过、1失败、0跳过。通过了Production空库启动不建表、显式14表安装／重复零差异、整表反查双向往返、缺列INSERT四物理double默认逐位核对，以及管理员重复初始化密码保持、原三字段普通账号登录和三菜单归属／非super检查。
+
+失败位于普通及非冗余数值闭环的第一笔普通add回执：amount预期位型0410000000000000，实际040FFFFFFFFFFFFF。没有将“接近相等”改作通过；其后的完整typed矩阵、派生CRUD／筛选、统计、Excel、回滚、撤权和重启均未通过。
+
+新SSH与新连接独立确认唯一库metarill_fresh_5fa7c6430b9c5588_agent、账号mtf_5fa7c6430b9c5588@%不存在，自有宿主停止及storage合成对象清理确认，private-settings／private-ownership删除；execution为passed=false、cleanupConfirmed=true、leaseStatus=ended、privateSettingsDeleted=true、autoRetry=false。原失败TRX／固定包及证据保留，不重用本轮租约。
+
+后续定位并修复独立宿主模板的double JSON登记缺口，见[A32源头修正与HTTP回归](standalone-double-json.md)。已有平台主服务登记正确；本轮未据回执错误宣称数据库写入本身失真。修复提交后的整个数值链仍需新的固定批次正式复验。
