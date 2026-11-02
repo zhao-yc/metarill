@@ -6,7 +6,8 @@ namespace Metarill.Api.GenerationAssistant;
 public sealed record AssistantDeviceScope(long AccountId,string DeviceId,string ProjectId,string ConfigurationId,string DeviceSha256,string ConfigurationSha256,GenerationRuntimeParts Parts,string? BackendPathSha256,string? FrontendPathSha256);
 /// <summary>本机明确设备与目录摘要；替换旧关联必须回读并明确提交旧摘要，不自动覆盖。</summary>
 public sealed record AssistantDeviceBindRequest([property:JsonRequired]string BindingId,[property:JsonRequired]string DeviceId,[property:JsonRequired]string BackendPathSha256,[property:JsonRequired]string FrontendPathSha256,[property:JsonRequired]int RuntimePartsProtocol,[property:JsonRequired]string ExpectedDeviceSha256,[property:JsonRequired]string ExpectedConfigurationSha256,string? ExpectedAssociationSha256=null);
-public sealed record AssistantDeviceBindingView(string DeviceId,string ProjectId,string BindingId,string AssociationSha256,bool MatchesCurrentConfiguration=true);
+/// <summary>回执摘要来自同一持久关联快照；可选新增字段兼容旧客户端，不参与认证授权。</summary>
+public sealed record AssistantDeviceBindingView(string DeviceId,string ProjectId,string BindingId,string AssociationSha256,bool MatchesCurrentConfiguration=true,string? DeviceSha256=null,string? ConfigurationSha256=null);
 internal sealed record AssistantDeviceAssociation(int SchemaVersion,AssistantDeviceScope Scope,string BindingId,long GrantId,string LocalBindingSha256,string IntegritySha256);
 
 /// <summary>查询仅选择当前主体拥有的设备，不接收项目或配置摘要。</summary>

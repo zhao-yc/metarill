@@ -83,7 +83,7 @@ async function fixture(t, managed=false) {
    if(state.failDeviceBefore)return send(null,500,503);
    if(body.expectedDeviceSha256!==state.deviceConfiguration.deviceSha256||body.expectedConfigurationSha256!==state.deviceConfiguration.configurationSha256)return send(null,500);
    if(state.deviceAssociation&&(state.deviceAssociation.bindingId!==body.bindingId||!state.deviceAssociation.matchesCurrentConfiguration)&&body.expectedAssociationSha256!==state.deviceAssociation.associationSha256)return send(null,500);
-   state.deviceAssociation={deviceId:'11',projectId:state.projectId,bindingId:body.bindingId,associationSha256:'d'.repeat(64),matchesCurrentConfiguration:true};
+   state.deviceAssociation={deviceId:'11',projectId:state.projectId,bindingId:body.bindingId,associationSha256:'d'.repeat(64),matchesCurrentConfiguration:true,deviceSha256:state.deviceConfiguration.deviceSha256,configurationSha256:state.deviceConfiguration.configurationSha256};
    if(state.failDeviceAfter)return send(null,500,503);return send(state.deviceAssociation);
   }
   if (request.url === '/api/admin/sys/generation-assistant/helper/claim') return send(state.done ? null : { requestId: state.requestId, bindingId: state.binding.bindingId, projectId: state.foreign ? '999' : state.projectId, rootNamespace: state.binding.rootNamespace, localBindingSha256: state.binding.localBindingSha256, leaseId: state.leaseId, leaseExpiresAt: new Date(Date.now() + 300000).toISOString(), snapshot: state.snapshot, applied: false,...(state.runtimeOrigin?{runtimeOrigin:state.runtimeOrigin}:{}) });

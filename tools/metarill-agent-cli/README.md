@@ -121,9 +121,9 @@ metarill-agent skill install --force
 回执先落本机出箱，服务器已保存但ACK丢失仍按原编号幂等重传；中断apply只核对严格原journal，再恢复同一个本机反查事务，证据不全或用户后来编辑保持unknown并保留现场，绝不盲目重新apply。具体授权、路径、TTL、恢复和实际验收边界见 [在线助手说明](../../docs/generation-assistant.md)。
 
 
-### 原设备项目的一次性关联（C65，真实链路待验收）
+### 原设备项目的一次性关联（C65）
 
-三个设备控制动作已于2026-11-01取得用户明确批准，并由C81登记至原助手专用通道；真实认证、grant、平台管理员、设备拥有权、配置摘要和CAS检查继续执行。当前只有门禁及受控组件证据，真实OAuth／设备关联／批量本机应用仍待C86完整验收，不能把下列命令或替身HTTP结果当作已接通。决定与历史边界见 [设备控制通道决定](../../docs/device-control-gate-decision.md)。原三个单项目按钮不依赖此项。
+三个设备控制动作已于2026-11-01取得用户明确批准，并由C81登记至原助手专用通道；真实认证、grant、平台管理员、设备拥有权、配置摘要和CAS检查继续执行。C87／C88已完成固定双项目的真实OAuth／设备关联／批量本机应用及原浏览器闭环；配置变更、CAS和其它端的完整矩阵仍待验收，不能把下列命令或替身HTTP结果当作新增正式通过。决定与历史边界见 [设备控制通道决定](../../docs/device-control-gate-decision.md)。原三个单项目按钮不依赖此项。
 
 使用配套版本时，按已授权项目选择自己的原设备ID；原设备后端路径应为C#完整应用根，前端路径为该根的frontend目录。保留原字段is_java/java_path/is_uniapp/uniapp_path及开关，不从服务器下发本机目录。
 
@@ -139,3 +139,6 @@ metarill-agent helper device-bind --device-id 同一设备ID --replace-device-bi
 实际固定C#CLI需支持`update capabilities`所声明的分端协议2。预检会固定当前设备/配置摘要；启用端目录摘要必须与本机完整工程匹配。Windows仅统一ASCII大小写和分隔符，POSIX保留大小写；相对路径、点层级、盘根、特殊设备名及含糊目录不自动猜测。
 
 独立私有意图位于绑定work-root下device-binding.json，不改核心v1绑定摘要，不存令牌或路径。响应未知先回读；`helper poll`恢复持久pending时也先回读原设备／配置及关联，确认此前已登记便不再POST；无法确认才重放原请求和旧摘要，配置变化不会被自动采纳。此处`applied:false`始终表示没有应用工程源码，关联登记完成也不是批量同步成功。
+
+
+关联回读还会核对同一持久关联返回的deviceSha256和configurationSha256，避免预检与回读之间配置变化后误认旧pending成功。旧服务端缺少两项摘要时，仅重放原请求并保留原CAS；不把缺失证据的只读回执当成成功。详见[快照一致性修复与验证边界](../../docs/testing/device-association-snapshot.md)。

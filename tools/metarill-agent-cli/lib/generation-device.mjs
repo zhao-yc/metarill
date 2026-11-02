@@ -20,8 +20,12 @@ export function validateDeviceOptions(options,writing=true){
 /** 公开回执只认可当前项目/设备的UUID与摘要，不接受目录、命令或隐式成功。 */
 function view(value,binding,device,required=false){
  if(value===null&&!required)return null;
+ // 新回执的两份摘要必须成对合法；旧服务端两者均缺失时保留原请求CAS兼容。
+ if(value&&(value.deviceSha256!==undefined||value.configurationSha256!==undefined)&&(!validHash(value.deviceSha256)||!validHash(value.configurationSha256)))throw new CliError('设备关联快照摘要无效。','helper_invalid_device_receipt');
  if(!value||value.deviceId!==device||value.projectId!==binding.projectId||!validUuid(value.bindingId)||!validHash(value.associationSha256)||typeof value.matchesCurrentConfiguration!=='boolean'||required&&(value.bindingId!==binding.bindingId||value.matchesCurrentConfiguration!==true))throw new CliError('设备关联回执身份无效。','helper_invalid_device_receipt');return value;
 }
+/** 只有同一关联回执内的双摘要才能证明原意图；前一次配置查询不能为后一次关联作证。 */
+function sameSnapshot(value,deviceSha256,configurationSha256){return value?.deviceSha256===deviceSha256&&value?.configurationSha256===configurationSha256}
 /** 配置预检只读取服务端发布的启用端和摘要，不能从网络接收本机写入路径。 */
 function configuration(value,binding,device){
  const parts=value?.parts;
@@ -55,13 +59,14 @@ export async function bindGenerationDevice(context,binding,options,io){
  const current=configuration(await context.rpc(endpoint+'device-configuration',{deviceId:device}),binding,device);
  if(current.parts.backend&&current.backendPathSha256!==paths.backend||current.parts.frontend&&current.frontendPathSha256!==paths.frontend)throw new CliError('本机工程目录与原设备启用端路径不一致，请先核对配置和目标。','helper_device_path_mismatch');
  const old=view(await context.rpc(endpoint+'device-binding',{deviceId:device}),binding,device);
+ if(old?.matchesCurrentConfiguration&&old.deviceSha256!==undefined&&!sameSnapshot(old,current.deviceSha256,current.configurationSha256))throw new CliError('设备配置在关联预检期间发生变化，请重新读取后确认。','helper_device_configuration_changed');
  const expected=options['replace-device-binding']??null;
  if(old&&(old.bindingId!==binding.bindingId||!old.matchesCurrentConfiguration)&&expected!==old.associationSha256)throw new CliError('当前设备项目已有不同或失效关联，请回读后使用--replace-device-binding '+old.associationSha256+' --confirm明确替换。','helper_device_conflict');
  if(!old&&expected!==null)throw new CliError('原设备关联已不存在，请先重新查询。','helper_device_conflict');
  io.sameIdentity(binding,await context.identity());
  const body={bindingId:binding.bindingId,deviceId:device,backendPathSha256:paths.backend,frontendPathSha256:paths.frontend,runtimePartsProtocol:2,expectedDeviceSha256:current.deviceSha256,expectedConfigurationSha256:current.configurationSha256,expectedAssociationSha256:expected};
  const state={schemaVersion:1,bindingId:binding.bindingId,localBindingSha256:binding.localBindingSha256,deviceId:device,body,status:'pending',associationSha256:null};
- if(old&&old.bindingId===binding.bindingId&&old.matchesCurrentConfiguration){await saveIntent(binding,io,{...state,status:'bound',associationSha256:old.associationSha256});return {...old,applied:false}}
+ if(old&&old.bindingId===binding.bindingId&&old.matchesCurrentConfiguration&&sameSnapshot(old,current.deviceSha256,current.configurationSha256)){await saveIntent(binding,io,{...state,status:'bound',associationSha256:old.associationSha256});return {...old,applied:false}}
  await saveIntent(binding,io,state);return submit(context,binding,io,state);
 }
 /** 恢复只核对原意图摘要；同一绑定且当前配置仍匹配，才可确认此前已经登记。 */
@@ -69,7 +74,7 @@ async function readBound(context,binding,state){
  const current=configuration(await context.rpc(endpoint+'device-configuration',{deviceId:state.deviceId}),binding,state.deviceId);
  if(current.deviceSha256!==state.body.expectedDeviceSha256||current.configurationSha256!==state.body.expectedConfigurationSha256)return null;
  const result=view(await context.rpc(endpoint+'device-binding',{deviceId:state.deviceId}),binding,state.deviceId);
- return result?.bindingId===binding.bindingId&&result.matchesCurrentConfiguration?result:null;
+ return result?.bindingId===binding.bindingId&&result.matchesCurrentConfiguration&&sameSnapshot(result,state.body.expectedDeviceSha256,state.body.expectedConfigurationSha256)?result:null;
 }
 /** 落盘前再次核对认证身份，原请求与旧CAS逐字保留，不将设备登记视作源码应用。 */
 async function confirmBound(context,binding,io,state,result){
@@ -78,7 +83,10 @@ async function confirmBound(context,binding,io,state,result){
 /** 响应未知时保留原意图；只在原配置摘要仍相等且回读到当前绑定时确认登记成功。 */
 async function submit(context,binding,io,state){
  let result;
- try{result=view(await context.rpc(endpoint+'bind-device',state.body),binding,state.deviceId,true)}catch(error){
+ try{
+  result=view(await context.rpc(endpoint+'bind-device',state.body),binding,state.deviceId,true);
+  if(result.deviceSha256!==undefined&&!sameSnapshot(result,state.body.expectedDeviceSha256,state.body.expectedConfigurationSha256))throw new CliError('设备登记回执与原请求快照不一致。','helper_invalid_device_receipt');
+ }catch(error){
   try{result=await readBound(context,binding,state);if(!result)throw error}catch{throw error}
  }
  return confirmBound(context,binding,io,state,result);

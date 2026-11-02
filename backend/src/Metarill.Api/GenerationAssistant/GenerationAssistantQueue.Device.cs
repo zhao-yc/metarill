@@ -76,5 +76,5 @@ public sealed partial class GenerationAssistantQueue
     /// <summary>固定状态文件名不包含本机路径。</summary>
     private static string DeviceName(long account,string device,string project)=>"device-"+account.ToString(CultureInfo.InvariantCulture)+"-"+device+"-"+project+".json";
     /// <summary>公开值只含标识和摘要，不含本机目录、令牌或服务器状态位置。</summary>
-    private static AssistantDeviceBindingView DeviceView(AssistantDeviceAssociation value)=>new(value.Scope.DeviceId,value.Scope.ProjectId,value.BindingId,value.IntegritySha256);
+    private static AssistantDeviceBindingView DeviceView(AssistantDeviceAssociation value)=>new(value.Scope.DeviceId,value.Scope.ProjectId,value.BindingId,value.IntegritySha256,DeviceSha256:value.Scope.DeviceSha256,ConfigurationSha256:value.Scope.ConfigurationSha256);
 }

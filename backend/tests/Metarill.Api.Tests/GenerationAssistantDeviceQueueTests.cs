@@ -26,6 +26,11 @@ public sealed class GenerationAssistantDeviceQueueTests:IDisposable
         Assert.Equal(first,Queue().AssociateDevice(owner,Request(),Scope()));Assert.Equal(bytes,File.ReadAllBytes(file));
         Assert.Equal(first,Queue().DeviceBinding(new(1,"1"),Scope()));Assert.Equal(original,File.ReadAllBytes(core));
         var view=JsonSerializer.Serialize(first);Assert.DoesNotContain("localBinding",view,StringComparison.OrdinalIgnoreCase);Assert.DoesNotContain("token",view,StringComparison.OrdinalIgnoreCase);Assert.True(first.MatchesCurrentConfiguration);
+        Assert.Equal(Scope().DeviceSha256,first.DeviceSha256);Assert.Equal(Scope().ConfigurationSha256,first.ConfigurationSha256);
+        using var response=JsonDocument.Parse(JsonSerializer.Serialize(first,Metarill.Runtime.JsonDefaults.Options));
+        Assert.Equal(7,response.RootElement.EnumerateObject().Count());
+        Assert.Equal(first.DeviceSha256,response.RootElement.GetProperty("deviceSha256").GetString());Assert.Equal(first.ConfigurationSha256,response.RootElement.GetProperty("configurationSha256").GetString());
+        Assert.Equal(first.AssociationSha256,response.RootElement.GetProperty("associationSha256").GetString());
     }
     /// <summary>新目录或设备重置后旧关联失效，但拥有者仍可取得旧ETag以明确重新绑定。</summary>
     [Theory]
@@ -36,8 +41,10 @@ public sealed class GenerationAssistantDeviceQueueTests:IDisposable
         var current=kind switch{"device"=>Scope() with{DeviceSha256=H('6')},"configuration"=>Scope() with{ConfigurationSha256=H('6'),BackendPathSha256=H('7')},_=>Scope() with{Parts=new(true,false),FrontendPathSha256=null}};
         Assert.Throws<UnauthorizedAccessException>(()=>queue.DeviceBinding(new(1,"1"),current));var stale=queue.FindDeviceBinding(new(1,"1"),current)!;
         Assert.False(stale.MatchesCurrentConfiguration);Assert.Equal(first.AssociationSha256,stale.AssociationSha256);
+        // 失效回执必须带原关联快照，不得拼入本次新配置的摘要。
+        Assert.Equal(first.DeviceSha256,stale.DeviceSha256);Assert.Equal(first.ConfigurationSha256,stale.ConfigurationSha256);
         var request=Request() with{BackendPathSha256=current.BackendPathSha256!,ExpectedDeviceSha256=current.DeviceSha256,ExpectedConfigurationSha256=current.ConfigurationSha256,ExpectedAssociationSha256=stale.AssociationSha256};
-        var bound=queue.AssociateDevice(owner,request,current);Assert.True(bound.MatchesCurrentConfiguration);Assert.NotEqual(first.AssociationSha256,bound.AssociationSha256);Assert.Equal(bound,Queue().DeviceBinding(new(1,"1"),current));
+        var bound=queue.AssociateDevice(owner,request,current);Assert.True(bound.MatchesCurrentConfiguration);Assert.Equal(current.DeviceSha256,bound.DeviceSha256);Assert.Equal(current.ConfigurationSha256,bound.ConfigurationSha256);Assert.NotEqual(first.AssociationSha256,bound.AssociationSha256);Assert.Equal(bound,Queue().DeviceBinding(new(1,"1"),current));
     }
     /// <summary>切换核心绑定必须明确旧摘要，不由新的有效grant或单个同项目绑定自动接管。</summary>
     [Fact]

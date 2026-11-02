@@ -14,7 +14,7 @@ async function fixture(t){
   if(state.failBefore)throw new CliError('合成网络未知','network_error');
   if(body.expectedDeviceSha256!==state.current.deviceSha256||body.expectedConfigurationSha256!==state.current.configurationSha256)throw new CliError('合成配置已变化','remote_error');
   if(state.association&&(state.association.bindingId!==body.bindingId||!state.association.matchesCurrentConfiguration)&&body.expectedAssociationSha256!==state.association.associationSha256)throw new CliError('合成旧摘要冲突','remote_error');
-  state.association={deviceId:body.deviceId,projectId:'2',bindingId:body.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true};
+  state.association={deviceId:body.deviceId,projectId:'2',bindingId:body.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true,deviceSha256:state.current.deviceSha256,configurationSha256:state.current.configurationSha256};
   if(state.failAfter)throw new CliError('合成回执未知','network_error');return structuredClone(state.association);
  }};
  const io={sameIdentity:(_binding,value)=>{if(value.changed)throw new CliError('合成身份变化','helper_identity_changed')},safePath:async path=>assert.ok(resolve(path).startsWith(resolve(work)+sep)),atomicJson:async(path,value)=>writeFile(path,JSON.stringify(value)),runCli:async(_binding,args)=>{
@@ -28,6 +28,7 @@ test('设备意图只存固定ID/摘要，三元绑定保持且未应用源码',
  const f=await fixture(t);const original=structuredClone(f.binding);const result=await bindGenerationDevice(f.context,f.binding,f.options,f.io);assert.equal(result.applied,false);assert.equal(result.bindingId,f.binding.bindingId);assert.deepEqual(f.binding,original);
  const text=await readFile(f.intent,'utf8');assert.ok(!text.includes(f.binding.target));assert.ok(!text.includes(f.binding.apiBaseUrl));const intent=JSON.parse(text);assert.equal(intent.status,'bound');assert.equal(intent.body.expectedConfigurationSha256,f.state.current.configurationSha256);assert.equal(f.posts().length,1);
  assert.equal(await resumeGenerationDevice(f.context,f.binding,f.io),null);
+ const repeated=await bindGenerationDevice(f.context,f.binding,f.options,f.io);assert.equal(repeated.bindingId,result.bindingId);assert.equal(f.posts().length,1);
 });
 test('响应丢失后先只读核验，已登记不重复POST',async t=>{
  const f=await fixture(t);f.state.failAfter=true;const result=await bindGenerationDevice(f.context,f.binding,f.options,f.io);assert.equal(result.applied,false);assert.equal(f.posts().length,1);assert.equal(JSON.parse(await readFile(f.intent,'utf8')).status,'bound');
@@ -87,7 +88,7 @@ test('持久pending恢复先回读已登记状态，不重复绑定POST',async t
 test('pending回读的当前配置已变仍保留原请求和旧CAS',async t=>{
  const f=await fixture(t);f.state.failBefore=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io));
  const pending=await readFile(f.intent,'utf8'),request=f.posts()[0].body;f.state.failBefore=false;
- f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true};f.state.current.configurationSha256='4'.repeat(64);
+ f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true,deviceSha256:f.state.current.deviceSha256,configurationSha256:f.state.current.configurationSha256};f.state.current.configurationSha256='4'.repeat(64);
  await assert.rejects(resumeGenerationDevice(f.context,f.binding,f.io),{code:'remote_error'});assert.equal(await readFile(f.intent,'utf8'),pending);assert.deepEqual(f.posts()[1].body,request);
 });
 
@@ -107,7 +108,73 @@ test('pending先回读不将失效关联或变化设备误记成功',async t=>{
 test('pending回读已登记后身份变化不能落盘成功',async t=>{
  const f=await fixture(t);f.state.failBefore=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io));
  const pending=await readFile(f.intent,'utf8');f.state.failBefore=false;
- f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true};
+ f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true,deviceSha256:f.state.current.deviceSha256,configurationSha256:f.state.current.configurationSha256};
  const rpc=f.context.rpc;f.context.rpc=async(path,body)=>{const result=await rpc(path,body);if(path.endsWith('/device-binding'))f.state.identityChanged=true;return result};
  await assert.rejects(resumeGenerationDevice(f.context,f.binding,f.io),{code:'helper_identity_changed'});assert.equal(await readFile(f.intent,'utf8'),pending);assert.equal(f.posts().length,1);
+});
+
+/** 配置和关联分两次读取；后一响应必须证明仍属于原pending快照，不能借同binding编号确认新配置。 */
+test('pending回读跨越配置变更时保留旧意图并交给原CAS拒绝',async t=>{
+ for(const field of ['deviceSha256','configurationSha256']){
+  const f=await fixture(t);f.state.failBefore=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io));
+  const pending=await readFile(f.intent,'utf8'),request=f.posts()[0].body;f.state.failBefore=false;
+  const rpc=f.context.rpc;f.context.rpc=async(path,body)=>{
+   if(path.endsWith('/device-binding')){
+    f.state.current[field]='4'.repeat(64);
+    f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'b'.repeat(64),matchesCurrentConfiguration:true,deviceSha256:f.state.current.deviceSha256,configurationSha256:f.state.current.configurationSha256};
+   }
+   return rpc(path,body);
+  };
+  await assert.rejects(resumeGenerationDevice(f.context,f.binding,f.io),{code:'remote_error'});
+  assert.equal(await readFile(f.intent,'utf8'),pending);assert.deepEqual(f.posts()[1].body,request);
+ }
+});
+
+/** 显式登记也不能将先前预检与另一快照的现有关联拼接成功；不写新意图，不提交绑定。 */
+test('登记预检跨配置的关联回执明确拒绝且不覆盖本地意图',async t=>{
+ const f=await fixture(t),rpc=f.context.rpc;
+ f.context.rpc=async(path,body)=>{
+  if(path.endsWith('/device-binding')){
+   f.state.current.configurationSha256='4'.repeat(64);
+   f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'b'.repeat(64),matchesCurrentConfiguration:true,deviceSha256:f.state.current.deviceSha256,configurationSha256:f.state.current.configurationSha256};
+  }
+  return rpc(path,body);
+ };
+ await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io),{code:'helper_device_configuration_changed'});
+ assert.equal(f.posts().length,0);await assert.rejects(lstat(f.intent),{code:'ENOENT'});
+});
+
+/** 旧服务端缺少快照证据时不凭只读回执确认，只重放原请求让原服务端验证CAS。 */
+test('旧格式关联回执只经原请求CAS确认而不误作快照证明',async t=>{
+ const f=await fixture(t);f.state.failBefore=true;await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io));
+ const original=f.posts()[0].body;f.state.failBefore=false;
+ f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true};
+ const rpc=f.context.rpc;f.context.rpc=async(path,body)=>{
+  const result=await rpc(path,body);
+  if(result&&(path.endsWith('/device-binding')||path.endsWith('/bind-device'))){delete result.deviceSha256;delete result.configurationSha256}
+  return result;
+ };
+ const result=await resumeGenerationDevice(f.context,f.binding,f.io);
+ assert.equal(result.applied,false);assert.equal(f.posts().length,2);assert.deepEqual(f.posts()[1].body,original);assert.equal(JSON.parse(await readFile(f.intent,'utf8')).status,'bound');
+});
+
+/** 摘要必须成对且类型正确；状态查询也不能接受半份新合同后回退旧格式。 */
+test('半份或非法新快照回执在写入前拒绝',async t=>{
+ for(const proof of [{deviceSha256:'2'.repeat(64)},{configurationSha256:'3'.repeat(64)},{deviceSha256:null,configurationSha256:null},{deviceSha256:['2'.repeat(64)],configurationSha256:'3'.repeat(64)}]){
+  const f=await fixture(t);f.state.association={deviceId:'11',projectId:'2',bindingId:f.binding.bindingId,associationSha256:'a'.repeat(64),matchesCurrentConfiguration:true,...proof};
+  await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io),{code:'helper_invalid_device_receipt'});
+  assert.equal(f.posts().length,0);await assert.rejects(lstat(f.intent),{code:'ENOENT'});
+ }
+});
+
+/** 新服务端登记回执有明确快照时必须匹配原请求；未知后的回读同样不能确认另一配置。 */
+test('登记响应快照与原请求不符时保留pending',async t=>{
+ const f=await fixture(t),rpc=f.context.rpc;
+ f.context.rpc=async(path,body)=>{
+  const result=await rpc(path,body);
+  if(path.endsWith('/bind-device')){f.state.current.configurationSha256='4'.repeat(64);return {...result,configurationSha256:f.state.current.configurationSha256}}
+  return result;
+ };
+ await assert.rejects(bindGenerationDevice(f.context,f.binding,f.options,f.io),{code:'helper_invalid_device_receipt'});
+ const intent=JSON.parse(await readFile(f.intent,'utf8'));assert.equal(intent.status,'pending');assert.equal(intent.body.expectedConfigurationSha256,'3'.repeat(64));assert.equal(f.posts().length,1);
 });
