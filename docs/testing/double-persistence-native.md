@@ -138,6 +138,18 @@
 
 运行2671cc1240b94469，仅计划唯一库metarill_fresh_2671cc1240b94469_agent、临时账号mtf_2671cc1240b94469@%，原三业务表加十一基础表，每业务表最多512条合成记录，900秒一次执行，不新增CHECK。完整原默认值／反查／真实Web／CRUD／统计／原XLSX／回滚／撤权／重启断言继续，未因本轮夹具修正缩减为仅导出验证。
 
-精确表／权限和storage/GUID合成文件清理说明：.local/double-persistence-export-native-20261102/permission-plan.md；范围摘要338df7eb3ec7a9e7d5bb607daaac98e955434334483993490c4281b2abf17dfd。当前pending／not-started，待新的直接授权；A33的207e26147134d5ff及其它历史租约已结束，不覆盖新对象和来源。执行后须先停自有宿主，再清本轮合成存储，按实例及所有权清同轮库／账号并以新连接和独立新SSH核零；失败不自动重试。
+精确表／权限和storage/GUID合成文件清理说明：.local/double-persistence-export-native-20261102/permission-plan.md；范围摘要338df7eb3ec7a9e7d5bb607daaac98e955434334483993490c4281b2abf17dfd。此段记录A35正式前pending准备；随后已取得本轮直接授权并单次通过及清理结束，见末节。A33及其它历史租约仍不覆盖新对象和来源。执行后须先停自有宿主，再清本轮合成存储，按实例及所有权清同轮库／账号并以新连接和独立新SSH核零；失败不自动重试。
 
-A35尚无正式结果，不能关闭完整数值链或MySQL首版门槛；旧A33失败／工作簿／首因和清理证据均保留。
+准备阶段没有正式结果；本轮随后正式通过，只关闭下述固定三表数值子集，MySQL首版总门槛仍保留。旧A33失败／工作簿／首因和清理证据保持。
+
+## A35 正式完整三表数值闭环通过及独立核零
+
+用户直接授权call_01a822adb18941389ca3ade20c20a572后，固定0ba933018cf3105a6e3f35809c94b6ded8d11caf／2671cc1240b94469按精确计划执行一次，正式TRX为1通过、0失败、0跳过，外层完整证据核验passed=true。真正公开FullApplication／Production Web、原三字段普通账号／三菜单归属和动作许可、14表显式安装／重复零差异均通过，无固定测试身份注入。
+
+通过原三业务表的实际四double默认、整表结构反查双向零差异、77行有限位型／极值／相邻值／boxed float持久矩阵、精确字符串ID和decimal对照、普通及非冗余生成CRUD／派生筛选／父范围、可省略与显式null、统计合法Max抵消／最小值保留／最终溢出拒绝。两个原手写partial各自观察到首行真实DML及0410000000000000位型、同一事务后拒绝第二行，整批三表快照不变；不是仅在第一条SQL之前报错。
+
+普通导出独立样本的生成回执、实际物理值、原分页值、数值非公式XLSX、原SheetJS选择方法及真实再导入均逐位通过；非冗余导出继续核对measurement上值、相邻下值和customerAmount下值，原派生只读门禁保持。两页真实撤权拒绝／无写入、同地址宿主重启保留会话、注销后拒绝、末段结构零差异及源／包摘要保护全部通过。A33夹具首因确已修正，旧失败不改名。
+
+本轮原宿主停止、独占storage合成uploads／exports删除确认；远端所有权清理及新连接、独立新SSH确认metarill_fresh_2671cc1240b94469_agent和mtf_2671cc1240b94469@%不存在，私有settings／ownership已删除。execution为passed=true、cleanupConfirmed=true、leaseStatus=ended、privateSettingsDeleted=true、autoRetry=false。结束后check-only再次frozenVerified=true／childProcesses=0，723个原前端／元数据／生成／手写文件字节保持。
+
+formal-delivery、native.trx、verified、numeric-verified、两个原事务钩子、清理和独立核零回执留在.local/double-persistence-export-native-20261102。仅关闭固定MySQL三表数值正式链；browserExecuted=false、performanceExecuted=false，其它关系／平台业务库组合、跨端、TLS／并发／同条件性能和MySQL首版总验收仍按进度表继续，不合main或部署生产。
