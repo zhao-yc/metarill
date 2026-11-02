@@ -14,6 +14,25 @@ subject = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(subject)
 
 
+class MySqlFailureEvidenceTests(unittest.TestCase):
+    """错误编号有助定位，SQL或凭据不能进入可导出的异常证据。"""
+    def test_only_standard_mysql_error_number_is_preserved(self):
+        stderr = "ERROR 1054 (42S22) at line 1: private SQL password=secret-value"
+        result = mock.Mock(returncode=1, stdout="", stderr=stderr)
+        with patch.object(subject, "verify_server"), patch.object(subject.subprocess, "run", return_value=result), self.assertRaises(RuntimeError) as captured:
+            subject.mysql("private-statement")
+        self.assertEqual(captured.exception.database_error_number, 1054)
+        self.assertNotIn("secret-value", str(captured.exception))
+        self.assertNotIn("private-statement", str(captured.exception))
+
+    def test_unrecognized_stderr_is_not_exported(self):
+        result = mock.Mock(returncode=1, stdout="", stderr="secret-value ERROR 1054 (42S22)")
+        with patch.object(subject, "verify_server"), patch.object(subject.subprocess, "run", return_value=result), self.assertRaises(RuntimeError) as captured:
+            subject.mysql("private-statement")
+        self.assertFalse(hasattr(captured.exception, "database_error_number"))
+        self.assertNotIn("secret-value", str(captured.exception))
+
+
 class FreshMysqlOwnershipTests(unittest.TestCase):
     """创建中断与清理错误时，也不得触碰本轮所有权之外的库或账号。"""
     def setUp(self):

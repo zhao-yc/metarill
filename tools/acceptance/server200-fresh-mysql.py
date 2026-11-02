@@ -23,7 +23,11 @@ def mysql(sql):
         'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot --batch --skip-column-names'],
         input=sql, text=True, capture_output=True, timeout=45)
     if result.returncode:
-        raise RuntimeError("MySQL 随机验收对象操作失败，保留所有权记录供安全清理。")
+        error = RuntimeError("MySQL 随机验收对象操作失败，保留所有权记录供安全清理。")
+        # 仅附标准错误编号；SQL、连接参数与错误正文仍留在内存且不回显。
+        code = re.search(r"^ERROR ([0-9]{4,5}) \([0-9A-Z]{5}\)", result.stderr, re.MULTILINE)
+        if code: error.database_error_number = int(code[1])
+        raise error
     return result.stdout.strip()
 
 

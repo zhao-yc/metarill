@@ -332,6 +332,18 @@ def business_counts(mysql, value):
     return {database: {table: int(mysql.mysql(f"SELECT COUNT(*) FROM `{database}`.`{table}`;")) for table in ("sample_customer", "sample_contract", "sample_contract_line")} for database in value["databases"]}
 
 
+def failure_evidence(error):
+    """只输出预定义故障码和标准MySQL编号，不序列化SQL、账号、凭据或异常正文。"""
+    codes = {"真实MySQL实例与pin不符": "seed-instance-mismatch", "原后台归属尚未正确初始化": "seed-realm-mismatch",
+             "C#原安全初始化未建立项目归属": "seed-project-mismatch", "测试账号、角色或授权种子已存在，拒绝覆盖": "seed-collision",
+             "播种后逐字段独立回读不符": "seed-readback-mismatch",
+             "MySQL 随机验收对象操作失败，保留所有权记录供安全清理。": "mysql-operation-failed"}
+    result = {"code": codes.get(str(error), "unclassified")}
+    number = getattr(error, "database_error_number", None)
+    if type(number) is int and 1000 <= number <= 99999: result["databaseErrorNumber"] = number
+    return result
+
+
 def run(value):
     """一次串起显式初始化/播种/HTTP；finally独立清理，失败不自动重放已执行的写入。"""
     descriptor = validate(value); verify_tool_sources(value); root = resources.root_for(value["runId"])
@@ -372,7 +384,12 @@ def run(value):
         if security.get("status") != "initialized": raise RuntimeError("C#原安全初始化未成功")
         stage("同逻辑普通身份播种与逐字段回读")
         seed_lease = {**value, "purpose": "paired-identity-seed-v1", "leaseStatus": "running", "fixtureSha256": seed.fingerprint(fixture)}
-        state["identitySeeds"] = [seed.apply(seed_lease, t, fixture, mysql.mysql) for t in ("java", "csharp")]
+        state["identitySeeds"] = []
+        for target in ("java", "csharp"):
+            # 每端单次执行并立即保留已成功范围，另一端失败不能抹去首因定位。
+            stage(("Java" if target == "java" else "C#") + "普通身份播种与逐字段回读")
+            state["identitySeeds"].append(seed.apply(seed_lease, target, fixture, mysql.mysql))
+            resources.write_state(state_path, state)
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
         targets = {t: {"container": "metarill-perf-" + value["runId"] + "-" + t, "expectedImageId": resources.IMAGES[t], "containerPort": 8080, "baseUrl": f"http://127.0.0.1:{value['ports'][t]}/api"} for t in ("java", "csharp")}
         probe = http.Server200LocalProbe(); before = http.equal_limits(probe, targets)
@@ -387,6 +404,7 @@ def run(value):
         state["resourceEvidence"] = before; state["passed"] = True
     except Exception as error:
         state["errorType"] = type(error).__name__
+        state["failure"] = failure_evidence(error)
     finally:
         cleanup_run(root, value, descriptor, mysql, state, state_path)
     return state

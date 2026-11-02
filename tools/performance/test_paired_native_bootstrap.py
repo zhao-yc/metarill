@@ -306,6 +306,32 @@ class CleanupRecoveryTests(FlowFixture):
         self.assertFalse(result["passed"]);self.assertEqual(result["errorType"],"RuntimeError");self.assertEqual(result["cleanupErrors"],[])
 
 
+class FailureEvidenceTests(unittest.TestCase):
+    """证据必须不含原异常正文，失败端和已完成播种分别保存。"""
+    def test_exception_details_are_not_serialized(self):
+        error = RuntimeError("private SQL password=secret-value")
+        error.database_error_number = "secret-value"
+        self.assertEqual(subject.failure_evidence(error), {"code": "unclassified"})
+        error = RuntimeError("播种后逐字段独立回读不符")
+        error.database_error_number = 1054
+        self.assertEqual(subject.failure_evidence(error), {"code": "seed-readback-mismatch", "databaseErrorNumber": 1054})
+
+
+class PartialSeedFailureTests(FlowFixture):
+    """另一端播种失败保留此前成功回执，但整链仍失败并正常清理。"""
+    def test_second_target_failure_keeps_first_target_and_never_starts_http(self):
+        def fail_second(lease, target, fixture, query):
+            if target == "csharp": raise RuntimeError("播种后逐字段独立回读不符")
+            return {"target": "java", "verifiedRows": 12}
+        with mock.patch.object(subject.seed, "apply", side_effect=fail_second), contextlib.redirect_stdout(io.StringIO()): result = subject.run(self.value)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["stage"], "C#普通身份播种与逐字段回读")
+        self.assertEqual(result["identitySeeds"], [{"target": "java", "verifiedRows": 12}])
+        self.assertEqual(result["failure"], {"code": "seed-readback-mismatch"})
+        self.assertEqual(result["cleanupErrors"], [])
+        self.identity.assert_not_called()
+
+
 class ActualPrivateCleanupTests(unittest.TestCase):
     """真实POSIX目录清理仅在Linux执行，Windows不冒充unlink/rmtree安全证明。"""
     @unittest.skipUnless(os.name=="posix","真实私有材料清理只在Linux验证")
