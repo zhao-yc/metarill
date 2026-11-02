@@ -36,13 +36,14 @@ public sealed class TimeValueNativeMySqlTests
         Assert.Equal(Path.GetFullPath(path),Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));
         using var settingsDocument=JsonDocument.Parse(await File.ReadAllTextAsync(path));var settings=settingsDocument.RootElement;
         var root=NonRedundantApplicationFixture.Root();var run=TimeValueNativeLease.Validate(settings,CSharpGenerator.SafePath(root,".local/time-values-native/prepared"));
+        var instancePin=TimeValueNativeLease.ReadInstancePin(settings.GetProperty("InstancePin"));
         var options=FreshInstallConfiguration.Read("AgentDatabase","agent");var proof=settings.GetProperty("TimeValuePreparation").Deserialize<GlobalCachedPackageProof>()!;
         var catalog=TimeValueNativePreparation.Verify(proof);var copied=TimeValueNativePreparation.CopyForExecution(proof,CSharpGenerator.SafePath(root,".local/time-values-native/"+run+"/execution/application"));
         var evidence=CSharpGenerator.SafePath(root,".local/time-values-native/"+run+"/evidence");Directory.CreateDirectory(evidence);
         var ownedBoundary=Path.Combine(evidence,"files");var owned=Path.Combine(ownedBoundary,Guid.NewGuid().ToString("N"));
         var hostDirectory=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host");var assembly=CSharpGenerator.SafePath(hostDirectory,"bin/Release/net10.0/Application.Host.dll");
         var username="time-values-owner";var password=Guid.NewGuid().ToString("N");FreshHost? host=null;var passed=false;var stage="租约/实例";
-        using var session=new DatabaseSession(options);await Pin(session,settings.GetProperty("InstancePin"));var store=new SqlRowStore(session,catalog);
+        using var session=new DatabaseSession(options);await Pin(session,instancePin);var store=new SqlRowStore(session,catalog);
         var fileCatalog=await Model("files");var security=await Model("security");
         var physical=MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(catalog,fileCatalog),security),AgentFoundationCatalog.ForApplication(catalog));
         ProcessStartInfo Info(string? operation=null)
@@ -156,9 +157,9 @@ public sealed class TimeValueNativeMySqlTests
     /// <summary>范围仅限本轮已登记的合成三表记录。</summary>
     private static Dictionary<string,object?> Row(params object?[] values){var result=new Dictionary<string,object?>();for(var i=0;i<values.Length;i+=2)result[(string)values[i]!]=values[i+1];return result;}
     /// <summary>在任何DDL前读实例及真实登录主体，固定随机库和受限临时账号。</summary>
-    private static async Task Pin(DatabaseSession session,JsonElement pin)
+    private static async Task Pin(DatabaseSession session,TimeValueInstancePin pin)
     {
-        await using var connection=session.Provider.CreateConnection(session.Options);await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid,CURRENT_USER(),@@sql_mode";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync());Assert.Equal(session.Options.ExpectedDatabase,reader.GetString(0));Assert.Equal(pin.GetProperty("expectedHostname").GetString(),reader.GetString(1));Assert.Equal(pin.GetProperty("expectedServerUuid").GetString(),reader.GetString(2));Assert.StartsWith(new MySqlConnector.MySqlConnectionStringBuilder(session.Options.ConnectionString).UserID+"@",reader.GetString(3));Assert.DoesNotContain("TIME_TRUNCATE_FRACTIONAL",reader.GetString(4).Split(','));
+        await using var connection=session.Provider.CreateConnection(session.Options);await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid,CURRENT_USER(),@@sql_mode";await using var reader=await command.ExecuteReaderAsync();Assert.True(await reader.ReadAsync());Assert.Equal(session.Options.ExpectedDatabase,reader.GetString(0));Assert.Equal(pin.ExpectedHostname,reader.GetString(1));Assert.Equal(pin.ExpectedServerUuid,reader.GetString(2));Assert.StartsWith(new MySqlConnector.MySqlConnectionStringBuilder(session.Options.ConnectionString).UserID+"@",reader.GetString(3));Assert.DoesNotContain("TIME_TRUNCATE_FRACTIONAL",reader.GetString(4).Split(','));
     }
     /// <summary>只执行编译期固定只读计数；不读取SQL正文或其它数据库行。</summary>
     private static async Task<long> Scalar(DatabaseSession session,string sql){await using var connection=session.Provider.CreateConnection(session.Options);await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText=sql;return Convert.ToInt64(await command.ExecuteScalarAsync(),CultureInfo.InvariantCulture);}

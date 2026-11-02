@@ -1,0 +1,21 @@
+# TIME实例标识输入与配置传输预检（C101）
+
+日期：2026-11-02，起点7cc3110。C100固定c999d9f／af043c6457947965正式执行失败，原因是外层协调器复用另一执行器的InstancePin形状hostname／serverUuid，而原TIME驱动要求expectedHostname／expectedServerUuid。该适配错误发生在实例核对，尚未进入应用结构安装或业务HTTP／TIME验收。
+
+## 原失败与清理
+
+直接授权后C100单次正式0通过／1失败／0跳过；错误为Pin读取必需JSON键时KeyNotFound。原固定源码及协调器字段、TRX均保留，没有改产品适配规则或把空库创建计作TIME通过。新连接及独立新SSH确认同轮唯一库／账号不存在，storage收尾确认、私有settings／ownership删除，execution为passed=false、cleanupConfirmed=true、leaseStatus=ended、privateSettingsDeleted=true、autoRetry=false；旧租约结束，不能自动复用。
+
+## 副作用前合同修正
+
+测试基础设施新增强类型TimeValueInstancePin，严格读取原两个字段并校验规范host／UUID，拒绝缺字段、另一适配器字段、坏类型、重复及额外字段。TimeValueNativeLease在包复制和连接之前校验此合同，实际Pin只使用已校验值；不增加别名容错，不静默接受错误形状。
+
+负向回归先复现：原14项配置组合12过／2败，缺InstancePin和C100实际错误形状均未被副作用前门禁拒绝。修正后严格Release29项全部通过、0失败／0跳过：TIME准备16、实例输入8、HTTP辅助5，含真正Full独立严格构建、原MVC／手动DTO／非管理／开发认证HTTP合同与源／包漂移拒绝；723原保护文件字节保持。产品／模板／前端／元数据未改。
+
+## 实际协调器配置的下一层预检
+
+TimeValueNativeInputTests.Valid_pin_and_optional_external_configuration_match_original_contract正常单测先验证原字段；只有显式提供METARILL_TIME_VALUE_INPUT_SETTINGS时才额外读取协调器实际生成的假口令配置，调用同一TimeValueNativeLease／FreshInstallConfiguration和完整TimeValueNativePreparation.Verify核对实例、随机库／受限账号、原50列模型与真实Full包，并写仅含验证结果的回执。此路径不创建DatabaseSession／连接或应用进程，不执行SQL；外层仍需直接授权才能创建正式资源。
+
+新协调器必须先经该已编译入口验证自己实际生成的配置、绑定回执与摘要后再申请正式授权；不能以手写另一份近似配置或29项默认模式通过冒充传输已验。目前实际外层传输分支尚未执行，C101这一部分待新固定准备继续。旧C100固定材料不修改，后续C102使用新来源／新对象。
+
+证据在.local/time-pin-transport-20261102，保留红绿TRX、两类JSON键差异、C100失败与独立清理证明。当前未取得新的TIME正式结果；MySQL首版总验收及其它矩阵继续。

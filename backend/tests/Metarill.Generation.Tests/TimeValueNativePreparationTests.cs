@@ -39,10 +39,10 @@ public sealed class TimeValueNativePreparationTests
         var first=ids.NextId();var second=ids.NextId();Assert.True(first>0);Assert.True(second>first);
     }
     /// <summary>无数据库/进程的合成租约测试，错误用途/状态/产品/路径均在任何副作用前拒绝。</summary>
-    [Theory][InlineData("purpose")][InlineData("authorization")][InlineData("ended")][InlineData("product")][InlineData("run")][InlineData("path")][InlineData("relative")][InlineData("proof")][InlineData("run-lf")][InlineData("run-crlf")][InlineData("run-space")][InlineData("run-long")]
+    [Theory][InlineData("purpose")][InlineData("authorization")][InlineData("ended")][InlineData("product")][InlineData("run")][InlineData("path")][InlineData("relative")][InlineData("proof")][InlineData("run-lf")][InlineData("run-crlf")][InlineData("run-space")][InlineData("run-long")][InlineData("pin-missing")][InlineData("pin-transport")]
     public void Native_lease_rejects_unapproved_or_foreign_input_without_side_effects(string invalid)
     {
-        var root=Path.Combine(Path.GetTempPath(),"metarill-time-values-gate",Guid.NewGuid().ToString("N"));var model=JsonSerializer.SerializeToNode(new{Purpose=TimeValueNativeLease.Purpose,AuthorizationStatus="approved",LeaseStatus="running",ProductCommit=TimeValueNativePreparation.ProductCommit,RunId="0123456789abcdef",TimeValuePreparation=new{PackageRoot=root}})!;
+        var root=Path.Combine(Path.GetTempPath(),"metarill-time-values-gate",Guid.NewGuid().ToString("N"));var model=JsonSerializer.SerializeToNode(new{Purpose=TimeValueNativeLease.Purpose,AuthorizationStatus="approved",LeaseStatus="running",ProductCommit=TimeValueNativePreparation.ProductCommit,RunId="0123456789abcdef",TimeValuePreparation=new{PackageRoot=root},InstancePin=new{expectedHostname="fixed-host",expectedServerUuid="11111111-1111-1111-1111-111111111111"}})!;
         Assert.Equal("0123456789abcdef",TimeValueNativeLease.Validate(JsonSerializer.SerializeToElement(model),root));
         if(invalid=="purpose")model["Purpose"]="other";if(invalid=="authorization")model["AuthorizationStatus"]="pending";if(invalid=="ended")model["LeaseStatus"]="ended";if(invalid=="product")model["ProductCommit"]=new string('0',40);if(invalid=="run")model["RunId"]="../old";if(invalid=="path")model["TimeValuePreparation"]!["PackageRoot"]=Path.Combine(root,"foreign");if(invalid=="relative")model["TimeValuePreparation"]!["PackageRoot"]="prepared";if(invalid=="proof")model.AsObject().Remove("TimeValuePreparation");
         // 控制字符和多余字符必须在任何目录、连接或宿主副作用前拒绝。
@@ -50,6 +50,8 @@ public sealed class TimeValueNativePreparationTests
         if(invalid=="run-crlf")model["RunId"]="0123456789abcdef\r\n";
         if(invalid=="run-space")model["RunId"]="0123456789abcdef ";
         if(invalid=="run-long")model["RunId"]="0123456789abcdef0";
+        if(invalid=="pin-missing")model.AsObject().Remove("InstancePin");
+        if(invalid=="pin-transport")model["InstancePin"]=JsonSerializer.SerializeToNode(new{hostname="fixed-host",serverUuid="11111111-1111-1111-1111-111111111111"});
         Assert.Throws<InvalidOperationException>(()=>TimeValueNativeLease.Validate(JsonSerializer.SerializeToElement(model),root));Assert.False(Directory.Exists(root));
     }
     /// <summary>真实完整包区分MVC解析错误与手动DTO拒绝；仅开发身份/离线样本，不冒充正式登录。</summary>
