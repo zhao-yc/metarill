@@ -11,7 +11,7 @@ internal static class TimeValueNativeLease
     {
         if(Text(settings,"Purpose")!=Purpose||Text(settings,"AuthorizationStatus")!="approved"||Text(settings,"LeaseStatus")!="running"||Text(settings,"ProductCommit")!=TimeValueNativePreparation.ProductCommit)
             throw new InvalidOperationException("TIME字段验收未取得本轮专属运行租约。");
-        var run=Text(settings,"RunId");if(!Regex.IsMatch(run,"^[a-f0-9]{16}$"))throw new InvalidOperationException("TIME字段运行标识不规范。");
+        var run=Text(settings,"RunId");if(!Regex.IsMatch(run,@"\A[a-f0-9]{16}\z"))throw new InvalidOperationException("TIME字段运行标识不规范。");
         if(!settings.TryGetProperty("TimeValuePreparation",out var preparation))throw new InvalidOperationException("TIME字段完整包证明缺失。");
         var path=Text(preparation,"PackageRoot");if(!Path.IsPathFullyQualified(path)||Path.GetFullPath(path)!=Path.GetFullPath(preparedRoot))throw new InvalidOperationException("TIME字段固定包根不符。");
         return run;

@@ -41,3 +41,7 @@ TimeValueNativeLease要求专属purpose、approved/running、单次16位runId、
 在9c52290（产品代码8fdf784）下清空TIME正式设置与导出环境键，仅运行TimeValueNativePreparationTests及ApplicationAuthenticationPackageTests，严格Release共31通过、0失败、0跳过。包括当前真正TIME Full从自身来源编译、元数据及文件漂移拒绝、手写保护、MVC与手动DTO原错误差异／非管理路径保持、开发态原拒绝，以及正式／开发档案、原安全闭包、升级与配置保护。具体分类及TRX保留于.local/time-value-current-20261102，运行未配置新库或执行TIME持久化用例。
 
 此项证明A32新增有限浮点JSON登记后，当前既有TIME和认证包合同仍可运行；不消费旧C38或A33授权，不把Development HTTP、编译或31项本地回归记为TIME实库、真实Web身份或首版总验收通过。C38原正式矩阵仍待新固定范围。
+
+## 当前正式输入修正（C99）
+
+C99补齐公共验收登录辅助的原三字段，并严格拒绝TIME运行号末尾LF／CRLF／空格／超长。红灯21项19过2败后，仅修测试辅助与专属测试门禁，最终19项全部通过／0跳过，包含当前真实Full／隔离HTTP兼容；723原保护字节保持，产品／模板不变。此前31项保留为修正前兼容记录，不累加为新一轮总数。详见[实际输入、红绿与边界](time-native-input.md)。TIME新固定源码／正式程序集／包继续准备，仍未执行实库。

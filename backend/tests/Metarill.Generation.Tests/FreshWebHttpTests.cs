@@ -25,7 +25,8 @@ internal static class FreshWebHttp
     /// <summary>原form与JSON登录只取可信回执令牌；重复登录替换header，不累计旧会话头。</summary>
     internal static async Task<string> LoginAsync(HttpClient client, string username, string password, bool form = false)
     {
-        object body = form ? new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = password }) : new { username, password };
+        // 与原前端同样发送验证码字段；空值不改变服务端已配置的验证码规则。
+        object body = form ? new FormUrlEncodedContent(new Dictionary<string, string> { ["username"] = username, ["password"] = password, ["captchaVerification"] = "" }) : new { username, password, captchaVerification = "" };
         var response = await SendAsync(client, HttpMethod.Post, "/api/admin/sys/yz_manager/login", body);
         var token = response.GetProperty("map").GetProperty("loginStateId").GetString();
         Assert.True(token is { Length: 64 } && token.All(value => value is >= '0' and <= '9' or >= 'a' and <= 'f'), "正式Web登录必须返回规范令牌。");
@@ -38,21 +39,21 @@ public sealed class FreshWebHttpTests
 {
     /// <summary>原form/JSON及长字符串ID保留，重复登录只留单个有效令牌头。</summary>
     [Fact]
-    public async Task Original_login_shapes_replace_header_and_keep_long_string_ids()
+    public async Task Original_three_field_login_shapes_replace_header_and_keep_long_string_ids()
     {
         var calls = 0; var token = new string('a', 64); const string longId = "9007199254740993";
         using var handler = new Reply(async request =>
         {
             calls++; Assert.Equal(HttpMethod.Post, request.Method); Assert.Equal("/api/admin/sys/yz_manager/login", request.RequestUri!.AbsolutePath);
             var body = await request.Content!.ReadAsStringAsync();
-            if (calls == 1) { Assert.Equal("application/x-www-form-urlencoded", request.Content.Headers.ContentType!.MediaType); Assert.Equal("username=only-owner&password=only-password", body); }
-            else { Assert.Equal("application/json", request.Content.Headers.ContentType!.MediaType); using var parsed = JsonDocument.Parse(body); Assert.Equal(2, parsed.RootElement.EnumerateObject().Count()); Assert.Equal("only-owner", parsed.RootElement.GetProperty("username").GetString()); Assert.Equal("only-password", parsed.RootElement.GetProperty("password").GetString()); }
+            if (calls == 1) { Assert.Equal("application/x-www-form-urlencoded", request.Content.Headers.ContentType!.MediaType); Assert.Equal("username=only-owner&password=only-password&captchaVerification=", body); }
+            else { Assert.Equal("application/json", request.Content.Headers.ContentType!.MediaType); using var parsed = JsonDocument.Parse(body); Assert.Equal(3, parsed.RootElement.EnumerateObject().Count()); Assert.Equal("", parsed.RootElement.GetProperty("captchaVerification").GetString()); Assert.Equal("only-owner", parsed.RootElement.GetProperty("username").GetString()); Assert.Equal("only-password", parsed.RootElement.GetProperty("password").GetString()); }
             return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { code = 200, data = new { id = longId }, map = new { loginStateId = token } }) };
         });
         using var client = new HttpClient(handler) { BaseAddress = new("http://127.0.0.1:1") }; client.DefaultRequestHeaders.Add("loginStateId", new string('b', 64));
         Assert.Equal(token, await FreshWebHttp.LoginAsync(client, "only-owner", "only-password", form: true)); Assert.Equal(token, await FreshWebHttp.LoginAsync(client, "only-owner", "only-password"));
         Assert.Equal(new[] { token }, client.DefaultRequestHeaders.GetValues("loginStateId")); Assert.Equal(2, calls);
-        var value = await FreshWebHttp.SendAsync(client, HttpMethod.Post, "/api/admin/sys/yz_manager/login", new { username = "only-owner", password = "only-password" }); Assert.Equal(longId, value.GetProperty("data").GetProperty("id").GetString());
+        var value = await FreshWebHttp.SendAsync(client, HttpMethod.Post, "/api/admin/sys/yz_manager/login", new { username = "only-owner", password = "only-password", captchaVerification = "" }); Assert.Equal(longId, value.GetProperty("data").GetProperty("id").GetString());
     }
     /// <summary>HTTP/R码分别满足，损坏JSON也失败，不追加响应正文到断言。</summary>
     [Theory]
