@@ -74,6 +74,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '生成产物与已提交内容不一致' }
       - name: 编译服务
         run: dotnet build backend/src/Metarill.Api --configuration Release
+      - name: 验证C#私有采集宿主的真实HTTP接线
+        run: dotnet test tools/performance/csharp-host.Tests --configuration Release --disable-build-servers -warnaserror --logger "trx;LogFileName=Metarill.Paired.SqlObservation.Tests.trx"
       - name: 运行全部后端测试项目
         shell: pwsh
         run: |
@@ -88,7 +90,9 @@ jobs:
         if: always()
         with:
           name: 测试报告-${{ matrix.os }}
-          path: backend/tests/**/TestResults/*.trx
+          path: |
+            backend/tests/**/TestResults/*.trx
+            tools/performance/csharp-host.Tests/TestResults/*.trx
   frontend:
     runs-on: ubuntu-latest
     steps:

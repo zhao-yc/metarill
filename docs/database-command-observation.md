@@ -80,3 +80,7 @@ V40已补统一工厂，V41补结构反查独立事务边界；下一步接真�
 ## V42：Java共同向量
 
 Java侧新增显式JDBC采集基础及固定驱动绑定适配，和C#共同验证16组独立Python生成的值摘要向量；C#仅新增测试，不修改本观察器或产品运行时。Java尚未装入Spring／DataSource、没有真实SQL／HTTP或负载，见[Java实现与边界](java-jdbc-command-observation.md)。共同摘要只能证明已列值的编码一致，不证明数据库／查询／权限或性能等价。
+
+## V44：C#每请求私有接线
+
+独立HostingStartup工具已接原Data scope和私有索引，23项真实Kestrel及原完整Program的Production/TestServer两路由匿名拒绝／关闭索引通过，见[请求采集及边界](csharp-http-command-observation.md)。没有修改产品Program、原接口或Data观察逻辑；真实业务／数据库、源头完整覆盖及性能仍待，不把匿名零SQL当业务证明。
