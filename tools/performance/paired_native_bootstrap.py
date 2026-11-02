@@ -34,10 +34,10 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if value.get("version") != 1 or value.get("purpose") != "paired-native-v1" or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1"} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
-    descriptor.update(purpose="paired-resources-v1", authorizationStatus="approved", leaseStatus="running")
+    descriptor.update(purpose="paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1", authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
     if value.get("databases") != databases or value.get("user") != "mtf_" + run[:16] or value.get("instancePin") != PIN:
@@ -185,19 +185,19 @@ def initialization_job(root, value, name, state, state_path):
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=1770", "--env-file", str(root / (target + ".env")),
             "--mount", f"type=bind,src={root}/data-{target},dst=/data"]
     if target == "java":
-        args += ["--mount", f"type=bind,src={root}/bootstrap,dst=/run/metarill/bootstrap,readonly", "--entrypoint", "java", resources.IMAGES[target],
+        args += ["--mount", f"type=bind,src={root}/bootstrap,dst=/run/metarill/bootstrap,readonly", "--entrypoint", "java", resources.images_for(value)[target],
                  "-Dloader.path=/run/metarill/bootstrap/classes/", "-Dloader.main=com.yinzon.samplehost.PairedJavaConfigurationBootstrap", "-cp", "/app/application.jar",
                  "org.springframework.boot.loader.launch.PropertiesLauncher", "preview" if name == "java-preview" else "apply-initial", "/run/metarill/bootstrap/descriptor.json"]
     else:
         if name == "csharp-security": args += ["--env-file", str(root / "bootstrap/bootstrap.env")]
-        args += ["--mount", f"type=bind,src={root}/data-csharp/local,dst=/app/.local", "--env", "Authentication__DevelopmentBootstrap__Enabled=false", resources.IMAGES[target],
+        args += ["--mount", f"type=bind,src={root}/data-csharp/local,dst=/app/.local", "--env", "Authentication__DevelopmentBootstrap__Enabled=false", resources.images_for(value)[target],
                  {"csharp-preview": "--schema-preview", "csharp-apply": "--schema-apply", "csharp-verify": "--schema-preview", "csharp-security": "--initialize-security"}[name]]
     try:
         identifier = resources.docker(*args)
         if not re.fullmatch(r"[a-f0-9]{64}", identifier): raise RuntimeError("初始化容器回执无效")
         item["id"] = identifier; resources.write_state(state_path, state)
         actual = resources.inspect("container", item["name"]); resources.require_owned(actual, item, resource_state)
-        if resources.docker("container", "inspect", "--format", "{{.Image}}", item["name"]) != resources.IMAGES[target]: raise RuntimeError("初始化镜像不符")
+        if resources.docker("container", "inspect", "--format", "{{.Image}}", item["name"]) != resources.images_for(value)[target]: raise RuntimeError("初始化镜像不符")
         result = capture(["container", "start", "--attach", item["name"]])
         (root / (name + ".stdout.log")).write_bytes(result.stdout); (root / (name + ".stderr.log")).write_bytes(result.stderr)
         runtime = http.read_json(resources.docker("container", "inspect", "--format", '{"running":{{json .State.Running}},"exitCode":{{json .State.ExitCode}}}', item["name"]))
@@ -211,12 +211,15 @@ def initialization_job(root, value, name, state, state_path):
         item["containerAbsent"] = True; resources.write_state(state_path, state)
 
 
-def send(port, method, path, body=None, token=None, form=False):
+def send(port, method, path, body=None, token=None, form=False, sample=None):
     """只走200宿主回环、禁代理/重定向；业务请求一次发出，拒绝自动重试。"""
     data = urllib.parse.urlencode(body).encode("utf-8") if form else http.canonical(body) if body is not None else None
     headers = {"Accept": "application/json"}
     if data is not None: headers["Content-Type"] = "application/x-www-form-urlencoded" if form else "application/json"
     if token is not None: headers["loginStateId"] = token
+    if sample is not None:
+        if not isinstance(sample,str) or not re.fullmatch("[a-f0-9]{32}",sample): raise ValueError("采样标记无效")
+        headers["X-Metarill-Sql-Sample"] = sample
     request = urllib.request.Request(f"http://127.0.0.1:{port}" + path, data=data, headers=headers, method=method)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), http.NoRedirect())
     try: response = opener.open(request, timeout=5)
@@ -227,50 +230,59 @@ def send(port, method, path, body=None, token=None, form=False):
         return response.status, http.read_json(raw)
 
 
-def identity_http(value, fixture, credentials):
+def identity_http(value, fixture, credentials, exchange=None):
     """原三字段密码form登录与普通权限读/拒绝；Cap关闭时仍提交空兼容值，不预置身份。"""
     facts = []; tokens = {}
+    def ask(target,step,method,path,body=None,token=None,form=False):
+        """新用途使用固定采样计划；旧用途保持原sender参数和协议。"""
+        if exchange is not None:return exchange.call(target,"identity:"+step,method,path,body,token,form=form)
+        return send(value["ports"][target],method,path,body,token,form=form)
     for target in ("java", "csharp"):
         port = value["ports"][target]; ready_path = "/api/admin/sys/yz_manager/cap-config"
-        deadline = time.monotonic() + 90
-        while True:
-            try:
-                status, body = send(port, "GET", ready_path)
-                if status == 200 and body.get("code") == 200 and body.get("data") == {"enabled": False, "apiEndpoint": ""}: break
-            except (OSError, ValueError): pass
-            if time.monotonic() >= deadline: raise RuntimeError("真实宿主公开配置未就绪")
-            time.sleep(0.2)
+        if exchange is not None:
+            exchange.wait_ready(port)
+            status,body=ask(target,"ready","GET",ready_path)
+            if status!=200 or body.get("data")!={"enabled":False,"apiEndpoint":""}:raise RuntimeError("真实宿主公开配置不符")
+        else:
+            deadline = time.monotonic() + 90
+            while True:
+                try:
+                    status, body = send(port, "GET", ready_path)
+                    if status == 200 and body.get("code") == 200 and body.get("data") == {"enabled": False, "apiEndpoint": ""}: break
+                except (OSError, ValueError): pass
+                if time.monotonic() >= deadline: raise RuntimeError("真实宿主公开配置未就绪")
+                time.sleep(0.2)
         writer = fixture["common"][0]
-        status, failure = send(port, "POST", "/api/admin/sys/yz_manager/login", {"username": writer["name"], "password": "wrong-" + credentials["writer"]["password"], "captchaVerification": ""}, form=True)
+        status, failure = ask(target, "wrong-password", "POST", "/api/admin/sys/yz_manager/login", {"username": writer["name"], "password": "wrong-" + credentials["writer"]["password"], "captchaVerification": ""}, form=True)
         if (status, failure.get("code")) != ((200, 500) if target == "java" else (401, 401)) or failure.get("map", {}).get("loginStateId"):
             raise RuntimeError("错误密码未按原实际宿主合同拒绝")
         for principal in fixture["common"]:
             kind = principal["kind"]
-            status, body = send(port, "POST", "/api/admin/sys/yz_manager/login", {"username": principal["name"], "password": credentials[kind]["password"], "captchaVerification": ""}, form=True)
+            status, body = ask(target, "login-"+kind, "POST", "/api/admin/sys/yz_manager/login", {"username": principal["name"], "password": credentials[kind]["password"], "captchaVerification": ""}, form=True)
             user = body.get("data", {}); token = body.get("map", {}).get("loginStateId")
             if status != 200 or body.get("code") != 200 or user.get("id") != principal["accountId"] or user.get("name") != principal["name"] or user.get("yzAdminTypeId") != str(seed.ADMIN):
                 raise RuntimeError("原密码登录或字符串ID/后台回执不符")
             if any(user.get(k) not in (None, "") for k in ("password", "salt", "oldPassword")) or not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}" if target == "java" else r"[a-f0-9]{64}", token):
                 raise RuntimeError("登录响应含凭据或令牌格式不符")
             tokens[target, kind] = token
-            status, page = send(port, "POST", "/api/admin/auto/sample_contract/81002/page", {"pageNo": 1, "pageSize": 20, "filters": {}}, token)
+            status, page = ask(target, "page-"+kind, "POST", "/api/admin/auto/sample_contract/81002/page", {"pageNo": 1, "pageSize": 20, "filters": {}}, token)
             if kind == "denied":
                 if (status, page.get("code")) != ((200, 500) if target == "java" else (403, 403)): raise RuntimeError("无权账号未按原宿主合同拒绝")
             elif status != 200 or page.get("code") != 200: raise RuntimeError("普通账号原页面查询失败")
             if kind == "reader":
-                status, rejected = send(port, "POST", "/api/admin/auto/sample_customer/81001/add", {"name": "forbidden-readonly-" + value["runId"][:16]}, token)
+                status, rejected = ask(target, "reader-create-denied", "POST", "/api/admin/auto/sample_customer/81001/add", {"name": "forbidden-readonly-" + value["runId"][:16]}, token)
                 if (status, rejected.get("code")) != ((200, 500) if target == "java" else (403, 403)):
                     raise RuntimeError("只读账号未拒绝原新增接口")
             facts.append({"target": target, "kind": kind, "passwordLogin": True, "stringAccountId": True, "pageAllowed": kind != "denied", "readonlyCreateDenied": kind == "reader"})
     return facts, tokens
 
 
-def cleanup_private(root):
+def cleanup_private(root, observed=False):
     """容器停止后只清本轮固定秘密与数据副本，保留来源/摘要/日志及所有权回执。"""
     if not shutil.rmtree.avoids_symlink_attacks: raise RuntimeError("当前平台没有安全目录清理实现")
     folder = root / "bootstrap"
     if folder.exists() or folder.is_symlink(): resources.regular(folder, True); folder.chmod(0o700)
-    for name in ("java.env", "csharp.env", "redis.conf", "identity.json", "bootstrap/bootstrap.env"):
+    for name in ("java.env", "csharp.env", "redis.conf", "identity.json", "bootstrap/bootstrap.env", *(["observation.key"] if observed else [])):
         path = root / name
         if path.exists() or path.is_symlink(): resources.regular(path); path.unlink()
     for name in ("data-java", "data-csharp"):
@@ -278,6 +290,7 @@ def cleanup_private(root):
         if path.exists() or path.is_symlink():
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()): raise RuntimeError("数据目录清理越界")
             shutil.rmtree(path)
+    if observed:return {"connectionAndLoginCredentialsRemoved":True,"sourceObservationKeyRemoved":True,"ownedDataDirectoriesRemoved":True,"reviewKeyRetained":(root/"observations/value.key").is_file()}
     return {"privateCredentialsRemoved": True, "ownedDataDirectoriesRemoved": True}
 
 
@@ -310,7 +323,7 @@ def cleanup_run(root, value, descriptor, mysql, state, state_path):
             state["cleanup"]["databasesAndUserIndependentlyAbsent"] = True
         except Exception as error: errors.append("database:" + type(error).__name__)
     if not errors:
-        try: state["cleanup"]["private"] = cleanup_private(root)
+        try: state["cleanup"]["private"] = cleanup_private(root,True) if resources.is_observed(value) else cleanup_private(root)
         except Exception as error: errors.append("private:" + type(error).__name__)
     state["cleanupErrors"] = errors; state["passed"] = state["passed"] and not errors; state["leaseStatus"] = "ended"; resources.write_state(state_path, state)
 
@@ -318,9 +331,10 @@ def cleanup_run(root, value, descriptor, mysql, state, state_path):
 def verify_tool_sources(value):
     """实际执行字节对照上层固定Git归档清单，不把自报版本号当作来源证明。"""
     expected = {"performance/paired_native_bootstrap.py", "performance/paired_http.py", "performance/paired_identity_seed.py", "performance/server200_paired_resources.py", "acceptance/server200-fresh-mysql.py"}
+    if resources.is_observed(value): expected.update({"performance/paired_business_http.py","performance/paired_observed_capture.py","performance/audit_sql_artifacts.py"})
     hashes = value.get("toolSha256", {})
     if set(hashes) != expected or not re.fullmatch(r"[a-f0-9]{40}", value.get("toolSourceCommit", "")):
-        raise ValueError("缺少固定五文件Git来源")
+        raise ValueError("缺少当前用途的固定Git工具来源")
     root = pathlib.Path(__file__).resolve().parents[1]
     for name, checksum in hashes.items():
         if not re.fullmatch(r"[a-f0-9]{64}", checksum) or hashlib.sha256((root / name).read_bytes()).hexdigest() != checksum:
@@ -338,7 +352,8 @@ def failure_evidence(error):
              "C#原安全初始化未建立项目归属": "seed-project-mismatch", "测试账号、角色或授权种子已存在，拒绝覆盖": "seed-collision",
              "播种后逐字段独立回读不符": "seed-readback-mismatch",
              "MySQL 随机验收对象操作失败，保留所有权记录供安全清理。": "mysql-operation-failed"}
-    result = {"code": codes.get(str(error), "unclassified")}
+    text=str(error);safe_code=text if re.fullmatch(r"(?:business|capture|artifact)-[a-z0-9-]{1,70}",text) else codes.get(text,"unclassified")
+    result = {"code": safe_code}
     number = getattr(error, "database_error_number", None)
     if type(number) is int and 1000 <= number <= 99999: result["databaseErrorNumber"] = number
     return result
@@ -346,7 +361,11 @@ def failure_evidence(error):
 
 def run(value):
     """一次串起显式初始化/播种/HTTP；finally独立清理，失败不自动重放已执行的写入。"""
-    descriptor = validate(value); verify_tool_sources(value); root = resources.root_for(value["runId"])
+    descriptor = validate(value); verify_tool_sources(value)
+    # 新模块只在直接批准且八文件源码已核对后导入，旧v1不隐式加载未登记依赖。
+    business = importlib.import_module("paired_business_http") if resources.is_observed(value) else None
+    capture_sql = importlib.import_module("paired_observed_capture") if resources.is_observed(value) else None
+    root = resources.root_for(value["runId"])
     resources.read_materials(root, descriptor); java = bootstrap(root, value)
     credentials = read_private(root / "identity.json", value["identitySha256"])
     for entry in credentials.values(): entry["csharpSalt"] = base64.b64decode(entry["csharpSalt"], validate=True)
@@ -356,13 +375,15 @@ def run(value):
     state = {"runId": value["runId"], "ownerToken": secrets.token_hex(32), "inputSha256": http.digest(value), "stage": "preflight", "jobs": [], "passed": False, "leaseStatus": "running", "performanceAccepted": False, "releaseAccepted": False, "acceptedScope": "paired-initialization-and-identity-only"}
     with os.fdopen(handle, "w", encoding="utf-8") as output: json.dump(state, output)
     descriptor["ownerToken"] = state["ownerToken"]
+    exchange=capture_sql.Exchange(value,send) if resources.is_observed(value) else None
+    if exchange is not None:state["acceptedScope"]="paired-original-business-and-private-capture-for-review-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
     try:
         resources.verify_server()
         if (root / "resource-state.json").exists() or mysql.ownership_path(value["runId"][:16]).exists(): raise RuntimeError("已有资源归属记录，拒绝复用")
         if mysql.mysql("SELECT @@hostname,@@server_uuid;") != PIN["hostname"] + "\t" + PIN["serverUuid"]: raise RuntimeError("MySQL实例不符")
-        for image in resources.IMAGES.values():
+        for image in resources.images_for(value).values():
             actual = http.read_json(resources.docker("image", "inspect", "--format", '{"id":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}}}', image))
             if actual != {"id": image, "os": "linux", "architecture": "amd64"}: raise RuntimeError("固定镜像不符")
         java_env = dict(line.split("=", 1) for line in (root / "java.env").read_text(encoding="utf-8").splitlines())
@@ -391,21 +412,43 @@ def run(value):
             state["identitySeeds"].append(seed.apply(seed_lease, target, fixture, mysql.mysql))
             resources.write_state(state_path, state)
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
-        targets = {t: {"container": "metarill-perf-" + value["runId"] + "-" + t, "expectedImageId": resources.IMAGES[t], "containerPort": 8080, "baseUrl": f"http://127.0.0.1:{value['ports'][t]}/api"} for t in ("java", "csharp")}
+        targets = {t: {"container": "metarill-perf-" + value["runId"] + "-" + t, "expectedImageId": resources.images_for(value)[t], "containerPort": 8080, "baseUrl": f"http://127.0.0.1:{value['ports'][t]}/api"} for t in ("java", "csharp")}
         probe = http.Server200LocalProbe(); before = http.equal_limits(probe, targets)
         state["transport"] = http.verify_transport({"transportProof": "server200-loopback-v1", "runId": value["runId"], "targets": targets}, probe, before)
         stage("真实form密码登录和原页普通权限")
         physical_before = business_counts(mysql, value)
-        state["httpFacts"], tokens = identity_http(value, fixture, credentials)
+        state["httpFacts"], tokens = identity_http(value,fixture,credentials,exchange) if exchange is not None else identity_http(value, fixture, credentials)
         if business_counts(mysql, value) != physical_before: raise RuntimeError("只读/无权验收改变了物理业务行")
         state["deniedWritesPhysicalRowsUnchanged"] = True
+        if exchange is not None:
+            stage("普通账号原CRUD／关系改名／三业务动作与真实写后回滚")
+            lease={**value,"purpose":"paired-observed-business-v1","leaseStatus":"running"}
+            business_tokens={target:{kind:tokens[target,kind] for kind in seed.KINDS} for target in ("java","csharp")}
+            state["businessFacts"]=business.run_basic(lease,business_tokens,exchange.business_request,mysql.mysql);exchange.complete()
+            state["requestCapturePlan"]=exchange.receipt();resources.write_state(state_path,state)
         after = http.equal_limits(probe, targets)
         if before != after: raise RuntimeError("HTTP前后资源/镜像/容器身份变化")
         state["resourceEvidence"] = before; state["passed"] = True
     except Exception as error:
+        if exchange is not None:state["failedAtStage"]=state["stage"]
         state["errorType"] = type(error).__name__
         state["failure"] = failure_evidence(error)
     finally:
+        if exchange is not None:
+            graceful=False;dead=False;resource_path=root/"resource-state.json"
+            try:
+                if resource_path.exists() and http.read_json(resource_path.read_bytes()).get("hostsStarted") is True:
+                    stage("正常关闭原宿主并保存私有SQL供独立审阅")
+                    resources.manage(descriptor,"stop-hosts");graceful=True;dead=True
+            except Exception as error:
+                state["passed"]=False;state["captureStopError"]={"type":type(error).__name__,**failure_evidence(error)}
+                # 正常停止失败只在全部归属仍匹配时强制清理；强杀后保存的原始文件不能记finalized。
+                try:resources.manage(descriptor,"cleanup");dead=True
+                except Exception as cleanup_error:state["captureStopCleanupError"]=type(cleanup_error).__name__
+            if dead:
+                try:state["sqlCaptureForReview"]=capture_sql.capture_for_review(root,value,exchange,graceful)
+                except Exception as error:state["passed"]=False;state["captureError"]={"type":type(error).__name__,**failure_evidence(error)}
+            resources.write_state(state_path,state)
         cleanup_run(root, value, descriptor, mysql, state, state_path)
     return state
 
@@ -423,7 +466,7 @@ def cleanup_only(value):
 
 
 def main():
-    """未批准时零外部操作；实际结果仅证明本轮已实现的初始化/身份子集，绝不宣布性能或首版发布。"""
+    """未批准时零外部操作；按明确用途报告身份或原业务/采集子集，不宣布性能或首版发布。"""
     try:
         if len(sys.argv) > 2 or len(sys.argv) == 2 and sys.argv[1] != "--cleanup": raise ValueError("只支持默认执行或--cleanup")
         value = http.read_json(sys.stdin.read())

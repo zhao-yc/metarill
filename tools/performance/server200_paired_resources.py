@@ -16,17 +16,36 @@ IMAGES = {
     "csharp": "sha256:ee05d99dbb52de8a51f7d42fcbb7a67d1b588c8bb0b637f937a8cba236975200",
     "redis": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
 }
+# V46已核父层、完整载荷及C#原Kestrel的独立采集候选，不覆盖V37旧用途。
+OBSERVATION_IMAGES = {
+    "java": "sha256:99face186258dd73aa4343477ba94506f73954bf8a961be137fca2622df9d2a0",
+    "csharp": "sha256:5da49219cfa9c47c49977333d45738dbadb4dd0d09f7d6bce04c6ff55ec73ed5",
+    "redis": IMAGES["redis"],
+}
+OBSERVATION_DATA_SHA256 = "89d2a4bbf48d550a985a1c16a627e2db3659209566559f7fce1f868548eb1e55"
+
+
+def is_observed(value):
+    """用途必须明确；不能给旧v1偷偷增加采集参数或接入新镜像。"""
+    return value.get("purpose") in {"paired-observed-resources-v1", "paired-native-observed-v1"}
+
+
+def images_for(value):
+    """由已校验用途决定精确三镜像，不读取客户端额外品牌／镜像设置。"""
+    return OBSERVATION_IMAGES if is_observed(value) else IMAGES
+
+
 LABEL = "metarill.performance."
 
 
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if value.get("version") != 1 or value.get("purpose") != "paired-resources-v1" or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1"} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
-    if value.get("images") != IMAGES:
+    if value.get("images") != images_for(value):
         raise ValueError("镜像必须等于已核实的三个固定内容ID")
     ports = value.get("ports", {})
     if set(ports) != {"java", "csharp"} or any(type(n) is not int or not 20000 <= n <= 40000 for n in ports.values()) or len(set(ports.values())) != 2:
@@ -79,17 +98,21 @@ def read_materials(root, value):
     if hashlib.sha256(data).hexdigest() != value["materialsSha256"]:
         raise ValueError("私有清单变化")
     items = json.loads(data)
-    if set(items) != {"java.env", "csharp.env", "redis.conf"}:
-        raise ValueError("只允许三个固定配置输入")
+    expected = {"java.env", "csharp.env", "redis.conf"} | ({"observation.key"} if is_observed(value) else set())
+    if set(items) != expected:
+        raise ValueError("配置集合与明确验收用途不符")
     contents = {}
     for name, checksum in items.items():
         path = root / name
-        if stat.S_IMODE(regular(path).st_mode) != (0o444 if name == "redis.conf" else 0o600):
+        if stat.S_IMODE(regular(path).st_mode) != (0o444 if name in {"redis.conf", "observation.key"} else 0o600):
             raise ValueError("私有文件权限不符")
         raw = path.read_bytes()
         if len(raw) > 16384 or hashlib.sha256(raw).hexdigest() != checksum:
             raise ValueError("私有输入字节变化")
-        contents[name] = raw.decode("utf-8")
+        if name == "observation.key":
+            if len(raw) != 32: raise ValueError("本轮值证明key必须32字节")
+        else:
+            contents[name] = raw.decode("utf-8")
     run = value["runId"]; user = "mtf_" + run[:16]
     parsed = {}
     for name in ("java", "csharp"):
@@ -114,6 +137,20 @@ def read_materials(root, value):
     expected_redis = f"bind 0.0.0.0\nport 6379\nprotected-mode yes\nsave \"\"\nappendonly no\nrequirepass {redis_password}\nmaxmemory 128mb\nmaxmemory-policy noeviction\ndir /data\n"
     if contents["redis.conf"] != expected_redis:
         raise ValueError("Redis只允许本轮口令、无持久化的固定配置")
+
+
+def observation_arguments(value, target):
+    """只返回固定非秘密配置；HMAC值只走只读文件，输出库名由本轮唯一范围推导。"""
+    if not is_observed(value): return []
+    if target not in {"java", "csharp"}: raise ValueError("未知采集宿主")
+    run = value["runId"]; database = "metarill_fresh_" + run[:16] + "_paired_" + target
+    if target == "java":
+        settings = {"enabled": "true", "run-id": run, "data-source-names": "dataSource", "key-file": "/run/metarill-observation.key", "output-root": "/data/sql-observation", "maximum-requests": "128", "maximum-commands": "4096"}
+        prefix = "--metarill.paired.sql-observation."
+    else:
+        settings = {"Enabled": "true", "RunId": run, "KeyFile": "/run/metarill-observation.key", "OutputRoot": "/data/sql-observation", "ExpectedDataSha256": OBSERVATION_DATA_SHA256, "ExpectedDatabases": database, "MaximumRequests": "128", "MaximumCommands": "4096"}
+        prefix = "--Metarill:Paired:SqlObservation:"
+    return [prefix + name + "=" + text for name, text in settings.items()]
 
 
 def write_state(path, state):
@@ -162,8 +199,11 @@ def provision(value, root, path):
         data = root / ("data-" + target)
         data.mkdir(mode=0o700)
         os.chown(data, 10001, 10001)
-        for part in ("files", "exports", "resources", "local"):
+        for part in ("files", "exports", "resources", "local", *(["sql-observation"] if is_observed(value) else [])):
             child = data / part; child.mkdir(mode=0o700); os.chown(child, 10001, 10001)
+        if is_observed(value):
+            owner = data / "sql-observation/.metarill-paired-observation-owner"
+            owner.write_text(run, encoding="utf-8"); owner.chmod(0o400); os.chown(owner, 10001, 10001)
     network = items[0]["name"]
     for item in items:
         state["items"].append(item); write_state(path, state)
@@ -174,12 +214,15 @@ def provision(value, root, path):
             target = item["target"]
             args = ["container", "create", "--name", item["name"], *labels, "--network", network, "--user", "10001:10001", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--restart", "no", "--log-driver", "local", "--log-opt", "max-size=10m", "--log-opt", "max-file=2", "--pids-limit", "64" if target == "redis" else "256", "--memory", "268435456" if target == "redis" else "1073741824", "--memory-swap", "268435456" if target == "redis" else "1073741824", "--cpu-period", "100000", "--cpu-quota", "25000" if target == "redis" else "100000", "--cpuset-cpus", "0", "--tmpfs", "/tmp:rw,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=1770"]
             if target == "redis":
-                args += ["--network-alias", "redis", "--tmpfs", "/data:rw,nosuid,nodev,size=16777216,uid=10001,gid=10001,mode=0700", "--mount", f"type=bind,src={root}/redis.conf,dst=/run/redis.conf,readonly", IMAGES[target], "redis-server", "/run/redis.conf"]
+                args += ["--network-alias", "redis", "--tmpfs", "/data:rw,nosuid,nodev,size=16777216,uid=10001,gid=10001,mode=0700", "--mount", f"type=bind,src={root}/redis.conf,dst=/run/redis.conf,readonly", images_for(value)[target], "redis-server", "/run/redis.conf"]
             else:
                 args += ["--publish", f"127.0.0.1:{value['ports'][target]}:8080", "--env-file", str(root / (target + ".env")), "--mount", f"type=bind,src={root}/data-{target},dst=/data"]
                 if target == "csharp":
                     args += ["--mount", f"type=bind,src={root}/data-csharp/local,dst=/app/.local", "--env", "Authentication__DevelopmentBootstrap__Enabled=false"]
-                args += [IMAGES[target]]
+                if is_observed(value):
+                    args += ["--mount", f"type=bind,src={root}/observation.key,dst=/run/metarill-observation.key,readonly"]
+                    if target == "csharp": args += ["--env", "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES=Metarill.Paired.SqlObservation"]
+                args += [images_for(value)[target], *observation_arguments(value, target)]
         identifier = docker(*args)
         if not re.fullmatch(r"[a-f0-9]{64}", identifier):
             raise RuntimeError("创建回执不是完整对象ID，保留待核记录")
@@ -248,6 +291,25 @@ def manage_exclusive(value, operation, root):
             if item["target"] in ("java", "csharp"): docker("container", "start", item["name"])
         state["status"] = "started"; write_state(path, state)
         return {"hostsStarted": True, "runtimeAccepted": False, "performanceAccepted": False}
+    if operation == "stop-hosts":
+        if not is_observed(value) or state.get("status") != "started" or not state.get("hostsStarted"):
+            raise ValueError("仅已启动的新采集用途允许正常关闭")
+        # 先核全部身份，再逐个SIGTERM；停止失败保留原状态，不以强杀冒充finalized。
+        for item in state["items"]:
+            actual = inspect(item["kind"], item["name"])
+            if actual is None: raise RuntimeError("停止前资源缺失")
+            require_owned(actual, item, state)
+        state["status"] = "stopping"; write_state(path, state)
+        for item in state["items"]:
+            if item["target"] in ("java", "csharp"):
+                docker("container", "stop", "--time", "20", item["name"])
+                require_owned(inspect(item["kind"], item["name"]), item, state)
+                status = json.loads(docker("container", "inspect", "--format", '{"running":{{json .State.Running}},"exitCode":{{json .State.ExitCode}},"oomKilled":{{json .State.OOMKilled}},"error":{{json .State.Error}}}', item["name"]))
+                # JDK21 Terminator按128+信号号退出，SIGTERM为143；仍须后续严格核finalized与请求记录。
+                expected_codes = {0, 143} if item["target"] == "java" else {0}
+                if type(status) is not dict or set(status) != {"running", "exitCode", "oomKilled", "error"} or status["running"] is not False or type(status["exitCode"]) is not int or status["exitCode"] not in expected_codes or status["oomKilled"] is not False or status["error"] != "": raise RuntimeError("宿主退出不符合原运行时信号规则，采集不能记完整")
+        state["status"] = "stopped"; write_state(path, state)
+        return {"hostsStoppedGracefully": True, "traceReviewRequiredSeparately": True, "performanceAccepted": False}
     if operation != "cleanup" or state.get("status") == "ended":
         raise ValueError("未知操作或租约已结束")
     # 先核全部现存身份，不能删了一半后才发现另一个对象已被替换。
@@ -268,8 +330,8 @@ def manage_exclusive(value, operation, root):
 def main():
     """stdin传递不含秘密的描述；异常不回显Docker/连接/私有配置正文。"""
     try:
-        if len(sys.argv) != 2 or sys.argv[1] not in ("create", "start-hosts", "cleanup"):
-            raise ValueError("只接受create、start-hosts、cleanup")
+        if len(sys.argv) != 2 or sys.argv[1] not in ("create", "start-hosts", "stop-hosts", "cleanup"):
+            raise ValueError("只接受create、start-hosts、stop-hosts、cleanup")
         print(json.dumps(manage(json.load(sys.stdin), sys.argv[1]), ensure_ascii=False))
         return 0
     except Exception as error:
