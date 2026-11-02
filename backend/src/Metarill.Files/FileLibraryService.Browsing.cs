@@ -89,7 +89,7 @@ public sealed partial class FileLibraryService
         var actor=authorization.RequireActor();var provider=store.Session.Provider;var transaction=store.Session.CurrentTransaction;
         await using var owned=transaction is null?provider.CreateConnection(store.Session.Options):null;
         var connection=transaction?.Connection??owned??throw new InvalidOperationException("文件浏览事务连接不可用。");if(owned is not null)await connection.OpenAsync(token);
-        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        await using var command=provider.CreateCommand(connection);command.Transaction=transaction;
         var names=new[]{"id","name","content_type","size","access_mode","status","folder_id","sha256","owner_id","yz_project_id","insert_time"};
         var sql="SELECT "+string.Join(",",names.Select(provider.QuoteIdentifier))+" FROM "+provider.QuoteIdentifier(Files)+" WHERE "+provider.QuoteIdentifier("yz_project_id")+"="+Bind("browse_project",Project(actor))+" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL AND "+provider.QuoteIdentifier("status")+"<>"+Bind("deleted_status","deleted");
         if(mode is not null)sql+=" AND "+provider.QuoteIdentifier("access_mode")+"="+Bind("browse_mode",mode);

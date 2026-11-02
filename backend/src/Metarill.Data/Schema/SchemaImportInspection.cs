@@ -37,7 +37,7 @@ public sealed partial class SchemaService
                     "SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table", token, ("@table", name)));
                 if (kind != "BASE TABLE") throw new InvalidOperationException("反向草案只检查存在的实体表，不执行视图定义。");
                 // SHOW CREATE的MDL只保留到语句结束；固定LIMIT 0查询不读取业务行，显式事务持有表级MDL。
-                await using var command = connection.CreateCommand(); command.Transaction = transaction; command.CommandTimeout = 15;
+                await using var command = session.Provider.CreateCommand(connection); command.Transaction = transaction; command.CommandTimeout = 15;
                 command.CommandText = "SELECT 1 FROM " + MySqlSchemaPlanner.Quote(name) + " LIMIT 0";
                 await using (var reader = await command.ExecuteReaderAsync(token)) { while (await reader.ReadAsync(token)) { } }
                 var count = Convert.ToInt64(await ScalarInTransactionAsync(connection, transaction,
@@ -59,9 +59,9 @@ public sealed partial class SchemaService
     }
 
     /// <summary>普通快照未表达前缀/隐藏/非BTREE索引与外键、CHECK；逐项列缺口，不伪装成普通索引。</summary>
-    private static async Task ReadImportFeaturesAsync(DbConnection connection, DbTransaction transaction, string table, List<SchemaImportIssue> issues, CancellationToken token)
+    private async Task ReadImportFeaturesAsync(DbConnection connection, DbTransaction transaction, string table, List<SchemaImportIssue> issues, CancellationToken token)
     {
-        await using var command = connection.CreateCommand(); command.Transaction = transaction;
+        await using var command = session.Provider.CreateCommand(connection); command.Transaction = transaction;
         command.CommandText = "SELECT INDEX_NAME,SUB_PART,COLLATION,INDEX_TYPE,IS_VISIBLE FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table ORDER BY INDEX_NAME,SEQ_IN_INDEX";
         AddParameters(command, [("@table", table)]);
         await using (var reader = await command.ExecuteReaderAsync(token))

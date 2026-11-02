@@ -65,7 +65,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
             foreach (var change in pending.Plan.Changes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await using var command = connection.CreateCommand();
+                await using var command = session.Provider.CreateCommand(connection);
                 command.CommandText = change.Sql;
                 await command.ExecuteNonQueryAsync(cancellationToken);
                 applied++;
@@ -151,7 +151,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                 "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @table", token, ("@table", name)), CultureInfo.InvariantCulture);
             if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("受管辖表必须使用 InnoDB，以保证业务事务。");
             var columns = new List<ColumnSchema>();
-            await using (var command = connection.CreateCommand())
+            await using (var command = session.Provider.CreateCommand(connection))
             {
                 command.Transaction = transaction;
                 command.CommandText = "SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY,COLUMN_DEFAULT,EXTRA,DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table ORDER BY ORDINAL_POSITION";
@@ -174,7 +174,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                 }
             }
             var indexes = new List<IndexSchema>();
-            await using (var indexCommand = connection.CreateCommand())
+            await using (var indexCommand = session.Provider.CreateCommand(connection))
             {
                 indexCommand.Transaction = transaction;
                 indexCommand.CommandText = "SELECT INDEX_NAME,NON_UNIQUE,COLUMN_NAME,COLLATION FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table AND INDEX_NAME <> 'PRIMARY' ORDER BY INDEX_NAME,SEQ_IN_INDEX";
@@ -190,7 +190,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                 }
                 indexes.AddRange(rows.GroupBy(r => r.Name).Select(g => IndexDirectionRules.Normalize(new IndexSchema(g.Key, g.First().Unique, g.Select(r => r.Column).ToArray()){Directions=g.Select(r=>r.Direction).ToArray()})));
             }
-            await using var ddlCommand = connection.CreateCommand();
+            await using var ddlCommand = session.Provider.CreateCommand(connection);
             ddlCommand.Transaction = transaction;
             ddlCommand.CommandText = "SHOW CREATE TABLE " + MySqlSchemaPlanner.Quote(name);
             await using var ddlReader = await ddlCommand.ExecuteReaderAsync(token);
@@ -211,12 +211,12 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
 
     private string LockName() => "metarill:schema:" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(session.Options.ExpectedDatabase)))[..32];
     private static string Sign(SchemaChangePlan plan) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(plan)));
-    private static async Task<object?> ScalarAsync(DbConnection connection, string sql, CancellationToken token, params (string, object)[] parameters)
+    private async Task<object?> ScalarAsync(DbConnection connection, string sql, CancellationToken token, params (string, object)[] parameters)
         => await ScalarInTransactionAsync(connection, null, sql, token, parameters);
     /// <summary>反向检查的元信息查询加入已持有MDL的只读流程，其他调用保持原无事务行为。</summary>
-    private static async Task<object?> ScalarInTransactionAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken token, params (string, object)[] parameters)
+    private async Task<object?> ScalarInTransactionAsync(DbConnection connection, DbTransaction? transaction, string sql, CancellationToken token, params (string, object)[] parameters)
     {
-        await using var command = connection.CreateCommand();
+        await using var command = session.Provider.CreateCommand(connection);
         command.Transaction = transaction;
         command.CommandText = sql;
         AddParameters(command, parameters);

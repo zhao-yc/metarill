@@ -44,37 +44,38 @@ public sealed class DescendingIndexSchemaTests
         var provider=new RecordingProvider{TableExists=true,Directions=["D","A"]};using var session=Session(provider);var service=new SchemaService(session);
         var snapshot=await service.InspectAsync(Catalog());Assert.Equal(new[]{"DESC","ASC"},Assert.Single(snapshot.Tables[0].Indexes!).Directions);Assert.Empty(MySqlSchemaPlanner.Compare(snapshot,MySqlSchemaPlanner.Compile(Catalog(),"direction_offline")));
         provider.Directions=["A","A"];await Assert.ThrowsAsync<InvalidOperationException>(()=>service.PreviewAsync(Catalog()));Assert.Equal(0,provider.Ddl);
-        provider.Directions=["?","A"];await Assert.ThrowsAsync<NotSupportedException>(()=>service.InspectAsync(Catalog()));Assert.Equal(0,provider.Ddl);
+        provider.Directions=["?","A"];await Assert.ThrowsAsync<NotSupportedException>(()=>service.InspectAsync(Catalog()));Assert.Equal(0,provider.Ddl);Assert.True(provider.FactoryCommands>0);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
     }
     /// <summary>执行真实特征查询：普通DESC可表示，但主键方向、前缀、隐藏和非BTREE仍保留阻断。</summary>
     [Fact]
     public async Task Desc_secondary_indexes_do_not_unblock_unrepresented_import_features()
     {
         var provider=new RecordingProvider();await using var connection=provider.CreateConnection(new());await connection.OpenAsync();await using var transaction=await connection.BeginTransactionAsync();var issues=new List<SchemaImportIssue>();
-        var inspect=typeof(SchemaService).GetMethod("ReadImportFeaturesAsync",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!;
-        await (Task)inspect.Invoke(null,[connection,transaction,"record",issues,CancellationToken.None])!;
-        Assert.DoesNotContain(issues,issue=>issue.Member=="yzp_idx_desc");Assert.Equal(new[]{"PRIMARY","prefix","hidden","hash","unknown"},issues.Select(issue=>issue.Member));Assert.All(issues,issue=>Assert.Equal("INDEX_FEATURE_UNSUPPORTED",issue.Code));Assert.Equal(0,provider.Ddl);
+        using var session=Session(provider);var service=new SchemaService(session);
+        var inspect=typeof(SchemaService).GetMethod("ReadImportFeaturesAsync",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);Assert.NotNull(inspect);
+        await (Task)inspect.Invoke(service,[connection,transaction,"record",issues,CancellationToken.None])!;Assert.Equal(1,provider.FactoryCommands);
+        Assert.DoesNotContain(issues,issue=>issue.Member=="yzp_idx_desc");Assert.Equal(new[]{"PRIMARY","prefix","hidden","hash","unknown"},issues.Select(issue=>issue.Member));Assert.All(issues,issue=>Assert.Equal("INDEX_FEATURE_UNSUPPORTED",issue.Code));Assert.Equal(0,provider.Ddl);Assert.True(provider.FactoryCommands>0);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
     }
     /// <summary>旧版、未知版本及MariaDB不能因语法可接受就宣称拥有MySQL物理降序。</summary>
     [Theory]
     [InlineData("5.7.44")][InlineData("8.0.0")][InlineData("8.0.10")][InlineData("8.0broken")][InlineData("10.11.8-MariaDB")][InlineData("8.0.43-MariaDB")][InlineData("unknown")]
     public async Task Unsupported_server_is_rejected_before_previewing_executable_desc_ddl(string version)
     {
-        var provider=new RecordingProvider{Version=version};using var session=Session(provider);await Assert.ThrowsAsync<NotSupportedException>(()=>new SchemaService(session).PreviewAsync(Catalog()));Assert.Equal(0,provider.Ddl);Assert.Equal(0,provider.IndexReads);
+        var provider=new RecordingProvider{Version=version};using var session=Session(provider);await Assert.ThrowsAsync<NotSupportedException>(()=>new SchemaService(session).PreviewAsync(Catalog()));Assert.Equal(0,provider.Ddl);Assert.Equal(0,provider.IndexReads);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
     }
     /// <summary>支持的正式版本及标准发行后缀可预览；不能因版本字符串后缀误拒绝正常MySQL。</summary>
     [Theory]
     [InlineData("8.0.11")][InlineData("8.0.43-log")][InlineData("8.4.2")][InlineData("9.0.1")]
     public async Task Supported_server_can_preview_without_executing_ddl(string version)
     {
-        var provider=new RecordingProvider{Version=version};using var session=Session(provider);Assert.Single((await new SchemaService(session).PreviewAsync(Catalog())).Changes);Assert.Equal(0,provider.Ddl);
+        var provider=new RecordingProvider{Version=version};using var session=Session(provider);Assert.Single((await new SchemaService(session).PreviewAsync(Catalog())).Changes);Assert.Equal(0,provider.Ddl);Assert.True(provider.FactoryCommands>0);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
     }
     /// <summary>即使SHOW CREATE文本没有变化，逐列方向改变也必须使已预览结构失效。</summary>
     [Fact]
     public async Task Direction_drift_after_preview_aborts_apply_before_any_ddl()
     {
         var provider=new RecordingProvider{TableExists=true};using var session=Session(provider);var service=new SchemaService(session);var plan=await service.PreviewAsync(Catalog());Assert.Empty(plan.Changes);
-        provider.Directions=["A","A"];var error=await Assert.ThrowsAsync<SchemaApplyException>(()=>service.ApplyAsync(plan));Assert.Contains("结构在预览后发生变化",error.InnerException!.Message);Assert.Equal(0,error.Result.AppliedStatements);Assert.Equal(0,provider.Ddl);
+        provider.Directions=["A","A"];var error=await Assert.ThrowsAsync<SchemaApplyException>(()=>service.ApplyAsync(plan));Assert.Contains("结构在预览后发生变化",error.InnerException!.Message);Assert.Equal(0,error.Result.AppliedStatements);Assert.Equal(0,provider.Ddl);Assert.True(provider.FactoryCommands>0);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
     }
     /// <summary>预览时支持不代表执行时仍支持；重新连接后在结构锁和DDL之前拒绝版本变化。</summary>
     [Fact]
@@ -88,7 +89,7 @@ public sealed class DescendingIndexSchemaTests
     [Fact]
     public async Task Existing_ascending_catalog_does_not_require_desc_server_capability()
     {
-        var provider=new RecordingProvider{Version="5.7.44"};using var session=Session(provider);Assert.Single((await new SchemaService(session).PreviewAsync(Catalog("ASC"))).Changes);Assert.Equal(0,provider.Ddl);
+        var provider=new RecordingProvider{Version="5.7.44"};using var session=Session(provider);Assert.Single((await new SchemaService(session).PreviewAsync(Catalog("ASC"))).Changes);Assert.Equal(0,provider.Ddl);Assert.True(provider.FactoryCommands>0);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
     }
     /// <summary>维护方显式绑定的UUID必须在实际预览连接核对，不能只由调用方另开连接预检。</summary>
     [Fact]
@@ -116,15 +117,17 @@ public sealed class DescendingIndexSchemaTests
     private sealed class RecordingProvider:IDatabaseProvider
     {
         internal string Uuid {get;set;}="offline-instance";
-        internal string Version="8.0.43";internal bool TableExists;internal string[] Directions=["D","A"];internal int Ddl,IndexReads,Locks;
+        internal string Version="8.0.43";internal bool TableExists;internal string[] Directions=["D","A"];internal int Ddl,IndexReads,Locks,FactoryCommands,CreatedCommands;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public string QuoteIdentifier(string identifier)=>MySqlSchemaPlanner.Quote(identifier);public string ParameterPlaceholder(string name)=>"@"+name;
         public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new Connection(this);
+        /// <summary>原物理创建和适配器入口分别计数，漏接工厂不能被原结果断言掩盖。</summary>
+        public DbCommand CreateCommand(DbConnection connection){FactoryCommands++;return connection.CreateCommand();}
     }
     private sealed class Connection(RecordingProvider provider):DbConnection
     {
         private ConnectionState state;[System.Diagnostics.CodeAnalysis.AllowNull]public override string ConnectionString{get;set;}="";public override string Database=>"direction_offline";public override string DataSource=>"offline";public override string ServerVersion=>provider.Version;public override ConnectionState State=>state;
-        public override void Open()=>state=ConnectionState.Open;public override void Close()=>state=ConnectionState.Closed;public override void ChangeDatabase(string databaseName)=>throw new NotSupportedException();protected override DbTransaction BeginDbTransaction(IsolationLevel level)=>new Transaction(this);protected override DbCommand CreateDbCommand()=>new Command(this,provider);
+        public override void Open()=>state=ConnectionState.Open;public override void Close()=>state=ConnectionState.Closed;public override void ChangeDatabase(string databaseName)=>throw new NotSupportedException();protected override DbTransaction BeginDbTransaction(IsolationLevel level)=>new Transaction(this);protected override DbCommand CreateDbCommand(){provider.CreatedCommands++;return new Command(this,provider);}
     }
     private sealed class Transaction(DbConnection connection):DbTransaction
     {

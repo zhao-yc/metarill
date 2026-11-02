@@ -134,7 +134,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     /// <summary>文件行锁已持有，再以同事务当前读核对含墓碑引用历史；不使用RR快照或忽略已解绑记录。</summary>
     private async Task<bool> HasReferenceHistoryAsync(RecordMutationContext context,long fileId,CancellationToken token)
     {
-        var provider=store.Session.Provider;await using var command=context.Transaction.Connection!.CreateCommand();command.Transaction=context.Transaction;
+        var provider=store.Session.Provider;await using var command=provider.CreateCommand(context.Transaction.Connection!);command.Transaction=context.Transaction;
         command.CommandText=provider.BuildSelectForUpdate("SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier("yz_file_ref")+" WHERE "+provider.QuoteIdentifier("file_id")+"="+Parameter(command,"history_file",fileId));
         return await command.ExecuteScalarAsync(token) is not null;
     }
@@ -175,7 +175,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var provider = store.Session.Provider;
         foreach (var parent in parents.DistinctBy(parent => (parent.Scope.Parent.Id, parent.Id)).OrderBy(parent => parent.Scope.Parent.TableName, StringComparer.Ordinal).ThenBy(parent => parent.Id))
         {
-            await using var command = context.Transaction.Connection!.CreateCommand(); command.Transaction = context.Transaction;
+            await using var command = provider.CreateCommand(context.Transaction.Connection!); command.Transaction = context.Transaction;
             var query = "SELECT " + provider.QuoteIdentifier("id") + " FROM " + provider.QuoteIdentifier(parent.Scope.Parent.TableName)
                 + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "scope_parent_id", parent.Id);
             if(parent.Scope.Project is{} owner)query+=" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter(command,"scope_project",FileReferenceScope.IdentityValue(owner,FileReferenceScope.PositiveId(context.ProjectId)));
@@ -205,7 +205,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var provider = store.Session.Provider;
         var names = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.Ordinal);
         if (!names.Contains("id")) throw new InvalidOperationException("业务表没有声明主键。");
-        await using var command = context.Transaction.Connection!.CreateCommand(); command.Transaction = context.Transaction;
+        await using var command = provider.CreateCommand(context.Transaction.Connection!); command.Transaction = context.Transaction;
         var query = "SELECT " + string.Join(",", names.Select(provider.QuoteIdentifier)) + " FROM " + provider.QuoteIdentifier(context.TableName) + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "record_id", context.RecordId);
         if (names.Contains("yz_project_id")) query += " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, "project", FileReferenceScope.IdentityValue(columns.Single(column=>column.ColumnName=="yz_project_id"),FileReferenceScope.PositiveId(context.ProjectId)));
         if(deletionScope?.Condition is{} condition)query+=" AND "+condition.BindConstants(command,store.Session,"physical_delete");
@@ -225,7 +225,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     {
         var key=(context.PageId,context.TableName,context.RecordId);
         if(!deletions.TryGetValue(context.Transaction,out var proofs)||!proofs.TryGetValue(key,out var proof)||proof.Actor!=actor||proof.Project!=context.ProjectId)throw new UnauthorizedAccessException("物理删除缺少同一身份及事务的真实记录证明。");
-        var provider=store.Session.Provider;await using var command=context.Transaction.Connection!.CreateCommand();command.Transaction=context.Transaction;
+        var provider=store.Session.Provider;await using var command=provider.CreateCommand(context.Transaction.Connection!);command.Transaction=context.Transaction;
         // 只按真实主键检查任何项目的行都已不存在，不能用项目筛选掩盖被重建或移走的记录。
         command.CommandText=provider.BuildSelectForUpdate("SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(context.TableName)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter(command,"deleted_id",context.RecordId));
         if(await command.ExecuteScalarAsync(token) is not null)throw new InvalidOperationException("业务记录尚未物理删除，不能清理文件引用。");

@@ -94,7 +94,7 @@ internal sealed class FileCrossParentScope
         var result=new long[selected.Level+1];var current=selected.Id;
         for(var index=selected.Level;index>=0;index--)
         {
-            var target=targets[index];var provider=session.Provider;await using var command=connection.CreateCommand();command.Transaction=transaction;
+            var target=targets[index];var provider=session.Provider;await using var command=provider.CreateCommand(connection);command.Transaction=transaction;
             string Parameter(string name,object value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value;command.Parameters.Add(parameter);return provider.ParameterPlaceholder(name);}
             var sql="SELECT "+provider.QuoteIdentifier("id")+(target.Parent is null?"":","+provider.QuoteIdentifier(target.Parent))+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter("node",current);
             if(target.ProjectType is not null)sql+=" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter("project",target.ProjectType=="string"?project.ToString(CultureInfo.InvariantCulture):(object)project);

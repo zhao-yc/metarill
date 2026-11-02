@@ -105,7 +105,7 @@ internal static class FileReferenceReadAuthorization
         await using var ownedConnection=transaction is null?provider.CreateConnection(store.Session.Options):null;
         var connection=transaction?.Connection??ownedConnection??throw new InvalidOperationException("文件读取事务连接不可用。");
         if(ownedConnection is not null)await connection.OpenAsync(token);
-        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        await using var command=provider.CreateCommand(connection);command.Transaction=transaction;
         var query="SELECT "+string.Join(",",names.Select(provider.QuoteIdentifier))+" FROM "+provider.QuoteIdentifier(table.TableName)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter(command,store,"record_id",record);
         if(owner is not null)query+=" AND "+provider.QuoteIdentifier(owner.ColumnName)+"="+Parameter(command,store,"project_id",FileReferenceScope.IdentityValue(owner,project));
         if(columns.Any(column=>column.ColumnName=="delete_no"))query+=" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL";
@@ -120,7 +120,7 @@ internal static class FileReferenceReadAuthorization
         await using var ownedConnection=transaction is null?provider.CreateConnection(store.Session.Options):null;
         var connection=transaction?.Connection??ownedConnection??throw new InvalidOperationException("文件读取事务连接不可用。");
         if(ownedConnection is not null)await connection.OpenAsync(token);
-        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        await using var command=provider.CreateCommand(connection);command.Transaction=transaction;
         command.CommandText="SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(scope.Parent.TableName)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter(command,store,"parent_id",id)+(scope.Project is{} owner?" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter(command,store,"parent_project",FileReferenceScope.IdentityValue(owner,project)):"")+(scope.HasSoftDelete?" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL":"");return await command.ExecuteScalarAsync(token) is not null;
     }
     /// <summary>固定参数名和值分开传递，不拼接用户值。</summary>

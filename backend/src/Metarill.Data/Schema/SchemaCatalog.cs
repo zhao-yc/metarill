@@ -20,7 +20,7 @@ public sealed partial class SchemaService
         var caseMode = Convert.ToInt32(await ScalarAsync(connection, "SELECT @@lower_case_table_names", token), System.Globalization.CultureInfo.InvariantCulture);
         if (caseMode is < 0 or > 2) throw new InvalidOperationException("无法确认数据库对象名称比较规则。");
         var caseSensitiveNames = caseMode == 0;
-        await using var command = connection.CreateCommand();
+        await using var command = session.Provider.CreateCommand(connection);
         command.CommandText = "SELECT TABLE_NAME,TABLE_TYPE,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() ORDER BY BINARY TABLE_NAME LIMIT 4097";
         command.CommandTimeout = 30;
         var objects = new List<SchemaCatalogObject>();

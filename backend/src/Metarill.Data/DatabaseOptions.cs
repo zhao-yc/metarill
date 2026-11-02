@@ -21,6 +21,8 @@ public interface IDatabaseProvider
     DatabaseCapabilities Capabilities { get; }
     IFreeSql CreateOrm(DatabaseOptions options);
     DbConnection CreateConnection(DatabaseOptions options);
+    /// <summary>只创建命令，不打开或替换连接；方言包装统一留在适配器，调用者仍负责事务绑定及释放。</summary>
+    DbCommand CreateCommand(DbConnection connection) => connection.CreateCommand();
     void Validate(DatabaseOptions options);
     string QuoteIdentifier(string identifier);
     string ParameterPlaceholder(string name);
@@ -70,6 +72,8 @@ public static class DatabaseProviders
 public sealed partial class MySqlDatabaseProvider : IDatabaseProvider
 {
     public string Name => "mysql";
+    /// <summary>文件及结构等手写入口共用原驱动包装，不改SQL、参数、连接或事务。</summary>
+    public DbCommand CreateCommand(DbConnection connection) => MySqlFloatingCommand.Wrap(connection.CreateCommand());
     /// <summary>MySQL TIME使用带符号总小时，最大838:59:59.000000，不在Service散布品牌判断。</summary>
     public void ValidateTimeValue(TimeSpan value)
     {

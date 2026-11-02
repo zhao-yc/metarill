@@ -235,7 +235,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     {
         var transaction=store.Session.CurrentTransaction ?? throw new InvalidOperationException("目录范围锁必须加入当前事务。");
         var provider=store.Session.Provider;
-        await using var command=transaction.Connection!.CreateCommand(); command.Transaction=transaction;
+        await using var command=provider.CreateCommand(transaction.Connection!); command.Transaction=transaction;
         var parameter=command.CreateParameter(); parameter.ParameterName="folder_project"; parameter.Value=Project(actor); command.Parameters.Add(parameter);
         var query="SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(Folders)
             +" WHERE "+provider.QuoteIdentifier("yz_project_id")+"="+provider.ParameterPlaceholder(parameter.ParameterName)
