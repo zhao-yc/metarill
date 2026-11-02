@@ -19,3 +19,5 @@ TimeValueNativeInputTests.Valid_pin_and_optional_external_configuration_match_or
 C102新协调器现已从b99bd31独立固定2403来源／152输出／947Full：同一build_configuration为实际假口令配置和正式口令配置提供唯一构建路径，明确映射原两个expected字段。该实际配置已送入固定正式程序集的外部传输分支，完整租约／包／实例及连接选项1项通过，回执databaseOpened=false／applicationStarted=false；随后仅将InstancePin替换为C100旧形状，同一入口1项预期失败且未写回执。正反例TRX与原配置摘要均绑定，运行前重算；不以默认29项冒充外部传输。C101测试合同及传输入口这一固定范围完成；TIME业务实库尚未通过。旧C100固定材料不修改，C102新对象仍待独立直接授权，详见[新固定复验](time-values-pin-native.md)。
 
 证据在.local/time-pin-transport-20261102，保留红绿TRX、两类JSON键差异、C100失败与独立清理证明。当前未取得新的TIME正式结果；MySQL首版总验收及其它矩阵继续。
+
+C104后续使用该原实例输入合同及C103归一后的隔离模型，固定da137bb正式1过／0败／0跳过、资源独立核清。C100输入失败及C102模型反查失败历史原样保留；见[当前固定TIME正式结果](time-values-model-native.md)。
