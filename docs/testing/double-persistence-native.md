@@ -127,3 +127,17 @@
 执行器的新连接及独立新SSH确认唯一库metarill_fresh_207e26147134d5ff_agent、账号mtf_207e26147134d5ff@%不存在，自有宿主停止及storage合成对象清理确认，private-settings／private-ownership已删除。execution为passed=false、cleanupConfirmed=true、leaseStatus=ended、privateSettingsDeleted=true、autoRetry=false；原固定来源／包、失败TRX和工作簿保持，不重用一次性授权。
 
 当前只修正测试样本隔离和导出前检查，保留产品及原位型断言，详见[A34夹具修正](double-export-fixture.md)。后续必须以新固定程序集及精确范围完整复验，不把本次失败改名为通过。
+
+## A35 独立导出样本修正后的新固定范围
+
+从0ba933018cf3105a6e3f35809c94b6ded8d11caf建立独立普通克隆，2399份跟踪来源／152份正式输出／947份真正Full包文件固定，Node v24.17.0／原SheetJS及原选择方法等依赖同时绑定。原产品运行时保持8fdf784，正式测试使用新的独立ordinary-export样本、物理及分页前检；原关联目标仍为下值。固定源码已核对这两项实际接线，实际包Program也保持MVC／最小接口两处精确浮点登记。
+
+严格Release独立构建零警告／错误，固定21项准备／租约／宿主HTTP及原Vue／SheetJS／生成解析器回归全部通过、0失败、0跳过；与主仓A34的21项同组重叠，不累加为42项。723个原前端／元数据／生成及手写保护文件原始字节不变。没有修改产品、生成器或界面。
+
+单次协调器8项零副作用拒绝、固定正式入口pending／ended／旧用途3项拒绝及全文件check-only均通过。新SSH只读核对Server-200和固定MySQL实例，新库／账号／所有权记录均不存在。本轮尚无新库／账号、私有口令或正式执行目录，未执行DDL／业务DML。
+
+运行2671cc1240b94469，仅计划唯一库metarill_fresh_2671cc1240b94469_agent、临时账号mtf_2671cc1240b94469@%，原三业务表加十一基础表，每业务表最多512条合成记录，900秒一次执行，不新增CHECK。完整原默认值／反查／真实Web／CRUD／统计／原XLSX／回滚／撤权／重启断言继续，未因本轮夹具修正缩减为仅导出验证。
+
+精确表／权限和storage/GUID合成文件清理说明：.local/double-persistence-export-native-20261102/permission-plan.md；范围摘要338df7eb3ec7a9e7d5bb607daaac98e955434334483993490c4281b2abf17dfd。当前pending／not-started，待新的直接授权；A33的207e26147134d5ff及其它历史租约已结束，不覆盖新对象和来源。执行后须先停自有宿主，再清本轮合成存储，按实例及所有权清同轮库／账号并以新连接和独立新SSH核零；失败不自动重试。
+
+A35尚无正式结果，不能关闭完整数值链或MySQL首版门槛；旧A33失败／工作簿／首因和清理证据均保留。
