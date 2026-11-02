@@ -26,7 +26,7 @@
 
 ## 尚未完成
 
-独立提交来源、正式程序集和公开完整包已固定，见下节；接下来仍须准备精确单次外层协调器与新库／账号／存储清单、只读实例／新对象预检及本轮直接授权。当前没有新建资源、DDL或业务DML，没有正式Web／MySQL结果。A30仍维持其原固定批次和pending租约，不借用已结束B121授权，不消费A30。
+独立提交来源、正式程序集和公开完整包已固定，见下节；精确单次外层协调器、资源清单和只读预检现已完成，见末节；仍须本轮直接授权。当前没有新建资源、DDL或业务DML，没有正式Web／MySQL结果。A30仍维持其原固定批次和pending租约，不借用已结束B121授权，不消费A30。
 
 后续即使本固定六模型正式通过，也不替代覆盖导入、R1、来源父范围／混合自树／重复角色、其它关系组合、真实浏览器／跨端／并发／同条件性能及MySQL首版总验收。未合main或部署生产。
 
@@ -36,4 +36,14 @@
 
 五个实际入口拒绝检查又在固定程序集及独立根下复核，均按预期拒绝、无数据库配置或执行目录；与主仓五项不累加。公开标记／Web身份／namespace、模型与安全绑定、Host输出及全文件集再次纯文件复核，frozenVerified=true。来源与固定包不启动，运行只允许使用未来的独占副本。
 
-材料在本机忽略目录.local/public-r0-cross-excel-native-20261102：source-snapshot.json、formal-assembly-files.json、prepared-receipt.json、fixed-build-state.json、固定TRX和拒绝回执。尚未分配新远端运行ID、建立租约或准备连接；外层协调器和精确资源计划仍待。A30的原固定材料另行check-only通过，保持pending／not-started；没有消费任何新库授权，也不能将公开Full构建或19项离线通过记为正式业务通过。
+材料在本机忽略目录.local/public-r0-cross-excel-native-20261102：source-snapshot.json、formal-assembly-files.json、prepared-receipt.json、fixed-build-state.json、固定TRX和拒绝回执。固定阶段尚未分配新远端运行ID或租约；随后仅完成下述pending本地计划，未创建连接、资源或凭据。A30的原固定材料另行check-only通过，保持pending／not-started；没有消费任何新库授权，也不能将公开Full构建或19项离线通过记为正式业务通过。
+
+## 精确单次计划与只读预检完成
+
+运行c608cc7a102a817b，唯一计划库metarill_fresh_c608cc7a102a817b_agent、账号mtf_c608cc7a102a817b@%；范围摘要b8991e89db8b3ff51ce772a13abb767146757a5ca92be824a4e84b7bae693e41。32业务表／11基础表、六个精确命名CHECK、512行逐表预算及900秒均固定。外层绑定原af419e7源码、152测试输出、1266公开包文件及SDK／Server-200租约工具／协调器摘要；check-only纯文件验证通过，未因计划生成重建或替换包。
+
+八项未授权／已用／审计缺失及不匹配／未知参数全部拒绝，子进程、秘密及所有权写入为零。与固定五实际入口拒绝分别记录，不相加为业务测试通过。只读新SSH核对Server-200和MySQL实例pin，新库／账号／所有权均不存在；无DDL或业务DML。
+
+协调器只运行一次，完成后独立审查原菜单32项、六模型回执、六个实际CHECK首因及六次事务钩子和精确后置错误；失败不自动重试。停本轮宿主后只清storage/GUID合成文件，远端按实例及所有权清理同轮库／账号，用新连接和独立新SSH核零。清理异常保留恢复材料，不扩大范围。精确表、CHECK、权限、存储路径及不可逆清理说明在本机忽略目录.local/public-r0-cross-excel-native-20261102/permission-plan.md。
+
+当前pending／not-started，尚未取得本轮直接授权或启动正式用例。A30仍待其独立授权，不因本计划准备完成而启用，也不借用B121结束租约。MySQL首版总验收继续。
