@@ -84,7 +84,7 @@ public sealed partial class MySqlDatabaseProvider : IDatabaseProvider
         var isolation=transaction.IsolationLevel;
         if(isolation is System.Data.IsolationLevel.RepeatableRead or System.Data.IsolationLevel.Serializable)return;
         if(isolation!=System.Data.IsolationLevel.Unspecified)throw new InvalidOperationException("外层事务隔离级别不能保证固定图读快照。");
-        await using var command=transaction.Connection!.CreateCommand();command.Transaction=transaction;command.CommandText="SELECT @@transaction_isolation";
+        await using var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());command.Transaction=transaction;command.CommandText="SELECT @@transaction_isolation";
         var actual=Convert.ToString(await command.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);
         if(actual is not("REPEATABLE-READ" or "SERIALIZABLE"))throw new InvalidOperationException("外层默认事务不能保证固定图读快照。");
     }

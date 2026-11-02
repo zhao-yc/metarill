@@ -11,7 +11,7 @@ public sealed partial class MySqlDatabaseProvider
         if(id<=0||columns.Count==0||columns.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=columns.Count)throw new ArgumentException("TIME回读必须具有正主键和不重复的固定列。");
         var fields=columns.Select(QuoteIdentifier).ToArray();var tableName=QuoteIdentifier(table);
         var connection=transaction.Connection??throw new InvalidOperationException("TIME回读需要当前有效事务。");
-        await using var command=connection.CreateCommand();command.Transaction=transaction;
+        await using var command=MySqlFloatingCommand.Wrap(connection.CreateCommand());command.Transaction=transaction;
         command.CommandText="SELECT "+string.Join(",",fields)+" FROM "+tableName+" WHERE "+QuoteIdentifier("id")+"="+ParameterPlaceholder("persisted_time_id");
         var parameter=command.CreateParameter();parameter.ParameterName="persisted_time_id";parameter.Value=id;command.Parameters.Add(parameter);
         await using var reader=await command.ExecuteReaderAsync(cancellationToken);

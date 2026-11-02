@@ -89,7 +89,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     /// <summary>标识符只来自编译计划，由适配器引用。</summary>
     private string Q(string name)=>session.Provider.QuoteIdentifier(name);
     /// <summary>所有命令加入同一个已建立事务。</summary>
-    private static DbCommand Command(DbTransaction transaction){var command=transaction.Connection!.CreateCommand();command.Transaction=transaction;return command;}
+    private static DbCommand Command(DbTransaction transaction){var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());command.Transaction=transaction;return command;}
     /// <summary>业务值仅通过参数传递。</summary>
     private static void Add(DbCommand command,string name,object? value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value??DBNull.Value;command.Parameters.Add(parameter);}
 }

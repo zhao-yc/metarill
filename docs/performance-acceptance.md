@@ -133,3 +133,5 @@ python3 tools/performance/paired_http.py run --config /本轮私有目录/settin
 2026-11-02 V37：固定7cc3a77／当前C#63f60dc的原双端显式初始化、三普通身份真实form登录／原页查询拒绝及前后资源接线已正式通过，资源／秘密新SSH独立核清。详见[固定范围与正式结果](paired-native-literal-fix-plan.md)。这只关闭初始化／身份前置子集，同业务数据、实际SQL参数、代表性业务／文件／Excel／传播维护、负载采样及跨端与MySQL首版总验收仍未完成，未运行性能负载。
 
 V38只读核对发现200当前MySQL8.4.11的performance_schema=false，语句消费者／仪器配置为空；不能将空历史记为未执行SQL。本次不读其它业务SQL／线程、不启用日志或修改配置。应用既有ORM与原生DbCommand两路，完整SQL／参数／事务采集仍需接线验证，见[实际前提及下一步](paired-sql-observation-preflight.md)。
+
+V39已实现C#显式、默认关闭的命令／参数／事务观察基础，并在现有200非root连接用3条常量／自身身份SELECT及2个事务API边界验证预处理、值证明与观察开关响应不变；数据层1528过27外部跳过、自身完整源码2过，均不替代完整业务／Java／文件SQL采集或负载。Files五个直接命令源文件及其它未接路径仍须补齐，InternallyConsistent不能当全覆盖批准，见[实现与实际边界](database-command-observation.md)。

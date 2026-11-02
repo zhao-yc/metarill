@@ -88,7 +88,7 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
     /// <summary>按元数据逻辑类型绑定项目，数字ID禁止隐式宽松转换。</summary>
     private static object Project(RelationTable table,string project)=>table.ProjectType=="string"?project:long.TryParse(project,System.Globalization.NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0&&id.ToString(CultureInfo.InvariantCulture)==project?id:throw new ArgumentException("传播项目ID不是规范正整数。");
     /// <summary>命令必须使用现有事务连接，不新开连接或自行提交。</summary>
-    private static DbCommand Command(DbTransaction transaction){var command=transaction.Connection!.CreateCommand();command.Transaction=transaction;return command;}
+    private static DbCommand Command(DbTransaction transaction){var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());command.Transaction=transaction;return command;}
     /// <summary>所有业务值通过驱动参数传递，不能拼接为SQL。</summary>
     private static void Add(DbCommand command,string name,object? value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value??DBNull.Value;command.Parameters.Add(parameter);}
 }

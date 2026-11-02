@@ -58,7 +58,15 @@ public sealed class DatabaseSession : IDisposable
         }
         await using var connection = Provider.CreateConnection(Options);
         await connection.OpenAsync(cancellationToken);
-        await using var transaction = readSnapshot?await Provider.BeginReadSnapshotAsync(connection,cancellationToken):await connection.BeginTransactionAsync(cancellationToken);
+        var beginObservation=DatabaseCommandObservation.StartTransaction(connection,null,DatabaseTransactionOperation.Begin);
+        DbTransaction transaction;
+        try
+        {
+            transaction=readSnapshot?await Provider.BeginReadSnapshotAsync(connection,cancellationToken):await connection.BeginTransactionAsync(cancellationToken);
+            beginObservation?.Complete(transaction,null);
+        }
+        catch(Exception error){beginObservation?.Complete(null,error);throw;}
+        await using var ownedTransaction=transaction;
         var current = new TransactionScope(transaction);
         _transaction.Value = current;
         try
@@ -66,13 +74,17 @@ public sealed class DatabaseSession : IDisposable
             var result = await action();
             cancellationToken.ThrowIfCancellationRequested();
             if (current.RollbackOnly) throw new InvalidOperationException("内层操作失败，事务已被标记为仅回滚。");
-            await transaction.CommitAsync(cancellationToken);
+            var commitObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Commit);
+            try{await transaction.CommitAsync(cancellationToken);commitObservation?.Complete(transaction,null);}
+            catch(Exception error){commitObservation?.Complete(transaction,error);throw;}
             return result;
         }
         catch
         {
             // 回滚不使用已取消的请求令牌，避免取消使清理动作被跳过。
-            await transaction.RollbackAsync(CancellationToken.None);
+            var rollbackObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Rollback);
+            try{await transaction.RollbackAsync(CancellationToken.None);rollbackObservation?.Complete(transaction,null);}
+            catch(Exception error){rollbackObservation?.Complete(transaction,error);throw;}
             throw;
         }
         finally { _transaction.Value = null; }

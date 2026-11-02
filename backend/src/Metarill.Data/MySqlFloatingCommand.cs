@@ -51,12 +51,48 @@ internal sealed class MySqlFloatingCommand(DbCommand inner) : DbCommand
     public override void Cancel()=>inner.Cancel();
     public override void Prepare()=>inner.Prepare();
     public override Task PrepareAsync(CancellationToken cancellationToken=default)=>inner.PrepareAsync(cancellationToken);
-    public override int ExecuteNonQuery(){PrepareFloating();return inner.ExecuteNonQuery();}
-    public override object? ExecuteScalar(){PrepareFloating();return inner.ExecuteScalar();}
-    protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior){PrepareFloating();return inner.ExecuteReader(behavior);}
-    public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken){await PrepareFloatingAsync(cancellationToken);return await inner.ExecuteNonQueryAsync(cancellationToken);}
-    public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken){await PrepareFloatingAsync(cancellationToken);return await inner.ExecuteScalarAsync(cancellationToken);}
-    protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior,CancellationToken cancellationToken){await PrepareFloatingAsync(cancellationToken);return await inner.ExecuteReaderAsync(behavior,cancellationToken);}
+    /// <summary>未开启观测时保持原快速路径；开启时只在同一驱动调用边界捕获只读证据。</summary>
+    public override int ExecuteNonQuery()
+    {
+        var trace=DatabaseCommandObservation.Start(inner,DatabaseCommandOperation.NonQuery,MySqlCommandObservationMetadata.Instance);
+        if(trace is null){PrepareFloating();return inner.ExecuteNonQuery();}
+        return trace.Execute(PrepareFloating,inner.ExecuteNonQuery);
+    }
+    /// <summary>同步标量结果直接交还原调用者，观察不读取或序列化该结果。</summary>
+    public override object? ExecuteScalar()
+    {
+        var trace=DatabaseCommandObservation.Start(inner,DatabaseCommandOperation.Scalar,MySqlCommandObservationMetadata.Instance);
+        if(trace is null){PrepareFloating();return inner.ExecuteScalar();}
+        return trace.Execute(PrepareFloating,inner.ExecuteScalar);
+    }
+    /// <summary>同步reader保持原对象和原读取生命周期。</summary>
+    protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
+    {
+        var trace=DatabaseCommandObservation.Start(inner,DatabaseCommandOperation.Reader,MySqlCommandObservationMetadata.Instance);
+        if(trace is null){PrepareFloating();return inner.ExecuteReader(behavior);}
+        return trace.Execute(PrepareFloating,()=>inner.ExecuteReader(behavior));
+    }
+    /// <summary>异步观测沿原取消令牌，不额外准备、不复制连接或替换reader。</summary>
+    public override async Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
+    {
+        var trace=DatabaseCommandObservation.Start(inner,DatabaseCommandOperation.NonQuery,MySqlCommandObservationMetadata.Instance);
+        if(trace is null){await PrepareFloatingAsync(cancellationToken);return await inner.ExecuteNonQueryAsync(cancellationToken);}
+        return await trace.ExecuteAsync(PrepareFloatingAsync,inner.ExecuteNonQueryAsync,cancellationToken);
+    }
+    /// <summary>异步标量不复制私有结果，不将观测失败变成业务异常。</summary>
+    public override async Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken)
+    {
+        var trace=DatabaseCommandObservation.Start(inner,DatabaseCommandOperation.Scalar,MySqlCommandObservationMetadata.Instance);
+        if(trace is null){await PrepareFloatingAsync(cancellationToken);return await inner.ExecuteScalarAsync(cancellationToken);}
+        return await trace.ExecuteAsync(PrepareFloatingAsync,inner.ExecuteScalarAsync,cancellationToken);
+    }
+    /// <summary>异步reader返回只证明驱动API已返回，不伪称已消费全部数据。</summary>
+    protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior,CancellationToken cancellationToken)
+    {
+        var trace=DatabaseCommandObservation.Start(inner,DatabaseCommandOperation.Reader,MySqlCommandObservationMetadata.Instance);
+        if(trace is null){await PrepareFloatingAsync(cancellationToken);return await inner.ExecuteReaderAsync(behavior,cancellationToken);}
+        return await trace.ExecuteAsync(PrepareFloatingAsync,token=>inner.ExecuteReaderAsync(behavior,token),cancellationToken);
+    }
     protected override void Dispose(bool disposing){try{if(disposing)inner.Dispose();}finally{base.Dispose(disposing);}}
     public override async ValueTask DisposeAsync(){try{await inner.DisposeAsync();}finally{base.Dispose(true);GC.SuppressFinalize(this);}}
 }
@@ -96,4 +132,15 @@ internal sealed class FloatingMySqlProvider<TMark> : MySqlProvider<TMark>
         if(Interlocked.Exchange(ref disposed,1)!=0)return;
         try{base.Dispose();}finally{original?.Dispose();}
     }
+}
+
+/// <summary>仅MySQL适配层读取真实驱动准备状态与参数枚举；通用观察器不判断数据库品牌。</summary>
+internal sealed class MySqlCommandObservationMetadata:IDatabaseCommandObservationMetadata
+{
+    internal static readonly MySqlCommandObservationMetadata Instance=new();
+    private MySqlCommandObservationMetadata(){}
+    /// <summary>仅MySQL适配器解释驱动准备标志。</summary>
+    public bool Prepared(DbCommand command)=>command is MySqlCommand{IsPrepared:true};
+    /// <summary>仅返回MySQL参数类型枚举，未知参数不做强制转换。</summary>
+    public string? ParameterType(DbParameter parameter)=>parameter is MySqlParameter value?value.MySqlDbType.ToString():null;
 }

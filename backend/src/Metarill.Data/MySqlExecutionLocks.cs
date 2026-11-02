@@ -43,13 +43,13 @@ internal static class MySqlExecutionLocks
         {
             token.ThrowIfCancellationRequested();await connection.OpenAsync(token);
             // 命名锁本身无TTL；独占连接此后没有业务命令，服务端超时能处理进程失联而不依赖本机计时器。
-            await using(var timeout=connection.CreateCommand())
+            await using(var timeout=MySqlFloatingCommand.Wrap(connection.CreateCommand()))
             {
                 timeout.CommandTimeout=5;timeout.CommandText="SET SESSION wait_timeout = @lease_seconds";
                 var value=timeout.CreateParameter();value.ParameterName="lease_seconds";value.Value=seconds;timeout.Parameters.Add(value);await timeout.ExecuteNonQueryAsync(token);
             }
             object? result;long started;
-            await using(var command=connection.CreateCommand())
+            await using(var command=MySqlFloatingCommand.Wrap(connection.CreateCommand()))
             {
                 command.CommandTimeout=5;command.CommandText="SELECT GET_LOCK(@lease_key, 0)";
                 var name=command.CreateParameter();name.ParameterName="lease_key";name.Value=key;command.Parameters.Add(name);started=clock.GetTimestamp();result=await command.ExecuteScalarAsync(token);

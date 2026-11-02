@@ -11,7 +11,7 @@ public sealed partial class MySqlDatabaseProvider
     public async Task<PhysicalDatabaseIdentity> ReadPhysicalDatabaseIdentityAsync(DatabaseOptions options,DbTransaction transaction,CancellationToken cancellationToken=default)
     {
         Validate(options);var connection=transaction.Connection??throw new InvalidOperationException("数据库身份核验必须使用活跃事务。");
-        await using var command=connection.CreateCommand();command.Transaction=transaction;command.CommandText="SELECT @@server_uuid,DATABASE(),@@lower_case_table_names";
+        await using var command=MySqlFloatingCommand.Wrap(connection.CreateCommand());command.Transaction=transaction;command.CommandText="SELECT @@server_uuid,DATABASE(),@@lower_case_table_names";
         await using var reader=await command.ExecuteReaderAsync(cancellationToken);
         if(!await reader.ReadAsync(cancellationToken)||reader.IsDBNull(0)||reader.IsDBNull(1)||reader.IsDBNull(2))throw new InvalidOperationException("无法确认物理数据库身份。");
         var server=reader.GetString(0);var database=reader.GetString(1);var casing=Convert.ToInt32(reader.GetValue(2),CultureInfo.InvariantCulture);
