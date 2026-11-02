@@ -1,5 +1,7 @@
 # 架构与实施边界
 
+当前明确交付节点（2026-11-02用户确认）：**先完成并验收MySQL首版**。其它数据库适配保留后续路线图，不作为本节点完成条件；原界面、功能／权限／事务／生成、跨端与同条件性能要求保持，详见[MySQL首版交付范围](mysql-first-release-milestone.md)。
+
 保留 YZP 的项目、后台类型、表、字段、页面、页面字段、按钮、主子关系和代码生成模型。
 
 普通请求：Controller → Service → Mapper；复杂流程：Controller → Business → Service → Mapper。

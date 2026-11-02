@@ -61,3 +61,8 @@ A25的文本输入差异已在生产ORM等值筛选复现；A26通过执行时�
 ## 2026-11-02：A28原XLSX出口补齐
 
 后续A28另行复现并修正当前ClosedXML的G15数值出口，真实XLSX及原SheetJS到生成导入器的固定往返通过；保留数值类型与原界面。Excel桌面编辑保存、真实数据库持久化及完整矩阵仍待，详见[数值XLSX专项](testing/double-xlsx-precision.md)。不将本轮结果倒记为旧批次或首版总验收完成。
+
+
+## 2026-11-02：A29入库前转换
+
+SqlRowStore已具备typed double／float时直接保留或提升，不先经过短文本；原文本、JSON、空选择及非有限拒绝保持。真实离线红灯、整组数据和独立包验证见[基础设施数值专项](testing/infrastructure-double-precision.md)。实际double持久表验收仍待，本修复不追改旧数据。

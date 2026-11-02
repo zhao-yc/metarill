@@ -69,11 +69,13 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
                 await security.InsertAsync("yz_role",Row("id",role,"yz_project_id",Project,"yz_admin_type_id",9L,"name",readerName,"is_super",0,"is_built_in",0));
                 await security.InsertAsync("yz_manager",Row("id",manager,"yz_project_id",Project,"yz_admin_type_id",9L,"name",readerName,"password",PasswordHasher.Hash(readerPassword),"is_disabled",0,"yz_role_ids",JsonSerializer.Serialize(new[]{Id(role)})));
                 foreach(var page in catalog.ConfigPages){var id=ids.NextId();permissions.Add(page.Id,id);await security.InsertAsync("yz_role_permission",Row("id",id,"yz_project_id",Project,"yz_role_id",role,"config_page_id",long.Parse(page.Id,CultureInfo.InvariantCulture),"permission_values","[\"is_all\"]"));}
+                foreach(var grant in GlobalCachedCrossExcelNativePreparation.NavigationGrants(catalog,role,()=>ids.NextId()))await security.InsertAsync("yz_role_permission",grant);
                 return true;
             });
             reader=new(){BaseAddress=host.Client.BaseAddress,Timeout=TimeSpan.FromSeconds(90)};token=await LoginOriginal(reader,readerName,readerPassword);
             Assert.False((await FreshWebHttp.SendAsync(reader,HttpMethod.Get,"/api/admin/sys/yz_manager/getCurrentPermissions")).GetProperty("data").GetProperty("isSuper").GetBoolean());
             var menu=await FreshWebHttp.SendAsync(reader,HttpMethod.Get,"/api/admin/sys/yz_manager/getMenu");
+            await Receipt("ordinary-navigation",new{run,menu=menu.GetProperty("menu"),permissions=menu.GetProperty("permissions")});
             var probes=GlobalCachedCrossExcelMySqlLease.Profiles.Select(p=>
             {
                 var profile=GlobalCachedCrossExcelMySqlLease.Profile(p.Role,p.Key,p.Parent,p.AllGlobal,p.Shared,p.Shorter);

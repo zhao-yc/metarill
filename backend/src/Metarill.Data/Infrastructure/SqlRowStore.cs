@@ -209,6 +209,14 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if(column.ControlKind=="time"&&time is {} clock&&!Metarill.Core.Contracts.ClockTimeValue.IsClock(clock))throw new System.Text.Json.JsonException("时间必须是有效日内时刻。");
         return time;
     }
+    /// <summary>已具备二进制类型的有限浮点直接提升／保留，不通过短文本再解析丢失入库位型。</summary>
+    private static double CoerceDouble(object value)
+    {
+        if(value is double real && double.IsFinite(real))return real;
+        if(value is float single && float.IsFinite(single))return single;
+        if(value is not (double or float)&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(Convert.ToString(value,CultureInfo.InvariantCulture),out var parsed))return parsed;
+        throw new FormatException("浮点数必须是有效有限值，不能溢出或下溢为零。");
+    }
     private static object? Coerce(object? value,ColumnMetadata column)
     {
         if(column.LogicalType=="binary")
@@ -224,7 +232,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
             "int64"=>Convert.ToInt64(value,CultureInfo.InvariantCulture),
             "int32"=>Convert.ToInt32(value,CultureInfo.InvariantCulture),
             "decimal"=>Convert.ToDecimal(value,CultureInfo.InvariantCulture),
-            "double"=>Metarill.Core.Contracts.ExactNumericValue.TryDouble(Convert.ToString(value,CultureInfo.InvariantCulture),out var floating)?floating:throw new FormatException("浮点数必须是有效有限值，不能溢出或下溢为零。"),
+            "double"=>CoerceDouble(value),
             "bool"=>Convert.ToBoolean(value,CultureInfo.InvariantCulture),
             "datetime" or "date"=>value is DateTime date?date:DateTime.Parse(Convert.ToString(value,CultureInfo.InvariantCulture)!,CultureInfo.InvariantCulture),
             "time"=>CoerceTime(value,column),

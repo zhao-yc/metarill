@@ -1,5 +1,7 @@
 # Metarill · 元溪
 
+当前明确交付节点（2026-11-02用户确认）：**先完成并验收MySQL首版**。其它数据库适配保留后续路线图，不作为本节点完成条件；原界面、功能／权限／事务／生成、跨端与同条件性能要求保持，详见[MySQL首版交付范围](docs/mysql-first-release-milestone.md)。
+
 基于 YZP 主框架重写的开源元数据应用开发平台。平台和生成应用采用 C# / ASP.NET Core，管理端保留 HBuilderX uni-app Vue 3 工程。Apache-2.0 许可证。
 
 ## 当前状态

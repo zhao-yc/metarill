@@ -60,6 +60,13 @@ internal static class GlobalCachedCrossExcelNativePreparation
         }
         return result;
     }
+    /// <summary>普通账号的导航与页动作分别授权；只生成本固定项目／后台的菜单行，不赋予维护按钮。</summary>
+    internal static IReadOnlyList<Dictionary<string,object?>> NavigationGrants(MetadataCatalog catalog,long role,Func<long> nextId)
+    {
+        if(catalog.YzProjectId!="100"||catalog.ConfigMenus.Any(menu=>menu.YzProjectId!="100"||menu.YzAdminTypeId!="9"||menu.Kind!="GENERATED_PAGE"||!catalog.ConfigPages.Any(page=>page.Id==menu.ConfigPageId&&page.YzProjectId=="100"&&page.YzAdminTypeId=="9")))
+            throw new InvalidOperationException("六模型导航授权超出固定项目／后台或页面范围。");
+        return catalog.ConfigMenus.Select(menu=>new Dictionary<string,object?>{{"id",nextId()},{"yz_project_id",100L},{"yz_role_id",role},{"config_menu_id",long.Parse(menu.Id,CultureInfo.InvariantCulture)},{"permission_values","[]"}}).ToArray();
+    }
     /// <summary>只为同一组已有记录分配独立数值ID，不依赖旧夹具含文字的ID格式。</summary>
     private static Dictionary<string,string> Map<T>(IReadOnlyList<T> values,long basis)where T:MetadataRecord=>values.Select((value,index)=>(value.Id,NewId:(basis+index).ToString(CultureInfo.InvariantCulture))).ToDictionary(value=>value.Id,value=>value.NewId,StringComparer.Ordinal);
     /// <summary>原六个来源服务均带相同的手写事务故障观察，不替换认证、生成器或基础设施。</summary>
