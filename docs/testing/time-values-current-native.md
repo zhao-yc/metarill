@@ -23,11 +23,11 @@
 
 登录身份为初始化所有者，不冒充普通账号／全面页按钮授权矩阵。导入失败仅核样本计数，不作为已观测首行DML或完整文件回滚证明。没有真实浏览器、SheetJS、真机、并发或性能；重复初始化、同地址重启／注销等未由本用例断言的事项也不转记完成。
 
-## 待直接授权的唯一范围
+## 原执行前的唯一范围（现已执行并清理结束）
 
 运行af043c6457947965，唯一库metarill_fresh_af043c6457947965_agent、临时账号mtf_af043c6457947965@%；只授该库所需SELECT／INSERT／UPDATE／DELETE／CREATE／ALTER／DROP／INDEX／REFERENCES。3张业务表为sample_contract、sample_contract_line、sample_customer；11张基础表从固定files／security／Agent基础图派生，总14表。每业务表最多512条合成记录，900秒一次执行，无额外CHECK。
 
-精确资源、表／权限、不可逆清理及独占evidence/files/GUID合成uploads／exports清单见本机忽略目录.local/time-values-current-native-20261102/permission-plan.md。范围摘要7b5a3d82fae92746c8301712967d2516fc05487674cf237af407eeef511f38e4，当前pending／not-started，未生成正式口令／settings或执行目录，正式未执行。A35数值租约已结束，不覆盖本轮TIME用途、新对象和c999d9f来源。
+精确资源、表／权限、不可逆清理及独占evidence/files/GUID合成uploads／exports清单见本机忽略目录.local/time-values-current-native-20261102/permission-plan.md。范围摘要7b5a3d82fae92746c8301712967d2516fc05487674cf237af407eeef511f38e4，准备时为pending／not-started，未生成正式口令／settings或执行目录；后续已执行失败且独立清理，现为ended，见下节。A35数值租约已结束，不覆盖本轮TIME用途、新对象和c999d9f来源。
 
 执行后先停自有宿主、按摘要删除本轮GUID合成存储；远端核实例及所有权后清同轮库／账号，以新连接和独立新SSH核零。固定源码、包、执行工程、工作簿核验副本、原失败及回执保留；清理异常保留或按项目要求备份恢复凭据，不扩大范围，不自动重试或复用租约。
 
@@ -36,3 +36,5 @@ C100只完成当前材料与护栏，不能把19项准备计为TIME实库通过�
 ## C100实际执行与后续
 
 用户直接授权call_4f9655f758044cf0a7a2fd3b413c1766后，本轮正式0过／1败／0跳过：协调器InstancePin键名沿用了另一驱动形状，实际Pin要求expectedHostname／expectedServerUuid，故在进入应用结构安装前失败。唯一库／账号、合成存储及私有凭据已独立清理核零，租约ended；旧失败和固定包保留，不重跑。详见[输入首因及C101修正](time-instance-input.md)。
+
+C101已补原实例合同及实际外部配置校验，C102固定b99bd31的同一构建器传输正反例已实际验证，新的TIME业务实库仍待直接授权；见[修正后正式准备](time-values-pin-native.md)。
