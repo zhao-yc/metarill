@@ -25,7 +25,12 @@ public sealed partial class SchemaService
         await using var connection = session.Provider.CreateConnection(session.Options);
         await connection.OpenAsync(token);
         var identity = await ValidateTargetAsync(connection, token);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        // 结构反查拥有独立MDL事务；只观察原API边界，不加入业务session或改变隔离级别。
+        var beginObservation=DatabaseCommandObservation.StartTransaction(connection,null,DatabaseTransactionOperation.Begin);
+        DbTransaction transaction;
+        try{transaction=await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted,token);beginObservation?.Complete(transaction,null);}
+        catch(Exception error){beginObservation?.Complete(null,error);throw;}
+        await using var ownedTransaction=transaction;
         try
         {
             var caseMode = Convert.ToInt32(await ScalarInTransactionAsync(connection, transaction, "SELECT @@lower_case_table_names", token));
@@ -52,10 +57,19 @@ public sealed partial class SchemaService
             var issues = new List<SchemaImportIssue>();
             foreach (var name in names.Order(StringComparer.Ordinal)) await ReadImportFeaturesAsync(connection, transaction, name, issues, token);
             var result = await inspect(new(new(session.Provider.Name, schema, MySqlSchemaPlanner.Fingerprint(schema)), issues.Distinct().ToArray(), caseMode == 0, TargetIdentity(identity, caseMode)), token);
-            await transaction.CommitAsync(token);
+            var commitObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Commit);
+            try{await transaction.CommitAsync(token);commitObservation?.Complete(transaction,null);}
+            catch(Exception error){commitObservation?.Complete(transaction,error);throw;}
             return result;
         }
-        catch { await transaction.RollbackAsync(CancellationToken.None); throw; }
+        catch
+        {
+            // 保持原取消后回滚及原异常优先级；采集不重试、不替换事务。
+            var rollbackObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Rollback);
+            try{await transaction.RollbackAsync(CancellationToken.None);rollbackObservation?.Complete(transaction,null);}
+            catch(Exception error){rollbackObservation?.Complete(transaction,error);throw;}
+            throw;
+        }
     }
 
     /// <summary>普通快照未表达前缀/隐藏/非BTREE索引与外键、CHECK；逐项列缺口，不伪装成普通索引。</summary>

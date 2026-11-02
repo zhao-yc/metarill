@@ -1,4 +1,4 @@
-# C#应用侧SQL与事务观察基础（V39／V40）
+# C#应用侧SQL与事务观察基础（V39／V40／V41）
 
 日期2026-11-02，起点30c8cfa。承接V38的真实MySQL Performance Schema关闭前提，本项在应用执行边界采集C#证据，不修改共享MySQL配置，不以它替代Java／完整业务／性能验收。
 
@@ -23,10 +23,10 @@ var snapshot = trace.Snapshot();
 | --- | --- |
 | FreeSql及SqlRowStore／非冗余读取 | 已在原MySqlFloatingCommand六个同步／异步执行入口采集；准备与原Execute各一次，观察前后参数和原结果对象不换 |
 | 身份、TIME回读、租约、关系传播／混合存储／维护及缓存核验 | 已将原生CreateCommand接回同一既有包装，不改SQL文本／参数表达式；具体业务实库覆盖仍待 |
-| 事务 | DatabaseSession实际begin／commit／rollback API完成或失败边界，命令以同一CLR连接／事务引用令牌关联；未看到begin或关闭时无确认end会拒绝完整性 |
+| 事务 | DatabaseSession及V41结构反查独立MDL事务实际begin／commit／rollback API完成或失败边界，命令以同一CLR连接／事务引用令牌关联；未看到begin或关闭时无确认end会拒绝完整性 |
 | 品牌差异 | MySQL准备标志与参数类型枚举只由MySQL适配器提供；通用scope／快照逻辑不判断品牌，不进入Service／Business |
 | 文件与结构命令（V40） | IDatabaseProvider.CreateCommand统一创建：Files五源文件九处、Schema三源文件八处接回MySQL既有包装；其它提供程序缺省返回原命令。Schema私有标量／特征帮助方法改为实例，以使用同一session.Provider；原SQL、参数名、事务绑定、连接打开／释放位置不变 |
-| 尚未覆盖 | Schema独立begin／commit／rollback、其它自行创建的事务／抑制ExecutionContext的任务、Java侧及完整HTTP场景采集；文件／结构真实业务采集尚未验，不能把这些缺口当作零SQL |
+| 尚未覆盖 | 已接线之外的自定义事务／抑制ExecutionContext的任务、Java侧及完整HTTP场景采集；文件／结构真实业务采集尚未验，不能把这些缺口当作零SQL |
 
 连接／事务数字是本scope的CLR引用令牌，不是MySQL线程ID或跨进程事务ID。事务条目记录实际API调用，不伪造服务器BEGIN／COMMIT文本；驱动内部握手／会话初始化和prepare网络往返未计入应用Execute条数。Prepared是真实驱动准备状态，不等于新发生一次网络prepare。
 
@@ -51,7 +51,7 @@ InternallyConsistent只表示已接线路径在此scope内的计数／边界一�
 
 无需DDL、回填、原页面或表级再生成。生成项目需使用匹配的新数据运行时源码重新打包／构建，手写partial继续保护；V37的63f60dc／原三镜像只证明其冻结来源，不自动升级为本实现的新运行时验收。已有observer默认不启用；回退配套Data源码／包，不修改业务数据。
 
-V40已补统一工厂；下一步补独立事务边界，接真实HTTP固定案例与Java对应采集，再冻结双方业务数据／SQL／参数／次数／事务／资源证明并执行同条件负载。V08、跨端与MySQL首版总验收继续未完成，不改用微基准或只比较容易通过的SQL子集。
+V40已补统一工厂，V41补结构反查独立事务边界；下一步接真实HTTP固定案例与Java对应采集，再冻结双方业务数据／SQL／参数／次数／事务／资源证明并执行同条件负载。V08、跨端与MySQL首版总验收继续未完成，不改用微基准或只比较容易通过的SQL子集。
 
 ## V40：命令工厂及文件／结构接线
 
@@ -68,3 +68,11 @@ V40已补统一工厂；下一步补独立事务边界，接真实HTTP固定案�
 初次新增文件测试仅编译失败（Disposed字段隐藏基类事件、事务回调缺泛型结果），修正后6项通过。首轮数据层1530通过／1失败／27跳过，失败为旧测试仍反射查找已改实例的私有静态方法；已修正实例调用并保留全部原断言，最终1531／0／27。历史失败不抹除、不累计为最终通过。
 
 私有结果位于.local/sql-command-factory-20261102/results；真实只读目录9a8fc4633de445adb9b008070ddf103e，trace SHA256为9acb5ed36f703333771ca7be2ce1e44d2509b40fcd06a85fbdaa6792881ef4a5。原前端／生成页面模板、元数据和数据库结构没有变化。仍须配套重新构建含本次Data和Files的完整包；不将旧V37镜像改记为新运行时通过，MySQL首版及V08继续未完成。
+
+## V41：结构反查独立事务边界
+
+2026-11-02，起点24f5a5c。WithImportInspectionAsync继续自行建立ReadCommitted事务持有源表MDL，不加入DatabaseSession业务事务。仅在原begin／commit／rollback前后记录API完成或原异常；仍使用同一连接／事务，取消后仍用CancellationToken.None回滚，回滚失败仍覆盖此前异常。原SQL、预算、结构与来源身份检查不变，无DDL、元数据或前端变化。
+
+新增12个明确替身用例实际调用完整反查入口：观察关闭／开启各覆盖成功、回调失败、取消、begin失败、commit失败和rollback失败；核对回调次数、原异常对象、隔离级别、事务API顺序、命令事务关联及工厂完整计数。begin失败不进入回调或虚构回滚；commit失败后仍回滚；rollback失败保持原异常优先级，并使证据包含UnresolvedTransaction、InternallyConsistent=false。该状态表示采集如实发现未确认结束，不能改记为完整成功。
+
+首轮专项32项通过；增强精确隔离级别断言后，最终数据层1570项：1543通过、27项外部环境跳过、0失败，新增12项包含其中。私有TRX、既有字符串字面量不变核对及汇总位于.local/schema-transaction-observation-20261102。未执行新的MySQL结构反查事务实库场景、正式HTTP／Java配对或性能负载；V40的常量只读和完整包证据仍只归其冻结子集，不当作本项实库通过。当前MySQL首版仍未整体完成。

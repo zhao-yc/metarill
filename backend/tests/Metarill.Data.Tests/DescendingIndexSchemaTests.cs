@@ -114,24 +114,58 @@ public sealed class DescendingIndexSchemaTests
         ConfigIndexes=[JsonSerializer.SerializeToElement(new{id="index",configTableId="table",indexName="yzp_idx_value",isUnique=0})],
         ConfigIndexColumns=[JsonSerializer.SerializeToElement(new{configIndexId="index",configColumnId="id",sortNo=20,sortDirection="ASC"}),JsonSerializer.SerializeToElement(new{configIndexId="index",configColumnId="value",sortNo=10,sortDirection=first})]
     };
+    /// <summary>实际调用反查MDL事务入口；观察开关均保留原成功、异常、取消和回滚失败优先级。</summary>
+    [Theory]
+    [InlineData(false,"success")][InlineData(true,"success")]
+    [InlineData(false,"callback")][InlineData(true,"callback")]
+    [InlineData(false,"cancel")][InlineData(true,"cancel")]
+    [InlineData(false,"begin")][InlineData(true,"begin")]
+    [InlineData(false,"commit")][InlineData(true,"commit")]
+    [InlineData(false,"rollback")][InlineData(true,"rollback")]
+    public async Task Import_inspection_transaction_preserves_original_outcomes_with_observation(bool observed,string mode)
+    {
+        using var cancellation=new CancellationTokenSource();var primary=mode=="cancel"?(Exception)new OperationCanceledException(cancellation.Token):new InvalidOperationException("原反查异常");var rollback=new NotSupportedException("原回滚异常");
+        var provider=new RecordingProvider{TableExists=true,ObserveCommands=observed,BeginFailure=mode=="begin"?primary:null,CommitFailure=mode=="commit"?primary:null,RollbackFailure=mode=="rollback"?rollback:null};
+        using var session=Session(provider);var service=new SchemaService(session);using var trace=observed?DatabaseCommandObservation.Begin(Enumerable.Repeat((byte)19,32).ToArray()):null;var callbacks=0;
+        var failure=await Record.ExceptionAsync(()=>service.WithImportInspectionAsync<int>(["record"],(inspection,token)=>
+        {
+            callbacks++;Assert.Single(inspection.Snapshot.Schema.Tables);Assert.Null(session.CurrentTransaction);Assert.Equal(cancellation.Token,token);
+            if(mode=="cancel")cancellation.Cancel();
+            if(mode is "callback" or "cancel" or "rollback")throw primary;
+            return Task.FromResult(17);
+        },cancellation.Token));trace?.Dispose();
+        Assert.Equal(mode=="begin"?0:1,callbacks);Assert.Equal(1,provider.Begins);Assert.Equal(IsolationLevel.ReadCommitted,provider.BeginLevel);Assert.Equal(mode is "success" or "commit"?1:0,provider.Commits);Assert.Equal(mode is "callback" or "cancel" or "commit" or "rollback"?1:0,provider.Rollbacks);
+        if(mode=="success")Assert.Null(failure);else Assert.Same(mode=="rollback"?rollback:primary,failure);
+        Assert.False(provider.RollbackToken.CanBeCanceled);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
+        if(trace is null)return;
+        var snapshot=trace.Snapshot();Assert.NotEmpty(snapshot.Commands);Assert.All(snapshot.Commands,entry=>Assert.True(entry.Succeeded));
+        var expected=mode switch{"begin"=>new[]{DatabaseTransactionOperation.Begin},"success"=>new[]{DatabaseTransactionOperation.Begin,DatabaseTransactionOperation.Commit},"commit"=>new[]{DatabaseTransactionOperation.Begin,DatabaseTransactionOperation.Commit,DatabaseTransactionOperation.Rollback},_=>new[]{DatabaseTransactionOperation.Begin,DatabaseTransactionOperation.Rollback}};
+        Assert.Equal(expected,snapshot.Transactions.Select(entry=>entry.Operation));if(mode!="begin")Assert.All(snapshot.Transactions,entry=>Assert.Equal("ReadCommitted",entry.Isolation));Assert.Equal(mode!="rollback",snapshot.InternallyConsistent);
+        if(mode=="rollback")Assert.Contains(DatabaseObservationProblem.UnresolvedTransaction,snapshot.Problems);
+        var inTransaction=snapshot.Commands.Where(entry=>entry.Transaction is not null).ToArray();
+        if(mode=="begin")Assert.Empty(inTransaction);else{Assert.NotEmpty(inTransaction);Assert.Single(inTransaction.Select(entry=>entry.Transaction).Distinct());Assert.All(inTransaction,entry=>Assert.Equal(snapshot.Transactions[0].Transaction,entry.Transaction));}
+        Assert.All(snapshot.Transactions.Where(entry=>!entry.Succeeded),entry=>Assert.Equal((mode=="rollback"?rollback:primary).GetType().FullName,entry.ErrorType));
+    }
     private sealed class RecordingProvider:IDatabaseProvider
     {
         internal string Uuid {get;set;}="offline-instance";
-        internal string Version="8.0.43";internal bool TableExists;internal string[] Directions=["D","A"];internal int Ddl,IndexReads,Locks,FactoryCommands,CreatedCommands;
+        internal string Version="8.0.43";internal bool TableExists;internal string[] Directions=["D","A"];internal int Ddl,IndexReads,Locks,FactoryCommands,CreatedCommands,Begins,Commits,Rollbacks;internal bool ObserveCommands;internal Exception? BeginFailure,CommitFailure,RollbackFailure;internal CancellationToken RollbackToken;internal IsolationLevel BeginLevel;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public string QuoteIdentifier(string identifier)=>MySqlSchemaPlanner.Quote(identifier);public string ParameterPlaceholder(string name)=>"@"+name;
         public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new Connection(this);
         /// <summary>原物理创建和适配器入口分别计数，漏接工厂不能被原结果断言掩盖。</summary>
-        public DbCommand CreateCommand(DbConnection connection){FactoryCommands++;return connection.CreateCommand();}
+        public DbCommand CreateCommand(DbConnection connection){FactoryCommands++;var command=connection.CreateCommand();return ObserveCommands?new MySqlFloatingCommand(command):command;}
     }
     private sealed class Connection(RecordingProvider provider):DbConnection
     {
         private ConnectionState state;[System.Diagnostics.CodeAnalysis.AllowNull]public override string ConnectionString{get;set;}="";public override string Database=>"direction_offline";public override string DataSource=>"offline";public override string ServerVersion=>provider.Version;public override ConnectionState State=>state;
-        public override void Open()=>state=ConnectionState.Open;public override void Close()=>state=ConnectionState.Closed;public override void ChangeDatabase(string databaseName)=>throw new NotSupportedException();protected override DbTransaction BeginDbTransaction(IsolationLevel level)=>new Transaction(this);protected override DbCommand CreateDbCommand(){provider.CreatedCommands++;return new Command(this,provider);}
+        public override void Open()=>state=ConnectionState.Open;public override void Close()=>state=ConnectionState.Closed;public override void ChangeDatabase(string databaseName)=>throw new NotSupportedException();protected override DbTransaction BeginDbTransaction(IsolationLevel level){provider.Begins++;provider.BeginLevel=level;if(provider.BeginFailure is not null)throw provider.BeginFailure;return new Transaction(this,provider,level);}protected override DbCommand CreateDbCommand(){provider.CreatedCommands++;return new Command(this,provider);}
     }
-    private sealed class Transaction(DbConnection connection):DbTransaction
+    private sealed class Transaction(DbConnection connection,RecordingProvider provider,IsolationLevel level):DbTransaction
     {
-        public override IsolationLevel IsolationLevel=>IsolationLevel.RepeatableRead;protected override DbConnection DbConnection=>connection;public override void Commit(){}public override void Rollback(){}
+        public override IsolationLevel IsolationLevel=>level;protected override DbConnection DbConnection=>connection;public override void Commit(){provider.Commits++;if(provider.CommitFailure is not null)throw provider.CommitFailure;}public override void Rollback(){provider.Rollbacks++;if(provider.RollbackFailure is not null)throw provider.RollbackFailure;}
+        /// <summary>记录原回滚令牌，取消的检查不能抢在真正回滚前面。</summary>
+        public override Task RollbackAsync(CancellationToken token){provider.RollbackToken=token;Rollback();return Task.CompletedTask;}
     }
     private sealed class Command(DbConnection connection,RecordingProvider provider):DbCommand
     {
@@ -139,14 +173,15 @@ public sealed class DescendingIndexSchemaTests
         public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>parameters.CreateParameter();public override int ExecuteNonQuery(){provider.Ddl++;throw new InvalidOperationException("离线测试不可执行DDL。");}
         public override object? ExecuteScalar()
         {
-            if(CommandText=="SELECT DATABASE()")return "direction_offline";if(CommandText=="SELECT @@server_uuid")return provider.Uuid;
+            if(CommandText=="SELECT @@lower_case_table_names")return 0;if(CommandText.StartsWith("SELECT COUNT(*) FROM information_schema.COLUMNS",StringComparison.Ordinal))return 2L;if(CommandText=="SELECT DATABASE()")return "direction_offline";if(CommandText=="SELECT @@server_uuid")return provider.Uuid;
             if(CommandText.StartsWith("SELECT TABLE_TYPE",StringComparison.Ordinal))return provider.TableExists?"BASE TABLE":null;if(CommandText.StartsWith("SELECT ENGINE",StringComparison.Ordinal))return "InnoDB";
             if(CommandText.Contains("GET_LOCK",StringComparison.Ordinal)){provider.Locks++;return 1;}if(CommandText.Contains("RELEASE_LOCK",StringComparison.Ordinal))return 1;throw new InvalidOperationException("未声明离线SQL。");
         }
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
         {
             var table=new DataTable();void Columns(params string[] names){foreach(var name in names)table.Columns.Add(name,typeof(object));}
-            if(CommandText.StartsWith("SELECT COLUMN_NAME",StringComparison.Ordinal)){Columns("name","type","nullable","key","default","extra","logical");table.Rows.Add("id","bigint","NO","PRI",DBNull.Value,"","bigint");table.Rows.Add("value","varchar(64)","YES","",DBNull.Value,"","varchar");}
+            if(CommandText.StartsWith("SELECT 1 FROM ",StringComparison.Ordinal)){Assert.EndsWith(" LIMIT 0",CommandText);Columns("constant");}
+            else if(CommandText.StartsWith("SELECT COLUMN_NAME",StringComparison.Ordinal)){Columns("name","type","nullable","key","default","extra","logical");table.Rows.Add("id","bigint","NO","PRI",DBNull.Value,"","bigint");table.Rows.Add("value","varchar(64)","YES","",DBNull.Value,"","varchar");}
             else if(CommandText.StartsWith("SELECT INDEX_NAME,NON_UNIQUE",StringComparison.Ordinal)){provider.IndexReads++;Assert.Contains(",COLLATION FROM",CommandText);Columns("name","non_unique","column","direction");table.Rows.Add("yzp_idx_value",1,"value",provider.Directions[0]);table.Rows.Add("yzp_idx_value",1,"id",provider.Directions[1]);}
             else if(CommandText.StartsWith("SELECT INDEX_NAME,SUB_PART",StringComparison.Ordinal))
             {
