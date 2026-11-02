@@ -103,3 +103,17 @@
 新SSH与新连接独立确认唯一库metarill_fresh_5fa7c6430b9c5588_agent、账号mtf_5fa7c6430b9c5588@%不存在，自有宿主停止及storage合成对象清理确认，private-settings／private-ownership删除；execution为passed=false、cleanupConfirmed=true、leaseStatus=ended、privateSettingsDeleted=true、autoRetry=false。原失败TRX／固定包及证据保留，不重用本轮租约。
 
 后续定位并修复独立宿主模板的double JSON登记缺口，见[A32源头修正与HTTP回归](standalone-double-json.md)。已有平台主服务登记正确；本轮未据回执错误宣称数据库写入本身失真。修复提交后的整个数值链仍需新的固定批次正式复验。
+
+## A33 宿主修正后完整数值链复验准备完成
+
+恢复时已核对8fdf784与远端一致、工作区干净；中断前A33只有准备脚本，没有遗留构建进程、固定克隆或远端租约，未将旧句柄失效当作已经执行。随后从8fdf784df803fc5a340e7a0afacc49967ef379df建立新的独立普通克隆并严格构建，2398份跟踪来源／152份正式输出／947份真正FullApplication文件固定；原Node v24.17.0、SheetJS、锁文件、原选择方法及Excel探针摘要同时绑定。公开包Program实际包含MVC与最小接口的两处有限浮点登记，不能借准备测试通过却继续使用旧宿主。
+
+新固定程序集的20项准备回归全部通过、0失败、0跳过，含A31原四项模型／Full准备、14项租约负向合同及A32两个宿主真实HTTP片段精度回归；不是20项实库用例。Full自身严格构建零警告／错误，原匿名入口拒绝、元数据／受管来源／手写钩子和重复生成保护保持。主仓此前24项与更新保护3项另列，批次重叠不累加；723份原前端／元数据／生成及手写保护文件仍原始字节不变。
+
+单次协调器8项未授权／已用／缺失或错配审计／未知参数护栏均拒绝且副作用0，固定正式入口pending／ended／旧用途3项均在连接前拒绝。全文件check-only保持frozenVerified=true；新SSH只读核对Server-200和固定实例，新库／账号／所有权文件均不存在，没有创建资源或执行DDL／业务DML。
+
+本轮新运行207e26147134d5ff，唯一库metarill_fresh_207e26147134d5ff_agent、临时账号mtf_207e26147134d5ff@%；三业务表加十一基础表，每业务表最多512条合成记录，限900秒一次执行、不新增CHECK。完整重验实际DB默认／反查、原普通身份及导航、普通和非冗余CRUD／派生筛选、位型矩阵、精确ID及decimal对照、统计抵消／溢出、原XLSX与选择解析、真实首行DML后整批回滚、撤权及同地址重启／注销。原位型和业务断言保持，不缩减为仅复验第一笔新增。
+
+精确表／权限、独占storage/GUID合成文件与不可逆清理清单见.local/double-persistence-json-native-20261102/permission-plan.md。范围摘要d85f0314aebf6ce48baa1e02f1b93f2cebfd4fb2fe747ad6841677ddaf28da98。当前pending／not-started，待本轮直接授权；原A30／A31已清理、一次性租约结束，本次恢复不代替新资源授权。失败不自动重试，清理后按新连接和独立新SSH核零；原冻结资料、工程及失败证据保留。
+
+本项正式结果尚无；A32修复不能代替数值全链通过，CI仍以对应SHA实际结果为准。浏览器／跨端／并发／同条件性能、其它复杂关系及MySQL首版总验收继续。
