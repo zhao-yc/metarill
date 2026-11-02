@@ -53,6 +53,41 @@ class ImageContextTests(unittest.TestCase):
         self.assertFalse(receipt["dockerExecuted"]); self.assertFalse(receipt["runtimeAccepted"]); self.assertFalse(receipt["performanceAccepted"])
         for path, checksum in receipt["contextFiles"].items(): self.assertEqual(subject.sha256(output / path), checksum)
 
+    def application_bases(self):
+        """明确固定旧应用及已验证运行时来源，不从本机缓存自动选择镜像。"""
+        settings = copy.deepcopy(self.settings)
+        settings["baseApplicationImages"] = dict(subject.PINNED_APPLICATION_BASES)
+        for name in ("java", "csharp"):
+            settings[name]["runtimeImage"] = subject.PINNED_RUNTIME_BASES[name]
+        return settings
+
+    def test_pinned_application_inheritance_preserves_full_payload_and_records_actual_from(self):
+        """明确继承保留原入口与完整覆盖清单，不能把官方manifest冒充实际FROM。"""
+        settings = self.application_bases(); output = self.root / "derived"
+        receipt = subject.prepare(settings, output)
+        self.assertEqual(subject.PINNED_APPLICATION_TAGS, receipt["fromImages"])
+        self.assertEqual(subject.PINNED_APPLICATION_BASES, receipt["baseApplicationImages"])
+        self.assertEqual(subject.PINNED_RUNTIME_BASES, receipt["runtimeImages"])
+        self.assertEqual(settings["csharp"]["files"], subject.inventory(output/"csharp/app"))
+        for name in ("java", "csharp"):
+            text = (output/name/"Dockerfile").read_text(encoding="utf-8")
+            self.assertIn("FROM " + subject.PINNED_APPLICATION_TAGS[name], text)
+            self.assertEqual(1, text.count("FROM "))
+        self.assertFalse(receipt["runtimeAccepted"])
+
+    def test_changed_incomplete_or_floating_application_base_rejects_before_copy(self):
+        """新选项不能接受任意基底、缺一端、额外目标或Dockerfile注入。"""
+        for bases in ({"java": subject.PINNED_APPLICATION_BASES["java"]}, {**subject.PINNED_APPLICATION_BASES, "redis": "f"*64}, {**subject.PINNED_APPLICATION_BASES, "java": "sha256:"+"f"*64}, {**subject.PINNED_APPLICATION_BASES, "java": "eclipse-temurin:21"}, {**subject.PINNED_APPLICATION_BASES, "csharp": subject.PINNED_APPLICATION_BASES["csharp"]+"\nRUN bad"}, None):
+            settings=self.application_bases();settings["baseApplicationImages"]=bases
+            with self.subTest(bases=bases),self.assertRaises(subject.ContractError): subject.prepare(settings,self.root/"out")
+            self.assertFalse((self.root/"out").exists())
+
+    def test_inherited_base_cannot_claim_another_runtime_manifest(self):
+        """固定旧应用的运行时来源也必须一致，不允许只换来源标签通过。"""
+        settings=self.application_bases();settings["java"]["runtimeImage"]="docker.io/library/eclipse-temurin@sha256:"+"f"*64
+        with self.assertRaises(subject.ContractError): subject.prepare(settings,self.root/"out")
+        self.assertFalse((self.root/"out").exists())
+
     def test_mismatched_missing_and_extra_input_rejected_before_output(self):
         """既有文件修改、丢失或增加未冻结文件都必须拒绝。"""
         for mode in ("changed", "missing", "extra"):

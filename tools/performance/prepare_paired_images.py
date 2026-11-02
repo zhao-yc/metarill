@@ -13,6 +13,33 @@ import zipfile
 from paired_http import ContractError, canonical, read_json
 
 
+# 已真实验过的旧完整应用；只允许明确继承这对内容ID，不将任意镜像当官方运行时。
+PINNED_APPLICATION_BASES = {
+    "java": "sha256:329f43e4d3678bf2d81cfd6d7f73baa3ad73676134798dc7018d3ab28fb85936",
+    "csharp": "sha256:ee05d99dbb52de8a51f7d42fcbb7a67d1b588c8bb0b637f937a8cba236975200",
+}
+# BuildKit把裸sha256:ID解析成仓库名，因此FROM使用已验缓存标签；执行器仍须前后核内容ID及父层。
+PINNED_APPLICATION_TAGS = {
+    "java": "metarill-perf-f85f7ad246414026a3f257ee936f0a5c-java:login-v1",
+    "csharp": "metarill-paired-current-548b4e9bac414556d66ff8877c59cd42:csharp-v1",
+}
+PINNED_RUNTIME_BASES = {
+    "java": "docker.io/library/eclipse-temurin@sha256:db724162e4ff5f71fa0a2815026314d9e5e0e9a139f49be1d4717e6930e93341",
+    "csharp": "mcr.microsoft.com/dotnet/aspnet@sha256:43cbcf11fd6f88c0375c9c0f7fe59af619abeb323befe5f57dc1502b5a05d8c3",
+}
+
+
+def from_images(settings):
+    """显式继承固定旧应用可复用同一运行时层；完整新载荷仍须逐文件覆盖及另行实测。"""
+    runtimes = {name: settings[name]["runtimeImage"] for name in ("java", "csharp")}
+    if "baseApplicationImages" not in settings:
+        return runtimes
+    bases = settings["baseApplicationImages"]
+    if type(bases) is not dict or bases != PINNED_APPLICATION_BASES or runtimes != PINNED_RUNTIME_BASES:
+        raise ContractError("应用基底必须是已验固定双镜像及原运行时来源，不接受自动回退或任意替换")
+    return dict(PINNED_APPLICATION_TAGS)
+
+
 def sha256(path):
     """分块计算现有文件摘要，JAR和原生库不一次性读入内存。"""
     result = hashlib.sha256()
@@ -78,6 +105,7 @@ def validate(settings):
             raise ContractError("必须固定两端源码提交")
     image_reference(java.get("runtimeImage"), "docker.io/library/eclipse-temurin")
     image_reference(csharp.get("runtimeImage"), "mcr.microsoft.com/dotnet/aspnet")
+    from_images(settings)
     jar = pathlib.Path(java.get("jar", ""))
     root = pathlib.Path(csharp.get("outputRoot", ""))
     if not jar.is_absolute() or not root.is_absolute():
@@ -119,7 +147,7 @@ def dockerfile(settings, name):
     """只复制已构建产物；不restore、重生成、改Program或写入任何连接凭据。"""
     target = settings[name]
     common = ["# 固定产物上下文；仅供Server-200后续受控构建，本文件本身不执行部署。",
-              "FROM " + target["runtimeImage"], "USER 0:0", "WORKDIR /app",
+              "FROM " + from_images(settings)[name], "USER 0:0", "WORKDIR /app",
               "RUN mkdir -p /data/files /data/exports /data/resources /app/.local && chown -R 10001:10001 /data /app/.local",
               f'LABEL metarill.performance.run="{settings["runId"]}" metarill.performance.target="{name}"',
               f'LABEL metarill.source.commit="{target["sourceCommit"]}"',
@@ -163,6 +191,8 @@ def prepare(settings, output):
     receipt = {"version": 1, "runId": settings["runId"], "platform": "linux/amd64", "dockerExecuted": False, "containersStarted": False,
                "runtimeAccepted": False, "performanceAccepted": False, "javaJarSha256": settings["java"]["sha256"], "csharpFiles": len(settings["csharp"]["files"]),
                "runtimeImages": {name: settings[name]["runtimeImage"] for name in ("java", "csharp")},
+               "fromImages": from_images(settings),
+               "baseApplicationImages": dict(settings.get("baseApplicationImages", {})),
                "contextFiles": inventory(output)}
     (output / "context-receipt.json").write_bytes(canonical(receipt))
     return receipt

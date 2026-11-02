@@ -68,3 +68,9 @@ V20已另建[原密码入口对照宿主](paired-java-login.md)，逐字接入�
 2026-11-01，新提交d8a09ec的CI run 41225573277在Windows性能工具步骤失败（66项中1 error），前端成功；Ubuntu当时仍运行。公开失败日志定位到test_prepare_paired_images.py三处read_text()未指定UTF-8，中文Dockerfile被cp1252解码失败。相同单项在本机-X utf8=0、默认cp936下复现gbk解码错误；此前本机UTF-8模式掩盖该测试差异。
 
 仅将三处读取显式设为encoding=utf-8，不改生成上下文工具、Dockerfile、原二进制或镜像。修正后在同一Windows非UTF-8默认环境运行完整性能工具84项：82通过、2项POSIX专属跳过，无失败；POSIX资源18项另已在200真实Linux离线全过。完整GitHub CI须以新提交实际结果为准，不能因这次本机工具回归就宣称新CI或MySQL首版通过。旧23db838的run41206367405则已确认Windows/Ubuntu/前端全部success；该旧结果不覆盖后续工具提交。
+
+## V46：固定旧应用继承与完整载荷核验（2026-11-03）
+
+[两端采集镜像及原Linux Kestrel](paired-observed-images.md)已实际完成。官方基础镜像digest缓存不在但原应用还在时，上下文工具新增显式baseApplicationImages，仅接受原329f43e／ee05d99内容ID及其原官方运行时来源。Dockerfile用对应已验缓存标签，回执同时给出fromImages和baseApplicationImages；执行器必须构建前后核标签内容ID及实际父层，不把标签本身当不可变证明。普通官方digest模式不变，不自动探测或选择其它镜像。
+
+首轮裸sha256:ID会被BuildKit解析成仓库名并失败，已保留原日志后修正缓存引用。本次为低磁盘余量使用21份C#变化文件及完整新JAR做增量层，但实际新镜像/app文件集合及全部66个SHA仍全量验证；不以增量成功代替完整载荷。原Program／六手写／393前端及Data摘要保持，五版本／内容探针和新原Kestrel匿名两请求经独立读取器通过，相关短容器新SSH核零。没有数据库、普通身份、配对业务SQL或负载成绩，原生采集配置及新精确实库范围继续待备。

@@ -234,9 +234,13 @@ class SqlArtifactAuditTests(unittest.TestCase):
         """实际CLI只在采集树外创建全新报告，失败不覆盖旧证据。"""
         index,record,expected=fixture('csharp');directory,digest=self.write(index,record); plan=self.root/'plan.json';raw=encoded(expected);plan.write_bytes(raw); output=self.root/'report.json'
         args=[sys.executable,str(Path(__file__).with_name('audit_sql_artifacts.py')),'--directory',str(directory),'--expectations',str(plan),'--expectations-sha256',hashlib.sha256(raw).hexdigest(),'--index-sha256',digest,'--output',str(output)]
-        completed=subprocess.run(args,capture_output=True,timeout=15);self.assertEqual(0,completed.returncode,completed.stderr);self.assertFalse(json.loads(output.read_text(encoding='utf-8'))['performanceAccepted'])
-        original=output.read_bytes();self.assertNotEqual(0,subprocess.run(args,capture_output=True,timeout=15).returncode);self.assertEqual(original,output.read_bytes())
-        nested=directory/'nested';nested.mkdir();args[-1]=str(nested/'report.json');self.assertNotEqual(0,subprocess.run(args,capture_output=True,timeout=15).returncode);self.assertFalse((nested/'report.json').exists())
+        child_env=dict(os.environ,PYTHONUTF8='0',PYTHONIOENCODING='cp1252:strict')
+        completed=subprocess.run(args,capture_output=True,timeout=15,env=child_env);self.assertEqual(0,completed.returncode,completed.stderr);self.assertFalse(json.loads(output.read_text(encoding='utf-8'))['performanceAccepted'])
+        self.assertIn('内部核验通过',completed.stdout.decode('utf-8'))
+        original=output.read_bytes();failed=subprocess.run(args,capture_output=True,timeout=15,env=child_env);self.assertNotEqual(0,failed.returncode);self.assertEqual(original,output.read_bytes())
+        self.assertIn('核验失败',failed.stderr.decode('utf-8'));self.assertNotIn(str(self.root),failed.stderr.decode('utf-8'))
+        args[-1]=str(directory/'report.json');self.assertNotEqual(0,subprocess.run(args,capture_output=True,timeout=15,env=child_env).returncode);self.assertFalse((directory/'report.json').exists())
+        nested=directory/'nested';nested.mkdir();args[-1]=str(nested/'report.json');self.assertNotEqual(0,subprocess.run(args,capture_output=True,timeout=15,env=child_env).returncode);self.assertFalse((nested/'report.json').exists())
 
     def test_hard_link_is_not_a_source_authenticity_proof_and_symlink_is_rejected(self):
         """明确文件类型合同边界，不把硬链接当来源真实性证明。"""

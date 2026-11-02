@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 from paired_http import ContractError, read_json
 
 COMMON = {"null", "bytes", "string", "boolean", "integer", "decimal", "double-bits", "single-bits", "datetime:Unspecified", "date", "time", "timespan", "guid"}
@@ -290,6 +291,9 @@ def audit(directory, expected, index_digest):
 
 def main():
     """只读取固定预期和采集目录；预期文件摘要与索引摘要必须由可信协调器独立提供。"""
+    # Windows重定向管道可能默认cp1252；固定中文输出编码，避免成功写报告后因print编码误报失败。
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="只读核验Java/C#私有SQL采集文件，不执行SQL或性能测量")
     for name in ("directory", "expectations", "expectations-sha256", "index-sha256", "output"):
         parser.add_argument("--"+name, required=True)

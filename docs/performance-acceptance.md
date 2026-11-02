@@ -143,3 +143,5 @@ V43已补[原Java宿主数据源与请求采集](java-jdbc-host-observation.md)�
 V44补[C#每请求及私有索引](csharp-http-command-observation.md)，23项真实Kestrel及原完整Program Production/TestServer两路由401／关闭索引通过，原Program／六手写／393前端及三输出Data保持。未执行真实DB、普通身份、完整SQL对照或负载，不将匿名零SQL或索引内部一致转为性能通过。
 
 V45补[采集文件读取合同与Java纳秒v2](sql-artifact-audit.md)：读取器独立重算固定样本／文件摘要／计数／事务引用及API区间，实际Java Spring合成链和V44原C#匿名两路由产物核验通过。原生纳秒单列未配对证明，不截断或忽略；文件内部有效不等于SQL同值／物理目标／负载通过，全部相关Accepted仍false，V08和首版保持未完成。
+
+2026-11-03 V46固定[两采集镜像及原Linux宿主](paired-observed-images.md)：新99face1／5da4921在200实际父层／完整JAR与66文件及五禁网探针通过，独立核零；C#原Kestrel匿名两路由401、零SQL及正常关闭索引实测通过。V47补真实Windows CI中文管道缺陷，仅CLI固定UTF-8，原严格内容合同保持；新跨系统CI仍待。两镜像尚未完成新原生业务／SQL配对与负载，V08及MySQL首版不计通过，旧V37实库租约不复用。
