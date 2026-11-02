@@ -15,7 +15,7 @@
 
 ## 共同值证明与实际验证
 
-共同文件sql-value-proof-v1.tsv由独立Python标准库HMAC生成，使用明确公开的合成测试key（32个字节11），不是部署秘密。Java和C#分别通过实际命令观察路径核对同一16组kind／摘要：null、空串、中文／引号／反斜线、高位整数、精确decimal及零、double及负零、single、字节、布尔、日期、无时区日历时间、时刻、扩展时长与GUID。格式沿用metarill-sql-values-v1；无效UTF-16、低于100ns的时间、未知时区对象／java.sql日期旧对象不静默归一化。
+共同文件sql-value-proof-v1.tsv由独立Python标准库HMAC生成，使用明确公开的合成测试key（32个字节11），不是部署秘密。Java和C#分别通过实际命令观察路径核对同一16组kind／摘要：null、空串、中文／引号／反斜线、高位整数、精确decimal及零、double及负零、single、字节、布尔、日期、无时区日历时间、时刻、扩展时长与GUID。V42历史格式为metarill-sql-values-v1；V45现将Java快照扩为v2并新增无损纳秒kind，原16共同摘要保持，详见[文件核验与v2](sql-artifact-audit.md)。无效UTF-16、未知时区对象／java.sql日期旧对象仍不静默归一化；低于100ns的原生证明不等于C#同值。
 
 - JDK21.0.12 Windows严格javac -Xlint:all -Werror及48个SelfTest用例通过。原JDBC执行／事务是明确替身；驱动绑定专项使用真实9.7.0 NativeQueryBindings／NativeQueryBindValue，协议和字符集是明确本地替身，无connect、socket、握手或数据库查询。真实绑定的高位整数／精确decimal／微小double／null摘要与共同向量相等；stream／未绑定明确拒绝，不读取流。
 - 性能工具完整Python回归129项：125通过、4个POSIX条件跳过、0失败。新Python测试1项在内部严格编译并运行48项Java，不能与129重复累计。缺JDK／固定驱动时明确跳过，不下载或冒充通过；CI增加JDK21及Maven固定驱动准备，跨系统作业仍须按新SHA实际查询。
@@ -26,3 +26,5 @@
 ## 尚未完成
 
 V43已补固定宿主DataSource／请求scope、私有留证与完整原包构建，见[原宿主接线](java-jdbc-host-observation.md)。仍须完整覆盖审计，再用新精确范围验证原登录／业务／Excel／文件事务和重启。尚未执行真实HTTP采集、Java服务器绑定／时间／批处理／保存点支持、双方SQL及事务语义对照，未重新构建或替换V37原三镜像。不得复用已ended授权。性能负载、原前端／跨端及MySQL首版总验收仍待，不以本项标完成。
+
+V45更新：严格SelfTest现49项，Spring20项通过；原生5向量与真实驱动最终绑定核对、未修改参数。新增文件读取器核验实际Java测试与V44原C#匿名产物；仅关闭采集格式子集，真实时间线上编码／物理回读、SQL语义和负载仍待。旧48项及125／4工具结果属于V42／V43历史，不能累计为当前成绩。

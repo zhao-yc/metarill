@@ -140,6 +140,7 @@ public final class PairedJdbcObservationSelfTest {
         });
         test(()->vectors(Path.of(args[0])));
         test(()->actualBindings(Path.of(args[0])));
+        test(()->actualTemporalBindings(Path.of(args[0]).resolveSibling("sql-native-java-values-v2.tsv")));
         System.out.println("Java JDBC离线采集通过："+passed+"项；真实数据库、HTTP及性能未执行。");
     }
     /** 同一固定向量还由C#测试读取，摘要使用独立Python标准库生成。 */
@@ -148,6 +149,19 @@ public final class PairedJdbcObservationSelfTest {
         Driver driver=new Driver();List<String> names=new ArrayList<>(values.keySet());List<PairedJdbcObservation.Binding> bindings=new ArrayList<>();for(int i=0;i<names.size();i++)bindings.add(new PairedJdbcObservation.Binding(i+1,"FIXTURE",values.get(names.get(i)),false));driver.bindings=bindings;
         PairedJdbcObservation observer=new PairedJdbcObservation(driver.metadata);var trace=observer.begin(KEY,8);try(Connection connection=observer.wrap(driver.connection);PreparedStatement statement=connection.prepareStatement("SELECT @vectors")){statement.execute();}finally{trace.close();}
         check(trace.snapshot().internallyConsistent());List<String> lines=Files.readAllLines(file);check(lines.size()==names.size());var parameters=trace.snapshot().commands().getFirst().parameters();for(int i=0;i<lines.size();i++){String[] parts=lines.get(i).split("\t");check(parts[0].equals(names.get(i))&&parts[1].equals(parameters.get(i).kind())&&parts[2].equals(parameters.get(i).valueHash()));}
+    }
+    /** 原审计字段使用纳秒LocalDateTime，真实驱动绑定必须原样证明，不截到CLR精度。 */
+    private static void actualTemporalBindings(Path file)throws Exception{
+        DefaultPropertySet properties=new DefaultPropertySet();properties.initializeProperties(new Properties());var offlineServer=new com.mysql.cj.protocol.a.NativeServerSession(properties);var offlineProtocol=new com.mysql.cj.protocol.a.NativeProtocol(new com.mysql.cj.log.NullLogger("offline"));
+        NativeSession session=new NativeSession(ConnectionUrl.getConnectionUrlInstance("jdbc:mysql://127.0.0.1:1/offline",new Properties()).getMainHost(),properties){@Override public com.mysql.cj.protocol.a.NativeProtocol getProtocol(){return offlineProtocol;}@Override public com.mysql.cj.protocol.ServerSession getServerSession(){return offlineServer;}};
+        Object[] originals={LocalDateTime.of(2026,11,2,3,4,5,123456789),LocalTime.of(3,4,5,123456789),Duration.ofHours(26).plusNanos(123456789),Duration.ofNanos(-1),Duration.ofSeconds(Long.MAX_VALUE,999999999)};
+        NativeQueryBindings bindings=new NativeQueryBindings(originals.length,session,NativeQueryBindValue::new);for(int i=0;i<originals.length;i++)bindings.setObject(i,originals[i]);
+        PreparedStatement statement=(PreparedStatement)Proxy.newProxyInstance(PairedJdbcObservationSelfTest.class.getClassLoader(),new Class<?>[]{JdbcPreparedStatement.class},(proxy,method,args)->{if(method.getName().equals("getQueryBindings"))return bindings;if(method.getName().equals("execute"))return true;if(method.getName().equals("close"))return null;throw new AssertionError("时间采集调用了未声明驱动方法");});
+        Driver driver=new Driver();driver.prepared=statement;var observer=new PairedJdbcObservation(new MySqlJdbcObservationMetadata());var trace=observer.begin(KEY,2);try(Connection connection=observer.wrap(driver.connection);PreparedStatement wrapped=connection.prepareStatement("SELECT @datetime,@time,@duration,@negative,@large")){wrapped.execute();}finally{trace.close();}
+        var snapshot=trace.snapshot();check(snapshot.internallyConsistent()&&snapshot.valueProofFormat().equals("metarill-sql-values-v2"));var parameters=snapshot.commands().getFirst().parameters();List<String> expected=Files.readAllLines(file);check(expected.size()==originals.length);
+        for(int i=0;i<originals.length;i++){String[] row=expected.get(i).split("\t");check(parameters.get(i).kind().equals(row[1])&&parameters.get(i).valueHash().equals(row[2]));check(bindings.getBindValues()[i].getValue().equals(originals[i]));}
+        // 非CLR值只证明原生输入；不能将这种hash作为C#同值或数据库持久化证明。
+        check(parameters.stream().allMatch(parameter->parameter.kind().startsWith("java-")));
     }
     /** 使用真实Connector/J最终绑定对象，不发送握手或SQL；网络执行仍是明确替身。 */
     private static void actualBindings(Path vectors)throws Exception{

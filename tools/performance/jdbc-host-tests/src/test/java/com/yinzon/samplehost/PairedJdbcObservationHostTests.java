@@ -64,7 +64,15 @@ class PairedJdbcObservationHostTests {
             assertArrayEquals("password=PRIVATE-REQUEST-BODY".getBytes(StandardCharsets.UTF_8),request.getInputStream().readAllBytes());servletResponse.setCharacterEncoding("UTF-8");servletResponse.getWriter().write("原业务返回");
         });
         assertEquals("原业务返回",response.getContentAsString());JsonNode record=trace(),sql=record.path("trace");assertTrue(sql.path("internallyConsistent").asBoolean());assertEquals(3,sql.path("commands").size());assertEquals(5,sql.path("transactions").size());Set<Long> connections=new HashSet<>(),transactions=new HashSet<>();for(JsonNode command:sql.path("commands")){connections.add(command.path("connection").asLong());transactions.add(command.path("transaction").asLong());assertTrue(command.path("succeeded").asBoolean());}assertEquals(1,connections.size());assertEquals(1,transactions.size());assertFalse(record.toString().contains("PRIVATE-"));assertEquals(RUN,record.path("sample").asText());assertFalse(index().path("finalized").asBoolean());
-        context.close();assertTrue(index().path("internallyConsistent").asBoolean());assertEquals(1,source.opens.get());assertEquals(1,source.connectionCloses.get());assertEquals(1,source.commits.get());assertEquals(0,source.rollbacks.get());assertEquals(1,source.closes.get());
+        context.close();assertTrue(index().path("internallyConsistent").asBoolean());assertEquals(1,source.opens.get());assertEquals(1,source.connectionCloses.get());assertEquals(1,source.commits.get());assertEquals(0,source.rollbacks.get());assertEquals(1,source.closes.get());exportSyntheticArtifacts();
+    }
+    /** 仅显式测试属性可保留合成采集供独立读取器核对；新目录不覆盖，绝不导出key。 */
+    private void exportSyntheticArtifacts()throws IOException{
+        String configured=System.getProperty("metarill.paired.test-evidence");if(configured==null)return;
+        Path target=Path.of(configured).toAbsolutePath().normalize();assertFalse(Files.exists(target));
+        for(Path part=target.getParent();part!=null;part=part.getParent())assertFalse(Files.isSymbolicLink(part)||Files.readAttributes(part,java.nio.file.attribute.BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS).isOther());
+        Files.createDirectory(target);
+        try(var list=Files.list(output())){for(Path file:list.toList()){assertTrue(Files.isRegularFile(file,LinkOption.NOFOLLOW_LINKS));Files.copy(file,target.resolve(file.getFileName()));}}
     }
     /** 原Servlet异常对象保持，私有正文不写入采集。 */
     @Test void original_servlet_exception_is_preserved_without_its_message_in_trace()throws Exception{
