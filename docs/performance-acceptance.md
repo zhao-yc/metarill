@@ -125,3 +125,7 @@ python3 tools/performance/paired_http.py run --config /本轮私有目录/settin
 ## V26 CFS资源与初始化前提
 
 原生资源工具采用显式cpu-period/quota，实际NanoCpus=0并非无限制。采样器现接受正数NanoCpus或正数CFS quota/period，保留全部原始值并继续逐项比较；负/无限制、无周期、bool或两侧不一致均拒绝。200真实两被动容器的0/100000/100000及同内存/cpuset识别通过并独立核零，非应用/负载成绩。正式双端初始化/身份协调器已接通但仍待新实库范围授权，见[完整执行器及验证边界](paired-native-execution.md)。
+
+## 2026-11-02 当前候选更新（V32）
+
+原V31修订版2固定旧e210c31／49649d4且从未正式执行，现已保留快照并superseded；实际旧入口口令／外部调用／启动标记均0。V32从当前63f60dc重新正规生成同一完整模型，6手写与两轮34文件稳定、原完整元数据及物理3表46列6索引等价；新ee05d99 Linux镜像完整64载荷及原21／9禁网HTTP通过，两容器新SSH核零，资源工具只更新固定C#ID及旧ID拒绝反例。Windows116过4POSIX跳过／Linux120全过均为工具子集。新正式双库仍需当前工具／材料固定与精确直接授权；有效身份、业务／SQL及实际负载尚未执行，V08／首版仍未通过。详见[当前产物与边界](paired-current-runtime.md)。

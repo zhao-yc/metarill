@@ -39,6 +39,13 @@ class ContractTests(unittest.TestCase):
             value={**settings(),**change}
             with self.subTest(change=change),mock.patch.object(subject,"verify_tool_sources",side_effect=AssertionError("不应读源")),mock.patch.object(subject.resources,"root_for",side_effect=AssertionError("不应读配置")),self.assertRaises(ValueError):subject.run(value)
 
+    def test_retired_csharp_image_fails_before_files_or_external_commands(self):
+        """旧版合法内容ID也必须拒绝，不能把原待批方案沿用为当前产物的实库验收。"""
+        value=settings()
+        value["images"]["csharp"]="sha256:49649d47669f6b71db535f0221bd81855ae6792fe0325b341218b214662fc02c"
+        with mock.patch.object(subject,"verify_tool_sources",side_effect=AssertionError("不应读取旧工具")),mock.patch.object(subject.resources,"root_for",side_effect=AssertionError("不应读取旧材料")),mock.patch.object(subject.subprocess,"run",side_effect=AssertionError("不应启动外部程序")),self.assertRaises(ValueError):
+            subject.run(value)
+
     def test_actual_cli_pending_calls_no_external_command(self):
         """CLI拒绝发生在程序前置，而不是测试跳过真实执行入口。"""
         value=settings();value["authorizationStatus"]="pending"

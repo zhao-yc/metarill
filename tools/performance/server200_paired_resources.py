@@ -13,7 +13,7 @@ import sys
 
 IMAGES = {
     "java": "sha256:329f43e4d3678bf2d81cfd6d7f73baa3ad73676134798dc7018d3ab28fb85936",
-    "csharp": "sha256:49649d47669f6b71db535f0221bd81855ae6792fe0325b341218b214662fc02c",
+    "csharp": "sha256:ee05d99dbb52de8a51f7d42fcbb7a67d1b588c8bb0b637f937a8cba236975200",
     "redis": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
 }
 LABEL = "metarill.performance."
