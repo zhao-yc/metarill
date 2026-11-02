@@ -37,6 +37,8 @@ jobs:
           java-version: '21'
       - name: 准备固定Java SQL观察测试驱动
         run: mvn --batch-mode --no-transfer-progress org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get "-Dartifact=com.mysql:mysql-connector-j:9.7.0" "-Dtransitive=false"
+      - name: 验证Java采集宿主的原事务和请求接线
+        run: mvn --batch-mode --no-transfer-progress -f tools/performance/jdbc-host-tests/pom.xml test
       - name: 核对性能测量合同和回环HTTP
         run: python -m unittest discover -s tools/performance -p 'test_*.py'
       - name: 核对管理页面私有预览传输边界

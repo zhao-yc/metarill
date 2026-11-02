@@ -33,6 +33,10 @@ public final class PairedJdbcObservation {
         if(current.get()!=null&&!current.get().closed)throw new IllegalStateException("同线程不能嵌套观察");
         Scope scope=new Scope(key.clone(),maximum);if(escaped)scope.problem("previous-escape");current.set(scope);active.add(scope);return scope;
     }
+    /** 数据源自身的unwrap同样会使此宿主后续证据失效，原调用仍由数据源执行。 */
+    void sourceEscape(){escaped=true;Scope scope=current.get();if(scope!=null)scope.problem("data-source-escape");}
+    /** 可信宿主记录异步/请求运输等无法由JDBC本身判定的覆盖缺口。 */
+    void rejectHost(Scope scope,String code){scope.problem(code);}
     /** 包装调用者提供的原连接，不开连接、不改变池配置；池仍负责原连接的借还。 */
     public Connection wrap(Connection original){
         Objects.requireNonNull(original);ConnectionState state=new ConnectionState(original,current.get());
@@ -50,7 +54,7 @@ public final class PairedJdbcObservation {
         if(name.equals("equals"))return proxy==args[0];if(name.equals("hashCode"))return System.identityHashCode(proxy);
         if(name.equals("toString"))return "MetarillJdbcConnection";
         Scope scope=scope(state);
-        if(name.equals("unwrap")||name.equals("getMetaData")){escaped=true;if(scope!=null)scope.problem("jdbc-escape");}
+        if(name.equals("unwrap")){escaped=true;if(scope!=null)scope.problem("jdbc-escape");}
         if(Set.of("setSavepoint","releaseSavepoint").contains(name)&&scope!=null)scope.problem("savepoint-api");
         if(Set.of("setAutoCommit","commit","rollback","setReadOnly","setTransactionIsolation").contains(name)){
             if(scope==null)return call(state.original,method,args);
@@ -59,12 +63,21 @@ public final class PairedJdbcObservation {
         if(Set.of("setCatalog","setSchema","setClientInfo").contains(name)){escaped=true;if(scope!=null)scope.problem("connection-session-change");}
         if((name.equals("close")||name.equals("abort"))&&scope!=null)scope.closing(state);
         Object result=call(state.original,method,args);
+        if(result instanceof DatabaseMetaData databaseMetadata)return databaseMetadata(databaseMetadata,proxy,state);
         if(result instanceof Statement statement){
             String sql=args!=null&&args.length>0&&args[0] instanceof String text?text:null;
             if(statement instanceof CallableStatement&&scope!=null)scope.problem("callable-statement");
             return statement(state,proxy,statement,sql);
         }
         return result;
+    }
+    /** 固定Connector/J产品名是本地常量；框架错误翻译可读取，连接回指仍返回同一包装。其它元数据API仍明确拒绝完整证明。 */
+    private DatabaseMetaData databaseMetadata(DatabaseMetaData original,Connection connection,ConnectionState state){
+        return (DatabaseMetaData)Proxy.newProxyInstance(PairedJdbcObservation.class.getClassLoader(),new Class<?>[]{DatabaseMetaData.class},(proxy,method,args)->{
+            String name=method.getName();if(name.equals("getConnection"))return connection;if(name.equals("getDatabaseProductName")||name.equals("isWrapperFor"))return call(original,method,args);
+            if(name.equals("equals"))return proxy==args[0];if(name.equals("hashCode"))return System.identityHashCode(proxy);if(name.equals("toString"))return "MetarillJdbcMetadata";
+            escaped=true;Scope scope=scope(state);if(scope!=null)scope.problem("jdbc-metadata-api");return call(original,method,args);
+        });
     }
     /** 标准Statement及PreparedStatement均沿原执行路径；reader代理只阻止getStatement泄漏原命令。 */
     private Statement statement(ConnectionState state,Connection connection,Statement original,String preparedSql){
