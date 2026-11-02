@@ -107,18 +107,20 @@ def capture_for_review(root,value,exchange,graceful):
     output=root/'observations';output.mkdir(mode=0o700)
     materials=reader.load(root/'materials.json',value['materialsSha256'],65536)
     key=reader.ordinary(root/'observation.key');reader.require(key.stat().st_size==32 and sha(key)==materials.get('observation.key'),'capture-key-size');shutil.copyfile(key,output/'value.key');(output/'value.key').chmod(0o600)
-    (output/'request-plan.json').write_text(json.dumps(exchange.receipt(),ensure_ascii=False,indent=2),encoding='utf-8');saved={};total=0
+    (output/'request-plan.json').write_text(json.dumps(exchange.receipt(),ensure_ascii=False,indent=2),encoding='utf-8');saved={};total=0;missing_instance=False
     for target in ('java','csharp'):
         source=reader.ordinary(root/('data-'+target)/'sql-observation',True)
         reader.require((source/'.metarill-paired-observation-owner').read_text(encoding='utf-8')==value['runId'],'capture-owner')
-        folders=[item for item in source.iterdir() if item.is_dir()];reader.require(len(folders)==1,'capture-instance-count');folder=reader.ordinary(folders[0],True)
+        folders=[item for item in source.iterdir() if item.is_dir()]
+        if not folders:missing_instance=True;continue
+        reader.require(len(folders)==1,'capture-instance-count');folder=reader.ordinary(folders[0],True)
         pattern=r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}' if target=='java' else '[a-f0-9]{32}'
         reader.require(re.fullmatch(pattern,folder.name),'capture-instance-id');destination=output/target;destination.mkdir(mode=0o700);files={};paths=list(folder.iterdir());reader.require(len(paths)<=130,'capture-file-count')
         for path in paths:
             path=reader.ordinary(path);size=path.stat().st_size;total+=size;reader.require(size<=64*1024*1024 and total<=256*1024*1024,'capture-byte-budget')
             digest=sha(path);target_path=destination/path.name;shutil.copyfile(path,target_path);target_path.chmod(0o600);reader.require(digest==sha(target_path)==sha(path),'capture-copy-digest');files[path.name]=digest
         saved[target]={'folder':destination,'files':files}
-    reader.require(graceful,'capture-unfinalized-exit');exchange.complete();summaries={}
+    reader.require(not missing_instance,'capture-instance-count');reader.require(graceful,'capture-unfinalized-exit');exchange.complete();summaries={}
     for target,material in saved.items():
         directory=material['folder'];files=material['files'];index=reader.load(directory/'index.json',files.get('index.json'),4*1024*1024);java=target=='java'
         reader.shape(index,'format runId started completed observed problems requests finalized internallyConsistent '+('sourcesVerified dataSources' if java else 'dataAssemblySha256 expectedDatabases retainedEntries'))

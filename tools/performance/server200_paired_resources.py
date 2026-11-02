@@ -10,6 +10,7 @@ import secrets
 import stat
 import subprocess
 import sys
+import time
 
 IMAGES = {
     "java": "sha256:329f43e4d3678bf2d81cfd6d7f73baa3ad73676134798dc7018d3ab28fb85936",
@@ -253,6 +254,64 @@ def exclusive(root):
         path.unlink()
 
 
+def has_listener(text, port=8080):
+    """只认内核TCP表的实际LISTEN；宿主docker-proxy握手不能代替容器监听。"""
+    for line in text.splitlines()[1:]:
+        fields=line.split()
+        if len(fields)>=4 and fields[3]=='0A' and re.fullmatch('[A-Fa-f0-9]+:'+format(port,'04X'),fields[1]):return True
+    return False
+
+
+def process_listening(pid):
+    """PID来自已核身份的Docker状态，只读该进程网络命名空间及前后启动时钟。"""
+    if type(pid) is not int or pid<=1:raise RuntimeError('容器PID无效')
+    root=pathlib.Path('/proc')/str(pid);before=(root/'stat').read_text().rsplit(') ',1)[1].split()[19]
+    listening=any(has_listener((root/'net'/name).read_text()) for name in ('tcp','tcp6') if (root/'net'/name).exists())
+    if (root/'stat').read_text().rsplit(') ',1)[1].split()[19]!=before:raise RuntimeError('监听核验期间进程被替换')
+    return listening
+
+
+def wait_observed_hosts(value,root,state,timeout=90):
+    """等待两个原进程真实监听及采集索引，不发HTTP、不重试任何登录或业务。"""
+    deadline=time.monotonic()+timeout
+    while True:
+        ready=[]
+        for item in state['items']:
+            if item['target'] not in {'java','csharp'}:continue
+            require_owned(inspect('container',item['name']),item,state)
+            runtime=json.loads(docker('container','inspect','--format','{"running":{{json .State.Running}},"pid":{{json .State.Pid}}}',item['name']))
+            if runtime.get('running') is not True:raise RuntimeError('原宿主在就绪前退出')
+            listening=process_listening(runtime.get('pid'));base=root/('data-'+item['target'])/'sql-observation';folders=[path for path in base.iterdir() if path.is_dir() and not path.is_symlink()]
+            if len(folders)>1:raise RuntimeError('采集宿主实例不唯一')
+            configured=False
+            if folders and (folders[0]/'index.json').is_file():
+                index=json.loads((folders[0]/'index.json').read_text(encoding='utf-8'))
+                if index.get('runId')!=value['runId']:raise RuntimeError('就绪索引不属于本轮')
+                configured=index.get('sourcesVerified') is True if item['target']=='java' else index.get('dataAssemblySha256')==OBSERVATION_DATA_SHA256 and index.get('expectedDatabases')==['metarill_fresh_'+value['runId'][:16]+'_paired_csharp']
+            ready.append(listening and configured)
+        if len(ready)==2 and all(ready):return {'originalProcessListenersVerified':True,'observationSourcesConfigured':True,'httpRequestsSent':0}
+        if time.monotonic()>=deadline:raise RuntimeError('原进程监听或采集索引未就绪')
+        time.sleep(0.2)
+
+
+def save_host_diagnostics(root,state):
+    """删除前保留已核归属宿主的有界私有日志和退出状态，不回显正文或环境。"""
+    result={}
+    for item in state['items']:
+        if item['target'] not in {'java','csharp'}:continue
+        require_owned(inspect('container',item['name']),item,state)
+    for item in state['items']:
+        if item['target'] not in {'java','csharp'}:continue
+        runtime=json.loads(docker('container','inspect','--format','{"running":{{json .State.Running}},"exitCode":{{json .State.ExitCode}},"oomKilled":{{json .State.OOMKilled}},"error":{{json .State.Error}}}',item['name']))
+        verify_server();env={k:v for k,v in os.environ.items() if not k.startswith('DOCKER_')}
+        logs=subprocess.run(['docker','-H','unix:///var/run/docker.sock','container','logs','--timestamps','--tail','2000',item['name']],env=env,capture_output=True,timeout=30)
+        if logs.returncode or len(logs.stdout)+len(logs.stderr)>24*1024*1024:raise RuntimeError('私有宿主日志未完整留存')
+        for label,data in (('stdout',logs.stdout),('stderr',logs.stderr)):
+            path=root/('host-'+item['target']+'.'+label+'.log');path.write_bytes(data);path.chmod(0o600)
+        result[item['target']]=runtime
+    (root/'host-diagnostics.json').write_text(json.dumps(result),encoding='utf-8');return {'privateLogsSaved':True,'hostStates':result}
+
+
 def manage(value, operation):
     """授权校验先于系统操作，命令锁覆盖读取、创建、启动和清理全过程。"""
     run = validate(value)
@@ -291,6 +350,9 @@ def manage_exclusive(value, operation, root):
             if item["target"] in ("java", "csharp"): docker("container", "start", item["name"])
         state["status"] = "started"; write_state(path, state)
         return {"hostsStarted": True, "runtimeAccepted": False, "performanceAccepted": False}
+    if operation in {"wait-hosts","snapshot-hosts"}:
+        if not is_observed(value) or state.get("status") != "started" or state.get("hostsStarted") is not True or set(observed)!=expected:raise ValueError("仅完整已启动的新采集用途允许就绪核验及私有留证")
+        return wait_observed_hosts(value,root,state) if operation=="wait-hosts" else save_host_diagnostics(root,state)
     if operation == "stop-hosts":
         if not is_observed(value) or state.get("status") != "started" or not state.get("hostsStarted"):
             raise ValueError("仅已启动的新采集用途允许正常关闭")
@@ -330,8 +392,8 @@ def manage_exclusive(value, operation, root):
 def main():
     """stdin传递不含秘密的描述；异常不回显Docker/连接/私有配置正文。"""
     try:
-        if len(sys.argv) != 2 or sys.argv[1] not in ("create", "start-hosts", "stop-hosts", "cleanup"):
-            raise ValueError("只接受create、start-hosts、stop-hosts、cleanup")
+        if len(sys.argv) != 2 or sys.argv[1] not in ("create", "start-hosts", "wait-hosts", "snapshot-hosts", "stop-hosts", "cleanup"):
+            raise ValueError("只接受create、start-hosts、wait-hosts、snapshot-hosts、stop-hosts、cleanup")
         print(json.dumps(manage(json.load(sys.stdin), sys.argv[1]), ensure_ascii=False))
         return 0
     except Exception as error:

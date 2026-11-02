@@ -412,6 +412,8 @@ def run(value):
             state["identitySeeds"].append(seed.apply(seed_lease, target, fixture, mysql.mysql))
             resources.write_state(state_path, state)
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
+        if exchange is not None:
+            stage("核验原进程监听及采集就绪，禁止以发布端口代替");state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
         targets = {t: {"container": "metarill-perf-" + value["runId"] + "-" + t, "expectedImageId": resources.images_for(value)[t], "containerPort": 8080, "baseUrl": f"http://127.0.0.1:{value['ports'][t]}/api"} for t in ("java", "csharp")}
         probe = http.Server200LocalProbe(); before = http.equal_limits(probe, targets)
         state["transport"] = http.verify_transport({"transportProof": "server200-loopback-v1", "runId": value["runId"], "targets": targets}, probe, before)
@@ -439,6 +441,8 @@ def run(value):
             try:
                 if resource_path.exists() and http.read_json(resource_path.read_bytes()).get("hostsStarted") is True:
                     stage("正常关闭原宿主并保存私有SQL供独立审阅")
+                    try:state["hostDiagnostics"]=resources.manage(descriptor,"snapshot-hosts")
+                    except Exception as diagnostics_error:state["passed"]=False;state["hostDiagnosticsError"]=type(diagnostics_error).__name__
                     resources.manage(descriptor,"stop-hosts");graceful=True;dead=True
             except Exception as error:
                 state["passed"]=False;state["captureStopError"]={"type":type(error).__name__,**failure_evidence(error)}

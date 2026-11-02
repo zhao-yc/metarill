@@ -50,6 +50,14 @@ class CaptureTests(unittest.TestCase):
         """只运行文件保存及复核，不调用资源工具启动或删除对象。"""
         return subject.capture_for_review(self.root,self.scope,self.exchange,graceful)
 
+    def test_missing_first_instance_still_preserves_second_side_raw_files(self):
+        """第一端未建立采集目录不能丢掉另一端已有原始文件，但整轮仍失败。"""
+        self.materialize()
+        for path in self.folders['java'].iterdir():path.unlink()
+        self.folders['java'].rmdir()
+        with self.assertRaisesRegex(ValueError,'capture-instance-count'):self.capture()
+        self.assertTrue((self.root/'observations/csharp/index.json').is_file());self.assertFalse((self.root/'observations/capture-manifest.json').exists())
+
     def test_fixed_request_plan_has_46_unique_samples_and_original_statuses(self):
         """计划先于结果固定；两端原错误状态差异明确保留。"""
         for side in ('java','csharp'):

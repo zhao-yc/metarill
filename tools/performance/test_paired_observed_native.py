@@ -36,7 +36,7 @@ class ObservedFlowTests(unittest.TestCase):
         self.events.append('resources-'+operation);path=self.root/'resource-state.json'
         if operation=='create':state=dict(runId=value['runId'],ownerToken=value['ownerToken'],status='created',hostsStarted=False,items=[])
         else:
-            state=json.loads(path.read_text(encoding='utf-8'));state['status']={'start-hosts':'started','stop-hosts':'stopped','cleanup':'ended'}[operation]
+            state=json.loads(path.read_text(encoding='utf-8'));state['status']={'start-hosts':'started','wait-hosts':'started','snapshot-hosts':'started','stop-hosts':'stopped','cleanup':'ended'}[operation]
             if operation=='start-hosts':state['hostsStarted']=True
         path.write_text(json.dumps(state),encoding='utf-8');return {'mockedOnly':True}
 
@@ -58,7 +58,7 @@ class ObservedFlowTests(unittest.TestCase):
     def test_full_observed_order_stops_captures_then_cleans_and_never_accepts_performance(self):
         """原六步→真实登录分支→业务→停止→采集→资源→数据库清理顺序不可颠倒。"""
         result=self.run_scope();self.assertTrue(result['passed']);self.assertEqual('paired-original-business-and-private-capture-for-review-only',result['acceptedScope']);self.assertFalse(result['performanceAccepted']);self.assertFalse(result['releaseAccepted']);self.assertEqual('ended',result['leaseStatus'])
-        for first,second in (('business','resources-stop-hosts'),('resources-stop-hosts','capture'),('capture','resources-cleanup'),('resources-cleanup','database-cleanup')):self.assertLess(self.events.index(first),self.events.index(second))
+        for first,second in (('resources-wait-hosts','business'),('business','resources-snapshot-hosts'),('resources-snapshot-hosts','resources-stop-hosts'),('resources-stop-hosts','capture'),('capture','resources-cleanup'),('resources-cleanup','database-cleanup')):self.assertLess(self.events.index(first),self.events.index(second))
         targets=self.limits.call_args.args[1];self.assertEqual(subject.resources.OBSERVATION_IMAGES['java'],targets['java']['expectedImageId']);self.assertEqual(subject.resources.OBSERVATION_IMAGES['csharp'],targets['csharp']['expectedImageId'])
 
     def test_business_failure_keeps_original_stage_and_still_preserves_capture(self):

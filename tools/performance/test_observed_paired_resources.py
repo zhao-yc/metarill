@@ -3,6 +3,9 @@ import copy
 import hashlib
 import json
 import stat
+import subprocess
+import socket
+from pathlib import Path
 import unittest
 from unittest import mock
 import server200_paired_resources as subject
@@ -17,6 +20,8 @@ class ObservedEngine(fixtures.Engine):
     def __call__(self,*args):
         if args[:2]==('container','stop'):
             self.calls.append(args);return args[-1]
+        if args[:2]==('container','inspect') and '"pid"' in args[args.index('--format')+1]:
+            self.calls.append(args);return json.dumps(dict(running=True,pid=1234))
         if args[:2]==('container','inspect') and 'exitCode' in args[args.index('--format')+1]:
             self.calls.append(args);return json.dumps(dict(running=self.running,exitCode=143 if self.java_sigterm and args[-1].endswith('-java') else self.exit_code,oomKilled=False,error=''))
         return super().__call__(*args)
@@ -137,6 +142,64 @@ class ObservedResourceTests(unittest.TestCase):
         subject.manage(self.value,'create')
         with self.assertRaises(ValueError):subject.manage(self.value,'stop-hosts')
         self.assertFalse(any(call[:2]==('container','stop') for call in self.engine.calls))
+
+
+    def ready_indices(self):
+        """合成索引仅用于门槛测试，不代表真实应用已启动。"""
+        for target in ('java','csharp'):
+            folder=self.root/('data-'+target)/'sql-observation'/'instance';folder.mkdir()
+            value={'runId':self.value['runId'],'sourcesVerified':True} if target=='java' else {'runId':self.value['runId'],'dataAssemblySha256':subject.OBSERVATION_DATA_SHA256,'expectedDatabases':['metarill_fresh_'+self.value['runId'][:16]+'_paired_csharp']}
+            (folder/'index.json').write_text(json.dumps(value),encoding='utf-8')
+
+    def test_wait_requires_actual_process_listener_even_when_indexes_exist(self):
+        """发布端口可连不算就绪；内核监听未出现时必须等待且不发HTTP。"""
+        self.start();self.ready_indices()
+        with mock.patch.object(subject,'process_listening',side_effect=[False,True,True,True]) as listeners,mock.patch.object(subject.time,'sleep') as sleep:
+            result=subject.manage(self.value,'wait-hosts')
+        self.assertEqual(4,listeners.call_count);sleep.assert_called_once();self.assertEqual(0,result['httpRequestsSent']);self.assertTrue(result['originalProcessListenersVerified'])
+
+    def test_listener_without_observation_index_cannot_pass(self):
+        """真实端口已监听但采集配置尚未建立时仍拒绝，不能造成零记录假通过。"""
+        self.start()
+        with mock.patch.object(subject,'process_listening',return_value=True),mock.patch.object(subject.time,'monotonic',side_effect=[0,91]),self.assertRaisesRegex(RuntimeError,'采集索引未就绪'):subject.manage(self.value,'wait-hosts')
+
+    def test_foreign_wait_refuses_before_proc_reads(self):
+        """外来容器身份在读取PID网络状态前就拒绝。"""
+        self.start();self.engine.objects['container','metarill-perf-'+self.value['runId']+'-java'][2]='foreign'
+        with mock.patch.object(subject,'process_listening',side_effect=AssertionError('不得读取proc')),self.assertRaises(RuntimeError):subject.manage(self.value,'wait-hosts')
+
+    def test_snapshot_keeps_both_private_streams_before_deletion(self):
+        """日志只保存本轮私有目录，stderr首因不能因原docker包装只返stdout而丢失。"""
+        self.start()
+        with mock.patch.object(subject,'verify_server'),mock.patch.object(subject.subprocess,'run',return_value=subprocess.CompletedProcess([],0,b'private-out',b'private-error')) as run:
+            result=subject.manage(self.value,'snapshot-hosts')
+        self.assertTrue(result['privateLogsSaved']);self.assertEqual(2,run.call_count)
+        for target in ('java','csharp'):self.assertEqual(b'private-error',(self.root/('host-'+target+'.stderr.log')).read_bytes())
+        self.assertFalse(any(call[:2]==('container','rm') for call in self.engine.calls))
+        self.assertTrue(all(call.args[0][:3]==['docker','-H','unix:///var/run/docker.sock'] for call in run.call_args_list))
+
+    def test_snapshot_checks_all_owners_before_first_log_call(self):
+        """第二端归属不符时，不先读取第一端日志。"""
+        self.start();self.engine.objects['container','metarill-perf-'+self.value['runId']+'-csharp'][2]='foreign'
+        with mock.patch.object(subject.subprocess,'run',side_effect=AssertionError('不得读日志')),self.assertRaises(RuntimeError):subject.manage(self.value,'snapshot-hosts')
+
+
+
+class ListenerParserTests(unittest.TestCase):
+    def test_kernel_state_and_port_must_both_match(self):
+        """ESTABLISHED／其它端口和仅Docker发布回执都不是内核LISTEN。"""
+        header='sl local_address rem_address st\n'
+        self.assertTrue(subject.has_listener(header+'0: 00000000:1F90 00000000:0000 0A rest'))
+        for row in ('0: 00000000:1F90 00000000:0000 01 rest','0: 00000000:1F91 00000000:0000 0A rest','127.0.0.1:28171->8080/tcp'):
+            self.assertFalse(subject.has_listener(header+row))
+
+    @unittest.skipUnless(Path('/proc/self/net/tcp').is_file(),'Windows没有Linux进程TCP表，真实内核监听另在Linux验证')
+    def test_actual_linux_listener_appears_and_disappears(self):
+        """真正打开本进程临时监听，不启动Docker／HTTP或访问外网。"""
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0));listener.listen();port=listener.getsockname()[1]
+            self.assertTrue(subject.has_listener(Path('/proc/self/net/tcp').read_text(),port))
+        self.assertFalse(subject.has_listener(Path('/proc/self/net/tcp').read_text(),port))
 
 
 if __name__=='__main__':unittest.main()
