@@ -10,7 +10,7 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class GlobalCachedCrossExcelSqlPreparationTests
 {
-    /// <summary>与实库精确名单共用六个固定模型，公开完整包缺口继续保持。</summary>
+    /// <summary>与已验实库共用六个固定模型；本轮核对公开审计，不倒记为新包实库通过。</summary>
     public static IEnumerable<object[]> Cases() => GlobalCachedCrossExcelMySqlLease.Profiles.Select(p => new object[] { p.Role, p.Key, p.Parent, p.AllGlobal, p.Shared, p.Shorter });
 
     /// <summary>精确表名进入控件而外键角色路径保持；原导入导出及静态SQL计划初始化先离线验证。</summary>
@@ -36,7 +36,7 @@ public sealed class GlobalCachedCrossExcelSqlPreparationTests
             Assert.NotNull(service.GetMethod("Import30Async")); Assert.NotNull(service.GetMethod("Export30Async")); Assert.NotNull(service.GetField("ExportReadPlan30", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null));
             var hand = Path.Combine(generated, "Services", GenerationModel.Pascal(source.TableName) + "Service.cs"); await File.AppendAllTextAsync(hand, "\n// 本轮精确表模型的手写扩展必须保留。\n"); var original = await File.ReadAllBytesAsync(hand);
             new CSharpGenerator().Generate(catalog, generated, GlobalCachedCrossExcelMySqlTests.Namespace); Assert.Equal(original, await File.ReadAllBytesAsync(hand)); Assert.Equal(input, JsonSerializer.Serialize(catalog));
-            Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+            new FrontendPackager().Validate(catalog);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }

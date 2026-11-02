@@ -6,7 +6,7 @@ using Metarill.Core.Metadata;
 using Metarill.Testing;
 namespace Metarill.Generation.Tests;
 
-/// <summary>将B119原六模型合成一个独占项目；只重编号配置及物理表，不改变关系语义或公开Full门槛。</summary>
+/// <summary>将B119原六模型合成一个独占项目；只重编号配置及物理表，关系语义及历史内部准备包标记保持。</summary>
 internal static class GlobalCachedCrossExcelNativePreparation
 {
     internal const string RootNamespace="Metarill.GlobalCrossExcelNative";

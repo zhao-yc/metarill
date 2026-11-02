@@ -30,8 +30,8 @@ public sealed class NonRedundantCrossFullTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>实际路径Excel用途、隐藏坏链和未发布目标都必须在创建stage前拒绝。</summary>
-    [Theory][InlineData("import")][InlineData("export")][InlineData("targetRealm")][InlineData("hiddenBad")][InlineData("targetGlobal")][InlineData("unknownContext")][InlineData("hiddenTargetRealm")][InlineData("targetTableRealm")][InlineData("idPropertyName")][InlineData("namePropertyName")][InlineData("propertyCase")][InlineData("propertyType")][InlineData("prefixEmpty")][InlineData("prefixUpper")][InlineData("keyWhitespace")][InlineData("joinerEmpty")][InlineData("joinerWhitespace")]
+    /// <summary>未验覆盖导入、隐藏坏链和未发布目标都必须在创建stage前拒绝。</summary>
+    [Theory][InlineData("import")][InlineData("targetRealm")][InlineData("hiddenBad")][InlineData("targetGlobal")][InlineData("unknownContext")][InlineData("hiddenTargetRealm")][InlineData("targetTableRealm")][InlineData("idPropertyName")][InlineData("namePropertyName")][InlineData("propertyCase")][InlineData("propertyType")][InlineData("prefixEmpty")][InlineData("prefixUpper")][InlineData("keyWhitespace")][InlineData("joinerEmpty")][InlineData("joinerWhitespace")]
     public void Full_cross_keeps_actual_unproven_uses_and_target_realms_gated(string kind)
     {
         var catalog=Catalog("string","int64",false);var page=catalog.ConfigPages.Single(page=>page.Id=="201");
@@ -50,7 +50,6 @@ public sealed class NonRedundantCrossFullTests
             if(kind=="propertyType")entry["idPropertyName"]=123;else entry[kind=="propertyCase"?"idPropertyName":kind]=kind=="propertyCase"?"CountryId":"unprovedAlias";column.ControlDetail=json.ToJsonString();
         }
         if(kind=="import"){page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");}
-        if(kind=="export")catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25").IsShow=1;
         if(kind=="targetRealm")catalog.ConfigPages.Single(page=>page.Id=="301").YzProjectId="";
         if(kind=="hiddenBad"){catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="80");catalog.ConfigColumns.Single(column=>column.Id=="80").ControlDetail="{\"sourceMode\":\"crossTable\",\"levels\":[]}";}
         if(kind=="hiddenTargetRealm"){catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "25" or "80");catalog.ConfigPages.Single(page=>page.Id=="301").YzProjectId="";}
@@ -59,6 +58,22 @@ public sealed class NonRedundantCrossFullTests
         if(kind=="unknownContext")catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND status=@unknown";
         var output=Path.Combine(Path.GetTempPath(),"metarill-cross-full-gate",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,"Example.CrossFullGate",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));if(Directory.Exists(Path.GetDirectoryName(output)))Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(output)!,Path.GetFileName(output)+".staging-*"));
     }
+    /// <summary>根页开放原路径导出后可正式打包，父范围同伴及覆盖导入仍按各自门槛检查。</summary>
+    [Fact]
+    public async Task Independent_root_path_export_is_a_public_Full_candidate()
+    {
+        var catalog=Catalog("string","int64",false);catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25").IsShow=1;
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-full-export");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.True(new ApplicationPackager().Create(catalog,output,"Example.ProvenR0PathExport",NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            using var profile=JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/generation-capabilities.json")));
+            var path=Assert.Single(profile.RootElement.GetProperty("supportedControlSubsets").EnumerateArray(),row=>row.TryGetProperty("sourceMode",out var mode)&&mode.GetString()=="crossTable"&&row.GetProperty("pageId").GetString()=="201"&&row.GetProperty("columnId").GetString()=="25");
+            Assert.False(path.GetProperty("pathCellImportSupported").GetBoolean());Assert.True(path.GetProperty("pathCellExportSupported").GetBoolean());
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(output,boundary);}
+    }
+
     /// <summary>只读跨表不在原Excel可写表头，已有标量导入仍能随完整包交付。</summary>
     [Fact]
     public async Task Readonly_cross_keeps_scalar_import_in_full_package_without_opening_path_cells()

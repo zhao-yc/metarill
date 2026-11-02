@@ -67,7 +67,13 @@ internal sealed class CrossTableExcelApplicationPreparer
         var model=GenerationModel.Create(catalog,rootNamespace);
         var pages=model.Tables.SelectMany(table=>table.Pages.Where(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0)).Select(page=>page.Source.Id).ToHashSet(StringComparer.Ordinal);
         var gaps=GenerationCapabilityAudit.Collect(model);
-        if(pages.Count==0||gaps.Count==0)throw new InvalidOperationException("模型没有待验收的跨表Excel用途，不需要准备通道。");
+        // 没有真实导入／路径导出时仍拒绝内部准备，不能因R0已开放而扩大该历史通道。
+        var excel=model.Tables.Any(table=>table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Any(plan=>
+            ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>column.Source.Id==plan.Read.Source.Source.Id)||
+            plan.Levels.Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name)))));
+        if(pages.Count==0||!excel)throw new InvalidOperationException("模型没有待验收的跨表Excel用途，不需要准备通道。");
+        // 已通过公开门槛的R0仍可重建历史内部夹具；准备包始终保留不可发布标记，不签发额外豁免。
+        if(gaps.Count==0)new FrontendPackager().Validate(catalog);
         const string hidden="非冗余crossTable的实际用途未通过完整包证明，隐藏控件不能绕过门禁。";
         if(gaps.Any(gap=>!pages.Contains(gap.PageId)||gap.Reason!=CrossTableExcelRenderer.ImportAcceptancePending&&gap.Reason!=CrossTableExcelRenderer.ExportAcceptancePending&&gap.Reason!=hidden))
             throw new InvalidOperationException("跨表Excel准备存在其它未接线能力，不能用验收通道绕过。");

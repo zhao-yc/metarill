@@ -33,7 +33,7 @@ public sealed class GlobalCachedCrossExcelNativePreparationTests
         }
         foreach(var group in new IEnumerable<MetadataRecord>[]{catalog.ConfigTables,catalog.ConfigColumns,catalog.ConfigPages,catalog.ConfigPageColumns,catalog.ConfigMenus})
         {var ids=group.Select(value=>value.Id).ToArray();Assert.Equal(ids.Length,ids.Distinct(StringComparer.Ordinal).Count());Assert.All(ids,id=>Assert.True(long.TryParse(id,NumberStyles.None,CultureInfo.InvariantCulture,out var number)&&number>0));}
-        Assert.NotEmpty(CrossTableExcelApplicationPreparer.RequireCurrent(catalog,model.Namespace).Gaps);Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        Assert.Empty(CrossTableExcelApplicationPreparer.RequireCurrent(catalog,model.Namespace).Gaps);new FrontendPackager().Validate(catalog);
         Assert.Equal(before,JsonSerializer.Serialize(catalog));Assert.Equal(before,JsonSerializer.Serialize(GlobalCachedCrossExcelNativePreparation.Catalog()));
     }
     /// <summary>真实完整源码严格编译、两轮partial保护及文件漂移拒绝，冻结副本只接受明确运行审计。</summary>
