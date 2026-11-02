@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 namespace Metarill.Generation.Tests;
 
-/// <summary>冻结实际生产宿主准备包的全部来源、编译输出和手写规则；此记录不是正式Full发布许可。</summary>
+/// <summary>冻结跨表验收包实际来源、输出和手写规则；快照记录不授予资源权限，公开／内部档案另行核验。</summary>
 internal sealed record CrossTableExcelPackageProof(string PackageRoot,string ManifestSha256,string AssemblySha256,string MetadataSha256,IReadOnlyDictionary<string,string> Files);
 internal static partial class CrossTableExcelNativePreparation
 {

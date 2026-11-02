@@ -30,16 +30,26 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
     private const long Project=100,Country=9007199254742011,Area=9007199254742021,Place=9007199254742031,Warehouse=9007199254742041,Lookup=9007199254742051;
     /// <summary>只运行固定不可发布准备包；登录、权限、文件及生成Service均使用真实实现。</summary>
     [GlobalCachedCrossExcelNativeFact]
-    public async Task Production_web_six_models_roundtrip_original_excel_and_rollback_files()
+    public Task Production_web_six_models_roundtrip_original_excel_and_rollback_files()=>ExecuteAsync(false);
+
+    /// <summary>公开Full使用独立用途和固定包；禁止用内部包通过记录替代本轮真实身份链。</summary>
+    [PublicR0CrossExcelNativeFact]
+    public Task Production_public_Full_six_models_roundtrip_original_excel_and_rollback_files()=>ExecuteAsync(true);
+
+    /// <summary>内部常量选择两个明确档案；客户端JSON不能改变档案或共享其它租约。</summary>
+    private async Task ExecuteAsync(bool published)
     {
-        var settingsPath=Environment.GetEnvironmentVariable(GlobalCachedCrossExcelNativeLease.EnvironmentKey)!;
+        var root=published?PublicR0CrossExcelNativePreparation.Root:GlobalCachedCrossExcelNativePreparation.Root;
+        var environment=published?PublicR0CrossExcelNativeLease.EnvironmentKey:GlobalCachedCrossExcelNativeLease.EnvironmentKey;
+        var settingsPath=Environment.GetEnvironmentVariable(environment)!;
         Assert.Equal(Path.GetFullPath(settingsPath),Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));
         using var document=JsonDocument.Parse(await File.ReadAllTextAsync(settingsPath));var settings=document.RootElement;var source=NonRedundantApplicationFixture.Root();
-        var run=GlobalCachedCrossExcelNativeLease.Validate(settings,CSharpGenerator.SafePath(source,GlobalCachedCrossExcelNativePreparation.Root+"/prepared"));
-        var proof=settings.GetProperty("GlobalCrossExcelPreparation").Deserialize<CrossTableExcelPackageProof>()!;
-        var catalog=GlobalCachedCrossExcelNativePreparation.Verify(proof);var options=FreshInstallConfiguration.Read("AgentDatabase","agent");
-        var evidence=CSharpGenerator.SafePath(source,GlobalCachedCrossExcelNativePreparation.Root+"/"+run+"/evidence");if(Directory.Exists(evidence))throw new InvalidOperationException("六模型本轮证据目录已存在，不自动重跑。");Directory.CreateDirectory(evidence);
-        var copied=GlobalCachedCrossExcelNativePreparation.CopyForExecution(proof,CSharpGenerator.SafePath(source,GlobalCachedCrossExcelNativePreparation.Root+"/"+run+"/execution/application"));
+        var preparedRoot=CSharpGenerator.SafePath(source,root+"/prepared");
+        var run=published?PublicR0CrossExcelNativeLease.Validate(settings,preparedRoot):GlobalCachedCrossExcelNativeLease.Validate(settings,preparedRoot);
+        var proof=settings.GetProperty(published?"PublicCrossExcelPreparation":"GlobalCrossExcelPreparation").Deserialize<CrossTableExcelPackageProof>()!;
+        var catalog=Verify(proof);var options=FreshInstallConfiguration.Read("AgentDatabase","agent");
+        var evidence=CSharpGenerator.SafePath(source,root+"/"+run+"/evidence");if(Directory.Exists(evidence))throw new InvalidOperationException("六模型本轮证据目录已存在，不自动重跑。");Directory.CreateDirectory(evidence);
+        var copied=Copy(proof,CSharpGenerator.SafePath(source,root+"/"+run+"/execution/application"));
         var hostDirectory=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host");var storageBoundary=Path.Combine(evidence,"storage");var storage=Path.Combine(storageBoundary,Guid.NewGuid().ToString("N"));var hooks=Path.Combine(evidence,"transaction-hooks.jsonl");
         using var session=new DatabaseSession(options);await Pin(session,settings.GetProperty("InstancePin"));
         var securityCatalog=await Model("security");var fileCatalog=await Model("files");var security=new SqlRowStore(session,securityCatalog);var files=new SqlRowStore(session,fileCatalog);var store=new SqlRowStore(session,catalog);
@@ -91,8 +101,9 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             stage="同地址重启保持真实会话";var address=host.Client.BaseAddress;await host.DisposeAsync();host=null;host=await FreshHost.StartAsync(Info(),"/health",address);host.Client.DefaultRequestHeaders.Add("loginStateId",token);
             var first=catalog.ConfigTables.First(value=>value.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal));var firstPage=catalog.ConfigPages.Single(value=>value.ConfigTableId==first.Id);var route="/api/admin/auto/"+first.TableName+"/"+firstPage.Id+"/page";
             await FreshWebHttp.SendAsync(host.Client,HttpMethod.Post,route,new{});await FreshWebHttp.SendAsync(host.Client,HttpMethod.Post,"/api/admin/sys/yz_manager/exit_login",new{});await FreshWebHttp.SendAsync(host.Client,HttpMethod.Post,route,new{},HttpStatusCode.Unauthorized);
-            await host.DisposeAsync();host=null;GlobalCachedCrossExcelNativePreparation.Verify(copied,true);GlobalCachedCrossExcelNativePreparation.Verify(proof);Assert.Equal(6,completed.Count);Assert.Empty((await new SchemaService(session).PreviewAsync(physical)).Changes);passed=true;
-            await Receipt("verified",new{run,passed,completed,productionWeb=true,preparedNotPublishedFull=true,fixedAuthorizationInjected=false,ordinaryAccount=true,originalFormThreeFields=true,persistentSession=true,tableCount=await TableCount(session),browserExecuted=false,performanceExecuted=false,databaseCleanupByLease=true});
+            await host.DisposeAsync();host=null;Verify(copied,true);Verify(proof);Assert.Equal(6,completed.Count);
+            if(published)foreach(var table in catalog.ConfigTables)Assert.InRange((await store.ReadIncludingDeletedAsync(table.TableName)).Count,0,PublicR0CrossExcelNativeLease.MaximumBusinessRows);Assert.Empty((await new SchemaService(session).PreviewAsync(physical)).Changes);passed=true;
+            await Receipt("verified",new{run,passed,completed,productionWeb=true,preparedNotPublishedFull=!published,publicFullApplication=published,fixedAuthorizationInjected=false,ordinaryAccount=true,originalFormThreeFields=true,persistentSession=true,tableCount=await TableCount(session),browserExecuted=false,performanceExecuted=false,databaseCleanupByLease=true});
         }
         catch(Exception error){primary=error;await Receipt("failure",new{run,stage,completed,passed=false,lastOperation=active?.Stage,errorType=error.GetType().Name,error.StackTrace,databaseCleanupByLease=true});throw;}
         finally
@@ -101,6 +112,10 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             try{if(host is not null){await host.DisposeAsync();stopped=true;}if(!stopped)throw new InvalidOperationException("六模型宿主尚未确认停止，保留存储现场。");if(Directory.Exists(storage))await TestDirectoryCleanup.DeleteAsync(storage,storageBoundary);await Receipt("local-cleanup",new{run,stopped,storageRemoved=!Directory.Exists(storage),databaseCleanupByLease=true});}
             catch(Exception cleanup){await Receipt("local-cleanup-failure",new{run,errorType=cleanup.GetType().Name});if(primary is not null)throw new AggregateException("六模型正式验收及本地清理均失败。",primary,cleanup);throw;}
         }
+        /// <summary>公开标记与内部准备标记严格分开验证，不能靠业务流程共享替换包。</summary>
+        MetadataCatalog Verify(CrossTableExcelPackageProof value,bool runtime=false)=>published?PublicR0CrossExcelNativePreparation.Verify(value,runtime):GlobalCachedCrossExcelNativePreparation.Verify(value,runtime);
+        /// <summary>两档案均先核验固定文件，执行目录只允许首次创建。</summary>
+        CrossTableExcelPackageProof Copy(CrossTableExcelPackageProof value,string destination)=>published?PublicR0CrossExcelNativePreparation.CopyForExecution(value,destination):GlobalCachedCrossExcelNativePreparation.CopyForExecution(value,destination);
         /// <summary>回执只保留本轮业务阶段，不保存口令、令牌或连接。</summary>
         Task Receipt(string name,object value)=>File.WriteAllTextAsync(Path.Combine(evidence,name+".json"),JsonSerializer.Serialize(value,new JsonSerializerOptions{WriteIndented=true})+"\n");
         /// <summary>只读取固定包内已核摘要的基础模型。</summary>
