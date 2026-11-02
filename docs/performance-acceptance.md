@@ -135,3 +135,5 @@ python3 tools/performance/paired_http.py run --config /本轮私有目录/settin
 V38只读核对发现200当前MySQL8.4.11的performance_schema=false，语句消费者／仪器配置为空；不能将空历史记为未执行SQL。本次不读其它业务SQL／线程、不启用日志或修改配置。应用既有ORM与原生DbCommand两路，完整SQL／参数／事务采集仍需接线验证，见[实际前提及下一步](paired-sql-observation-preflight.md)。
 
 V39已实现C#显式、默认关闭的命令／参数／事务观察基础，并在现有200非root连接用3条常量／自身身份SELECT及2个事务API边界验证预处理、值证明与观察开关响应不变；数据层1528过27外部跳过、自身完整源码2过，均不替代完整业务／Java／文件SQL采集或负载。V40已补Files九处和Schema八处命令工厂，最终数据层1531过27外部跳过／文件256过59外部跳过，独立常量实库工厂1过；V41再补结构反查独立MDL事务，最终数据层1543过27外部跳过；文件／结构真实业务及Java／完整HTTP采集仍须补齐，InternallyConsistent不能当全覆盖批准，见[实现与实际边界](database-command-observation.md)。
+
+V42补[Java JDBC采集基础](java-jdbc-command-observation.md)：JDK21严格48个离线用例、固定驱动真实绑定对象和两端16共同值证明通过，工具125过4POSIX跳过；尚未安装到原宿主、未执行真实SQL／HTTP或负载，不将内部一致或共同摘要升级为同条件性能通过。

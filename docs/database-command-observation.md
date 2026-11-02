@@ -76,3 +76,7 @@ V40已补统一工厂，V41补结构反查独立事务边界；下一步接真�
 新增12个明确替身用例实际调用完整反查入口：观察关闭／开启各覆盖成功、回调失败、取消、begin失败、commit失败和rollback失败；核对回调次数、原异常对象、隔离级别、事务API顺序、命令事务关联及工厂完整计数。begin失败不进入回调或虚构回滚；commit失败后仍回滚；rollback失败保持原异常优先级，并使证据包含UnresolvedTransaction、InternallyConsistent=false。该状态表示采集如实发现未确认结束，不能改记为完整成功。
 
 首轮专项32项通过；增强精确隔离级别断言后，最终数据层1570项：1543通过、27项外部环境跳过、0失败，新增12项包含其中。私有TRX、既有字符串字面量不变核对及汇总位于.local/schema-transaction-observation-20261102。未执行新的MySQL结构反查事务实库场景、正式HTTP／Java配对或性能负载；V40的常量只读和完整包证据仍只归其冻结子集，不当作本项实库通过。当前MySQL首版仍未整体完成。
+
+## V42：Java共同向量
+
+Java侧新增显式JDBC采集基础及固定驱动绑定适配，和C#共同验证16组独立Python生成的值摘要向量；C#仅新增测试，不修改本观察器或产品运行时。Java尚未装入Spring／DataSource、没有真实SQL／HTTP或负载，见[Java实现与边界](java-jdbc-command-observation.md)。共同摘要只能证明已列值的编码一致，不证明数据库／查询／权限或性能等价。
