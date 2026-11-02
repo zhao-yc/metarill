@@ -17,9 +17,9 @@ IMAGES = {
     "csharp": "sha256:ee05d99dbb52de8a51f7d42fcbb7a67d1b588c8bb0b637f937a8cba236975200",
     "redis": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
 }
-# V46已核父层、完整载荷及C#原Kestrel的独立采集候选，不覆盖V37旧用途。
+# Java继承V46并经V51禁网Boot/元数据探针核验；C#保持V46，不覆盖V37旧用途。
 OBSERVATION_IMAGES = {
-    "java": "sha256:99face186258dd73aa4343477ba94506f73954bf8a961be137fca2622df9d2a0",
+    "java": "sha256:11ed25d417c5f5469e499ace6f81e92480cd86b94f046f6716be153f2b5fd57c",
     "csharp": "sha256:5da49219cfa9c47c49977333d45738dbadb4dd0d09f7d6bce04c6ff55ec73ed5",
     "redis": IMAGES["redis"],
 }

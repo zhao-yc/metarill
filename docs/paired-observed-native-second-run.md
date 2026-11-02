@@ -35,3 +35,16 @@ Java共发送并完成33请求，其中9身份、24业务；C#完成9身份、�
 新增禁网探针已严格编译，准备在Server-200仅加载采集桥与无连接DataSource，用真实JRE／Boot验证marker、关闭索引和本地元数据代理。它不启动原业务或原Program，不能替代原Web／登录／MySQL验收。当前尚未构建该新镜像或运行Linux探针；V46旧Java镜像不会生成新marker，不能直接拿旧镜像运行修正后的就绪合同。新镜像身份须实际固定后才能准备下一次正式范围。
 
 起点c01d123，本任务同提交同步进度表。当前改动只在验收工具／桥与文档。真实完整业务、有效双端SQL／参数／事务语义、代表性负载及MySQL首版仍待完成。
+
+
+## V51新Java镜像与禁网探针（2026-11-03）
+
+后续已从15640b7来源构建修正Java采集镜像，内容ID为sha256:11ed25d417c5f5469e499ace6f81e92480cd86b94f046f6716be153f2b5fd57c，父镜像仍V46的99face1；原ENTRYPOINT和父层保持，完整JAR为f8467a26340feb3270c04ee96f1e16f7690dc9fabae0abd87bf407fae0e392aa。C#仍5da4921／原Data89d2，Redis不变。
+
+Server-200仅新建一个network=none、无端口、非root、只读根、0.5CPU／512MiB的短探针。显式加载外置公开探针class，实际使用镜像内新采集桥和真实SpringApplication：无连接DataSource、原Boot runner后才生成Ready标记，正常关闭得到0HTTP完整索引，另线程本地元数据读取与连接回指检查通过。完整/app/application.jar在探针内部流式核SHA；key只是公开32字节11合成值，没有真实口令或数据库连接。
+
+这不是原业务Program／Web／登录／MySQL验收。探针容器已删除，新SSH独立核同名对象不存在、原PID／startTicks结束、父标签／父层不变及匹配本轮的Ready／关闭索引；保留新镜像、无密构建来源和日志，不清旧缓存或历史镜像。原六初始化／业务／真实SQL仍须新精确单轮。
+
+当前公共执行器的新采集用途已绑定11ed25d这一Java内容ID，旧IMAGES和旧v1初始化／身份用途仍绑定原镜像；历史V48／V49的冻结工具／输入及失败不改写。构建本身是非数据库开发验证，没有重用V49已结束实库租约。
+
+私有证据位于.local/paired-observed-metadata-fix-20261103：build-identity.json、image-build-plan.json、完整包保真、严格编译日志、image-result.json及independent-image-finish.json。原首次注解处理器警告和框架2个失败继续保留。新SHA CI与新实库仍须分别核对。

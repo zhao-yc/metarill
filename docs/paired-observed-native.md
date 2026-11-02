@@ -4,11 +4,11 @@
 
 ## 固定范围
 
-新用途 `paired-native-observed-v1` 只使用 V46 已核验镜像：
+当前新用途 `paired-native-observed-v1` 使用V51修正Java镜像及V46原C#／Redis；V48／V49历史使用99face1的事实保持：
 
 | 服务 | 不可变镜像 ID |
 | --- | --- |
-| Java | sha256:99face186258dd73aa4343477ba94506f73954bf8a961be137fca2622df9d2a0 |
+| Java | sha256:11ed25d417c5f5469e499ace6f81e92480cd86b94f046f6716be153f2b5fd57c |
 | C# | sha256:5da49219cfa9c47c49977333d45738dbadb4dd0d09f7d6bce04c6ff55ec73ed5 |
 | Redis | sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf |
 
@@ -54,3 +54,6 @@ Java SIGTERM 的 JDK21 正常退出可为143，C# 必须为0；137、OOM、仍�
 
 
 2026-11-03 V49单轮复验已完成原六初始化／普通真实登录和权限；Java子页响应断言错误及32份不完整采集使整条失败，资源和秘密已新SSH核零。V50按原VO修正，V51元数据及真正Boot Ready离线修正通过，新镜像／完整正式业务及有效SQL仍待，详见[正式复验与边界](paired-observed-native-second-run.md)。MySQL首版不标完成。
+
+
+V51新镜像11ed25d及单个禁网Boot／元数据探针已通过并独立核清；它仅加载采集桥而不是原业务Program。原完整业务／真实SQL仍需新精确授权，见[实际镜像和边界](paired-observed-native-second-run.md)。
