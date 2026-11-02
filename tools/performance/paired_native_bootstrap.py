@@ -122,22 +122,48 @@ def capture(args, timeout=120):
     return subprocess.run(["docker", "-H", "unix:///var/run/docker.sock", *args], env={k: v for k, v in os.environ.items() if not k.startswith("DOCKER_")}, capture_output=True, timeout=timeout)
 
 
-def parse_job_output(data, target):
-    """Java使用原有结果前缀，C#从首个完整JSON根读取；不靠日志关键词猜成功。"""
+def parse_job_output(data, target, job=None, expected_database=None):
+    """Java沿用原前缀；C#仅apply允许原计划与执行结果两根JSON，逐项配对。"""
     text = data.decode("utf-8-sig")
     if target == "java":
         matches = [http.read_json(line[len("结果："):]) for line in text.splitlines() if line.startswith("结果：")]
-    else:
-        matches = []
+    elif target == "csharp":
         decoder = json.JSONDecoder(object_pairs_hook=http.unique_object, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("非有限数")))
-        for index, char in enumerate(text):
-            if char != "{": continue
-            try: result, consumed = decoder.raw_decode(text[index:])
-            except ValueError: continue
-            if text[index + consumed:].strip(): raise ValueError("初始化结果后存在额外输出对象")
-            matches.append(result); break
+        index = text.find("{")
+        if index < 0: raise ValueError("初始化没有JSON结果")
+        # 首根解码失败就拒绝，不能跳到嵌套对象掩盖重复键或非法值。
+        result, consumed = decoder.raw_decode(text[index:])
+        matches = [result]; remaining = text[index + consumed:].strip()
+        if job == "csharp-apply":
+            if not expected_database or not remaining: raise ValueError("结构执行必须绑定批准库并返回计划及结果")
+            result, consumed = decoder.raw_decode(remaining)
+            if remaining[consumed:].strip(): raise ValueError("结构执行结果后存在额外输出")
+            return pair_schema_apply(matches[0], result, expected_database)
+        if remaining: raise ValueError("初始化结果后存在额外输出对象")
+    else:
+        raise ValueError("未知初始化目标")
     if len(matches) != 1 or not isinstance(matches[0], dict): raise ValueError("初始化没有唯一完整结果对象")
     return matches[0]
+
+
+def pair_schema_apply(plan, result, expected_database):
+    """只认原宿主的精确计划/结果形状；失败、部分执行和跨库回执均不算通过。"""
+    if not isinstance(plan, dict) or set(plan) != {"id", "provider", "database", "beforeFingerprint", "desiredFingerprint", "changes"}:
+        raise ValueError("结构计划形状不符")
+    if not isinstance(result, dict) or set(result) != {"planId", "database", "startedAt", "finishedAt", "succeeded", "appliedStatements", "error"}:
+        raise ValueError("结构结果形状不符")
+    if plan["provider"] != "mysql" or plan["database"] != expected_database or result["database"] != expected_database or result["planId"] != plan["id"]:
+        raise ValueError("结构计划与执行结果不是本轮同一计划或目标库")
+    if not isinstance(plan["id"], str) or not re.fullmatch(r"[a-f0-9]{32}", plan["id"]): raise ValueError("结构计划ID无效")
+    if any(not isinstance(plan[k], str) or not re.fullmatch(r"[a-f0-9]{64}", plan[k]) for k in ("beforeFingerprint", "desiredFingerprint")):
+        raise ValueError("结构计划摘要无效")
+    if not isinstance(plan["changes"], list) or result["succeeded"] is not True or result["error"] is not None:
+        raise ValueError("结构变更没有完整执行成功")
+    if type(result["appliedStatements"]) is not int or result["appliedStatements"] != len(plan["changes"]):
+        raise ValueError("结构执行条数与计划不符")
+    if any(not isinstance(result[k], str) or not result[k] for k in ("startedAt", "finishedAt")):
+        raise ValueError("结构执行时间缺失")
+    return result
 
 
 def initialization_job(root, value, name, state, state_path):
@@ -176,7 +202,7 @@ def initialization_job(root, value, name, state, state_path):
         (root / (name + ".stdout.log")).write_bytes(result.stdout); (root / (name + ".stderr.log")).write_bytes(result.stderr)
         runtime = http.read_json(resources.docker("container", "inspect", "--format", '{"running":{{json .State.Running}},"exitCode":{{json .State.ExitCode}}}', item["name"]))
         if result.returncode or runtime != {"running": False, "exitCode": 0}: raise RuntimeError("原显式初始化命令失败，保留日志")
-        return parse_job_output(result.stdout, target)
+        return parse_job_output(result.stdout, target, name, value["databases"][1] if target == "csharp" else None)
     finally:
         actual = resources.inspect("container", item["name"])
         if actual is not None:

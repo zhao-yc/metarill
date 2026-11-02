@@ -69,6 +69,53 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):subject.verify_tool_sources(value)
 
 
+
+def schema_apply_output(expected_database, **result_overrides):
+    """复现原宿主先输出计划、再输出执行结果的两根JSON合同；只有合成结构。"""
+    plan = {"id": "a"*32, "provider": "mysql", "database": expected_database,
+            "beforeFingerprint": "b"*64, "desiredFingerprint": "c"*64, "changes": [{"sql": "CREATE TABLE fixture(id bigint)"}]}
+    result = {"planId": plan["id"], "database": expected_database, "startedAt": "2026-11-02T00:00:00Z",
+              "finishedAt": "2026-11-02T00:00:01Z", "succeeded": True, "appliedStatements": 1, "error": None}
+    result.update(result_overrides)
+    return (json.dumps(plan, indent=2)+"\n"+json.dumps(result)+"\n").encode(), result
+
+
+class SchemaApplyOutputTests(unittest.TestCase):
+    """只允许已知apply命令的计划与结果配对，不把最后一段任意JSON当成功。"""
+    def setUp(self):
+        self.database = settings()["databases"][1]
+
+    def parse(self, raw, job="csharp-apply"):
+        """绑定本轮业务库和精确命令，不能从回执自行选择目标。"""
+        return subject.parse_job_output(raw, "csharp", job, self.database)
+
+    def test_original_plan_then_success_result_are_paired(self):
+        raw, result = schema_apply_output(self.database)
+        self.assertEqual(self.parse(b"info: schema apply\n"+raw), result)
+
+    def test_two_roots_are_not_allowed_for_preview_or_unspecified_job(self):
+        raw, _ = schema_apply_output(self.database)
+        for job in (None, "csharp-preview", "csharp-verify", "csharp-security"):
+            with self.subTest(job=job), self.assertRaises(ValueError): self.parse(raw, job)
+        with self.assertRaises(ValueError): subject.parse_job_output(raw, "csharp", "csharp-apply")
+
+    def test_unrelated_plan_database_and_partial_or_failed_results_are_rejected(self):
+        for change in ({"database": "unapproved"}, {"planId": "d"*32}, {"succeeded": False},
+                       {"succeeded": 1}, {"appliedStatements": 0}, {"appliedStatements": True}, {"error": "failed"}):
+            raw, _ = schema_apply_output(self.database, **change)
+            with self.subTest(change=change), self.assertRaises(ValueError): self.parse(raw)
+        raw, _ = schema_apply_output("unapproved")
+        with self.assertRaises(ValueError): self.parse(raw)
+
+    def test_missing_extra_duplicate_and_nonfinite_outputs_are_rejected(self):
+        raw, _ = schema_apply_output(self.database)
+        malformed = (raw+b'{}', raw+b'finished', raw.replace(b'"succeeded": true', b'"succeeded": false, "succeeded": true'),
+                     raw.replace(b'"sql": ', b'"n": NaN, "sql": '), raw.replace(b'"provider": "mysql"', b'"provider": "sqlite"'),
+                     raw.replace(b'"changes": [', b'"unexpected": 1, "changes": ['), json.dumps({"succeeded": True}).encode())
+        for value in malformed:
+            with self.subTest(value=value), self.assertRaises(ValueError): self.parse(value)
+
+
 class BootstrapInputsTests(unittest.TestCase):
     """只验证初始化材料合同，class字节为受控假输入；原Java class身份另有V21真实证据。"""
     def setUp(self):
@@ -135,6 +182,15 @@ class JobTests(unittest.TestCase):
         self.assertEqual(command[-2:],(subject.resources.IMAGES["csharp"],"--schema-preview"));self.assertNotIn("--publish",command)
         self.assertIn("--read-only",command);self.assertIn("--env-file",command)
         with self.assertRaises(ValueError):subject.initialization_job(self.root,self.value,"csharp-preview",self.state,self.path)
+
+    def test_apply_job_binds_plan_and_result_to_approved_database_then_cleans(self):
+        """真正经过命令构造与解析边界，不用mock跳过导致首轮失败的输出合同。"""
+        raw, result = schema_apply_output(self.value["databases"][1])
+        self.capture.return_value = subprocess.CompletedProcess([], 0, raw, b'')
+        self.assertEqual(subject.initialization_job(self.root, self.value, "csharp-apply", self.state, self.path), result)
+        self.assertEqual(self.capture.call_count, 1)
+        self.assertFalse(self.engine.objects)
+        self.assertTrue(self.state["jobs"][0]["containerAbsent"])
 
     def test_java_job_reuses_fixed_external_loader_and_readonly_bundle(self):
         """不启动普通Web或替换Java实现，只调用已固定原配置安装入口。"""
