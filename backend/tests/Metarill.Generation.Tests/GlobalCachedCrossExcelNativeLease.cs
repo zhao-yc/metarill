@@ -7,7 +7,8 @@ internal static class GlobalCachedCrossExcelNativeLease
 {
     internal const string EnvironmentKey="METARILL_GLOBAL_CROSS_EXCEL_NATIVE_SETTINGS";
     internal const string Purpose="global-cached-cross-excel-native-v1";
-    internal const string ProductCommit="6427285dc8768c1d1f0a831aa92083e57909c5c4";
+    // 修正后复验使用当前产品基线；旧准备与已结束租约不能用于新的源码。
+    internal const string ProductCommit="6f9b3eb4b6e20ec71c2a6f3d06d69352fe06f552";
     /// <summary>本轮、用途、状态、六模型及固定准备目录均在复制文件、进程和数据库连接前核对。</summary>
     internal static string Validate(JsonElement settings,string preparedRoot)
     {
