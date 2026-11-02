@@ -1,5 +1,7 @@
 # 非冗余多选的固定派生名称
 
+当前B46：2026-11-02已获12表精确直接授权并完成清理，新SSH／新连接逐名确认12表全部不存在；下文历史“待授权／仍存在”保留为当时记录，实际收尾见末节。
+
 ## 行为与范围
 
 来源R0多选通过物理target_ids关联R0目标，目标name再通过company_id联接公司name。显式target_names与自动名称都沿原JSON数组合同，只存ID；改公司名称后即时读取当前名称，不重写来源名称缓存。原MultiSelectPage、type=2目标页、页面、样式与交互保持。
@@ -45,3 +47,7 @@
 ## B46 精确12表清理准备
 
 已将两组旧遗留合成一份12表清理计划（.local/derived-multi-cleanup-audit-20261102/permission-plan.md），只限原metarill_business_test内精确名字、零行／历史DDL匹配／零触发器外键；另4个从未创建名字不进入清理范围。执行前逐表复核，全部通过后才单次精确DROP，随后新SSH／新连接独立逐名核零；无库／账号／权限或本机文件清理。核对和DROP不在同一连接中，不宣称全局并发锁定。9项授权拒绝检查（含实际pending入口）均零子进程／副作用，check-only固定验证通过；尚未执行DROP，仍需本次精确授权。旧自动审核拒绝是历史事实，没有重新发起未经授权的删除。
+
+## B46 正式清理完成（2026-11-02）
+
+本次直接授权call_294b3a88ebaf4b6aa1c725ab03c1e8fe:1后，按冻结的12表精确计划执行一次。实际删除前逐表核对固定实例、存在、零行、历史DDL摘要、零触发器和进出外键，全部通过后单条精确DROP；仅本连接lock_wait_timeout=5，不改GLOBAL或关闭外键检查。drop-receipt精确12表，独立新SSH／新MySQL连接核对12表全部不存在，remaining=[]；execution清理确认、primaryFailure=null、ended、autoRetry=false。没有建删库／账号／权限或本机文件。原两轮失败、旧审核拒绝、只读审计和全部清理回执保留在.local/derived-multi-cleanup-audit-20261102，B46固定失败样本清理完成；不扩展为所有复杂关系或其它租约已清理。

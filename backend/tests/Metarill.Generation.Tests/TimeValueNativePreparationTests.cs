@@ -31,6 +31,25 @@ public sealed class TimeValueNativePreparationTests
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>完整模型先经纯正反编译，避免继承旧字符串外键直到建库后才发现不符合首期ID规则。</summary>
+    [Fact]
+    public void Entire_time_catalog_roundtrips_before_database_resources()
+    {
+        var catalog=TimeValueNativePreparation.Catalog();
+        var schema=Metarill.Data.Schema.MySqlSchemaPlanner.Compile(catalog,"time_native_offline");
+        var draft=Metarill.Data.Schema.SchemaImportDraftCompiler.Compile(new(new("mysql",schema,"offline-forward"),[]),catalog.YzProjectId);
+        Assert.True(draft.ColumnsAndIndexesRepresentable,string.Join(";",draft.Issues.Select(issue=>issue.Table+"."+issue.Member+":"+issue.Code+":"+issue.Message)));
+        Assert.Empty(Metarill.Data.Schema.MySqlSchemaPlanner.Compare(schema,Metarill.Data.Schema.MySqlSchemaPlanner.Compile(draft.LogicalMetadata,"time_native_offline")));
+        Assert.Equal(50,catalog.ConfigColumns.Count);Assert.Equal(6,catalog.ConfigIndexes.Count);
+        Assert.Equal(4,draft.LogicalMetadata.ConfigColumns.Count(column=>column.LogicalType=="time"));
+        // 仅本TIME隔离模型归一两个真实关系ID，原共享样例及字符串关系测试模型仍保持原样。
+        foreach(var name in new[]{"sample_customer_id","sample_contract_id"})
+        {
+            var expected=Assert.Single(catalog.ConfigColumns,column=>column.ColumnName==name);Assert.Equal("int64",expected.LogicalType);
+            Assert.Equal("bigint",Assert.Single(schema.Tables.SelectMany(table=>table.Columns),column=>column.Name==name).StoreType);
+            Assert.Equal("string",Assert.Single(GlobalCachedSourceGenerationTests.Catalog().ConfigColumns,column=>column.ColumnName==name).LogicalType);
+        }
+    }
     /// <summary>正式节点设置必须实际生成正整数且单调，编译通过不能掩盖首次初始化才触发的范围错误。</summary>
     [Fact]
     public void Formal_worker_generates_real_ids_before_database_lease()

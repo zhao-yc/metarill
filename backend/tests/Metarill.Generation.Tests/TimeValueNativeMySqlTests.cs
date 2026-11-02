@@ -62,7 +62,9 @@ public sealed class TimeValueNativeMySqlTests
             stage="显式安装与真实反查";var schema=new SchemaService(session);await Run(Info("--schema-apply"),"schema-apply");Assert.Empty((await schema.PreviewAsync(physical)).Changes);
             Assert.Equal((long)FreshInstallConfiguration.ExpectedFullTableCount(catalog),await Scalar(session,"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()"));
             var snapshot=await schema.InspectSnapshotAsync(catalog);var draft=SchemaImportDraftCompiler.Compile(new(snapshot,[]),catalog.YzProjectId);
-            Assert.True(draft.ColumnsAndIndexesRepresentable,"真实结构反查有不可表达项，不能忽略。");Assert.Empty(MySqlSchemaPlanner.Compare(snapshot.Schema,MySqlSchemaPlanner.Compile(draft.LogicalMetadata,options.ExpectedDatabase)));
+            // 反查失败必须保留具体列及问题码，不能只留笼统断言后清理唯一实库现场。
+            await Receipt("schema-draft",new{draft.ColumnsAndIndexesRepresentable,draft.Issues,snapshot});
+            Assert.True(draft.ColumnsAndIndexesRepresentable,"真实结构反查有不可表达项，不能忽略："+string.Join(";",draft.Issues.Select(issue=>issue.Table+"."+issue.Member+":"+issue.Code+":"+issue.Message)));Assert.Empty(MySqlSchemaPlanner.Compare(snapshot.Schema,MySqlSchemaPlanner.Compile(draft.LogicalMetadata,options.ExpectedDatabase)));
             Assert.Equal(4,draft.LogicalMetadata.ConfigColumns.Count(column=>column.LogicalType=="time"));await Receipt("schema",new{timeColumns=4,draftRoundtrip=true});
             stage="Production网页登录";await Run(Info("--initialize-security"),"initialize");host=await FreshHost.StartAsync(Info(),"/health");
             using(var anonymous=new HttpClient{BaseAddress=host.Client.BaseAddress})await FreshWebHttp.SendAsync(anonymous,HttpMethod.Post,Route+"page",new{},HttpStatusCode.Unauthorized);

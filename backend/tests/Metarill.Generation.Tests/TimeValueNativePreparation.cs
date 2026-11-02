@@ -8,10 +8,13 @@ namespace Metarill.Generation.Tests;
 internal static class TimeValueNativePreparation
 {
     internal const string RootNamespace="Metarill.TimeValueNative",ProductCommit="cfe33a8015a1ee9bd1b89c9fa9337bbafbc5e4b8";
-    /// <summary>保留原三表50列、6索引及原页面，只增加隔离TIME精度列并开启原导入导出，原页面模板不改。</summary>
+    /// <summary>保留原三表50列、6索引及原页面，隔离模型关联ID按首期规则归一，补TIME精度与原导入导出。</summary>
     internal static MetadataCatalog Catalog()
     {
         var catalog=GlobalCachedSourceGenerationTests.Catalog();
+        // 原共享样例保留旧字符串关系；本TIME模型按首期统一ID规则归一，确保完整反查可保存。
+        foreach(var foreign in catalog.ConfigColumns.Where(column=>column.ColumnName is "sample_customer_id" or "sample_contract_id"))
+        {foreign.LogicalType="int64";foreign.ColumnType="bigint";}
         foreach(var column in catalog.ConfigColumns.Where(column=>column.LogicalType=="datetime"))
         {column.ColumnType="datetime(0)";if(column.ColumnName is "insert_time" or "update_time")column.DefaultValue="now()";}
         var table=catalog.ConfigTables.Single(table=>table.TableName=="sample_contract");
