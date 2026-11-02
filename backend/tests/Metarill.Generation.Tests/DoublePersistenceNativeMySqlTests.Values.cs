@@ -82,7 +82,12 @@ public sealed partial class DoublePersistenceNativeMySqlTests
             Assert.Equal(before, await Snapshot());
         }
         var observed = File.ReadLines(hooks).Select(line => JsonSerializer.Deserialize<JsonElement>(line)).ToArray(); Assert.Equal(2, observed.Length); Assert.Equal(new[] { Party, Source }.Order(), observed.Select(value => value.GetProperty("table").GetString()).Order()); Assert.All(observed, row => { Assert.True(row.GetProperty("insideTransaction").GetBoolean()); Assert.Equal(DoublePersistenceNativePreparation.UpperBits.ToString("X16", CultureInfo.InvariantCulture), row.GetProperty("bits").GetString()); });
-        await VerifyExport(client, PartyRoute, Request("ordinary-default"), "amount", "相邻金额", upper, lower, evidence);
+        // 关联目标已为派生筛选改为下值；普通导出使用独立样本，仍逐位验证上／下值且不改派生目标。
+        var exportSample = await Post(client, PartyRoute + "add", new { name = "ordinary-export", amount = upper, previousAmount = lower });
+        Bits(upper, exportSample.GetProperty("amount").GetDouble()); Bits(lower, exportSample.GetProperty("previousAmount").GetDouble());
+        var persistedExport = Assert.Single(await store.ReadAsync(Party, Row("id", long.Parse(exportSample.GetProperty("id").GetString()!, CultureInfo.InvariantCulture))));
+        Bits(upper, persistedExport["amount"]); Bits(lower, persistedExport["previous_amount"]);
+        await VerifyExport(client, PartyRoute, Request("ordinary-export"), "amount", "相邻金额", upper, lower, evidence);
         await VerifyExport(client, SourceRoute, Request("nonred-default", "71"), "测量值", "相邻值", upper, lower, evidence);
         foreach (var (pageId, route, parent) in new[] { ("201", PartyRoute, (string?)null), ("101", SourceRoute, "71") })
         {

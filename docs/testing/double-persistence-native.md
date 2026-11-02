@@ -114,6 +114,16 @@
 
 本轮新运行207e26147134d5ff，唯一库metarill_fresh_207e26147134d5ff_agent、临时账号mtf_207e26147134d5ff@%；三业务表加十一基础表，每业务表最多512条合成记录，限900秒一次执行、不新增CHECK。完整重验实际DB默认／反查、原普通身份及导航、普通和非冗余CRUD／派生筛选、位型矩阵、精确ID及decimal对照、统计抵消／溢出、原XLSX与选择解析、真实首行DML后整批回滚、撤权及同地址重启／注销。原位型和业务断言保持，不缩减为仅复验第一笔新增。
 
-精确表／权限、独占storage/GUID合成文件与不可逆清理清单见.local/double-persistence-json-native-20261102/permission-plan.md。范围摘要d85f0314aebf6ce48baa1e02f1b93f2cebfd4fb2fe747ad6841677ddaf28da98。当前pending／not-started，待本轮直接授权；原A30／A31已清理、一次性租约结束，本次恢复不代替新资源授权。失败不自动重试，清理后按新连接和独立新SSH核零；原冻结资料、工程及失败证据保留。
+精确表／权限、独占storage/GUID合成文件与不可逆清理清单见.local/double-persistence-json-native-20261102/permission-plan.md。范围摘要d85f0314aebf6ce48baa1e02f1b93f2cebfd4fb2fe747ad6841677ddaf28da98。此段记录正式前pending／not-started准备；随后用户直接授权，A33已单次执行、失败清理并结束，详见末节；原A30／A31及本轮授权均不覆盖下一组新对象。失败不自动重试，清理后按新连接和独立新SSH核零；原冻结资料、工程及失败证据保留。
 
 本项正式结果尚无；A32修复不能代替数值全链通过，CI仍以对应SHA实际结果为准。浏览器／跨端／并发／同条件性能、其它复杂关系及MySQL首版总验收继续。
+
+## A33 正式失败、独立清理与夹具首因
+
+用户直接答复call_4a5a1b66ca24443db88c7634b168371a后，固定8fdf784／207e26147134d5ff执行一次，正式0通过、1失败、0跳过。实际已执行到普通导出工作簿回读；之前的结构／默认／反查、原真实身份导航、77行typed持久矩阵与原分页／筛选、精确ID与decimal、普通／非冗余CRUD和父范围、统计抵消／最小值／溢出拒绝，以及两次首行实际DML后整批回滚均按固定顺序通过。两个原事务钩子回执均为0410000000000000、insideTransaction=true；整条仍失败，不能把已到达的前置检查当作完整场景通过。
+
+失败在VerifyExport普通工作簿amount：断言期望0410000000000000，实际040FFFFFFFFFFFFF。保留工作簿及原固定源码复核发现，前面为验证派生筛选已将ordinary-default关联目标更新为下值，导出前没有恢复；旧断言却继续要求上值。工作簿amount／相邻金额均为下值，与当时夹具声明状态一致。后续原SheetJS、数值再导入、非冗余导出／再导入、撤权和重启未完成，不记通过。
+
+执行器的新连接及独立新SSH确认唯一库metarill_fresh_207e26147134d5ff_agent、账号mtf_207e26147134d5ff@%不存在，自有宿主停止及storage合成对象清理确认，private-settings／private-ownership已删除。execution为passed=false、cleanupConfirmed=true、leaseStatus=ended、privateSettingsDeleted=true、autoRetry=false；原固定来源／包、失败TRX和工作簿保持，不重用一次性授权。
+
+当前只修正测试样本隔离和导出前检查，保留产品及原位型断言，详见[A34夹具修正](double-export-fixture.md)。后续必须以新固定程序集及精确范围完整复验，不把本次失败改名为通过。

@@ -16,9 +16,16 @@ public sealed partial class DoublePersistenceNativeMySqlTests
     /// <summary>实际票据XLSX下载、重新读取、原SheetJS回调与原可编辑数值列导入，不改页面解析参数。</summary>
     private static async Task VerifyExport(HttpClient client, string route, Metarill.Core.Contracts.PageRequest request, string upperHeader, string lowerHeader, double upper, double lower, string evidence, [CallerFilePath] string sourceFile = "")
     {
+        var isSource = route == SourceRoute;
+        // 下载前先核对原页面当前值，区分夹具状态错误、数据库读取错误和真正的工作簿失真。
+        var page = await Send(client, HttpMethod.Post, route + "page", request);
+        var beforeExport = Assert.Single(page.GetProperty("data").GetProperty("records").EnumerateArray());
+        Bits(upper, beforeExport.GetProperty(isSource ? "measurement" : "amount").GetDouble());
+        Bits(lower, beforeExport.GetProperty(isSource ? "measurementPrevious" : "previousAmount").GetDouble());
+        if (isSource) Bits(lower, beforeExport.GetProperty("customerAmount").GetDouble());
         var grant = (await Post(client, route + "initExport", request)).GetString()!;
         using var response = await client.GetAsync(ExportDownloadAccess.DownloadPath + "?exportId=" + Uri.EscapeDataString(grant)); Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var bytes = await response.Content.ReadAsByteArrayAsync(); var isSource = route == SourceRoute; var tag = isSource ? "nonred" : "ordinary";
+        var bytes = await response.Content.ReadAsByteArrayAsync(); var tag = isSource ? "nonred" : "ordinary";
         var path = Path.Combine(evidence, "double-" + tag + ".xlsx"); await File.WriteAllBytesAsync(path, bytes);
         var expected = new Dictionary<string, object?>(StringComparer.Ordinal);
         using (var stream = new MemoryStream(bytes))
