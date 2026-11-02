@@ -82,10 +82,21 @@ class SeedTests(unittest.TestCase):
             sql=subject.statements(db,self.value,target)
             self.assertEqual(len(sql),12 if target=="java" else 15)
             self.assertTrue(all(s.startswith("INSERT INTO `"+db+"`.") for s in sql))
-            self.assertNotIn("性能","".join(sql));self.assertIn("CONVERT(0x","".join(sql))
-        self.assertEqual(subject.literal("'\\;DROP DATABASE x"),"CONVERT(0x"+"'\\;DROP DATABASE x".encode().hex()+" USING utf8mb4)")
+            self.assertNotIn("性能","".join(sql));self.assertIn("_utf8mb4 0x","".join(sql));self.assertNotIn("CONVERT(","".join(sql));self.assertNotIn(" COLLATE ","".join(sql))
+        self.assertEqual(subject.literal("'\\;DROP DATABASE x"),"_utf8mb4 0x"+"'\\;DROP DATABASE x".encode().hex())
         for value in (True,None,1.5):
             with self.assertRaises(ValueError):subject.literal(value)
+
+    def test_text_literals_preserve_bytes_without_collation_or_escape_overrides(self):
+        """1271修复保留UTF8原字节，不给IN或逐字段回读硬编码另一套排序规则。"""
+        for value in ("性能操作员", "引号'反斜线\\换行\n\x00🙂", '["9007199254744101"]'):
+            encoded = subject.literal(value)
+            self.assertTrue(encoded.startswith("_utf8mb4 0x"))
+            self.assertEqual(bytes.fromhex(encoded.removeprefix("_utf8mb4 0x")).decode("utf-8"), value)
+            self.assertNotIn("COLLATE", encoded)
+            self.assertNotIn("CONVERT", encoded)
+        self.assertEqual(subject.literal(""), "''")
+        self.assertEqual(subject.literal(9007199254744101), "9007199254744101")
 
     def test_foreign_database_invalid_column_and_super_seed_refuse(self):
         """种子不能转到平台库、插入任意列名或建立超级角色。"""

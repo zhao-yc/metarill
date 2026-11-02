@@ -66,9 +66,10 @@ def fingerprint(fixture):
 
 
 def literal(value):
-    """固定测试文本用UTF8十六进制字面量，兼容NO_BACKSLASH_ESCAPES且无SQL注入。"""
+    """UTF8十六进制文本字面量保持低优先级，使用原列排序规则且不依赖转义模式。"""
     if type(value) is int: return str(value)
-    if isinstance(value, str): return "CONVERT(0x" + value.encode("utf-8").hex() + " USING utf8mb4)" if value else "''"
+    # CONVERT(... USING utf8mb4)与原列同为隐式排序规则，IN／回读可能报1271／1267。
+    if isinstance(value, str): return "_utf8mb4 0x" + value.encode("utf-8").hex() if value else "''"
     raise ValueError("播种只允许固定整数或文本值")
 
 
