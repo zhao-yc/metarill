@@ -36,7 +36,8 @@ internal static class DoublePersistenceNativePreparation
         Add("901", "1", "measurement_previous", "相邻值", LowerText, "101", false);
         Add("902", "2", "previous_amount", "相邻金额", LowerText, "201", false);
         Add("903", "2", "exact_amount", "精确金额", "", "201", false, "decimal");
-        var exact = catalog.ConfigColumns.Single(column => column.Id == "903"); exact.Precision = 30; exact.Scale = 9;
+        // 对照值有25位有效数字；声明28位、9位小数可覆盖该值，且整列可由C# decimal无损反查。
+        var exact = catalog.ConfigColumns.Single(column => column.Id == "903"); exact.Precision = 28; exact.Scale = 9;
         foreach (var id in new[] { "101", "201" })
         {
             var page = catalog.ConfigPages.Single(value => value.Id == id); page.IsImport = 1; page.IsExport = 1; page.Extra["isSum"] = JsonSerializer.SerializeToElement(1);

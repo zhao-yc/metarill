@@ -44,6 +44,34 @@ public sealed class DoublePersistenceNativePreparationTests
         Assert.Equal(before, JsonSerializer.Serialize(catalog));
     }
 
+    /// <summary>正式模型自身必须能按原反查器无损往返，避免离线只编译正向DDL却遗漏整表类型范围。</summary>
+    [Fact]
+    public void Entire_numeric_fixture_schema_roundtrips_through_original_import_rules()
+    {
+        var catalog = DoublePersistenceNativePreparation.Catalog();
+        var planned = MySqlSchemaPlanner.Compile(catalog, "offline");
+        var source = new SchemaImportInspection(new("mysql", planned, "numeric-fixture"), []);
+        var draft = SchemaImportDraftCompiler.Compile(source, catalog.YzProjectId);
+        Assert.True(draft.ColumnsAndIndexesRepresentable, string.Join(";", draft.Issues));
+        var rebuilt = MySqlSchemaPlanner.Compile(draft.LogicalMetadata, "offline");
+        Assert.Empty(MySqlSchemaPlanner.Compare(planned, rebuilt));
+        Assert.Empty(MySqlSchemaPlanner.Compare(rebuilt, planned));
+    }
+
+    /// <summary>超出C#全部可表示范围的decimal仍原样拒绝，不能通过缩小反查定义使夹具通过。</summary>
+    [Fact]
+    public void Oversized_decimal_fixture_keeps_original_import_rejection()
+    {
+        var catalog = DoublePersistenceNativePreparation.Catalog();
+        catalog.ConfigColumns.Single(column => column.ColumnName == "exact_amount").Precision = 30;
+        var planned = MySqlSchemaPlanner.Compile(catalog, "offline");
+        var before = JsonSerializer.Serialize(planned);
+        var draft = SchemaImportDraftCompiler.Compile(new(new("mysql", planned, "oversized-numeric-fixture"), []), catalog.YzProjectId);
+        Assert.False(draft.ColumnsAndIndexesRepresentable);
+        Assert.Contains(draft.Issues, issue => issue.Table == "mt_double_native_party" && issue.Member == "exact_amount" && issue.Code == "COLUMN_UNREPRESENTABLE");
+        Assert.Equal(before, JsonSerializer.Serialize(planned));
+    }
+
     /// <summary>实际Full包独立严格构建，并运行原生产宿主的六个匿名拒绝入口；无数据库配置。</summary>
     [Fact]
     public async Task Public_full_package_builds_and_preserves_generated_hooks_original_assets_and_runtime()

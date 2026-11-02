@@ -1,6 +1,6 @@
-# double正式持久化验收准备（A30）
+# double正式持久化验收记录（A30）
 
-日期：2026-11-02。产品起点：`f5ed1551a4837285401f95550c53595644eca087`。本项为[MySQL首版节点](../mysql-first-release-milestone.md)补齐A17／A23—A29尚缺的真实持久表证据。**当前已实现测试驱动及离线完整包准备，正式新库场景尚未执行，不能记为持久化通过。**
+日期：2026-11-02。产品起点：`f5ed1551a4837285401f95550c53595644eca087`。本项为[MySQL首版节点](../mysql-first-release-milestone.md)补齐A17／A23—A29尚缺的真实持久表证据。**A30固定57cc81f已正式执行，反查阶段因夹具decimal(30,9)超过C# decimal整列可表示范围而失败；资源已清理、租约已结束。当前源码修正夹具为decimal(28,9)，数值默认／CRUD／统计／Excel／事务全链仍待新批次验收，不能记为持久化通过。**
 
 ## 同一份元数据与实际完整包
 
@@ -13,7 +13,7 @@
 | mt_double_native_party.amount | double | 0410000000000000 |
 | mt_double_native_party.previous_amount | double | 040FFFFFFFFFFFFF |
 | order.customer_amount | 派生double，来自party.amount | 不进入物理列 |
-| party.exact_amount | decimal(30,9) | 另用超JavaScript安全整数范围的小数对照 |
+| party.exact_amount | 当前夹具decimal(28,9)，原A30冻结夹具为decimal(30,9) | 对照值9007199254740993.123456789共25位有效数字；原超范围反查拒绝保持 |
 
 通过公开ApplicationPackager创建真正FullApplication／web-database-v1包，不使用BackendOnly或改造Program。普通与非冗余页均声明原导入／导出及double统计；两份手写partial只用于观察真实首行DML后拒绝第二行，正规再生成两轮保护它们。实际包已独立严格构建，当前Core／Data／Exports关键数值源码一致，原运行时JS字节保持。
 
@@ -21,7 +21,7 @@
 
 `Metarill.Generation.Tests.DoublePersistenceNativeMySqlTests.Production_web_double_defaults_crud_filters_statistics_excel_and_rollback_keep_binary_values`。
 
-驱动按以下顺序实现，尚未真实执行：
+驱动按以下顺序实现；原A30只执行到第2步后的默认值／反查阶段，后续步骤未通过，详见末节：
 
 1. 专属用途／批准／运行中租约、产品基线、固定准备根、三表名单及512条样本预算先校验；原SheetJS依赖缺失同样在复制、宿主和连接之前拒绝。旧B121租约不能启用本用途。
 2. 实际Production宿主禁用DevelopmentBootstrap，普通启动／预览保持空库，显式结构安装及重复零差异；预期本模型3业务表＋11基础表。结构预览、默认反查草案与往返通过原SchemaService／规划器。
@@ -34,7 +34,7 @@
 
 原数值HTTP请求用JsonDefaults.Options编码，防止测试客户端的默认double格式先丢位；分页Total按原StringLong转换器的字符串Token核对。没有为测试更改产品协议、权限或统计语义。
 
-## 当前实际验证
+## 正式执行前的历史离线验证
 
 | 层次 | 已执行结果 |
 | --- | --- |
@@ -50,7 +50,7 @@
 
 证据保留在本机忽略目录`.local/double-persistence-native-20261102`，包含TRX、实际入口拒绝和verification.json。正式用例的条件跳过仍是未执行，不以公开包严格构建、匿名HTTP或驱动编译替代实际默认／CRUD／事务验收。
 
-## 尚未完成及下一步
+## 正式执行前的历史准备
 
 独立冻结来源／程序集／Full包及Node／原SheetJS依赖已完成，见下方固定批次；外层单次协调器、精确新库／账号／存储清单和只读实例／对象预检现已完成，见下方准备结果；尚须本轮直接授权。当前没有新建库／账号或执行DDL／业务DML，也没有正式测试结果；不借用已结束B121租约。
 
@@ -72,4 +72,14 @@
 
 本轮运行17bba128f50252b9，只计划新建metarill_fresh_17bba128f50252b9_agent和mtf_17bba128f50252b9@%，真正Full宿主显式安装三业务表加十一基础表；三业务表各最多512条合成记录，不额外增加CHECK。限15分钟，一次执行；固定副本不启动，仅独占执行副本运行。精确物理表、权限和storage/GUID清单见本机忽略目录double-persistence-native-20261102/permission-plan.md及lease-intent.json，范围摘要b23b4391da49a665d002f08ef13bfdb471a73f07fbaf8fe5644818d13c6f7b8a。
 
-停止自有宿主后，仅清理本轮storage/GUID合成uploads／exports；远端按实例与所有权核对后删除同轮库／账号，用新连接及独立新SSH核零。工程、原始失败和核验材料保留。清理未确认时备份本轮所有权恢复材料，不自动重建／重跑。**当前pending／not-started，仍须本轮明确授权；没有正式结果，不计数值持久化通过。**
+停止自有宿主后，仅清理本轮storage/GUID合成uploads／exports；远端按实例与所有权核对后删除同轮库／账号，用新连接及独立新SSH核零。工程、原始失败和核验材料保留。清理未确认时备份本轮所有权恢复材料，不自动重建／重跑。该段记录执行前pending准备；本轮随后已授权并单次执行，现已失败、清理及结束，见末节。
+
+## 2026-11-02 单次正式失败、清理与修正
+
+用户直接授权后，原固定57cc81f／运行17bba128f50252b9单次执行，正式结果0通过、1失败、0跳过。失败阶段为“真实默认值及反查”：mt_double_native_party.exact_amount的decimal(30,9)触发COLUMN_UNREPRESENTABLE，提示C# decimal不能无损覆盖超过28位精度的全部数值范围。原反查器拒绝正确，未放宽产品规则；缺列INSERT的DB默认、真实登录、CRUD、统计、XLSX及事务回滚等后续流程未通过，不能凭前置建表或旧离线结果记为完成。
+
+执行器及新SSH独立核验确认本轮唯一库、账号不存在，合成storage已清理，private-settings／private-ownership已删除；execution回执cleanupConfirmed=true、leaseStatus=ended、autoRetry=false。原固定来源、完整包、失败TRX及错误证据保留，不重用本轮一次性授权。
+
+当前修正仅调整测试元数据precision=28、scale=9，对照值9007199254740993.123456789保持。新增整份三表模式正反双向零差异回归，以及precision=30仍按原规则拒绝且输入不变的负向回归；新增正向用例先实际复现同一错误，再修正夹具。完整包回归中出现源码CRLF与原样字符串LF不一致，按仓库.gitattributes恢复源码LF，未改校验、钩子内容或包摘要要求。暂停中止的运行不计通过；恢复后严格Release回归18通过、0失败、0跳过，包含实际公开Full独立严格构建、六个原匿名入口401、四项准备及14项租约门禁；各批重叠不累加。723个跟踪生成／手写partial／前端／元数据文件原始字节保持。
+
+新正式复验必须从修正提交重新固定源码、程序集、真实Full及Node依赖，并建立新精确租约；原57cc81f包和已结束17bba128f50252b9授权不能替代。没有修改产品、前端、生成模板、业务断言或数据库范围拒绝规则。
