@@ -15,15 +15,17 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.*;
 import org.springframework.beans.factory.config.*;
 import org.springframework.core.Ordered;
+import org.springframework.context.ApplicationListener;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.core.env.Environment;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /** 显式验收配置的唯一桥：包装实际Spring数据源，按请求私有留证，不改变普通业务认证或路由。 */
-public final class PairedJdbcObservationHost implements BeanPostProcessor,BeanFactoryAware,SmartInitializingSingleton,Ordered,AutoCloseable {
+public final class PairedJdbcObservationHost implements BeanPostProcessor,BeanFactoryAware,SmartInitializingSingleton,Ordered,AutoCloseable,ApplicationListener<ApplicationReadyEvent> {
     private static final String PREFIX="metarill.paired.sql-observation.";
     private final PairedJdbcObservation observer=new PairedJdbcObservation(new MySqlJdbcObservationMetadata());
     private final ObjectMapper json=new ObjectMapper();
-    private final byte[] key;private final Path output;private final String runId;
+    private final byte[] key;private final Path output,base;private final String runId;
     private final int maximumRequests,maximumCommands;
     private final Set<String> expectedSources,wrappedSources=new TreeSet<>(),problems=new TreeSet<>(),labels=new HashSet<>();
     private final List<Map<String,Object>> receipts=new ArrayList<>();
@@ -35,7 +37,7 @@ public final class PairedJdbcObservationHost implements BeanPostProcessor,BeanFa
         maximumRequests=budget(environment,"maximum-requests",64,4096);maximumCommands=budget(environment,"maximum-commands",4096,65536);
         expectedSources=new TreeSet<>(List.of(required(environment,"data-source-names").split(",",-1)));
         if(expectedSources.isEmpty()||expectedSources.size()>16||expectedSources.stream().anyMatch(name->!name.matches("[A-Za-z0-9_.-]{1,100}")))throw new IllegalArgumentException("必须明确固定数据源Bean名");
-        Path base=ordinary(Path.of(required(environment,"output-root")),true);Path owner=ordinary(base.resolve(".metarill-paired-observation-owner"),false);
+        base=ordinary(Path.of(required(environment,"output-root")),true);Path owner=ordinary(base.resolve(".metarill-paired-observation-owner"),false);
         if(Files.size(owner)>128||!Files.readString(owner,StandardCharsets.UTF_8).equals(runId))throw new IllegalArgumentException("采集目录不属于本轮运行");
         Path keyFile=ordinary(Path.of(required(environment,"key-file")),false);if(Files.size(keyFile)!=32)throw new IllegalArgumentException("采集密钥必须为32字节");
         key=Files.readAllBytes(keyFile);if(key.length!=32){Arrays.fill(key,(byte)0);throw new IllegalArgumentException("采集密钥读取期间发生变化");}
@@ -63,6 +65,18 @@ public final class PairedJdbcObservationHost implements BeanPostProcessor,BeanFa
         Set<String> actual=new TreeSet<>(Arrays.asList(beans.getBeanNamesForType(DataSource.class,false,true)));
         for(String name:actual)if(!(beans.getBean(name) instanceof ObservedSource))throw new IllegalStateException("数据源没有经过同一采集桥");
         if(!actual.equals(expectedSources)||!wrappedSources.equals(expectedSources))throw new IllegalStateException("实际数据源与固定采集范围不符");sourcesVerified=true;safeIndex(false);
+    }
+    /** 只有原Boot全部ApplicationRunner结束后才落私有标记；监听端口和Bean构造完成都不能替代。 */
+    @Override public synchronized void onApplicationEvent(ApplicationReadyEvent event){
+        if(event.getApplicationContext().getBeanFactory()!=beans)return;
+        if(closed||!sourcesVerified){problems.add("ready-before-sources");return;}
+        Path temporary=null;
+        try{
+            ordinary(base,true);Path ready=base.resolve(".metarill-paired-application-ready");if(Files.exists(ready,LinkOption.NOFOLLOW_LINKS))throw new IOException("重复就绪标记");
+            try{temporary=Files.createTempFile(base,".ready-",".tmp",PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));}catch(UnsupportedOperationException unsupported){temporary=Files.createTempFile(base,".ready-",".tmp");}
+            Files.write(temporary,json.writeValueAsBytes(Map.of("format","metarill-paired-java-ready-v1","runId",runId,"instance",output.getFileName().toString())));ordinary(base,true);Files.move(temporary,ready,StandardCopyOption.ATOMIC_MOVE);temporary=null;
+        }catch(IOException|RuntimeException failure){problems.add("ready-io-failure");safeIndex(false);}
+        finally{if(temporary!=null)try{Files.deleteIfExists(temporary);}catch(IOException failure){problems.add("ready-io-failure");}}
     }
     /** 原池负责实际借还；指定用户/口令的原重载原样传递，观察器不读取或保存这些参数。 */
     private static final class ObservedSource implements DataSource{

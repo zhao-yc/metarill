@@ -60,7 +60,7 @@ class Gateway:
                         if related.get('sampleCustomerId')==data['id']:related['sampleCustomerName']=data['name']
                 if table=='sample_contract':
                     for related in self.rows[target]['sample_contract_line'].values():
-                        if related.get('sampleContractId')==data['id']:related['sampleContractName']=data['name']
+                        if related.get('sampleContractId')==data['id'] and self.fault!='stale-child-cache':related['sampleContractName']=data['name']
         elif suffix.startswith('/detail/'):
             data=store[suffix.rsplit('/',1)[1]]
         elif suffix in ('/page','/count'):
@@ -78,6 +78,12 @@ class Gateway:
             data='删除成功'
         else:raise AssertionError('未预期的原接口')
         data=copy.deepcopy(data)
+        if table=='sample_contract_line' and isinstance(data,dict):
+            allowed={'id','name','amount','remarks'}
+            if suffix=='/page':data['records']=[{k:v for k,v in row.items() if k in allowed} for row in data['records']]
+            else:data={k:v for k,v in data.items() if k in allowed}
+            if self.fault=='hidden-child-field' and suffix.startswith('/detail/'):data['sampleContractId']='hidden-parent'
+            if self.fault=='numeric-child-id' and suffix.startswith('/detail/'):data['id']=int(data['id'])
         if self.fault=='numeric-id' and step=='customer-add':data['id']=int(data['id'])
         if self.fault=='duplicate-copy-id' and step=='customer-copy':data['id']=path.rsplit('/',1)[1]
         return 200,{'code':True if self.fault=='bool-r-code' else 200,'data':data,'map':{}}
@@ -120,6 +126,13 @@ class BusinessContractTests(unittest.TestCase):
         self.assertFalse(result['sqlSemanticAccepted']);self.assertFalse(result['performanceAccepted']);self.assertFalse(result['releaseAccepted'])
         self.assertTrue(all(row['deleted'] for target in gateway.rows.values() for table in target.values() for row in table.values()))
         self.assertTrue(all(sql.startswith('SELECT ') for sql in gateway.sql))
+
+    def test_child_projection_rejects_hidden_fields_and_keeps_high_string_id(self):
+        """与原编译VO相同四字段可通过；hidden字段泄漏及数字ID必须拒绝。"""
+        row={'id':'9007199254740993','name':'明细','amount':3.25,'remarks':'备注'}
+        subject.expect_child_record(row,row)
+        with self.assertRaisesRegex(ValueError,'business-child-projection'):subject.expect_child_record({**row,'sampleContractId':'9007199254740995'},row)
+        with self.assertRaisesRegex(ValueError,'business-string-id'):subject.expect_child_record({**row,'id':9007199254740993},row)
 
     def test_digest_matches_actual_original_java_private_method_vectors(self):
         """2026-11-03直接调用固定原Java私有方法取得预期，保留UTF16长度和scale2。"""
@@ -167,7 +180,7 @@ class BusinessContractTests(unittest.TestCase):
 
     def test_common_backend_regressions_are_rejected(self):
         """业务失败、数值ID、覆盖省略值、旧缓存、倒序、布尔计数及硬删均不能通过。"""
-        for fault in ('http-business-failure','numeric-id','duplicate-copy-id','clear-omitted','stale-cache','reverse-page','bool-child-total','bool-r-code','hard-delete','bad-preview','lost-rollback','replayed-business'):
+        for fault in ('http-business-failure','numeric-id','duplicate-copy-id','clear-omitted','stale-cache','reverse-page','bool-child-total','bool-r-code','hard-delete','bad-preview','lost-rollback','replayed-business','hidden-child-field','numeric-child-id','stale-child-cache'):
             gateway=Gateway(fault)
             with self.subTest(fault=fault),self.assertRaises(ValueError):subject.run_basic(lease(),gateway.credentials,gateway.request,gateway.query)
             self.assertLess(len(gateway.calls),74)

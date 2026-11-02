@@ -51,3 +51,6 @@ Java SIGTERM 的 JDK21 正常退出可为143，C# 必须为0；137、OOM、仍�
 ## V49后续
 
 首个HTTP前新增原进程内核监听及私有采集索引门槛，删除前保存宿主双流日志，第一端缺实例也继续保留另一端文件。Windows201过5跳过、Linux205过1缺环境跳过；详见[首轮与修正](paired-observed-native-first-run.md)。原V48单轮ended，未追加正式复验。
+
+
+2026-11-03 V49单轮复验已完成原六初始化／普通真实登录和权限；Java子页响应断言错误及32份不完整采集使整条失败，资源和秘密已新SSH核零。V50按原VO修正，V51元数据及真正Boot Ready离线修正通过，新镜像／完整正式业务及有效SQL仍待，详见[正式复验与边界](paired-observed-native-second-run.md)。MySQL首版不标完成。

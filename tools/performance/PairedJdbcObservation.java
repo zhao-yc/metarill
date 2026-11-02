@@ -53,6 +53,8 @@ public final class PairedJdbcObservation {
         String name=method.getName();
         if(name.equals("equals"))return proxy==args[0];if(name.equals("hashCode"))return System.identityHashCode(proxy);
         if(name.equals("toString"))return "MetarillJdbcConnection";
+        // 获取元数据本身不开SQL；后续元数据API逐项判定，不能污染其它线程的HTTP scope。
+        if(name.equals("getMetaData"))return databaseMetadata((DatabaseMetaData)call(state.original,method,args),proxy,state);
         Scope scope=scope(state);
         if(name.equals("unwrap")){escaped=true;if(scope!=null)scope.problem("jdbc-escape");}
         if(Set.of("setSavepoint","releaseSavepoint").contains(name)&&scope!=null)scope.problem("savepoint-api");
@@ -71,10 +73,10 @@ public final class PairedJdbcObservation {
         }
         return result;
     }
-    /** 固定Connector/J产品名是本地常量；框架错误翻译可读取，连接回指仍返回同一包装。其它元数据API仍明确拒绝完整证明。 */
+    /** 固定Connector/J产品名、多结果支持和URL均为本地读取；原MyBatis结果处理和方言判断可用，查询型元数据仍使证据失效。 */
     private DatabaseMetaData databaseMetadata(DatabaseMetaData original,Connection connection,ConnectionState state){
         return (DatabaseMetaData)Proxy.newProxyInstance(PairedJdbcObservation.class.getClassLoader(),new Class<?>[]{DatabaseMetaData.class},(proxy,method,args)->{
-            String name=method.getName();if(name.equals("getConnection"))return connection;if(name.equals("getDatabaseProductName")||name.equals("isWrapperFor"))return call(original,method,args);
+            String name=method.getName();if(name.equals("getConnection"))return connection;if(Set.of("getDatabaseProductName","supportsMultipleResultSets","getURL","isWrapperFor").contains(name))return call(original,method,args);
             if(name.equals("equals"))return proxy==args[0];if(name.equals("hashCode"))return System.identityHashCode(proxy);if(name.equals("toString"))return "MetarillJdbcMetadata";
             escaped=true;Scope scope=scope(state);if(scope!=null)scope.problem("jdbc-metadata-api");return call(original,method,args);
         });

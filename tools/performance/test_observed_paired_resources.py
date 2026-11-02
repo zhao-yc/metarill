@@ -150,6 +150,7 @@ class ObservedResourceTests(unittest.TestCase):
             folder=self.root/('data-'+target)/'sql-observation'/'instance';folder.mkdir()
             value={'runId':self.value['runId'],'sourcesVerified':True} if target=='java' else {'runId':self.value['runId'],'dataAssemblySha256':subject.OBSERVATION_DATA_SHA256,'expectedDatabases':['metarill_fresh_'+self.value['runId'][:16]+'_paired_csharp']}
             (folder/'index.json').write_text(json.dumps(value),encoding='utf-8')
+            if target=='java':(folder.parent/'.metarill-paired-application-ready').write_text(json.dumps({'format':'metarill-paired-java-ready-v1','runId':self.value['runId'],'instance':folder.name}),encoding='utf-8')
 
     def test_wait_requires_actual_process_listener_even_when_indexes_exist(self):
         """发布端口可连不算就绪；内核监听未出现时必须等待且不发HTTP。"""
@@ -157,6 +158,11 @@ class ObservedResourceTests(unittest.TestCase):
         with mock.patch.object(subject,'process_listening',side_effect=[False,True,True,True]) as listeners,mock.patch.object(subject.time,'sleep') as sleep:
             result=subject.manage(self.value,'wait-hosts')
         self.assertEqual(4,listeners.call_count);sleep.assert_called_once();self.assertEqual(0,result['httpRequestsSent']);self.assertTrue(result['originalProcessListenersVerified'])
+
+    def test_java_listener_and_index_cannot_replace_application_ready_event(self):
+        """原Boot监听后仍可能执行ApplicationRunner，缺标记时不发首个HTTP。"""
+        self.start();self.ready_indices();(self.root/'data-java/sql-observation/.metarill-paired-application-ready').unlink()
+        with mock.patch.object(subject,'process_listening',return_value=True),mock.patch.object(subject.time,'monotonic',side_effect=[0,91]),self.assertRaisesRegex(RuntimeError,'采集索引未就绪'):subject.manage(self.value,'wait-hosts')
 
     def test_listener_without_observation_index_cannot_pass(self):
         """真实端口已监听但采集配置尚未建立时仍拒绝，不能造成零记录假通过。"""

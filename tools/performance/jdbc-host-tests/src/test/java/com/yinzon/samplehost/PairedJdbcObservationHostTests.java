@@ -137,6 +137,22 @@ class PairedJdbcObservationHostTests {
             try(Connection connection=wrapped.getConnection()){DatabaseMetaData metadata=connection.getMetaData();assertSame(connection,metadata.getConnection());assertEquals("MySQL",metadata.getDatabaseProductName());}catch(SQLException failure){throw new ServletException(failure);}
         });context.close();assertTrue(index().path("internallyConsistent").asBoolean());assertTrue(trace().path("trace").path("internallyConsistent").asBoolean());
     }
+    /** 真实SpringApplication在ApplicationRunner完成后发布Ready事件，不打开DataSource。 */
+    @Test void actual_boot_ready_marker_follows_original_application_runners()throws Exception{
+        var configured=properties(true);Path marker=temporary.resolve("output/.metarill-paired-application-ready");var completed=new java.util.concurrent.atomic.AtomicBoolean();
+        var application=new org.springframework.boot.SpringApplication(PairedJdbcObservationConfiguration.class);application.setWebApplicationType(org.springframework.boot.WebApplicationType.NONE);application.setBannerMode(org.springframework.boot.Banner.Mode.OFF);application.setLogStartupInfo(false);application.setRegisterShutdownHook(false);application.setDefaultProperties(configured);
+        application.addInitializers(context->{var generic=(org.springframework.context.support.GenericApplicationContext)context;generic.registerBean("dataSource",TrackingSource.class,()->source);generic.registerBean("originalRunner",org.springframework.boot.ApplicationRunner.class,()->arguments->{assertFalse(Files.exists(marker));completed.set(true);});});
+        try(var context=application.run()){
+            assertTrue(completed.get());assertTrue(Files.isRegularFile(marker));JsonNode ready=JSON.readTree(Files.readAllBytes(marker));assertEquals(RUN,ready.path("runId").asText());assertTrue(Files.isDirectory(marker.getParent().resolve(ready.path("instance").asText())));assertEquals(0,source.opens.get());assertTrue(context.isActive());
+        }
+    }
+    /** 单纯refresh及另一个context的事件都不代表本宿主的原Boot启动已完成。 */
+    @Test void bean_refresh_and_foreign_ready_event_do_not_write_marker()throws Exception{
+        var context=context(properties(true));context.refresh();Path marker=temporary.resolve("output/.metarill-paired-application-ready");assertFalse(Files.exists(marker));
+        try(var other=new AnnotationConfigApplicationContext()){
+            var event=new org.springframework.boot.context.event.ApplicationReadyEvent(new org.springframework.boot.SpringApplication(PairedJdbcObservationConfiguration.class),new String[0],other,java.time.Duration.ZERO);context.getBean(PairedJdbcObservationHost.class).onApplicationEvent(event);assertFalse(Files.exists(marker));
+        }context.close();
+    }
     /** 明确替身只记录实际框架API；NativeQueryBindings为真实固定驱动对象，无网络会话。 */
     static final class TrackingSource extends AbstractDataSource implements AutoCloseable{
         final AtomicInteger withCredentials=new AtomicInteger(),opens=new AtomicInteger(),connectionCloses=new AtomicInteger(),closes=new AtomicInteger(),commits=new AtomicInteger(),rollbacks=new AtomicInteger();

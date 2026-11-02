@@ -50,6 +50,12 @@ def expect_record(data,expected):
     return data
 
 
+def expect_child_record(data,expected):
+    """原81003列表/详情只开放四字段；父键与缓存仍由独立物理读取逐项核验。"""
+    expect_record(data,expected);require(set(data)<=set(("id","name","amount","remarks")),"business-child-projection")
+    return data
+
+
 def preview_digest(identifier,name,remarks):
     """独立按原Java/C#算法和发布金额scale=2计算，不用服务端最新摘要替代原值。"""
     values=(record_id(identifier),name,'12.50',remarks)
@@ -105,11 +111,11 @@ def run_basic(value,tokens,request,query):
         expect_record(call('business-complete','writer','POST',business+'/complete',{'id':contract_id,'expectedDigest':digest}),dict(id=contract_id,remarks='已处理',previousDigest=digest));expected_contract['remarks']='已处理';expect_record(call('contract-detail-complete','writer','GET',ROOTS['contract']+'/detail/'+contract_id),expected_contract);physical('sample_contract',contract_id,{'remarks':'已处理','amount':12.5})
         call('business-replay-conflict','writer','POST',business+'/complete',{'id':contract_id,'expectedDigest':digest},conflict=True);physical('sample_contract',contract_id,{'remarks':'已处理','amount':12.5})
         line=call('line-add','writer','POST',ROOTS['line']+'/add'+parent,{'sampleContractId':contract_id,'name':line_name,'amount':3.25,'remarks':line_remarks});line_id=record_id(line.get('id') if type(line) is dict else None);require(line_id not in {cid,copy_id,contract_id},'business-distinct-ids')
-        expected_line=dict(id=line_id,name=line_name,sampleContractId=contract_id,sampleContractName=contract_name,amount=3.25,remarks=line_remarks);expect_record(call('line-detail-create','writer','GET',ROOTS['line']+'/detail/'+line_id+parent),expected_line);physical('sample_contract_line',line_id,{'name':line_name,'sample_contract_id':contract_id,'sample_contract_name':contract_name,'amount':3.25,'remarks':line_remarks})
-        child_request={'pageNo':1,'pageSize':20,'filters':{},'parentId':contract_id};child=call('child-page','writer','POST',ROOTS['line']+'/page',child_request);require(type(child) is dict and type(child.get('total')) is int and child['total']==1 and type(child.get('records')) is list and len(child['records'])==1,'business-child-page');expect_record(child['records'][0],dict(id=line_id))
+        expected_line=dict(id=line_id,name=line_name,amount=3.25,remarks=line_remarks);expect_child_record(call('line-detail-create','writer','GET',ROOTS['line']+'/detail/'+line_id+parent),expected_line);physical('sample_contract_line',line_id,{'name':line_name,'sample_contract_id':contract_id,'sample_contract_name':contract_name,'amount':3.25,'remarks':line_remarks})
+        child_request={'pageNo':1,'pageSize':20,'filters':{},'parentId':contract_id};child=call('child-page','writer','POST',ROOTS['line']+'/page',child_request);require(type(child) is dict and type(child.get('total')) is int and child['total']==1 and type(child.get('records')) is list and len(child['records'])==1,'business-child-page');expect_child_record(child['records'][0],expected_line)
         call('customer-rename','writer','POST',ROOTS['customer']+'/update',{'id':cid,'name':final_name});expected_contract['sampleCustomerName']=final_name;expect_record(call('contract-detail-rename','writer','GET',ROOTS['contract']+'/detail/'+contract_id),expected_contract);physical('sample_contract',contract_id,{'sample_customer_id':cid,'sample_customer_name':final_name,'amount':12.5,'remarks':expected_contract['remarks'],'attachments':[]})
-        call('contract-rename','writer','POST',ROOTS['contract']+'/update',{'id':contract_id,'name':contract_final});expected_line['sampleContractName']=contract_final;expect_record(call('line-detail-rename','writer','GET',ROOTS['line']+'/detail/'+line_id+parent),expected_line);physical('sample_contract_line',line_id,{'sample_contract_name':contract_final,'amount':3.25,'remarks':line_remarks})
-        call('line-omit-update','writer','POST',ROOTS['line']+'/update'+parent,{'id':line_id,'amount':4.25});expected_line['amount']=4.25;expect_record(call('line-detail-omit','writer','GET',ROOTS['line']+'/detail/'+line_id+parent),expected_line);physical('sample_contract_line',line_id,{'sample_contract_name':contract_final,'amount':4.25,'remarks':line_remarks})
+        call('contract-rename','writer','POST',ROOTS['contract']+'/update',{'id':contract_id,'name':contract_final});expect_child_record(call('line-detail-rename','writer','GET',ROOTS['line']+'/detail/'+line_id+parent),expected_line);physical('sample_contract_line',line_id,{'sample_contract_id':contract_id,'sample_contract_name':contract_final,'amount':3.25,'remarks':line_remarks})
+        call('line-omit-update','writer','POST',ROOTS['line']+'/update'+parent,{'id':line_id,'amount':4.25});expected_line['amount']=4.25;expect_child_record(call('line-detail-omit','writer','GET',ROOTS['line']+'/detail/'+line_id+parent),expected_line);physical('sample_contract_line',line_id,{'sample_contract_id':contract_id,'sample_contract_name':contract_final,'amount':4.25,'remarks':line_remarks})
         call('line-delete','writer','DELETE',ROOTS['line']+parent,{'id':line_id});physical('sample_contract_line',line_id,{},True);count=call('child-count-after-delete','writer','POST',ROOTS['line']+'/count',child_request);require(type(count) is int and count==0,'business-child-delete-count')
         call('contract-delete','writer','DELETE',ROOTS['contract'],{'id':contract_id});physical('sample_contract',contract_id,{},True)
         call('customer-copy-delete','writer','DELETE',ROOTS['customer'],{'id':copy_id});physical('sample_customer',copy_id,{},True)

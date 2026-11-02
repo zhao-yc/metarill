@@ -288,8 +288,16 @@ def wait_observed_hosts(value,root,state,timeout=90):
                 index=json.loads((folders[0]/'index.json').read_text(encoding='utf-8'))
                 if index.get('runId')!=value['runId']:raise RuntimeError('就绪索引不属于本轮')
                 configured=index.get('sourcesVerified') is True if item['target']=='java' else index.get('dataAssemblySha256')==OBSERVATION_DATA_SHA256 and index.get('expectedDatabases')==['metarill_fresh_'+value['runId'][:16]+'_paired_csharp']
+                if item['target']=='java':
+                    marker=base/'.metarill-paired-application-ready';application_ready=False
+                    if marker.exists():
+                        if marker.is_symlink() or not marker.is_file() or marker.stat().st_size>4096:raise RuntimeError('原Boot就绪标记无效')
+                        proof=json.loads(marker.read_text(encoding='utf-8'))
+                        if proof!={'format':'metarill-paired-java-ready-v1','runId':value['runId'],'instance':folders[0].name}:raise RuntimeError('原Boot就绪标记归属不符')
+                        application_ready=True
+                    configured=configured and application_ready
             ready.append(listening and configured)
-        if len(ready)==2 and all(ready):return {'originalProcessListenersVerified':True,'observationSourcesConfigured':True,'httpRequestsSent':0}
+        if len(ready)==2 and all(ready):return {'originalProcessListenersVerified':True,'observationSourcesConfigured':True,'httpRequestsSent':0,'originalBootRunnersCompleted':True}
         if time.monotonic()>=deadline:raise RuntimeError('原进程监听或采集索引未就绪')
         time.sleep(0.2)
 
