@@ -106,8 +106,14 @@ public sealed class CSharpGenerator
     private static void RejectLinks(string path)
     {
         for (var current = path; current is not null; current = Path.GetDirectoryName(current))
-            if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+        {
+            // 一次属性查询同时确认存在性和链接标志；缺失的文件仍须检查它的祖先。
+            FileAttributes attributes;
+            try { attributes = File.GetAttributes(current); }
+            catch (IOException error) when (error is FileNotFoundException or DirectoryNotFoundException) { continue; }
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidOperationException("生成目录不能经过符号链接或目录联接。");
+        }
     }
     /// <summary>使用同目录临时文件原子替换单个产物。</summary>
     private static void AtomicWrite(string path, byte[] bytes)
