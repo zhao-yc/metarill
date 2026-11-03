@@ -70,3 +70,21 @@ GitHub run41502116815已终态；Windows／Ubuntu均在Generation同8项失败�
 按冻结提交 `f3c36f4e375c59dc46ce2484037c1e07e2ba33bb` 创建独立检出，CLI 以 Release 和警告视为错误构建。用生成 CLI 连续两轮重建平台与示例，再执行原前端的模板版本、写入契约、自定义路由和 List 候选四项同步。215 个生成目录文件和 499 个原前端文件均按 SHA-256 与检出基线逐文件比对，两轮无差异或额外生成文件。原工作区未参与生成写入。
 
 首次在无本地依赖的检出运行同步，`sync-original-list-options.mjs` 无法解析 `@vue/compiler-sfc`。核对两份锁文件相同，并将锁定依赖放入独立检出的 `node_modules` 后，实际 ES 模块导入和上述两轮同步通过。两个原工作簿用例在依赖就位前失败，用同一固定生成程序集重新运行后 2 通过、0 失败、0 跳过。该复验只覆盖原工作簿用例和生成稳定性，完整后端与 GitHub CI 结果单列。没有执行实库、设备或性能负载。
+
+## 2026-11-03 f3c36f4 九个后端测试项目
+
+将固定 `f3c36f4e375c59dc46ce2484037c1e07e2ba33bb` 检出到独立目录，保持测试程序集位于各项目默认的 bin 路径。使用锁定本机依赖、Release 严格构建，关闭外部服务配置。以下项目各自完整执行，计数来自九份不同项目的原始 TRX。
+
+| 项目 | 通过 | 失败 | 跳过 |
+| --- | ---: | ---: | ---: |
+| Metarill.Agent.Tests | 447 | 0 | 25 |
+| Metarill.Api.Tests | 224 | 0 | 49 |
+| Metarill.Compatibility.Tests | 18 | 0 | 11 |
+| Metarill.Data.Tests | 1552 | 0 | 27 |
+| Metarill.Exports.Tests | 35 | 0 | 0 |
+| Metarill.Files.Tests | 256 | 0 | 59 |
+| Metarill.Mcp.Tests | 30 | 0 | 0 |
+| Metarill.Metadata.Tests | 576 | 0 | 25 |
+| Metarill.Security.Tests | 174 | 0 | 1 |
+
+首轮使用仓库之外的输出目录，兼容性、数据及元数据部分测试无法沿程序集目录找到元数据。上述结果来自修正布局后的完整项目重跑，保留首轮失败。生成测试项目、GitHub 双系统 CI 及外部验收仍分别核对。
