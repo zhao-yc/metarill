@@ -3,7 +3,12 @@ using System.Data.Common;
 namespace Metarill.Core.Security;
 
 /// <summary>HTTP、Agent 与生成控制器共用的真实服务端身份。</summary>
-public sealed record RuntimeActor(long AccountId, string AccountName, bool IsAdministrator, string ProjectId, string AdminTypeId);
+public sealed record RuntimeActor(long AccountId, string AccountName, bool IsAdministrator, string ProjectId, string AdminTypeId)
+{
+    /// <summary>认证账号的真实姓名，用于管理员审计字段。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string AccountRealName { get; init; } = string.Empty;
+}
 
 public interface IRuntimeAuthorization
 {

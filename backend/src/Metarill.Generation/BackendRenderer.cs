@@ -500,17 +500,17 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     }
     /// <summary>读取实体真实项目归属，缺省时使用当前身份。</summary>
     private static string ProjectExpression(TableModel table) => table.Columns.Any(c => c.Source.ColumnName == "yz_project_id") ? "Convert.ToString(entity.YzProjectId, CultureInfo.InvariantCulture) ?? string.Empty" : "actor.ProjectId";
-    /// <summary>由真实身份补齐审计字段。</summary>
+    /// <summary>由真实身份补齐管理员审计字段，旧 App 用户列由其自身的写入链维护。</summary>
     private static string Audit(TableModel table, bool creating)
     {
         var result = new StringBuilder();
         var assignments = new Dictionary<string, string>
         {
-            ["update_time"] = "BusinessCalendar.Now", ["update_manager_id"] = "actor.AccountId", ["update_manager_name"] = "actor.AccountName", ["update_manager_real_name"] = "actor.AccountName", ["update_user_name"] = "actor.AccountName"
+            ["update_time"] = "BusinessCalendar.Now", ["update_manager_id"] = "actor.AccountId", ["update_manager_name"] = "actor.AccountName", ["update_manager_real_name"] = "actor.AccountRealName"
         };
         if (creating)
         {
-            assignments["insert_time"] = "BusinessCalendar.Now"; assignments["insert_manager_id"] = "actor.AccountId"; assignments["insert_manager_name"] = "actor.AccountName"; assignments["insert_manager_real_name"] = "actor.AccountName"; assignments["insert_user_name"] = "actor.AccountName";
+            assignments["insert_time"] = "BusinessCalendar.Now"; assignments["insert_manager_id"] = "actor.AccountId"; assignments["insert_manager_name"] = "actor.AccountName"; assignments["insert_manager_real_name"] = "actor.AccountRealName";
             var project = table.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null) assignments["yz_project_id"] = ScopeValue(project, "actor.ProjectId");
         }

@@ -336,10 +336,8 @@ public partial class ConfigColumnService
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         submitted.Add("update_manager_real_name");
-        entity.UpdateUserName = actor.AccountName;
-        submitted.Add("update_user_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations6217715532627968Async(entity, actor, false, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");

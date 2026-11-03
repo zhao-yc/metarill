@@ -188,10 +188,8 @@ break; }
         entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
-        entity.InsertManagerRealName = actor.AccountName;
-        entity.UpdateManagerRealName = actor.AccountName;
-        entity.InsertUserName = actor.AccountName;
-        entity.UpdateUserName = actor.AccountName;
+        entity.InsertManagerRealName = actor.AccountRealName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations1679390851298631682Async(entity, actor, true, submitted, cancellationToken);
         if (entity.ParentConfigPageId is null) throw new ArgumentException("\u7236\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");
@@ -224,10 +222,8 @@ break; }
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         submitted.Add("update_manager_real_name");
-        entity.UpdateUserName = actor.AccountName;
-        submitted.Add("update_user_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations1679390851298631682Async(entity, actor, false, submitted, cancellationToken);
         if (entity.ParentConfigPageId is null) throw new ArgumentException("\u7236\u9875\u9762\u4E0D\u80FD\u4E3A\u7A7A\u3002");

@@ -343,10 +343,8 @@ public partial class ConfigPageColumnService
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         submitted.Add("update_manager_real_name");
-        entity.UpdateUserName = actor.AccountName;
-        submitted.Add("update_user_name");
         BeforeSave(entity, actor, false, submitted);
         if ((submitted.Contains("config_column_id") || submitted.Contains("config_page_id")))
             AuthorizeBound6218036784398336_1676901024774926338(actor, false);

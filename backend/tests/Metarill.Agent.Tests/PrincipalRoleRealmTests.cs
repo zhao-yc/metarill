@@ -57,6 +57,20 @@ public sealed class PrincipalRoleRealmTests
         Assert.Equal(1, reached);
     }
 
+    /// <summary>真实管理员姓名从认证账号读取，缺失时沿用原 Web 空字符串。</summary>
+    [Fact]
+    public async Task Authentication_uses_account_real_name_for_admin_audit()
+    {
+        using var fixture = new PrincipalRealmFixture(business: true);
+        fixture.Account["real_name"] = "审计真实姓名";
+        var identity = await fixture.Identity();
+        Assert.Equal("realm-test", identity.Actor.AccountName);
+        Assert.Equal("审计真实姓名", identity.Actor.AccountRealName);
+
+        fixture.Account["real_name"] = null;
+        Assert.Equal(string.Empty, (await fixture.Identity()).Actor.AccountRealName);
+    }
+
     /// <summary>共享读取仍执行网页入口的时间与令牌种类限制。</summary>
     [Fact]
     public async Task Web_transport_rejects_expiry_on_its_clock_and_bearer_use_of_web_token()

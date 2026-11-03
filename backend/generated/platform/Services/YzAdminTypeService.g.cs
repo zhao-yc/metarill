@@ -161,10 +161,8 @@ public partial class YzAdminTypeService
         entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
-        entity.InsertManagerRealName = actor.AccountName;
-        entity.UpdateManagerRealName = actor.AccountName;
-        entity.InsertUserName = actor.AccountName;
-        entity.UpdateUserName = actor.AccountName;
+        entity.InsertManagerRealName = actor.AccountRealName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations1696799309006348290Async(entity, actor, true, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
@@ -206,10 +204,8 @@ public partial class YzAdminTypeService
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         submitted.Add("update_manager_real_name");
-        entity.UpdateUserName = actor.AccountName;
-        submitted.Add("update_user_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations1696799309006348290Async(entity, actor, false, submitted, cancellationToken);
         if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");

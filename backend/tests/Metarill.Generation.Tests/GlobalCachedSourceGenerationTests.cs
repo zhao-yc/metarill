@@ -61,6 +61,11 @@ public sealed class GlobalCachedSourceGenerationTests
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);
             foreach(var name in new[]{"yzp-file-library","yzp-relation-select"})Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin/components",name,name+".vue")),File.ReadAllBytes(Path.Combine(output,"frontend/components",name,name+".vue")));
             var service=File.ReadAllText(Path.Combine(output,"backend/generated/Services/SampleContractService.g.cs"));Assert.Contains("actor.ProjectId!=\"810000000000000001\"",service);Assert.Contains("entity.SampleCustomerName",service);
+            Assert.Contains("entity.InsertManagerRealName = actor.AccountRealName;",service);
+            Assert.Contains("entity.UpdateManagerRealName = actor.AccountRealName;",service);
+            Assert.DoesNotContain("entity.InsertUserName =",service);
+            Assert.DoesNotContain("entity.UpdateUserName =",service);
+            Assert.DoesNotContain("submitted.Add(\"update_user_name\")",service);
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

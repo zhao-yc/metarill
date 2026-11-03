@@ -247,10 +247,8 @@ public partial class YzManagerDevicesProjectService
         entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
-        entity.InsertUserName = actor.AccountName;
-        entity.UpdateUserName = actor.AccountName;
-        entity.InsertManagerRealName = actor.AccountName;
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.InsertManagerRealName = actor.AccountRealName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException("当前页面要求 parentId。");
         entity.YzManagerDevicesId = long.Parse(parentId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
@@ -280,9 +278,7 @@ public partial class YzManagerDevicesProjectService
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
-        entity.UpdateUserName = actor.AccountName;
-        submitted.Add("update_user_name");
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations6220608155484160Async(entity, actor, false, submitted, cancellationToken);

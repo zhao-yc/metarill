@@ -124,7 +124,10 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
             if(!await sessionPolicy.ValidateAgentSessionAsync(new(grant,SqlRowStore.Id(account),SqlRowStore.Text(session,"project_id")),cancellationToken))return null;
         }
         else if(grantId is not null)return null;
-        var actor=new RuntimeActor(SqlRowStore.Id(account),SqlRowStore.Text(account,"name"),realm.IsPlatformAdministrator,project,realm.AdminTypeId);
+        var actor=new RuntimeActor(SqlRowStore.Id(account),SqlRowStore.Text(account,"name"),realm.IsPlatformAdministrator,project,realm.AdminTypeId)
+        {
+            AccountRealName=SqlRowStore.Text(account,"real_name")
+        };
         return new AuthenticatedIdentity(actor,realm.Permissions,SqlRowStore.Id(session),grantId){PrincipalAdminTypeId=realm.AdminTypeId,PrincipalProjectId=realm.ProjectId,IsRealmSuper=realm.IsSuper}.WithPermissionContext(realm);
     }
     /// <summary>有效期与登录起止时间在每次请求重新检查，停用立即生效。</summary>

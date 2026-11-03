@@ -215,10 +215,8 @@ public partial class YzManagerDevicesService
         entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
         entity.UpdateManagerId = actor.AccountId;
-        entity.InsertUserName = actor.AccountName;
-        entity.UpdateUserName = actor.AccountName;
-        entity.InsertManagerRealName = actor.AccountName;
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.InsertManagerRealName = actor.AccountRealName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations6220589291798528Async(entity, actor, true, submitted, cancellationToken);
@@ -256,9 +254,7 @@ public partial class YzManagerDevicesService
         submitted.Add("update_time");
         entity.UpdateManagerId = actor.AccountId;
         submitted.Add("update_manager_id");
-        entity.UpdateUserName = actor.AccountName;
-        submitted.Add("update_user_name");
-        entity.UpdateManagerRealName = actor.AccountName;
+        entity.UpdateManagerRealName = actor.AccountRealName;
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations6220589291798528Async(entity, actor, false, submitted, cancellationToken);
