@@ -84,7 +84,7 @@ public sealed class SharedCrossTableMySqlTests
             async Task ExpectGroup(int group,bool a,bool b){var row=await Row();var expected=new Dictionary<string,long?>{{"country",Node(0,group)},{"area",Node(1,group)},{"warehouse",b?Node(3,group):null}};if(!shorter)expected["place"]=a?Node(2,group):null;SharedCrossStorageAssertions.AssertSlots(row,expected,true,group);}
             await ExpectGroup(0,true,true);Data(await Update(JsonSerializer.Deserialize<Dictionary<string,object?>>(added.GetRawText())!));Data(await Call(source,"201","copy/"+addedId,new{}));
             // 实际分页和COUNT按启用的共同国家筛选，排除外项目与逻辑删除行。
-            var filtered=new PageRequest{PageSize=1,Filters=new(){{leaf,JsonSerializer.SerializeToElement(new{countryId=Id(Node(0))})}}};var pageRows=Data(await Call(source,"201","page",filtered));Assert.Equal("3",pageRows.GetProperty("total").GetString());Assert.Single(pageRows.GetProperty("records").EnumerateArray());Assert.Equal("3",Data(await Call(source,"201","count",filtered)).ToString());
+            var filtered=new PageRequest{PageSize=1,Filters=new(){{leaf,JsonSerializer.SerializeToElement(new{countryId=Id(Node(0))})}}};var pageRows=Data(await Call(source,"201","page",filtered));Assert.Equal(3L,pageRows.GetProperty("total").GetInt64());Assert.Single(pageRows.GetProperty("records").EnumerateArray());Assert.Equal("3",Data(await Call(source,"201","count",filtered)).ToString());
             // 整对象回传旧叶时，只变化的仓库路径生效，旧城市自动清空；普通List显式清空。
             Data(await Update(Selection(0,1)));await ExpectGroup(1,false,true);Data(await Update(Selection(0,0)));Data(await Update(D("aItemId",Id(Item(0)))));
             // 两个主动新选择不一致、旧普通选择器在新父范围失效，都必须整笔回滚。

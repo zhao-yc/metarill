@@ -154,7 +154,7 @@ public sealed class DerivedRelationNamesMySqlTests
     /// <summary>只构造测试内固定字段。</summary>
     private static Dictionary<string,object?> Row(params object?[] values){var result=new Dictionary<string,object?>();for(var index=0;index<values.Length;index+=2)result.Add((string)values[index]!,values[index+1]);return result;}
     /// <summary>原宿主把long总数序列化为字符串，不能在验收中误改分页协议。</summary>
-    private static long Total(JsonElement page)=>long.Parse(page.GetProperty("total").GetString()!,CultureInfo.InvariantCulture);
+    private static long Total(JsonElement page)=>page.GetProperty("total").GetInt64();
     /// <summary>任何错误响应都不能被当作数据。</summary>
     private static JsonElement Data(JsonElement response){Assert.Equal(200,response.GetProperty("code").GetInt32());return response.GetProperty("data");}
 }

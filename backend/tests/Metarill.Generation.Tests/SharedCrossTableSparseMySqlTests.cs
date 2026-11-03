@@ -80,7 +80,7 @@ public sealed class SharedCrossTableSparseMySqlTests
             }
             await Verify(0,true,true);Data(await Update(JsonSerializer.Deserialize<Dictionary<string,object?>>(added.GetRawText())!));var copied=Data(await Call(source,"201","copy/"+addedId,new{}));Assert.Equal("国0",copied.GetProperty("countryName").GetString());Assert.NotEqual(addedId,copied.GetProperty("id").GetString());
             // 实际分页和COUNT使用已启用的共同国家筛选，稀疏ID通过SQL恢复祖先。
-            var filtered=new PageRequest{PageSize=1,Filters=new(){{leaf,JsonSerializer.SerializeToElement(new{countryId=Id(Node(0))})}}};var pageRows=Data(await Call(source,"201","page",filtered));Assert.Equal("2",pageRows.GetProperty("total").GetString());Assert.Single(pageRows.GetProperty("records").EnumerateArray());Assert.Equal("2",Data(await Call(source,"201","count",filtered)).ToString());
+            var filtered=new PageRequest{PageSize=1,Filters=new(){{leaf,JsonSerializer.SerializeToElement(new{countryId=Id(Node(0))})}}};var pageRows=Data(await Call(source,"201","page",filtered));Assert.Equal(2L,pageRows.GetProperty("total").GetInt64());Assert.Single(pageRows.GetProperty("records").EnumerateArray());Assert.Equal("2",Data(await Call(source,"201","count",filtered)).ToString());
             // 整对象回传旧叶时，只变化的仓库路径生效，旧城市自动清空；普通List显式清空。
             Data(await Update(Selection(0,1)));await Verify(1,false,true);Data(await Update(Selection(0,0)));Data(await Update(D("aItemId",Id(Item(0)))));
             var before=await Snapshot();Assert.Equal(500,(await Update(Selection(1,2))).GetProperty("code").GetInt32());Assert.Equal(before,await Snapshot());Assert.Equal(500,(await Update(D(leaf,Id(Node(shorter?1:2,1))))).GetProperty("code").GetInt32());Assert.Equal(before,await Snapshot());

@@ -106,7 +106,11 @@ public sealed class TrustedAdminProjectOptionsTests(TrustedSecurityServiceFixtur
     {
         await using var run=await TrustedSecurityServiceRun.Create(fixture);
         var result=Serialize(await run.Call(run.Service("YzAdminType"),"TrustedProjectOptionsPageAsync",new RelationOptionsPageRequest{PageNo=page,PageSize=5,Keyword=keyword},run.Identity.Actor,CancellationToken.None));
-        Assert.Equal(records,result.GetProperty("records").GetArrayLength());Assert.Equal(total,long.Parse(result.GetProperty("total").GetString()!,System.Globalization.CultureInfo.InvariantCulture));Assert.Equal(total,long.Parse(result.GetProperty("pages").GetString()!,System.Globalization.CultureInfo.InvariantCulture));Assert.Equal(page,result.GetProperty("current").GetInt32());Assert.Equal(5,result.GetProperty("size").GetInt32());
+        Assert.Equal(records,result.GetProperty("records").GetArrayLength());
+        Assert.Equal(total,result.GetProperty("total").GetInt64());
+        Assert.Equal(total,result.GetProperty("pages").GetInt64());
+        Assert.Equal(page,result.GetProperty("current").GetInt32());
+        Assert.Equal(5,result.GetProperty("size").GetInt32());
     }
     /// <summary>候选使用真实Full授权类的源页任一开放动作，不增加不存在的目标项目页query权。</summary>
     [Theory]
