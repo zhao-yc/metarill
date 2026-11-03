@@ -84,3 +84,9 @@ V29已在独占API30 x86标准基座实际显示原登录页，验证空值提�
 | 独立 Full 示例 | 52 | 169 | 37 | 37 |
 
 八个实际产物目录逐文件 SHA-256 与原记录完全匹配。复用运行中的 HBuilderX 5.34.2026102909。实际执行 `D:\HBuilderX\cli.exe devices list --platform android`、`--platform ios-iPhone`、`--platform ios-simulator`，均返回 0 且没有设备标识。用 HBuilderX 自带 `adb.exe devices -l` 独立得到 0 个 Android 连接。iOS CLI 的空白响应仅说明未取得设备清单。本轮未安装、签名、启动设备应用或执行跨端业务。V05／V06／V07 仍待正式运行验收。
+
+## V113 当前独立包生产宿主回环
+
+固定 b380a63 新生成的 651 文件 Full 示例。包内 Application.Host 使用本机 NuGet 缓存按 Release 严格发布，在清除继承配置后以 Production／Web 启动，仅监听本机独占回环。HTTP 验证前核对监听 PID。健康及公开 Cap 配置共 2 项返回 200；原三字段合成登录、菜单、权限及生成页面详情／分页／计数／新增共 7 项均返回 HTTP／R401，未返回会话令牌。退出后独立核对监听已释放。
+
+实际发布日志、宿主日志和逐项响应状态保存在私有目录 .local/current-native-resources-20261103/production-current。本轮没有数据库配置或真实登录，不替代独立包 MySQL 权限、事务和设备验收。
