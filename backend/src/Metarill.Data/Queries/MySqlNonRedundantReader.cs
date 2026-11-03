@@ -32,8 +32,16 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     /// <summary>原跨表候选无分页合同，单条SQL返回完整固定范围，不执行COUNT或静默截断。</summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadAllRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
         =>(await ReadAsync(plan,filters,order,1,0,cancellationToken,true,projectId,false,condition)).Records;
+    /// <summary>覆盖导入最多锁读两条。根行从首次匹配就持有排他锁，避免随后升级共享锁。</summary>
+    internal async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadImportMatchesAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
+        CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if(plan.HasMaintenanceJoinProjection||plan.ImportMatchLock is null)throw new InvalidOperationException("覆盖匹配要求完整联接计划。");
+        return (await ReadAsync(plan,filters,[],1,2,cancellationToken,false,projectId,false,condition,true,plan.ImportMatchLock)).Records;
+    }
     private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false)
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false,string? rowLock=null)
     {
         if(currentRead&&session.CurrentTransaction is null)throw new InvalidOperationException("当前读必须加入真实业务事务。");
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
@@ -66,7 +74,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
                 if(cross.RequireRowValidity){string validAlias;do{validAlias="metarill_cross_valid_"+ordinal++;}while(!used.Add(validAlias));sharedValidity.Add(validAlias);projection.Add("CASE WHEN ("+cross.Validity+") THEN 1 ELSE 0 END AS "+Q(validAlias));}
                 var fields=new Dictionary<string,string>(StringComparer.Ordinal);foreach(var pair in cross.RawSlots){string alias;do{alias="metarill_cross_input_"+ordinal++;}while(!used.Add(alias));fields.Add(pair.Key,alias);projection.Add(pair.Value+" AS "+Q(alias));}crossInputs.Add((cross,fields));
             }
-            read.CommandText="SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(currentRead?" FOR SHARE":"");
+            read.CommandText="SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(rowLock??(currentRead?" FOR SHARE":""));
             var records=new List<Dictionary<string,object?>>();
             await using(var reader=await read.ExecuteReaderAsync(cancellationToken))
                 while(await reader.ReadAsync(cancellationToken))

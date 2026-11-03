@@ -44,3 +44,9 @@ $env:DOTNET_HOST_PATH='E:\git\metarill\.tools\dotnet\dotnet.exe'
 .tools/dotnet/dotnet.exe backend/src/Metarill.Cli/bin/Release/net10.0/Metarill.Cli.dll generate --metadata backend/metadata/platform.json --output backend/generated/platform --namespace Metarill.Platform
 .tools/dotnet/dotnet.exe backend/src/Metarill.Cli/bin/Release/net10.0/Metarill.Cli.dll generate --metadata backend/metadata/demo.json --output backend/generated/demo --namespace Metarill.Demo
 ```
+
+## B126 覆盖匹配的锁顺序
+
+逻辑匹配原先对来源和关联行使用共享锁，之后按主键更新时才为来源行获取排他锁。两个事务若命中同一来源行，可能各持有共享锁并等待对方释放。生成器现在调用专用匹配入口，首次查询用 `FOR UPDATE OF b` 锁定来源，已编译联接的别名继续使用 `FOR SHARE OF …`。范围、固定过滤条件和同事务主键复核保留，查询最多返回两条以识别重名，无 COUNT。普通读取与维护继续使用原锁策略。[MySQL 锁定读](https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html)、[SELECT 锁子句](https://dev.mysql.com/doc/refman/8.4/en/select.html)
+
+定向生成器和应用打包回归 12 项通过。数据层定向回归 75 项通过，包含简单联接命令和三段跨表别名检查。两组均以警告视为错误构建，零失败或跳过。数据层首次失败是夹具用了冗余实体，改用已有非冗余目录后复跑。离线命令录制无法验证 InnoDB 并发锁行为。两事务真实覆盖、整批文件与 DML 回滚和公开 Full 仍待正式验收。

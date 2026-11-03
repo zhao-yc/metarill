@@ -36,7 +36,7 @@ internal static class NonRedundantImportMatchRenderer
     internal static string Match(GenerationModel model,TableModel table,PageModel page,NonRedundantImportMatchPlan plan)=>$$"""
                 var importFilters=ReadFilters{{page.Source.Id}}(new PageRequest{ParentId=request.ParentId},actor{{ExactDataManageCompilation.Argument(page,"\"import\"")}});
                 importFilters.Add(new({{L(plan.Key.Source.ColumnName)}},FixedReadComparison.Equal,key));
-                var importMatches=await new NonRedundantReader(session).CurrentRowsAsync(ImportMatchPlan{{page.Source.Id}},importFilters,Array.Empty<FixedReadOrder>(),2,cancellationToken,projectId:actor.ProjectId{{FixedPageConditionCompilation.ReadArgument(page,true)}});
+                var importMatches=await new NonRedundantReader(session).ImportMatchesAsync(ImportMatchPlan{{page.Source.Id}},importFilters,cancellationToken,projectId:actor.ProjectId{{FixedPageConditionCompilation.ReadArgument(page,true)}});
                 if(importMatches.Count>1)throw new InvalidOperationException("覆盖匹配字段重名，不能确定目标记录。");
                 var existing=new List<{{table.EntityType}}>();
                 if(importMatches.Count==1){

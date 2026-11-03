@@ -35,11 +35,34 @@ public sealed partial class MaintenanceReadProjectionTests
     {
         var provider=new RecordingProvider(false);using var session=new DatabaseSession(Options,null,provider);await Assert.ThrowsAsync<InvalidOperationException>(()=>new MySqlNonRedundantReader(session).ReadCurrentRowsAsync(Project(Plan(),new HashSet<string>{"single_name"}),[],[new("id")],128));Assert.Empty(provider.Commands);Assert.Equal(0,provider.Opens);
     }
+    /// <summary>覆盖匹配保留作用域和联接，仅对来源别名使用排他锁，避免共享锁升级。</summary>
+    [Fact]
+    public async Task Import_match_locks_source_exclusively_and_keeps_join_shared()
+    {
+        var provider = new RecordingProvider(false, "bill_name", lockSuffix: " FOR UPDATE OF b FOR SHARE OF r0");
+        using var session = new DatabaseSession(Options, null, provider);
+        var plan = MySqlNonRedundantReadCompiler.Compile(NonRedundantReadTests.Catalog("import_lock_source", "import_lock_target"), "1", ["id", "bill_name"]);
+        var reader = new MySqlNonRedundantReader(session);
+        var filters = new[] { new FixedReadFilter("bill_name", FixedReadComparison.Equal, "当前名称") };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => reader.ReadImportMatchesAsync(plan, filters, projectId: ProjectId));
+        Assert.Equal(0, provider.Opens);
+        await session.InTransactionAsync(async () =>
+        {
+            var rows = await reader.ReadImportMatchesAsync(plan, filters, projectId: ProjectId);
+            Assert.Equal(101L, Assert.Single(rows)["id"]);
+            return true;
+        });
+        var sql = Assert.Single(provider.Commands);
+        Assert.Contains("b.`yz_project_id`=@project_scope_number", sql);
+        Assert.Contains("LIMIT @page_limit OFFSET @page_offset", sql);
+        Assert.Equal(1, provider.Commits);
+    }
+
     private const string ProjectId="9007199254740993";
     private static DatabaseOptions Options=>new(){Provider="mysql",ExpectedDatabase="projection_offline",ConnectionString="Server=127.0.0.1;Port=1;Database=projection_offline;User ID=unused;Password=unused"};
     /// <summary>同一来源含标量与数据库复选，全局目标证明沿现有权威计划编译。</summary>
     private static MySqlNonRedundantReadPlan Plan()=>(MySqlNonRedundantReadPlan)Read(SourceTable(),"Read");
-    /// <summary>冻结完整维护来源，供当前读取及来源行锁两条路径复用同一真实目录。</summary>
+    /// <summary>冻结完整维护来源，供当前读取和来源行锁复用。</summary>
     private static object SourceTable(bool textProject=false)
     {
         var c=GlobalRelationCachePlanTests.Catalog("MultiCheckBoxDatabase",true);c.ConfigColumns.Add(new(){Id="17",YzProjectId=c.YzProjectId,ConfigTableId="1",ColumnName="single_id",LogicalType="int64",LinkConfigTableId="2",ControlKind="List",ControlDetail="{\"tableId\":\"2\",\"pageId\":\"21\",\"nameField\":\"name\"}"});c.ConfigColumns.Add(new(){Id="18",YzProjectId=c.YzProjectId,ConfigTableId="1",ColumnName="single_name",LogicalType="string",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("single.name")}});if(textProject)c.ConfigColumns.Single(x=>x.ConfigTableId=="1"&&x.ColumnName=="yz_project_id").LogicalType="string";var catalog=RelationMaintenanceCatalog.Compile(c,[GlobalRelationCachePlanTests.Definition("MultiCheckBoxDatabase")]);var plans=(System.Collections.IEnumerable)Read(catalog,"Plans");var source=plans.Cast<object>().Single(x=>(string)Read(x,"Key")=="1");var table=Read(source,"Value");return table;
@@ -49,13 +72,13 @@ public sealed partial class MaintenanceReadProjectionTests
     /// <summary>观察已经编译的不可变计划，不重新解释元数据。</summary>
     private static object Read(object value,string property)=>value.GetType().GetProperty(property,BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!.GetValue(value)!;
     /// <summary>只记录本测试读取语句，任何写入、COUNT或非当前读都失败。</summary>
-    private sealed class RecordingProvider(bool multiple,string scalarName="single_name"):IDatabaseProvider
+    private sealed class RecordingProvider(bool multiple,string scalarName="single_name",string lockSuffix=" FOR SHARE"):IDatabaseProvider
     {
         internal readonly List<string> Commands=[];internal int Commits,Opens;public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public string QuoteIdentifier(string name)=>new MySqlDatabaseProvider().QuoteIdentifier(name);public string ParameterPlaceholder(string name)=>"@"+name;public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new Connection(this);
         /// <summary>响应固定已知投影，未知SQL直接报错，避免宽松替身掩盖多余查询。</summary>
         internal DbDataReader Execute(string sql,DbTransaction? transaction)
         {
-            Assert.NotNull(transaction);Assert.EndsWith(" FOR SHARE",sql);Assert.DoesNotContain("COUNT(",sql);Commands.Add(sql);var table=new DataTable();if(sql.StartsWith("SELECT multi_value.`id`,",StringComparison.Ordinal)){Assert.True(multiple);table.Columns.Add("id",typeof(long));table.Columns.Add("name",typeof(string));table.Rows.Add(1L,"甲");table.Rows.Add(2L,"乙");}else{Assert.StartsWith("SELECT b.`id` AS `id`,",sql);table.Columns.Add("id",typeof(long));if(multiple){Assert.Contains("NULL AS `shared_names`",sql);Assert.DoesNotContain(" AS `single_name`",sql);table.Columns.Add("shared_names",typeof(string));table.Columns.Add("metarill_multi_input_0",typeof(string));table.Rows.Add(101L,DBNull.Value,"[\"1\",\"3\",\"2\"]");}else{Assert.DoesNotContain("shared_names",sql);Assert.Contains(" AS `"+scalarName+"`",sql);table.Columns.Add(scalarName,typeof(string));table.Rows.Add(101L,"当前名称");}}return table.CreateDataReader();
+            Assert.NotNull(transaction);Assert.EndsWith(lockSuffix,sql);Assert.DoesNotContain("COUNT(",sql);Commands.Add(sql);var table=new DataTable();if(sql.StartsWith("SELECT multi_value.`id`,",StringComparison.Ordinal)){Assert.True(multiple);table.Columns.Add("id",typeof(long));table.Columns.Add("name",typeof(string));table.Rows.Add(1L,"甲");table.Rows.Add(2L,"乙");}else{Assert.StartsWith("SELECT b.`id` AS `id`,",sql);table.Columns.Add("id",typeof(long));if(multiple){Assert.Contains("NULL AS `shared_names`",sql);Assert.DoesNotContain(" AS `single_name`",sql);table.Columns.Add("shared_names",typeof(string));table.Columns.Add("metarill_multi_input_0",typeof(string));table.Rows.Add(101L,DBNull.Value,"[\"1\",\"3\",\"2\"]");}else{Assert.DoesNotContain("shared_names",sql);Assert.Contains(" AS `"+scalarName+"`",sql);table.Columns.Add(scalarName,typeof(string));table.Rows.Add(101L,"当前名称");}}return table.CreateDataReader();
         }
     }
     /// <summary>离线连接只用于形成真实事务对象，不向网络建连。</summary>

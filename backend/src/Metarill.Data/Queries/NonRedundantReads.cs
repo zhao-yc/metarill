@@ -81,6 +81,8 @@ public sealed class NonRedundantReader(DatabaseSession session)
     public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> RowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadRowsAsync(plan.MySql,filters,order,limit,token,projectId,condition);
     /// <summary>写校验沿真实事务锁定固定投影及联接名称，不执行COUNT；旧RowsAsync合同保持。</summary>
     public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> CurrentRowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadCurrentRowsAsync(plan.MySql,filters,order,limit,token,projectId,condition);
+    /// <summary>覆盖匹配在当前事务最多返回两条，先锁定将要更新的来源行。</summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ImportMatchesAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadImportMatchesAsync(plan.MySql,filters,token,projectId,condition);
     /// <summary>保持原跨表候选完整数组，方言层执行无COUNT的固定排序查询。</summary>
     public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> AllRowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadAllRowsAsync(plan.MySql,filters,order,token,projectId,condition);
     /// <summary>统计不会继承分页或排序。</summary>
