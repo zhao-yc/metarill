@@ -108,14 +108,18 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             // 与BootstrapService共用完整业务物理图，不能漏掉安全及Agent基础表。
             var files = await CatalogAsync(Path.Combine(root, "backend/metadata/files.json"));
             var security = await CatalogAsync(Path.Combine(root, "backend/metadata/security.json"));
-            var businessCatalog = new Metarill.Runtime.ProjectPhysicalModels(files, security).Compose(demo);
-            var schema = new SchemaService(platformSession); var initial = await schema.PreviewAsync(catalog);
-            Assert.Equal(catalog.ConfigTables.Count, initial.Changes.Count(change => change.Kind == "createTable"));
+            var registry = new Metarill.Runtime.Metadata.MetadataRegistry(Path.Combine(root, "backend/metadata/platform.json"), Path.Combine(root, "backend/metadata/demo.json"));
+            var models = new Metarill.Runtime.ProjectPhysicalModels(files, security, registry);
+            var platformPhysical = models.Compose(catalog);
+            var businessCatalog = models.Compose(demo);
+            var schema = new SchemaService(platformSession); var initial = await schema.PreviewAsync(platformPhysical);
+            Assert.Equal(platformPhysical.ConfigTables.Count, initial.Changes.Count(change => change.Kind == "createTable"));
             Assert.Equal(0L, await CountTablesAsync(platformSession));
             await RunAsync(StartInfo("--initialize"));
-            Assert.Equal(catalog.ConfigTables.Count, await CountTablesAsync(platformSession));
+            Assert.Equal(platformPhysical.ConfigTables.Count, await CountTablesAsync(platformSession));
+            Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM yz_manager_log"), CultureInfo.InvariantCulture));
             Assert.Equal(businessCatalog.ConfigTables.Count, await CountTablesAsync(businessSession));
-            Assert.Empty((await schema.PreviewAsync(catalog)).Changes);
+            Assert.Empty((await schema.PreviewAsync(platformPhysical)).Changes);
             Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
             // 覆盖SeedAsync写入的全部11类目录，而非仅前四张配置表。
             var expected = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -138,7 +142,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             Assert.Equal(hash, await ScalarAsync(platformSession, "SELECT `password` FROM `yz_manager` WHERE `id`=1"));
             foreach (var (table, count) in expected) Assert.Equal(count - (table == "config_button" ? 1 : 0), Convert.ToInt32(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table + "` WHERE `delete_no` IS NULL")));
             Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, expected.Keys));
-            Assert.Empty((await schema.PreviewAsync(catalog)).Changes);
+            Assert.Empty((await schema.PreviewAsync(platformPhysical)).Changes);
             Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
             string loginToken;
             await using (var host = await FreshHost.StartAsync(StartInfo(), "/api/runtime/health/check"))
@@ -152,6 +156,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
                 loginToken = identity.GetProperty("map").GetProperty("loginStateId").GetString()!;
                 using (var wrongPassword = await host.Client.PostAsync("/api/admin/sys/yz_manager/login", new FormUrlEncodedContent(new Dictionary<string,string> { ["username"] = "fresh-admin", ["password"] = alternatePassword })))
                     Assert.NotEqual(200, (await wrongPassword.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetInt32());
+                Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM yz_manager_log WHERE yz_manager_id=1 AND action_type=8 AND execute_result=2"), CultureInfo.InvariantCulture));
             }
             await using (var restarted = await FreshHost.StartAsync(StartInfo(), "/api/runtime/health/check"))
             {
@@ -163,9 +168,9 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             if (native is not null)
             {
                 native.Verify(root);
-                await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformTables = catalog.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = expected.Count, seedRows = expected.Values.Sum(), distinctDatabases = platform.ExpectedDatabase != business.ExpectedDatabase, ordinaryStartupNoDdl = true, repeatedSeedUnchanged = true, userEditPreserved = true, tombstonePreserved = true, passwordPreserved = true, realWeb = true, restartSession = true, browserExecuted = false, performanceExecuted = false }));
+                await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformTables = platformPhysical.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = expected.Count, seedRows = expected.Values.Sum(), distinctDatabases = platform.ExpectedDatabase != business.ExpectedDatabase, ordinaryStartupNoDdl = true, repeatedSeedUnchanged = true, userEditPreserved = true, tombstonePreserved = true, passwordPreserved = true, loginFailureAuditPersisted = true, realWeb = true, restartSession = true, browserExecuted = false, performanceExecuted = false }));
             }
-            output.WriteLine($"平台：Production普通启动保持0表，显式初始化创建{catalog.ConfigTables.Count}表／业务{businessCatalog.ConfigTables.Count}表；{expected.Count}类{expected.Values.Sum()}条种子，重复保留编辑、墓碑及密码，真实登录/权限/菜单及重启会话通过。");
+            output.WriteLine($"平台：Production普通启动保持0表，显式初始化创建{platformPhysical.ConfigTables.Count}表／业务{businessCatalog.ConfigTables.Count}表；{expected.Count}类{expected.Values.Sum()}条种子，重复保留编辑、墓碑及密码，真实登录/权限/菜单及重启会话通过。");
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, temporaryRoot); }
     }

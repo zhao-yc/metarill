@@ -190,7 +190,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
             fixture.FileCatalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.Output, "backend/metadata/files.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             Assert.Equal(new[] { "yz_file_library", "yz_file_library_folder", "yz_file_ref" }, fixture.FileCatalog.ConfigTables.Select(t => t.TableName).Order().ToArray());
             fixture.SecurityCatalog=JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.Output,"backend/metadata/security.json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-            Assert.Equal(6,fixture.SecurityCatalog.ConfigTables.Count);
+            SecurityMetadataCompositionTests.AssertPublishedTables(fixture.SecurityCatalog);
             var schema = new SchemaService(fixture.Session);
             fixture.ExistingFileTables = (await schema.InspectAsync(fixture.FileCatalog)).Tables.Select(t => t.Name).Order().ToArray();
             var filePlan = await schema.PreviewAsync(fixture.FileCatalog);

@@ -45,11 +45,12 @@ public sealed partial class FreshInstallMySqlTests
                 info.Environment["Authentication__Mode"]="Web";info.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";info.Environment["Authentication__Bootstrap__Username"]=username;info.Environment["Authentication__Bootstrap__Password"]=password;
                 info.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=evidence;info.Environment["Ids__WorkerId"]="934";info.Environment["Files__RootDirectory"]=Path.Combine(directory,"files");info.Environment["Exports__RootDirectory"]=Path.Combine(directory,"exports");info.Environment["Exports__MaxRows"]="20";return info;
             }
-            // 普通Production启动和显式预览都不能建表；只有包内schema apply安装业务3+文件3+安全6表。
+            // 普通Production启动和显式预览保持零表；显式安装含文件、安全和Agent基础图。
+            var expectedTables = FreshInstallConfiguration.ExpectedFullTableCount(catalog);
             host=await FreshHost.StartAsync(HostInfo(),"/health");Assert.Equal(0L,await CountTablesAsync(session));await host.DisposeAsync();host=null;
             await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-preview"));Assert.Equal(0L,await CountTablesAsync(session));
-            await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-apply"));Assert.Equal(12L,await CountTablesAsync(session));Assert.Empty((await new SchemaService(session).PreviewAsync(catalog)).Changes);
-            await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-apply"));Assert.Equal(12L,await CountTablesAsync(session));
+            await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-apply"));Assert.Equal((long)expectedTables,await CountTablesAsync(session));Assert.Empty((await new SchemaService(session).PreviewAsync(catalog)).Changes);
+            await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-apply"));Assert.Equal((long)expectedTables,await CountTablesAsync(session));
             await NonRedundantApplicationFixture.RunAsync(HostInfo("--initialize-security"));
             var security=JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(outputDirectory,"backend/metadata/security.json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;var securityStore=new SqlRowStore(session,security);var owner=Assert.Single(await securityStore.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}}));var passwordHash=SqlRowStore.Text(owner,"password");Assert.True(PasswordHasher.Verify(password,passwordHash));
             await NonRedundantApplicationFixture.RunAsync(HostInfo("--initialize-security"));Assert.Equal(passwordHash,SqlRowStore.Text(Assert.Single(await securityStore.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}})),"password"));

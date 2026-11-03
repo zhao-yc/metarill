@@ -12,12 +12,16 @@ public sealed class SecurityMetadataCompositionTests
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly string[] SecurityTables = ["yz_project", "yz_admin_type", "yz_manager", "yz_role", "yz_role_permission", "sys_session", "yz_manager_log"];
 
+    /// <summary>当前已发布安全表的精确集合，供离线打包与正式空库夹具共用。</summary>
+    internal static void AssertPublishedTables(MetadataCatalog security) =>
+        Assert.Equal(SecurityTables.Order(StringComparer.Ordinal), security.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal));
+
     [Fact]
     public void Derived_security_model_has_complete_platform_physical_shape_without_pages_or_configuration()
     {
         var security = Read("security"); var platform = Read("platform");
         MetadataValidation.Validate(security);
-        Assert.Equal(SecurityTables.Order(StringComparer.Ordinal), security.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal));
+        AssertPublishedTables(security);
         Assert.Equal(153, security.ConfigColumns.Count);
         Assert.Equal(6, security.ConfigIndexes.Count);
         Assert.Equal(10, security.ConfigIndexColumns.Count);

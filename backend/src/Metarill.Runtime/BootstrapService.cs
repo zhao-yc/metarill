@@ -14,7 +14,8 @@ public sealed class BootstrapService(DatabaseSession session,SchemaService schem
     public async Task InitializeAsync(string username,string password,DatabaseOptions businessOptions,CancellationToken cancellationToken=default)
     {
         if(string.IsNullOrWhiteSpace(username)||password.Length<12)throw new InvalidOperationException("初始化需要明确管理员账号及至少12位密码。");
-        var plan=await schema.PreviewAsync(registry.Platform,cancellationToken);
+        // 显式初始化与平台仓储共用完整物理图，包含登录审计等未进入种子目录的基础设施。
+        var plan=await schema.PreviewAsync(physicalModels.Compose(registry.Platform),cancellationToken);
         if(plan.Changes.Count>0)await schema.ApplyAsync(plan,cancellationToken);
         await metadata.SeedAsync(registry.Platform,cancellationToken);
         await metadata.SeedAsync(registry.Demo,cancellationToken);

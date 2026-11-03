@@ -41,8 +41,11 @@ public sealed partial class FreshInstallMySqlTests
         var catalog = await CatalogAsync(Path.Combine(root, "backend/metadata/platform.json")); var demo = await CatalogAsync(Path.Combine(root, "backend/metadata/demo.json"));
         var files = await CatalogAsync(Path.Combine(root, "backend/metadata/files.json")); var security = await CatalogAsync(Path.Combine(root, "backend/metadata/security.json"));
         var platformEnd = PlatformSeedRollbackCheckpoint.For(catalog); var demoEnd = PlatformSeedRollbackCheckpoint.For(demo);
-        var schema = new SchemaService(platformSession); var plan = await schema.PreviewAsync(catalog); await schema.ApplyAsync(plan);
-        Assert.Equal(catalog.ConfigTables.Count, await CountTablesAsync(platformSession)); Assert.Equal(0L, await CountTablesAsync(businessSession));
+        var registry = new Metarill.Runtime.Metadata.MetadataRegistry(Path.Combine(root, "backend/metadata/platform.json"), Path.Combine(root, "backend/metadata/demo.json"));
+        var models = new ProjectPhysicalModels(files, security, registry);
+        var platformPhysical = models.Compose(catalog);
+        var schema = new SchemaService(platformSession); var plan = await schema.PreviewAsync(platformPhysical); await schema.ApplyAsync(plan);
+        Assert.Equal(platformPhysical.ConfigTables.Count, await CountTablesAsync(platformSession)); Assert.Equal(0L, await CountTablesAsync(businessSession));
         var credentialsRoot = Path.Combine(native.EvidenceDirectory, "credentials"); var credentials = Path.Combine(credentialsRoot, Guid.NewGuid().ToString("N")); Directory.CreateDirectory(credentials);
         var password = Guid.NewGuid().ToString("N"); var settings = Path.Combine(credentials, "host.json");
         await File.WriteAllTextAsync(settings, JsonSerializer.Serialize(new { Metarill = new { Database = platform, BusinessDatabase = business, WorkerId = 855, Bootstrap = new { Username = "seed-rollback-owner", Password = password } } }));
@@ -74,9 +77,9 @@ public sealed partial class FreshInstallMySqlTests
         try
         {
             await FailAt(platformEnd, "platform");
-            foreach (var table in catalog.ConfigTables) Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table.TableName + "`"), CultureInfo.InvariantCulture));
+            foreach (var table in platformPhysical.ConfigTables) Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table.TableName + "`"), CultureInfo.InvariantCulture));
             Assert.Equal(0L, await CountTablesAsync(businessSession));
-            await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "platform-rollback.json"), JsonSerializer.Serialize(new { passed = true, checkpoint = platformEnd, allPlatformTablesEmpty = true, businessTables = 0, ddlRetained = catalog.ConfigTables.Count }));
+            await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "platform-rollback.json"), JsonSerializer.Serialize(new { passed = true, checkpoint = platformEnd, allPlatformTablesEmpty = true, businessTables = 0, ddlRetained = platformPhysical.ConfigTables.Count }));
             await Execute($"ALTER TABLE `{platformEnd.Table}` DROP CHECK `mt_seed_platform_{run}`");
             await FailAt(demoEnd, "demo");
             var platformBefore = await SnapshotCatalogSeedsAsync(store, catalog);
@@ -88,9 +91,9 @@ public sealed partial class FreshInstallMySqlTests
             await RunAsync(Start("--initialize"));
             await AssertCatalogSeedCountsAsync(platformSession, catalog, present: true); await AssertCatalogSeedCountsAsync(platformSession, demo, present: true);
             Assert.Equal(platformBefore, await SnapshotCatalogSeedsAsync(store, catalog));
-            var businessCatalog = new ProjectPhysicalModels(files, security).Compose(demo);
+            var businessCatalog = models.Compose(demo);
             Assert.Equal(businessCatalog.ConfigTables.Count, await CountTablesAsync(businessSession));
-            Assert.Empty((await schema.PreviewAsync(catalog)).Changes); Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
+            Assert.Empty((await schema.PreviewAsync(platformPhysical)).Changes); Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
             var beforeRepeat = await SeedSnapshotAsync(store, PlatformSeedRollbackCheckpoint.Rows(catalog).Select(x => x.Table));
             await RunAsync(Start("--initialize"));
             Assert.Equal(beforeRepeat, await SeedSnapshotAsync(store, PlatformSeedRollbackCheckpoint.Rows(catalog).Select(x => x.Table)));
@@ -102,7 +105,7 @@ public sealed partial class FreshInstallMySqlTests
                 var permission = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions"); Assert.True(permission.GetProperty("data").GetProperty("isSuper").GetBoolean());
             }
             native.Verify(root);
-            await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformRollback = true, demoRollback = true, priorCatalogPreserved = true, platformTables = catalog.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = PlatformSeedRollbackCheckpoint.Rows(catalog).Length, seedRows = PlatformSeedRollbackCheckpoint.Rows(catalog).Sum(x => x.Ids.Length) + PlatformSeedRollbackCheckpoint.Rows(demo).Sum(x => x.Ids.Length), recovery = true, repeatedSeedUnchanged = true, realWeb = true, ddlRollbackClaimed = false, crossDatabaseTransactionClaimed = false, browserExecuted = false, performanceExecuted = false }));
+            await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformRollback = true, demoRollback = true, priorCatalogPreserved = true, platformTables = platformPhysical.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = PlatformSeedRollbackCheckpoint.Rows(catalog).Length, seedRows = PlatformSeedRollbackCheckpoint.Rows(catalog).Sum(x => x.Ids.Length) + PlatformSeedRollbackCheckpoint.Rows(demo).Sum(x => x.Ids.Length), recovery = true, repeatedSeedUnchanged = true, realWeb = true, ddlRollbackClaimed = false, crossDatabaseTransactionClaimed = false, browserExecuted = false, performanceExecuted = false }));
             output.WriteLine("平台及示例最后非空种子行真实CHECK拒绝；本目录回滚、已提交平台保留，移除本轮约束后完整安装及重复种子、真实Web通过。DDL留存，不计跨库整体事务。");
         }
         catch (Exception error) { primary = error; throw; }
