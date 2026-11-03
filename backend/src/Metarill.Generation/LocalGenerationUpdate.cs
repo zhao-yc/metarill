@@ -165,5 +165,9 @@ public sealed partial class LocalGenerationUpdater
     /// <summary>将字节计算为规范小写SHA-256。</summary>
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
     /// <summary>先校验路径再读取摘要；缺失文件以null表示，不能与空文件混淆。</summary>
-    private static string? ExistingHash(string root, string path) => File.Exists(Safe(root, path)) ? Hash(ReadBytes(root, path)) : null;
+    private static string? ExistingHash(string root, string path)
+    {
+        var file = new FileInfo(Safe(root, path));
+        return file.Exists ? Hash(ReadBoundedBytes(file, path)) : null;
+    }
 }

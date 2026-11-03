@@ -284,10 +284,12 @@ public sealed partial class LocalGenerationUpdater
     /// <summary>使用目录分隔符边界判断包含关系，避免相似前缀误判。</summary>
     private static bool IsWithin(string root, string path) => root.Equals(path, StringComparison.OrdinalIgnoreCase) || path.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     /// <summary>有界读取已验证路径，不让未知文件大小耗尽内存。</summary>
-    private static byte[] ReadBytes(string root, string path)
+    private static byte[] ReadBytes(string root, string path) => ReadBoundedBytes(new FileInfo(Safe(root, path)), path);
+
+    /// <summary>读取同一次路径校验对应的文件，保留存在性和长度检查。</summary>
+    private static byte[] ReadBoundedBytes(FileInfo file, string path)
     {
-        var target = Safe(root, path); var info = new FileInfo(target);
-        if (!info.Exists || info.Length > 32 * 1024 * 1024) throw new InvalidOperationException("文件缺失或超过32MiB限制：" + path);
-        return File.ReadAllBytes(target);
+        if (!file.Exists || file.Length > 32 * 1024 * 1024) throw new InvalidOperationException("文件缺失或超过32MiB限制：" + path);
+        return File.ReadAllBytes(file.FullName);
     }
 }
