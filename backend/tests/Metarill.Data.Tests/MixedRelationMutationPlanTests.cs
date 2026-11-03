@@ -13,6 +13,25 @@ public sealed class MixedRelationMutationPlanTests
     {
         var model=Chain();var catalog=RelationMaintenanceCatalog.Compile(model);Assert.Equal(new[]{"maintenance_company","maintenance_target"},catalog.MixedTargets);Assert.Equal(new[]{"target_name"},catalog.MixedSourceColumns["maintenance_source"]);var sha=catalog.Fingerprint;model.ConfigTables[1].TableName="changed_after_compile";model.ConfigColumns.Clear();Assert.Equal(new[]{"maintenance_company","maintenance_target"},catalog.MixedTargets);Assert.Equal(sha,catalog.Fingerprint);Assert.Throws<NotSupportedException>(()=>((IList<string>)catalog.MixedSourceColumns["maintenance_source"])[0]="cannot_change");
     }
+    /// <summary>原目标保存刷新直接物理缓存，维护补丁和多级派生仍要求实际依赖变化。</summary>
+    [Fact]
+    public void Target_save_refreshes_direct_cache_without_widening_other_events()
+    {
+        var ordinary=RelationMaintenanceCatalog.Compile(RelationMaintenanceCatalogTests.Catalog());
+        var direct=Assert.Single(Assert.Single(ordinary.Mixed.Consumers).Read.Reverse);
+        Assert.Equal("target_name",Assert.Single(direct.DirectSaveOutputs));
+        var remarks=new HashSet<string>{"remarks"};
+        Assert.True(direct.Affects("target_name",remarks,false,true));
+        Assert.False(direct.Affects("target_name",remarks,false,false));
+
+        var derived=RelationMaintenanceCatalog.Compile(Chain());
+        var reverses=Assert.Single(derived.Mixed.Consumers).Read.Reverse;
+        Assert.All(reverses,reverse=>Assert.Empty(reverse.DirectSaveOutputs));
+        Assert.All(reverses,reverse=>Assert.False(reverse.Affects("target_name",remarks,false,true)));
+        var terminal=Assert.Single(reverses,reverse=>reverse.TargetTable=="maintenance_company");
+        Assert.True(terminal.Affects("target_name",new HashSet<string>{"name"},false,false));
+    }
+
     /// <summary>多角色到同一目标不能合并外键路径，输出快照必须保留两个独立缓存。</summary>
     [Fact]
     public void Two_roles_to_same_target_keep_both_source_columns()

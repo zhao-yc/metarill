@@ -56,6 +56,32 @@ public sealed class MixedRelationPropagationMySqlTests
             Data(await Post("company","301","/update",new{id=Company.ToString(),attachments=new[]{fileIds[0].ToString()}}));Assert.Single(await fileRows.ReadAsync("yz_file_ref",new Dictionary<string,object?>{{"record_id",Company}}));
             var other=ids.NextId();await Seed("source",other,new(){{"name","外项目保持"},{"provider_id",Provider},{"provider_name","外项目旧缓存"},{"yz_project_id",Project+1}});long? deleted=null;if(logical){deleted=ids.NextId();await Seed("source",deleted.Value,new(){{"name","软删来源保持"},{"provider_id",Provider},{"provider_name","软删旧缓存"},{"delete_no",new DateTime(2026,1,1)}});}
             var batch=new List<long>();for(var index=0;index<130;index++){var key=ids.NextId();await Seed("source",key,new(){{"name","跨批来源"},{"provider_id",Provider},{"provider_name","历史缓存"}});batch.Add(key);}
+            // 来源只改业务名称时，原直接物理引用仍修复既有下游副本，且尾部失败回滚副本和主表。
+            await rows.UpdateAsync(prefix+"_downstream",d,new Dictionary<string,object?>{{"order_name","待修复的直接缓存"}});
+            var stale=await Snapshot(includeCompany:true);
+            failure.Table=prefix+"_source";
+            failure.VerifyBeforeThrow=async()=>
+            {
+                Assert.NotNull(database.CurrentTransaction);
+                Assert.Equal("公司甲",(await Row("downstream",d))["order_name"]);
+            };
+            failure.Fail=true;
+            try
+            {
+                var rolledBack=await Post("source","101","/update",new{id=a.ToString(),name="不应提交的业务名称"});
+                Assert.Equal(500,rolledBack.GetProperty("code").GetInt32());
+                Assert.Equal("混合传播尾部故障",rolledBack.GetProperty("msg").GetString());
+                Assert.Equal(stale,await Snapshot(includeCompany:true));
+            }
+            finally
+            {
+                failure.Fail=false;
+                failure.Table=prefix+"_company";
+                failure.VerifyBeforeThrow=null;
+            }
+            Data(await Post("source","101","/update",new{id=a.ToString(),name="已提交的业务名称"}));
+            Assert.Equal("公司甲",(await Row("downstream",d))["order_name"]);
+            Assert.Equal("已提交的业务名称",(await Row("source",a))["name"]);
             await rows.UpdateAsync(prefix+"_source",a,new Dictionary<string,object?>{{"alternate_name","未触及的历史缓存"}});var before=await Snapshot();Data(await Post("company","301","/update",new{id=Company.ToString(),title="只改无关字段"}));Assert.Equal(before,await Snapshot(includeCompany:false));
             foreach(var suffix in new[]{"source","downstream","multi"})assembly.GetType("Example.MixedPropagation.Generated.Services."+GenerationModel.Pascal(prefix+"_"+suffix)+"Service",true)!.GetProperty("RejectBusinessHook")!.SetValue(null,true);client.DefaultRequestHeaders.Add("denyConsumers","1");
             try
@@ -124,7 +150,19 @@ public sealed class MixedRelationPropagationMySqlTests
     private static ColumnMetadata Join(string id,string table,string name,string path){var column=Column(id,table,name);column.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);column.Extra["columnFullName"]=JsonSerializer.SerializeToElement(path);return column;}
     private static JsonElement Data(JsonElement response){Assert.True(response.GetProperty("code").GetInt32()==200,response.GetRawText());return response.GetProperty("data");}
     private static long Id(JsonElement data)=>long.Parse(data.GetProperty("id").GetString()!,CultureInfo.InvariantCulture);
-    private sealed class Failure(string table):IRecordMutationObserver{public bool Fail{get;set;}public Task BeforeCommitAsync(RecordMutationContext context,CancellationToken token=default){if(Fail&&context.TableName==table)throw new InvalidOperationException("混合传播尾部故障");return Task.CompletedTask;}}
+    private sealed class Failure(string table):IRecordMutationObserver
+    {
+        public string Table{get;set;}=table;
+        public bool Fail{get;set;}
+        public Func<Task>? VerifyBeforeThrow{get;set;}
+        /// <summary>在真实保存事务内检查可见副本，然后触发固定尾部故障。</summary>
+        public async Task BeforeCommitAsync(RecordMutationContext context,CancellationToken token=default)
+        {
+            if(!Fail||context.TableName!=Table)return;
+            if(VerifyBeforeThrow is not null)await VerifyBeforeThrow();
+            throw new InvalidOperationException("混合传播尾部故障");
+        }
+    }
     private sealed class Authorization(IHttpContextAccessor accessor):IRuntimeAuthorization
     {
         public RuntimeActor RequireActor()=>new(Actor,"混合传播夹具",false,Project.ToString(CultureInfo.InvariantCulture),"5");

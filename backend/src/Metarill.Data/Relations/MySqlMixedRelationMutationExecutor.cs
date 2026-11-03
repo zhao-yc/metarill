@@ -6,14 +6,14 @@ namespace Metarill.Data.Relations;
 /// <summary>按固定反向外键表达式找到R1消费者，目标本身可缺失；重算仍复用原维护当前读计划。</summary>
 internal sealed class MySqlMixedRelationMutationExecutor(DatabaseSession session)
 {
-    /// <summary>只刷新本次目标事件真正影响的输出，不顺带覆盖另一条无关关系的历史缓存。</summary>
-    internal async Task PropagateAsync(MixedRelationMutationPlan plan,string table,long id,string project,IReadOnlySet<string> changed,bool allFields,HashSet<string> validated,Action<string,long,IReadOnlyDictionary<string,object?>> onChanged,CancellationToken token)
+    /// <summary>仅重算本次目标事件涉及的输出，原始保存额外刷新其直接物理引用。</summary>
+    internal async Task PropagateAsync(MixedRelationMutationPlan plan,string table,long id,string project,IReadOnlySet<string> changed,bool allFields,bool targetSaved,HashSet<string> validated,Action<string,long,IReadOnlyDictionary<string,object?>> onChanged,CancellationToken token)
     {
         var transaction=session.CurrentTransaction??throw new InvalidOperationException("混合传播要求当前业务事务。");var materializer=new RelationMaintenanceExecutor(session);
         foreach(var consumer in plan.Consumers)
         foreach(var reverse in consumer.Read.Reverse.Where(reverse=>reverse.TargetTable==table))
         {
-            var allowed=reverse.Outputs.Where(item=>consumer.Table.Fields.Any(field=>field.Name==item.Key)&&(allFields||item.Value.Overlaps(changed))).Select(item=>item.Key).ToHashSet(StringComparer.Ordinal);if(allowed.Count==0)continue;
+            var allowed=reverse.Outputs.Where(item=>consumer.Table.Fields.Any(field=>field.Name==item.Key)&&reverse.Affects(item.Key,changed,allFields,targetSaved)).Select(item=>item.Key).ToHashSet(StringComparer.Ordinal);if(allowed.Count==0)continue;
             await ValidateAsync(consumer,validated,token);long after=0;
             while(true)
             {

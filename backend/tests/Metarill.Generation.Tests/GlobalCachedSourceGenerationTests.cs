@@ -30,6 +30,12 @@ public sealed class GlobalCachedSourceGenerationTests
         }
         var maintenance=MixedRelationPropagationCompilation.ForModel(model);Assert.Contains("sample_customer",maintenance.MixedTargets);Assert.Contains("sample_contract",maintenance.MixedTargets);
         Assert.Equal(new[]{"sample_customer_name"},maintenance.MixedSourceColumns["sample_contract"]);Assert.Equal(new[]{"sample_contract_name"},maintenance.MixedSourceColumns["sample_contract_line"]);
+        // 原样板合同明细必须在合同只改备注时命中直接缓存计划。
+        var consumers=((IEnumerable)Property(Property(maintenance,"Mixed"),"Consumers")).Cast<object>();
+        var line=consumers.Single(consumer=>(string)Property(Property(Property(consumer,"Table"),"Option"),"TableName")=="sample_contract_line");
+        var reverses=((IEnumerable)Property(Property(line,"Read"),"Reverse")).Cast<object>();
+        var contract=Assert.Single(reverses,reverse=>(string)Property(reverse,"TargetTable")=="sample_contract");
+        Assert.Equal("sample_contract_name",Assert.Single((IReadOnlySet<string>)Property(contract,"DirectSaveOutputs")));
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
     /// <summary>新全局维护计划以及反向事件在建连接前拒绝目录外项目，投影复制不能遗失身份约束。</summary>
