@@ -47,3 +47,7 @@ run=567998d4ba774956b01205d0ffea7ab9；测试源码SHA256=5a9a031594eaf3d45e027c
 源码严格编译零警告／错误，客户端和探针在本任务同提交下发；私有证据分别在.local/login-lock-real-client-20261103、.local/login-lock-real-client-internal-20261103、.local/login-lock-real-client-info-20261103。默认工具只检查源码，显式--run才建立本轮对象；失败也先清理并独立核零。旧V56单轮授权仍已结束，没有执行新数据库轮次。
 
 当前尚待正式Web／MySQL／Redis登录整链、应用重启／完整窗口与新固定包／镜像、SQL语义／目标、负载及最终SHA CI。本节只补齐前述“真实C#客户端”组件子集，不关闭这些剩余边界。
+
+## V64 许可发布路径修正
+
+真实SDK publish先复现NETSDK1152：新增Security通知与既有Files通知同名，严格build没有覆盖该发布冲突。保留原Files路径，Security的发布／运行输出明确放在licenses/Metarill.Security/THIRD-PARTY-NOTICES.txt，源码仍在各项目licenses目录并按既有打包及受管更新归属下发；不改变许可内容、元数据、页面、登录规则或任何数据库。平台真实SDK Release publish已零警告／错误通过，发布目录两个独立路径的通知分别与各自源码逐字一致。原失败日志保留。新固定完整包／Linux镜像仍需另行构建核验，不能沿用旧镜像证明。

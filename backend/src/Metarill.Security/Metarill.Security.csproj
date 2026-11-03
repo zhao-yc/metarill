@@ -4,5 +4,5 @@
     <ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" />
     <ProjectReference Include="../Metarill.Data/Metarill.Data.csproj" />
   </ItemGroup>
-  <ItemGroup><None Update="licenses/*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><None Update="licenses/*.txt" TargetPath="licenses/Metarill.Security/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
 </Project>
