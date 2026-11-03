@@ -31,6 +31,20 @@ class MeasurementReplayTests(unittest.TestCase):
         self.assertTrue(all("ignorePointers" not in step and "capture" not in step for step in steps))
         self.assertEqual(str(fixture.ID_BASE+10001),steps[3]["json"]["parentId"])
 
+    def test_child_preflight_uses_the_original_default_id_order(self):
+        """原明细页未开放名称排序，首条必须是同父活动记录中的最大主键。"""
+        child = measurement.read_scenario()["steps"][3]
+        self.assertNotIn("orderBy", child["json"])
+        columns = fixture.COLUMNS["sample_contract_line"]
+        parent_index = columns.index("sample_contract_id")
+        deleted_index = columns.index("delete_no")
+        active = [row[0] for row in fixture.rows("sample_contract_line")
+                  if row[parent_index] == child["json"]["parentId"] and row[deleted_index] is None]
+        checks = {check["pointer"]: check["equals"] for check in child["checks"]}
+        self.assertEqual(3, len(active))
+        self.assertEqual(len(active), checks["/data/total"])
+        self.assertEqual(str(max(active)), checks["/data/records/0/id"])
+
     def test_preflight_response_difference_never_calls_measurement(self):
         """一处业务响应不一致时停止，私有证据保留摘要而非正文或令牌。"""
         with tempfile.TemporaryDirectory() as folder,mock.patch.object(measurement.http,"request",side_effect=["a"]*4+["a","b","a","a"]),mock.patch.object(measurement.http,"run") as run:

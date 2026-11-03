@@ -16,7 +16,8 @@ def read_scenario():
     line = "/admin/auto/sample_contract_line/81003"
     ordering = {"column":"name","order":"ascending"}
     page = {"pageNo":1,"pageSize":20,"filters":{"name":"性能客户-"},"orderBy":ordering}
-    child = {"pageNo":1,"pageSize":20,"filters":{},"parentId":str(ID_BASE+10001),"orderBy":ordering}
+    # 原明细名称未开放自定义排序，沿页面固定主键降序读取父记录。
+    child = {"pageNo":1,"pageSize":20,"filters":{},"parentId":str(ID_BASE+10001)}
     def step(method,path,checks,body=None):
         """按原 R 协议定义固定路径和独立预期值。"""
         result={"method":method,"path":path,"status":200,
@@ -28,7 +29,7 @@ def read_scenario():
         step("POST",customer+"/page",{"/data/total":480,"/data/records/0/id":str(ID_BASE)},page),
         step("POST",customer+"/count",{"/data":480},page),
         step("GET",contract+f"/detail/{ID_BASE+10001}",{"/data/id":str(ID_BASE+10001),"/data/sampleCustomerId":str(ID_BASE),"/data/sampleCustomerName":"性能客户-0000","/data/amount":1.37}),
-        step("POST",line+"/page",{"/data/total":3,"/data/records/0/id":str(ID_BASE+20004)},child),
+        step("POST",line+"/page",{"/data/total":3,"/data/records/0/id":str(ID_BASE+20006)},child),
     ]}
 
 
