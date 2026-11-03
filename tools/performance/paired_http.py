@@ -24,6 +24,14 @@ class ContractError(ValueError):
     """配置、响应或同条件证明不满足实验合同。"""
 
 
+class ResponseAssertionError(ContractError):
+    """只保留固定断言序号和失败分类，不保留响应中的值。"""
+    def __init__(self, ordinal, reason):
+        super().__init__("业务响应不符合断言")
+        self.ordinal = ordinal
+        self.reason = reason
+
+
 def canonical(value):
     """统一JSON字节；拒绝NaN，避免散列掩盖非法JSON。"""
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -260,11 +268,16 @@ def request(target, step, variables, timeout):
     if len(payload) > 8 * 1024 * 1024:
         raise ContractError("响应超过8MiB")
     result = read_json(payload)
-    for check in step["checks"]:
-        actual = locate(result, check["pointer"])[2]
+    for ordinal, check in enumerate(step["checks"], start=1):
+        try:
+            actual = locate(result, check["pointer"])[2]
+        except ContractError:
+            raise ResponseAssertionError(ordinal, "pointer-missing") from None
         # Python的True==1不代表协议类型相同。
-        if canonical(actual) != canonical(expand(check["equals"], variables)):
-            raise ContractError("业务响应不符合断言")
+        expected = expand(check["equals"], variables)
+        if canonical(actual) != canonical(expected):
+            reason = "type-mismatch" if type(actual) is not type(expected) else "value-mismatch"
+            raise ResponseAssertionError(ordinal, reason)
     for name, pointer in step.get("capture", {}).items():
         value = locate(result, pointer)[2]
         if not isinstance(value, (str, int)) or isinstance(value, bool):

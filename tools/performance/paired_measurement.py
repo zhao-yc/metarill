@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import time
+from urllib.error import HTTPError
 
 import paired_http as http
 from paired_measurement_fixture import ID_BASE
@@ -64,8 +65,23 @@ def run_read_measurement(root,run,targets,tokens,probe,query):
     output=root/"measurement"
     output.mkdir(mode=0o700)
     steps=config["scenarios"][0]["steps"]
-    fingerprints={side:[http.request(config["targets"][side],step,{},config["requestTimeoutSeconds"]) for step in steps] for side in ("java","csharp")}
-    (output/"preflight.json").write_bytes(http.canonical({"runId":run,"configSha256":http.digest(config),"responseFingerprints":fingerprints}))
+    fingerprints = {side: [] for side in ("java", "csharp")}
+    config_hash = http.digest(config)
+    for side, responses in fingerprints.items():
+        for ordinal, step in enumerate(steps, start=1):
+            try:
+                responses.append(http.request(config["targets"][side], step, {}, config["requestTimeoutSeconds"]))
+            except (ValueError, OSError) as error:
+                # 只记录固定目标、步骤、已完成响应摘要及枚举化断言，不保存正文或令牌。
+                failure = {"runId": run, "configSha256": config_hash, "target": side, "step": ordinal,
+                           "errorType": type(error).__name__, "responseFingerprints": fingerprints}
+                if isinstance(error, http.ResponseAssertionError):
+                    failure.update(assertion=error.ordinal, reason=error.reason)
+                if isinstance(error, HTTPError):
+                    failure["status"] = error.code
+                (output / "preflight-failure.json").write_bytes(http.canonical(failure))
+                raise ValueError("measurement-preflight-request-failed") from None
+    (output/"preflight.json").write_bytes(http.canonical({"runId":run,"configSha256":config_hash,"responseFingerprints":fingerprints}))
     if fingerprints["java"]!=fingerprints["csharp"]:
         raise ValueError("measurement-preflight-response-mismatch")
     return run_trials(output,config,probe,query,"original-read-only")

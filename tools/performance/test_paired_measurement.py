@@ -41,6 +41,29 @@ class MeasurementReplayTests(unittest.TestCase):
             self.assertNotIn("PRIVATE",record)
             self.assertEqual("b",json.loads(record)["responseFingerprints"]["csharp"][1])
 
+    def test_preflight_retains_exact_failed_assertion_without_response_or_replay(self):
+        """实际 HTTP 解析遇到错误类型后，收集固定断言位置，且不发送后续请求。"""
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.status = 200
+        response.read.return_value = b'{"code":200,"data":{"total":"RESPONSE-ONLY-PRIVATE"}}'
+        opener = mock.Mock()
+        opener.open.return_value = response
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(measurement.http.urllib.request, "build_opener", return_value=opener), \
+             mock.patch.object(measurement.http, "run") as run:
+            with self.assertRaisesRegex(ValueError, "measurement-preflight-request-failed"):
+                measurement.run_read_measurement(Path(folder), RUN, TARGETS, TOKENS, None, mock.Mock())
+            opener.open.assert_called_once()
+            run.assert_not_called()
+            output = Path(folder) / "measurement"
+            record = (output / "preflight-failure.json").read_text()
+            self.assertFalse((output / "preflight.json").exists())
+            self.assertNotIn("PRIVATE", record)
+            proof = json.loads(record)
+            self.assertEqual(("java", 1, 2, "type-mismatch"), tuple(proof[key] for key in ("target", "step", "assertion", "reason")))
+            self.assertEqual({"java": [], "csharp": []}, proof["responseFingerprints"])
+
     def test_temporary_database_setting_change_invalidates_full_measurement(self):
         """期中共享配置变化即使结束恢复也不出具有效成绩。"""
         normal={"variables":{"bufferPoolBytes":"128"},"globalCounters":{},"loadAverage":[]}
