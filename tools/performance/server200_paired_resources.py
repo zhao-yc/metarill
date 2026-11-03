@@ -312,8 +312,9 @@ def process_listening(pid):
     return listening
 
 
-def wait_observed_hosts(value,root,state,timeout=90):
-    """等待两个原进程真实监听及采集索引，不发HTTP、不重试任何登录或业务。"""
+def wait_hosts(value,root,state,timeout=90):
+    """验证两个原进程实际监听；采集用途另要求索引及 Boot 就绪标记。"""
+    observed = is_observed(value)
     deadline=time.monotonic()+timeout
     while True:
         ready=[]
@@ -322,7 +323,11 @@ def wait_observed_hosts(value,root,state,timeout=90):
             require_owned(inspect('container',item['name']),item,state)
             runtime=json.loads(docker('container','inspect','--format','{"running":{{json .State.Running}},"pid":{{json .State.Pid}}}',item['name']))
             if runtime.get('running') is not True:raise RuntimeError('原宿主在就绪前退出')
-            listening=process_listening(runtime.get('pid'));base=root/('data-'+item['target'])/'sql-observation';folders=[path for path in base.iterdir() if path.is_dir() and not path.is_symlink()]
+            listening=process_listening(runtime.get('pid'))
+            if not observed:
+                ready.append(listening)
+                continue
+            base=root/('data-'+item['target'])/'sql-observation';folders=[path for path in base.iterdir() if path.is_dir() and not path.is_symlink()]
             if len(folders)>1:raise RuntimeError('采集宿主实例不唯一')
             configured=False
             if folders and (folders[0]/'index.json').is_file():
@@ -338,8 +343,12 @@ def wait_observed_hosts(value,root,state,timeout=90):
                         application_ready=True
                     configured=configured and application_ready
             ready.append(listening and configured)
-        if len(ready)==2 and all(ready):return {'originalProcessListenersVerified':True,'observationSourcesConfigured':True,'httpRequestsSent':0,'originalBootRunnersCompleted':True}
-        if time.monotonic()>=deadline:raise RuntimeError('原进程监听或采集索引未就绪')
+        if len(ready)==2 and all(ready):
+            proof={'originalProcessListenersVerified':True,'httpRequestsSent':0}
+            if observed:
+                proof.update(observationSourcesConfigured=True,originalBootRunnersCompleted=True)
+            return proof
+        if time.monotonic()>=deadline:raise RuntimeError('原进程监听或采集索引未就绪' if observed else 'measurement-host-listener-timeout')
         time.sleep(0.2)
 
 
@@ -400,8 +409,9 @@ def manage_exclusive(value, operation, root):
         state["status"] = "started"; write_state(path, state)
         return {"hostsStarted": True, "runtimeAccepted": False, "performanceAccepted": False}
     if operation in {"wait-hosts","snapshot-hosts"}:
-        if not is_observed(value) or state.get("status") != "started" or state.get("hostsStarted") is not True or set(observed)!=expected:raise ValueError("仅完整已启动的新采集用途允许就绪核验及私有留证")
-        return wait_observed_hosts(value,root,state) if operation=="wait-hosts" else save_host_diagnostics(root,state)
+        if not (is_observed(value) or is_measurement(value)) or state.get("status") != "started" or state.get("hostsStarted") is not True or set(observed)!=expected:
+            raise ValueError("仅完整已启动的采集或测量用途允许就绪核验及私有留证")
+        return wait_hosts(value,root,state) if operation=="wait-hosts" else save_host_diagnostics(root,state)
     if operation == "stop-hosts":
         if not is_observed(value) or state.get("status") != "started" or not state.get("hostsStarted"):
             raise ValueError("仅已启动的新采集用途允许正常关闭")

@@ -385,6 +385,22 @@ class IdentityHttpTests(unittest.TestCase):
         self.assertTrue(all(c.kwargs.get('form') is True for c in send.call_args_list if c.args[2].endswith('/login')))
         self.assertEqual(sum(c.args[2].endswith('/add') for c in send.call_args_list),2)
 
+    def test_identity_receipt_locates_timeout_without_retry_or_secret(self):
+        """已完成步骤和超时一步留证，口令、令牌和异常正文都不落回执。"""
+        receipts=[]
+        def reply(port,method,path,body=None,token=None,form=False):
+            if path.endswith("/page") and token.endswith("000000000002"):
+                raise TimeoutError("sensitive-response-details")
+            return self.reply(port,method,path,body,token,form=form)
+        with mock.patch.object(subject,"send",side_effect=reply) as send,self.assertRaises(TimeoutError):
+            subject.identity_http(settings(),self.fixture,self.creds,record_request=receipts.append)
+        self.assertEqual(["ready","wrong-password","login-writer","page-writer","login-reader","page-reader"],
+                         [item["step"] for item in receipts])
+        self.assertEqual(("java","TimeoutError"),(receipts[-1]["target"],receipts[-1]["errorType"]))
+        self.assertEqual(6,send.call_count)
+        self.assertNotIn("sensitive-response-details",json.dumps(receipts))
+        self.assertNotIn("11111111",json.dumps(receipts))
+
     def test_numeric_account_id_leaked_password_or_unprotected_write_cannot_pass(self):
         """ID精度、凭据脱敏和只读限制不能被HTTP200掩盖。"""
         original=self.reply

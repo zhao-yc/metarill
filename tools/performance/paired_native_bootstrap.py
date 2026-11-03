@@ -270,13 +270,26 @@ def send(port, method, path, body=None, token=None, form=False, sample=None):
         return response.status, http.read_json(raw)
 
 
-def identity_http(value, fixture, credentials, exchange=None):
+def identity_http(value, fixture, credentials, exchange=None, *, record_request=None):
     """原三字段密码form登录与普通权限读/拒绝；Cap关闭时仍提交空兼容值，不预置身份。"""
     facts = []; tokens = {}
     def ask(target,step,method,path,body=None,token=None,form=False):
         """新用途使用固定采样计划；旧用途保持原sender参数和协议。"""
         if exchange is not None:return exchange.call(target,"identity:"+step,method,path,body,token,form=form)
-        return send(value["ports"][target],method,path,body,token,form=form)
+        if record_request is None:
+            return send(value["ports"][target],method,path,body,token,form=form)
+        started = time.monotonic()
+        receipt = {"target": target, "step": step}
+        try:
+            result = send(value["ports"][target],method,path,body,token,form=form)
+            receipt["status"] = result[0]
+            return result
+        except Exception as error:
+            receipt["errorType"] = type(error).__name__
+            raise
+        finally:
+            receipt["elapsedMs"] = round((time.monotonic() - started) * 1000, 3)
+            record_request(receipt)
     for target in ("java", "csharp"):
         port = value["ports"][target]; ready_path = "/api/admin/sys/yz_manager/cap-config"
         if exchange is not None:
@@ -284,14 +297,21 @@ def identity_http(value, fixture, credentials, exchange=None):
             status,body=ask(target,"ready","GET",ready_path)
             if status!=200 or body.get("data")!={"enabled":False,"apiEndpoint":""}:raise RuntimeError("真实宿主公开配置不符")
         else:
-            deadline = time.monotonic() + 90
+            started = time.monotonic()
+            deadline = started + 90
             while True:
                 try:
                     status, body = send(port, "GET", ready_path)
                     if status == 200 and body.get("code") == 200 and body.get("data") == {"enabled": False, "apiEndpoint": ""}: break
                 except (OSError, ValueError): pass
-                if time.monotonic() >= deadline: raise RuntimeError("真实宿主公开配置未就绪")
+                if time.monotonic() >= deadline:
+                    if record_request is not None:
+                        record_request({"target":target,"step":"ready","errorType":"ReadinessDeadline",
+                                        "elapsedMs":round((time.monotonic()-started)*1000,3)})
+                    raise RuntimeError("真实宿主公开配置未就绪")
                 time.sleep(0.2)
+            if record_request is not None:
+                record_request({"target":target,"step":"ready","status":200,"elapsedMs":round((time.monotonic()-started)*1000,3)})
         writer = fixture["common"][0]
         status, failure = ask(target, "wrong-password", "POST", "/api/admin/sys/yz_manager/login", {"username": writer["name"], "password": "wrong-" + credentials["writer"]["password"], "captchaVerification": ""}, form=True)
         if (status, failure.get("code")) != ((200, 500) if target == "java" else (401, 401)) or failure.get("map", {}).get("loginStateId"):
@@ -427,6 +447,7 @@ def run(value):
         state["acceptedScope"]="paired-write-measurement-only" if write_measurement is not None else "paired-read-measurement-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
+    measurement_hosts_started = False
     try:
         resources.verify_server()
         if (root / "resource-state.json").exists() or mysql.ownership_path(value["runId"][:16]).exists(): raise RuntimeError("已有资源归属记录，拒绝复用")
@@ -468,12 +489,22 @@ def run(value):
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
         if exchange is not None:
             stage("核验原进程监听及采集就绪，禁止以发布端口代替");state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
+        elif measurement is not None:
+            measurement_hosts_started = True
+            stage("核验两端真实进程监听")
+            state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
         targets = {t: {"container": "metarill-perf-" + value["runId"] + "-" + t, "expectedImageId": resources.images_for(value)[t], "containerPort": 8080, "baseUrl": f"http://127.0.0.1:{value['ports'][t]}/api"} for t in ("java", "csharp")}
         probe = http.Server200LocalProbe(); before = http.equal_limits(probe, targets)
         state["transport"] = http.verify_transport({"transportProof": "server200-loopback-v1", "runId": value["runId"], "targets": targets}, probe, before)
         stage("真实form密码登录和原页普通权限")
         physical_before = business_counts(mysql, value)
-        state["httpFacts"], tokens = identity_http(value,fixture,credentials,exchange) if exchange is not None else identity_http(value, fixture, credentials)
+        if exchange is not None:
+            state["httpFacts"], tokens = identity_http(value,fixture,credentials,exchange)
+        elif measurement is not None:
+            state["identityRequests"] = []
+            state["httpFacts"], tokens = identity_http(value,fixture,credentials,record_request=state["identityRequests"].append)
+        else:
+            state["httpFacts"], tokens = identity_http(value,fixture,credentials)
         if business_counts(mysql, value) != physical_before: raise RuntimeError("只读/无权验收改变了物理业务行")
         state["deniedWritesPhysicalRowsUnchanged"] = True
         if exchange is not None:
@@ -520,6 +551,11 @@ def run(value):
         state["errorType"] = type(error).__name__
         state["failure"] = failure_evidence(error)
     finally:
+        if measurement_hosts_started and not state["passed"]:
+            try:
+                state["hostDiagnostics"]=resources.manage(descriptor,"snapshot-hosts")
+            except Exception as error:
+                state["hostDiagnosticsError"]=type(error).__name__
         if exchange is not None:
             graceful=False;dead=False;resource_path=root/"resource-state.json"
             try:

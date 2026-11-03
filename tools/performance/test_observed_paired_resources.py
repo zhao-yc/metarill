@@ -194,6 +194,18 @@ class ObservedResourceTests(unittest.TestCase):
 
 
 class ListenerParserTests(unittest.TestCase):
+    def test_measurement_requires_two_listeners_without_creating_observation_index(self):
+        """测量禁用 SQL 观察，不能以观察标记当启动条件或声称 Boot 已结束。"""
+        value={"purpose":subject.MEASUREMENT_RESOURCES}
+        state={"items":[{"target":side,"name":side} for side in ("java","csharp")]}
+        with mock.patch.object(subject,"require_owned"),mock.patch.object(subject,"inspect"), \
+             mock.patch.object(subject,"docker",return_value='{"running":true,"pid":1234}'), \
+             mock.patch.object(subject,"process_listening",side_effect=[False,True,True,True]), \
+             mock.patch.object(subject.time,"sleep") as sleep:
+            result=subject.wait_hosts(value,Path("unused-no-observation-root"),state)
+        sleep.assert_called_once()
+        self.assertEqual({"originalProcessListenersVerified":True,"httpRequestsSent":0},result)
+
     def test_kernel_state_and_port_must_both_match(self):
         """ESTABLISHED／其它端口和仅Docker发布回执都不是内核LISTEN。"""
         header='sl local_address rem_address st\n'

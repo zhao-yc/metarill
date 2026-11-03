@@ -90,6 +90,24 @@ class MeasurementFlowTests(previous.FlowFixture):
         self.assertLess(self.events.index("measure"),self.events.index("database-cleanup"))
 
 
+    def test_identity_failure_keeps_request_receipt_and_logs_before_cleanup(self):
+        """真实测量前身份失败留精确阶段，采集日志后仍按既定归属清理。"""
+        def fail(value,model,credentials,*,record_request):
+            record_request({"target":"java","step":"page-reader","errorType":"TimeoutError","elapsedMs":5000})
+            raise TimeoutError("private transport detail")
+        self.identity.side_effect=fail
+        with mock.patch.object(native,"seed_measurement_database",return_value={}), \
+             mock.patch.object(measurement,"run_read_measurement") as replay,contextlib.redirect_stdout(io.StringIO()):
+            result=native.run(self.value)
+        replay.assert_not_called()
+        self.assertFalse(result["passed"])
+        self.assertEqual("TimeoutError",result["identityRequests"][0]["errorType"])
+        self.assertNotIn("private transport detail",json.dumps(result))
+        self.assertLess(self.events.index("resources-wait-hosts"),self.events.index("resources-snapshot-hosts"))
+        self.assertLess(self.events.index("resources-snapshot-hosts"),self.events.index("resources-cleanup"))
+        self.assertEqual([],result["cleanupErrors"])
+
+
 class WriteMeasurementFlowTests(previous.FlowFixture):
     def setUp(self):
         self.original_verify=native.verify_tool_sources
