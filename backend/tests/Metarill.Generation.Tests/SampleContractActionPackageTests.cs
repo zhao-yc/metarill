@@ -13,6 +13,8 @@ using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
+using Metarill.Data.Schema;
+using MySqlConnector;
 using Metarill.GlobalSample.Business;
 using Metarill.Runtime.Agent;
 using Metarill.Runtime.Security;
@@ -63,6 +65,7 @@ public sealed partial class SampleContractActionPackageTests(SampleContractActio
         Assert.Equal(1, run.Trace.Count(value => value == "begin")); Assert.Equal(1, run.Trace.Count(value => value == "commit")); Assert.Equal(1, run.Trace.Count(value => value == "write"));
         Assert.True(run.Trace.IndexOf("lock") < run.Trace.IndexOf("write")); Assert.Equal("commit", run.Trace[^1]); Assert.Null(run.Session.CurrentTransaction);
         var notification = Assert.Single(run.Observer.Contexts); Assert.Equal("86001", notification.BusinessButtonId); Assert.Contains("remarks", notification.SubmittedFields.Keys);
+        Assert.Equal(1, run.ReverseReads);
         Assert.All(run.Transactions, transaction => Assert.Same(notification.Transaction, transaction)); Assert.Equal(0, run.Authorization.PageChecks);
     }
     /// <summary>第二次真实生成写入被原partial金额规则拒绝，首笔更新尚未提交并回滚。</summary>
@@ -339,6 +342,8 @@ public sealed class SampleContractActionPackageFixture : IAsyncLifetime
 internal sealed class SampleContractActionRun : IDisposable
 {
     private readonly Type entityType; private readonly object business; private object row;
+    private readonly DatabaseSchema physicalSchema;
+    internal int ReverseReads { get; private set; }
     internal readonly List<string> Trace = []; internal readonly List<DbTransaction> Transactions = [];
     internal readonly SampleAuthorization Authorization; internal readonly SampleObserver Observer = new();
     internal DatabaseSession Session { get; }
@@ -347,6 +352,7 @@ internal sealed class SampleContractActionRun : IDisposable
     internal object Service {get;}
     internal SampleContractActionRun(Assembly assembly, MetadataCatalog metadata)
     {
+        physicalSchema = MySqlSchemaPlanner.Compile(metadata, "offline");
         entityType = assembly.GetType("Metarill.GlobalSample.Generated.Entities.SampleContract", true)!; row = Activator.CreateInstance(entityType)!;
         Set("Id", 7L); Set("Name", "待处理合同😀"); Set("Amount", 10.00m); Set("Remarks", "待处理"); Set("SampleCustomerId", "9"); Set("SampleCustomerName", "客户");
         Authorization = new(new(8, "固定样板身份", false, metadata.YzProjectId, metadata.ConfigPages.Single(page => page.Id == "81002").YzAdminTypeId));
@@ -441,8 +447,82 @@ internal sealed class SampleContractActionRun : IDisposable
         private ConnectionState state; [System.Diagnostics.CodeAnalysis.AllowNull] public override string ConnectionString { get; set; } = "";
         public override string Database => "offline"; public override string DataSource => "offline"; public override string ServerVersion => "offline"; public override ConnectionState State => state;
         public override void ChangeDatabase(string value) => throw new NotSupportedException(); public override void Open() => state = ConnectionState.Open; public override void Close() => state = ConnectionState.Closed;
-        protected override DbTransaction BeginDbTransaction(IsolationLevel level) { owner.Trace.Add("begin"); return new Transaction(this, owner); } protected override DbCommand CreateDbCommand() => throw new NotSupportedException("本用例不允许未说明的原生SQL。");
+        protected override DbTransaction BeginDbTransaction(IsolationLevel level) { owner.Trace.Add("begin"); return new Transaction(this, owner); } protected override DbCommand CreateDbCommand() => new RelationReadCommand(this, owner);
     }
+    /// <summary>只提供已发布结构及样本的空下游集合，拒绝未声明SQL和原生写入。</summary>
+    private sealed class RelationReadCommand(DbConnection connection, SampleContractActionRun owner) : DbCommand
+    {
+        private readonly MySqlCommand parameters = new();
+        [System.Diagnostics.CodeAnalysis.AllowNull] public override string CommandText { get; set; } = "";
+        public override int CommandTimeout { get; set; }
+        public override CommandType CommandType { get; set; }
+        public override bool DesignTimeVisible { get; set; }
+        public override UpdateRowSource UpdatedRowSource { get; set; }
+        protected override DbConnection? DbConnection { get; set; } = connection;
+        protected override DbTransaction? DbTransaction { get; set; }
+        protected override DbParameterCollection DbParameterCollection => parameters.Parameters;
+        protected override DbParameter CreateDbParameter() => new MySqlParameter();
+        public override void Cancel() { }
+        public override void Prepare() { }
+        public override int ExecuteNonQuery() => throw new NotSupportedException("样板传播只允许已声明的原生读。");
+
+        /// <summary>关系检查必须复用实际ORM写入的事务。</summary>
+        private void RecordRead()
+        {
+            Assert.NotNull(owner.Session.CurrentTransaction);
+            Assert.Same(owner.Session.CurrentTransaction, DbTransaction);
+            owner.Transactions.Add(DbTransaction!);
+        }
+
+        /// <summary>只校验连接库名和已发布依赖表的存储引擎。</summary>
+        public override object ExecuteScalar()
+        {
+            RecordRead();
+            if (CommandText == "SELECT DATABASE()") return owner.physicalSchema.Database;
+            if (CommandText == "SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'")
+            {
+                _ = PublishedTable((string)parameters.Parameters["table"].Value!);
+                return "InnoDB";
+            }
+            throw new NotSupportedException("样板传输拒绝未知标量查询。");
+        }
+
+        /// <summary>按已发布模型提供列快照、元数据探针和固定合同反查。</summary>
+        protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
+        {
+            RecordRead();
+            var result = new DataTable();
+            if (CommandText == "SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table")
+            {
+                foreach (var field in new[] { "column_name", "column_type", "is_nullable", "column_key", "extra", "generation_expression" })
+                    result.Columns.Add(field, typeof(string));
+                foreach (var column in PublishedTable((string)parameters.Parameters["table"].Value!).Columns)
+                    result.Rows.Add(column.Name, column.StoreType, column.Nullable ? "YES" : "NO", column.PrimaryKey ? "PRI" : "", "", "");
+            }
+            else if (System.Text.RegularExpressions.Regex.Match(CommandText, @"^SELECT (\x60\w+\x60(?:,\x60\w+\x60)*) FROM \x60(\w+)\x60 LIMIT 0$") is { Success: true } probe)
+            {
+                var table = PublishedTable(probe.Groups[2].Value);
+                foreach (var column in probe.Groups[1].Value.Split(',').Select(value => value[1..^1]))
+                    Assert.Contains(table.Columns, field => field.Name == column);
+            }
+            else if (CommandText.StartsWith("SELECT b.`id` FROM `sample_contract_line` b WHERE ", StringComparison.Ordinal)
+                && CommandText.EndsWith(" ORDER BY b.`id` LIMIT 128 FOR UPDATE", StringComparison.Ordinal))
+            {
+                Assert.Equal(7L, parameters.Parameters["target_id"].Value);
+                Assert.Equal("7", parameters.Parameters["target_text"].Value);
+                Assert.Equal(0L, parameters.Parameters["after"].Value);
+                Assert.Equal(owner.Authorization.RequireActor().ProjectId, parameters.Parameters["project_scope_text"].Value);
+                owner.ReverseReads++;
+                result.Columns.Add("id", typeof(long));
+            }
+            else throw new NotSupportedException("样板传输拒绝未知关系查询：" + CommandText);
+            return result.CreateDataReader();
+        }
+
+        /// <summary>未知表不能从夹具取得成功回执。</summary>
+        private TableSchema PublishedTable(string name) => Assert.Single(owner.physicalSchema.Tables, table => table.Name == name);
+    }
+
     private sealed class Transaction(Connection connection, SampleContractActionRun owner) : DbTransaction
     {
         private readonly object snapshot = owner.Clone(owner.row);
