@@ -153,6 +153,52 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(trial["scenarioThroughput"], 0)
         self.assertFalse(subject.compare_pair(trial, trial, {**config(), "iterations": 1})["valid"])
 
+    def test_late_resource_sample_does_not_satisfy_the_measured_window(self):
+        """真实采样线程第二次返回晚于计时，不能补齐两次采样的要求。"""
+        entered_second, finish_second = threading.Event(), threading.Event()
+        owner = threading.current_thread()
+        sampler = None
+        queries = 0
+        main_clock = iter((10.0, 12.0))
+
+        class DelayedProbe(Probe):
+            def sample(self, name):
+                nonlocal sampler, queries
+                sampler = threading.current_thread()
+                queries += 1
+                if queries == 2:
+                    entered_second.set()
+                    if not finish_second.wait(5):
+                        raise AssertionError("未见正式计时结束")
+                    return {"Name": name, "CPUPerc": "90%", "MemUsage": "40MiB / 512MiB"}
+                return super().sample(name)
+
+        def clock():
+            thread = threading.current_thread()
+            if thread is owner:
+                value = next(main_clock)
+                if value == 12.0:
+                    finish_second.set()
+                return value
+            if thread is sampler:
+                return 11.0 if queries == 1 else 13.0
+            return 11.5
+
+        def transport(*_):
+            self.assertTrue(entered_second.wait(5))
+            return "ok"
+
+        cfg = config()
+        with mock.patch.object(subject.time, "perf_counter", side_effect=clock):
+            trial = subject.run_trial(cfg,cfg["targets"]["java"],cfg["scenarios"][0],1,0,"measured",1,transport,DelayedProbe())
+        self.assertEqual(1,trial["completedScenarios"])
+        self.assertEqual(2,queries)
+        self.assertEqual(1,trial["resourceSampleCount"])
+        self.assertEqual([],trial["resourceErrors"])
+        self.assertEqual([1.0],[sample["elapsedSeconds"] for sample in trial["resources"]])
+        self.assertEqual([3.0],[sample["elapsedSeconds"] for sample in trial["lateResources"]])
+        self.assertEqual({"meanCpuPercent":5.0,"observedMaxMemoryBytes":20*1024*1024},trial["sampledResources"])
+
     def test_resource_failures_or_limits_drift_prevent_valid_comparison(self):
         class Broken(Probe):
             def sample(self, name): raise OSError("原始连接错误可能含秘密")

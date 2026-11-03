@@ -461,10 +461,15 @@ def run_trial(config, target, scenario, concurrency, round_index, phase, iterati
                 sample_errors.append("SamplerDeadlineExceeded")
     rows.sort(key=lambda row: row["iteration"])
     successful = [row for row in rows if not row["error"]]
+    # 已发出的 Docker 查询可能在工作负载结束后才返回，保留原样供审查但不参与资源判定。
+    collected = samples.copy()
+    timed_samples = [item for item in collected if item["elapsedSeconds"] <= elapsed]
+    late_samples = [item for item in collected if item["elapsedSeconds"] > elapsed]
     report = {"elapsedSeconds": elapsed, "completedScenarios": len(successful), "failedScenarios": len(rows) - len(successful), "scenarioThroughput": len(successful) / elapsed if elapsed > 0 else 0,
             "p50Ms": percentile([row["elapsedMs"] for row in successful], 50), "p95Ms": percentile([row["elapsedMs"] for row in successful], 95), "p99Ms": percentile([row["elapsedMs"] for row in successful], 99),
-            "rows": rows, "resources": samples, "resourceErrors": sample_errors, "resourceSampleCount": len(samples),
-            "sampledResources": {"meanCpuPercent": statistics.mean(item["values"]["cpuPercent"] for item in samples) if samples else None, "observedMaxMemoryBytes": max((item["values"]["memoryBytes"] for item in samples), default=None)}}
+            "rows": rows, "resources": timed_samples, "lateResources": late_samples,
+            "resourceErrors": sample_errors.copy(), "resourceSampleCount": len(timed_samples),
+            "sampledResources": {"meanCpuPercent": statistics.mean(item["values"]["cpuPercent"] for item in timed_samples) if timed_samples else None, "observedMaxMemoryBytes": max((item["values"]["memoryBytes"] for item in timed_samples), default=None)}}
     if any(step.get("responseKind") == "binary" for step in scenario["steps"]):
         # 只统计完整成功场景的已验证字节；部分失败的已读数据不能抬高有效业务吞吐。
         downloads = [item for row in successful for item in row["binaryResponses"]]
