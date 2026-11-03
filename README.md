@@ -30,7 +30,7 @@
 1. 按 [配置示例](backend/appsettings.Example.json) 创建不提交的 `.local/development.settings.json`。提前准备独立的 MySQL 平台库和业务库，以及仅有对应库权限的账号；连接串中的库名须与 `ExpectedDatabase` 完全一致。
 2. 为平台登录准备可访问的 Redis DB0。在同一私有文件设置 `Metarill:Authentication:LoginFailures:ConnectionString`，也可通过环境变量 `Metarill__Authentication__LoginFailures__ConnectionString` 提供。公开示例留空。缺少配置或 Redis 不可用时，登录会提示“登录安全校验暂不可用，请稍后再试”。
 3. 设置随机管理员密码，为不同服务进程分配独立的 `WorkerId`。部署时通过服务端 `Metarill:ProjectDatabases` 按项目 ID 配置额外业务库；不能由客户端提供连接串。
-4. 执行以下命令。初始化会显式预览、执行首期结构并补缺失种子；重复初始化不会重置密码或复活已删除的元数据。普通启动不执行结构同步。
+4. Windows 可执行以下命令。初始化会显式预览、执行首期结构并补缺失种子；重复初始化不会重置密码或复活已删除的元数据。普通启动不执行结构同步。
 
 ```powershell
 npm ci --prefix frontend/metarill_uni_admin
@@ -47,6 +47,18 @@ API 默认地址为 `http://127.0.0.1:8088/api`，内嵌 MCP 为 `/api/mcp`。�
 pwsh -NoProfile -File scripts/dev.ps1 logs
 pwsh -NoProfile -File scripts/dev.ps1 stop
 ```
+
+macOS／Linux 可在仓库根目录使用 .NET SDK 启动平台后端。仓库已提交平台和示例的生成产物，首次启动可直接使用。需要重新生成时，先安装锁定的前端依赖。
+
+```bash
+dotnet build backend/src/Metarill.Api --configuration Release
+export ASPNETCORE_ENVIRONMENT=Production
+# 首次安装先确认私有配置中的目标库，再执行显式初始化。
+dotnet backend/src/Metarill.Api/bin/Release/net10.0/Metarill.Api.dll --initialize
+dotnet backend/src/Metarill.Api/bin/Release/net10.0/Metarill.Api.dll
+```
+
+直接启动时日志输出到终端，按 Ctrl+C 停止宿主。另开终端可运行 `curl http://127.0.0.1:8088/api/runtime/health/check` 检查是否返回 HTTP 200 和 `code: 200`。
 
 完成上述依赖安装后，申请并配置自己的 DCloud AppID，再使用 HBuilderX 打开前端工程。已有一键入口见 [.vscode/tasks.json](.vscode/tasks.json) 和 [.codex/environments/environment.toml](.codex/environments/environment.toml)。完整前端要求及许可状态见 [前端说明](frontend/metarill_uni_admin/README.md)。
 

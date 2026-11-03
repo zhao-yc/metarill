@@ -19,10 +19,9 @@ SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packa
 dotnet run --project backend/Application.Host -- --schema-preview
 # 确认变更后才执行：同一进程重新预览并执行，记录 .local/schema-history.jsonl。
 dotnet run --project backend/Application.Host -- --schema-apply
-dotnet run --project backend/Application.Host --urls http://127.0.0.1:5080
 ```
 
-FullApplication的web-database-v1结构同步严格组合业务project.json、files.json（三张文件基础表）、security.json（六张认证/权限基础表、128列、5索引）及固定Agent模型（两表、44列、3唯一索引）。安全基础表不开放业务CRUD页面；已带安全表CRUD页的应用仍拒绝Full，不会自动降级。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
+FullApplication的web-database-v1结构同步严格组合业务project.json、files.json（三张文件基础表）、security.json（含登录审计表 `yz_manager_log` 的七张安全基础表）及固定Agent模型（两表、44列、3唯一索引）。安全基础表不开放业务CRUD页面；已带安全表CRUD页的应用仍拒绝Full，不会自动降级。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
 
 ## 认证
 
@@ -34,7 +33,15 @@ FullApplication默认`Authentication:Mode=Web`，使用数据库账号、PBKDF2�
 dotnet run --project backend/Application.Host -- --initialize-security
 ```
 
-该命令只初始化本包项目/后台及新生成长ID的应用管理员角色/账号，**不执行DDL、不导入平台Config/Demo/Agent/设备数据**。重复仅核验并返回unchanged，不重置密码、复活墓碑或补绑既有用户名。并发初始化由真实事务与固定项目主键取锁/唯一冲突保护；冲突失败回滚，不自动重试。初始化需此前已安装六表，缺表直接失败。
+该命令只初始化本包项目/后台及新生成长ID的应用管理员角色/账号，**不执行DDL、不导入平台Config/Demo/Agent/设备数据**。重复仅核验并返回unchanged，不重置密码、复活墓碑或补绑既有用户名。并发初始化由真实事务与固定项目主键取锁/唯一冲突保护；冲突失败回滚，不自动重试。初始化前须完成上述包结构同步。
+
+配置私有 Redis DB0 后再登录。将连接串设置在 `Authentication:LoginFailures:ConnectionString` 或环境变量 `Authentication__LoginFailures__ConnectionString`。缺少配置或 Redis 不可用时，正式登录会拒绝。
+
+在包根启动宿主，日志输出到终端，按 Ctrl+C 停止。
+
+```powershell
+dotnet run --project backend/Application.Host -- --urls http://127.0.0.1:5080
+```
 
 POST `/api/admin/sys/yz_manager/login`保留URL编码表单或JSON的username/password及响应`map.loginStateId`。令牌只能在loginStateId或Bearer头传输，不接受query身份。每次请求重读会话、账号和同后台角色，停用、到期或撤权下次请求生效。仅包内真实项目/后台允许登录；本应用后台super使用独立IsRealmSuper，不产生平台管理员身份，不开放包外项目选择。Agent授权只绑定本应用已发布后台，显式开发身份不能签发。
 

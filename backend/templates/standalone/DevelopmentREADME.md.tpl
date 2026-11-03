@@ -19,7 +19,7 @@ SDK 与直接 NuGet 依赖版本已固定；首次 restore 生成各项目 packa
 dotnet run --project backend/Application.Host -- --schema-preview
 # 确认变更后才执行：同一进程重新预览并执行，记录 .local/schema-history.jsonl。
 dotnet run --project backend/Application.Host -- --schema-apply
-dotnet run --project backend/Application.Host --urls http://127.0.0.1:5080
+dotnet run --project backend/Application.Host -- --urls http://127.0.0.1:5080
 ```
 
 结构同步组合业务 project.json 与从平台源头派生的 files.json（三张文件基础表、字段及完整索引）。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
