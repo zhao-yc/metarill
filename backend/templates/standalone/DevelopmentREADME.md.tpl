@@ -110,3 +110,7 @@ Entity、页级DTO/VO、Mapper、Service、Controller及导入请求均支持同
 ### 数据库Web模式的原失败审计
 
 认证失败回滚后独立记录`yz_manager_log`，保留原失败事件8／执行结果2；日志不含密码、令牌或异常正文。现有工程应同步Security运行时、WebAuthentication及security逻辑元数据后重新编译，并按既有结构预览→核对SQL→显式执行→核验流程补齐日志表；正常启动不会自动DDL。日志写入故障仍拒绝登录，不生成会话；无数据库的显式开发身份不写这张表。账号／IP失败锁和Cap接线仍按当前版本能力清单核对，不能把本项视为原登录全部兼容。
+
+## 原Cap安全验证
+
+完整数据库Web宿主支持Authentication:Cap的Enabled／ServerUrl／SiteKey／SecretKey；默认关闭，启用后缺配置或验证失败明确拒绝。SecretKey只从忽略的私有设置或Authentication__Cap__SecretKey环境变量读取，不进入前端或公开配置；接口沿用cap-config与captchaVerification。配套同步后端运行时及原登录模板再启用，App／小程序在启用时沿原规则明确拒绝，不绕过验证码。仅后端开发演示模式不提供生产Cap能力。真实站点／密钥及设备验收由部署者补齐，编译不代表真实验证通过。

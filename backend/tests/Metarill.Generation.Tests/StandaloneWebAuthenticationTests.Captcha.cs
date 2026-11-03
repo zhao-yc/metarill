@@ -3,6 +3,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Metarill.Generation.Tests;
@@ -25,6 +28,54 @@ public sealed partial class StandaloneWebAuthenticationTests
     {
         var context=new DefaultHttpContext();context.Request.Method=method;context.Request.Path=path;
         Assert.Equal(required,await package.TopLevel("RequiresIdentity",context));
+    }
+
+    /// <summary>原启用开关必须真实生效，缺少token在任何数据库身份查询前按原R500拒绝。</summary>
+    [Fact]
+    public async Task Enabled_cap_keeps_original_public_configuration_and_missing_token_rejection()
+    {
+        var host=package.HostDirectory;var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet")
+        {WorkingDirectory=host,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+        start.ArgumentList.Add(Path.Combine(host,"bin/Debug/net10.0/Application.Host.dll"));
+        start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["DOTNET_ENVIRONMENT"]="Production";
+        start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";
+        start.Environment["Database__ConnectionString"]="";start.Environment["Database__ExpectedDatabase"]="";
+        start.Environment["Authentication__Cap__Enabled"]="true";start.Environment["Authentication__Cap__ServerUrl"]="https://cap.example.invalid";
+        start.Environment["Authentication__Cap__SiteKey"]="test-site";start.Environment["Authentication__Cap__SecretKey"]="unit-only-private-cap-value";
+        start.Environment["Logging__LogLevel__Default"]="Warning";
+        await using var server=await FreshHost.StartAsync(start,"/health");
+        using var config=await server.Client.GetAsync(CapConfigurationPath);var body=await config.Content.ReadAsStringAsync();var value=JsonSerializer.Deserialize<JsonElement>(body);
+        Assert.Equal(HttpStatusCode.OK,config.StatusCode);Assert.Equal(200,value.GetProperty("code").GetInt32());Assert.True(value.GetProperty("data").GetProperty("enabled").GetBoolean());
+        Assert.Equal("https://cap.example.invalid/test-site/",value.GetProperty("data").GetProperty("apiEndpoint").GetString());Assert.DoesNotContain("unit-only-private-cap-value",body);
+        using var response=await server.Client.PostAsJsonAsync("/api/admin/sys/yz_manager/login",new{username="no-database-user",password="unit-only-password",captchaVerification=""});
+        var rejected=await response.Content.ReadFromJsonAsync<JsonElement>();Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.Equal(500,rejected.GetProperty("code").GetInt32());Assert.Equal("请先完成安全验证",rejected.GetProperty("msg").GetString());
+        Assert.False(rejected.TryGetProperty("map",out var map)&&map.TryGetProperty("loginStateId",out _));
+    }
+
+    /// <summary>真实宿主把原第三字段转给本机合成Cap；通过才抵达无库拒绝，重定向不能泄出私钥。</summary>
+    [Theory][InlineData("accepted",false)][InlineData("accepted",true)][InlineData("rejected",false)][InlineData("rejected",true)][InlineData("redirect",false)][InlineData("redirect",true)]
+    public async Task Enabled_cap_in_real_host_uses_original_payload_and_never_follows_redirect(string scenario,bool json)
+    {
+        var builder=WebApplication.CreateBuilder();builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:0");await using var fake=builder.Build();
+        var hits=0;var redirected=0;string? secret=null;string? proof=null;string? query=null;
+        fake.MapPost("/test-site/siteverify",async(HttpContext context)=>
+        {
+            Interlocked.Increment(ref hits);using var body=await JsonDocument.ParseAsync(context.Request.Body);secret=body.RootElement.GetProperty("secret").GetString();proof=body.RootElement.GetProperty("response").GetString();query=context.Request.QueryString.Value;
+            if(scenario=="redirect"){context.Response.StatusCode=302;context.Response.Headers.Location="/redirect-target";return;}
+            await context.Response.WriteAsJsonAsync(new{success=scenario=="accepted"});
+        });
+        fake.MapMethods("/redirect-target",new[]{"GET","POST"},()=>{Interlocked.Increment(ref redirected);return new{success=true};});await fake.StartAsync();
+        var host=package.HostDirectory;var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet")
+        {WorkingDirectory=host,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};start.ArgumentList.Add(Path.Combine(host,"bin/Debug/net10.0/Application.Host.dll"));
+        start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["DOTNET_ENVIRONMENT"]="Production";start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";
+        start.Environment["Database__ConnectionString"]="";start.Environment["Database__ExpectedDatabase"]="";
+        start.Environment["Authentication__Cap__Enabled"]="true";start.Environment["Authentication__Cap__ServerUrl"]=fake.Urls.Single();start.Environment["Authentication__Cap__SiteKey"]="test-site";start.Environment["Authentication__Cap__SecretKey"]="unit-only-wire-secret";start.Environment["Logging__LogLevel__Default"]="Warning";
+        await using var server=await FreshHost.StartAsync(start,"/health");
+        using HttpContent content=json?JsonContent.Create(new{username="no-database-user",password="unit-only-password",captchaVerification="wire-proof"}):new FormUrlEncodedContent(new Dictionary<string,string>{{"username","no-database-user"},{"password","unit-only-password"},{"captchaVerification","wire-proof"}});
+        using var response=await server.Client.PostAsync("/api/admin/sys/yz_manager/login",content);var value=await response.Content.ReadFromJsonAsync<JsonElement>();Assert.Equal(1,hits);Assert.Equal(0,redirected);Assert.Equal("unit-only-wire-secret",secret);Assert.Equal("wire-proof",proof);Assert.True(string.IsNullOrEmpty(query));
+        Assert.DoesNotContain("unit-only-wire-secret",value.GetRawText());Assert.False(value.TryGetProperty("map",out var map)&&map.TryGetProperty("loginStateId",out _));
+        if(scenario=="accepted"){Assert.Equal(HttpStatusCode.Unauthorized,response.StatusCode);Assert.Equal(401,value.GetProperty("code").GetInt32());}
+        else{Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.Equal(500,value.GetProperty("code").GetInt32());Assert.Equal(scenario=="redirect"?"安全验证暂不可用，请稍后再试":"安全验证失败，请重试",value.GetProperty("msg").GetString());}
     }
 
     /// <summary>真实Production/Web进程在无数据库、无身份时仍提供原登录前配置；保护接口继续401。</summary>

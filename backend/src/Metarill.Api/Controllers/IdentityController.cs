@@ -9,16 +9,18 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace Metarill.Api.Controllers;
 
 [ApiController,Route("api/admin/sys/yz_manager")]
-public sealed class IdentityController(AuthenticationService authentication,HttpRuntimeAuthorization authorization,MenuWorkbenchBusiness menus,SqlRowStore store,MetadataRegistry registry):ControllerBase
+public sealed class IdentityController(AuthenticationService authentication,HttpRuntimeAuthorization authorization,MenuWorkbenchBusiness menus,SqlRowStore store,MetadataRegistry registry,LoginCapVerifier cap):ControllerBase
 {
     /// <summary>兼容既有表单协议；不返回密码或会话摘要。</summary>
     [HttpPost("login"),EnableRateLimiting("login")]
-    public async Task<R<Dictionary<string,object?>>> Login([FromForm]string username,[FromForm]string password,CancellationToken cancellationToken)
+    public async Task<R<Dictionary<string,object?>>> Login([FromForm]string username,[FromForm]string password,CancellationToken cancellationToken,[FromForm]string? captchaVerification=null)
     {
+        await cap.VerifyAsync(captchaVerification,cancellationToken);
         var result=await authentication.LoginFromWebAsync(username,password,HttpContext.Connection.RemoteIpAddress?.ToString(),cancellationToken);
         var response=R<Dictionary<string,object?>>.Success(result.User);response.Map["loginStateId"]=result.Token;return response;
     }
-    [HttpGet("cap-config")]public R<object> CapConfig()=>R<object>.Success(new{enabled=false,apiEndpoint=""});
+    /// <summary>原匿名配置只含启用状态和公开站点地址，禁止缓存过期关闭状态。</summary>
+    [HttpGet("cap-config"),ResponseCache(NoStore=true,Location=ResponseCacheLocation.None)]public R<object> CapConfig()=>cap.PublicConfiguration();
     [HttpPost("exit_login")]public async Task<R<object>> Logout(CancellationToken cancellationToken){await authentication.LogoutAsync(authorization.RequireIdentity().SessionId,cancellationToken);return R<object>.Success();}
     [HttpGet("getMenu")]public async Task<object> GetMenu(CancellationToken cancellationToken)
     {

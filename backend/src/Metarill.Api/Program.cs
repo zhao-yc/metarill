@@ -54,6 +54,9 @@ builder.Services.AddSingleton<SchemaService>();
 builder.Services.AddSingleton<ProjectSchemaService>();
 builder.Services.AddSingleton<BootstrapService>();
 builder.Services.AddSingleton<AuthenticationService>();
+// 平台与完整包共用原Cap验证器；密钥只留在服务端，不随重定向或Cookie转发。
+builder.Services.AddSingleton(builder.Configuration.GetSection("Metarill:Authentication:Cap").Get<LoginCapOptions>()??new LoginCapOptions());
+builder.Services.AddHttpClient<LoginCapVerifier>(client=>client.Timeout=TimeSpan.FromSeconds(10)).ConfigurePrimaryHttpMessageHandler(()=>new HttpClientHandler{AllowAutoRedirect=false,UseCookies=false});
 builder.Services.AddSingleton<CSharpGenerator>();
 builder.Services.AddSingleton<ApplicationPackager>();
 builder.Services.AddSingleton(new GenerationAssistantOptions(Path.Combine(root, ".local", "generation-assistant")));

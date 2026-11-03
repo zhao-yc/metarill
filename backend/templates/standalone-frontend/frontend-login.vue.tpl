@@ -82,20 +82,115 @@
 </template>
 
 <script>
+// 保留原H5 Cap执行器；App／小程序不引入浏览器Worker，启用时明确拒绝。
+// #ifdef H5
+import Cap from "cap-widget";
+// #endif
 import yzp from '@/common/yzp'
 import application from '@/common/application.generated.json'
 export default {
- data(){return{user_name:'',password:'',loginSubmitting:false,redirectUrl:'',enevName:'独立应用',projectName:application.name}},
- computed:{loginFormAction(){return getApp().globalData.environment.base_url+'/admin/sys/yz_manager/login'},loginButtonText(){return this.loginSubmitting?'登录中':'登录'}},
- /** 已保存的令牌仍需服务器重新核验，不能只看本地缓存就进入业务页。 */
- onLoad(options){this.redirectUrl=options?.redirect?decodeURIComponent(options.redirect):'';if(uni.getStorageSync('loginStateId'))yzp.request({url:'/admin/sys/yz_manager/getCurrentPermissions',sendSessionId:true,showError:false,success:response=>{if(response.code===200){yzp.saveCurrentPermissions(response.data);yzp.navigateAfterLogin(this.redirectUrl)}}})},
+ data(){return{user_name:'',password:'',loginSubmitting:false,redirectUrl:'',enevName:'独立应用',projectName:application.name,capConfigLoaded:false,capEnabled:false,capApiEndpoint:'',capClient:null,capProgress:0,capStatusText:''}},
+ computed:{loginFormAction(){return getApp().globalData.environment.base_url+'/admin/sys/yz_manager/login'},loginButtonText(){return this.loginSubmitting&&this.capStatusText?this.capStatusText:this.loginSubmitting?'登录中':'登录'}},
+ /** 保留原匿名配置和持久会话复核，旧缓存不能作为真实身份或验证码证明。 */
+ onLoad(options){this.loadCapConfig().catch(()=>{});this.redirectUrl=options?.redirect?decodeURIComponent(options.redirect):'';if(uni.getStorageSync('loginStateId'))yzp.request({url:'/admin/sys/yz_manager/getCurrentPermissions',sendSessionId:true,showError:false,success:response=>{if(response.code===200){yzp.saveCurrentPermissions(response.data);yzp.navigateAfterLogin(this.redirectUrl)}}})},
  methods:{
   /** H5输入从target读取，uni-app其他端从detail读取，主动清空保持空字符串。 */
   onUsernameInput(event){this.user_name=event?.detail?.value??event?.target?.value??''}, onPasswordInput(event){this.password=event?.detail?.value??event?.target?.value??''},
   /** 保留原生表单与回车交互，认证密码只提交给明确配置的API。 */
   submitLoginForm(event){if(this.loginSubmitting||event?.isComposing)return;const form=this.$el?.querySelector('#yzp-login-form');if(form?.requestSubmit)form.requestSubmit();else this.login()},
-  /** 服务器签发不透明会话；认证拒绝保留原登录页的模态提示，项目取包内公开描述。 */
-  login(){if(this.loginSubmitting)return;if(!this.user_name||!this.password){uni.showModal({content:'请输入用户名和密码',showCancel:false});return}this.loginSubmitting=true;yzp.request({url:'/admin/sys/yz_manager/login',method:'POST',data:{username:this.user_name,password:this.password},success:response=>{if(response.code!==200){uni.showModal({content:response.msg||'登录失败',showCancel:false});return}uni.setStorageSync('loginStateId',response.map.loginStateId);uni.setStorageSync('userInfo',response.data);uni.setStorageSync('sysParams',{yzProjectId:application.projectId,yzAdminTypeId:typeof response.data?.yzAdminTypeId==='string'&&response.data.yzAdminTypeId.length?response.data.yzAdminTypeId:application.adminTypeId});this.password='';uni.$emit('onLoginLoadMenu');uni.$emit('onLoginLoadTop');yzp.navigateAfterLogin(this.redirectUrl)},complete:()=>{this.loginSubmitting=false}})}
+  /** 与原页面相同，补读浏览器未触发input的自动填充值。 */
+  syncLoginInputFromDom(){
+   // #ifdef H5
+   if(!this.$el)return;const name=this.$el.querySelector('input[name="username"]');const password=this.$el.querySelector('input[name="password"]');if(name)this.user_name=name.value;if(password)this.password=password.value;
+   // #endif
+  },
+  /** 下列三个Cap方法逐字复用原页面，保持配置、进度、重置和非Web拒绝规则。 */
+		loadCapConfig() {
+			return new Promise((resolve, reject) => {
+				yzp.request({
+					url: '/admin/sys/yz_manager/cap-config',
+					notSendSessionId: true,
+					method: 'GET',
+					success: (res) => {
+						if (res.code == 200) {
+							const data = res.data || {};
+							this.capEnabled = !!data.enabled;
+							this.capApiEndpoint = data.apiEndpoint || '';
+							this.capConfigLoaded = true;
+							resolve(data);
+							return;
+						}
+						this.capConfigLoaded = false;
+						reject(new Error(res.msg || '安全验证暂不可用，请稍后再试'));
+					},
+					fail: (res) => {
+						this.capConfigLoaded = false;
+						reject(new Error((res && res.errMsg) || '安全验证暂不可用，请稍后再试'));
+					}
+				});
+			});
+		},
+		/**
+		 * 复用已加载配置；失败后允许下一次登录重新拉取。
+		 */
+		ensureCapConfig() {
+			if (this.capConfigLoaded) {
+				return Promise.resolve({
+					enabled: this.capEnabled,
+					apiEndpoint: this.capApiEndpoint
+				});
+			}
+			return this.loadCapConfig();
+		},
+		/**
+		 * 使用 Cap programmatic mode 静默完成安全验证，返回一次性 token。
+		 */
+		async solveCapToken() {
+			const config = await this.ensureCapConfig();
+			if (!config.enabled) {
+				return '';
+			}
+			// 非Web尚无Cap执行器；启用验证时明确失败，不能退回无验证登录。
+			// #ifndef H5
+			throw new Error('安全验证暂不可用，请稍后再试');
+			// #endif
+			// #ifdef H5
+			if (!config.apiEndpoint || typeof window === 'undefined') {
+				throw new Error('安全验证暂不可用，请稍后再试');
+			}
+			if (!this.capClient || this.capApiEndpoint !== config.apiEndpoint) {
+				this.capApiEndpoint = config.apiEndpoint;
+				this.capClient = new Cap({
+					apiEndpoint: config.apiEndpoint
+				});
+				// 进度事件用于反馈静默验证状态，避免用户误以为登录卡住。
+				this.capClient.addEventListener('progress', (event) => {
+					const progress = Number(event.detail && event.detail.progress ? event.detail.progress : 0);
+					this.capProgress = Math.max(0, Math.min(100, Math.round(progress)));
+					this.capStatusText = this.capProgress > 0 ? `安全验证中 ${this.capProgress}%` : '安全验证中';
+				});
+			}
+			if (typeof this.capClient.reset === 'function') {
+				this.capClient.reset();
+			}
+			this.capStatusText = '安全验证中';
+			const solution = await this.capClient.solve();
+			const token = solution && solution.token ? solution.token : '';
+			if (!token) {
+				throw new Error('安全验证失败，请重试');
+			}
+			return token;
+			// #endif
+		},
+
+  /** 沿用原表单第三字段；身份与项目仍由服务端及包内目录决定。 */
+  submitLogin(captchaVerification){return new Promise((resolve,reject)=>yzp.request({url:'/admin/sys/yz_manager/login',method:'POST',header:{'content-type':'application/x-www-form-urlencoded'},notSendSessionId:true,showError:false,data:{username:this.user_name,password:this.password,captchaVerification},success:response=>{if(response.code!==200){reject(new Error(response.msg||'登录失败'));return}this.handleLoginSuccess(response);resolve()},fail:response=>reject(new Error(response?.errMsg||'登录失败'))}))},
+  /** 普通应用固定项目，后台只接受服务端字符串值；保留原事件、跳转与密码清空。 */
+  handleLoginSuccess(response){uni.setStorageSync('loginStateId',response.map.loginStateId);uni.setStorageSync('userInfo',response.data);uni.setStorageSync('sysParams',{yzProjectId:application.projectId,yzAdminTypeId:typeof response.data?.yzAdminTypeId==='string'&&response.data.yzAdminTypeId.length?response.data.yzAdminTypeId:application.adminTypeId});this.password='';uni.$emit('onLoginLoadMenu');uni.$emit('onLoginLoadTop');yzp.navigateAfterLogin(this.redirectUrl)},
+  /** 原失败模态只显示一次，任意验证码错误都不得继续提交密码。 */
+  showLoginError(content){uni.showModal({content,showCancel:false})},
+  /** 与原页相同，先解Cap再提交登录，所有分支统一恢复按钮与进度。 */
+  async login(){if(this.loginSubmitting)return;this.syncLoginInputFromDom();if(!this.user_name||!this.password){this.showLoginError('请输入用户名和密码');return}this.loginSubmitting=true;this.capStatusText='';try{const proof=await this.solveCapToken();this.capStatusText='登录中';await this.submitLogin(proof)}catch(error){this.showLoginError(error?.message||'安全验证失败，请重试')}finally{this.loginSubmitting=false;this.capStatusText='';this.capProgress=0}}
  }
 }
 </script>

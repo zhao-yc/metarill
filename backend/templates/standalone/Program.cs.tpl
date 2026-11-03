@@ -63,6 +63,9 @@ builder.Services.AddSingleton<ApplicationSecurityRegistry>();
 builder.Services.AddSingleton<ISecurityResourceRegistry>(provider=>provider.GetRequiredService<ApplicationSecurityRegistry>());
 builder.Services.AddSingleton<ISecuritySessionPolicy>(provider=>provider.GetRequiredService<ApplicationSecurityRegistry>());
 builder.Services.AddScoped<AuthenticationService>();
+// 原Cap只从宿主私有配置读取，传输禁用重定向与Cookie，防止密钥被带到另一站点。
+builder.Services.AddSingleton(builder.Configuration.GetSection("Authentication:Cap").Get<LoginCapOptions>()??new LoginCapOptions());
+builder.Services.AddHttpClient<LoginCapVerifier>(client=>client.Timeout=TimeSpan.FromSeconds(10)).ConfigurePrimaryHttpMessageHandler(()=>new HttpClientHandler{AllowAutoRedirect=false,UseCookies=false});
 builder.Services.AddScoped<ApplicationWebAuthentication>();
 builder.Services.AddScoped<ApplicationSecurityInitialization>();
 builder.Services.AddSingleton<DevelopmentNavigation>();
@@ -216,6 +219,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "UP", application = metada
 app.MapPost("/api/admin/sys/yz_manager/login", async (HttpContext context) =>
 {
     var login=await ReadLogin(context.Request);var username=login.Username;var password=login.Password;
+    await context.RequestServices.GetRequiredService<LoginCapVerifier>().VerifyAsync(login.CaptchaVerification,context.RequestAborted);
     if(authenticationMode.Development)
     {
         var token=context.RequestServices.GetRequiredService<DevelopmentSessions>().Login(username,password);
@@ -251,7 +255,7 @@ app.MapMethods("/api/admin/sys/export/export", new[] { "GET", "HEAD" }, async (s
 // 导航和权限来自固定发布元数据，不能由客户端项目选择或私有平台配置改变。
 app.MapGet("/api/admin/sys/yz_manager/getMenu", (DevelopmentNavigation navigation, IRuntimeAuthorization authorization) => navigation.Menu(authorization));
 app.MapGet("/api/admin/sys/yz_manager/getCurrentPermissions", (DevelopmentNavigation navigation, IRuntimeAuthorization authorization) => R<object>.Success(navigation.Permissions(authorization)));
-app.MapGet("/api/admin/sys/yz_manager/cap-config", () => R<object>.Success(new { enabled = false, apiEndpoint = "" }));
+app.MapGet("/api/admin/sys/yz_manager/cap-config", (HttpContext context,LoginCapVerifier cap) => {context.Response.Headers.CacheControl="no-store";return cap.PublicConfiguration();});
 ApplicationMcpIntegration.Map(app,authenticationMode);
 app.MapControllers();
 await app.RunAsync();
@@ -286,13 +290,13 @@ static async Task<DevelopmentLogin> ReadLogin(HttpRequest request)
     if(request.ContentType?.StartsWith("application/x-www-form-urlencoded",StringComparison.OrdinalIgnoreCase)==true)
     {
         var form=Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(System.Text.Encoding.UTF8.GetString(bytes,0,length));
-        // 原登录页会提交captchaVerification；本宿主Cap关闭，该兼容字段不参与身份认证。
+        // 原第三字段只交给服务端Cap验证器，不能作为身份、项目或配置开关。
         if(form.Count is <2 or >3||form.Keys.Any(key=>key is not("username" or "password" or "captchaVerification"))||form.Any(field=>field.Value.Count!=1)||!form.ContainsKey("username")||!form.ContainsKey("password"))throw new ArgumentException("登录字段无效。");
-        return new(form["username"].ToString(),form["password"].ToString());
+        return new(form["username"].ToString(),form["password"].ToString(),form.TryGetValue("captchaVerification",out var formProof)?formProof.ToString():null);
     }
     using var json=JsonDocument.Parse(bytes.AsMemory(0,length));var fields=new HashSet<string>(StringComparer.Ordinal);
     if(json.RootElement.ValueKind!=JsonValueKind.Object||json.RootElement.EnumerateObject().Any(field=>!fields.Add(field.Name)||field.Name is not("username" or "password" or "captchaVerification")||field.Value.ValueKind!=JsonValueKind.String)||!fields.Contains("username")||!fields.Contains("password"))throw new ArgumentException("登录字段无效。");
-    return new(json.RootElement.GetProperty("username").GetString(),json.RootElement.GetProperty("password").GetString());
+    return new(json.RootElement.GetProperty("username").GetString(),json.RootElement.GetProperty("password").GetString(),json.RootElement.TryGetProperty("captchaVerification",out var proof)?proof.GetString():null);
 }
 
 // 请求只允许原oldPwd/pwd两个有界字段；不接账户、项目、路径、配置或任意JSON键。
@@ -321,6 +325,6 @@ namespace {{NAMESPACE}}.Host
         /// <summary>宿主自定义基础设施只写在配套手写partial中，不修改受管认证实现。</summary>
         static partial void ConfigureServices(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment);
     }
-    public sealed record DevelopmentLogin(string? Username, string? Password);
+    public sealed record DevelopmentLogin(string? Username, string? Password,string? CaptchaVerification=null);
     public sealed record DevelopmentPasswordChange(string? OldPwd,string? Pwd);
 }

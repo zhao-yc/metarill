@@ -22,7 +22,7 @@ public sealed partial class StandaloneWebAuthenticationTests
             "username="+Uri.EscapeDataString(Username)+"&password="+Uri.EscapeDataString(Password)+"&captchaVerification="+Uri.EscapeDataString(captcha);
         context.Request.Body=new MemoryStream(Encoding.UTF8.GetBytes(body));
         var parsed=await package.TopLevel("ReadLogin",context.Request);
-        Assert.Equal(Username,package.Property<string>(parsed!,"Username"));Assert.Equal(Password,package.Property<string>(parsed!,"Password"));
+        Assert.Equal(Username,package.Property<string>(parsed!,"Username"));Assert.Equal(Password,package.Property<string>(parsed!,"Password"));Assert.Equal(captcha,package.Property<string>(parsed!,"CaptchaVerification"));
     }
 
     /// <summary>原可选字段不能放开重复值、大小写变体、身份上下文或非字符串JSON。</summary>
@@ -70,8 +70,8 @@ public sealed partial class StandaloneWebAuthenticationTests
             Assert.True(payload.GetProperty("submittingReset").GetBoolean());Assert.Equal("POST",payload.GetProperty("method").GetString());
             var original=payload.GetProperty("client").GetString()=="original";var fields=payload.GetProperty("data");
             Assert.False(payload.GetProperty("sendSessionId").GetBoolean());
-            Assert.Equal(original?new[]{"captchaVerification","password","username"}:new[]{"password","username"},fields.EnumerateObject().Select(value=>value.Name).OrderBy(value=>value,StringComparer.Ordinal));
-            if(original){Assert.Equal("application/x-www-form-urlencoded",payload.GetProperty("contentType").GetString());Assert.Equal("",fields.GetProperty("captchaVerification").GetString());}
+            Assert.Equal(new[]{"captchaVerification","password","username"},fields.EnumerateObject().Select(value=>value.Name).OrderBy(value=>value,StringComparer.Ordinal));
+            Assert.Equal("application/x-www-form-urlencoded",payload.GetProperty("contentType").GetString());Assert.Equal("",fields.GetProperty("captchaVerification").GetString());
             using HttpContent body=original?new FormUrlEncodedContent(fields.EnumerateObject().Select(value=>new KeyValuePair<string,string>(value.Name,value.Value.GetString()!))):JsonContent.Create(fields);
             using var response=await server.Client.PostAsync("/api"+payload.GetProperty("url").GetString(),body);
             Assert.Equal(HttpStatusCode.Unauthorized,response.StatusCode);
