@@ -54,3 +54,11 @@ GitHub run41502116815已终态；Windows／Ubuntu均在Generation同8项失败�
 - NonRedundantCrossTableExcel的普通夹具：来源父范围不属于已验独立R0用途，补齐后台归属仍须拒绝；保留BackendOnly严格构建，不为消除红灯放宽产品审计器。
 
 本轮未修改GenerationCapabilityAudit／NonRedundantCrossTableSubset或其它发布门禁。上述测试修正与V53的数字计数产品修复分开论证；新SHA的跨系统全量CI另验，相关类通过也不转记为MySQL首版通过。当前结果见[V52／V53](../paired-observed-v52-counter-contract.md)。
+
+## 2026-11-03 固定程序集的 Vue 依赖与复验
+
+本机使用固定 `6f6bfe2` 的生成测试程序集，首次六类回归 98 通过、10 失败、0 跳过。失败均在子进程调用原 Vue 探针，分布为三种完整跨表包、五个全局单控件和两个共享级联组合。探针使用编译时源码位置对应的 `package.json` 解析依赖。冻结目录没有安装 Vue，单独从该位置运行 Node 模块解析复现 `MODULE_NOT_FOUND`。
+
+核对冻结目录与工作目录的 `package-lock.json` 逐字相同后，仅对复验进程设置 `NODE_PATH` 为现有锁定依赖目录，确认 Vue 3.5.44 和 SFC 编译器可加载。全局单控件完整类 13 项通过，跨表三个真实 Full 包的构建、更新、手写保护和原 Vue 探针 3 项通过，均零失败零跳过。已按相同六类筛选再次启动完整回归，尚未记录通过。上述三份报告及摘要保存于私有 `.local/current-generation-locked-20261103`。
+
+固定程序集、原业务断言和前端模板均未改动。局部复验与原批次有重叠，不相加为完整 CI 或正式 MySQL 验收。
