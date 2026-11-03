@@ -16,7 +16,7 @@ namespace Metarill.Metadata.Tests;
 public sealed class ProjectFileRuntimeIntegrationTests
 {
     /// <summary>平台包装器必须在业务槽复用同一个观察器；平台连接不能借用业务删除证明。</summary>
-    [MetadataIntegrationFact]
+    [ProjectFileIntegrationFact]
     public async Task Physical_deletion_wrapper_keeps_proof_in_the_actual_business_transaction()
     {
         await using var f=await ProjectFileDatabaseFixture.CreateAsync(physicalDelete:true);var actor=new RuntimeActor(8801,"跨库物理删除",true,f.Registry.Demo.YzProjectId,"");var authorization=new TestFileAuthorization(actor);var resolver=new ProjectFileLibraryResolver(f.Runtimes,authorization,f.Ids);var service=resolver.RequireCurrent();var file=await f.ReadyAsync(service,"physical-wrapper.txt",f.ProtectedColumn);var record=f.Ids.NextId();f.RecordIds.Add(record);var value=JsonSerializer.Serialize(new[]{file.FileId.ToString()});var observer=new ProjectFileReferenceMutationObserver(f.Runtimes,authorization,f.Ids);var session=f.Sessions.Business;
@@ -29,7 +29,7 @@ public sealed class ProjectFileRuntimeIntegrationTests
         async Task<string> Snapshot()=>JsonSerializer.Serialize(new{source=await f.BusinessStore.ReadIncludingDeletedAsync(f.TableName,new Dictionary<string,object?>{{"id",record}}),refs=await f.Runtimes.Resolve(actor.ProjectId).Store.ReadIncludingDeletedAsync("yz_file_ref",new Dictionary<string,object?>{{"record_id",record}})});
     }
 
-    [MetadataIntegrationFact]
+    [ProjectFileIntegrationFact]
     public async Task Business_files_use_the_generated_transaction_and_public_routing_stays_in_the_selected_slot()
     {
         await using var fixture = await ProjectFileDatabaseFixture.CreateAsync();
@@ -122,17 +122,20 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
         var fixture = new ProjectFileDatabaseFixture();
         try
         {
+            var leasePath = Environment.GetEnvironmentVariable(ProjectFileFreshLease.SettingsVariable);
+            using var leaseDocument = string.IsNullOrWhiteSpace(leasePath) ? null : JsonDocument.Parse(await File.ReadAllTextAsync(leasePath));
+            var fresh = leaseDocument is null ? null : ProjectFileFreshLease.Parse(leaseDocument.RootElement);
             Directory.CreateDirectory(fixture.directory);
-            using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));
+            using var settings = fresh is null ? JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!)) : null;
             DatabaseOptions Options(string key, string expected)
             {
-                var value = settings.RootElement.GetProperty("Metarill").GetProperty(key).Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+                var value = settings!.RootElement.GetProperty("Metarill").GetProperty(key).Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
                 if (value.Provider != "mysql" || value.ExpectedDatabase != expected) throw new InvalidOperationException("项目文件验收只允许明确的 MySQL 隔离测试库。");
                 return value;
             }
             var source = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             var platform = MetadataRegistry.Load(source); var demo = MetadataRegistry.Load(Path.Combine(Path.GetDirectoryName(source)!, "demo.json"));
-            fixture.TableName = "mt_project_files_" + Guid.NewGuid().ToString("N")[..12];
+            fixture.TableName = "mt_project_files_" + (fresh is null ? Guid.NewGuid().ToString("N")[..12] : fresh.RunId[..11] + (physicalDelete ? "1" : "0"));
             var table = new TableMetadata { Id = SharedIds.NextId().ToString(), TableName = fixture.TableName, YzProjectId = demo.YzProjectId };
             ColumnMetadata Column(string name, string type, string control = "", string detail = "") => new() { Id = SharedIds.NextId().ToString(), ConfigTableId = table.Id, ColumnName = name, LogicalType = type, ColumnLength = type == "string" ? "max" : "", IsDbNotNull = name == "id" ? 1 : 0, ControlKind = control, ControlDetail = detail, YzProjectId = demo.YzProjectId };
             var columns = new[] { Column("id", "int64"), Column("yz_project_id", "int64"), Column("delete_no", "datetime"), Column("notes", "string"),
@@ -147,25 +150,55 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             var platformPath = Path.Combine(fixture.directory, "platform.json"); var demoPath = Path.Combine(fixture.directory, "demo.json");
             await File.WriteAllTextAsync(platformPath, JsonSerializer.Serialize(platform, JsonDefaults.Options)); await File.WriteAllTextAsync(demoPath, JsonSerializer.Serialize(demo, JsonDefaults.Options));
             fixture.Registry = new(platformPath, demoPath);
-            fixture.Sessions = new(Options("Database", "metarill_test"), Options("BusinessDatabase", "metarill_business_test"), fixture.Registry);
+            fixture.Sessions = new(fresh?.Platform ?? Options("Database", "metarill_test"),
+                fresh?.Business ?? Options("BusinessDatabase", "metarill_business_test"), fixture.Registry);
             foreach (var session in new[] { fixture.Sessions.Platform, fixture.Sessions.Business })
             {
                 await using var connection = session.Provider.CreateConnection(session.Options); await connection.OpenAsync();
                 await using var command = connection.CreateCommand(); command.CommandText = "SELECT DATABASE()";
                 if ((string?)await command.ExecuteScalarAsync() != session.Options.ExpectedDatabase) throw new InvalidOperationException("项目文件测试真实数据库目标不符。");
-                if(physicalDelete){using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")!));command.CommandText="SELECT @@hostname,@@server_uuid";await using var identity=await command.ExecuteReaderAsync();if(!await identity.ReadAsync()||identity.GetString(0)!=pin.RootElement.GetProperty("expectedHostname").GetString()||identity.GetString(1)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("跨库物理删除实例pin不匹配。");}
+                if (fresh is not null)
+                {
+                    command.CommandText = "SELECT @@hostname,@@server_uuid";
+                    await using var identity = await command.ExecuteReaderAsync();
+                    if (!await identity.ReadAsync() || identity.GetString(0) != fresh.Hostname || identity.GetString(1) != fresh.ServerUuid)
+                        throw new InvalidOperationException("跨库文件验收实际 MySQL 实例不符。");
+                }
+                else if(physicalDelete){using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")!));command.CommandText="SELECT @@hostname,@@server_uuid";await using var identity=await command.ExecuteReaderAsync();if(!await identity.ReadAsync()||identity.GetString(0)!=pin.RootElement.GetProperty("expectedHostname").GetString()||identity.GetString(1)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("跨库物理删除实例pin不匹配。");}
             }
-            fixture.cleanupAllowed = true;
+            fixture.cleanupAllowed = fresh is null;
             var infrastructure = MetadataRegistry.Load(Path.Combine(Path.GetDirectoryName(source)!, "files.json"));
             fixture.Runtimes = new(fixture.Sessions, fixture.Registry, infrastructure, new() { RootDirectory = fixture.Root, MaxFileBytes = 4096 });
             fixture.BusinessStore = new(fixture.Sessions.Business, fixture.Registry.Demo);
             var schema = new SchemaService(fixture.Sessions.Business);
-            var plan = await schema.PreviewAsync(fixture.Runtimes.ComposePhysical(fixture.Registry.Demo));
-            if(physicalDelete&&plan.Changes.Any(change=>change.Kind!="createTable"||change.Table!=fixture.TableName))throw new InvalidOperationException("物理删除样本仅允许创建本次随机业务表。");
-            if (plan.Changes.Count > 0) Assert.True((await schema.ApplyAsync(plan)).Succeeded);
+            if (fresh is null)
+            {
+                var plan = await schema.PreviewAsync(fixture.Runtimes.ComposePhysical(fixture.Registry.Demo));
+                if(physicalDelete&&plan.Changes.Any(change=>change.Kind!="createTable"||change.Table!=fixture.TableName))throw new InvalidOperationException("物理删除样本仅允许创建本次随机业务表。");
+                if (plan.Changes.Count > 0) Assert.True((await schema.ApplyAsync(plan)).Succeeded);
+            }
+            else
+            {
+                // 独占库只安装文件基础表及本次样本，不为夹具创建未使用的示例业务表。
+                var sample = new MetadataCatalog { YzProjectId = demo.YzProjectId, ConfigTables = [table], ConfigColumns = [..columns] };
+                await InstallFreshAsync(new SchemaService(fixture.Sessions.Platform), infrastructure);
+                await InstallFreshAsync(schema, fixture.Runtimes.ComposePhysical(sample), fixture.TableName);
+                fixture.cleanupAllowed = true;
+            }
             return fixture;
         }
         catch { await fixture.DisposeAsync(); throw; }
+    }
+
+    /// <summary>只允许创建该模型声明的表，样本表已存在时拒绝复用。</summary>
+    private static async Task InstallFreshAsync(SchemaService schema, MetadataCatalog catalog, string? sample = null)
+    {
+        var plan = await schema.PreviewAsync(catalog);
+        var names = catalog.ConfigTables.Select(table => table.TableName).ToHashSet(StringComparer.Ordinal);
+        if (plan.Changes.Any(change => change.Kind != "createTable" || !names.Contains(change.Table)) ||
+            (sample is not null && !plan.Changes.Any(change => change.Table == sample)))
+            throw new InvalidOperationException("跨库文件验收仅允许创建本轮模型表。");
+        if (plan.Changes.Count > 0) Assert.True((await schema.ApplyAsync(plan)).Succeeded);
     }
 
     /// <summary>登记所有自有文件ID后执行真实本地流上传与完成。</summary>
