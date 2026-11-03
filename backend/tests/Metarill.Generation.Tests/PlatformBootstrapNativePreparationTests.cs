@@ -46,6 +46,29 @@ public sealed class PlatformBootstrapNativePreparationTests
         finally { await TestDirectoryCleanup.DeleteAsync(root, boundary); }
     }
 
+    /// <summary>配置必须来自本轮租约文件，拒绝空值、错误格式及非 DB0，错误不暴露合成凭据。</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("unit-only-redis:6379,defaultDatabase=2,password=unit-only-secret")]
+    [InlineData("unit-only-redis:6379,defaultDatabase=broken,password=unit-only-secret")]
+    public void Platform_login_redis_rejects_missing_or_invalid_scope(string? connection)
+    {
+        var settings = JsonSerializer.SerializeToElement(new { LoginFailureRedisConnectionString = connection });
+        var error = Assert.Throws<InvalidOperationException>(() => FreshInstallConfiguration.ParseLoginRedis(settings));
+        Assert.Equal("平台正式空库验收需要本轮隔离 Redis DB0 配置。", error.Message);
+        Assert.Null(error.InnerException);
+    }
+
+    /// <summary>保留完整 Redis 连接配置，平台宿主使用它执行真实计数检查。</summary>
+    [Fact]
+    public void Platform_login_redis_keeps_the_explicit_private_connection()
+    {
+        const string connection = "127.0.0.1:6380,defaultDatabase=0,password=unit-only-secret";
+        var settings = JsonSerializer.SerializeToElement(new { LoginFailureRedisConnectionString = connection });
+        Assert.Equal(connection, FreshInstallConfiguration.ParseLoginRedis(settings));
+    }
+
     /// <summary>只固定测试字节，不输出其内容。</summary>
     private static string Hash(string path) => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
 }

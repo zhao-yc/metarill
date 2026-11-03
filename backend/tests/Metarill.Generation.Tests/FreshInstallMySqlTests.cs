@@ -76,6 +76,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         var native = PlatformBootstrapNativePreparation.ReadIfRequested(root);
         var platform = FreshInstallConfiguration.Read("Database", "platform");
         var business = FreshInstallConfiguration.Read("BusinessDatabase", "business");
+        var loginRedis = FreshInstallConfiguration.ReadLoginRedis();
         using var platformSession = new DatabaseSession(platform); using var businessSession = new DatabaseSession(business);
         Assert.Equal(0L, await CountTablesAsync(platformSession)); Assert.Equal(0L, await CountTablesAsync(businessSession));
         var temporaryRoot = Path.Combine(Path.GetTempPath(), "metarill-fresh-bootstrap");
@@ -94,6 +95,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             start.Environment["Metarill__Bootstrap__Password"] = password;
             start.Environment["Metarill__Database__ConnectionString"] = platform.ConnectionString;
             start.Environment["Metarill__BusinessDatabase__ConnectionString"] = business.ConnectionString;
+            start.Environment["Metarill__Authentication__LoginFailures__ConnectionString"] = loginRedis;
             if (native is not null) start.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"] = native.EvidenceDirectory;
             return start;
         }
@@ -148,7 +150,10 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             await using (var host = await FreshHost.StartAsync(StartInfo(), "/api/runtime/health/check"))
             {
                 using var login = await host.Client.PostAsync("/api/admin/sys/yz_manager/login", new FormUrlEncodedContent(new Dictionary<string,string> { ["username"] = "fresh-admin", ["password"] = password }));
-                var identity = await login.Content.ReadFromJsonAsync<JsonElement>(); Assert.Equal(200, identity.GetProperty("code").GetInt32());
+                var identity = await login.Content.ReadFromJsonAsync<JsonElement>();
+                Assert.True(identity.GetProperty("code").GetInt32() == 200, identity.GetProperty("msg").GetString() == "登录安全校验暂不可用，请稍后再试"
+                    ? "正式宿主登录安全校验不可用，请核对本轮隔离 Redis。"
+                    : "正式宿主未通过正确密码登录，响应正文不回显。");
                 host.Client.DefaultRequestHeaders.Add("loginStateId", identity.GetProperty("map").GetProperty("loginStateId").GetString());
                 var permissions = await host.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
                 Assert.Equal(200, permissions.GetProperty("code").GetInt32()); Assert.True(permissions.GetProperty("data").GetProperty("isSuper").GetBoolean());
@@ -346,6 +351,29 @@ internal static class FreshInstallConfiguration
         var options = config.RootElement.GetProperty(property).Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
         Validate(options, suffix); return options;
     }
+    /// <summary>只读取本轮私有配置的隔离 Redis，缺失时在任何 MySQL 连接前停止。</summary>
+    internal static string ReadLoginRedis()
+    {
+        using var config = JsonDocument.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));
+        return ParseLoginRedis(config.RootElement);
+    }
+
+    /// <summary>按真实 Redis 格式解析，只接受 DB0，错误不携带原配置。</summary>
+    internal static string ParseLoginRedis(JsonElement settings)
+    {
+        if (settings.TryGetProperty("LoginFailureRedisConnectionString", out var value) && value.ValueKind == JsonValueKind.String &&
+            value.GetString() is { } connection && !string.IsNullOrWhiteSpace(connection))
+        {
+            try
+            {
+                var parsed = StackExchange.Redis.ConfigurationOptions.Parse(connection);
+                if (parsed.EndPoints.Count > 0 && parsed.DefaultDatabase is null or 0) return connection;
+            }
+            catch (ArgumentException) { /* 不回显包含凭据的解析错误。 */ }
+        }
+        throw new InvalidOperationException("平台正式空库验收需要本轮隔离 Redis DB0 配置。");
+    }
+
     /// <summary>禁止误连固定业务库、生产服务器或高权限账号。</summary>
     public static void Validate(DatabaseOptions options, string suffix)
     {
@@ -383,6 +411,13 @@ internal sealed class FreshHost : IAsyncDisposable
             if (string.IsNullOrWhiteSpace(pair.Value)) continue;
             values.Add(pair.Value);
             if (!pair.Key.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase)) continue;
+            if (pair.Key.EndsWith("__LoginFailures__ConnectionString", StringComparison.OrdinalIgnoreCase))
+            {
+                // Redis 为逗号分隔格式，不能交给 ADO.NET 连接串解析器。
+                var password = StackExchange.Redis.ConfigurationOptions.Parse(pair.Value).Password;
+                if (!string.IsNullOrEmpty(password)) values.Add(password);
+                continue;
+            }
             var connection = new DbConnectionStringBuilder { ConnectionString = pair.Value };
             foreach (string key in connection.Keys)
                 if (Regex.IsMatch(key, "password|pwd|token|secret", RegexOptions.IgnoreCase) && connection[key] is string value && value.Length > 0) values.Add(value);
