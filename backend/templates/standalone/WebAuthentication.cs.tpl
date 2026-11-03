@@ -61,7 +61,8 @@ internal sealed class ApplicationWebAuthentication(IServiceProvider services,App
     /// <summary>原登录form/JSON由HTTP边界解析；同事务锁定真实身份后再创建持久会话。</summary>
     internal async Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string? username,string? password,CancellationToken cancellationToken)
     {
-        if(!mode.DatabaseConfigured||username is null||password is null||username.Length is <1 or >50||password.Length is <1 or >1024)throw InvalidLogin();
+        username=AuthenticationService.NormalizeLoginUsername(username);
+        if(!mode.DatabaseConfigured||password is null||username.Length is <1 or >50||password.Length is <1 or >1024)throw InvalidLogin();
         var ip=services.GetService<IHttpContextAccessor>()?.HttpContext?.Connection.RemoteIpAddress?.ToString();
         try
         {

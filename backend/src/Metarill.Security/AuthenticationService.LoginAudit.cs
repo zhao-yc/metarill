@@ -23,9 +23,8 @@ public sealed partial class AuthenticationService
     {
         if(store.Session.CurrentTransaction is not null)throw new InvalidOperationException("登录失败审计必须在认证事务回滚后记录。");
         var context=failure.Data[FailureContextKey] as LoginFailureContext??new(null,LoginFailureReason.UnknownAccount);
-        if(System.Net.IPAddress.TryParse(clientIp,out var address)&&address.IsIPv4MappedToIPv6)clientIp=address.MapToIPv4().ToString();
-        var name=AuditText(username,"未提供用户名");var ip=AuditText(clientIp,"未知");
-        var reason=context.Reason switch{LoginFailureReason.InvalidPassword=>"密码错误",LoginFailureReason.UnavailableAccount=>"账号状态无效",LoginFailureReason.UnavailableRealm=>"账号或后台归属无效",_=>"用户名不存在"};
+        var name=AuditText(username,"未提供用户名");var ip=NormalizeLoginIp(clientIp);
+        var reason=context.Reason switch{LoginFailureReason.InvalidPassword=>"用户名或者密码错误",LoginFailureReason.UnavailableAccount=>"账号状态无效",LoginFailureReason.UnavailableRealm=>"账号或后台归属无效",_=>"用户名或者密码错误"};
         var now=DateTime.Now;
         try
         {
@@ -46,6 +45,12 @@ public sealed partial class AuthenticationService
             // 不回显ADO异常、SQL、参数或用户秘密；原拒绝由调用者继续抛出。
             logger?.LogWarning("登录失败审计未能持久化，错误类型={ErrorType}",error.GetType().Name);
         }
+    }
+    /// <summary>成功／失败审计共用可信远端地址，不读客户端自报IP或转发头。</summary>
+    private static string NormalizeLoginIp(string? clientIp)
+    {
+        if(System.Net.IPAddress.TryParse(clientIp,out var address))clientIp=(address.IsIPv4MappedToIPv6?address.MapToIPv4():address).ToString();
+        return AuditText(clientIp,"未知");
     }
     /// <summary>审计显示值按原列预算截取，保留空值含义，不截出孤立代理字符。</summary>
     private static string AuditText(string? value,string fallback)

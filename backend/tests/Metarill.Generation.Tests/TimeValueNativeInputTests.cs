@@ -39,10 +39,10 @@ public sealed class TimeValueNativeInputTests
         var options=FreshInstallConfiguration.Read("AgentDatabase","agent");var connection=new MySqlConnectionStringBuilder(options.ConnectionString);
         Assert.Equal("mtf_"+run,connection.UserID);Assert.Equal("metarill_fresh_"+run+"_agent",options.ExpectedDatabase);
         var proof=settings.GetProperty("TimeValuePreparation").Deserialize<GlobalCachedPackageProof>()!;
-        var catalog=TimeValueNativePreparation.Verify(proof);Assert.Equal(4,catalog.ConfigColumns.Count(column=>column.LogicalType=="time"));Assert.Equal(14,FreshInstallConfiguration.ExpectedFullTableCount(catalog));
+        var catalog=TimeValueNativePreparation.Verify(proof);Assert.Equal(4,catalog.ConfigColumns.Count(column=>column.LogicalType=="time"));Assert.Equal(15,FreshInstallConfiguration.ExpectedFullTableCount(catalog));
         var receipt=Environment.GetEnvironmentVariable("METARILL_TIME_VALUE_INPUT_RECEIPT")??throw new InvalidOperationException("外层传输预检缺回执位置。");
         Assert.Equal(Path.Combine(Path.GetDirectoryName(path)!,"validation.json"),receipt);
         using var stream=new FileStream(receipt,FileMode.CreateNew,FileAccess.Write,FileShare.None);
-        JsonSerializer.Serialize(stream,new{run,valid=true,expectedDatabase=options.ExpectedDatabase,timeColumns=4,tableCount=14,databaseOpened=false,applicationStarted=false});
+        JsonSerializer.Serialize(stream,new{run,valid=true,expectedDatabase=options.ExpectedDatabase,timeColumns=4,tableCount=15,databaseOpened=false,applicationStarted=false});
     }
 }

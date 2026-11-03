@@ -40,7 +40,7 @@ internal static class SecurityManagementModuleFactory
     { ["6031906822946816"]="6031906809708544", ["1692532858529329154"]="1692532858499969026", ["1696799309006348290"]="1696799308939239425" };
 
     /// <summary>将三页绑定到一个已发布后台；输出只是准备模型，仍须通过原Full/Runtime/Custom门禁。</summary>
-    internal static SecurityManagementModelSet Compose(MetadataCatalog application, string publishedManagementAdminTypeId)
+    internal static SecurityManagementModelSet Compose(MetadataCatalog application, string publishedManagementAdminTypeId, string? sourceModuleSha256=null)
     {
         ArgumentNullException.ThrowIfNull(application);
         application = Clone(application);
@@ -49,7 +49,7 @@ internal static class SecurityManagementModuleFactory
         ValidateOwners(application);
         var selected = application.YzAdminTypes.Where(admin => admin.Id == publishedManagementAdminTypeId && admin.YzProjectId == application.YzProjectId).ToArray();
         if (selected.Length != 1) throw Rejected();
-        var (asset, sha) = Load();
+        var (asset, sha) = Load(sourceModuleSha256);
         ValidateAsset(asset);
         // 物理保留对象与三页布局ID按全类别核对；同名或同ID业务声明不能获得特权。
         var reserved = Records(asset.Security).Concat(Records(asset.Files)).Concat(Records(asset.Management).Where(row => row.Kind != "admin"))
@@ -81,6 +81,12 @@ internal static class SecurityManagementModuleFactory
         if (!Issued.TryGetValue(models, out _)) throw Rejected();
     }
 
+    /// <summary>旧固定资产仅供来源恢复；当前发布候选必须采用本版本完整基础图，不能回退闭包。</summary>
+    internal static void RequireCurrentForPublication(SecurityManagementModelSet models)
+    {
+        RequireIssued(models);if(models.Binding.ModuleSha256!=Load().Sha)throw Rejected();
+    }
+
     /// <summary>生成器只消费工厂冻结快照；伪造同形Binding或构造结果不在签发表，调用方可变副本不能替换它。</summary>
     internal static MetadataCatalog RequirePublishedForGeneration(SecurityManagementModelSet models)
     {
@@ -100,16 +106,24 @@ internal static class SecurityManagementModuleFactory
     /// <summary>管理准备只核对本工厂已签发模块的固定基础副本，业务JSON不能提供预期结构。</summary>
     internal static (MetadataCatalog Files,MetadataCatalog Security) RequireFoundationsForPreparation(SecurityManagementModelSet models)
     {
-        RequireIssued(models);var (asset,_)=Load();ValidateAsset(asset);
+        RequireIssued(models);var (asset,_)=Load(models.Binding.ModuleSha256);ValidateAsset(asset);
         return (Clone(asset.Files),Clone(asset.Security));
     }
 
     /// <summary>摘要绑定固定嵌入字节，业务输入不能提供另一份模块或预期摘要。</summary>
-    private static (Asset Asset, string Sha) Load()
+    private static (Asset Asset, string Sha) Load(string? requestedSha=null)
+    {
+        var current=ReadEmbeddedAsset(Prefix);
+        if(requestedSha is null||requestedSha==current.Sha)return current;
+        var legacy=ReadEmbeddedAsset(Prefix+".Legacy");
+        return requestedSha==legacy.Sha?legacy:throw Rejected();
+    }
+    /// <summary>只加载两份编译绑定资源；旧包摘要不能指定路径、外部资产或未知版本。</summary>
+    private static (Asset Asset, string Sha) ReadEmbeddedAsset(string resourcePrefix)
     {
         var assembly = typeof(SecurityManagementModuleFactory).Assembly;
-        using var content = assembly.GetManifestResourceStream(Prefix + ".json") ?? throw Rejected();
-        using var checksum = assembly.GetManifestResourceStream(Prefix + ".sha256") ?? throw Rejected();
+        using var content = assembly.GetManifestResourceStream(resourcePrefix + ".json") ?? throw Rejected();
+        using var checksum = assembly.GetManifestResourceStream(resourcePrefix + ".sha256") ?? throw Rejected();
         using var buffer = new MemoryStream(); content.CopyTo(buffer);
         if (buffer.Length > 512 * 1024) throw Rejected();
         using var reader = new StreamReader(checksum);
@@ -131,7 +145,7 @@ internal static class SecurityManagementModuleFactory
             || catalog.ConfigMenus.Count != 6 || catalog.ConfigCustomPages.Count != 1 || catalog.ConfigButtons.Count != 1 || catalog.ConfigChildren.Count != 0
             || catalog.ConfigIndexes.Count != 0 || catalog.ConfigIndexColumns.Count != 0) throw Rejected();
         ValidateOwners(catalog); ValidateGraph(catalog);
-        if (asset.Security.ConfigTables.Count != 6 || asset.Files.ConfigTables.Count != 3 || asset.Security.ConfigPages.Count != 0 || asset.Files.ConfigPages.Count != 0
+        if (asset.Security.ConfigTables.Count is not(6 or 7) || asset.Files.ConfigTables.Count != 3 || asset.Security.ConfigPages.Count != 0 || asset.Files.ConfigPages.Count != 0
             || catalog.ConfigCustomPages[0].Id != "2062363000000000002" || catalog.ConfigCustomPages[0].PagePath != "pages/main/set_role_permission"
             || Text(catalog.ConfigButtons[0],"id") != "1696805746482847746" || Text(catalog.ConfigButtons[0],"sql") != "/admin/custom/index/init_admin"
             || !asset.PendingAdapters.Select(item=>item.Code).SequenceEqual(new[]{"admin-project-options","role-permission-workbench","initialize-account","security-write-runtime"})) throw Rejected();
@@ -142,7 +156,7 @@ internal static class SecurityManagementModuleFactory
         var indexIds=rich.ConfigIndexes.Select(index=>Text(index,"id")).ToHashSet(StringComparer.Ordinal);
         rich.ConfigIndexColumns=asset.Security.ConfigIndexColumns.Where(field=>indexIds.Contains(Text(field,"configIndexId"))).Select(field=>field.Clone()).ToList();
         _ = MetadataCatalogComposition.MergePhysical(rich, asset.Security);
-        if (physical.ConfigTables.Count != 9) throw Rejected();
+        if (physical.ConfigTables.Count != asset.Security.ConfigTables.Count+3) throw Rejected();
     }
 
     /// <summary>原完整显示声明仅绑定已核实的归属字段，不改稳定ID、控件、SQL文本或页面布局。</summary>

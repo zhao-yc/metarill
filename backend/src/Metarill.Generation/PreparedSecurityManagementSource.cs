@@ -44,7 +44,7 @@ internal sealed record PreparedSecurityManagementSource(SecurityManagementModelS
         // 再脱敏必须幂等，重算文件摘要也不能把新凭据夹进可恢复的业务快照。
         if(!CSharpGenerator.CanonicalMetadata(application).AsSpan().SequenceEqual(CSharpGenerator.CanonicalMetadata(GenerationMetadataPublisher.Publish(application).Metadata)))throw Invalid();
         if(application.YzProjectId!=Text(header,"projectId"))throw Invalid();
-        var module=SecurityManagementModuleFactory.Compose(application,Text(header,"managementAdminTypeId"));
+        var module=SecurityManagementModuleFactory.Compose(application,Text(header,"managementAdminTypeId"),Text(header,"moduleSha256"));
         if(module.Binding.ModuleSha256!=Text(header,"moduleSha256"))throw Invalid();
         var expected=SecurityManagementModuleFactory.RequirePublishedForGeneration(module);var expectedHash=Hash(CSharpGenerator.CanonicalMetadata(expected));
         var projectBytes=ReadOwned(ProjectPath);using var projectDocument=ReadDocument(projectBytes);

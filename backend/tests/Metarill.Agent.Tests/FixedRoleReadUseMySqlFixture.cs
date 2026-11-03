@@ -121,7 +121,18 @@ internal sealed class FixedRoleReadUseMySqlFixture : IAsyncDisposable
             if(mode is not ("manager-selection" or "role-selection" or "export"))throw new InvalidOperationException("未声明的真实读取测试模式。");
             var sessionId=Ids.NextId();await f.Absent("sys_session",sessionId,null);var old=await f.Store.ReadIncludingDeletedAsync("sys_session",new Dictionary<string,object?>{{"account_id",f.AccountId}});Assert.True(old.Count==0,"新操作者不能已有会话。");
             var sessionOwned=new Owned("sys_session",sessionId,null,f.Project,0,new(){["account_id"]=f.AccountId,["project_id"]=f.Project,["kind"]="web"});f.owned.Add(sessionOwned);await f.Ledger("session-intent");
+            var accountOwned=f.owned.Single(item=>item.Table=="yz_manager"&&item.Id==f.AccountId);
+            var accountBefore=(await f.Store.ReadIncludingDeletedAsync("yz_manager",new Dictionary<string,object?>{{"id",f.AccountId}})).Single();
+            if(Fingerprint(accountBefore)!=accountOwned.Fingerprint)throw new InvalidOperationException("登录前自有账号指纹不符，保留现场。");
+            var auditFrom=DateTime.Now.AddSeconds(-1);
             f.authentication=new(f.Store,new OnlySessionId(sessionId),f.Registry,new PlatformSecuritySessionPolicy(f.Store));var login=await f.authentication.LoginAsync(f.Name("operator"),password);f.Token=login.Token;sessionOwned.Expected["token_hash"]=PasswordHasher.Digest(f.Token);sessionOwned.Fingerprint=await f.Prove(sessionOwned);
+            // 成功登录新增原三字段审计；先证明其它字段逐字保持，再续记本轮自有样本指纹。
+            var accountAfter=(await f.Store.ReadIncludingDeletedAsync("yz_manager",new Dictionary<string,object?>{{"id",f.AccountId}})).Single();
+            var stable=new Dictionary<string,object?>(accountAfter);foreach(var field in new[]{"last_login_time","login_ip","update_time"})stable[field]=accountBefore.GetValueOrDefault(field);
+            if(Fingerprint(stable)!=accountOwned.Fingerprint||accountAfter.GetValueOrDefault("last_login_time") is not DateTime auditAt||auditAt<auditFrom||auditAt>DateTime.Now.AddSeconds(1)||
+                !Equals(accountAfter.GetValueOrDefault("update_time"),auditAt)||SqlRowStore.Text(accountAfter,"login_ip")!="未知")throw new InvalidOperationException("成功审计变化超出原三字段，保留现场。");
+            foreach(var field in new[]{"last_login_time","login_ip","update_time"})accountOwned.Expected[field]=accountAfter.GetValueOrDefault(field);
+            accountOwned.Fingerprint=await f.Prove(accountOwned);await f.Ledger("logged-in");
             var identity=await f.authentication.AuthenticateAsync(f.Token,null);Assert.True(identity is not null&&!identity.Actor.IsAdministrator&&!identity.IsRealmSuper,"必须建立真实普通账号会话，不能借超级身份验收。");
             await f.Samples();await f.StartHost();await f.Ledger("ready");return f;
         }

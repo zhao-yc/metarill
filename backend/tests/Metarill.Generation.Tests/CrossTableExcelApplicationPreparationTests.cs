@@ -18,7 +18,7 @@ public sealed class CrossTableExcelApplicationPreparationTests
         var catalog=CrossTableExcelNativePreparation.Catalog();var before=JsonSerializer.Serialize(catalog,Json);
         var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,CrossTableExcelNativePreparation.RootNamespace);
         Assert.Equal(32,catalog.ConfigTables.Count);Assert.Equal(32,catalog.ConfigPages.Count);Assert.Equal(8,catalog.ConfigPages.Count(page=>page.IsImport==1));Assert.Equal(8,catalog.ConfigColumns.Count(column=>column.ControlKind=="FileLibrary"));
-        Assert.Equal(43,FreshInstallConfiguration.ExpectedFullTableCount(catalog));Assert.NotEmpty(proof.Gaps);Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(proof.Baseline,CrossTableExcelNativePreparation.RootNamespace)));
+        Assert.Equal(44,FreshInstallConfiguration.ExpectedFullTableCount(catalog));Assert.NotEmpty(proof.Gaps);Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(proof.Baseline,CrossTableExcelNativePreparation.RootNamespace)));
         Assert.Equal(MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(catalog,"offline")),MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(proof.Baseline,"offline")));
         Assert.Equal(before,JsonSerializer.Serialize(catalog,Json));
         Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));

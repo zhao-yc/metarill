@@ -16,7 +16,7 @@ public sealed class PublicR0CrossExcelNativePreparationTests
         var catalog=PublicR0CrossExcelNativePreparation.Catalog();var before=JsonSerializer.Serialize(catalog);
         Assert.Equal(JsonSerializer.Serialize(GlobalCachedCrossExcelNativePreparation.Catalog()),before);
         MetadataValidation.Validate(catalog);Assert.Equal(32,catalog.ConfigTables.Count);Assert.Equal(32,catalog.ConfigPages.Count);Assert.Equal(32,catalog.ConfigMenus.Count);Assert.Equal(12,catalog.ConfigButtons.Count);
-        Assert.Equal(43,FreshInstallConfiguration.ExpectedFullTableCount(catalog));
+        Assert.Equal(44,FreshInstallConfiguration.ExpectedFullTableCount(catalog));
         var model=GenerationModel.Create(catalog,PublicR0CrossExcelNativePreparation.RootNamespace);Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
         var sourcePages=model.Tables.Where(table=>table.Source.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)).Select(table=>Assert.Single(table.Pages)).ToArray();Assert.Equal(6,sourcePages.Length);Assert.All(sourcePages,page=>{Assert.Equal(1,page.Source.IsImport);Assert.Equal(1,page.Source.IsExport);Assert.True(ImportRenderer.Mode(page) is "" or "OnlyNew");});
         Assert.Equal(before,JsonSerializer.Serialize(catalog));

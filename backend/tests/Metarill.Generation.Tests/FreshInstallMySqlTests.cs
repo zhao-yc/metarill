@@ -46,7 +46,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         var filesBefore = await new SchemaService(fixture.Session).PreviewAsync(fixture.FileCatalog);
         Assert.Equal(3, filesBefore.Changes.Count(change => change.Kind == "createTable"));
         var securityBefore=await new SchemaService(fixture.Session).PreviewAsync(fixture.SecurityCatalog);
-        Assert.Equal(6,securityBefore.Changes.Count(change=>change.Kind=="createTable"));
+        Assert.Equal(7,securityBefore.Changes.Count(change=>change.Kind=="createTable"));
         await fixture.SchemaAsync("--schema-apply");
         Assert.Equal((long)FreshInstallConfiguration.ExpectedFullTableCount(fixture.Catalog), await CountTablesAsync(fixture.Session));
         Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.FileCatalog)).Changes);
@@ -65,7 +65,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         var record = long.Parse(added.GetProperty("data").GetProperty("id").ToString()); fixture.RecordIds.Add(record);
         await fixture.AssertReferenceAsync(record, file); await fixture.AssertContentAsync(file, bytes, publicly: false);
         await AssertWebAuthenticationAsync(fixture, record);
-        output.WriteLine("独立应用：0表启动/预览均无DDL，显式CLI安装12表（业务1+文件3+安全6+Agent2），二次无差异；真实Web普通账号授权/撤权、改密撤会话、重启持久身份及文件引用/下载成功，非RR或并发验收。");
+        output.WriteLine("独立应用：0表启动/预览均无DDL，显式CLI安装13表（业务1+文件3+安全7+Agent2），二次无差异；真实Web普通账号授权/撤权、改密撤会话、重启持久身份及文件引用/下载成功，非RR或并发验收。");
     }
 
     /// <summary>平台首次安装必须创建完整元数据表、内置元数据和管理员，重复初始化不重置密码。</summary>
@@ -332,7 +332,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
 internal static class FreshInstallConfiguration
 {
     /// <summary>当前完整包增加固定Agent表；历史冻结包继续使用其原固定程序集，不冒称已重新验收。</summary>
-    internal static int ExpectedFullTableCount(MetadataCatalog catalog)=>catalog.ConfigTables.Count+9+Metarill.Runtime.Agent.AgentFoundationCatalog.ForApplication(catalog).ConfigTables.Count;
+    internal static int ExpectedFullTableCount(MetadataCatalog catalog)=>catalog.ConfigTables.Count+10+Metarill.Runtime.Agent.AgentFoundationCatalog.ForApplication(catalog).ConfigTables.Count;
 
     /// <summary>从专属验收配置读取并验证一个随机库。</summary>
     public static DatabaseOptions Read(string property, string suffix)

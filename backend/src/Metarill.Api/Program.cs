@@ -42,7 +42,8 @@ builder.Services.AddSingleton<IAgentHostResources>(sp=>sp.GetRequiredService<Met
 builder.Services.AddSingleton<ISecuritySessionPolicy,PlatformSecuritySessionPolicy>();
 builder.Services.AddSingleton(_=>new TargetDatabaseSessions(platformOptions,businessOptions,registry,builder.Configuration.GetSection("Metarill:ProjectDatabases").Get<Dictionary<string,DatabaseOptions>>()));
 builder.Services.AddSingleton<DatabaseSession>(sp=>sp.GetRequiredService<TargetDatabaseSessions>().Platform);
-builder.Services.AddSingleton(sp=>new SqlRowStore(sp.GetRequiredService<DatabaseSession>(),registry.Platform));
+// 认证仓储共用已核平台物理图，新增日志表不进入页面目录，也不放宽通用合成边界。
+builder.Services.AddSingleton(sp=>new SqlRowStore(sp.GetRequiredService<DatabaseSession>(),sp.GetRequiredService<ProjectPhysicalModels>().Compose(registry.Platform)));
 builder.Services.AddSingleton(sp=>new ProjectFileRuntimes(sp.GetRequiredService<TargetDatabaseSessions>(),registry,
     filesMetadata,sp.GetRequiredService<FileLibraryOptions>()));
 builder.Services.AddSingleton<MetadataRepository>();

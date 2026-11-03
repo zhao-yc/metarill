@@ -13,13 +13,13 @@ public sealed partial class ApplicationAuthenticationPackageTests:IAsyncLifetime
 {
     private readonly string root=Path.Combine(Path.GetTempPath(),"metarill-auth-package-contract",Guid.NewGuid().ToString("N"));
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){WriteIndented=true,NewLine="\n"};
-    /// <summary>新Full真实装配10表/安全源码，旧BackendOnly仍4表/原开发宿主；无认证静默降级。</summary>
+    /// <summary>新Full真实装配11表/安全源码，旧BackendOnly仍4表/原开发宿主；无认证静默降级。</summary>
     [Fact]
     public void Full_web_profile_and_backend_only_original_development_contract_are_distinct()
     {
         var full=Path.Combine(root,"full");var backend=Path.Combine(root,"backend");var catalog=Catalog();var generator=new ApplicationPackager();
         generator.Create(catalog,full,"Example.ProfileContract",SourceRoot());generator.Create(catalog,backend,"Example.ProfileContract",SourceRoot(),ApplicationPackageMode.BackendOnly);
-        var fullPhysical=MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(Read(full,"project"),Read(full,"files")),Read(full,"security"));Assert.Equal(10,fullPhysical.ConfigTables.Count);Assert.Equal(128,Read(full,"security").ConfigColumns.Count);Assert.Equal(6,Read(full,"security").ConfigIndexes.Count);Assert.Empty(Read(full,"security").ConfigPages);
+        var fullPhysical=MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(Read(full,"project"),Read(full,"files")),Read(full,"security"));Assert.Equal(11,fullPhysical.ConfigTables.Count);Assert.Equal(153,Read(full,"security").ConfigColumns.Count);Assert.Equal(6,Read(full,"security").ConfigIndexes.Count);Assert.Empty(Read(full,"security").ConfigPages);
         Assert.Equal(4,MetadataCatalogComposition.MergePhysical(Read(backend,"project"),Read(backend,"files")).ConfigTables.Count);Assert.False(File.Exists(Path.Combine(backend,"backend/metadata/security.json")));Assert.False(Directory.Exists(Path.Combine(backend,"src/Metarill.Security")));
         Assert.Equal("web-database-v1",Marker(full)["authenticationProfile"]!.GetValue<string>());Assert.Equal("development-only",Marker(backend)["authenticationProfile"]!.GetValue<string>());
         Assert.Contains("Metarill.Security",File.ReadAllText(Path.Combine(full,"backend/Application.Host/Application.Host.csproj")));Assert.DoesNotContain("Metarill.Runtime",File.ReadAllText(Path.Combine(full,"backend/Application.Host/Application.Host.csproj")));

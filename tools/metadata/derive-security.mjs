@@ -39,6 +39,18 @@ const tables = [
     grant_id: ['2200000000000000321', 'int64'], project_id: ['2200000000000000322', 'int64'],
   }],
 ];
+// 原Java登录审计为固定基础设施：25列来自原V8日志DDL，不借平台页面配置或任意输入扩展。
+function loginAuditFoundation() {
+  const id = '2300000000000800000';
+  const definitions = [["id", "int64", "", 1], ["name", "string", "200", 0], ["import_no", "string", "50", 0], ["delete_no", "datetime", "", 0], ["insert_time", "datetime", "", 0], ["update_time", "datetime", "", 0], ["insert_manager_id", "int64", "", 0], ["insert_user_name", "string", "50", 0], ["update_manager_id", "int64", "", 0], ["update_user_name", "string", "50", 0], ["dataid", "string", "50", 0], ["detail", "string", "longtext", 0], ["ip", "string", "50", 0], ["yz_manager_id", "int64", "", 0], ["yz_manager_name", "string", "50", 0], ["action_type", "int32", "", 0], ["role_id", "int64", "", 0], ["role_name", "string", "50", 0], ["yz_role_id", "int64", "", 0], ["yz_role_name", "string", "50", 0], ["chunk_name", "string", "100", 0], ["execute_time_len", "int32", "", 0], ["execute_result", "int32", "", 0], ["config_page_name", "string", "50", 0], ["config_page_id", "int64", "", 0]];
+  return {
+    table: { id, tableName: 'yz_manager_log', isFunctionTable: 0, isView: 0 },
+    columns: definitions.map(([columnName, logicalType, columnLength, isDbNotNull], index) => columnDefinition({
+      id: (BigInt(id) + BigInt(index + 1)).toString(), configTableId: id, columnName, logicalType, columnLength,
+      isDbNotNull, isVirtualColumn: 0, precision: 18, scale: 2, defaultValue: '',
+    })),
+  };
+}
 // 必需索引的名称、标识、唯一性及有序字段共同固定，不能用同名不同结构替代。
 const indexes = [
   ['2200000000000000734', '6031906809708544', 'ux_manager_name', 1, [
@@ -166,10 +178,14 @@ export function deriveSecurity(source) {
     const expected = fields.map(([fieldId, columnId, columnName, sortNo]) => ({ id: fieldId, configIndexId: id, configColumnId: columnId, columnName, sortNo, sortDirection: 'ASC' }));
     if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('安全基础必要索引字段定义漂移。');
   }
+  const audit = loginAuditFoundation();
+  const reserved = new Set([audit.table.id, ...audit.columns.map(column => column.id)]);
+  if (all.some(row => reserved.has(row.id)) || source.configTables.some(table => table.tableName.toLowerCase() === audit.table.tableName))
+    fail('固定登录审计基础对象与平台源冲突。');
   return {
     schemaVersion: source.schemaVersion, backendTarget: source.backendTarget,
     yzProjectId: source.yzProjectId, yzProjectName: source.yzProjectName, databaseProvider: source.databaseProvider,
-    configTables: byId(selected), configColumns: byId(columns), configPages: [], configPageColumns: [],
+    configTables: [...byId(selected), audit.table], configColumns: [...byId(columns), ...audit.columns], configPages: [], configPageColumns: [],
     yzAdminTypes: [], configMenus: [], configCustomPages: [], configButtons: [], configChildren: [],
     configIndexes: byId(selectedIndexes), configIndexColumns: byId(indexColumns),
   };
@@ -186,7 +202,7 @@ function main(args) {
     console.log('安全基础物理元数据与平台源头一致。');
   } else {
     writeFileSync(destination, expected, 'utf8');
-    console.log('已从平台元数据派生六张安全基础表及完整物理字段与索引闭包。');
+    console.log('已派生六张平台安全基础表及原登录审计基础表，字段与索引闭包完整。');
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main(process.argv.slice(2));

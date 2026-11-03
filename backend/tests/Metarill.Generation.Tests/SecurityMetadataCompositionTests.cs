@@ -10,7 +10,7 @@ namespace Metarill.Generation.Tests;
 public sealed class SecurityMetadataCompositionTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly string[] SecurityTables = ["yz_project", "yz_admin_type", "yz_manager", "yz_role", "yz_role_permission", "sys_session"];
+    private static readonly string[] SecurityTables = ["yz_project", "yz_admin_type", "yz_manager", "yz_role", "yz_role_permission", "sys_session", "yz_manager_log"];
 
     [Fact]
     public void Derived_security_model_has_complete_platform_physical_shape_without_pages_or_configuration()
@@ -18,7 +18,7 @@ public sealed class SecurityMetadataCompositionTests
         var security = Read("security"); var platform = Read("platform");
         MetadataValidation.Validate(security);
         Assert.Equal(SecurityTables.Order(StringComparer.Ordinal), security.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal));
-        Assert.Equal(128, security.ConfigColumns.Count);
+        Assert.Equal(153, security.ConfigColumns.Count);
         Assert.Equal(6, security.ConfigIndexes.Count);
         Assert.Equal(10, security.ConfigIndexColumns.Count);
         Assert.Empty(security.ConfigPages); Assert.Empty(security.ConfigPageColumns);
@@ -34,7 +34,12 @@ public sealed class SecurityMetadataCompositionTests
         // 编译真实结构计划逐表比较：列类型、主键、可空性、默认值及索引与平台物理源完全相同。
         var expected = MySqlSchemaPlanner.Compile(platform, "security_fixture").Tables.Where(table => SecurityTables.Contains(table.Name)).ToArray();
         var actual = MySqlSchemaPlanner.Compile(security, "security_fixture");
-        Assert.Equal(MySqlSchemaPlanner.Fingerprint(new DatabaseSchema("security_fixture", expected)), MySqlSchemaPlanner.Fingerprint(actual));
+        var unchanged=actual.Tables.Where(table=>table.Name!="yz_manager_log").ToArray();
+        Assert.Equal(6,expected.Length);Assert.Equal(MySqlSchemaPlanner.Fingerprint(new DatabaseSchema("security_fixture", expected)),MySqlSchemaPlanner.Fingerprint(new DatabaseSchema("security_fixture",unchanged)));
+        var log=Assert.Single(actual.Tables,table=>table.Name=="yz_manager_log");Assert.Equal(25,log.Columns.Count);
+        var columns=security.ConfigColumns.Where(column=>column.ConfigTableId==security.ConfigTables.Single(table=>table.TableName=="yz_manager_log").Id).ToArray();
+        Assert.Equal(new[]{"action_type","chunk_name","config_page_id","config_page_name","dataid","delete_no","detail","execute_result","execute_time_len","id","import_no","insert_manager_id","insert_time","insert_user_name","ip","name","role_id","role_name","update_manager_id","update_time","update_user_name","yz_manager_id","yz_manager_name","yz_role_id","yz_role_name"},columns.Select(column=>column.ColumnName).Order(StringComparer.Ordinal));
+        Assert.Equal("string",columns.Single(column=>column.ColumnName=="detail").LogicalType);Assert.Equal("longtext",columns.Single(column=>column.ColumnName=="detail").ColumnLength);Assert.All(columns.Where(column=>column.ColumnName.EndsWith("_id",StringComparison.Ordinal)||column.ColumnName=="id"),column=>Assert.Equal("int64",column.LogicalType));
     }
 
     [Fact]
@@ -46,7 +51,7 @@ public sealed class SecurityMetadataCompositionTests
         Assert.Equal(business.ConfigTables.Count + files.ConfigTables.Count + security.ConfigTables.Count, combined.ConfigTables.Count);
         Assert.Equal(business.ConfigColumns.Count + files.ConfigColumns.Count + security.ConfigColumns.Count, combined.ConfigColumns.Count);
         Assert.Equal(business.ConfigPages.Select(page => page.Id), combined.ConfigPages.Select(page => page.Id));
-        Assert.Equal(10, MySqlSchemaPlanner.Compile(combined, "combined_fixture").Tables.Count);
+        Assert.Equal(11, MySqlSchemaPlanner.Compile(combined, "combined_fixture").Tables.Count);
         Assert.Equal(before, new[] { Serialize(business), Serialize(files), Serialize(security) });
     }
 
@@ -65,7 +70,7 @@ public sealed class SecurityMetadataCompositionTests
         };
         var before = Serialize(application);
         var merged = MetadataCatalogComposition.MergePhysical(application, security);
-        Assert.Equal(6, merged.ConfigTables.Count); Assert.Equal(128, merged.ConfigColumns.Count);
+        Assert.Equal(7, merged.ConfigTables.Count); Assert.Equal(153, merged.ConfigColumns.Count);
         Assert.Equal(6, merged.ConfigIndexes.Count); Assert.Equal(10, merged.ConfigIndexColumns.Count);
         Assert.Equal(before, Serialize(application));
         application.ConfigPages.Add(new() { Id = "42", ConfigTableId = security.ConfigTables[0].Id });

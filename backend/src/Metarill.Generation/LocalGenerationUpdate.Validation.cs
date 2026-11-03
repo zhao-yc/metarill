@@ -29,6 +29,8 @@ public sealed partial class LocalGenerationUpdater
     { "backend/metadata/project.json", SecurityCatalogBindingPath, "frontend/common/application.generated.json", "frontend/pages.json", "frontend/pages.generated.json", "backend/generated/frontend/pages.generated.json" };
     private static readonly HashSet<string> RuntimeFiles = new(StringComparer.Ordinal)
     {
+      // 原登录失败审计partial仅登记这一固定路径，不开放任意多点源码。
+      "src/Metarill.Security/AuthenticationService.LoginAudit.cs",
       // 索引方向partial按精确路径升级，未知多点源码仍拒绝。
       "src/Metarill.Data/Schema/SchemaService.IndexDirections.cs",
       // 跨表读取partial只登记这一路径，未知多点源码继续拒绝。
@@ -69,6 +71,7 @@ public sealed partial class LocalGenerationUpdater
         var infrastructure = Decode<MetadataCatalog>(ReadBytes(root, "backend/metadata/files.json"));
         if(candidate)FileUploadLifetime.ValidateMetadata(infrastructure);
         var management=ReadManagement(root,package,generated,entries);
+        if(candidate&&management is not null)SecurityManagementModuleFactory.RequireCurrentForPublication(management.Module);
         var physical=management is null?metadata:management.Module.Physical;
         MetadataCatalogComposition.MergePhysical(physical, infrastructure);
         if(frontend.Authentication=="web-database-v1")MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(physical,infrastructure),Decode<MetadataCatalog>(ReadBytes(root,"backend/metadata/security.json")));
@@ -85,6 +88,8 @@ public sealed partial class LocalGenerationUpdater
         if(frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"backend/metadata/security.json","backend/Application.Host/WebAuthentication.cs","backend/Application.Host/SecurityInitialization.cs","src/Metarill.Security/Metarill.Security.csproj"});
         // 旧Full仍可预览显式运行时升级；当前候选不能同时删源码和归属来伪造完整协调闭包。
         if(candidate&&frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"backend/Application.Host/SessionPolicy.cs", "backend/Application.Host/AgentIntegration.cs", "backend/Application.Host/McpIntegration.cs", "src/Metarill.Agent/AgentFoundationCatalog.g.cs", "frontend/pages/custom/agent_authorize.vue", "frontend/pages/custom/agent_grants.vue","backend/Application.Host/WebSecurityCoordination.cs","backend/Application.Host/SystemMaintenanceController.cs", "backend/Application.Host/OriginalBusinessButtonController.cs", "src/Metarill.Core/Metadata/ButtonVisibilityRule.cs", "src/Metarill.Core/Metadata/ReadOnlyConditionRule.cs", "src/Metarill.Core/Metadata/JavaDecimalNumber.cs", "src/Metarill.Core/Contracts/GeneratedAgentWriteAccessAttribute.cs", "src/Metarill.Core/Contracts/IGeneratedRuleRecord.cs", "src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.RecordStorage.cs", "src/Metarill.Agent/AgentRecordWriteBinding.cs", "src/Metarill.Agent/AgentRecordValues.cs", "src/Metarill.Agent/AgentButtonVisibility.cs", "src/Metarill.Core/Persistence/IBusinessButtonExecutionGuard.cs", "src/Metarill.Data/DatabaseExecutionLeases.cs", "src/Metarill.Data/MySqlExecutionLocks.cs", "src/Metarill.Data/Coordination/DatabaseButtonExecutionGuard.cs"});
+        // 当前认证入口依赖失败审计partial，旧目标可补齐，候选不能双删源码与归属冒充完整包。
+        if(candidate&&frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"src/Metarill.Security/AuthenticationService.LoginAudit.cs"});
         // 当前中央按钮模板引用初始化协议源；旧目标仍可预览升级，当前候选不能双删伪造闭包。
         if(candidate&&frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"src/Metarill.Agent/AdminAccountInitializationHttp.cs","src/Metarill.Security/AdminAccountInitializationBusiness.cs"});
         if(candidate&&frontend.Authentication=="web-database-v1")bootstrap=bootstrap.Concat(new[]{"src/Metarill.Security/PlatformAdminInitializationScope.cs","src/Metarill.Security/PlatformAdminAccountTarget.cs","src/Metarill.Security/IAdminInitializationAgentPolicy.cs","src/Metarill.Agent/AgentAdminInitializationPolicy.cs"});

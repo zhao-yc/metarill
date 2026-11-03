@@ -43,6 +43,7 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
     /// <summary>网页登录持久会话不含原始令牌；仅最外层认证拥有者在回滚后记录原失败审计。</summary>
     public async Task<(Dictionary<string,object?> User,string Token)> LoginFromWebAsync(string username,string password,string? clientIp,CancellationToken cancellationToken=default)
     {
+        username=NormalizeLoginUsername(username);
         try
         {
             return await store.Session.InTransactionAsync(async()=>
@@ -54,6 +55,11 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
                 if(!AccountActive(account))throw RejectLogin(accountId,LoginFailureReason.UnavailableAccount);
                 if(!PasswordHasher.Verify(password,SqlRowStore.Text(account,"password")))throw RejectLogin(accountId,LoginFailureReason.InvalidPassword);
                 var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,cancellationToken,includePermissions:false)??throw RejectLogin(accountId,LoginFailureReason.UnavailableRealm);
+                // 原成功登录只明确更新审计三字段，与会话同事务；写入失败不得签发半次登录。
+                var now=DateTime.Now;
+                if(await store.UpdateAsync("yz_manager",accountId,new Dictionary<string,object?>
+                    {{"last_login_time",now},{"login_ip",NormalizeLoginIp(clientIp)},{"update_time",now}},cancellationToken)!=1)
+                    throw new InvalidOperationException("登录审计更新未命中唯一账号。");
                 var token=PasswordHasher.Token();
                 await store.InsertAsync("sys_session",new Dictionary<string,object?>
                 {{"id",ids.NextId()},{"account_id",accountId},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",long.Parse(realm.ProjectId,CultureInfo.InvariantCulture)},{"insert_time",DateTime.UtcNow}},cancellationToken);
@@ -64,6 +70,15 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
         {
             await RecordLoginFailureAsync(failure,username,clientIp,cancellationToken);throw;
         }
+    }
+    /// <summary>沿用原Java trimToEmpty：只去除两端不大于ASCII空格的字符，绝不改写密码。</summary>
+    public static string NormalizeLoginUsername(string? username)
+    {
+        if(username is null)return "";
+        var start=0;var end=username.Length;
+        while(start<end&&username[start]<=' ')start++;
+        while(end>start&&username[end-1]<=' ')end--;
+        return username[start..end];
     }
     /// <summary>每次重新验证真实会话、身份后台与角色；宿主扩展只负责非Web会话的附加证明。</summary>
     public async Task<AuthenticatedIdentity?> AuthenticateAsync(string token,string? selectedProject,CancellationToken cancellationToken=default)

@@ -16,14 +16,14 @@ const requiredTables = ['yz_project', 'yz_admin_type', 'yz_manager', 'yz_role', 
 const physicalColumnKeys = ['id', 'configTableId', 'columnName', 'logicalType', 'columnLength', 'isDbNotNull', 'isVirtualColumn', 'precision', 'scale', 'defaultValue'];
 
 // 只比较公开物理快照，测试不读取账号、连接或任何数据库行。
-test('派生六表完整物理闭包且不修改平台源，不传播控件和配置扩展', () => {
+test('派生六表及固定原登录审计物理闭包且不修改平台源，不传播控件和配置扩展', () => {
   const input = fresh(), before = JSON.stringify(input), actual = deriveSecurity(input);
   assert.equal(JSON.stringify(input), before);
-  assert.deepEqual(actual.configTables.map(table => table.tableName).sort(), requiredTables.toSorted());
+  assert.deepEqual(actual.configTables.map(table => table.tableName).sort(), [...requiredTables, 'yz_manager_log'].toSorted());
   const tableIds = new Set(actual.configTables.map(table => table.id));
   const expected = source.configColumns.filter(column => tableIds.has(column.configTableId) && (column.isVirtualColumn ?? 0) === 0);
-  assert.equal(actual.configColumns.length, expected.length);
-  for (const column of actual.configColumns) {
+  assert.equal(actual.configColumns.length, expected.length + 25);
+  for (const column of actual.configColumns.filter(column => column.configTableId !== '2300000000000800000')) {
     assert.deepEqual(Object.keys(column), physicalColumnKeys);
     const original = expected.find(row => row.id === column.id);
     for (const key of physicalColumnKeys) assert.equal(column[key], original[key] ?? ({ isVirtualColumn: 0, precision: 18, scale: 2 })[key]);
@@ -53,7 +53,7 @@ test('平台无关表不能进入闭包，所有关系和配置内容都不传�
   input.configTables.push({ id: '42', tableName: 'untrusted_extra', isFunctionTable: 0, isView: 0 });
   input.configColumns.push({ id: '43', configTableId: '42', columnName: 'secret', logicalType: 'string', defaultValue: marker });
   const actual = deriveSecurity(input);
-  assert.equal(actual.configTables.length, 6); assert.ok(!JSON.stringify(actual).includes(marker));
+  assert.equal(actual.configTables.length, 7); assert.ok(!JSON.stringify(actual).includes(marker));
   assert.ok(!actual.configColumns.some(column => column.id === '43'));
 });
 
@@ -185,4 +185,18 @@ test('账号活动会话索引按新稳定标识和有序两列派生，漂移�
     const input = fresh(); mutate(input);
     assert.throws(() => deriveSecurity(input), /索引/);
   }
+});
+
+// 固定原日志只给运行时物理闭包使用，不能由页面源或相邻ID注入其它结构。
+test('原登录日志25列稳定且与平台源跨类别冲突时拒绝', () => {
+  const actual = deriveSecurity(fresh()), table = actual.configTables.find(table => table.tableName === 'yz_manager_log');
+  assert.equal(table.id, '2300000000000800000'); const fields = actual.configColumns.filter(column => column.configTableId === table.id);
+  assert.equal(fields.length, 25); assert.equal(fields[0].isDbNotNull, 1); assert.ok(fields.slice(1).every(column => column.isDbNotNull === 0));
+  assert.equal(fields.find(column => column.columnName === 'detail').columnLength, 'longtext');
+  assert.deepEqual(fields.filter(column => column.columnName === 'id' || column.columnName.endsWith('_id')).map(column => column.logicalType), Array(7).fill('int64'));
+  for (const key of ['configTables', 'configColumns', 'configIndexes']) {
+    const input = fresh(); input[key][0].id = fields[0].id; assert.throws(() => deriveSecurity(input));
+  }
+  const input = fresh(); input.configTables.push({ id: '9999999', tableName: 'yz_manager_log', isFunctionTable: 0, isView: 0 });
+  assert.throws(() => deriveSecurity(input), /审计基础对象/);
 });

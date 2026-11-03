@@ -21,6 +21,7 @@ public sealed partial class StandaloneWebAuthenticationTests
         Assert.Equal(new[]{"action_type","detail","execute_result","id","insert_time","ip","name","update_time","yz_manager_id","yz_manager_name"},row.Keys.OrderBy(name=>name,StringComparer.Ordinal));Assert.Equal(row["insert_time"],row["update_time"]);
         Assert.Equal(Username,SqlRowStore.Text(row,"yz_manager_name"));Assert.Equal("后台管理员登录",SqlRowStore.Text(row,"name"));Assert.Equal("8",SqlRowStore.Text(row,"action_type"));Assert.Equal("2",SqlRowStore.Text(row,"execute_result"));
         Assert.Contains("密码",SqlRowStore.Text(row,"detail"));Assert.DoesNotContain(wrong,JsonSerializer.Serialize(row));Assert.DoesNotContain(SqlRowStore.Text(f.Provider.Rows["yz_manager"][0],"password"),JsonSerializer.Serialize(row));
+        Assert.Equal("后台管理员登录失败，原因：用户名或者密码错误；用户名："+Username+"；IP："+(direct?"未知":"192.0.2.10")+"；触发账号锁：否；触发IP锁：否",SqlRowStore.Text(row,"detail"));
         Assert.Equal(direct?"未知":"192.0.2.10",SqlRowStore.Text(row,"ip"));Assert.Equal(commits+1,f.Provider.Commits);Assert.Equal(rollbacks+1,f.Provider.Rollbacks);
     }
     /// <summary>双栈HTTP映射IPv4按原IPv4显示，IPv6本身不改变。</summary>
@@ -66,6 +67,23 @@ public sealed partial class StandaloneWebAuthenticationTests
         Assert.Null(f.Session.CurrentTransaction);Assert.Empty(f.Provider.Rows.GetValueOrDefault("yz_manager_log")??[]);Assert.Equal(before,f.IdentitySnapshot());
         await f.Authentication.RecordLoginFailureAsync(failure,Username,"192.0.2.10");Assert.Single(f.Provider.Rows["yz_manager_log"]);Assert.Equal(before,f.IdentitySnapshot());
     }
+    /// <summary>真实平台使用既有受控物理合成加载日志，不把基础表塞进页面目录或放宽普通合成。</summary>
+    [Fact]
+    public async Task Platform_physical_catalog_can_persist_audit_without_exposing_a_new_page()
+    {
+        // 完整包不携带平台元数据；原平台目录只从本测试源码位置的公开检出读取。
+        var source=PlatformMetadataDirectory();var registry=new Metarill.Runtime.Metadata.MetadataRegistry(Path.Combine(source,"platform.json"),Path.Combine(source,"demo.json"));
+        var files=Metarill.Runtime.Metadata.MetadataRegistry.Load(Path.Combine(source,"files.json"));var security=Metarill.Runtime.Metadata.MetadataRegistry.Load(Path.Combine(source,"security.json"));
+        var before=JsonSerializer.Serialize(registry.Platform);var physical=new Metarill.Runtime.ProjectPhysicalModels(files,security,registry).Compose(registry.Platform);
+        var log=Assert.Single(physical.ConfigTables,table=>table.TableName=="yz_manager_log");Assert.DoesNotContain(physical.ConfigPages,page=>page.ConfigTableId==log.Id);Assert.Equal(before,JsonSerializer.Serialize(registry.Platform));
+        var provider=new StandaloneMemoryProvider();using var session=new Metarill.Data.DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="offline"},provider.Orm,provider);
+        var oldStore=new SqlRowStore(session,registry.Platform);await Assert.ThrowsAsync<InvalidOperationException>(()=>oldStore.ReadAsync("yz_manager_log"));Assert.Equal(0,provider.Opens);
+        var store=new SqlRowStore(session,physical);var auth=new Metarill.Runtime.Security.AuthenticationService(store,new Metarill.Core.Security.SnowflakeIdGenerator(878),registry,new Metarill.Runtime.Security.PlatformSecuritySessionPolicy(store));
+        await auth.RecordLoginFailureAsync(Metarill.Runtime.Security.AuthenticationService.RejectLogin(null,Metarill.Runtime.Security.LoginFailureReason.UnknownAccount),"unit-only-missing","192.0.2.10");
+        Assert.Single(provider.Rows["yz_manager_log"]);Assert.Equal(1,provider.Commits);Assert.All(provider.WriteTransactions,Assert.True);
+    }
+    /// <summary>公开模型路径绑定测试源码，不读取私有数据库设置或本机环境。</summary>
+    private static string PlatformMetadataDirectory([System.Runtime.CompilerServices.CallerFilePath]string file="")=>Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../../metadata"));
     /// <summary>审计存储故障与原实现一样不把认证失败改成成功或内部错误，失败的审计事务不得泄漏。</summary>
     [Fact]
     public async Task Audit_failure_keeps_original_authentication_rejection_and_identity_state()

@@ -18,8 +18,8 @@ public sealed class TrustedSecurityManagementModuleTests
     {
         var application=Read("demo"); var before=Serialize(application); var source=Read("platform");
         var models=Compose(application); var physical=models.Physical; var published=models.Published;
-        Assert.Equal(before,Serialize(application)); Assert.Equal(10,physical.ConfigTables.Count); Assert.Equal(10,published.ConfigTables.Count);
-        Assert.Equal(6,published.ConfigTables.Count(table=>Read("security").ConfigTables.Any(item=>item.Id==table.Id)));
+        Assert.Equal(before,Serialize(application)); Assert.Equal(11,physical.ConfigTables.Count); Assert.Equal(11,published.ConfigTables.Count);
+        Assert.Equal(7,published.ConfigTables.Count(table=>Read("security").ConfigTables.Any(item=>item.Id==table.Id)));
         Assert.Equal(application.ConfigPages.Count,physical.ConfigPages.Count); Assert.Equal(application.ConfigPages.Count+3,published.ConfigPages.Count);
         Assert.Equal(63,published.ConfigPageColumns.Count(field=>PageIds.Contains(field.ConfigPageId)));
         var initializationPassword=published.ConfigPageColumns.Single(field=>field.Id=="1696799603148693507");Assert.Equal("1696799603148693506",initializationPassword.ConfigColumnId);Assert.Equal("1696799309006348290",initializationPassword.ConfigPageId);

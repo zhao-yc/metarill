@@ -68,7 +68,7 @@ public sealed partial class DoublePersistenceNativeMySqlTests
         try
         {
             Assert.Equal(0, await TableCount(session)); host = await FreshHost.StartAsync(Info(), "/health"); Assert.Equal(0, await TableCount(session)); await host.DisposeAsync(); host = null;
-            stage = "显式预览／重复安装"; await Run("--schema-preview"); Assert.Equal(0, await TableCount(session)); await Run("--schema-apply"); await Run("--schema-apply"); Assert.Equal(14, FreshInstallConfiguration.ExpectedFullTableCount(catalog)); Assert.Equal(14, await TableCount(session)); Assert.Empty((await new SchemaService(session).PreviewAsync(physical)).Changes);
+            stage = "显式预览／重复安装"; await Run("--schema-preview"); Assert.Equal(0, await TableCount(session)); await Run("--schema-apply"); await Run("--schema-apply"); Assert.Equal(15, FreshInstallConfiguration.ExpectedFullTableCount(catalog)); Assert.Equal(15, await TableCount(session)); Assert.Empty((await new SchemaService(session).PreviewAsync(physical)).Changes);
             stage = "真实默认值及反查"; await VerifyPhysicalDefaults(session, catalog, store);
             stage = "真实账号及独立导航许可"; await Run("--initialize-security"); var passwordHash = SqlRowStore.Text(Assert.Single(await security.ReadAsync("yz_manager", Row("name", ownerName))), "password"); Assert.True(PasswordHasher.Verify(ownerPassword, passwordHash)); await Run("--initialize-security"); Assert.Equal(passwordHash, SqlRowStore.Text(Assert.Single(await security.ReadAsync("yz_manager", Row("name", ownerName))), "password"));
             var ids = new SnowflakeIdGenerator(Worker + 1); var role = ids.NextId(); var manager = ids.NextId(); var pageGrants = new Dictionary<string, long>(StringComparer.Ordinal);
