@@ -17,7 +17,7 @@ public sealed class PlatformCapBoundaryTests
     {
         using var handler=new RejectingCap();using var client=new HttpClient(handler);var cap=new LoginCapVerifier(client,new(){Enabled=true,ServerUrl="https://cap.example.invalid",SiteKey="test-site",SecretKey="unit-only-platform-secret"});
         // 其它依赖若被触及会立即失败，不能用伪造账号／成功认证掩盖校验次序。
-        var controller=new IdentityController(null!,null!,null!,null!,null!,cap);var config=controller.CapConfig();Assert.Equal(200,config.Code);Assert.DoesNotContain("unit-only-platform-secret",JsonSerializer.Serialize(config));
+        var controller=new IdentityController(new AuthenticationService(null!,null!,null!,null!),null!,null!,null!,null!,cap);controller.ControllerContext=new(){HttpContext=new Microsoft.AspNetCore.Http.DefaultHttpContext()};var config=controller.CapConfig();Assert.Equal(200,config.Code);Assert.DoesNotContain("unit-only-platform-secret",JsonSerializer.Serialize(config));
         var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>controller.Login("unit-only-user","unit-only-password",CancellationToken.None,"unit-only-proof"));
         Assert.Equal("安全验证失败，请重试",error.Message);Assert.Equal(1,handler.Calls);Assert.Equal("unit-only-proof",handler.Token);
     }
@@ -25,7 +25,8 @@ public sealed class PlatformCapBoundaryTests
     [Fact]
     public async Task Original_platform_missing_token_is_rejected_without_transport_or_identity_services()
     {
-        using var handler=new RejectingCap();using var client=new HttpClient(handler);var controller=new IdentityController(null!,null!,null!,null!,null!,new(client,new(){Enabled=true}));
+        using var handler=new RejectingCap();using var client=new HttpClient(handler);var controller=new IdentityController(new AuthenticationService(null!,null!,null!,null!),null!,null!,null!,null!,new(client,new(){Enabled=true}));
+        controller.ControllerContext=new(){HttpContext=new Microsoft.AspNetCore.Http.DefaultHttpContext()};
         var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>controller.Login("unit-only-user","unit-only-password",CancellationToken.None));Assert.Equal("请先完成安全验证",error.Message);Assert.Equal(0,handler.Calls);
     }
     private sealed class RejectingCap:HttpMessageHandler

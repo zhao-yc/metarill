@@ -29,3 +29,5 @@
 数据库Web登录失败在认证回滚后以独立事务持久化原`yz_manager_log`事件，25字段结构由security逻辑元数据与统一适配器管理。记录只取可信失败原因及身份／IP，不写口令、令牌或异常正文；宿主拥有外层锁时由外层边界负责单次落库。旧工程先同步受管运行时／元数据并显式预览、执行及核验结构，禁止启动自动改表。实现及未验范围见[V57](login-failure-audit-compatibility.md)。
 
 成功登录明确写last_login_time／login_ip／update_time，与会话插入同事务，故障整笔回滚；用户名只按原Java规则去除两端ASCII空白，密码不归一化。日志基础模型由固定派生工具可重复形成，平台使用既有受控物理图，完整管理包保留编译内旧资产用于来源核验，当前新资产仍不增加页面权限。详细边界见[成功审计](login-success-audit-compatibility.md)及[失败审计](login-failure-audit-compatibility.md)。
+
+原账号／IP失败锁由共享Redis DB0存储承接，平台与完整宿主固定项目／部署库隔离；缺配置明确拒绝，锁检查早于Cap与密码查询，认证回滚后计数、成功外层提交后清计数。普通请求限流独立存在。业务数据库适配层不承担Redis命令，无新增表／启动DDL；跨应用重启与Redis自身持久化分别说明。配置、原规则与未验范围见[登录失败锁](login-failure-lock-compatibility.md)。

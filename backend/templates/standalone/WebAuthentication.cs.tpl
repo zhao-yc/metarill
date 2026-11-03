@@ -64,13 +64,15 @@ internal sealed class ApplicationWebAuthentication(IServiceProvider services,App
         username=AuthenticationService.NormalizeLoginUsername(username);
         if(!mode.DatabaseConfigured||password is null||username.Length is <1 or >50||password.Length is <1 or >1024)throw InvalidLogin();
         var ip=services.GetService<IHttpContextAccessor>()?.HttpContext?.Connection.RemoteIpAddress?.ToString();
+        // Cap期间可能出现并发触锁；密码查询前再次读取同一共享锁状态。
+        await Authentication.CheckLoginLocksAsync(username,ip,cancellationToken);
         try
         {
             var candidates=await Store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken);
             if(candidates.Count!=1||!long.TryParse(SqlRowStore.Text(candidates[0],"yz_admin_type_id"),NumberStyles.None,CultureInfo.InvariantCulture,out var admin)||
                 !registry.ContainsAdmin(admin.ToString(CultureInfo.InvariantCulture)))throw InvalidLogin();
             var account=SqlRowStore.Id(candidates[0]);
-            return await Session.InTransactionAsync(async()=>
+            var logged=await Session.InTransactionAsync(async()=>
             {
                 await LockRealm(admin,cancellationToken);
                 var current=(await Store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"id",account}},cancellationToken)).SingleOrDefault();
@@ -82,6 +84,7 @@ internal sealed class ApplicationWebAuthentication(IServiceProvider services,App
                 if(identity is null||!registry.Contains(identity))throw InvalidLogin(account,LoginFailureReason.UnavailableRealm);
                 result.User["id"]=account.ToString(CultureInfo.InvariantCulture);result.User["merchantName"]=registry.ProjectName;return result;
             },cancellationToken);
+            await Authentication.ClearLoginFailuresAsync(username,ip,cancellationToken);return logged;
         }
         catch(UnauthorizedAccessException failure)
         {

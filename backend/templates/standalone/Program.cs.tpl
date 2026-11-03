@@ -62,6 +62,8 @@ builder.Services.AddSingleton(authenticationMode);
 builder.Services.AddSingleton<ApplicationSecurityRegistry>();
 builder.Services.AddSingleton<ISecurityResourceRegistry>(provider=>provider.GetRequiredService<ApplicationSecurityRegistry>());
 builder.Services.AddSingleton<ISecuritySessionPolicy>(provider=>provider.GetRequiredService<ApplicationSecurityRegistry>());
+// 包内固定项目与可信数据库名隔离计数，不接受请求切换作用域。
+builder.Services.AddSingleton<ILoginAttemptStore>(_=>new RedisLoginAttemptStore(builder.Configuration.GetSection("Authentication:LoginFailures").Get<LoginFailureRedisOptions>()??new(),"application:"+verifiedCatalog.ProjectId+":"+builder.Configuration["Database:ExpectedDatabase"]));
 builder.Services.AddScoped<AuthenticationService>();
 // 原Cap只从宿主私有配置读取，传输禁用重定向与Cookie，防止密钥被带到另一站点。
 builder.Services.AddSingleton(builder.Configuration.GetSection("Authentication:Cap").Get<LoginCapOptions>()??new LoginCapOptions());
@@ -219,6 +221,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "UP", application = metada
 app.MapPost("/api/admin/sys/yz_manager/login", async (HttpContext context) =>
 {
     var login=await ReadLogin(context.Request);var username=login.Username;var password=login.Password;
+    if(authenticationMode.DatabaseConfigured)await context.RequestServices.GetRequiredService<AuthenticationService>().CheckLoginLocksAsync(username??"",context.Connection.RemoteIpAddress?.ToString(),context.RequestAborted);
     await context.RequestServices.GetRequiredService<LoginCapVerifier>().VerifyAsync(login.CaptchaVerification,context.RequestAborted);
     if(authenticationMode.Development)
     {

@@ -15,6 +15,7 @@ public sealed class IdentityController(AuthenticationService authentication,Http
     [HttpPost("login"),EnableRateLimiting("login")]
     public async Task<R<Dictionary<string,object?>>> Login([FromForm]string username,[FromForm]string password,CancellationToken cancellationToken,[FromForm]string? captchaVerification=null)
     {
+        await authentication.CheckLoginLocksAsync(username,HttpContext.Connection.RemoteIpAddress?.ToString(),cancellationToken);
         await cap.VerifyAsync(captchaVerification,cancellationToken);
         var result=await authentication.LoginFromWebAsync(username,password,HttpContext.Connection.RemoteIpAddress?.ToString(),cancellationToken);
         var response=R<Dictionary<string,object?>>.Success(result.User);response.Map["loginStateId"]=result.Token;return response;

@@ -62,7 +62,7 @@ public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPa
     {
         var settings=Settings();settings["Authentication:Mode"]="Web";settings["Authentication:DevelopmentBootstrap:Enabled"]="true";settings["Database:ConnectionString"]="invalid-private-test";settings["Database:ExpectedDatabase"]="offline";
         var selected=package.Mode(settings,"Development");Assert.False(package.Property<bool>(selected,"Development"));Assert.True(package.Property<bool>(selected,"DatabaseConfigured"));
-        var resolutions=0;var services=new ServiceCollection();services.AddSingleton<SqlRowStore>(_=>{resolutions++;throw new InvalidOperationException("预设配置失败");});using var provider=services.BuildServiceProvider();
+        var resolutions=0;var services=new ServiceCollection();services.AddSingleton<AuthenticationService>(_=>{resolutions++;throw new InvalidOperationException("预设认证配置失败");});using var provider=services.BuildServiceProvider();
         var web=package.New("ApplicationWebAuthentication",provider,selected,package.Registry());await Assert.ThrowsAsync<InvalidOperationException>(()=>package.Call(web,"LoginAsync",Username,Password,CancellationToken.None));Assert.Equal(1,resolutions);
     }
 
@@ -192,11 +192,11 @@ public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPa
     private sealed class OfflineApplication:IDisposable
     {
         internal readonly StandaloneMemoryProvider Provider=new();internal readonly HttpContextAccessor Accessor=new(){HttpContext=new DefaultHttpContext()};internal readonly object Web,Mode;private readonly WebAuthenticationPackageFixture package;private readonly ServiceProvider services;private readonly MetadataCatalog metadata;
-        internal OfflineApplication(WebAuthenticationPackageFixture fixture,MetadataCatalog? catalog=null)
+        internal OfflineApplication(WebAuthenticationPackageFixture fixture,MetadataCatalog? catalog=null,ILoginAttemptStore? attempts=null)
         {
             package=fixture;metadata=catalog??fixture.Metadata;var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="offline"},Provider.Orm,Provider);var store=new SqlRowStore(session,fixture.Security);
             var registry=fixture.Registry();Mode=fixture.Mode(new(){["Database:ConnectionString"]="offline",["Database:ExpectedDatabase"]="offline"},"Production");
-            var registrations=new ServiceCollection();registrations.AddSingleton(session);registrations.AddSingleton<IHttpContextAccessor>(Accessor);registrations.AddSingleton(store);registrations.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(877));registrations.AddSingleton<ISecurityResourceRegistry>((ISecurityResourceRegistry)registry);registrations.AddSingleton<ISecuritySessionPolicy>((ISecuritySessionPolicy)registry);registrations.AddScoped<AuthenticationService>();services=registrations.BuildServiceProvider();Web=fixture.New("ApplicationWebAuthentication",services,Mode,registry);
+            var registrations=new ServiceCollection();if(attempts is not null)registrations.AddSingleton(attempts);registrations.AddSingleton(session);registrations.AddSingleton<IHttpContextAccessor>(Accessor);registrations.AddSingleton(store);registrations.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(877));registrations.AddSingleton<ISecurityResourceRegistry>((ISecurityResourceRegistry)registry);registrations.AddSingleton<ISecuritySessionPolicy>((ISecuritySessionPolicy)registry);registrations.AddScoped<AuthenticationService>();services=registrations.BuildServiceProvider();Web=fixture.New("ApplicationWebAuthentication",services,Mode,registry);
         }
         internal async Task<string> Initialize(Dictionary<string,string?> settings)=>(string)(await package.Call(package.New("ApplicationSecurityInitialization",services.GetRequiredService<SqlRowStore>(),services.GetRequiredService<IIdGenerator>(),metadata),"InitializeAsync",new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),CancellationToken.None))!;
         internal async Task<(Dictionary<string,object?> User,string Token)> Login(string password){var result=(await package.Call(Web,"LoginAsync",Username,password,CancellationToken.None))!;return((Dictionary<string,object?>)result.GetType().GetField("Item1")!.GetValue(result)!,(string)result.GetType().GetField("Item2")!.GetValue(result)!);}

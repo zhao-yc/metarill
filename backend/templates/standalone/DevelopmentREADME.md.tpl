@@ -114,3 +114,5 @@ Entity、页级DTO/VO、Mapper、Service、Controller及导入请求均支持同
 ## 原Cap安全验证
 
 完整数据库Web宿主支持Authentication:Cap的Enabled／ServerUrl／SiteKey／SecretKey；默认关闭，启用后缺配置或验证失败明确拒绝。SecretKey只从忽略的私有设置或Authentication__Cap__SecretKey环境变量读取，不进入前端或公开配置；接口沿用cap-config与captchaVerification。配套同步后端运行时及原登录模板再启用，App／小程序在启用时沿原规则明确拒绝，不绕过验证码。仅后端开发演示模式不提供生产Cap能力。真实站点／密钥及设备验收由部署者补齐，编译不代表真实验证通过。
+
+数据库Web登录沿用原账号5次／IP20次失败保护。请在忽略的私有配置设置`Authentication:LoginFailures:ConnectionString`，或环境变量`Authentication__LoginFailures__ConnectionString`，使用Redis DB0。固定项目和可信部署库共同隔离计数；缺配置或Redis不可用时明确拒绝登录，不退回开发账号或进程内计数。账号／IP计数窗口15分钟，锁定15／30分钟，成功仅清计数；Redis连接在首次登录时才建立。BackendOnly开发演示不作为正式登录交付。此项无新增表或启动DDL；原页面和Cap交互保持。已有工程须经受管更新同步Security／依赖／宿主并重新编译，同时由部署者补私有Redis配置。

@@ -5,7 +5,7 @@ namespace Metarill.Generation.Tests;
 public sealed partial class LocalGenerationUpdateTests
 {
     /// <summary>当前候选删掉审计源码及归属仍须拒绝；目标文件、手写代码与配置都不能被触及。</summary>
-    [Theory][InlineData("src/Metarill.Security/AuthenticationService.LoginAudit.cs")][InlineData("src/Metarill.Security/LoginCapVerifier.cs")]
+    [Theory][InlineData("src/Metarill.Security/AuthenticationService.LoginAudit.cs")][InlineData("src/Metarill.Security/LoginCapVerifier.cs")][InlineData("src/Metarill.Security/LoginAttemptState.cs")][InlineData("src/Metarill.Security/RedisLoginAttemptStore.cs")]
     public void Candidate_requires_original_login_audit_runtime_without_touching_target(string path)
     {
         var(target,candidate)=Packages(Catalog(),Catalog());

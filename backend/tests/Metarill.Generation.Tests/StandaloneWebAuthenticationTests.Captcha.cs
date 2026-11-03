@@ -115,4 +115,18 @@ public sealed partial class StandaloneWebAuthenticationTests
         using var login=await server.Client.PostAsJsonAsync("/api/admin/sys/yz_manager/login",new{username="not-initialized",password="not-a-real-password"});
         Assert.Equal(HttpStatusCode.Unauthorized,login.StatusCode);
     }
+    /// <summary>配置数据库的正式宿主缺Redis时，在Cap和数据库查询前拒绝，不退回开发身份。</summary>
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task Required_failure_store_is_checked_before_cap_and_credentials_in_the_real_host(bool json)
+    {
+        var host=package.HostDirectory;var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet")
+        {WorkingDirectory=host,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};start.ArgumentList.Add(Path.Combine(host,"bin/Debug/net10.0/Application.Host.dll"));
+        start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["DOTNET_ENVIRONMENT"]="Production";start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";
+        start.Environment["Database__ConnectionString"]="Server=127.0.0.1;Port=1;User ID=unit_only;Database=unit_only;Connection Timeout=1";start.Environment["Database__ExpectedDatabase"]="unit_only";
+        start.Environment["Authentication__LoginFailures__ConnectionString"]="";start.Environment["Authentication__Cap__Enabled"]="true";start.Environment["Authentication__Cap__ServerUrl"]="https://cap.example.invalid";start.Environment["Authentication__Cap__SiteKey"]="unit-only-site";start.Environment["Authentication__Cap__SecretKey"]="unit-only-secret";start.Environment["Logging__LogLevel__Default"]="Warning";
+        await using var server=await FreshHost.StartAsync(start,"/health");using var body=json?(HttpContent)JsonContent.Create(new{username="unit-only-user",password="unit-only-password",captchaVerification=""}):new FormUrlEncodedContent(new Dictionary<string,string>{{"username","unit-only-user"},{"password","unit-only-password"},{"captchaVerification",""}});
+        using var response=await server.Client.PostAsync("/api/admin/sys/yz_manager/login",body);var value=await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.Equal(500,value.GetProperty("code").GetInt32());Assert.Equal("登录安全校验暂不可用，请稍后再试",value.GetProperty("msg").GetString());
+        Assert.False(value.TryGetProperty("map",out var map)&&map.TryGetProperty("loginStateId",out _));Assert.DoesNotContain("unit-only-secret",value.ToString());
+    }
 }

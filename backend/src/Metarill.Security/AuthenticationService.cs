@@ -35,7 +35,7 @@ public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<strin
     }
 }
 
-public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISecurityResourceRegistry registry,ISecuritySessionPolicy sessionPolicy,Microsoft.Extensions.Logging.ILogger<AuthenticationService>? logger=null)
+public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISecurityResourceRegistry registry,ISecuritySessionPolicy sessionPolicy,Microsoft.Extensions.Logging.ILogger<AuthenticationService>? logger=null,ILoginAttemptStore? loginAttempts=null)
 {
     /// <summary>兼容已有服务调用；未提供HTTP上下文时审计IP明确记为未知。</summary>
     public Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string username,string password,CancellationToken cancellationToken=default)=>
@@ -44,9 +44,11 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
     public async Task<(Dictionary<string,object?> User,string Token)> LoginFromWebAsync(string username,string password,string? clientIp,CancellationToken cancellationToken=default)
     {
         username=NormalizeLoginUsername(username);
+        var ownsTransaction=store.Session.CurrentTransaction is null;
+        if(ownsTransaction)await CheckLoginLocksAsync(username,clientIp,cancellationToken);
         try
         {
-            return await store.Session.InTransactionAsync(async()=>
+            var result=await store.Session.InTransactionAsync(async()=>
             {
                 // 与账号重置共用用户名唯一索引锁；密码验证和会话创建不可跨越已提交重置。
                 var account=(await store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken)).SingleOrDefault();
@@ -63,8 +65,10 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
                 var token=PasswordHasher.Token();
                 await store.InsertAsync("sys_session",new Dictionary<string,object?>
                 {{"id",ids.NextId()},{"account_id",accountId},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",long.Parse(realm.ProjectId,CultureInfo.InvariantCulture)},{"insert_time",DateTime.UtcNow}},cancellationToken);
-                return (PublicAccount(account),token);
+                return (User:PublicAccount(account),Token:token);
             },cancellationToken);
+            if(ownsTransaction)await ClearLoginFailuresAsync(username,clientIp,cancellationToken);
+            return result;
         }
         catch(UnauthorizedAccessException failure) when(store.Session.CurrentTransaction is null)
         {

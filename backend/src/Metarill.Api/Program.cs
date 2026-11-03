@@ -53,6 +53,8 @@ builder.Services.AddSingleton<ISchemaChangeJournal>(new FileSchemaChangeJournal(
 builder.Services.AddSingleton<SchemaService>();
 builder.Services.AddSingleton<ProjectSchemaService>();
 builder.Services.AddSingleton<BootstrapService>();
+// Redis DB0按固定平台项目和部署库隔离；缺配置明确拒绝登录，不降级为进程内计数。
+builder.Services.AddSingleton<ILoginAttemptStore>(_=>new RedisLoginAttemptStore(builder.Configuration.GetSection("Metarill:Authentication:LoginFailures").Get<LoginFailureRedisOptions>()??new(),"platform:"+registry.Platform.YzProjectId+":"+platformOptions.ExpectedDatabase));
 builder.Services.AddSingleton<AuthenticationService>();
 // 平台与完整包共用原Cap验证器；密钥只留在服务端，不随重定向或Cookie转发。
 builder.Services.AddSingleton(builder.Configuration.GetSection("Metarill:Authentication:Cap").Get<LoginCapOptions>()??new LoginCapOptions());
