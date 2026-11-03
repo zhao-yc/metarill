@@ -36,21 +36,28 @@ def digest_list(value):
         isinstance(item, str) and DIGEST.fullmatch(item) for item in value)
 
 
-def trial_values(trial):
-    """从正式轮的每一场景重算 p95、吞吐和计时窗口内资源。"""
-    elapsed = trial["elapsedSeconds"]
+def checked_rows(trial, count):
+    """逐项核对预热和正式轮的请求、索引及耗时。"""
     rows = trial["rows"]
-    require(positive(elapsed) and len(rows) == ITERATIONS and trial["failedScenarios"] == 0,
-            "正式轮不完整或含失败场景")
+    require(positive(trial["elapsedSeconds"]) and len(rows) == count
+            and trial["completedScenarios"] == count and trial["failedScenarios"] == 0,
+            "轮次不完整或含失败场景")
     for index, row in enumerate(rows):
         require(type(row["iteration"]) is int and row["iteration"] == index
                 and row["error"] is None and row["failedStep"] is None
                 and row["attemptedRequests"] == STEPS and digest_list(row["fingerprints"])
                 and positive(row["elapsedMs"]) and len(row["requestMs"]) == STEPS
-                and all(map(positive, row["requestMs"])), "正式场景请求或耗时不符")
+                and all(map(positive, row["requestMs"])), "场景请求或耗时不符")
+    return rows
+
+
+def trial_values(trial):
+    """从正式轮的每一场景重算 p95、吞吐和计时窗口内资源。"""
+    elapsed = trial["elapsedSeconds"]
+    rows = checked_rows(trial, ITERATIONS)
     p95 = sorted(row["elapsedMs"] for row in rows)[379]
     throughput = len(rows) / elapsed
-    require(trial["completedScenarios"] == ITERATIONS and trial["p95Ms"] == p95
+    require(trial["p95Ms"] == p95
             and math.isclose(trial["scenarioThroughput"], throughput, rel_tol=1e-12),
             "正式轮汇总与逐场景记录不符")
     require(not trial["resourceErrors"], "正式轮的采样器报错")
@@ -106,25 +113,35 @@ def review(report, preflight, journal, run):
             baseline, candidate = trial_values(java), trial_values(csharp)
             p95_ratio = candidate["p95Ms"] / baseline["p95Ms"]
             throughput_ratio = candidate["scenarioThroughput"] / baseline["scenarioThroughput"]
+            regression = p95_ratio > 1.10 or throughput_ratio < 0.95
+            comparison = pair["comparison"]
+            require(comparison["valid"] is True and comparison["resourcesComplete"] is True
+                    and comparison["p95Ratio"] == p95_ratio and comparison["throughputRatio"] == throughput_ratio
+                    and comparison["regression"] is regression, "单轮退化结论与原始记录不符")
             rounds.append({"round": index, "java": baseline, "csharp": candidate, "p95Ratio": p95_ratio,
-                           "throughputRatio": throughput_ratio, "regression": p95_ratio > 1.10 or throughput_ratio < 0.95})
-        outcomes.append({"concurrency": concurrency, "rounds": rounds,
-                         "stableRegression": sum(item["regression"] for item in rounds) >= 2})
+                           "throughputRatio": throughput_ratio, "regression": regression})
+        regressions = sum(item["regression"] for item in rounds)
+        stable = regressions >= 2
+        require(result["measurementValid"] is True and result["regressionRounds"] == regressions
+                and result["stableRegression"] is stable, "并发档位退化结论与原始记录不符")
+        outcomes.append({"concurrency": concurrency, "rounds": rounds, "stableRegression": stable})
     actual = [(event["kind"], event.get("concurrency"), event.get("round"), event.get("target")) for event in journal]
     require(actual == expected, "原始事件序列不完整或顺序变化")
     require(journal[0]["actualLimits"] == report["actualLimits"]
             and journal[0]["transportEvidence"] == transport, "容器首检与正式报告不符")
-    for event in journal:
+    warmup = {}
+    for event in journal[1:]:
+        require(event.get("scenario") == SCENARIO, "原始事件的场景与固定报告不符")
         if event["kind"] == "warmup":
-            require(event["trial"]["completedScenarios"] == 8 and event["trial"]["failedScenarios"] == 0
-                    and len(event["trial"]["rows"]) == 8
-                    and all(row["attemptedRequests"] == STEPS and digest_list(row["fingerprints"])
-                            for row in event["trial"]["rows"]), "预热请求记录不完整")
+            warmup[event["concurrency"], event["target"]] = [
+                row["fingerprints"] for row in checked_rows(event["trial"], 8)]
         if event["kind"] in ("trial-intent", "trial"):
             require(event["databaseContext"]["variables"] == settings, "期中数据库配置与前后不符")
         if event["kind"] == "trial":
             key = event["concurrency"], event["round"], event["target"]
             require(event["trial"] == trials[key], "事件与正式报告不一致")
+    for concurrency in (1, 4):
+        require(warmup[concurrency, "java"] == warmup[concurrency, "csharp"], "双端预热响应不一致")
     return {"runId": run, "measuredRequests": 19200, "warmupRequests": 128,
             "preflightRequests": 8, "results": outcomes, "releaseAccepted": False}
 

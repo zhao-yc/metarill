@@ -36,20 +36,25 @@ def evidence():
     events = [{"kind": "container-preflight", "transportEvidence": transport, "actualLimits": limits}]
     for concurrency in (1, 4):
         for side in audit.SIDES:
-            events.append({"kind": "warmup", "concurrency": concurrency, "target": side, "trial": trial(3, 5, 8)})
+            events.append({"kind": "warmup", "scenario": audit.SCENARIO,
+                           "concurrency": concurrency, "target": side, "trial": trial(3, 5, 8)})
         rounds = []
         for index in range(3):
             order = audit.SIDES if index % 2 == 0 else audit.SIDES[::-1]
+            regression = concurrency == 4 and index < 2
             pair = {"round": index, "order": list(order), "trials": {
-                "java": trial(10, 5),
-                "csharp": trial(12 if concurrency == 4 and index < 2 else 10, 5),
-            }}
+                "java": trial(10, 5), "csharp": trial(12 if regression else 10, 5),
+            }, "comparison": {"valid": True, "resourcesComplete": True, "p95Ratio": 1.2 if regression else 1,
+                              "throughputRatio": 1, "regression": regression}}
             rounds.append(pair)
             for side in order:
-                keys = {"concurrency": concurrency, "round": index, "target": side, "databaseContext": context}
+                keys = {"scenario": audit.SCENARIO, "concurrency": concurrency, "round": index,
+                        "target": side, "databaseContext": context}
                 events.append({**keys, "kind": "trial-intent"})
                 events.append({**keys, "kind": "trial", "trial": pair["trials"][side]})
-        report["results"].append({"scenario": audit.SCENARIO, "concurrency": concurrency, "pairs": rounds})
+        report["results"].append({"scenario": audit.SCENARIO, "concurrency": concurrency, "pairs": rounds,
+                                  "measurementValid": True, "regressionRounds": 2 if concurrency == 4 else 0,
+                                  "stableRegression": concurrency == 4})
     return report, first, events
 
 
@@ -89,6 +94,32 @@ class IndependentReadReviewTests(unittest.TestCase):
         report, first, events = evidence()
         with self.assertRaisesRegex(ValueError, "事件序列不完整"):
             audit.review(report, first, events[:-1], RUN)
+
+    def test_warmup_keeps_fixed_scenario_indices_and_two_host_responses(self):
+        """另一场景的记录、重复场景序号和单端响应变化均不可混入预热。"""
+        report, first, events = evidence()
+        events[1]["scenario"] = "other-scenario"
+        with self.assertRaisesRegex(ValueError, "原始事件的场景"):
+            audit.review(report, first, events, RUN)
+        report, first, events = evidence()
+        events[1]["trial"]["rows"][1]["iteration"] = 0
+        with self.assertRaisesRegex(ValueError, "场景请求或耗时"):
+            audit.review(report, first, events, RUN)
+        report, first, events = evidence()
+        events[1]["trial"]["rows"][0]["fingerprints"][0] = "f" * 64
+        with self.assertRaisesRegex(ValueError, "双端预热响应"):
+            audit.review(report, first, events, RUN)
+
+    def test_reported_regression_must_match_each_recomputed_round_and_group(self):
+        """原始样本无法支持的单轮或整档退化标记均拒绝。"""
+        report, first, events = evidence()
+        report["results"][1]["pairs"][0]["comparison"]["regression"] = False
+        with self.assertRaisesRegex(ValueError, "单轮退化结论"):
+            audit.review(report, first, events, RUN)
+        report, first, events = evidence()
+        report["results"][1]["stableRegression"] = False
+        with self.assertRaisesRegex(ValueError, "并发档位退化结论"):
+            audit.review(report, first, events, RUN)
 
     def test_journal_and_report_must_bind_same_trial(self):
         """保留两份独立写出的记录，单份合法值更换仍会被发现。"""
