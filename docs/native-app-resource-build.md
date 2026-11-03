@@ -73,3 +73,14 @@ V29已在独占API30 x86标准基座实际显示原登录页，验证空值提�
 用 HBuilderX 5.34.2026102909 串行导出四个编译副本。Web 52 文件，微信 169，Android 和 iOS 各 37。微信与两个 App 都逐项匹配独立应用的 12 个原页面。只有编译副本写入已有 DCloud AppID，微信未配置值在该副本由工具规范化为 null。正式包 389 个前端文件逐字保持，四个 IDE 工程均关闭。未上传、托管、签名或安装，真实数据库、登录和设备业务仍待验。
 
 复核原始构建和实际 HTTP 证据位于忽略目录 .local/current-standalone-cross-platform-86865b1。
+
+## V112 当前提交四端资源与设备复核
+
+固定 `b380a63`。从 Git 归档核对原平台 499 份前端文件，再用当前 C# CLI 严格编译并正式生成 651 份文件的 FullApplication，其中 389 份前端文件与 V88 的生成包逐字一致。逐一核对 V87／V88 八个构建副本实际输入，仅保留原记录中的编译副本 AppID 设置及微信 AppID 空串转 null。未重新导出八套相同输入。
+
+| 已导出产物 | Web | 微信小程序 | Android App 资源 | iOS App 资源 |
+| --- | ---: | ---: | ---: | ---: |
+| 原平台 | 156 | 457 | 87 | 87 |
+| 独立 Full 示例 | 52 | 169 | 37 | 37 |
+
+八个实际产物目录逐文件 SHA-256 与原记录完全匹配。复用运行中的 HBuilderX 5.34.2026102909。实际执行 `D:\HBuilderX\cli.exe devices list --platform android`、`--platform ios-iPhone`、`--platform ios-simulator`，均返回 0 且没有设备标识。用 HBuilderX 自带 `adb.exe devices -l` 独立得到 0 个 Android 连接。iOS CLI 的空白响应仅说明未取得设备清单。本轮未安装、签名、启动设备应用或执行跨端业务。V05／V06／V07 仍待正式运行验收。
