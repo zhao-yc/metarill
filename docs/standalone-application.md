@@ -36,6 +36,8 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 当前新 FullApplication 的认证 profile 为 `web-database-v1`，默认使用数据库账号、PBKDF2 摘要及持久化 Web 会话；缺配置、匿名或无效令牌明确拒绝，不回退开发账号。原登录、菜单、权限、注销和自助改密 URL/响应继续使用原协议；本应用后台 super 不产生平台管理员身份，Agent/设备签发只绑定该应用已发布后台，不能产生平台身份。
 
+完整包的正式登录也依赖 Redis DB0。请设置包内私有配置的 `Authentication:LoginFailures:ConnectionString`，或提供环境变量 `Authentication__LoginFailures__ConnectionString`。Redis 在首次登录时连接，缺少配置或连接失败时原表单和 JSON 登录均会拒绝。初始化账号与宿主健康探针各自验证，正式验收还需执行真实账号登录。详见[登录失败锁](login-failure-lock-compatibility.md#配置与升级)。
+
 结构计划组合业务 `project.json`、文件三表 `files.json` 、安全六表 `security.json` 与程序集内固定Agent两表。先审核并显式执行结构计划，再从宿主私有配置或环境提供 `Authentication:Bootstrap`，单独执行 `dotnet run --project backend/Application.Host -- --initialize-security`。该命令不执行 DDL，只初始化本包项目/后台及新生成长 ID 的管理员角色/账号；重复不重置摘要、不复活墓碑或补绑既有账号。多后台必须明确选择包内后台，凭据不放入命令行、URL、源码或日志。普通启动不执行这一步。
 
 六表是兼容平台的物理定义，不开放安全表业务 CRUD。完整安全写协调、三个手写安全 Service partial 与角色工作台下发仍待后续独立适配；共享 Security 工程随包不等于完整 Runtime A 已下发。安全表带业务页、五处平台 Custom 及其它未支持能力仍按既有门禁拒绝，不自动降级。详细配置和边界见 [独立完整包数据库Web认证](standalone-web-authentication.md)。
