@@ -12,17 +12,17 @@ namespace Metarill.Api.Tests;
 /// <summary>真实平台自举元数据的结构闭环及来源反例；只编译内存结构，不连接数据库或执行DDL。</summary>
 public sealed class PlatformPhysicalModelTests
 {
-    /// <summary>平台完整图与原自举物理图一致，全部原页/字段和输入保持；输出可改而不会污染下一次预览。</summary>
+    /// <summary>平台完整图仅追加发布的登录日志表，全部原页/字段和输入保持；输出可改而不会污染下一次预览。</summary>
     [Fact]
     public void Actual_platform_keeps_its_physical_fingerprint_and_original_pages_without_mutating_inputs()
     {
         var f=new Models();var before=Text(f.Registry.Platform);var files=Text(f.Files);var security=Text(f.Security);
-        var result=f.Service.Compose(f.Registry.Platform);
-        Assert.Equal(Fingerprint(f.Registry.Platform),Fingerprint(result));
+        var expected=ExpectedPlatformFingerprint(f);var result=f.Service.Compose(f.Registry.Platform);
+        Assert.Equal(expected,Fingerprint(result));
         Assert.Equal(Text(f.Registry.Platform.ConfigPages),Text(result.ConfigPages));Assert.Equal(Text(f.Registry.Platform.ConfigPageColumns),Text(result.ConfigPageColumns));
         Assert.Equal(before,Text(f.Registry.Platform));Assert.Equal(files,Text(f.Files));Assert.Equal(security,Text(f.Security));
         result.ConfigColumns[0].ColumnName="changed";result.ConfigPages.Clear();
-        Assert.Equal(Fingerprint(f.Registry.Platform),Fingerprint(f.Service.Compose(f.Registry.Platform)));
+        Assert.Equal(expected,Fingerprint(f.Service.Compose(f.Registry.Platform)));
     }
     /// <summary>没有显式服务端平台目录的普通合成器仍拒绝同形平台JSON，项目ID不能伪造来源。</summary>
     [Fact]
@@ -71,7 +71,7 @@ public sealed class PlatformPhysicalModelTests
     [Fact]
     public void Composition_authority_is_a_snapshot_and_layout_changes_do_not_change_physical_schema()
     {
-        var f=new Models();var input=Copy(f.Registry.Platform);var before=Fingerprint(input);
+        var f=new Models();var input=Copy(f.Registry.Platform);var before=ExpectedPlatformFingerprint(f);
         input.ConfigPages.Single(page=>page.Id=="6031906822946816").Name="账号页面新标题";
         Assert.Equal(before,Fingerprint(f.Service.Compose(input)));
         f.Files.ConfigColumns[0].ColumnName="changed_after_registration";
@@ -94,6 +94,14 @@ public sealed class PlatformPhysicalModelTests
             var metadata=Path.Combine(root.FullName,"backend/metadata");Registry=new(Path.Combine(metadata,"platform.json"),Path.Combine(metadata,"demo.json"));
             Files=MetadataRegistry.Load(Path.Combine(metadata,"files.json"));Security=MetadataRegistry.Load(Path.Combine(metadata,"security.json"));Service=new(Files,Security,Registry);
         }
+    }
+    /// <summary>按发布的安全元数据取登录日志定义，严格比较旧自举图加这一张表后的全部列和索引。</summary>
+    private static string ExpectedPlatformFingerprint(Models models)
+    {
+        var original = MySqlSchemaPlanner.Compile(models.Registry.Platform, "offline");
+        var audit = MySqlSchemaPlanner.Compile(models.Security, original.Database).Tables.Single(table => table.Name == "yz_manager_log");
+        Assert.DoesNotContain(original.Tables, table => table.Name == audit.Name);
+        return MySqlSchemaPlanner.Fingerprint(original with { Tables = [.. original.Tables, audit] });
     }
     /// <summary>指纹仅比较实际MySQL表/字段/索引，不把页面布局当作数据库结构。</summary>
     private static string Fingerprint(MetadataCatalog model)=>MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(model,"offline"));
