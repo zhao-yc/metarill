@@ -7,21 +7,24 @@ Node.js 20+ 通用命令行工具，无第三方运行依赖。通过项目自�
 
 ## 安装与运行
 
+测试本机助手还需要 仓库根目录 `global.json` 声明的 .NET SDK。若 SDK 未加入 PATH，可用 `METARILL_DOTNET_PATH` 指定 dotnet 的绝对路径。
+
 ```powershell
 # 在本目录运行测试并构建本地可安装包。
 npm test
 node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
-npm pack --pack-destination dist
+$package = npm pack --pack-destination dist --json | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw 'Agent CLI 打包失败。' }
 
-# 使用实际生成的包名安装；尚未发布公共 npm。
-npm install -g ./dist/yinzon-metarill-agent-cli-0.2.0.tgz
+# 使用 npm pack 返回的文件名安装，当前通过本地压缩包分发。
+npm install -g (Join-Path dist $package.filename)
 metarill-agent --help
 
 # 也可直接从仓库运行。
 node bin/metarill-agent.mjs --help
 ```
 
-打包命令中的缓存如不可写，可增加 `--cache dist/npm-cache`。包只包含入口、运行源码、Skill 与本说明，不包含测试或本地配置。Windows、macOS、Linux 使用同一套 Node 源码；当前测试环境与平台实测状态以项目验收记录为准。
+打包命令中的缓存如不可写，可增加 `--cache dist/npm-cache`。包只包含入口、运行源码、Skill、许可证、npm 包清单与本说明，不包含测试或本地配置。Windows、macOS、Linux 使用同一套 Node 源码；当前测试环境与平台实测状态以项目验收记录为准。
 
 ## 授权与多项目
 
