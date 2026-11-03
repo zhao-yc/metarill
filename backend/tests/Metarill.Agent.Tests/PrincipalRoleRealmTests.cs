@@ -23,6 +23,56 @@ namespace Metarill.Agent.Tests;
 /// <summary>真实认证/授权与HTTP管线共用固定离线SQL传输；不冒充MySQL或浏览器验收。</summary>
 public sealed class PrincipalRoleRealmTests
 {
+    /// <summary>真实网页中间件只查一次会话和账号，每个请求重新判断当前身份。</summary>
+    [Fact]
+    public async Task Web_middleware_reads_each_credential_row_once_and_rechecks_next_request()
+    {
+        using var fixture = new PrincipalRealmFixture(business: true);
+        var authentication = new AgentAuthenticationService(fixture.Store, fixture.Authentication);
+        using var services = new ServiceCollection().AddSingleton(authentication).BuildServiceProvider();
+        var reached = 0;
+        var middleware = new AgentAuthenticationMiddleware(context =>
+        {
+            Assert.Equal(fixture.DemoProject, AgentRequestAuthentication.RequireWeb(context).Identity.Actor.ProjectId);
+            reached++;
+            return Task.CompletedTask;
+        });
+
+        DefaultHttpContext WebRequest()
+        {
+            var context = new DefaultHttpContext { RequestServices = services };
+            context.Request.Headers["loginStateId"] = fixture.Token;
+            return context;
+        }
+
+        await middleware.InvokeAsync(WebRequest());
+        Assert.Single(fixture.Provider.Commands, sql => sql.Contains(" FROM `sys_session`"));
+        Assert.Single(fixture.Provider.Commands, sql => sql.Contains(" FROM `yz_manager`"));
+
+        fixture.Account["is_disabled"] = 1;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => middleware.InvokeAsync(WebRequest()));
+        fixture.Account["is_disabled"] = 0;
+        fixture.WebSession["kind"] = "agent";
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => middleware.InvokeAsync(WebRequest()));
+        Assert.Equal(1, reached);
+    }
+
+    /// <summary>共享读取仍执行网页入口的时间与令牌种类限制。</summary>
+    [Fact]
+    public async Task Web_transport_rejects_expiry_on_its_clock_and_bearer_use_of_web_token()
+    {
+        using var fixture = new PrincipalRealmFixture();
+        var clock = new AgentClock();
+        var authentication = new AgentAuthenticationService(fixture.Store, fixture.Authentication, clock);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => authentication.AuthenticateAsync(fixture.Token, "agent"));
+        fixture.WebSession["grant_id"] = 123L;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => authentication.AuthenticateAsync(fixture.Token, "web"));
+        fixture.WebSession["grant_id"] = null;
+        clock.Advance(7200);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => authentication.AuthenticateAsync(fixture.Token, "web"));
+    }
+
     /// <summary>执行真实认证类，SQL为离线夹具；范围角色变化在下次认证刷新，旧身份对象不被原地修改。</summary>
     [Fact]
     public async Task Exact_scope_decision_is_preserved_and_refreshed_with_actual_authentication()
@@ -236,6 +286,9 @@ internal sealed class RealmHttpHost(WebApplication application,HttpClient client
         builder.Services.AddSingleton(new AgentTaskStore(fixture.Store,fixture.Ids,new()));builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<HttpRuntimeAuthorization>();builder.Services.AddScoped<IRuntimeAuthorization>(sp=>sp.GetRequiredService<HttpRuntimeAuthorization>());
         builder.Services.AddScoped<MetadataRepository>();builder.Services.AddScoped<MenuWorkbenchBusiness>();
+        // 权限接口经由同一个平台控制器，测试宿主也注册默认关闭的验证码服务。
+        builder.Services.AddSingleton(new LoginCapOptions());
+        builder.Services.AddHttpClient<LoginCapVerifier>();
         builder.Services.AddControllers().AddApplicationPart(typeof(AgentManagementController).Assembly).AddApplicationPart(typeof(Metarill.Demo.Generated.GeneratedRegistration).Assembly).AddApplicationPart(typeof(PrincipalRealmProbeController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
         var app=builder.Build();
         // 只在测试宿主用401观测真实拒绝，不改变产品R.code/HTTP习惯。

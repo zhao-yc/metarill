@@ -15,23 +15,26 @@ public sealed class AgentAuthenticationService(SqlRowStore store, Authentication
     public async Task<AgentRequestIdentity> AuthenticateAsync(string token, string transport, string? selectedProject = null, CancellationToken cancellationToken = default)
     {
         if (token.Length is < 32 or > 200 || transport is not ("agent" or "web")) throw new UnauthorizedAccessException("登录超时");
+        if (transport == "web")
+        {
+            var web = await authentication.AuthenticateWebAsync(token, selectedProject, _clock, cancellationToken)
+                ?? throw new UnauthorizedAccessException("登录超时");
+            return new(web, transport, web.GrantId);
+        }
+
         var session = (await store.ReadAsync("sys_session", new Dictionary<string, object?> { ["token_hash"] = PasswordHasher.Digest(token) }, cancellationToken)).SingleOrDefault();
         if (session is null || SqlRowStore.Text(session, "kind") != transport || Convert.ToDateTime(session["expires_at"], CultureInfo.InvariantCulture) <= _clock.GetUtcNow().UtcDateTime) throw new UnauthorizedAccessException("登录超时");
         // 每次请求重新校验账号有效期，停用、到期或尚未到登录时间立即拒绝。
         var account = (await store.ReadAsync("yz_manager", new Dictionary<string, object?> { ["id"] = SqlRowStore.Id(session, "account_id") }, cancellationToken)).SingleOrDefault();
         if (account is null || !AuthenticationService.AccountActive(account)) throw new UnauthorizedAccessException("登录超时");
-        if (transport == "agent")
-        {
-            if (session.GetValueOrDefault("grant_id") is null) throw new UnauthorizedAccessException("登录超时");
-            var grant = (await store.ReadAsync("sys_agent_grant", new Dictionary<string, object?> { ["id"] = SqlRowStore.Id(session, "grant_id") }, cancellationToken)).SingleOrDefault();
-            var project = SqlRowStore.Text(session, "project_id");
-            if (grant is null || SqlRowStore.Text(grant, "status") != "approved" || SqlRowStore.Text(grant, "client_id") != AgentOAuthService.ClientId ||
-                grant.GetValueOrDefault("refresh_expires_at") is null || Convert.ToDateTime(grant["refresh_expires_at"], CultureInfo.InvariantCulture) <= _clock.GetUtcNow().UtcDateTime ||
-                SqlRowStore.Id(grant, "account_id") != SqlRowStore.Id(session, "account_id") || SqlRowStore.Text(grant, "project_id") != project ||
-                !string.IsNullOrEmpty(selectedProject) && selectedProject != project) throw new UnauthorizedAccessException("登录超时");
-            selectedProject = project;
-        }
-        else if (session.GetValueOrDefault("grant_id") is not null) throw new UnauthorizedAccessException("登录超时");
+        if (session.GetValueOrDefault("grant_id") is null) throw new UnauthorizedAccessException("登录超时");
+        var grant = (await store.ReadAsync("sys_agent_grant", new Dictionary<string, object?> { ["id"] = SqlRowStore.Id(session, "grant_id") }, cancellationToken)).SingleOrDefault();
+        var project = SqlRowStore.Text(session, "project_id");
+        if (grant is null || SqlRowStore.Text(grant, "status") != "approved" || SqlRowStore.Text(grant, "client_id") != AgentOAuthService.ClientId ||
+            grant.GetValueOrDefault("refresh_expires_at") is null || Convert.ToDateTime(grant["refresh_expires_at"], CultureInfo.InvariantCulture) <= _clock.GetUtcNow().UtcDateTime ||
+            SqlRowStore.Id(grant, "account_id") != SqlRowStore.Id(session, "account_id") || SqlRowStore.Text(grant, "project_id") != project ||
+            !string.IsNullOrEmpty(selectedProject) && selectedProject != project) throw new UnauthorizedAccessException("登录超时");
+        selectedProject = project;
         var identity = await authentication.AuthenticateAsync(token, selectedProject, cancellationToken) ?? throw new UnauthorizedAccessException("登录超时");
         return new(identity, transport, identity.GrantId);
     }

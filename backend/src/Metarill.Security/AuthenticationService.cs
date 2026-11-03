@@ -85,23 +85,39 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
         return username[start..end];
     }
     /// <summary>每次重新验证真实会话、身份后台与角色；宿主扩展只负责非Web会话的附加证明。</summary>
-    public async Task<AuthenticatedIdentity?> AuthenticateAsync(string token,string? selectedProject,CancellationToken cancellationToken=default)
+    public Task<AuthenticatedIdentity?> AuthenticateAsync(string token,string? selectedProject,CancellationToken cancellationToken=default)
+        => AuthenticateCoreAsync(token,selectedProject,null,cancellationToken);
+
+    /// <summary>网页入口在共享认证读取中验证会话种类、授权关联与入口时钟。</summary>
+    public Task<AuthenticatedIdentity?> AuthenticateWebAsync(string token,string? selectedProject,TimeProvider transportClock,CancellationToken cancellationToken=default)
+    {
+        ArgumentNullException.ThrowIfNull(transportClock);
+        return AuthenticateCoreAsync(token,selectedProject,transportClock,cancellationToken);
+    }
+
+    /// <summary>用当前请求读到的同一份会话和账号继续解析后台与角色。</summary>
+    private async Task<AuthenticatedIdentity?> AuthenticateCoreAsync(string token,string? selectedProject,TimeProvider? webTransportClock,CancellationToken cancellationToken)
     {
         if(token.Length is < 32 or > 200)return null;
         var session=(await store.ReadAsync("sys_session",new Dictionary<string,object?>{{"token_hash",PasswordHasher.Digest(token)}},cancellationToken)).SingleOrDefault();
-        if(session is null||SqlRowStore.Text(session,"kind") is not ("web" or "agent")||Convert.ToDateTime(session["expires_at"],CultureInfo.InvariantCulture)<=DateTime.UtcNow)return null;
+        if(session is null)return null;
+        var kind=SqlRowStore.Text(session,"kind");
+        if(kind is not ("web" or "agent"))return null;
+        if(webTransportClock is not null&&(kind!="web"||session.GetValueOrDefault("grant_id") is not null))return null;
+        var expiresAt=Convert.ToDateTime(session["expires_at"],CultureInfo.InvariantCulture);
+        if(expiresAt<=DateTime.UtcNow||webTransportClock is not null&&expiresAt<=webTransportClock.GetUtcNow().UtcDateTime)return null;
         var account=(await store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"id",SqlRowStore.Id(session,"account_id")}},cancellationToken)).SingleOrDefault();
         if(account is null||!AccountActive(account))return null;
         var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,cancellationToken);if(realm is null)return null;
-        var project=string.IsNullOrWhiteSpace(selectedProject)?SqlRowStore.Text(session,"kind")=="agent"?SqlRowStore.Text(session,"project_id"):realm.ProjectId:selectedProject;
+        var project=string.IsNullOrWhiteSpace(selectedProject)?kind=="agent"?SqlRowStore.Text(session,"project_id"):realm.ProjectId:selectedProject;
         if(!long.TryParse(project,NumberStyles.None,CultureInfo.InvariantCulture,out var projectId)||projectId<=0)return null;
         var registered=(await store.ReadAsync("yz_project",new Dictionary<string,object?>{{"id",projectId}},cancellationToken)).SingleOrDefault();
         if(registered is null)return null;
         if(!realm.IsPlatformAdministrator&&project!=realm.ProjectId)return null;
         // Agent签发域由宿主固定目录证明；应用超级角色仍不会产生平台身份。
-        if(SqlRowStore.Text(session,"kind")=="agent"&&(!registry.IsAgentRealm(realm.ProjectId,realm.AdminTypeId)||project!=SqlRowStore.Text(session,"project_id")))return null;
+        if(kind=="agent"&&(!registry.IsAgentRealm(realm.ProjectId,realm.AdminTypeId)||project!=SqlRowStore.Text(session,"project_id")))return null;
         long? grantId=session.GetValueOrDefault("grant_id") is null?null:SqlRowStore.Id(session,"grant_id");
-        if(SqlRowStore.Text(session,"kind")=="agent")
+        if(kind=="agent")
         {
             if(grantId is not {} grant)return null;
             // 直接认证仍要求宿主证明grant绑定；平台保留原OAuth校验，不因共享程序集提取降级。
