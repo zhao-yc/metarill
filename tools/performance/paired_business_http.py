@@ -96,6 +96,16 @@ def _prepare_stale_lines(database,contract_id,lines,fixture_write):
     require(type(counts) is tuple and len(counts)==len(statements) and all(type(count) is int and count==1 for count in counts),'business-fixture-match')
 
 
+def mysql_assertion_sql(condition):
+    """守护客户端遇非法 PREPARE 即断开，尚未提交的写入随连接回滚。"""
+    return [
+        f"SET @mt_fixture_guard=IF({condition}, 'SELECT 1', 'SELECT FROM');",
+        "PREPARE mt_fixture_gate FROM @mt_fixture_guard;",
+        "EXECUTE mt_fixture_gate;",
+        "DEALLOCATE PREPARE mt_fixture_gate;",
+    ]
+
+
 def fixture_transaction_sql(run,statements):
     """只接受该次刚生成的四条固定写入；返回失败会断开且无法提交的批次。"""
     require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'business-fixture-run')
@@ -119,24 +129,16 @@ def fixture_transaction_sql(run,statements):
         ids.add(identifier)
     require(owner not in ids,'business-fixture-line-scope')
 
-    def check(condition):
-        """MySQL 客户端在非法 PREPARE 处退出，未提交的事务随连接关闭回滚。"""
-        return [
-            f"SET @mt_fixture_guard=IF({condition}, 'SELECT 1', 'SELECT FROM');",
-            "PREPARE mt_fixture_gate FROM @mt_fixture_guard;",
-            "EXECUTE mt_fixture_gate;",
-            "DEALLOCATE PREPARE mt_fixture_gate;",
-        ]
     scope=(f"@@hostname={seed.literal(PIN['hostname'])} AND @@server_uuid={seed.literal(PIN['serverUuid'])} AND "
            "(SELECT COUNT(*) FROM information_schema.TABLES WHERE "
            f"TABLE_SCHEMA={seed.literal(database)} AND TABLE_NAME IN ('sample_contract','sample_contract_line') AND ENGINE='InnoDB')=2")
-    batch=['START TRANSACTION;',*check(scope)]
+    batch=['START TRANSACTION;',*mysql_assertion_sql(scope)]
     counters=[]
     for number,statement in enumerate(statements):
         counter='@mt_fixture_count_'+str(number)
         batch.extend((statement,f'SET {counter}=ROW_COUNT();'))
         counters.append(counter)
-    batch.extend(check(' AND '.join(counter+'=1' for counter in counters)))
+    batch.extend(mysql_assertion_sql(' AND '.join(counter+'=1' for counter in counters)))
     batch.extend(('COMMIT;','SELECT '+','.join(counters)+';'))
     return '\n'.join(batch)+'\n'
 
