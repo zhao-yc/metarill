@@ -159,8 +159,8 @@ def column_layout_sql(database):
     return ("SELECT TABLE_NAME,COLUMN_NAME,DATA_TYPE,IS_NULLABLE,"
             "COALESCE(CHARACTER_MAXIMUM_LENGTH,0),COALESCE(NUMERIC_PRECISION,0),"
             "COALESCE(NUMERIC_SCALE,0),COALESCE(DATETIME_PRECISION,0),COALESCE(COLLATION_NAME,''),"
-            "CASE WHEN LOWER(COLUMN_DEFAULT) IN ('current_timestamp','current_timestamp()') THEN 'current_timestamp' "
-            "ELSE COALESCE(LOWER(COLUMN_DEFAULT),'') END FROM information_schema.COLUMNS "
+            "CONCAT('D',CASE WHEN LOWER(COLUMN_DEFAULT) IN ('current_timestamp','current_timestamp()') THEN 'current_timestamp' "
+            "ELSE COALESCE(LOWER(COLUMN_DEFAULT),'') END) FROM information_schema.COLUMNS "
             f"WHERE {layout_scope(database)} ORDER BY TABLE_NAME,COLUMN_NAME LIMIT 47;")
 
 
@@ -185,7 +185,7 @@ def expected_column_layout():
                 shape = ("decimal","YES",0,18,2,0,"")
             else:
                 shape = ("longtext","YES",4294967295,0,0,0,"utf8mb4_unicode_ci") if name=="attachments" else ("varchar","YES",widths[name],0,0,0,"utf8mb4_unicode_ci")
-            yield "\t".join(map(str,(table,name,*shape,default)))
+            yield "\t".join(map(str,(table,name,*shape,"D"+default)))
 
 
 def verify_readback(run, target, query):

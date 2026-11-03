@@ -34,10 +34,11 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
+    if resources.is_measurement(value): purpose = resources.MEASUREMENT_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
@@ -122,8 +123,16 @@ def existing_line_fixture(mysql, value, owner_token, business, statements):
     if (value.get("purpose") != resources.EXISTING_LINE_NATIVE or value.get("authorizationStatus") != "approved"
         or value.get("leaseStatus") != "not-started" or not re.fullmatch(r"[a-f0-9]{64}", owner_token)):
         raise ValueError("business-fixture-lease")
-    run = value["runId"]
-    sql = business.fixture_transaction_sql(run, statements)
+    sql = business.fixture_transaction_sql(value["runId"], statements)
+    require_database_ownership(mysql, value, owner_token)
+    if mysql.mysql(sql, guarded_transaction=True) != "1\n1\n1\t1\t1\t1":
+        raise ValueError("business-fixture-receipt")
+    return (1,1,1,1)
+
+
+def require_database_ownership(mysql,value,owner_token):
+    """比对管理工具记录的两库、账号、实例与本轮归属。"""
+    run=value["runId"]
     ownership = mysql.ownership_path(run[:16])
     info = resources.regular(ownership)
     if (info.st_mode & 0o777) != 0o600 or info.st_size > 8192:
@@ -131,9 +140,15 @@ def existing_line_fixture(mysql, value, owner_token, business, statements):
     expected = {"runId":run[:16],"scenario":"paired","databases":value["databases"],"user":value["user"],"instance":PIN,"ownerToken":owner_token}
     if http.read_json(ownership.read_bytes()) != expected:
         raise ValueError("business-fixture-ownership")
-    if mysql.mysql(sql, guarded_transaction=True) != "1\n1\n1\t1\t1\t1":
-        raise ValueError("business-fixture-receipt")
-    return (1,1,1,1)
+def seed_measurement_database(mysql,value,owner_token,fixture,target):
+    """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
+    if value.get("purpose")!=resources.MEASUREMENT_NATIVE or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+        raise ValueError("measurement-seed-lease")
+    require_database_ownership(mysql,value,owner_token)
+    run=value["runId"]
+    if mysql.mysql(fixture.seed_transaction_sql(run,target),guarded_transaction=True)!="1\n1":
+        raise ValueError("measurement-seed-receipt")
+    return fixture.verify_readback(run,target,mysql.mysql)
 
 
 def capture(args, timeout=120):
@@ -352,6 +367,7 @@ def verify_tool_sources(value):
     """实际执行字节对照上层固定Git归档清单，不把自报版本号当作来源证明。"""
     expected = {"performance/paired_native_bootstrap.py", "performance/paired_http.py", "performance/paired_identity_seed.py", "performance/server200_paired_resources.py", "acceptance/server200-fresh-mysql.py"}
     if resources.is_observed(value): expected.update({"performance/paired_business_http.py","performance/paired_observed_capture.py","performance/audit_sql_artifacts.py"})
+    if resources.is_measurement(value): expected.update({"performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py"})
     hashes = value.get("toolSha256", {})
     if set(hashes) != expected or not re.fullmatch(r"[a-f0-9]{40}", value.get("toolSourceCommit", "")):
         raise ValueError("缺少当前用途的固定Git工具来源")
@@ -372,7 +388,7 @@ def failure_evidence(error):
              "C#原安全初始化未建立项目归属": "seed-project-mismatch", "测试账号、角色或授权种子已存在，拒绝覆盖": "seed-collision",
              "播种后逐字段独立回读不符": "seed-readback-mismatch",
              "MySQL 随机验收对象操作失败，保留所有权记录供安全清理。": "mysql-operation-failed"}
-    text=str(error);safe_code=text if re.fullmatch(r"(?:business|capture|artifact)-[a-z0-9-]{1,70}",text) else codes.get(text,"unclassified")
+    text=str(error);safe_code=text if re.fullmatch(r"(?:business|capture|artifact|measurement)-[a-z0-9-]{1,70}",text) else codes.get(text,"unclassified")
     result = {"code": safe_code}
     number = getattr(error, "database_error_number", None)
     if type(number) is int and 1000 <= number <= 99999: result["databaseErrorNumber"] = number
@@ -385,6 +401,8 @@ def run(value):
     # 新模块只在直接批准且八文件源码已核对后导入，旧v1不隐式加载未登记依赖。
     business = importlib.import_module("paired_business_http") if resources.is_observed(value) else None
     capture_sql = importlib.import_module("paired_observed_capture") if resources.is_observed(value) else None
+    measurement = importlib.import_module("paired_measurement") if resources.is_measurement(value) else None
+    measure_fixture = importlib.import_module("paired_measurement_fixture") if measurement is not None else None
     root = resources.root_for(value["runId"])
     resources.read_materials(root, descriptor); java = bootstrap(root, value)
     credentials = read_private(root / "identity.json", value["identitySha256"])
@@ -398,6 +416,7 @@ def run(value):
     exchange=capture_sql.Exchange(value,send) if resources.is_observed(value) else None
     if exchange is not None:
         state["acceptedScope"]="paired-existing-lines-and-private-capture-for-review-only" if resources.is_existing_lines(value) else "paired-original-business-and-private-capture-for-review-only"
+    if measurement is not None: state["acceptedScope"]="paired-read-measurement-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
     try:
@@ -432,6 +451,12 @@ def run(value):
             stage(("Java" if target == "java" else "C#") + "普通身份播种与逐字段回读")
             state["identitySeeds"].append(seed.apply(seed_lease, target, fixture, mysql.mysql))
             resources.write_state(state_path, state)
+        if measurement is not None:
+            state["measurementSeeds"]={}
+            for side in ("java","csharp"):
+                stage("装载并逐值核对只读性能种子 "+side)
+                state["measurementSeeds"][side]=seed_measurement_database(mysql,value,state["ownerToken"],measure_fixture,side)
+                resources.write_state(state_path,state)
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
         if exchange is not None:
             stage("核验原进程监听及采集就绪，禁止以发布端口代替");state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
@@ -456,11 +481,19 @@ def run(value):
                 options["fixture_write"]=write_fixture
             state["businessFacts"]=business.run_basic(lease,business_tokens,exchange.business_request,mysql.mysql,**options);exchange.complete()
             state["requestCapturePlan"]=exchange.receipt();resources.write_state(state_path,state)
+        if measurement is not None:
+            stage("无SQL采集的原接口只读性能回放")
+            state["measurement"]=measurement.run_read_measurement(root,value["runId"],targets,tokens,probe,mysql.mysql)
+            stage("独立复核只读回放后的物理样本")
+            for side in ("java","csharp"):
+                if measure_fixture.verify_readback(value["runId"],side,mysql.mysql)!=state["measurementSeeds"][side]:
+                    raise ValueError("measurement-post-readback")
+            state["measurement"]["physicalFixtureUnchanged"]=True
         after = http.equal_limits(probe, targets)
         if before != after: raise RuntimeError("HTTP前后资源/镜像/容器身份变化")
-        state["resourceEvidence"] = before; state["passed"] = True
+        state["resourceEvidence"] = before; state["passed"] = measurement is None or state["measurement"]["measurementValid"] and not state["measurement"]["stableRegression"]
     except Exception as error:
-        if exchange is not None:state["failedAtStage"]=state["stage"]
+        if exchange is not None or measurement is not None:state["failedAtStage"]=state["stage"]
         state["errorType"] = type(error).__name__
         state["failure"] = failure_evidence(error)
     finally:

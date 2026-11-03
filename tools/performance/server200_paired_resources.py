@@ -29,6 +29,8 @@ OBSERVATION_DATA_SHA256 = "74db1feaf23f665e4712ce3b8519cf12e502a18abb30009017dea
 EXISTING_LINE_NATIVE = "paired-native-existing-lines-v1"
 EXISTING_LINE_RESOURCES = "paired-existing-lines-resources-v1"
 EXISTING_LINE_BUSINESS = "paired-existing-lines-business-v1"
+MEASUREMENT_NATIVE = "paired-native-measurement-v1"
+MEASUREMENT_RESOURCES = "paired-measurement-resources-v1"
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
 EXISTING_LINE_DATA_SHA256 = "b6c8159c101d6bab32cc7cef941ad840987ad49615b554ca1c1d49098e2cfb6d"
 
@@ -38,6 +40,11 @@ def is_existing_lines(value):
     return value.get("purpose") in (EXISTING_LINE_NATIVE, EXISTING_LINE_RESOURCES, EXISTING_LINE_BUSINESS)
 
 
+def is_measurement(value):
+    """固定性能用途使用当前镜像的无采集启动分支。"""
+    return value.get("purpose") in (MEASUREMENT_NATIVE, MEASUREMENT_RESOURCES)
+
+
 def is_observed(value):
     """两个明确的采集用途共享资源约束，旧非采集用途保留。"""
     return is_existing_lines(value) or value.get("purpose") in ("paired-observed-resources-v1", "paired-native-observed-v1")
@@ -45,7 +52,7 @@ def is_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
-    if is_existing_lines(value): return EXISTING_LINE_IMAGES
+    if is_existing_lines(value) or is_measurement(value): return EXISTING_LINE_IMAGES
     return OBSERVATION_IMAGES if is_observed(value) else IMAGES
 
 
@@ -60,7 +67,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
@@ -153,7 +160,7 @@ def read_materials(root, value):
     connection = f"Server=192.168.31.200;Port=3306;Database={database};User ID={user};Password={password};Allow User Variables=true;"
     expected_csharp = {"Database__Provider": "mysql", "Database__ExpectedDatabase": database, "Database__ConnectionString": connection}
     # 新完整宿主必须接同一轮独占Redis、原口令和DB0；历史v1用途仍要求原三字段。
-    if is_observed(value):
+    if is_observed(value) or is_measurement(value):
         expected_csharp["Authentication__LoginFailures__ConnectionString"] = f"redis:6379,password={redis_password},defaultDatabase=0"
     if csharp != expected_csharp:
         raise ValueError("C#只能读取本轮受限数据库和独占Redis连接，不允许改认证或应用入口")
@@ -164,6 +171,10 @@ def read_materials(root, value):
 
 def observation_arguments(value, target):
     """只返回固定非秘密配置；HMAC值只走只读文件，输出库名由本轮唯一范围推导。"""
+    if is_measurement(value):
+        disabled={"java":"--metarill.paired.sql-observation.enabled=false","csharp":"--Metarill:Paired:SqlObservation:Enabled=false"}
+        if target not in disabled: raise ValueError("未知测量宿主")
+        return [disabled[target]]
     if not is_observed(value): return []
     if target not in {"java", "csharp"}: raise ValueError("未知采集宿主")
     run = value["runId"]; database = "metarill_fresh_" + run[:16] + "_paired_" + target
