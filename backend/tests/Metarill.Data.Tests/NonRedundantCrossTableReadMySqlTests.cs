@@ -58,7 +58,7 @@ public sealed class NonRedundantCrossTableReadMySqlTests
             var failure=await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync<int>(async()=>{Assert.Equal(1,await store.UpdateAsync(names[1],node,new Dictionary<string,object?>{{"title","事务内改名"}}));Assert.Equal(3,(await reader.ReadPageAsync(plan,[new("country_name",FixedReadComparison.Equal,"事务内改名")],[],1,30)).Total);throw new InvalidOperationException("跨表读取尾部回滚");}));Assert.Equal("跨表读取尾部回滚",failure.Message);Assert.Equal(rowsHash,await RowsHash());
             // 固定目标条件真正参与祖先路径：整条路径不可见时仅保留来源所选ID，不泄漏祖先名称。
             await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync<int>(async()=>{Assert.Equal(1,await store.UpdateAsync(names[1],node,new Dictionary<string,object?>{{"title",NonRedundantCrossTableReadTests.BlockedTitle}}));var row=Assert.Single((await reader.ReadPageAsync(plan,[new("id",FixedReadComparison.Equal,first+4)],[],1,1)).Records);Assert.Null(row["country_id"]);Assert.Null(row["area_id"]);Assert.Null(row["country_name"]);Assert.Null(row["place_name"]);Assert.Equal(node.ToString(CultureInfo.InvariantCulture),Text(row,"place_id"));throw new InvalidOperationException("回滚目标范围样本");}));Assert.Equal(rowsHash,await RowsHash());
-            await VerifyParentValues();await VerifyInvalidStorage();await VerifyCurrentRead();await VerifyLogicalParentScope();Assert.Equal(rowsHash,await RowsHash());
+            await VerifyParentValues();await VerifyInvalidStorage();await VerifyCurrentRead();await VerifyLogicalParentScope();await VerifyImportMatchLocks();Assert.Equal(rowsHash,await RowsHash());
             using(var cancellation=new CancellationTokenSource()){cancellation.Cancel();await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>reader.ReadPageAsync(plan,[],[],1,10,cancellation.Token));}
             var targetName=catalog.ConfigColumns.Single(column=>column.Id=="22");targetName.ColumnName="not_real_after_compile";try{Assert.Equal(12,(await reader.ReadPageAsync(plan,[],[],1,30)).Total);}finally{targetName.ColumnName="title";}
             Assert.Empty((await schema.PreviewAsync(catalog)).Changes);verified=true;await Receipt("verified",false);
@@ -171,6 +171,75 @@ public sealed class NonRedundantCrossTableReadMySqlTests
             /// <summary>独立连接只改本轮叶节点父键；外层finally恢复，再参与严格数据摘要清理。</summary>
             async Task Move(long parent){await using var command=outside.CreateCommand();command.CommandText="UPDATE `"+names[3]+"` SET area_id=@parent WHERE id=@id";command.Parameters.AddWithValue("parent",parentType=="string"?parent.ToString(CultureInfo.InvariantCulture):(object)parent);command.Parameters.AddWithValue("id",node);Assert.Equal(1,await command.ExecuteNonQueryAsync());}
         }
+        /// <summary>用两条真实连接区分首次匹配的来源排他锁、关联共享锁及回滚后的重匹配。</summary>
+        async Task VerifyImportMatchLocks()
+        {
+            var matchPlan = MySqlNonRedundantReadCompiler.CompileWithCrossTables(
+                catalog, "1", ["id", "name", "country_id"], crossTables: NonRedundantCrossTableReadTests.Scopes(catalog),
+                deferCascadeNames: true);
+            var key = new FixedReadFilter("country_id", FixedReadComparison.Equal,
+                sourceType == "string" ? node.ToString(CultureInfo.InvariantCulture) : (object)node);
+            FixedReadFilter[] filters = [key, new("id", FixedReadComparison.Equal, first + 4)];
+            // 超时仅作用于非池化竞争连接。连接关闭后不会影响其余用例。
+            var contenderOptions = options with
+            {
+                ConnectionString = new MySqlConnectionStringBuilder(options.ConnectionString) { Pooling = false }.ConnectionString
+            };
+            using var contender = new DatabaseSession(contenderOptions);
+            var contenderReader = new MySqlNonRedundantReader(contender);
+            await session.InTransactionAsync(async () =>
+            {
+                // 三条同项目匹配最多返回两条，用于报告歧义，软删及跨项目样本不参与。
+                var ambiguous = await reader.ReadImportMatchesAsync(matchPlan, [key], projectId: catalog.YzProjectId);
+                Assert.Equal(new[] { first + 4, first + 3 }, ambiguous.Select(Id));
+                foreach (var outsideScope in new[] { first + 20, first + 21 })
+                    Assert.Empty(await reader.ReadImportMatchesAsync(matchPlan,
+                        [new("id", FixedReadComparison.Equal, outsideScope)], projectId: catalog.YzProjectId));
+                return true;
+            });
+            var rollback = await Assert.ThrowsAsync<InvalidOperationException>(() => session.InTransactionAsync<int>(async () =>
+            {
+                var found = Assert.Single(await reader.ReadImportMatchesAsync(matchPlan, filters, projectId: catalog.YzProjectId));
+                Assert.Equal(first + 4, Id(found));
+                var stored = Assert.Single(await store.ReadAsync(names[0], new Dictionary<string,object?> { ["id"] = first + 4 }));
+                Assert.Null(stored["country_id"]);
+                Assert.Equal(node.ToString(CultureInfo.InvariantCulture), Text(found, "country_id"));
+
+                await contender.InTransactionAsync(async () =>
+                {
+                    var transaction = contender.CurrentTransaction!;
+                    await using var probe = transaction.Connection!.CreateCommand();
+                    probe.Transaction = transaction;
+                    probe.CommandText = "SET SESSION innodb_lock_wait_timeout=1";
+                    await probe.ExecuteNonQueryAsync();
+
+                    // 仅共享读取同一关联行可以通过，改名必须等待当前匹配结束。
+                    var id = probe.CreateParameter();
+                    id.ParameterName = "id";
+                    id.Value = node;
+                    probe.Parameters.Add(id);
+                    probe.CommandText = "SELECT title FROM " + contender.Provider.QuoteIdentifier(names[1]) + " WHERE id=@id FOR SHARE";
+                    Assert.Equal("国%_!'中文", await probe.ExecuteScalarAsync());
+                    probe.CommandText = "UPDATE " + contender.Provider.QuoteIdentifier(names[1]) + " SET title='锁测试' WHERE id=@id";
+                    Assert.Equal(1205, (await Assert.ThrowsAsync<MySqlException>(() => probe.ExecuteNonQueryAsync())).Number);
+
+                    // 首事务还未写来源。如果首次匹配仍取共享锁，第二个匹配会成功而非超时。
+                    Assert.Equal(1205, (await Assert.ThrowsAsync<MySqlException>(() =>
+                        contenderReader.ReadImportMatchesAsync(matchPlan, filters, projectId: catalog.YzProjectId))).Number);
+                    return true;
+                });
+                Assert.Equal(1, await store.UpdateAsync(names[0], first + 4, new Dictionary<string,object?> { ["name"] = "回滚覆盖匹配" }));
+                throw new InvalidOperationException("覆盖匹配后回滚");
+            }));
+            Assert.Equal("覆盖匹配后回滚", rollback.Message);
+            await contender.InTransactionAsync(async () =>
+            {
+                var rematched = Assert.Single(await contenderReader.ReadImportMatchesAsync(matchPlan, filters, projectId: catalog.YzProjectId));
+                Assert.Equal(first + 4, Id(rematched));
+                Assert.Equal("来源4", rematched["name"]);
+                return true;
+            });
+        }
         /// <summary>物理样本字段均由统一计划白名单约束，名称不写入R0来源。</summary>
         Task Source(int offset,long[] path,bool deleted=false,bool foreign=false)
         {var values=selection.PackValidatedPath(path).ToDictionary();foreach(var pair in secondary.PackValidatedPath(Enumerable.Repeat(other,offset%3+1).ToArray()))values.Add(pair.Key,pair.Value);values.Add("id",first+offset);values.Add("name","来源"+offset);values.Add("amount",offset*10m);values.Add("yz_project_id",foreign?project+1:project);values.Add("delete_no",deleted?new DateTime(2026,1,1):null);values.Add("owner_id",node);return store.InsertAsync(names[0],values);}
@@ -178,7 +247,7 @@ public sealed class NonRedundantCrossTableReadMySqlTests
         Task Target(int level,long id,string title,long? parent,bool deleted=false,bool foreign=false,bool enabled=true)
         {var values=new Dictionary<string,object?>{{"id",id},{"title",title},{"is_enabled",enabled},{"yz_project_id",level==2?(foreign?project+1:project).ToString(CultureInfo.InvariantCulture):(object)(foreign?project+1:project)},{"delete_no",deleted?new DateTime(2026,1,1):null}};if(level>1)values.Add(level==2?"country_id":"area_id",parentType=="string"?parent?.ToString(CultureInfo.InvariantCulture):parent);return store.InsertAsync(names[level],values);}
         async Task<string> RowsHash(){var rows=new List<object>();foreach(var name in names)rows.Add((await store.ReadIncludingDeletedAsync(name)).OrderBy(row=>SqlRowStore.Id(row)).ToArray());return Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(rows)));}
-        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,sourceType,parentType,names,database=options.ExpectedDatabase,instanceVerified=true,fingerprint,rowsHash,verified,cleaned,independentTableAbsenceChecked=cleaned,twoIndependentTrees=true,logicalReadExecuted=verified,logicalParentScopeExecuted=verified,logicalParentCurrentLockExecuted=verified,generatedCrudExecuted=false,browserExecuted=false,grantAttempted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
+        Task Receipt(string stage,bool cleaned)=>File.WriteAllTextAsync(Path.Combine(evidence,stage+".json"),JsonSerializer.Serialize(new{stage,nonce,sourceType,parentType,names,database=options.ExpectedDatabase,instanceVerified=true,fingerprint,rowsHash,verified,cleaned,independentTableAbsenceChecked=cleaned,twoIndependentTrees=true,logicalReadExecuted=verified,logicalParentScopeExecuted=verified,logicalParentCurrentLockExecuted=verified,importMatchLockExecuted=verified,generatedCrudExecuted=false,browserExecuted=false,grantAttempted=false},new JsonSerializerOptions{WriteIndented=true})+"\n");
     }
     /// <summary>适配层测试的最小来源映射；业务实体仍由元数据生成，不启用ORM结构同步。</summary>
     [FreeSql.DataAnnotations.Table(DisableSyncStructure=true)]
