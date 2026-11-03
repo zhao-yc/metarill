@@ -41,18 +41,18 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         await using var fixture = await PackagedFilesFixture.CreateAsync(options);
         Assert.Empty(fixture.ExistingFileTables);
         await fixture.BuildAsync();
+        var physical = new Metarill.Runtime.ProjectPhysicalModels(fixture.FileCatalog, fixture.SecurityCatalog).Compose(fixture.Catalog);
+        Assert.Contains(physical.ConfigTables, table => table.TableName == "yz_manager_log");
         await fixture.StartAsync(); Assert.Equal(0L, await CountTablesAsync(fixture.Session)); await fixture.StopAsync();
         await fixture.SchemaAsync("--schema-preview"); Assert.Equal(0L, await CountTablesAsync(fixture.Session));
         var filesBefore = await new SchemaService(fixture.Session).PreviewAsync(fixture.FileCatalog);
-        Assert.Equal(3, filesBefore.Changes.Count(change => change.Kind == "createTable"));
+        Assert.Equal(fixture.FileCatalog.ConfigTables.Count, filesBefore.Changes.Count(change => change.Kind == "createTable"));
         var securityBefore=await new SchemaService(fixture.Session).PreviewAsync(fixture.SecurityCatalog);
-        Assert.Equal(7,securityBefore.Changes.Count(change=>change.Kind=="createTable"));
+        Assert.Equal(fixture.SecurityCatalog.ConfigTables.Count, securityBefore.Changes.Count(change=>change.Kind=="createTable"));
         await fixture.SchemaAsync("--schema-apply");
-        Assert.Equal((long)FreshInstallConfiguration.ExpectedFullTableCount(fixture.Catalog), await CountTablesAsync(fixture.Session));
-        Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.FileCatalog)).Changes);
-        Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.Catalog)).Changes);
-        Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(fixture.SecurityCatalog)).Changes);
-        await fixture.SchemaAsync("--schema-apply"); Assert.Equal((long)FreshInstallConfiguration.ExpectedFullTableCount(fixture.Catalog), await CountTablesAsync(fixture.Session));
+        await AssertInstalledTablesAsync(fixture.Session, physical);
+        Assert.Empty((await new SchemaService(fixture.Session).PreviewAsync(physical)).Changes);
+        await fixture.SchemaAsync("--schema-apply"); await AssertInstalledTablesAsync(fixture.Session, physical);
         await fixture.InitializeWebSecurityAsync();
         var credentials=await ScalarAsync(fixture.Session,"SELECT password FROM yz_manager WHERE name='files-probe'");
         await fixture.InitializeWebSecurityAsync();Assert.Equal(credentials,await ScalarAsync(fixture.Session,"SELECT password FROM yz_manager WHERE name='files-probe'"));
@@ -65,7 +65,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         var record = long.Parse(added.GetProperty("data").GetProperty("id").ToString()); fixture.RecordIds.Add(record);
         await fixture.AssertReferenceAsync(record, file); await fixture.AssertContentAsync(file, bytes, publicly: false);
         await AssertWebAuthenticationAsync(fixture, record);
-        output.WriteLine("独立应用：0表启动/预览均无DDL，显式CLI安装13表（业务1+文件3+安全7+Agent2），二次无差异；真实Web普通账号授权/撤权、改密撤会话、重启持久身份及文件引用/下载成功，非RR或并发验收。");
+        output.WriteLine($"独立应用：0表启动/预览均无DDL，显式CLI安装{physical.ConfigTables.Count}张模型声明的基础表，二次无差异；真实Web普通账号授权/撤权、改密撤会话、重启持久身份及文件引用/下载成功，非RR或并发验收。");
     }
 
     /// <summary>平台首次安装必须创建完整元数据表、内置元数据和管理员，重复初始化不重置密码。</summary>
@@ -293,6 +293,24 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
     private static bool HasPage(JsonElement nodes, string page, string project, string admin) => nodes.EnumerateArray().Any(node =>
         node.GetProperty("projectId").GetString() == project && node.GetProperty("adminTypeId").GetString() == admin &&
         (node.TryGetProperty("target", out var target) && target.ValueKind == JsonValueKind.Object && target.GetProperty("pageId").GetString() == page || HasPage(node.GetProperty("children"), page, project, admin)));
+
+    /// <summary>逐名核对独占库对象，拒绝同名视图、缺表和额外表。</summary>
+    private static async Task AssertInstalledTablesAsync(DatabaseSession session, MetadataCatalog physical)
+    {
+        await using var connection = session.Provider.CreateConnection(session.Options);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()";
+        await using var reader = await command.ExecuteReaderAsync();
+        var names = new List<string>();
+        while (await reader.ReadAsync())
+        {
+            Assert.Equal("BASE TABLE", reader.GetString(1));
+            names.Add(reader.GetString(0));
+        }
+        Assert.Equal(physical.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal),
+            names.Order(StringComparer.Ordinal));
+    }
 
     /// <summary>只读完整数据库表数，证明不存在隐藏复用的基础表。</summary>
     private static async Task<long> CountTablesAsync(DatabaseSession session) => Convert.ToInt64(await ScalarAsync(session, "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()"));

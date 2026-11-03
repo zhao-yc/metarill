@@ -4,7 +4,7 @@
 
 ## 新包和既有模式
 
-- 新Full默认Web，显式组合业务`project.json`、文件三表`files.json`与安全六表`security.json`。标准单业务表示例共10表；正常启动、匿名请求及预览不执行DDL或账号初始化。
+- 新Full默认Web，显式组合业务 `project.json`、文件三表 `files.json`、含 `yz_manager_log` 的安全七表 `security.json`，以及固定 Agent 两表。当前标准单业务表示例共 13 表；正常启动、匿名请求及预览不执行DDL或账号初始化。
 - 已交付`BackendOnly`继续`development-only`原宿主、四个基础程序集与业务/文件物理范围，不因本片失去平台代码导出，也不自动获得数据库Web。Full失败不降级为BackendOnly。
 - Web配置缺失、匿名或非64位小写hex令牌，在解析数据库服务及Open前拒绝。显式Web配置/认证失败不调用开发登录。只有Development且显式启用的开发账户可使用原内存会话/私有摘要；Production强制拒绝该开发模式。
 - 原登录表单、DOM、CSS、请求和事件保留。此前独立模板的“独立开发认证”标签改为模式中立“独立应用”；`sysParams`后台使用可信登录回执的字符串`yzAdminTypeId`，开发回执缺该字段时才使用包内默认后台，项目始终固定包内ID。该客户端状态不参与服务端授权。

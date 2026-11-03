@@ -50,7 +50,7 @@ C10只标记公共运行时与固定宿主目录合同完成，C08与首版整�
 
 ### 安装与配置
 
-完整包先以原 `--schema-preview` 审查业务表、文件三表、安全六表及Agent两表，再明确执行 `--schema-apply` 和原 `--initialize-security`。普通启动仍不DDL。旧工程更新后需要明确复核两张新增表，不能仅替换二进制就认为Agent账本可用。
+完整包先以原 `--schema-preview` 审查业务表、文件三表、安全七表（含 `yz_manager_log`）及 Agent 两表，再明确执行 `--schema-apply` 和原 `--initialize-security`。普通启动仍不DDL。旧工程更新时复核预览中的登录审计表和 Agent 两张账本表，再执行需要的结构变更。
 
 私有 `appsettings.local.json` 的 `Agent.VerificationUri` 设置为本应用原页面的可信HTTPS地址，例如 `https://app.example/#/pages/custom/agent_authorize`，本机验收允许HTTP回环。默认空值不从Host头、客户端参数或外部元数据猜测网址。现有Node CLI及 `X-Yzp-Agent-*` 协议保留。显式Development身份不签发Agent授权；缺数据库配置和匿名请求在创建数据库服务前拒绝。
 
