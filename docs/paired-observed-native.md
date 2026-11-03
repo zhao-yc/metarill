@@ -2,6 +2,8 @@
 
 日期：2026-11-03。V48已获单轮授权并实际执行，原初始化与播种完成，但Java首个HTTP连接重置、整体失败，资源已独立核零；**真实登录／业务与SQL仍未验收，MySQL首版保持待验**。具体见[首轮失败与修正](paired-observed-native-first-run.md)。本任务不修改产品后端、原前端、元数据或生成模板。
 
+最新V56已完成当前双方真实普通身份、各37业务及92份完整采集结构，并独立核清全部同轮资源；SQL语义、目标绑定、性能和MySQL首版仍未完成。见[V56正式结果](paired-observed-counter-result.md)。V48／V49／V52原失败保留。
+
 ## 固定范围
 
 当前新用途 `paired-native-observed-v1` 使用V51修正Java镜像及V55计数修复后的C#／原Redis；V48／V49历史使用99face1、V52使用旧5da4921的事实保持：
