@@ -48,7 +48,10 @@ jobs:
       - name: 核对文件基础表派生元数据
         run: node tools/metadata/derive-files.mjs --check
       - name: 核对安全基础表派生元数据与边界
+        shell: pwsh
         run: |
+          # 任意生成或核对命令失败时立即结束，避免后续成功覆盖退出码。
+          $PSNativeCommandUseErrorActionPreference = $true
           node --test tools/metadata/derive-security.test.mjs
           node tools/metadata/derive-security.mjs --check
           node --test tools/metadata/derive-security-management.test.mjs
@@ -60,6 +63,8 @@ jobs:
       - name: 重新生成并核对提交产物
         shell: pwsh
         run: |
+          # 任意生成或核对命令失败时立即结束，避免后续成功覆盖退出码。
+          $PSNativeCommandUseErrorActionPreference = $true
           foreach ($target in @('platform','demo')) {
             $namespace = if ($target -eq 'platform') { 'Metarill.Platform' } else { 'Metarill.Demo' }
             dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/$target.json --output backend/generated/$target --namespace $namespace
