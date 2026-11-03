@@ -23,7 +23,7 @@ class Gateway:
     """用普通记录字典独立模拟原接口，不调用被测断言生成期望结果。"""
     paths={'/api/admin/auto/sample_customer/81001':'sample_customer','/api/admin/auto/sample_contract/81002':'sample_contract','/api/admin/auto/sample_contract_line/81003':'sample_contract_line'}
     def __init__(self,fault=None):
-        self.rows={target:{table:{} for table in self.paths.values()} for target in ('java','csharp')};self.calls=[];self.sql=[];self.next=0;self.fault=fault;self.credentials=tokens()
+        self.rows={target:{table:{} for table in self.paths.values()} for target in ('java','csharp')};self.calls=[];self.sql=[];self.fixture_batches=[];self.next=0;self.fault=fault;self.credentials=tokens()
 
     def request(self,target,step,method,path,body,token):
         """按真实方法和路径解析操作，保留省略／null，模拟缓存传播和逻辑删除。"""
@@ -42,8 +42,18 @@ class Gateway:
                 if self.fault=='replayed-business':return 200,{'code':200,'data':None}
                 return (200,{'code':500}) if target=='java' else (409,{'code':409})
             old=copy.deepcopy(row);row['remarks']='已处理'
+            saved_lines=[]
+            if self.fault!='skip-existing-cache':
+                for line in self.rows[target]['sample_contract_line'].values():
+                    if line['sampleContractId']!=row['id'] and self.fault!='wrong-cache-parent':continue
+                    if line['deleted'] and self.fault!='updates-deleted-cache':continue
+                    saved_lines.append((line,line['sampleContractName']))
+                    line['sampleContractName']=row['name']
+            if self.fault=='overwrites-app-audit':row['update_user_name']='login-name'
             if path.endswith('/rollback'):
                 if self.fault!='lost-rollback':row.clear();row.update(old)
+                if self.fault!='lost-cache-rollback':
+                    for line,name in saved_lines:line['sampleContractName']=name
                 return 200,{'code':500}
             return 200,{'code':200,'data':{'id':row['id'],'remarks':'已处理','previousDigest':digest}}
         root=next(root for root in self.paths if path.startswith(root));table=self.paths[root];suffix=path[len(root):].split('?')[0];store=self.rows[target][table];data=None
@@ -60,7 +70,7 @@ class Gateway:
                         if related.get('sampleCustomerId')==data['id']:related['sampleCustomerName']=data['name']
                 if table=='sample_contract':
                     for related in self.rows[target]['sample_contract_line'].values():
-                        if related.get('sampleContractId')==data['id'] and self.fault!='stale-child-cache':related['sampleContractName']=data['name']
+                        if not related['deleted'] and related.get('sampleContractId')==data['id'] and self.fault!='stale-child-cache':related['sampleContractName']=data['name']
         elif suffix.startswith('/detail/'):
             data=store[suffix.rsplit('/',1)[1]]
         elif suffix in ('/page','/count'):
@@ -90,8 +100,33 @@ class Gateway:
 
     def decorate(self,target,table,row):
         """由已存在的真实关系键独立补充缓存字段，未复制被测期望字典。"""
-        if table=='sample_contract':row['sampleCustomerName']=self.rows[target]['sample_customer'][row['sampleCustomerId']]['name']
+        if table=='sample_contract':
+            row['sampleCustomerName']=self.rows[target]['sample_customer'][row['sampleCustomerId']]['name']
+            row['update_manager_real_name']='login-name' if self.fault=='wrong-manager-audit' else '性能writer'
         if table=='sample_contract_line':row['sampleContractName']=self.rows[target]['sample_contract'][row['sampleContractId']]['name']
+
+    def write_fixture(self,*statements):
+        """只模拟固定带前值的更新事务；SELECT读取器仍拒绝一切DML。"""
+        self.fixture_batches.append(statements)
+        targets=[]
+        for sql in statements:
+            match=re.fullmatch(r'UPDATE `metarill_fresh_a{16}_paired_(java|csharp)`\.`(sample_contract|sample_contract_line)` SET `(update_user_name|sample_contract_name)`=_utf8mb4 0x([0-9a-f]+) WHERE id=([0-9]+)(.*);',sql)
+            assert match,sql
+            target,table,column,encoded,identifier,where=match.groups()
+            row=self.rows[target][table][identifier]
+            if table=='sample_contract':
+                assert column=='update_user_name' and where==' AND delete_no IS NULL AND `update_user_name` IS NULL'
+                assert not row['deleted'] and row.get(column) is None
+            else:
+                assert column=='sample_contract_name'
+                prior=re.fullmatch(r' AND BINARY `sample_contract_id`=BINARY _utf8mb4 0x([0-9a-f]+) AND delete_no IS (NULL|NOT NULL) AND `sample_contract_name` <=> _utf8mb4 0x([0-9a-f]+)',where)
+                assert prior,where
+                assert row['sampleContractId']==bytes.fromhex(prior[1]).decode() and row['deleted']==(prior[2]=='NOT NULL') and row['sampleContractName']==bytes.fromhex(prior[3]).decode()
+                column='sampleContractName'
+            targets.append((row,column,bytes.fromhex(encoded).decode()))
+        if self.fault=='fixture-missed-row':return (1,1,0,1)
+        for row,column,text in targets:row[column]=text
+        return (1,)*len(targets)
 
     def query(self,sql):
         """仅接受固定SELECT形状并按内存状态核where；不执行／翻译数据库写入。"""
@@ -126,6 +161,38 @@ class BusinessContractTests(unittest.TestCase):
         self.assertFalse(result['sqlSemanticAccepted']);self.assertFalse(result['performanceAccepted']);self.assertFalse(result['releaseAccepted'])
         self.assertTrue(all(row['deleted'] for target in gateway.rows.values() for table in target.values() for row in table.values()))
         self.assertTrue(all(sql.startswith('SELECT ') for sql in gateway.sql))
+
+    def test_existing_line_case_has_two_differential_controls_and_preserves_audit(self):
+        """双端先造过期样本，再从独立行值核对原按钮回滚与提交。"""
+        gateway=Gateway()
+        result=subject.run_basic(lease(),gateway.credentials,gateway.request,gateway.query,fixture_write=gateway.write_fixture)
+        self.assertEqual(2,len(gateway.fixture_batches))
+        self.assertEqual([4,4],[len(batch) for batch in gateway.fixture_batches])
+        for target in ('java','csharp'):
+            steps=[step for side,step,*_ in gateway.calls if side==target]
+            self.assertEqual(43,len(steps))
+            self.assertEqual(set(subject.STEPS)|set(subject.CONTROL_SETUP)|set(subject.CONTROL_CLEANUP),set(steps))
+            self.assertLess(steps.index('line-add'),steps.index('business-rollback'))
+            self.assertLess(steps.index('tombstone-line-delete'),steps.index('business-rollback'))
+        self.assertTrue(all(row['existingLineValuesAfterCommitAndRollbackVerified'] and row['managerAuditAndLegacyAppValueVerified'] for row in result['targets']))
+        self.assertFalse(result['sqlSemanticAccepted'])
+        self.assertFalse(result['performanceAccepted'])
+
+    def test_existing_line_case_rejects_false_success_and_scope_leaks(self):
+        """目标缓存不更新、被错误提交、污染对照或覆盖审计均应失败。"""
+        for fault in ('skip-existing-cache','lost-cache-rollback','wrong-cache-parent','updates-deleted-cache','wrong-manager-audit','overwrites-app-audit','fixture-missed-row'):
+            gateway=Gateway(fault)
+            with self.subTest(fault=fault),self.assertRaisesRegex(ValueError,'business-(physical-value|fixture-match)'):
+                subject.run_basic(lease(),gateway.credentials,gateway.request,gateway.query,fixture_write=gateway.write_fixture)
+            self.assertLess(len(gateway.calls),43)
+
+    def test_new_fixture_writer_is_unreachable_on_invalid_scope(self):
+        """旧授权边界拒绝时，新的合成夹具写入器也不能执行。"""
+        value={**lease(),'authorizationStatus':'pending'}
+        reject=mock.Mock(side_effect=AssertionError('禁止外部调用'))
+        with self.assertRaisesRegex(ValueError,'business-lease'):
+            subject.run_basic(value,tokens(),reject,reject,fixture_write=reject)
+        reject.assert_not_called()
 
     def test_child_projection_rejects_hidden_fields_and_keeps_high_string_id(self):
         """与原编译VO相同四字段可通过；hidden字段泄漏及数字ID必须拒绝。"""

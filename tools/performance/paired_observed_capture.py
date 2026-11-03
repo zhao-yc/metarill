@@ -29,15 +29,15 @@ def sample(run,target,step):
     return hashlib.sha256((run+'\0'+target+'\0'+step).encode()).hexdigest()[:32]
 
 
-def expected_steps(value,target):
-    """按原两端HTTP/R规则冻结46请求；SQL次数必须另行审核，不在本计划臆测。"""
+def expected_steps(value,target,*,existing_lines=False):
+    """按原两端HTTP/R规则冻结请求，已有明细场景由独立协调器显式选择。"""
     rows=[]
     for step in ('identity:'+name for name in IDENTITY_STEPS):
         outcome=(200,200)
         if step=='identity:wrong-password':outcome=(200,500) if target=='java' else (401,401)
         elif step in {'identity:reader-create-denied','identity:page-denied'}:outcome=(200,500) if target=='java' else (403,403)
         rows.append((step,outcome))
-    for name in business.STEPS:
+    for name in (business.EXISTING_LINE_STEPS if existing_lines else business.STEPS):
         outcome=(200,200)
         if name in {'reader-update-denied','denied-detail'}:outcome=(200,500) if target=='java' else (403,403)
         elif name=='business-rollback':outcome=(200,500)
@@ -48,9 +48,11 @@ def expected_steps(value,target):
 
 class Exchange:
     """只把固定step关联到原sender；令牌、正文和响应数据均不写请求账本。"""
-    def __init__(self,value,sender):
+    def __init__(self,value,sender,*,existing_lines=False):
         authorize(value);self.value=json.loads(json.dumps(value));self.sender=sender;self.sent={'java':[],'csharp':[]};self.finished={'java':[],'csharp':[]}
-        self.plans={target:expected_steps(value,target) for target in ('java','csharp')}
+        reader.require(type(existing_lines) is bool,'capture-business-scenario')
+        self.existing_lines=existing_lines
+        self.plans={target:expected_steps(value,target,existing_lines=existing_lines) for target in ('java','csharp')}
 
     def call(self,target,step,method,path,body=None,token=None,form=False):
         """发出前登记且只发一次；原错误响应必须符合预定状态，未知/重复/跳步不发网络请求。"""
@@ -97,6 +99,25 @@ def sha(path):
     return result.hexdigest()
 
 
+def verify_cache_transaction(trace,database,side,outcome):
+    """证明合同与缓存各命中一行，且先后完成于同连接的同一提交或回滚事务。"""
+    start,finish=('startedNanos','finishedNanos') if side=='java' else ('startedTimestamp','finishedTimestamp')
+    prefix=r'(?is)^\s*UPDATE\s+(?:`?'+re.escape(database)+r'`?\s*\.\s*)?'
+    parent=re.compile(prefix+r'`?sample_contract`?(?=\s)')
+    child=re.compile(prefix+r'`?sample_contract_line`?\s+SET\s+`?sample_contract_name`?\s*=')
+    main=[row for row in trace['commands'] if parent.match(row['sql'])]
+    cache=[row for row in trace['commands'] if child.match(row['sql'])]
+    reader.require(len(main)==len(cache)==1,'capture-cache-update-count')
+    main,cache=main[0],cache[0]
+    reference=(main['connection'],main['transaction'])
+    reader.require(main['succeeded'] and cache['succeeded'] and main['affectedRows']==cache['affectedRows']==1
+        and reference[1] is not None and (cache['connection'],cache['transaction'])==reference and main[finish]<=cache[start],
+        'capture-cache-update-boundary')
+    endings=[row for row in trace['transactions'] if row['operation']==outcome and row['succeeded']
+        and (row['connection'],row['transaction'])==reference and cache[finish]<=row[start]]
+    reader.require(len(endings)==1,'capture-cache-transaction-outcome')
+
+
 def capture_for_review(root,value,exchange,graceful):
     """先保留有界原始文件和审阅key，再重算结构；不把实测次数反填严格验收预期。"""
     authorize(value);reader.require(Path(root).absolute()==resources.root_for(value['runId']).absolute(),'capture-root');reader.require(type(graceful) is bool,'capture-exit-flag')
@@ -130,6 +151,7 @@ def capture_for_review(root,value,exchange,graceful):
         database='metarill_fresh_'+value['runId'][:16]+'_paired_'+target
         if java:reader.require(reader.flag(index['sourcesVerified']) and index['dataSources']==['dataSource'],'capture-sources')
         else:reader.require(index['dataAssemblySha256']==resources.OBSERVATION_DATA_SHA256 and index['expectedDatabases']==[database],'capture-data-assembly')
+        cache_transactions=set()
         refs=index['requests'];reader.require(type(refs) is list and len(refs)==wanted,'capture-reference-count');seen=set();names={'index.json'};counts={key:0 for key in ('commands','transactions','failedCommands','failedTransactions','nativeTemporalProofs')};rollback=False
         for reference in refs:
             reader.shape(reference,'id sha256');ident=reference['id'];reader.require(type(ident) is str and re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}' if java else '[a-f0-9]{32}',ident),'capture-record-id');name=ident+'.json';reader.require(name not in names,'capture-duplicate-record');names.add(name)
@@ -139,6 +161,10 @@ def capture_for_review(root,value,exchange,graceful):
             if not java:reader.require(reader.flag(record['internallyConsistent']) and record['problems']==[],'capture-record-incomplete')
             measured=reader.trace(record['trace'],target,{database});reader.require(measured['failedCommands']==0 and measured['failedTransactions']==0,'capture-driver-failure')
             for key in counts:counts[key]+=measured[key]
+            if exchange.existing_lines and entry['step'] in {'business:business-rollback','business:business-complete'}:
+                outcome='rollback' if entry['step']=='business:business-rollback' else 'commit'
+                verify_cache_transaction(record['trace'],database,target,outcome)
+                cache_transactions.add(outcome)
             if entry['step']=='business:business-rollback':
                 ended={item['transaction'] for item in record['trace']['transactions'] if item['operation']=='rollback' and item['succeeded'] and item['transaction'] is not None}
                 update=r'(?is)^\s*UPDATE\s+(?:`?'+re.escape(database)+r'`?\s*\.\s*)?`?sample_contract`?(?=\s)'
@@ -146,4 +172,7 @@ def capture_for_review(root,value,exchange,graceful):
         reader.require(seen==set(expected) and names==set(files),'capture-record-file-coverage')
         if not java:reader.require(reader.integer(index['retainedEntries'])==counts['commands']+counts['transactions'],'capture-retained-count')
         reader.require(rollback,'capture-rollback-missing');summaries[target]={'indexSha256':files['index.json'],'files':files,'requests':wanted,**counts,'updateThenRollbackObserved':True,'requestCoverageVerified':True,'traceStructureVerified':True,'sqlCountExpectationsVerified':False,'sqlSemanticAccepted':False,'physicalTargetVerified':False,'performanceAccepted':False}
+        if exchange.existing_lines:
+            reader.require(cache_transactions=={'rollback','commit'},'capture-cache-transaction-coverage')
+            summaries[target]['directCacheWriteThenCommitAndRollbackObserved']=True
     result={'format':'metarill-paired-sql-capture-review-v1','runId':value['runId'],'targets':summaries,'privateKeyRetainedForReview':True,'sqlSemanticAccepted':False,'performanceAccepted':False,'releaseAccepted':False};(output/'capture-manifest.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');return result

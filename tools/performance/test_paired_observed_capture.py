@@ -23,7 +23,7 @@ class CaptureTests(unittest.TestCase):
         self.enterContext(mock.patch.object(subject.resources,'root_for',return_value=self.root));self.records={};self.indexes={};self.folders={}
 
     def materialize(self):
-        """写46个固定样本，只有业务回滚包含一条成功UPDATE及rollback。"""
+        """按固定请求计划构造文件，新模式额外包含主表和缓存两条写入。"""
         run=self.scope['runId'];key=self.root/'observation.key';key.write_bytes(bytes([11])*32);raw=json.dumps({'observation.key':hashlib.sha256(key.read_bytes()).hexdigest()}).encode();(self.root/'materials.json').write_bytes(raw);self.scope['materialsSha256']=hashlib.sha256(raw).hexdigest()
         for name in ('resource-state.json','native-state.json'):
             (self.root/name).write_text(json.dumps(dict(runId=run,ownerToken='d'*64,status='stopped',hostsStarted=True)),encoding='utf-8')
@@ -32,11 +32,22 @@ class CaptureTests(unittest.TestCase):
             if not java:index.update(dataAssemblySha256=subject.resources.OBSERVATION_DATA_SHA256,expectedDatabases=['metarill_fresh_'+run[:16]+'_paired_csharp'],retainedEntries=3)
             for number,plan in enumerate(self.exchange.plans[side],1):
                 record=copy.deepcopy(base);ident=('00000000-0000-4000-8000-'+format(number,'012x')) if java else format(number,'032x');record.update(runId=run,id=ident,sample=plan['sample']);record['statusAtFilterExit' if java else 'statusAtMiddlewareExit']=plan['statusAtExit'];trace=record['trace']
-                if plan['step']=='business:business-rollback':
-                    trace['commands'][0]['sql']='UPDATE `sample_contract` SET remarks=?';trace['transactions'][1]['operation']='rollback'
-                    if not java:trace['commands'][0]['database']='metarill_fresh_'+run[:16]+'_paired_csharp'
+                rollback=plan['step']=='business:business-rollback'
+                if rollback or self.exchange.existing_lines and plan['step']=='business:business-complete':
+                    main=trace['commands'][0];main['sql']='UPDATE `sample_contract` SET remarks=?'
+                    trace['transactions'][1]['operation']='rollback' if rollback else 'commit'
+                    if not java:main['database']='metarill_fresh_'+run[:16]+'_paired_csharp'
+                    if self.exchange.existing_lines:
+                        times={'startedNanos':42,'finishedNanos':47} if java else {'startedTimestamp':42,'driverTimestamp':45,'finishedTimestamp':47}
+                        trace['commands'].append(dict(main,sql='UPDATE `sample_contract_line` SET `sample_contract_name`=?',number=3 if java else 2,**times))
+                        # Java命令和事务边界共用序号，第二条写入在结束边界前。
+                        if java:
+                            trace['transactions'][1]['number']=4
+                            trace['transactions'][2]['number']=5
+                        trace.update(started=2,completed=2)
                 else:trace.update(commands=[],transactions=[],started=0,completed=0,startedTransactions=0,completedTransactions=0)
                 self.records[side].append(record)
+            if not java:index['retainedEntries']=sum(len(record['trace']['commands'])+len(record['trace']['transactions']) for record in self.records[side])
             index.update(started=len(self.records[side]),completed=len(self.records[side]),observed=len(self.records[side]));self.indexes[side]=index;self.write(side);self.exchange.finished[side]=copy.deepcopy(self.exchange.plans[side]);self.exchange.sent[side]=copy.deepcopy(self.exchange.plans[side])
 
     def write(self,side):
@@ -63,6 +74,49 @@ class CaptureTests(unittest.TestCase):
         for side in ('java','csharp'):
             rows=self.exchange.plans[side];self.assertEqual(46,len(rows));self.assertEqual(46,len({row['sample'] for row in rows}));self.assertTrue(all(len(row['sample'])==32 for row in rows));self.assertFalse(self.exchange.receipt()['sqlCountExpectationsVerified'])
         java=next(row for row in self.exchange.plans['java'] if row['step']=='business:business-replay-conflict');csharp=next(row for row in self.exchange.plans['csharp'] if row['step']=='business:business-replay-conflict');self.assertEqual((200,500),(java['statusAtExit'],java['expectedCode']));self.assertEqual((409,409),(csharp['statusAtExit'],csharp['expectedCode']))
+
+    def test_existing_line_plan_binds_all_52_requests_and_preserves_old_plan(self):
+        """新增六个对照请求必须采样，旧46条计划独立保持。"""
+        exchange=subject.Exchange(self.scope,mock.Mock(),existing_lines=True)
+        for side,rows in exchange.plans.items():
+            steps=[row['step'] for row in rows]
+            self.assertEqual(52,len(steps))
+            self.assertEqual(52,len({row['sample'] for row in rows}))
+            self.assertLess(steps.index('business:line-add'),steps.index('business:business-rollback'))
+            self.assertEqual(46,len(self.exchange.plans[side]))
+
+    def test_existing_line_capture_reads_complete_artifacts_and_records_transaction_evidence(self):
+        """从实际文件载入52条合成请求，核对同事务提交及回滚后才出具专项回执。"""
+        self.exchange=subject.Exchange(self.scope,mock.Mock(),existing_lines=True)
+        self.materialize()
+        result=self.capture()
+        for row in result['targets'].values():
+            self.assertEqual(52,row['requests'])
+            self.assertEqual(4,row['commands'])
+            self.assertTrue(row['directCacheWriteThenCommitAndRollbackObserved'])
+            self.assertFalse(row['physicalTargetVerified'])
+        self.assertFalse(result['performanceAccepted'])
+
+    def test_existing_cache_requires_two_writes_before_matching_transaction_outcome(self):
+        """相同连接和事务中的单行缓存写入必须出现在对应提交或回滚前。"""
+        for side in ('java','csharp'):
+            java=side=='java'
+            start,finish=('startedNanos','finishedNanos') if java else ('startedTimestamp','finishedTimestamp')
+            for outcome in ('commit','rollback'):
+                trace=artifacts.fixture(side)[1]['trace']
+                parent=trace['commands'][0]
+                parent['sql']='UPDATE `sample_contract` SET `remarks`=?'
+                cache=dict(parent,sql='UPDATE `sample_contract_line` SET `sample_contract_name`=? WHERE `id`=?')
+                cache[start],cache[finish]=42,47
+                trace['commands'].append(cache)
+                boundary=trace['transactions'][1]
+                boundary['operation']=outcome
+                subject.verify_cache_transaction(trace,'offline',side,outcome)
+                for change,code in (({'connection':2},'capture-cache-update-boundary'),({'affectedRows':0},'capture-cache-update-boundary'),({start:25},'capture-cache-update-boundary'),({finish:55},'capture-cache-transaction-outcome'),({'sql':'UPDATE sample_contract_line SET remarks=?'},'capture-cache-update-count')):
+                    with self.subTest(side=side,outcome=outcome,change=change),self.assertRaisesRegex(ValueError,code):
+                        subject.verify_cache_transaction({**trace,'commands':[parent,{**cache,**change}]},'offline',side,outcome)
+                with self.assertRaisesRegex(ValueError,'capture-cache-transaction-outcome'):
+                    subject.verify_cache_transaction(trace,'offline',side,'rollback' if outcome=='commit' else 'commit')
 
     def test_pending_and_scope_errors_reject_before_io_or_sender(self):
         """旧用途、布尔版本、旧镜像或ended都不能读文件或触发HTTP。"""
