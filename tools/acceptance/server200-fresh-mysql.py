@@ -50,12 +50,18 @@ def main():
     derived = ("derived_declared", "derived_auto")
     imported = ("import_without", "import_with")
     # 双端运行只允许这两个新后缀；all保持旧八库，不能扩张已批准的历史范围。
-    profiles = {"platform_bootstrap": ("platform", "business"), "baseline": baseline, "cross": cross, "derived": derived, "imported": imported, "agent": ("agent",), "cached_source": ("cached_original", "cached_parent"), "paired": ("paired_java", "paired_csharp"), "array_cached_targets": ("array_t1_s1_long", "array_t1_s1_text"), "array_targets": tuple(f"array_t{target}_s{source}_{key}" for target in (0, 1) for source in (0, 1) for key in ("long", "text")), "all": baseline + cross}
+    profiles = {"platform_bootstrap": ("platform", "business"), "standalone_package": ("package",), "baseline": baseline, "cross": cross, "derived": derived, "imported": imported, "agent": ("agent",), "cached_source": ("cached_original", "cached_parent"), "paired": ("paired_java", "paired_csharp"), "array_cached_targets": ("array_t1_s1_long", "array_t1_s1_text"), "array_targets": tuple(f"array_t{target}_s{source}_{key}" for target in (0, 1) for source in (0, 1) for key in ("long", "text")), "all": baseline + cross}
     if not isinstance(scenario, str) or scenario not in profiles:
         raise RuntimeError("未知空库验收场景。")
     databases = [f"metarill_fresh_{run}_{kind}" for kind in profiles[scenario]]
     user = f"mtf_{run}"
     state = ownership_path(run)
+    owner_token = payload.get("ownerToken")
+    if owner_token is not None and (not isinstance(owner_token, str) or not re.fullmatch(r"[a-f0-9]{64}", owner_token)):
+        raise RuntimeError("上层所有权标识无效。")
+    # 独立完整包只由已固定实际实例和归属标识的单库协调器操作。
+    if scenario == "standalone_package" and (owner_token is None or "expectedInstance" not in payload):
+        raise RuntimeError("独立完整包需要本轮实例指纹及所有权标识。")
     verify_server()
     fingerprint = mysql("SELECT @@hostname,@@server_uuid;").split("\t")
     if len(fingerprint) != 2 or not re.fullmatch(r"[0-9a-f-]{36}", fingerprint[1]):
@@ -64,9 +70,6 @@ def main():
     # 上层完整执行器可固定已确认实例；不匹配时在建立所有权记录/DDL前拒绝。
     if "expectedInstance" in payload and payload["expectedInstance"] != instance:
         raise RuntimeError("MySQL 实际实例与本轮预期不符。")
-    owner_token = payload.get("ownerToken")
-    if owner_token is not None and (not isinstance(owner_token, str) or not re.fullmatch(r"[a-f0-9]{64}", owner_token)):
-        raise RuntimeError("上层所有权标识无效。")
     if payload["operation"] == "create":
         password = payload["password"]
         if not re.fullmatch(r"[a-f0-9]{64}", password) or state.exists():

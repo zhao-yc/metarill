@@ -47,14 +47,14 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def invoke(self, operation, mysql=None, scenario="baseline"):
+    def invoke(self, operation, mysql=None, scenario="baseline", **scope):
         """所有外部输入和权限接口均替换为内存桩，记录真正准备执行的SQL。"""
         def execute(sql):
             self.commands.append(sql)
             if sql == "SELECT @@hostname,@@server_uuid;": return "fixture\t"+self.instance["serverUuid"]
             return "0" if sql.startswith("SELECT ") else ""
         captured = io.StringIO()
-        with patch.object(subject, "ownership_path", return_value=self.state), patch.object(subject, "verify_server"), patch.object(subject, "mysql", side_effect=mysql or execute), patch("sys.stdin", io.StringIO(json.dumps({"runId": self.run, "operation": operation, "password": self.password, "scenario": scenario}))), contextlib.redirect_stdout(captured):
+        with patch.object(subject, "ownership_path", return_value=self.state), patch.object(subject, "verify_server"), patch.object(subject, "mysql", side_effect=mysql or execute), patch("sys.stdin", io.StringIO(json.dumps({"runId": self.run, "operation": operation, "password": self.password, "scenario": scenario, **scope}))), contextlib.redirect_stdout(captured):
             subject.main()
         return captured.getvalue()
 
@@ -193,6 +193,39 @@ class FreshMysqlOwnershipTests(unittest.TestCase):
         with self.assertRaises(RuntimeError): self.invoke("cleanup", scenario="all")
         self.assertEqual(before, self.state.read_bytes()); self.assertFalse(any(sql.startswith("DROP") for sql in self.commands))
         self.invoke("cleanup", scenario="cross")
+
+    def test_standalone_package_owns_only_one_database(self):
+        """普通完整包单库租约只授权一个库，旧场景或其他归属标识不能删除它。"""
+        scope = {"expectedInstance": self.instance, "ownerToken": "c" * 64}
+        name = f"metarill_fresh_{self.run}_package"
+        result = json.loads(self.invoke("create", scenario="standalone_package", **scope))
+        self.assertEqual([name], result["createdDatabases"])
+        self.assertEqual([name], json.loads(self.state.read_text(encoding="utf-8"))["databases"])
+        grants = [sql for sql in self.commands if sql.startswith("GRANT ")]
+        self.assertEqual(1, len(grants))
+        self.assertIn(f"ON `{name}`.*", grants[0])
+
+        self.commands.clear()
+        with self.assertRaises(RuntimeError):
+            self.invoke("cleanup", scenario="baseline", **scope)
+        with self.assertRaises(RuntimeError):
+            self.invoke("cleanup", scenario="standalone_package", **dict(scope, ownerToken="d" * 64))
+        self.assertFalse(any(sql.startswith("DROP") for sql in self.commands))
+        self.assertTrue(self.state.exists())
+
+        self.commands.clear()
+        result = json.loads(self.invoke("cleanup", scenario="standalone_package", **scope))
+        self.assertEqual(1, result["databaseCount"])
+        self.assertFalse(self.state.exists())
+        self.assertEqual([f"DROP DATABASE `{name}`;"], [sql for sql in self.commands if sql.startswith("DROP DATABASE")])
+
+    def test_standalone_package_requires_scope_before_querying(self):
+        """缺少实例或所有权标识时在查询和创建清单前拒绝。"""
+        for scope in ({}, {"ownerToken": "c" * 64}, {"expectedInstance": self.instance}):
+            with self.subTest(scope=scope), self.assertRaisesRegex(RuntimeError, "实例指纹及所有权标识"):
+                self.invoke("create", scenario="standalone_package", **scope)
+            self.assertEqual([], self.commands)
+            self.assertFalse(self.state.exists())
 
     def test_paired_lease_cannot_be_cleaned_as_old_baseline(self):
         """双端记录不能被旧场景消费，即使运行号相同也不执行任何DROP。"""
