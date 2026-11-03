@@ -39,12 +39,14 @@ def record_id(value):
     return value
 
 
-def authorize(value,tokens):
+def authorize(value,tokens,*,existing_lines=False):
     """所有I/O前核用途、直接批准、唯一双库、固定新镜像及三普通登录令牌。"""
     run=value.get('runId');require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'business-run')
     databases=['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')]
-    require(value.get('version')==1 and type(value.get('version')) is int and value.get('purpose')=='paired-observed-business-v1' and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running','business-lease')
-    require(value.get('databases')==databases and value.get('user')=='mtf_'+run[:16] and value.get('instancePin')==PIN and value.get('images')==resources.OBSERVATION_IMAGES,'business-scope')
+    purpose=resources.EXISTING_LINE_BUSINESS if existing_lines else 'paired-observed-business-v1'
+    images=resources.EXISTING_LINE_IMAGES if existing_lines else resources.OBSERVATION_IMAGES
+    require(value.get('version')==1 and type(value.get('version')) is int and value.get('purpose')==purpose and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running','business-lease')
+    require(value.get('databases')==databases and value.get('user')=='mtf_'+run[:16] and value.get('instancePin')==PIN and images is not None and value.get('images')==images,'business-scope')
     require(type(tokens) is dict and set(tokens)=={'java','csharp'},'business-tokens')
     for target in ('java','csharp'):
         require(type(tokens[target]) is dict and set(tokens[target])==set(seed.KINDS),'business-tokens')
@@ -94,11 +96,56 @@ def _prepare_stale_lines(database,contract_id,lines,fixture_write):
     require(type(counts) is tuple and len(counts)==len(statements) and all(type(count) is int and count==1 for count in counts),'business-fixture-match')
 
 
+def fixture_transaction_sql(run,statements):
+    """只接受该次刚生成的四条固定写入；返回失败会断开且无法提交的批次。"""
+    require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'business-fixture-run')
+    require(type(statements) is tuple and len(statements)==4 and all(type(sql) is str for sql in statements),'business-fixture-shape')
+    parent=re.fullmatch(r'UPDATE `(metarill_fresh_'+run[:16]+r'_paired_(?:java|csharp))`\.`sample_contract` SET `update_user_name`='+re.escape(seed.literal(OLD_APP_NAME))+r' WHERE id=([0-9]+) AND delete_no IS NULL AND `update_user_name` IS NULL;',statements[0])
+    require(parent is not None,'business-fixture-parent')
+    database,parent_id=parent.groups()
+    ids={record_id(parent_id)}
+    for offset,(statement,stale,deleted) in enumerate(zip(statements[1:],(STALE_CACHE,TOMBSTONE_CACHE,OTHER_CACHE),('NULL','NOT NULL','NULL'))):
+        name='配对合同-'+run[:16]+'-01'+('-对照' if offset==2 else '')
+        shape=(r'UPDATE `'+database+r'`\.`sample_contract_line` SET `sample_contract_name`='+re.escape(seed.literal(stale))
+            +r' WHERE id=([0-9]+) AND BINARY `sample_contract_id`=BINARY _utf8mb4 0x([0-9a-f]{32,38}) AND delete_no IS '+deleted
+            +r' AND `sample_contract_name` <=> '+re.escape(seed.literal(name))+';')
+        match=re.fullmatch(shape,statement)
+        require(match is not None,'business-fixture-line')
+        identifier=record_id(match[1])
+        owner=bytes.fromhex(match[2])
+        require(owner.isdigit(),'business-fixture-line-owner')
+        owner=record_id(owner.decode('ascii'))
+        require(identifier not in ids and (owner==parent_id)==(offset!=2),'business-fixture-line-scope')
+        ids.add(identifier)
+    require(owner not in ids,'business-fixture-line-scope')
+
+    def check(condition):
+        """MySQL 客户端在非法 PREPARE 处退出，未提交的事务随连接关闭回滚。"""
+        return [
+            f"SET @mt_fixture_guard=IF({condition}, 'SELECT 1', 'SELECT FROM');",
+            "PREPARE mt_fixture_gate FROM @mt_fixture_guard;",
+            "EXECUTE mt_fixture_gate;",
+            "DEALLOCATE PREPARE mt_fixture_gate;",
+        ]
+    scope=(f"@@hostname={seed.literal(PIN['hostname'])} AND @@server_uuid={seed.literal(PIN['serverUuid'])} AND "
+           "(SELECT COUNT(*) FROM information_schema.TABLES WHERE "
+           f"TABLE_SCHEMA={seed.literal(database)} AND TABLE_NAME IN ('sample_contract','sample_contract_line') AND ENGINE='InnoDB')=2")
+    batch=['START TRANSACTION;',*check(scope)]
+    counters=[]
+    for number,statement in enumerate(statements):
+        counter='@mt_fixture_count_'+str(number)
+        batch.extend((statement,f'SET {counter}=ROW_COUNT();'))
+        counters.append(counter)
+    batch.extend(check(' AND '.join(counter+'=1' for counter in counters)))
+    batch.extend(('COMMIT;','SELECT '+','.join(counters)+';'))
+    return '\n'.join(batch)+'\n'
+
+
 def run_basic(value,tokens,request,query,*,fixture_write=None):
     """普通执行沿原37步；显式注入独占夹具写入器才运行已有明细对照用例。"""
     existing_lines=fixture_write is not None
     steps=EXISTING_LINE_STEPS if existing_lines else STEPS
-    run,databases=authorize(value,tokens)
+    run,databases=authorize(value,tokens,existing_lines=existing_lines)
     require(query('SELECT @@hostname,@@server_uuid;')==PIN['hostname']+'\t'+PIN['serverUuid'],'business-instance')
     for database in databases.values():
         for table in FIELDS:require(query(f'SELECT COUNT(*) FROM `{database}`.`{table}`;')=='0','business-not-empty')

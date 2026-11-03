@@ -14,6 +14,14 @@ def lease():
     return {**fixtures.settings(),'purpose':'paired-observed-business-v1','leaseStatus':'running','images':dict(subject.resources.OBSERVATION_IMAGES)}
 
 
+EXISTING_IMAGES={**subject.resources.OBSERVATION_IMAGES,'csharp':'sha256:'+'d'*64}
+
+
+def existing_lease():
+    """本地替身使用与旧用途不同的镜像固定值。"""
+    return {**lease(),'purpose':subject.resources.EXISTING_LINE_BUSINESS,'images':EXISTING_IMAGES}
+
+
 def tokens():
     """固定三个不同假令牌，不生成或建立真实会话。"""
     return {'java':{kind:str(n)*8+'-'+str(n)*4+'-4'+str(n)*3+'-8'+str(n)*3+'-'+str(n)*12 for n,kind in enumerate(('writer','reader','denied'),1)},'csharp':{kind:str(n)*64 for n,kind in enumerate(('writer','reader','denied'),1)}}
@@ -153,6 +161,10 @@ class Gateway:
 
 
 class BusinessContractTests(unittest.TestCase):
+    def setUp(self):
+        """已有明细合同使用独立的测试内容 ID。"""
+        self.enterContext(mock.patch.object(subject.resources,'EXISTING_LINE_IMAGES',EXISTING_IMAGES))
+
     def test_two_targets_run_original_thirty_seven_steps_with_only_select_physical_audits(self):
         """原CRUD／关系传播及墓碑完整运行；未把替身回归标记为真实SQL或性能。"""
         gateway=Gateway();result=subject.run_basic(lease(),gateway.credentials,gateway.request,gateway.query)
@@ -165,7 +177,7 @@ class BusinessContractTests(unittest.TestCase):
     def test_existing_line_case_has_two_differential_controls_and_preserves_audit(self):
         """双端先造过期样本，再从独立行值核对原按钮回滚与提交。"""
         gateway=Gateway()
-        result=subject.run_basic(lease(),gateway.credentials,gateway.request,gateway.query,fixture_write=gateway.write_fixture)
+        result=subject.run_basic(existing_lease(),gateway.credentials,gateway.request,gateway.query,fixture_write=gateway.write_fixture)
         self.assertEqual(2,len(gateway.fixture_batches))
         self.assertEqual([4,4],[len(batch) for batch in gateway.fixture_batches])
         for target in ('java','csharp'):
@@ -183,15 +195,39 @@ class BusinessContractTests(unittest.TestCase):
         for fault in ('skip-existing-cache','lost-cache-rollback','wrong-cache-parent','updates-deleted-cache','wrong-manager-audit','overwrites-app-audit','fixture-missed-row'):
             gateway=Gateway(fault)
             with self.subTest(fault=fault),self.assertRaisesRegex(ValueError,'business-(physical-value|fixture-match)'):
-                subject.run_basic(lease(),gateway.credentials,gateway.request,gateway.query,fixture_write=gateway.write_fixture)
+                subject.run_basic(existing_lease(),gateway.credentials,gateway.request,gateway.query,fixture_write=gateway.write_fixture)
             self.assertLess(len(gateway.calls),43)
+
+    def test_fixture_batch_gates_same_connection_and_all_four_counts_before_commit(self):
+        """合法样本固定四次条件更新，外部库、改表、多语句和错误父键在生成批次前拒绝。"""
+        gateway=Gateway()
+        subject.run_basic(existing_lease(),gateway.credentials,gateway.request,gateway.query,fixture_write=gateway.write_fixture)
+        for statements in gateway.fixture_batches:
+            sql=subject.fixture_transaction_sql(lease()['runId'],statements)
+            self.assertTrue(sql.startswith('START TRANSACTION;\n'))
+            self.assertLess(sql.index("ENGINE='InnoDB'"),sql.index(statements[0]))
+            self.assertEqual(4,sql.count('=ROW_COUNT();'))
+            self.assertEqual(2,sql.count("'SELECT FROM'"))
+            self.assertLess(sql.rindex('PREPARE mt_fixture_gate FROM'),sql.index('COMMIT;'))
+            altered=[
+                ('DELETE FROM `sample_contract`;',*statements[1:]),
+                (statements[0]+' DROP TABLE `sample_contract`;',*statements[1:]),
+                (statements[0],statements[1].replace('_paired_','_foreign_'),*statements[2:]),
+                (statements[0],statements[1],statements[2].replace('NOT NULL','NULL'),statements[3]),
+                (statements[0],statements[1],statements[2],statements[1]),
+            ]
+            for broken in altered:
+                with self.subTest(broken=broken),self.assertRaisesRegex(ValueError,'business-fixture-'):
+                    subject.fixture_transaction_sql(lease()['runId'],broken)
 
     def test_new_fixture_writer_is_unreachable_on_invalid_scope(self):
         """旧授权边界拒绝时，新的合成夹具写入器也不能执行。"""
-        value={**lease(),'authorizationStatus':'pending'}
         reject=mock.Mock(side_effect=AssertionError('禁止外部调用'))
-        with self.assertRaisesRegex(ValueError,'business-lease'):
-            subject.run_basic(value,tokens(),reject,reject,fixture_write=reject)
+        for scope in (lease(),{**existing_lease(),'authorizationStatus':'pending'}):
+            with self.assertRaisesRegex(ValueError,'business-lease'):
+                subject.run_basic(scope,tokens(),reject,reject,fixture_write=reject)
+        with self.assertRaisesRegex(ValueError,'business-scope'):
+            subject.run_basic({**existing_lease(),'images':lease()['images']},tokens(),reject,reject,fixture_write=reject)
         reject.assert_not_called()
 
     def test_child_projection_rejects_hidden_fields_and_keeps_high_string_id(self):

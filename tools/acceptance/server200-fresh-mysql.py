@@ -16,11 +16,12 @@ def verify_server():
         raise RuntimeError("Server-200 地址核验失败。")
 
 
-def mysql(sql):
-    """管理凭据仅在容器环境中读取；SQL 和错误均不回显。"""
+def mysql(sql, *, guarded_transaction=False):
+    """管理凭据只在容器读取；守护批次必须在首个错误断开，禁止重连后继续提交。"""
     verify_server()
-    result = subprocess.run(["docker", "-H", "unix:///var/run/docker.sock", "exec", "-i", "yinzon-mysql", "sh", "-c",
-        'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot --batch --skip-column-names'],
+    client = 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot --batch --skip-column-names'
+    if guarded_transaction: client += ' --skip-force --skip-reconnect'
+    result = subprocess.run(["docker", "-H", "unix:///var/run/docker.sock", "exec", "-i", "yinzon-mysql", "sh", "-c", client],
         input=sql, text=True, capture_output=True, timeout=45)
     if result.returncode:
         error = RuntimeError("MySQL 随机验收对象操作失败，保留所有权记录供安全清理。")

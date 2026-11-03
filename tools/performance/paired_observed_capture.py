@@ -18,8 +18,8 @@ IDENTITY_STEPS=('ready','wrong-password','login-writer','page-writer','login-rea
 def authorize(value):
     """纯内存核新用途和双库范围，pending／ended在读取目录或执行网络前拒绝。"""
     run=value.get('runId');reader.require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'capture-run')
-    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose')=='paired-native-observed-v1' and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
-    reader.require(value.get('images')==resources.OBSERVATION_IMAGES and value.get('instancePin')==business.PIN and value.get('databases')==['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')] and value.get('user')=='mtf_'+run[:16],'capture-scope')
+    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose') in ('paired-native-observed-v1',resources.EXISTING_LINE_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
+    reader.require(resources.images_for(value) is not None and value.get('images')==resources.images_for(value) and value.get('instancePin')==business.PIN and value.get('databases')==['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')] and value.get('user')=='mtf_'+run[:16],'capture-scope')
     ports=value.get('ports');reader.require(type(ports) is dict and set(ports)=={'java','csharp'} and all(type(port) is int and 20000<=port<=40000 for port in ports.values()) and len(set(ports.values()))==2,'capture-ports')
     return run
 
@@ -48,11 +48,10 @@ def expected_steps(value,target,*,existing_lines=False):
 
 class Exchange:
     """只把固定step关联到原sender；令牌、正文和响应数据均不写请求账本。"""
-    def __init__(self,value,sender,*,existing_lines=False):
+    def __init__(self,value,sender):
         authorize(value);self.value=json.loads(json.dumps(value));self.sender=sender;self.sent={'java':[],'csharp':[]};self.finished={'java':[],'csharp':[]}
-        reader.require(type(existing_lines) is bool,'capture-business-scenario')
-        self.existing_lines=existing_lines
-        self.plans={target:expected_steps(value,target,existing_lines=existing_lines) for target in ('java','csharp')}
+        self.existing_lines=resources.is_existing_lines(value)
+        self.plans={target:expected_steps(value,target,existing_lines=self.existing_lines) for target in ('java','csharp')}
 
     def call(self,target,step,method,path,body=None,token=None,form=False):
         """发出前登记且只发一次；原错误响应必须符合预定状态，未知/重复/跳步不发网络请求。"""
@@ -150,7 +149,7 @@ def capture_for_review(root,value,exchange,graceful):
         expected={row['sample']:row for row in exchange.plans[target]};wanted=len(expected);reader.require(reader.integer(index['started'])==reader.integer(index['completed'])==reader.integer(index['observed'])==wanted,'capture-request-count')
         database='metarill_fresh_'+value['runId'][:16]+'_paired_'+target
         if java:reader.require(reader.flag(index['sourcesVerified']) and index['dataSources']==['dataSource'],'capture-sources')
-        else:reader.require(index['dataAssemblySha256']==resources.OBSERVATION_DATA_SHA256 and index['expectedDatabases']==[database],'capture-data-assembly')
+        else:reader.require(index['dataAssemblySha256']==resources.observation_data_sha(value) and index['expectedDatabases']==[database],'capture-data-assembly')
         cache_transactions=set()
         refs=index['requests'];reader.require(type(refs) is list and len(refs)==wanted,'capture-reference-count');seen=set();names={'index.json'};counts={key:0 for key in ('commands','transactions','failedCommands','failedTransactions','nativeTemporalProofs')};rollback=False
         for reference in refs:

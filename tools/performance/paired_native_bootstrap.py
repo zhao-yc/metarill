@@ -34,10 +34,11 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1"} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
-    descriptor.update(purpose="paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1", authorizationStatus="approved", leaseStatus="running")
+    purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
+    descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
     if value.get("databases") != databases or value.get("user") != "mtf_" + run[:16] or value.get("instancePin") != PIN:
@@ -114,6 +115,25 @@ def mysql_operation(mysql, value, operation, owner_token, password=None):
         try: sys.stdin = io.StringIO(json.dumps(payload)); mysql.main()
         finally: sys.stdin = previous
     return http.read_json(output.getvalue())
+
+
+def existing_line_fixture(mysql, value, owner_token, business, statements):
+    """只在专项运行拥有两个空库的凭证完整时执行事务夹具，旧运行绝不复用。"""
+    if (value.get("purpose") != resources.EXISTING_LINE_NATIVE or value.get("authorizationStatus") != "approved"
+        or value.get("leaseStatus") != "not-started" or not re.fullmatch(r"[a-f0-9]{64}", owner_token)):
+        raise ValueError("business-fixture-lease")
+    run = value["runId"]
+    sql = business.fixture_transaction_sql(run, statements)
+    ownership = mysql.ownership_path(run[:16])
+    info = resources.regular(ownership)
+    if (info.st_mode & 0o777) != 0o600 or info.st_size > 8192:
+        raise ValueError("business-fixture-ownership")
+    expected = {"runId":run[:16],"scenario":"paired","databases":value["databases"],"user":value["user"],"instance":PIN,"ownerToken":owner_token}
+    if http.read_json(ownership.read_bytes()) != expected:
+        raise ValueError("business-fixture-ownership")
+    if mysql.mysql(sql, guarded_transaction=True) != "1\n1\n1\t1\t1\t1":
+        raise ValueError("business-fixture-receipt")
+    return (1,1,1,1)
 
 
 def capture(args, timeout=120):
@@ -376,7 +396,8 @@ def run(value):
     with os.fdopen(handle, "w", encoding="utf-8") as output: json.dump(state, output)
     descriptor["ownerToken"] = state["ownerToken"]
     exchange=capture_sql.Exchange(value,send) if resources.is_observed(value) else None
-    if exchange is not None:state["acceptedScope"]="paired-original-business-and-private-capture-for-review-only"
+    if exchange is not None:
+        state["acceptedScope"]="paired-existing-lines-and-private-capture-for-review-only" if resources.is_existing_lines(value) else "paired-original-business-and-private-capture-for-review-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
     try:
@@ -424,9 +445,16 @@ def run(value):
         state["deniedWritesPhysicalRowsUnchanged"] = True
         if exchange is not None:
             stage("普通账号原CRUD／关系改名／三业务动作与真实写后回滚")
-            lease={**value,"purpose":"paired-observed-business-v1","leaseStatus":"running"}
+            existing_lines=resources.is_existing_lines(value)
+            lease={**value,"purpose":resources.EXISTING_LINE_BUSINESS if existing_lines else "paired-observed-business-v1","leaseStatus":"running"}
             business_tokens={target:{kind:tokens[target,kind] for kind in seed.KINDS} for target in ("java","csharp")}
-            state["businessFacts"]=business.run_basic(lease,business_tokens,exchange.business_request,mysql.mysql);exchange.complete()
+            options={}
+            if existing_lines:
+                def write_fixture(*statements):
+                    """仅已有明细用途向已创建的本轮独占库提交四条固定更新。"""
+                    return existing_line_fixture(mysql,value,state["ownerToken"],business,statements)
+                options["fixture_write"]=write_fixture
+            state["businessFacts"]=business.run_basic(lease,business_tokens,exchange.business_request,mysql.mysql,**options);exchange.complete()
             state["requestCapturePlan"]=exchange.receipt();resources.write_state(state_path,state)
         after = http.equal_limits(probe, targets)
         if before != after: raise RuntimeError("HTTP前后资源/镜像/容器身份变化")

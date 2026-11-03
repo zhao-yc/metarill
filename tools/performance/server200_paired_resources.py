@@ -26,14 +26,32 @@ OBSERVATION_IMAGES = {
 OBSERVATION_DATA_SHA256 = "74db1feaf23f665e4712ce3b8519cf12e502a18abb30009017dea53671e95cae"
 
 
+EXISTING_LINE_NATIVE = "paired-native-existing-lines-v1"
+EXISTING_LINE_RESOURCES = "paired-existing-lines-resources-v1"
+EXISTING_LINE_BUSINESS = "paired-existing-lines-business-v1"
+EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
+EXISTING_LINE_DATA_SHA256 = "b6c8159c101d6bab32cc7cef941ad840987ad49615b554ca1c1d49098e2cfb6d"
+
+
+def is_existing_lines(value):
+    """已有明细属于单独批准的验收用途。"""
+    return value.get("purpose") in (EXISTING_LINE_NATIVE, EXISTING_LINE_RESOURCES, EXISTING_LINE_BUSINESS)
+
+
 def is_observed(value):
-    """用途必须明确；不能给旧v1偷偷增加采集参数或接入新镜像。"""
-    return value.get("purpose") in {"paired-observed-resources-v1", "paired-native-observed-v1"}
+    """两个明确的采集用途共享资源约束，旧非采集用途保留。"""
+    return is_existing_lines(value) or value.get("purpose") in ("paired-observed-resources-v1", "paired-native-observed-v1")
 
 
 def images_for(value):
-    """由已校验用途决定精确三镜像，不读取客户端额外品牌／镜像设置。"""
+    """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_existing_lines(value): return EXISTING_LINE_IMAGES
     return OBSERVATION_IMAGES if is_observed(value) else IMAGES
+
+
+def observation_data_sha(value):
+    """观察桥按对应发布包核验 Data 程序集。"""
+    return EXISTING_LINE_DATA_SHA256 if is_existing_lines(value) else OBSERVATION_DATA_SHA256
 
 
 LABEL = "metarill.performance."
@@ -42,11 +60,11 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1"} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
-    if value.get("images") != images_for(value):
+    if images_for(value) is None or value.get("images") != images_for(value):
         raise ValueError("镜像必须等于已核实的三个固定内容ID")
     ports = value.get("ports", {})
     if set(ports) != {"java", "csharp"} or any(type(n) is not int or not 20000 <= n <= 40000 for n in ports.values()) or len(set(ports.values())) != 2:
@@ -153,7 +171,7 @@ def observation_arguments(value, target):
         settings = {"enabled": "true", "run-id": run, "data-source-names": "dataSource", "key-file": "/run/metarill-observation.key", "output-root": "/data/sql-observation", "maximum-requests": "128", "maximum-commands": "4096"}
         prefix = "--metarill.paired.sql-observation."
     else:
-        settings = {"Enabled": "true", "RunId": run, "KeyFile": "/run/metarill-observation.key", "OutputRoot": "/data/sql-observation", "ExpectedDataSha256": OBSERVATION_DATA_SHA256, "ExpectedDatabases": database, "MaximumRequests": "128", "MaximumCommands": "4096"}
+        settings = {"Enabled": "true", "RunId": run, "KeyFile": "/run/metarill-observation.key", "OutputRoot": "/data/sql-observation", "ExpectedDataSha256": observation_data_sha(value), "ExpectedDatabases": database, "MaximumRequests": "128", "MaximumCommands": "4096"}
         prefix = "--Metarill:Paired:SqlObservation:"
     return [prefix + name + "=" + text for name, text in settings.items()]
 
@@ -291,7 +309,7 @@ def wait_observed_hosts(value,root,state,timeout=90):
             if folders and (folders[0]/'index.json').is_file():
                 index=json.loads((folders[0]/'index.json').read_text(encoding='utf-8'))
                 if index.get('runId')!=value['runId']:raise RuntimeError('就绪索引不属于本轮')
-                configured=index.get('sourcesVerified') is True if item['target']=='java' else index.get('dataAssemblySha256')==OBSERVATION_DATA_SHA256 and index.get('expectedDatabases')==['metarill_fresh_'+value['runId'][:16]+'_paired_csharp']
+                configured=index.get('sourcesVerified') is True if item['target']=='java' else index.get('dataAssemblySha256')==observation_data_sha(value) and index.get('expectedDatabases')==['metarill_fresh_'+value['runId'][:16]+'_paired_csharp']
                 if item['target']=='java':
                     marker=base/'.metarill-paired-application-ready';application_ready=False
                     if marker.exists():

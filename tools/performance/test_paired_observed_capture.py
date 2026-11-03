@@ -9,6 +9,7 @@ from unittest import mock
 import paired_observed_capture as subject
 import test_audit_sql_artifacts as artifacts
 import test_paired_native_bootstrap as fixtures
+from test_paired_business_http import EXISTING_IMAGES
 
 
 def value():
@@ -21,6 +22,8 @@ class CaptureTests(unittest.TestCase):
         """每项独占临时根；两个生产者的字段形状来自已有合同夹具。"""
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name);self.scope=value();self.exchange=subject.Exchange(self.scope,mock.Mock(side_effect=AssertionError('不应发网络')))
         self.enterContext(mock.patch.object(subject.resources,'root_for',return_value=self.root));self.records={};self.indexes={};self.folders={}
+        self.enterContext(mock.patch.object(subject.resources,'EXISTING_LINE_IMAGES',EXISTING_IMAGES))
+        self.enterContext(mock.patch.object(subject.resources,'EXISTING_LINE_DATA_SHA256','e'*64))
 
     def materialize(self):
         """按固定请求计划构造文件，新模式额外包含主表和缓存两条写入。"""
@@ -29,7 +32,7 @@ class CaptureTests(unittest.TestCase):
             (self.root/name).write_text(json.dumps(dict(runId=run,ownerToken='d'*64,status='stopped',hostsStarted=True)),encoding='utf-8')
         for side in ('java','csharp'):
             java=side=='java';source=self.root/('data-'+side)/'sql-observation';source.mkdir(parents=True);(source/'.metarill-paired-observation-owner').write_text(run,encoding='utf-8');folder=source/('00000000-0000-4000-8000-000000000001' if java else '1'*32);folder.mkdir();self.folders[side]=folder;index,base,_=artifacts.fixture(side);index['runId']=run;index['requests']=[];self.records[side]=[]
-            if not java:index.update(dataAssemblySha256=subject.resources.OBSERVATION_DATA_SHA256,expectedDatabases=['metarill_fresh_'+run[:16]+'_paired_csharp'],retainedEntries=3)
+            if not java:index.update(dataAssemblySha256=subject.resources.observation_data_sha(self.scope),expectedDatabases=['metarill_fresh_'+run[:16]+'_paired_csharp'],retainedEntries=3)
             for number,plan in enumerate(self.exchange.plans[side],1):
                 record=copy.deepcopy(base);ident=('00000000-0000-4000-8000-'+format(number,'012x')) if java else format(number,'032x');record.update(runId=run,id=ident,sample=plan['sample']);record['statusAtFilterExit' if java else 'statusAtMiddlewareExit']=plan['statusAtExit'];trace=record['trace']
                 rollback=plan['step']=='business:business-rollback'
@@ -77,7 +80,8 @@ class CaptureTests(unittest.TestCase):
 
     def test_existing_line_plan_binds_all_52_requests_and_preserves_old_plan(self):
         """新增六个对照请求必须采样，旧46条计划独立保持。"""
-        exchange=subject.Exchange(self.scope,mock.Mock(),existing_lines=True)
+        scope={**self.scope,'purpose':subject.resources.EXISTING_LINE_NATIVE,'images':EXISTING_IMAGES}
+        exchange=subject.Exchange(scope,mock.Mock())
         for side,rows in exchange.plans.items():
             steps=[row['step'] for row in rows]
             self.assertEqual(52,len(steps))
@@ -87,7 +91,8 @@ class CaptureTests(unittest.TestCase):
 
     def test_existing_line_capture_reads_complete_artifacts_and_records_transaction_evidence(self):
         """从实际文件载入52条合成请求，核对同事务提交及回滚后才出具专项回执。"""
-        self.exchange=subject.Exchange(self.scope,mock.Mock(),existing_lines=True)
+        self.scope={**self.scope,'purpose':subject.resources.EXISTING_LINE_NATIVE,'images':EXISTING_IMAGES}
+        self.exchange=subject.Exchange(self.scope,mock.Mock())
         self.materialize()
         result=self.capture()
         for row in result['targets'].values():

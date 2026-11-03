@@ -13,6 +13,7 @@ import paired_native_bootstrap as subject
 import paired_business_http as business
 import paired_observed_capture as capture
 import test_paired_native_bootstrap as fixtures
+from test_paired_business_http import EXISTING_IMAGES
 
 
 def value():
@@ -61,6 +62,23 @@ class ObservedFlowTests(unittest.TestCase):
         for first,second in (('resources-wait-hosts','business'),('business','resources-snapshot-hosts'),('resources-snapshot-hosts','resources-stop-hosts'),('resources-stop-hosts','capture'),('capture','resources-cleanup'),('resources-cleanup','database-cleanup')):self.assertLess(self.events.index(first),self.events.index(second))
         targets=self.limits.call_args.args[1];self.assertEqual(subject.resources.OBSERVATION_IMAGES['java'],targets['java']['expectedImageId']);self.assertEqual(subject.resources.OBSERVATION_IMAGES['csharp'],targets['csharp']['expectedImageId'])
 
+    def test_existing_line_flow_uses_independent_pins_and_only_its_own_fixture_callback(self):
+        """新用途把当前内容 ID、夹具提交和既有关闭顺序连到同一执行链。"""
+        self.value={**value(),'purpose':subject.resources.EXISTING_LINE_NATIVE,'images':EXISTING_IMAGES}
+        def accept(lease,tokens,request,query,*,fixture_write):
+            self.assertEqual(subject.resources.EXISTING_LINE_BUSINESS,lease['purpose'])
+            self.assertEqual((1,1,1,1),fixture_write('主表','活动','墓碑','其它父'))
+            return {'mockedOnly':True}
+        self.business.side_effect=accept
+        with mock.patch.object(subject.resources,'EXISTING_LINE_IMAGES',EXISTING_IMAGES),mock.patch.object(subject,'existing_line_fixture',return_value=(1,1,1,1)) as writer:
+            result=self.run_scope()
+        self.assertTrue(result['passed'])
+        self.assertEqual('paired-existing-lines-and-private-capture-for-review-only',result['acceptedScope'])
+        self.assertEqual(subject.resources.EXISTING_LINE_RESOURCES,subject.resources.manage.call_args_list[0].args[0]['purpose'])
+        self.assertEqual(self.value,writer.call_args.args[1])
+        self.assertEqual(('主表','活动','墓碑','其它父'),writer.call_args.args[4])
+        self.assertEqual(EXISTING_IMAGES['csharp'],self.limits.call_args.args[1]['csharp']['expectedImageId'])
+
     def test_business_failure_keeps_original_stage_and_still_preserves_capture(self):
         """业务失败不因关闭/清理成功改写，首因阶段在随后采集前保留。"""
         self.business.side_effect=ValueError('business-copy-id');result=self.run_scope();self.assertFalse(result['passed']);self.assertEqual('business-copy-id',result['failure']['code']);self.assertIn('普通账号',result['failedAtStage']);self.assertEqual([],result['cleanupErrors']);self.assertIn('capture',self.events)
@@ -84,11 +102,49 @@ class SourceAndPendingTests(unittest.TestCase):
         for changes in ({'authorizationStatus':'pending'},{'leaseStatus':'ended'},{'version':True},{'images':dict(subject.resources.IMAGES)}):
             with self.subTest(changes=changes),mock.patch.object(subject.importlib,'import_module',side_effect=AssertionError('不能导入')),mock.patch.object(subject,'verify_tool_sources',side_effect=AssertionError('不能读源码')),self.assertRaises(ValueError):subject.run({**value(),**changes})
 
+    def test_existing_line_purpose_rejects_old_or_unregistered_pin_before_io(self):
+        """已有明细只能在对应固定镜像下启动，其他范围不先导入任何模块。"""
+        scope={**value(),'purpose':subject.resources.EXISTING_LINE_NATIVE}
+        for images in (None,EXISTING_IMAGES):
+            with mock.patch.object(subject.resources,'EXISTING_LINE_IMAGES',images),mock.patch.object(subject.importlib,'import_module',side_effect=AssertionError('不能导入')),self.assertRaises(ValueError):
+                subject.run(scope)
+
     def test_new_source_gate_requires_all_actual_eight_files(self):
         """新用途八文件缺一或任一漂移都拒绝，旧五文件清单不能充当新用途来源。"""
         scope=value();root=Path(subject.__file__).resolve().parents[1];names=('performance/paired_native_bootstrap.py','performance/paired_http.py','performance/paired_identity_seed.py','performance/server200_paired_resources.py','acceptance/server200-fresh-mysql.py','performance/paired_business_http.py','performance/paired_observed_capture.py','performance/audit_sql_artifacts.py');scope.update(toolSourceCommit='a'*40,toolSha256={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in names});subject.verify_tool_sources(scope)
         scope['toolSha256'].pop(names[-1])
         with self.assertRaises(ValueError):subject.verify_tool_sources(scope)
+
+
+class FixtureWriterTests(unittest.TestCase):
+    def test_atomic_writer_requires_exact_ownership_and_strict_batch_receipt(self):
+        """伪造所有权、旧租约和回执不完整均拒绝；不运行真实客户端。"""
+        scope={**value(),'purpose':'paired-native-existing-lines-v1'}
+        owner='c'*64
+        ownership={"runId":scope["runId"][:16],"scenario":"paired","databases":scope["databases"],"user":scope["user"],"instance":subject.PIN,"ownerToken":owner}
+        mysql=mock.Mock()
+        source=mysql.ownership_path.return_value
+        checker=mock.Mock()
+        checker.fixture_transaction_sql.return_value='已验证的合成事务'
+        mysql.mysql.return_value='1\n1\n1\t1\t1\t1'
+        statements=('固定主表','固定活动','固定墓碑','固定其它父')
+        with mock.patch.object(subject.resources,'regular',return_value=mock.Mock(st_mode=0o600,st_size=500)):
+            source.read_bytes.return_value=json.dumps(ownership).encode()
+            self.assertEqual((1,1,1,1),subject.existing_line_fixture(mysql,scope,owner,checker,statements))
+            mysql.mysql.assert_called_once_with('已验证的合成事务',guarded_transaction=True)
+            mysql.mysql.reset_mock()
+            for forged in ({**ownership,'ownerToken':'e'*64},{**ownership,'databases':scope['databases'][:1]}):
+                source.read_bytes.return_value=json.dumps(forged).encode()
+                with self.assertRaisesRegex(ValueError,'business-fixture-ownership'):
+                    subject.existing_line_fixture(mysql,scope,owner,checker,statements)
+                mysql.mysql.assert_not_called()
+            source.read_bytes.return_value=json.dumps(ownership).encode()
+            with self.assertRaisesRegex(ValueError,'business-fixture-lease'):
+                subject.existing_line_fixture(mysql,value(),owner,checker,statements)
+            mysql.mysql.assert_not_called()
+            mysql.mysql.return_value='1'
+            with self.assertRaisesRegex(ValueError,'business-fixture-receipt'):
+                subject.existing_line_fixture(mysql,scope,owner,checker,statements)
 
 
 class IdentityTests(unittest.TestCase):
