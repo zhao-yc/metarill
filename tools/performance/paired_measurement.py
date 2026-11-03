@@ -68,6 +68,11 @@ def run_read_measurement(root,run,targets,tokens,probe,query):
     (output/"preflight.json").write_bytes(http.canonical({"runId":run,"configSha256":http.digest(config),"responseFingerprints":fingerprints}))
     if fingerprints["java"]!=fingerprints["csharp"]:
         raise ValueError("measurement-preflight-response-mismatch")
+    return run_trials(output,config,probe,query,"original-read-only")
+
+
+def run_trials(output,config,probe,query,profile,*,transport=None,check_event=None):
+    """两种测量共用资源、共享库状态和私有日志，保留各自请求边界。"""
     initial=database_context(query)
     settings_unchanged=True
     def journal(event):
@@ -80,10 +85,13 @@ def run_read_measurement(root,run,targets,tokens,probe,query):
             stream.write(http.canonical({"observedAt":time.time(),**event,"databaseContext":context})+b"\n")
             stream.flush()
             os.fsync(stream.fileno())
-    report=http.run(config,probe,on_event=journal)
+        if check_event is not None:
+            check_event(event)
+    options={} if transport is None else {"transport":transport}
+    report=http.run(config,probe,on_event=journal,**options)
     final=database_context(query)
     report.update(databaseBefore=initial,databaseAfter=final,databaseVariablesUnchanged=settings_unchanged and initial["variables"]==final["variables"])
     (output/"measurement.json").write_bytes(http.canonical(report))
     results=report["results"]
     return {"measurementValid":report["databaseVariablesUnchanged"] and len(results)==len(config["concurrency"]) and all(item["measurementValid"] for item in results),
-            "stableRegression":any(item["stableRegression"] for item in results),"profile":"original-read-only","report":"measurement/measurement.json"}
+            "stableRegression":any(item["stableRegression"] for item in results),"profile":profile,"report":"measurement/measurement.json"}

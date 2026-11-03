@@ -34,11 +34,16 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
-    if resources.is_measurement(value): purpose = resources.MEASUREMENT_RESOURCES
+    if resources.is_write_measurement(value):
+        if type(value.get("writeReplayRequests")) is not int or value["writeReplayRequests"] != resources.WRITE_REQUEST_BUDGET:
+            raise ValueError("写入请求数与直接批准范围不符")
+        purpose = resources.WRITE_MEASUREMENT_RESOURCES
+    elif resources.is_measurement(value):
+        purpose = resources.MEASUREMENT_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
@@ -142,7 +147,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose")!=resources.MEASUREMENT_NATIVE or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE,resources.WRITE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
@@ -368,6 +373,7 @@ def verify_tool_sources(value):
     expected = {"performance/paired_native_bootstrap.py", "performance/paired_http.py", "performance/paired_identity_seed.py", "performance/server200_paired_resources.py", "acceptance/server200-fresh-mysql.py"}
     if resources.is_observed(value): expected.update({"performance/paired_business_http.py","performance/paired_observed_capture.py","performance/audit_sql_artifacts.py"})
     if resources.is_measurement(value): expected.update({"performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py"})
+    if resources.is_write_measurement(value): expected.add("performance/paired_write_measurement.py")
     hashes = value.get("toolSha256", {})
     if set(hashes) != expected or not re.fullmatch(r"[a-f0-9]{40}", value.get("toolSourceCommit", "")):
         raise ValueError("缺少当前用途的固定Git工具来源")
@@ -403,6 +409,7 @@ def run(value):
     capture_sql = importlib.import_module("paired_observed_capture") if resources.is_observed(value) else None
     measurement = importlib.import_module("paired_measurement") if resources.is_measurement(value) else None
     measure_fixture = importlib.import_module("paired_measurement_fixture") if measurement is not None else None
+    write_measurement = importlib.import_module("paired_write_measurement") if resources.is_write_measurement(value) else None
     root = resources.root_for(value["runId"])
     resources.read_materials(root, descriptor); java = bootstrap(root, value)
     credentials = read_private(root / "identity.json", value["identitySha256"])
@@ -416,7 +423,8 @@ def run(value):
     exchange=capture_sql.Exchange(value,send) if resources.is_observed(value) else None
     if exchange is not None:
         state["acceptedScope"]="paired-existing-lines-and-private-capture-for-review-only" if resources.is_existing_lines(value) else "paired-original-business-and-private-capture-for-review-only"
-    if measurement is not None: state["acceptedScope"]="paired-read-measurement-only"
+    if measurement is not None:
+        state["acceptedScope"]="paired-write-measurement-only" if write_measurement is not None else "paired-read-measurement-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
     try:
@@ -454,7 +462,7 @@ def run(value):
         if measurement is not None:
             state["measurementSeeds"]={}
             for side in ("java","csharp"):
-                stage("装载并逐值核对只读性能种子 "+side)
+                stage("装载并逐值核对性能种子 "+side)
                 state["measurementSeeds"][side]=seed_measurement_database(mysql,value,state["ownerToken"],measure_fixture,side)
                 resources.write_state(state_path,state)
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
@@ -482,11 +490,26 @@ def run(value):
             state["businessFacts"]=business.run_basic(lease,business_tokens,exchange.business_request,mysql.mysql,**options);exchange.complete()
             state["requestCapturePlan"]=exchange.receipt();resources.write_state(state_path,state)
         if measurement is not None:
-            stage("无SQL采集的原接口只读性能回放")
-            state["measurement"]=measurement.run_read_measurement(root,value["runId"],targets,tokens,probe,mysql.mysql)
-            stage("独立复核只读回放后的物理样本")
+            run_id = value["runId"]
+            if write_measurement is not None:
+                require_database_ownership(mysql,value,state["ownerToken"])
+                stage("独立核验写入回放前无本轮样本")
+                for side in ("java","csharp"):
+                    write_measurement.verify_readback(run_id,mysql.mysql(write_measurement.readback_sql(run_id,side)),before=True)
+                stage("无SQL采集的原接口写入性能回放")
+                state["measurement"]=write_measurement.run_write_measurement(root,run_id,targets,tokens,probe,mysql.mysql)
+            else:
+                stage("无SQL采集的原接口只读性能回放")
+                state["measurement"]=measurement.run_read_measurement(root,run_id,targets,tokens,probe,mysql.mysql)
+            stage("独立复核性能回放后的物理样本")
+            if write_measurement is not None:
+                state["measurement"]["writeReadback"]={
+                    side:write_measurement.verify_readback(run_id,mysql.mysql(write_measurement.readback_sql(run_id,side)))
+                    for side in ("java","csharp")
+                }
             for side in ("java","csharp"):
-                if measure_fixture.verify_readback(value["runId"],side,mysql.mysql)!=state["measurementSeeds"][side]:
+                options={} if write_measurement is None else {"exclude_write_samples":True}
+                if measure_fixture.verify_readback(run_id,side,mysql.mysql,**options)!=state["measurementSeeds"][side]:
                     raise ValueError("measurement-post-readback")
             state["measurement"]["physicalFixtureUnchanged"]=True
         after = http.equal_limits(probe, targets)

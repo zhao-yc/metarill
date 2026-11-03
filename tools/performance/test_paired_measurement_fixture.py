@@ -96,5 +96,17 @@ class MeasurementFixtureTests(unittest.TestCase):
                 subject.verify_readback(RUN,"java",response_gateway("java",lambda key,reply:corrupt(reply) if key==field else reply))
 
 
+    def test_write_replay_only_excludes_this_runs_customer_prefix(self):
+        """保留 NULL 名称、其它客户和两个非客户表的完整原始核验。"""
+        for table in subject.COLUMNS:
+            normal=subject.readback_sql(RUN,"java",table)
+            writing=subject.readback_sql(RUN,"java",table,exclude_write_samples=True)
+            if table=="sample_customer":
+                condition=" WHERE name IS NULL OR NOT ("+subject.write_sample_condition(RUN)+")"
+                self.assertEqual(normal,writing.replace(condition,""))
+            else:
+                self.assertEqual(normal,writing)
+
+
 if __name__=="__main__":
     unittest.main()

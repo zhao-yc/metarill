@@ -1,10 +1,13 @@
 """原客户页写入回放和独占样本只读核验合同。"""
 from __future__ import annotations
 
+from threading import Event
+
 import paired_http as http
 from paired_business_http import ROOTS, record_id
-from paired_identity_seed import literal
-from paired_measurement_fixture import database_name
+from paired_measurement import run_trials
+from paired_measurement_fixture import database_name, write_sample_condition
+from server200_paired_resources import WRITE_REQUEST_BUDGET
 
 SCENARIO = "customer-crud"
 CONCURRENCY = (1, 4)
@@ -55,7 +58,7 @@ def write_scenario():
 
 def config_for(run, targets, tokens):
     """固定写入次数与普通写者身份。调用方必须另有独占写入授权。"""
-    return http.validate({
+    config = http.validate({
         "version": 1, "runId": run, "transportProof": "server200-loopback-v1",
         "rounds": ROUNDS, "iterations": ITERATIONS, "warmupIterations": WARMUP,
         "concurrency": list(CONCURRENCY), "requestTimeoutSeconds": 5,
@@ -64,6 +67,9 @@ def config_for(run, targets, tokens):
                     for side in ("java", "csharp")},
         "scenarios": [write_scenario()],
     })
+    if 2 * len(expected_names(run)) * len(config["scenarios"][0]["steps"]) != WRITE_REQUEST_BUDGET:
+        raise ValueError("measurement-write-budget")
+    return config
 
 
 def write_request(target, step, variables, timeout):
@@ -92,11 +98,10 @@ def expected_names(run):
 def readback_sql(run, side):
     """只读取精确双库的客户表及本轮前缀，超出预算也能被发现。"""
     database = database_name(run, side)
-    prefix = f"perf-write-{run}-"
     return (
         "SELECT id,HEX(name),IF(remarks IS NULL,1,0),IF(delete_no IS NULL,0,1) "
         f"FROM `{database}`.`sample_customer` "
-        f"WHERE BINARY LEFT(name,{len(prefix)})=BINARY {literal(prefix)} "
+        f"WHERE {write_sample_condition(run)} "
         f"LIMIT {len(expected_names(run)) + 1};"
     )
 
@@ -123,3 +128,39 @@ def verify_readback(run, data, *, before=False):
     if names != expected:
         raise ValueError("缺少已计划的写入样本")
     return {"verifiedRows": len(names)}
+
+
+def run_write_measurement(root, run, targets, tokens, probe, query):
+    """写入正式阶段沿用统一测量器，保留失败证据并阻止后续请求。"""
+    config = config_for(run, targets, tokens)
+    output = root / "measurement"
+    output.mkdir(mode=0o700)
+    stopped = Event()
+    first_results = {}
+
+    def guarded_request(target, step, variables, timeout):
+        """首个错误后拒绝后续请求，已发出的并发请求由本轮归属清理。"""
+        if stopped.is_set():
+            raise ValueError("measurement-write-stopped")
+        try:
+            return write_request(target, step, variables, timeout)
+        except Exception:
+            stopped.set()
+            raise
+
+    def check_event(event):
+        """日志刷盘后再拒绝失败轮次或两端预热响应差异。"""
+        if event["kind"] not in ("warmup", "trial"):
+            return
+        trial = event["trial"]
+        if trial["failedScenarios"]:
+            raise ValueError("measurement-write-http-failed")
+        key = (event["kind"], event["concurrency"], event.get("round"))
+        values = [row["fingerprints"] for row in trial["rows"]]
+        if key not in first_results:
+            first_results[key] = values
+        elif first_results.pop(key) != values:
+            raise ValueError("measurement-write-response-mismatch")
+
+    return run_trials(output, config, probe, query, "original-customer-write",
+                      transport=guarded_request, check_event=check_event)

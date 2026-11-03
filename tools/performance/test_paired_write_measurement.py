@@ -1,5 +1,7 @@
 """原 CRUD 性能合同的本机回环与只读结果回归。"""
 import json
+from pathlib import Path
+import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 import unittest
@@ -111,3 +113,38 @@ class WriteMeasurementTests(unittest.TestCase):
                 write.verify_readback(RUN, "\n".join(invalid))
         with self.assertRaises(ValueError):
             write.verify_readback(RUN, rows[0], before=True)
+
+
+    def test_request_error_closes_guard_before_another_http_request(self):
+        """即使测量器还有工作项，首个错误后也不能继续实际写入。"""
+        def run(output,config,probe,query,profile,*,transport,check_event):
+            step = config["scenarios"][0]["steps"][0]
+            with self.assertRaises(TimeoutError):
+                transport({},step,{},1)
+            with self.assertRaisesRegex(ValueError,"measurement-write-stopped"):
+                transport({},step,{},1)
+            event={"kind":"trial","concurrency":4,"round":0,"trial":{"failedScenarios":1}}
+            check_event(event)
+
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(write,"config_for",return_value={"scenarios":[write.write_scenario()]}), \
+             mock.patch.object(write,"run_trials",side_effect=run), \
+             mock.patch.object(write,"write_request",side_effect=TimeoutError) as actual, \
+             self.assertRaisesRegex(ValueError,"measurement-write-http-failed"):
+            write.run_write_measurement(Path(folder),RUN,{}, {},None,None)
+        actual.assert_called_once()
+
+    def test_warmup_or_measured_response_mismatch_stops_next_trial(self):
+        """原业务响应不等价立即中断，不用后续轮次覆盖差异。"""
+        for kind in ("warmup","trial"):
+            with self.subTest(kind=kind):
+                def run(output,config,probe,query,profile,*,transport,check_event):
+                    for result in ("java","csharp"):
+                        check_event({"kind":kind,"concurrency":1,"round":0,
+                                     "trial":{"failedScenarios":0,"rows":[{"fingerprints":[result]}]}})
+
+                with tempfile.TemporaryDirectory() as folder, \
+                     mock.patch.object(write,"config_for",return_value={}), \
+                     mock.patch.object(write,"run_trials",side_effect=run), \
+                     self.assertRaisesRegex(ValueError,"measurement-write-response-mismatch"):
+                    write.run_write_measurement(Path(folder),RUN,{}, {},None,None)

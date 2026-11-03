@@ -31,6 +31,9 @@ EXISTING_LINE_RESOURCES = "paired-existing-lines-resources-v1"
 EXISTING_LINE_BUSINESS = "paired-existing-lines-business-v1"
 MEASUREMENT_NATIVE = "paired-native-measurement-v1"
 MEASUREMENT_RESOURCES = "paired-measurement-resources-v1"
+WRITE_MEASUREMENT_NATIVE = "paired-native-write-measurement-v1"
+WRITE_MEASUREMENT_RESOURCES = "paired-write-measurement-resources-v1"
+WRITE_REQUEST_BUDGET = 8624
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
 EXISTING_LINE_DATA_SHA256 = "b6c8159c101d6bab32cc7cef941ad840987ad49615b554ca1c1d49098e2cfb6d"
 
@@ -42,7 +45,12 @@ def is_existing_lines(value):
 
 def is_measurement(value):
     """固定性能用途使用当前镜像的无采集启动分支。"""
-    return value.get("purpose") in (MEASUREMENT_NATIVE, MEASUREMENT_RESOURCES)
+    return is_write_measurement(value) or value.get("purpose") in (MEASUREMENT_NATIVE, MEASUREMENT_RESOURCES)
+
+
+def is_write_measurement(value):
+    """写入测量须使用自己的明确用途，不能借用只读租约。"""
+    return value.get("purpose") in (WRITE_MEASUREMENT_NATIVE, WRITE_MEASUREMENT_RESOURCES)
 
 
 def is_observed(value):
@@ -67,7 +75,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")

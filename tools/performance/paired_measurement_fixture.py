@@ -108,13 +108,21 @@ def seed_transaction_sql(run, target):
     return "\n".join(batch)+"\n"
 
 
-def readback_sql(run, target, table):
+def write_sample_condition(run):
+    """只匹配当前固定写入轮次创建的客户名称前缀。"""
+    database_name(run, "java")
+    prefix = f"perf-write-{run}-"
+    return f"BINARY LEFT(name,{len(prefix)})=BINARY {literal(prefix)}"
+
+
+def readback_sql(run, target, table, *, exclude_write_samples=False):
     """有界读回全部固定字段，按字节区分空串、NULL、中文和精确字符串 ID。"""
     database = database_name(run, target)
     if table not in COLUMNS:
         raise ValueError("未知性能样本表")
     fields = ",".join(f"IF(`{name}` IS NULL,'N',CONCAT('H',HEX(CAST(`{name}` AS CHAR CHARACTER SET utf8mb4))))" for name in COLUMNS[table])
-    return f"SELECT {fields} FROM `{database}`.`{table}` ORDER BY `id` LIMIT {COUNTS[table]+1};"
+    where = f" WHERE name IS NULL OR NOT ({write_sample_condition(run)})" if exclude_write_samples and table == "sample_customer" else ""
+    return f"SELECT {fields} FROM `{database}`.`{table}`{where} ORDER BY `id` LIMIT {COUNTS[table]+1};"
 
 
 def expected_wire(table):
@@ -188,7 +196,7 @@ def expected_column_layout():
             yield "\t".join(map(str,(table,name,*shape,"D"+default)))
 
 
-def verify_readback(run, target, query):
+def verify_readback(run, target, query, *, exclude_write_samples=False):
     """逐字核对独立读回，回执仅保留摘要和固定行数。"""
     database = database_name(run, target)
     actual_pin = query("SELECT @@hostname,@@server_uuid;")
@@ -202,7 +210,7 @@ def verify_readback(run, target, query):
         raise ValueError("性能样本列类型、默认值或排序规则不符")
     hashes={}
     for table,count in COUNTS.items():
-        actual=query(readback_sql(run,target,table)).splitlines()
+        actual=query(readback_sql(run,target,table,exclude_write_samples=exclude_write_samples)).splitlines()
         if len(actual)!=count or any(observed!=expected for observed,expected in zip(actual,expected_wire(table))):
             raise ValueError(f"性能样本物理回读不符：{table}")
         hashes[table]=hashlib.sha256(("\n".join(actual)+"\n").encode("ascii")).hexdigest()
