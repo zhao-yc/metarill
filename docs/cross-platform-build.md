@@ -50,3 +50,11 @@ D:\HBuilderX\cli.exe project close --path <副本工程绝对路径>
 ## 2026-10-29 App资源跟进
 
 [Android／iOS资源专项](native-app-resource-build.md)补当前平台60页及正规Full示例12页的四次appResource编译／导出与产物核验，定位并修复H5专属Cap及动态裁切依赖进入App逻辑层的问题；300前端测试通过，两套Web及平台微信重新编译通过，H5可执行文本／登录HTML与CSS逐字保持。App共用资源不等于APK／IPA或设备运行，非Web启用Cap仍未实现，原生身份／业务／文件与真机验收继续。
+
+## V87 当前平台跨端产物复核
+
+固定已推送提交 86865b1，以 HBuilderX 5.34.2026102909 在四个独立前端副本串行执行 publish web、publish mp-weixin、publish app-android 和 publish app-ios。Web 使用 --webHosting false，微信使用 --upload false，两个 App 使用 --type appResource。四副本关闭，原工程及 499 个提交文件逐字保持。
+
+Web 核对 156 份产物及入口的三项本地引用。微信 457 份文件，60 个原页面逐一核对 JS、JSON、WXML。Android 和 iOS 各 87 份 App 资源，app-service.js 精确包含原 60 个页面注册。四组产物独立逐文件复算 SHA-256 与导出留存一致。
+
+微信编译将隔离副本的空 mp-weixin.appid 规范化为 null，其余配置值保持。未检测到微信开发者工具，日志还保留 img 选择器及三处鸿蒙适配提示。Android、iPhone 和 iOS 模拟器设备查询均无可用清单。此次证据覆盖本地编译和导出，微信工具加载、原生签名安装、真机登录及业务操作仍待验。
