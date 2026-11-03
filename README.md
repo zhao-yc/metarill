@@ -64,7 +64,7 @@ dotnet backend/src/Metarill.Api/bin/Release/net10.0/Metarill.Api.dll
 
 ## 验证
 
-`scripts/dev.ps1 test` 遍历全部后端测试项目；`npm test --prefix frontend/metarill_uni_admin` 验证前端运行时，Agent CLI 另执行 `npm run check --prefix tools/metarill-agent-cli` 和 `npm test --prefix tools/metarill-agent-cli`。
+先执行 `npm ci --prefix frontend/metarill_uni_admin`。随后 `scripts/dev.ps1 test` 核对原工作簿与页面合同所需的前端依赖，再遍历全部后端测试项目。`npm test --prefix frontend/metarill_uni_admin` 验证前端运行时，Agent CLI 另执行 `npm run check --prefix tools/metarill-agent-cli` 和 `npm test --prefix tools/metarill-agent-cli`。
 
 真实数据库测试仅接受隔离库名 `metarill_test` / `metarill_business_test`，通过 `METARILL_TEST_SETTINGS` 指向私有测试配置，并设置 `METARILL_PLATFORM_METADATA` 为平台元数据文件的绝对路径。未提供时相关用例明确跳过，不能算真实业务验收。CI 编译并运行所有测试项目，真实 MySQL 验收在核实身份后的 Server-200 独立测试库执行。
 

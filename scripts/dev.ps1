@@ -57,6 +57,13 @@ switch($Action){
 }
 'logs'{foreach($log in @('backend.log','backend.err.log')){$path=Join-Path $local $log;if(Test-Path $path){Get-Content -LiteralPath $path -Tail 50}};break}
 'test'{
+ # 原工作簿和页面合同依赖锁定前端模块，缺依赖时先停止，避免跑完整套件才发现环境错误。
+ $frontendRoot=Join-Path $metarillRoot 'frontend/metarill_uni_admin'
+ Push-Location -LiteralPath $frontendRoot
+ try {
+  & node --input-type=module --eval 'await import("./node_modules/xlsx/xlsx.mjs"); await import("@vue/compiler-sfc"); await import("@babel/parser")' 2>$null
+  if($LASTEXITCODE -ne 0){throw '缺少后端合同测试所需的前端依赖，请先在仓库根目录执行 npm ci --prefix frontend/metarill_uni_admin。'}
+ } finally { Pop-Location }
  foreach($project in Get-ChildItem (Join-Path $metarillRoot 'backend/tests') -Directory){$csproj=Join-Path $project.FullName ($project.Name+'.csproj');if(Test-Path $csproj){& $dotnet test $csproj --nologo;if($LASTEXITCODE -ne 0){throw '后端测试失败。'}}};break
 }
 'frontend'{
