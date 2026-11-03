@@ -4,12 +4,12 @@
 
 ## 固定范围
 
-当前新用途 `paired-native-observed-v1` 使用V51修正Java镜像及V46原C#／Redis；V48／V49历史使用99face1的事实保持：
+当前新用途 `paired-native-observed-v1` 使用V51修正Java镜像及V55计数修复后的C#／原Redis；V48／V49历史使用99face1、V52使用旧5da4921的事实保持：
 
 | 服务 | 不可变镜像 ID |
 | --- | --- |
 | Java | sha256:11ed25d417c5f5469e499ace6f81e92480cd86b94f046f6716be153f2b5fd57c |
-| C# | sha256:5da49219cfa9c47c49977333d45738dbadb4dd0d09f7d6bce04c6ff55ec73ed5 |
+| C# | sha256:e31823dc9cfb10d294828c6ab6234bc780f4c7458b36bd30c721b349429df0e1 |
 | Redis | sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf |
 
 原 `paired-native-v1` 继续绑定旧镜像及五工具合同，不能借新参数替换旧授权。新用途要求八份实际工具源码及逐项 SHA，先核用途、直接授权和来源，再导入新模块。原四个外置 Java 初始化 class、二十份输入、六条显式初始化命令、三普通角色和原密码登录保持。
@@ -57,3 +57,5 @@ Java SIGTERM 的 JDK21 正常退出可为143，C# 必须为0；137、OOM、仍�
 
 
 V51新镜像11ed25d及单个禁网Boot／元数据探针已通过并独立核清；它仅加载采集桥而不是原业务Program。原完整业务／真实SQL仍需新精确授权，见[实际镜像和边界](paired-observed-native-second-run.md)。
+
+V55新C#来源为38729a7，Data固定4d02bff6f0c1588f65fed352a2a038816b1fef43c141f10743b04793887e44a1。46文件的完整Linux宿主、原Program匿名401／正常关闭零SQL及新SSH探针核零已验证；普通身份／37业务、SQL语义及性能仍须新正式范围，不能复用V52已结束授权。参见[新包和镜像证据](paired-counter-runtime.md)。
