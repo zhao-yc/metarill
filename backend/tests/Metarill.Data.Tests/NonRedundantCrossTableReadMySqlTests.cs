@@ -13,22 +13,25 @@ namespace Metarill.Data.Tests;
 public sealed class NonRedundantCrossTableReadMySqlTests
 {
     /// <summary>字符串来源ID位与两种目标父键均真实执行，长ID及跨表相同ID保持。</summary>
-    [MySqlIntegrationFact]
+    [CrossTableImportLockMySqlFact]
     public async Task String_slots_restore_all_partial_paths_with_fixed_scopes_and_transactions()
     {foreach(var parent in new[]{"string","int64"})await Exercise("string",parent);}
     /// <summary>整数来源ID位共用同一投影、统计与历史存储校验，不依赖驱动转成浮点。</summary>
-    [MySqlIntegrationFact]
+    [CrossTableImportLockMySqlFact]
     public async Task Integer_slots_restore_all_partial_paths_with_fixed_scopes_and_transactions()
     {foreach(var parent in new[]{"string","int64"})await Exercise("int64",parent);}
 
-    /// <summary>只在严格实例pin的隔离库创建随机四表；失败保留原回执，清理必须结构与全量行摘要相符。</summary>
+    /// <summary>只在批准名单及严格实例pin的隔离库创建精确四表；失败保留原回执，清理必须结构与全量行摘要相符。</summary>
     private static async Task Exercise(string sourceType,string parentType)
     {
+        var lease=CrossTableImportLockLease.Begin(sourceType,parentType);
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!));var options=settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions{PropertyNameCaseInsensitive=true})!;
         var parsed=new MySqlConnectionStringBuilder(options.ConnectionString);if(options.Provider!="mysql"||options.ExpectedDatabase!="metarill_business_test"||parsed.Database!=options.ExpectedDatabase||parsed.Server!="deve-server.yinzon.com"||parsed.Port!=3306)throw new InvalidOperationException("跨表读取只允许指定Server-200隔离库。");
         using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")??throw new InvalidOperationException("缺少实例pin。")));
+        Assert.Equal(lease.Hostname,pin.RootElement.GetProperty("expectedHostname").GetString());
+        Assert.Equal(lease.ServerUuid,Guid.Parse(pin.RootElement.GetProperty("expectedServerUuid").GetString()!));
         await using(var connection=new MySqlConnection(options.ConnectionString)){await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var identity=await command.ExecuteReaderAsync();if(!await identity.ReadAsync()||identity.GetString(0)!=options.ExpectedDatabase||identity.GetString(1)!=pin.RootElement.GetProperty("expectedHostname").GetString()||identity.GetString(2)!=pin.RootElement.GetProperty("expectedServerUuid").GetString())throw new InvalidOperationException("跨表读取实例pin不匹配，未创建样本。");}
-        var nonce=Guid.NewGuid().ToString("N");var prefix="mt_nrcross_"+nonce[..12];var catalog=NonRedundantCrossTableReadTests.Catalog(prefix,sourceType,parentType,twoTrees:true);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var evidence=Path.Combine(Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??Directory.GetCurrentDirectory(),".local/nonredundant-cross-table-read/mysql-"+nonce);Directory.CreateDirectory(evidence);
+        var nonce=lease.RunId+"-"+lease.Profile;var prefix=lease.Prefix;var catalog=NonRedundantCrossTableReadTests.Catalog(prefix,sourceType,parentType,twoTrees:true);var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();Assert.Equal(lease.Tables,names);var evidence=Path.Combine(Environment.GetEnvironmentVariable("METARILL_REPOSITORY_ROOT")??Directory.GetCurrentDirectory(),".local/nonredundant-cross-table-read/mysql-"+nonce);Directory.CreateDirectory(evidence);
         var columns=new[]{"id","name","amount","country_id","country_name","area_id","area_name","place_id","place_name","owner_title","secondary_country_id","secondary_country_name","secondary_area_id","secondary_area_name","secondary_place_id","secondary_place_name"};var plan=MySqlNonRedundantReadCompiler.CompileWithCrossTables(catalog,"1",columns,crossTables:NonRedundantCrossTableReadTests.Scopes(catalog));var selection=CrossTableSparseSelection.Compile(catalog.ConfigTables[0],"15",catalog.ConfigColumns.Where(column=>column.ConfigTableId=="1"));
         var secondary=CrossTableSparseSelection.Compile(catalog.ConfigTables[0],"19",catalog.ConfigColumns.Where(column=>column.ConfigTableId=="1"));
         using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var store=new SqlRowStore(session,catalog);var reader=new MySqlNonRedundantReader(session);const long node=9007199254740993,other=9007199254740994,first=9007199254750000;var project=long.Parse(catalog.YzProjectId,CultureInfo.InvariantCulture);var created=false;var verified=false;string? fingerprint=null;string? rowsHash=null;
