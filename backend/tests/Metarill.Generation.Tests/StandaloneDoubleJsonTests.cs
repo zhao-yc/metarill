@@ -47,6 +47,10 @@ public sealed class NumericProbeController : ControllerBase
     // 读取和提交均经过真实MVC格式化器。
     [HttpGet] public NumericProbe Get() => NumericProbe.Value();
     [HttpPost] public NumericProbe Post([FromBody] NumericProbe value) => value;
+    // 分页和Count用原生成动作的真实合同；记录ID仍是高位字符串。
+    [HttpGet("page")] public R<PageResult<NumericProbe>> Page() => R<PageResult<NumericProbe>>.Success(new(new[]{NumericProbe.Value()},2,1,1,20));
+    [HttpGet("count")] public R<long> Count() => R<long>.Success(2);
+
 }
 """;
             await File.WriteAllTextAsync(Path.Combine(directory, "Program.cs"), program);
@@ -65,6 +69,14 @@ public sealed class NumericProbeController : ControllerBase
                 Assert.Equal(HttpStatusCode.OK, response.StatusCode);
                 using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                 AssertValues(json.RootElement, path == "/numeric");
+            }
+            using (var response=await host.Client.GetAsync("/numeric/page"))
+            {
+                Assert.Equal(HttpStatusCode.OK,response.StatusCode);using var page=JsonDocument.Parse(await response.Content.ReadAsStringAsync());var data=page.RootElement.GetProperty("data");Assert.Equal(2,data.GetProperty("total").GetInt64());Assert.Equal(1,data.GetProperty("pages").GetInt64());AssertValues(data.GetProperty("records")[0]);
+            }
+            using (var response=await host.Client.GetAsync("/numeric/count"))
+            {
+                Assert.Equal(HttpStatusCode.OK,response.StatusCode);using var count=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(2,count.RootElement.GetProperty("data").GetInt64());
             }
             const string body = "{\"upper\":4.1045368012983762E-289,\"lower\":4.1045368012983758E-289,\"id\":\"9007199254740993\"}";
             using var echoed = await host.Client.PostAsync("/numeric", new StringContent(body, Encoding.UTF8, "application/json"));

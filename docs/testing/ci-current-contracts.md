@@ -42,3 +42,15 @@
 本提交最终SHA的Linux/Windows全量CI需独立核对；本地118项不代表生成项目全部用例或所有后端项目完成。旧失败运行不改写为通过。
 
 原List接线的真实MySQL、普通身份/完整父范围、其它打开方式、多值控件、原生设备及同条件性能仍在V02/V10及相关行。可信运行时缺口消失只说明已实现固定接线，不证明C05完整正式矩阵或首版验收结束；跨表路径导入Full门禁继续关闭。C57真实S3和云存储矩阵亦不因本轮测试通过而完成。
+
+
+## 2026-11-03：a86c43d 双平台八失败
+
+GitHub run41502116815已终态；Windows／Ubuntu均在Generation同8项失败，前端成功。本机固定起点复现8失败／20通过／0跳过；原失败TRX与日志保留，不改写旧结果。
+
+- NonRedundantCrossTargets的pathImport：当前独立派生目标已支持普通路径导入，改为实际Full正例；负例使用仍未证明的覆盖导入。
+- GlobalSingleFreshCatalog的targetR0：全局R0目标已接线，改为真实Full及原Vue探针正例；坏名称覆盖、项目归属、凭据投影等8种反例保持。
+- GlobalSharedCachedTarget的四种R0键组合及原长R0控件：已验R0要求无缺口并创建真实Full；未验R1继续要求缺口与不可发布准备标记，手写保护、原组件字节、原Excel开关和实际编译保持。
+- NonRedundantCrossTableExcel的普通夹具：来源父范围不属于已验独立R0用途，补齐后台归属仍须拒绝；保留BackendOnly严格构建，不为消除红灯放宽产品审计器。
+
+本轮未修改GenerationCapabilityAudit／NonRedundantCrossTableSubset或其它发布门禁。上述测试修正与V53的数字计数产品修复分开论证；新SHA的跨系统全量CI另验，相关类通过也不转记为MySQL首版通过。当前结果见[V52／V53](../paired-observed-v52-counter-contract.md)。

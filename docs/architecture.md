@@ -10,6 +10,8 @@
 
 菜单采用单表树，页面直接归属后台类型。ID 对外为字符串；更新区分未提交与 null。保留 /api、R<T>、分页及现有接口语义。
 
+分页`PageResult.Total`／`Pages`及生成Count的`R<long>.Data`保持原JSON数字语义，不套用标识的字符串转换；其余long标识继续输出字符串。计数不缩小为int32或浮点，Agent／MCP schema同步反映整数。手写纯标识响应应使用字符串或DTO。已有工程通过既有受管更新流程同步Core及对应宿主的计数JSON登记并重新编译；本项无需元数据、DDL或数据回填，原接口、页面和Service类型保持。详见[V52／V53](paired-observed-v52-counter-contract.md)。
+
 长期适配 MySQL、MariaDB、PostgreSQL、SQL Server、Oracle、SQLite，首期只验收 MySQL。平台库和业务库分别选择，一个业务项目绑定一种数据库，不实现跨库分布式事务。
 
 前端继续使用 uni-app / HBuilderX；其他协议或交互改动需先确认。开发数据库容器只在核实身份后的 200 服务器运行。

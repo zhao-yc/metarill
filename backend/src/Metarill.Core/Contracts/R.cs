@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Metarill.Core.Contracts;
 
 /// <summary>沿用现有前端的统一响应，不把实体直接作为页面输出。</summary>
@@ -27,4 +29,7 @@ public sealed class PageOrderBy
     public string? Field { get; set; }
     public string? Order { get; set; }
 }
-public sealed record PageResult<T>(IReadOnlyList<T> Records, long Total, long Pages, int Current, int Size);
+/// <summary>记录内的long标识保持字符串，仅分页总数与页数沿用原JSON数字。</summary>
+public sealed record PageResult<T>(IReadOnlyList<T> Records,
+    [property: JsonConverter(typeof(NumericLongJsonConverter))] long Total,
+    [property: JsonConverter(typeof(NumericLongJsonConverter))] long Pages, int Current, int Size);

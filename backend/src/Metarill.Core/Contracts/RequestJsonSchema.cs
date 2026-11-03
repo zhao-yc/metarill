@@ -37,6 +37,10 @@ public static class RequestJsonSchema
             properties[name] = property.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType == typeof(CheckboxBooleanJsonConverter)
                 ? new Dictionary<string, object?> { ["anyOf"] = new object[] { new Dictionary<string, object?> { ["type"] = "boolean" }, new Dictionary<string, object?> { ["type"] = "integer", ["enum"] = new[] { 0, 1 } }, new Dictionary<string, object?> { ["type"] = "string", ["pattern"] = @"^(?:0|1|\s*)$" }, new Dictionary<string, object?> { ["type"] = "null" } } }
                 : Create(property.PropertyType, depth + 1, includeNullableReferences);
+            // 只有显式计数字段和既有Count响应为整数，普通long标识继续兼容字符串。
+            if (property.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType == typeof(NumericLongJsonConverter)
+                || type == typeof(R<long>) && property.Name == nameof(R<long>.Data))
+                properties[name] = new Dictionary<string, object?> { ["type"] = "integer", ["format"] = "int64" };
             // 原picker允许HH:mm，原生TIME允许总小时；不能用RFC3339 time误拒绝合法字段输入。
             if(property.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType is {} converter&&(converter==typeof(ClockTimeJsonConverter)||converter==typeof(SqlTimeJsonConverter)))
                 properties[name]=TimeFieldSchema(property.PropertyType,converter==typeof(ClockTimeJsonConverter));

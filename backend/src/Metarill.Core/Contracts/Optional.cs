@@ -40,3 +40,17 @@ public sealed class StringLongJsonConverter : JsonConverter<long>
     public override void Write(Utf8JsonWriter writer, long value, JsonSerializerOptions options) =>
         writer.WriteStringValue(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 }
+
+/// <summary>原分页与Count的计数使用JSON数字，不能套用整型标识的字符串输出规则。</summary>
+public sealed class NumericLongJsonConverter : JsonConverter<long>
+{
+    /// <summary>兼容既有数字字符串输入，拒绝溢出或非整数，保持完整int64精度。</summary>
+    public override long Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt64(out var number)) return number;
+        if (reader.TokenType == JsonTokenType.String && long.TryParse(reader.GetString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out number)) return number;
+        throw new JsonException("计数必须为int64整数。");
+    }
+    /// <summary>明确输出原接口的数字计数，标识字段仍使用StringLongJsonConverter。</summary>
+    public override void Write(Utf8JsonWriter writer, long value, JsonSerializerOptions options) => writer.WriteNumberValue(value);
+}

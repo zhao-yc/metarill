@@ -20,11 +20,11 @@ public sealed class NonRedundantCrossTableExcelTests
     {
         var catalog=Catalog("nr_cross_excel","int64","string",true);if(readOnly)catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="28").Extra["isReadOnly"]=JsonSerializer.SerializeToElement(1);var page=Assert.Single(GenerationModel.Create(catalog,"Example.NonRedundantCrossExcel").Tables.Single(table=>table.Source.Id=="2").Pages);Assert.Equal(!readOnly,ImportRenderer.Columns(page).Any(column=>column.Source.ColumnName=="country_id"));Assert.DoesNotContain(ImportRenderer.Columns(page),column=>column.Source.ColumnName.EndsWith("_name",StringComparison.Ordinal)||column.IsId);
     }
-    /// <summary>后端包用自身运行时源码构建，独立R0用途通过公开审计；完整Full另有实际构建用例。</summary>
+    /// <summary>后端包可独立构建；带来源父范围的普通模型仍在发布前拒绝，不能借R0开放扩大边界。</summary>
     [Fact]
-    public async Task Backend_package_builds_with_original_import_and_scalar_export_and_R0_Full_audit_passes()
+    public async Task Backend_package_builds_but_parent_scoped_cross_excel_remains_gated()
     {
-        var catalog=Catalog("nr_cross_excel","string","int64");var boundary=Path.Combine(Path.GetTempPath(),"metarill-nr-cross-excel-package");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{new ApplicationPackager().Create(catalog,directory,"Example.CrossExcelPackage",NonRedundantApplicationFixture.Root(),ApplicationPackageMode.BackendOnly);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));RedundantMultiNameCacheTests.Published(catalog);new FrontendPackager().Validate(catalog);}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+        var catalog=Catalog("nr_cross_excel","string","int64");var boundary=Path.Combine(Path.GetTempPath(),"metarill-nr-cross-excel-package");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{new ApplicationPackager().Create(catalog,directory,"Example.CrossExcelPackage",NonRedundantApplicationFixture.Root(),ApplicationPackageMode.BackendOnly);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));RedundantMultiNameCacheTests.Published(catalog);Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>双控件沿相同固定目标，隐式各级ID只参与普通表单；列表导出只有名称／金额／字符串ID。</summary>
     internal static MetadataCatalog Catalog(string prefix,string sourceType,string parentType,bool explicitAncestor=false)

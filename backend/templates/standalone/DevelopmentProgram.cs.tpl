@@ -63,7 +63,7 @@ builder.Services.AddScoped<FileLibraryService>();
 builder.Services.AddScoped<IFileLibraryResolver, SingleDatabaseFileLibraryResolver>();
 builder.Services.AddScoped<IRecordMutationObserver, FileReferenceMutationObserver>();
 builder.Services.AddGeneratedServices();
-builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddJsonOptions(options => { options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()); options.JsonSerializerOptions.Converters.Add(new FiniteDoubleJsonConverter()); });
+builder.Services.AddControllers().AddApplicationPart(typeof(FileLibraryController).Assembly).AddJsonOptions(options => { options.JsonSerializerOptions.Converters.Add(new StringLongJsonConverter()); options.JsonSerializerOptions.Converters.Add(new FiniteDoubleJsonConverter()); Metarill.Runtime.JsonDefaults.ConfigureCounterResponse(options.JsonSerializerOptions); });
 // MVC与最小接口沿用同一有限浮点转换器，防止默认响应格式合并相邻double；其它JSON约定保持。
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new FiniteDoubleJsonConverter()));
 builder.Services.AddRateLimiter(options =>

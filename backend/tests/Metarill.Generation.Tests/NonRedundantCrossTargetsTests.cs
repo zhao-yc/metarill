@@ -45,7 +45,7 @@ public sealed class NonRedundantCrossTargetsTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>固定范围之外仍在创建stage前拒绝，不能用R0名称放开未证明拓扑或Excel。</summary>
-    [Theory][InlineData("sourceR1BadPeer")][InlineData("global")][InlineData("view")][InlineData("credential")][InlineData("array")][InlineData("derivedParent")][InlineData("derivedScope")][InlineData("pathImport")]
+    [Theory][InlineData("sourceR1BadPeer")][InlineData("global")][InlineData("view")][InlineData("credential")][InlineData("array")][InlineData("derivedParent")][InlineData("derivedScope")][InlineData("pathOverwrite")]
     public void Invalid_target_uses_stay_gated_before_package(string kind)
     {
         var c=Catalog("nr_cross_target","string","int64","derived");
@@ -56,8 +56,22 @@ public sealed class NonRedundantCrossTargetsTests
         if(kind=="array")c.ConfigColumns.Single(x=>x.Id=="62").ControlKind="FileLibrary";
         if(kind=="derivedParent"){var p=c.ConfigColumns.Single(x=>x.Id=="45");p.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);p.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.id");}
         if(kind=="derivedScope")c.ConfigPages.Single(x=>x.Id=="301").WhereSql+=" AND name='未证明条件'";
-        if(kind=="pathImport")c.ConfigPages.Single(x=>x.Id=="201").IsImport=1;
+        if(kind=="pathOverwrite"){var page=c.ConfigPages.Single(x=>x.Id=="201");page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");}
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-invalid-cross-target");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.InvalidCrossTarget",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
+    }
+    /// <summary>已验独立R0派生目标的普通路径导入实际创建Full包，相邻覆盖导入仍在上例拒绝。</summary>
+    [Fact]
+    public async Task Independent_derived_target_path_import_creates_full_package()
+    {
+        var catalog=Catalog("nr_cross_target","string","int64","derived");catalog.ConfigPages.Single(page=>page.Id=="201").IsImport=1;
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-valid-cross-target-import");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,"Example.ValidCrossImport")));
+            Assert.True(new ApplicationPackager().Create(catalog,output,"Example.ValidCrossImport",NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            Assert.True(File.Exists(Path.Combine(output,".metarill-package.json")));
+        }
+        finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
     /// <summary>同一源模型仅改变目标存储与固定名称路径，不改源稀疏编码或原页面字段。</summary>
     internal static MetadataCatalog Catalog(string prefix,string sourceType,string parentType,string scenario)
