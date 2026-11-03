@@ -18,7 +18,7 @@ public sealed class PlatformPhysicalMetadataReadOnlyTests(ITestOutputHelper outp
     public Task Server200_current_platform_metadata_composes_and_previews_without_applying_changes()=>WithCurrent(async(session,registry,current,metadata,token)=>
     {
         var files=MetadataRegistry.Load(Path.Combine(metadata,"files.json"));var security=MetadataRegistry.Load(Path.Combine(metadata,"security.json"));
-        DescribeDifferences(current,files,security);
+        DescribeDifferences(current,registry.Platform,files,security);
         var physical=new ProjectPhysicalModels(files,security,registry).Compose(current);
         var schema=new SchemaService(session);var plan=await schema.PreviewAsync(physical,token);Assert.Empty(schema.History);
         Assert.Equal(MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(physical,session.Options.ExpectedDatabase)),plan.DesiredFingerprint);
@@ -30,16 +30,22 @@ public sealed class PlatformPhysicalMetadataReadOnlyTests(ITestOutputHelper outp
     {
         var files=MetadataRegistry.Load(Path.Combine(metadata,"files.json"));var security=MetadataRegistry.Load(Path.Combine(metadata,"security.json"));
         var models=new ProjectPhysicalModels(files,security,registry);var proposed=JsonSerializer.Deserialize<Metarill.Core.Metadata.MetadataCatalog>(JsonSerializer.Serialize(current))!;
-        var missing=files.ConfigColumns.Concat(security.ConfigColumns).Where(expected=>current.ConfigColumns.All(column=>column.Id!=expected.Id)).ToArray();
+        // 登录审计等仅发布为物理基础设施的表不要求写入平台配置目录。
+        var catalogTables=registry.Platform.ConfigTables.Select(table=>table.Id).ToHashSet(StringComparer.Ordinal);
+        var missing=files.ConfigColumns.Concat(security.ConfigColumns).Where(expected=>catalogTables.Contains(expected.ConfigTableId)
+            &&current.ConfigColumns.All(column=>column.Id!=expected.Id)).ToArray();
         Assert.All(missing,column=>{Assert.Equal("2300000000000000401",column.Id);Assert.Equal("upload_expires_at",column.ColumnName);Assert.Equal("datetime",column.LogicalType);Assert.Equal(0,column.IsDbNotNull);});
         if(missing.Length>0)Assert.Throws<InvalidOperationException>(()=>models.Compose(current));
         foreach(var column in missing)proposed.ConfigColumns.Add(JsonSerializer.Deserialize<Metarill.Core.Metadata.ColumnMetadata>(JsonSerializer.Serialize(column))!);
-        var expectedIndexes=files.ConfigIndexes.Concat(security.ConfigIndexes).ToArray();
+        var expectedIndexes=files.ConfigIndexes.Concat(security.ConfigIndexes)
+            .Where(index=>catalogTables.Contains(index.GetProperty("configTableId").ToString())).ToArray();
         var missingIndexes=expectedIndexes.Where(expected=>current.ConfigIndexes.All(index=>index.GetProperty("id").ToString()!=expected.GetProperty("id").ToString())).ToArray();
         var allowedIndexes=new HashSet<string>(new[]{"2300000000000010000","900235310779076608","900235316722405376","900235322581848064"},StringComparer.Ordinal);
         Assert.All(missingIndexes,index=>Assert.Contains(index.GetProperty("id").ToString(),allowedIndexes));
         foreach(var index in missingIndexes)proposed.ConfigIndexes.Add(index.Clone());
-        var expectedFields=files.ConfigIndexColumns.Concat(security.ConfigIndexColumns).ToArray();
+        var expectedIndexIds=expectedIndexes.Select(index=>index.GetProperty("id").ToString()).ToHashSet(StringComparer.Ordinal);
+        var expectedFields=files.ConfigIndexColumns.Concat(security.ConfigIndexColumns)
+            .Where(field=>expectedIndexIds.Contains(field.GetProperty("configIndexId").ToString())).ToArray();
         var missingFields=expectedFields.Where(expected=>current.ConfigIndexColumns.All(field=>field.GetProperty("id").ToString()!=expected.GetProperty("id").ToString())).ToArray();
         Assert.All(missingFields,field=>Assert.Contains(field.GetProperty("configIndexId").ToString(),allowedIndexes));
         foreach(var field in missingFields)proposed.ConfigIndexColumns.Add(field.Clone());
@@ -65,7 +71,9 @@ public sealed class PlatformPhysicalMetadataReadOnlyTests(ITestOutputHelper outp
         });
         output.WriteLine(JsonSerializer.Serialize(new{readOnly=true,currentMetadataAccepted=missing.Length==0,proposedOnly=true,
             missingMetadata=missing.Select(column=>new{column.Id,column.ConfigTableId,column.ColumnName,column.LogicalType,column.IsDbNotNull}),missingIndexes,missingIndexFields=missingFields,
-            allProjectPendingChanges=full.Changes.Count,fileTableChanges=filePlan.Changes,
+            allProjectPendingChanges=full.Changes.Count,
+            allProjectChanges=full.Changes.Select(change=>new{change.Kind,change.Table,change.Column}),
+            fileTableChanges=filePlan.Changes,
             beforeFingerprint=filePlan.BeforeFingerprint,desiredFingerprint=filePlan.DesiredFingerprint,ddlExecuted=false,dmlExecuted=false,applied=false}));
     });
     /// <summary>两项验收共用实例/库名约束及实际快照加载，回调只能持有本次打开的会话。</summary>
@@ -90,10 +98,11 @@ public sealed class PlatformPhysicalMetadataReadOnlyTests(ITestOutputHelper outp
         await verify(session,registry,current,metadata,timeout.Token);
     }
     /// <summary>只输出结构字段及默认是否不同，不回显默认文本、账号、口令或原始配置；帮助区分真实漂移与表示差异。</summary>
-    private void DescribeDifferences(Metarill.Core.Metadata.MetadataCatalog current,params Metarill.Core.Metadata.MetadataCatalog[] infrastructure)
+    private void DescribeDifferences(Metarill.Core.Metadata.MetadataCatalog current,Metarill.Core.Metadata.MetadataCatalog platform,params Metarill.Core.Metadata.MetadataCatalog[] infrastructure)
     {
+        var catalogTables=platform.ConfigTables.Select(table=>table.Id).ToHashSet(StringComparer.Ordinal);
         foreach(var source in infrastructure)
-        foreach(var expected in source.ConfigColumns)
+        foreach(var expected in source.ConfigColumns.Where(column=>catalogTables.Contains(column.ConfigTableId)))
         {
             var actual=current.ConfigColumns.SingleOrDefault(column=>column.Id==expected.Id);
             if(actual is null){output.WriteLine("缺少字段标识："+expected.Id);continue;}
@@ -103,7 +112,7 @@ public sealed class PlatformPhysicalMetadataReadOnlyTests(ITestOutputHelper outp
                 output.WriteLine(JsonSerializer.Serialize(new{actual=Shape(actual),expected=Shape(expected),defaultDifferent=actual.DefaultValue!=expected.DefaultValue}));
         }
         foreach(var source in infrastructure)
-        foreach(var expected in source.ConfigIndexes)
+        foreach(var expected in source.ConfigIndexes.Where(index=>catalogTables.Contains(index.GetProperty("configTableId").ToString())))
         {
             static string Text(JsonElement row,string name)=>row.TryGetProperty(name,out var property)?property.ToString():"";
             var actual=current.ConfigIndexes.SingleOrDefault(index=>Text(index,"id")==Text(expected,"id"));
