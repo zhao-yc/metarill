@@ -13,21 +13,34 @@ public sealed class DatabaseSession : IDisposable
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
     private readonly bool _ownsOrm;
-    private int _disposed;
+    private readonly Lock _ormGate = new();
+    private IFreeSql? _orm;
+    private bool _disposed;
     public DatabaseOptions Options { get; }
     public IDatabaseProvider Provider { get; }
-    public IFreeSql Orm { get; }
+    /// <summary>首次实际使用 ORM 时初始化，单纯解析会话及手写 SQL 不启动额外连接池。</summary>
+    public IFreeSql Orm
+    {
+        get
+        {
+            lock (_ormGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _orm ??= Provider.CreateOrm(Options);
+            }
+        }
+    }
     public DbTransaction? CurrentTransaction => _transaction.Value?.Transaction;
 
     public DatabaseSession(DatabaseOptions options) : this(options, null, null) { }
 
-    /// <summary>生产入口默认创建并拥有一个 ORM；测试或宿主可注入共享实例。</summary>
+    /// <summary>默认按需创建并拥有一个 ORM；测试或宿主可注入共享实例。</summary>
     public DatabaseSession(DatabaseOptions options, IFreeSql? orm, IDatabaseProvider? provider = null)
     {
         Options = options;
         Provider = provider ?? DatabaseProviders.Resolve(options.Provider);
         Provider.Validate(options);
-        Orm = orm ?? Provider.CreateOrm(options);
+        _orm = orm;
         _ownsOrm = orm is null;
     }
 
@@ -93,6 +106,13 @@ public sealed class DatabaseSession : IDisposable
     /// <summary>仅释放本会话创建的 ORM，宿主注入的共享实例由宿主管理。</summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed,1)==0 && _ownsOrm) Orm.Dispose();
+        IFreeSql? ownedOrm;
+        lock (_ormGate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            ownedOrm = _ownsOrm ? _orm : null;
+        }
+        ownedOrm?.Dispose();
     }
 }

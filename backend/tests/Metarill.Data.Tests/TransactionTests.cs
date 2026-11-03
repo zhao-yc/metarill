@@ -26,6 +26,7 @@ public sealed class TransactionTests
         });
         Assert.Equal(42, result);
         Assert.Equal(1, provider.Connection.Begins);
+        Assert.Equal(0, provider.OrmCreations);
         Assert.Equal(1, provider.Connection.Transaction.Commits);
         Assert.Equal(0, provider.Connection.Transaction.Rollbacks);
         Assert.Null(session.CurrentTransaction);
@@ -69,6 +70,24 @@ public sealed class TransactionTests
         using var session = new DatabaseSession(Options, null, provider);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => session.InTransactionAsync(() => Task.FromResult(1), new CancellationToken(true)));
         Assert.Equal(0, provider.Connection.Opens);
+        session.Dispose();
+        Assert.Equal(0, provider.OrmCreations);
+        Assert.Throws<ObjectDisposedException>(() => session.Orm);
+    }
+
+    /// <summary>并发首次使用共享同一个 ORM，ADO 事务仍独立按原路径打开连接。</summary>
+    [Fact]
+    public async Task Concurrent_first_use_creates_only_one_orm()
+    {
+        var provider = new FakeProvider();
+        using var session = new DatabaseSession(Options, null, provider);
+        Assert.Equal(0, provider.OrmCreations);
+
+        var instances = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => session.Orm)));
+
+        Assert.Equal(1, provider.OrmCreations);
+        Assert.All(instances, instance => Assert.Same(instances[0], instance));
+        Assert.Equal(0, provider.Connection.Opens);
     }
 
     /// <summary>读快照显式选择隔离能力，嵌套业务/读取共用事务并只提交一次。</summary>
@@ -106,7 +125,12 @@ public sealed class TransactionTests
         public void Validate(DatabaseOptions options) { }
         public string QuoteIdentifier(string identifier) => new MySqlDatabaseProvider().QuoteIdentifier(identifier);
         public string ParameterPlaceholder(string name) => new MySqlDatabaseProvider().ParameterPlaceholder(name);
-        public IFreeSql CreateOrm(DatabaseOptions options) => new MySqlDatabaseProvider().CreateOrm(options);
+        public int OrmCreations { get; private set; }
+        public IFreeSql CreateOrm(DatabaseOptions options)
+        {
+            OrmCreations++;
+            return new FreeSqlBuilder().UseConnectionFactory(DataType.MySql, () => throw new InvalidOperationException("测试禁止联网")).Build();
+        }
         public DbConnection CreateConnection(DatabaseOptions options) => Connection;
     }
     private sealed class FakeConnection : DbConnection
