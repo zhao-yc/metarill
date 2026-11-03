@@ -29,7 +29,15 @@ public sealed class ProjectFileRuntimeTests
         Assert.Throws<UnauthorizedAccessException>(() => fixture.Runtimes.Resolve("3"));
         foreach (var invalid in new[] { "02", " 2", "2 ", "0", "-1", "../2", "" })
             Assert.Throws<UnauthorizedAccessException>(() => fixture.Runtimes.Resolve(invalid));
+        // 页面路由必须命中同一个项目槽及该槽内部编译使用的页面快照。
+        Assert.Same(platform, fixture.Runtimes.ResolvePage("100").Runtime);
+        var businessPage = fixture.Runtimes.ResolvePage("200");
+        Assert.Same(business, businessPage.Runtime);
+        Assert.Same(Assert.Single(business.Metadata.Catalogs.Single().ConfigPages), businessPage.Page);
+        Assert.Throws<UnauthorizedAccessException>(() => fixture.Runtimes.ResolvePage("300"));
+        fixture.Registry.Demo.ConfigPages.Clear();
         fixture.Registry.Demo.ConfigTables.Clear();
+        Assert.Same(businessPage.Page, fixture.Runtimes.ResolvePage("200").Page);
         Assert.Single(business.Metadata.Catalogs.Single().ConfigTables);
     }
 

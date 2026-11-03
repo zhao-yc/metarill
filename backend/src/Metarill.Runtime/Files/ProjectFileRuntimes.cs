@@ -14,6 +14,7 @@ public sealed record ProjectFileRuntime(DatabaseSession Session, SqlRowStore Sto
 public sealed class ProjectFileRuntimes
 {
     private readonly IReadOnlyDictionary<string, ProjectFileRuntime> runtimes;
+    private readonly IReadOnlyDictionary<string, (ProjectFileRuntime Runtime, PageMetadata Page)> pages;
     private readonly MetadataCatalog infrastructure;
     public string PlatformProjectId { get; }
 
@@ -25,6 +26,7 @@ public sealed class ProjectFileRuntimes
         this.infrastructure = new FileMetadataContext([infrastructure]).Catalogs.Single();
         PlatformProjectId = CanonicalProject(registry.Platform.YzProjectId);
         var slots = new Dictionary<string, ProjectFileRuntime>(StringComparer.Ordinal);
+        var publishedPages = new Dictionary<string, (ProjectFileRuntime Runtime, PageMetadata Page)>(StringComparer.Ordinal);
         foreach (var catalog in published.Catalogs)
         {
             var project = CanonicalProject(catalog.YzProjectId);
@@ -36,9 +38,14 @@ public sealed class ProjectFileRuntimes
                 RootDirectory = project == PlatformProjectId ? root : Path.Combine(root, "projects", project),
                 PublicContentProjectId = project
             };
-            slots.Add(project, new(session, new SqlRowStore(session, this.infrastructure), new([catalog]), scopedOptions));
+            var runtime = new ProjectFileRuntime(session, new SqlRowStore(session, this.infrastructure), new([catalog]), scopedOptions);
+            slots.Add(project, runtime);
+            // 只索引槽内已经校验和编译的发布快照，后续元数据编辑不能改变事务路由。
+            foreach (var page in runtime.Metadata.Catalogs.Single().ConfigPages)
+                publishedPages.Add(page.Id, (runtime, page));
         }
         runtimes = slots;
+        pages = publishedPages;
     }
 
     /// <summary>只解析明确发布的项目，未登记项目不得退回平台数据库或另行创建连接。</summary>
@@ -46,15 +53,9 @@ public sealed class ProjectFileRuntimes
         ? runtime : throw new UnauthorizedAccessException("项目尚未发布文件运行时。");
 
     /// <summary>页面身份来自发布快照，不能拿可编辑元数据或客户端项目覆盖物理事务归属。</summary>
-    public (ProjectFileRuntime Runtime, PageMetadata Page) ResolvePage(string pageId)
-    {
-        foreach (var runtime in runtimes.Values)
-        {
-            var page = runtime.Metadata.Catalogs.Single().ConfigPages.SingleOrDefault(candidate => candidate.Id == pageId);
-            if (page is not null) return (runtime, page);
-        }
-        throw new UnauthorizedAccessException("来源页面未登记。");
-    }
+    public (ProjectFileRuntime Runtime, PageMetadata Page) ResolvePage(string pageId) =>
+        pageId is not null && pages.TryGetValue(pageId, out var scope)
+            ? scope : throw new UnauthorizedAccessException("来源页面未登记。");
 
     /// <summary>完整项目显式结构预览和初始化共用相同基础模型，普通宿主启动不进行结构同步。</summary>
     public MetadataCatalog ComposePhysical(MetadataCatalog application) => MetadataCatalogComposition.MergePhysical(application, infrastructure);
