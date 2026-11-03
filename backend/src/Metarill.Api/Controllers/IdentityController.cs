@@ -15,7 +15,7 @@ public sealed class IdentityController(AuthenticationService authentication,Http
     [HttpPost("login"),EnableRateLimiting("login")]
     public async Task<R<Dictionary<string,object?>>> Login([FromForm]string username,[FromForm]string password,CancellationToken cancellationToken)
     {
-        var result=await authentication.LoginAsync(username,password,cancellationToken);
+        var result=await authentication.LoginFromWebAsync(username,password,HttpContext.Connection.RemoteIpAddress?.ToString(),cancellationToken);
         var response=R<Dictionary<string,object?>>.Success(result.User);response.Map["loginStateId"]=result.Token;return response;
     }
     [HttpGet("cap-config")]public R<object> CapConfig()=>R<object>.Success(new{enabled=false,apiEndpoint=""});

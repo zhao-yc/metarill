@@ -62,21 +62,33 @@ internal sealed class ApplicationWebAuthentication(IServiceProvider services,App
     internal async Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string? username,string? password,CancellationToken cancellationToken)
     {
         if(!mode.DatabaseConfigured||username is null||password is null||username.Length is <1 or >50||password.Length is <1 or >1024)throw InvalidLogin();
-        var candidates=await Store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken);
-        if(candidates.Count!=1||!long.TryParse(SqlRowStore.Text(candidates[0],"yz_admin_type_id"),NumberStyles.None,CultureInfo.InvariantCulture,out var admin)||
-            !registry.ContainsAdmin(admin.ToString(CultureInfo.InvariantCulture)))throw InvalidLogin();
-        var account=SqlRowStore.Id(candidates[0]);
-        return await Session.InTransactionAsync(async()=>
+        var ip=services.GetService<IHttpContextAccessor>()?.HttpContext?.Connection.RemoteIpAddress?.ToString();
+        try
         {
-            await LockRealm(admin,cancellationToken);
-            var current=(await Store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"id",account}},cancellationToken)).SingleOrDefault();
-            if(current is null||SqlRowStore.Text(current,"name")!=username||SqlRowStore.Id(current,"yz_admin_type_id")!=admin||!AuthenticationService.AccountActive(current)||!PasswordHasher.Verify(password,SqlRowStore.Text(current,"password")))throw InvalidLogin();
-            var result=await Authentication.LoginAsync(username,password,cancellationToken);
-            var identity=await Authentication.AuthenticateAsync(result.Token,registry.ProjectId,cancellationToken);
-            if(identity is null||!registry.Contains(identity))throw InvalidLogin();
-            result.User["id"]=account.ToString(CultureInfo.InvariantCulture);result.User["merchantName"]=registry.ProjectName;return result;
-        },cancellationToken);
+            var candidates=await Store.ReadAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken);
+            if(candidates.Count!=1||!long.TryParse(SqlRowStore.Text(candidates[0],"yz_admin_type_id"),NumberStyles.None,CultureInfo.InvariantCulture,out var admin)||
+                !registry.ContainsAdmin(admin.ToString(CultureInfo.InvariantCulture)))throw InvalidLogin();
+            var account=SqlRowStore.Id(candidates[0]);
+            return await Session.InTransactionAsync(async()=>
+            {
+                await LockRealm(admin,cancellationToken);
+                var current=(await Store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"id",account}},cancellationToken)).SingleOrDefault();
+                if(current is null||SqlRowStore.Text(current,"name")!=username||SqlRowStore.Id(current,"yz_admin_type_id")!=admin)throw InvalidLogin(account,LoginFailureReason.UnavailableRealm);
+                if(!AuthenticationService.AccountActive(current))throw InvalidLogin(account,LoginFailureReason.UnavailableAccount);
+                if(!PasswordHasher.Verify(password,SqlRowStore.Text(current,"password")))throw InvalidLogin(account,LoginFailureReason.InvalidPassword);
+                var result=await Authentication.LoginFromWebAsync(username,password,ip,cancellationToken);
+                var identity=await Authentication.AuthenticateAsync(result.Token,registry.ProjectId,cancellationToken);
+                if(identity is null||!registry.Contains(identity))throw InvalidLogin(account,LoginFailureReason.UnavailableRealm);
+                result.User["id"]=account.ToString(CultureInfo.InvariantCulture);result.User["merchantName"]=registry.ProjectName;return result;
+            },cancellationToken);
+        }
+        catch(UnauthorizedAccessException failure)
+        {
+            // 原主事务已退出；嵌套Authentication只上抛，由本最外层边界记录一次。
+            await Authentication.RecordLoginFailureAsync(failure,username,ip,cancellationToken);throw;
+        }
     }
+
     /// <summary>只注销已验证的当前Web会话，不接受客户端账户或会话主键。</summary>
     internal async Task LogoutAsync(AuthenticatedIdentity identity,CancellationToken cancellationToken)
     {
@@ -117,11 +129,11 @@ internal sealed class ApplicationWebAuthentication(IServiceProvider services,App
     private async Task LockRealm(long admin,CancellationToken cancellationToken)
     {
         var project=long.Parse(registry.ProjectId,CultureInfo.InvariantCulture);
-        if((await Store.ReadForUpdateAsync("yz_project",new Dictionary<string,object?>{{"id",project}},cancellationToken)).Count!=1)throw InvalidLogin();
+        if((await Store.ReadForUpdateAsync("yz_project",new Dictionary<string,object?>{{"id",project}},cancellationToken)).Count!=1)throw InvalidLogin(null,LoginFailureReason.UnavailableRealm);
         var rows=await Store.ReadForUpdateAsync("yz_admin_type",new Dictionary<string,object?>{{"id",admin}},cancellationToken);
-        if(rows.Count!=1||SqlRowStore.Id(rows[0],"yz_project_id")!=project)throw InvalidLogin();
+        if(rows.Count!=1||SqlRowStore.Id(rows[0],"yz_project_id")!=project)throw InvalidLogin(null,LoginFailureReason.UnavailableRealm);
     }
-    private static UnauthorizedAccessException InvalidLogin()=>new("账号、密码或应用认证配置无效。");
+    private static UnauthorizedAccessException InvalidLogin(long? accountId=null,LoginFailureReason reason=LoginFailureReason.UnknownAccount)=>AuthenticationService.RejectLogin(accountId,reason,"账号、密码或应用认证配置无效。");
 }
 
 /// <summary>同步授权只使用本请求已真实认证的身份，包外项目、后台和动作始终拒绝。</summary>

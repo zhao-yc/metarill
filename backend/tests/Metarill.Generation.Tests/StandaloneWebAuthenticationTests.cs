@@ -105,7 +105,7 @@ public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPa
         if(kind=="outside-admin"){f.Add("yz_admin_type",("id",9999L),("yz_project_id",long.Parse(package.Metadata.YzProjectId,CultureInfo.InvariantCulture)));account["yz_admin_type_id"]=9999L;}
         if(kind=="disabled")account["is_disabled"]=1;if(kind=="expired")session["expires_at"]=DateTime.UtcNow.AddMinutes(-1);if(kind=="deleted")account["delete_no"]=DateTime.UtcNow;
         var before=f.Snapshot();Assert.Null(await f.Resolve(login.Token));Assert.Equal(before,f.Snapshot());
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Login("错误的离线密码"));Assert.Equal(before,f.Snapshot());
+        var identityBefore=f.IdentitySnapshot();await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Login("错误的离线密码"));Assert.Equal(identityBefore,f.IdentitySnapshot());Assert.Single(f.Provider.Rows.GetValueOrDefault("yz_manager_log")??[]);
     }
 
     /// <summary>重复初始化不恢复配置密码、不挂新角色；墓碑/归属冲突和插入冲突均完整回滚。</summary>
@@ -196,14 +196,18 @@ public sealed partial class StandaloneWebAuthenticationTests(WebAuthenticationPa
         {
             package=fixture;metadata=catalog??fixture.Metadata;var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="offline"},Provider.Orm,Provider);var store=new SqlRowStore(session,fixture.Security);
             var registry=fixture.Registry();Mode=fixture.Mode(new(){["Database:ConnectionString"]="offline",["Database:ExpectedDatabase"]="offline"},"Production");
-            var registrations=new ServiceCollection();registrations.AddSingleton(session);registrations.AddSingleton(store);registrations.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(877));registrations.AddSingleton<ISecurityResourceRegistry>((ISecurityResourceRegistry)registry);registrations.AddSingleton<ISecuritySessionPolicy>((ISecuritySessionPolicy)registry);registrations.AddScoped<AuthenticationService>();services=registrations.BuildServiceProvider();Web=fixture.New("ApplicationWebAuthentication",services,Mode,registry);
+            var registrations=new ServiceCollection();registrations.AddSingleton(session);registrations.AddSingleton<IHttpContextAccessor>(Accessor);registrations.AddSingleton(store);registrations.AddSingleton<IIdGenerator>(new SnowflakeIdGenerator(877));registrations.AddSingleton<ISecurityResourceRegistry>((ISecurityResourceRegistry)registry);registrations.AddSingleton<ISecuritySessionPolicy>((ISecuritySessionPolicy)registry);registrations.AddScoped<AuthenticationService>();services=registrations.BuildServiceProvider();Web=fixture.New("ApplicationWebAuthentication",services,Mode,registry);
         }
         internal async Task<string> Initialize(Dictionary<string,string?> settings)=>(string)(await package.Call(package.New("ApplicationSecurityInitialization",services.GetRequiredService<SqlRowStore>(),services.GetRequiredService<IIdGenerator>(),metadata),"InitializeAsync",new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),CancellationToken.None))!;
         internal async Task<(Dictionary<string,object?> User,string Token)> Login(string password){var result=(await package.Call(Web,"LoginAsync",Username,password,CancellationToken.None))!;return((Dictionary<string,object?>)result.GetType().GetField("Item1")!.GetValue(result)!,(string)result.GetType().GetField("Item2")!.GetValue(result)!);}
         internal async Task<AuthenticatedIdentity?> Resolve(string token)=>(AuthenticatedIdentity?)await package.Call(Web,"ResolveAsync",token,CancellationToken.None);
         internal IRuntimeAuthorization Authorize(AuthenticatedIdentity identity){Accessor.HttpContext!.Items[typeof(AuthenticatedIdentity)]=identity;return(IRuntimeAuthorization)package.New("ApplicationWebAuthorization",Accessor,package.Authority());}
         internal DatabaseSession Session=>services.GetRequiredService<DatabaseSession>();
+        /// <summary>直接执行同一共享认证服务，验证平台入口与包模板都写失败审计。</summary>
+        internal AuthenticationService Authentication=>services.GetRequiredService<AuthenticationService>();
         internal string Snapshot()=>JsonSerializer.Serialize(Provider.Rows);
+        /// <summary>仅原认证拒绝用例排除新增审计表，账号／角色／会话及其它状态仍逐字核对。</summary>
+        internal string IdentitySnapshot()=>JsonSerializer.Serialize(Provider.Rows.Where(row=>row.Key!="yz_manager_log").ToDictionary(row=>row.Key,row=>row.Value));
         internal void Add(string table,params(string Name,object? Value)[] values){if(!Provider.Rows.TryGetValue(table,out var rows))Provider.Rows[table]=rows=[];rows.Add(values.ToDictionary(pair=>pair.Name,pair=>pair.Value));}
         public void Dispose()=>services.Dispose();
     }

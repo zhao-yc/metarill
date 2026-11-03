@@ -35,22 +35,36 @@ public sealed record AuthenticatedIdentity(RuntimeActor Actor,IReadOnlySet<strin
     }
 }
 
-public sealed class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISecurityResourceRegistry registry,ISecuritySessionPolicy sessionPolicy)
+public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator ids,ISecurityResourceRegistry registry,ISecuritySessionPolicy sessionPolicy,Microsoft.Extensions.Logging.ILogger<AuthenticationService>? logger=null)
 {
-    /// <summary>网页登录校验账号状态，令牌仅保存摘要；原始密码与令牌不写日志。</summary>
+    /// <summary>兼容已有服务调用；未提供HTTP上下文时审计IP明确记为未知。</summary>
     public Task<(Dictionary<string,object?> User,string Token)> LoginAsync(string username,string password,CancellationToken cancellationToken=default)=>
-        store.Session.InTransactionAsync(async()=>
+        LoginFromWebAsync(username,password,null,cancellationToken);
+    /// <summary>网页登录持久会话不含原始令牌；仅最外层认证拥有者在回滚后记录原失败审计。</summary>
+    public async Task<(Dictionary<string,object?> User,string Token)> LoginFromWebAsync(string username,string password,string? clientIp,CancellationToken cancellationToken=default)
+    {
+        try
         {
-            // 与账号重置共用用户名唯一索引锁；旧密码验证和会话创建不可跨越已提交重置。
-            var account=(await store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken)).SingleOrDefault();
-            if(account is null||!AccountActive(account)||!PasswordHasher.Verify(password,SqlRowStore.Text(account,"password")))
-                throw new UnauthorizedAccessException("用户名或密码不正确。");
-            var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,cancellationToken,includePermissions:false) ?? throw new UnauthorizedAccessException("用户名或密码不正确。");
-            var token=PasswordHasher.Token();
-            await store.InsertAsync("sys_session",new Dictionary<string,object?>
-            {{"id",ids.NextId()},{"account_id",SqlRowStore.Id(account)},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",long.Parse(realm.ProjectId,CultureInfo.InvariantCulture)},{"insert_time",DateTime.UtcNow}},cancellationToken);
-            return (PublicAccount(account),token);
-        },cancellationToken);
+            return await store.Session.InTransactionAsync(async()=>
+            {
+                // 与账号重置共用用户名唯一索引锁；密码验证和会话创建不可跨越已提交重置。
+                var account=(await store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"name",username}},cancellationToken)).SingleOrDefault();
+                if(account is null)throw RejectLogin(null,LoginFailureReason.UnknownAccount);
+                var accountId=SqlRowStore.Id(account);
+                if(!AccountActive(account))throw RejectLogin(accountId,LoginFailureReason.UnavailableAccount);
+                if(!PasswordHasher.Verify(password,SqlRowStore.Text(account,"password")))throw RejectLogin(accountId,LoginFailureReason.InvalidPassword);
+                var realm=await PrincipalRolePolicy.LoadAsync(store,registry,account,cancellationToken,includePermissions:false)??throw RejectLogin(accountId,LoginFailureReason.UnavailableRealm);
+                var token=PasswordHasher.Token();
+                await store.InsertAsync("sys_session",new Dictionary<string,object?>
+                {{"id",ids.NextId()},{"account_id",accountId},{"token_hash",PasswordHasher.Digest(token)},{"expires_at",DateTime.UtcNow.AddHours(8)},{"kind","web"},{"project_id",long.Parse(realm.ProjectId,CultureInfo.InvariantCulture)},{"insert_time",DateTime.UtcNow}},cancellationToken);
+                return (PublicAccount(account),token);
+            },cancellationToken);
+        }
+        catch(UnauthorizedAccessException failure) when(store.Session.CurrentTransaction is null)
+        {
+            await RecordLoginFailureAsync(failure,username,clientIp,cancellationToken);throw;
+        }
+    }
     /// <summary>每次重新验证真实会话、身份后台与角色；宿主扩展只负责非Web会话的附加证明。</summary>
     public async Task<AuthenticatedIdentity?> AuthenticateAsync(string token,string? selectedProject,CancellationToken cancellationToken=default)
     {
