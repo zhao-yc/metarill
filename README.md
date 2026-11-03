@@ -32,10 +32,9 @@
 3. 执行以下命令。初始化会显式预览、执行首期结构并补缺失种子；重复初始化不会重置密码或复活已删除的元数据。普通启动不执行结构同步。
 
 ```powershell
+npm ci --prefix frontend/metarill_uni_admin
 pwsh -NoProfile -File scripts/dev.ps1 initialize
 pwsh -NoProfile -File scripts/dev.ps1 generate
-npm run sync:write-schema --prefix frontend/metarill_uni_admin
-npm run sync:custom-routes --prefix frontend/metarill_uni_admin
 pwsh -NoProfile -File scripts/dev.ps1 start
 ```
 
@@ -46,7 +45,7 @@ pwsh -NoProfile -File scripts/dev.ps1 logs
 pwsh -NoProfile -File scripts/dev.ps1 stop
 ```
 
-前端先在其目录执行 `npm ci`，申请并配置自己的 DCloud AppID，再使用 HBuilderX 打开工程。已有一键入口见 [.vscode/tasks.json](.vscode/tasks.json) 和 [.codex/environments/environment.toml](.codex/environments/environment.toml)。完整前端要求及许可状态见 [前端说明](frontend/metarill_uni_admin/README.md)。
+完成上述依赖安装后，申请并配置自己的 DCloud AppID，再使用 HBuilderX 打开前端工程。已有一键入口见 [.vscode/tasks.json](.vscode/tasks.json) 和 [.codex/environments/environment.toml](.codex/environments/environment.toml)。完整前端要求及许可状态见 [前端说明](frontend/metarill_uni_admin/README.md)。
 
 ## 验证
 

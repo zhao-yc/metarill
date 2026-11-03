@@ -10,12 +10,19 @@ $dll=Join-Path $metarillRoot 'backend/src/Metarill.Api/bin/Debug/net10.0/Metaril
 # 所有入口共用脚本，只有本项目进程可被停止；不终止不明端口占用。
 switch($Action){
 'generate'{
+ $frontendRoot=Join-Path $metarillRoot 'frontend/metarill_uni_admin'
+ # 原List同步依赖Vue编译器，先检查后生成，避免缺依赖时只更新后端产物。
+ Push-Location -LiteralPath $frontendRoot
+ try {
+  & node --input-type=module --eval 'await import("@vue/compiler-sfc")' 2>$null
+  if($LASTEXITCODE -ne 0){throw '缺少前端生成依赖，请先在仓库根目录执行 npm ci --prefix frontend/metarill_uni_admin。'}
+ } finally { Pop-Location }
  foreach($target in @('platform','demo')){
  & $dotnet run --project (Join-Path $metarillRoot 'backend/src/Metarill.Cli') -- generate --metadata (Join-Path $metarillRoot "backend/metadata/$target.json") --output (Join-Path $metarillRoot "backend/generated/$target") --namespace ("Metarill."+(Get-Culture).TextInfo.ToTitleCase($target))
  if($LASTEXITCODE -ne 0){throw '代码生成失败。'}
  }
  foreach($sync in @('sync:template-version','sync:write-schema','sync:custom-routes','sync:original-list-options')){
- & npm run $sync --prefix (Join-Path $metarillRoot 'frontend/metarill_uni_admin')
+ & npm run $sync --prefix $frontendRoot
  if($LASTEXITCODE -ne 0){throw '平台原页面元数据同步失败。'}
  };break
 }
