@@ -36,7 +36,9 @@ class ObservedResourceTests(unittest.TestCase):
         fixtures.Fixture.setUp(self);self.value['purpose']='paired-observed-resources-v1';self.value['images']=dict(subject.OBSERVATION_IMAGES);self.engine=ObservedEngine()
         self.enterContext(mock.patch.object(subject,'docker',side_effect=self.engine))
         self.enterContext(mock.patch.object(subject,'regular',side_effect=lambda p,directory=False:type('Info',(),{'st_mode':(stat.S_IFDIR|0o700) if directory else (stat.S_IFREG|(0o444 if p.name in {'redis.conf','observation.key'} else 0o600))})()))
-        self.key(bytes(range(224,256)))
+        # 新镜像与同轮独占Redis一并冻结，旧用途夹具保持原三字段。
+        self.inputs['csharp.env'] += "Authentication__LoginFailures__ConnectionString=redis:6379,password=" + "2"*64 + ",defaultDatabase=0\n"
+        self.materialize();self.key(bytes(range(224,256)))
 
     def key(self,data):
         """更新合成key及摘要，证明仅改摘要也不能绕过长度／用途白名单。"""

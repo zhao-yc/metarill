@@ -17,13 +17,13 @@ IMAGES = {
     "csharp": "sha256:ee05d99dbb52de8a51f7d42fcbb7a67d1b588c8bb0b637f937a8cba236975200",
     "redis": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
 }
-# Java经V51核验，C#使用V55计数修复及原匿名采集新包；不覆盖V37旧用途。
+# Java经V51核验，C#使用V65原Cap／失败锁／审计固定新包；不覆盖V37旧用途。
 OBSERVATION_IMAGES = {
     "java": "sha256:11ed25d417c5f5469e499ace6f81e92480cd86b94f046f6716be153f2b5fd57c",
-    "csharp": "sha256:4f35eed652c25d190163bd22fbf88117dc02ba5868ffed99e392d57ecba1d57a",
+    "csharp": "sha256:8dbbcfc05b0799cb5d6650644bbb0a88b4f5ae6d9be2c2af9241e06f797f4423",
     "redis": IMAGES["redis"],
 }
-OBSERVATION_DATA_SHA256 = "af98d2e2965f5164981f8d036e175ace736fc95a39b8f52ddaa167af503d8a9d"
+OBSERVATION_DATA_SHA256 = "74db1feaf23f665e4712ce3b8519cf12e502a18abb30009017dea53671e95cae"
 
 
 def is_observed(value):
@@ -133,8 +133,12 @@ def read_materials(root, value):
         raise ValueError("Java必须绑定本轮受限库账号及独占Redis别名")
     database = "metarill_fresh_" + run[:16] + "_paired_csharp"
     connection = f"Server=192.168.31.200;Port=3306;Database={database};User ID={user};Password={password};Allow User Variables=true;"
-    if csharp != {"Database__Provider": "mysql", "Database__ExpectedDatabase": database, "Database__ConnectionString": connection}:
-        raise ValueError("C#只能读取本轮受限连接，不允许改认证或应用入口")
+    expected_csharp = {"Database__Provider": "mysql", "Database__ExpectedDatabase": database, "Database__ConnectionString": connection}
+    # 新完整宿主必须接同一轮独占Redis、原口令和DB0；历史v1用途仍要求原三字段。
+    if is_observed(value):
+        expected_csharp["Authentication__LoginFailures__ConnectionString"] = f"redis:6379,password={redis_password},defaultDatabase=0"
+    if csharp != expected_csharp:
+        raise ValueError("C#只能读取本轮受限数据库和独占Redis连接，不允许改认证或应用入口")
     expected_redis = f"bind 0.0.0.0\nport 6379\nprotected-mode yes\nsave \"\"\nappendonly no\nrequirepass {redis_password}\nmaxmemory 128mb\nmaxmemory-policy noeviction\ndir /data\n"
     if contents["redis.conf"] != expected_redis:
         raise ValueError("Redis只允许本轮口令、无持久化的固定配置")

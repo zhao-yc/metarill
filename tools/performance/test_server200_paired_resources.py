@@ -64,7 +64,7 @@ class Fixture(unittest.TestCase):
         self.enterContext(mock.patch.object(subject, "docker", side_effect=self.engine))
         self.enterContext(mock.patch.object(subject.os, "chown", create=True))
         # Windows不模拟POSIX权限；真实Linux另需原函数拒绝测试和正式预检。
-        self.enterContext(mock.patch.object(subject, "regular", side_effect=lambda p, directory=False: type("Info", (), {"st_mode": (stat.S_IFDIR|0o700) if directory else (stat.S_IFREG|(0o444 if p.name=="redis.conf" else 0o600))})()))
+        self.enterContext(mock.patch.object(subject, "regular", side_effect=lambda p, directory=False: type("Info", (), {"st_mode": (stat.S_IFDIR|0o700) if directory else (stat.S_IFREG|(0o444 if p.name in {"redis.conf", "observation.key"} else 0o600))})()))
 
     def materialize(self):
         """重写测试夹具及摘要，用于证明更新自报摘要仍不能绕过语义白名单。"""
@@ -72,7 +72,7 @@ class Fixture(unittest.TestCase):
         for name, contents in self.inputs.items():
             path = self.root/name
             if path.exists(): path.chmod(0o600)
-            raw = contents.encode(); path.write_bytes(raw); path.chmod(0o444 if name=="redis.conf" else 0o600)
+            raw = contents.encode(); path.write_bytes(raw); path.chmod(0o444 if name in {"redis.conf", "observation.key"} else 0o600)
             hashes[name] = hashlib.sha256(raw).hexdigest()
         data = json.dumps(hashes).encode(); (self.root/"materials.json").write_bytes(data)
         self.value["materialsSha256"] = hashlib.sha256(data).hexdigest()
@@ -144,6 +144,25 @@ class Fixture(unittest.TestCase):
             self.inputs = copy.deepcopy(original); self.inputs[field] = self.inputs[field].replace(old, new); self.materialize()
             with self.subTest(field=field,new=new), self.assertRaises(ValueError): subject.manage(self.value, "create")
         self.assertFalse(self.engine.calls)
+
+    def test_new_observed_runtime_requires_same_isolated_redis_before_docker(self):
+        """新镜像只能使用本轮Redis、原口令和DB0；即使重算输入摘要也不能外接或关闭保护。"""
+        self.value.update(purpose="paired-observed-resources-v1", images=dict(subject.OBSERVATION_IMAGES))
+        self.inputs["observation.key"] = "7"*32
+        base = self.inputs["csharp.env"]
+        key = "Authentication__LoginFailures__ConnectionString="
+        current = key + "redis:6379,password=" + "2"*64 + ",defaultDatabase=0\n"
+        for candidate in ("", current.replace("redis:6379", "shared-redis:6379"), current.replace(":6379", ":6380"), current.replace("2"*64,"3"*64), current.replace("defaultDatabase=0","defaultDatabase=5"), current+"Authentication__Mode=Development\n"):
+            self.inputs["csharp.env"] = base + candidate; self.materialize()
+            with self.subTest(candidate=candidate), self.assertRaises(ValueError): subject.manage(self.value, "create")
+        self.assertFalse(self.engine.calls)
+        self.inputs["csharp.env"] = base + current; self.materialize()
+        self.assertFalse(subject.manage(self.value, "create")["hostsStarted"])
+        command = next(call for call in self.engine.calls if call[:2] == ("container", "create") and "metarill.performance.target=csharp" in call)
+        self.assertIn(subject.OBSERVATION_IMAGES["csharp"], command)
+        self.assertIn("--Metarill:Paired:SqlObservation:ExpectedDataSha256=" + subject.OBSERVATION_DATA_SHA256, command)
+        self.assertNotIn("2"*64, json.dumps(self.engine.calls) + json.dumps(self.state()))
+        self.assertTrue(subject.manage(self.value, "cleanup")["independentAbsenceVerified"])
 
     def test_name_collision_never_adopts_existing_object(self):
         """相同运行号但已有对象时不创建、不删除、不留下伪所有权。"""
