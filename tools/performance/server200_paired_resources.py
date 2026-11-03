@@ -20,10 +20,10 @@ IMAGES = {
 # Java经V51核验，C#使用V55计数修复及原匿名采集新包；不覆盖V37旧用途。
 OBSERVATION_IMAGES = {
     "java": "sha256:11ed25d417c5f5469e499ace6f81e92480cd86b94f046f6716be153f2b5fd57c",
-    "csharp": "sha256:e31823dc9cfb10d294828c6ab6234bc780f4c7458b36bd30c721b349429df0e1",
+    "csharp": "sha256:4f35eed652c25d190163bd22fbf88117dc02ba5868ffed99e392d57ecba1d57a",
     "redis": IMAGES["redis"],
 }
-OBSERVATION_DATA_SHA256 = "4d02bff6f0c1588f65fed352a2a038816b1fef43c141f10743b04793887e44a1"
+OBSERVATION_DATA_SHA256 = "af98d2e2965f5164981f8d036e175ace736fc95a39b8f52ddaa167af503d8a9d"
 
 
 def is_observed(value):
