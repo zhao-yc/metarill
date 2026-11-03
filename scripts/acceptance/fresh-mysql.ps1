@@ -1,6 +1,7 @@
 param(
  [Parameter(Mandatory=$true)][string]$SourceSettings,
  [string]$DotnetPath = 'dotnet',
+ [string]$LoginRedisSettings = '',
  [ValidateSet('Baseline','CrossTable','All')][string]$Scenario = 'Baseline',
  [string]$CredentialBackupRoot = ''
 )
@@ -21,6 +22,11 @@ $source=Get-Content -Raw -LiteralPath $SourceSettings | ConvertFrom-Json
 $baseline=[System.Data.Common.DbConnectionStringBuilder]::new()
 $baseline.set_ConnectionString($source.Metarill.BusinessDatabase.ConnectionString)
 if($source.Metarill.BusinessDatabase.Provider -ne 'mysql' -or $baseline.Item('server') -notin @('deve-server.yinzon.com','192.168.31.200')){throw '空库验收仅允许已核验 Server-200 MySQL。'}
+if([string]::IsNullOrWhiteSpace($LoginRedisSettings) -or -not (Test-Path -LiteralPath $LoginRedisSettings -PathType Leaf)){
+ throw '空库验收需要 -LoginRedisSettings 指向本轮已隔离的 Redis DB0 私有配置。'
+}
+$redisPath=(Resolve-Path -LiteralPath $LoginRedisSettings).ProviderPath
+$testProject=Join-Path $repoRoot 'backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj'
 New-Item -ItemType Directory -Path $runDirectory | Out-Null
 $password=[Guid]::NewGuid().ToString('N')+[Guid]::NewGuid().ToString('N')
 $remoteSource=[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $repoRoot 'tools/acceptance/server200-fresh-mysql.py')))
@@ -47,10 +53,17 @@ function New-FreshOptions([string]$Suffix){
  $connection.set_Item('user id',"mtf_$runId");$connection.set_Item('password',$password)
  return @{Provider='mysql';ExpectedDatabase="metarill_fresh_${runId}_$Suffix";ConnectionString=$connection.get_ConnectionString()}
 }
-$oldSettings=$env:METARILL_FRESH_INSTALL_SETTINGS;$oldDotnet=$env:DOTNET_HOST_PATH;$oldEvidence=$env:METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY
+$oldRedis=$env:METARILL_FRESH_LOGIN_REDIS_SETTINGS;$oldSettings=$env:METARILL_FRESH_INSTALL_SETTINGS;$oldDotnet=$env:DOTNET_HOST_PATH;$oldEvidence=$env:METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY
 $created=$false;$cleaned=$false;$passed=$false;$createdState=$null
 $startedAt=[DateTimeOffset]::UtcNow.ToString('o')
 try{
+ # 先用真实 C# 配置解析器核对 Redis 文件，失败时未发 SSH 或 MySQL DDL。
+ $env:METARILL_FRESH_LOGIN_REDIS_SETTINGS=$redisPath
+ & $DotnetPath test $testProject --nologo --disable-build-servers --filter 'FullyQualifiedName=Metarill.Generation.Tests.PlatformBootstrapNativePreparationTests.Coordinator_redis_settings_preflight' --logger 'trx;LogFileName=redis-preflight.trx' --results-directory $runDirectory *> (Join-Path $runDirectory 'redis-preflight.log')
+ if($LASTEXITCODE -ne 0){throw '隔离 Redis 配置预检失败，未创建远端资源。'}
+ [xml]$redisTrx=Get-Content -Raw -LiteralPath (Join-Path $runDirectory 'redis-preflight.trx')
+ $redisResult=@($redisTrx.TestRun.Results.UnitTestResult)
+ if($redisResult.Count -ne 1 -or $redisResult[0].outcome -ne 'Passed' -or $redisResult[0].testName -notlike '*.Coordinator_redis_settings_preflight'){throw '隔离 Redis 配置预检未实际通过，未创建远端资源。'}
  $created=$true;$createdState=Invoke-FreshServer 'create'
  $freshSettings=[ordered]@{RunId=$runId;Scenario=$scenarioProfile;InstancePin=$createdState.instance}
  foreach($kind in $selectedKinds){$freshSettings[$propertyNames[$kind]]=New-FreshOptions $kind}
@@ -80,7 +93,7 @@ try{
  $passed=$true
 }
 finally{
- $env:METARILL_FRESH_INSTALL_SETTINGS=$oldSettings;$env:DOTNET_HOST_PATH=$oldDotnet;$env:METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY=$oldEvidence
+ $env:METARILL_FRESH_LOGIN_REDIS_SETTINGS=$oldRedis;$env:METARILL_FRESH_INSTALL_SETTINGS=$oldSettings;$env:DOTNET_HOST_PATH=$oldDotnet;$env:METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY=$oldEvidence
  if($created){$cleanup=Invoke-FreshServer 'cleanup';if(-not $cleanup.cleaned -or -not $cleanup.independentAbsenceVerified -or ($null -ne $createdState -and $cleanup.databaseCount -ne $selectedKinds.Count)){throw '所选随机库与临时账号清理未通过独立核验。'};$cleanup|ConvertTo-Json -Depth 6|Set-Content -LiteralPath (Join-Path $runDirectory 'cleanup.json') -Encoding utf8;$cleaned=$true}
  if($cleaned -and (Test-Path -LiteralPath $settingsPath)){Remove-Item -LiteralPath $settingsPath}
  if($cleaned -and $backupDirectory){@("","本轮临时账号与自有随机库已于$([DateTimeOffset]::UtcNow.ToString('o'))完成独立清理核验，以上连接凭据已撤销，不再有效。")|Add-Content -LiteralPath (Join-Path $backupDirectory '说明.md') -Encoding utf8}

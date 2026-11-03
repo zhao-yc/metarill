@@ -24,6 +24,7 @@ public sealed partial class FreshInstallMySqlTests
     [FreshInstallMySqlFact]
     public async Task Nonredundant_full_package_installs_and_executes_original_routes_with_persistent_web_authorization()
     {
+        var loginRedis=FreshInstallConfiguration.ReadLoginRedis();
         var options=FreshInstallConfiguration.Read("NonRedundantDatabase","nonred");using var session=new DatabaseSession(options);Assert.Equal(0L,await CountTablesAsync(session));
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));var run=settings.RootElement.GetProperty("RunId").GetString()!;var pin=settings.RootElement.GetProperty("InstancePin");
         await using(var connection=new MySqlConnection(options.ConnectionString))
@@ -41,6 +42,7 @@ public sealed partial class FreshInstallMySqlTests
             ProcessStartInfo HostInfo(string? operation=null)
             {
                 var info=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",hostDirectory);info.ArgumentList.Add(Path.Combine(hostDirectory,"bin/Debug/net10.0/Application.Host.dll"));if(operation is not null)info.ArgumentList.Add(operation);
+                if(operation is null)info.Environment["Authentication__LoginFailures__ConnectionString"]=loginRedis;
                 info.Environment["ASPNETCORE_ENVIRONMENT"]="Production";info.Environment["Database__Provider"]="mysql";info.Environment["Database__ExpectedDatabase"]=options.ExpectedDatabase;info.Environment["Database__ConnectionString"]=options.ConnectionString;
                 info.Environment["Authentication__Mode"]="Web";info.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";info.Environment["Authentication__Bootstrap__Username"]=username;info.Environment["Authentication__Bootstrap__Password"]=password;
                 info.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=evidence;info.Environment["Ids__WorkerId"]="934";info.Environment["Files__RootDirectory"]=Path.Combine(directory,"files");info.Environment["Exports__RootDirectory"]=Path.Combine(directory,"exports");info.Environment["Exports__MaxRows"]="20";return info;

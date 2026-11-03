@@ -9,8 +9,11 @@
 ```powershell
 pwsh -NoProfile -File scripts/acceptance/fresh-mysql.ps1 `
   -SourceSettings E:/git/metarill/.local/test.settings.json `
+  -LoginRedisSettings E:/git/metarill/.local/fresh-login-redis.settings.json `
   -DotnetPath E:/git/metarill/.tools/dotnet/dotnet.exe
 ```
+
+传入本轮已批准并隔离的 Redis DB0 私有配置文件，JSON 根属性为 `LoginFailureRedisConnectionString`。在任何 SSH 或 MySQL 创建前，执行器使用实际 C# 解析器检查文件并核对该检查确实通过。Redis 配置独立于本轮 MySQL 配置与备份，只有 Web 宿主获得连接串。Redis 的创建和清理由本轮独立授权的资源协调步骤负责。
 
 `SourceSettings` 只提供既有开发连接的网络/TLS选项，工具用新随机数据库和受限账号替换数据库及认证字段。凭据通过 SSH 标准输入或子进程配置传递，不放入命令行、版本库或输出；临时配置在数据库清理成功后删除。本轮 TRX 与构建/测试日志保留在 `.local/fresh-install/<随机编号>`。工具另核对TRX必须3项全部执行且通过、0跳过，完成远端清理后写入不含凭据的 `result.json`。
 
@@ -89,6 +92,7 @@ python -m unittest discover -s tools/acceptance -p test_server200_fresh_mysql.py
 ```powershell
 pwsh -NoProfile -File scripts/acceptance/fresh-mysql.ps1 `
   -SourceSettings E:/git/metarill/.local/test.settings.json `
+  -LoginRedisSettings E:/git/metarill/.local/fresh-login-redis.settings.json `
   -DotnetPath E:/git/metarill/.tools/dotnet/dotnet.exe `
   -Scenario All `
   -CredentialBackupRoot '<项目私有凭据备份目录>'
@@ -106,4 +110,4 @@ pwsh -NoProfile -File scripts/acceptance/fresh-mysql.ps1 `
 
 首个失败点发生在 Production 登录。验收宿主的配置缺少 `Metarill:Authentication:LoginFailures:ConnectionString`，而原登录先调用 Redis 锁定检查，再校验密码。修正只涉及平台空库夹具：从本轮私有租约配置读取 `LoginFailureRedisConnectionString`，校验 DB0 后传给实际宿主，缺失时在打开 MySQL 连接前停止。宿主日志按 Redis 格式提取并遮盖密码。离线严格构建及 11 项准备检查通过。
 
-后续执行器必须提供本轮隔离 Redis 的私有连接配置，并明确它的授权和清理范围。通用空库脚本目前也未提供这项连接，需要在完整矩阵复验前接通。此次修正未运行 Redis 或新一轮 MySQL，也未替代 MySQL 首版验收。
+后续执行器必须提供本轮隔离 Redis 的私有连接配置，并明确它的授权和清理范围。此次修正未运行 Redis 或新一轮 MySQL，也未替代 MySQL 首版验收。

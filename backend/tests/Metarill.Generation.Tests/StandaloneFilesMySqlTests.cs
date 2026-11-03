@@ -139,6 +139,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     private Task<string>? stderr;
     private bool cleanupTable;
     private bool formalWeb;
+    private string? loginRedis;
     private string root = "";
     public DatabaseSession Session { get; private set; } = null!;
     public MetadataCatalog Catalog { get; private set; } = null!;
@@ -170,7 +171,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
                 options = settings.RootElement.GetProperty("Metarill").GetProperty("BusinessDatabase").Deserialize<DatabaseOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
                 if (options.Provider != "mysql" || options.ExpectedDatabase != "metarill_business_test") throw new InvalidOperationException("独立文件验收仅允许 MySQL metarill_business_test。");
             }
-            else { FreshInstallConfiguration.Validate(freshOptions, "package"); options = freshOptions; fixture.formalWeb=true; }
+            else { FreshInstallConfiguration.Validate(freshOptions, "package"); options = freshOptions; fixture.formalWeb=true; fixture.loginRedis=FreshInstallConfiguration.ReadLoginRedis(); }
             fixture.Session = new DatabaseSession(options);
             fixture.root = SourceRoot();
             fixture.Catalog = JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(Path.Combine(fixture.root, "backend/metadata/demo.json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -246,7 +247,9 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     {
         var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
-        var info = HostInfo(); info.ArgumentList.Add("--urls"); info.ArgumentList.Add($"http://127.0.0.1:{port}");
+        var info = HostInfo();
+        if (loginRedis is not null) info.Environment["Authentication__LoginFailures__ConnectionString"] = loginRedis;
+        info.ArgumentList.Add("--urls"); info.ArgumentList.Add($"http://127.0.0.1:{port}");
         host = Process.Start(info)!; stdout = host.StandardOutput.ReadToEndAsync(); stderr = host.StandardError.ReadToEndAsync();
         Client?.Dispose(); Anonymous?.Dispose();
         Client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(15) };
@@ -394,7 +397,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     private ProcessStartInfo HostInfo()
     {
         var info = StartInfo(HostDirectory); info.ArgumentList.Add(Path.Combine(HostDirectory, "bin/Debug/net10.0/Application.Host.dll"));
-        info.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
+        info.Environment["ASPNETCORE_ENVIRONMENT"] = formalWeb ? "Production" : "Development";
         info.Environment["Database__Provider"] = "mysql"; info.Environment["Database__ExpectedDatabase"] = Session.Options.ExpectedDatabase; info.Environment["Database__ConnectionString"] = Session.Options.ConnectionString;
         info.Environment["Authentication__Mode"] = formalWeb?"Web":"Development";
         info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = formalWeb?"false":"true"; info.Environment["Authentication__DevelopmentBootstrap__Username"] = "files-probe"; info.Environment["Authentication__DevelopmentBootstrap__Password"] = password;

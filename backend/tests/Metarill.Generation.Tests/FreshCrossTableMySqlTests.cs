@@ -37,6 +37,7 @@ public sealed class FreshCrossTableMySqlTests
     /// <summary>复用原正式身份、文件和事务合同；目标模式只替换元数据、种子和真实维护路由。</summary>
     internal static async Task Exercise(string type,string parentType,string property,string suffix,int worker,string? profile=null)
     {
+        var loginRedis=FreshInstallConfiguration.ReadLoginRedis();
         var options=FreshInstallConfiguration.Read(property,suffix);using var session=new DatabaseSession(options);
         using var settings=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));var run=settings.RootElement.GetProperty("RunId").GetString()!;var pin=settings.RootElement.GetProperty("InstancePin");await Pin(session,pin);Assert.Equal(0,await CountTables(session));
         var root=NonRedundantApplicationFixture.Root();var evidence=Path.Combine(root,profile is null?".local/nonredundant-cross-table-fresh":".local/cross-target-fresh",run+"-"+suffix);Directory.CreateDirectory(evidence);
@@ -51,6 +52,7 @@ public sealed class FreshCrossTableMySqlTests
             ProcessStartInfo HostInfo(string? operation=null)
             {
                 var info=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",hostDirectory);info.ArgumentList.Add(Path.Combine(hostDirectory,"bin/Debug/net10.0/Application.Host.dll"));if(operation is not null)info.ArgumentList.Add(operation);
+                if(operation is null)info.Environment["Authentication__LoginFailures__ConnectionString"]=loginRedis;
                 info.Environment["ASPNETCORE_ENVIRONMENT"]="Production";info.Environment["Database__Provider"]="mysql";info.Environment["Database__ExpectedDatabase"]=options.ExpectedDatabase;info.Environment["Database__ConnectionString"]=options.ConnectionString;info.Environment["Authentication__Mode"]="Web";info.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";info.Environment["Authentication__Bootstrap__Username"]=username;info.Environment["Authentication__Bootstrap__Password"]=password;info.Environment["Ids__WorkerId"]=worker.ToString(CultureInfo.InvariantCulture);info.Environment["Files__RootDirectory"]=Path.Combine(directory,"files");info.Environment["Files__MaxFileBytes"]="4096";info.Environment["Exports__RootDirectory"]=Path.Combine(directory,"exports");info.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=evidence;return info;
             }
             stage="显式空库初始化";host=await FreshHost.StartAsync(HostInfo(),"/health");Assert.Equal(0,await CountTables(session));await host.DisposeAsync();host=null;await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-preview"));Assert.Equal(0,await CountTables(session));await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-apply"));Assert.Equal(expectedTables,await CountTables(session));await NonRedundantApplicationFixture.RunAsync(HostInfo("--schema-apply"));Assert.Equal(expectedTables,await CountTables(session));Assert.Empty((await new SchemaService(session).PreviewAsync(catalog)).Changes);

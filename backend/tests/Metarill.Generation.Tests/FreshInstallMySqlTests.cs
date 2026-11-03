@@ -95,7 +95,8 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             start.Environment["Metarill__Bootstrap__Password"] = password;
             start.Environment["Metarill__Database__ConnectionString"] = platform.ConnectionString;
             start.Environment["Metarill__BusinessDatabase__ConnectionString"] = business.ConnectionString;
-            start.Environment["Metarill__Authentication__LoginFailures__ConnectionString"] = loginRedis;
+            // Redis 只供 Web 登录，初始化命令及其日志不接触该凭据。
+            if (operation is null) start.Environment["Metarill__Authentication__LoginFailures__ConnectionString"] = loginRedis;
             if (native is not null) start.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"] = native.EvidenceDirectory;
             return start;
         }
@@ -151,7 +152,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             {
                 using var login = await host.Client.PostAsync("/api/admin/sys/yz_manager/login", new FormUrlEncodedContent(new Dictionary<string,string> { ["username"] = "fresh-admin", ["password"] = password }));
                 var identity = await login.Content.ReadFromJsonAsync<JsonElement>();
-                Assert.True(identity.GetProperty("code").GetInt32() == 200, identity.GetProperty("msg").GetString() == "登录安全校验暂不可用，请稍后再试"
+                Assert.True(identity.GetProperty("code").GetInt32() == 200, (identity.TryGetProperty("msg", out var message) && message.GetString() == "登录安全校验暂不可用，请稍后再试")
                     ? "正式宿主登录安全校验不可用，请核对本轮隔离 Redis。"
                     : "正式宿主未通过正确密码登录，响应正文不回显。");
                 host.Client.DefaultRequestHeaders.Add("loginStateId", identity.GetProperty("map").GetProperty("loginStateId").GetString());
@@ -354,14 +355,32 @@ internal static class FreshInstallConfiguration
     /// <summary>只读取本轮私有配置的隔离 Redis，缺失时在任何 MySQL 连接前停止。</summary>
     internal static string ReadLoginRedis()
     {
-        using var config = JsonDocument.Parse(File.ReadAllText(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));
-        return ParseLoginRedis(config.RootElement);
+        var freshSettings = Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS");
+        var path = string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("METARILL_PLATFORM_BOOTSTRAP_NATIVE_SETTINGS"))
+            ? Environment.GetEnvironmentVariable("METARILL_FRESH_LOGIN_REDIS_SETTINGS") ?? freshSettings
+            : freshSettings;
+        return ReadLoginRedisFile(path);
+    }
+
+    /// <summary>协调器与验收宿主共用私有文件验证，错误不附带文件内容。</summary>
+    internal static string ReadLoginRedisFile(string? path)
+    {
+        if (!File.Exists(path)) throw new InvalidOperationException("平台正式空库验收需要本轮隔离 Redis DB0 配置。");
+        try
+        {
+            using var config = JsonDocument.Parse(File.ReadAllText(path));
+            return ParseLoginRedis(config.RootElement);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("隔离 Redis 验收配置不是有效 JSON。");
+        }
     }
 
     /// <summary>按真实 Redis 格式解析，只接受 DB0，错误不携带原配置。</summary>
     internal static string ParseLoginRedis(JsonElement settings)
     {
-        if (settings.TryGetProperty("LoginFailureRedisConnectionString", out var value) && value.ValueKind == JsonValueKind.String &&
+        if (settings.ValueKind == JsonValueKind.Object && settings.TryGetProperty("LoginFailureRedisConnectionString", out var value) && value.ValueKind == JsonValueKind.String &&
             value.GetString() is { } connection && !string.IsNullOrWhiteSpace(connection))
         {
             try

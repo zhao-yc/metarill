@@ -69,6 +69,23 @@ public sealed class PlatformBootstrapNativePreparationTests
         Assert.Equal(connection, FreshInstallConfiguration.ParseLoginRedis(settings));
     }
 
+    /// <summary>只验证协调器实际传入的私有路径，缺路径不能通过正式预检。</summary>
+    [CoordinatorRedisSettingsFact]
+    public void Coordinator_redis_settings_preflight()
+    {
+        _ = FreshInstallConfiguration.ReadLoginRedisFile(Environment.GetEnvironmentVariable("METARILL_FRESH_LOGIN_REDIS_SETTINGS"));
+    }
+
+    /// <summary>普通 CI 没有本轮私有配置，显式跳过协调器文件验证。</summary>
+    private sealed class CoordinatorRedisSettingsFactAttribute : FactAttribute
+    {
+        public CoordinatorRedisSettingsFactAttribute()
+        {
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("METARILL_FRESH_LOGIN_REDIS_SETTINGS")))
+                Skip = "未提供本轮隔离 Redis 配置路径，协调器预检未执行。";
+        }
+    }
+
     /// <summary>只固定测试字节，不输出其内容。</summary>
     private static string Hash(string path) => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
 }
