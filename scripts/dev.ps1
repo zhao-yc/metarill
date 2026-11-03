@@ -32,7 +32,7 @@ switch($Action){
  }
  & $dotnet build (Join-Path $metarillRoot 'backend/src/Metarill.Api') --nologo
  if($LASTEXITCODE -ne 0){throw '后端构建失败。'}
- $process=Start-Process -FilePath $dotnet -ArgumentList @($dll) -WorkingDirectory $metarillRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $local 'backend.log') -RedirectStandardError (Join-Path $local 'backend.err.log') -PassThru
+ $process=Start-Process -FilePath $dotnet -ArgumentList @('"' + $dll + '"') -WorkingDirectory $metarillRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $local 'backend.log') -RedirectStandardError (Join-Path $local 'backend.err.log') -PassThru
  @{pid=$process.Id;command=$dll}|ConvertTo-Json|Set-Content -LiteralPath $pidFile -Encoding utf8
  $ready=$false
  for($i=0;$i -lt 30;$i++){try{$response=Invoke-RestMethod 'http://127.0.0.1:8088/api/runtime/health/check';if($response.code -eq 200){$ready=$true;break}}catch{};if($process.HasExited){throw '后端启动失败，请查看.local/backend.err.log。'};Start-Sleep -Milliseconds 500}
