@@ -17,7 +17,11 @@ public sealed class TrustedSecurityPhysicalMetadataTests(TrustedSecurityServiceF
         var catalog=fixture.Models.Published;var before=JsonSerializer.Serialize(catalog,Json);var result=Compose(catalog,Read("files"),Read("security"));
         Assert.Equal(before,JsonSerializer.Serialize(catalog,Json));Assert.Equal(fixture.Models.Physical.ConfigPages.Select(page=>page.Id),result.ConfigPages.Select(page=>page.Id));
         Assert.Equal(MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(fixture.Models.Physical,"physical_probe")),MySqlSchemaPlanner.Fingerprint(MySqlSchemaPlanner.Compile(result,"physical_probe")));
-        Assert.Equal(10,result.ConfigTables.Count);Assert.Equal(catalog.ConfigPages.Count-3,result.ConfigPages.Count);
+        // 新固定模块包含登录审计表，旧十表资产由独立的兼容性测试覆盖。
+        string[] expectedTables = ["demo_customer", "sys_session", "yz_admin_type", "yz_file_library", "yz_file_library_folder",
+                                   "yz_file_ref", "yz_manager", "yz_manager_log", "yz_project", "yz_role", "yz_role_permission"];
+        Assert.Equal(expectedTables, result.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal));
+        Assert.Equal(catalog.ConfigPages.Count-3,result.ConfigPages.Count);
         // 原严格合成仍拒绝相同的管理JSON，不因新宿主接线全局放宽。
         Assert.Throws<InvalidOperationException>(()=>MetadataCatalogComposition.MergePhysical(catalog,Read("security")));
         Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,Path.Combine(fixture.DirectoryPath,"still-gated"),"Example.Rejected",Path.Combine(TrustedSecurityServiceFixture.SourceRoot,"..")));
@@ -36,7 +40,7 @@ public sealed class TrustedSecurityPhysicalMetadataTests(TrustedSecurityServiceF
     [Theory][InlineData("files")][InlineData("security")]
     public void Changed_infrastructure_is_still_rejected_by_strict_composition(string which)
     {var files=Read("files");var security=Read("security");(which=="files"?files:security).ConfigColumns[0].ColumnName+="_foreign";Assert.Throws<InvalidOperationException>(()=>Compose(fixture.Models.Published,files,security));}
-    /// <summary>运行时基础文件不能向已签发十表图追加第十一张表；校验仅在内存，不执行DDL。</summary>
+    /// <summary>运行时基础文件不能向已签发的物理目录追加额外表，校验仅在内存中完成。</summary>
     [Theory][InlineData("files")][InlineData("security")]
     public void Extra_infrastructure_object_cannot_expand_signed_physical_scope(string which)
     {
