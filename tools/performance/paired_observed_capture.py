@@ -99,7 +99,7 @@ def sha(path):
 
 
 def verify_cache_transaction(trace,database,side,outcome):
-    """证明合同与缓存各命中一行，且先后完成于同连接的同一提交或回滚事务。"""
+    """核对同一事务的写入与结局，单独返回驱动是否报告两条影响行数。"""
     start,finish=('startedNanos','finishedNanos') if side=='java' else ('startedTimestamp','finishedTimestamp')
     prefix=r'(?is)^\s*UPDATE\s+(?:`?'+re.escape(database)+r'`?\s*\.\s*)?'
     parent=re.compile(prefix+r'`?sample_contract`?(?=\s)')
@@ -109,12 +109,20 @@ def verify_cache_transaction(trace,database,side,outcome):
     reader.require(len(main)==len(cache)==1,'capture-cache-update-count')
     main,cache=main[0],cache[0]
     reference=(main['connection'],main['transaction'])
-    reader.require(main['succeeded'] and cache['succeeded'] and main['affectedRows']==cache['affectedRows']==1
-        and reference[1] is not None and (cache['connection'],cache['transaction'])==reference and main[finish]<=cache[start],
+    reader.require(main['succeeded'] and cache['succeeded'] and reference[1] is not None
+        and (cache['connection'],cache['transaction'])==reference and main[finish]<=cache[start],
         'capture-cache-update-boundary')
+    # Java MyBatis 的 execute 只返回是否有结果集，观察桥不填影响行数。
+    for row in (main,cache):
+        if side=='java' and row['operation']=='execute':
+            reader.require(row['affectedRows'] is None,'capture-cache-affected-rows')
+        else:
+            operations={'executeUpdate','executeLargeUpdate'} if side=='java' else {'nonQuery'}
+            reader.require(row['operation'] in operations and type(row['affectedRows']) is int and row['affectedRows']==1,'capture-cache-affected-rows')
     endings=[row for row in trace['transactions'] if row['operation']==outcome and row['succeeded']
         and (row['connection'],row['transaction'])==reference and cache[finish]<=row[start]]
     reader.require(len(endings)==1,'capture-cache-transaction-outcome')
+    return main['affectedRows']==cache['affectedRows']==1
 
 
 def capture_for_review(root,value,exchange,graceful):
@@ -140,7 +148,17 @@ def capture_for_review(root,value,exchange,graceful):
             path=reader.ordinary(path);size=path.stat().st_size;total+=size;reader.require(size<=64*1024*1024 and total<=256*1024*1024,'capture-byte-budget')
             digest=sha(path);target_path=destination/path.name;shutil.copyfile(path,target_path);target_path.chmod(0o600);reader.require(digest==sha(target_path)==sha(path),'capture-copy-digest');files[path.name]=digest
         saved[target]={'folder':destination,'files':files}
-    reader.require(not missing_instance,'capture-instance-count');reader.require(graceful,'capture-unfinalized-exit');exchange.complete();summaries={}
+    reader.require(not missing_instance,'capture-instance-count');reader.require(graceful,'capture-unfinalized-exit')
+    result=review_saved_capture(value,exchange,saved)
+    result['privateKeyRetainedForReview']=True
+    (output/'capture-manifest.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+    return result
+
+
+def review_saved_capture(value,exchange,saved):
+    """按固定请求计划复核已保存字节，也可独立重审原始归档。"""
+    authorize(value);exchange.complete()
+    reader.require(set(saved)=={'java','csharp'},'capture-instance-count');summaries={}
     for target,material in saved.items():
         directory=material['folder'];files=material['files'];index=reader.load(directory/'index.json',files.get('index.json'),4*1024*1024);java=target=='java'
         reader.shape(index,'format runId started completed observed problems requests finalized internallyConsistent '+('sourcesVerified dataSources' if java else 'dataAssemblySha256 expectedDatabases retainedEntries'))
@@ -150,10 +168,11 @@ def capture_for_review(root,value,exchange,graceful):
         database='metarill_fresh_'+value['runId'][:16]+'_paired_'+target
         if java:reader.require(reader.flag(index['sourcesVerified']) and index['dataSources']==['dataSource'],'capture-sources')
         else:reader.require(index['dataAssemblySha256']==resources.observation_data_sha(value) and index['expectedDatabases']==[database],'capture-data-assembly')
-        cache_transactions=set()
+        cache_transactions=set(); cache_counts_recorded=True
         refs=index['requests'];reader.require(type(refs) is list and len(refs)==wanted,'capture-reference-count');seen=set();names={'index.json'};counts={key:0 for key in ('commands','transactions','failedCommands','failedTransactions','nativeTemporalProofs')};rollback=False
         for reference in refs:
             reader.shape(reference,'id sha256');ident=reference['id'];reader.require(type(ident) is str and re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}' if java else '[a-f0-9]{32}',ident),'capture-record-id');name=ident+'.json';reader.require(name not in names,'capture-duplicate-record');names.add(name)
+            reader.require(files.get(name)==reference['sha256'],'capture-reference-digest')
             record=reader.load(directory/name,reference['sha256'],64*1024*1024);reader.shape(record,'format runId id sample chainSucceeded errorType trace '+('statusAtFilterExit' if java else 'statusAtMiddlewareExit problems internallyConsistent'))
             reader.require(record['format']==('metarill-paired-jdbc-http-v1' if java else 'metarill-paired-dotnet-http-v1') and record['runId']==value['runId'] and record['id']==ident,'capture-record-format');label=record['sample'];reader.require(type(label) is str and label in expected and label not in seen,'capture-unplanned-sample');seen.add(label);entry=expected[label]
             reader.require(reader.integer(record['statusAtFilterExit' if java else 'statusAtMiddlewareExit'],100,599)==entry['statusAtExit'] and reader.flag(record['chainSucceeded']) and record['errorType'] is None,'capture-record-outcome')
@@ -162,7 +181,8 @@ def capture_for_review(root,value,exchange,graceful):
             for key in counts:counts[key]+=measured[key]
             if exchange.existing_lines and entry['step'] in {'business:business-rollback','business:business-complete'}:
                 outcome='rollback' if entry['step']=='business:business-rollback' else 'commit'
-                verify_cache_transaction(record['trace'],database,target,outcome)
+                counts_recorded=verify_cache_transaction(record['trace'],database,target,outcome)
+                cache_counts_recorded=cache_counts_recorded and counts_recorded
                 cache_transactions.add(outcome)
             if entry['step']=='business:business-rollback':
                 ended={item['transaction'] for item in record['trace']['transactions'] if item['operation']=='rollback' and item['succeeded'] and item['transaction'] is not None}
@@ -174,4 +194,5 @@ def capture_for_review(root,value,exchange,graceful):
         if exchange.existing_lines:
             reader.require(cache_transactions=={'rollback','commit'},'capture-cache-transaction-coverage')
             summaries[target]['directCacheWriteThenCommitAndRollbackObserved']=True
-    result={'format':'metarill-paired-sql-capture-review-v1','runId':value['runId'],'targets':summaries,'privateKeyRetainedForReview':True,'sqlSemanticAccepted':False,'performanceAccepted':False,'releaseAccepted':False};(output/'capture-manifest.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');return result
+            summaries[target]['directCacheAffectedRowsRecorded']=cache_counts_recorded
+    return {'format':'metarill-paired-sql-capture-review-v1','runId':value['runId'],'targets':summaries,'sqlSemanticAccepted':False,'performanceAccepted':False,'releaseAccepted':False}

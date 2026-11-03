@@ -41,6 +41,7 @@ class CaptureTests(unittest.TestCase):
                     trace['transactions'][1]['operation']='rollback' if rollback else 'commit'
                     if not java:main['database']='metarill_fresh_'+run[:16]+'_paired_csharp'
                     if self.exchange.existing_lines:
+                        if java:main.update(operation='execute',affectedRows=None)
                         times={'startedNanos':42,'finishedNanos':47} if java else {'startedTimestamp':42,'driverTimestamp':45,'finishedTimestamp':47}
                         trace['commands'].append(dict(main,sql='UPDATE `sample_contract_line` SET `sample_contract_name`=?',number=3 if java else 2,**times))
                         # Java命令和事务边界共用序号，第二条写入在结束边界前。
@@ -95,8 +96,9 @@ class CaptureTests(unittest.TestCase):
         self.exchange=subject.Exchange(self.scope,mock.Mock())
         self.materialize()
         result=self.capture()
-        for row in result['targets'].values():
+        for side,row in result['targets'].items():
             self.assertEqual(52,row['requests'])
+            self.assertIs(side=='csharp',row['directCacheAffectedRowsRecorded'])
             self.assertEqual(4,row['commands'])
             self.assertTrue(row['directCacheWriteThenCommitAndRollbackObserved'])
             self.assertFalse(row['physicalTargetVerified'])
@@ -116,8 +118,11 @@ class CaptureTests(unittest.TestCase):
                 trace['commands'].append(cache)
                 boundary=trace['transactions'][1]
                 boundary['operation']=outcome
-                subject.verify_cache_transaction(trace,'offline',side,outcome)
-                for change,code in (({'connection':2},'capture-cache-update-boundary'),({'affectedRows':0},'capture-cache-update-boundary'),({start:25},'capture-cache-update-boundary'),({finish:55},'capture-cache-transaction-outcome'),({'sql':'UPDATE sample_contract_line SET remarks=?'},'capture-cache-update-count')):
+                self.assertTrue(subject.verify_cache_transaction(trace,'offline',side,outcome))
+                if java:
+                    jdbc_execute=[dict(command,operation='execute',affectedRows=None) for command in (parent,cache)]
+                    self.assertFalse(subject.verify_cache_transaction({**trace,'commands':jdbc_execute},'offline',side,outcome))
+                for change,code in (({'connection':2},'capture-cache-update-boundary'),({'affectedRows':0},'capture-cache-affected-rows'),({'affectedRows':None},'capture-cache-affected-rows'),({start:25},'capture-cache-update-boundary'),({finish:55},'capture-cache-transaction-outcome'),({'sql':'UPDATE sample_contract_line SET remarks=?'},'capture-cache-update-count')):
                     with self.subTest(side=side,outcome=outcome,change=change),self.assertRaisesRegex(ValueError,code):
                         subject.verify_cache_transaction({**trace,'commands':[parent,{**cache,**change}]},'offline',side,outcome)
                 with self.assertRaisesRegex(ValueError,'capture-cache-transaction-outcome'):
