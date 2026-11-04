@@ -34,16 +34,16 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
     if resources.is_write_measurement(value):
         if type(value.get("writeReplayRequests")) is not int or value["writeReplayRequests"] != resources.WRITE_REQUEST_BUDGET:
             raise ValueError("写入请求数与直接批准范围不符")
-        purpose = resources.WRITE_MEASUREMENT_RESOURCES
+        purpose = resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
     elif resources.is_measurement(value):
-        purpose = resources.MEASUREMENT_RESOURCES
+        purpose = resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
@@ -147,7 +147,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE,resources.WRITE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
