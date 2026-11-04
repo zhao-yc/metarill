@@ -75,6 +75,8 @@ public sealed partial class LocalGenerationUpdateTests : IAsyncLifetime
     [Theory]
     [InlineData("frontend/common/utils.js")]
     [InlineData("backend/Application.Host/Program.cs")]
+    [InlineData("src/Metarill.Files/FileModels.cs")]
+    [InlineData("src/Metarill.Files/FileLibraryService.cs")]
     public void Runtime_update_only_changes_runtime_and_manifest_files(string runtime)
     {
         var (target, candidate) = Packages(Catalog(), Catalog());

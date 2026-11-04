@@ -174,6 +174,8 @@ app.Use(async (context, next) =>
         }
         var (status, message) = error switch
         {
+            // 文件运行时已核真实actor后的拒权不能误报401，避免原客户端误判登录失效。
+            AuthenticatedFileReadDeniedException => (403, "没有当前操作权限。"),
             UnauthorizedAccessException => (401, "请先登录，或确认应用认证配置。"),
             SecurityException => (403, "没有当前操作权限。"),
             // 已知业务版本冲突沿原工作台提示返回，其他InvalidOperationException仍作为内部错误隐藏。

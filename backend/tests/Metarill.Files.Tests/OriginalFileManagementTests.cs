@@ -64,7 +64,7 @@ public sealed class OriginalFileManagementTests
         // 旧坏引用只能拒权/从列表排除，不能把损坏文本当作有效引用或伪装数据库错误。
         await fixture.Store.UpdateAsync(fixture.TableName,record,new Dictionary<string,object?>{{"attachments","损坏JSON"}});
         Assert.DoesNotContain(await other.ListAccessibleAsync(fixture.ProtectedColumnId,null,folder.Id),row=>row.FileId==file.FileId);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>other.ResolveAsync(file.FileId));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(()=>other.ResolveAsync(file.FileId));
     }
     /// <summary>上传/完成仍认实际上传者，超级读取身份不能接管他人的上传计划。</summary>
     [FilesIntegrationFact]

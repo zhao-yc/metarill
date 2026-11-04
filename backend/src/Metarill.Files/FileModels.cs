@@ -17,6 +17,9 @@ public sealed record FileLibraryOptions
     public IReadOnlySet<string> AllowedExtensions { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".txt", ".csv", ".xlsx", ".xls", ".docx", ".doc", ".pptx", ".ppt", ".zip", ".mp3", ".mp4" };
 }
+/// <summary>已建立真实文件访问身份后的读取拒绝；保留UnauthorizedAccessException继承以兼容现有拒权处理，宿主须映射403。</summary>
+public sealed class AuthenticatedFileReadDeniedException(string message) : UnauthorizedAccessException(message) { }
+
 public sealed record FileUploadRequest(string OriginalName, string? MimeType, long SizeBytes, string? ConfigColumnId = null, long? FolderId = null, string? Sha256 = null);
 public sealed record LocalUploadPlan(string ProviderCode, string UploadMode, string UploadUrl, IReadOnlyDictionary<string, string> Headers, IReadOnlyDictionary<string, string> FormData, DateTimeOffset ExpireAt);
 public sealed record FileUploadPlan(long FileId, LocalUploadPlan Plan);

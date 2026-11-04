@@ -155,3 +155,6 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/standalone-web
 
 
 C46补齐平台自身的特殊结构来源：只有平台Program显式绑定的服务端发布目录可以保留原安全管理页参与结构组合，物理表/字段/索引仍按通用严格校验，普通独立应用的同形JSON继续拒绝。此修复不要求既有普通应用DDL或再生成，也不开放管理Full；[实际自举证据](testing/platform-self-schema-composition.md)单列。
+
+
+2026-11-04 V182修复独立宿主把已认证文件读取拒权误报401的问题。新包使用明确拒权类型及403映射，原真实未认证仍401、文件权限不放宽；已知“文件仍被引用”删除拒绝沿原HTTP200/R500业务提示。已有应用应同批同步Files运行时和受管宿主入口，无元数据／DDL或页面变化；具体[运行时跟进步骤](local-generation-update.md#已认证文件读取拒权分类跟进2026-11-04v182)。本机及真实生成宿主HTTP通过，固定镜像／MySQL后段正式验收另记，不能以此宣布首版完成。

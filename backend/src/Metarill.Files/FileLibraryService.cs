@@ -146,7 +146,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         var key = await store.Session.InTransactionAsync(async () =>
         {
             var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, true, cancellationToken); RequireDeleteOwner(row, actor);
-            if ((await store.ReadForUpdateAsync(References, new Dictionary<string, object?> { ["file_id"] = id }, cancellationToken)).Count > 0) throw new InvalidOperationException("文件仍被业务记录引用，不能删除。");
+            if ((await store.ReadForUpdateAsync(References, new Dictionary<string, object?> { ["file_id"] = id }, cancellationToken)).Count > 0) throw new BusinessRuleException("文件仍被业务记录引用，不能删除。");
             var storageKey = SqlRowStore.Text(row, "storage_key"); Storage.ValidateKey(storageKey, Root);
             await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "deleted", ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
             return storageKey;
@@ -286,20 +286,20 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     private async Task RequireReadableAsync(IReadOnlyDictionary<string, object?> row, RuntimeActor actor, CancellationToken token)
     {
         var status=SqlRowStore.Text(row,"status");var mode=SqlRowStore.Text(row,"access_mode");
-        if(SqlRowStore.Text(row,"yz_project_id")!=actor.ProjectId||status is not ("uploaded" or "ready")||mode is not ("PUBLIC" or "PROTECTED"))throw new UnauthorizedAccessException("文件不存在或不可访问。");
+        if(SqlRowStore.Text(row,"yz_project_id")!=actor.ProjectId||status is not ("uploaded" or "ready")||mode is not ("PUBLIC" or "PROTECTED"))throw new AuthenticatedFileReadDeniedException("文件不存在或不可访问。");
         if(mode=="PUBLIC")
         {
             if(status=="ready")return;
-            throw new UnauthorizedAccessException("公开文件尚未完成上传。");
+            throw new AuthenticatedFileReadDeniedException("公开文件尚未完成上传。");
         }
         if(actor.IsAdministrator||authorization.IsCurrentRealmSuper())return;
         if(status=="uploaded")
         {
             if(SqlRowStore.Id(row,"owner_id")==actor.AccountId)return;
-            throw new UnauthorizedAccessException("没有该文件草稿的读取权限。");
+            throw new AuthenticatedFileReadDeniedException("没有该文件草稿的读取权限。");
         }
         if(await FileReferenceReadAuthorization.CanReadAsync(store,registry,authorization,SqlRowStore.Id(row),actor,token))return;
-        throw new UnauthorizedAccessException("没有当前文件的业务记录读取权限。");
+        throw new AuthenticatedFileReadDeniedException("没有当前文件的业务记录读取权限。");
     }
     /// <summary>返回固定本地路由，不把存储键、物理路径或客户端 URL 暴露给前端。</summary>
     private FileDescriptor Describe(IReadOnlyDictionary<string, object?> row, bool allowProtectedDraft = false)

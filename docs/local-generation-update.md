@@ -109,3 +109,10 @@ metarill update recover --target E:\应用 --transaction active中的事务ID --
 ## S3文件运行时跟进（2026-10-30，C57）
 
 需要S3的工程通过原预览/确认流程成套更新Files运行时、宿主注册和NuGet精确依赖；四段SDK版本完整锁定，不裁段或使用浮动。私有S3凭据不进入候选包，默认仍为local。已用c2b0e24真实旧CLI/636文件应用完成当前638文件候选升级，9写入/0删除/19保留，旧应用自身严格编译、手写/AppID/私有配置逐字及重复unchanged验证通过；原模块更新保护继续，未新增操作步骤。对象已经位于S3时不能直接回退仅本地运行时；真实云端和数据/权限/性能矩阵仍待，详见[S3接线](s3-object-storage.md)。
+
+
+## 已认证文件读取拒权分类跟进（2026-11-04，V182）
+
+从修正后的同一源码导出可信候选，按原在线助手或CLI的 `sync-runtime` 先预览再应用：`src/Metarill.Files/FileModels.cs`、`FileLibraryService.cs` 与受管 `backend/Application.Host/Program.cs` 须同批更新。新完整／BackendOnly包分别使用对应宿主模板；已有目录出现自定义或归属冲突时保留现场审查，不能用新Program覆盖归属不明改动。只更新Files DLL而保留旧宿主仍可能把明确拒权当作401。
+
+此项不改变权限、元数据、表结构或数据，不需要DDL／回填／页面再生成。手写Service partial、AppID和私有配置按原更新保护保留。新明确读取拒权仍派生原UnauthorizedAccessException；独立宿主将它映射403，真实未认证继续401。被引用文件删除沿现有BusinessRuleException返回HTTP200/R500；内部数据库／IO异常仍不可冒充业务规则。编译／本机HTTP与真实账号／MySQL验收分开记录，见[V182](performance-acceptance.md#v182-c已认证文件读取拒权分类修复及宿主http回归)。

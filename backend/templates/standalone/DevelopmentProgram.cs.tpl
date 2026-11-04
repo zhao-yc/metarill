@@ -110,6 +110,8 @@ app.Use(async (context, next) =>
     {
         var (status, message) = error switch
         {
+            // 文件运行时已核真实actor后的拒权不能误报401，避免原客户端误判登录失效。
+            AuthenticatedFileReadDeniedException => (403, "没有当前操作权限。"),
             UnauthorizedAccessException => (401, "请先登录；开发认证仅在 Development 且显式配置后可用。"),
             SecurityException => (403, "没有当前操作权限。"),
             PageImportException { IsInputError: true } => (400, error.Message),

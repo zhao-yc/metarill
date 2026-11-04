@@ -17,6 +17,7 @@ public sealed class StandaloneBusinessRuleHttpTests
             await File.WriteAllTextAsync(Path.Combine(package,"backend/Application.Host/BusinessRuleProbeController.cs"),"""
 using System.Security;
 using Metarill.Core.Contracts;
+using Metarill.Runtime.Files;
 using Microsoft.AspNetCore.Mvc;
 namespace Example.BusinessRuleHttp;
 // 只为本次异常合同提供入口，避免数据库与身份替身掩盖真实宿主中间件。
@@ -30,6 +31,7 @@ public sealed class BusinessRuleProbeController:ControllerBase
         "argument"=>throw new ArgumentException("参数正文标记不得回显"),
         "database"=>throw new InvalidOperationException("SQL连接正文标记不得回显"),
         "unauthorized"=>throw new UnauthorizedAccessException("身份正文标记不得回显"),
+        "file-forbidden"=>throw new AuthenticatedFileReadDeniedException("文件内部路径标记不得回显"),
         "forbidden"=>throw new SecurityException("权限正文标记不得回显"),
         "unsupported"=>throw new NotSupportedException("内部路径标记不得回显"),
         _=>R<string>.Error("原控制器业务失败")
@@ -37,7 +39,7 @@ public sealed class BusinessRuleProbeController:ControllerBase
 }
 """);
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(package,operation);var hostDirectory=Path.Combine(package,"backend/Application.Host");var start=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",hostDirectory);start.ArgumentList.Add(Path.Combine(hostDirectory,"bin/Debug/net10.0/Application.Host.dll"));start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["DOTNET_ENVIRONMENT"]="Production";start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";start.Environment.Remove("METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY");host=await FreshHost.StartAsync(start,"/health");
-            foreach(var (kind,status,code,message) in new[]{("business",200,500,"合同金额不能小于零"),("argument",400,400,"请求参数不符合页面定义。"),("database",500,500,"操作失败，请由应用管理员核查服务端状态。"),("unauthorized",401,401,"请先登录，或确认应用认证配置。"),("forbidden",403,403,"没有当前操作权限。"),("unsupported",501,501,"此能力需要宿主实现，目前不可用。"),("direct",200,500,"原控制器业务失败")})
+            foreach(var (kind,status,code,message) in new[]{("business",200,500,"合同金额不能小于零"),("argument",400,400,"请求参数不符合页面定义。"),("database",500,500,"操作失败，请由应用管理员核查服务端状态。"),("unauthorized",401,401,"请先登录，或确认应用认证配置。"),("forbidden",403,403,"没有当前操作权限。"),("file-forbidden",403,403,"没有当前操作权限。"),("unsupported",501,501,"此能力需要宿主实现，目前不可用。"),("direct",200,500,"原控制器业务失败")})
             {
                 using var response=await host.Client.GetAsync("/contract-probe/"+kind);Assert.Equal((HttpStatusCode)status,response.StatusCode);using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(code,json.RootElement.GetProperty("code").GetInt32());Assert.Equal(message,json.RootElement.GetProperty("msg").GetString());
             }

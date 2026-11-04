@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Metarill.Core.Persistence;
+using Metarill.Core.Contracts;
 using Metarill.Runtime.Files;
 using Metarill.Runtime.Persistence;
 using Xunit;
@@ -24,6 +25,21 @@ public sealed class FileLibraryIntegrationTests
         Assert.Equal(allowed.FileId, Assert.Single(fixture.FileIds));
     }
 
+    /// <summary>就绪保护文件的已认证普通身份拒读必须可识别为403类，不改变原基类捕获和实际权限。</summary>
+    [FilesIntegrationFact]
+    public async Task Authenticated_private_file_denial_has_explicit_forbidden_classification()
+    {
+        await using var fixture=await FilesFixture.CreateAsync();
+        var bytes=Encoding.UTF8.GetBytes("已认证但没有业务记录读取权限");
+        var plan=await fixture.PlanAsync("权限分类.txt",bytes);
+        var service=fixture.Service();await service.UploadAsync(plan.FileId,new MemoryStream(bytes));await service.CompleteAsync(plan.FileId);
+        // 就绪后上传者也不能凭所有权越过真实引用权限；先核actor，再产生明确拒权。
+        await Assert.ThrowsAsync<AuthenticatedFileReadDeniedException>(()=>service.ResolveAsync(plan.FileId));
+        await Assert.ThrowsAsync<AuthenticatedFileReadDeniedException>(()=>service.OpenContentAsync(plan.FileId));
+        await using var allowed=(await fixture.Service(fixture.Actor(administrator:true)).OpenContentAsync(plan.FileId)).Stream;
+        Assert.Equal(bytes.Length,allowed.Length);
+    }
+
     [FilesIntegrationFact]
     public async Task Local_upload_complete_private_public_folder_and_delete_lifecycle()
     {
@@ -36,11 +52,11 @@ public sealed class FileLibraryIntegrationTests
         Assert.StartsWith("/admin/sys/file-library/local-upload/", plan.Plan.UploadUrl);
         Assert.Equal("local", plan.Plan.ProviderCode);
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.CompleteAsync(plan.FileId));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ResolveAsync(plan.FileId));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => service.ResolveAsync(plan.FileId));
         var uploaded = await service.UploadAsync(plan.FileId, new MemoryStream(bytes));
         Assert.Equal("uploaded", uploaded.Status); Assert.Null(uploaded.Url);
         Assert.NotNull((await service.ResolveAsync(plan.FileId)).Url);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002)).OpenContentAsync(plan.FileId));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002)).OpenContentAsync(plan.FileId));
         await using(var draft=(await service.OpenContentAsync(plan.FileId)).Stream)Assert.Equal(bytes.Length,draft.Length);
         var ready = await service.CompleteAsync(plan.FileId);
         Assert.Equal("ready", ready.Status); Assert.Equal("text/plain", ready.MimeType);
@@ -48,16 +64,16 @@ public sealed class FileLibraryIntegrationTests
         Assert.DoesNotContain(".blob", JsonSerializer.Serialize(ready));
         Assert.Equal(ready.Sha256, (await service.CompleteAsync(plan.FileId)).Sha256);
         // 原V8就绪上传者不能只凭所有权读取；本生命周期用同项目管理员检查寻址/Range。
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ResolveAsync(plan.FileId));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => service.ResolveAsync(plan.FileId));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId));
         var privateFile = await fixture.Service(fixture.Actor(administrator:true)).OpenContentAsync(plan.FileId);
         await using (privateFile.Stream)
         {
             Assert.True(privateFile.Stream.CanSeek); privateFile.Stream.Position = 3;
             Assert.Equal(bytes[3], privateFile.Stream.ReadByte());
         }
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002)).OpenContentAsync(plan.FileId, false, fixture.PageId, 123));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002, true, "999999")).ResolveAsync(plan.FileId));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002)).OpenContentAsync(plan.FileId, false, fixture.PageId, 123));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002, true, "999999")).ResolveAsync(plan.FileId));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId, true));
         Assert.DoesNotContain(await service.ListAsync(folder.Id), f => f.FileId == plan.FileId);
         Assert.Contains(await fixture.Service(fixture.Actor(administrator:true)).ListAsync(folder.Id), f => f.FileId == plan.FileId);
@@ -65,7 +81,7 @@ public sealed class FileLibraryIntegrationTests
         Assert.True((await service.DeleteAsync(plan.FileId)).StorageRemoved);
         await service.DeleteFolderAsync(folder.Id);
         Assert.DoesNotContain(await service.ListFoldersAsync(), f => f.Id == folder.Id);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId));
+        await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId));
         var publicFile = await fixture.ReadyAsync("公开资料.txt", bytes, publicly: true);
         Assert.StartsWith("/admin/sys/file-library/public-content/", publicFile.Url);
         var handle = await fixture.Service(fixture.Actor(8002, false, "999999")).OpenContentAsync(publicFile.FileId, true);
@@ -117,7 +133,7 @@ public sealed class FileLibraryIntegrationTests
             await observer.BeforeCommitAsync(Context(fixture, record, new Dictionary<string, object?> { ["attachments"] = json })); return true;
         });
         Assert.Single(await fixture.ReferencesAsync(record));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteAsync(file.FileId));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.DeleteAsync(file.FileId));
         await fixture.Session.InTransactionAsync(async () =>
         {
             const string unrelated = "这不是文件数组，也不应被解析";

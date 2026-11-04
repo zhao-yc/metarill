@@ -141,7 +141,7 @@ internal sealed class RedundantFileConcurrencyFixture:IAsyncDisposable
     internal async Task ReadableAsync(long file,bool allowed)
     {
         if(allowed)Assert.Equal(file,(await Service(Reader).ResolveAsync(file)).FileId);
-        else await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Service(Reader).ResolveAsync(file));
+        else await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(()=>Service(Reader).ResolveAsync(file));
     }
     /// <summary>即便使用相同全局祖先，外项目来源也不能在本项目挂文件，拒绝后不留引用。</summary>
     internal async Task AssertForeignSourceDeniedAsync(long file)
