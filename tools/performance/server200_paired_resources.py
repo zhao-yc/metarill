@@ -39,6 +39,18 @@ CURRENT_MEASUREMENT_RESOURCES = "paired-current-measurement-resources-v1"
 CURRENT_WRITE_MEASUREMENT_NATIVE = "paired-native-current-write-measurement-v1"
 CURRENT_WRITE_MEASUREMENT_RESOURCES = "paired-current-write-measurement-resources-v1"
 CURRENT_MEASUREMENT_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:cc67991c443490a24c0598f2f8861931cdf12d13a664c87839087035f7699732"}
+# 两端同索引复测有独立用途和镜像，不能向原三表测量入口暗中加索引。
+INDEXED_WRITE_MEASUREMENT_NATIVE = "paired-native-indexed-write-measurement-v1"
+INDEXED_WRITE_MEASUREMENT_RESOURCES = "paired-indexed-write-measurement-resources-v1"
+RELATION_INDEX_PROFILE = "original-three-table-relation-indexes-v1"
+INDEXED_WRITE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:3e64578db6a01b25d6c83c22383d4c0ff40b0df9023d65faff315ace96d1cb70"}
+
+
+def is_indexed_measurement(value):
+    """原六初始化后单独升级索引；仅该用途可调用镜像内固定索引工具。"""
+    return value.get("purpose") in (INDEXED_WRITE_MEASUREMENT_NATIVE, INDEXED_WRITE_MEASUREMENT_RESOURCES)
+
+
 # 当前 SQL 诊断只绑定已验证镜像和数据程序集，不改变历史用途或计时用途。
 CURRENT_OBSERVED_NATIVE = "paired-native-current-observed-v1"
 CURRENT_OBSERVED_RESOURCES = "paired-current-observed-resources-v1"
@@ -62,7 +74,8 @@ def is_measurement(value):
 def is_write_measurement(value):
     """写入测量须使用自己的明确用途，不能借用只读租约。"""
     return value.get("purpose") in (WRITE_MEASUREMENT_NATIVE, WRITE_MEASUREMENT_RESOURCES,
-                                    CURRENT_WRITE_MEASUREMENT_NATIVE, CURRENT_WRITE_MEASUREMENT_RESOURCES)
+                                    CURRENT_WRITE_MEASUREMENT_NATIVE, CURRENT_WRITE_MEASUREMENT_RESOURCES,
+                                    INDEXED_WRITE_MEASUREMENT_NATIVE, INDEXED_WRITE_MEASUREMENT_RESOURCES)
 
 
 def is_current_measurement(value):
@@ -83,6 +96,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_indexed_measurement(value): return INDEXED_WRITE_IMAGES
     if is_current_measurement(value) or is_current_observed(value): return CURRENT_MEASUREMENT_IMAGES
     if is_existing_lines(value) or is_measurement(value): return EXISTING_LINE_IMAGES
     return OBSERVATION_IMAGES if is_observed(value) else IMAGES
@@ -100,7 +114,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")

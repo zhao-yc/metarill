@@ -28,6 +28,12 @@ INDEX_PROFILE = (
     ("primary", 1, (("id", "A", None),)),
 )
 
+# 只供独立索引用途核对真实属性；旧用途默认仍严格要求原三表索引。
+RELATION_INDEX_COLUMNS = {
+    "sample_contract": ("sample_customer_id", "delete_no", "id"),
+    "sample_contract_line": ("sample_contract_id", "delete_no", "id"),
+}
+
 
 def audit(deleted):
     """固定物理审计列，删除样本使用真实墓碑值。"""
@@ -141,7 +147,7 @@ def index_sql(run, target):
             "ORDER BY TABLE_NAME,INDEX_NAME,SEQ_IN_INDEX LIMIT 257;")
 
 
-def verify_indexes(raw):
+def verify_indexes(raw, *, relation_indexes=False):
     """索引名字可不同，主键、唯一性、列顺序、前缀、方向及可见性必须匹配。"""
     by_table = {table: {} for table in COLUMNS}
     for line in raw.splitlines():
@@ -156,9 +162,13 @@ def verify_indexes(raw):
         if sequence != str(len(columns)+1) or not column or direction != "A" or prefix:
             raise ValueError("性能索引列顺序、方向或前缀不符")
         columns.append((column,direction,None))
-    for indexes in by_table.values():
+    if type(relation_indexes) is not bool: raise ValueError("未知性能索引模式")
+    for table,indexes in by_table.items():
+        expected = INDEX_PROFILE
+        if relation_indexes and table in RELATION_INDEX_COLUMNS:
+            expected=tuple(sorted((*INDEX_PROFILE,("index",0,tuple((column,"A",None) for column in RELATION_INDEX_COLUMNS[table])))))
         signature=tuple(sorted((category,unique,tuple(columns)) for (_,category,unique),columns in indexes.items()))
-        if signature != INDEX_PROFILE:
+        if signature != expected:
             raise ValueError("两端必须使用固定三表索引")
 
 
@@ -196,7 +206,7 @@ def expected_column_layout():
             yield "\t".join(map(str,(table,name,*shape,"D"+default)))
 
 
-def verify_readback(run, target, query, *, exclude_write_samples=False):
+def verify_readback(run, target, query, *, exclude_write_samples=False, relation_indexes=False):
     """逐字核对独立读回，回执仅保留摘要和固定行数。"""
     database = database_name(run, target)
     actual_pin = query("SELECT @@hostname,@@server_uuid;")
@@ -214,5 +224,5 @@ def verify_readback(run, target, query, *, exclude_write_samples=False):
         if len(actual)!=count or any(observed!=expected for observed,expected in zip(actual,expected_wire(table))):
             raise ValueError(f"性能样本物理回读不符：{table}")
         hashes[table]=hashlib.sha256(("\n".join(actual)+"\n").encode("ascii")).hexdigest()
-    verify_indexes(query(index_sql(run,target)))
+    verify_indexes(query(index_sql(run,target)),relation_indexes=relation_indexes)
     return {"target":target,"rows":dict(COUNTS),"tableSha256":hashes,"physicalReadbackVerified":True,"fixedIndexesVerified":True}

@@ -34,15 +34,18 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
+    if resources.is_indexed_measurement(value):
+        if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
+    elif "relationIndexProfile" in value: raise ValueError("旧用途不能隐式升级索引")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
     if resources.is_current_observed(value): purpose = resources.CURRENT_OBSERVED_RESOURCES
     if resources.is_write_measurement(value):
         if type(value.get("writeReplayRequests")) is not int or value["writeReplayRequests"] != resources.WRITE_REQUEST_BUDGET:
             raise ValueError("写入请求数与直接批准范围不符")
-        purpose = resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
+        purpose = resources.INDEXED_WRITE_MEASUREMENT_RESOURCES if resources.is_indexed_measurement(value) else resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
     elif resources.is_measurement(value):
         purpose = resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
@@ -148,13 +151,14 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
     if mysql.mysql(fixture.seed_transaction_sql(run,target),guarded_transaction=True)!="1\n1":
         raise ValueError("measurement-seed-receipt")
-    return fixture.verify_readback(run,target,mysql.mysql)
+    options={"relation_indexes":True} if resources.is_indexed_measurement(value) else {}
+    return fixture.verify_readback(run,target,mysql.mysql,**options)
 
 
 def capture(args, timeout=120):
@@ -207,9 +211,17 @@ def pair_schema_apply(plan, result, expected_database):
     return result
 
 
-def initialization_job(root, value, name, state, state_path):
+INDEX_JOBS=tuple("csharp-index-"+side+"-"+mode for side in ("java","csharp") for mode in ("preview","apply","verify"))
+
+
+def initialization_job(root, value, name, state, state_path, *, expected_index_plan=None):
     """每个显式命令使用独占短期容器，先登记再创建；无论成败按同ID/token清理并核零。"""
-    if name not in JOBS: raise ValueError("未知初始化入口")
+    indexed=name in INDEX_JOBS
+    if name not in JOBS and not (indexed and resources.is_indexed_measurement(value)): raise ValueError("未知初始化入口")
+    if indexed:
+        apply=name.endswith("-apply")
+        if (apply and not re.fullmatch("[a-f0-9]{64}",expected_index_plan or "")) or (not apply and expected_index_plan is not None): raise ValueError("索引动作缺少精确预览摘要或多传确认")
+    elif expected_index_plan is not None: raise ValueError("原初始化不能接受索引确认")
     target = "java" if name.startswith("java-") else "csharp"
     resource_state = http.read_json((root / "resource-state.json").read_bytes())
     if resource_state.get("ownerToken") != state["ownerToken"] or resource_state.get("status") != "created" or resource_state.get("hostsStarted"):
@@ -225,7 +237,12 @@ def initialization_job(root, value, name, state, state_path):
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "536870912", "--memory-swap", "536870912", "--cpus", "0.5", "--pids-limit", "128",
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=1770", "--env-file", str(root / (target + ".env")),
             "--mount", f"type=bind,src={root}/data-{target},dst=/data"]
-    if target == "java":
+    if indexed:
+        side,mode=name.split("-")[2:]
+        args += ["--env","METARILL_INDEX_RUN_ID="+value["runId"],"--env","METARILL_INDEX_AUTHORIZATION=approved"]
+        if expected_index_plan is not None: args += ["--env","METARILL_INDEX_EXPECTED_PLAN="+expected_index_plan]
+        args += ["--entrypoint","dotnet",resources.images_for(value)["csharp"],"exec","--runtimeconfig","/app/Application.Host.runtimeconfig.json","--depsfile","/app/Application.Host.deps.json","/app/Metarill.Paired.Indexes.dll",mode+"-"+side]
+    elif target == "java":
         args += ["--mount", f"type=bind,src={root}/bootstrap,dst=/run/metarill/bootstrap,readonly", "--entrypoint", "java", resources.images_for(value)[target],
                  "-Dloader.path=/run/metarill/bootstrap/classes/", "-Dloader.main=com.yinzon.samplehost.PairedJavaConfigurationBootstrap", "-cp", "/app/application.jar",
                  "org.springframework.boot.loader.launch.PropertiesLauncher", "preview" if name == "java-preview" else "apply-initial", "/run/metarill/bootstrap/descriptor.json"]
@@ -250,6 +267,43 @@ def initialization_job(root, value, name, state, state_path):
             resources.require_owned(actual, item, resource_state); resources.docker("container", "rm", "--force", item["name"])
         if resources.inspect("container", item["name"]) is not None: raise RuntimeError("初始化容器清理未核零")
         item["containerAbsent"] = True; resources.write_state(state_path, state)
+
+
+# V159原适配器离线计划的固定期望值，只用于核对回执；Python不执行这些SQL。
+INDEX_CHANGES=[
+    {"kind":"addIndex","table":"sample_contract","column":None,"sql":"ALTER TABLE `sample_contract` ADD INDEX `ix_sample_contract_customer` (`sample_customer_id`, `delete_no`, `id`)"},
+    {"kind":"addIndex","table":"sample_contract_line","column":None,"sql":"ALTER TABLE `sample_contract_line` ADD INDEX `ix_sample_contract_line_contract` (`sample_contract_id`, `delete_no`, `id`)"},
+]
+
+
+def require_index_receipt(value,side,mode,result,preview=None):
+    """精确配对预览/执行摘要、两项DDL与零差异复核；失败或多项绝不能启动负载。"""
+    if side not in ("java","csharp") or mode not in ("preview","apply","verify"):raise ValueError("measurement-index-mode")
+    keys={"format","runId","target","operation","database","planSha256","changes","succeeded","appliedStatements"}
+    if (not isinstance(result,dict) or set(result)!=keys or result["format"]!=resources.RELATION_INDEX_PROFILE or result["runId"]!=value["runId"]
+        or result["target"]!=side or result["operation"]!=mode or result["database"]!="metarill_fresh_"+value["runId"][:16]+"_paired_"+side
+        or result["succeeded"] is not True or not isinstance(result["planSha256"],str) or not re.fullmatch("[a-f0-9]{64}",result["planSha256"])
+        or result["changes"]!=([] if mode=="verify" else INDEX_CHANGES) or type(result["appliedStatements"]) is not int
+        or result["appliedStatements"]!=(2 if mode=="apply" else 0)):
+        raise ValueError("measurement-index-receipt")
+    if mode=="apply" and (preview is None or result["planSha256"]!=preview["planSha256"]):raise ValueError("measurement-index-confirmation")
+    return result
+
+
+def upgrade_relation_indexes(root,value,state,state_path,mysql):
+    """只在本轮双库所有权完整、原六初始化完成且宿主未启动时逐端明确升级。"""
+    if not resources.is_indexed_measurement(value) or value.get("relationIndexProfile")!=resources.RELATION_INDEX_PROFILE:raise ValueError("measurement-index-purpose")
+    completed={job.get("target") for job in state.get("jobs",[]) if job.get("containerAbsent") is True and re.fullmatch("[a-f0-9]{64}",job.get("id", ""))}
+    if not {"init-"+job for job in JOBS}.issubset(completed):raise ValueError("measurement-index-original-initialization")
+    result={}
+    for side in ("java","csharp"):
+        require_database_ownership(mysql,value,state["ownerToken"])
+        before=require_index_receipt(value,side,"preview",initialization_job(root,value,"csharp-index-"+side+"-preview",state,state_path))
+        applied=require_index_receipt(value,side,"apply",initialization_job(root,value,"csharp-index-"+side+"-apply",state,state_path,expected_index_plan=before["planSha256"]),before)
+        verified=require_index_receipt(value,side,"verify",initialization_job(root,value,"csharp-index-"+side+"-verify",state,state_path))
+        result[side]={"preview":before,"applied":applied,"verified":verified}
+        state["relationIndexPlans"]=result;resources.write_state(state_path,state)
+    return result
 
 
 def send(port, method, path, body=None, token=None, form=False, sample=None):
@@ -473,6 +527,9 @@ def run(value):
         if verified.get("changes") != []: raise RuntimeError("C#结构核验仍有差异")
         security = initialization_job(root, value, "csharp-security", state, state_path)
         if security.get("status") != "initialized": raise RuntimeError("C#原安全初始化未成功")
+        if resources.is_indexed_measurement(value):
+            stage("按元数据预览确认应用两端同等关系索引")
+            state["relationIndexPlans"]=upgrade_relation_indexes(root,value,state,state_path,mysql)
         stage("同逻辑普通身份播种与逐字段回读")
         seed_lease = {**value, "purpose": "paired-identity-seed-v1", "leaseStatus": "running", "fixtureSha256": seed.fingerprint(fixture)}
         state["identitySeeds"] = []
@@ -541,6 +598,7 @@ def run(value):
                 }
             for side in ("java","csharp"):
                 options={} if write_measurement is None else {"exclude_write_samples":True}
+                if resources.is_indexed_measurement(value): options["relation_indexes"]=True
                 if measure_fixture.verify_readback(run_id,side,mysql.mysql,**options)!=state["measurementSeeds"][side]:
                     raise ValueError("measurement-post-readback")
             state["measurement"]["physicalFixtureUnchanged"]=True
