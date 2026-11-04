@@ -1,7 +1,7 @@
 """原客户页写入回放和独占样本只读核验合同。"""
 from __future__ import annotations
 
-from threading import Event
+from threading import Event, Lock
 
 import paired_http as http
 from paired_business_http import ROOTS, record_id
@@ -21,7 +21,8 @@ RECORD = "${record}"
 
 def write_scenario():
     """比较原 R 响应，只排除两端各自分配的创建 ID。"""
-    root = ROOTS["customer"]
+    # 原业务协调器使用带 /api 路径；性能客户端的 baseUrl 已含 /api，仅保留相对路由。
+    root = ROOTS["customer"].removeprefix("/api")
     updated = NAME_PATTERN + "-u"
 
     def step(method, path, checks, body=None):
@@ -136,6 +137,7 @@ def run_write_measurement(root, run, targets, tokens, probe, query):
     output = root / "measurement"
     output.mkdir(mode=0o700)
     stopped = Event()
+    failure_lock = Lock()
     first_results = {}
 
     def guarded_request(target, step, variables, timeout):
@@ -144,8 +146,21 @@ def run_write_measurement(root, run, targets, tokens, probe, query):
             raise ValueError("measurement-write-stopped")
         try:
             return write_request(target, step, variables, timeout)
-        except Exception:
-            stopped.set()
+        except Exception as error:
+            # 并发错误只留首个固定断言位置，禁止记录响应正文、变量值或认证头。
+            with failure_lock:
+                if not stopped.is_set():
+                    stopped.set()
+                    steps = config["scenarios"][0]["steps"]
+                    failure = {"runId": run, "errorType": type(error).__name__,
+                               "target": next((side for side, value in config.get("targets", {}).items()
+                                               if value == target), "unknown"),
+                               "step": next((index for index, value in enumerate(steps, 1)
+                                             if value == step), None)}
+                    if isinstance(error, http.ResponseAssertionError):
+                        failure.update(assertion=error.ordinal,
+                                       reason=error.reason if error.reason in {"pointer-missing", "type-mismatch", "value-mismatch"} else "unknown")
+                    (output / "request-failure.json").write_bytes(http.canonical(failure))
             raise
 
     def check_event(event):

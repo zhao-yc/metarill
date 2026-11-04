@@ -85,6 +85,10 @@ class WriteMeasurementTests(unittest.TestCase):
         self.assertEqual(IDENTIFIER, variables["record"])
         self.assertEqual(alternate_id, alternate["record"])
         self.assertEqual(*fingerprints)
+        root = "/api/admin/auto/sample_customer/81001"
+        self.assertEqual(root + "/add", observed[0][1])
+        self.assertTrue(all(path.startswith(root) and "/api/api/" not in path
+                            for _, path, _ in observed))
         self.assertTrue(observed[8][1].endswith("/detail/" + alternate_id))
         self.assertEqual(["POST", "GET", "POST", "POST", "GET", "DELETE", "POST"],
                          [method for method, _, _ in observed[:7]])
@@ -133,6 +137,39 @@ class WriteMeasurementTests(unittest.TestCase):
              self.assertRaisesRegex(ValueError,"measurement-write-http-failed"):
             write.run_write_measurement(Path(folder),RUN,{}, {},None,None)
         actual.assert_called_once()
+
+    def test_first_response_assertion_keeps_precise_location_without_private_payload(self):
+        """实际响应解析失败仅记录首个断言号，不保留正文或令牌。"""
+        target = {"baseUrl": "http://127.0.0.1:20001/api", "headers": {"loginStateId": "PRIVATE-TOKEN"}}
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.status = 200
+        response.read.return_value = b'{"code":500,"data":"PRIVATE-RESPONSE"}'
+        opener = mock.Mock()
+        opener.open.return_value = response
+        config = {"targets": {"java": target}, "scenarios": [write.write_scenario()]}
+
+        def run(output, config, probe, query, profile, *, transport, check_event):
+            """经过真实请求解析触发失败，再验证后续请求被阻止。"""
+            step = config["scenarios"][0]["steps"][0]
+            with self.assertRaises(http.ResponseAssertionError):
+                transport(target, step, {"run": RUN, "phase": "warmup", "concurrency": 1, "round": -1, "iteration": 0}, 1)
+            with self.assertRaisesRegex(ValueError, "measurement-write-stopped"):
+                transport(target, step, {}, 1)
+            raise ValueError("measurement-write-http-failed")
+
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(write, "config_for", return_value=config), \
+             mock.patch.object(write, "run_trials", side_effect=run), \
+             mock.patch.object(http.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaisesRegex(ValueError, "measurement-write-http-failed"):
+                write.run_write_measurement(Path(folder), RUN, {}, {}, None, None)
+            text = (Path(folder) / "measurement/request-failure.json").read_text()
+            failure = json.loads(text)
+            self.assertNotIn("PRIVATE", text)
+            self.assertEqual(("java", 1, 1, "value-mismatch"),
+                             tuple(failure[key] for key in ("target", "step", "assertion", "reason")))
+            opener.open.assert_called_once()
 
     def test_warmup_or_measured_response_mismatch_stops_next_trial(self):
         """原业务响应不等价立即中断，不用后续轮次覆盖差异。"""
