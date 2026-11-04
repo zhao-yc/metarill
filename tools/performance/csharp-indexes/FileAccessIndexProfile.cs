@@ -25,7 +25,7 @@ public static class FileAccessIndexProfile
         var owner=target=="java"?"owner_yz_manager_id":"owner_id";var page=target=="java"?"source_config_page_id":"page_id";var record=target=="java"?"source_record_id":"record_id";
         return table switch
         {
-            "yz_file_library"=>[new("mt_file_project_status",false,["yz_project_id","status"]),new("mt_file_folder",false,["yz_project_id","folder_id","delete_no"]),new("mt_file_owner",false,[owner])],
+            "yz_file_library"=>[new("mt_file_project_status",false,["yz_project_id","status"]),new("idx_yz_file_library_folder",false,["yz_project_id","folder_id","delete_no"]),new("mt_file_owner",false,[owner])],
             "yz_file_ref"=>[new("mt_ref_file",false,["file_id","delete_no"]),new("mt_ref_record",false,[page,record,"delete_no"]),new("mt_ref_project_record",false,["yz_project_id",record,page,"delete_no"])],
             _=>throw new InvalidOperationException("不能修改其它表的索引。")
         };

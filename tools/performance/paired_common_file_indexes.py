@@ -15,7 +15,7 @@ def require(ok,code):
 def desired(side):
     """只映射同一逻辑owner／page／record；两个不同类型的字段标识不进入共同索引。"""
     require(side in ('java','csharp'),'side');owner='owner_yz_manager_id' if side=='java' else 'owner_id';page='source_config_page_id' if side=='java' else 'page_id';record='source_record_id' if side=='java' else 'record_id'
-    return {'yz_file_library':[('mt_file_project_status',['yz_project_id','status']),('mt_file_folder',['yz_project_id','folder_id','delete_no']),('mt_file_owner',[owner])],'yz_file_ref':[('mt_ref_file',['file_id','delete_no']),('mt_ref_record',[page,record,'delete_no']),('mt_ref_project_record',['yz_project_id',record,page,'delete_no'])]}
+    return {'yz_file_library':[('mt_file_project_status',['yz_project_id','status']),('idx_yz_file_library_folder',['yz_project_id','folder_id','delete_no']),('mt_file_owner',[owner])],'yz_file_ref':[('mt_ref_file',['file_id','delete_no']),('mt_ref_record',[page,record,'delete_no']),('mt_ref_project_record',['yz_project_id',record,page,'delete_no'])]}
 
 
 def original(side):
@@ -95,11 +95,13 @@ def upgrade(root,value,state,state_path,require_ownership,job,required_jobs):
     require(normalize_statistics(result['java']['verified']['indexSnapshot'],'java')==normalize_statistics(result['csharp']['verified']['indexSnapshot'],'csharp'),'logical-parity');return result
 
 
-def inspect_indexes(query,run,side):
+def inspect_indexes(query,run,side,record_rows=None):
     """负载前后从独立连接只读17行实际STATISTICS，不依赖迁移回执或数据库仍为空。"""
     require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run) and side in ('java','csharp'),'read-scope');database='metarill_fresh_'+run[:16]+'_paired_'+side
     sql="SELECT TABLE_NAME,INDEX_NAME,NON_UNIQUE,SEQ_IN_INDEX,COALESCE(COLUMN_NAME,''),COALESCE(COLLATION,''),COALESCE(CAST(SUB_PART AS CHAR),''),INDEX_TYPE,IS_VISIBLE FROM information_schema.STATISTICS WHERE TABLE_SCHEMA='"+database+"' AND TABLE_NAME IN ('yz_file_library','yz_file_ref') ORDER BY TABLE_NAME,INDEX_NAME,SEQ_IN_INDEX LIMIT 65;"
     rows=[]
     for line in query(sql).splitlines():
         row=line.split('\t');require(len(row)==9 and row[2] in ('0','1') and row[3].isascii() and row[3].isdigit(),'read-row');rows.append(dict(zip(['table','index','nonUnique','sequence','column','direction','prefix','kind','visible'],[row[0],row[1],int(row[2]),int(row[3]),*row[4:]])))
+    # 即使精确属性校验失败，也先留存有界的实际索引属性，不能只保留错误码。
+    if record_rows is not None:record_rows(dict(target=side,rows=rows))
     logical=normalize_statistics(rows,side);return dict(target=side,rows=rows,logicalSha256=http.digest(logical),physicalAttributesVerified=True)

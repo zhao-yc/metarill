@@ -46,6 +46,20 @@ def wire(side):
 
 
 class CommonFileIndexContractTests(unittest.TestCase):
+    def test_folder_index_preserves_original_java_startup_name_on_both_targets(self):
+        """原固定JAR启动器只按名称补建索引；改名会在宿主启动后产生额外索引。"""
+        for side in ('java','csharp'):
+            indexes=dict(common.desired(side)['yz_file_library'])
+            self.assertEqual(['yz_project_id','folder_id','delete_no'],indexes['idx_yz_file_library_folder'])
+            self.assertNotIn('mt_file_folder',indexes)
+
+    def test_drift_records_actual_bounded_statistics_before_rejection(self):
+        """索引漂移仍拒绝；失败证据必须保存实际额外行，而不是只有固定错误码。"""
+        v=value();rows=[];raw=wire('java');extra=raw.splitlines()[0]
+        with self.assertRaisesRegex(ValueError,'statistics-drift'):
+            common.inspect_indexes(lambda sql:raw+'\n'+extra,v['runId'],'java',rows.append)
+        self.assertEqual(1,len(rows));self.assertEqual('java',rows[0]['target']);self.assertEqual(18,len(rows[0]['rows']))
+
     def test_purpose_profile_images_and_full_download_budget_are_bound_before_io(self):
         """原AE首测不升级；共同用途固定D109、同4834／18预算及索引profile。"""
         v=value();d=native.validate(v);self.assertEqual(native.resources.COMMON_FILE_MEASUREMENT_RESOURCES,d['purpose']);self.assertEqual(native.resources.COMMON_FILE_IMAGES,native.resources.images_for(d));self.assertTrue(native.resources.is_file_measurement(d));self.assertFalse(native.resources.is_extended_business(d));self.assertFalse(native.resources.is_observed(d));files.config_for(v,original_file.targets(v),original_file.tokens())
@@ -144,6 +158,21 @@ class CommonFileIndexFlowTests(previous.FlowFixture):
         with contextlib.redirect_stdout(io.StringIO()):result=native.run(self.value)
         self.assertTrue(result['passed']);self.assertEqual(18,self.jobs.call_count);self.assertEqual('paired-common-file-index-protected-measurement-only',result['acceptedScope']);self.assertEqual(result['fileIndexesBefore'],result['fileIndexesAfter']);self.assertTrue(result['measurement']['commonFileIndexAttributesVerified']);self.assertFalse(result['performanceAccepted']);self.assertEqual([],result['cleanupErrors']);self.assertEqual('ended',result['leaseStatus'])
         self.assertEqual(11,result['fileIndexPlans']['java']['applied']['appliedStatements']);self.assertEqual(10,result['fileIndexPlans']['csharp']['applied']['appliedStatements']);self.assertLess(self.events.index('csharp-file-index-csharp-verify'),self.events.index('file-measurement'));self.assertLess(self.events.index('file-measurement'),self.events.index('resources-cleanup'))
+
+    def test_host_start_index_drift_stops_before_download_and_still_cleans(self):
+        """模拟原启动器补建旧名称；负载前失败，不能把整批下载后才发现条件不齐当成功。"""
+        reads=0
+        def query(sql):
+            nonlocal reads
+            result=self.query(sql)
+            if 'FROM information_schema.STATISTICS' in sql:
+                reads+=1
+                if reads==3:return result+'\n'+result.splitlines()[0]
+            return result
+        self.mysql.mysql.side_effect=query
+        with contextlib.redirect_stdout(io.StringIO()):result=native.run(self.value)
+        self.assertFalse(result['passed']);self.assertEqual('measurement-file-index-statistics-drift',result['failure']['code'])
+        self.assertFalse(self.measured);self.assertNotIn('file-measurement',self.events);self.assertEqual([],result['cleanupErrors']);self.assertEqual('ended',result['leaseStatus']);self.assertIn('database-cleanup',self.events)
 
     def test_post_measurement_index_drift_invalidates_whole_run_and_still_cleans(self):
         """即使所有下载返回成功，负载后额外索引属性行仍使整轮无效；清理成功不能改写失败。"""

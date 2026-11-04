@@ -7,6 +7,17 @@ namespace Metarill.Paired.SqlObservation.Tests;
 /// <summary>只验空独占文件表索引的固定元数据／确认／漂移边界，所有结构为内存模型，不冒充MySQL。</summary>
 public sealed class FileAccessIndexProfileTests
 {
+    /// <summary>原Java启动器按固定索引名称检查；保持名称以防宿主自动增建不对等索引。</summary>
+    [Fact]public void Folder_index_retains_original_java_startup_name_on_both_targets()
+    {
+        foreach(var side in new[]{"java","csharp"})
+        {
+            var folder=Assert.Single(FileAccessIndexProfile.Desired("yz_file_library",side),i=>i.Name=="idx_yz_file_library_folder");
+            Assert.Equal(new[]{"yz_project_id","folder_id","delete_no"},folder.Columns);
+            Assert.DoesNotContain(FileAccessIndexProfile.Desired("yz_file_library",side),i=>i.Name=="mt_file_folder");
+        }
+    }
+
     /// <summary>Java十一项／C#十项，仅删除旧非唯一索引和添加六个共同索引；不生成改列、数据或主键操作。</summary>
     [Fact]public void Exact_plans_change_only_whitelisted_nonunique_secondary_indexes()
     {

@@ -595,6 +595,11 @@ def run(value):
             unobserved_hosts_started = True
             stage("核验两端真实进程监听")
             state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
+        if common_file_indexes is not None:
+            stage("宿主启动后核验共同文件索引，漂移时禁止发起下载负载")
+            state["fileIndexesAtHostReady"]={side:common_file_indexes.inspect_indexes(mysql.mysql,value["runId"],side,lambda rows:resources.write_state(root/("file-index-statistics-host-ready-"+rows["target"]+".json"),rows)) for side in ("java","csharp")}
+            if state["fileIndexesBefore"]!=state["fileIndexesAtHostReady"]:raise ValueError("measurement-file-index-host-start-drift")
+            resources.write_state(root/"file-indexes-host-ready.json",state["fileIndexesAtHostReady"])
         targets = {t: {"container": "metarill-perf-" + value["runId"] + "-" + t, "expectedImageId": resources.images_for(value)[t], "containerPort": 8080, "baseUrl": f"http://127.0.0.1:{value['ports'][t]}/api"} for t in ("java", "csharp")}
         probe = http.Server200LocalProbe(); before = http.equal_limits(probe, targets)
         state["transport"] = http.verify_transport({"transportProof": "server200-loopback-v1", "runId": value["runId"], "targets": targets}, probe, before)
@@ -651,7 +656,7 @@ def run(value):
                 stage("无SQL采集的原接口只读性能回放")
                 state["measurement"]=measurement.run_read_measurement(root,run_id,targets,tokens,probe,mysql.mysql)
             if common_file_indexes is not None:
-                state["fileIndexesAfter"]={side:common_file_indexes.inspect_indexes(mysql.mysql,run_id,side) for side in ("java","csharp")}
+                state["fileIndexesAfter"]={side:common_file_indexes.inspect_indexes(mysql.mysql,run_id,side,lambda rows:resources.write_state(root/("file-index-statistics-after-"+rows["target"]+".json"),rows)) for side in ("java","csharp")}
                 if state["fileIndexesBefore"]!=state["fileIndexesAfter"]:raise ValueError("measurement-file-index-post-drift")
                 if state["fileIndexesAfter"]["java"]["logicalSha256"]!=state["fileIndexesAfter"]["csharp"]["logicalSha256"]:raise ValueError("measurement-file-index-logical-parity")
                 resources.write_state(root/"file-indexes-after.json",state["fileIndexesAfter"]);state["measurement"]["commonFileIndexAttributesVerified"]=True
