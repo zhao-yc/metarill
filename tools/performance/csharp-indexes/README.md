@@ -2,7 +2,7 @@
 
 本工具只服务 Java／C# 同条件性能复测的独占合成环境，不能用于生产部署或替代平台工作台。原六初始化保持；协调器已有独立接线；V162 已完成两端真实索引升级和固定客户七步写入复测，原失败及未覆盖负载保留。离线工具通过本身不代表实库或性能验收。
 
-工具读取候选自身 `metadata/project.json`，按原包 SHA256 `12bc9e1ffa6cecccd78d4adca78a671064ed9f01607f90a46d10160fabe71ec2` 核验原模型，克隆元数据后只追加两条普通索引及六个字段引用。DDL 由 `MySqlSchemaPlanner`／`SchemaService` 生成：
+工具读取候选自身 `metadata/project.json`，按原包 SHA256 `12bc9e1ffa6cecccd78d4adca78a671064ed9f01607f90a46d10160fabe71ec2` 核验原模型，另明确接受已逐字段核对的扩展负载包字节摘要 `2e30000176bf5fd035eb1cc9b6295dd314701ffc5d4770942eaa65f77ce31134`，该包只为原三页启用追加导入与表单列导出，业务字段／默认／关系／原索引保持；不能传入任意同形JSON。克隆元数据后只追加两条普通索引及六个字段引用。DDL 由 `MySqlSchemaPlanner`／`SchemaService` 生成：
 
 | 表 | 索引 | 列顺序 |
 | --- | --- | --- |
@@ -26,3 +26,5 @@ CI 回归位于 `tools/performance/csharp-host.Tests/RelationIndexProfileTests.c
 
 
 同索引只读复测使用独立 `paired-native-indexed-read-measurement-v1` 和 `readReplayRequests=19336`，不能带写入预算。复用相同镜像／索引阶段，负载仍是原四读、400场景／三轮／并发1与4；从真实步骤推导19200正式、128预热和8首检。该读取接线的正式验收单独登记，不能拿客户写入或旧候选读取结果替代。
+
+扩展负载包的完整运行时、元数据和工具载荷另行固定。旧同索引读写用途仍锁定旧52文件镜像，不因本工具新增固定输入而自动切换镜像、请求或权限；新完整镜像通过探针也不代表真实文件／Excel／维护或性能通过。

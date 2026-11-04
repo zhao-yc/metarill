@@ -9,6 +9,8 @@ public static class RelationIndexProfile
 {
     public const string Name="original-three-table-relation-indexes-v1";
     public const string BaselineMetadataSha256="12bc9e1ffa6cecccd78d4adca78a671064ed9f01607f90a46d10160fabe71ec2";
+    // 扩展夹具仅启用原三页Excel能力；固定包内字节摘要，不接受任意同形元数据。
+    public const string ExtendedWorkloadMetadataSha256="2e30000176bf5fd035eb1cc9b6295dd314701ffc5d4770942eaa65f77ce31134";
     public static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private static readonly (string Table,string Foreign,string Index,string Id)[] Additions=
     [
@@ -19,7 +21,8 @@ public static class RelationIndexProfile
     /// <summary>先核原包精确字节，不能用更简单的模型替换已通过语义比对的三表。</summary>
     public static MetadataCatalog ReadBaseline(byte[] bytes)
     {
-        if(Hash(bytes)!=BaselineMetadataSha256)throw new InvalidOperationException("原同模型元数据摘要不符。");
+        var hash=Hash(bytes);
+        if(hash!=BaselineMetadataSha256&&hash!=ExtendedWorkloadMetadataSha256)throw new InvalidOperationException("原同模型元数据摘要不符。");
         return JsonSerializer.Deserialize<MetadataCatalog>(bytes,Json)??throw new InvalidOperationException("缺少原元数据。");
     }
 
