@@ -49,6 +49,26 @@ RELATION_INDEX_PROFILE = "original-three-table-relation-indexes-v1"
 INDEXED_WRITE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:3e64578db6a01b25d6c83c22383d4c0ff40b0df9023d65faff315ace96d1cb70"}
 
 
+# 完整Excel／文件／维护夹具先独立验初始化和普通身份，不把就绪当作业务或计时通过。
+EXTENDED_READINESS_NATIVE = "paired-native-extended-readiness-v1"
+EXTENDED_READINESS_RESOURCES = "paired-extended-readiness-resources-v1"
+EXTENDED_READINESS_IMAGES = {
+    "java": "sha256:ecd22231140f1ee11ce89288abb243a5951177a7085f8b1da2be9211934b9728",
+    "csharp": "sha256:de3ea9e8217e0f8574a9912db16637be0a1767bc5f1759732486848886043e93",
+    "redis": IMAGES["redis"],
+}
+
+
+def is_extended_readiness(value):
+    """扩展夹具只在独立就绪用途启用；历史模型和测量用途保持。"""
+    return value.get("purpose") in (EXTENDED_READINESS_NATIVE, EXTENDED_READINESS_RESOURCES)
+
+
+def uses_relation_indexes(value):
+    """索引工具只服务明确配置的共同索引测量或扩展夹具就绪。"""
+    return is_indexed_measurement(value) or is_extended_readiness(value)
+
+
 def is_indexed_measurement(value):
     """原六初始化后单独升级索引；仅该用途可调用镜像内固定索引工具。"""
     return value.get("purpose") in (INDEXED_WRITE_MEASUREMENT_NATIVE, INDEXED_WRITE_MEASUREMENT_RESOURCES,
@@ -100,6 +120,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_extended_readiness(value): return EXTENDED_READINESS_IMAGES
     if is_indexed_measurement(value): return INDEXED_WRITE_IMAGES
     if is_current_measurement(value) or is_current_observed(value): return CURRENT_MEASUREMENT_IMAGES
     if is_existing_lines(value) or is_measurement(value): return EXISTING_LINE_IMAGES
@@ -118,7 +139,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
@@ -211,7 +232,7 @@ def read_materials(root, value):
     connection = f"Server=192.168.31.200;Port=3306;Database={database};User ID={user};Password={password};Allow User Variables=true;"
     expected_csharp = {"Database__Provider": "mysql", "Database__ExpectedDatabase": database, "Database__ConnectionString": connection}
     # 新完整宿主必须接同一轮独占Redis、原口令和DB0；历史v1用途仍要求原三字段。
-    if is_observed(value) or is_measurement(value):
+    if is_observed(value) or is_measurement(value) or is_extended_readiness(value):
         expected_csharp["Authentication__LoginFailures__ConnectionString"] = f"redis:6379,password={redis_password},defaultDatabase=0"
     if csharp != expected_csharp:
         raise ValueError("C#只能读取本轮受限数据库和独占Redis连接，不允许改认证或应用入口")
@@ -222,7 +243,7 @@ def read_materials(root, value):
 
 def observation_arguments(value, target):
     """只返回固定非秘密配置；HMAC值只走只读文件，输出库名由本轮唯一范围推导。"""
-    if is_measurement(value):
+    if is_measurement(value) or is_extended_readiness(value):
         disabled={"java":"--metarill.paired.sql-observation.enabled=false","csharp":"--Metarill:Paired:SqlObservation:Enabled=false"}
         if target not in disabled: raise ValueError("未知测量宿主")
         return [disabled[target]]
@@ -452,7 +473,7 @@ def manage_exclusive(value, operation, root):
         state["status"] = "started"; write_state(path, state)
         return {"hostsStarted": True, "runtimeAccepted": False, "performanceAccepted": False}
     if operation in {"wait-hosts","snapshot-hosts"}:
-        if not (is_observed(value) or is_measurement(value)) or state.get("status") != "started" or state.get("hostsStarted") is not True or set(observed)!=expected:
+        if not (is_observed(value) or is_measurement(value) or is_extended_readiness(value)) or state.get("status") != "started" or state.get("hostsStarted") is not True or set(observed)!=expected:
             raise ValueError("仅完整已启动的采集或测量用途允许就绪核验及私有留证")
         return wait_hosts(value,root,state) if operation=="wait-hosts" else save_host_diagnostics(root,state)
     if operation == "stop-hosts":

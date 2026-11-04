@@ -34,23 +34,26 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
-    if resources.is_indexed_measurement(value):
+    if resources.uses_relation_indexes(value):
         if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
     elif "relationIndexProfile" in value: raise ValueError("旧用途不能隐式升级索引")
     if value.get("purpose")==resources.INDEXED_READ_MEASUREMENT_NATIVE:
         if type(value.get("readReplayRequests")) is not int or value["readReplayRequests"]!=resources.READ_REQUEST_BUDGET or "writeReplayRequests" in value:raise ValueError("只读用途必须使用完整原读预算，不能带写入范围")
     elif value.get("purpose")==resources.INDEXED_WRITE_MEASUREMENT_NATIVE and "readReplayRequests" in value:raise ValueError("写入用途不能混入读取预算")
+    if resources.is_extended_readiness(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
+        raise ValueError("扩展就绪用途不能声明测量或业务回放预算")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
     if resources.is_current_observed(value): purpose = resources.CURRENT_OBSERVED_RESOURCES
     if resources.is_write_measurement(value):
         if type(value.get("writeReplayRequests")) is not int or value["writeReplayRequests"] != resources.WRITE_REQUEST_BUDGET:
             raise ValueError("写入请求数与直接批准范围不符")
-        purpose = resources.INDEXED_WRITE_MEASUREMENT_RESOURCES if resources.is_indexed_measurement(value) else resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
+        purpose = resources.INDEXED_WRITE_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
     elif resources.is_measurement(value):
-        purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.is_indexed_measurement(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
+        purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
+    if resources.is_extended_readiness(value): purpose = resources.EXTENDED_READINESS_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
@@ -160,7 +163,7 @@ def seed_measurement_database(mysql,value,owner_token,fixture,target):
     run=value["runId"]
     if mysql.mysql(fixture.seed_transaction_sql(run,target),guarded_transaction=True)!="1\n1":
         raise ValueError("measurement-seed-receipt")
-    options={"relation_indexes":True} if resources.is_indexed_measurement(value) else {}
+    options={"relation_indexes":True} if resources.uses_relation_indexes(value) else {}
     return fixture.verify_readback(run,target,mysql.mysql,**options)
 
 
@@ -220,7 +223,7 @@ INDEX_JOBS=tuple("csharp-index-"+side+"-"+mode for side in ("java","csharp") for
 def initialization_job(root, value, name, state, state_path, *, expected_index_plan=None):
     """每个显式命令使用独占短期容器，先登记再创建；无论成败按同ID/token清理并核零。"""
     indexed=name in INDEX_JOBS
-    if name not in JOBS and not (indexed and resources.is_indexed_measurement(value)): raise ValueError("未知初始化入口")
+    if name not in JOBS and not (indexed and resources.uses_relation_indexes(value)): raise ValueError("未知初始化入口")
     if indexed:
         apply=name.endswith("-apply")
         if (apply and not re.fullmatch("[a-f0-9]{64}",expected_index_plan or "")) or (not apply and expected_index_plan is not None): raise ValueError("索引动作缺少精确预览摘要或多传确认")
@@ -295,7 +298,7 @@ def require_index_receipt(value,side,mode,result,preview=None):
 
 def upgrade_relation_indexes(root,value,state,state_path,mysql):
     """只在本轮双库所有权完整、原六初始化完成且宿主未启动时逐端明确升级。"""
-    if not resources.is_indexed_measurement(value) or value.get("relationIndexProfile")!=resources.RELATION_INDEX_PROFILE:raise ValueError("measurement-index-purpose")
+    if not resources.uses_relation_indexes(value) or value.get("relationIndexProfile")!=resources.RELATION_INDEX_PROFILE:raise ValueError("measurement-index-purpose")
     completed={job.get("target") for job in state.get("jobs",[]) if job.get("containerAbsent") is True and re.fullmatch("[a-f0-9]{64}",job.get("id", ""))}
     if not {"init-"+job for job in JOBS}.issubset(completed):raise ValueError("measurement-index-original-initialization")
     result={}
@@ -482,7 +485,7 @@ def failure_evidence(error):
 def run(value):
     """一次串起显式初始化/播种/HTTP；finally独立清理，失败不自动重放已执行的写入。"""
     descriptor = validate(value); verify_tool_sources(value)
-    # 新模块只在直接批准且八文件源码已核对后导入，旧v1不隐式加载未登记依赖。
+    # 新模块只在用途及其固定源码集合核对后导入，旧v1不隐式加载未登记依赖。
     business = importlib.import_module("paired_business_http") if resources.is_observed(value) else None
     capture_sql = importlib.import_module("paired_observed_capture") if resources.is_observed(value) else None
     measurement = importlib.import_module("paired_measurement") if resources.is_measurement(value) else None
@@ -496,6 +499,7 @@ def run(value):
     mysql = load_mysql(); state_path = root / "native-state.json"
     handle = os.open(state_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     state = {"runId": value["runId"], "ownerToken": secrets.token_hex(32), "inputSha256": http.digest(value), "stage": "preflight", "jobs": [], "passed": False, "leaseStatus": "running", "performanceAccepted": False, "releaseAccepted": False, "acceptedScope": "paired-initialization-and-identity-only"}
+    if resources.is_extended_readiness(value): state["acceptedScope"]="paired-extended-initialization-and-identity-only"
     with os.fdopen(handle, "w", encoding="utf-8") as output: json.dump(state, output)
     descriptor["ownerToken"] = state["ownerToken"]
     exchange=capture_sql.Exchange(value,send) if resources.is_observed(value) else None
@@ -505,7 +509,7 @@ def run(value):
         state["acceptedScope"]="paired-write-measurement-only" if write_measurement is not None else "paired-read-measurement-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
-    measurement_hosts_started = False
+    unobserved_hosts_started = False
     try:
         resources.verify_server()
         if (root / "resource-state.json").exists() or mysql.ownership_path(value["runId"][:16]).exists(): raise RuntimeError("已有资源归属记录，拒绝复用")
@@ -530,7 +534,7 @@ def run(value):
         if verified.get("changes") != []: raise RuntimeError("C#结构核验仍有差异")
         security = initialization_job(root, value, "csharp-security", state, state_path)
         if security.get("status") != "initialized": raise RuntimeError("C#原安全初始化未成功")
-        if resources.is_indexed_measurement(value):
+        if resources.uses_relation_indexes(value):
             stage("按元数据预览确认应用两端同等关系索引")
             state["relationIndexPlans"]=upgrade_relation_indexes(root,value,state,state_path,mysql)
         stage("同逻辑普通身份播种与逐字段回读")
@@ -550,8 +554,8 @@ def run(value):
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
         if exchange is not None:
             stage("核验原进程监听及采集就绪，禁止以发布端口代替");state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
-        elif measurement is not None:
-            measurement_hosts_started = True
+        elif measurement is not None or resources.is_extended_readiness(value):
+            unobserved_hosts_started = True
             stage("核验两端真实进程监听")
             state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
         targets = {t: {"container": "metarill-perf-" + value["runId"] + "-" + t, "expectedImageId": resources.images_for(value)[t], "containerPort": 8080, "baseUrl": f"http://127.0.0.1:{value['ports'][t]}/api"} for t in ("java", "csharp")}
@@ -561,7 +565,7 @@ def run(value):
         physical_before = business_counts(mysql, value)
         if exchange is not None:
             state["httpFacts"], tokens = identity_http(value,fixture,credentials,exchange)
-        elif measurement is not None:
+        elif measurement is not None or resources.is_extended_readiness(value):
             state["identityRequests"] = []
             state["httpFacts"], tokens = identity_http(value,fixture,credentials,record_request=state["identityRequests"].append)
         else:
@@ -601,7 +605,7 @@ def run(value):
                 }
             for side in ("java","csharp"):
                 options={} if write_measurement is None else {"exclude_write_samples":True}
-                if resources.is_indexed_measurement(value): options["relation_indexes"]=True
+                if resources.uses_relation_indexes(value): options["relation_indexes"]=True
                 if measure_fixture.verify_readback(run_id,side,mysql.mysql,**options)!=state["measurementSeeds"][side]:
                     raise ValueError("measurement-post-readback")
             state["measurement"]["physicalFixtureUnchanged"]=True
@@ -609,11 +613,11 @@ def run(value):
         if before != after: raise RuntimeError("HTTP前后资源/镜像/容器身份变化")
         state["resourceEvidence"] = before; state["passed"] = measurement is None or state["measurement"]["measurementValid"] and not state["measurement"]["stableRegression"]
     except Exception as error:
-        if exchange is not None or measurement is not None:state["failedAtStage"]=state["stage"]
+        if exchange is not None or measurement is not None or resources.is_extended_readiness(value):state["failedAtStage"]=state["stage"]
         state["errorType"] = type(error).__name__
         state["failure"] = failure_evidence(error)
     finally:
-        if measurement_hosts_started and not state["passed"]:
+        if unobserved_hosts_started and not state["passed"]:
             try:
                 state["hostDiagnostics"]=resources.manage(descriptor,"snapshot-hosts")
             except Exception as error:
