@@ -792,3 +792,25 @@ C#真实64KiB文件完成后，两行合同含非空附件JSON长ID通过原导�
 | yz_file_ref | (file_id)、(source_config_page_id,source_record_id,source_config_column_id) | (file_id,delete_no)、(page_id,record_id,delete_no)、(yz_project_id,record_id,page_id,delete_no) |
 
 两端原文件字段映射和失效实现亦不同。已保留DDL摘要／差异证明，fileFoundationIndexParityVerified及matchedFileFoundationPerformanceAccepted为false；并未将测量器单轮完成标志等同于所有实验条件达标。共同文件索引模型及实际STATISTICS、真实SQL／参数／查询次数签收还需继续，不以快成绩跳过。Excel／复制／维护等代表性负载、原四读波动、完整跨端及最终CI继续，整体V08与MySQL首版不标完成。
+
+
+### V197 共同文件访问索引的专用空表迁移工具
+
+2026-11-05：保留平台MySqlSchemaPlanner／SchemaService不自动删除未声明索引的规则，新工具仅位于tools/performance/csharp-indexes。独立file-*固定动作及paired-native-common-file-measurement-v1范围，先核approved／run／profile再读凭据；连接限Server-200、同轮两库与临时账号，实际连接再核DATABASE／hostname／UUID／CURRENT_USER。只允许初始化后仍为空的yz_file_library及yz_file_ref，不建立平台Web或MCP入口。
+
+共同逻辑二级索引如下；owner、page、record只映射同一意义的Java／C#字段，不把Java数值配置列和C#字符串字段名强行对齐：
+
+| 表 | 固定索引 | 完整列序 |
+| --- | --- | --- |
+| yz_file_library | mt_file_project_status | yz_project_id,status |
+| yz_file_library | mt_file_folder | yz_project_id,folder_id,delete_no |
+| yz_file_library | mt_file_owner | owner_yz_manager_id（Java）／owner_id（C#） |
+| yz_file_ref | mt_ref_file | file_id,delete_no |
+| yz_file_ref | mt_ref_record | source_config_page_id,source_record_id（Java）／page_id,record_id（C#），末列delete_no |
+| yz_file_ref | mt_ref_project_record | yz_project_id，record、page各自映射，delete_no |
+
+工具要求完整原字段集合、关键类型和精确旧非唯一索引白名单；Java只生成5删＋6增=11DDL，C#4删＋6增=10DDL，主键不动。新增索引由已有结构适配器按IndexSchema编译，删除仅来自这个精确白名单，不接收任意SQL或名字。预览摘要绑定run／目标库／完整原快照／保护指纹／实际DDL；应用取得与平台相同的结构锁，重新反查CAS，按条记录DDL，发生失败保留已执行数量，不伪称MySQL整体回滚。
+
+前后完整字段及SHOW CREATE非二级索引部分指纹须保持；真实STATISTICS包括主键、所有二级索引、唯一性、列序、方向、前缀、BTREE和可见性。拒绝附加／缺少索引、生成列、未知字段或类型、任意库和旧用途。字段及物理存储设计不改；即使后续共同逻辑索引对齐，也不宣称两文件表全部DDL或SQL已等价，后者仍独立签收。
+
+严格编译零警告／错误；新增7项与原关系索引3项合计10通过、零跳过，均为内存／离线边界，其中实际逻辑元数据编译器核验精确两表反查范围。尚未构建新镜像、登记最终载荷用途或执行实库DDL与性能复测；V196首测与原文件索引差异保持，不把本机通过当实库。

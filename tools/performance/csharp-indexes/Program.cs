@@ -16,6 +16,7 @@ public static class Program
         Console.OutputEncoding=System.Text.Encoding.UTF8;
         try
         {
+            if(args.Length==1&&args[0].StartsWith("file-",StringComparison.Ordinal))return await FileAccessIndexMigration.RunAsync(args);
             var mode=ParseMode(args);
             if(mode.Operation!="offline")RequireRun(Environment.GetEnvironmentVariable("METARILL_INDEX_RUN_ID"),Environment.GetEnvironmentVariable("METARILL_INDEX_AUTHORIZATION"));
             var baseline=RelationIndexProfile.ReadBaseline(await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory,"metadata/project.json")));

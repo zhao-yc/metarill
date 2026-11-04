@@ -28,3 +28,10 @@ CI 回归位于 `tools/performance/csharp-host.Tests/RelationIndexProfileTests.c
 同索引只读复测使用独立 `paired-native-indexed-read-measurement-v1` 和 `readReplayRequests=19336`，不能带写入预算。复用相同镜像／索引阶段，负载仍是原四读、400场景／三轮／并发1与4；从真实步骤推导19200正式、128预热和8首检。该读取接线的正式验收单独登记，不能拿客户写入或旧候选读取结果替代。
 
 扩展负载包的完整运行时、元数据和工具载荷另行固定。旧同索引读写用途仍锁定旧52文件镜像，不因本工具新增固定输入而自动切换镜像、请求或权限；新完整镜像通过探针也不代表真实文件／Excel／维护或性能通过。
+
+
+## 共同文件访问索引专用入口
+
+V197增加file-offline及file-preview-java／file-apply-java／file-verify-java（C#同理）。它与原三表增索引动作独立；在线另要求METARILL_FILE_INDEX_SCOPE=paired-native-common-file-measurement-v1及METARILL_FILE_INDEX_PROFILE=paired-common-file-access-indexes-v1，原run／授权／临时连接和确认摘要守卫继续。只允许本轮空合成文件表，Java11项、C#10项固定非唯一索引替换；不向平台通用规划器增加自动删除。
+
+完整快照及实际STATISTICS、每条已执行数量、非索引DDL保护指纹由专用回执保存；DDL失败由协调器核对归属后清理独占库，不在同对象自动补跑。共同索引只归一逻辑owner／page／record，原字段／主键及不同文件存储结构保持，实际SQL和最终性能另验。当前10项离线通过不代表新镜像、实库或性能已验收，详见[V197](../../../docs/performance-acceptance.md#v197-共同文件访问索引的专用空表迁移工具)。
