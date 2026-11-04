@@ -119,3 +119,8 @@ metarill update recover --target E:\应用 --transaction active中的事务ID --
 
 
 V183／V186后续已从冻结旧45b749a完整包的独占副本实际执行CLI预览／应用，只有两Files源码、Program和归属清单变化；六手写、393前端及三个元数据保持，升级宿主严格编译／Linux发布与新生成包源码及八NuGet锁一致。该发布的新固定镜像已完成真实MySQL文件403／引用删除规则及Excel／C#四格回填功能链，201证据与资源独立复核；此结果不包含非空附件／子表Excel导入或同条件性能。详见[V186](performance-acceptance.md#v186-新固定镜像原http文件excelc回填正式通过)。
+
+
+## Excel导入业务规则分类跟进（2026-11-05，V189）
+
+已有工程用同版工具从原元数据重新生成包含Excel导入的Service，按原在线助手／CLI预览和确认应用受管生成文件；手写partial继续保留。修复位于生成Service的方法体，仅同步运行时或替换Files DLL不能更新它。明确BusinessRuleException穿过行级内部包装，由已有宿主回传HTTP200／R500业务提示；未知内部异常仍走安全脱敏。无需元数据、DDL、数据回填或前端界面变更。新包／新镜像实库完整链另行验收，不能用四项本机测试替代。

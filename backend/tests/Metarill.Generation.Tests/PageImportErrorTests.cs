@@ -47,6 +47,7 @@ public partial class CustomerService
 {
     partial void BeforeSave(Example.ImportErrors.Generated.Entities.Customer entity, RuntimeActor actor, bool creating, ISet<string> submittedFields)
     {
+        if (entity.Name == "业务拒绝") throw new Metarill.Core.Contracts.BusinessRuleException("合同金额不能小于零");
         if (entity.Name == "内部失败") throw new InvalidOperationException("虚构SQL SELECT private; E:/fixture/private; Server=fixture;Password=synthetic;");
         if (entity.Name == "身份失败") throw new UnauthorizedAccessException("身份夹具");
         if (entity.Name == "权限失败") throw new System.Security.SecurityException("权限夹具");
@@ -84,6 +85,11 @@ public partial class CustomerService
             await Call("{\"requestJson\":[{\"名称\":\"合法字符串\",\"金额\":\"12.30\",\"数量\":\"7\",\"长编号\":\"9007199254740993\",\"启用\":1,\"附件\":[],\"状态\":\"启用\"},{\"名称\":\"清空\",\"金额\":null,\"数量\":\"\",\"长编号\":null}]}" );
             var execution = await Assert.ThrowsAsync<PageImportException>(() => Call("{\"requestJson\":[{\"名称\":\"首行\"},{\"名称\":\"内部失败\"}]}"));
             Assert.False(execution.IsInputError); Assert.Equal(2, execution.RowNumber); Assert.IsType<InvalidOperationException>(execution.InnerException); Assert.DoesNotContain("SELECT", execution.Message);
+            // 明确业务规则须原样穿过行级包装；首行写入后末行拒绝仍触发同一事务回滚。
+            var businessInserts = probe.Inserts; var businessRollbacks = probe.Rollbacks; var businessCommits = probe.Commits;
+            var business = await Assert.ThrowsAsync<BusinessRuleException>(() => Call("{\"requestJson\":[{\"名称\":\"首行\"},{\"名称\":\"业务拒绝\"}]}"));
+            Assert.Equal("合同金额不能小于零", business.Message); Assert.Equal(businessInserts + 1, probe.Inserts);
+            Assert.Equal(businessRollbacks + 1, probe.Rollbacks); Assert.Equal(businessCommits, probe.Commits);
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Call("{\"requestJson\":[{\"名称\":\"身份失败\"}]}"));
             await Assert.ThrowsAsync<System.Security.SecurityException>(() => Call("{\"requestJson\":[{\"名称\":\"权限失败\"}]}"));
             await Assert.ThrowsAsync<OperationCanceledException>(() => Call("{\"requestJson\":[{\"名称\":\"取消失败\"}]}"));

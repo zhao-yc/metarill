@@ -175,7 +175,7 @@ public partial class DemoCustomerService
             {
                 throw error.AtRow(rowNumber);
             }
-            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException)
+            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException and not BusinessRuleException)
             {
                 throw PageImportException.Execution(rowNumber, error);
             }

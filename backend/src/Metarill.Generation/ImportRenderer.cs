@@ -91,7 +91,8 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine($"                await Create{page.Source.Id}{(fileImport?"Core":"")}Async(create, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
             .AppendLine("            }").AppendLine("            catch (PageImportException error) when (error.IsInputError)").AppendLine("            {")
             .AppendLine("                throw error.AtRow(rowNumber);").AppendLine("            }")
-            .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException)").AppendLine("            {")
+            // 已声明业务规则保留原类型和提示，由外层事务回滚及宿主HTTP200/R500边界处理。
+            .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException and not BusinessRuleException)").AppendLine("            {")
             .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }").AppendLine("        }")
             .Append(NonRedundantCrossParentCompilation.Enabled(model,table,page)?$"        await ValidateParents{page.Source.Id}Async(request.ParentId,actor,cancellationToken);\n":"")
             .AppendLine("        return $\"导入成功{rowNumber}条数据\";").AppendLine("    }, cancellationToken);")
