@@ -59,6 +59,14 @@ class FileMeasurementContractTests(unittest.TestCase):
             with self.subTest(bad=bad),self.assertRaises(ValueError):fixture.readback_sql(run,'java','sample_contract',exclude_contract_id=bad)
         with self.assertRaises(ValueError):fixture.readback_sql(run,'java','sample_contract',exclude_contract_id=identifier,exclude_write_samples=True)
 
+    def test_actual_seed_gate_accepts_only_native_file_scope_with_ownership_and_same_indexes(self):
+        """实际种子入口不得遗漏新用途；资源描述／未批准／结束租约仍在任何SQL前拒绝。"""
+        v=value();database,model=mock.Mock(),mock.Mock();database.mysql.return_value='1\n1';model.verify_readback.return_value={'verified':True}
+        with mock.patch.object(native,'require_database_ownership') as own:
+            self.assertEqual({'verified':True},native.seed_measurement_database(database,v,'owner',model,'java'));own.assert_called_once();model.verify_readback.assert_called_once_with(v['runId'],'java',database.mysql,relation_indexes=True)
+        for changes in [{'purpose':native.resources.FILE_MEASUREMENT_RESOURCES},{'authorizationStatus':'pending'},{'leaseStatus':'ended'}]:
+            with self.subTest(changes=changes),mock.patch.object(native,'require_database_ownership',side_effect=AssertionError('不允许外调')),self.assertRaises(ValueError):native.seed_measurement_database(database,{**v,**changes},'owner',model,'java')
+
     def test_mismatched_target_fails_before_any_http(self):
         """即使目标是另一个有效回环或合法镜像，也必须与本轮端口／容器／固定内容一致。"""
         v=value()

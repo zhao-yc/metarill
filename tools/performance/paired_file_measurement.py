@@ -79,8 +79,10 @@ def verify_sample(exchange,query,run,side,sample,deleted=False):
     condition=f'id={contract_id} AND BINARY name=BINARY {name} AND BINARY sample_customer_id=BINARY {seed.literal(str(fixture.ID_BASE))} AND BINARY sample_customer_name=BINARY '+seed.literal('性能客户-0000')+f' AND amount=12.50 AND {attachment} AND delete_no {active}'
     exchange.check(side+'-contract-'+str(deleted),query(f'SELECT COUNT(*) FROM `{database}`.`sample_contract` WHERE '+condition+';'),'1')
     exchange.check(side+'-total-contracts-'+str(deleted),query(f'SELECT COUNT(*) FROM `{database}`.`sample_contract`;'),str(fixture.COUNTS['sample_contract']+1))
-    size='size_bytes' if side=='java' else 'size';condition=f'id={file_id} AND {size}={len(FILE_BYTES)} AND delete_no {active}'
-    if not deleted:condition+=" AND access_mode='PROTECTED' AND BINARY status=BINARY "+seed.literal('READY' if side=='java' else 'ready')
+    # 原固定Java用DELETED状态失效文件而不设置delete_no，不能误套C#的墓碑字段。
+    size='size_bytes' if side=='java' else 'size';file_delete='IS NOT NULL' if deleted and side=='csharp' else 'IS NULL'
+    status=('DELETED' if deleted else 'READY') if side=='java' else ('deleted' if deleted else 'ready')
+    condition=f'id={file_id} AND {size}={len(FILE_BYTES)} AND delete_no {file_delete}'+" AND access_mode='PROTECTED' AND BINARY status=BINARY "+seed.literal(status)
     exchange.check(side+'-file-'+str(deleted),query(f'SELECT COUNT(*) FROM `{database}`.`yz_file_library` WHERE '+condition+';'),'1')
     exchange.check(side+'-total-files-'+str(deleted),query(f'SELECT COUNT(*) FROM `{database}`.`yz_file_library`;'),'1')
     reference=f'source_config_page_id=81002 AND source_config_column_id=82007 AND source_record_id={contract_id}' if side=='java' else f"page_id=81002 AND field_name='attachments' AND record_id={contract_id}"

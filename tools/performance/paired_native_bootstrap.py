@@ -167,7 +167,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
