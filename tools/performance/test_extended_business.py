@@ -20,7 +20,7 @@ import test_server200_paired_resources as resource_fixture
 def value():
     """虚构运行号只供本机合同测试，不能代表真实服务器授权或资源。"""
     result=settings()
-    result.update(purpose=native.resources.EXTENDED_BUSINESS_NATIVE,images=dict(native.resources.EXTENDED_READINESS_IMAGES),relationIndexProfile=native.resources.RELATION_INDEX_PROFILE,workbookOperations=10)
+    result.update(purpose=native.resources.EXTENDED_BUSINESS_NATIVE,images=dict(native.resources.EXTENDED_READINESS_IMAGES),relationIndexProfile=native.resources.RELATION_INDEX_PROFILE,workbookOperations=10,maintenanceProfile=extended.MAINTENANCE_PROFILE)
     return result
 
 
@@ -32,7 +32,7 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(native.resources.uses_relation_indexes(descriptor))
         self.assertFalse(native.resources.is_observed(descriptor));self.assertFalse(native.resources.is_measurement(descriptor))
         self.assertEqual(['--Metarill:Paired:SqlObservation:Enabled=false'],native.resources.observation_arguments(descriptor,'csharp'))
-        for change in ({'workbookOperations':9},{'workbookOperations':True},{'workbookOperations':None},{'readReplayRequests':19336},{'workbookReplayRequests':10},{'relationIndexProfile':None},{'images':native.resources.INDEXED_WRITE_IMAGES},{'authorizationStatus':'pending'},{'purpose':native.resources.EXTENDED_READINESS_NATIVE}):
+        for change in ({'maintenanceProfile':None},{'workbookOperations':9},{'workbookOperations':True},{'workbookOperations':None},{'readReplayRequests':19336},{'workbookReplayRequests':10},{'relationIndexProfile':None},{'images':native.resources.INDEXED_WRITE_IMAGES},{'authorizationStatus':'pending'},{'purpose':native.resources.EXTENDED_READINESS_NATIVE}):
             with self.subTest(change=change),mock.patch.object(native,'verify_tool_sources',side_effect=AssertionError('不允许文件或外部调用')),self.assertRaises(ValueError):native.run({**v,**change})
 
     def test_fault_fixture_only_matches_four_owned_named_rows_before_commit(self):
@@ -48,6 +48,22 @@ class ContractTests(unittest.TestCase):
             self.assertNotIn(token,sql)
         for args in [('other',contracts,lines),('csharp',contracts,[contracts[0],lines[1]]),('java',['1','2'],lines),('java',contracts+[contracts[0]],lines)]:
             with self.subTest(args=args),self.assertRaises(ValueError):extended.maintenance_fixture_sql(run,*args)
+
+    def test_baseline_catalog_requires_exact_original_columns_and_explicit_missing_join_flags(self):
+        """预检不能把任意无效目录解释成已知原维护缺口，更不能吞掉新增联接列。"""
+        definitions=[('810000000000000011','sample_customer',['name','remarks']),('810000000000000012','sample_contract',['name','sample_customer_id','amount','remarks','attachments']),('810000000000000013','sample_contract_line',['name','sample_contract_id','amount','remarks'])]
+        catalog={'configTables':[dict(id=identifier,tableName=name,isRongyu=1) for identifier,name,_ in definitions],
+                 'configColumns':[dict(configTableId=identifier,columnName=field,isJoinColumn=0,isVirtualColumn=0) for identifier,_,fields in definitions for field in fields]}
+        proof=extended.validate_original_maintenance_catalog(catalog)
+        self.assertFalse(proof['originalAutomaticCacheBackfillSupported']);self.assertEqual(0,proof['declaredJoinColumns'])
+        import copy
+        for change in ('new-join','missing-column','extra-column','wrong-table'):
+            altered=copy.deepcopy(catalog)
+            if change=='new-join':altered['configColumns'][0]['isJoinColumn']=1
+            elif change=='missing-column':altered['configColumns'].pop()
+            elif change=='extra-column':altered['configColumns'].append(dict(configTableId='810000000000000012',columnName='sample_customer_name',isJoinColumn=0,isVirtualColumn=0))
+            else:altered['configTables'][0]['tableName']='other'
+            with self.subTest(change=change),self.assertRaises(ValueError):extended.validate_original_maintenance_catalog(altered)
 
     def test_wrong_purpose_fails_before_oracle_files_or_directory_creation(self):
         """不能从旧用途／结束租约创建业务证据目录或读取模块。"""
@@ -65,9 +81,10 @@ class NativeFlowTests(FlowFixture):
         super().setUp();self.value=value();self.jobs.side_effect=lambda *args,**kwargs:readiness_fixture.ExtendedReadinessFlowTests.extended_job(self,*args,**kwargs)
         tokens={(target,kind):('a'*64 if target=='csharp' else 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') for target in ('java','csharp') for kind in native.seed.KINDS}
         self.identity.return_value=([{'mockedOnly':True}],tokens)
-        self.module=types.SimpleNamespace(oracle=types.SimpleNamespace(read_inputs=mock.Mock()),Exchange=mock.Mock(return_value=object()),run_extended=mock.Mock(side_effect=self.extended))
+        self.module=types.SimpleNamespace(validate_original_maintenance_catalog=mock.Mock(return_value={'mockedOnly':True}),oracle=types.SimpleNamespace(read_inputs=mock.Mock()),Exchange=mock.Mock(return_value=object()),run_extended=mock.Mock(side_effect=self.extended))
         self.enterContext(mock.patch.object(native.importlib,'import_module',side_effect=lambda name:self.module if name=='paired_extended_business' else (_ for _ in ()).throw(AssertionError('不能加载观测／测量'))))
         self.enterContext(mock.patch.object(native,'require_database_ownership'))
+        (self.root/'bootstrap/java').mkdir(parents=True);(self.root/'bootstrap/java/project-config.json').write_text('{}',encoding='utf-8')
 
     def extended(self,*args):
         """记录原生调用确实位于登录后和清理前，不伪装真实业务结果。"""

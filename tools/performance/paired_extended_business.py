@@ -16,6 +16,7 @@ import server200_paired_resources as resources
 
 PURPOSE = 'paired-extended-business-v1'
 WORKBOOK_OPERATIONS = 10
+MAINTENANCE_PROFILE = 'original-auto-caches-without-join-columns-v1'
 FILE_ROOT = '/api/admin/sys/file-library'
 MAINTENANCE_ROOT = '/api/admin/sys/system_maintenance'
 TABLE_IDS = ('810000000000000012', '810000000000000013')
@@ -35,6 +36,21 @@ def names(run):
     prefix = '扩展-' + run[:16]
     return {key:[prefix + '-' + text + '-' + str(i) for i in (1,2)]
             for key,text in (('customer','客户'),('contract','合同'),('line','明细'))}
+
+
+def validate_original_maintenance_catalog(catalog):
+    """固定原模型没有声明联接列；不能把Java真实不支持当作双方维护已通过。"""
+    expected={
+        '810000000000000011':('sample_customer',{'name','remarks'}),
+        '810000000000000012':('sample_contract',{'name','sample_customer_id','amount','remarks','attachments'}),
+        '810000000000000013':('sample_contract_line',{'name','sample_contract_id','amount','remarks'}),
+    }
+    tables=catalog.get('configTables',[]);columns=catalog.get('configColumns',[])
+    require(type(tables) is list and len(tables)==3 and {table.get('id') for table in tables}==set(expected),'maintenance-catalog-tables')
+    for table in tables:require(table.get('tableName')==expected[table['id']][0] and table.get('isRongyu')==1,'maintenance-catalog-table')
+    require(type(columns) is list and len(columns)==11 and {(column.get('configTableId'),column.get('columnName')) for column in columns}=={(table,name) for table,(_,fields) in expected.items() for name in fields},'maintenance-catalog-columns')
+    require(all(type(column.get('isJoinColumn')) is int and column['isJoinColumn']==0 and column.get('isVirtualColumn')==0 for column in columns),'maintenance-catalog-join')
+    return dict(profile=MAINTENANCE_PROFILE,declaredJoinColumns=0,automaticCacheColumns=['sample_customer_name','sample_contract_name'],originalAutomaticCacheBackfillSupported=False)
 
 
 def maintenance_fixture_sql(run, target, contract_ids, line_ids):
@@ -63,7 +79,7 @@ class Exchange:
     """只向本轮两个固定回环宿主单次发请求；原始业务响应留私有证据，认证头不落盘。"""
     def __init__(self, value, root, state, state_path):
         """入口验证先于目录创建；就绪／测量租约不能借此执行业务。"""
-        require(value.get('purpose')==PURPOSE and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running' and value.get('workbookOperations')==WORKBOOK_OPERATIONS, 'lease')
+        require(value.get('purpose')==PURPOSE and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running' and value.get('workbookOperations')==WORKBOOK_OPERATIONS and value.get('maintenanceProfile')==MAINTENANCE_PROFILE, 'lease')
         require(value.get('images')==resources.EXTENDED_READINESS_IMAGES and root==resources.root_for(value['runId']) and state_path==root/'native-state.json' and state.get('runId')==value['runId'], 'scope')
         ports=value.get('ports',{});require(set(ports)=={'java','csharp'} and len(set(ports.values()))==2 and all(type(n) is int and 20000<=n<=40000 for n in ports.values()), 'ports')
         oracle.read_inputs(root)
@@ -128,7 +144,7 @@ class Exchange:
 def run_extended(value,tokens,exchange,query,fixture_write):
     """保留原37步，再执行实际导入／导出、普通附件权限、改名与缓存维护。"""
     run,databases=basic.authorize(value,tokens)
-    require(value.get('workbookOperations')==WORKBOOK_OPERATIONS and callable(fixture_write), 'scope')
+    require(value.get('workbookOperations')==WORKBOOK_OPERATIONS and value.get('maintenanceProfile')==MAINTENANCE_PROFILE and callable(fixture_write), 'scope')
     basic_facts=basic.run_basic(value,tokens,exchange.request,query)
     expected=names(run);facts=[]
     for target,database in databases.items():
@@ -221,13 +237,19 @@ def run_extended(value,tokens,exchange,query,fixture_write):
             for index,table_id in enumerate(TABLE_IDS):
                 result=call('maintenance-'+str(repeat)+'-'+str(index),'POST',MAINTENANCE_ROOT+'/backfill_join_columns',dict(configTableId=table_id))
                 require(type(result) is dict,'maintenance-result');maintenance.append(result)
-            for index,identifier in enumerate(contracts):physical('sample_contract',identifier,dict(sample_customer_name=expected['customer'][index]+('-改名' if index==0 else '')))
-            for index,identifier in enumerate(lines):physical('sample_contract_line',identifier,dict(sample_contract_name=expected['contract'][index]+('-改名' if index==0 else '')))
+                if target=='java':
+                    # 原冻结模型无显式join列：严格核其真实零计划与不修复，不能将空操作冒充维护通过。
+                    require(result.get('configTableId')==table_id and result.get('joinColumnCount')==0 and result.get('affectedRows')==0 and result.get('details')==[],'original-maintenance-empty-plan')
+                else:
+                    require(result.get('configTableId')==table_id and type(result.get('joinColumnCount')) is int and result['joinColumnCount']>=1,'csharp-maintenance-plan')
+                    require(type(result.get('affectedRows')) is int and result['affectedRows']==(2 if repeat==0 else 0),'csharp-maintenance-repair-count')
+            for index,identifier in enumerate(contracts):physical('sample_contract',identifier,dict(sample_customer_name=stale if target=='java' else expected['customer'][index]+('-改名' if index==0 else '')))
+            for index,identifier in enumerate(lines):physical('sample_contract_line',identifier,dict(sample_contract_name=stale if target=='java' else expected['contract'][index]+('-改名' if index==0 else '')))
         for index,identifier in enumerate(lines):call('line-delete-'+str(index),'DELETE',basic.ROOTS['line']+'?parentId='+contracts[index],dict(id=identifier))
         for index,identifier in enumerate(contracts):call('contract-delete-'+str(index),'DELETE',basic.ROOTS['contract'],dict(id=identifier))
         for index,identifier in enumerate(customers):call('customer-delete-'+str(index),'DELETE',basic.ROOTS['customer'],dict(id=identifier))
         for table,total in (('sample_customer',4),('sample_contract',3),('sample_contract_line',3)):
             require(query(f'SELECT COUNT(*),SUM(delete_no IS NULL) FROM `{database}`.`{table}`;')==str(total)+'\t0','final-physical')
         require(refs(file_id,contracts)=='0','final-file-refs')
-        facts.append(dict(target=target,customerIds=customers,contractIds=contracts,lineIds=lines,fileId=file_id,originalWorkbookImportAndExports=True,protectedFileBytes=len(FILE_BYTES),protectedFileSha256=hashlib.sha256(FILE_BYTES).hexdigest(),twoActiveReferencesAndUnbindVerified=True,renamePropagationVerified=True,fourStaleCellsRepairedAndRepeated=True,maintenanceReceipts=maintenance,nonemptyExcelExportFileCellsVerified=True,nonemptyExcelImportFileCellsVerified=False,childExcelImportVerified=False))
-    return dict(acceptedScope='paired-original-crud-excel-file-maintenance-functional-only',basic=basic_facts,targets=facts,evidence=exchange.receipt(),sqlSemanticAccepted=False,performanceAccepted=False,releaseAccepted=False)
+        facts.append(dict(target=target,customerIds=customers,contractIds=contracts,lineIds=lines,fileId=file_id,originalWorkbookImportAndExports=True,protectedFileBytes=len(FILE_BYTES),protectedFileSha256=hashlib.sha256(FILE_BYTES).hexdigest(),twoActiveReferencesAndUnbindVerified=True,renamePropagationVerified=True,fourStaleCellsRepairedAndRepeated=target=='csharp',originalAutomaticCacheMaintenanceUnsupported=target=='java',maintenanceReceipts=maintenance,nonemptyExcelExportFileCellsVerified=True,nonemptyExcelImportFileCellsVerified=False,childExcelImportVerified=False))
+    return dict(acceptedScope='paired-original-crud-excel-file-maintenance-functional-only',originalAutomaticCacheMaintenanceParityAccepted=False,basic=basic_facts,targets=facts,evidence=exchange.receipt(),sqlSemanticAccepted=False,performanceAccepted=False,releaseAccepted=False)

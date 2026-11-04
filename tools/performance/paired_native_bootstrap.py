@@ -45,9 +45,9 @@ def validate(value):
     if resources.is_extended_readiness(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
         raise ValueError("扩展就绪用途不能声明测量或业务回放预算")
     if resources.is_extended_business(value):
-        if type(value.get("workbookOperations")) is not int or value["workbookOperations"]!=10 or any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
+        if type(value.get("workbookOperations")) is not int or value["workbookOperations"]!=10 or value.get("maintenanceProfile")!="original-auto-caches-without-join-columns-v1" or any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
             raise ValueError("扩展业务必须固定十次实际工作簿操作，不允许性能预算")
-    elif "workbookOperations" in value: raise ValueError("其它用途不能声明扩展业务操作")
+    elif "workbookOperations" in value or "maintenanceProfile" in value: raise ValueError("其它用途不能声明扩展业务操作")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
     if resources.is_current_observed(value): purpose = resources.CURRENT_OBSERVED_RESOURCES
@@ -499,8 +499,10 @@ def run(value):
     write_measurement = importlib.import_module("paired_write_measurement") if resources.is_write_measurement(value) else None
     extended_business = importlib.import_module("paired_extended_business") if resources.is_extended_business(value) else None
     root = resources.root_for(value["runId"])
-    if extended_business is not None: extended_business.oracle.read_inputs(root)
+    if extended_business is not None:
+        extended_business.oracle.read_inputs(root)
     resources.read_materials(root, descriptor); java = bootstrap(root, value)
+    if extended_business is not None: original_maintenance_catalog=extended_business.validate_original_maintenance_catalog(http.read_json((root/"bootstrap/java/project-config.json").read_bytes()))
     credentials = read_private(root / "identity.json", value["identitySha256"])
     for entry in credentials.values(): entry["csharpSalt"] = base64.b64decode(entry["csharpSalt"], validate=True)
     fixture = seed.prepare(value["runId"], credentials)
@@ -508,7 +510,9 @@ def run(value):
     handle = os.open(state_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     state = {"runId": value["runId"], "ownerToken": secrets.token_hex(32), "inputSha256": http.digest(value), "stage": "preflight", "jobs": [], "passed": False, "leaseStatus": "running", "performanceAccepted": False, "releaseAccepted": False, "acceptedScope": "paired-initialization-and-identity-only"}
     if resources.is_extended_readiness(value): state["acceptedScope"]="paired-extended-initialization-and-identity-only"
-    if extended_business is not None: state["acceptedScope"]="paired-original-crud-excel-file-maintenance-functional-only"
+    if extended_business is not None:
+        state["acceptedScope"]="paired-original-crud-excel-file-maintenance-functional-only"
+        state["originalMaintenanceProfileEvidence"]=original_maintenance_catalog
     with os.fdopen(handle, "w", encoding="utf-8") as output: json.dump(state, output)
     descriptor["ownerToken"] = state["ownerToken"]
     exchange=capture_sql.Exchange(value,send) if resources.is_observed(value) else None

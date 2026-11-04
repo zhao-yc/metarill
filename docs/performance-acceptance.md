@@ -619,3 +619,20 @@ Server-200实际构建增量Java镜像 `ecd22231140f`，父镜像为V169的ff0f1
 资源构造器仅在新扩展业务的Java宿主追加固定参数 `--custom.file-storage.local.root-path=/data/files`；沿既有本轮/data挂载，不放开根只读、不增加目录或权限、不改原镜像／业务／前端／旧测量用途。新增真实参数合同通过；固定来源完整Python297项，291通过／0失败／6条件跳过，新合同含在其中，定向八项不重复累加。私有storage-probe保留原class来源、真实只读错误复现及独立收尾。
 
 本行只完成根因与接线修正，尚未正式复验完整业务链；下一轮重新分配独占双库及账号，按持续授权自主执行。V177失败保持，V08与首版总验收继续。
+
+
+## V179 文件根复验推进到原Java维护缺口，失败保留
+
+固定 `7efcba88a4d574fc5caba868d556e6a0e6f44a26`，运行 `c0162f878eb4bdf92edb5296f78ff311` 正式进入新业务。两端原74请求继续通过；Java上传／确认、两合同引用、普通读取64KiB完整原字节、无权拒绝、绑定删除拒绝、三页原票据真实下载、非空附件长ID格及解绑删除、改名传播均通过。五次原工作簿引擎操作已实际完成，上传根修正有效。
+
+第100／101个业务请求为两表原维护，均返回HTTP200/R200但joinColumnCount=0、affectedRows=0、details为空，随后物理缓存核对失败，首因为business-extended-physical-value。故障注入前原改名缓存、注入后四个旧值均已实际核对，不能把维护成功响应当作修复成功。原冻结三表11配置列均isJoinColumn=0，自动生成的两个名称缓存不是显式配置列；原SystemMaintenanceBusiness只从isJoinColumn=1建立回填计划，无法修复这组自动缓存。此为原版能力缺口，不能修改原模型／代码或放宽C#要求来隐藏。
+
+实际148份证据逐摘要独立复核，101响应／五文件／上传原字节及维护零计划一致；本轮整体仍passed=false。新SSH／新连接核清两库、账号、二十五个预算容器名、网络、源秘密、数据和所有权，进程已停止。扩展C#业务未运行；原失败及私有审计保留在 `.local/paired-extended-business-storage-20261104`。
+
+## V180 显式记录原自动缓存维护缺口，保持C#严格修复门槛
+
+扩展用途新增必填 `maintenanceProfile=original-auto-caches-without-join-columns-v1`。原初始化材料通过字节核验后，在建库前严格核定三张原表、11个字段集合、全部isJoinColumn=0及真实冗余表属性；新增／缺失／换表／联接标记变化均拒绝，不能把任意无效目录当成已知缺口。它不修改原元数据、Java实现、C#产物或前端。
+
+在该明确原模型中，Java仍实际执行两表维护两次，必须逐次证明原零计划，并物理核对四格继续为故障旧值；返回事实明确originalAutomaticCacheMaintenanceUnsupported=true、fourStaleCellsRepairedAndRepeated=false。C#仍须计划非空、每表首轮正好修复2格／第二轮0变更，并逐格读回全部四格正确。整体始终声明originalAutomaticCacheMaintenanceParityAccepted=false；即使其余功能流程通过，也不能称双方自动缓存维护等价，更不能用Java空操作作为维护性能基准。维护同条件测量需另用双方明确支持的显式联接字段模型，仍属V08待办。
+
+新增精确目录反例合同后，九项定向有效回归通过；固定来源完整Python298项，292通过／0失败／6条件跳过，不重复计数。原生编排在建库前核该配置，失败首因及原清理保持。新正式复验尚未执行，C#四格回填结论仍待真实业务证明；V179与V177原失败不改写，首版总验收继续。
