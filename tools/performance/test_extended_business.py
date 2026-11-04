@@ -14,6 +14,7 @@ import paired_extended_business as extended
 import paired_native_bootstrap as native
 from test_paired_native_bootstrap import FlowFixture, settings
 import test_extended_readiness as readiness_fixture
+import test_server200_paired_resources as resource_fixture
 
 
 def value():
@@ -93,6 +94,34 @@ class NativeFlowTests(FlowFixture):
         self.assertFalse(result['passed']);self.assertIn('真实原工作簿',result['failedAtStage'])
         self.assertEqual('business-extended-export-values-contract',result['failure']['code'])
         self.assertIn('resources-snapshot-hosts',self.events);self.assertEqual([],result['cleanupErrors'])
+
+
+class ExtendedResourceTests(unittest.TestCase):
+    materialize=resource_fixture.Fixture.materialize
+    tearDown=resource_fixture.Fixture.tearDown
+
+    def setUp(self):
+        """沿真实资源构造器，只用内存Docker桩；普通应用配置与根只读保持。"""
+        resource_fixture.Fixture.setUp(self)
+        self.value.update(purpose=native.resources.EXTENDED_BUSINESS_RESOURCES,images=dict(native.resources.EXTENDED_READINESS_IMAGES))
+        self.inputs['csharp.env']+='Authentication__LoginFailures__ConnectionString=redis:6379,password='+'2'*64+',defaultDatabase=0\n'
+        self.materialize()
+
+    def test_original_java_file_root_uses_only_existing_owned_data_mount(self):
+        """显式文件根只接既有/data，不放开只读根、不增加目录挂载或更换镜像。"""
+        resources=native.resources;resources.manage(self.value,'create')
+        commands=[command for command in self.engine.calls if command[:2]==('container','create')]
+        java,csharp=commands[1:]
+        self.assertEqual('--custom.file-storage.local.root-path=/data/files',java[-1])
+        self.assertEqual('--metarill.paired.sql-observation.enabled=false',java[-2])
+        self.assertFalse(any('file-storage' in part for part in csharp))
+        for command in (java,csharp):
+            self.assertIn('--read-only',command);self.assertEqual('10001:10001',command[command.index('--user')+1])
+            mounts=[command[index+1] for index,part in enumerate(command) if part=='--mount']
+            self.assertEqual(1,sum(mount.endswith(',dst=/data') for mount in mounts))
+            self.assertFalse(any('/app/file-storage' in mount for mount in mounts))
+        self.assertIn(resources.EXTENDED_READINESS_IMAGES['java'],java)
+        self.assertTrue(resources.manage(self.value,'cleanup')['independentAbsenceVerified'])
 
 
 class ActualLoopbackTests(unittest.TestCase):

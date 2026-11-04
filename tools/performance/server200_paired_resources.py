@@ -337,6 +337,8 @@ def provision(value, root, path):
                     args += ["--mount", f"type=bind,src={root}/observation.key,dst=/run/metarill-observation.key,readonly"]
                     if target == "csharp": args += ["--env", "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES=Metarill.Paired.SqlObservation"]
                 args += [images_for(value)[target], *observation_arguments(value, target)]
+                # 原Java默认写./file-storage；新文件验收显式接本轮/data，根文件系统继续只读。
+                if target == "java" and is_extended_business(value): args += ["--custom.file-storage.local.root-path=/data/files"]
         identifier = docker(*args)
         if not re.fullmatch(r"[a-f0-9]{64}", identifier):
             raise RuntimeError("创建回执不是完整对象ID，保留待核记录")
