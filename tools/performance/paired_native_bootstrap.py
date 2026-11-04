@@ -34,7 +34,7 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.uses_relation_indexes(value):
         if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
@@ -58,7 +58,7 @@ def validate(value):
     elif resources.is_measurement(value):
         purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
     if resources.is_extended_readiness(value): purpose = resources.EXTENDED_READINESS_RESOURCES
-    if resources.is_extended_business(value): purpose = resources.EXTENDED_BUSINESS_RESOURCES
+    if resources.is_extended_business(value): purpose = resources.FILE_AUTH_BUSINESS_RESOURCES if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
@@ -600,7 +600,7 @@ def run(value):
             state["requestCapturePlan"]=exchange.receipt();resources.write_state(state_path,state)
         if extended_business is not None:
             stage("真实原工作簿／附件双引用／权限／改名及四缓存维护")
-            lease={**value,"purpose":resources.EXTENDED_BUSINESS,"leaseStatus":"running"}
+            lease={**value,"purpose":resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS,"leaseStatus":"running"}
             business_tokens={target:{kind:tokens[target,kind] for kind in seed.KINDS} for target in ("java","csharp")}
             extended_exchange=extended_business.Exchange(lease,root,state,state_path)
             def corrupt_owned_cache(target,contract_ids,line_ids):

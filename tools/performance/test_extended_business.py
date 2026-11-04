@@ -35,6 +35,17 @@ class ContractTests(unittest.TestCase):
         for change in ({'maintenanceProfile':None},{'workbookOperations':9},{'workbookOperations':True},{'workbookOperations':None},{'readReplayRequests':19336},{'workbookReplayRequests':10},{'relationIndexProfile':None},{'images':native.resources.INDEXED_WRITE_IMAGES},{'authorizationStatus':'pending'},{'purpose':native.resources.EXTENDED_READINESS_NATIVE}):
             with self.subTest(change=change),mock.patch.object(native,'verify_tool_sources',side_effect=AssertionError('不允许文件或外部调用')),self.assertRaises(ValueError):native.run({**v,**change})
 
+    def test_corrected_file_auth_images_have_their_own_scope_and_cannot_replace_history(self):
+        """新旧用途精确镜像互换必须在读文件前拒绝；原就绪及旧业务仍固定de3镜像。"""
+        resources=native.resources;v=value();v.update(purpose=resources.FILE_AUTH_BUSINESS_NATIVE,images=dict(resources.FILE_AUTH_BUSINESS_IMAGES))
+        descriptor=native.validate(v)
+        self.assertEqual(resources.FILE_AUTH_BUSINESS_RESOURCES,descriptor['purpose'])
+        self.assertFalse(resources.is_measurement(descriptor));self.assertFalse(resources.is_observed(descriptor))
+        self.assertEqual(resources.FILE_AUTH_BUSINESS_IMAGES,resources.images_for(descriptor))
+        self.assertEqual('sha256:de3ea9e8217e0f8574a9912db16637be0a1767bc5f1759732486848886043e93',resources.images_for(value())['csharp'])
+        for item in [{**v,'images':resources.EXTENDED_READINESS_IMAGES},{**value(),'images':resources.FILE_AUTH_BUSINESS_IMAGES}]:
+            with self.subTest(purpose=item['purpose']),mock.patch.object(native,'verify_tool_sources',side_effect=AssertionError('不允许IO')),self.assertRaises(ValueError):native.run(item)
+
     def test_fault_fixture_only_matches_four_owned_named_rows_before_commit(self):
         """四个缓存更新限定本轮库／原值／行名与父键；每条均先通过ROW_COUNT保护。"""
         run='a'*32;contracts=['9007199254740993','9007199254740994'];lines=['9007199254740995','9007199254740996']
@@ -103,6 +114,17 @@ class NativeFlowTests(FlowFixture):
         self.assertEqual(extended.PURPOSE,args[0]['purpose']);self.assertEqual({'writer','reader','denied'},set(args[1]['java']))
         self.assertTrue(callable(args[4]));self.assertIn('record_request',self.identity.call_args.kwargs)
         self.assertEqual([],result['cleanupErrors']);self.assertEqual('ended',result['leaseStatus'])
+
+    def test_corrected_file_auth_scope_reaches_the_same_strict_business_after_identity(self):
+        """真实协调器必须传新业务用途、同样三普通身份和原四格维护合同，不走测量路径。"""
+        self.value.update(purpose=native.resources.FILE_AUTH_BUSINESS_NATIVE,images=dict(native.resources.FILE_AUTH_BUSINESS_IMAGES))
+        with contextlib.redirect_stdout(io.StringIO()):result=native.run(self.value)
+        self.assertTrue(result['passed']);self.assertEqual(12,self.jobs.call_count)
+        args=self.module.run_extended.call_args.args
+        self.assertEqual(native.resources.FILE_AUTH_BUSINESS,args[0]['purpose'])
+        self.assertEqual(extended.MAINTENANCE_PROFILE,args[0]['maintenanceProfile'])
+        self.assertEqual(10,args[0]['workbookOperations']);self.assertEqual({'writer','reader','denied'},set(args[1]['csharp']))
+        self.assertEqual([],result['cleanupErrors']);self.assertFalse(result['performanceAccepted'])
 
     def test_business_failure_preserves_first_stage_diagnostics_and_cleanup(self):
         """文件／工作簿业务失败不能由回收成功改成通过，原首因仍留存。"""

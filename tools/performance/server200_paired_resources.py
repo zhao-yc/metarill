@@ -62,6 +62,19 @@ EXTENDED_READINESS_IMAGES = {
 }
 
 
+# 文件拒权修正后的完整产物有自己的用途；旧扩展镜像和历史报告不被替换。
+FILE_AUTH_BUSINESS_NATIVE = "paired-native-file-read-auth-business-v1"
+FILE_AUTH_BUSINESS_RESOURCES = "paired-file-read-auth-business-resources-v1"
+FILE_AUTH_BUSINESS = "paired-file-read-auth-business-v1"
+FILE_AUTH_BUSINESS_IMAGES = {**EXTENDED_READINESS_IMAGES,
+    "csharp":"sha256:d9bd8b10223a30fb106a9add7852fad968178f21056993b666e3dcf87537869b"}
+
+
+def is_file_auth_business(value):
+    """只允许固定9ee23b6完整产物的功能验收，不把旧已失败镜像互换进来。"""
+    return value.get("purpose") in (FILE_AUTH_BUSINESS_NATIVE,FILE_AUTH_BUSINESS_RESOURCES,FILE_AUTH_BUSINESS)
+
+
 def is_extended_readiness(value):
     """扩展夹具只在独立就绪用途启用；历史模型和测量用途保持。"""
     return value.get("purpose") in (EXTENDED_READINESS_NATIVE, EXTENDED_READINESS_RESOURCES)
@@ -69,7 +82,7 @@ def is_extended_readiness(value):
 
 def is_extended_business(value):
     """真实文件／Excel／维护只在独立业务用途执行，旧就绪用途不放宽。"""
-    return value.get("purpose") in (EXTENDED_BUSINESS_NATIVE, EXTENDED_BUSINESS_RESOURCES, EXTENDED_BUSINESS)
+    return is_file_auth_business(value) or value.get("purpose") in (EXTENDED_BUSINESS_NATIVE, EXTENDED_BUSINESS_RESOURCES, EXTENDED_BUSINESS)
 
 
 def uses_relation_indexes(value):
@@ -128,6 +141,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_file_auth_business(value): return FILE_AUTH_BUSINESS_IMAGES
     if is_extended_readiness(value) or is_extended_business(value): return EXTENDED_READINESS_IMAGES
     if is_indexed_measurement(value): return INDEXED_WRITE_IMAGES
     if is_current_measurement(value) or is_current_observed(value): return CURRENT_MEASUREMENT_IMAGES
@@ -147,7 +161,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
