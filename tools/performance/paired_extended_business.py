@@ -30,6 +30,11 @@ def require(ok, code):
         raise ValueError('business-extended-' + code)
 
 
+def workbook_budget(value):
+    """旧流程固定十次；新导入专项另建用途，只增加两份实际工作簿并复用原子页导出。"""
+    return 12 if resources.is_deep_excel_import(value) else WORKBOOK_OPERATIONS
+
+
 def names(run):
     """所有夹具名称由本轮运行号生成，维护写入不接受客户端任意原值。"""
     require(type(run) is str and re.fullmatch('[a-f0-9]{32}', run), 'run')
@@ -79,13 +84,13 @@ class Exchange:
     """只向本轮两个固定回环宿主单次发请求；原始业务响应留私有证据，认证头不落盘。"""
     def __init__(self, value, root, state, state_path):
         """入口验证先于目录创建；就绪／测量租约不能借此执行业务。"""
-        require(value.get('purpose')==(resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else PURPOSE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running' and value.get('workbookOperations')==WORKBOOK_OPERATIONS and value.get('maintenanceProfile')==MAINTENANCE_PROFILE, 'lease')
+        require(value.get('purpose')==(resources.DEEP_EXCEL_BUSINESS if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else PURPOSE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running' and value.get('workbookOperations')==workbook_budget(value) and value.get('maintenanceProfile')==MAINTENANCE_PROFILE, 'lease')
         require(value.get('images')==resources.images_for(value) and root==resources.root_for(value['runId']) and state_path==root/'native-state.json' and state.get('runId')==value['runId'], 'scope')
         ports=value.get('ports',{});require(set(ports)=={'java','csharp'} and len(set(ports.values()))==2 and all(type(n) is int and 20000<=n<=40000 for n in ports.values()), 'ports')
         oracle.read_inputs(root)
         self.value,self.root,self.state,self.state_path=value,root,state,state_path
         self.folder=root/'extended-evidence';self.folder.mkdir(mode=0o700)
-        self.requests=[];self.workbooks=[]
+        self.requests=[];self.workbooks=[];self.parsed_workbooks={}
 
     def raw(self,target,step,method,path,body=None,token=None,content_type=None):
         """禁代理／重定向、有界响应，附件字节与工作簿直接保留，错误不自动重试。"""
@@ -125,7 +130,7 @@ class Exchange:
 
     def workbook(self,target,step,request):
         """原模块实际读文件所得rows才送导入；完整文件和读回证据按次保存。"""
-        require(target in ('java','csharp') and re.fullmatch('[a-z0-9-]{1,90}',step) and len(self.workbooks)<WORKBOOK_OPERATIONS,'workbook-budget')
+        require(target in ('java','csharp') and re.fullmatch('[a-z0-9-]{1,90}',step) and len(self.workbooks)<workbook_budget(self.value),'workbook-budget')
         result=oracle.invoke(oracle.descriptor(self.value['runId']),request,self.root,self.state,self.state_path)
         prefix=f'{len(self.workbooks)+1:02d}-{target}-{step}'
         resources.write_state(self.folder/(prefix+'.request.json'),request)
@@ -133,18 +138,27 @@ class Exchange:
         data=base64.b64decode(result['workbookBase64'] if request['operation']=='create' else request['base64'],validate=True)
         (self.folder/(prefix+'.'+result['format'])).write_bytes(data)
         self.workbooks.append(dict(target=target,step=step,operation=request['operation'],sha256=result['sha256'],format=result['format'],byteLength=len(data),rows=len(result['rows'])))
+        self.parsed_workbooks[target,step]=result
         return result
 
+    def reused_child_export(self):
+        """只复用本轮已实际下载／解析的C#子页文件，不能传入任意JSON冒充Excel。"""
+        require(resources.is_deep_excel_import(self.value),'reuse-scope')
+        result=self.parsed_workbooks.get(('csharp','read-export-line'));require(type(result) is dict,'reuse-missing')
+        source=next((entry for entry in self.requests if entry['target']=='csharp' and entry['step']=='download-line'),None)
+        require(source is not None and source['status']==200 and source['responseSha256']==result['sha256'],'reuse-digest')
+        return json.loads(json.dumps(result,ensure_ascii=False))
+
     def receipt(self):
-        """只在十次实际文件操作完整时返回完成范围，不把业务验收记作性能。"""
-        require(len(self.workbooks)==WORKBOOK_OPERATIONS,'workbook-completeness')
+        """只在本用途固定次数实际文件操作完整时返回完成范围，不把业务验收记作性能。"""
+        require(len(self.workbooks)==workbook_budget(self.value),'workbook-completeness')
         return dict(requests=self.requests,workbooks=self.workbooks,performanceAccepted=False,releaseAccepted=False)
 
 
 def run_extended(value,tokens,exchange,query,fixture_write):
     """保留原37步，再执行实际导入／导出、普通附件权限、改名与缓存维护。"""
     run,databases=basic.authorize(value,tokens)
-    require(value.get('workbookOperations')==WORKBOOK_OPERATIONS and value.get('maintenanceProfile')==MAINTENANCE_PROFILE and callable(fixture_write), 'scope')
+    require(value.get('workbookOperations')==workbook_budget(value) and value.get('maintenanceProfile')==MAINTENANCE_PROFILE and callable(fixture_write), 'scope')
     basic_facts=basic.run_basic(value,tokens,exchange.request,query)
     expected=names(run);facts=[]
     for target,database in databases.items():
@@ -252,4 +266,8 @@ def run_extended(value,tokens,exchange,query,fixture_write):
             require(query(f'SELECT COUNT(*),SUM(delete_no IS NULL) FROM `{database}`.`{table}`;')==str(total)+'\t0','final-physical')
         require(refs(file_id,contracts)=='0','final-file-refs')
         facts.append(dict(target=target,customerIds=customers,contractIds=contracts,lineIds=lines,fileId=file_id,originalWorkbookImportAndExports=True,protectedFileBytes=len(FILE_BYTES),protectedFileSha256=hashlib.sha256(FILE_BYTES).hexdigest(),twoActiveReferencesAndUnbindVerified=True,renamePropagationVerified=True,fourStaleCellsRepairedAndRepeated=target=='csharp',originalAutomaticCacheMaintenanceUnsupported=target=='java',maintenanceReceipts=maintenance,nonemptyExcelExportFileCellsVerified=True,nonemptyExcelImportFileCellsVerified=False,childExcelImportVerified=False))
-    return dict(acceptedScope='paired-original-crud-excel-file-maintenance-functional-only',originalAutomaticCacheMaintenanceParityAccepted=False,basic=basic_facts,targets=facts,evidence=exchange.receipt(),sqlSemanticAccepted=False,performanceAccepted=False,releaseAccepted=False)
+    deep=None
+    if resources.is_deep_excel_import(value):
+        from paired_deep_excel_import import run_deep_import
+        deep=run_deep_import(value,tokens,exchange,query)
+    return dict(acceptedScope='paired-original-crud-excel-file-maintenance-functional-only',originalAutomaticCacheMaintenanceParityAccepted=False,basic=basic_facts,targets=facts,deepExcelImport=deep,evidence=exchange.receipt(),sqlSemanticAccepted=False,performanceAccepted=False,releaseAccepted=False)

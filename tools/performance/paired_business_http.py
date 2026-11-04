@@ -44,7 +44,7 @@ def authorize(value,tokens,*,existing_lines=False):
     run=value.get('runId');require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'business-run')
     databases=['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')]
     purpose=resources.EXISTING_LINE_BUSINESS if existing_lines else resources.CURRENT_OBSERVED_BUSINESS if resources.is_current_observed(value) else 'paired-observed-business-v1'
-    if resources.is_extended_business(value) and not existing_lines: purpose=resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS
+    if resources.is_extended_business(value) and not existing_lines: purpose=resources.DEEP_EXCEL_BUSINESS if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS
     images=resources.EXISTING_LINE_IMAGES if existing_lines else resources.CURRENT_MEASUREMENT_IMAGES if resources.is_current_observed(value) else resources.OBSERVATION_IMAGES
     if resources.is_extended_business(value) and not existing_lines: images=resources.images_for(value)
     require(value.get('version')==1 and type(value.get('version')) is int and value.get('purpose')==purpose and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running','business-lease')

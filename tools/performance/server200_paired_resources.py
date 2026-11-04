@@ -70,9 +70,19 @@ FILE_AUTH_BUSINESS_IMAGES = {**EXTENDED_READINESS_IMAGES,
     "csharp":"sha256:d9bd8b10223a30fb106a9add7852fad968178f21056993b666e3dcf87537869b"}
 
 
+DEEP_EXCEL_NATIVE = "paired-native-deep-excel-import-v1"
+DEEP_EXCEL_RESOURCES = "paired-deep-excel-import-resources-v1"
+DEEP_EXCEL_BUSINESS = "paired-deep-excel-import-business-v1"
+
+
+def is_deep_excel_import(value):
+    """追加非空附件导入、父页Excel再导入及末行规则失败回滚；只用已核新镜像。"""
+    return value.get("purpose") in (DEEP_EXCEL_NATIVE,DEEP_EXCEL_RESOURCES,DEEP_EXCEL_BUSINESS)
+
+
 def is_file_auth_business(value):
     """只允许固定9ee23b6完整产物的功能验收，不把旧已失败镜像互换进来。"""
-    return value.get("purpose") in (FILE_AUTH_BUSINESS_NATIVE,FILE_AUTH_BUSINESS_RESOURCES,FILE_AUTH_BUSINESS)
+    return is_deep_excel_import(value) or value.get("purpose") in (FILE_AUTH_BUSINESS_NATIVE,FILE_AUTH_BUSINESS_RESOURCES,FILE_AUTH_BUSINESS)
 
 
 def is_extended_readiness(value):
@@ -161,7 +171,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
