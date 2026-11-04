@@ -149,7 +149,7 @@ CURRENT_OBSERVATION_DATA_SHA256 = "f76055f27512c3e539d39f9381d1d19b7340429806275
 FULL_OBSERVED_NATIVE = "paired-native-full-candidate-observed-v1"
 FULL_OBSERVED_RESOURCES = "paired-full-candidate-observed-resources-v1"
 FULL_OBSERVED_BUSINESS = "paired-full-candidate-observed-business-v1"
-FULL_OBSERVED_IMAGES = dict(COMMON_FILE_IMAGES)
+FULL_OBSERVED_IMAGES = {**COMMON_FILE_IMAGES,"csharp":"sha256:46df751c89bbff99552cd776a4ee44479a17faad47a94b7a72d1720633fd5a20"}
 FULL_OBSERVATION_DATA_SHA256 = "ad903d80e3171bf6324acb2cd0a76f8a8164df99784b4eddf100175aeae8bcc4"
 WRITE_REQUEST_BUDGET = 8624
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
@@ -409,6 +409,8 @@ def provision(value, root, path):
                 if is_observed(value):
                     args += ["--mount", f"type=bind,src={root}/observation.key,dst=/run/metarill-observation.key,readonly"]
                     if target == "csharp": args += ["--env", "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES=Metarill.Paired.SqlObservation"]
+                    # 新完整包按编译器生成的补充deps解析独立观察桥，不改产品宿主依赖。
+                    if target == "csharp" and is_full_observed(value): args += ["--env", "DOTNET_ADDITIONAL_DEPS=/app/Metarill.Paired.SqlObservation.deps.json"]
                 args += [images_for(value)[target], *observation_arguments(value, target)]
                 # 原Java默认写./file-storage；新文件验收显式接本轮/data，根文件系统继续只读。
                 if target == "java" and (is_extended_business(value) or is_file_measurement(value)): args += ["--custom.file-storage.local.root-path=/data/files"]

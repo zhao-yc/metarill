@@ -891,3 +891,18 @@ Server-200构建2b2fc16298e1f0713a48dd6e13388da0，C#镜像sha256:899779ac68a37c
 沿原六初始化、三普通身份、每端37步原业务及真实密码／权限检查，八份实际Git来源逐一固定；宿主正常停止后收回完整SQL、参数证明与事务API轨迹，按当前Data摘要和目标库核对。新增五项离线回归包括真实协调器顺序、三角色、旧镜像／pending拒绝及用途隔离；全套335 Python为329通过、6条件跳过，未把替身计为实库。
 
 新用途正式实库采集尚未执行，V155旧包599／615命令不能替代新包的实际SQL、参数、目标绑定和逐请求命令数量审查。后续正式采集与语义签收独立进行，不将观察期开销放入性能成绩。
+
+
+### V205 当前采集首轮的观察程序集加载失败
+
+固定bb47ecf，原ECD Java／899779ac C#，运行574dd4e7e314355c78c0e8c3ee3923a5。原六初始化、三普通身份播种及回读完成，宿主进程监听仍在，但观察器未就绪，原业务HTTP未发出；真实C#日志为Startup assembly Metarill.Paired.SqlObservation failed to execute，内层FileNotFoundException。DLL虽在完整载荷，却未登记在产品应用的deps清单，默认按名称加载失败；不能把TCP监听记为采集可用。
+
+整轮失败，22证据逐文件收回；新SSH／新MySQL连接确认进程停止、两库账号／9容器名／网络／所有权／源秘密和数据目录不存在。私有审阅key已在远端执行前按Metarill备份，保留回收副本且与备份摘要相同。未取得完整SQL轨迹，不签收语义或命令次数，V203无观察下载结果保持独立。
+
+### V206 观察桥补充依赖装配与禁网复现
+
+以当前bb47ecf中的观察桥C#源码逐文件核对已冻结来源，只引用同候选AD903D80 Data严格编译，保留原51份载荷，重编Metarill.Paired.SqlObservation.dll/PDB并增加编译器生成的Metarill.Paired.SqlObservation.deps.json，共54份。新清单仅含观察桥自己的runtime库，不替换产品Application.Host.deps.json或业务／Data／Core／索引工具。新镜像sha256:46df751c89bbff99552cd776a4ee44479a17faad47a94b7a72d1720633fd5a20，父899779ac层及入口／环境／非root用户保持。
+
+完整54载荷、框架10.0.14、原生依赖和原关系索引计划禁网验证通过。另在同镜像、network none、非root／只读环境，以原应用runtimeconfig／deps及默认加载上下文运行专用探针：不加补充deps时实际FileNotFoundException、退出10；加DOTNET_ADDITIONAL_DEPS=/app/Metarill.Paired.SqlObservation.deps.json后，实际Assembly.Load、HostingStartup类型实例化及禁用观察器的Generic Host构建成功，退出0，无监听、无数据库配置和连接。探针最初使用已弃用WebHost API导致严格编译拒绝，改为Generic Host后零警告／错误，保留失败日志，没有禁用分析器。
+
+仅新完整候选采集C#容器命令注入该固定额外deps路径，Java、旧观察用途及所有计时用途保持。三个独占探针和临时构建／加载根已新SSH核清，镜像保留。新增两项直接运行材料白名单与真实命令构造，错误Redis目标／DB1／缺配置拒绝；专项7项通过，完整337 Python为331通过／6条件跳过。此处仅证明装配与加载，后续正式观察器就绪、真实原HTTP和SQL／参数／事务采集仍须再验，不把禁网结果当实库。

@@ -5,6 +5,7 @@ from unittest import mock
 import paired_native_bootstrap as native
 import paired_observed_capture as capture
 import test_paired_observed_native as previous
+import test_observed_paired_resources as material
 
 
 class FullCandidateObservedContractTests(unittest.TestCase):
@@ -98,6 +99,34 @@ class FullCandidateObservedFlowTests(unittest.TestCase):
             self.assertEqual(self.value["images"][side], targets[side]["expectedImageId"])
         self.assertEqual(native.resources.FULL_OBSERVED_RESOURCES,
                          native.resources.manage.call_args_list[0].args[0]["purpose"])
+
+
+class FullCandidateObservedMaterialTests(unittest.TestCase):
+    materialize=material.ObservedResourceTests.materialize
+    tearDown=material.ObservedResourceTests.tearDown
+    refresh=material.ObservedResourceTests.refresh
+    key=material.ObservedResourceTests.key
+
+    def setUp(self):
+        """实际读取假材料和构造命令，仅替换文件权限／Docker边界；不继承重复旧测试。"""
+        material.ObservedResourceTests.setUp(self);self.value.update(purpose=native.resources.FULL_OBSERVED_RESOURCES,images=dict(native.resources.FULL_OBSERVED_IMAGES))
+
+    def test_actual_materials_and_command_register_additional_deps_only_for_csharp(self):
+        """真实四材料入口和实际容器参数均闭合，避免仅mock协调器漏掉加载白名单。"""
+        r=native.resources;r.read_materials(self.root,self.value);r.manage(self.value,'create')
+        commands=[c for c in self.engine.calls if c[:2]==('container','create')];self.assertEqual(3,len(commands))
+        for side,command in zip(('redis','java','csharp'),commands):
+            self.assertEqual(side=='csharp','DOTNET_ADDITIONAL_DEPS=/app/Metarill.Paired.SqlObservation.deps.json' in command)
+            self.assertIn(r.FULL_OBSERVED_IMAGES[side],command)
+            if side=='csharp':self.assertIn('--Metarill:Paired:SqlObservation:ExpectedDataSha256='+r.FULL_OBSERVATION_DATA_SHA256,command)
+
+    def test_missing_or_other_redis_target_rejected_by_actual_material_reader(self):
+        """新用途仍只准同轮Redis口令／DB0；更改自报摘要不能绕过真实配置检查。"""
+        r=native.resources;original=self.inputs['csharp.env'];before=len(self.engine.calls)
+        for changed in [original.replace('defaultDatabase=0','defaultDatabase=1'),original.replace('redis:6379','outside:6379'),'\n'.join(line for line in original.splitlines() if not line.startswith('Authentication__LoginFailures'))+'\n']:
+            self.inputs['csharp.env']=changed;self.materialize();self.refresh()
+            with self.assertRaises(ValueError):r.read_materials(self.root,self.value)
+        self.assertEqual(before,len(self.engine.calls))
 
 
 if __name__ == "__main__":
