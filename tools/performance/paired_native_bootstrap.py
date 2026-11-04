@@ -34,7 +34,7 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.uses_relation_indexes(value):
         if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
@@ -44,6 +44,10 @@ def validate(value):
     elif value.get("purpose")==resources.INDEXED_WRITE_MEASUREMENT_NATIVE and "readReplayRequests" in value:raise ValueError("写入用途不能混入读取预算")
     if resources.is_extended_readiness(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
         raise ValueError("扩展就绪用途不能声明测量或业务回放预算")
+    if resources.is_extended_business(value):
+        if type(value.get("workbookOperations")) is not int or value["workbookOperations"]!=10 or any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
+            raise ValueError("扩展业务必须固定十次实际工作簿操作，不允许性能预算")
+    elif "workbookOperations" in value: raise ValueError("其它用途不能声明扩展业务操作")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
     if resources.is_current_observed(value): purpose = resources.CURRENT_OBSERVED_RESOURCES
@@ -54,6 +58,7 @@ def validate(value):
     elif resources.is_measurement(value):
         purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
     if resources.is_extended_readiness(value): purpose = resources.EXTENDED_READINESS_RESOURCES
+    if resources.is_extended_business(value): purpose = resources.EXTENDED_BUSINESS_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
@@ -455,6 +460,7 @@ def verify_tool_sources(value):
     if resources.is_observed(value): expected.update({"performance/paired_business_http.py","performance/paired_observed_capture.py","performance/audit_sql_artifacts.py"})
     if resources.is_measurement(value): expected.update({"performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py"})
     if resources.is_write_measurement(value): expected.add("performance/paired_write_measurement.py")
+    if resources.is_extended_business(value): expected.update({"performance/paired_business_http.py","performance/paired_extended_business.py","performance/paired_workbook_container.py","performance/paired_workbook_oracle.cjs"})
     hashes = value.get("toolSha256", {})
     if set(hashes) != expected or not re.fullmatch(r"[a-f0-9]{40}", value.get("toolSourceCommit", "")):
         raise ValueError("缺少当前用途的固定Git工具来源")
@@ -491,7 +497,9 @@ def run(value):
     measurement = importlib.import_module("paired_measurement") if resources.is_measurement(value) else None
     measure_fixture = importlib.import_module("paired_measurement_fixture") if measurement is not None else None
     write_measurement = importlib.import_module("paired_write_measurement") if resources.is_write_measurement(value) else None
+    extended_business = importlib.import_module("paired_extended_business") if resources.is_extended_business(value) else None
     root = resources.root_for(value["runId"])
+    if extended_business is not None: extended_business.oracle.read_inputs(root)
     resources.read_materials(root, descriptor); java = bootstrap(root, value)
     credentials = read_private(root / "identity.json", value["identitySha256"])
     for entry in credentials.values(): entry["csharpSalt"] = base64.b64decode(entry["csharpSalt"], validate=True)
@@ -500,6 +508,7 @@ def run(value):
     handle = os.open(state_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     state = {"runId": value["runId"], "ownerToken": secrets.token_hex(32), "inputSha256": http.digest(value), "stage": "preflight", "jobs": [], "passed": False, "leaseStatus": "running", "performanceAccepted": False, "releaseAccepted": False, "acceptedScope": "paired-initialization-and-identity-only"}
     if resources.is_extended_readiness(value): state["acceptedScope"]="paired-extended-initialization-and-identity-only"
+    if extended_business is not None: state["acceptedScope"]="paired-original-crud-excel-file-maintenance-functional-only"
     with os.fdopen(handle, "w", encoding="utf-8") as output: json.dump(state, output)
     descriptor["ownerToken"] = state["ownerToken"]
     exchange=capture_sql.Exchange(value,send) if resources.is_observed(value) else None
@@ -554,7 +563,7 @@ def run(value):
         stage("启动两个原正式Web宿主"); resources.manage({**descriptor, "databaseInitializationVerified": True}, "start-hosts")
         if exchange is not None:
             stage("核验原进程监听及采集就绪，禁止以发布端口代替");state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
-        elif measurement is not None or resources.is_extended_readiness(value):
+        elif measurement is not None or resources.is_extended_readiness(value) or resources.is_extended_business(value):
             unobserved_hosts_started = True
             stage("核验两端真实进程监听")
             state["hostReadiness"]=resources.manage(descriptor,"wait-hosts")
@@ -565,7 +574,7 @@ def run(value):
         physical_before = business_counts(mysql, value)
         if exchange is not None:
             state["httpFacts"], tokens = identity_http(value,fixture,credentials,exchange)
-        elif measurement is not None or resources.is_extended_readiness(value):
+        elif measurement is not None or resources.is_extended_readiness(value) or resources.is_extended_business(value):
             state["identityRequests"] = []
             state["httpFacts"], tokens = identity_http(value,fixture,credentials,record_request=state["identityRequests"].append)
         else:
@@ -585,6 +594,19 @@ def run(value):
                 options["fixture_write"]=write_fixture
             state["businessFacts"]=business.run_basic(lease,business_tokens,exchange.business_request,mysql.mysql,**options);exchange.complete()
             state["requestCapturePlan"]=exchange.receipt();resources.write_state(state_path,state)
+        if extended_business is not None:
+            stage("真实原工作簿／附件双引用／权限／改名及四缓存维护")
+            lease={**value,"purpose":resources.EXTENDED_BUSINESS,"leaseStatus":"running"}
+            business_tokens={target:{kind:tokens[target,kind] for kind in seed.KINDS} for target in ("java","csharp")}
+            extended_exchange=extended_business.Exchange(lease,root,state,state_path)
+            def corrupt_owned_cache(target,contract_ids,line_ids):
+                """仅在本轮双库所有权完整时构造四个精确合成缓存故障，失败事务回滚。"""
+                require_database_ownership(mysql,value,state["ownerToken"])
+                sql=extended_business.maintenance_fixture_sql(value["runId"],target,contract_ids,line_ids)
+                if mysql.mysql(sql,guarded_transaction=True)!="1\n1\n1\n1\n1\t1\t1\t1":raise ValueError("business-extended-fixture-receipt")
+                return (1,1,1,1)
+            state["businessFacts"]=extended_business.run_extended(lease,business_tokens,extended_exchange,mysql.mysql,corrupt_owned_cache)
+            resources.write_state(state_path,state)
         if measurement is not None:
             run_id = value["runId"]
             if write_measurement is not None:
@@ -613,7 +635,7 @@ def run(value):
         if before != after: raise RuntimeError("HTTP前后资源/镜像/容器身份变化")
         state["resourceEvidence"] = before; state["passed"] = measurement is None or state["measurement"]["measurementValid"] and not state["measurement"]["stableRegression"]
     except Exception as error:
-        if exchange is not None or measurement is not None or resources.is_extended_readiness(value):state["failedAtStage"]=state["stage"]
+        if exchange is not None or measurement is not None or resources.is_extended_readiness(value) or resources.is_extended_business(value):state["failedAtStage"]=state["stage"]
         state["errorType"] = type(error).__name__
         state["failure"] = failure_evidence(error)
     finally:
