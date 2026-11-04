@@ -43,9 +43,9 @@ def authorize(value,tokens,*,existing_lines=False):
     """所有I/O前核用途、直接批准、唯一双库、固定新镜像及三普通登录令牌。"""
     run=value.get('runId');require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'business-run')
     databases=['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')]
-    purpose=resources.EXISTING_LINE_BUSINESS if existing_lines else resources.CURRENT_OBSERVED_BUSINESS if resources.is_current_observed(value) else 'paired-observed-business-v1'
+    purpose=resources.EXISTING_LINE_BUSINESS if existing_lines else resources.FULL_OBSERVED_BUSINESS if resources.is_full_observed(value) else resources.CURRENT_OBSERVED_BUSINESS if resources.is_current_observed(value) else 'paired-observed-business-v1'
     if resources.is_extended_business(value) and not existing_lines: purpose=resources.IMPORT_RULE_BUSINESS if resources.is_import_rule_business(value) else resources.DEEP_EXCEL_BUSINESS if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS
-    images=resources.EXISTING_LINE_IMAGES if existing_lines else resources.CURRENT_MEASUREMENT_IMAGES if resources.is_current_observed(value) else resources.OBSERVATION_IMAGES
+    images=resources.EXISTING_LINE_IMAGES if existing_lines else resources.FULL_OBSERVED_IMAGES if resources.is_full_observed(value) else resources.CURRENT_MEASUREMENT_IMAGES if resources.is_current_observed(value) else resources.OBSERVATION_IMAGES
     if resources.is_extended_business(value) and not existing_lines: images=resources.images_for(value)
     require(value.get('version')==1 and type(value.get('version')) is int and value.get('purpose')==purpose and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running','business-lease')
     require(value.get('databases')==databases and value.get('user')=='mtf_'+run[:16] and value.get('instancePin')==PIN and images is not None and value.get('images')==images,'business-scope')
