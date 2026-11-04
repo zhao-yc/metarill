@@ -34,10 +34,11 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
+    if resources.is_current_observed(value): purpose = resources.CURRENT_OBSERVED_RESOURCES
     if resources.is_write_measurement(value):
         if type(value.get("writeReplayRequests")) is not int or value["writeReplayRequests"] != resources.WRITE_REQUEST_BUDGET:
             raise ValueError("写入请求数与直接批准范围不符")
@@ -510,7 +511,7 @@ def run(value):
         if exchange is not None:
             stage("普通账号原CRUD／关系改名／三业务动作与真实写后回滚")
             existing_lines=resources.is_existing_lines(value)
-            lease={**value,"purpose":resources.EXISTING_LINE_BUSINESS if existing_lines else "paired-observed-business-v1","leaseStatus":"running"}
+            lease={**value,"purpose":resources.CURRENT_OBSERVED_BUSINESS if resources.is_current_observed(value) else resources.EXISTING_LINE_BUSINESS if existing_lines else "paired-observed-business-v1","leaseStatus":"running"}
             business_tokens={target:{kind:tokens[target,kind] for kind in seed.KINDS} for target in ("java","csharp")}
             options={}
             if existing_lines:

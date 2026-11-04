@@ -39,6 +39,11 @@ CURRENT_MEASUREMENT_RESOURCES = "paired-current-measurement-resources-v1"
 CURRENT_WRITE_MEASUREMENT_NATIVE = "paired-native-current-write-measurement-v1"
 CURRENT_WRITE_MEASUREMENT_RESOURCES = "paired-current-write-measurement-resources-v1"
 CURRENT_MEASUREMENT_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:bc768ec8fb3e85c82799937c4a92f8c17fa7865b06307864dd8778463a68f146"}
+# 当前 SQL 诊断只绑定已验证镜像和数据程序集，不改变历史用途或计时用途。
+CURRENT_OBSERVED_NATIVE = "paired-native-current-observed-v1"
+CURRENT_OBSERVED_RESOURCES = "paired-current-observed-resources-v1"
+CURRENT_OBSERVED_BUSINESS = "paired-current-observed-business-v1"
+CURRENT_OBSERVATION_DATA_SHA256 = "f76055f27512c3e539d39f9381d1d19b73404298062753c22de3d7e1aee80503"
 WRITE_REQUEST_BUDGET = 8624
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
 EXISTING_LINE_DATA_SHA256 = "b6c8159c101d6bab32cc7cef941ad840987ad49615b554ca1c1d49098e2cfb6d"
@@ -67,19 +72,25 @@ def is_current_measurement(value):
 
 
 def is_observed(value):
-    """两个明确的采集用途共享资源约束，旧非采集用途保留。"""
-    return is_existing_lines(value) or value.get("purpose") in ("paired-observed-resources-v1", "paired-native-observed-v1")
+    """明确的采集用途共享资源约束，旧非采集用途保留。"""
+    return is_existing_lines(value) or is_current_observed(value) or value.get("purpose") in ("paired-observed-resources-v1", "paired-native-observed-v1")
+
+
+def is_current_observed(value):
+    """当前诊断有独立入口，不能把正式测量隐式切换为 SQL 观察。"""
+    return value.get("purpose") in (CURRENT_OBSERVED_NATIVE, CURRENT_OBSERVED_RESOURCES, CURRENT_OBSERVED_BUSINESS)
 
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
-    if is_current_measurement(value): return CURRENT_MEASUREMENT_IMAGES
+    if is_current_measurement(value) or is_current_observed(value): return CURRENT_MEASUREMENT_IMAGES
     if is_existing_lines(value) or is_measurement(value): return EXISTING_LINE_IMAGES
     return OBSERVATION_IMAGES if is_observed(value) else IMAGES
 
 
 def observation_data_sha(value):
     """观察桥按对应发布包核验 Data 程序集。"""
+    if is_current_observed(value): return CURRENT_OBSERVATION_DATA_SHA256
     return EXISTING_LINE_DATA_SHA256 if is_existing_lines(value) else OBSERVATION_DATA_SHA256
 
 
@@ -89,7 +100,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
