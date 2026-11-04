@@ -61,7 +61,7 @@ class CommonFileIndexContractTests(unittest.TestCase):
         self.assertEqual(1,len(rows));self.assertEqual('java',rows[0]['target']);self.assertEqual(18,len(rows[0]['rows']))
 
     def test_purpose_profile_images_and_full_download_budget_are_bound_before_io(self):
-        """原AE首测不升级；共同用途固定D109、同4834／18预算及索引profile。"""
+        """原AE首测不升级；共同用途固定8997、同4834／18预算及索引profile。"""
         v=value();d=native.validate(v);self.assertEqual(native.resources.COMMON_FILE_MEASUREMENT_RESOURCES,d['purpose']);self.assertEqual(native.resources.COMMON_FILE_IMAGES,native.resources.images_for(d));self.assertTrue(native.resources.is_file_measurement(d));self.assertFalse(native.resources.is_extended_business(d));self.assertFalse(native.resources.is_observed(d));files.config_for(v,original_file.targets(v),original_file.tokens())
         old=original_file.value();native.validate(old);self.assertEqual(native.resources.IMPORT_RULE_IMAGES,native.resources.images_for(old))
         for wrong in [{**v,'images':native.resources.IMPORT_RULE_IMAGES},{**v,'fileIndexProfile':'wrong'},{**v,'fileReplayRequests':4833},{**old,'fileIndexProfile':native.resources.COMMON_FILE_INDEX_PROFILE},{**old,'images':native.resources.COMMON_FILE_IMAGES}]:

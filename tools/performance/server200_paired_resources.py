@@ -91,7 +91,7 @@ FILE_FIXTURE_REQUESTS = 18
 COMMON_FILE_MEASUREMENT_NATIVE = "paired-native-common-file-measurement-v1"
 COMMON_FILE_MEASUREMENT_RESOURCES = "paired-common-file-measurement-resources-v1"
 COMMON_FILE_INDEX_PROFILE = "paired-common-file-access-indexes-v1"
-COMMON_FILE_IMAGES = {**IMPORT_RULE_IMAGES,"csharp":"sha256:d1094e0719c3519237bb91925486e98f02d85126f9a9a7470c221b9509dc26db"}
+COMMON_FILE_IMAGES = {**IMPORT_RULE_IMAGES,"csharp":"sha256:899779ac68a37c96423b3538c88387e973b65eacd23e8a66ca516745213c862d"}
 
 
 def is_common_file_measurement(value):
