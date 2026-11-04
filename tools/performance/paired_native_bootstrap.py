@@ -34,7 +34,7 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.uses_relation_indexes(value):
         if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
@@ -46,6 +46,9 @@ def validate(value):
         if type(value.get("fileReplayRequests")) is not int or value["fileReplayRequests"]!=resources.FILE_REQUEST_BUDGET or type(value.get("fileFixtureRequests")) is not int or value["fileFixtureRequests"]!=resources.FILE_FIXTURE_REQUESTS or any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
             raise ValueError("文件测量必须使用固定下载与前后样本预算，不能混入其它负载")
     elif "fileReplayRequests" in value or "fileFixtureRequests" in value:raise ValueError("其它用途不能携带文件测量预算")
+    if resources.is_common_file_measurement(value):
+        if value.get("fileIndexProfile")!=resources.COMMON_FILE_INDEX_PROFILE:raise ValueError("共同文件测量缺少精确索引profile")
+    elif "fileIndexProfile" in value:raise ValueError("旧用途不能声明共同文件索引")
     if resources.is_extended_readiness(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
         raise ValueError("扩展就绪用途不能声明测量或业务回放预算")
     if resources.is_extended_business(value):
@@ -61,7 +64,7 @@ def validate(value):
         purpose = resources.INDEXED_WRITE_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
     elif resources.is_measurement(value):
         purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
-    if resources.is_file_measurement(value): purpose = resources.FILE_MEASUREMENT_RESOURCES
+    if resources.is_file_measurement(value): purpose = resources.COMMON_FILE_MEASUREMENT_RESOURCES if resources.is_common_file_measurement(value) else resources.FILE_MEASUREMENT_RESOURCES
     if resources.is_extended_readiness(value): purpose = resources.EXTENDED_READINESS_RESOURCES
     if resources.is_extended_business(value): purpose = resources.IMPORT_RULE_RESOURCES if resources.is_import_rule_business(value) else resources.DEEP_EXCEL_RESOURCES if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS_RESOURCES if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
@@ -167,7 +170,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
@@ -230,9 +233,14 @@ def pair_schema_apply(plan, result, expected_database):
 INDEX_JOBS=tuple("csharp-index-"+side+"-"+mode for side in ("java","csharp") for mode in ("preview","apply","verify"))
 
 
+FILE_INDEX_JOBS=tuple("csharp-file-index-"+side+"-"+mode for side in ("java","csharp") for mode in ("preview","apply","verify"))
+
+
 def initialization_job(root, value, name, state, state_path, *, expected_index_plan=None):
     """每个显式命令使用独占短期容器，先登记再创建；无论成败按同ID/token清理并核零。"""
-    indexed=name in INDEX_JOBS
+    file_indexed=name in FILE_INDEX_JOBS
+    indexed=name in INDEX_JOBS or file_indexed
+    if file_indexed and not resources.is_common_file_measurement(value):raise ValueError("旧用途不能运行共同文件索引命令")
     if name not in JOBS and not (indexed and resources.uses_relation_indexes(value)): raise ValueError("未知初始化入口")
     if indexed:
         apply=name.endswith("-apply")
@@ -254,10 +262,11 @@ def initialization_job(root, value, name, state, state_path, *, expected_index_p
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=1770", "--env-file", str(root / (target + ".env")),
             "--mount", f"type=bind,src={root}/data-{target},dst=/data"]
     if indexed:
-        side,mode=name.split("-")[2:]
+        side,mode=name.split("-")[3:] if file_indexed else name.split("-")[2:]
         args += ["--env","METARILL_INDEX_RUN_ID="+value["runId"],"--env","METARILL_INDEX_AUTHORIZATION=approved"]
+        if file_indexed:args += ["--env","METARILL_FILE_INDEX_SCOPE="+value["purpose"],"--env","METARILL_FILE_INDEX_PROFILE="+value["fileIndexProfile"]]
         if expected_index_plan is not None: args += ["--env","METARILL_INDEX_EXPECTED_PLAN="+expected_index_plan]
-        args += ["--entrypoint","dotnet",resources.images_for(value)["csharp"],"exec","--runtimeconfig","/app/Application.Host.runtimeconfig.json","--depsfile","/app/Application.Host.deps.json","/app/Metarill.Paired.Indexes.dll",mode+"-"+side]
+        args += ["--entrypoint","dotnet",resources.images_for(value)["csharp"],"exec","--runtimeconfig","/app/Application.Host.runtimeconfig.json","--depsfile","/app/Application.Host.deps.json","/app/Metarill.Paired.Indexes.dll",("file-" if file_indexed else "")+mode+"-"+side]
     elif target == "java":
         args += ["--mount", f"type=bind,src={root}/bootstrap,dst=/run/metarill/bootstrap,readonly", "--entrypoint", "java", resources.images_for(value)[target],
                  "-Dloader.path=/run/metarill/bootstrap/classes/", "-Dloader.main=com.yinzon.samplehost.PairedJavaConfigurationBootstrap", "-cp", "/app/application.jar",
@@ -466,6 +475,7 @@ def verify_tool_sources(value):
     if resources.is_measurement(value): expected.update({"performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py"})
     if resources.is_write_measurement(value): expected.add("performance/paired_write_measurement.py")
     if resources.is_file_measurement(value): expected.add("performance/paired_file_measurement.py")
+    if resources.is_common_file_measurement(value): expected.add("performance/paired_common_file_indexes.py")
     if resources.is_extended_business(value): expected.update({"performance/paired_business_http.py","performance/paired_extended_business.py","performance/paired_workbook_container.py","performance/paired_workbook_oracle.cjs"})
     if resources.is_deep_excel_import(value): expected.add("performance/paired_deep_excel_import.py")
     hashes = value.get("toolSha256", {})
@@ -505,6 +515,7 @@ def run(value):
     measure_fixture = importlib.import_module("paired_measurement_fixture") if measurement is not None else None
     write_measurement = importlib.import_module("paired_write_measurement") if resources.is_write_measurement(value) else None
     file_measurement = importlib.import_module("paired_file_measurement") if resources.is_file_measurement(value) else None
+    common_file_indexes = importlib.import_module("paired_common_file_indexes") if resources.is_common_file_measurement(value) else None
     extended_business = importlib.import_module("paired_extended_business") if resources.is_extended_business(value) else None
     root = resources.root_for(value["runId"])
     if extended_business is not None:
@@ -527,7 +538,7 @@ def run(value):
     if exchange is not None:
         state["acceptedScope"]="paired-existing-lines-and-private-capture-for-review-only" if resources.is_existing_lines(value) else "paired-original-business-and-private-capture-for-review-only"
     if measurement is not None:
-        state["acceptedScope"]="paired-protected-file-measurement-only" if file_measurement is not None else "paired-write-measurement-only" if write_measurement is not None else "paired-read-measurement-only"
+        state["acceptedScope"]="paired-common-file-index-protected-measurement-only" if common_file_indexes is not None else "paired-protected-file-measurement-only" if file_measurement is not None else "paired-write-measurement-only" if write_measurement is not None else "paired-read-measurement-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
     unobserved_hosts_started = False
@@ -558,6 +569,11 @@ def run(value):
         if resources.uses_relation_indexes(value):
             stage("按元数据预览确认应用两端同等关系索引")
             state["relationIndexPlans"]=upgrade_relation_indexes(root,value,state,state_path,mysql)
+        if common_file_indexes is not None:
+            stage("空合成文件表共同索引预览确认应用与完整属性核验")
+            state["fileIndexPlans"]=common_file_indexes.upgrade(root,value,state,state_path,lambda:require_database_ownership(mysql,value,state["ownerToken"]),initialization_job,(*JOBS,*INDEX_JOBS))
+            state["fileIndexesBefore"]={side:common_file_indexes.inspect_indexes(mysql.mysql,value["runId"],side) for side in ("java","csharp")}
+            resources.write_state(root/"file-indexes-before.json",state["fileIndexesBefore"]);resources.write_state(state_path,state)
         stage("同逻辑普通身份播种与逐字段回读")
         seed_lease = {**value, "purpose": "paired-identity-seed-v1", "leaseStatus": "running", "fixtureSha256": seed.fingerprint(fixture)}
         state["identitySeeds"] = []
@@ -634,6 +650,11 @@ def run(value):
             else:
                 stage("无SQL采集的原接口只读性能回放")
                 state["measurement"]=measurement.run_read_measurement(root,run_id,targets,tokens,probe,mysql.mysql)
+            if common_file_indexes is not None:
+                state["fileIndexesAfter"]={side:common_file_indexes.inspect_indexes(mysql.mysql,run_id,side) for side in ("java","csharp")}
+                if state["fileIndexesBefore"]!=state["fileIndexesAfter"]:raise ValueError("measurement-file-index-post-drift")
+                if state["fileIndexesAfter"]["java"]["logicalSha256"]!=state["fileIndexesAfter"]["csharp"]["logicalSha256"]:raise ValueError("measurement-file-index-logical-parity")
+                resources.write_state(root/"file-indexes-after.json",state["fileIndexesAfter"]);state["measurement"]["commonFileIndexAttributesVerified"]=True
             stage("独立复核性能回放后的物理样本")
             if write_measurement is not None:
                 state["measurement"]["writeReadback"]={

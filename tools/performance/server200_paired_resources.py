@@ -88,9 +88,20 @@ FILE_REQUEST_BUDGET = 4834
 FILE_FIXTURE_REQUESTS = 18
 
 
+COMMON_FILE_MEASUREMENT_NATIVE = "paired-native-common-file-measurement-v1"
+COMMON_FILE_MEASUREMENT_RESOURCES = "paired-common-file-measurement-resources-v1"
+COMMON_FILE_INDEX_PROFILE = "paired-common-file-access-indexes-v1"
+COMMON_FILE_IMAGES = {**IMPORT_RULE_IMAGES,"csharp":"sha256:d1094e0719c3519237bb91925486e98f02d85126f9a9a7470c221b9509dc26db"}
+
+
+def is_common_file_measurement(value):
+    """共同文件逻辑索引独立用途，旧原生文件首测仍固定AE镜像和原索引。"""
+    return value.get("purpose") in (COMMON_FILE_MEASUREMENT_NATIVE,COMMON_FILE_MEASUREMENT_RESOURCES)
+
+
 def is_file_measurement(value):
     """原受保护文件下载有独立固定预算和镜像，不复用只读或功能用途。"""
-    return value.get("purpose") in (FILE_MEASUREMENT_NATIVE,FILE_MEASUREMENT_RESOURCES)
+    return is_common_file_measurement(value) or value.get("purpose") in (FILE_MEASUREMENT_NATIVE,FILE_MEASUREMENT_RESOURCES)
 
 
 def is_import_rule_business(value):
@@ -174,6 +185,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_common_file_measurement(value): return COMMON_FILE_IMAGES
     if is_file_measurement(value) or is_import_rule_business(value): return IMPORT_RULE_IMAGES
     if is_file_auth_business(value): return FILE_AUTH_BUSINESS_IMAGES
     if is_extended_readiness(value) or is_extended_business(value): return EXTENDED_READINESS_IMAGES
@@ -195,7 +207,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
