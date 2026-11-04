@@ -39,7 +39,8 @@ class CurrentMeasurementTests(previous.FlowFixture):
         self.assertEqual(resources.EXISTING_LINE_IMAGES, resources.images_for(legacy))
         changes = ((self.value, resources.EXISTING_LINE_IMAGES),
                    (legacy, resources.CURRENT_MEASUREMENT_IMAGES),
-                   (self.value, {**self.value["images"], "csharp": "sha256:" + "a" * 64}))
+                   (self.value, {**self.value["images"], "csharp": "sha256:" + "a" * 64}),
+                   (self.value, {**self.value["images"], "csharp": "sha256:bc768ec8fb3e85c82799937c4a92f8c17fa7865b06307864dd8778463a68f146"}))
         for value, images in changes:
             with self.subTest(purpose=value["purpose"]), \
                  mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止读取来源")), \

@@ -38,7 +38,7 @@ CURRENT_MEASUREMENT_NATIVE = "paired-native-current-measurement-v1"
 CURRENT_MEASUREMENT_RESOURCES = "paired-current-measurement-resources-v1"
 CURRENT_WRITE_MEASUREMENT_NATIVE = "paired-native-current-write-measurement-v1"
 CURRENT_WRITE_MEASUREMENT_RESOURCES = "paired-current-write-measurement-resources-v1"
-CURRENT_MEASUREMENT_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:bc768ec8fb3e85c82799937c4a92f8c17fa7865b06307864dd8778463a68f146"}
+CURRENT_MEASUREMENT_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:cc67991c443490a24c0598f2f8861931cdf12d13a664c87839087035f7699732"}
 # 当前 SQL 诊断只绑定已验证镜像和数据程序集，不改变历史用途或计时用途。
 CURRENT_OBSERVED_NATIVE = "paired-native-current-observed-v1"
 CURRENT_OBSERVED_RESOURCES = "paired-current-observed-resources-v1"

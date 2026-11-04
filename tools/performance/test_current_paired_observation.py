@@ -43,7 +43,9 @@ class CurrentObservedContractTests(unittest.TestCase):
 
     def test_old_images_and_pending_scope_fail_before_source_or_external_io(self):
         """旧镜像和待执行范围不能借新入口接入观察器。"""
-        for change in ({"images": native.resources.OBSERVATION_IMAGES}, {"authorizationStatus": "pending"}):
+        for change in ({"images": native.resources.OBSERVATION_IMAGES},
+                       {"images": {**native.resources.CURRENT_MEASUREMENT_IMAGES, "csharp": "sha256:bc768ec8fb3e85c82799937c4a92f8c17fa7865b06307864dd8778463a68f146"}},
+                       {"authorizationStatus": "pending"}):
             with self.subTest(change=change), \
                  mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止读源")), \
                  self.assertRaises(ValueError):
