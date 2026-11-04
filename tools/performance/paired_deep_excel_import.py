@@ -17,7 +17,7 @@ def require(ok,code):
 
 def run_deep_import(value,tokens,exchange,query):
     """只在新用途执行；原两端144请求及十文件结束后，复用真实子页工作簿再增加两份合同工作簿。"""
-    require(value.get('purpose')==resources.DEEP_EXCEL_BUSINESS and type(value.get('workbookOperations')) is int and value['workbookOperations']==12,'scope')
+    require(value.get('purpose') in (resources.DEEP_EXCEL_BUSINESS,resources.IMPORT_RULE_BUSINESS) and type(value.get('workbookOperations')) is int and value['workbookOperations']==12,'scope')
     run,databases=basic.authorize(value,tokens);database=databases['csharp'];target='csharp';writer=tokens[target]['writer']
     require(query('SELECT @@hostname,@@server_uuid;')==basic.PIN['hostname']+'\t'+basic.PIN['serverUuid'],'instance')
     from paired_extended_business import FILE_BYTES

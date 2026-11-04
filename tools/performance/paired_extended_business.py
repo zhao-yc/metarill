@@ -84,7 +84,7 @@ class Exchange:
     """只向本轮两个固定回环宿主单次发请求；原始业务响应留私有证据，认证头不落盘。"""
     def __init__(self, value, root, state, state_path):
         """入口验证先于目录创建；就绪／测量租约不能借此执行业务。"""
-        require(value.get('purpose')==(resources.DEEP_EXCEL_BUSINESS if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else PURPOSE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running' and value.get('workbookOperations')==workbook_budget(value) and value.get('maintenanceProfile')==MAINTENANCE_PROFILE, 'lease')
+        require(value.get('purpose')==(resources.IMPORT_RULE_BUSINESS if resources.is_import_rule_business(value) else resources.DEEP_EXCEL_BUSINESS if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else PURPOSE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running' and value.get('workbookOperations')==workbook_budget(value) and value.get('maintenanceProfile')==MAINTENANCE_PROFILE, 'lease')
         require(value.get('images')==resources.images_for(value) and root==resources.root_for(value['runId']) and state_path==root/'native-state.json' and state.get('runId')==value['runId'], 'scope')
         ports=value.get('ports',{});require(set(ports)=={'java','csharp'} and len(set(ports.values()))==2 and all(type(n) is int and 20000<=n<=40000 for n in ports.values()), 'ports')
         oracle.read_inputs(root)

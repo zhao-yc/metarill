@@ -48,6 +48,13 @@ class DeepContractTests(unittest.TestCase):
         exchange.value['purpose']=native.resources.FILE_AUTH_BUSINESS
         with self.assertRaisesRegex(ValueError,'reuse-scope'):exchange.reused_child_export()
 
+    def test_corrected_import_image_has_its_own_purpose_and_old_images_are_not_interchangeable(self):
+        """新修正镜像与旧失败深度用途互不替换；十二预算及测量隔离保持。"""
+        v=value();v.update(purpose=native.resources.IMPORT_RULE_NATIVE,images=dict(native.resources.IMPORT_RULE_IMAGES))
+        descriptor=native.validate(v);self.assertEqual(native.resources.IMPORT_RULE_RESOURCES,descriptor['purpose']);self.assertEqual(native.resources.IMPORT_RULE_IMAGES,native.resources.images_for(descriptor));self.assertEqual(12,extended.workbook_budget(v));self.assertFalse(native.resources.is_measurement(descriptor));self.assertFalse(native.resources.is_observed(descriptor))
+        for wrong in [{**v,'images':dict(native.resources.FILE_AUTH_BUSINESS_IMAGES)},{**value(),'images':dict(native.resources.IMPORT_RULE_IMAGES)},{**v,'workbookOperations':10}]:
+            with self.subTest(purpose=wrong['purpose']),mock.patch.object(native,'verify_tool_sources',side_effect=AssertionError('禁止外调')),self.assertRaises(ValueError):native.run(wrong)
+
     def test_wrong_deep_lease_fails_before_query_or_http(self):
         """真正的专项入口先拒绝旧用途／错预算，不能先查询数据库或发送一次业务。"""
         for change in [{'purpose':native.resources.FILE_AUTH_BUSINESS},{'workbookOperations':10}]:
@@ -68,6 +75,12 @@ class DeepFlowTests(previous.NativeFlowTests):
         self.assertTrue(result['passed']);self.assertEqual(12,self.jobs.call_count);self.assertFalse(result['performanceAccepted'])
         args=self.module.run_extended.call_args.args;self.assertEqual(native.resources.DEEP_EXCEL_BUSINESS,args[0]['purpose']);self.assertEqual(12,args[0]['workbookOperations']);self.assertEqual(extended.MAINTENANCE_PROFILE,args[0]['maintenanceProfile'])
         self.assertEqual([],result['cleanupErrors']);self.assertEqual('ended',result['leaseStatus'])
+    def test_corrected_rule_scope_keeps_original_identity_and_deep_import_chain(self):
+        """实际协调器向业务层传新用途和固定镜像，不跳过身份或原初始化。"""
+        self.value=value();self.value.update(purpose=native.resources.IMPORT_RULE_NATIVE,images=dict(native.resources.IMPORT_RULE_IMAGES))
+        with contextlib.redirect_stdout(io.StringIO()):result=native.run(self.value)
+        self.assertTrue(result['passed']);self.assertEqual(12,self.jobs.call_count);args=self.module.run_extended.call_args.args
+        self.assertEqual(native.resources.IMPORT_RULE_BUSINESS,args[0]['purpose']);self.assertEqual(native.resources.IMPORT_RULE_IMAGES,args[0]['images']);self.assertEqual(12,args[0]['workbookOperations']);self.assertEqual([],result['cleanupErrors']);self.assertEqual('ended',result['leaseStatus'])
 
 
 if __name__=='__main__':unittest.main()

@@ -75,13 +75,25 @@ DEEP_EXCEL_RESOURCES = "paired-deep-excel-import-resources-v1"
 DEEP_EXCEL_BUSINESS = "paired-deep-excel-import-business-v1"
 
 
+IMPORT_RULE_NATIVE = "paired-native-import-rule-business-v1"
+IMPORT_RULE_RESOURCES = "paired-import-rule-business-resources-v1"
+IMPORT_RULE_BUSINESS = "paired-import-rule-business-v1"
+IMPORT_RULE_IMAGES = {**FILE_AUTH_BUSINESS_IMAGES,
+    "csharp":"sha256:ae626b79ca2c9615eeccc1fb006e8b8f0a988c2456b4a9a1c0ac059f060d1068"}
+
+
+def is_import_rule_business(value):
+    """明确业务规则修正完整镜像独立登记，原深度Excel失败来源不能被替换。"""
+    return value.get("purpose") in (IMPORT_RULE_NATIVE,IMPORT_RULE_RESOURCES,IMPORT_RULE_BUSINESS)
+
+
 def is_deep_excel_import(value):
     """追加非空附件导入、父页Excel再导入及末行规则失败回滚；只用已核新镜像。"""
-    return value.get("purpose") in (DEEP_EXCEL_NATIVE,DEEP_EXCEL_RESOURCES,DEEP_EXCEL_BUSINESS)
+    return is_import_rule_business(value) or value.get("purpose") in (DEEP_EXCEL_NATIVE,DEEP_EXCEL_RESOURCES,DEEP_EXCEL_BUSINESS)
 
 
 def is_file_auth_business(value):
-    """只允许固定9ee23b6完整产物的功能验收，不把旧已失败镜像互换进来。"""
+    """文件拒权功能及其后续独立用途共用流程，各自镜像仍由images_for精确固定。"""
     return is_deep_excel_import(value) or value.get("purpose") in (FILE_AUTH_BUSINESS_NATIVE,FILE_AUTH_BUSINESS_RESOURCES,FILE_AUTH_BUSINESS)
 
 
@@ -151,6 +163,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_import_rule_business(value): return IMPORT_RULE_IMAGES
     if is_file_auth_business(value): return FILE_AUTH_BUSINESS_IMAGES
     if is_extended_readiness(value) or is_extended_business(value): return EXTENDED_READINESS_IMAGES
     if is_indexed_measurement(value): return INDEXED_WRITE_IMAGES
@@ -171,7 +184,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
