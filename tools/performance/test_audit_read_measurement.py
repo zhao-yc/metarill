@@ -69,6 +69,23 @@ class IndependentReadReviewTests(unittest.TestCase):
                                         values["meanCpuPercent"], values["observedMaxMemoryBytes"]))
         self.assertFalse(result["releaseAccepted"])
 
+    def test_step_timings_use_every_original_request_without_changing_verdict(self):
+        """逐接口排序须独立计算，保留慢轮，不以百分位求和替代场景时延。"""
+        report, first, events = evidence()
+        target = report["results"][0]["pairs"][2]["trials"]["csharp"]
+        for index, row in enumerate(target["rows"]):
+            row["requestMs"] = [1 + index / 100, 2, 3, 10 - index / 100]
+        result = audit.review(report, first, events, RUN)
+        actual = result["results"][0]["rounds"][2]["csharp"]["stepTimings"]
+        self.assertEqual(list(audit.STEP_NAMES), [step["step"] for step in actual])
+        self.assertEqual([400] * 4, [step["requests"] for step in actual])
+        self.assertAlmostEqual(4.79, actual[0]["p95Ms"])
+        self.assertAlmostEqual(9.8, actual[3]["p95Ms"])
+        self.assertAlmostEqual(2.995, actual[0]["meanMs"])
+        self.assertNotEqual(sum(step["p95Ms"] for step in actual), target["p95Ms"])
+        self.assertEqual([False, True], [group["stableRegression"] for group in result["results"]])
+        self.assertFalse(result["releaseAccepted"])
+
     def test_report_cannot_rely_on_late_sample_or_wrong_arithmetic(self):
         """两个总样本不足以证明窗口，时延汇总必须来自原始行。"""
         report, first, events = evidence()

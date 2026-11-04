@@ -16,6 +16,7 @@ SCENARIO = "customer-count-contract-child"
 SIDES = ("java", "csharp")
 ITERATIONS = 400
 STEPS = 4
+STEP_NAMES = ("customer-page", "customer-count", "contract-detail", "child-page")
 DIGEST = re.compile(r"[a-f0-9]{64}")
 
 
@@ -67,7 +68,15 @@ def trial_values(trial):
     require(all(type(item["memoryBytes"]) is int and item["memoryBytes"] >= 0
                 and type(item["cpuPercent"]) in (int, float) and math.isfinite(item["cpuPercent"])
                 and item["cpuPercent"] >= 0 for item in values), "资源采样数值无效")
-    return {"p95Ms": p95, "scenarioThroughput": throughput, "windowSamples": len(samples),
+    # 分别统计四个实际请求，保留全部轮次；请求百分位不能相加当作场景百分位。
+    step_timings = []
+    for index, name in enumerate(STEP_NAMES):
+        timings = sorted(row["requestMs"][index] for row in rows)
+        step_timings.append({"step": name, "requests": len(timings),
+                             "meanMs": statistics.mean(timings), "p50Ms": timings[199],
+                             "p95Ms": timings[379], "p99Ms": timings[395], "maxMs": timings[-1]})
+    return {"p95Ms": p95, "scenarioThroughput": throughput, "stepTimings": step_timings,
+            "windowSamples": len(samples),
             "outsideSamples": len(trial["resources"]) - len(samples) + len(trial.get("lateResources", [])),
             "meanCpuPercent": statistics.mean(item["cpuPercent"] for item in values),
             "observedMaxMemoryBytes": max(item["memoryBytes"] for item in values)}
