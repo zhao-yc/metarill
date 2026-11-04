@@ -11,6 +11,14 @@ internal sealed record MySqlPhysicalReference(string Table,Metarill.Data.Schema.
 internal sealed record MySqlValueOrigin(string Table,string Column);
 internal sealed record MySqlReverseProjection(string TargetTable,string From,string ForeignExpression,string ForeignType,IReadOnlyDictionary<string,IReadOnlySet<string>> Outputs)
 {
+    /// <summary>普通等值供字符串索引预筛选，二进制条件仍决定精确ID；数组谓词和整数键保持原义。</summary>
+    internal string TargetPredicate => ForeignType switch
+    {
+        "predicate" => ForeignExpression,
+        "string" => "("+ForeignExpression+"=@target_text AND BINARY "+ForeignExpression+"=BINARY @target_text)",
+        _ => ForeignExpression+"=@target_id"
+    };
+
     /// <summary>原保存钩子可直接从目标物理行取值的单级缓存。</summary>
     internal IReadOnlySet<string> DirectSaveOutputs {get;init;}=FrozenSet<string>.Empty;
 
