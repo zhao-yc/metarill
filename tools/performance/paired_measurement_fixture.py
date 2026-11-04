@@ -121,13 +121,17 @@ def write_sample_condition(run):
     return f"BINARY LEFT(name,{len(prefix)})=BINARY {literal(prefix)}"
 
 
-def readback_sql(run, target, table, *, exclude_write_samples=False):
+def readback_sql(run, target, table, *, exclude_write_samples=False, exclude_contract_id=None):
     """有界读回全部固定字段，按字节区分空串、NULL、中文和精确字符串 ID。"""
     database = database_name(run, target)
     if table not in COLUMNS:
         raise ValueError("未知性能样本表")
     fields = ",".join(f"IF(`{name}` IS NULL,'N',CONCAT('H',HEX(CAST(`{name}` AS CHAR CHARACTER SET utf8mb4))))" for name in COLUMNS[table])
     where = f" WHERE name IS NULL OR NOT ({write_sample_condition(run)})" if exclude_write_samples and table == "sample_customer" else ""
+    if exclude_contract_id is not None:
+        # 仅排除另外逐字段核验的新增附件合同；原种子ID永不允许隐藏，不能与客户写负载混用。
+        if exclude_write_samples or type(exclude_contract_id) is not str or not re.fullmatch(r"[1-9][0-9]{0,18}",exclude_contract_id) or int(exclude_contract_id)>9223372036854775807 or ID_BASE<=int(exclude_contract_id)<ID_BASE+30000:raise ValueError("附件合同排除ID范围无效")
+        if table=="sample_contract":where=f" WHERE id<>{exclude_contract_id}"
     return f"SELECT {fields} FROM `{database}`.`{table}`{where} ORDER BY `id` LIMIT {COUNTS[table]+1};"
 
 
@@ -206,7 +210,7 @@ def expected_column_layout():
             yield "\t".join(map(str,(table,name,*shape,"D"+default)))
 
 
-def verify_readback(run, target, query, *, exclude_write_samples=False, relation_indexes=False):
+def verify_readback(run, target, query, *, exclude_write_samples=False, relation_indexes=False, exclude_contract_id=None):
     """逐字核对独立读回，回执仅保留摘要和固定行数。"""
     database = database_name(run, target)
     actual_pin = query("SELECT @@hostname,@@server_uuid;")
@@ -220,7 +224,7 @@ def verify_readback(run, target, query, *, exclude_write_samples=False, relation
         raise ValueError("性能样本列类型、默认值或排序规则不符")
     hashes={}
     for table,count in COUNTS.items():
-        actual=query(readback_sql(run,target,table,exclude_write_samples=exclude_write_samples)).splitlines()
+        actual=query(readback_sql(run,target,table,**({"exclude_contract_id":exclude_contract_id} if exclude_contract_id is not None else {}),exclude_write_samples=exclude_write_samples)).splitlines()
         if len(actual)!=count or any(observed!=expected for observed,expected in zip(actual,expected_wire(table))):
             raise ValueError(f"性能样本物理回读不符：{table}")
         hashes[table]=hashlib.sha256(("\n".join(actual)+"\n").encode("ascii")).hexdigest()

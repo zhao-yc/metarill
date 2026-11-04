@@ -82,6 +82,17 @@ IMPORT_RULE_IMAGES = {**FILE_AUTH_BUSINESS_IMAGES,
     "csharp":"sha256:ae626b79ca2c9615eeccc1fb006e8b8f0a988c2456b4a9a1c0ac059f060d1068"}
 
 
+FILE_MEASUREMENT_NATIVE = "paired-native-protected-file-measurement-v1"
+FILE_MEASUREMENT_RESOURCES = "paired-protected-file-measurement-resources-v1"
+FILE_REQUEST_BUDGET = 4834
+FILE_FIXTURE_REQUESTS = 18
+
+
+def is_file_measurement(value):
+    """原受保护文件下载有独立固定预算和镜像，不复用只读或功能用途。"""
+    return value.get("purpose") in (FILE_MEASUREMENT_NATIVE,FILE_MEASUREMENT_RESOURCES)
+
+
 def is_import_rule_business(value):
     """明确业务规则修正完整镜像独立登记，原深度Excel失败来源不能被替换。"""
     return value.get("purpose") in (IMPORT_RULE_NATIVE,IMPORT_RULE_RESOURCES,IMPORT_RULE_BUSINESS)
@@ -114,7 +125,7 @@ def uses_relation_indexes(value):
 
 def is_indexed_measurement(value):
     """原六初始化后单独升级索引；仅该用途可调用镜像内固定索引工具。"""
-    return value.get("purpose") in (INDEXED_WRITE_MEASUREMENT_NATIVE, INDEXED_WRITE_MEASUREMENT_RESOURCES,
+    return is_file_measurement(value) or value.get("purpose") in (INDEXED_WRITE_MEASUREMENT_NATIVE, INDEXED_WRITE_MEASUREMENT_RESOURCES,
                                     INDEXED_READ_MEASUREMENT_NATIVE, INDEXED_READ_MEASUREMENT_RESOURCES)
 
 
@@ -163,7 +174,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
-    if is_import_rule_business(value): return IMPORT_RULE_IMAGES
+    if is_file_measurement(value) or is_import_rule_business(value): return IMPORT_RULE_IMAGES
     if is_file_auth_business(value): return FILE_AUTH_BUSINESS_IMAGES
     if is_extended_readiness(value) or is_extended_business(value): return EXTENDED_READINESS_IMAGES
     if is_indexed_measurement(value): return INDEXED_WRITE_IMAGES
@@ -184,7 +195,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
@@ -375,7 +386,7 @@ def provision(value, root, path):
                     if target == "csharp": args += ["--env", "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES=Metarill.Paired.SqlObservation"]
                 args += [images_for(value)[target], *observation_arguments(value, target)]
                 # 原Java默认写./file-storage；新文件验收显式接本轮/data，根文件系统继续只读。
-                if target == "java" and is_extended_business(value): args += ["--custom.file-storage.local.root-path=/data/files"]
+                if target == "java" and (is_extended_business(value) or is_file_measurement(value)): args += ["--custom.file-storage.local.root-path=/data/files"]
         identifier = docker(*args)
         if not re.fullmatch(r"[a-f0-9]{64}", identifier):
             raise RuntimeError("创建回执不是完整对象ID，保留待核记录")

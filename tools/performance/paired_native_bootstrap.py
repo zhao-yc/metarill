@@ -34,7 +34,7 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.uses_relation_indexes(value):
         if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
@@ -42,6 +42,10 @@ def validate(value):
     if value.get("purpose")==resources.INDEXED_READ_MEASUREMENT_NATIVE:
         if type(value.get("readReplayRequests")) is not int or value["readReplayRequests"]!=resources.READ_REQUEST_BUDGET or "writeReplayRequests" in value:raise ValueError("只读用途必须使用完整原读预算，不能带写入范围")
     elif value.get("purpose")==resources.INDEXED_WRITE_MEASUREMENT_NATIVE and "readReplayRequests" in value:raise ValueError("写入用途不能混入读取预算")
+    if resources.is_file_measurement(value):
+        if type(value.get("fileReplayRequests")) is not int or value["fileReplayRequests"]!=resources.FILE_REQUEST_BUDGET or type(value.get("fileFixtureRequests")) is not int or value["fileFixtureRequests"]!=resources.FILE_FIXTURE_REQUESTS or any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
+            raise ValueError("文件测量必须使用固定下载与前后样本预算，不能混入其它负载")
+    elif "fileReplayRequests" in value or "fileFixtureRequests" in value:raise ValueError("其它用途不能携带文件测量预算")
     if resources.is_extended_readiness(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
         raise ValueError("扩展就绪用途不能声明测量或业务回放预算")
     if resources.is_extended_business(value):
@@ -57,6 +61,7 @@ def validate(value):
         purpose = resources.INDEXED_WRITE_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
     elif resources.is_measurement(value):
         purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
+    if resources.is_file_measurement(value): purpose = resources.FILE_MEASUREMENT_RESOURCES
     if resources.is_extended_readiness(value): purpose = resources.EXTENDED_READINESS_RESOURCES
     if resources.is_extended_business(value): purpose = resources.IMPORT_RULE_RESOURCES if resources.is_import_rule_business(value) else resources.DEEP_EXCEL_RESOURCES if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS_RESOURCES if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
@@ -460,6 +465,7 @@ def verify_tool_sources(value):
     if resources.is_observed(value): expected.update({"performance/paired_business_http.py","performance/paired_observed_capture.py","performance/audit_sql_artifacts.py"})
     if resources.is_measurement(value): expected.update({"performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py"})
     if resources.is_write_measurement(value): expected.add("performance/paired_write_measurement.py")
+    if resources.is_file_measurement(value): expected.add("performance/paired_file_measurement.py")
     if resources.is_extended_business(value): expected.update({"performance/paired_business_http.py","performance/paired_extended_business.py","performance/paired_workbook_container.py","performance/paired_workbook_oracle.cjs"})
     if resources.is_deep_excel_import(value): expected.add("performance/paired_deep_excel_import.py")
     hashes = value.get("toolSha256", {})
@@ -498,6 +504,7 @@ def run(value):
     measurement = importlib.import_module("paired_measurement") if resources.is_measurement(value) else None
     measure_fixture = importlib.import_module("paired_measurement_fixture") if measurement is not None else None
     write_measurement = importlib.import_module("paired_write_measurement") if resources.is_write_measurement(value) else None
+    file_measurement = importlib.import_module("paired_file_measurement") if resources.is_file_measurement(value) else None
     extended_business = importlib.import_module("paired_extended_business") if resources.is_extended_business(value) else None
     root = resources.root_for(value["runId"])
     if extended_business is not None:
@@ -520,7 +527,7 @@ def run(value):
     if exchange is not None:
         state["acceptedScope"]="paired-existing-lines-and-private-capture-for-review-only" if resources.is_existing_lines(value) else "paired-original-business-and-private-capture-for-review-only"
     if measurement is not None:
-        state["acceptedScope"]="paired-write-measurement-only" if write_measurement is not None else "paired-read-measurement-only"
+        state["acceptedScope"]="paired-protected-file-measurement-only" if file_measurement is not None else "paired-write-measurement-only" if write_measurement is not None else "paired-read-measurement-only"
     def stage(name):
         state["stage"] = name; resources.write_state(state_path, state); print("阶段：" + name, flush=True)
     unobserved_hosts_started = False
@@ -614,7 +621,10 @@ def run(value):
             resources.write_state(state_path,state)
         if measurement is not None:
             run_id = value["runId"]
-            if write_measurement is not None:
+            if file_measurement is not None:
+                stage("真实附件样本及无SQL采集的受保护文件下载性能回放")
+                state["measurement"]=file_measurement.run_file_measurement(root,value,targets,tokens,probe,mysql.mysql,lambda:require_database_ownership(mysql,value,state["ownerToken"]))
+            elif write_measurement is not None:
                 require_database_ownership(mysql,value,state["ownerToken"])
                 stage("独立核验写入回放前无本轮样本")
                 for side in ("java","csharp"):
@@ -632,6 +642,7 @@ def run(value):
                 }
             for side in ("java","csharp"):
                 options={} if write_measurement is None else {"exclude_write_samples":True}
+                if file_measurement is not None: options["exclude_contract_id"]=state["measurement"]["fileFixture"]["targets"][side]["contractId"]
                 if resources.uses_relation_indexes(value): options["relation_indexes"]=True
                 if measure_fixture.verify_readback(run_id,side,mysql.mysql,**options)!=state["measurementSeeds"][side]:
                     raise ValueError("measurement-post-readback")
