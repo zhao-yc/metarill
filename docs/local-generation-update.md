@@ -116,3 +116,6 @@ metarill update recover --target E:\应用 --transaction active中的事务ID --
 从修正后的同一源码导出可信候选，按原在线助手或CLI的 `sync-runtime` 先预览再应用：`src/Metarill.Files/FileModels.cs`、`FileLibraryService.cs` 与受管 `backend/Application.Host/Program.cs` 须同批更新。新完整／BackendOnly包分别使用对应宿主模板；已有目录出现自定义或归属冲突时保留现场审查，不能用新Program覆盖归属不明改动。只更新Files DLL而保留旧宿主仍可能把明确拒权当作401。
 
 此项不改变权限、元数据、表结构或数据，不需要DDL／回填／页面再生成。手写Service partial、AppID和私有配置按原更新保护保留。新明确读取拒权仍派生原UnauthorizedAccessException；独立宿主将它映射403，真实未认证继续401。被引用文件删除沿现有BusinessRuleException返回HTTP200/R500；内部数据库／IO异常仍不可冒充业务规则。编译／本机HTTP与真实账号／MySQL验收分开记录，见[V182](performance-acceptance.md#v182-c已认证文件读取拒权分类修复及宿主http回归)。
+
+
+V183／V186后续已从冻结旧45b749a完整包的独占副本实际执行CLI预览／应用，只有两Files源码、Program和归属清单变化；六手写、393前端及三个元数据保持，升级宿主严格编译／Linux发布与新生成包源码及八NuGet锁一致。该发布的新固定镜像已完成真实MySQL文件403／引用删除规则及Excel／C#四格回填功能链，201证据与资源独立复核；此结果不包含非空附件／子表Excel导入或同条件性能。详见[V186](performance-acceptance.md#v186-新固定镜像原http文件excelc回填正式通过)。
