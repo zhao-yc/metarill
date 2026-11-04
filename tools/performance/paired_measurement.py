@@ -6,6 +6,7 @@ import time
 from urllib.error import HTTPError
 
 import paired_http as http
+from server200_paired_resources import READ_REQUEST_BUDGET
 from paired_measurement_fixture import ID_BASE
 
 
@@ -35,13 +36,18 @@ def read_scenario():
 
 def config_for(run,targets,tokens):
     """固定次数、并发、原读接口及每端真实读者会话，配置仅在内存存在。"""
-    return http.validate({
+    config=http.validate({
         "version":1,"runId":run,"transportProof":"server200-loopback-v1",
         "rounds":3,"iterations":400,"warmupIterations":8,"concurrency":[1,4],
         "requestTimeoutSeconds":5,"maxP95Ratio":1.10,"minThroughputRatio":0.95,
         "targets":{side:{**targets[side],"headers":{"loginStateId":tokens[side,"reader"]}} for side in ("java","csharp")},
         "scenarios":[read_scenario()],
     })
+    # 从真实场景、轮次和预热推导预算，防止新增步骤却仍声称原19336请求。
+    steps=sum(len(scenario["steps"]) for scenario in config["scenarios"])
+    requests=len(config["targets"])*steps*(len(config["concurrency"])*(config["rounds"]*config["iterations"]+config["warmupIterations"])+1)
+    if requests!=READ_REQUEST_BUDGET:raise ValueError("measurement-read-budget")
+    return config
 
 
 VARIABLE_SQL = ("SELECT @@version,@@global.innodb_buffer_pool_size,@@global.max_connections,"

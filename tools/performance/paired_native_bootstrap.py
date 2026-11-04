@@ -34,11 +34,14 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.is_indexed_measurement(value):
         if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
     elif "relationIndexProfile" in value: raise ValueError("旧用途不能隐式升级索引")
+    if value.get("purpose")==resources.INDEXED_READ_MEASUREMENT_NATIVE:
+        if type(value.get("readReplayRequests")) is not int or value["readReplayRequests"]!=resources.READ_REQUEST_BUDGET or "writeReplayRequests" in value:raise ValueError("只读用途必须使用完整原读预算，不能带写入范围")
+    elif value.get("purpose")==resources.INDEXED_WRITE_MEASUREMENT_NATIVE and "readReplayRequests" in value:raise ValueError("写入用途不能混入读取预算")
     descriptor = {k: value.get(k) for k in ("version", "runId", "images", "ports", "materialsSha256")}
     purpose = resources.EXISTING_LINE_RESOURCES if resources.is_existing_lines(value) else "paired-observed-resources-v1" if resources.is_observed(value) else "paired-resources-v1"
     if resources.is_current_observed(value): purpose = resources.CURRENT_OBSERVED_RESOURCES
@@ -47,7 +50,7 @@ def validate(value):
             raise ValueError("写入请求数与直接批准范围不符")
         purpose = resources.INDEXED_WRITE_MEASUREMENT_RESOURCES if resources.is_indexed_measurement(value) else resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
     elif resources.is_measurement(value):
-        purpose = resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
+        purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.is_indexed_measurement(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
     descriptor.update(purpose=purpose, authorizationStatus="approved", leaseStatus="running")
     run = resources.validate(descriptor)
     databases = ["metarill_fresh_" + run[:16] + "_paired_" + t for t in ("java", "csharp")]
@@ -151,7 +154,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]

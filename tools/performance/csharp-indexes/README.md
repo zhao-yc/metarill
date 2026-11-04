@@ -23,3 +23,6 @@ CI 回归位于 `tools/performance/csharp-host.Tests/RelationIndexProfileTests.c
 独立原生用途为 `paired-native-indexed-write-measurement-v1`，必须显式指定 `relationIndexProfile=original-three-table-relation-indexes-v1`、完整 8624 请求预算及固定 52 文件镜像。旧读写用途仍要求原三表索引，不接收这个升级字段。原六初始化完成并核清短期容器后，两端分别执行预览、应用和零差异验证；六个新增短进程也登记在同轮归属账本，负载之前逐属性核对两端索引，负载之后连同原数据／墓碑再次回读。
 
 此配置只用于可审查的两端同条件优化。现有项目如需采用，应在索引工作台保存相同元数据后显式预览／同步；本工具不会让所有项目自动新增索引，也不删除旧索引或改任何字段、请求、权限与事务语义。
+
+
+同索引只读复测使用独立 `paired-native-indexed-read-measurement-v1` 和 `readReplayRequests=19336`，不能带写入预算。复用相同镜像／索引阶段，负载仍是原四读、400场景／三轮／并发1与4；从真实步骤推导19200正式、128预热和8首检。该读取接线的正式验收单独登记，不能拿客户写入或旧候选读取结果替代。
