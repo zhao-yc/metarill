@@ -132,7 +132,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
             &&plan.FromForFields(plan.Outputs)==plan.From;
     }
     /// <summary>刷新刚保存的一条来源。保持实际值读回核验，成功后才把补丁送入传播队列。</summary>
-    internal async Task<IReadOnlyList<RelationRowPatch>> RefreshSavedSourceAsync(MaintenanceTable table,long id,string project,DbTransaction transaction,CancellationToken token)
+    internal async Task<IReadOnlyList<RelationRowPatch>> RefreshSavedSourceAsync(MaintenanceTable table,long id,string project,long packetLimit,DbTransaction transaction,CancellationToken token)
     {
         if(!CanLockExactScalarSource(table))
         {
@@ -141,8 +141,15 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         }
         // 留出第二条的检测槽。若结构不再满足唯一来源，仍按原行为拒绝整笔写入。
         var (_,patches)=await LockScalarBatchAsync(table,project,0,2,transaction,token,exactId:id);
-        // 单主键最多一个补丁，不会进入按报文大小决定的多行写入。
-        await WriteScalarBatchAsync(table,table.Read!,project,patches,0,transaction,token);
+        // 仅已锁单主键、单文本副本及保守报文预算允许合并发送，复杂值仍走原独立读回。
+        if(patches.Count==1&&patches[0].Values.Count==1&&transaction.Connection is MySqlConnector.MySqlConnection
+            &&FitsTextBatch(patches,patches[0].Values.Keys.Single(),packetLimit))
+        {
+            var patch=patches[0];
+            await using var command=UpdateCommand(table,id,project,patch.Values,transaction);
+            await RelationCacheStorageVerifier.VerifySingleWriteAsync(command,session.Provider,table.Option.TableName,Scope(table,"c."),patch,token);
+        }
+        else await WriteScalarBatchAsync(table,table.Read!,project,patches,0,transaction,token);
         return patches;
     }
     /// <summary>仅单文本缓存按来源主键批量写入。所有实际值在传播前由原核验器读回，异常仍回滚整表。</summary>
@@ -255,7 +262,19 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     /// <summary>精确写回已锁来源的派生列，主键、业务字段和审计ID／时间不进入SET。</summary>
     private async Task Update(MaintenanceTable table,long id,string project,IReadOnlyDictionary<string,object?> patch,DbTransaction transaction,CancellationToken token)
     {
-        await using var command=Command(transaction);command.CommandText="UPDATE "+Q(table.Option.TableName)+" SET "+string.Join(",",patch.Keys.Select((field,index)=>Q(field)+"=@value"+index))+" WHERE `id`=@id AND "+Scope(table);Add(command,"id",id);Add(command,"project",Project(table,project));var ordinal=0;foreach(var value in patch.Values)Add(command,"value"+ordinal++,value);if(await command.ExecuteNonQueryAsync(token)!=1)throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
+        await using var command=UpdateCommand(table,id,project,patch,transaction);
+        if(await command.ExecuteNonQueryAsync(token)!=1)throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
+    }
+    /// <summary>构造与原独立写入相同的已编译 UPDATE，所有值仍由驱动绑定。</summary>
+    private DbCommand UpdateCommand(MaintenanceTable table,long id,string project,IReadOnlyDictionary<string,object?> patch,DbTransaction transaction)
+    {
+        var command=Command(transaction);
+        command.CommandText="UPDATE "+Q(table.Option.TableName)+" SET "+string.Join(",",patch.Keys.Select((field,index)=>Q(field)+"=@value"+index))+" WHERE `id`=@id AND "+Scope(table);
+        Add(command,"id",id);
+        Add(command,"project",Project(table,project));
+        var ordinal=0;
+        foreach(var value in patch.Values)Add(command,"value"+ordinal++,value);
+        return command;
     }
     /// <summary>活动范围只来自编译后的真实物理项目列和软删列。</summary>
     private static string Scope(MaintenanceTable table,string prefix="") => (table.ProjectType.Length==0 ? "1=1" : prefix+"`yz_project_id`=@project") + (table.Deleted ? " AND "+prefix+"`delete_no` IS NULL" : "");

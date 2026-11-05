@@ -4,6 +4,22 @@ namespace Metarill.Data.Relations;
 /// <summary>内部缓存写入后核对实际物理值，维护与传播按有界批次回读，避免逐来源再增加查询。</summary>
 internal static class RelationCacheStorageVerifier
 {
+    /// <summary>一次驱动请求顺序执行原更新及当前读，以驱动更新行数和实际物理值决定是否传播。</summary>
+    internal static async Task VerifySingleWriteAsync(DbCommand command,IDatabaseProvider provider,string table,string scope,RelationRowPatch patch,CancellationToken token)
+    {
+        var value=patch.Values.Single();
+        command.CommandText+="; SELECT c.`id`,c."+provider.QuoteIdentifier(value.Key)+" FROM "+provider.QuoteIdentifier(table)+" c WHERE "+scope+" AND c.`id`=@id FOR UPDATE";
+        await using var reader=await command.ExecuteReaderAsync(token);
+        if(reader.RecordsAffected!=1)
+            throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
+        if(!await reader.ReadAsync(token)||reader.GetInt64(0)!=patch.Id)
+            throw new InvalidOperationException("关系缓存在存储后不再匹配，当前事务未提交。");
+        var actual=await reader.IsDBNullAsync(1,token)?null:reader.GetValue(1);
+        if(!Equals(actual,value.Value))
+            throw new InvalidOperationException("关系缓存在存储后发生变化，当前事务未提交。");
+        if(await reader.ReadAsync(token))
+            throw new InvalidOperationException("关系缓存在存储后不再匹配，当前事务未提交。");
+    }
     /// <summary>scope仅来自编译过的项目／软删固定谓词；一次最多核对原执行器已锁的128行。</summary>
     internal static async Task VerifyManyAsync(DatabaseSession session,string table,string scope,object project,IReadOnlyList<RelationRowPatch> patches,DbTransaction transaction,CancellationToken token)
     {

@@ -173,6 +173,8 @@ def verify_child_transaction(trace, database, side, step, run, key):
     schema = r"(?:`?" + re.escape(database) + r"`?\s*\.\s*)?"
     child_insert = re.compile(r"(?is)^\s*INSERT\s+INTO\s+" + schema + r"`?sample_contract_line`?(?=\s|\()")
     cache_update = re.compile(r"(?is)^\s*UPDATE\s+" + schema + r"`?sample_contract_line`?\s+SET\s+`?sample_contract_name`?\s*=")
+    cache_readback = re.compile(r"(?is);\s*SELECT c\.`id`,c\.`sample_contract_name` FROM " + schema +
+                                r"`sample_contract_line` c WHERE 1=1 AND c\.`delete_no` IS NULL AND c\.`id`=@id FOR UPDATE\s*$")
     parent_select = re.compile(r"(?is)^\s*SELECT\b.*?\bFROM\s+" + schema + r"`?sample_contract`?(?=\s|$)")
     commands = trace["commands"]
     inserts = [row for row in commands if child_insert.match(row["sql"])]
@@ -234,7 +236,11 @@ def verify_child_transaction(trace, database, side, step, run, key):
         # Java 在 INSERT 前生成缓存；C# 在同一事务内按新 ID 补写。
         if side=="csharp":
             cache = caches_by_id.pop(id_proof(row,"id_0"),None)
-            reader.require(cache is not None and cache["succeeded"] and cache["affectedRows"]==1 and
+            # 多结果命令在业务中核验受影响行数，采集器只在原 reader 边界证明同一命令含精确物理回读。
+            verified_write = cache is not None and (
+                cache["operation"]=="nonQuery" and cache["affectedRows"]==1
+                or cache["operation"]=="reader" and cache["affectedRows"] is None and cache_readback.search(cache["sql"]))
+            reader.require(verified_write and cache["succeeded"] and
                            row[finish]<=cache[start] and carries(cache,"性能合同-0000"), "capture-child-cache-binding")
         else:
             reader.require(carries(row,"性能合同-0000"), "capture-child-cache-binding")
