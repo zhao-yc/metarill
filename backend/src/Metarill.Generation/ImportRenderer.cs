@@ -54,8 +54,11 @@ public sealed partial class {{page.Name}}ImportRequest
         if (overwrite && columns.Count > 0 && table.Columns.First(column => columns.Contains(column)).IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
         if (overwrite && columns.Count == 0) throw new InvalidOperationException("覆盖导入至少需要一个可导入字段。");
         var logicalMatch=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
+        // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
+        var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
+            ?"InScalarCacheImportTransactionAsync":"InTransactionAsync";
         var result = new StringBuilder().Append(NonRedundantImportMatchRenderer.Declaration(model,table,page,logicalMatch)).AppendLine("    /// <summary>任意行失败时撤销整批；单行复用标准新增或明确字段更新。</summary>")
-            .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
+            .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.{transaction}(async () =>")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
             .Append(BackendRenderer.PrepareCall(model, table, page, "Import", "null", null, "request.ParentId"))
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")

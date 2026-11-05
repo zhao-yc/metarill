@@ -158,9 +158,11 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     {
         var plan=table.Read!;
         var exact=CanLockExactScalarSource(table);
+        var pinned=session.PinnedRelationLayouts(transaction);
+        var pinnedPacketLimit=pinned?.GetValueOrDefault(plan)??0;
         // 首次仍单独核库名并取得结构锁，只有同事务的已证明精确读取可以合并。
         var verifiedFrom=validate&&exact&&plan.Constants.Count==0&&transaction.Connection is MySqlConnector.MySqlConnection
-            &&session.PinnedRelationLayouts(transaction)?.Contains(plan)==true
+            &&pinnedPacketLimit>0
             ?plan.QualifiedMaintenanceFrom(Q(session.Options.ExpectedDatabase)):null;
         var packetLimit=validate&&verifiedFrom is null
             ?await ValidatePhysical(plan,transaction,token,reusePinnedStructure:true):0;
@@ -168,6 +170,12 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         {
             var rows=await Sources(table,project,0,transaction,token,[id]);
             return await RefreshLockedAsync(table,rows,project,null,token);
+        }
+        if(validate&&session.HasScalarCacheWriteProof(transaction)&&plan.ScalarCacheTarget is {} target&&plan.Constants.Count==0&&CanLookAhead(table,plan))
+        {
+            if(project!=plan.ProjectId)throw new UnauthorizedAccessException("当前身份不属于已发布全局来源目录。");
+            var batch=await TryWriteExactScalarAsync(table,target,id,Math.Max(packetLimit,pinnedPacketLimit),transaction,token);
+            if(batch is not null)return batch;
         }
         // 留出第二条的检测槽。若结构不再满足唯一来源，仍按原行为拒绝整笔写入。
         var (_,patches,readPacketLimit)=await LockScalarBatchAsync(table,project,0,2,transaction,token,exactId:id,verifiedFrom:verifiedFrom);
@@ -182,6 +190,59 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         }
         else await WriteScalarBatchAsync(table,table.Read!,project,patches,0,transaction,token);
         return patches;
+    }
+    /// <summary>重复读中保留原来源排他锁和目标共享锁，先取预期值，写后仍由驱动核对物理存储。</summary>
+    private async Task<IReadOnlyList<RelationRowPatch>?> TryWriteExactScalarAsync(
+        MaintenanceTable table,MySqlScalarCacheTarget target,long id,long packetLimit,DbTransaction transaction,CancellationToken token)
+    {
+        var plan=table.Read!;
+        var field=table.Fields[0].Name;
+        var output=plan.OutputExpression(field);
+        if(!plan.Origins.TryGetValue(field,out var origin)||origin.Table!=target.Table||output!=target.Alias+"."+Q(origin.Column))return null;
+        var database=Q(session.Options.ExpectedDatabase);
+        var from=plan.QualifiedMaintenanceFrom(database);
+        if(from is null)return null;
+        var source=database+"."+Q(table.Option.TableName);
+        var cached="b."+Q(field);
+        var exact="b.`id`=CASE WHEN CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY) THEN @exact_id END";
+        var where=" WHERE "+Scope(table,"b.")+" AND "+exact;
+        var value="(SELECT "+output+" FROM "+database+"."+Q(target.Table)+" "+target.Alias+" WHERE "+target.Predicate+" FOR SHARE OF "+target.Alias+")";
+        await using var command=Command(transaction);
+        // 统一文本编码再做二进制比较，保留 CLR 字符串对尾空格、大小写和 NULL 的区别。
+        command.CommandText=ReadConnectionIdentity+"; SELECT b.`id`,"+cached+","+output+from+where+
+            " ORDER BY b.`id` LIMIT 2"+plan.ImportMatchLock+"; UPDATE "+source+" b SET "+Q(field)+"="+value+where+
+            " AND NOT (CAST(CONVERT("+cached+" USING utf8mb4) AS BINARY) <=> CAST(CONVERT("+value+" USING utf8mb4) AS BINARY)); SELECT b.`id`,"+
+            cached+" FROM "+source+" b"+where+" FOR UPDATE OF b";
+        if(System.Text.Encoding.UTF8.GetByteCount(command.CommandText)+6L*System.Text.Encoding.UTF8.GetByteCount(session.Options.ExpectedDatabase)+128>packetLimit)
+            return null;
+        Add(command,"expected_database",session.Options.ExpectedDatabase);
+        Add(command,"exact_id",id);
+        await using var reader=await command.ExecuteReaderAsync(token);
+        _=await RequireConnectionIdentityAsync(reader,token);
+        if(!await reader.NextResultAsync(token))throw new InvalidOperationException("维护连接没有返回已核验的锁读结果。");
+        var exists=await reader.ReadAsync(token);
+        string? before=null,expected=null;
+        if(exists)
+        {
+            if(reader.GetInt64(0)!=id)throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
+            before=await reader.IsDBNullAsync(1,token)?null:reader.GetString(1);
+            expected=await reader.IsDBNullAsync(2,token)?null:reader.GetString(2);
+            if(await reader.ReadAsync(token))throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
+        }
+        var changed=exists&&!string.Equals(before,expected,StringComparison.Ordinal);
+        if(!await reader.NextResultAsync(token)||reader.RecordsAffected!=(changed?1:0))
+            throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
+        if(await reader.ReadAsync(token)!=exists||exists&&reader.GetInt64(0)!=id)
+            throw new InvalidOperationException("关系缓存在存储后不再匹配，当前事务未提交。");
+        if(exists)
+        {
+            var actual=await reader.IsDBNullAsync(1,token)?null:reader.GetString(1);
+            if(!string.Equals(actual,expected,StringComparison.Ordinal))
+                throw new InvalidOperationException("关系缓存在存储后发生变化，当前事务未提交。");
+            if(await reader.ReadAsync(token))throw new InvalidOperationException("关系缓存在存储后不再匹配，当前事务未提交。");
+        }
+        return changed?[new RelationRowPatch(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(
+            new Dictionary<string,object?>(StringComparer.Ordinal){{field,expected}}))]:[];
     }
     /// <summary>仅单文本缓存按来源主键批量写入。所有实际值在传播前由原核验器读回，异常仍回滚整表。</summary>
     private async Task WriteScalarBatchAsync(MaintenanceTable table,MySqlNonRedundantReadPlan plan,string project,
@@ -265,7 +326,11 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         }
         // 显式事务持有已探测表的元数据锁直至结束。库名与当前会话报文限制仍逐次读取。
         var pinnedLayouts=reusePinnedStructure?session.PinnedRelationLayouts(transaction):null;
-        if(pinnedLayouts?.Contains(plan)==true)return packetLimit;
+        if(pinnedLayouts?.ContainsKey(plan)==true)
+        {
+            pinnedLayouts[plan]=packetLimit;
+            return packetLimit;
+        }
         const string engineSql="SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'";
         const string columnsSql="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";
         foreach(var group in plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal))
@@ -308,7 +373,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
                     actual.Add(reader.GetString(0),(reader.GetString(1).ToLowerInvariant(),reader.GetString(2)=="YES",reader.GetString(3)=="PRI",!reader.IsDBNull(5)&&!string.IsNullOrWhiteSpace(reader.GetString(5))||reader.GetString(4).Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!reader.GetString(4).Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase)));
             }
         }
-        pinnedLayouts?.Add(plan);
+        if(pinnedLayouts is not null)pinnedLayouts.Add(plan,packetLimit);
         return packetLimit;
 
         static void RequireEngine(object? value)

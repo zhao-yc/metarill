@@ -9,6 +9,7 @@ namespace Metarill.Data.Queries;
 /// <summary>多值投影只持有编译后的标识符与固定范围，执行阶段不再读取元数据。</summary>
 internal sealed record MySqlPhysicalReference(string Table,Metarill.Data.Schema.ColumnSchema Column);
 internal sealed record MySqlValueOrigin(string Table,string Column);
+internal sealed record MySqlScalarCacheTarget(string Table,string Alias,string Predicate);
 internal sealed record MySqlReverseProjection(string TargetTable,string From,string ForeignExpression,string ForeignType,IReadOnlyDictionary<string,IReadOnlySet<string>> Outputs)
 {
     /// <summary>普通等值供字符串索引预筛选，二进制条件仍决定精确ID；数组谓词和整数键保持原义。</summary>
@@ -38,7 +39,7 @@ public sealed class MySqlNonRedundantReadPlan
     /// <summary>投影视图复用不可变范围及依赖；执行时只选择预编译联接片段，不重新解析元数据。</summary>
     private MySqlNonRedundantReadPlan(MySqlNonRedundantReadPlan plan,string[] outputs,IReadOnlyList<MySqlPhysicalReference>? physicalReferences=null)
     {
-        ImportMatchLock=plan.ImportMatchLock;RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses;Constants=plan.Constants;
+        ImportMatchLock=plan.ImportMatchLock;RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses;Constants=plan.Constants;ScalarCacheTarget=plan.ScalarCacheTarget;
     }
     /// <summary>缓存传播只读取稳定主键和本次允许的输出，未知字段不能变成新的读取权限。</summary>
     internal MySqlNonRedundantReadPlan ForCacheFields(IReadOnlySet<string> fields)
@@ -57,6 +58,8 @@ public sealed class MySqlNonRedundantReadPlan
     internal bool HasMaintenanceJoinProjection=>MaintenanceFrom is not null;
     /// <summary>连接核验与锁读合并时只能定位已发布的同一物理库。</summary>
     internal string? QualifiedMaintenanceFrom(string quotedDatabase)=>MaintenanceFrom?.RenderQualified(quotedDatabase);
+    /// <summary>单一全局直达联接的原谓词，供精确缓存条件写回复用。</summary>
+    internal MySqlScalarCacheTarget? ScalarCacheTarget {get;init;}
     /// <summary>维护当前读保留输出及查询依赖的联接；普通读取没有此裁剪合同，继续原完整FROM。</summary>
     internal string FromForFields(IEnumerable<string> fields)
     {
@@ -152,6 +155,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> aliases=new(StringComparer.Ordinal);
         private readonly List<string> joins=[];
         private readonly List<(string Alias,string Sql)> maintenanceJoins=[];
+        private MySqlScalarCacheTarget? scalarCacheTarget;
         private readonly HashSet<string> globalSingleAliases=new(StringComparer.Ordinal);
         private readonly HashSet<string> globalDerivedAliases=new(StringComparer.Ordinal);
         private bool publishedArrayIdentity;
@@ -208,7 +212,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }).Concat(customReverse).ToArray();
             // 全局是关联目标的读取资格；根自身已有真实项目列时仍保留该来源范围。
             var importLock=" FOR UPDATE OF "+rootAlias+(aliases.Count==0?"":" FOR SHARE OF "+string.Join(",",aliases.Values));
-            var scope=Scope(root,rootAlias,projectScoped:!globalSource&&(!globalDerivedSource||columns[root.Id].ContainsKey("yz_project_id")));if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){ImportMatchLock=importLock,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity};
+            var scope=Scope(root,rootAlias,projectScoped:!globalSource&&(!globalDerivedSource||columns[root.Id].ContainsKey("yz_project_id")));if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity};
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
@@ -396,7 +400,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 var lookup=$"CASE WHEN REGEXP_LIKE(CONCAT({source},'#'),'^(0|-?[1-9][0-9]{{0,18}})#$','c') THEN CAST({source} AS DECIMAL(20,0)) END";
                 equality=$"{alias}.`id`={lookup} AND {equality}";
             }
-            var sql=" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+equality+(scope.Length==0?"":" AND "+scope);joins.Add(sql);if(refreshFields is not null)maintenanceJoins.Add((alias,sql));return alias;
+            var predicate=equality+(scope.Length==0?"":" AND "+scope);
+            var sql=" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+predicate;
+            joins.Add(sql);
+            if(refreshFields is not null)
+            {
+                maintenanceJoins.Add((alias,sql));
+                if(directSave&&global&&target.Id!=root.Id)
+                    scalarCacheTarget=new(target.TableName,alias,predicate);
+            }
+            return alias;
         }
         /// <summary>范围字段必须是真实物理列；普通读取固定绑定项目，仅已证明的全局目标别名可省略项目谓词。</summary>
         private string Scope(TableMetadata table,string alias,bool projectScoped=true)

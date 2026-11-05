@@ -176,9 +176,24 @@ def verify_child_transaction(trace, database, side, step, run, key):
     cache_readback = re.compile(r"(?is);\s*SELECT c\.`id`,c\.`sample_contract_name` FROM " + schema +
                                 r"`sample_contract_line` c WHERE 1=1 AND c\.`delete_no` IS NULL AND c\.`id`=@id FOR UPDATE\s*$")
     parent_select = re.compile(r"(?is)^\s*SELECT\b.*?\bFROM\s+" + schema + r"`?sample_contract`?(?=\s|$)")
+    source = f"`{database}`.`sample_contract_line`"
+    target = f"`{database}`.`sample_contract`"
+    guarded_key = "b.`id`=CASE WHEN CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY) THEN @exact_id END"
+
+    def combined_cache(row):
+        """仅接受同一限定库、同一主键和显式锁读、写回、物理读回三段。"""
+        parts = row["sql"].split("; ")
+        return (len(parts)==4 and parts[0]=="SELECT DATABASE(),@@SESSION.max_allowed_packet"
+                and f" FROM {source} b LEFT JOIN {target} r0 ON " in parts[1]
+                and parts[1].endswith("FOR UPDATE OF b FOR SHARE OF r0")
+                and parts[2].startswith(f"UPDATE {source} b SET `sample_contract_name`=(SELECT r0.`name` FROM {target} r0 WHERE ")
+                and "FOR SHARE OF r0)" in parts[2] and "<=>" in parts[2]
+                and parts[3].startswith(f"SELECT b.`id`,b.`sample_contract_name` FROM {source} b WHERE ")
+                and parts[3].endswith("FOR UPDATE OF b") and all(guarded_key in part for part in parts[1:]))
+
     commands = trace["commands"]
     inserts = [row for row in commands if child_insert.match(row["sql"])]
-    caches = [row for row in commands if cache_update.match(row["sql"])]
+    caches = [row for row in commands if cache_update.match(row["sql"]) or combined_cache(row)]
     if step=="parent-page":
         reader.require(not inserts and not caches and all(row["succeeded"] for row in commands), "capture-child-page-write")
         return {"commands":len(commands), "childInserts":0}
@@ -202,7 +217,7 @@ def verify_child_transaction(trace, database, side, step, run, key):
             kinds.add("literal-integer")
         return kinds
 
-    selects = [row for row in commands if parent_select.match(row["sql"])]
+    selects = [row for row in commands if parent_select.match(row["sql"]) and not combined_cache(row)]
     locks = [row for row in selects if re.search(r"\bFOR\s+UPDATE\b", row["sql"], re.I)]
     reader.require(locks and all(row["succeeded"] and parent_binding(row) for row in locks), "capture-child-parent-lock")
     owner = (locks[0]["connection"], locks[0]["transaction"])
@@ -227,7 +242,7 @@ def verify_child_transaction(trace, database, side, step, run, key):
         reader.require(len(identifiers)==1, "capture-child-cache-id")
         return identifiers[0]
 
-    caches_by_id = {id_proof(row,"id"):row for row in caches}
+    caches_by_id = {id_proof(row,"exact_id" if combined_cache(row) else "id"):row for row in caches}
     reader.require(len(caches_by_id)==len(caches), "capture-child-cache-id")
     for row in successful:
         matched = {name for name in names if carries(row,name)}
@@ -237,11 +252,19 @@ def verify_child_transaction(trace, database, side, step, run, key):
         if side=="csharp":
             cache = caches_by_id.pop(id_proof(row,"id_0"),None)
             # 多结果命令在业务中核验受影响行数，采集器只在原 reader 边界证明同一命令含精确物理回读。
-            verified_write = cache is not None and (
-                cache["operation"]=="nonQuery" and cache["affectedRows"]==1
-                or cache["operation"]=="reader" and cache["affectedRows"] is None and cache_readback.search(cache["sql"]))
+            if cache is not None and combined_cache(cache):
+                isolated = [item for item in commands
+                            if item["sql"]=="SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"
+                            and item["succeeded"] and item["connection"]==owner[0] and item["transaction"] is None
+                            and item[finish]<=locks[0][start]]
+                verified_write = (len(isolated)==1 and cache["operation"]=="reader" and cache["affectedRows"] is None
+                                  and carries(cache,database)=={"string"})
+            else:
+                verified_write = cache is not None and carries(cache,"性能合同-0000") and (
+                    cache["operation"]=="nonQuery" and cache["affectedRows"]==1
+                    or cache["operation"]=="reader" and cache["affectedRows"] is None and cache_readback.search(cache["sql"]))
             reader.require(verified_write and cache["succeeded"] and
-                           row[finish]<=cache[start] and carries(cache,"性能合同-0000"), "capture-child-cache-binding")
+                           row[finish]<=cache[start], "capture-child-cache-binding")
         else:
             reader.require(carries(row,"性能合同-0000"), "capture-child-cache-binding")
         if side!="java" or row["operation"]!="execute":

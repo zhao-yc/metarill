@@ -22,6 +22,7 @@ public sealed class GlobalCachedSourceGenerationTests
     {
         var metadata=Catalog();
         metadata.ConfigPages.Single(page=>page.Id=="81002").WhereSql="name<>'范围外合同'";
+        metadata.ConfigPages.Single(page=>page.Id=="81003").IsImport=1;
         var model=GenerationModel.Create(metadata,"Example.GlobalSource");
         var table=model.Tables.Single(item=>item.Source.TableName=="sample_contract_line");
         var page=Assert.Single(table.Pages);
@@ -31,6 +32,7 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.False(GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,relation with { SourceParents=[] }));
         var rendered=BackendRenderer.Render(model).Single(file=>file.Path=="Services/SampleContractLineService.g.cs").Content;
         Assert.Contains("MySqlExactParentCandidate.RequireAsync",rendered);
+        Assert.Contains("session.InScalarCacheImportTransactionAsync",rendered);
         Assert.Contains("OptionsScope81003_82008Async",rendered);
         Assert.Contains("lockedParentId == relationIds1[0].ToString(CultureInfo.InvariantCulture)",rendered);
         Assert.Equal(1,rendered.Split("lockedParentId: parentId",StringSplitOptions.None).Length-1);
@@ -56,7 +58,11 @@ public sealed class GlobalCachedSourceGenerationTests
         // 固定原子页必须走合并锁读，否则减少命令的优化不会覆盖正式性能场景。
         var exactSource=typeof(RelationMaintenanceExecutor).GetMethod("CanLockExactScalarSource",BindingFlags.Static|BindingFlags.NonPublic)!;
         Assert.True((bool)exactSource.Invoke(null,[Property(line,"Table")])!);
-        var reverses=((IEnumerable)Property(Property(line,"Read"),"Reverse")).Cast<object>();
+        var lineRead=Property(line,"Read");
+        var scalarTarget=Property(lineRead,"ScalarCacheTarget");
+        Assert.Equal("sample_contract",Property(scalarTarget,"Table"));
+        Assert.Contains("REGEXP_LIKE",Assert.IsType<string>(Property(scalarTarget,"Predicate")));
+        var reverses=((IEnumerable)Property(lineRead,"Reverse")).Cast<object>();
         var contract=Assert.Single(reverses,reverse=>(string)Property(reverse,"TargetTable")=="sample_contract");
         Assert.Equal("sample_contract_name",Assert.Single((IReadOnlySet<string>)Property(contract,"DirectSaveOutputs")));
         Assert.Equal(before,JsonSerializer.Serialize(c));

@@ -7,11 +7,12 @@ namespace Metarill.Data;
 /// <summary>一个实例可供多个请求使用；事务仅沿当前异步调用链传播。</summary>
 public sealed class DatabaseSession : IDisposable
 {
-    private sealed class TransactionScope(DbTransaction transaction)
+    private sealed class TransactionScope(DbTransaction transaction,bool scalarCacheWrite=false)
     {
         public DbTransaction Transaction { get; } = transaction;
         public bool RollbackOnly { get; set; }
-        public HashSet<MySqlNonRedundantReadPlan>? PinnedRelationLayouts { get; set; }
+        public bool ScalarCacheWrite { get; } = scalarCacheWrite;
+        public Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts { get; set; }
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
     private readonly bool _ownsOrm;
@@ -36,11 +37,14 @@ public sealed class DatabaseSession : IDisposable
     internal bool UsesOwnedOrm => _ownsOrm;
 
     /// <summary>只在实际持有元数据锁的会话事务内复用同一发布计划的结构证明。</summary>
-    internal HashSet<MySqlNonRedundantReadPlan>? PinnedRelationLayouts(DbTransaction transaction)
+    internal Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts(DbTransaction transaction)
     {
         if (_transaction.Value is not { } scope || !ReferenceEquals(scope.Transaction, transaction)) return null;
         return scope.PinnedRelationLayouts ??= new(ReferenceEqualityComparer.Instance);
     }
+    /// <summary>仅由当前会话明确建立的可重复读写事务允许合并缓存写回。</summary>
+    internal bool HasScalarCacheWriteProof(DbTransaction transaction)=>
+        _transaction.Value is {ScalarCacheWrite:true} scope&&ReferenceEquals(scope.Transaction,transaction);
 
     public DatabaseSession(DatabaseOptions options) : this(options, null, null) { }
 
@@ -66,11 +70,15 @@ public sealed class DatabaseSession : IDisposable
     /// <summary>完整业务流程开启事务；内层 Service 加入同一事务，任何内层失败均阻止外层提交。</summary>
     public Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default)=>ExecuteTransactionAsync(action,false,cancellationToken);
 
+    /// <summary>生成的标量缓存导入显式固定原 MySQL 可重复读；嵌套调用保持外层事务和原隔离。</summary>
+    public Task<T> InScalarCacheImportTransactionAsync<T>(Func<Task<T>> action,CancellationToken cancellationToken=default)=>
+        ExecuteTransactionAsync(action,false,cancellationToken,scalarCacheWrite:true);
+
     /// <summary>固定图分批读取与来源查询共享一个快照；外层事务不满足条件时明确拒绝。</summary>
     public Task<T> InReadSnapshotAsync<T>(Func<Task<T>> action,CancellationToken cancellationToken=default)=>ExecuteTransactionAsync(action,true,cancellationToken);
 
     /// <summary>读快照与业务事务共用取消、回滚标记、嵌套和异步上下文边界。</summary>
-    private async Task<T> ExecuteTransactionAsync<T>(Func<Task<T>> action,bool readSnapshot,CancellationToken cancellationToken)
+    private async Task<T> ExecuteTransactionAsync<T>(Func<Task<T>> action,bool readSnapshot,CancellationToken cancellationToken,bool scalarCacheWrite=false)
     {
         ArgumentNullException.ThrowIfNull(action);
         cancellationToken.ThrowIfCancellationRequested();
@@ -81,16 +89,27 @@ public sealed class DatabaseSession : IDisposable
         }
         await using var connection = Provider.CreateConnection(Options);
         await connection.OpenAsync(cancellationToken);
+        scalarCacheWrite=scalarCacheWrite&&Provider is MySqlDatabaseProvider&&connection is MySqlConnector.MySqlConnection
+            &&new MySqlConnector.MySqlConnectionStringBuilder(connection.ConnectionString).ConnectionReset;
+        if(scalarCacheWrite)
+        {
+            // 显式选择下一笔事务的隔离，避免把会话默认值误当作当前事务证明。
+            await using var isolation=MySqlFloatingCommand.Wrap(connection.CreateCommand());
+            isolation.CommandText="SET TRANSACTION ISOLATION LEVEL REPEATABLE READ";
+            await isolation.ExecuteNonQueryAsync(cancellationToken);
+        }
         var beginObservation=DatabaseCommandObservation.StartTransaction(connection,null,DatabaseTransactionOperation.Begin);
         DbTransaction transaction;
         try
         {
-            transaction=readSnapshot?await Provider.BeginReadSnapshotAsync(connection,cancellationToken):await connection.BeginTransactionAsync(cancellationToken);
+            transaction=readSnapshot?await Provider.BeginReadSnapshotAsync(connection,cancellationToken):
+                scalarCacheWrite?await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead,cancellationToken):
+                await connection.BeginTransactionAsync(cancellationToken);
             beginObservation?.Complete(transaction,null);
         }
         catch(Exception error){beginObservation?.Complete(null,error);throw;}
         await using var ownedTransaction=transaction;
-        var current = new TransactionScope(transaction);
+        var current = new TransactionScope(transaction,scalarCacheWrite);
         _transaction.Value = current;
         try
         {
