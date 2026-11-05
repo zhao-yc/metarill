@@ -198,9 +198,19 @@ public sealed class ProjectFileRuntimeIntegrationTests
     public Task Shared_database_rolls_back_relation_propagation_and_file_rebinding_together() =>
         VerifyRelationAndFilesAsync(shareDatabase: true);
 
-    private static async Task VerifyRelationAndFilesAsync(bool shareDatabase)
+    /// <summary>分库时验证数据库复选的名称顺序、重复成员和空位与附件引用共同回滚。</summary>
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Split_database_rolls_back_multiple_relation_names_and_file_rebinding_together() =>
+        VerifyRelationAndFilesAsync(shareDatabase: false, multiple: true);
+
+    /// <summary>同库仍使用独立业务会话，验证相同的多值传播与附件事务。</summary>
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Shared_database_rolls_back_multiple_relation_names_and_file_rebinding_together() =>
+        VerifyRelationAndFilesAsync(shareDatabase: true, multiple: true);
+
+    private static async Task VerifyRelationAndFilesAsync(bool shareDatabase, bool multiple = false)
     {
-        await using var f = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase, relation: true);
+        await using var f = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase, relation: true, multiple: multiple);
         AssertDatabaseTopology(f, shareDatabase);
         var actor = new RuntimeActor(8801, "关系及附件事务验收", true, f.Registry.Demo.YzProjectId, "");
         var project = long.Parse(actor.ProjectId);
@@ -215,19 +225,42 @@ public sealed class ProjectFileRuntimeIntegrationTests
         var refKey = new Dictionary<string, object?> { ["record_id"] = source };
         var session = f.Sessions.Business;
         var observer = new ProjectFileReferenceMutationObserver(f.Runtimes, auth, f.Ids);
-        var plan = RelationMaintenanceCatalog.Compile(f.Registry.Demo);
+        var plan = RelationMaintenanceCatalog.Compile(f.Registry.Demo, f.MultipleRelation is { } array ? [array] : []);
         var propagator = new ProjectRelationMutationPropagator(session);
         var original = Attachment(oldFile.FileId);
         var replacement = Attachment(newFile.FileId);
+        var sourceValues = new Dictionary<string, object?>(sourceKey)
+        {
+            ["yz_project_id"] = project, ["target_id"] = target, ["target_name"] = "关联旧名",
+            ["notes"] = "原业务值", ["attachments"] = original
+        };
+        string? targetIds = null;
 
         await session.InTransactionAsync(async () =>
         {
             await f.BusinessStore.InsertAsync(f.RelationTable, new Dictionary<string, object?>(targetKey) { ["yz_project_id"] = project, ["name"] = "关联旧名" });
-            await f.BusinessStore.InsertAsync(f.TableName, new Dictionary<string, object?>(sourceKey)
+            if (multiple)
             {
-                ["yz_project_id"] = project, ["target_id"] = target, ["target_name"] = "关联旧名",
-                ["notes"] = "原业务值", ["attachments"] = original
-            });
+                var stable = f.Ids.NextId();
+                var missing = f.Ids.NextId();
+                var deleted = f.Ids.NextId();
+                var foreignProject = f.Ids.NextId();
+                foreach (var (id, projectId, name, deletedAt) in new[]
+                {
+                    (stable, project, "保留成员", (DateTime?)null),
+                    (deleted, project, "软删成员", new DateTime(2026, 1, 1)),
+                    (foreignProject, project + 1, "异项目成员", (DateTime?)null)
+                })
+                    await f.BusinessStore.InsertAsync(f.RelationTable, new Dictionary<string, object?>
+                    {
+                        ["id"] = id, ["yz_project_id"] = projectId, ["name"] = name, ["delete_no"] = deletedAt
+                    });
+                targetIds = JsonSerializer.Serialize(new[] { stable, target, missing, target, deleted, foreignProject }
+                    .Select(id => id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                sourceValues["target_ids"] = targetIds;
+                sourceValues["target_names"] = JsonSerializer.Serialize(Names("关联旧名"));
+            }
+            await f.BusinessStore.InsertAsync(f.TableName, sourceValues);
             await BindAsync(original, inserting: true);
             return true;
         });
@@ -251,6 +284,7 @@ public sealed class ProjectFileRuntimeIntegrationTests
         await Assert.ThrowsAsync<BusinessRuleException>(() => service.DeleteAsync(newFile.FileId));
 
         static string Attachment(long fileId) => JsonSerializer.Serialize(new[] { fileId.ToString() });
+        static string?[] Names(string name) => ["保留成员", name, null, name, null, null];
 
         Task BindAsync(string attachments, bool inserting = false) =>
             observer.BeforeCommitAsync(new(f.PageId, f.TableName, source, actor.ProjectId,
@@ -279,13 +313,18 @@ public sealed class ProjectFileRuntimeIntegrationTests
             Assert.Equal(notes, SqlRowStore.Text(row, "notes"));
             Assert.Equal(attachments, SqlRowStore.Text(row, "attachments"));
             Assert.Equal(target, SqlRowStore.Id(row, "target_id"));
+            if (multiple)
+            {
+                Assert.Equal(targetIds, SqlRowStore.Text(row, "target_ids"));
+                Assert.Equal(Names(name), JsonSerializer.Deserialize<string?[]>(SqlRowStore.Text(row, "target_names")));
+            }
             Assert.Equal(fileId, SqlRowStore.Id(reference, "file_id"));
             Assert.Equal(project, SqlRowStore.Id(reference, "yz_project_id"));
         }
 
         async Task<string> SnapshotAsync() => JsonSerializer.Serialize(new
         {
-            target = await witness.ReadIncludingDeletedAsync(f.RelationTable, targetKey),
+            targets = (await witness.ReadIncludingDeletedAsync(f.RelationTable)).OrderBy(row => SqlRowStore.Id(row)),
             source = await witness.ReadIncludingDeletedAsync(f.TableName, sourceKey),
             refs = (await witness.ReadIncludingDeletedAsync("yz_file_ref", refKey)).OrderBy(row => SqlRowStore.Id(row))
         });
@@ -316,6 +355,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
     public string Root => Path.Combine(directory, "objects");
     public string TableName { get; private set; } = "";
     public string RelationTable { get; private set; } = "";
+    public RelationCacheDefinition? MultipleRelation { get; private set; }
     public string PageId { get; private set; } = "";
     public string ProtectedColumn { get; private set; } = "";
     public string PublicColumn { get; private set; } = "";
@@ -323,7 +363,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
     public List<long> RecordIds { get; } = [];
 
     /// <summary>先验证真实连接库名，再通过显式 SchemaService 预览、执行文件和唯一业务表计划。</summary>
-    public static async Task<ProjectFileDatabaseFixture> CreateAsync(bool physicalDelete=false, bool shareDatabase=false, bool relation=false)
+    public static async Task<ProjectFileDatabaseFixture> CreateAsync(bool physicalDelete=false, bool shareDatabase=false, bool relation=false, bool multiple=false)
     {
         var fixture = new ProjectFileDatabaseFixture();
         try
@@ -342,9 +382,9 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             }
             var source = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             var platform = MetadataRegistry.Load(source); var demo = MetadataRegistry.Load(Path.Combine(Path.GetDirectoryName(source)!, "demo.json"));
-            // 库拓扑、删除方式和关联用途各占一位，正式用例不能复用物理表。
-            var sampleNumber = (shareDatabase ? 2 : 0) + (physicalDelete ? 1 : 0) + (relation ? 4 : 0);
-            fixture.TableName = "mt_project_files_" + (fresh is null ? Guid.NewGuid().ToString("N")[..12] : fresh.RunId[..11] + sampleNumber);
+            // 库拓扑、删除方式、关联和多值用途各占一位，正式用例不能复用物理表。
+            var sampleNumber = (shareDatabase ? 2 : 0) + (physicalDelete ? 1 : 0) + (relation ? 4 : 0) + (multiple ? 8 : 0);
+            fixture.TableName = "mt_project_files_" + (fresh is null ? Guid.NewGuid().ToString("N")[..12] : fresh.RunId[..11] + sampleNumber.ToString("x", System.Globalization.CultureInfo.InvariantCulture));
             var table = new TableMetadata { Id = SharedIds.NextId().ToString(), TableName = fixture.TableName, YzProjectId = demo.YzProjectId };
             ColumnMetadata Column(string name, string type, string control = "", string detail = "") => new() { Id = SharedIds.NextId().ToString(), ConfigTableId = table.Id, ColumnName = name, LogicalType = type, ColumnLength = type == "string" ? "max" : "", IsDbNotNull = name == "id" ? 1 : 0, ControlKind = control, ControlDetail = detail, YzProjectId = demo.YzProjectId };
             var columns = new[] { Column("id", "int64"), Column("yz_project_id", "int64"), Column("delete_no", "datetime"), Column("notes", "string"),
@@ -371,6 +411,18 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
                     column.ConfigTableId = target.Id;
                     if (type == "string") column.ColumnLength = "100";
                     extraColumns.Add(column);
+                }
+                if (multiple)
+                {
+                    var ids = Column("target_ids", "string", "MultiCheckBoxDatabase",
+                        JsonSerializer.Serialize(new { tableId = target.Id, nameField = "name" }));
+                    ids.LinkConfigTableId = target.Id;
+                    var names = Column("target_names", "string");
+                    names.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+                    names.Extra["columnFullName"] = JsonSerializer.SerializeToElement("target_ids.name");
+                    columns = [..columns, ids, names];
+                    fixture.MultipleRelation = new(table.Id, ids.Id, target.Id,
+                        extraColumns.Single(column => column.ColumnName == "name").Id, names.Id, true);
                 }
             }
             fixture.ProtectedColumn = columns.Single(column => column.ColumnName == "attachments").Id;
