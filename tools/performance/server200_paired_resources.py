@@ -144,7 +144,7 @@ def uses_relation_indexes(value):
 def is_indexed_measurement(value):
     """原六初始化后单独升级索引；仅该用途可调用镜像内固定索引工具。"""
     return is_file_measurement(value) or value.get("purpose") in (INDEXED_WRITE_MEASUREMENT_NATIVE, INDEXED_WRITE_MEASUREMENT_RESOURCES,
-                                    INDEXED_READ_MEASUREMENT_NATIVE, INDEXED_READ_MEASUREMENT_RESOURCES) or is_unicode_read_measurement(value) or is_unicode_write_measurement(value)
+                                    INDEXED_READ_MEASUREMENT_NATIVE, INDEXED_READ_MEASUREMENT_RESOURCES) or is_unicode_read_measurement(value) or is_unicode_write_measurement(value) or is_excel_import_measurement(value)
 
 
 # 当前 SQL 诊断只绑定已验证镜像和数据程序集，不改变历史用途或计时用途。
@@ -174,6 +174,9 @@ UNICODE_READ_MEASUREMENT_NATIVE = "paired-native-unicode-indexed-read-v1"
 UNICODE_READ_MEASUREMENT_RESOURCES = "paired-unicode-indexed-read-resources-v1"
 UNICODE_WRITE_MEASUREMENT_NATIVE = "paired-native-unicode-indexed-write-v1"
 UNICODE_WRITE_MEASUREMENT_RESOURCES = "paired-unicode-indexed-write-resources-v1"
+EXCEL_IMPORT_MEASUREMENT_NATIVE = "paired-native-unicode-excel-import-v1"
+EXCEL_IMPORT_MEASUREMENT_RESOURCES = "paired-unicode-excel-import-resources-v1"
+EXCEL_IMPORT_REQUEST_BUDGET = 3696
 UNICODE_OBSERVATION_DATA_SHA256 = "b0ace0df121fe7b98321eacfbc920a345dffd5e7c44f1c560e1fe858916c8bf7"
 WRITE_REQUEST_BUDGET = 8624
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
@@ -223,6 +226,11 @@ def is_unicode_write_measurement(value):
     return value.get("purpose") in (UNICODE_WRITE_MEASUREMENT_NATIVE, UNICODE_WRITE_MEASUREMENT_RESOURCES)
 
 
+def is_excel_import_measurement(value):
+    """只允许当前完整镜像和共同关系索引的三页追加导入负载。"""
+    return value.get("purpose") in (EXCEL_IMPORT_MEASUREMENT_NATIVE, EXCEL_IMPORT_MEASUREMENT_RESOURCES)
+
+
 def is_pattern_observed(value):
     """新参数化LIKE候选仅接受独立采集用途，不能覆盖旧证据对应的镜像。"""
     return value.get("purpose") in (PATTERN_OBSERVED_NATIVE,PATTERN_OBSERVED_RESOURCES,PATTERN_OBSERVED_BUSINESS)
@@ -240,7 +248,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
-    if is_unicode_observed(value) or is_unicode_read_measurement(value) or is_unicode_write_measurement(value): return UNICODE_OBSERVED_IMAGES
+    if is_unicode_observed(value) or is_unicode_read_measurement(value) or is_unicode_write_measurement(value) or is_excel_import_measurement(value): return UNICODE_OBSERVED_IMAGES
     if is_pattern_observed(value): return PATTERN_OBSERVED_IMAGES
     if is_full_observed(value): return FULL_OBSERVED_IMAGES
     if is_unicode_file_measurement(value): return UNICODE_OBSERVED_IMAGES
@@ -269,7 +277,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, EXCEL_IMPORT_MEASUREMENT_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
