@@ -60,6 +60,8 @@ public sealed partial class {{page.Name}}ImportRequest
             .Append(BackendRenderer.PrepareCall(model, table, page, "Import", "null", null, "request.ParentId"))
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});")
+            .AppendLine("        var rowBuffer = new global::System.Buffers.ArrayBufferWriter<byte>();")
+            .AppendLine("        using var rowWriter = new Utf8JsonWriter(rowBuffer, new JsonWriterOptions { MaxDepth = 64 });")
             .AppendLine("        var rowNumber = 0;")
             .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {");
         if (contextual && overwrite) result.AppendLine($"                {(logicalMatch is null?table.EntityType:"ImportExistingContext"+page.Source.Id)}? importExisting = null;");
@@ -71,7 +73,7 @@ public sealed partial class {{page.Name}}ImportRequest
         {
             var first = table.Columns.First(column => columns.Contains(column));
             result.AppendLine($"                if (!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null) throw new ArgumentException(\"覆盖匹配字段不能为空。\");")
-                .AppendLine($"                var key = JsonSerializer.Deserialize<{first.BoundaryType}>(matchValue.GetRawText(), JsonOptions);");
+                .AppendLine($"                var key = matchValue.Deserialize<{first.BoundaryType}>(JsonOptions);");
             if(logicalMatch is not null)result.Append(NonRedundantImportMatchRenderer.Match(model,table,page,logicalMatch));
             else result.AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync(cancellationToken);")
                 .AppendLine("                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
@@ -83,11 +85,11 @@ public sealed partial class {{page.Name}}ImportRequest
             }
             result.AppendLine("                if (existing.Count == 1)").AppendLine("                {")
                 .AppendLine("                    values[\"id\"] = JsonSerializer.SerializeToElement(existing[0].Id);")
-                .AppendLine($"                    var update = JsonSerializer.Deserialize<{page.Name}UpdateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;")
+                .AppendLine($"                    var update = ReadRow<{page.Name}UpdateRequest>(values);")
                 .AppendLine($"                    await Update{page.Source.Id}{(fileImport?"Core":"")}Async(update, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
                 .AppendLine("                    continue;").AppendLine("                }");
         }
-        result.AppendLine($"                var create = JsonSerializer.Deserialize<{page.Name}CreateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;")
+        result.AppendLine($"                var create = ReadRow<{page.Name}CreateRequest>(values);")
             .AppendLine($"                await Create{page.Source.Id}{(fileImport?"Core":"")}Async(create, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
             .AppendLine("            }").AppendLine("            catch (PageImportException error) when (error.IsInputError)").AppendLine("            {")
             .AppendLine("                throw error.AtRow(rowNumber);").AppendLine("            }")
@@ -95,7 +97,18 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException and not BusinessRuleException)").AppendLine("            {")
             .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }").AppendLine("        }")
             .Append(NonRedundantCrossParentCompilation.Enabled(model,table,page)?$"        await ValidateParents{page.Source.Id}Async(request.ParentId,actor,cancellationToken);\n":"")
-            .AppendLine("        return $\"导入成功{rowNumber}条数据\";").AppendLine("    }, cancellationToken);")
+            .AppendLine("        return $\"导入成功{rowNumber}条数据\";")
+            .AppendLine()
+            .AppendLine("        // 复用当前批次的 UTF-8 缓冲。深度 64 与原默认序列化一致，DTO 转换器与字段存在性沿用原选项。")
+            .AppendLine("        T ReadRow<T>(Dictionary<string, JsonElement> values)")
+            .AppendLine("        {")
+            .AppendLine("            rowBuffer.ResetWrittenCount();")
+            .AppendLine("            rowWriter.Reset();")
+            .AppendLine("            JsonSerializer.Serialize(rowWriter, values);")
+            .AppendLine("            rowWriter.Flush();")
+            .AppendLine("            return JsonSerializer.Deserialize<T>(rowBuffer.WrittenSpan, JsonOptions)!;")
+            .AppendLine("        }")
+            .AppendLine("    }, cancellationToken);")
             .AppendLine("    /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>")
             .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+(logicalMatch is null?table.EntityType:"ImportExistingContext"+page.Source.Id)+"? existing, bool keyOnly":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;")
@@ -182,7 +195,7 @@ public sealed partial class {{page.Name}}ImportRequest
                 // 先在本列内用与DTO一致的类型/JSON选项核验，避免整DTO反序列化后只剩属性路径、丢中文列名。
                 result.AppendLine("                    try").AppendLine("                    {")
                     .AppendLine($"                        var normalized = {CellExpression(column)};")
-                    .AppendLine($"                        _ = JsonSerializer.Deserialize<{column.BoundaryType}>(normalized.GetRawText(), JsonOptions);");
+                    .AppendLine($"                        _ = normalized.Deserialize<{column.BoundaryType}>(JsonOptions);");
                 if (column.IsJsonArray) result.AppendLine("                        if (normalized.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null)) throw PageImportException.Input(PageImportError.Array);");
                 result.AppendLine($"                        values[{Literal(column.JsonName)}] = normalized;")
                     .AppendLine("                    }").AppendLine("                    catch (PageImportException error) when (error.IsInputError)").AppendLine("                    {")

@@ -161,6 +161,8 @@ public partial class DemoCustomerService
         await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Import, actor, cancellationToken, null, mutationScopeValues);
         if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);
         await ValidateParents2200000000000100020Async(request.ParentId, actor, cancellationToken);
+        var rowBuffer = new global::System.Buffers.ArrayBufferWriter<byte>();
+        using var rowWriter = new Utf8JsonWriter(rowBuffer, new JsonWriterOptions { MaxDepth = 64 });
         var rowNumber = 0;
         foreach (var row in request.RequestJson.EnumerateArray())
         {
@@ -168,7 +170,7 @@ public partial class DemoCustomerService
             try
             {
                 var values = await ParseImport2200000000000100020Async(row, request.ParentId, actor, cancellationToken);
-                var create = JsonSerializer.Deserialize<DemoCustomerPage2200000000000100020CreateRequest>(JsonSerializer.Serialize(values), JsonOptions)!;
+                var create = ReadRow<DemoCustomerPage2200000000000100020CreateRequest>(values);
                 await Create2200000000000100020Async(create, request.ParentId, actor, cancellationToken);
             }
             catch (PageImportException error) when (error.IsInputError)
@@ -181,6 +183,16 @@ public partial class DemoCustomerService
             }
         }
         return $"导入成功{rowNumber}条数据";
+
+        // 复用当前批次的 UTF-8 缓冲。深度 64 与原默认序列化一致，DTO 转换器与字段存在性沿用原选项。
+        T ReadRow<T>(Dictionary<string, JsonElement> values)
+        {
+            rowBuffer.ResetWrittenCount();
+            rowWriter.Reset();
+            JsonSerializer.Serialize(rowWriter, values);
+            rowWriter.Flush();
+            return JsonSerializer.Deserialize<T>(rowBuffer.WrittenSpan, JsonOptions)!;
+        }
     }, cancellationToken);
     /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>
     private async Task<Dictionary<string, JsonElement>> ParseImport2200000000000100020Async(JsonElement row, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
@@ -199,7 +211,7 @@ public partial class DemoCustomerService
                     try
                     {
                         var normalized = cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString());
-                        _ = JsonSerializer.Deserialize<string?>(normalized.GetRawText(), JsonOptions);
+                        _ = normalized.Deserialize<string?>(JsonOptions);
                         values["name"] = normalized;
                     }
                     catch (PageImportException error) when (error.IsInputError)
@@ -217,7 +229,7 @@ public partial class DemoCustomerService
                     try
                     {
                         var normalized = cell.Value.ValueKind == JsonValueKind.Null ? JsonSerializer.SerializeToElement<object?>(null) : JsonSerializer.SerializeToElement(cell.Value.ToString());
-                        _ = JsonSerializer.Deserialize<string?>(normalized.GetRawText(), JsonOptions);
+                        _ = normalized.Deserialize<string?>(JsonOptions);
                         values["notes"] = normalized;
                     }
                     catch (PageImportException error) when (error.IsInputError)
@@ -235,7 +247,7 @@ public partial class DemoCustomerService
                     try
                     {
                         var normalized = cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone();
-                        _ = JsonSerializer.Deserialize<decimal?>(normalized.GetRawText(), JsonOptions);
+                        _ = normalized.Deserialize<decimal?>(JsonOptions);
                         values["amount"] = normalized;
                     }
                     catch (PageImportException error) when (error.IsInputError)
@@ -253,7 +265,7 @@ public partial class DemoCustomerService
                     try
                     {
                         var normalized = cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.Clone();
-                        _ = JsonSerializer.Deserialize<int?>(normalized.GetRawText(), JsonOptions);
+                        _ = normalized.Deserialize<int?>(JsonOptions);
                         values["isEnabled"] = normalized;
                     }
                     catch (PageImportException error) when (error.IsInputError)
