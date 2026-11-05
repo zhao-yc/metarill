@@ -51,3 +51,7 @@ D:\HBuilderX\cli.exe publish web --project <副本工程绝对路径> --webTitle
 V293 使用当前产品生成的两个固定 Full 包，在 Server-200 以真实 MySQL 完成有、无项目列两种模型的正式验收。2 项通过、0 失败、0 跳过，涵盖真实登录、CRUD、复制、逻辑删除、普通角色撤权及重启会话，源表结构保持。双库、临时账号及独占 Redis 已独立核验回收。
 
 业务浏览器、跨端真机和同条件性能继续单独验收。见 [V293 正式验收](testing/imported-application-production-v293.md)。
+
+## 2026-11-05 原桌面浏览器双模型验收
+
+V294 使用两个固定 Full 包重新构建原 H5，并在 ego lite 通过真实登录、原菜单、列表、增改查、删除和退出。每套 10 次关键 HTTP 成功请求。独立 MySQL 核对修改值、软删除及有项目列模型的项目归属，两库和 Redis 回收后独立核零。浏览器普通角色、复制按钮、跨端真机和同条件性能继续。见 [V294 浏览器验收](testing/imported-application-browser-v294.md)。
