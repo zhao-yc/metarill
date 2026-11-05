@@ -208,7 +208,7 @@ yzp.customButtonHandler(res, that, false, 'list');
       if (index < 0) {
         return false;
       }
-      this.list.splice(index, 1, Object.assign({}, this.list[index], entity));
+      this.list.splice(index, 1, yzp.mergeListRowAfterSave(this.list[index], entity));
       return true;
     },
     selectThis(item){

@@ -118,8 +118,10 @@ test('真实原页面方法保留一次确认、旧POST、parentId和原customBu
  vm.runInNewContext('globalThis.button={' + method + '}', context); context.button.customerButtonHandler2069009429197623296();
  assert.equal(f.requests.length, 0); assert.match(f.dialogs[0].content, /同步当前设备全部项目/); f.dialogs[0].success({ confirm: false }); assert.equal(f.requests.length, 0); f.dialogs[0].success({ confirm: true });
  assert.equal(f.requests[0].options.url, url); f.reply(response([item('queued')])); await turn(); assert.equal(f.callbacks.length, 0); await f.tick(); f.reply(response([item('applied')])); await turn(); assert.equal(f.callbacks[0].code, 200);
- // 全文件冻结摘要证明本任务未重写任何DOM、样式或页面方法。
- assert.equal(hash(source), '91dbcb71fa191ac1c3888412ef5210403e89a4e9927af9f45b35f0b8081f90fd');
+ // 仅归一已验证的保存回读函数调用，仍用冻结摘要核对原页面的其余字节。
+ const saveMerge = 'yzp.mergeListRowAfterSave(this.list[index], entity)';
+ assert.equal(source.split(saveMerge).length, 2);
+ assert.equal(hash(source.replace(saveMerge, 'Object.assign({}, this.list[index], entity)')), '91dbcb71fa191ac1c3888412ef5210403e89a4e9927af9f45b35f0b8081f90fd');
 });
 
 test('HBuilderX按需uni API替换后桥接仍工作，其它请求原样透传', async () => {

@@ -1,4 +1,5 @@
 import { generationDownloadRequest, downloadGeneration } from './generationDownload';
+import { mergeListRowAfterSave as mergeSavedRow } from './listPageRuntime';
 import utils from "../utils";
 import {
 	evaluateRule as evaluateButtonVisibleRuleCore
@@ -85,6 +86,8 @@ function beginRequestLoading(path, showLoading) {
 }
 
 var yzp = {
+	// 保留原平台列表的保存通知入口，复用生成列表的字段合并规则。
+	mergeListRowAfterSave(row, entity) { return mergeSavedRow(row, entity); },
 	/** 登录失效和主动退出复用同一清理入口，宿主可保留纯界面偏好。 */
 	clearLoginStorage() {
 		uni.clearStorageSync();

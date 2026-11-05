@@ -70,7 +70,13 @@ try{
  assert.deepEqual(plain(selected.vm.selectedList),[{id:longId,name:'实时名称'}])
  selected.vm.chkChange(0);await Vue.nextTick();assert.equal(selected.vm.selectedList.length,2)
  selected.vm.toggleSelectedOnly();let page=pageRequests(selected).at(-1);assert.deepEqual(plain(page.options.data.selectedIds),[longId,'9007199254740994'])
- success(page,{records:[{id:longId,name:'实时名称'},{id:'9007199254740994',name:'另一项'}],total:2,pages:1});await Vue.nextTick()
+ success(page,{records:[{id:longId,name:'实时名称',memo:'待清空',listOnly:'保留'},{id:'9007199254740994',name:'另一项'}],total:2,pages:1});await Vue.nextTick()
+ // 实际生成的多选页保存通知走共同列表状态机，禁止把详情字段并进原列表。
+ const requestsBeforeSave=pageRequests(selected).length
+ selected.vm.handleDetailChange({action:'save',method:'update',entity:{id:longId,name:'已保存',memo:null,detailOnly:'详情值',isSelect:false}})
+ await Vue.nextTick()
+ assert.equal(pageRequests(selected).length,requestsBeforeSave)
+ assert.deepEqual(plain(selected.vm.list[0]),{id:longId,name:'已保存',memo:null,listOnly:'保留',isSelect:true})
  const before=pageRequests(selected).length;selected.vm.selectAll();await Vue.nextTick();assert.equal(selected.vm.selectedList.length,0);assert.equal(selected.vm.list.length,0);assert.equal(pageRequests(selected).length,before)
  selected.vm.filterList();assert.equal(pageRequests(selected).length,before)
  selected.vm.sureSelect();const confirm=selected.requests.at(-1);assert.match(confirm.options.url,/selection\/selected$/);assert.deepEqual(plain(confirm.options.data.selectedIds),[])

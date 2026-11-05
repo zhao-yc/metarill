@@ -24,6 +24,13 @@ function count(value) {
 	return Number.isFinite(number) && number >= 0 ? number : 0
 }
 
+/** 列表只接受既有响应字段；详情专用值和界面选择状态不能混入列表。 */
+export function mergeListRowAfterSave(row, entity) {
+	return Object.fromEntries(Object.entries(row).map(([key, value]) => [
+		key, key !== 'id' && key !== 'isSelect' && Object.prototype.hasOwnProperty.call(entity, key) ? entity[key] : value
+	]))
+}
+
 /** 创建普通列表与子表共用的状态机；页面仍负责首次加载和自己的交互。 */
 export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onParentChanged, additionalData, emptyResult, canLoad } = {}) {
 	// 请求任务、代次和查询快照不进入 Vue 响应式对象，也不在不同组件间共享。
@@ -317,7 +324,7 @@ export function createListPageMixin({ url, pageSize = 15, request, onLoaded, onP
 				this.pagination_version++
 				state(this).retry = null
 				this.list_error = ''
-				this.list.splice(index, 1, Object.assign({}, this.list[index], change.entity))
+				this.list.splice(index, 1, mergeListRowAfterSave(this.list[index], change.entity))
 				this.load_more_status = status(this)
 				stopPull(this)
 				return true

@@ -294,18 +294,18 @@ test('同一个 mixin 的两个组件并发互不取消和覆盖', () => {
 	assert.equal(second.page.list[0].id, '第二实例')
 })
 
-test('精准保存合并保留当前行其它字段，并取消旧请求防止保存结果回退', () => {
+test('精准保存只更新列表既有字段，保留显式清空与选择态并取消旧请求', () => {
 	const f = fixture()
 	f.page.getList()
-	f.succeed(0, [{ id: '甲', name: '旧值', other: 1 }])
+	f.succeed(0, [{ id: '9007199254740993', name: '旧值', memo: '待清空', other: 1, isSelect: true }])
 	f.page.refreshData()
 	const pendingPaginationVersion = f.page.pagination_version
-	assert.equal(f.page.applyUpdatedEntityFromDetail({ action: 'save', method: 'update', entity: { id: '甲', name: '保存值' } }), true)
+	assert.equal(f.page.applyUpdatedEntityFromDetail({ action: 'save', method: 'update', entity: { id: '9007199254740993', name: '保存值', memo: null, detailOnly: '详情字段', isSelect: false } }), true)
 	assert.equal(f.calls[1].task.aborts, 1)
 	assert.equal(f.page.pagination_version, pendingPaginationVersion + 1)
-	f.succeed(1, [{ id: '甲', name: '旧响应' }])
+	f.succeed(1, [{ id: '9007199254740993', name: '旧响应' }])
 	assert.equal(f.page.pagination_version, pendingPaginationVersion + 1)
-	assert.deepEqual(f.page.list, [{ id: '甲', name: '保存值', other: 1 }])
+	assert.deepEqual(f.page.list, [{ id: '9007199254740993', name: '保存值', memo: null, other: 1, isSelect: true }])
 	assert.equal(f.page.applyUpdatedEntityFromDetail({ action: 'save', method: 'insert', entity: { id: '乙' } }), false)
 	assert.equal(f.page.applyUpdatedEntityFromDetail('save'), false)
 })

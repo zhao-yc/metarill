@@ -162,24 +162,6 @@
       }
       this.refreshData();
     },
-    applyUpdatedEntityFromDetail(change) {
-      // 仅修改保存可精准替换当前列表行；新增和其它动作保持刷新列表。
-      if (!change || typeof change === 'string' || change.action != 'save' || change.method != 'update') {
-        return false;
-      }
-      var entity = change.entity;
-      if (!entity || !entity.id) {
-        return false;
-      }
-      var index = this.list.findIndex(function (item) {
-        return item && item.id == entity.id;
-      });
-      if (index < 0) {
-        return false;
-      }
-      this.list.splice(index, 1, Object.assign({}, this.list[index], entity));
-      return true;
-    },
     selectThis(item){
 	    this.$emit('onPopSelect', item);
     },
