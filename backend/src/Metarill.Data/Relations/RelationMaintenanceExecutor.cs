@@ -266,18 +266,56 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         // 显式事务持有已探测表的元数据锁直至结束。库名与当前会话报文限制仍逐次读取。
         var pinnedLayouts=reusePinnedStructure?session.PinnedRelationLayouts(transaction):null;
         if(pinnedLayouts?.Contains(plan)==true)return packetLimit;
+        const string engineSql="SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'";
+        const string columnsSql="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";
         foreach(var group in plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal))
         {
-            await using(var pin=Command(transaction)){pin.CommandText="SELECT "+string.Join(",",group.Select(item=>Q(item.Column.Name)))+" FROM "+Q(group.Key)+" LIMIT 0";await using var reader=await pin.ExecuteReaderAsync(token);}
-            await using(var engine=Command(transaction)){engine.CommandText="SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'";Add(engine,"table",group.Key);if(!string.Equals(Convert.ToString(await engine.ExecuteScalarAsync(token),CultureInfo.InvariantCulture),"InnoDB",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("回填依赖必须为事务实体表。");}
+            var pinSql="SELECT "+string.Join(",",group.Select(item=>Q(item.Column.Name)))+" FROM "+Q(group.Key)+" LIMIT 0";
+            var batchSql=pinSql+"; "+engineSql+"; "+columnsSql;
             var actual=new Dictionary<string,(string Type,bool Nullable,bool Primary,bool Generated)>(StringComparer.Ordinal);
-            // TEXT常量默认值的DEFAULT_GENERATED不是计算列；真正生成表达式及未知生成标记仍拒绝。
-            await using(var schema=Command(transaction)){schema.CommandText="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";Add(schema,"table",group.Key);await using var reader=await schema.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))actual.Add(reader.GetString(0),(reader.GetString(1).ToLowerInvariant(),reader.GetString(2)=="YES",reader.GetString(3)=="PRI",!reader.IsDBNull(5)&&!string.IsNullOrWhiteSpace(reader.GetString(5))||reader.GetString(4).Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!reader.GetString(4).Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase)));}
+            // 每张表先用零行查询持有结构锁，再核引擎和列。报文预算包含两次表名绑定及协议开销。
+            if(pinnedLayouts is not null&&transaction.Connection is MySqlConnector.MySqlConnection
+                &&System.Text.Encoding.UTF8.GetByteCount(batchSql)+4L*System.Text.Encoding.UTF8.GetByteCount(group.Key)+128<=packetLimit)
+            {
+                await using var batch=Command(transaction);
+                batch.CommandText=batchSql;
+                Add(batch,"table",group.Key);
+                await using var reader=await batch.ExecuteReaderAsync(token);
+                if(!await reader.NextResultAsync(token)||!await reader.ReadAsync(token))
+                    throw new InvalidOperationException("回填依赖必须为事务实体表。");
+                RequireEngine(reader.GetValue(0));
+                if(!await reader.NextResultAsync(token))
+                    throw new InvalidOperationException("回填连接未返回结构列定义。");
+                await ReadColumns(reader);
+            }
+            else
+            {
+                await using(var pin=Command(transaction)){pin.CommandText=pinSql;await using var pinReader=await pin.ExecuteReaderAsync(token);}
+                await using(var engine=Command(transaction)){engine.CommandText=engineSql;Add(engine,"table",group.Key);RequireEngine(await engine.ExecuteScalarAsync(token));}
+                await using var schema=Command(transaction);
+                schema.CommandText=columnsSql;
+                Add(schema,"table",group.Key);
+                await using var reader=await schema.ExecuteReaderAsync(token);
+                await ReadColumns(reader);
+            }
             foreach(var item in group)if(!actual.TryGetValue(item.Column.Name,out var column)||column.Type!=item.Column.StoreType||column.Nullable!=item.Column.Nullable||column.Primary!=item.Column.PrimaryKey||column.Generated)throw new InvalidOperationException($"回填物理列 {item.Table}.{item.Column.Name} 与已发布模型不一致（预期 {item.Column.StoreType}／可空={item.Column.Nullable}／主键={item.Column.PrimaryKey}，实际 {column.Type}／可空={column.Nullable}／主键={column.Primary}／生成列={column.Generated}），请先审查结构差异。");
             if(actual.Values.Count(column=>column.Primary)!=1||!actual.TryGetValue("id",out var id)||!id.Primary)throw new InvalidOperationException("回填依赖不是单列id主键。");
+
+            async Task ReadColumns(DbDataReader reader)
+            {
+                // TEXT常量默认值的DEFAULT_GENERATED不是计算列；真正生成表达式及未知生成标记仍拒绝。
+                while(await reader.ReadAsync(token))
+                    actual.Add(reader.GetString(0),(reader.GetString(1).ToLowerInvariant(),reader.GetString(2)=="YES",reader.GetString(3)=="PRI",!reader.IsDBNull(5)&&!string.IsNullOrWhiteSpace(reader.GetString(5))||reader.GetString(4).Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!reader.GetString(4).Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase)));
+            }
         }
         pinnedLayouts?.Add(plan);
         return packetLimit;
+
+        static void RequireEngine(object? value)
+        {
+            if(!string.Equals(Convert.ToString(value,CultureInfo.InvariantCulture),"InnoDB",StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("回填依赖必须为事务实体表。");
+        }
     }
     /// <summary>每次使用实际服务器库名和会话报文上限，结构证明不替代连接核验。</summary>
     private async Task<long> RequireConnectionIdentityAsync(DbDataReader reader,CancellationToken token)

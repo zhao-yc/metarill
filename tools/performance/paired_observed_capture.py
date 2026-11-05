@@ -252,12 +252,15 @@ def verify_child_transaction(trace, database, side, step, run, key):
                (row["connection"],row["transaction"])==owner and all(prior[finish]<=row[start] for prior in locks+writes)]
     reader.require(len(endings)==1, "capture-child-transaction-outcome")
     statements = [row["sql"].strip().lower() for row in commands]
+    # 仅展开结构探测命令的结果段。身份、写入及其物理读回仍按原驱动命令计数。
+    layout_statements = [part for sql in statements for part in
+                         (sql.split("; ",2) if " limit 0; select engine from information_schema.tables " in sql else (sql,))]
     layouts = {
         "identityReads": sum(sql.startswith("select database(),@@session.max_allowed_packet") for sql in statements),
-        "metadataPins": sum(sql.startswith("select ") and sql.endswith(" limit 0") for sql in statements),
-        "engineReads": sum(sql.startswith("select engine from information_schema.tables") for sql in statements),
+        "metadataPins": sum(sql.startswith("select ") and sql.endswith(" limit 0") for sql in layout_statements),
+        "engineReads": sum(sql.startswith("select engine from information_schema.tables") for sql in layout_statements),
         "columnReads": sum(sql.startswith("select column_name,column_type,is_nullable,column_key,extra,generation_expression from information_schema.columns")
-                           for sql in statements),
+                           for sql in layout_statements),
     }
     return {"commands":len(commands), "parentReads":len(selects), "parentLockReads":len(locks),
             "parentLockBindings":sorted(set().union(*(parent_binding(row) for row in locks))),
