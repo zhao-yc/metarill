@@ -32,3 +32,7 @@ $env:DOTNET_HOST_PATH='E:\git\metarill\.tools\dotnet\dotnet.exe'
 ```
 
 本任务只有测试和文档变更，无需DDL、回填、产品再生成或运行时下发；V37仍使用其已固定7cc3a77归档及原三镜像，不包含本文件的后续观察器夹具。
+
+## V304 正式实库补验
+
+2026-11-06，V304 在 Server-200 完成固定六模型真实 Excel 覆盖、普通权限及附件回滚。公开 Full、浏览器、跨端及整体性能分别验收。见 [V304 正式实库报告](cross-overwrite-mysql-v304.md)。
