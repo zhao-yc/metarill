@@ -35,6 +35,25 @@ class IndexedContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):native.validate(old)
         old.pop("relationIndexProfile");self.assertEqual(native.resources.CURRENT_WRITE_MEASUREMENT_RESOURCES,native.validate(old)["purpose"])
 
+    def test_unicode_write_rejects_scope_swaps_before_external_calls(self):
+        """当前写入只能使用自己的镜像、固定样本预算和同索引范围。"""
+        resources = native.resources
+        value = {**indexed(), "purpose": resources.UNICODE_WRITE_MEASUREMENT_NATIVE, "images": resources.UNICODE_OBSERVED_IMAGES}
+        descriptor = native.validate(value)
+        self.assertEqual(resources.UNICODE_WRITE_MEASUREMENT_RESOURCES, descriptor["purpose"])
+        self.assertTrue(resources.is_write_measurement(descriptor))
+        self.assertTrue(resources.uses_relation_indexes(descriptor))
+        self.assertFalse(resources.is_observed(descriptor))
+        self.assertEqual(["--metarill.paired.sql-observation.enabled=false"], resources.observation_arguments(descriptor, "java"))
+        for change in (
+            {"images": resources.INDEXED_WRITE_IMAGES}, {"purpose": resources.INDEXED_WRITE_MEASUREMENT_NATIVE},
+            {"purpose": resources.UNICODE_READ_MEASUREMENT_NATIVE}, {"purpose": resources.UNICODE_OBSERVED_NATIVE},
+            {"readReplayRequests": resources.READ_REQUEST_BUDGET}, {"workbookReplayRequests": 1},
+            {"writeReplayRequests": resources.WRITE_REQUEST_BUDGET - 1}, {"authorizationStatus": "pending"},
+        ):
+            with self.subTest(change=change), mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止IO")), self.assertRaises(ValueError):
+                native.run({**value, **change})
+
     def test_receipt_rejects_wrong_sql_partial_apply_foreign_scope_and_confirmation(self):
         """完整计划配对、真实执行条数及零差异验证缺一不可。"""
         value=indexed();before=receipt(value,"java","preview");applied=receipt(value,"java","apply");native.require_index_receipt(value,"java","preview",before);native.require_index_receipt(value,"java","apply",applied,before);native.require_index_receipt(value,"java","verify",receipt(value,"java","verify"))
@@ -88,6 +107,7 @@ class IndexedFlowTests(previous.FlowFixture):
         return receipt(value,side,mode)
     def test_actual_coordinator_upgrades_both_before_seed_and_keeps_original_write_budget(self):
         """六原动作、六索引动作、种子、原写入回放和独立回读严格排序，最后按原归属清理。"""
+        self.value.update(purpose=native.resources.UNICODE_WRITE_MEASUREMENT_NATIVE, images=dict(native.resources.UNICODE_OBSERVED_IMAGES))
         def seeded(mysql,value,owner,model,side):self.events.append("seed-"+side);return {"target":side}
         def measured(*args):self.events.append("write");return {"measurementValid":True,"stableRegression":False}
         def preserved(run,side,query,*,exclude_write_samples=False,relation_indexes=False):self.assertTrue(exclude_write_samples and relation_indexes);return {"target":side}
