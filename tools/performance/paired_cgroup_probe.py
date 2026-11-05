@@ -70,6 +70,14 @@ class CgroupProbe:
             raise ValueError("measurement-cgroup-cpu-counter")
         return int(entries[0]), time.monotonic_ns()
 
+    def snapshot(self, container):
+        """短回放在计时两端直接读内核累计值，内存只代表观察点。"""
+        identifier, _, path, device, inode, limit = self.bindings[container]
+        cpu, timestamp = self.usage(path, device, inode)
+        memory = numeric((path / "memory.current").read_text(encoding="ascii").strip())
+        return {"containerId": identifier, "cpuUsageUsec": cpu, "observedAtNs": timestamp,
+                "memoryCurrentBytes": memory, "memoryLimitBytes": limit}
+
     def sample(self, container):
         """读取约 100 毫秒 CPU 增量和结束时内存，保留独立复算所需的原始计数。"""
         identifier, _, path, device, inode, limit = self.bindings[container]
