@@ -1,4 +1,5 @@
 using FreeSql;
+using Metarill.Data.Queries;
 using System.Data.Common;
 
 namespace Metarill.Data;
@@ -10,6 +11,7 @@ public sealed class DatabaseSession : IDisposable
     {
         public DbTransaction Transaction { get; } = transaction;
         public bool RollbackOnly { get; set; }
+        public HashSet<MySqlNonRedundantReadPlan>? PinnedRelationLayouts { get; set; }
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
     private readonly bool _ownsOrm;
@@ -31,6 +33,13 @@ public sealed class DatabaseSession : IDisposable
         }
     }
     public DbTransaction? CurrentTransaction => _transaction.Value?.Transaction;
+
+    /// <summary>只在实际持有元数据锁的会话事务内复用同一发布计划的结构证明。</summary>
+    internal HashSet<MySqlNonRedundantReadPlan>? PinnedRelationLayouts(DbTransaction transaction)
+    {
+        if (_transaction.Value is not { } scope || !ReferenceEquals(scope.Transaction, transaction)) return null;
+        return scope.PinnedRelationLayouts ??= new(ReferenceEqualityComparer.Instance);
+    }
 
     public DatabaseSession(DatabaseOptions options) : this(options, null, null) { }
 

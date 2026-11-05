@@ -189,7 +189,8 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         return patches.AsReadOnly();
     }
     /// <summary>先获取事务内元数据锁，再核库名、InnoDB、完整依赖列类型和主键；没有DDL或结构自动修复。</summary>
-    internal async Task<long> ValidatePhysical(MySqlNonRedundantReadPlan plan,DbTransaction transaction,CancellationToken token)
+    internal async Task<long> ValidatePhysical(MySqlNonRedundantReadPlan plan,DbTransaction transaction,CancellationToken token,
+        bool reusePinnedStructure=false)
     {
         long packetLimit;
         await using(var identity=Command(transaction))
@@ -201,6 +202,9 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
                 throw new InvalidOperationException("维护连接与已配置目标库不一致。");
             packetLimit=reader.GetInt64(1);
         }
+        // 显式事务持有已探测表的元数据锁直至结束。库名与当前会话报文限制仍逐次读取。
+        var pinnedLayouts=reusePinnedStructure?session.PinnedRelationLayouts(transaction):null;
+        if(pinnedLayouts?.Contains(plan)==true)return packetLimit;
         foreach(var group in plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal))
         {
             await using(var pin=Command(transaction)){pin.CommandText="SELECT "+string.Join(",",group.Select(item=>Q(item.Column.Name)))+" FROM "+Q(group.Key)+" LIMIT 0";await using var reader=await pin.ExecuteReaderAsync(token);}
@@ -211,6 +215,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
             foreach(var item in group)if(!actual.TryGetValue(item.Column.Name,out var column)||column.Type!=item.Column.StoreType||column.Nullable!=item.Column.Nullable||column.Primary!=item.Column.PrimaryKey||column.Generated)throw new InvalidOperationException($"回填物理列 {item.Table}.{item.Column.Name} 与已发布模型不一致（预期 {item.Column.StoreType}／可空={item.Column.Nullable}／主键={item.Column.PrimaryKey}，实际 {column.Type}／可空={column.Nullable}／主键={column.Primary}／生成列={column.Generated}），请先审查结构差异。");
             if(actual.Values.Count(column=>column.Primary)!=1||!actual.TryGetValue("id",out var id)||!id.Primary)throw new InvalidOperationException("回填依赖不是单列id主键。");
         }
+        pinnedLayouts?.Add(plan);
         return packetLimit;
     }
     /// <summary>来源按真实项目、活动记录和主键分批取写锁；事件只返回受影响缓存，整表及来源自身刷新保持完整字段。</summary>

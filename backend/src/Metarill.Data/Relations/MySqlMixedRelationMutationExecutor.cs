@@ -30,7 +30,8 @@ internal sealed class MySqlMixedRelationMutationExecutor(DatabaseSession session
     /// <summary>每个受影响消费者在当前事务只完整预检一次；失败由外层回滚已写目标和其它副本。</summary>
     private async Task ValidateAsync(MixedRelationConsumer consumer,HashSet<string> validated,CancellationToken token)
     {
-        if(validated.Add(consumer.Table.Option.Id))await new RelationMaintenanceExecutor(session).ValidatePhysical(consumer.Read,session.CurrentTransaction!,token);
+        if(validated.Add(consumer.Table.Option.Id))
+            await new RelationMaintenanceExecutor(session).ValidatePhysical(consumer.Read,session.CurrentTransaction!,token,reusePinnedStructure:true);
     }
     /// <summary>前缀联接只定位真实来源外键，不依赖已删除目标；稳定主键分批当前锁读，不做OFFSET。</summary>
     private async Task<List<long>> ReverseIds(MySqlNonRedundantReadPlan plan,MySqlReverseProjection reverse,long target,string project,long after,DbTransaction transaction,CancellationToken token)

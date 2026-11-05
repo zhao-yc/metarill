@@ -56,16 +56,79 @@ public sealed partial class MaintenanceReadProjectionTests
         async Task Execute(){await session.InTransactionAsync(async()=>{var table=SourceTable();var selected=new HashSet<string>{"single_name"};var rows=await LockedSources(session,table,selected,[101L]);var task=(Task)typeof(RelationMaintenanceExecutor).GetMethod("RefreshLockedAsync",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(new RelationMaintenanceExecutor(session),[table,rows,ProjectId,selected,CancellationToken.None])!;await task;Assert.Empty(((System.Collections.IEnumerable)task.GetType().GetProperty("Result")!.GetValue(task)!).Cast<object>());Assert.Equal(provider.Values["shared_ids"],rows[0]["shared_ids"]);return true;});}
         if(reject){var error=await Assert.ThrowsAsync<InvalidOperationException>(Execute);Assert.Contains("预算",error.Message);Assert.Single(provider.Commands);Assert.Equal(1,provider.Rollbacks);}else{await Execute();Assert.Equal(2,provider.Commands.Count);Assert.Equal(1,provider.Commits);Assert.DoesNotContain("shared_names",provider.Commands[1]);}Assert.All(provider.Commands,sql=>Assert.DoesNotContain("COUNT(",sql));
     }
+    /// <summary>同一事务重复传播只复用已验证计划，新计划和后续事务必须重新核验物理结构。</summary>
+    [Fact]
+    public async Task Mixed_relation_layout_reuses_only_the_pinned_plan_in_its_transaction()
+    {
+        var plan=Plan();
+        var alternate=plan.ForCacheFields(new HashSet<string>{"single_name"});
+        var tables=plan.PhysicalReferences.ToLookup(item=>item.Table,item=>item.Column);
+        var engine="InnoDB";
+        var database=Options.ExpectedDatabase;
+        var packet=4096L;
+        var provider=new SourceProvider([]);
+        provider.PhysicalQuery=command=>
+        {
+            var data=new DataTable();
+            if(command.CommandText.StartsWith("SELECT DATABASE()",StringComparison.Ordinal))
+            {
+                data.Columns.Add("database",typeof(string));
+                data.Columns.Add("packet",typeof(long));
+                data.Rows.Add(database,packet);
+            }
+            else if(command.CommandText.EndsWith(" LIMIT 0",StringComparison.Ordinal))
+                data.Columns.Add("pin",typeof(long));
+            else if(command.CommandText.Contains("information_schema.tables",StringComparison.Ordinal))
+            {
+                data.Columns.Add("engine",typeof(string));
+                data.Rows.Add(engine);
+            }
+            else
+            {
+                Assert.Contains("information_schema.columns",command.CommandText);
+                foreach(var name in new[]{"name","type","nullable","key","extra","expression"})data.Columns.Add(name,typeof(string));
+                var table=Assert.IsType<string>(command.Parameters["table"].Value);
+                foreach(var column in tables[table])
+                    data.Rows.Add(column.Name,column.StoreType,column.Nullable?"YES":"NO",column.PrimaryKey?"PRI":"","",DBNull.Value);
+            }
+            return data.CreateDataReader();
+        };
+        using var session=new DatabaseSession(Options,null,provider);
+        var executor=new RelationMaintenanceExecutor(session);
+        await session.InTransactionAsync(async()=>
+        {
+            var transaction=session.CurrentTransaction!;
+            Assert.Equal(4096L,await executor.ValidatePhysical(plan,transaction,default,reusePinnedStructure:true));
+            packet=8192L;
+            Assert.Equal(8192L,await session.InTransactionAsync(()=>executor.ValidatePhysical(plan,transaction,default,reusePinnedStructure:true)));
+            Assert.Equal(tables.Count,provider.Commands.Count(sql=>sql.EndsWith(" LIMIT 0",StringComparison.Ordinal)));
+            await executor.ValidatePhysical(alternate,transaction,default,reusePinnedStructure:true);
+            Assert.Equal(2*tables.Count,provider.Commands.Count(sql=>sql.EndsWith(" LIMIT 0",StringComparison.Ordinal)));
+            // 独立回填沿用完整预检。缓存命中也先重新核对连接库名。
+            await executor.ValidatePhysical(plan,transaction,default);
+            Assert.Equal(3*tables.Count,provider.Commands.Count(sql=>sql.EndsWith(" LIMIT 0",StringComparison.Ordinal)));
+            database="different_database";
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>executor.ValidatePhysical(plan,transaction,default,reusePinnedStructure:true));
+            database=Options.ExpectedDatabase;
+            return true;
+        });
+        engine="MyISAM";
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync(()=>
+            executor.ValidatePhysical(plan,session.CurrentTransaction!,default,reusePinnedStructure:true)));
+        Assert.Equal(1,provider.Commits);
+        Assert.Equal(1,provider.Rollbacks);
+    }
     /// <summary>调用生产来源行锁方法，表对象只来自冻结维护目录。</summary>
     private static Task<List<Dictionary<string,object?>>> LockedSources(DatabaseSession session,object table,IReadOnlySet<string>? allowed,IReadOnlyList<long>? ids=null,long after=0)=>(Task<List<Dictionary<string,object?>>>)typeof(RelationMaintenanceExecutor).GetMethod("Sources",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(new RelationMaintenanceExecutor(session),[table,ProjectId,after,session.CurrentTransaction!,CancellationToken.None,ids,allowed])!;
     /// <summary>严格记录原始行锁SQL及参数，不连接网络；结果只含事先声明的列。</summary>
     private sealed class SourceProvider(string[] columns):IDatabaseProvider
     {
+        internal Func<DbCommand,DbDataReader>? PhysicalQuery;
         internal readonly List<string> Commands=[];internal readonly List<Dictionary<string,object?>> Parameters=[];internal readonly Dictionary<string,object?> Values=new(){{"id",101L},{"single_name","当前名称"},{"shared_names",new string('名',200000)},{"shared_ids","[\"1\",\"2\"]"}};internal int Commits,Rollbacks;internal bool AllowCurrent;internal Action? OnRead;public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public string QuoteIdentifier(string name)=>new MySqlDatabaseProvider().QuoteIdentifier(name);public string ParameterPlaceholder(string name)=>"@"+name;public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new SourceConnection(this);
         /// <summary>不接受宽SELECT、非当前读、额外查询或写入，防止替身掩盖回归。</summary>
         internal DbDataReader Execute(DbCommand command,DbTransaction? transaction)
         {
-            Assert.NotNull(transaction);var sql=command.CommandText;Assert.DoesNotContain("COUNT(",sql);Commands.Add(sql);Parameters.Add(command.Parameters.Cast<DbParameter>().ToDictionary(x=>x.ParameterName,x=>(object?)x.Value));var data=new DataTable();if(sql.EndsWith(" FOR UPDATE",StringComparison.Ordinal)){Assert.StartsWith("SELECT "+string.Join(",",columns.Select(x=>"`"+x+"`"))+" FROM `global_cache_source` WHERE ",sql);OnRead?.Invoke();foreach(var name in columns)data.Columns.Add(name,Values[name]?.GetType()??typeof(string));data.Rows.Add(columns.Select(name=>Values[name]??DBNull.Value).ToArray());}else{Assert.True(AllowCurrent);Assert.EndsWith(" FOR SHARE",sql);Assert.StartsWith("SELECT b.`id` AS `id`,",sql);Assert.Contains(" AS `single_name`",sql);Assert.DoesNotContain("shared_names",sql);data.Columns.Add("id",typeof(long));data.Columns.Add("single_name",typeof(string));data.Rows.Add(101L,"当前名称");}return data.CreateDataReader();
+            Assert.NotNull(transaction);var sql=command.CommandText;Assert.DoesNotContain("COUNT(",sql);Commands.Add(sql);Parameters.Add(command.Parameters.Cast<DbParameter>().ToDictionary(x=>x.ParameterName,x=>(object?)x.Value));if(PhysicalQuery is not null)return PhysicalQuery(command);var data=new DataTable();if(sql.EndsWith(" FOR UPDATE",StringComparison.Ordinal)){Assert.StartsWith("SELECT "+string.Join(",",columns.Select(x=>"`"+x+"`"))+" FROM `global_cache_source` WHERE ",sql);OnRead?.Invoke();foreach(var name in columns)data.Columns.Add(name,Values[name]?.GetType()??typeof(string));data.Rows.Add(columns.Select(name=>Values[name]??DBNull.Value).ToArray());}else{Assert.True(AllowCurrent);Assert.EndsWith(" FOR SHARE",sql);Assert.StartsWith("SELECT b.`id` AS `id`,",sql);Assert.Contains(" AS `single_name`",sql);Assert.DoesNotContain("shared_names",sql);data.Columns.Add("id",typeof(long));data.Columns.Add("single_name",typeof(string));data.Rows.Add(101L,"当前名称");}return data.CreateDataReader();
         }
     }
     /// <summary>离线连接只创建同一事务，不执行真实数据库操作。</summary>
@@ -78,6 +141,12 @@ public sealed partial class MaintenanceReadProjectionTests
     /// <summary>驱动参数容器配合固定读取器，禁止标量统计或任何DML。</summary>
     private sealed class SourceCommand(DbConnection connection,SourceProvider provider):DbCommand
     {
-        private readonly MySqlCommand parameters=new();[System.Diagnostics.CodeAnalysis.AllowNull]public override string CommandText{get;set;}="";public override int CommandTimeout{get;set;}public override CommandType CommandType{get;set;}public override bool DesignTimeVisible{get;set;}public override UpdateRowSource UpdatedRowSource{get;set;}protected override DbConnection? DbConnection{get;set;}=connection;protected override DbTransaction? DbTransaction{get;set;}protected override DbParameterCollection DbParameterCollection=>parameters.Parameters;protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override void Cancel(){}public override void Prepare(){}public override object? ExecuteScalar()=>throw new NotSupportedException("来源锁读不执行统计");public override int ExecuteNonQuery()=>throw new NotSupportedException("离线锁读禁止写入");protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)=>provider.Execute(this,DbTransaction);
+        private readonly MySqlCommand parameters=new();[System.Diagnostics.CodeAnalysis.AllowNull]public override string CommandText{get;set;}="";public override int CommandTimeout{get;set;}public override CommandType CommandType{get;set;}public override bool DesignTimeVisible{get;set;}public override UpdateRowSource UpdatedRowSource{get;set;}protected override DbConnection? DbConnection{get;set;}=connection;protected override DbTransaction? DbTransaction{get;set;}protected override DbParameterCollection DbParameterCollection=>parameters.Parameters;protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override void Cancel(){}public override void Prepare(){}public override int ExecuteNonQuery()=>throw new NotSupportedException("离线锁读禁止写入");protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)=>provider.Execute(this,DbTransaction);
+        public override object? ExecuteScalar()
+        {
+            if(provider.PhysicalQuery is null)throw new NotSupportedException("来源锁读不执行统计");
+            using var result=ExecuteDbDataReader(CommandBehavior.Default);
+            return result.Read()?result.GetValue(0):null;
+        }
     }
 }
