@@ -11,7 +11,10 @@ import paired_measurement_fixture as fixture
 import paired_workbook_container as oracle
 from paired_business_http import ROOTS
 from paired_measurement import run_trials
-from server200_paired_resources import EXCEL_IMPORT_REQUEST_BUDGET, EXCEL_IMPORT_PARENT_REQUESTS, UNICODE_OBSERVED_IMAGES
+from server200_paired_resources import (
+    EXCEL_CHILD_LAYOUT_IMAGES, EXCEL_CHILD_LAYOUT_MEASUREMENT_REQUESTS,
+    EXCEL_IMPORT_REQUEST_BUDGET, EXCEL_IMPORT_PARENT_REQUESTS, UNICODE_OBSERVED_IMAGES,
+)
 
 PROFILE = "paired-original-excel-append-v1"
 JAVA_CATALOG_SHA256 = "1e539b76af4ab434daaf15e6e4054a5184ee6c87aa6188daaeb596e5a88f17a8"
@@ -44,6 +47,7 @@ class ImportWorkload(NamedTuple):
 
 THREE_PAGES = ImportWorkload(PROFILE, TABLES, ITERATIONS, REQUESTS)
 PARENT_PAGES = ImportWorkload("paired-original-parent-excel-append-v1", TABLES[:2], 36, EXCEL_IMPORT_PARENT_REQUESTS)
+CHILD_PAGE = ImportWorkload("paired-child-layout-excel-append-v1", TABLES[2:], ITERATIONS, EXCEL_CHILD_LAYOUT_MEASUREMENT_REQUESTS)
 
 
 class ImportContractError(ValueError):
@@ -92,9 +96,10 @@ def prepare_workbooks(run, invoke, workload=THREE_PAGES):
 
 
 def config_for(run, targets, tokens, workbooks, workload=THREE_PAGES):
-    """严格验证原列名和工作簿原始字节，原三个导入路由全部显式断言条数。"""
+    """严格验证固定镜像、工作簿原字节、原路由和响应行数。"""
+    images = EXCEL_CHILD_LAYOUT_IMAGES if workload is CHILD_PAGE else UNICODE_OBSERVED_IMAGES
     require(set(targets) == {"java", "csharp"} and all(
-        target.get("expectedImageId") == UNICODE_OBSERVED_IMAGES[side] and target.get("containerPort") == 8080
+        target.get("expectedImageId") == images[side] and target.get("containerPort") == 8080
         for side, target in targets.items()), "targets")
     requests = workbook_requests(run, workload)
     require(set(workbooks) == set(requests), "workbooks")
@@ -145,7 +150,7 @@ def verify_readback(run, side, query, *, before=False, replays=None, workload=TH
     facts = {}
     for kind, _, _, _ in TABLES:
         raw = query(sample_sql(run, side, kind, workload))
-        # 父表用途也读取子表的保留前缀，防止越界副作用被排除原样本的过滤条件掩盖。
+        # 未参与本轮计时的表也读取保留前缀，防止越界副作用被原种子过滤条件掩盖。
         if before or kind not in requests:
             require(not raw.strip(), "sample-collision")
             continue
@@ -241,14 +246,14 @@ def run_import_measurement(root, run, targets, tokens, probe, query, make_workbo
             (output / "warmup-readback.json").write_bytes(http.canonical(warmup_readbacks))
 
     options = {}
-    if workload is PARENT_PAGES:
-        # 短轮采样沿用已实测的内核计数，传输证明仍由原 Docker 探针负责。
+    if workload in (PARENT_PAGES, CHILD_PAGE):
+        # 采样沿用已实测的内核计数，传输证明仍由原 Docker 探针负责。
         import paired_cgroup_probe as cgroups
         limits = http.equal_limits(probe, config["targets"])
         http.verify_transport(config, probe, limits)
         options = {"minimum_iterations": workload.iterations, "resource_probe": cgroups.CgroupProbe(probe, config["targets"], limits)}
     result = run_trials(output, config, probe, query, workload.name, transport=send, check_event=check_warmup, **options)
-    if workload is PARENT_PAGES:
+    if workload in (PARENT_PAGES, CHILD_PAGE):
         options["resource_probe"].verify()
         result["resourceSource"] = cgroups.METHOD
     if result["measurementValid"]:

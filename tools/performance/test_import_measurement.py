@@ -57,6 +57,40 @@ def wire(run, kind, replays=subject.REPLAYS):
 
 
 class ImportMeasurementContracts(unittest.TestCase):
+    def test_child_timing_has_own_budget_fixed_images_and_original_route(self):
+        resources = native.resources
+        child = subject.CHILD_PAGE
+        value = {**scope(), "purpose":resources.EXCEL_CHILD_LAYOUT_MEASUREMENT_NATIVE,
+                 "images":resources.EXCEL_CHILD_LAYOUT_IMAGES,"workbookReplayRequests":child.requests}
+        descriptor = native.validate(value)
+        self.assertEqual(resources.EXCEL_CHILD_LAYOUT_MEASUREMENT_RESOURCES,descriptor["purpose"])
+        self.assertTrue(resources.uses_relation_indexes(descriptor))
+        self.assertFalse(resources.is_observed(descriptor))
+        for side in ("java","csharp"):
+            self.assertTrue(resources.observation_arguments(descriptor,side)[0].endswith("=false"))
+        for override in ({"purpose":resources.EXCEL_CHILD_LAYOUT_SQL_NATIVE},
+                         {"images":resources.EXCEL_CHILD_REFERENCE_IMAGES},{"workbookReplayRequests":1231}):
+            with mock.patch.object(native,"verify_tool_sources",side_effect=AssertionError("禁止 IO")),self.assertRaises(ValueError):
+                native.run({**value,**override})
+        run=read_tests.RUN
+        targets={side:{**target,"expectedImageId":resources.EXCEL_CHILD_LAYOUT_IMAGES[side]}
+                 for side,target in read_tests.TARGETS.items()}
+        tokens={(side,"writer"):"offline" for side in targets}
+        workbooks=subject.prepare_workbooks(run,workbook_stub,child)
+        config=subject.config_for(run,targets,tokens,workbooks,child)
+        self.assertEqual((100,616,1232),(config["iterations"],child.replays,child.requests))
+        self.assertEqual({"line"},set(workbooks))
+        step,=config["scenarios"][0]["steps"]
+        self.assertTrue(step["path"].endswith("/importDatas81003"))
+        self.assertEqual(str(fixture.ID_BASE+10000),step["json"]["parentId"])
+        self.assertEqual(8,len(step["json"]["requestJson"]))
+        raw={subject.sample_sql(run,"java",kind,child): wire(run,kind,subject.WARMUP) if kind=="line" else ""
+             for kind,*_ in subject.TABLES}
+        self.assertEqual({"line":64},subject.verify_readback(run,"java",raw.__getitem__,replays=subject.WARMUP,workload=child))
+        raw[subject.sample_sql(run,"java","contract",child)]="unintended"
+        with self.assertRaisesRegex(ValueError,"sample-collision"):
+            subject.verify_readback(run,"java",raw.__getitem__,replays=subject.WARMUP,workload=child)
+
     def test_pending_wrong_budget_or_image_is_rejected_before_io(self):
         """新用途只在当前镜像、共同索引和 3696 固定请求的组合下启动。"""
         resources = native.resources
@@ -301,7 +335,8 @@ class ImportMeasurementFlow(previous.FlowFixture):
             self.events.append("seed-" + side)
             return {"target": side}
 
-        def measured(*args):
+        def measured(*args,workload):
+            self.assertIs(subject.THREE_PAGES,workload)
             self.events.append("import")
             return {"measurementValid": True, "stableRegression": False}
 

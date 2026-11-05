@@ -188,6 +188,9 @@ EXCEL_CHILD_SQL_RESOURCES = "paired-excel-child-reference-sql-resources-v1"
 EXCEL_CHILD_REFERENCE_IMAGES = {**UNICODE_OBSERVED_IMAGES, "java": "sha256:e348fd6ca98fb656e2ee6ed1442add5a056446a5fec8b912242b8751f7594005"}
 EXCEL_CHILD_LAYOUT_SQL_NATIVE = "paired-native-excel-child-layout-sql-v1"
 EXCEL_CHILD_LAYOUT_SQL_RESOURCES = "paired-excel-child-layout-sql-resources-v1"
+EXCEL_CHILD_LAYOUT_MEASUREMENT_NATIVE = "paired-native-excel-child-layout-measurement-v1"
+EXCEL_CHILD_LAYOUT_MEASUREMENT_RESOURCES = "paired-excel-child-layout-measurement-resources-v1"
+EXCEL_CHILD_LAYOUT_MEASUREMENT_REQUESTS = 1232
 EXCEL_CHILD_LAYOUT_IMAGES = {**EXCEL_CHILD_REFERENCE_IMAGES, "csharp": "sha256:61b6268fac19a28ae568239e10c3c07562e7568996435534e04bbb9256da3c55"}
 EXCEL_CHILD_LAYOUT_DATA_SHA256 = "0dd528c195123aa2ad5f9fbadebdb71ba2e3e3e508b7ec0b596b44d3f29d888c"
 EXCEL_EXPORT_PREFLIGHT_NATIVE = "paired-native-unicode-excel-export-preflight-v1"
@@ -261,7 +264,7 @@ def is_unicode_write_measurement(value):
 
 def is_excel_import_measurement(value):
     """只允许当前完整镜像和共同关系索引的三页追加导入负载。"""
-    return value.get("purpose") in (EXCEL_IMPORT_MEASUREMENT_NATIVE, EXCEL_IMPORT_MEASUREMENT_RESOURCES) or is_excel_parent_import(value) or is_excel_child_reference(value)
+    return value.get("purpose") in (EXCEL_IMPORT_MEASUREMENT_NATIVE, EXCEL_IMPORT_MEASUREMENT_RESOURCES) or is_excel_parent_import(value) or is_excel_child_reference(value) or is_excel_child_layout_measurement(value)
 
 
 def is_excel_child_reference(value):
@@ -277,6 +280,11 @@ def is_excel_child_sql(value):
 def is_excel_child_layout_sql(value):
     """事务结构复用候选使用单独的 SQL 采集范围。"""
     return value.get("purpose") in (EXCEL_CHILD_LAYOUT_SQL_NATIVE, EXCEL_CHILD_LAYOUT_SQL_RESOURCES)
+
+
+def is_excel_child_layout_measurement(value):
+    """只对子页单独计时；保留诊断用途的独立预算及 SQL 采集状态。"""
+    return value.get("purpose") in (EXCEL_CHILD_LAYOUT_MEASUREMENT_NATIVE, EXCEL_CHILD_LAYOUT_MEASUREMENT_RESOURCES)
 
 
 def is_excel_parent_import(value):
@@ -336,7 +344,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
-    if is_excel_child_layout_sql(value): return EXCEL_CHILD_LAYOUT_IMAGES
+    if is_excel_child_layout_sql(value) or is_excel_child_layout_measurement(value): return EXCEL_CHILD_LAYOUT_IMAGES
     if is_excel_child_reference(value): return EXCEL_CHILD_REFERENCE_IMAGES
     if is_excel_export_hot_path(value): return EXCEL_EXPORT_HOT_PATH_IMAGES
     if is_maintenance_measurement(value) and value.get("images") in (MAINTENANCE_INDEXED_IMAGES, MAINTENANCE_BATCH_IMAGES, MAINTENANCE_LOOKAHEAD_IMAGES):
@@ -372,7 +380,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, EXCEL_IMPORT_MEASUREMENT_RESOURCES, EXCEL_IMPORT_PARENT_RESOURCES, EXCEL_CHILD_REFERENCE_RESOURCES, EXCEL_CHILD_SQL_RESOURCES, EXCEL_CHILD_LAYOUT_SQL_RESOURCES, EXCEL_EXPORT_PREFLIGHT_RESOURCES, MAINTENANCE_PREFLIGHT_RESOURCES, MAINTENANCE_MEASUREMENT_RESOURCES, EXCEL_EXPORT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_HOT_PATH_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, EXCEL_IMPORT_MEASUREMENT_RESOURCES, EXCEL_IMPORT_PARENT_RESOURCES, EXCEL_CHILD_REFERENCE_RESOURCES, EXCEL_CHILD_SQL_RESOURCES, EXCEL_CHILD_LAYOUT_SQL_RESOURCES, EXCEL_CHILD_LAYOUT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_PREFLIGHT_RESOURCES, MAINTENANCE_PREFLIGHT_RESOURCES, MAINTENANCE_MEASUREMENT_RESOURCES, EXCEL_EXPORT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_HOT_PATH_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
