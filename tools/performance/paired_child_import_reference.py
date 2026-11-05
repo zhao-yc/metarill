@@ -1,6 +1,7 @@
 """用原子页协议验证修正 Java 对照包的实际持久化和整批回滚。"""
 import base64
 from decimal import Decimal
+from itertools import islice
 
 import paired_http as http
 import paired_import_measurement as workbook
@@ -13,6 +14,15 @@ DELETED_PARENT_ID = PARENT_ID + 11
 MISSING_PARENT_ID = PARENT_ID + 100000
 IMPORT = ROOTS["line"] + "/importDatas81003"
 PAGE = ROOTS["line"] + "/page"
+
+
+def parent_seed_records():
+    """原子页没有名称筛选。首个合同的四个明细种子中，三条活动记录应同页出现。"""
+    return {
+        str(identifier): dict(id=str(identifier), name=name, amount=float(amount), remarks=note)
+        for identifier, parent, _, name, amount, note, _, deleted, *_ in islice(fixture.rows("sample_contract_line"), 4)
+        if parent == str(PARENT_ID) and deleted is None
+    }
 
 
 def verify_rows(raw, expected):
@@ -85,14 +95,15 @@ def run_preflight(root, run, query, send, make_workbook):
         workbook.require((status, code, payload.get("data")) == (200, 200, f"导入成功{len(expected)}条数据"), "reference-success")
         baseline = snapshot("positive")
         records = verify_rows(baseline, expected)
+        expected_page = {**parent_seed_records(), **records}
         status, code, payload = call(side, "parent-page", PAGE, dict(parentId=str(PARENT_ID), pageNo=1, pageSize=20,
-                                                                    filters={"name": prefix}))
+                                                                    filters={}))
         workbook.require((status, code) == (200, 200), "reference-page-response")
         page = payload["data"]
         ids = [record_id(row["id"]) for row in page["records"]]
-        workbook.require(page["total"] == len(ids) == len(records) and set(ids) == set(records), "reference-page-scope")
+        workbook.require(page["total"] == len(ids) == len(expected_page) and set(ids) == set(expected_page), "reference-page-scope")
         for identifier, row in zip(ids, page["records"]):
-            expect_child_record(row, records[identifier])
+            expect_child_record(row, expected_page[identifier])
 
         for step, parent, rows in (("missing-parent", MISSING_PARENT_ID, parsed["positive"]["rows"]),
                                     ("deleted-parent", DELETED_PARENT_ID, parsed["positive"]["rows"]),

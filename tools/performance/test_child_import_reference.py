@@ -41,11 +41,12 @@ class ChildReferenceContract(unittest.TestCase):
 
     def test_exact_requests_accept_visibility_and_reject_side_effects(self):
         run = read_tests.RUN
-        prefix = subject.fixture.import_sample_prefix(run)
         positive = previous.workbook_stub(subject.workbook.workbook_requests(run)["line"])
         expected = {row["明细名称"]: row for row in positive["rows"]}
         physical = self.physical(expected)
-        page = list(subject.verify_rows(physical, expected).values())
+        seed = subject.parent_seed_records()
+        self.assertEqual(3, len(seed))
+        page = [*seed.values(), *subject.verify_rows(physical, expected).values()]
         for leak in (False, True):
             with self.subTest(leak=leak), tempfile.TemporaryDirectory() as folder:
                 calls = []
@@ -70,8 +71,8 @@ class ChildReferenceContract(unittest.TestCase):
                                          (path, body["parentId"], body["requestJson"]))
                         return 200, {"code": 200, "data": "导入成功8条数据"}
                     if step == 2:
-                        self.assertEqual((subject.PAGE, {"name": prefix}), (path, body["filters"]))
-                        return 200, {"code": 200, "data": {"total": 8, "records": page}}
+                        self.assertEqual((subject.PAGE, {}), (path, body["filters"]))
+                        return 200, {"code": 200, "data": {"total": 11, "records": page}}
                     self.assertEqual(subject.IMPORT, path)
                     self.assertEqual(str((subject.MISSING_PARENT_ID, subject.DELETED_PARENT_ID, subject.PARENT_ID)[step - 3]),
                                      body["parentId"])
