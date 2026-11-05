@@ -95,6 +95,70 @@ public sealed class ProjectFileRuntimeIntegrationTests
         Assert.Empty(await fixture.ReferencesAsync(record));
         Assert.True((await service.DeleteAsync(file.FileId)).StorageRemoved);
     }
+
+    /// <summary>同物理库依然区分发布项目、公开地址和真实事务，不允许平台会话代写业务引用。</summary>
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public async Task Shared_database_preserves_file_ownership_and_transaction_isolation()
+    {
+        await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: true);
+        var project = fixture.Registry.Demo.YzProjectId;
+        var platform = fixture.Registry.Platform.YzProjectId;
+        var actor = new RuntimeActor(8801, "同库文件验收", true, project, "");
+        var authorization = new TestFileAuthorization(actor);
+        var session = fixture.Sessions.Business;
+        Assert.NotSame(fixture.Sessions.Platform, session);
+        Assert.Equal(fixture.Sessions.Platform.Options.ExpectedDatabase, session.Options.ExpectedDatabase);
+
+        var service = new ProjectFileLibraryResolver(fixture.Runtimes, authorization, fixture.Ids).RequireCurrent();
+        var publicly = await fixture.ReadyAsync(service, "shared-public.txt", fixture.PublicColumn);
+        var record = fixture.Ids.NextId();
+        fixture.RecordIds.Add(record);
+        var submitted = new Dictionary<string, object?> { ["public_files"] = JsonSerializer.Serialize(new[] { publicly.FileId.ToString() }) };
+        var observer = new ProjectFileReferenceMutationObserver(fixture.Runtimes, authorization, fixture.Ids);
+        RecordMutationContext Mutation(System.Data.Common.DbTransaction transaction, bool deleting = false) =>
+            new(fixture.PageId, fixture.TableName, record, project, submitted, deleting, transaction);
+
+        await session.InTransactionAsync(async () =>
+        {
+            await fixture.BusinessStore.InsertAsync(fixture.TableName, new Dictionary<string, object?>(submitted)
+            { ["id"] = record, ["yz_project_id"] = long.Parse(project), ["notes"] = "提交" });
+            await observer.BeforeCommitAsync(Mutation(session.CurrentTransaction!));
+            return true;
+        });
+        Assert.Single(await fixture.ReferencesAsync(record));
+        // 平台会话能从同物理库读到记录，但不能借该连接解释业务文件或提交事务证明。
+        var fileInPlatformSlot = await fixture.Runtimes.Resolve(platform).Store.ReadAsync("yz_file_library", new Dictionary<string, object?> { ["id"] = publicly.FileId });
+        Assert.Equal(project, SqlRowStore.Text(Assert.Single(fileInPlatformSlot), "yz_project_id"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Sessions.Platform.InTransactionAsync(async () =>
+        {
+            await observer.BeforeCommitAsync(Mutation(fixture.Sessions.Platform.CurrentTransaction!));
+            return true;
+        }));
+        Assert.Single(await fixture.ReferencesAsync(record));
+
+        var anonymous = new TestFileAuthorization(null);
+        var publicResolver = new ProjectFileLibraryResolver(fixture.Runtimes, anonymous, fixture.Ids);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => publicResolver.OpenPublicAsync(publicly.FileId, null));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => publicResolver.OpenPublicAsync(publicly.FileId, platform));
+        await using (var content = (await publicResolver.OpenPublicAsync(publicly.FileId, project)).Stream)
+        {
+            using var reader = new StreamReader(content);
+            Assert.Equal("验收内容", await reader.ReadToEndAsync());
+        }
+        Assert.Equal(0, anonymous.ActorCalls);
+        Assert.False(Directory.EnumerateFiles(fixture.Root, "*.blob", SearchOption.TopDirectoryOnly).Any());
+        Assert.Single(Directory.GetFiles(fixture.Runtimes.Resolve(project).Options.RootDirectory, "*.blob"));
+
+        await session.InTransactionAsync(async () =>
+        {
+            await fixture.BusinessStore.UpdateAsync(fixture.TableName, record, new Dictionary<string, object?> { ["delete_no"] = DateTime.UtcNow });
+            await observer.BeforeCommitAsync(Mutation(session.CurrentTransaction!, deleting: true));
+            return true;
+        });
+        Assert.Empty(await fixture.ReferencesAsync(record));
+        Assert.True((await service.DeleteAsync(publicly.FileId)).StorageRemoved);
+    }
+
 }
 
 /// <summary>只在两个明确测试库安装源头派生的文件模型，并创建唯一随机业务表。</summary>
@@ -117,7 +181,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
     public List<long> RecordIds { get; } = [];
 
     /// <summary>先验证真实连接库名，再通过显式 SchemaService 预览、执行文件和唯一业务表计划。</summary>
-    public static async Task<ProjectFileDatabaseFixture> CreateAsync(bool physicalDelete=false)
+    public static async Task<ProjectFileDatabaseFixture> CreateAsync(bool physicalDelete=false, bool shareDatabase=false)
     {
         var fixture = new ProjectFileDatabaseFixture();
         try
@@ -125,6 +189,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             var leasePath = Environment.GetEnvironmentVariable(ProjectFileFreshLease.SettingsVariable);
             using var leaseDocument = string.IsNullOrWhiteSpace(leasePath) ? null : JsonDocument.Parse(await File.ReadAllTextAsync(leasePath));
             var fresh = leaseDocument is null ? null : ProjectFileFreshLease.Parse(leaseDocument.RootElement);
+            if (shareDatabase && fresh is null) throw new InvalidOperationException("同库组合仅允许在本轮独占租约执行。");
             Directory.CreateDirectory(fixture.directory);
             using var settings = fresh is null ? JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!)) : null;
             DatabaseOptions Options(string key, string expected)
@@ -135,7 +200,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             }
             var source = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             var platform = MetadataRegistry.Load(source); var demo = MetadataRegistry.Load(Path.Combine(Path.GetDirectoryName(source)!, "demo.json"));
-            fixture.TableName = "mt_project_files_" + (fresh is null ? Guid.NewGuid().ToString("N")[..12] : fresh.RunId[..11] + (physicalDelete ? "1" : "0"));
+            fixture.TableName = "mt_project_files_" + (fresh is null ? Guid.NewGuid().ToString("N")[..12] : fresh.RunId[..11] + (shareDatabase ? "2" : physicalDelete ? "1" : "0"));
             var table = new TableMetadata { Id = SharedIds.NextId().ToString(), TableName = fixture.TableName, YzProjectId = demo.YzProjectId };
             ColumnMetadata Column(string name, string type, string control = "", string detail = "") => new() { Id = SharedIds.NextId().ToString(), ConfigTableId = table.Id, ColumnName = name, LogicalType = type, ColumnLength = type == "string" ? "max" : "", IsDbNotNull = name == "id" ? 1 : 0, ControlKind = control, ControlDetail = detail, YzProjectId = demo.YzProjectId };
             var columns = new[] { Column("id", "int64"), Column("yz_project_id", "int64"), Column("delete_no", "datetime"), Column("notes", "string"),
@@ -151,7 +216,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             await File.WriteAllTextAsync(platformPath, JsonSerializer.Serialize(platform, JsonDefaults.Options)); await File.WriteAllTextAsync(demoPath, JsonSerializer.Serialize(demo, JsonDefaults.Options));
             fixture.Registry = new(platformPath, demoPath);
             fixture.Sessions = new(fresh?.Platform ?? Options("Database", "metarill_test"),
-                fresh?.Business ?? Options("BusinessDatabase", "metarill_business_test"), fixture.Registry);
+                (shareDatabase ? fresh?.Platform : fresh?.Business) ?? Options("BusinessDatabase", "metarill_business_test"), fixture.Registry);
             foreach (var session in new[] { fixture.Sessions.Platform, fixture.Sessions.Business })
             {
                 await using var connection = session.Provider.CreateConnection(session.Options); await connection.OpenAsync();

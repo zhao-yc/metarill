@@ -9,10 +9,10 @@ namespace Metarill.Metadata.Tests;
 public sealed class ProjectFileIntegrationFactAttribute : FactAttribute
 {
     /// <summary>只为跨库文件用例选择专属租约，其他测试仍使用原固定测试库入口。</summary>
-    public ProjectFileIntegrationFactAttribute()
+    public ProjectFileIntegrationFactAttribute(bool freshOnly = false)
     {
         if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ProjectFileFreshLease.SettingsVariable)))
-            Skip = new MetadataIntegrationFactAttribute().Skip;
+            Skip = freshOnly ? "此组合只在本轮独占 MySQL 租约下执行。" : new MetadataIntegrationFactAttribute().Skip;
     }
 }
 
