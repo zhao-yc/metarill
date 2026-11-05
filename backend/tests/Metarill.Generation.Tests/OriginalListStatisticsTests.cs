@@ -7,6 +7,7 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data;
+using Metarill.Data.Queries;
 using Xunit;
 
 namespace Metarill.Generation.Tests;
@@ -194,7 +195,7 @@ internal sealed class StatisticsRun:IDisposable
         return JsonSerializer.SerializeToElement(task.GetType().GetProperty("Result")!.GetValue(task),new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
     /// <summary>释放本次自有会话，不接触其他测试或服务。</summary>
-    public void Dispose()=>session.Dispose();
+    public void Dispose(){session.Dispose();Provider.Dispose();}
 }
 
 internal sealed class StatisticsAuthorization:IRuntimeAuthorization
@@ -206,13 +207,20 @@ internal sealed class StatisticsAuthorization:IRuntimeAuthorization
     public void RequirePagePermission(string page,string operation){Checks.Add(page+":"+operation);if(Deny)throw new UnauthorizedAccessException("离线模拟无页权限。");}
 }
 
-internal sealed class StatisticsMemoryProvider:IDatabaseProvider
+internal sealed class StatisticsMemoryProvider:IDatabaseProvider,IDisposable
 {
-    internal object[] Rows=[];internal double? DoubleAggregateOverride;internal bool SupportsFloatingStatistics;internal List<(string Method,int Page)> Calls {get;}=[];
+    internal object[] Rows=[];internal double? DoubleAggregateOverride;internal List<(string Method,int Page)> Calls {get;}=[];
     internal IFreeSql Orm {get;}
-    /// <summary>仅注册可审计的Select代理，不建立连接。</summary>
-    internal StatisticsMemoryProvider(){Orm=DispatchProxy.Create<IFreeSql,StatisticsOrmProxy>();((StatisticsOrmProxy)(object)Orm).Provider=this;}
-    public string Name=>SupportsFloatingStatistics?"mysql":"offline";public DatabaseCapabilities Capabilities=>new(Name,true,false);
+    internal IFreeSql MetadataOrm {get;}
+    /// <summary>使用真实 MySQL ORM 元数据核对生成列，所有连接及写入继续禁止。</summary>
+    internal StatisticsMemoryProvider()
+    {
+        MetadataOrm=new FreeSqlBuilder().UseConnectionFactory(DataType.MySql,()=>throw new InvalidOperationException("统计离线元数据禁止连接数据库。")).UseAutoSyncStructure(false).Build();
+        Orm=DispatchProxy.Create<IFreeSql,StatisticsOrmProxy>();
+        ((StatisticsOrmProxy)(object)Orm).Provider=this;
+    }
+    public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new(Name,true,false);
+    public void Dispose()=>MetadataOrm.Dispose();
     /// <summary>离线配置只用于定位测试，不解析数据库凭据。</summary>
     public void Validate(DatabaseOptions options){}
     /// <summary>所有读取统一回到本实例代理。</summary>
@@ -229,10 +237,12 @@ internal sealed class StatisticsMemoryProvider:IDatabaseProvider
 public class StatisticsOrmProxy:DispatchProxy
 {
     internal StatisticsMemoryProvider Provider=null!;
-    /// <summary>只允许强类型Select和Dispose，不提供写入或原生SQL旁路。</summary>
+    /// <summary>只允许强类型 Select 和真实映射元数据，不提供写入或原生 SQL 旁路。</summary>
     protected override object? Invoke(MethodInfo? method,object?[]? args)
     {
         if(method!.Name=="Dispose")return null;
+        if(method.Name=="get_Ado")return Provider.MetadataOrm.Ado;
+        if(method.Name=="get_CodeFirst")return Provider.MetadataOrm.CodeFirst;
         if(method.Name=="Select")
         {
             var type=method.GetGenericArguments()[0];var create=typeof(StatisticsOrmProxy).GetMethod(nameof(Create),BindingFlags.NonPublic|BindingFlags.Instance)!.MakeGenericMethod(type);
@@ -249,7 +259,7 @@ public class StatisticsOrmProxy:DispatchProxy
 public class StatisticsSelectProxy<T>:DispatchProxy where T:class
 {
     internal StatisticsMemoryProvider Provider=null!;
-    private readonly List<Delegate> predicates=[];private readonly List<(Delegate Key,bool Descending)> orders=[];
+    private readonly List<Func<T,bool>> predicates=[];private readonly List<(Delegate Key,bool Descending)> orders=[];
     private int page,size,limit;private bool floating;
     /// <summary>真实生成谓词在强类型实体上执行，分页和聚合调用各自记录，禁止未知API静默成功。</summary>
     protected override object? Invoke(MethodInfo? method,object?[]? args)
@@ -257,14 +267,14 @@ public class StatisticsSelectProxy<T>:DispatchProxy where T:class
         var name=method!.Name;args??=[];
         var lambda=args.OfType<LambdaExpression>().FirstOrDefault();
         if(name=="WithTransaction")return this;
-        if(name=="Where"){predicates.Add(lambda!.Compile());return this;}
+        if(name=="Where"){predicates.Add(CompilePredicate(Assert.IsAssignableFrom<Expression<Func<T,bool>>>(lambda)));return this;}
         if(name=="OrderBy"&&lambda is null){Assert.Null(args[0]);orders.Clear();return this;}
         if(name is "OrderBy" or "OrderByDescending"){orders.Add((lambda!.Compile(),name=="OrderByDescending"));return this;}
         if(name=="Offset"){Assert.Equal(0,args[0]);return this;}
         if(name=="Limit"){limit=(int)args[0]!;return this;}
         if(name=="GroupBy"){Assert.Contains("LOG2",Assert.IsType<string>(args[0]));floating=true;return this;}
         if(name=="Page"){page=(int)args[0]!;size=(int)args[1]!;return this;}
-        var rows=Provider.Rows.Cast<T>().Where(row=>predicates.All(predicate=>(bool)predicate.DynamicInvoke(row)!));
+        var rows=Provider.Rows.Cast<T>().Where(row=>predicates.All(predicate=>predicate(row)));
         if(name=="CountAsync"){Provider.Calls.Add((name,page));return Task.FromResult(rows.LongCount());}
         if(name=="ToListAsync"&&floating)
         {
@@ -295,5 +305,20 @@ public class StatisticsSelectProxy<T>:DispatchProxy where T:class
             rows=sorted??rows;if(page>0)rows=rows.Skip((page-1)*size).Take(size);return Task.FromResult(rows.ToList());
         }
         throw new InvalidOperationException("统计Select未支持调用："+name);
+    }
+    /// <summary>仅在内存中解释夹具使用的无通配关键词；MySQL 模式、转义和排序规则另由真实 SQL 与实库用例验证。</summary>
+    private static Func<T,bool> CompilePredicate(Expression<Func<T,bool>> predicate)
+    {
+        if(predicate.Body is not MethodCallExpression call||call.Method.DeclaringType?.DeclaringType!=typeof(JsonArrayNameQuery)||call.Method.Name!="ScalarPatternLike")
+            return predicate.Compile();
+
+        var pattern=Assert.IsType<string>(Assert.IsAssignableFrom<ConstantExpression>(call.Arguments[1]).Value);
+        Assert.StartsWith("%",pattern);
+        Assert.EndsWith("%",pattern);
+        var literal=pattern[1..^1];
+        Assert.NotEmpty(literal);
+        Assert.DoesNotContain(literal,character=>character is '%' or '_' or '\\');
+        var read=Expression.Lambda<Func<T,string?>>(call.Arguments[0],predicate.Parameters).Compile();
+        return row=>read(row)?.Contains(literal,StringComparison.Ordinal)==true;
     }
 }

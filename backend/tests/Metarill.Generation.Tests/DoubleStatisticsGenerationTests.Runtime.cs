@@ -14,7 +14,7 @@ public sealed partial class DoubleStatisticsGenerationTests
     private static async Task ExerciseOrdinaryStatistics(Assembly assembly)
     {
         const string ns="Example.DoubleStatistics.Generated.";
-        var entity=assembly.GetType(ns+"Entities.StatRecord",true)!;var provider=new StatisticsMemoryProvider{SupportsFloatingStatistics=true};
+        var entity=assembly.GetType(ns+"Entities.StatRecord",true)!;using var provider=new StatisticsMemoryProvider();
         object Row(long id,long project,string name,double? amount,bool deleted=false)
         {
             var row=Activator.CreateInstance(entity)!;
