@@ -178,11 +178,13 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
                 var persisted = await restarted.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
                 Assert.Equal(200, persisted.GetProperty("code").GetInt32()); Assert.True(persisted.GetProperty("data").GetProperty("isSuper").GetBoolean());
                 Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, expected.Keys));
+                if (native?.VerifyPublishedBusinessPermissions == true)
+                    await VerifyPublishedBusinessPermissionsAsync(restarted.Client.BaseAddress!, seedStore, new SqlRowStore(businessSession, businessCatalog), catalog.YzProjectId, demo.YzProjectId);
             }
             if (native is not null)
             {
                 native.Verify(root);
-                await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformTables = platformPhysical.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = expected.Count, seedRows = expected.Values.Sum(), distinctDatabases = platform.ExpectedDatabase != business.ExpectedDatabase, installedPlatformTables = installedPlatform.Length, installedBusinessTables = installedBusiness.Length, ordinaryStartupNoDdl = true, repeatedSeedUnchanged = true, userEditPreserved = true, tombstonePreserved = true, passwordPreserved = true, loginFailureAuditPersisted = true, realWeb = true, restartSession = true, browserExecuted = false, performanceExecuted = false }));
+                await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformTables = platformPhysical.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = expected.Count, seedRows = expected.Values.Sum(), distinctDatabases = platform.ExpectedDatabase != business.ExpectedDatabase, installedPlatformTables = installedPlatform.Length, installedBusinessTables = installedBusiness.Length, ordinaryStartupNoDdl = true, repeatedSeedUnchanged = true, userEditPreserved = true, tombstonePreserved = true, passwordPreserved = true, loginFailureAuditPersisted = true, realWeb = true, restartSession = true, publishedBusinessPermissions = native.VerifyPublishedBusinessPermissions, browserExecuted = false, performanceExecuted = false }));
             }
             output.WriteLine($"平台：Production普通启动保持0表，显式初始化后平台连接有{installedPlatform.Length}表、业务连接有{installedBusiness.Length}表；{expected.Count}类{expected.Values.Sum()}条种子，重复保留编辑、墓碑及密码，真实登录/权限/菜单及重启会话通过。");
         }

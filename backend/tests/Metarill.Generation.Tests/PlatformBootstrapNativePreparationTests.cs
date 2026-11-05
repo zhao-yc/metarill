@@ -37,10 +37,10 @@ public sealed class PlatformBootstrapNativePreparationTests
                 var path = Path.Combine(metadata, name + ".json"); await File.WriteAllTextAsync(path, "{}"); hashes.Add("backend/metadata/" + name + ".json", Hash(path));
             }
             var evidence = Path.Combine(root, ".local", "platform-bootstrap-native", "0123456789abcdef", "evidence");
-            var proof = new PlatformBootstrapNativePreparation(host, PlatformBootstrapNativePreparation.CaptureHost(host), hashes, evidence) { SharePlatformDatabase = sharePlatformDatabase };
+            var proof = new PlatformBootstrapNativePreparation(host, PlatformBootstrapNativePreparation.CaptureHost(host), hashes, evidence) { SharePlatformDatabase = sharePlatformDatabase, VerifyPublishedBusinessPermissions = sharePlatformDatabase };
             proof.Verify(root);
             var settings = JsonSerializer.SerializeToElement(new { Purpose = PlatformBootstrapNativePreparation.Purpose, AuthorizationStatus = "approved", LeaseStatus = "running", RunId = "0123456789abcdef", PlatformBootstrapPreparation = proof });
-            var loaded = PlatformBootstrapNativePreparation.Read(settings, root); Assert.Equal(proof.AssemblyPath, loaded.AssemblyPath); Assert.Equal(sharePlatformDatabase, loaded.SharePlatformDatabase); Assert.True(Directory.Exists(evidence));
+            var loaded = PlatformBootstrapNativePreparation.Read(settings, root); Assert.Equal(proof.AssemblyPath, loaded.AssemblyPath); Assert.Equal(sharePlatformDatabase, loaded.SharePlatformDatabase); Assert.Equal(sharePlatformDatabase, loaded.VerifyPublishedBusinessPermissions); Assert.True(Directory.Exists(evidence));
             var assembly = proof.AssemblyPath; var original = await File.ReadAllBytesAsync(assembly); await File.AppendAllTextAsync(assembly, "漂移"); Assert.Throws<InvalidOperationException>(() => proof.Verify(root)); await File.WriteAllBytesAsync(assembly, original);
             var extra = Path.Combine(host, "unknown.txt"); await File.WriteAllTextAsync(extra, "未知输出"); Assert.Throws<InvalidOperationException>(() => proof.Verify(root)); File.Delete(extra);
             await File.AppendAllTextAsync(Path.Combine(metadata, "demo.json"), "漂移"); Assert.Throws<InvalidOperationException>(() => proof.Verify(root));
