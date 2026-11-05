@@ -22,7 +22,7 @@ class MaintenanceMeasurementTests(unittest.TestCase):
                      maintenancePreflightRequests=8, maintenanceCatalogSha256=r.MAINTENANCE_CATALOG_SHA256,
                      maintenanceReplayRequests=replay.REPLAY_REQUESTS, relationIndexProfile=r.RELATION_INDEX_PROFILE)
         self.assertEqual(r.MAINTENANCE_MEASUREMENT_RESOURCES, native.validate(value)["purpose"])
-        for images in (r.MAINTENANCE_INDEXED_IMAGES, r.MAINTENANCE_BATCH_IMAGES):
+        for images in (r.MAINTENANCE_INDEXED_IMAGES, r.MAINTENANCE_BATCH_IMAGES, r.MAINTENANCE_LOOKAHEAD_IMAGES):
             self.assertEqual(images, native.validate({**value, "images": images})["images"])
         for changed in (dict(maintenanceReplayRequests=None), dict(maintenanceReplayRequests=207),
                         dict(purpose=r.MAINTENANCE_PREFLIGHT_NATIVE), dict(writeReplayRequests=208),

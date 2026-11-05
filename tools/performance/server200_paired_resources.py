@@ -193,6 +193,7 @@ MAINTENANCE_CATALOG_SHA256 = "7584aabf04a6433eb549677d8d7fbb23ee0ff7529d29c1fc74
 MAINTENANCE_PREFLIGHT_IMAGES = {**UNICODE_OBSERVED_IMAGES, "csharp": "sha256:3d850c482a06c8b1a34b6a4d4e167aea8bcf0e01fa2a6440ed5d500b6e1ef1eb"}
 MAINTENANCE_INDEXED_IMAGES = {**MAINTENANCE_PREFLIGHT_IMAGES, "csharp": "sha256:e2a988cb27de0cab9bbc98b9a67330ec8350c8ea9324fedd4e875d8ea9a61ba2"}
 MAINTENANCE_BATCH_IMAGES = {**MAINTENANCE_PREFLIGHT_IMAGES, "csharp": "sha256:e9d0aaa977afa2df2e2d56675b7c71b482abe29ffe29d42ca90a221f34cd8afe"}
+MAINTENANCE_LOOKAHEAD_IMAGES = {**MAINTENANCE_PREFLIGHT_IMAGES, "csharp": "sha256:1331791b4e8351a67c16fcc2b695d749c54cbdea3ab74a923a83d3cd9800a0ad"}
 EXCEL_EXPORT_MEASUREMENT_NATIVE = "paired-native-unicode-excel-export-v1"
 EXCEL_EXPORT_MEASUREMENT_RESOURCES = "paired-unicode-excel-export-resources-v1"
 EXCEL_EXPORT_REPLAY_REQUESTS = 2784
@@ -311,7 +312,7 @@ def is_current_observed(value):
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
     if is_excel_export_hot_path(value): return EXCEL_EXPORT_HOT_PATH_IMAGES
-    if is_maintenance_measurement(value) and value.get("images") in (MAINTENANCE_INDEXED_IMAGES, MAINTENANCE_BATCH_IMAGES):
+    if is_maintenance_measurement(value) and value.get("images") in (MAINTENANCE_INDEXED_IMAGES, MAINTENANCE_BATCH_IMAGES, MAINTENANCE_LOOKAHEAD_IMAGES):
         return value["images"]
     if uses_maintenance(value): return MAINTENANCE_PREFLIGHT_IMAGES
     if is_unicode_observed(value) or is_unicode_read_measurement(value) or is_unicode_write_measurement(value) or is_excel_import_measurement(value) or uses_excel_export(value): return UNICODE_OBSERVED_IMAGES
