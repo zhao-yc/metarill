@@ -140,17 +140,23 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `yz_manager` WHERE `delete_no` IS NULL")));
             // 在本轮独占库内制造用户编辑和墓碑，再逐行证明重复播种不会覆盖或复活。
             var seedStore = new SqlRowStore(platformSession, catalog);
+            var projects = await seedStore.ReadAsync("yz_project");
+            AssertProjectDefaults(projects, catalog, platform.ExpectedDatabase, "metarill", "metarill.platform");
+            AssertProjectDefaults(projects, demo, business.ExpectedDatabase, "demo", "metarill.demo");
+            Assert.Equal(1, await seedStore.UpdateAsync("yz_project", long.Parse(demo.YzProjectId, CultureInfo.InvariantCulture),
+                new Dictionary<string, object?> { ["primary_color"] = "#112233" }));
             var editedId = long.Parse(catalog.ConfigTables[0].Id, CultureInfo.InvariantCulture);
             var deletedId = long.Parse(catalog.ConfigButtons[0].GetProperty("id").ToString(), CultureInfo.InvariantCulture);
             Assert.Equal(1, await seedStore.UpdateAsync("config_table", editedId, new Dictionary<string, object?> { ["name"] = "本轮空库验收保留的用户编辑" }));
             Assert.Equal(1, await seedStore.UpdateAsync("config_button", deletedId, new Dictionary<string, object?> { ["delete_no"] = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Unspecified) }));
-            var seedBefore = await SeedSnapshotAsync(seedStore, expected.Keys);
+            var snapshotTables = expected.Keys.Append("yz_project").ToArray();
+            var seedBefore = await SeedSnapshotAsync(seedStore, snapshotTables);
             var hash = await ScalarAsync(platformSession, "SELECT `password` FROM `yz_manager` WHERE `id`=1");
             var repeated = StartInfo("--initialize"); repeated.Environment["Metarill__Bootstrap__Password"] = alternatePassword;
             await RunAsync(repeated);
             Assert.Equal(hash, await ScalarAsync(platformSession, "SELECT `password` FROM `yz_manager` WHERE `id`=1"));
             foreach (var (table, count) in expected) Assert.Equal(count - (table == "config_button" ? 1 : 0), Convert.ToInt32(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM `" + table + "` WHERE `delete_no` IS NULL")));
-            Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, expected.Keys));
+            Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, snapshotTables));
             Assert.Empty((await schema.PreviewAsync(platformPhysical)).Changes);
             Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
             await AssertInstalledTablesAsync(platformSession, installedPlatform);
@@ -177,7 +183,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
                 restarted.Client.DefaultRequestHeaders.Add("loginStateId", loginToken);
                 var persisted = await restarted.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
                 Assert.Equal(200, persisted.GetProperty("code").GetInt32()); Assert.True(persisted.GetProperty("data").GetProperty("isSuper").GetBoolean());
-                Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, expected.Keys));
+                Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, snapshotTables));
                 if (native?.VerifyPublishedBusinessPermissions == true)
                     await VerifyPublishedBusinessPermissionsAsync(restarted.Client.BaseAddress!, seedStore, new SqlRowStore(businessSession, businessCatalog), catalog.YzProjectId, demo.YzProjectId);
             }
@@ -191,7 +197,25 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         finally { await TestDirectoryCleanup.DeleteAsync(directory, temporaryRoot); }
     }
 
-    /// <summary>只比较同一实库11类种子的完整行，排序固定并包含墓碑，不在日志输出行内容。</summary>
+    /// <summary>物理回读核对原详情必填项，失败时不把连接字段或凭据写入日志。</summary>
+    private static void AssertProjectDefaults(List<Dictionary<string,object?>> projects,MetadataCatalog catalog,string database,string shortName,string packageName)
+    {
+        var row=Assert.Single(projects,project=>SqlRowStore.Text(project,"id")==catalog.YzProjectId);
+        var reference=new System.Data.Common.DbConnectionStringBuilder();
+        try{reference.ConnectionString=SqlRowStore.Text(row,"mysql_conn_str");}
+        catch(ArgumentException){throw new InvalidOperationException("原项目连接栏不是合法数据库引用。");}
+        Assert.True(reference.Count==1&&reference.TryGetValue("Database",out var catalogName)&&Equals(catalogName,database),
+            "原项目连接栏应只包含本项目库名，不能复制服务端凭据。");
+        Assert.Equal(database,SqlRowStore.Text(row,"db_name"));
+        Assert.Equal(shortName,SqlRowStore.Text(row,"short_name"));
+        Assert.Equal("/api",SqlRowStore.Text(row,"context_root"));
+        Assert.Equal(packageName,SqlRowStore.Text(row,"eclipse_base_name"));
+        Assert.Equal(string.IsNullOrWhiteSpace(catalog.PrimaryColor)?"#0ab3ad":catalog.PrimaryColor,SqlRowStore.Text(row,"primary_color"));
+        Assert.True(string.IsNullOrEmpty(SqlRowStore.Text(row,"db_username"))&&string.IsNullOrEmpty(SqlRowStore.Text(row,"db_password")),
+            "空库播种不能把部署凭据保存到项目详情。");
+    }
+
+    /// <summary>按固定顺序比较项目及11类种子的完整行，包含墓碑，日志只保留摘要。</summary>
     private static async Task<string> SeedSnapshotAsync(SqlRowStore store, IEnumerable<string> tables)
     {
         var snapshot = new SortedDictionary<string, object?>(StringComparer.Ordinal);
