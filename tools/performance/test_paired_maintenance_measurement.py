@@ -22,6 +22,8 @@ class MaintenanceMeasurementTests(unittest.TestCase):
                      maintenancePreflightRequests=8, maintenanceCatalogSha256=r.MAINTENANCE_CATALOG_SHA256,
                      maintenanceReplayRequests=replay.REPLAY_REQUESTS, relationIndexProfile=r.RELATION_INDEX_PROFILE)
         self.assertEqual(r.MAINTENANCE_MEASUREMENT_RESOURCES, native.validate(value)["purpose"])
+        candidate = {**value, "images": r.MAINTENANCE_INDEXED_IMAGES}
+        self.assertEqual(r.MAINTENANCE_INDEXED_IMAGES, native.validate(candidate)["images"])
         for changed in (dict(maintenanceReplayRequests=None), dict(maintenanceReplayRequests=207),
                         dict(purpose=r.MAINTENANCE_PREFLIGHT_NATIVE), dict(writeReplayRequests=208),
                         dict(authorizationStatus="pending")):
