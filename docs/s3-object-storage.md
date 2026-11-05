@@ -90,3 +90,7 @@ HTTP只在部署方明确开启时允许；TLS、桶、前缀、凭据及策略�
 ## V283 同镜像独占 SeaweedFS 实测
 
 固定 250aab9，在 Server-200 使用与既有服务相同镜像的独占容器，真实 AWS SDK 对象层 11 项通过，另有对象和授权清理护栏回归 45 项通过、零失败和跳过。现有服务凭据及桶未进入本次验收。应用宿主与 MySQL 的文件引用、权限 HTTP／Range、原浏览器和同条件性能仍待验收。见[真实对象层验收](testing/isolated-s3-object-storage-v283.md)。
+
+## V285 完整应用附件 HTTP 和 MySQL 验收
+
+同一固定产品的独立应用已通过普通账号真实 S3 上传、绑定、授权下载和 Range、未完成附件回滚、解绑删除及退出。独立 MySQL 与 AWS SDK 逐项读回。平台跨库、原浏览器与性能继续，见[完整应用验收](testing/standalone-s3-files-http-mysql-v285.md)。
