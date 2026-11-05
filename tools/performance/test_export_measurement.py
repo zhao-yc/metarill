@@ -64,6 +64,7 @@ class ExportMeasurementTests(unittest.TestCase):
                 output = Path(folder) / "measurement"
                 with mock.patch.object(subject.http, "equal_limits", return_value={}), \
                      mock.patch.object(subject.http, "verify_transport", return_value={"verified": True}), \
+                     mock.patch.object(subject.cgroups, "CgroupProbe", return_value=mock.Mock()), \
                      mock.patch.object(subject, "database_context", return_value={"variables": {}}), \
                      mock.patch.object(subject.export, "run_preflight", return_value=preflight), \
                      mock.patch.object(subject.http, "request", side_effect=ticket), \
@@ -79,6 +80,7 @@ class ExportMeasurementTests(unittest.TestCase):
                         self.assertEqual(1392, result["workbooksVerified"])
                         self.assertTrue(all(r["comparison"]["valid"] for r in result["comparison"]))
                         self.assertFalse(result["measurementValid"])
+                        self.assertEqual(subject.cgroups.METHOD, result["resourceSource"])
                 self.assertEqual((1392, 1392), (calls.count("POST"), calls.count("GET")))
                 self.assertEqual(1392, len(verified))
                 self.assertEqual(16, len((output / "events.jsonl").read_bytes().splitlines()))

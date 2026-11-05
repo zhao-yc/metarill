@@ -505,7 +505,8 @@ def verify_tool_sources(value):
         expected.update({"performance/paired_import_measurement.py","performance/paired_workbook_container.py","performance/paired_workbook_oracle.cjs"})
     if resources.uses_excel_export(value):
         expected.update({"performance/paired_export_contract.py", "performance/paired_extended_business.py", "performance/paired_workbook_container.py", "performance/paired_workbook_oracle.cjs"})
-    if resources.is_excel_export_measurement(value): expected.add("performance/paired_export_measurement.py")
+    if resources.is_excel_export_measurement(value):
+        expected.update({"performance/paired_export_measurement.py", "performance/paired_cgroup_probe.py"})
     if resources.is_file_measurement(value): expected.add("performance/paired_file_measurement.py")
     if resources.is_common_file_measurement(value): expected.add("performance/paired_common_file_indexes.py")
     if resources.is_extended_business(value): expected.update({"performance/paired_business_http.py","performance/paired_extended_business.py","performance/paired_workbook_container.py","performance/paired_workbook_oracle.cjs"})

@@ -2,6 +2,7 @@
 import hashlib
 from threading import Event
 
+import paired_cgroup_probe as cgroups
 import paired_export_contract as export
 import paired_http as http
 from paired_measurement import database_context
@@ -26,6 +27,7 @@ def run_measurement(root, run, targets, tokens, probe, query, parse_workbook):
               "requestTimeoutSeconds": 15, "iterations": ITERATIONS, "maxP95Ratio": 1.10, "minThroughputRatio": 0.95}
     limits = http.equal_limits(probe, targets)
     transport = http.verify_transport(config, probe, limits)
+    resource_probe = cgroups.CgroupProbe(probe, targets, limits)
     preflight = export.run_preflight(root, targets, tokens, parse_workbook, limit=DOWNLOAD_LIMIT, max_batches=1)
     output = root / "measurement"
     output.mkdir(mode=0o700)
@@ -60,7 +62,7 @@ def run_measurement(root, run, targets, tokens, probe, query, parse_workbook):
 
         before = database_context(query)
         result = http.run_trial(config, target, scenario, concurrency, round_index, phase, count, send,
-                                probe if phase == "measured" else None)
+                                resource_probe if phase == "measured" else None)
         after = database_context(query)
         evidence = {"side": side, "concurrency": concurrency, "round": round_index, "phase": phase,
                     "before": before, "after": after, "timings": result, "downloads": []}
@@ -103,6 +105,7 @@ def run_measurement(root, run, targets, tokens, probe, query, parse_workbook):
     if limits != after_limits:
         raise ValueError("measurement-export-replay-resource-drift")
     http.verify_transport(config, probe, after_limits)
+    resource_probe.verify()
     results = []
     for concurrency, round_index, order, trial_pair in trials:
         comparison = http.compare_pair(trial_pair["java"], trial_pair["csharp"], config)
@@ -121,7 +124,7 @@ def run_measurement(root, run, targets, tokens, probe, query, parse_workbook):
     valid = all(r["comparison"]["valid"] and r["comparison"]["resourcesComplete"] for r in results)
     regression = valid and any(sum(r["comparison"].get("regression", False) for r in results if r["concurrency"] == level) >= 2
                                for level in CONCURRENCY)
-    report = {"measurementValid": valid, "stableRegression": regression, "transport": transport, "limits": limits,
+    report = {"measurementValid": valid, "stableRegression": regression, "transport": transport, "limits": limits, "resourceSource": cgroups.METHOD,
               "preflightRequests": preflight["requests"], "replayRequests": REPLAY_REQUESTS, "workbooksVerified": len(proofs),
               "comparison": results, "report": "measurement/measurement.json"}
     (output / "measurement.json").write_bytes(http.canonical(report))
