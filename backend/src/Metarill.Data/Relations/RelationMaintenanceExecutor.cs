@@ -10,6 +10,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
 {
     private const int WriteBatchSize=128;
     private const int CleanReadBatchSize=512;
+    private const string ReadConnectionIdentity="SELECT DATABASE(),@@SESSION.max_allowed_packet";
     /// <summary>整批使用一个业务事务，结构不匹配、取消、约束或并发失败全部回滚。</summary>
     public async Task<MaintenanceResult> BackfillAsync(RelationMaintenanceCatalog catalog,string tableId,CancellationToken token=default)
     {
@@ -79,8 +80,8 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         }
     }
     /// <summary>标量维护一次锁读真实来源和已发布目标，来源排他、目标共享，保留两套原范围谓词。</summary>
-    private async Task<(long LastId,IReadOnlyList<RelationRowPatch> Patches)> LockScalarBatchAsync(
-        MaintenanceTable table,string project,long after,int limit,DbTransaction transaction,CancellationToken token,long? exactId=null)
+    private async Task<(long LastId,IReadOnlyList<RelationRowPatch> Patches,long PacketLimit)> LockScalarBatchAsync(
+        MaintenanceTable table,string project,long after,int limit,DbTransaction transaction,CancellationToken token,long? exactId=null,string? verifiedFrom=null)
     {
         var plan=table.Read!;
         if(plan.RequiresPublishedProjectIdentity&&project!=plan.ProjectId)
@@ -90,18 +91,39 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         var newValues=fields.Select(field=>plan.OutputExpression(field.Name));
         var idExpression=plan.Expression("id");
         await using var command=Command(transaction);
-        command.CommandText="SELECT "+idExpression+","+string.Join(",",oldValues.Concat(newValues))+plan.From+
+        // 库名不符时，受守卫的主键为 NULL。即使服务端提前执行第二段，也只解析目标库且不能命中任何行。
+        string Render(string? qualifiedFrom)
+        {
+            var exactKey=qualifiedFrom is null?"@exact_id":"CASE WHEN CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY) THEN @exact_id END";
+            return (qualifiedFrom is null?"":ReadConnectionIdentity+"; ")+"SELECT "+idExpression+","+string.Join(",",oldValues.Concat(newValues))+(qualifiedFrom??plan.From)+
             " WHERE "+Scope(table,"b.")+(plan.Scope.Length==0?"":" AND ("+plan.Scope+")")+
-            " AND "+idExpression+(exactId.HasValue?"=@exact_id":">@after")+" ORDER BY "+idExpression+" LIMIT "+limit.ToString(CultureInfo.InvariantCulture)+plan.ImportMatchLock;
+            " AND "+idExpression+(exactId.HasValue?"="+exactKey:">@after")+" ORDER BY "+idExpression+" LIMIT "+limit.ToString(CultureInfo.InvariantCulture)+plan.ImportMatchLock;
+        }
+        command.CommandText=Render(verifiedFrom);
+        var packetLimit=0L;
+        // 尚未读到本会话上限时按最小报文预留参数及协议空间，较长 SQL 保留原两步。
+        if(verifiedFrom is not null&&System.Text.Encoding.UTF8.GetByteCount(command.CommandText)
+            +2*System.Text.Encoding.UTF8.GetByteCount(session.Options.ExpectedDatabase)+128>1024)
+        {
+            verifiedFrom=null;
+            packetLimit=await ValidatePhysical(plan,transaction,token,reusePinnedStructure:true);
+            command.CommandText=Render(null);
+        }
         Add(command,"project",Project(table,project));
         Add(command,"project_scope_text",project);
         Add(command,"project_scope_number",long.Parse(project,CultureInfo.InvariantCulture));
         if(exactId is {} idToRefresh)Add(command,"exact_id",idToRefresh);
         else Add(command,"after",after);
+        if(verifiedFrom is not null)Add(command,"expected_database",session.Options.ExpectedDatabase);
         foreach(var pair in plan.Constants)Add(command,pair.Key,pair.Value);
         var patches=new List<RelationRowPatch>();
         var lastId=after;
         await using var reader=await command.ExecuteReaderAsync(token);
+        if(verifiedFrom is not null)
+        {
+            packetLimit=await RequireConnectionIdentityAsync(reader,token);
+            if(!await reader.NextResultAsync(token))throw new InvalidOperationException("维护连接没有返回已核验的锁读结果。");
+        }
         while(await reader.ReadAsync(token))
         {
             var id=reader.GetInt64(0);
@@ -118,7 +140,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
             }
             if(changes is not null)patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(changes)));
         }
-        return (lastId,patches.AsReadOnly());
+        return (lastId,patches.AsReadOnly(),packetLimit);
     }
     /// <summary>仅已发布全局标量且来源与投影活动范围一致时，可在一条当前读中取旧副本和新名称。</summary>
     internal static bool CanLockExactScalarSource(MaintenanceTable table)
@@ -132,15 +154,24 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
             &&plan.FromForFields(plan.Outputs)==plan.From;
     }
     /// <summary>刷新刚保存的一条来源。保持实际值读回核验，成功后才把补丁送入传播队列。</summary>
-    internal async Task<IReadOnlyList<RelationRowPatch>> RefreshSavedSourceAsync(MaintenanceTable table,long id,string project,long packetLimit,DbTransaction transaction,CancellationToken token)
+    internal async Task<IReadOnlyList<RelationRowPatch>> RefreshSavedSourceAsync(MaintenanceTable table,long id,string project,bool validate,DbTransaction transaction,CancellationToken token)
     {
-        if(!CanLockExactScalarSource(table))
+        var plan=table.Read!;
+        var exact=CanLockExactScalarSource(table);
+        // 首次仍单独核库名并取得结构锁，只有同事务的已证明精确读取可以合并。
+        var verifiedFrom=validate&&exact&&plan.Constants.Count==0&&transaction.Connection is MySqlConnector.MySqlConnection
+            &&session.PinnedRelationLayouts(transaction)?.Contains(plan)==true
+            ?plan.QualifiedMaintenanceFrom(Q(session.Options.ExpectedDatabase)):null;
+        var packetLimit=validate&&verifiedFrom is null
+            ?await ValidatePhysical(plan,transaction,token,reusePinnedStructure:true):0;
+        if(!exact)
         {
             var rows=await Sources(table,project,0,transaction,token,[id]);
             return await RefreshLockedAsync(table,rows,project,null,token);
         }
         // 留出第二条的检测槽。若结构不再满足唯一来源，仍按原行为拒绝整笔写入。
-        var (_,patches)=await LockScalarBatchAsync(table,project,0,2,transaction,token,exactId:id);
+        var (_,patches,readPacketLimit)=await LockScalarBatchAsync(table,project,0,2,transaction,token,exactId:id,verifiedFrom:verifiedFrom);
+        if(verifiedFrom is not null)packetLimit=readPacketLimit;
         // 仅已锁单主键、单文本副本及保守报文预算允许合并发送，复杂值仍走原独立读回。
         if(patches.Count==1&&patches[0].Values.Count==1&&transaction.Connection is MySqlConnector.MySqlConnection
             &&FitsTextBatch(patches,patches[0].Values.Keys.Single(),packetLimit))
@@ -228,12 +259,9 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         long packetLimit;
         await using(var identity=Command(transaction))
         {
-            identity.CommandText="SELECT DATABASE(),@@SESSION.max_allowed_packet";
+            identity.CommandText=ReadConnectionIdentity;
             await using var reader=await identity.ExecuteReaderAsync(token);
-            if(!await reader.ReadAsync(token)||await reader.IsDBNullAsync(0,token)
-                ||reader.GetString(0)!=session.Options.ExpectedDatabase)
-                throw new InvalidOperationException("维护连接与已配置目标库不一致。");
-            packetLimit=reader.GetInt64(1);
+            packetLimit=await RequireConnectionIdentityAsync(reader,token);
         }
         // 显式事务持有已探测表的元数据锁直至结束。库名与当前会话报文限制仍逐次读取。
         var pinnedLayouts=reusePinnedStructure?session.PinnedRelationLayouts(transaction):null;
@@ -250,6 +278,13 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         }
         pinnedLayouts?.Add(plan);
         return packetLimit;
+    }
+    /// <summary>每次使用实际服务器库名和会话报文上限，结构证明不替代连接核验。</summary>
+    private async Task<long> RequireConnectionIdentityAsync(DbDataReader reader,CancellationToken token)
+    {
+        if(!await reader.ReadAsync(token)||await reader.IsDBNullAsync(0,token)||reader.GetString(0)!=session.Options.ExpectedDatabase)
+            throw new InvalidOperationException("维护连接与已配置目标库不一致。");
+        return reader.GetInt64(1);
     }
     /// <summary>来源按真实项目、活动记录和主键分批取写锁；事件只返回受影响缓存，整表及来源自身刷新保持完整字段。</summary>
     internal async Task<List<Dictionary<string,object?>>> Sources(MaintenanceTable table,string project,long after,DbTransaction transaction,CancellationToken token,IReadOnlyList<long>? ids=null,IReadOnlySet<string>? allowed=null)

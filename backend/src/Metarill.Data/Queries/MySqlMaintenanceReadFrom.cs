@@ -13,4 +13,11 @@ internal sealed class MySqlMaintenanceReadFrom
     }
     /// <summary>只组合原有片段；共享前缀及祖先已由逐字段解析同时登记，顺序保持编译顺序。</summary>
     internal string Render(IReadOnlySet<string> fields)=>root+string.Concat(joins.Where(join=>join.Fields.Overlaps(fields)).Select(join=>join.Sql));
+    /// <summary>使用编译器固定的 FROM 和 LEFT JOIN 前缀限定所有表，库名已由方言引用。</summary>
+    internal string RenderQualified(string quotedDatabase)
+    {
+        var prefix=quotedDatabase+".";
+        return root.Insert(" FROM ".Length,prefix)+
+            string.Concat(joins.Select(join=>join.Sql.Insert(" LEFT JOIN ".Length,prefix)));
+    }
 }

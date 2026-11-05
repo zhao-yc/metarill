@@ -55,6 +55,8 @@ public sealed class MySqlNonRedundantReadPlan
     private MySqlMaintenanceReadFrom? MaintenanceFrom{get;}
     /// <summary>普通读取跳过维护联接集合计算，保持原路径的计划选择成本。</summary>
     internal bool HasMaintenanceJoinProjection=>MaintenanceFrom is not null;
+    /// <summary>连接核验与锁读合并时只能定位已发布的同一物理库。</summary>
+    internal string? QualifiedMaintenanceFrom(string quotedDatabase)=>MaintenanceFrom?.RenderQualified(quotedDatabase);
     /// <summary>维护当前读保留输出及查询依赖的联接；普通读取没有此裁剪合同，继续原完整FROM。</summary>
     internal string FromForFields(IEnumerable<string> fields)
     {

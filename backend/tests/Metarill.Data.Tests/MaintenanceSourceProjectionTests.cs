@@ -9,6 +9,17 @@ namespace Metarill.Data.Tests;
 
 public sealed partial class MaintenanceReadProjectionTests
 {
+    /// <summary>同库合并读取只限定编译的来源和联接表，原字段谓词及结构证明保持完整。</summary>
+    [Fact]
+    public void Qualified_layout_keeps_compiled_root_and_every_join()
+    {
+        var plan=Plan();
+        var qualified=plan.QualifiedMaintenanceFrom("`fixed_layout`");
+        Assert.NotNull(qualified);
+        Assert.Contains(" LEFT JOIN `fixed_layout`.",qualified);
+        Assert.Equal(plan.From,qualified.Replace("`fixed_layout`.","",StringComparison.Ordinal));
+    }
+
     /// <summary>只返回受影响缓存，仍读取未选多值的预算ID，保留项目、软删、主键范围和行锁。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Source_lock_returns_only_selected_cache_with_original_scope(bool textProject)
