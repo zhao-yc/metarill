@@ -60,15 +60,14 @@ public sealed partial class ExcelPageExportService : IPageExportService
         string? temporary = null; string? destination = null; var reserved = false;
         try
         {
-            await CleanupExpiredAsync(cancellationToken);
-            // 容量判断和预留仍原子执行；拒绝异常在退出锁后抛出，避免异常清理持锁影响在途导出。
-            bool capacityExceeded;
-            lock (_sync)
+            // 常规签发只预留内存额度；满额才主动回收过期票据，崩溃残留平时由后台任务处理。
+            reserved = TryReserveTicket();
+            if (!reserved)
             {
-                capacityExceeded = _tickets.Count + _reservations >= _options.MaxActiveTickets;
-                if (!capacityExceeded) { _reservations++; reserved = true; }
+                await CleanupExpiredAsync(cancellationToken);
+                reserved = TryReserveTicket();
             }
-            if (capacityExceeded) throw new InvalidOperationException("当前导出文件数量达到上限，请等待过期清理。");
+            if (!reserved) throw new InvalidOperationException("当前导出文件数量达到上限，请等待过期清理。");
             // 读取必须发生在已取得并发槽和预留票据之后，不能先全量物化再校验。
             var request = await prepare(_options.MaxRows, cancellationToken);
             ArgumentNullException.ThrowIfNull(request); ValidateDimensions(request);
@@ -145,22 +144,40 @@ public sealed partial class ExcelPageExportService : IPageExportService
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrEmpty(exportId) || !TicketPattern().IsMatch(exportId)) throw Denied();
-        await CleanupExpiredAsync(cancellationToken);
         lock (_sync)
         {
             var now = _clock.GetUtcNow();
-            if (!_tickets.TryGetValue(exportId, out var ticket) || ticket.ExpiresAt <= now) throw Denied();
-            if (downloadGrant ? ticket.DownloadExpiresAt is null || ticket.DownloadExpiresAt <= now : actor is null || ticket.AccountId != actor.AccountId || ticket.ProjectId != actor.ProjectId) throw Denied();
-            try
+            if (!_tickets.TryGetValue(exportId, out var ticket)) throw Denied();
+            if (ticket.ExpiresAt > now)
             {
-                if (File.GetAttributes(ticket.Path).HasFlag(FileAttributes.ReparsePoint)) throw Denied();
-                var stream = new FileStream(ticket.Path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                return new ExportContentHandle(stream, ticket.Name, ExcelContentType, stream.Length, downloadGrant ? ticket.DownloadExpiresAt!.Value : ticket.ExpiresAt);
+                if (downloadGrant ? ticket.DownloadExpiresAt is null || ticket.DownloadExpiresAt <= now : actor is null || ticket.AccountId != actor.AccountId || ticket.ProjectId != actor.ProjectId) throw Denied();
+                try
+                {
+                    // 跳过全目录清理时仍检查根与目标文件，禁止经重解析点打开其它对象。
+                    ValidateRoot();
+                    if (File.GetAttributes(ticket.Path).HasFlag(FileAttributes.ReparsePoint)) throw Denied();
+                    var stream = new FileStream(ticket.Path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    return new ExportContentHandle(stream, ticket.Name, ExcelContentType, stream.Length, downloadGrant ? ticket.DownloadExpiresAt!.Value : ticket.ExpiresAt);
+                }
+                catch (FileNotFoundException) { _tickets.Remove(exportId); throw Denied(); }
+                catch (DirectoryNotFoundException) { _tickets.Remove(exportId); throw Denied(); }
+                catch (IOException exception) { throw new InvalidOperationException("导出文件当前无法读取。", exception); }
+                catch (UnauthorizedAccessException exception) { throw new InvalidOperationException("导出文件当前无法读取。", exception); }
             }
-            catch (FileNotFoundException) { _tickets.Remove(exportId); throw Denied(); }
-            catch (DirectoryNotFoundException) { _tickets.Remove(exportId); throw Denied(); }
-            catch (IOException exception) { throw new InvalidOperationException("导出文件当前无法读取。", exception); }
-            catch (UnauthorizedAccessException exception) { throw new InvalidOperationException("导出文件当前无法读取。", exception); }
+        }
+        // 只有当前票据已过文件期限才同步清理；仍立即拒绝下载。
+        await CleanupExpiredAsync(cancellationToken);
+        throw Denied();
+    }
+
+    /// <summary>额度检查与预留在同一锁内，生成任务不能同时越过上限。</summary>
+    private bool TryReserveTicket()
+    {
+        lock (_sync)
+        {
+            if (_tickets.Count + _reservations >= _options.MaxActiveTickets) return false;
+            _reservations++;
+            return true;
         }
     }
 
@@ -173,9 +190,13 @@ public sealed partial class ExcelPageExportService : IPageExportService
             foreach (var pair in _tickets.Where(t => t.Value.ExpiresAt <= now).ToArray()) { paths.Add(pair.Value.Path); _tickets.Remove(pair.Key); }
             if (Directory.Exists(_root))
             {
-                EnsureRoot();
+                ValidateRoot();
+                // 每轮只构造一次在册路径集合，逐文件判断不再重复扫描全部票据。
+                var retained = new HashSet<string>(_tickets.Values.Select(t => t.Path), StringComparer.Ordinal);
+                retained.UnionWith(_activePaths);
+                var cutoff = now.UtcDateTime.Subtract(_options.TimeToLive);
                 foreach (var path in Directory.EnumerateFiles(_root))
-                    if (ObjectPattern().IsMatch(Path.GetFileName(path)) && !_activePaths.Contains(path) && !_tickets.Values.Any(t => t.Path == path) && File.GetLastWriteTimeUtc(path) <= now.UtcDateTime.Subtract(_options.TimeToLive)) paths.Add(path);
+                    if (ObjectPattern().IsMatch(Path.GetFileName(path)) && !retained.Contains(path) && File.GetLastWriteTimeUtc(path) <= cutoff) paths.Add(path);
             }
         }
         var removed = 0;
@@ -237,7 +258,9 @@ public sealed partial class ExcelPageExportService : IPageExportService
         var builder = new StringBuilder(); foreach (var rune in value.EnumerateRunes()) { if (builder.Length + rune.Utf16SequenceLength > maximum) break; builder.Append(rune.ToString()); } return builder.ToString();
     }
     /// <summary>仅创建私有根目录，不允许根本身为符号链接。</summary>
-    private void EnsureRoot() { Directory.CreateDirectory(_root); if (File.GetAttributes(_root).HasFlag(FileAttributes.ReparsePoint)) throw new InvalidOperationException("导出目录不能是符号链接。"); }
+    private void EnsureRoot() { Directory.CreateDirectory(_root); ValidateRoot(); }
+    /// <summary>下载仅核对已有目录，不为未知或已删除的票据创建路径。</summary>
+    private void ValidateRoot() { if (File.GetAttributes(_root).HasFlag(FileAttributes.ReparsePoint)) throw new InvalidOperationException("导出目录不能是符号链接。"); }
     /// <summary>只删除实现内部生成的路径，清理失败保留给下次维护重试。</summary>
     private static bool TryDelete(string path) { try { File.Delete(path); return true; } catch (IOException) { return false; } catch (UnauthorizedAccessException) { return false; } }
     /// <summary>拒绝没有真实账号或项目上下文的后台调用。</summary>

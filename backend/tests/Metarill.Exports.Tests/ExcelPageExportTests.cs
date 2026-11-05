@@ -121,11 +121,33 @@ public sealed class ExcelPageExportTests
     {
         using var fixture=new ExportFixture(new ExportOptions {MaxActiveTickets=1});await fixture.Service.CreateAsync(Request(),fixture.Actor);
         await Assert.ThrowsAsync<InvalidOperationException>(()=>fixture.Service.CreateAsync(Request(),fixture.Actor));
-        fixture.Clock.Advance(TimeSpan.FromMinutes(16));await fixture.Service.CleanupExpiredAsync();
+        fixture.Clock.Advance(TimeSpan.FromMinutes(16));
+        // 后台尚未运行时，满额的下一次签发仍应自动回收过期票据和文件。
         var ticket=await fixture.Service.CreateAsync(Request(),fixture.Actor);Assert.NotEmpty(ticket);
+        Assert.Single(Directory.GetFiles(fixture.Root));
         var orphan=Path.Combine(fixture.Root,Guid.NewGuid().ToString("N")+".xlsx.part");await File.WriteAllTextAsync(orphan,"partial");File.SetLastWriteTimeUtc(orphan,fixture.Clock.GetUtcNow().UtcDateTime.Subtract(TimeSpan.FromHours(1)));
         var unrelated=Path.Combine(fixture.Root,"keep.txt");await File.WriteAllTextAsync(unrelated,"unrelated");
         await fixture.Service.CleanupExpiredAsync();Assert.False(File.Exists(orphan));Assert.True(File.Exists(unrelated));
+    }
+
+    [Fact]
+    public async Task Normal_issue_and_download_leave_orphans_for_periodic_cleanup()
+    {
+        using var fixture = new ExportFixture();
+        Directory.CreateDirectory(fixture.Root);
+        var orphan = Path.Combine(fixture.Root, Guid.NewGuid().ToString("N") + ".xlsx.part");
+        await File.WriteAllTextAsync(orphan, "partial");
+        File.SetLastWriteTimeUtc(orphan, fixture.Clock.GetUtcNow().UtcDateTime.Subtract(TimeSpan.FromHours(1)));
+
+        var ticket = await fixture.Service.CreateDownloadAsync(fixture.Actor, (_, _) => Task.FromResult(Request()));
+        Assert.True(File.Exists(orphan));
+        var content = await fixture.Service.OpenDownloadAsync(ticket);
+        await using (content.Stream) Assert.Equal((int)'P', content.Stream.ReadByte());
+        Assert.True(File.Exists(orphan));
+
+        Assert.Equal(1, await fixture.Service.CleanupExpiredAsync());
+        Assert.False(File.Exists(orphan));
+        Assert.Single(Directory.GetFiles(fixture.Root));
     }
 
     [Fact]
