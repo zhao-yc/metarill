@@ -32,18 +32,35 @@ internal static class NonRedundantCrossTableSubset
             // 原组件按前缀转换属性，原详情还读取显式属性；两者必须与同一后端JSON字段一致。
             foreach(var plan in plans.Select(plan=>plan.Definition!))if(CrossTableFrontendProof.Reason(plan) is{} mismatch)return mismatch;
             _=NonRedundantReadCompilation.ForPage(model,table,page);_=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
-            var imports=ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
+            var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
+            var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
             var exports=plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
-            // 正式R0路径／共享路径已验证；覆盖导入、混合自树、来源父范围及重复角色仍需各自的Excel整链证据。
+            // 来源父范围、混合自树和重复角色的 Excel 用途仍分别验收。
             var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&!ExactDataManageCompilation.Declared(page)&&
-                (!imports||ImportRenderer.Mode(page) is "" or "OnlyNew")&&
                 !page.Scopes.Any(scope=>scope.Source=="parent")&&companions.All(Declared)&&plans.All(plan=>
                     plan.Definition!.Levels.All(level=>level.Read.Target.Source.Id!=table.Source.Id)&&
                     plan.Definition.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Definition.Levels.Count);
-            if(!independent&&imports)return CrossTableExcelRenderer.ImportAcceptancePending;
+            if(imports&&(!independent||ImportRenderer.Mode(page) is not ("" or "OnlyNew")&&
+                !SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns)))
+                return CrossTableExcelRenderer.ImportAcceptancePending;
             if(!independent&&exports)return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "非冗余跨表完整用途未通过："+error.Message;}
+    }
+
+    /// <summary>公开覆盖只接受已验收的末级单值键、项目范围和独立或共享级联，不扩张到逻辑祖先或附加上下文。</summary>
+    private static bool SupportsOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns)
+    {
+        if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||page.Condition is not null||
+            plans.Count is <1 or >2||plans.Any(plan=>plan.Levels.Count is <2 or >3||!columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)))
+            return false;
+        if(plans.Count==2&&!SharedCrossTableCompilation.ForPage(model,table,page).Groups.Any(group=>group.Plans.Count==2))
+            return false;
+        var key=table.Columns.First(columns.Contains);
+        if(key.Type is not ("string?" or "long?")||plans.Count(plan=>plan.Levels[^1].Id.Source.Id==key.Source.Id)!=1)
+            return false;
+        var dependency=ImportDependencyCompilation.ForPage(model,table,page);
+        return NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency) is {Context.Count:0};
     }
 }

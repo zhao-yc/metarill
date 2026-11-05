@@ -27,9 +27,9 @@ public sealed class NonRedundantCrossOverwriteApplicationTests
         return catalog;
     }
 
-    /// <summary>关闭Excel后的基底必须完全合格；真实六个覆盖页仍保持公开拒绝且输入不变。</summary>
+    /// <summary>真实六个覆盖页与关闭 Excel 后的基底都通过公开检查，且不改输入。</summary>
     [Fact]
-    public void Six_models_have_real_logical_matches_but_remain_unpublished()
+    public void Six_models_have_real_logical_matches_and_pass_publication_audit()
     {
         var catalog=Catalog();var before=JsonSerializer.Serialize(catalog,Json);var model=GenerationModel.Create(catalog,RootNamespace);
         var sources=model.Tables.Where(table=>table.Source.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)).ToArray();Assert.Equal(6,sources.Length);
@@ -40,10 +40,10 @@ public sealed class NonRedundantCrossOverwriteApplicationTests
             Assert.Equal("OverWriteByFirstColumn",page.Source.Extra["importMethod"].GetString());
         }
         var prepared=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,RootNamespace);
-        Assert.Contains(prepared.Gaps,gap=>gap.Reason==CrossTableExcelRenderer.ImportAcceptancePending);
+        Assert.Empty(prepared.Gaps);
         Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(prepared.Baseline,RootNamespace)));
         Assert.Equal(before,JsonSerializer.Serialize(catalog,Json));
-        Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        new FrontendPackager().Validate(catalog);
     }
 
     /// <summary>独立编译包内所有源码并在Production/Web装载六个私有计划；未认证原导入路由必须401且不访问数据库。</summary>
@@ -101,7 +101,10 @@ public sealed class NonRedundantCrossOverwriteApplicationTests
             var generated=Path.Combine(output,"backend/generated");var tableName=catalog.ConfigTables.First(table=>table.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)).TableName;
             var hand=Path.Combine(generated,"Services/"+GenerationModel.Pascal(tableName)+"Service.cs");await File.AppendAllTextAsync(hand,"\n// 覆盖导入完整源码验收保留手写扩展。\n");var retained=await File.ReadAllBytesAsync(hand);
             new CSharpGenerator().Generate(actual,generated,RootNamespace);Assert.Equal(retained,await File.ReadAllBytesAsync(hand));
-            Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(actual,Path.Combine(root,"not-published"),RootNamespace,source));Assert.False(Directory.Exists(Path.Combine(root,"not-published")));
+            var publicOutput=Path.Combine(root,"public-full");
+            Assert.True(new ApplicationPackager().Create(actual,publicOutput,RootNamespace,source).FrontendIncluded);
+            Assert.True(File.Exists(Path.Combine(publicOutput,".metarill-package.json")));
+            Assert.False(File.Exists(Path.Combine(publicOutput,CrossTableExcelApplicationPreparer.Marker)));
             await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),JsonSerializer.Serialize(new{passed=true,internalPreparationOnly=true,ordinaryIdentityVerified=false,databaseExecuted=false,publicationOpened=false,models=6},Json));
         }
         finally{if(Directory.Exists(root))await TestDirectoryCleanup.DeleteAsync(root,boundary);}

@@ -101,11 +101,13 @@ public sealed class CrossTableExcelPublicationTests
     }
 
     /// <summary>正规公开打包必须保留Web身份、完整元数据及原组件；包使用自身源码严格构建。</summary>
-    [Fact]
-    public async Task Public_six_model_Full_builds_with_original_pages_and_web_identity()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_six_model_Full_builds_with_original_pages_and_web_identity(bool overwrite)
     {
         var source = NonRedundantApplicationFixture.Root();
-        var catalog = GlobalCachedCrossExcelNativePreparation.Catalog();
+        var catalog = overwrite ? NonRedundantCrossOverwriteApplicationTests.Catalog() : GlobalCachedCrossExcelNativePreparation.Catalog();
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-r0-excel-publication");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try

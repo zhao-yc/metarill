@@ -20,6 +20,7 @@ public sealed class NonRedundantImportMatchTests
         var catalog=Catalog(type);var before=JsonSerializer.Serialize(catalog);var model=GenerationModel.Create(catalog,"Example.LogicalImport");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single();
         var declared=ImportRenderer.Columns(page);Assert.Equal("name",declared[0].Source.ColumnName);
         var match=NonRedundantImportMatchRenderer.Resolve(model,table,page,ImportDependencyCompilation.ForPage(model,table,page))!;
+        Assert.Equal(CrossTableExcelRenderer.ImportAcceptancePending,NonRedundantCrossTableSubset.Reason(model,table,page));
         Assert.Equal("country_id",match.Key.Source.ColumnName);Assert.Equal(new[]{"country_id","id"},match.Outputs.Order());Assert.Contains("yz_project_id",match.Dependencies);
         var sparse=CrossTableSparseSelection.Compile(table.Source,"25",catalog.ConfigColumns.Where(column=>column.ConfigTableId=="2"));var stored=sparse.PackValidatedPath(new long[]{1,2,3});Assert.Null(stored["country_id"]);Assert.NotNull(stored["place_id"]);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-logical-import-match");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -49,14 +50,14 @@ public sealed class NonRedundantImportMatchTests
         var model=GenerationModel.Create(catalog,"Example.UnchangedImport");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single();
         Assert.Null(NonRedundantImportMatchRenderer.Resolve(model,table,page,ImportDependencyCompilation.ForPage(model,table,page)));
     }
-    /// <summary>普通／共享六模型都能生成并装载覆盖计划，但原Full覆盖导入门槛仍拒绝。</summary>
+    /// <summary>普通及共享六模型都能生成、装载覆盖计划并通过公开审计。</summary>
     [Fact]
-    public async Task Six_model_backend_compiles_overwrite_without_opening_public_Full()
+    public async Task Six_model_backend_compiles_overwrite_and_passes_public_Full_audit()
     {
         var catalog=GlobalCachedCrossExcelNativePreparation.Catalog();var pages=catalog.ConfigPages.Where(page=>catalog.ConfigTables.Any(table=>table.Id==page.ConfigTableId&&table.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal))).ToArray();Assert.Equal(6,pages.Length);
         // 原附件数组仍不能作首列；明确以原级联控件为首列，确保六模型实际装载逻辑匹配分支。
         foreach(var page in pages){page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");catalog.ConfigColumns.First(column=>column.ConfigTableId==page.ConfigTableId&&column.ControlKind=="CascadeTree").SortNo=-10000;}
-        var model=GenerationModel.Create(catalog,"Example.SixLogicalImports");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Reason==CrossTableExcelRenderer.ImportAcceptancePending);Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        var model=GenerationModel.Create(catalog,"Example.SixLogicalImports");Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-six-logical-imports");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
