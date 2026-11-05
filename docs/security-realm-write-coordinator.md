@@ -1,6 +1,6 @@
 # 安全写入聚合协调器（平台已接线，独立实例RR专项已验）
 
-平台宿主通过同一AddRealmWriteCoordination入口注册SecurityRealmMutationGuard→ConfigurationMutationGuard。三个安全Service手写partial、HTTP原页权与RolePermissionBusiness保存已接入实际协调器；角色Runtime Gap仍为独立生成Host保留：平台RR三场景和原页只读名称/掩码/启用已补验，但账号原页浏览器完整写入及独立Host完整协调器下发未完成。
+平台宿主通过同一AddRealmWriteCoordination入口注册SecurityRealmMutationGuard→ConfigurationMutationGuard。三个安全Service手写partial、HTTP原页权与RolePermissionBusiness保存已接入实际协调器；普通JSON生成路径的角色Runtime Gap继续保留；内部工厂签发的可信模块已有独立宿主协调器下发及固定完整管理包验收，不能把这两条生成路径混为一谈。当前源码的真实角色合并／RR复验见[2026-11-05记录](testing/trusted-management-runtime-mysql.md)，固定完整包范围见[同包验收](testing/management-full-native.md)。账号原页浏览器完整写入及完整跨端矩阵仍待验收。
 
 ## 原规则矩阵
 
