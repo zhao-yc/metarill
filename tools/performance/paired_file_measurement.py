@@ -24,7 +24,7 @@ def require(ok,code):
 
 def config_for(value,targets,tokens):
     """固定普通读者、完整64KiB文件、三轮400次及1／4并发；ID由实际准备结果注入。"""
-    require(value.get('purpose') in (resources.FILE_MEASUREMENT_NATIVE,resources.COMMON_FILE_MEASUREMENT_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started' and type(value.get('fileReplayRequests')) is int and value['fileReplayRequests']==resources.FILE_REQUEST_BUDGET and type(value.get('fileFixtureRequests')) is int and value['fileFixtureRequests']==resources.FILE_FIXTURE_REQUESTS,'scope')
+    require(value.get('purpose') in (resources.FILE_MEASUREMENT_NATIVE,resources.COMMON_FILE_MEASUREMENT_NATIVE,resources.UNICODE_FILE_MEASUREMENT_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started' and type(value.get('fileReplayRequests')) is int and value['fileReplayRequests']==resources.FILE_REQUEST_BUDGET and type(value.get('fileFixtureRequests')) is int and value['fileFixtureRequests']==resources.FILE_FIXTURE_REQUESTS,'scope')
     require(value.get('images')==resources.images_for(value) and not resources.is_observed(value) and not resources.is_write_measurement(value),'images')
     require(set(targets)=={'java','csharp'} and all(t.get('baseUrl')==f"http://127.0.0.1:{value['ports'][side]}/api" and t.get('container')=='metarill-perf-'+value['runId']+'-'+side and t.get('expectedImageId')==resources.images_for(value)[side] and t.get('containerPort')==8080 for side,t in targets.items()),'targets')
     if resources.is_common_file_measurement(value):require(value.get('fileIndexProfile')==resources.COMMON_FILE_INDEX_PROFILE,'index-profile')

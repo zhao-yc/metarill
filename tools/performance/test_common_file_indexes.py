@@ -67,6 +67,27 @@ class CommonFileIndexContractTests(unittest.TestCase):
         for wrong in [{**v,'images':native.resources.IMPORT_RULE_IMAGES},{**v,'fileIndexProfile':'wrong'},{**v,'fileReplayRequests':4833},{**old,'fileIndexProfile':native.resources.COMMON_FILE_INDEX_PROFILE},{**old,'images':native.resources.COMMON_FILE_IMAGES}]:
             with self.subTest(purpose=wrong['purpose']),mock.patch.object(native,'verify_tool_sources',side_effect=AssertionError('禁止IO')),self.assertRaises(ValueError):native.run(wrong)
 
+    def test_current_file_scope_rejects_old_images_and_other_workloads(self):
+        """当前文件入口绑定镜像、两组索引和下载预算，错误请求在任何 I/O 前拒绝。"""
+        resources = native.resources
+        current = {**value(), "purpose": resources.UNICODE_FILE_MEASUREMENT_NATIVE, "images": resources.UNICODE_OBSERVED_IMAGES}
+        descriptor = native.validate(current)
+        self.assertEqual(resources.UNICODE_FILE_MEASUREMENT_RESOURCES, descriptor["purpose"])
+        self.assertTrue(resources.is_common_file_measurement(descriptor))
+        self.assertTrue(resources.uses_relation_indexes(descriptor))
+        self.assertFalse(resources.is_observed(descriptor))
+        files.config_for(current, original_file.targets(current), original_file.tokens())
+        for change in (
+            {"images": resources.COMMON_FILE_IMAGES}, {"purpose": resources.COMMON_FILE_MEASUREMENT_NATIVE},
+            {"purpose": resources.UNICODE_WRITE_MEASUREMENT_NATIVE}, {"fileIndexProfile": None},
+            {"fileReplayRequests": resources.FILE_REQUEST_BUDGET - 1}, {"fileFixtureRequests": None},
+            {"readReplayRequests": resources.READ_REQUEST_BUDGET}, {"authorizationStatus": "pending"},
+        ):
+            with self.subTest(change=change), mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止IO")), self.assertRaises(ValueError):
+                native.run({**current, **change})
+        with self.assertRaises(ValueError):
+            files.config_for({**current, "purpose": descriptor["purpose"]}, original_file.targets(current), original_file.tokens())
+
     def test_receipts_close_exact_ddl_confirmation_schema_and_statistics(self):
         """Java11／C#10动作及空表、结构保护、CAS和完整索引都逐字段核对。"""
         v=value()
@@ -155,6 +176,7 @@ class CommonFileIndexFlowTests(previous.FlowFixture):
 
     def test_complete_flow_adds_six_fixed_jobs_before_seed_and_reads_indexes_after_download(self):
         """完整链通过十八初始化和实际前后索引核验；旧首测用途和整体性能标志不改变。"""
+        self.value.update(purpose=native.resources.UNICODE_FILE_MEASUREMENT_NATIVE, images=dict(native.resources.UNICODE_OBSERVED_IMAGES))
         with contextlib.redirect_stdout(io.StringIO()):result=native.run(self.value)
         self.assertTrue(result['passed']);self.assertEqual(18,self.jobs.call_count);self.assertEqual('paired-common-file-index-protected-measurement-only',result['acceptedScope']);self.assertEqual(result['fileIndexesBefore'],result['fileIndexesAfter']);self.assertTrue(result['measurement']['commonFileIndexAttributesVerified']);self.assertFalse(result['performanceAccepted']);self.assertEqual([],result['cleanupErrors']);self.assertEqual('ended',result['leaseStatus'])
         self.assertEqual(11,result['fileIndexPlans']['java']['applied']['appliedStatements']);self.assertEqual(10,result['fileIndexPlans']['csharp']['applied']['appliedStatements']);self.assertLess(self.events.index('csharp-file-index-csharp-verify'),self.events.index('file-measurement'));self.assertLess(self.events.index('file-measurement'),self.events.index('resources-cleanup'))
