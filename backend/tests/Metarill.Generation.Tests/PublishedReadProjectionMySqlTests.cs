@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data;
 using Metarill.Data.Schema;
@@ -31,11 +32,7 @@ public sealed class PublishedReadProjectionMySqlTests
         using var session = new DatabaseSession(options);
         await VerifyEmptyLeaseAsync(session);
 
-        var catalog = GeneratorTests.Catalog();
-        catalog.ConfigTables[0].TableName = Table;
-        catalog.ConfigPages[0].Extra["type"] = JsonSerializer.SerializeToElement(2);
-        catalog.ConfigPageColumns.Single(column => column.ConfigColumnId == "13").IsShow = 0;
-        catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "hidden_payload", LogicalType = "string", ColumnLength = "max" });
+        var catalog = CreateCatalog();
         var schema = new SchemaService(session);
         var plan = await schema.PreviewAsync(catalog);
         var change = Assert.Single(plan.Changes);
@@ -89,6 +86,28 @@ public sealed class PublishedReadProjectionMySqlTests
             await VerifyReadsAsync(client, commands);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>正式用例复用的元数据必须可编译成实际 MySQL 结构。</summary>
+    [Fact]
+    public void Fixture_compiles_as_mysql_schema()
+    {
+        var schema = MySqlSchemaPlanner.Compile(CreateCatalog(), "offline_projection");
+        var table = Assert.Single(schema.Tables);
+        Assert.Equal(Table, table.Name);
+        Assert.Contains(table.Columns, column => column.Name == "id" && column.StoreType == "bigint" && column.PrimaryKey);
+        Assert.Contains(table.Columns, column => column.Name == "hidden_payload" && column.StoreType == "longtext");
+    }
+
+    private static MetadataCatalog CreateCatalog()
+    {
+        var catalog = GeneratorTests.Catalog();
+        catalog.ConfigTables[0].TableName = Table;
+        foreach (var column in catalog.ConfigColumns.Where(column => column.LogicalType == "id")) column.LogicalType = "int64";
+        catalog.ConfigPages[0].Extra["type"] = JsonSerializer.SerializeToElement(2);
+        catalog.ConfigPageColumns.Single(column => column.ConfigColumnId == "13").IsShow = 0;
+        catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "hidden_payload", LogicalType = "string", ColumnLength = "max" });
+        return catalog;
     }
 
     /// <summary>核对分页、详情、已选顺序和整组拒绝，并核对每次实际 SQL。</summary>
