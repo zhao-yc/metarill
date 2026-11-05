@@ -26,12 +26,15 @@ def unicode_read_counts(value,target,query):
     database=names[('java','csharp').index(target)]
     base='SELECT COUNT(*) FROM `'+database+'`.`sample_customer` WHERE delete_no IS NULL'
     require(query(base+';')=='2','business-unicode-nonempty-fixture')
+    # 管理连接的默认排序规则不等于业务列；只读取本轮固定列的实际规则，并限制为可信UTF8标识。
+    collation=query("SELECT COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='"+database+"' AND TABLE_NAME='sample_customer' AND COLUMN_NAME='name' AND CHARACTER_SET_NAME='utf8mb4';")
+    require(type(collation) is str and re.fullmatch('utf8mb4_[a-z0-9_]+',collation),'business-unicode-column-collation')
     result={}
     for code,blank in UNICODE_BLANK_CASES:
         if blank:result[code]=2;continue
         # 字符来自固定代码点，SQL只嵌固定UTF8十六进制，绝不接收调用方关键词或任意表达式。
-        encoded=chr(int(code,16)).encode('utf-8').hex()
-        count=query(base+" AND name LIKE CONCAT('%',CONVERT(UNHEX('"+encoded+"') USING utf8mb4),'%');")
+        encoded=('%'+chr(int(code,16))+'%').encode('utf-8').hex()
+        count=query(base+" AND name LIKE (CONVERT(UNHEX('"+encoded+"') USING utf8mb4) COLLATE "+collation+");")
         require(type(count) is str and re.fullmatch('0|[1-9][0-9]*',count),'business-unicode-baseline')
         result[code]=int(count)
     return result

@@ -43,15 +43,32 @@ class UnicodeObservedContractTests(unittest.TestCase):
         r=native.resources;lease={**settings(),'purpose':r.UNICODE_OBSERVED_BUSINESS,'leaseStatus':'running'};commands=[]
         def query(sql):
             commands.append(sql)
-            return business.PIN['hostname']+'\t'+business.PIN['serverUuid'] if '@@hostname' in sql else '0' if 'UNHEX(' in sql else '2'
+            return business.PIN['hostname']+'\t'+business.PIN['serverUuid'] if '@@hostname' in sql else 'utf8mb4_unicode_ci' if 'SELECT COLLATION_NAME' in sql else '0' if 'UNHEX(' in sql else '2'
         result=business.unicode_read_counts(lease,'java',query)
         self.assertEqual({code:2 if blank else 0 for code,blank in business.UNICODE_BLANK_CASES},result)
-        self.assertEqual(6,len(commands));self.assertTrue(all(sql.startswith('SELECT ')for sql in commands));self.assertEqual(4,sum('UNHEX(' in sql for sql in commands))
+        self.assertEqual(7,len(commands));self.assertIn("CONVERT(UNHEX('25c28525') USING utf8mb4) COLLATE utf8mb4_unicode_ci",commands[3]);self.assertTrue(all(sql.startswith('SELECT ')for sql in commands));self.assertEqual(4,sum('UNHEX(' in sql for sql in commands))
         for change in [{'purpose':r.PATTERN_OBSERVED_BUSINESS},{'leaseStatus':'ended'},{'images':dict(r.PATTERN_OBSERVED_IMAGES)},{'databases':['existing_business','existing_platform']}]:
             callback=mock.Mock(side_effect=AssertionError('禁止查询'))
             with self.subTest(change=change),self.assertRaises(ValueError):business.unicode_read_counts({**lease,**change},'java',callback)
             callback.assert_not_called()
         with self.assertRaises(ValueError):business.unicode_read_counts(lease,'java',lambda sql:business.PIN['hostname']+'\t'+business.PIN['serverUuid'] if '@@hostname' in sql else '0')
+
+
+    def test_actual_column_collation_is_used_and_invalid_metadata_cannot_reach_like(self):
+        """同列规则消除管理连接的隐式冲突；恶意、缺失或其它字符集不得拼入SQL。"""
+        r=native.resources;lease={**settings(),'purpose':r.UNICODE_OBSERVED_BUSINESS,'leaseStatus':'running'}
+        for collation in ['utf8mb4_unicode_ci','utf8mb4_0900_ai_ci','utf8mb4_bin','utf8mb4_bad;DROP TABLE','utf8mb3_general_ci','']:
+            calls=[]
+            def query(sql):
+                calls.append(sql)
+                return business.PIN['hostname']+'\t'+business.PIN['serverUuid'] if '@@hostname' in sql else collation if 'SELECT COLLATION_NAME' in sql else '0' if 'UNHEX(' in sql else '2'
+            with self.subTest(collation=collation):
+                if collation in ['utf8mb4_unicode_ci','utf8mb4_0900_ai_ci','utf8mb4_bin']:
+                    business.unicode_read_counts(lease,'java',query)
+                    self.assertEqual(4,sum(' COLLATE '+collation+');' in sql for sql in calls))
+                else:
+                    with self.assertRaises(ValueError):business.unicode_read_counts(lease,'java',query)
+                    self.assertFalse(any('UNHEX('in sql for sql in calls))
 
 
 class UnicodeExchangeTests(unittest.TestCase):
