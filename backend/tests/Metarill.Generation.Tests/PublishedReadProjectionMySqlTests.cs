@@ -30,7 +30,7 @@ public sealed class PublishedReadProjectionMySqlTests
     {
         var options = FreshInstallConfiguration.Read("PackagedDatabase", "package");
         using var session = new DatabaseSession(options);
-        await VerifyEmptyLeaseAsync(session);
+        await FreshInstallConfiguration.VerifyEmptyLeaseAsync(session);
 
         var catalog = CreateCatalog();
         var schema = new SchemaService(session);
@@ -139,23 +139,6 @@ public sealed class PublishedReadProjectionMySqlTests
             Assert.Contains("不在当前多选页范围", denied.GetProperty("msg").GetString());
             AssertProjection(commands);
         }
-    }
-
-    /// <summary>核对实例与空库，保证仅在本轮独占租约创建合成表。</summary>
-    private static async Task VerifyEmptyLeaseAsync(DatabaseSession session)
-    {
-        using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));
-        var instance = settings.RootElement.GetProperty("InstancePin");
-        await using var connection = session.Provider.CreateConnection(session.Options);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT @@hostname,@@server_uuid,DATABASE(),(SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE())";
-        await using var reader = await command.ExecuteReaderAsync();
-        Assert.True(await reader.ReadAsync());
-        Assert.Equal(instance.GetProperty("hostname").GetString(), reader.GetString(0));
-        Assert.Equal(instance.GetProperty("serverUuid").GetString(), reader.GetString(1));
-        Assert.Equal(session.Options.ExpectedDatabase, reader.GetString(2));
-        Assert.Equal(0L, reader.GetInt64(3));
     }
 
     /// <summary>SELECT 排除未发布列，WHERE 保留项目、软删除约束；分页保留 COUNT。</summary>

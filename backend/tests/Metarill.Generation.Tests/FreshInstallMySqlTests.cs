@@ -425,6 +425,23 @@ internal static class FreshInstallConfiguration
         throw new InvalidOperationException("平台正式空库验收需要本轮隔离 Redis DB0 配置。");
     }
 
+    /// <summary>核对实例与空库，保证仅在本轮独占租约创建合成表。</summary>
+    internal static async Task VerifyEmptyLeaseAsync(DatabaseSession session)
+    {
+        using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));
+        var instance = settings.RootElement.GetProperty("InstancePin");
+        await using var connection = session.Provider.CreateConnection(session.Options);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT @@hostname,@@server_uuid,DATABASE(),(SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE())";
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(instance.GetProperty("hostname").GetString(), reader.GetString(0));
+        Assert.Equal(instance.GetProperty("serverUuid").GetString(), reader.GetString(1));
+        Assert.Equal(session.Options.ExpectedDatabase, reader.GetString(2));
+        Assert.Equal(0L, reader.GetInt64(3));
+    }
+
     /// <summary>禁止误连固定业务库、生产服务器或高权限账号。</summary>
     public static void Validate(DatabaseOptions options, string suffix)
     {
