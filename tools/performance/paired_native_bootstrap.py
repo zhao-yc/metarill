@@ -272,7 +272,10 @@ def initialization_job(root, value, name, state, state_path, *, expected_index_p
     if indexed:
         side,mode=name.split("-")[3:] if file_indexed else name.split("-")[2:]
         args += ["--env","METARILL_INDEX_RUN_ID="+value["runId"],"--env","METARILL_INDEX_AUTHORIZATION=approved"]
-        if file_indexed:args += ["--env","METARILL_FILE_INDEX_SCOPE="+value["purpose"],"--env","METARILL_FILE_INDEX_PROFILE="+value["fileIndexProfile"]]
+        if file_indexed:
+            # 当前测量用途已经过镜像和范围校验，索引工具仍只接受其固定执行合同。
+            args += ["--env", "METARILL_FILE_INDEX_SCOPE=" + resources.COMMON_FILE_MEASUREMENT_NATIVE,
+                     "--env", "METARILL_FILE_INDEX_PROFILE=" + value["fileIndexProfile"]]
         if expected_index_plan is not None: args += ["--env","METARILL_INDEX_EXPECTED_PLAN="+expected_index_plan]
         args += ["--entrypoint","dotnet",resources.images_for(value)["csharp"],"exec","--runtimeconfig","/app/Application.Host.runtimeconfig.json","--depsfile","/app/Application.Host.deps.json","/app/Metarill.Paired.Indexes.dll",("file-" if file_indexed else "")+mode+"-"+side]
     elif target == "java":

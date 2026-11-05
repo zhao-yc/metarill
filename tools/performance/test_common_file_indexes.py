@@ -210,7 +210,7 @@ class CommonFileIndexCommandTests(unittest.TestCase):
 
     def docker(self,*args):
         """固定新索引工具镜像，不能在此测试中混入旧AE镜像。"""
-        if args[:2]==('container','inspect') and args[args.index('--format')+1]=='{{.Image}}':return native.resources.COMMON_FILE_IMAGES['csharp']
+        if args[:2]==('container','inspect') and args[args.index('--format')+1]=='{{.Image}}':return native.resources.images_for(self.value)['csharp']
         return previous.JobTests.docker(self,*args)
 
     def test_actual_file_job_passes_dedicated_scope_profile_and_confirmation_without_secret_or_sql_argv(self):
@@ -218,6 +218,20 @@ class CommonFileIndexCommandTests(unittest.TestCase):
         expected=receipt(self.value,'java','apply');self.capture.return_value=subprocess.CompletedProcess([],0,json.dumps(expected).encode(),b'')
         actual=native.initialization_job(self.root,self.value,'csharp-file-index-java-apply',self.state,self.path,expected_index_plan='a'*64);common.require_receipt(self.value,'java','apply',actual,receipt(self.value,'java','preview'));self.assertEqual(1,self.capture.call_count)
         command=next(c for c in self.engine.calls if c[:2]==('container','create'));self.assertEqual('file-apply-java',command[-1]);self.assertIn('METARILL_FILE_INDEX_SCOPE='+native.resources.COMMON_FILE_MEASUREMENT_NATIVE,command);self.assertIn('METARILL_FILE_INDEX_PROFILE='+native.resources.COMMON_FILE_INDEX_PROFILE,command);self.assertIn('METARILL_INDEX_EXPECTED_PLAN='+'a'*64,command);self.assertIn('/app/Application.Host.deps.json',command);self.assertNotIn('Password=',' '.join(command));self.assertNotIn('ALTER TABLE',' '.join(command));self.assertFalse(self.engine.objects);self.assertTrue(self.state['jobs'][0]['containerAbsent'])
+
+    def test_current_file_job_speaks_the_frozen_index_tool_scope(self):
+        """当前镜像的专用测量租约映射到镜像内既有索引合同。"""
+        resources = native.resources
+        self.value.update(purpose=resources.UNICODE_FILE_MEASUREMENT_NATIVE, images=dict(resources.UNICODE_OBSERVED_IMAGES))
+        native.validate(self.value)
+        expected = receipt(self.value, "java", "preview")
+        self.capture.return_value = subprocess.CompletedProcess([], 0, json.dumps(expected).encode(), b"")
+        self.assertEqual(expected, native.initialization_job(self.root, self.value, "csharp-file-index-java-preview", self.state, self.path))
+        command = next(item for item in self.engine.calls if item[:2] == ("container", "create"))
+        self.assertIn(resources.UNICODE_OBSERVED_IMAGES["csharp"], command)
+        self.assertIn("METARILL_FILE_INDEX_SCOPE=" + resources.COMMON_FILE_MEASUREMENT_NATIVE, command)
+        self.assertNotIn("METARILL_FILE_INDEX_SCOPE=" + resources.UNICODE_FILE_MEASUREMENT_NATIVE, command)
+        self.assertTrue(self.state["jobs"][0]["containerAbsent"])
 
     def test_old_scope_or_missing_confirmation_fails_before_any_resource_or_command(self):
         """旧文件首测、额外动作、缺摘要都不能读归属文件或启动新索引工具。"""
