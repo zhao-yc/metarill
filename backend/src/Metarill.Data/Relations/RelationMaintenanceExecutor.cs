@@ -80,7 +80,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     }
     /// <summary>标量维护一次锁读真实来源和已发布目标，来源排他、目标共享，保留两套原范围谓词。</summary>
     private async Task<(long LastId,IReadOnlyList<RelationRowPatch> Patches)> LockScalarBatchAsync(
-        MaintenanceTable table,string project,long after,int limit,DbTransaction transaction,CancellationToken token)
+        MaintenanceTable table,string project,long after,int limit,DbTransaction transaction,CancellationToken token,long? exactId=null)
     {
         var plan=table.Read!;
         if(plan.RequiresPublishedProjectIdentity&&project!=plan.ProjectId)
@@ -92,11 +92,12 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         await using var command=Command(transaction);
         command.CommandText="SELECT "+idExpression+","+string.Join(",",oldValues.Concat(newValues))+plan.From+
             " WHERE "+Scope(table,"b.")+(plan.Scope.Length==0?"":" AND ("+plan.Scope+")")+
-            " AND "+idExpression+">@after ORDER BY "+idExpression+" LIMIT "+limit.ToString(CultureInfo.InvariantCulture)+plan.ImportMatchLock;
+            " AND "+idExpression+(exactId.HasValue?"=@exact_id":">@after")+" ORDER BY "+idExpression+" LIMIT "+limit.ToString(CultureInfo.InvariantCulture)+plan.ImportMatchLock;
         Add(command,"project",Project(table,project));
         Add(command,"project_scope_text",project);
         Add(command,"project_scope_number",long.Parse(project,CultureInfo.InvariantCulture));
-        Add(command,"after",after);
+        if(exactId is {} idToRefresh)Add(command,"exact_id",idToRefresh);
+        else Add(command,"after",after);
         foreach(var pair in plan.Constants)Add(command,pair.Key,pair.Value);
         var patches=new List<RelationRowPatch>();
         var lastId=after;
@@ -104,7 +105,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         while(await reader.ReadAsync(token))
         {
             var id=reader.GetInt64(0);
-            if(id<=lastId)throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
+            if(id<=lastId||exactId.HasValue&&id!=exactId.Value)throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
             lastId=id;
             Dictionary<string,object?>? changes=null;
             for(var index=0;index<fields.Count;index++)
@@ -118,6 +119,31 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
             if(changes is not null)patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(changes)));
         }
         return (lastId,patches.AsReadOnly());
+    }
+    /// <summary>仅已发布全局标量且来源与投影活动范围一致时，可在一条当前读中取旧副本和新名称。</summary>
+    internal static bool CanLockExactScalarSource(MaintenanceTable table)
+    {
+        var plan=table.Read!;
+        // 范围不同会掩盖原先“已锁来源存在，但投影不可见”的错误。联接集也须和原当前读相同。
+        return plan.RequiresPublishedProjectIdentity&&table.ProjectType.Length==0
+            &&plan.Scope==(table.Deleted?"b.`delete_no` IS NULL":"1=1")
+            &&table.Multiples.Count==0&&plan.Crosses.Count==0&&plan.MultiProjections.Count==0
+            &&plan.Expression("id")=="b.`id`"&&plan.ImportMatchLock is not null
+            &&plan.FromForFields(plan.Outputs)==plan.From;
+    }
+    /// <summary>刷新刚保存的一条来源。保持实际值读回核验，成功后才把补丁送入传播队列。</summary>
+    internal async Task<IReadOnlyList<RelationRowPatch>> RefreshSavedSourceAsync(MaintenanceTable table,long id,string project,DbTransaction transaction,CancellationToken token)
+    {
+        if(!CanLockExactScalarSource(table))
+        {
+            var rows=await Sources(table,project,0,transaction,token,[id]);
+            return await RefreshLockedAsync(table,rows,project,null,token);
+        }
+        // 留出第二条的检测槽。若结构不再满足唯一来源，仍按原行为拒绝整笔写入。
+        var (_,patches)=await LockScalarBatchAsync(table,project,0,2,transaction,token,exactId:id);
+        // 单主键最多一个补丁，不会进入按报文大小决定的多行写入。
+        await WriteScalarBatchAsync(table,table.Read!,project,patches,0,transaction,token);
+        return patches;
     }
     /// <summary>仅单文本缓存按来源主键批量写入。所有实际值在传播前由原核验器读回，异常仍回滚整表。</summary>
     private async Task WriteScalarBatchAsync(MaintenanceTable table,MySqlNonRedundantReadPlan plan,string project,

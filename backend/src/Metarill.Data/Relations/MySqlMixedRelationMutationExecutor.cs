@@ -25,7 +25,10 @@ internal sealed class MySqlMixedRelationMutationExecutor(DatabaseSession session
     /// <summary>来源自身保存后只对真实输入变化刷新；缓存输入不能成为客户端写入通道。</summary>
     internal async Task RefreshSourceAsync(MixedRelationConsumer consumer,long id,string project,HashSet<string> validated,Action<string,long,IReadOnlyDictionary<string,object?>> onChanged,CancellationToken token)
     {
-        await ValidateAsync(consumer,validated,token);var materializer=new RelationMaintenanceExecutor(session);var rows=await materializer.Sources(consumer.Table,project,0,session.CurrentTransaction!,token,[id]);foreach(var patch in await materializer.RefreshLockedAsync(consumer.Table,rows,project,null,token))onChanged(consumer.Table.Option.TableName,patch.Id,patch.Values);
+        await ValidateAsync(consumer,validated,token);
+        var materializer=new RelationMaintenanceExecutor(session);
+        foreach(var patch in await materializer.RefreshSavedSourceAsync(consumer.Table,id,project,session.CurrentTransaction!,token))
+            onChanged(consumer.Table.Option.TableName,patch.Id,patch.Values);
     }
     /// <summary>每个受影响消费者在当前事务只完整预检一次；失败由外层回滚已写目标和其它副本。</summary>
     private async Task ValidateAsync(MixedRelationConsumer consumer,HashSet<string> validated,CancellationToken token)

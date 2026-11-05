@@ -33,6 +33,9 @@ public sealed class GlobalCachedSourceGenerationTests
         // 原样板合同明细必须在合同只改备注时命中直接缓存计划。
         var consumers=((IEnumerable)Property(Property(maintenance,"Mixed"),"Consumers")).Cast<object>();
         var line=consumers.Single(consumer=>(string)Property(Property(Property(consumer,"Table"),"Option"),"TableName")=="sample_contract_line");
+        // 固定原子页必须走合并锁读，否则减少命令的优化不会覆盖正式性能场景。
+        var exactSource=typeof(RelationMaintenanceExecutor).GetMethod("CanLockExactScalarSource",BindingFlags.Static|BindingFlags.NonPublic)!;
+        Assert.True((bool)exactSource.Invoke(null,[Property(line,"Table")])!);
         var reverses=((IEnumerable)Property(Property(line,"Read"),"Reverse")).Cast<object>();
         var contract=Assert.Single(reverses,reverse=>(string)Property(reverse,"TargetTable")=="sample_contract");
         Assert.Equal("sample_contract_name",Assert.Single((IReadOnlySet<string>)Property(contract,"DirectSaveOutputs")));
