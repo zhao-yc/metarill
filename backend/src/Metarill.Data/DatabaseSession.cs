@@ -91,13 +91,7 @@ public sealed class DatabaseSession : IDisposable
         await connection.OpenAsync(cancellationToken);
         scalarCacheWrite=scalarCacheWrite&&Provider is MySqlDatabaseProvider&&connection is MySqlConnector.MySqlConnection
             &&new MySqlConnector.MySqlConnectionStringBuilder(connection.ConnectionString).ConnectionReset;
-        if(scalarCacheWrite)
-        {
-            // 显式选择下一笔事务的隔离，避免把会话默认值误当作当前事务证明。
-            await using var isolation=MySqlFloatingCommand.Wrap(connection.CreateCommand());
-            isolation.CommandText="SET TRANSACTION ISOLATION LEVEL REPEATABLE READ";
-            await isolation.ExecuteNonQueryAsync(cancellationToken);
-        }
+        // 连接重置清除上次借用遗留的单事务设置，MySqlConnector 以显式隔离级别开始本事务。
         var beginObservation=DatabaseCommandObservation.StartTransaction(connection,null,DatabaseTransactionOperation.Begin);
         DbTransaction transaction;
         try
