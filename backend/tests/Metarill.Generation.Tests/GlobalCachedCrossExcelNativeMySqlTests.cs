@@ -36,18 +36,25 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
     [PublicR0CrossExcelNativeFact]
     public Task Production_public_Full_six_models_roundtrip_original_excel_and_rollback_files()=>ExecuteAsync(true);
 
-    /// <summary>内部常量选择两个明确档案；客户端JSON不能改变档案或共享其它租约。</summary>
-    private async Task ExecuteAsync(bool published)
+    /// <summary>覆盖模式走正规公开包和独占租约，不能借用追加模式的设置。</summary>
+    [PublicR0CrossExcelNativeFact(overwrite:true)]
+    public Task Production_public_Full_six_models_overwrite_original_excel_and_rollback_files()=>ExecuteAsync(true,overwrite:true);
+
+    /// <summary>档案由固定测试入口选择，设置不能改用其它包或租约。</summary>
+    private async Task ExecuteAsync(bool published,bool overwrite=false)
     {
-        var root=published?PublicR0CrossExcelNativePreparation.Root:GlobalCachedCrossExcelNativePreparation.Root;
-        var environment=published?PublicR0CrossExcelNativeLease.EnvironmentKey:GlobalCachedCrossExcelNativeLease.EnvironmentKey;
+        var root=overwrite?PublicR0CrossExcelNativePreparation.OverwriteRoot
+            :published?PublicR0CrossExcelNativePreparation.Root:GlobalCachedCrossExcelNativePreparation.Root;
+        var environment=overwrite?PublicR0CrossExcelNativeLease.OverwriteEnvironmentKey
+            :published?PublicR0CrossExcelNativeLease.EnvironmentKey:GlobalCachedCrossExcelNativeLease.EnvironmentKey;
         var settingsPath=Environment.GetEnvironmentVariable(environment)!;
         Assert.Equal(Path.GetFullPath(settingsPath),Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_FRESH_INSTALL_SETTINGS")!));
         using var document=JsonDocument.Parse(await File.ReadAllTextAsync(settingsPath));var settings=document.RootElement;var source=NonRedundantApplicationFixture.Root();
         var preparedRoot=CSharpGenerator.SafePath(source,root+"/prepared");
-        var run=published?PublicR0CrossExcelNativeLease.Validate(settings,preparedRoot):GlobalCachedCrossExcelNativeLease.Validate(settings,preparedRoot);
+        var run=published?PublicR0CrossExcelNativeLease.Validate(settings,preparedRoot,overwrite):GlobalCachedCrossExcelNativeLease.Validate(settings,preparedRoot);
         var proof=settings.GetProperty(published?"PublicCrossExcelPreparation":"GlobalCrossExcelPreparation").Deserialize<CrossTableExcelPackageProof>()!;
         var catalog=Verify(proof);var options=FreshInstallConfiguration.Read("AgentDatabase","agent");
+        var loginRedis=overwrite?FreshInstallConfiguration.ReadLoginRedis():null;
         var evidence=CSharpGenerator.SafePath(source,root+"/"+run+"/evidence");if(Directory.Exists(evidence))throw new InvalidOperationException("六模型本轮证据目录已存在，不自动重跑。");Directory.CreateDirectory(evidence);
         var copied=Copy(proof,CSharpGenerator.SafePath(source,root+"/"+run+"/execution/application"));
         var hostDirectory=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host");var storageBoundary=Path.Combine(evidence,"storage");var storage=Path.Combine(storageBoundary,Guid.NewGuid().ToString("N"));var hooks=Path.Combine(evidence,"transaction-hooks.jsonl");
@@ -62,6 +69,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             var info=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",hostDirectory);info.ArgumentList.Add(CSharpGenerator.SafePath(hostDirectory,"bin/Release/net10.0/Application.Host.dll"));if(command is not null)info.ArgumentList.Add(command);
             info.Environment["ASPNETCORE_ENVIRONMENT"]="Production";info.Environment["DOTNET_ENVIRONMENT"]="Production";info.Environment["Logging__LogLevel__Default"]="Warning";
             info.Environment["Database__Provider"]="mysql";info.Environment["Database__ExpectedDatabase"]=options.ExpectedDatabase;info.Environment["Database__ConnectionString"]=options.ConnectionString;
+            if(command is null&&loginRedis is not null)info.Environment["Authentication__LoginFailures__ConnectionString"]=loginRedis;
             info.Environment["Authentication__Mode"]="Web";info.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";info.Environment["Authentication__Bootstrap__Username"]=ownerName;info.Environment["Authentication__Bootstrap__Password"]=ownerPassword;
             info.Environment["Ids__WorkerId"]=Worker.ToString(CultureInfo.InvariantCulture);info.Environment["Files__RootDirectory"]=Path.Combine(storage,"uploads");info.Environment["Files__LegacyPublicBaseUrl"]="";info.Environment["Files__PublicContentProjectId"]=catalog.YzProjectId;info.Environment["Exports__RootDirectory"]=Path.Combine(storage,"exports");
             info.Environment["Agent__VerificationUri"]="https://agent.example/#/pages/custom/agent_authorize";info.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=evidence;info.Environment["METARILL_GLOBAL_CROSS_EXCEL_HOOK_RECEIPT"]=hooks;return info;
@@ -96,7 +104,9 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             {
                 var profile=item.profile;var probe=item.Probe;active=probe;stage=profile+"正式业务";
                 Assert.True(HasPage(menu.GetProperty("menu"),probe.SourcePage));
-                await probe.Verify();completed.Add(profile);await Receipt(profile,new{run,profile,passed=true,productionWeb=true,ordinaryAccount=true,originalFormThreeFields=true,originalXlsx=true,sparseStorage=true,renamePropagation=true,originalMaintenance=true,realPartialDmlAndFileRollback=true,permissionRevocation=true,browserExecuted=false,performanceExecuted=false});
+                if(overwrite)await probe.VerifyOverwrite(evidence,source);else await probe.Verify();
+                completed.Add(profile);
+                await Receipt(profile,new{run,profile,passed=true,productionWeb=true,ordinaryAccount=true,originalFormThreeFields=true,originalXlsx=true,sparseStorage=true,overwriteMatchedOriginal=overwrite,renamePropagation=!overwrite,originalMaintenance=!overwrite,realPartialDmlAndFileRollback=true,permissionRevocation=true,browserExecuted=false,performanceExecuted=false});
             }
             stage="同地址重启保持真实会话";var address=host.Client.BaseAddress;await host.DisposeAsync();host=null;host=await FreshHost.StartAsync(Info(),"/health",address);host.Client.DefaultRequestHeaders.Add("loginStateId",token);
             var first=catalog.ConfigTables.First(value=>value.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal));var firstPage=catalog.ConfigPages.Single(value=>value.ConfigTableId==first.Id);var route="/api/admin/auto/"+first.TableName+"/"+firstPage.Id+"/page";
@@ -113,9 +123,9 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             catch(Exception cleanup){await Receipt("local-cleanup-failure",new{run,errorType=cleanup.GetType().Name});if(primary is not null)throw new AggregateException("六模型正式验收及本地清理均失败。",primary,cleanup);throw;}
         }
         /// <summary>公开标记与内部准备标记严格分开验证，不能靠业务流程共享替换包。</summary>
-        MetadataCatalog Verify(CrossTableExcelPackageProof value,bool runtime=false)=>published?PublicR0CrossExcelNativePreparation.Verify(value,runtime):GlobalCachedCrossExcelNativePreparation.Verify(value,runtime);
+        MetadataCatalog Verify(CrossTableExcelPackageProof value,bool runtime=false)=>published?PublicR0CrossExcelNativePreparation.Verify(value,runtime,overwrite):GlobalCachedCrossExcelNativePreparation.Verify(value,runtime);
         /// <summary>两档案均先核验固定文件，执行目录只允许首次创建。</summary>
-        CrossTableExcelPackageProof Copy(CrossTableExcelPackageProof value,string destination)=>published?PublicR0CrossExcelNativePreparation.CopyForExecution(value,destination):GlobalCachedCrossExcelNativePreparation.CopyForExecution(value,destination);
+        CrossTableExcelPackageProof Copy(CrossTableExcelPackageProof value,string destination)=>published?PublicR0CrossExcelNativePreparation.CopyForExecution(value,destination,overwrite):GlobalCachedCrossExcelNativePreparation.CopyForExecution(value,destination);
         /// <summary>回执只保留本轮业务阶段，不保存口令、令牌或连接。</summary>
         Task Receipt(string name,object value)=>File.WriteAllTextAsync(Path.Combine(evidence,name+".json"),JsonSerializer.Serialize(value,new JsonSerializerOptions{WriteIndented=true})+"\n");
         /// <summary>只读取固定包内已核摘要的基础模型。</summary>

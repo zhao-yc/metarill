@@ -32,4 +32,39 @@ public sealed class PublicR0CrossExcelNativeLeaseTests
         if(fault=="rows")value["MaximumBusinessRows"]=513;if(fault=="row-kind")value["MaximumBusinessRows"]="512";if(fault=="table-budget")value["MaximumTables"]=44;
         Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),root));Assert.False(Directory.Exists(root));
     }
+
+    /// <summary>追加和覆盖不能互借用途、产品来源、固定根或表数预算。</summary>
+    [Fact]
+    public void Public_overwrite_requires_its_own_lease_and_fixed_package()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"metarill-public-cross-overwrite-gate",Guid.NewGuid().ToString("N"));
+        var profiles=GlobalCachedCrossExcelMySqlLease.Profiles.Select(p=>GlobalCachedCrossExcelMySqlLease.Profile(p.Role,p.Key,p.Parent,p.AllGlobal,p.Shared,p.Shorter));
+        var catalog=PublicR0CrossExcelNativePreparation.Catalog(overwrite:true);
+        var value=JsonSerializer.SerializeToNode(new
+        {
+            Purpose=PublicR0CrossExcelNativeLease.OverwritePurpose,
+            AuthorizationStatus="approved",LeaseStatus="running",ProductCommit=PublicR0CrossExcelNativePreparation.OverwriteProductCommit,
+            RunId="0123456789abcdef",PublicCrossExcelPreparation=new{PackageRoot=root},
+            Profiles=profiles,BusinessTables=catalog.ConfigTables.Select(table=>table.TableName),
+            MaximumBusinessRows=PublicR0CrossExcelNativeLease.MaximumBusinessRows,
+            MaximumTables=PublicR0CrossExcelNativeLease.OverwriteMaximumTables
+        })!;
+        Assert.Equal(PublicR0CrossExcelNativeLease.OverwriteMaximumTables,FreshInstallConfiguration.ExpectedFullTableCount(catalog));
+        Assert.Equal("0123456789abcdef",PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),root,overwrite:true));
+        Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),root));
+        Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),Path.Combine(root,"other"),overwrite:true));
+        foreach(var (key,foreign) in new (string,JsonNode?)[]
+        {
+            ("Purpose",PublicR0CrossExcelNativeLease.Purpose),
+            ("ProductCommit",PublicR0CrossExcelNativePreparation.ProductCommit),
+            ("MaximumTables",PublicR0CrossExcelNativeLease.MaximumTables),
+            ("AuthorizationStatus","pending")
+        })
+        {
+            var changed=value.DeepClone();
+            changed[key]=foreign;
+            Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(changed),root,overwrite:true));
+        }
+        Assert.False(Directory.Exists(root));
+    }
 }

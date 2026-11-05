@@ -1,4 +1,5 @@
 using System.Globalization;
+using ClosedXML.Excel;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -63,6 +64,50 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
         }
         /// <summary>固定父键仍按原字符串／整数类型写入，不从JSON回显猜存储。</summary>
         private Dictionary<string,object?> WithParent(Dictionary<string,object?> row,string field,long id){row[field]=Parent(id);return row;}
+        /// <summary>真实原选档回调、普通账号覆盖、物理同一行、歧义与末段文件回滚。</summary>
+        internal async Task VerifyOverwrite(string evidence,string source)
+        {
+            var main=catalog.ConfigColumns.Single(column=>column.ConfigTableId==SourceTable.Id&&column.ControlKind=="CascadeTree"&&column.Name=="区域");
+            var create=Row("name","覆盖原行",GenerationModel.Camel(main.ColumnName),Id(At(shorter?Area:Place)));
+            if(shared)create["warehouseId"]=Id(At(Warehouse));
+            var original=long.Parse((await Post(reader,Route+"add",create)).GetProperty("id").GetString()!,CultureInfo.InvariantCulture);
+            var storage=shorter?"area_id":"place_id";
+            await store.InsertAsync(Source,Row("id",At(Lookup)+1,"name","外项目对照","yz_project_id",Project+1,storage,key=="string"?Id(At(shorter?Area:Place)):At(shorter?Area:Place)));
+            await store.InsertAsync(Source,Row("id",At(Lookup)+2,"name","已删除对照","yz_project_id",Project,storage,key=="string"?Id(At(shorter?Area:Place)):At(shorter?Area:Place),"delete_no",new DateTime(2026,1,1)));
+            var prior=(await store.ReadIncludingDeletedAsync(Source)).Count;
+            var file=Path.Combine(evidence,profile+"-overwrite.xlsx");
+            using(var book=new XLWorkbook())
+            {
+                var sheet=book.AddWorksheet("原覆盖首列");sheet.Cell(1,1).Value="区域";sheet.Cell(1,2).Value="名称";
+                sheet.Cell(2,1).Value=Full;sheet.Cell(2,2).Value="覆盖后";book.SaveAs(file);
+            }
+            var expected=Path.Combine(evidence,profile+"-expected.json");var received=Path.Combine(evidence,profile+"-received.json");
+            await File.WriteAllTextAsync(expected,JsonSerializer.Serialize(new[]{Row("区域",Full,"名称","覆盖后")}));
+            var node=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node",source);
+            foreach(var argument in new[]{Path.Combine(source,"backend/tests/Metarill.Generation.Tests/OriginalExcelImportProbe.mjs"),source,file,expected,received})node.ArgumentList.Add(argument);
+            await NonRedundantApplicationFixture.RunAsync(node);
+            using(var rows=JsonDocument.Parse(await File.ReadAllTextAsync(received)))await Post(reader,Route+"importDatas"+SourcePage,new{requestJson=rows.RootElement});
+            Assert.Equal(original,SqlRowStore.Id(await Record("覆盖后")));Assert.Equal(prior,(await store.ReadIncludingDeletedAsync(Source)).Count);
+            await Sparse("覆盖后",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
+            Assert.Equal("外项目对照",SqlRowStore.Text(await Physical(Source,At(Lookup)+1),"name"));
+            Assert.Equal("已删除对照",SqlRowStore.Text(await Physical(Source,At(Lookup)+2),"name"));
+            var duplicate=(await Post(reader,Route+"copy/"+Id(original),new{})).GetProperty("id").GetString()!;
+            var before=await Snapshot();
+            await Import(HttpStatusCode.InternalServerError,Row("区域",Full,"名称","歧义不能覆盖"));
+            Assert.Equal(before,await Snapshot());
+            await Send(reader,HttpMethod.Delete,Route.TrimEnd('/'),new{id=duplicate});
+            // 两行都提供有效末级键；第二行必须先在当前事务看到第一行和附件引用。
+            await FileRollback();
+            using var independent=new DatabaseSession(options);
+            var comparison=await new SqlRowStore(independent,catalog).ReadIncludingDeletedAsync(Source,Row("name","文件成功"));
+            Assert.Equal(2,comparison.Count);
+            var active=Assert.Single(comparison,value=>value["delete_no"] is null);
+            Assert.Equal(original,SqlRowStore.Id(active));
+            var tombstone=Assert.Single(comparison,value=>value["delete_no"] is not null);
+            Assert.NotEqual(original,SqlRowStore.Id(tombstone));
+            await Revoke(main,HttpStatusCode.Forbidden);
+        }
+
         /// <summary>真实普通账号逐项经过原候选、路径、Excel、复制、文件及权限边界。</summary>
         internal async Task Verify()
         {
@@ -146,12 +191,12 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             using(var download=await reader.GetAsync(route+"protected-content/"+file)){Assert.Equal(HttpStatusCode.OK,download.StatusCode);Assert.Equal(bytes,await download.Content.ReadAsByteArrayAsync());}
             await Send(reader,HttpMethod.Delete,Route.TrimEnd('/'),new{id=copied});Assert.Single(await files.ReadAsync("yz_file_ref",Row("file_id",long.Parse(file,CultureInfo.InvariantCulture))));
         }
-        /// <summary>来源撤权后普通导入导出均403、文件401且业务/文件全量摘要不变，再恢复原明确许可。</summary>
-        private async Task Revoke(ColumnMetadata main)
+        /// <summary>来源撤权后普通导入导出均403、文件按各已验收场景拒绝且业务/文件全量摘要不变，再恢复原明确许可。</summary>
+        private async Task Revoke(ColumnMetadata main,HttpStatusCode fileDenied=HttpStatusCode.Unauthorized)
         {
             var before=await Snapshot();await Grant(SourcePage,"[]");
             await Import(HttpStatusCode.Forbidden,Input("拒权不得写入",Full,shared?Secondary:null));await Send(reader,HttpMethod.Post,Route+"initExport",new{},HttpStatusCode.Forbidden);await Send(reader,HttpMethod.Post,Route+"cascadeTreeOptions"+main.Id,new{levelKey="country",selectedPath=new{}},HttpStatusCode.Forbidden);Assert.Equal(before,await Snapshot());
-            Assert.NotNull(lastFile);using(var denied=await reader.GetAsync("/api/admin/sys/file-library/protected-content/"+lastFile))Assert.Equal(HttpStatusCode.Unauthorized,denied.StatusCode);
+            Assert.NotNull(lastFile);using(var denied=await reader.GetAsync("/api/admin/sys/file-library/protected-content/"+lastFile))Assert.Equal(fileDenied,denied.StatusCode);
             await Grant(SourcePage,"[\"is_all\"]");
         }
         /// <summary>来源只提交原中文表头，普通原请求不新增配置列或隐藏字段。</summary>
