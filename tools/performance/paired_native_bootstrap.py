@@ -34,7 +34,7 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.FULL_OBSERVED_NATIVE, resources.PATTERN_OBSERVED_NATIVE, resources.UNICODE_OBSERVED_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.FULL_OBSERVED_NATIVE, resources.PATTERN_OBSERVED_NATIVE, resources.UNICODE_OBSERVED_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.MAINTENANCE_PREFLIGHT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.is_full_observed(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
         raise ValueError("完整候选SQL采集不能携带性能回放预算")
@@ -50,6 +50,15 @@ def validate(value):
         budget = resources.EXCEL_IMPORT_PARENT_REQUESTS if resources.is_excel_parent_import(value) else resources.EXCEL_IMPORT_REQUEST_BUDGET
         if type(value.get("workbookReplayRequests")) is not int or value["workbookReplayRequests"] != budget or any(key in value for key in ("readReplayRequests", "writeReplayRequests")):
             raise ValueError("导入用途必须使用对应的固定请求预算")
+    maintenance_keys = {"maintenancePreflightRequests", "maintenanceCatalogSha256"}
+    if resources.is_maintenance_preflight(value):
+        if (type(value.get("maintenancePreflightRequests")) is not int
+                or value["maintenancePreflightRequests"] != resources.MAINTENANCE_PREFLIGHT_REQUESTS
+                or value.get("maintenanceCatalogSha256") != resources.MAINTENANCE_CATALOG_SHA256
+                or any(key in value for key in ("readReplayRequests", "writeReplayRequests", "workbookReplayRequests"))):
+            raise ValueError("维护预检只接受固定目录和八次原维护请求")
+    elif maintenance_keys.intersection(value):
+        raise ValueError("其它用途不能携带显式维护预检")
     if resources.uses_excel_export(value):
         if type(value.get("exportPreflightRequests")) is not int or value["exportPreflightRequests"] != resources.EXCEL_EXPORT_PREFLIGHT_REQUESTS or any(key in value for key in ("readReplayRequests", "writeReplayRequests", "workbookReplayRequests")):
             raise ValueError("导出用途只接受固定票据及下载请求数")
@@ -86,6 +95,7 @@ def validate(value):
     if resources.is_unicode_read_measurement(value): purpose = resources.UNICODE_READ_MEASUREMENT_RESOURCES
     if resources.is_unicode_write_measurement(value): purpose = resources.UNICODE_WRITE_MEASUREMENT_RESOURCES
     if resources.is_excel_import_measurement(value): purpose = resources.EXCEL_IMPORT_PARENT_RESOURCES if resources.is_excel_parent_import(value) else resources.EXCEL_IMPORT_MEASUREMENT_RESOURCES
+    if resources.is_maintenance_preflight(value): purpose = resources.MAINTENANCE_PREFLIGHT_RESOURCES
     if resources.is_excel_export_preflight(value): purpose = resources.EXCEL_EXPORT_PREFLIGHT_RESOURCES
     if resources.is_excel_export_measurement(value): purpose = resources.EXCEL_EXPORT_HOT_PATH_RESOURCES if resources.is_excel_export_hot_path(value) else resources.EXCEL_EXPORT_MEASUREMENT_RESOURCES
     if resources.is_file_measurement(value): purpose = resources.COMMON_FILE_MEASUREMENT_RESOURCES if resources.is_common_file_measurement(value) else resources.FILE_MEASUREMENT_RESOURCES
@@ -195,7 +205,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.MAINTENANCE_PREFLIGHT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
@@ -501,6 +511,7 @@ def verify_tool_sources(value):
     expected = {"performance/paired_native_bootstrap.py", "performance/paired_http.py", "performance/paired_identity_seed.py", "performance/server200_paired_resources.py", "acceptance/server200-fresh-mysql.py"}
     if resources.is_observed(value): expected.update({"performance/paired_business_http.py","performance/paired_observed_capture.py","performance/audit_sql_artifacts.py"})
     if resources.is_measurement(value): expected.update({"performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py"})
+    if resources.is_maintenance_preflight(value): expected.add("performance/paired_maintenance_fixture.py")
     if resources.is_write_measurement(value): expected.add("performance/paired_write_measurement.py")
     if resources.is_excel_import_measurement(value):
         expected.update({"performance/paired_import_measurement.py","performance/paired_workbook_container.py","performance/paired_workbook_oracle.cjs"})
@@ -555,6 +566,7 @@ def run(value):
     file_measurement = importlib.import_module("paired_file_measurement") if resources.is_file_measurement(value) else None
     common_file_indexes = importlib.import_module("paired_common_file_indexes") if resources.is_common_file_measurement(value) else None
     extended_business = importlib.import_module("paired_extended_business") if resources.is_extended_business(value) else None
+    maintenance = importlib.import_module("paired_maintenance_fixture") if resources.is_maintenance_preflight(value) else None
     root = resources.root_for(value["runId"])
     if extended_business is not None:
         extended_business.oracle.read_inputs(root)
@@ -563,6 +575,10 @@ def run(value):
     if export_preflight is not None:
         export_preflight.oracle.read_inputs(root)
     resources.read_materials(root, descriptor); java = bootstrap(root, value)
+    if maintenance is not None:
+        java_maintenance = http.read_json((root/"bootstrap/java/project-config.json").read_bytes())
+        csharp_maintenance = read_private(root/"maintenance-csharp-catalog.json", value["maintenanceCatalogSha256"])
+        maintenance.validate_catalogs(java_maintenance, csharp_maintenance)
     if import_measurement is not None:
         import_catalog_sha = import_measurement.verify_java_catalog((root/"bootstrap/java/project-config.json").read_bytes())
     if extended_business is not None: original_maintenance_catalog=extended_business.validate_original_maintenance_catalog(http.read_json((root/"bootstrap/java/project-config.json").read_bytes()))
@@ -696,7 +712,18 @@ def run(value):
             resources.write_state(state_path,state)
         if measurement is not None:
             run_id = value["runId"]
-            if file_measurement is not None:
+            if maintenance is not None:
+                stage("原维护 HTTP 显式联接与重复回填物理预检")
+                def execute_maintenance_fixture(sql):
+                    require_database_ownership(mysql,value,state["ownerToken"])
+                    return mysql.mysql(sql,guarded_transaction=True)
+                def maintenance_request(side, path, body):
+                    status, response = send(value["ports"][side], "POST", path, body, tokens[side,"writer"])
+                    if status != 200: raise ValueError("measurement-maintenance-http-status")
+                    return response
+                state["measurement"] = {"passed": True, "httpFixture": maintenance.run_preflight(
+                    run_id,java_maintenance,csharp_maintenance,mysql.mysql,execute_maintenance_fixture,maintenance_request)}
+            elif file_measurement is not None:
                 stage("真实附件样本及无SQL采集的受保护文件下载性能回放")
                 state["measurement"]=file_measurement.run_file_measurement(root,value,targets,tokens,probe,mysql.mysql,lambda:require_database_ownership(mysql,value,state["ownerToken"]))
             elif import_measurement is not None:
@@ -751,7 +778,7 @@ def run(value):
             state["measurement"]["physicalFixtureUnchanged"]=True
         after = http.equal_limits(probe, targets)
         if before != after: raise RuntimeError("HTTP前后资源/镜像/容器身份变化")
-        state["resourceEvidence"] = before; state["passed"] = (state["measurement"]["passed"] if resources.is_excel_export_preflight(value) else
+        state["resourceEvidence"] = before; state["passed"] = (state["measurement"]["passed"] if resources.is_excel_export_preflight(value) or resources.is_maintenance_preflight(value) else
                            measurement is None or state["measurement"]["measurementValid"] and not state["measurement"]["stableRegression"])
     except Exception as error:
         if exchange is not None or measurement is not None or resources.is_extended_readiness(value) or resources.is_extended_business(value):state["failedAtStage"]=state["stage"]
