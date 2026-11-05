@@ -13,6 +13,21 @@ import test_paired_measurement as read_tests
 
 
 class ChildReferenceContract(unittest.TestCase):
+    def test_layout_profile_is_bound_to_its_own_image_and_data(self):
+        resources = native.resources
+        value = {**previous.scope(), "purpose": resources.EXCEL_CHILD_LAYOUT_SQL_NATIVE,
+                 "images": resources.EXCEL_CHILD_LAYOUT_IMAGES, "workbookReplayRequests": 10}
+        descriptor = native.validate(value)
+        self.assertEqual(resources.EXCEL_CHILD_LAYOUT_SQL_RESOURCES, descriptor["purpose"])
+        self.assertTrue(resources.uses_relation_indexes(descriptor))
+        self.assertIn("--Metarill:Paired:SqlObservation:ExpectedDataSha256="+resources.EXCEL_CHILD_LAYOUT_DATA_SHA256,
+                      resources.observation_arguments(descriptor,"csharp"))
+        self.assertEqual([5,5],[len(plan) for plan in capture.Exchange(value,mock.Mock()).plans.values()])
+        for override in ({"images":resources.EXCEL_CHILD_REFERENCE_IMAGES},
+                         {"purpose":resources.EXCEL_CHILD_SQL_NATIVE},{"workbookReplayRequests":11}):
+            with mock.patch.object(native,"verify_tool_sources",side_effect=AssertionError("禁止 IO")),self.assertRaises(ValueError):
+                native.run({**value,**override})
+
     def test_sql_profile_samples_only_child_requests(self):
         resources = native.resources
         value = {**previous.scope(), "purpose": resources.EXCEL_CHILD_SQL_NATIVE,

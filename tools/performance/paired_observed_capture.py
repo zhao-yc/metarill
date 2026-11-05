@@ -19,7 +19,7 @@ IDENTITY_STEPS=('ready','wrong-password','login-writer','page-writer','login-rea
 def authorize(value):
     """纯内存核新用途和双库范围，pending／ended在读取目录或执行网络前拒绝。"""
     run=value.get('runId');reader.require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'capture-run')
-    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose') in ('paired-native-observed-v1',resources.EXISTING_LINE_NATIVE,resources.CURRENT_OBSERVED_NATIVE,resources.FULL_OBSERVED_NATIVE,resources.PATTERN_OBSERVED_NATIVE,resources.UNICODE_OBSERVED_NATIVE,resources.EXCEL_CHILD_SQL_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
+    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose') in ('paired-native-observed-v1',resources.EXISTING_LINE_NATIVE,resources.CURRENT_OBSERVED_NATIVE,resources.FULL_OBSERVED_NATIVE,resources.PATTERN_OBSERVED_NATIVE,resources.UNICODE_OBSERVED_NATIVE,resources.EXCEL_CHILD_SQL_NATIVE,resources.EXCEL_CHILD_LAYOUT_SQL_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
     reader.require(resources.images_for(value) is not None and value.get('images')==resources.images_for(value) and value.get('instancePin')==business.PIN and value.get('databases')==['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')] and value.get('user')=='mtf_'+run[:16],'capture-scope')
     ports=value.get('ports');reader.require(type(ports) is dict and set(ports)=={'java','csharp'} and all(type(port) is int and 20000<=port<=40000 for port in ports.values()) and len(set(ports.values()))==2,'capture-ports')
     return run
@@ -245,11 +245,19 @@ def verify_child_transaction(trace, database, side, step, run, key):
     endings = [row for row in trace["transactions"] if row["operation"]==outcome and row["succeeded"] and
                (row["connection"],row["transaction"])==owner and all(prior[finish]<=row[start] for prior in locks+writes)]
     reader.require(len(endings)==1, "capture-child-transaction-outcome")
+    statements = [row["sql"].strip().lower() for row in commands]
+    layouts = {
+        "identityReads": sum(sql.startswith("select database(),@@session.max_allowed_packet") for sql in statements),
+        "metadataPins": sum(sql.startswith("select ") and sql.endswith(" limit 0") for sql in statements),
+        "engineReads": sum(sql.startswith("select engine from information_schema.tables") for sql in statements),
+        "columnReads": sum(sql.startswith("select column_name,column_type,is_nullable,column_key,extra,generation_expression from information_schema.columns")
+                           for sql in statements),
+    }
     return {"commands":len(commands), "parentReads":len(selects), "parentLockReads":len(locks),
             "parentLockBindings":sorted(set().union(*(parent_binding(row) for row in locks))),
             "childInserts":len(inserts), "successfulInserts":len(successful),
             "failedInserts":len(inserts)-len(successful), "affectedRowsReported":sum(row["affectedRows"] is not None for row in successful),
-            "cacheUpdates":len(caches), "transaction":outcome}
+            "cacheUpdates":len(caches), "layoutChecks":layouts, "transaction":outcome}
 
 
 def capture_for_review(root,value,exchange,graceful):
