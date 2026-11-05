@@ -94,6 +94,7 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         output.WriteLine($"显式单级联接物理结果一致。活动行={ActiveRows}，实际变化={result.AffectedRows}，C# 观测SQL={trace.Commands.Count}，其中写入={writes}。未计时。");
         await VerifyLockModesAsync(session, compiled);
         await VerifyLateTruncationAsync(session, catalog, store);
+        await VerifyLargeTextFallbackAsync(session, catalog, store);
     }
 
     /// <summary>无变化回填同样持有来源排他锁及目标共享锁，直到调用方事务退出。</summary>
@@ -175,6 +176,42 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         Assert.Equal(new[] { DatabaseTransactionOperation.Begin, DatabaseTransactionOperation.Rollback }, trace.Transactions.Select(entry => entry.Operation));
         Assert.Equal(before, Serialize(await SnapshotAsync(store)));
         output.WriteLine("第二批实际截断被读回拦截，两批写入整体回滚，已恢复会话 SQL 模式。");
+    }
+
+    /// <summary>单条文本可存储但整批超过预算时，按两条原写入完成并读回完整内容。</summary>
+    private static async Task VerifyLargeTextFallbackAsync(DatabaseSession session, MetadataCatalog catalog, SqlRowStore store)
+    {
+        await using (var connection = session.Provider.CreateConnection(session.Options))
+        {
+            await connection.OpenAsync();
+            await using var ddl = connection.CreateCommand();
+            ddl.CommandText = "ALTER TABLE mt_maint_pair_source MODIFY COLUMN target_name longtext NULL";
+            await ddl.ExecuteNonQueryAsync();
+            ddl.CommandText = "ALTER TABLE mt_maint_pair_target MODIFY COLUMN name longtext NULL";
+            await ddl.ExecuteNonQueryAsync();
+        }
+        catalog.ConfigColumns.Single(column => column.ConfigTableId == "1" && column.ColumnName == "target_name").ColumnLength = "longtext";
+        catalog.ConfigColumns.Single(column => column.ConfigTableId == "2" && column.ColumnName == "name").ColumnLength = "longtext";
+        var plan = RelationMaintenanceCatalog.Compile(catalog);
+        var executor = new RelationMaintenanceExecutor(session);
+        Assert.Equal(2, (await executor.BackfillAsync(plan, "1")).AffectedRows);
+        var name = new string('名', 50000);
+        var target = BaseId + 5;
+        await store.InsertAsync(Target, new Dictionary<string, object?> { ["id"] = target, ["name"] = name, ["yz_project_id"] = 54L });
+        var sourceIds = new[] { BaseId + 1000, BaseId + 1001 };
+        foreach (var id in sourceIds)
+            await store.UpdateAsync(Source, id, new Dictionary<string, object?> { ["target_id"] = target });
+        var observation = DatabaseCommandObservation.Begin(RandomNumberGenerator.GetBytes(32));
+        using (observation)
+            Assert.Equal(2, (await executor.BackfillAsync(plan, "1")).AffectedRows);
+        var trace = observation.Snapshot();
+        var updates = trace.Commands.Where(command => command.Operation == DatabaseCommandOperation.NonQuery).ToArray();
+        Assert.Equal(2, updates.Length);
+        Assert.All(updates, command => Assert.DoesNotContain("CASE", command.Sql));
+        Assert.Equal(1, VerificationReads(trace));
+        var repaired = (await SnapshotAsync(store)).Where(row => sourceIds.Contains(SqlRowStore.Id(row))).ToArray();
+        Assert.Equal(2, repaired.Length);
+        Assert.All(repaired, row => Assert.Equal(name, row["target_name"]));
     }
 
     /// <summary>只切换当前专属测试连接的会话模式，原值在同连接恢复。</summary>

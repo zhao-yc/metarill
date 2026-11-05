@@ -48,6 +48,17 @@ public sealed class RelationMaintenanceCatalogTests
         }
     }
 
+    /// <summary>包预算按 UTF-8 字节及转义上限，超出时不能把多条合法写入拼成一条。</summary>
+    [Fact]
+    public void Text_batch_rejects_large_payload_and_non_string_values()
+    {
+        const string field="name";
+        static RelationRowPatch Patch(long id,object? value)=>new(id,new Dictionary<string,object?>{{"name",value}});
+        Assert.True(RelationMaintenanceExecutor.FitsTextBatch([Patch(1,"新名"),Patch(2,null)],field,4096));
+        Assert.False(RelationMaintenanceExecutor.FitsTextBatch([Patch(1,new string('名',500)),Patch(2,new string('名',500))],field,4096));
+        Assert.False(RelationMaintenanceExecutor.FitsTextBatch([Patch(1,123L),Patch(2,null)],field,4096));
+    }
+
     /// <summary>同一表任何不支持字段必须拒绝整表，不能只执行可编译字段。</summary>
     [Theory][InlineData("missingPath")][InlineData("virtual")][InlineData("mismatch")][InlineData("project")][InlineData("credential")][InlineData("conflict")]
     public async Task Invalid_member_rejects_whole_table_before_connection(string kind)
