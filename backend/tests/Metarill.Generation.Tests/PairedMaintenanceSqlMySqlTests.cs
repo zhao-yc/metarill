@@ -93,8 +93,34 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         Assert.Equal(14, trace.Commands.Count);
         output.WriteLine($"显式单级联接物理结果一致。活动行={ActiveRows}，实际变化={result.AffectedRows}，C# 观测SQL={trace.Commands.Count}，其中写入={writes}。未计时。");
         await VerifyLockModesAsync(session, compiled);
+        await VerifyCleanLookaheadAsync(session, compiled, store);
         await VerifyLateTruncationAsync(session, catalog, store);
         await VerifyLargeTextFallbackAsync(session, catalog, store);
+    }
+
+    /// <summary>无变化可用宽窗口，后批发现旧值时仍回到原写批边界。</summary>
+    private static async Task VerifyCleanLookaheadAsync(DatabaseSession session, RelationMaintenanceCatalog catalog, SqlRowStore store)
+    {
+        var executor = new RelationMaintenanceExecutor(session);
+        var before = Serialize(await SnapshotAsync(store));
+        var clean = DatabaseCommandObservation.Begin(RandomNumberGenerator.GetBytes(32));
+        using (clean)
+            Assert.Equal(0, (await executor.BackfillAsync(catalog, "1")).AffectedRows);
+        var cleanCommands = clean.Snapshot().Commands.Where(command => command.Sql.Contains("FOR UPDATE OF b FOR SHARE OF", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(3, cleanCommands.Length);
+        Assert.Contains("LIMIT 128", cleanCommands[0].Sql);
+        Assert.All(cleanCommands.Skip(1), command => Assert.Contains("LIMIT 512", command.Sql));
+
+        await store.UpdateAsync(Source, BaseId + 1128, new Dictionary<string, object?> { ["target_name"] = "后批旧值" });
+        var late = DatabaseCommandObservation.Begin(RandomNumberGenerator.GetBytes(32));
+        using (late)
+            Assert.Equal(1, (await executor.BackfillAsync(catalog, "1")).AffectedRows);
+        var lateCommands = late.Snapshot().Commands.Where(command => command.Sql.Contains("FOR UPDATE OF b FOR SHARE OF", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(4, lateCommands.Length);
+        Assert.Contains("LIMIT 128", lateCommands[0].Sql);
+        Assert.Contains("LIMIT 512", lateCommands[1].Sql);
+        Assert.All(lateCommands.Skip(2), command => Assert.Contains("LIMIT 128", command.Sql));
+        Assert.Equal(before, Serialize(await SnapshotAsync(store)));
     }
 
     /// <summary>无变化回填同样持有来源排他锁及目标共享锁，直到调用方事务退出。</summary>

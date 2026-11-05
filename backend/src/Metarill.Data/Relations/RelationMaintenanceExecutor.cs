@@ -8,6 +8,8 @@ internal sealed record RelationRowPatch(long Id,IReadOnlyDictionary<string,objec
 /// <summary>维护只执行已发布的整表计划，不接收字段、SQL、连接或项目覆盖。</summary>
 public sealed class RelationMaintenanceExecutor(DatabaseSession session)
 {
+    private const int WriteBatchSize=128;
+    private const int CleanReadBatchSize=512;
     /// <summary>整批使用一个业务事务，结构不匹配、取消、约束或并发失败全部回滚。</summary>
     public async Task<MaintenanceResult> BackfillAsync(RelationMaintenanceCatalog catalog,string tableId,CancellationToken token=default)
     {
@@ -23,16 +25,26 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         var transaction=session.CurrentTransaction??throw new InvalidOperationException("回填缺少完整业务事务。");var plan=table.Read!;var packetLimit=await ValidatePhysical(plan,transaction,token);var counts=table.Fields.ToDictionary(field=>field.Name,_=>0L,StringComparer.Ordinal);long after=0;
         var scalar=table.Multiples.Count==0&&plan.Crosses.Count==0&&plan.MultiProjections.Count==0
             &&plan.Expression("id")=="b.`id`"&&plan.ImportMatchLock is not null;
+        var allowLookahead=scalar&&CanLookAhead(table,plan);
+        var readLimit=WriteBatchSize;
         while(true)
         {
             token.ThrowIfCancellationRequested();
             IReadOnlyList<RelationRowPatch> patches;
             if(scalar)
             {
-                var batch=await LockScalarBatchAsync(table,catalog.ProjectId,after,transaction,token);
+                var batch=await LockScalarBatchAsync(table,catalog.ProjectId,after,readLimit,transaction,token);
+                if(batch.Patches.Count>0)
+                {
+                    // 宽窗口只确认没有变化。发现旧值后按原边界重读，避免使用传播前的后续行投影。
+                    if(readLimit!=WriteBatchSize)
+                        batch=await LockScalarBatchAsync(table,catalog.ProjectId,after,WriteBatchSize,transaction,token);
+                    allowLookahead=false;
+                }
                 if(batch.LastId==after)break;
                 after=batch.LastId;
                 patches=batch.Patches;
+                readLimit=allowLookahead?CleanReadBatchSize:WriteBatchSize;
                 await WriteScalarBatchAsync(table,plan,catalog.ProjectId,patches,packetLimit,transaction,token);
             }
             else
@@ -50,9 +62,25 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         }
         var details=table.Fields.Where(field=>field.DisplayOf is null).Select(field=>{var display=table.Fields.SingleOrDefault(item=>item.DisplayOf==field.Name);return new MaintenanceColumnResult(field.Name,field.Path,field.Relation,field.TargetTable,field.TargetColumn,checked((int)counts[field.Name]),display?.Name,display is null?null:display.Path.Split('.')[^1]);}).ToArray();return new(table.Option.Id,table.Option.RawName,table.Option.TableName,details.Length,checked((int)counts.Values.Sum()),Array.AsReadOnly(details));
     }
+    /// <summary>仅单个有界物理文本和物理终点允许扩大无变化窗口，限制投影和锁读资源。</summary>
+    private static bool CanLookAhead(MaintenanceTable table,MySqlNonRedundantReadPlan plan)
+    {
+        if(table.Fields.Count!=1)return false;
+        var field=table.Fields[0].Name;
+        if(!plan.Origins.TryGetValue(field,out var target))return false;
+        return IsShortText(table.Option.TableName,field)&&IsShortText(target.Table,target.Column);
+
+        bool IsShortText(string tableName,string columnName)
+        {
+            var type=plan.PhysicalReferences.FirstOrDefault(reference=>reference.Table==tableName&&reference.Column.Name==columnName)?.Column.StoreType;
+            return type is not null&&type.StartsWith("varchar(",StringComparison.Ordinal)&&type.EndsWith(')')
+                &&int.TryParse(type.AsSpan(8,type.Length-9),NumberStyles.None,CultureInfo.InvariantCulture,out var length)
+                &&length is >0 and <=255;
+        }
+    }
     /// <summary>标量维护一次锁读真实来源和已发布目标，来源排他、目标共享，保留两套原范围谓词。</summary>
     private async Task<(long LastId,IReadOnlyList<RelationRowPatch> Patches)> LockScalarBatchAsync(
-        MaintenanceTable table,string project,long after,DbTransaction transaction,CancellationToken token)
+        MaintenanceTable table,string project,long after,int limit,DbTransaction transaction,CancellationToken token)
     {
         var plan=table.Read!;
         if(plan.RequiresPublishedProjectIdentity&&project!=plan.ProjectId)
@@ -64,7 +92,7 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         await using var command=Command(transaction);
         command.CommandText="SELECT "+idExpression+","+string.Join(",",oldValues.Concat(newValues))+plan.From+
             " WHERE "+Scope(table,"b.")+(plan.Scope.Length==0?"":" AND ("+plan.Scope+")")+
-            " AND "+idExpression+">@after ORDER BY "+idExpression+" LIMIT 128"+plan.ImportMatchLock;
+            " AND "+idExpression+">@after ORDER BY "+idExpression+" LIMIT "+limit.ToString(CultureInfo.InvariantCulture)+plan.ImportMatchLock;
         Add(command,"project",Project(table,project));
         Add(command,"project_scope_text",project);
         Add(command,"project_scope_number",long.Parse(project,CultureInfo.InvariantCulture));
@@ -78,16 +106,16 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
             var id=reader.GetInt64(0);
             if(id<=lastId)throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
             lastId=id;
-            var changes=new Dictionary<string,object?>(StringComparer.Ordinal);
+            Dictionary<string,object?>? changes=null;
             for(var index=0;index<fields.Count;index++)
             {
                 var oldIndex=index+1;
                 var newIndex=oldIndex+fields.Count;
                 var oldValue=await reader.IsDBNullAsync(oldIndex,token)?null:reader.GetValue(oldIndex);
                 var newValue=await reader.IsDBNullAsync(newIndex,token)?null:reader.GetValue(newIndex);
-                if(!Equals(oldValue,newValue))changes.Add(fields[index].Name,newValue);
+                if(!Equals(oldValue,newValue))(changes??=new(StringComparer.Ordinal)).Add(fields[index].Name,newValue);
             }
-            if(changes.Count>0)patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(changes)));
+            if(changes is not null)patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(changes)));
         }
         return (lastId,patches.AsReadOnly());
     }
