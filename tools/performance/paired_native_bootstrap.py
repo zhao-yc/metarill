@@ -369,7 +369,7 @@ def upgrade_relation_indexes(root,value,state,state_path,mysql):
     return result
 
 
-def send(port, method, path, body=None, token=None, form=False, sample=None):
+def send(port, method, path, body=None, token=None, form=False, sample=None, *, timeout=5):
     """只走200宿主回环、禁代理/重定向；业务请求一次发出，拒绝自动重试。"""
     data = urllib.parse.urlencode(body).encode("utf-8") if form else http.canonical(body) if body is not None else None
     headers = {"Accept": "application/json"}
@@ -380,7 +380,7 @@ def send(port, method, path, body=None, token=None, form=False, sample=None):
         headers["X-Metarill-Sql-Sample"] = sample
     request = urllib.request.Request(f"http://127.0.0.1:{port}" + path, data=data, headers=headers, method=method)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), http.NoRedirect())
-    try: response = opener.open(request, timeout=5)
+    try: response = opener.open(request, timeout=timeout)
     except urllib.error.HTTPError as error: response = error
     with response:
         raw = response.read(1024 * 1024 + 1)
@@ -717,8 +717,18 @@ def run(value):
                 def execute_maintenance_fixture(sql):
                     require_database_ownership(mysql,value,state["ownerToken"])
                     return mysql.mysql(sql,guarded_transaction=True)
+                state["maintenanceRequests"] = []
+
                 def maintenance_request(side, path, body):
-                    status, response = send(value["ports"][side], "POST", path, body, tokens[side,"writer"])
+                    """功能预检允许完整回填，单独保留每次请求的位置及结果。"""
+                    fact = {"side": side, "tableId": body["configTableId"]}
+                    state["maintenanceRequests"].append(fact)
+                    try:
+                        status, response = send(value["ports"][side], "POST", path, body, tokens[side,"writer"], timeout=30)
+                    except TimeoutError as error:
+                        fact["timedOut"] = True
+                        raise ValueError("measurement-maintenance-http-timeout") from error
+                    fact["status"] = status
                     if status != 200: raise ValueError("measurement-maintenance-http-status")
                     return response
                 state["measurement"] = {"passed": True, "httpFixture": maintenance.run_preflight(
