@@ -23,7 +23,7 @@ public sealed partial class JsonArrayNameQueryMySqlTests
             var seeds=new[]{new NamesRow{Id=1,ProjectId=17,ParentId=5,Names="Café"},new NamesRow{Id=2,ProjectId=17,ParentId=5,Names="Cafe"},new NamesRow{Id=3,ProjectId=17,ParentId=5,Names="xAy"},new NamesRow{Id=4,ProjectId=17,ParentId=5,Names="x_y"},new NamesRow{Id=5,ProjectId=17,ParentId=5,Names="中文'_%!\\"},new NamesRow{Id=6,ProjectId=18,ParentId=5,Names="Cafe"},new NamesRow{Id=7,ProjectId=17,ParentId=6,Names="Cafe"},new NamesRow{Id=8,ProjectId=17,ParentId=5,Names="Cafe",DeleteNo=new(2026,1,1)}};
             await session.Orm.Insert(seeds).AsTable(table).ExecuteAffrowsAsync();written=await session.Select<NamesRow>().AsTable((_,_)=>table).OrderBy(r=>r.Id).ToListAsync();Assert.Equal(8,written.Count);
             var readCatalog=JsonSerializer.Deserialize<Metarill.Core.Metadata.MetadataCatalog>(JsonSerializer.Serialize(catalog))!;readCatalog.ConfigTables[0].IsRongyu=0;var readPlan=MySqlNonRedundantReadCompiler.Compile(readCatalog,"json_names",["id","names","parent_id"]);var reader=new MySqlNonRedundantReader(session);
-            foreach(var keyword in new[]{"cafe","x_y","%","'","中文","%_!","%' OR 1=1 --"})
+            foreach(var keyword in new[]{"cafe","x_y","%","'","中文","%_!","%' OR 1=1 --","\u0085","\u00a0","\u2007","\u202f"})
             {
                 var expected=await Baseline(keyword);var query=StringNameQuery.ApplyPattern(session,session.Select<NamesRow>().AsTable((_,_)=>table).Where(r=>r.ProjectId==17&&r.ParentId==5&&r.DeleteNo==null),r=>r.Names,keyword);
                 Assert.Equal(expected,await query.OrderBy(r=>r.Id).ToListAsync(r=>r.Id));Assert.Equal(expected.Count,await query.CountAsync());Assert.Equal(expected.Take(1),await query.Page(1,1).ToListAsync(r=>r.Id));

@@ -135,3 +135,8 @@ V192已用上述实际更新后发布的当前镜像完成真实MySQL／普通�
 普通文本筛选恢复原LIKE模式及列排序规则，关系名称字面模式保持。新生成服务需要StringNameQuery.ApplyPattern或固定计划LikePattern，须先／配套执行后端sync-runtime及generate-all-page，不能只生成页面后混用旧运行时；原CLI预览会要求缺少的sync-runtime且不应用半套文件。不改界面按钮及交互，无元数据／DDL／回填步骤，已有前端保持。
 
 实际旧完整工程独立副本的仅页面计划被拒绝；配套预览确认应用7文件，6手写／393前端／3元数据保持，升级宿主严格构建通过。最终提交固定新包与真实HTTP／SQL及性能另验；原包和私有旧证据保留用于对照，回退须将本批服务／运行时作为同一组恢复。详见[兼容修正与验证](plain-text-like-compatibility.md)。
+
+
+## 普通LIKE Unicode空白兼容跟进（2026-11-05）
+
+生成Service新增调用运行时StringNameQuery.IsPatternBlank；普通LIKE沿用原Java的空白集合，保持NBSP等实际关键词，忽略原分隔控制字符。必须配套sync-runtime与generate-all-page，不能将新Service与旧Data混用。元数据、DDL、回填与前端无需修改，名称字面及精确匹配规则保持。当前源头生成及平台严格构建已验；新完整包与已有独立工程的实际升级、真实宿主／SQL／性能须按新固定来源继续，不能继承b95fb2a的完整候选结果。证据见[兼容说明](plain-text-like-compatibility.md)。

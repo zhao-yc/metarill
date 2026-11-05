@@ -85,7 +85,7 @@ public partial class ConfigPageService
             {
                 case "name":
                 {
-                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
+                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && Metarill.Data.Queries.StringNameQuery.IsPatternBlank(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
                     if (filter.Value.ValueKind == JsonValueKind.Array)
                     {
                         var values = JsonSerializer.Deserialize<string?[]>(filter.Value.GetRawText(), JsonOptions)!;
@@ -427,7 +427,7 @@ public partial class ConfigPageService
             {
                 case "name":
                 {
-                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
+                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && Metarill.Data.Queries.StringNameQuery.IsPatternBlank(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
                     if (filter.Value.ValueKind == JsonValueKind.Array)
                     {
                         var values = JsonSerializer.Deserialize<string?[]>(filter.Value.GetRawText(), JsonOptions)!;
@@ -706,7 +706,7 @@ public partial class ConfigPageService
                 }
                 case "name":
                 {
-                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
+                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && Metarill.Data.Queries.StringNameQuery.IsPatternBlank(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
                     if (filter.Value.ValueKind == JsonValueKind.Array)
                     {
                         var values = JsonSerializer.Deserialize<string?[]>(filter.Value.GetRawText(), JsonOptions)!;
@@ -719,7 +719,7 @@ public partial class ConfigPageService
                 }
                 case "configTableTableName":
                 {
-                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
+                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && Metarill.Data.Queries.StringNameQuery.IsPatternBlank(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;
                     if (filter.Value.ValueKind == JsonValueKind.Array)
                     {
                         var values = JsonSerializer.Deserialize<string?[]>(filter.Value.GetRawText(), JsonOptions)!;

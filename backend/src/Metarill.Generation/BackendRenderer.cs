@@ -7,6 +7,15 @@ namespace Metarill.Generation;
 /// <summary>生成固定类型访问与页级白名单，运行时不解释元数据。</summary>
 internal static partial class BackendRenderer
 {
+    /// <summary>两种存储从同一页面声明决定普通LIKE；保持精确匹配及名称数组的既有分支。</summary>
+    private static bool TextPatternColumn(GenerationModel model,PageModel page,ColumnModel column)
+    {
+        if(column.Type!="string?")return false;
+        var field=model.Catalog.ConfigPageColumns.Single(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==column.Source.Id);
+        var match=field.Extra.TryGetValue("searchType",out var item)?item.ToString():field.Extra.TryGetValue("matchType",out item)?item.ToString():"";
+        return match=="like"||match.Length==0&&column.Source.ControlKind is not("List" or "ConstList" or "ConstDownList" or "SelectPage");
+    }
+
     /// <summary>生成安全的 C# 字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
     /// <summary>汇总整个生成批次的强类型后端文件。</summary>
@@ -273,8 +282,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"                    throw new ArgumentException({Literal(string.Join("；", gap.Select(item => item.Reason).Distinct(StringComparer.Ordinal)))});");
         foreach (var column in page.Searchable.Where(column => !nameKeys.Contains(column.JsonName)))
         {
+            var like=TextPatternColumn(model,page,column);
+            var blankCheck=like&&!column.IsManagedMultiNames&&!column.IsJsonArray?"Metarill.Data.Queries.StringNameQuery.IsPatternBlank":"string.IsNullOrWhiteSpace";
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
-                .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
+                .AppendLine($"                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && {blankCheck}(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
             if(DatabaseCheckboxCompilation.Generic(table,column)&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is not null)result.AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,entity=>entity.{column.Property},DatabaseCheckboxValue.ReadId(filter.Value));");
             else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session,query,entity=>entity.{column.Property},filter.Value.GetString()!);");
             else if(column.Source.ControlKind=="CascadeTree")result.Append(CascadeTreeViewRenderer.Filter(model,table,page,column));
@@ -310,9 +321,6 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     .AppendLine($"                        query = query.Where(entity => values.Contains(entity.{column.Property}));")
                     .AppendLine("                        break;").AppendLine("                    }")
                     .AppendLine(Checkbox(column) ? "                    var value = CheckboxBooleanJsonConverter.Parse(filter.Value);" : $"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
-                var field = model.Catalog.ConfigPageColumns.Single(x => x.ConfigPageId == page.Source.Id && x.ConfigColumnId == column.Source.Id);
-                var matchName = field.Extra.TryGetValue("searchType", out var match) ? match.ToString() : field.Extra.TryGetValue("matchType", out match) ? match.ToString() : "";
-                var like = column.Type == "string?" && (matchName == "like" || (string.IsNullOrEmpty(matchName) && column.Source.ControlKind is not "List" and not "ConstList" and not "ConstDownList" and not "SelectPage"));
                 // 已管理的名称数组也可能直接开放为原文本筛选；按JSON成员查询，兼容中文转义并保留原范围。
                 if(like&&table.Source.IsRongyu==1&&column.IsManagedMultiNames)result.AppendLine($"                    if (!string.IsNullOrWhiteSpace(value)) {{ query = Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, entity => entity.{column.Property}, value); break; }}");
                 result.AppendLine(like ? $"                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.{column.Property},value!);" : $"                    query = query.Where(entity => entity.{column.Property} == value);");

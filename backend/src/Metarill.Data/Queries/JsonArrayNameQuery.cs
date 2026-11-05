@@ -36,7 +36,7 @@ public static class JsonArrayNameQuery
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(storageColumn);
         ArgumentNullException.ThrowIfNull(keyword);
-        if (string.IsNullOrWhiteSpace(keyword)) throw new ArgumentException("名称关键词不能为空白。", nameof(keyword));
+        if (preservePattern?StringNameQuery.IsPatternBlank(keyword):string.IsNullOrWhiteSpace(keyword)) throw new ArgumentException("名称关键词不能为空白。", nameof(keyword));
         if (!string.Equals(session.Provider.Name, "mysql", StringComparison.OrdinalIgnoreCase) || session.Orm.Ado.DataType != DataType.MySql)
             throw new NotSupportedException("当前数据库尚未实现名称字面筛选。");
         // 列只能来自已映射实体的直接字符串属性，不能传方法、导航或任意SQL表达式。

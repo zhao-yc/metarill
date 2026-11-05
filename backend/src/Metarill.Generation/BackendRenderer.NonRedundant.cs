@@ -102,7 +102,9 @@ internal static class GeneratedNonRedundantReadCatalog
                 .AppendLine($"                    throw new ArgumentException({Literal(string.Join("；",group.Select(gap=>gap.Reason).Distinct(StringComparer.Ordinal)))});");
         foreach(var column in page.Searchable.Where(column=>!nameKeys.Contains(column.JsonName)))
         {
-            result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {").AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString())||filter.Value.ValueKind==JsonValueKind.Array&&filter.Value.GetArrayLength()==0)break;");
+            var like=TextPatternColumn(model,page,column);
+            var blankCheck=like&&!column.IsManagedMultiNames&&!column.IsJsonArray?"Metarill.Data.Queries.StringNameQuery.IsPatternBlank":"string.IsNullOrWhiteSpace";
+            result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {").AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&{blankCheck}(filter.Value.GetString())||filter.Value.ValueKind==JsonValueKind.Array&&filter.Value.GetArrayLength()==0)break;");
             if(DatabaseCheckboxCompilation.Generic(table,column))result.AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasId,Metarill.Core.Contracts.DatabaseCheckboxValue.ReadId(filter.Value)));break;");
             else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayAnyContains,filter.Value.GetString()!));break;");
             else if(column.Source.ControlKind=="CascadeTree")result.AppendLine("                    break;");
@@ -113,8 +115,6 @@ internal static class GeneratedNonRedundantReadCatalog
             {
                 var parse=column.Type=="TimeSpan?"?$"{TimeFieldCompilation.Value(column)}.Parse(filter.Value)":Checkbox(column)?"CheckboxBooleanJsonConverter.Parse(filter.Value)":$"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)";
                 var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":Checkbox(column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
-                var field=model.Catalog.ConfigPageColumns.Single(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==column.Source.Id);var match=field.Extra.TryGetValue("searchType",out var item)?item.ToString():field.Extra.TryGetValue("matchType",out item)?item.ToString():"";
-                var like=column.Type=="string?"&&(match=="like"||match.Length==0&&column.Source.ControlKind is not("List" or "ConstList" or "ConstDownList" or "SelectPage"));
                 result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.In,{parseArray}));break;}}")
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.{(like?"LikePattern":"Equal")},{parse}));break;");
             }

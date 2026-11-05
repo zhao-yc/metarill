@@ -17,6 +17,6 @@ public sealed class PlainTextLikeGenerationTests
         Assert.DoesNotContain("entity.Name.Contains(value)",source);
         var marker=redundant==1?"StringNameQuery.ApplyPattern(session,query,entity => entity.Name,value!)":"new(\"name\",FixedReadComparison.LikePattern,";
         Assert.Equal(!exact,source.Contains(marker,StringComparison.Ordinal));
-        Assert.Contains("string.IsNullOrWhiteSpace(filter.Value.GetString())",source);Assert.Equal(before,JsonSerializer.Serialize(catalog));
+        Assert.Contains((exact?"string.IsNullOrWhiteSpace":"StringNameQuery.IsPatternBlank")+"(filter.Value.GetString())",source);Assert.Equal(before,JsonSerializer.Serialize(catalog));
     }
 }
