@@ -492,7 +492,14 @@ internal sealed class SampleContractActionRun : IDisposable
         {
             RecordRead();
             var result = new DataTable();
-            if (CommandText == "SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table")
+            if (CommandText == "SELECT DATABASE(),@@SESSION.max_allowed_packet")
+            {
+                // 复用已发布库名并提供固定会话预算，让关系检查沿用生产读取协议。
+                result.Columns.Add("database", typeof(string));
+                result.Columns.Add("max_allowed_packet", typeof(long));
+                result.Rows.Add(owner.physicalSchema.Database, 64L * 1024 * 1024);
+            }
+            else if (CommandText == "SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table")
             {
                 foreach (var field in new[] { "column_name", "column_type", "is_nullable", "column_key", "extra", "generation_expression" })
                     result.Columns.Add(field, typeof(string));
