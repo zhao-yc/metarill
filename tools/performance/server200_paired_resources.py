@@ -151,6 +151,12 @@ FULL_OBSERVED_RESOURCES = "paired-full-candidate-observed-resources-v1"
 FULL_OBSERVED_BUSINESS = "paired-full-candidate-observed-business-v1"
 FULL_OBSERVED_IMAGES = {**COMMON_FILE_IMAGES,"csharp":"sha256:46df751c89bbff99552cd776a4ee44479a17faad47a94b7a72d1720633fd5a20"}
 FULL_OBSERVATION_DATA_SHA256 = "ad903d80e3171bf6324acb2cd0a76f8a8164df99784b4eddf100175aeae8bcc4"
+# 普通LIKE修正后的完整包单独固定；旧完整包、观察和所有计时用途的镜像与摘要保持。
+PATTERN_OBSERVED_NATIVE = "paired-native-plain-like-observed-v1"
+PATTERN_OBSERVED_RESOURCES = "paired-plain-like-observed-resources-v1"
+PATTERN_OBSERVED_BUSINESS = "paired-plain-like-observed-business-v1"
+PATTERN_OBSERVED_IMAGES = {**COMMON_FILE_IMAGES,"csharp":"sha256:fcefb6492e4a58c89d40e86ad47ada2e6b8c012c2759d9c6ac5209ab7dc2e33c"}
+PATTERN_OBSERVATION_DATA_SHA256 = "84b3835bcde19a5b88b0e0786c3ae68560c8ae6a2d31e5f792fac22c19735812"
 WRITE_REQUEST_BUDGET = 8624
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
 EXISTING_LINE_DATA_SHA256 = "b6c8159c101d6bab32cc7cef941ad840987ad49615b554ca1c1d49098e2cfb6d"
@@ -184,9 +190,14 @@ def is_observed(value):
     return is_existing_lines(value) or is_current_observed(value) or is_full_observed(value) or value.get("purpose") in ("paired-observed-resources-v1", "paired-native-observed-v1")
 
 
+def is_pattern_observed(value):
+    """新参数化LIKE候选仅接受独立采集用途，不能覆盖旧证据对应的镜像。"""
+    return value.get("purpose") in (PATTERN_OBSERVED_NATIVE,PATTERN_OBSERVED_RESOURCES,PATTERN_OBSERVED_BUSINESS)
+
+
 def is_full_observed(value):
     """完整当前候选只做原37步SQL采集，不能借用计时或深度导入预算。"""
-    return value.get("purpose") in (FULL_OBSERVED_NATIVE,FULL_OBSERVED_RESOURCES,FULL_OBSERVED_BUSINESS)
+    return is_pattern_observed(value) or value.get("purpose") in (FULL_OBSERVED_NATIVE,FULL_OBSERVED_RESOURCES,FULL_OBSERVED_BUSINESS)
 
 
 def is_current_observed(value):
@@ -196,6 +207,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_pattern_observed(value): return PATTERN_OBSERVED_IMAGES
     if is_full_observed(value): return FULL_OBSERVED_IMAGES
     if is_common_file_measurement(value): return COMMON_FILE_IMAGES
     if is_file_measurement(value) or is_import_rule_business(value): return IMPORT_RULE_IMAGES
@@ -209,6 +221,7 @@ def images_for(value):
 
 def observation_data_sha(value):
     """观察桥按对应发布包核验 Data 程序集。"""
+    if is_pattern_observed(value): return PATTERN_OBSERVATION_DATA_SHA256
     if is_full_observed(value): return FULL_OBSERVATION_DATA_SHA256
     if is_current_observed(value): return CURRENT_OBSERVATION_DATA_SHA256
     return EXISTING_LINE_DATA_SHA256 if is_existing_lines(value) else OBSERVATION_DATA_SHA256
@@ -220,7 +233,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
