@@ -323,7 +323,7 @@
 | V01 | 🧪 待验收 | 原前端完整保真与功能回归 | 已恢复默认源头并有分批实测；仍须按原页面、PC／移动布局、条件规则、按钮、关系、文件逐项对照。 | [前端纠偏](frontend-preservation-correction.md)、[前端验收](frontend-acceptance.md) |
 | V02 | 🟡 原List生成/平台接线及受控Web子集完成 | 复杂控件与大候选浏览器 | C54接原zxz生成详情/筛选及独立包，C55补十二原平台页十六字段/两个旧URI、HBuilderX及ego两页5014合成候选，C56补原表单依赖窄槽/联动失效。最新320前端、21表单/实际原Vue/父范围/普通和管理完整包零跳过；C55的API85/49条件跳过与HTTP4另列。原页面/事件/样式保持；真实MySQL、普通身份、完整父范围/打开方式、多值与其它控件、跨端/物理硬件仍待。 | [原平台子集](original-platform-list-pagination.md)、[表单补漏](original-list-form-context.md)、[生成接线](original-list-pagination-decision.md)；2026-10-30 |
 | V03 | 🧪 待验收 | 文件与 Excel 真实浏览器全链 | B96补固定共享级联桌面附件的实际上传/引用回显及ZIP下载落盘；仍需其余复杂文件、关系导入导出、正式权限组合和业务XLSX浏览器下载。固定Development样本不替代完整矩阵。 | [原附件桌面闭环](shared-cascade-browser.md)、[前端纠偏](frontend-preservation-correction.md) |
-| V04 | 🧪 待验收 | 平台库／业务库组合矩阵 | Server-200 已通过同库／分库文件事务、Production 空库自举，以及两种拓扑的示例发布页普通角色权限与 CRUD；仍需验收其余关系模型与事务并发。 | [普通权限 V257](testing/platform-business-permissions-v257.md)、[文件验收 V255](testing/project-file-database-combinations-v255.md)、[空库验收 V256](testing/platform-bootstrap-shared-database-v256.md)、[全新安装](fresh-install-acceptance.md)、[主框架审计](framework-gap-audit.md) |
+| V04 | 🧪 待验收 | 平台库／业务库组合矩阵 | Server-200 已通过同库／分库文件事务、Production 空库自举、示例发布页普通权限与 CRUD，以及两种拓扑的同一行并发更新和批次导入回滚；仍需验收其余关系模型与事务场景。 | [写入事务 V258](testing/platform-business-transactions-v258.md)、[普通权限 V257](testing/platform-business-permissions-v257.md)、[文件验收 V255](testing/project-file-database-combinations-v255.md)、[空库验收 V256](testing/platform-bootstrap-shared-database-v256.md)、[全新安装](fresh-install-acceptance.md)、[主框架审计](framework-gap-audit.md) |
 | V05 | 🧪 待验收 | 小程序 | V12已补平台60页、两个生成应用各10页的实际微信编译与导出；缺微信开发者工具/AppID，尚未工具或真机运行、真实登录/CRUD及完整核心操作验收。样式/鸿蒙UA告警保留，不以编译替代。 | [跨端编译](cross-platform-build.md)、[前端验收](frontend-acceptance.md) |
 | V06 | 🧪 待完整验收 | Android | V15完成平台60页/示例12页App资源；V27原API35运行失败保留，V29另在API30 x86实际运行原499前端，原空值提示、三字段请求修正前400/后401及冷启动独立复核完成，临时环境核零、SimDock保持。仅标准调试基座/未认证子集，没有有效账号原登录/权限/业务、生成包设备运行、Metarill独立签名APK或物理真机。 | [原生专项](testing/android-emulator-native-smoke.md)、[App资源](native-app-resource-build.md) |
 | V07 | 🧪 待验收 | iOS | V15补平台60页及当前生成示例12页实际appResource编译／导出；为App Vue共用资源，非IPA／签名或Xcode原生构建。设备安装、登录／业务与完整真机验收仍待。10月31日5.34宿主查询未取得设备标识，空白输出不计真机证据。 | [App资源](native-app-resource-build.md)、[前端验收](frontend-acceptance.md) |
@@ -588,7 +588,7 @@
 | V255 | ✅ 同库及分库文件事务实库复验通过 | Server-200 MySQL、固定三项 | 同库文件与事务隔离、分库逻辑删除／回滚、分库物理删除均通过。双库、账号及归属记录已独立核零。V04 完整矩阵继续验收。 | [实库验收](testing/project-file-database-combinations-v255.md)，2026-11-05 |
 | V256 | ✅ 同库 Production 空库自举实库通过 | Server-200 MySQL、固定 Production 宿主与隔离 Redis | 普通启动零表，显式初始化 25 表、11 类 1,531 条种子，重复保护、原 HTTP 登录／菜单／失败审计及重启通过。预留业务库保持零表，临时资源已独立核零。 | [正式验收](testing/platform-bootstrap-shared-database-v256.md)，2026-11-05 |
 | V257 | ✅ 同库／分库普通权限与发布页实库通过 | Server-200 MySQL、同一固定 Production 宿主 | 两种拓扑的原登录、工作台授予、普通 CRUD、跨项目拒绝、物理回读及原令牌撤权均通过。暂停中断轮次已清理并补跑，全部独占资源已核零。 | [正式验收](testing/platform-business-permissions-v257.md)，2026-11-05 |
-| V258 | 🟡 同库／分库导入回滚和写入争用已接线 | 同一 Production 业务页、真实普通角色 | 新增第 2 行输入失败后物理行数不变、修正后成功，以及两条原 HTTP 写请求争用同一业务行后两字段都保留。两种拓扑待实测。 | [普通权限 V257](testing/platform-business-permissions-v257.md)，2026-11-05 |
+| V258 | ✅ 同库／分库导入回滚和写入争用实库通过 | Server-200 MySQL、固定 Production 宿主、真实普通角色 | 两种拓扑均观察到两条原更新在同一行等锁，释放后两个字段均正确。第 2 行输入失败后物理行数不变，合法行重试成功，临时资源均已核零。 | [正式验收](testing/platform-business-transactions-v258.md)，2026-11-05 |
 
 ## 五、后续数据库（MySQL 首版完整验收后逐批推进）
 
