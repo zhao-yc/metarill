@@ -1,11 +1,9 @@
 using System.Data.Common;
 namespace Metarill.Data.Relations;
 
-/// <summary>内部缓存写入后核对实际物理值，自动传播按有界批次回读，避免逐来源再增加查询。</summary>
+/// <summary>内部缓存写入后核对实际物理值，维护与传播按有界批次回读，避免逐来源再增加查询。</summary>
 internal static class RelationCacheStorageVerifier
 {
-    /// <summary>维护单行写回也使用同一事务核验，不允许静默截断或触发器改写。</summary>
-    internal static Task VerifyAsync(DatabaseSession session,string table,string scope,long id,object project,IReadOnlyDictionary<string,object?> values,DbTransaction transaction,CancellationToken token)=>values.Count==0?Task.CompletedTask:VerifyManyAsync(session,table,scope,project,[new(id,values)],transaction,token);
     /// <summary>scope仅来自编译过的项目／软删固定谓词；一次最多核对原执行器已锁的128行。</summary>
     internal static async Task VerifyManyAsync(DatabaseSession session,string table,string scope,object project,IReadOnlyList<RelationRowPatch> patches,DbTransaction transaction,CancellationToken token)
     {

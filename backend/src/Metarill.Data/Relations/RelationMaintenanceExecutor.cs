@@ -51,6 +51,8 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
                 }
                 if(patch.Count==0)continue;await Update(table,id,projectId,patch,transaction,token);patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(patch)));
             }
+        // 当前批次持有来源行锁。传播前统一读回实际值，截断或改写仍使整笔事务回滚。
+        await RelationCacheStorageVerifier.VerifyManyAsync(session, table.Option.TableName, Scope(table, "c."), Project(table, projectId), patches, transaction, token);
         return patches.AsReadOnly();
     }
     /// <summary>先获取事务内元数据锁，再核库名、InnoDB、完整依赖列类型和主键；没有DDL或结构自动修复。</summary>
@@ -80,10 +82,9 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     private async Task Update(MaintenanceTable table,long id,string project,IReadOnlyDictionary<string,object?> patch,DbTransaction transaction,CancellationToken token)
     {
         await using var command=Command(transaction);command.CommandText="UPDATE "+Q(table.Option.TableName)+" SET "+string.Join(",",patch.Keys.Select((field,index)=>Q(field)+"=@value"+index))+" WHERE `id`=@id AND "+Scope(table);Add(command,"id",id);Add(command,"project",Project(table,project));var ordinal=0;foreach(var value in patch.Values)Add(command,"value"+ordinal++,value);if(await command.ExecuteNonQueryAsync(token)!=1)throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
-        await RelationCacheStorageVerifier.VerifyAsync(session,table.Option.TableName,(table.ProjectType.Length==0?"1=1":"c.`yz_project_id`=@project")+(table.Deleted?" AND c.`delete_no` IS NULL":""),id,Project(table,project),patch,transaction,token);
     }
     /// <summary>活动范围只来自编译后的真实物理项目列和软删列。</summary>
-    private static string Scope(MaintenanceTable table)=>(table.ProjectType.Length==0?"1=1":"`yz_project_id`=@project")+(table.Deleted?" AND `delete_no` IS NULL":"");
+    private static string Scope(MaintenanceTable table,string prefix="") => (table.ProjectType.Length==0 ? "1=1" : prefix+"`yz_project_id`=@project") + (table.Deleted ? " AND "+prefix+"`delete_no` IS NULL" : "");
     /// <summary>项目ID按发布类型绑定，数值不经浮点或隐式转换。</summary>
     private static object Project(MaintenanceTable table,string project)=>table.ProjectType=="string"?project:long.Parse(project,CultureInfo.InvariantCulture);
     /// <summary>标识符只来自编译计划，由适配器引用。</summary>

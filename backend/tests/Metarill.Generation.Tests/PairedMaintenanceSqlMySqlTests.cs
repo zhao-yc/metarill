@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Metarill.Core.Metadata;
@@ -86,8 +87,74 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         Assert.All(trace.Commands, command => Assert.True(command.Succeeded));
         var writes = trace.Commands.Count(command => command.Operation == DatabaseCommandOperation.NonQuery);
         Assert.Equal(result.AffectedRows, writes);
+        Assert.Equal(2, VerificationReads(trace));
+        Assert.Equal(113, trace.Commands.Count);
         output.WriteLine($"显式单级联接物理结果一致。活动行={ActiveRows}，实际变化={result.AffectedRows}，C# 观测SQL={trace.Commands.Count}，其中写入={writes}。未计时。");
+        await VerifyLateTruncationAsync(session, catalog, store);
     }
+
+    /// <summary>末批出现真实非严格模式截断时，已核验并写入的前批也必须回滚。</summary>
+    private async Task VerifyLateTruncationAsync(DatabaseSession session, MetadataCatalog catalog, SqlRowStore store)
+    {
+        await using (var connection = session.Provider.CreateConnection(session.Options))
+        {
+            await connection.OpenAsync();
+            await using var ddl = connection.CreateCommand();
+            ddl.CommandText = "ALTER TABLE mt_maint_pair_target MODIFY COLUMN name varchar(120) NULL";
+            await ddl.ExecuteNonQueryAsync();
+        }
+        catalog.ConfigColumns.Single(column => column.ConfigTableId == "2" && column.ColumnName == "name").ColumnLength = "120";
+        var lateTarget = BaseId + 4;
+        await store.InsertAsync(Target, new Dictionary<string, object?> { ["id"] = lateTarget, ["name"] = new string('x', 110), ["yz_project_id"] = 54L });
+        await store.UpdateAsync(Source, BaseId + 1000, new Dictionary<string, object?> { ["target_name"] = "故障前旧值" });
+        await store.UpdateAsync(Source, BaseId + 1128, new Dictionary<string, object?> { ["target_id"] = lateTarget });
+        var before = Serialize(await SnapshotAsync(store));
+        var compiled = RelationMaintenanceCatalog.Compile(catalog);
+        var observation = DatabaseCommandObservation.Begin(RandomNumberGenerator.GetBytes(32));
+        using (observation)
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => session.InTransactionAsync(async () =>
+            {
+                var transaction = session.CurrentTransaction!;
+                await using var command = transaction.Connection!.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = "SELECT @@SESSION.sql_mode";
+                var original = Assert.IsType<string>(await command.ExecuteScalarAsync());
+                await SetSqlModeAsync(command, "");
+                try { return await new RelationMaintenanceExecutor(session).BackfillAsync(compiled, "1"); }
+                finally
+                {
+                    await SetSqlModeAsync(command, original);
+                    command.CommandText = "SELECT @@SESSION.sql_mode";
+                    command.Parameters.Clear();
+                    Assert.Equal(original, Assert.IsType<string>(await command.ExecuteScalarAsync()));
+                }
+            }));
+            Assert.Contains("存储后发生变化", error.Message);
+        }
+        var trace = observation.Snapshot();
+        Assert.True(trace.InternallyConsistent);
+        Assert.Equal(2, VerificationReads(trace));
+        Assert.Equal(2, trace.Commands.Count(command => command.Succeeded && command.Sql.StartsWith("UPDATE ", StringComparison.OrdinalIgnoreCase)));
+        Assert.Equal(new[] { DatabaseTransactionOperation.Begin, DatabaseTransactionOperation.Rollback }, trace.Transactions.Select(entry => entry.Operation));
+        Assert.Equal(before, Serialize(await SnapshotAsync(store)));
+        output.WriteLine("第二批实际截断被读回拦截，两批写入整体回滚，已恢复会话 SQL 模式。");
+    }
+
+    /// <summary>只切换当前专属测试连接的会话模式，原值在同连接恢复。</summary>
+    private static async Task SetSqlModeAsync(DbCommand command, string mode)
+    {
+        command.CommandText = "SET SESSION sql_mode=@mode";
+        command.Parameters.Clear();
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "mode";
+        parameter.Value = mode;
+        command.Parameters.Add(parameter);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static int VerificationReads(DatabaseCommandTraceSnapshot trace) =>
+        trace.Commands.Count(command => command.Operation == DatabaseCommandOperation.Reader && command.Sql.Contains("@row0", StringComparison.Ordinal));
 
     /// <summary>种入跨批量边界的同项目样本，含活动目标、已删目标、孤儿和正确缓存。</summary>
     private static async Task SeedAsync(SqlRowStore store)
