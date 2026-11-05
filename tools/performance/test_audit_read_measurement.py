@@ -175,3 +175,48 @@ class IndependentReadReviewTests(unittest.TestCase):
             (folder / "evidence/measurement/preflight.json").write_bytes(b"{}")
             with self.assertRaisesRegex(ValueError, "证据字节摘要不符"):
                 audit.review_attempt(folder, RUN)
+
+
+    def test_indexed_archive_requires_raw_receipts_and_independent_physical_proof(self):
+        """容器计数与索引回执绑定，单改布尔标志或篡改物理属性均不能通过。"""
+        import paired_native_bootstrap as native
+        import paired_measurement_fixture as fixture
+        from test_indexed_read_measurement import indexed_read
+        from test_indexed_write_measurement import receipt
+        from test_paired_measurement_fixture import response_gateway
+
+        value = indexed_read()
+        run = value["runId"]
+        state = {"inputSha256": audit.digest(value), "jobs": [
+            {"kind": "container", "target": "init-" + name, "name": "metarill-perf-" + run + "-init-" + name,
+             "id": "a" * 64, "containerAbsent": True}
+            for name in native.JOBS + native.INDEX_JOBS], "relationIndexPlans": {}}
+        receipts = {}
+        for side in audit.SIDES:
+            records = {}
+            for mode, label in (("preview", "preview"), ("apply", "applied"), ("verify", "verified")):
+                records[label] = receipt(value, side, mode)
+                receipts["csharp-index-" + side + "-" + mode + ".stdout.log"] = audit.canonical(records[label])
+            state["relationIndexPlans"][side] = records
+        gateway = response_gateway("java")
+        raw = gateway(fixture.index_sql(run, "java")) + "\n" + "\n".join(
+            "\t".join((table, "relation_lookup", "1", str(index), column, "A", "", "BTREE", "YES"))
+            for table, columns in fixture.RELATION_INDEX_COLUMNS.items() for index, column in enumerate(columns, 1))
+        live = {"runId": run, "newSsh": True, "ownershipVerified": True, "bothPhysicalIndexesEqual": True,
+                "proof": {side: {"raw": raw, "database": database, "verified": True}
+                          for side, database in zip(audit.SIDES, value["databases"])}}
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / "attempt-1"
+            folder.mkdir()
+            (folder / "native-input.json").write_bytes(audit.canonical(value))
+            path = folder.parent / "live-index-proof.json"
+            path.write_bytes(audit.canonical(live))
+            self.assertEqual(15, audit.review_indexed_archive(folder, run, state, receipts.__getitem__))
+            name = "csharp-index-java-apply.stdout.log"
+            bad_receipt = {**receipts, name: audit.canonical({**state["relationIndexPlans"]["java"]["applied"], "appliedStatements": 1})}
+            with self.assertRaisesRegex(ValueError, "索引原始回执与账本不符"):
+                audit.review_indexed_archive(folder, run, state, bad_receipt.__getitem__)
+            live["proof"]["csharp"]["raw"] = raw.replace("relation_lookup", "another_lookup")
+            path.write_bytes(audit.canonical(live))
+            with self.assertRaisesRegex(ValueError, "物理索引两端不一致"):
+                audit.review_indexed_archive(folder, run, state, receipts.__getitem__)

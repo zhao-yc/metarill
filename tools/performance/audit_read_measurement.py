@@ -8,8 +8,8 @@ from pathlib import Path
 import re
 import statistics
 
-from paired_http import canonical, read_json
-from paired_measurement_fixture import COUNTS
+from paired_http import canonical, digest, read_json
+from paired_measurement_fixture import COUNTS, verify_indexes
 
 
 SCENARIO = "customer-count-contract-child"
@@ -155,6 +155,46 @@ def review(report, preflight, journal, run):
             "preflightRequests": 8, "results": outcomes, "releaseAccepted": False}
 
 
+def review_indexed_archive(folder, run, state, evidence):
+    """核对共同索引专用输入、两端原始回执及新连接的实际索引。"""
+    import paired_native_bootstrap as native
+
+    value = read_json((folder / "native-input.json").read_bytes())
+    descriptor = native.validate(value)
+    require(value["runId"] == run and state["inputSha256"] == digest(value)
+            and descriptor["purpose"] in (native.resources.INDEXED_READ_MEASUREMENT_RESOURCES,
+                                           native.resources.UNICODE_READ_MEASUREMENT_RESOURCES),
+            "共同索引范围与冻结输入不符")
+    expected_jobs = native.JOBS + native.INDEX_JOBS
+    jobs = state["jobs"]
+    require(len(jobs) == len(expected_jobs) and all(
+        job["kind"] == "container" and job["target"] == "init-" + name
+        and job["name"] == "metarill-perf-" + run + "-init-" + name
+        and job["containerAbsent"] is True and DIGEST.fullmatch(job["id"])
+        for job, name in zip(jobs, expected_jobs)), "共同索引初始化进程不完整")
+    plans = state["relationIndexPlans"]
+    require(set(plans) == set(SIDES), "缺少两端索引回执")
+    for side in SIDES:
+        plan = plans[side]
+        require(set(plan) == {"preview", "applied", "verified"}, "索引回执阶段不完整")
+        for mode, label in (("preview", "preview"), ("apply", "applied"), ("verify", "verified")):
+            receipt = read_json(evidence("csharp-index-" + side + "-" + mode + ".stdout.log"))
+            require(receipt == plan[label], "索引原始回执与账本不符")
+            native.require_index_receipt(value, side, mode, receipt, plan["preview"] if mode == "apply" else None)
+
+    live = read_json((folder.parent / "live-index-proof.json").read_bytes())
+    require(live["runId"] == run and live["newSsh"] is True and live["ownershipVerified"] is True
+            and live["bothPhysicalIndexesEqual"] is True and set(live["proof"]) == set(SIDES),
+            "缺少独立物理索引回执")
+    for side, database in zip(SIDES, value["databases"]):
+        proof = live["proof"][side]
+        require(proof["database"] == database and proof["verified"] is True and isinstance(proof["raw"], str),
+                "物理索引回执范围不符")
+        verify_indexes(proof["raw"], relation_indexes=True)
+    require(live["proof"]["java"]["raw"] == live["proof"]["csharp"]["raw"], "物理索引两端不一致")
+    return 3 + len(expected_jobs)
+
+
 def review_attempt(folder, run):
     """先验证独立收回的证据摘要和物理回读，再审核测量文件。"""
     manifest = read_json((folder / "evidence-files.json").read_bytes())
@@ -176,9 +216,10 @@ def review_attempt(folder, run):
                 and state["measurementSeeds"][side]["physicalReadbackVerified"] is True
                 and state["measurementSeeds"][side]["fixedIndexesVerified"] is True for side in SIDES),
             "缺少物理种子与索引证明")
+    expected_containers = review_indexed_archive(folder, run, state, evidence) if "relationIndexPlans" in state else 9
     absence = read_json((folder / "independent-absence.json").read_bytes())
     require(absence["newSsh"] is True and absence["executionProcessStopped"] is True
-            and absence["databasesAbsent"] == 2 and absence["containersAbsent"] == 9
+            and absence["databasesAbsent"] == 2 and absence["containersAbsent"] == expected_containers
             and all(absence[key] is True for key in ("userAbsent", "networkAbsent", "ownershipAbsent",
                                                    "sourceCredentialsAbsent", "dataDirectoriesAbsent")), "缺少独立核零")
     report = read_json(evidence("measurement/measurement.json"))
