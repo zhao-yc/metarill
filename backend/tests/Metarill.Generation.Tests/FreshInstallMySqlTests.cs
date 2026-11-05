@@ -75,7 +75,8 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         var root = SourceRoot();
         var native = PlatformBootstrapNativePreparation.ReadIfRequested(root);
         var platform = FreshInstallConfiguration.Read("Database", "platform");
-        var business = FreshInstallConfiguration.Read("BusinessDatabase", "business");
+        var sameDatabase = native?.SharePlatformDatabase == true;
+        var business = sameDatabase ? platform : FreshInstallConfiguration.Read("BusinessDatabase", "business");
         var loginRedis = FreshInstallConfiguration.ReadLoginRedis();
         using var platformSession = new DatabaseSession(platform); using var businessSession = new DatabaseSession(business);
         Assert.Equal(0L, await CountTablesAsync(platformSession)); Assert.Equal(0L, await CountTablesAsync(businessSession));
@@ -119,9 +120,14 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             Assert.Equal(platformPhysical.ConfigTables.Count, initial.Changes.Count(change => change.Kind == "createTable"));
             Assert.Equal(0L, await CountTablesAsync(platformSession));
             await RunAsync(StartInfo("--initialize"));
-            Assert.Equal(platformPhysical.ConfigTables.Count, await CountTablesAsync(platformSession));
+            var platformTables = platformPhysical.ConfigTables.Select(table => table.TableName);
+            var businessTables = businessCatalog.ConfigTables.Select(table => table.TableName);
+            // 同库需安装两份目录的物理表并集，共享基础表只计一次。
+            var installedPlatform = (sameDatabase ? platformTables.Union(businessTables, StringComparer.Ordinal) : platformTables).Order(StringComparer.Ordinal).ToArray();
+            var installedBusiness = sameDatabase ? installedPlatform : businessTables.Order(StringComparer.Ordinal).ToArray();
+            await AssertInstalledTablesAsync(platformSession, installedPlatform);
             Assert.Equal(0L, Convert.ToInt64(await ScalarAsync(platformSession, "SELECT COUNT(*) FROM yz_manager_log"), CultureInfo.InvariantCulture));
-            Assert.Equal(businessCatalog.ConfigTables.Count, await CountTablesAsync(businessSession));
+            await AssertInstalledTablesAsync(businessSession, installedBusiness);
             Assert.Empty((await schema.PreviewAsync(platformPhysical)).Changes);
             Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
             // 覆盖SeedAsync写入的全部11类目录，而非仅前四张配置表。
@@ -147,6 +153,8 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, expected.Keys));
             Assert.Empty((await schema.PreviewAsync(platformPhysical)).Changes);
             Assert.Empty((await new SchemaService(businessSession).PreviewAsync(businessCatalog)).Changes);
+            await AssertInstalledTablesAsync(platformSession, installedPlatform);
+            await AssertInstalledTablesAsync(businessSession, installedBusiness);
             string loginToken;
             await using (var host = await FreshHost.StartAsync(StartInfo(), "/api/runtime/health/check"))
             {
@@ -174,9 +182,9 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             if (native is not null)
             {
                 native.Verify(root);
-                await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformTables = platformPhysical.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = expected.Count, seedRows = expected.Values.Sum(), distinctDatabases = platform.ExpectedDatabase != business.ExpectedDatabase, ordinaryStartupNoDdl = true, repeatedSeedUnchanged = true, userEditPreserved = true, tombstonePreserved = true, passwordPreserved = true, loginFailureAuditPersisted = true, realWeb = true, restartSession = true, browserExecuted = false, performanceExecuted = false }));
+                await File.WriteAllTextAsync(Path.Combine(native.EvidenceDirectory, "verified.json"), JsonSerializer.Serialize(new { passed = true, environment = "Production", platformTables = platformPhysical.ConfigTables.Count, businessTables = businessCatalog.ConfigTables.Count, seedCategories = expected.Count, seedRows = expected.Values.Sum(), distinctDatabases = platform.ExpectedDatabase != business.ExpectedDatabase, installedPlatformTables = installedPlatform.Length, installedBusinessTables = installedBusiness.Length, ordinaryStartupNoDdl = true, repeatedSeedUnchanged = true, userEditPreserved = true, tombstonePreserved = true, passwordPreserved = true, loginFailureAuditPersisted = true, realWeb = true, restartSession = true, browserExecuted = false, performanceExecuted = false }));
             }
-            output.WriteLine($"平台：Production普通启动保持0表，显式初始化创建{platformPhysical.ConfigTables.Count}表／业务{businessCatalog.ConfigTables.Count}表；{expected.Count}类{expected.Values.Sum()}条种子，重复保留编辑、墓碑及密码，真实登录/权限/菜单及重启会话通过。");
+            output.WriteLine($"平台：Production普通启动保持0表，显式初始化后平台连接有{installedPlatform.Length}表、业务连接有{installedBusiness.Length}表；{expected.Count}类{expected.Values.Sum()}条种子，重复保留编辑、墓碑及密码，真实登录/权限/菜单及重启会话通过。");
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, temporaryRoot); }
     }
@@ -295,7 +303,11 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         (node.TryGetProperty("target", out var target) && target.ValueKind == JsonValueKind.Object && target.GetProperty("pageId").GetString() == page || HasPage(node.GetProperty("children"), page, project, admin)));
 
     /// <summary>逐名核对独占库对象，拒绝同名视图、缺表和额外表。</summary>
-    private static async Task AssertInstalledTablesAsync(DatabaseSession session, MetadataCatalog physical)
+    private static Task AssertInstalledTablesAsync(DatabaseSession session, MetadataCatalog physical) =>
+        AssertInstalledTablesAsync(session, physical.ConfigTables.Select(table => table.TableName));
+
+    /// <summary>平台与业务共库时也逐名核对同一个物理表集合。</summary>
+    private static async Task AssertInstalledTablesAsync(DatabaseSession session, IEnumerable<string> expectedNames)
     {
         await using var connection = session.Provider.CreateConnection(session.Options);
         await connection.OpenAsync();
@@ -308,7 +320,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
             Assert.Equal("BASE TABLE", reader.GetString(1));
             names.Add(reader.GetString(0));
         }
-        Assert.Equal(physical.ConfigTables.Select(table => table.TableName).Order(StringComparer.Ordinal),
+        Assert.Equal(expectedNames.Order(StringComparer.Ordinal),
             names.Order(StringComparer.Ordinal));
     }
 

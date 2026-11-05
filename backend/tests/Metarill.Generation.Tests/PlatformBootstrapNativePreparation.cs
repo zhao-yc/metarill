@@ -8,6 +8,8 @@ namespace Metarill.Generation.Tests;
 internal sealed record PlatformBootstrapNativePreparation(string HostRoot, Dictionary<string, string> Files, Dictionary<string, string> MetadataFiles, string EvidenceDirectory)
 {
     internal const string Purpose = "platform-bootstrap-native-v1";
+    // 同库配置仅由冻结的正式验收方案提供，原开发验收仍默认分库。
+    public bool SharePlatformDatabase { get; init; }
     internal string AssemblyPath => Path.Combine(HostRoot, "Metarill.Api.dll");
 
     /// <summary>只有明确选择本轮正式配置才启用固定宿主，验证先于数据库连接和子进程。</summary>

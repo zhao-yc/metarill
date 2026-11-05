@@ -21,8 +21,10 @@ public sealed class PlatformBootstrapNativePreparationTests
     }
 
     /// <summary>同一生产校验器逐字检查集合、程序集及元数据，不把测试占位字节当作实际编译通过。</summary>
-    [Fact]
-    public async Task Fixed_file_gate_rejects_changed_binary_extra_file_and_metadata()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Fixed_file_gate_rejects_changed_binary_extra_file_and_metadata(bool sharePlatformDatabase)
     {
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-platform-bootstrap-proof"); var root = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         var host = Path.Combine(root, "host"); var metadata = Path.Combine(root, "backend", "metadata"); Directory.CreateDirectory(host); Directory.CreateDirectory(metadata);
@@ -35,10 +37,10 @@ public sealed class PlatformBootstrapNativePreparationTests
                 var path = Path.Combine(metadata, name + ".json"); await File.WriteAllTextAsync(path, "{}"); hashes.Add("backend/metadata/" + name + ".json", Hash(path));
             }
             var evidence = Path.Combine(root, ".local", "platform-bootstrap-native", "0123456789abcdef", "evidence");
-            var proof = new PlatformBootstrapNativePreparation(host, PlatformBootstrapNativePreparation.CaptureHost(host), hashes, evidence);
+            var proof = new PlatformBootstrapNativePreparation(host, PlatformBootstrapNativePreparation.CaptureHost(host), hashes, evidence) { SharePlatformDatabase = sharePlatformDatabase };
             proof.Verify(root);
             var settings = JsonSerializer.SerializeToElement(new { Purpose = PlatformBootstrapNativePreparation.Purpose, AuthorizationStatus = "approved", LeaseStatus = "running", RunId = "0123456789abcdef", PlatformBootstrapPreparation = proof });
-            var loaded = PlatformBootstrapNativePreparation.Read(settings, root); Assert.Equal(proof.AssemblyPath, loaded.AssemblyPath); Assert.True(Directory.Exists(evidence));
+            var loaded = PlatformBootstrapNativePreparation.Read(settings, root); Assert.Equal(proof.AssemblyPath, loaded.AssemblyPath); Assert.Equal(sharePlatformDatabase, loaded.SharePlatformDatabase); Assert.True(Directory.Exists(evidence));
             var assembly = proof.AssemblyPath; var original = await File.ReadAllBytesAsync(assembly); await File.AppendAllTextAsync(assembly, "漂移"); Assert.Throws<InvalidOperationException>(() => proof.Verify(root)); await File.WriteAllBytesAsync(assembly, original);
             var extra = Path.Combine(host, "unknown.txt"); await File.WriteAllTextAsync(extra, "未知输出"); Assert.Throws<InvalidOperationException>(() => proof.Verify(root)); File.Delete(extra);
             await File.AppendAllTextAsync(Path.Combine(metadata, "demo.json"), "漂移"); Assert.Throws<InvalidOperationException>(() => proof.Verify(root));
