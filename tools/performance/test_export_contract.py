@@ -33,11 +33,12 @@ class ExportContractTests(unittest.TestCase):
             step = subject.ticket_step(kind)
             self.assertEqual({"name": prefix}, step["json"]["filters"])
             self.assertNotIn("parentId", step["json"])
+            self.assertEqual({"column": "name", "order": "ascending"}, step["json"]["orderBy"])
         step = subject.ticket_step("line")
         self.assertEqual("/admin/auto/sample_contract_line/81003/initExport", step["path"])
         self.assertEqual({"exportId": "/data"}, step["capture"])
         self.assertEqual(["/data"], step["ignorePointers"])
-        self.assertEqual({"column": "name", "order": "ascending"}, step["json"]["orderBy"])
+        self.assertNotIn("orderBy", step["json"])
         self.assertGreater(int(step["json"]["parentId"]), 2**53)
         self.assertEqual({}, step["json"]["filters"])
 
@@ -46,11 +47,14 @@ class ExportContractTests(unittest.TestCase):
         for kind, count in (("customer", 94), ("contract", 90), ("line", 3)):
             java = workbook("java", kind)
             csharp = workbook("csharp", kind)
-            csharp["cells"][1][csharp["headers"].index("备注")] = ""
+            # 按共同种子定位空备注，不假定该行在原排序中的位置。
+            remarks = csharp["headers"].index("备注")
+            blank = next(row for row in csharp["cells"][1:] if row[remarks] is None)
+            blank[remarks] = ""
             expected = subject.verify_cells("java", kind, java)
             self.assertEqual(count, expected["rows"])
             self.assertEqual(expected, subject.verify_cells("csharp", kind, csharp))
-        self.assertEqual(["性能明细-0000", "性能明细-0001", "性能明细-0002"],
+        self.assertEqual(["性能明细-0002", "性能明细-0001", "性能明细-0000"],
                          [row[0] for row in subject.expected_export("line")])
 
     def test_wrong_format_order_amount_relation_and_attachment_are_rejected(self):

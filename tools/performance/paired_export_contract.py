@@ -35,17 +35,21 @@ def expected_export(kind):
                 continue
         elif not row["name"].startswith(PREFIX[kind]):
             continue
-        matches.append([Decimal(row[name]) if name == "amount" else row[name] for name in columns])
-    return sorted(matches, key=lambda row: row[0])
+        cells = [Decimal(row[name]) if name == "amount" else row[name] for name in columns]
+        matches.append((row["id"], cells))
+    # 子页元数据没有名称排序项，原查询固定主键降序；主页面仍按有效名称排序请求。
+    matches.sort(key=lambda match: -match[0] if kind == "line" else match[1][0])
+    return [cells for _, cells in matches]
 
 
 def ticket_step(kind):
     """按原 initExport 路由申请本次下载票据，明确筛选和父范围。"""
-    body = {"filters": {}, "orderBy": {"column": "name", "order": "ascending"}}
+    body = {"filters": {}}
     if kind == "line":
         body["parentId"] = PARENT_ID
     else:
         body["filters"]["name"] = PREFIX[kind]
+        body["orderBy"] = {"column": "name", "order": "ascending"}
     return {"method": "POST", "path": ROOTS[kind].removeprefix("/api") + "/initExport", "status": 200,
             "json": body, "checks": [{"pointer": "/code", "equals": 200}],
             "capture": {"exportId": "/data"}, "ignorePointers": ["/data"]}
