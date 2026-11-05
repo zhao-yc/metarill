@@ -1,16 +1,65 @@
 """独立用途、真实协议编排及错误时的写入边界。"""
 from pathlib import Path
+import hmac
 import tempfile
 import unittest
 from unittest import mock
 
 import paired_child_import_reference as subject
 import paired_native_bootstrap as native
+import paired_observed_capture as capture
 import test_import_measurement as previous
 import test_paired_measurement as read_tests
 
 
 class ChildReferenceContract(unittest.TestCase):
+    def test_sql_profile_samples_only_child_requests(self):
+        resources = native.resources
+        value = {**previous.scope(), "purpose": resources.EXCEL_CHILD_SQL_NATIVE,
+                 "images": resources.EXCEL_CHILD_REFERENCE_IMAGES, "workbookReplayRequests": 10}
+        descriptor = native.validate(value)
+        self.assertEqual(resources.EXCEL_CHILD_SQL_RESOURCES, descriptor["purpose"])
+        self.assertTrue(resources.is_observed(descriptor))
+        self.assertIn("--Metarill:Paired:SqlObservation:Enabled=true", resources.observation_arguments(descriptor, "csharp"))
+        sender = mock.Mock(return_value=(200, {"code": 200}))
+        exchange = capture.Exchange(value, sender)
+        self.assertEqual([5, 5], [len(plan) for plan in exchange.plans.values()])
+        with self.assertRaisesRegex(ValueError, "capture-request-order"):
+            exchange.call("java", "identity:login-writer", "POST", "/login")
+        sender.assert_not_called()
+        self.assertEqual((200, {"code": 200}), exchange.call("java", "child:positive", "POST", subject.IMPORT))
+        self.assertEqual(exchange.plans["java"][0]["sample"], sender.call_args.kwargs["sample"])
+        for override in ({"authorizationStatus": "pending"}, {"images": previous.scope()["images"]}, {"workbookReplayRequests": 3696}):
+            with mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止 IO")), self.assertRaises(ValueError):
+                native.run({**value, **override})
+
+    def test_sql_late_failure_requires_first_write_on_rolled_back_connection(self):
+        run = read_tests.RUN
+        database = subject.fixture.database_name(run, "java")
+        name = subject.fixture.import_sample_prefix(run)+"rollback-first"
+        proof = b"x"*32
+        parent = str(subject.PARENT_ID)
+
+        def command(sql, values, start, succeeded=True):
+            return {"sql":sql, "connection":1, "transaction":7, "operation":"execute", "succeeded":succeeded,
+                    "startedNanos":start, "finishedNanos":start+1, "affectedRows":None,
+                    "parameters":[{"kind":"string", "valueHash":hmac.digest(proof,("string\0"+value).encode(),"sha256").hex()}
+                                  for value in values]}
+
+        lock = command("SELECT id FROM `sample_contract` WHERE id=? LIMIT 1 FOR UPDATE", [parent], 1)
+        first = command("INSERT INTO `sample_contract_line` (name) VALUES (?)", [name, parent, "性能合同-0000"], 3)
+        failure = command(first["sql"], ["bad"], 5, False)
+        rollback = {"operation":"rollback", "succeeded":True, "connection":1, "transaction":7, "startedNanos":7}
+        trace = {"commands":[lock,first,failure], "transactions":[rollback]}
+        facts = capture.verify_child_transaction(trace,database,"java","late-row-rollback",run,proof)
+        self.assertEqual((1,1,0,"rollback"), (facts["successfulInserts"],facts["failedInserts"],facts["affectedRowsReported"],facts["transaction"]))
+        for invalid, error in (({**trace,"transactions":[{**rollback,"operation":"commit"}]}, "transaction-outcome"),
+                               ({**trace,"commands":[lock,{**first,"transaction":8},failure]}, "transaction-owner"),
+                               ({**trace,"commands":[lock,{**first,"parameters":[]} ,failure]}, "insert-bindings"),
+                               ({**trace,"commands":[lock,failure]}, "rollback-writes")):
+            with self.assertRaisesRegex(ValueError, error):
+                capture.verify_child_transaction(invalid,database,"java","late-row-rollback",run,proof)
+
     def test_reference_image_and_budget_are_isolated(self):
         resources = native.resources
         original = previous.scope()
@@ -62,7 +111,7 @@ class ChildReferenceContract(unittest.TestCase):
                         return physical + "\n" if leak and side_count[side] == 5 else physical
                     return ""
 
-                def send(side, path, body):
+                def send(side, name, path, body):
                     calls.append((side, path, body))
                     side_count[side] += 1
                     step = side_count[side]

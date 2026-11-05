@@ -66,7 +66,7 @@ def run_preflight(root, run, query, send, make_workbook):
         nonlocal requests
         requests += 1
         workbook.require(requests <= EXCEL_CHILD_REFERENCE_REQUESTS, "reference-budget")
-        status, payload = send(side, path, body)
+        status, payload = send(side, step, path, body)
         code = payload.get("code") if isinstance(payload, dict) else None
         with (output / "child-reference-events.jsonl").open("ab") as journal:
             journal.write(http.canonical(dict(side=side, step=step, http=status, code=code)) + b"\n")

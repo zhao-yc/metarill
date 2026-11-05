@@ -34,7 +34,7 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.FULL_OBSERVED_NATIVE, resources.PATTERN_OBSERVED_NATIVE, resources.UNICODE_OBSERVED_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_CHILD_REFERENCE_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.MAINTENANCE_PREFLIGHT_NATIVE, resources.MAINTENANCE_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.FULL_OBSERVED_NATIVE, resources.PATTERN_OBSERVED_NATIVE, resources.UNICODE_OBSERVED_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_CHILD_REFERENCE_NATIVE, resources.EXCEL_CHILD_SQL_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.MAINTENANCE_PREFLIGHT_NATIVE, resources.MAINTENANCE_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.is_full_observed(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
         raise ValueError("完整候选SQL采集不能携带性能回放预算")
@@ -48,6 +48,7 @@ def validate(value):
     elif value.get("purpose")==resources.INDEXED_WRITE_MEASUREMENT_NATIVE and "readReplayRequests" in value:raise ValueError("写入用途不能混入读取预算")
     if resources.is_excel_import_measurement(value):
         budget = {
+            resources.EXCEL_CHILD_SQL_NATIVE: resources.EXCEL_CHILD_REFERENCE_REQUESTS,
             resources.EXCEL_CHILD_REFERENCE_NATIVE: resources.EXCEL_CHILD_REFERENCE_REQUESTS,
             resources.EXCEL_IMPORT_PARENT_NATIVE: resources.EXCEL_IMPORT_PARENT_REQUESTS,
             resources.EXCEL_IMPORT_MEASUREMENT_NATIVE: resources.EXCEL_IMPORT_REQUEST_BUDGET,
@@ -105,6 +106,7 @@ def validate(value):
     if resources.is_unicode_write_measurement(value): purpose = resources.UNICODE_WRITE_MEASUREMENT_RESOURCES
     if resources.is_excel_import_measurement(value):
         purpose = {
+            resources.EXCEL_CHILD_SQL_NATIVE: resources.EXCEL_CHILD_SQL_RESOURCES,
             resources.EXCEL_CHILD_REFERENCE_NATIVE: resources.EXCEL_CHILD_REFERENCE_RESOURCES,
             resources.EXCEL_IMPORT_PARENT_NATIVE: resources.EXCEL_IMPORT_PARENT_RESOURCES,
             resources.EXCEL_IMPORT_MEASUREMENT_NATIVE: resources.EXCEL_IMPORT_MEASUREMENT_RESOURCES,
@@ -220,7 +222,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_CHILD_REFERENCE_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.MAINTENANCE_PREFLIGHT_NATIVE, resources.MAINTENANCE_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.UNICODE_WRITE_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_MEASUREMENT_NATIVE, resources.EXCEL_IMPORT_PARENT_NATIVE, resources.EXCEL_CHILD_REFERENCE_NATIVE, resources.EXCEL_CHILD_SQL_NATIVE, resources.EXCEL_EXPORT_PREFLIGHT_NATIVE, resources.MAINTENANCE_PREFLIGHT_NATIVE, resources.MAINTENANCE_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_MEASUREMENT_NATIVE, resources.EXCEL_EXPORT_HOT_PATH_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE, resources.UNICODE_FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
@@ -627,6 +629,8 @@ def run(value):
         state["acceptedScope"] = "paired-excel-parent-import-measurement-only"
     if resources.is_excel_child_reference(value):
         state["acceptedScope"] = "paired-excel-child-reference-preflight-only"
+    if resources.is_excel_child_sql(value):
+        state["acceptedScope"] = "paired-excel-child-reference-sql-only"
     if export_preflight is not None:
         state["acceptedScope"] = "paired-excel-export-measurement-only" if export_measurement is not None else "paired-excel-export-preflight-only"
     def stage(name):
@@ -695,7 +699,7 @@ def run(value):
         state["transport"] = http.verify_transport({"transportProof": "server200-loopback-v1", "runId": value["runId"], "targets": targets}, probe, before)
         stage("真实form密码登录和原页普通权限")
         physical_before = business_counts(mysql, value)
-        if exchange is not None:
+        if exchange is not None and not resources.is_excel_child_sql(value):
             state["httpFacts"], tokens = identity_http(value,fixture,credentials,exchange)
         elif measurement is not None or resources.is_extended_readiness(value) or resources.is_extended_business(value):
             state["identityRequests"] = []
@@ -704,7 +708,7 @@ def run(value):
             state["httpFacts"], tokens = identity_http(value,fixture,credentials)
         if business_counts(mysql, value) != physical_before: raise RuntimeError("只读/无权验收改变了物理业务行")
         state["deniedWritesPhysicalRowsUnchanged"] = True
-        if exchange is not None:
+        if exchange is not None and not resources.is_excel_child_sql(value):
             stage("普通账号原CRUD／关系改名／三业务动作与真实写后回滚")
             existing_lines=resources.is_existing_lines(value)
             lease={**value,"purpose":resources.UNICODE_OBSERVED_BUSINESS if resources.is_unicode_observed(value) else resources.PATTERN_OBSERVED_BUSINESS if resources.is_pattern_observed(value) else resources.FULL_OBSERVED_BUSINESS if resources.is_full_observed(value) else resources.CURRENT_OBSERVED_BUSINESS if resources.is_current_observed(value) else resources.EXISTING_LINE_BUSINESS if existing_lines else "paired-observed-business-v1","leaseStatus":"running"}
@@ -768,9 +772,14 @@ def run(value):
                 stage("原子页工作簿双端写入与整批回滚预检")
                 import paired_child_import_reference as child_reference
                 workbook_scope = import_measurement.oracle.descriptor(run_id)
+                def send_child(side, step, path, body):
+                    """子页 SQL 只采集固定业务请求，登录和独立读回走原通道。"""
+                    token = tokens[side,"writer"]
+                    if resources.is_excel_child_sql(value):
+                        return exchange.call(side, "child:" + step, "POST", path, body, token)
+                    return send(value["ports"][side], "POST", path, body, token, timeout=15)
                 state["measurement"] = child_reference.run_preflight(
-                    root,run_id,mysql.mysql,
-                    lambda side, path, body: send(value["ports"][side], "POST", path, body, tokens[side,"writer"], timeout=15),
+                    root,run_id,mysql.mysql,send_child,
                     lambda request: import_measurement.oracle.invoke(workbook_scope,request,root,state,state_path))
             elif import_measurement is not None:
                 require_database_ownership(mysql,value,state["ownerToken"])

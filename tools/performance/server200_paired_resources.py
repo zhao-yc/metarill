@@ -183,6 +183,8 @@ EXCEL_IMPORT_PARENT_REQUESTS = 928
 EXCEL_CHILD_REFERENCE_NATIVE = "paired-native-excel-child-reference-preflight-v1"
 EXCEL_CHILD_REFERENCE_RESOURCES = "paired-excel-child-reference-preflight-resources-v1"
 EXCEL_CHILD_REFERENCE_REQUESTS = 10
+EXCEL_CHILD_SQL_NATIVE = "paired-native-excel-child-reference-sql-v1"
+EXCEL_CHILD_SQL_RESOURCES = "paired-excel-child-reference-sql-resources-v1"
 EXCEL_CHILD_REFERENCE_IMAGES = {**UNICODE_OBSERVED_IMAGES, "java": "sha256:e348fd6ca98fb656e2ee6ed1442add5a056446a5fec8b912242b8751f7594005"}
 EXCEL_EXPORT_PREFLIGHT_NATIVE = "paired-native-unicode-excel-export-preflight-v1"
 EXCEL_EXPORT_PREFLIGHT_RESOURCES = "paired-unicode-excel-export-preflight-resources-v1"
@@ -235,7 +237,7 @@ def is_current_measurement(value):
 
 def is_observed(value):
     """明确的采集用途共享资源约束，旧非采集用途保留。"""
-    return is_existing_lines(value) or is_current_observed(value) or is_full_observed(value) or value.get("purpose") in ("paired-observed-resources-v1", "paired-native-observed-v1")
+    return is_existing_lines(value) or is_current_observed(value) or is_full_observed(value) or is_excel_child_sql(value) or value.get("purpose") in ("paired-observed-resources-v1", "paired-native-observed-v1")
 
 
 def is_unicode_observed(value):
@@ -259,8 +261,13 @@ def is_excel_import_measurement(value):
 
 
 def is_excel_child_reference(value):
-    """修正 Java 对照包只允许独立功能预检，不能使用历史计时用途。"""
-    return value.get("purpose") in (EXCEL_CHILD_REFERENCE_NATIVE, EXCEL_CHILD_REFERENCE_RESOURCES)
+    """修正 Java 对照包仅用于独立功能或 SQL 验收。"""
+    return is_excel_child_sql(value) or value.get("purpose") in (EXCEL_CHILD_REFERENCE_NATIVE, EXCEL_CHILD_REFERENCE_RESOURCES)
+
+
+def is_excel_child_sql(value):
+    """对照 SQL 只允许固定请求，并和无采集预检隔离。"""
+    return value.get("purpose") in (EXCEL_CHILD_SQL_NATIVE, EXCEL_CHILD_SQL_RESOURCES)
 
 
 def is_excel_parent_import(value):
@@ -341,7 +348,7 @@ def images_for(value):
 
 def observation_data_sha(value):
     """观察桥按对应发布包核验 Data 程序集。"""
-    if is_unicode_observed(value): return UNICODE_OBSERVATION_DATA_SHA256
+    if is_unicode_observed(value) or is_excel_child_sql(value): return UNICODE_OBSERVATION_DATA_SHA256
     if is_pattern_observed(value): return PATTERN_OBSERVATION_DATA_SHA256
     if is_full_observed(value): return FULL_OBSERVATION_DATA_SHA256
     if is_current_observed(value): return CURRENT_OBSERVATION_DATA_SHA256
@@ -354,7 +361,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, EXCEL_IMPORT_MEASUREMENT_RESOURCES, EXCEL_IMPORT_PARENT_RESOURCES, EXCEL_CHILD_REFERENCE_RESOURCES, EXCEL_EXPORT_PREFLIGHT_RESOURCES, MAINTENANCE_PREFLIGHT_RESOURCES, MAINTENANCE_MEASUREMENT_RESOURCES, EXCEL_EXPORT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_HOT_PATH_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, EXCEL_IMPORT_MEASUREMENT_RESOURCES, EXCEL_IMPORT_PARENT_RESOURCES, EXCEL_CHILD_REFERENCE_RESOURCES, EXCEL_CHILD_SQL_RESOURCES, EXCEL_EXPORT_PREFLIGHT_RESOURCES, MAINTENANCE_PREFLIGHT_RESOURCES, MAINTENANCE_MEASUREMENT_RESOURCES, EXCEL_EXPORT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_HOT_PATH_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")
@@ -458,7 +465,7 @@ def read_materials(root, value):
 
 def observation_arguments(value, target):
     """只返回固定非秘密配置；HMAC值只走只读文件，输出库名由本轮唯一范围推导。"""
-    if is_measurement(value) or is_extended_readiness(value) or is_extended_business(value):
+    if not is_excel_child_sql(value) and (is_measurement(value) or is_extended_readiness(value) or is_extended_business(value)):
         disabled={"java":"--metarill.paired.sql-observation.enabled=false","csharp":"--Metarill:Paired:SqlObservation:Enabled=false"}
         if target not in disabled: raise ValueError("未知测量宿主")
         return [disabled[target]]
@@ -544,7 +551,7 @@ def provision(value, root, path):
                     args += ["--mount", f"type=bind,src={root}/observation.key,dst=/run/metarill-observation.key,readonly"]
                     if target == "csharp": args += ["--env", "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES=Metarill.Paired.SqlObservation"]
                     # 新完整包按编译器生成的补充deps解析独立观察桥，不改产品宿主依赖。
-                    if target == "csharp" and is_full_observed(value): args += ["--env", "DOTNET_ADDITIONAL_DEPS=/app/Metarill.Paired.SqlObservation.deps.json"]
+                    if target == "csharp" and (is_full_observed(value) or is_excel_child_sql(value)): args += ["--env", "DOTNET_ADDITIONAL_DEPS=/app/Metarill.Paired.SqlObservation.deps.json"]
                 args += [images_for(value)[target], *observation_arguments(value, target)]
                 # 原Java默认写./file-storage；新文件验收显式接本轮/data，根文件系统继续只读。
                 if target == "java" and (is_extended_business(value) or is_file_measurement(value)): args += ["--custom.file-storage.local.root-path=/data/files"]

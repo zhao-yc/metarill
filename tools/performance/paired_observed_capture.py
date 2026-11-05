@@ -1,6 +1,7 @@
 """固定普通业务的请求采样及关闭产物保存；只证明采集结构，绝不自动批准SQL次数或语义等价。"""
 from __future__ import annotations
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ IDENTITY_STEPS=('ready','wrong-password','login-writer','page-writer','login-rea
 def authorize(value):
     """纯内存核新用途和双库范围，pending／ended在读取目录或执行网络前拒绝。"""
     run=value.get('runId');reader.require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'capture-run')
-    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose') in ('paired-native-observed-v1',resources.EXISTING_LINE_NATIVE,resources.CURRENT_OBSERVED_NATIVE,resources.FULL_OBSERVED_NATIVE,resources.PATTERN_OBSERVED_NATIVE,resources.UNICODE_OBSERVED_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
+    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose') in ('paired-native-observed-v1',resources.EXISTING_LINE_NATIVE,resources.CURRENT_OBSERVED_NATIVE,resources.FULL_OBSERVED_NATIVE,resources.PATTERN_OBSERVED_NATIVE,resources.UNICODE_OBSERVED_NATIVE,resources.EXCEL_CHILD_SQL_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
     reader.require(resources.images_for(value) is not None and value.get('images')==resources.images_for(value) and value.get('instancePin')==business.PIN and value.get('databases')==['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')] and value.get('user')=='mtf_'+run[:16],'capture-scope')
     ports=value.get('ports');reader.require(type(ports) is dict and set(ports)=={'java','csharp'} and all(type(port) is int and 20000<=port<=40000 for port in ports.values()) and len(set(ports.values()))==2,'capture-ports')
     return run
@@ -31,6 +32,14 @@ def sample(run,target,step):
 
 def expected_steps(value,target,*,existing_lines=False):
     """按原两端HTTP/R规则冻结请求，已有明细场景由独立协调器显式选择。"""
+    if resources.is_excel_child_sql(value):
+        steps = ("positive", "parent-page", "missing-parent", "deleted-parent", "late-row-rollback")
+        return [
+            dict(step="child:"+step, sample=sample(value["runId"], target, "child:"+step),
+                 statusAtExit=200 if target=="java" or index<2 else 500,
+                 expectedCode=200 if index<2 else 500, chainSucceeded=True)
+            for index, step in enumerate(steps)
+        ]
     rows=[]
     for step in ('identity:'+name for name in IDENTITY_STEPS):
         outcome=(200,200)
@@ -150,6 +159,66 @@ def verify_cache_transaction(trace,database,side,outcome):
     return main['affectedRows']==cache['affectedRows']==1
 
 
+def verify_child_transaction(trace, database, side, step, run, key):
+    """将原工作簿值与写入命令关联，并核对同连接、同事务的提交或回滚。"""
+    import paired_child_import_reference as fixture
+
+    start, finish = ("startedNanos", "finishedNanos") if side=="java" else ("startedTimestamp", "finishedTimestamp")
+    schema = r"(?:`?" + re.escape(database) + r"`?\s*\.\s*)?"
+    child_insert = re.compile(r"(?is)^\s*INSERT\s+INTO\s+" + schema + r"`?sample_contract_line`?(?=\s|\()")
+    parent_select = re.compile(r"(?is)^\s*SELECT\b.*?\bFROM\s+" + schema + r"`?sample_contract`?(?=\s|$)")
+    commands = trace["commands"]
+    inserts = [row for row in commands if child_insert.match(row["sql"])]
+    if step=="parent-page":
+        reader.require(not inserts and all(row["succeeded"] for row in commands), "capture-child-page-write")
+        return {"commands":len(commands), "childInserts":0}
+
+    def carries(row, expected):
+        kinds = set()
+        for param in row["parameters"]:
+            kind = param["kind" if side=="java" else "valueKind"]
+            if kind in {"integer", "string"}:
+                proof = hmac.digest(key, (kind+"\0"+expected).encode(), "sha256").hex()
+                if hmac.compare_digest(proof, param["valueHash"]):
+                    kinds.add(kind)
+        return kinds
+
+    parent = str({"missing-parent":fixture.MISSING_PARENT_ID, "deleted-parent":fixture.DELETED_PARENT_ID}.get(step, fixture.PARENT_ID))
+    selects = [row for row in commands if parent_select.match(row["sql"])]
+    locks = [row for row in selects if re.search(r"\bFOR\s+UPDATE\b", row["sql"], re.I)]
+    reader.require(locks and all(row["succeeded"] and carries(row,parent) for row in locks), "capture-child-parent-lock")
+    owner = (locks[0]["connection"], locks[0]["transaction"])
+    reader.require(owner[1] is not None and all((row["connection"],row["transaction"])==owner for row in locks+inserts),
+                   "capture-child-transaction-owner")
+    successful = [row for row in inserts if row["succeeded"]]
+    if step=="positive":
+        names = {row[0] for row in fixture.workbook.workbook_requests(run)["line"]["rows"]}
+        reader.require(len(inserts)==len(successful)==len(names), "capture-child-commit-writes")
+    elif step=="late-row-rollback":
+        names = {fixture.fixture.import_sample_prefix(run)+"rollback-first"}
+        reader.require(1<=len(inserts)<=2 and successful==inserts[:1], "capture-child-rollback-writes")
+    else:
+        names = set()
+        reader.require(not inserts, "capture-child-denied-write")
+    for row in successful:
+        matched = {name for name in names if carries(row,name)}
+        reader.require(len(matched)==1 and carries(row,parent) and carries(row,"性能合同-0000") and
+                       locks[0][finish]<=row[start], "capture-child-insert-bindings")
+        names -= matched
+        if side!="java" or row["operation"]!="execute":
+            reader.require(row["affectedRows"]==1, "capture-child-affected-rows")
+    reader.require(not names, "capture-child-workbook-coverage")
+    outcome = "commit" if step=="positive" else "rollback"
+    endings = [row for row in trace["transactions"] if row["operation"]==outcome and row["succeeded"] and
+               (row["connection"],row["transaction"])==owner and all(prior[finish]<=row[start] for prior in locks+inserts)]
+    reader.require(len(endings)==1, "capture-child-transaction-outcome")
+    return {"commands":len(commands), "parentReads":len(selects), "parentLockReads":len(locks),
+            "parentLockParameterKinds":sorted(set().union(*(carries(row,parent) for row in locks))),
+            "childInserts":len(inserts), "successfulInserts":len(successful),
+            "failedInserts":len(inserts)-len(successful), "affectedRowsReported":sum(row["affectedRows"] is not None for row in successful),
+            "transaction":outcome}
+
+
 def capture_for_review(root,value,exchange,graceful):
     """先保留有界原始文件和审阅key，再重算结构；不把实测次数反填严格验收预期。"""
     authorize(value);reader.require(Path(root).absolute()==resources.root_for(value['runId']).absolute(),'capture-root');reader.require(type(graceful) is bool,'capture-exit-flag')
@@ -184,8 +253,14 @@ def review_saved_capture(value,exchange,saved):
     """按固定请求计划复核已保存字节，也可独立重审原始归档。"""
     authorize(value);exchange.complete()
     reader.require(set(saved)=={'java','csharp'},'capture-instance-count');summaries={}
+    child_sql = resources.is_excel_child_sql(value)
     for target,material in saved.items():
         directory=material['folder'];files=material['files'];index=reader.load(directory/'index.json',files.get('index.json'),4*1024*1024);java=target=='java'
+        if child_sql:
+            key_path = reader.ordinary(directory.parent/'value.key')
+            reader.require(key_path.stat().st_size==32, 'capture-key-size')
+            proof_key = key_path.read_bytes()
+            child_facts = {}
         reader.shape(index,'format runId started completed observed problems requests finalized internallyConsistent '+('sourcesVerified dataSources' if java else 'dataAssemblySha256 expectedDatabases retainedEntries'))
         reader.require(index['format']==('metarill-paired-jdbc-index-v1' if java else 'metarill-paired-dotnet-index-v1') and index['runId']==value['runId'],'capture-index-format')
         reader.require(reader.flag(index['finalized']) and reader.flag(index['internallyConsistent']) and index['problems']==[],'capture-index-incomplete')
@@ -202,8 +277,16 @@ def review_saved_capture(value,exchange,saved):
             reader.require(record['format']==('metarill-paired-jdbc-http-v1' if java else 'metarill-paired-dotnet-http-v1') and record['runId']==value['runId'] and record['id']==ident,'capture-record-format');label=record['sample'];reader.require(type(label) is str and label in expected and label not in seen,'capture-unplanned-sample');seen.add(label);entry=expected[label]
             reader.require(reader.integer(record['statusAtFilterExit' if java else 'statusAtMiddlewareExit'],100,599)==entry['statusAtExit'] and reader.flag(record['chainSucceeded']) and record['errorType'] is None,'capture-record-outcome')
             if not java:reader.require(reader.flag(record['internallyConsistent']) and record['problems']==[],'capture-record-incomplete')
-            measured=reader.trace(record['trace'],target,{database});reader.require(measured['failedCommands']==0 and measured['failedTransactions']==0,'capture-driver-failure')
+            measured=reader.trace(record['trace'],target,{database})
+            step = entry['step']
+            reader.require(measured['failedTransactions']==0 and
+                           (measured['failedCommands']==0 or child_sql and step=="child:late-row-rollback" and measured['failedCommands']==1),
+                           'capture-driver-failure')
             for key in counts:counts[key]+=measured[key]
+            if child_sql:
+                child_step = step.removeprefix("child:")
+                child_facts[child_step] = verify_child_transaction(record['trace'],database,target,child_step,value['runId'],proof_key)
+                continue
             if exchange.existing_lines and entry['step'] in {'business:business-rollback','business:business-complete'}:
                 outcome='rollback' if entry['step']=='business:business-rollback' else 'commit'
                 counts_recorded=verify_cache_transaction(record['trace'],database,target,outcome)
@@ -215,7 +298,12 @@ def review_saved_capture(value,exchange,saved):
                 rollback=any(command['succeeded'] and command['transaction'] in ended and re.match(update,command['sql']) for command in record['trace']['commands']);reader.require(rollback,'capture-update-before-rollback')
         reader.require(seen==set(expected) and names==set(files),'capture-record-file-coverage')
         if not java:reader.require(reader.integer(index['retainedEntries'])==counts['commands']+counts['transactions'],'capture-retained-count')
-        reader.require(rollback,'capture-rollback-missing');summaries[target]={'indexSha256':files['index.json'],'files':files,'requests':wanted,**counts,'updateThenRollbackObserved':True,'requestCoverageVerified':True,'traceStructureVerified':True,'sqlCountExpectationsVerified':False,'sqlSemanticAccepted':False,'physicalTargetVerified':False,'performanceAccepted':False}
+        summaries[target]={'indexSha256':files['index.json'],'files':files,'requests':wanted,**counts,'requestCoverageVerified':True,'traceStructureVerified':True,'sqlCountExpectationsVerified':False,'sqlSemanticAccepted':False,'physicalTargetVerified':False,'performanceAccepted':False}
+        if child_sql:
+            summaries[target]['childImport'] = child_facts
+            continue
+        reader.require(rollback,'capture-rollback-missing')
+        summaries[target]['updateThenRollbackObserved'] = True
         if exchange.existing_lines:
             reader.require(cache_transactions=={'rollback','commit'},'capture-cache-transaction-coverage')
             summaries[target]['directCacheWriteThenCommitAndRollbackObserved']=True
