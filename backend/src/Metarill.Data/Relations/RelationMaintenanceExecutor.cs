@@ -21,16 +21,105 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     private async Task<MaintenanceResult> RunAsync(RelationMaintenanceCatalog catalog,MaintenanceTable table,CancellationToken token)
     {
         var transaction=session.CurrentTransaction??throw new InvalidOperationException("回填缺少完整业务事务。");var plan=table.Read!;await ValidatePhysical(plan,transaction,token);var counts=table.Fields.ToDictionary(field=>field.Name,_=>0L,StringComparer.Ordinal);long after=0;
+        var scalar=table.Multiples.Count==0&&plan.Crosses.Count==0&&plan.MultiProjections.Count==0
+            &&plan.Expression("id")=="b.`id`"&&plan.ImportMatchLock is not null;
         while(true)
         {
-            token.ThrowIfCancellationRequested();var rows=await Sources(table,catalog.ProjectId,after,transaction,token);if(rows.Count==0)break;after=(long)rows[^1]["id"]!;
-            foreach(var patch in await RefreshLockedAsync(table,rows,catalog.ProjectId,null,token))
+            token.ThrowIfCancellationRequested();
+            IReadOnlyList<RelationRowPatch> patches;
+            if(scalar)
+            {
+                var batch=await LockScalarBatchAsync(table,catalog.ProjectId,after,transaction,token);
+                if(batch.LastId==after)break;
+                after=batch.LastId;
+                patches=batch.Patches;
+                await WriteScalarBatchAsync(table,plan,catalog.ProjectId,patches,transaction,token);
+            }
+            else
+            {
+                var rows=await Sources(table,catalog.ProjectId,after,transaction,token);
+                if(rows.Count==0)break;
+                after=(long)rows[^1]["id"]!;
+                patches=await RefreshLockedAsync(table,rows,catalog.ProjectId,null,token);
+            }
+            foreach(var patch in patches)
             {
                 foreach(var field in patch.Values.Keys.Select(name=>table.Fields.Single(item=>item.Name==name)).Select(field=>field.DisplayOf??field.Name).Distinct(StringComparer.Ordinal))counts[field]++;
                 await new ProjectRelationMutationPropagator(session).AfterMutationAsync(catalog,table.Option.TableName,patch.Id,catalog.ProjectId,new HashSet<string>(patch.Values.Keys,StringComparer.Ordinal),false,false,token);
             }
         }
         var details=table.Fields.Where(field=>field.DisplayOf is null).Select(field=>{var display=table.Fields.SingleOrDefault(item=>item.DisplayOf==field.Name);return new MaintenanceColumnResult(field.Name,field.Path,field.Relation,field.TargetTable,field.TargetColumn,checked((int)counts[field.Name]),display?.Name,display is null?null:display.Path.Split('.')[^1]);}).ToArray();return new(table.Option.Id,table.Option.RawName,table.Option.TableName,details.Length,checked((int)counts.Values.Sum()),Array.AsReadOnly(details));
+    }
+    /// <summary>标量维护一次锁读真实来源和已发布目标，来源排他、目标共享，保留两套原范围谓词。</summary>
+    private async Task<(long LastId,IReadOnlyList<RelationRowPatch> Patches)> LockScalarBatchAsync(
+        MaintenanceTable table,string project,long after,DbTransaction transaction,CancellationToken token)
+    {
+        var plan=table.Read!;
+        if(plan.RequiresPublishedProjectIdentity&&project!=plan.ProjectId)
+            throw new UnauthorizedAccessException("当前身份不属于已发布全局来源目录。");
+        var fields=table.Fields;
+        var oldValues=fields.Select(field=>"b."+Q(field.Name));
+        var newValues=fields.Select(field=>plan.OutputExpression(field.Name));
+        var idExpression=plan.Expression("id");
+        await using var command=Command(transaction);
+        command.CommandText="SELECT "+idExpression+","+string.Join(",",oldValues.Concat(newValues))+plan.From+
+            " WHERE "+Scope(table,"b.")+(plan.Scope.Length==0?"":" AND ("+plan.Scope+")")+
+            " AND "+idExpression+">@after ORDER BY "+idExpression+" LIMIT 128"+plan.ImportMatchLock;
+        Add(command,"project",Project(table,project));
+        Add(command,"project_scope_text",project);
+        Add(command,"project_scope_number",long.Parse(project,CultureInfo.InvariantCulture));
+        Add(command,"after",after);
+        foreach(var pair in plan.Constants)Add(command,pair.Key,pair.Value);
+        var patches=new List<RelationRowPatch>();
+        var lastId=after;
+        await using var reader=await command.ExecuteReaderAsync(token);
+        while(await reader.ReadAsync(token))
+        {
+            var id=reader.GetInt64(0);
+            if(id<=lastId)throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
+            lastId=id;
+            var changes=new Dictionary<string,object?>(StringComparer.Ordinal);
+            for(var index=0;index<fields.Count;index++)
+            {
+                var oldIndex=index+1;
+                var newIndex=oldIndex+fields.Count;
+                var oldValue=await reader.IsDBNullAsync(oldIndex,token)?null:reader.GetValue(oldIndex);
+                var newValue=await reader.IsDBNullAsync(newIndex,token)?null:reader.GetValue(newIndex);
+                if(!Equals(oldValue,newValue))changes.Add(fields[index].Name,newValue);
+            }
+            if(changes.Count>0)patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(changes)));
+        }
+        return (lastId,patches.AsReadOnly());
+    }
+    /// <summary>仅单文本缓存按来源主键批量写入。所有实际值在传播前由原核验器读回，异常仍回滚整表。</summary>
+    private async Task WriteScalarBatchAsync(MaintenanceTable table,MySqlNonRedundantReadPlan plan,string project,
+        IReadOnlyList<RelationRowPatch> patches,DbTransaction transaction,CancellationToken token)
+    {
+        if(patches.Count>1&&table.Fields.Count==1&&plan.Types[table.Fields[0].Name]=="string")
+        {
+            var field=table.Fields[0].Name;
+            await using var command=Command(transaction);
+            var ids=new string[patches.Count];
+            var choices=new string[patches.Count];
+            Add(command,"project",Project(table,project));
+            for(var index=0;index<patches.Count;index++)
+            {
+                ids[index]="@row"+index;
+                choices[index]=" WHEN "+ids[index]+" THEN @value"+index;
+                Add(command,"row"+index,patches[index].Id);
+                Add(command,"value"+index,patches[index].Values[field]);
+            }
+            command.CommandText="UPDATE "+Q(table.Option.TableName)+" SET "+Q(field)+"=CASE `id`"+
+                string.Concat(choices)+" END WHERE "+Scope(table)+" AND `id` IN ("+string.Join(",",ids)+") ORDER BY `id`";
+            if(await command.ExecuteNonQueryAsync(token)!=patches.Count)
+                throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
+        }
+        else
+        {
+            foreach(var patch in patches)await Update(table,patch.Id,project,patch.Values,transaction,token);
+        }
+        await RelationCacheStorageVerifier.VerifyManyAsync(session,table.Option.TableName,Scope(table,"c."),
+            Project(table,project),patches,transaction,token);
     }
     /// <summary>调用方已锁来源后统一执行当前读取，只写本次事件允许的派生列，返回实际变化供同事务队列继续传播。</summary>
     internal async Task<IReadOnlyList<RelationRowPatch>> RefreshLockedAsync(MaintenanceTable table,IReadOnlyList<Dictionary<string,object?>> rows,string projectId,IReadOnlySet<string>? allowed,CancellationToken token)

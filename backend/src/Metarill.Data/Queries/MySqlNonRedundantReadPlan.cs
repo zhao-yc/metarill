@@ -69,7 +69,7 @@ public sealed class MySqlNonRedundantReadPlan
     internal IReadOnlyList<string> SourceDependencies {get;}
     internal IReadOnlyDictionary<string,MySqlValueOrigin> Origins {get;}
     internal string From { get; }
-    /// <summary>覆盖匹配直接排他锁定待写来源行，其余已编译联接保持共享锁。</summary>
+    /// <summary>覆盖匹配和整表标量维护锁定待写来源行，其余已编译联接保持共享锁。</summary>
     internal string? ImportMatchLock { get; init; }
     internal string Scope { get; }
     internal string ProjectId { get; }

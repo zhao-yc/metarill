@@ -6,6 +6,7 @@ using Metarill.Data;
 using Metarill.Data.Relations;
 using Metarill.Data.Schema;
 using Metarill.Runtime.Persistence;
+using MySqlConnector;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -86,11 +87,46 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         Assert.Equal(new[] { DatabaseTransactionOperation.Begin, DatabaseTransactionOperation.Commit }, trace.Transactions.Select(entry => entry.Operation));
         Assert.All(trace.Commands, command => Assert.True(command.Succeeded));
         var writes = trace.Commands.Count(command => command.Operation == DatabaseCommandOperation.NonQuery);
-        Assert.Equal(result.AffectedRows, writes);
+        Assert.Equal(2, writes);
         Assert.Equal(2, VerificationReads(trace));
-        Assert.Equal(113, trace.Commands.Count);
+        Assert.Equal(3, trace.Commands.Count(command => command.Sql.Contains("FOR UPDATE OF b FOR SHARE OF", StringComparison.Ordinal)));
+        Assert.Equal(14, trace.Commands.Count);
         output.WriteLine($"显式单级联接物理结果一致。活动行={ActiveRows}，实际变化={result.AffectedRows}，C# 观测SQL={trace.Commands.Count}，其中写入={writes}。未计时。");
+        await VerifyLockModesAsync(session, compiled);
         await VerifyLateTruncationAsync(session, catalog, store);
+    }
+
+    /// <summary>无变化回填同样持有来源排他锁及目标共享锁，直到调用方事务退出。</summary>
+    private static async Task VerifyLockModesAsync(DatabaseSession session, RelationMaintenanceCatalog catalog)
+    {
+        await using var observer = session.Provider.CreateConnection(session.Options);
+        await observer.OpenAsync();
+        async Task<long> ProbeAsync(string table, long id, string mode)
+        {
+            await using var transaction = await observer.BeginTransactionAsync();
+            await using var command = observer.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = $"SELECT id FROM {table} WHERE id=@id FOR {mode} NOWAIT";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "id";
+            parameter.Value = id;
+            command.Parameters.Add(parameter);
+            return Assert.IsType<long>(await command.ExecuteScalarAsync());
+        }
+
+        var source = BaseId + 1000;
+        await session.InTransactionAsync(async () =>
+        {
+            Assert.Equal(0, (await new RelationMaintenanceExecutor(session).BackfillAsync(catalog, "1")).AffectedRows);
+            var sourceBlocked = await Assert.ThrowsAsync<MySqlException>(() => ProbeAsync(Source, source, "SHARE"));
+            Assert.Equal(3572, sourceBlocked.Number);
+            Assert.Equal(BaseId, await ProbeAsync(Target, BaseId, "SHARE"));
+            var targetBlocked = await Assert.ThrowsAsync<MySqlException>(() => ProbeAsync(Target, BaseId, "UPDATE"));
+            Assert.Equal(3572, targetBlocked.Number);
+            return true;
+        });
+        Assert.Equal(source, await ProbeAsync(Source, source, "UPDATE"));
+        Assert.Equal(BaseId, await ProbeAsync(Target, BaseId, "UPDATE"));
     }
 
     /// <summary>末批出现真实非严格模式截断时，已核验并写入的前批也必须回滚。</summary>
