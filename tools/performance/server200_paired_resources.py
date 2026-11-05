@@ -183,6 +183,9 @@ EXCEL_EXPORT_PREFLIGHT_REQUESTS = 12
 EXCEL_EXPORT_MEASUREMENT_NATIVE = "paired-native-unicode-excel-export-v1"
 EXCEL_EXPORT_MEASUREMENT_RESOURCES = "paired-unicode-excel-export-resources-v1"
 EXCEL_EXPORT_REPLAY_REQUESTS = 2784
+EXCEL_EXPORT_HOT_PATH_NATIVE = "paired-native-excel-export-hot-path-v1"
+EXCEL_EXPORT_HOT_PATH_RESOURCES = "paired-excel-export-hot-path-resources-v1"
+EXCEL_EXPORT_HOT_PATH_IMAGES = {**UNICODE_OBSERVED_IMAGES, "csharp": "sha256:432794208342a8aafeb6407031909835c16fb7dc5c5982d15cb539f10881f38b"}
 UNICODE_OBSERVATION_DATA_SHA256 = "b0ace0df121fe7b98321eacfbc920a345dffd5e7c44f1c560e1fe858916c8bf7"
 WRITE_REQUEST_BUDGET = 8624
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
@@ -244,7 +247,12 @@ def is_excel_export_preflight(value):
 
 def is_excel_export_measurement(value):
     """独立计时租约才允许原三页导出回放。"""
-    return value.get("purpose") in (EXCEL_EXPORT_MEASUREMENT_NATIVE, EXCEL_EXPORT_MEASUREMENT_RESOURCES)
+    return value.get("purpose") in (EXCEL_EXPORT_MEASUREMENT_NATIVE, EXCEL_EXPORT_MEASUREMENT_RESOURCES) or is_excel_export_hot_path(value)
+
+
+def is_excel_export_hot_path(value):
+    """修正后的独立用途保留原回放预算并绑定新导出程序集。"""
+    return value.get("purpose") in (EXCEL_EXPORT_HOT_PATH_NATIVE, EXCEL_EXPORT_HOT_PATH_RESOURCES)
 
 
 def uses_excel_export(value):
@@ -269,6 +277,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
+    if is_excel_export_hot_path(value): return EXCEL_EXPORT_HOT_PATH_IMAGES
     if is_unicode_observed(value) or is_unicode_read_measurement(value) or is_unicode_write_measurement(value) or is_excel_import_measurement(value) or uses_excel_export(value): return UNICODE_OBSERVED_IMAGES
     if is_pattern_observed(value): return PATTERN_OBSERVED_IMAGES
     if is_full_observed(value): return FULL_OBSERVED_IMAGES
@@ -298,7 +307,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, EXCEL_IMPORT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_PREFLIGHT_RESOURCES, EXCEL_EXPORT_MEASUREMENT_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, UNICODE_WRITE_MEASUREMENT_RESOURCES, EXCEL_IMPORT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_PREFLIGHT_RESOURCES, EXCEL_EXPORT_MEASUREMENT_RESOURCES, EXCEL_EXPORT_HOT_PATH_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES, UNICODE_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")

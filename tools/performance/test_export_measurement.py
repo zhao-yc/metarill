@@ -19,6 +19,11 @@ class ExportMeasurementTests(unittest.TestCase):
         valid = {**value, "purpose": resources.EXCEL_EXPORT_MEASUREMENT_NATIVE,
                  "exportReplayRequests": subject.REPLAY_REQUESTS}
         self.assertEqual(resources.EXCEL_EXPORT_MEASUREMENT_RESOURCES, native.validate(valid)["purpose"])
+        patched = {**valid, "purpose": resources.EXCEL_EXPORT_HOT_PATH_NATIVE, "images": resources.EXCEL_EXPORT_HOT_PATH_IMAGES}
+        self.assertEqual(resources.EXCEL_EXPORT_HOT_PATH_RESOURCES, native.validate(patched)["purpose"])
+        for mismatched in ({**valid, "images": patched["images"]}, {**patched, "images": valid["images"]}):
+            with self.assertRaises(ValueError):
+                native.validate(mismatched)
         for invalid in ({**valid, "authorizationStatus": "pending"}, {**valid, "exportReplayRequests": 2785},
                         {**valid, "readReplayRequests": 19336}, {**value, "exportReplayRequests": 2784}):
             with mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止 I/O")):
