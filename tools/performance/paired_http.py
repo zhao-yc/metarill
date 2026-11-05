@@ -157,11 +157,11 @@ def read_binary(response, step):
     return BinaryResponse(received, actual)
 
 
-def validate(config):
+def validate(config, *, minimum_iterations=100):
     """连接前验证完整实验配置；绝不替缺失证明补造默认成功。"""
     if config.get("version") != 1 or not re.fullmatch(r"[a-f0-9]{32}", config.get("runId", "")):
         raise ContractError("缺少版本或固定32位runId")
-    for key, minimum in (("rounds", 3), ("iterations", 100), ("warmupIterations", 1)):
+    for key, minimum in (("rounds", 3), ("iterations", minimum_iterations), ("warmupIterations", 1)):
         if type(config.get(key)) is not int or config[key] < minimum:
             raise ContractError("轮次、次数或预热次数不合法")
     concurrency = config.get("concurrency")
@@ -527,9 +527,9 @@ def compare_pair(java, csharp, config):
     return result
 
 
-def run(config, probe, transport=request, on_event=lambda _: None):
+def run(config, probe, transport=request, on_event=lambda _: None, *, minimum_iterations=100, resource_probe=None):
     """预热不计正式结果，逐轮交替顺序；写入场景必须自带正常清理步骤。"""
-    validate(config)
+    validate(config, minimum_iterations=minimum_iterations)
     before = equal_limits(probe, config["targets"])
     transport_evidence = verify_transport(config, probe, before)
     on_event({"kind": "container-preflight", "actualLimits": before, "transportEvidence": transport_evidence})
@@ -547,7 +547,7 @@ def run(config, probe, transport=request, on_event=lambda _: None):
                 trials = {}
                 for name in order:
                     on_event({"kind": "trial-intent", "scenario": scenario["name"], "concurrency": concurrency, "round": round_index, "target": name})
-                    trials[name] = run_trial(config, config["targets"][name], scenario, concurrency, round_index, "measured", config["iterations"], transport, probe)
+                    trials[name] = run_trial(config, config["targets"][name], scenario, concurrency, round_index, "measured", config["iterations"], transport, resource_probe if resource_probe is not None else probe)
                     on_event({"kind": "trial", "scenario": scenario["name"], "concurrency": concurrency, "round": round_index, "target": name, "trial": trials[name]})
                 pair = compare_pair(trials["java"], trials["csharp"], config)
                 pair["resourcesComplete"] = all(trial["resourceSampleCount"] >= 2 and not trial["resourceErrors"] for trial in trials.values())

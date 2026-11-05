@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 import paired_import_measurement as subject
+import paired_cgroup_probe as cgroups
 import paired_measurement_fixture as fixture
 import paired_native_bootstrap as native
 import test_indexed_write_measurement as indexed
@@ -69,6 +70,83 @@ class ImportMeasurementContracts(unittest.TestCase):
                        {"fileReplayRequests": 4834}, {"relationIndexProfile": None}):
             with self.subTest(change=change), mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止IO")), self.assertRaises(ValueError):
                 native.run({**value, **change})
+
+    def test_parent_profile_keeps_fixed_lease_and_two_original_routes(self):
+        """父表计时与历史三页授权隔离，保留真实工作簿、原关系列和对应的固定预算。"""
+        resources = native.resources
+        parent = subject.PARENT_PAGES
+        value = {**scope(), "purpose": resources.EXCEL_IMPORT_PARENT_NATIVE, "workbookReplayRequests": parent.requests}
+        self.assertEqual(resources.EXCEL_IMPORT_PARENT_RESOURCES, native.validate(value)["purpose"])
+        for bad in ({**value, "workbookReplayRequests": 3696}, {**scope(), "workbookReplayRequests": 928},
+                    {**value, "authorizationStatus": "pending"}):
+            with mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止IO")), self.assertRaises(ValueError):
+                native.run(bad)
+        run = read_tests.RUN
+        workbooks = subject.prepare_workbooks(run, workbook_stub, parent)
+        targets = {side: {**item, "expectedImageId": resources.UNICODE_OBSERVED_IMAGES[side]}
+                   for side, item in read_tests.TARGETS.items()}
+        tokens = {(side, "writer"): "offline" for side in targets}
+        config = subject.config_for(run, targets, tokens, workbooks, parent)
+        self.assertEqual((36, 232, 928), (config["iterations"], parent.replays, parent.requests))
+        steps = config["scenarios"][0]["steps"]
+        self.assertEqual(["importDatas81001", "importDatas81002"], [s["path"].rsplit("/", 1)[1] for s in steps])
+        self.assertTrue(all("parentId" not in step["json"] for step in steps))
+        self.assertEqual("性能客户-0000", steps[1]["json"]["requestJson"][0]["客户"])
+        with self.assertRaises(ValueError):
+            subject.http.validate(config)  # 通用 CLI 仍要求至少 100 个场景。
+
+    def test_parent_profile_still_reads_and_rejects_unexpected_child_rows(self):
+        """父表仅计时已对照的两页，但不能忽略同一运行前缀的子表副作用。"""
+        run = read_tests.RUN
+        parent = subject.PARENT_PAGES
+        sql = {kind: subject.sample_sql(run, "java", kind, parent) for kind, *_ in subject.TABLES}
+        rows = {sql[kind]: wire(run, kind, parent.replays) for kind, *_ in parent.tables}
+        rows[sql["line"]] = ""
+        self.assertEqual({"customer": 1856, "contract": 1856},
+                         subject.verify_readback(run, "java", rows.__getitem__, workload=parent))
+        rows[sql["line"]] = wire(run, "line", subject.WARMUP)
+        with self.assertRaisesRegex(ValueError, "sample-collision"):
+            subject.verify_readback(run, "java", rows.__getitem__, workload=parent)
+
+    def test_parent_runner_requires_two_physical_warmups_and_complete_append_counts(self):
+        """按真实协调流程执行两档独立预热和最终读回，并绑定已证的内核探针。"""
+        parent = subject.PARENT_PAGES
+        run = read_tests.RUN
+        targets = {side: {**item, "expectedImageId": native.resources.UNICODE_OBSERVED_IMAGES[side]}
+                   for side, item in read_tests.TARGETS.items()}
+        tokens = {(side, "writer"): "offline" for side in targets}
+        layouts = {subject.sample_sql(run, side, kind, parent): kind for side in targets for kind, *_ in subject.TABLES}
+        sampler = mock.Mock()
+        count = 0
+
+        def query(sql):
+            """返回固定页的完整物理追加，子页始终为空。"""
+            kind = layouts[sql]
+            return wire(run, kind, count) if count and kind != "line" else ""
+
+        def trials(output, config, probe, reader, profile, *, transport, check_event, minimum_iterations, resource_probe):
+            """按原回放事件驱动真实预热检查，限制只为本负载显式传入。"""
+            nonlocal count
+            self.assertEqual(36, minimum_iterations)
+            self.assertIs(sampler, resource_probe)
+            self.assertEqual(parent.name, profile)
+            for level, count in ((1, 8), (4, 124)):
+                for side in targets:
+                    rows = [{"fingerprints": ["客户", "合同"]} for _ in range(8)]
+                    check_event({"kind": "warmup", "concurrency": level, "target": side,
+                                 "trial": {"failedScenarios": 0, "rows": rows}})
+            count = parent.replays
+            return {"measurementValid": True, "stableRegression": False}
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(subject, "run_trials", side_effect=trials), \
+             mock.patch.object(subject.http, "equal_limits", return_value={}), \
+             mock.patch.object(subject.http, "verify_transport"), mock.patch.object(cgroups, "CgroupProbe", return_value=sampler):
+            result = subject.run_import_measurement(Path(folder), run, targets, tokens, None, query, workbook_stub, workload=parent)
+            self.assertEqual({side: {"customer": 1856, "contract": 1856} for side in targets}, result["importReadback"])
+            self.assertEqual(cgroups.METHOD, result["resourceSource"])
+            self.assertEqual(24, len(list((Path(folder) / "measurement").glob("*.tsv"))))
+            self.assertEqual(2, len(list((Path(folder) / "measurement").glob("*.xlsx"))))
+        sampler.verify.assert_called_once()
 
     def test_real_routes_share_verified_parse_results_and_fixed_parent(self):
         """同一工作簿解析结果进入两端原路由；伪造格值、父范围或容器镜像均拒绝。"""

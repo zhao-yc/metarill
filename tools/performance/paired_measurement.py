@@ -94,7 +94,7 @@ def run_read_measurement(root,run,targets,tokens,probe,query):
     return run_trials(output,config,probe,query,"original-read-only")
 
 
-def run_trials(output,config,probe,query,profile,*,transport=None,check_event=None):
+def run_trials(output,config,probe,query,profile,*,transport=None,check_event=None,minimum_iterations=100,resource_probe=None):
     """两种测量共用资源、共享库状态和私有日志，保留各自请求边界。"""
     initial=database_context(query)
     settings_unchanged=True
@@ -111,6 +111,8 @@ def run_trials(output,config,probe,query,profile,*,transport=None,check_event=No
         if check_event is not None:
             check_event(event)
     options={} if transport is None else {"transport":transport}
+    if minimum_iterations != 100: options["minimum_iterations"] = minimum_iterations
+    if resource_probe is not None: options["resource_probe"] = resource_probe
     report=http.run(config,probe,on_event=journal,**options)
     final=database_context(query)
     report.update(databaseBefore=initial,databaseAfter=final,databaseVariablesUnchanged=settings_unchanged and initial["variables"]==final["variables"])
