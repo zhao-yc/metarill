@@ -46,10 +46,14 @@ THREE_PAGES = ImportWorkload(PROFILE, TABLES, ITERATIONS, REQUESTS)
 PARENT_PAGES = ImportWorkload("paired-original-parent-excel-append-v1", TABLES[:2], 36, EXCEL_IMPORT_PARENT_REQUESTS)
 
 
+class ImportContractError(ValueError):
+    """区分预期校验失败与查询、编码和工具故障。"""
+
+
 def require(ok, position):
     """只向上层报告断言位置，保留原计时与物理证据。"""
     if not ok:
-        raise ValueError("measurement-import-" + position)
+        raise ImportContractError("measurement-import-" + position)
 
 
 def verify_java_catalog(raw):
@@ -220,9 +224,20 @@ def run_import_measurement(root, run, targets, tokens, probe, query, make_workbo
             require(warmups[concurrency, "java"] == warmups[concurrency, "csharp"], "warmup-response")
             replays = WARMUP if concurrency == CONCURRENCY[0] else ROUNDS * workload.iterations + 2 * WARMUP
             snapshots = {side: snapshot(f"warmup-{concurrency}", side) for side in ("java", "csharp")}
-            warmup_readbacks[str(concurrency)] = {
-                side: verify_readback(run, side, raw, replays=replays, workload=workload) for side, raw in snapshots.items()
-            }
+            counts, errors = {}, {}
+            for side, raw in snapshots.items():
+                try:
+                    counts[side] = verify_readback(run, side, raw, replays=replays, workload=workload)
+                except ImportContractError as error:
+                    errors[side] = str(error)
+            if errors:
+                # 两端独立核对后再阻断计时，区分单边漏写与两边都未完成预期写入。
+                (output / "warmup-mismatch.json").write_bytes(http.canonical({
+                    "concurrency": concurrency, "expectedBatchesPerSide": replays,
+                    "verifiedRowCounts": counts, "errors": errors,
+                }))
+                raise ImportContractError(next(iter(errors.values())))
+            warmup_readbacks[str(concurrency)] = counts
             (output / "warmup-readback.json").write_bytes(http.canonical(warmup_readbacks))
 
     options = {}

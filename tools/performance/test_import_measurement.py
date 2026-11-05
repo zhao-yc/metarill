@@ -3,6 +3,7 @@ import base64
 import contextlib
 import hashlib
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -198,15 +199,17 @@ class ImportMeasurementContracts(unittest.TestCase):
         tokens = {(side, "writer"): "offline" for side in targets}
         lookups = {subject.sample_sql(run, side, kind): kind
                    for side in targets for kind, *_ in subject.TABLES}
-        for failure in (None, "warmup-response", "sample-parent"):
+        for failure in (None, "warmup-response", "sample-parent", "both-readbacks"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as folder:
                 stage = [0]
 
                 def query(sql):
                     raw = wire(run, lookups[sql], stage[0]) if stage[0] else ""
-                    if failure == "sample-parent" and stage[0] and sql == subject.sample_sql(run, "java", "line"):
+                    if failure in ("sample-parent", "both-readbacks") and stage[0] and sql == subject.sample_sql(run, "java", "line"):
                         parent = str(fixture.ID_BASE + 10000)
                         return raw.replace(f"\t{parent}\t", "\tNULL\t")
+                    if failure == "both-readbacks" and stage[0] and sql == subject.sample_sql(run, "csharp", "customer"):
+                        return ""
                     return raw
 
                 def trials(output, config, probe, query, profile, *, transport, check_event):
@@ -222,11 +225,23 @@ class ImportMeasurementContracts(unittest.TestCase):
 
                 with mock.patch.object(subject, "run_trials", side_effect=trials):
                     if failure:
-                        with self.assertRaisesRegex(ValueError, failure):
+                        with self.assertRaisesRegex(ValueError, "warmup-response" if failure == "warmup-response" else "sample-parent"):
                             subject.run_import_measurement(Path(folder), run, targets, tokens, None, query, workbook_stub)
                         self.assertFalse((Path(folder) / "measurement/warmup-readback.json").exists())
                         snapshots = (Path(folder) / "measurement").glob("import-warmup-1-*.tsv")
-                        self.assertEqual(6 if failure == "sample-parent" else 0, len(list(snapshots)))
+                        self.assertEqual(0 if failure == "warmup-response" else 6, len(list(snapshots)))
+                        mismatch = Path(folder) / "measurement/warmup-mismatch.json"
+                        if failure == "warmup-response":
+                            self.assertFalse(mismatch.exists())
+                        else:
+                            errors = {"java": "measurement-import-sample-parent"}
+                            counts = {"csharp": dict.fromkeys(("customer", "contract", "line"), 64)}
+                            if failure == "both-readbacks":
+                                errors["csharp"] = "measurement-import-sample-count"
+                                counts = {}
+                            self.assertEqual({"concurrency": 1, "expectedBatchesPerSide": 8,
+                                              "verifiedRowCounts": counts, "errors": errors},
+                                             json.loads(mismatch.read_bytes()))
                     else:
                         result = subject.run_import_measurement(Path(folder), run, targets, tokens, None, query, workbook_stub)
                         self.assertEqual(4928, result["importReadback"]["csharp"]["line"])
