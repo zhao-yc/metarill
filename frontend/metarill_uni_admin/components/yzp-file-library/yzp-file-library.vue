@@ -744,13 +744,7 @@ export default {
       }
       var that = this
       this.resolving = true
-      this.request({
-        url: '/admin/sys/file-library/resolve',
-        method: 'POST',
-        data: {
-          fileIds: ids
-        }
-      }).then(function(rows) {
+      this.resolveAccessForDisplay(ids).then(function(rows) {
         var map = {}
         ;(rows || []).forEach(function(row) {
           map[row.fileId] = row
@@ -781,13 +775,7 @@ export default {
         return
       }
       var that = this
-      this.request({
-        url: '/admin/sys/file-library/resolve',
-        method: 'POST',
-        data: {
-          fileIds: ids
-        }
-      }).then(function(rows) {
+      this.resolveAccessForDisplay(ids).then(function(rows) {
         var map = {}
         ;(rows || []).forEach(function(row) {
           map[row.fileId] = row
@@ -816,13 +804,7 @@ export default {
         return
       }
       var that = this
-      this.request({
-        url: '/admin/sys/file-library/resolve',
-        method: 'POST',
-        data: {
-          fileIds: ids
-        }
-      }).then(function(rows) {
+      this.resolveAccessForDisplay(ids).then(function(rows) {
         var map = {}
         ;(rows || []).forEach(function(row) {
           map[row.fileId] = row
@@ -833,6 +815,17 @@ export default {
             that.replaceFilePreview('libraryFiles', updatedFile)
           }) : file
         })
+      })
+    },
+    /** 后台预览按原组件交互降级，文件不可读时保留条目与选择。 */
+    resolveAccessForDisplay(fileIds) {
+      return this.request({
+        url: '/admin/sys/file-library/resolve',
+        method: 'POST',
+        data: { fileIds: fileIds },
+        showError: false
+      }).catch(function() {
+        return []
       })
     },
     /**
@@ -1986,6 +1979,7 @@ export default {
           url: options.url,
           method: options.method || 'GET',
           data: options.data || {},
+          showError: options.showError,
           sendSessionId: true,
           success: function(res) {
             if (res.code === 200) {

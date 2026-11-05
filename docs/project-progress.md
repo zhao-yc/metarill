@@ -592,6 +592,7 @@
 | V259 | 🟡 普通账号 Excel 浏览器操作通过，独立复核待补 | FullApplication、HBuilderX Web、ego lite、Server-200 Production | 原菜单／文件选择导入／下载及注销通过。落盘工作簿逐值核对通过；独立 MySQL verify 阶段失败，整轮资源已核零。 | [验收记录](testing/ordinary-excel-browser-v259.md)，2026-11-05 |
 | V260 | ✅ 普通账号 Excel 浏览器与独立实库复验通过 | 逐字复用 V259 的 H5、正式宿主和工作簿，新 Server-200 独占库 | 原浏览器导入、落盘、逐值读取和注销通过；MySQL 物理行、审计写入人及会话逐项通过，原失败复现为排序规则冲突，临时资源已核零。 | [正式复验](testing/ordinary-excel-browser-readback-v260.md)，2026-11-05 |
 | V261 | ✅ 共享级联普通账号附件固定链通过 | Production 独立完整包、Server-200 MySQL、ego lite 桌面 | 原上传、保存重开、实际 ZIP 下载和注销通过，独立核对附件 ID、有效引用及原关系，匿名 401。首轮权限及到期结果留证，复验通过并核零；保存前两次解析提示仍待处理。 | [正式验收](testing/ordinary-shared-attachments-v261.md)，2026-11-05 |
+| V262 | 🟡 后台附件解析交互已恢复，正式复验待执行 | 原文件库组件与独立应用请求适配 | 三处后台解析拒绝时保留文件与选项，可在绑定后重试；主动预览仍显示拒绝提示。前端 358 项通过（含新增两项），固定包／真实浏览器／MySQL 复验待执行。 | [原链路与缺口](testing/ordinary-shared-attachments-v261.md)，2026-11-05 |
 
 ## 五、后续数据库（MySQL 首版完整验收后逐批推进）
 
