@@ -12,6 +12,31 @@ FIELDS={'sample_customer':{'name','remarks'},'sample_contract':{'name','sample_c
 STEPS=('customer-add','customer-detail-create','customer-omit-update','customer-detail-omit','customer-clear-update','customer-detail-clear','customer-copy','customer-copy-update','reader-detail','reader-update-denied','denied-detail','customer-page','customer-count','contract-add','contract-detail-create','contract-pending','business-preview','business-rollback','contract-detail-after-rollback','business-complete','contract-detail-complete','business-replay-conflict','line-add','line-detail-create','child-page','customer-rename','contract-detail-rename','contract-rename','line-detail-rename','line-omit-update','line-detail-omit','line-delete','child-count-after-delete','contract-delete','customer-copy-delete','customer-delete','customer-count-after-delete')
 
 
+# 原Java实际依赖枚举证明的八项差异；只用于新Unicode采集，不扩大原37业务步骤。
+UNICODE_BLANK_CASES=(("0085",False),("00A0",False),("2007",False),("202F",False),("001C",True),("001D",True),("001E",True),("001F",True))
+
+
+def unicode_read_counts(value,target,query):
+    """仅在独占当前用途读取固定客户表；用独立MySQL表达式求基线，不调用待测生成筛选。"""
+    require(type(value.get('version')) is int and value['version']==1 and value.get('purpose')==resources.UNICODE_OBSERVED_BUSINESS and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='running','business-unicode-lease')
+    run=value.get('runId');require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'business-unicode-run')
+    names=['metarill_fresh_'+run[:16]+'_paired_'+side for side in ('java','csharp')]
+    require(target in ('java','csharp') and value.get('databases')==names and value.get('user')=='mtf_'+run[:16] and value.get('images')==resources.UNICODE_OBSERVED_IMAGES and value.get('instancePin')==PIN,'business-unicode-scope')
+    require(query('SELECT @@hostname,@@server_uuid;')==PIN['hostname']+'\t'+PIN['serverUuid'],'business-unicode-instance')
+    database=names[('java','csharp').index(target)]
+    base='SELECT COUNT(*) FROM `'+database+'`.`sample_customer` WHERE delete_no IS NULL'
+    require(query(base+';')=='2','business-unicode-nonempty-fixture')
+    result={}
+    for code,blank in UNICODE_BLANK_CASES:
+        if blank:result[code]=2;continue
+        # 字符来自固定代码点，SQL只嵌固定UTF8十六进制，绝不接收调用方关键词或任意表达式。
+        encoded=chr(int(code,16)).encode('utf-8').hex()
+        count=query(base+" AND name LIKE CONCAT('%',CONVERT(UNHEX('"+encoded+"') USING utf8mb4),'%');")
+        require(type(count) is str and re.fullmatch('0|[1-9][0-9]*',count),'business-unicode-baseline')
+        result[code]=int(count)
+    return result
+
+
 # 原37步保持可重放；新验收将既有明细提到按钮前，并加入同父墓碑与其它父对照。
 CONTROL_SETUP=('control-contract-add','control-line-add','tombstone-line-add','tombstone-line-delete')
 CONTROL_CLEANUP=('control-line-delete','control-contract-delete')
@@ -43,7 +68,7 @@ def authorize(value,tokens,*,existing_lines=False):
     """所有I/O前核用途、直接批准、唯一双库、固定新镜像及三普通登录令牌。"""
     run=value.get('runId');require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'business-run')
     databases=['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')]
-    purpose=resources.EXISTING_LINE_BUSINESS if existing_lines else resources.PATTERN_OBSERVED_BUSINESS if resources.is_pattern_observed(value) else resources.FULL_OBSERVED_BUSINESS if resources.is_full_observed(value) else resources.CURRENT_OBSERVED_BUSINESS if resources.is_current_observed(value) else 'paired-observed-business-v1'
+    purpose=resources.EXISTING_LINE_BUSINESS if existing_lines else resources.UNICODE_OBSERVED_BUSINESS if resources.is_unicode_observed(value) else resources.PATTERN_OBSERVED_BUSINESS if resources.is_pattern_observed(value) else resources.FULL_OBSERVED_BUSINESS if resources.is_full_observed(value) else resources.CURRENT_OBSERVED_BUSINESS if resources.is_current_observed(value) else 'paired-observed-business-v1'
     if resources.is_extended_business(value) and not existing_lines: purpose=resources.IMPORT_RULE_BUSINESS if resources.is_import_rule_business(value) else resources.DEEP_EXCEL_BUSINESS if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS
     images=resources.EXISTING_LINE_IMAGES if existing_lines else resources.images_for(value) if resources.is_full_observed(value) else resources.CURRENT_MEASUREMENT_IMAGES if resources.is_current_observed(value) else resources.OBSERVATION_IMAGES
     if resources.is_extended_business(value) and not existing_lines: images=resources.images_for(value)

@@ -18,7 +18,7 @@ IDENTITY_STEPS=('ready','wrong-password','login-writer','page-writer','login-rea
 def authorize(value):
     """纯内存核新用途和双库范围，pending／ended在读取目录或执行网络前拒绝。"""
     run=value.get('runId');reader.require(type(run) is str and re.fullmatch('[a-f0-9]{32}',run),'capture-run')
-    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose') in ('paired-native-observed-v1',resources.EXISTING_LINE_NATIVE,resources.CURRENT_OBSERVED_NATIVE,resources.FULL_OBSERVED_NATIVE,resources.PATTERN_OBSERVED_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
+    reader.require(type(value.get('version')) is int and value['version']==1 and value.get('purpose') in ('paired-native-observed-v1',resources.EXISTING_LINE_NATIVE,resources.CURRENT_OBSERVED_NATIVE,resources.FULL_OBSERVED_NATIVE,resources.PATTERN_OBSERVED_NATIVE,resources.UNICODE_OBSERVED_NATIVE) and value.get('authorizationStatus')=='approved' and value.get('leaseStatus')=='not-started','capture-lease')
     reader.require(resources.images_for(value) is not None and value.get('images')==resources.images_for(value) and value.get('instancePin')==business.PIN and value.get('databases')==['metarill_fresh_'+run[:16]+'_paired_'+target for target in ('java','csharp')] and value.get('user')=='mtf_'+run[:16],'capture-scope')
     ports=value.get('ports');reader.require(type(ports) is dict and set(ports)=={'java','csharp'} and all(type(port) is int and 20000<=port<=40000 for port in ports.values()) and len(set(ports.values()))==2,'capture-ports')
     return run
@@ -43,14 +43,18 @@ def expected_steps(value,target,*,existing_lines=False):
         elif name=='business-rollback':outcome=(200,500)
         elif name=='business-replay-conflict':outcome=(200,500) if target=='java' else (409,409)
         rows.append(('business:'+name,outcome))
+        if resources.is_unicode_observed(value) and name=='customer-count':
+            rows.extend(('unicode:count-'+code,(200,200)) for code,_ in business.UNICODE_BLANK_CASES)
     return [{'step':step,'sample':sample(value['runId'],target,step),'statusAtExit':outcome[0],'expectedCode':outcome[1],'chainSucceeded':True} for step,outcome in rows]
 
 
 class Exchange:
     """只把固定step关联到原sender；令牌、正文和响应数据均不写请求账本。"""
-    def __init__(self,value,sender):
+    def __init__(self,value,sender,*,unicode_counts=None):
         authorize(value);self.value=json.loads(json.dumps(value));self.sender=sender;self.sent={'java':[],'csharp':[]};self.finished={'java':[],'csharp':[]}
         self.existing_lines=resources.is_existing_lines(value)
+        reader.require(callable(unicode_counts) if resources.is_unicode_observed(value) else unicode_counts is None,'capture-unicode-baseline')
+        self.unicode_counts=unicode_counts;self.unicode_facts={'java':[],'csharp':[]}
         self.plans={target:expected_steps(value,target,existing_lines=self.existing_lines) for target in ('java','csharp')}
 
     def call(self,target,step,method,path,body=None,token=None,form=False):
@@ -68,15 +72,36 @@ class Exchange:
 
     def business_request(self,target,step,method,path,body,token):
         """原业务只消费已取得的真实令牌；不重新构造身份或向业务正文添加采集字段。"""
-        status,result=self.call(target,'business:'+step,method,path,body,token);return status,result
+        status,result=self.call(target,'business:'+step,method,path,body,token)
+        if resources.is_unicode_observed(self.value) and step=='customer-count':
+            # 只在原客户及副本存在时插入八个只读对照；原业务仍收到未改写的原计数结果。
+            prefix='配对客户-'+self.value['runId'][:16]
+            reader.require(method=='POST' and path==business.ROOTS['customer']+'/count' and type(body) is dict and body.get('filters')=={'name':prefix} and type(result.get('data')) is int and result['data']==2,'capture-unicode-anchor')
+            expected=self.unicode_counts(target)
+            reader.require(type(expected) is dict and set(expected)=={code for code,_ in business.UNICODE_BLANK_CASES} and all(type(n) is int and n>=0 for n in expected.values()),'capture-unicode-baselines')
+            for code,blank in business.UNICODE_BLANK_CASES:
+                if blank:reader.require(expected[code]==2,'capture-unicode-blank-fixture')
+                request=json.loads(json.dumps(body));request['filters']={'name':chr(int(code,16))}
+                _,response=self.call(target,'unicode:count-'+code,method,path,request,token)
+                actual=response.get('data');reader.require(type(actual) is int and actual==expected[code],'capture-unicode-count')
+                self.unicode_facts[target].append({'codePoint':code,'javaBlank':blank,'expectedCount':expected[code],'actualCount':actual})
+        return status,result
 
     def complete(self):
         """两端原身份和全部业务步骤都必须完成，不能只看一个successful trace。"""
         reader.require(all(len(self.finished[target])==len(self.plans[target]) for target in self.plans),'capture-client-coverage')
+        if resources.is_unicode_observed(self.value):
+            for target in self.plans:
+                facts=self.unicode_facts[target]
+                reader.require(type(facts) is list and all(type(row) is dict and set(row)=={'codePoint','javaBlank','expectedCount','actualCount'} and type(row['codePoint']) is str and type(row['javaBlank']) is bool for row in facts),'capture-unicode-shape')
+                reader.require([(row.get('codePoint'),row.get('javaBlank')) for row in facts]==list(business.UNICODE_BLANK_CASES),'capture-unicode-coverage')
+                reader.require(all(type(row.get('actualCount')) is int and type(row.get('expectedCount')) is int and row['expectedCount']>=0 and row['actualCount']==row['expectedCount'] and (not row['javaBlank'] or row['actualCount']==2) for row in facts),'capture-unicode-facts')
 
     def receipt(self):
         """可保留预期采样计划，不包含请求密码、令牌、正文或服务端返回的数据。"""
-        return {'format':'metarill-paired-request-capture-plan-v1','runId':self.value['runId'],'targets':self.plans,'sent':{target:len(rows) for target,rows in self.sent.items()},'completed':{target:len(rows) for target,rows in self.finished.items()},'sqlCountExpectationsVerified':False}
+        receipt={'format':'metarill-paired-request-capture-plan-v1','runId':self.value['runId'],'targets':self.plans,'sent':{target:len(rows) for target,rows in self.sent.items()},'completed':{target:len(rows) for target,rows in self.finished.items()},'sqlCountExpectationsVerified':False}
+        if resources.is_unicode_observed(self.value):receipt['unicodeCounts']=json.loads(json.dumps(self.unicode_facts))
+        return receipt
 
 
 def wait_ready(port,timeout=90):
