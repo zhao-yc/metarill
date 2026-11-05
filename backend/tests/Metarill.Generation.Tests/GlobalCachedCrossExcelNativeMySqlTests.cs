@@ -62,7 +62,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
         var securityCatalog=await Model("security");var fileCatalog=await Model("files");var security=new SqlRowStore(session,securityCatalog);var files=new SqlRowStore(session,fileCatalog);var store=new SqlRowStore(session,catalog);
         var physical=MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(catalog,securityCatalog),fileCatalog),AgentFoundationCatalog.ForApplication(catalog));
         var ownerName="global-cross-excel-owner";var ownerPassword=Guid.NewGuid().ToString("N");var readerPassword=Guid.NewGuid().ToString("N");var permissions=new Dictionary<string,long>(StringComparer.Ordinal);var completed=new List<string>();
-        FreshHost? host=null;HttpClient? reader=null;Exception? primary=null;var passed=false;var stage="空库核对";string? token=null;Probe? active=null;
+        FreshHost? host=null;HttpClient? reader=null;using var competitor=overwrite?new HttpClient{Timeout=TimeSpan.FromSeconds(90)}:null;Exception? primary=null;var passed=false;var stage="空库核对";string? token=null;Probe? active=null;
         /// <summary>秘密仅经环境传入包内实际宿主，禁用Development身份与自动初始化。</summary>
         ProcessStartInfo Info(string? command=null)
         {
@@ -92,6 +92,14 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             });
             reader=new(){BaseAddress=host.Client.BaseAddress,Timeout=TimeSpan.FromSeconds(90)};token=await LoginOriginal(reader,readerName,readerPassword);
             Assert.False((await FreshWebHttp.SendAsync(reader,HttpMethod.Get,"/api/admin/sys/yz_manager/getCurrentPermissions")).GetProperty("data").GetProperty("isSuper").GetBoolean());
+            if(competitor is not null)
+            {
+                competitor.BaseAddress=host.Client.BaseAddress;
+                var competingToken=await LoginOriginal(competitor,readerName,readerPassword);
+                Assert.True(token!=competingToken,"并发请求必须使用不同的正式会话。");
+                var identity=await FreshWebHttp.SendAsync(competitor,HttpMethod.Get,"/api/admin/sys/yz_manager/getCurrentPermissions");
+                Assert.False(identity.GetProperty("data").GetProperty("isSuper").GetBoolean());
+            }
             var menu=await FreshWebHttp.SendAsync(reader,HttpMethod.Get,"/api/admin/sys/yz_manager/getMenu");
             await Receipt("ordinary-navigation",new{run,menu=menu.GetProperty("menu"),permissions=menu.GetProperty("permissions")});
             var probes=GlobalCachedCrossExcelMySqlLease.Profiles.Select(p=>
@@ -104,9 +112,9 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             {
                 var profile=item.profile;var probe=item.Probe;active=probe;stage=profile+"正式业务";
                 Assert.True(HasPage(menu.GetProperty("menu"),probe.SourcePage));
-                if(overwrite)await probe.VerifyOverwrite(evidence,source);else await probe.Verify();
+                if(competitor is not null)await probe.VerifyOverwrite(evidence,source,competitor);else await probe.Verify();
                 completed.Add(profile);
-                await Receipt(profile,new{run,profile,passed=true,productionWeb=true,ordinaryAccount=true,originalFormThreeFields=true,originalXlsx=true,sparseStorage=true,overwriteMatchedOriginal=overwrite,renamePropagation=!overwrite,originalMaintenance=!overwrite,realPartialDmlAndFileRollback=true,permissionRevocation=true,browserExecuted=false,performanceExecuted=false});
+                await Receipt(profile,new{run,profile,passed=true,productionWeb=true,ordinaryAccount=true,originalFormThreeFields=true,originalXlsx=true,sparseStorage=true,overwriteMatchedOriginal=overwrite,concurrentSourceWaiters=probe.ConcurrentSourceWaiters,concurrentCandidateWaiters=probe.ConcurrentCandidateWaiters,renamePropagation=!overwrite,originalMaintenance=!overwrite,realPartialDmlAndFileRollback=true,permissionRevocation=true,browserExecuted=false,performanceExecuted=false});
             }
             stage="同地址重启保持真实会话";var address=host.Client.BaseAddress;await host.DisposeAsync();host=null;host=await FreshHost.StartAsync(Info(),"/health",address);host.Client.DefaultRequestHeaders.Add("loginStateId",token);
             var first=catalog.ConfigTables.First(value=>value.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal));var firstPage=catalog.ConfigPages.Single(value=>value.ConfigTableId==first.Id);var route="/api/admin/auto/"+first.TableName+"/"+firstPage.Id+"/page";

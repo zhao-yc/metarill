@@ -65,7 +65,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
         /// <summary>固定父键仍按原字符串／整数类型写入，不从JSON回显猜存储。</summary>
         private Dictionary<string,object?> WithParent(Dictionary<string,object?> row,string field,long id){row[field]=Parent(id);return row;}
         /// <summary>真实原选档回调、普通账号覆盖、物理同一行、歧义与末段文件回滚。</summary>
-        internal async Task VerifyOverwrite(string evidence,string source)
+        internal async Task VerifyOverwrite(string evidence,string source,HttpClient competitor)
         {
             var main=catalog.ConfigColumns.Single(column=>column.ConfigTableId==SourceTable.Id&&column.ControlKind=="CascadeTree"&&column.Name=="区域");
             var create=Row("name","覆盖原行",GenerationModel.Camel(main.ColumnName),Id(At(shorter?Area:Place)));
@@ -96,8 +96,8 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             await Import(HttpStatusCode.InternalServerError,Row("区域",Full,"名称","歧义不能覆盖"));
             Assert.Equal(before,await Snapshot());
             await Send(reader,HttpMethod.Delete,Route.TrimEnd('/'),new{id=duplicate});
-            // 两行都提供有效末级键；第二行必须先在当前事务看到第一行和附件引用。
-            await FileRollback();
+            // 两行都提供有效末级键；先验证单批回滚，再验证另一会话争用同一主键。
+            await FileRollback(competitor,original);
             using var independent=new DatabaseSession(options);
             var comparison=await new SqlRowStore(independent,catalog).ReadIncludingDeletedAsync(Source,Row("name","文件成功"));
             Assert.Equal(2,comparison.Count);
@@ -178,7 +178,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
         /// <summary>DDL只由本轮固定模型生成，表名和约束名均为静态字母数字；不接受外部SQL或修改既有库。</summary>
         private async Task Sql(string sql){Stage="本轮缓存故障约束";Assert.Null(session.CurrentTransaction);await using var connection=session.Provider.CreateConnection(options);await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText=sql;await command.ExecuteNonQueryAsync();}
         /// <summary>原上传计划和multipart完成后，第二行手写规则必须实际观察到首行DML及同事务引用才故障。</summary>
-        private async Task FileRollback()
+        private async Task FileRollback(HttpClient? competitor=null,long original=0)
         {
             var bytes=Encoding.UTF8.GetBytes("全局缓存级联真实附件-"+profile);var column=catalog.ConfigColumns.Single(value=>value.ConfigTableId==SourceTable.Id&&value.ColumnName=="attachments").Id;
             const string route="/api/admin/sys/file-library/";var file=(await Post(reader,route+"upload-plan",new{originalName="global-cross-excel.txt",mimeType="text/plain",sizeBytes=bytes.Length,configColumnId=column})).GetProperty("fileId").GetString()!;
@@ -186,11 +186,103 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             await Post(reader,route+"complete",new{fileId=file});lastFile=file;var first=Input("回滚首行",Full,shared?Secondary:null);first["附件"]=JsonSerializer.Serialize(new[]{file});var before=await Snapshot();
             await Import(HttpStatusCode.InternalServerError,first,Input("后置拒绝",Full,shared?Secondary:null));Assert.Equal(before,await Snapshot());
             var observation=Assert.Single(File.ReadLines(hooks).Select(line=>JsonSerializer.Deserialize<JsonElement>(line)),value=>value.GetProperty("table").GetString()==Source);Assert.True(observation.GetProperty("insideTransaction").GetBoolean());Assert.Equal(1,observation.GetProperty("references").GetInt32());
+            if(competitor is not null)await VerifyCompetingOverwrite(competitor,original,first);
             first["名称"]="文件成功";await Import(first);var row=await Record("文件成功");var recordId=Id(SqlRowStore.Id(row));Assert.Single(await files.ReadAsync("yz_file_ref",Row("file_id",long.Parse(file,CultureInfo.InvariantCulture),"record_id",SqlRowStore.Id(row))));
             var copied=(await Post(reader,Route+"copy/"+recordId,new{})).GetProperty("id").GetString()!;var references=await files.ReadAsync("yz_file_ref",Row("file_id",long.Parse(file,CultureInfo.InvariantCulture)));Assert.Equal(2,references.Count);Assert.All(references,value=>{Assert.Equal(SourcePage,SqlRowStore.Text(value,"page_id"));Assert.Equal("100",SqlRowStore.Text(value,"yz_project_id"));});
             using(var download=await reader.GetAsync(route+"protected-content/"+file)){Assert.Equal(HttpStatusCode.OK,download.StatusCode);Assert.Equal(bytes,await download.Content.ReadAsByteArrayAsync());}
             await Send(reader,HttpMethod.Delete,Route.TrimEnd('/'),new{id=copied});Assert.Single(await files.ReadAsync("yz_file_ref",Row("file_id",long.Parse(file,CultureInfo.InvariantCulture))));
         }
+        internal int ConcurrentSourceWaiters { get; private set; }
+        internal int ConcurrentCandidateWaiters { get; private set; }
+
+        /// <summary>第三连接先锁定原主键，观测首个事务等来源、另一个事务等候选的完整锁顺序。</summary>
+        private async Task VerifyCompetingOverwrite(HttpClient competitor,long original,Dictionary<string,object?> first)
+        {
+            var previousAttachment=(await Physical(Source,original))["attachments"];
+            var before=await Snapshot(original);
+            await using var holder=session.Provider.CreateConnection(options);
+            await using var observer=session.Provider.CreateConnection(options);
+            await holder.OpenAsync();
+            await observer.OpenAsync();
+            await using var transaction=await holder.BeginTransactionAsync();
+            var table=session.Provider.QuoteIdentifier(Source);
+            var field=catalog.ConfigColumns.Single(column=>column.ConfigTableId==SourceTable.Id&&column.ControlKind=="CascadeTree"&&column.Name=="区域");
+            using var cascade=JsonDocument.Parse(field.ControlDetail);
+            var rootTarget=cascade.RootElement.GetProperty("levels")[0].GetProperty("table").GetString()!;
+            var candidate=session.Provider.QuoteIdentifier(rootTarget);
+            await using(var command=holder.CreateCommand())
+            {
+                command.Transaction=transaction;
+                command.CommandText="SELECT id FROM "+table+" WHERE id=@id FOR UPDATE";
+                var id=command.CreateParameter();
+                id.ParameterName="@id";
+                id.Value=original;
+                command.Parameters.Add(id);
+                Assert.Equal(original,await command.ExecuteScalarAsync());
+            }
+
+            var route=Route+"importDatas"+SourcePage;
+            Stage="原覆盖导入并发锁读";
+            var rollback=FreshWebHttp.SendAsync(reader,HttpMethod.Post,route,
+                new{requestJson=new[]{first,Input("后置拒绝",Full,shared?Secondary:null)}},HttpStatusCode.InternalServerError);
+            var commit=FreshWebHttp.SendAsync(competitor,HttpMethod.Post,route,
+                new{requestJson=new[]{Row("区域",Full,"名称","并发成功")}});
+            try
+            {
+                // 普通数据库账号只观察自身连接，查询正文只用于内存中的固定表和锁子句匹配。
+                await using var probe=observer.CreateCommand();
+                probe.CommandText="SHOW FULL PROCESSLIST";
+                using var limit=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                while(!rollback.IsCompleted&&!commit.IsCompleted&&!limit.IsCancellationRequested)
+                {
+                    var sourceWaiters=0;
+                    var candidateWaiters=0;
+                    await using(var rows=await probe.ExecuteReaderAsync(limit.Token))
+                    {
+                        var database=rows.GetOrdinal("db");
+                        var info=rows.GetOrdinal("Info");
+                        while(await rows.ReadAsync(limit.Token))
+                        {
+                            if(rows.IsDBNull(database)||rows.IsDBNull(info)||rows.GetString(database)!=options.ExpectedDatabase)continue;
+                            var sql=rows.GetString(info);
+                            if(sql.Contains(" FROM "+table+" b ",StringComparison.OrdinalIgnoreCase)
+                                &&sql.Contains(" FOR UPDATE OF b",StringComparison.OrdinalIgnoreCase))sourceWaiters++;
+                            else if(!sql.Contains(table,StringComparison.OrdinalIgnoreCase)
+                                &&sql.Contains(candidate,StringComparison.OrdinalIgnoreCase)
+                                &&sql.Contains("FOR UPDATE",StringComparison.OrdinalIgnoreCase))candidateWaiters++;
+                        }
+                    }
+                    ConcurrentSourceWaiters=sourceWaiters;
+                    ConcurrentCandidateWaiters=candidateWaiters;
+                    if(sourceWaiters==1&&candidateWaiters==1)break;
+                    await Task.Delay(100);
+                }
+                Assert.True(ConcurrentSourceWaiters==1&&ConcurrentCandidateWaiters==1,
+                    $"未观察到两条既定锁读。来源 {ConcurrentSourceWaiters}，候选 {ConcurrentCandidateWaiters}。");
+            }
+            finally
+            {
+                await transaction.RollbackAsync();
+                await Task.WhenAll(rollback,commit);
+            }
+
+            Stage="原覆盖导入并发独立读回";
+            var receipts=File.ReadLines(hooks).Select(line=>JsonSerializer.Deserialize<JsonElement>(line))
+                .Where(value=>value.GetProperty("table").GetString()==Source).ToArray();
+            Assert.Equal(2,receipts.Length);
+            Assert.All(receipts,value=>
+            {
+                Assert.True(value.GetProperty("insideTransaction").GetBoolean());
+                Assert.Equal(1,value.GetProperty("references").GetInt32());
+                Assert.Equal(Id(original),value.GetProperty("recordId").GetString());
+            });
+            var saved=await Record("并发成功");
+            Assert.Equal(original,SqlRowStore.Id(saved));
+            Assert.Equal(previousAttachment,saved["attachments"]);
+            await Sparse("并发成功",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
+            Assert.Equal(before,await Snapshot(original));
+        }
+
         /// <summary>来源撤权后普通导入导出均403、文件按各已验收场景拒绝且业务/文件全量摘要不变，再恢复原明确许可。</summary>
         private async Task Revoke(ColumnMetadata main,HttpStatusCode fileDenied=HttpStatusCode.Unauthorized)
         {
@@ -221,10 +313,10 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             foreach(var value in expected)Assert.Equal(value.Value is{} id?Id(id):null,row[value.Key] is null?null:Convert.ToString(row[value.Key],CultureInfo.InvariantCulture));Assert.DoesNotContain(row.Keys,value=>value.EndsWith("_name",StringComparison.Ordinal));
         }
         /// <summary>失败比较覆盖六组全部业务表和文件，包括墓碑，不能只看当前主行。</summary>
-        private async Task<string> Snapshot()
+        private async Task<string> Snapshot(long? exceptSourceId=null)
         {
             using var independent=new DatabaseSession(options);var business=new SqlRowStore(independent,catalog);var fileStore=new SqlRowStore(independent,fileCatalog);var rows=new SortedDictionary<string,object>(StringComparer.Ordinal);
-            foreach(var table in catalog.ConfigTables)rows[table.TableName]=(await business.ReadIncludingDeletedAsync(table.TableName)).OrderBy(row=>SqlRowStore.Id(row)).ToArray();foreach(var table in fileCatalog.ConfigTables)rows[table.TableName]=(await fileStore.ReadIncludingDeletedAsync(table.TableName)).OrderBy(row=>SqlRowStore.Id(row)).ToArray();return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
+            foreach(var table in catalog.ConfigTables)rows[table.TableName]=(await business.ReadIncludingDeletedAsync(table.TableName)).Where(row=>table.TableName!=Source||SqlRowStore.Id(row)!=exceptSourceId).OrderBy(row=>SqlRowStore.Id(row)).ToArray();foreach(var table in fileCatalog.ConfigTables)rows[table.TableName]=(await fileStore.ReadIncludingDeletedAsync(table.TableName)).OrderBy(row=>SqlRowStore.Id(row)).ToArray();return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
         }
         /// <summary>撤权只更新本轮新库普通角色的精确页许可。</summary>
         private Task Grant(string page,string values)=>security.UpdateAsync("yz_role_permission",permissions[page],Row("permission_values",values));
