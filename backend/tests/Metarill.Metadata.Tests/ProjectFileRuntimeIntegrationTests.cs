@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
@@ -50,7 +51,9 @@ public sealed class ProjectFileRuntimeIntegrationTests
             return true;
         });
         Assert.Single(await fixture.ReferencesAsync(record));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteAsync(file.FileId));
+        // 文件引用拒绝属于原业务规则，宿主会保留中文提示而非当作内部异常。
+        var blocked = await Assert.ThrowsAsync<BusinessRuleException>(() => service.DeleteAsync(file.FileId));
+        Assert.Equal("文件仍被业务记录引用，不能删除。", blocked.Message);
         // 换成未完成文件时其他字段和引用也必须回滚，不能仅撤销文件引用写入。
         var pending = await service.PlanUploadAsync(new("pending.txt", null, 3, fixture.ProtectedColumn)); fixture.FileIds.Add(pending.FileId);
         var invalid = JsonSerializer.Serialize(new[] { pending.FileId.ToString() });
