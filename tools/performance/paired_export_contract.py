@@ -81,13 +81,56 @@ def verify_cells(side, kind, workbook):
     return {"rows": len(expected), "semanticSha256": http.digest([headers, *semantic_rows])}
 
 
-def verify_download(side, kind, raw, parse_workbook):
-    """将本次真实响应交给锁定的原 SheetJS，逐字绑定响应与解析结果。"""
-    request = {"version": 1, "operation": "read", "base64": base64.b64encode(raw).decode("ascii"),
-               "expectedSha256": hashlib.sha256(raw).hexdigest()}
-    workbook = oracle.verify_result(http.canonical(parse_workbook(request)), request)
-    return {**verify_cells(side, kind, workbook), "byteLength": len(raw), "sha256": workbook["sha256"],
-            "format": workbook["format"]}
+def workbook_read(raw):
+    """只把下载所得字节和独立摘要交给原工作簿解析器。"""
+    return {"version": 1, "operation": "read", "base64": base64.b64encode(raw).decode("ascii"),
+            "expectedSha256": hashlib.sha256(raw).hexdigest()}
+
+
+def workbook_proof(side, kind, workbook):
+    """保留语义和实际格式／字节证据；调用者先完成来源绑定。"""
+    return {**verify_cells(side, kind, workbook), "byteLength": workbook["byteLength"],
+            "sha256": workbook["sha256"], "format": workbook["format"]}
+
+
+def verify_workbooks(samples, parse_workbook):
+    """对所有下载做计时外验证，相同语言、页面和字节可复用逐格结论。"""
+    sample_keys = []
+    unique = {}
+    for side, kind, raw in samples:
+        if side not in FORMAT or kind not in HEADERS or type(raw) is not bytes or not 0 < len(raw) <= MAX_DOWNLOAD:
+            raise ValueError("measurement-export-replay-workbook")
+        checksum = hashlib.sha256(raw).hexdigest()
+        key = (side, kind, checksum)
+        sample_keys.append(key)
+        unique.setdefault(key, raw)
+    if not sample_keys:
+        raise ValueError("measurement-export-replay-empty")
+
+    empty = {"version": 1, "operation": "read-batch", "workbooks": []}
+    initial_bytes = len(http.canonical(empty))
+    batches, pending, size = [], [], initial_bytes
+    for key, raw in unique.items():
+        item = workbook_read(raw)
+        item_bytes = len(http.canonical(item))
+        if initial_bytes + item_bytes > oracle.MAX_INPUT:
+            raise ValueError("measurement-export-replay-workbook-size")
+        if len(pending) == oracle.MAX_BATCH or size + item_bytes + bool(pending) > oracle.MAX_INPUT:
+            batches.append(pending)
+            pending, size = [], initial_bytes
+        size += item_bytes + bool(pending)
+        pending.append((key, item))
+    batches.append(pending)
+    # 每阶段最多使用一半容器额度，预检和正式读回合计不超过既有上限。
+    if len(batches) > oracle.MAX_JOBS - EXCEL_EXPORT_PREFLIGHT_REQUESTS // 2:
+        raise ValueError("measurement-export-replay-batches")
+    proofs = {}
+    for batch in batches:
+        request = {**empty, "workbooks": [item for _, item in batch]}
+        checked = oracle.verify_result(http.canonical(parse_workbook(request)), request)
+        for (key, _), workbook in zip(batch, checked["workbooks"], strict=True):
+            proofs[key] = workbook_proof(*key[:2], workbook)
+    return [proofs[key] for key in sample_keys]
 
 
 MAX_DOWNLOAD = 4 * 1024 * 1024
@@ -128,7 +171,8 @@ def run_preflight(root, targets, tokens, parse_workbook):
     output = root / "export-preflight"
     output.mkdir(mode=0o700)
     facts = {side: {} for side in ("java", "csharp")}
-    for side, proof in facts.items():
+    samples = []
+    for side in facts:
         target = targets[side]
         ticket_target = {**target, "headers": {"loginStateId": tokens[side, "writer"]}}
         tickets = set()
@@ -143,8 +187,10 @@ def run_preflight(root, targets, tokens, parse_workbook):
             tickets.add(ticket)
             raw = fetch_download(target["baseUrl"], ticket)
             (output / f"{side}-{kind}.{FORMAT[side]}").write_bytes(raw)
-            proof[kind] = verify_download(side, kind, raw, parse_workbook)
-            (output / "receipts.json").write_bytes(http.canonical(facts))
+            samples.append((side, kind, raw))
+    for (side, kind, _), proof in zip(samples, verify_workbooks(samples, parse_workbook), strict=True):
+        facts[side][kind] = proof
+    (output / "receipts.json").write_bytes(http.canonical(facts))
     if any(facts["java"][kind]["semanticSha256"] != facts["csharp"][kind]["semanticSha256"] for kind in HEADERS):
         raise ValueError("measurement-export-semantics")
     return {"passed": True, "requests": EXCEL_EXPORT_PREFLIGHT_REQUESTS, "workbooks": facts, "measurementValid": False}

@@ -82,14 +82,44 @@ class ExportContractTests(unittest.TestCase):
 
         def parse(request):
             """核对解析器入口只接收本次下载响应。"""
-            self.assertEqual(raw, base64.b64decode(request["base64"], validate=True))
-            return parsed
+            self.assertEqual(raw, base64.b64decode(request["workbooks"][0]["base64"], validate=True))
+            return {"workbooks": [parsed]}
 
-        result = subject.verify_download("csharp", "line", raw, parse)
+        result, = subject.verify_workbooks([("csharp", "line", raw)], parse)
         self.assertEqual((3, len(raw), parsed["sha256"]), (result["rows"], result["byteLength"], result["sha256"]))
         parsed["sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "output-digest"):
-            subject.verify_download("csharp", "line", raw, parse)
+            subject.verify_workbooks([("csharp", "line", raw)], parse)
+
+
+    def test_replay_batches_preserve_sample_order_and_only_reuse_identical_bytes(self):
+        """重复下载保留全部样本；只有相同目标、页面和响应字节才复用解析。"""
+        first = b"PK\x03\x04first"
+        second = b"PK\x03\x04second"
+        samples = [("csharp", "line", raw) for raw in (first, second, first)]
+        batches = []
+
+        def parse(request):
+            """模拟容器边界并按每件输入生成正确摘要和工作簿回执。"""
+            batches.append(request)
+            outputs = []
+            for item in request["workbooks"]:
+                parsed = workbook("csharp", "line")
+                parsed.update(byteLength=len(base64.b64decode(item["base64"])), sha256=item["expectedSha256"],
+                              sheetNames=["sheet1"], rows=[dict(zip(parsed["headers"], row)) for row in parsed["cells"][1:]],
+                              sheetJsVersion="0.20.3", nodeVersion="v24.14.0")
+                outputs.append(parsed)
+            return {"workbooks": outputs}
+
+        with mock.patch.object(subject.oracle, "MAX_BATCH", 1):
+            results = subject.verify_workbooks(samples, parse)
+        self.assertEqual(2, len(batches))
+        self.assertEqual([hashlib.sha256(raw).hexdigest() for _, _, raw in samples], [p["sha256"] for p in results])
+        self.assertEqual(1, len({p["semanticSha256"] for p in results}))
+        with mock.patch.object(subject.oracle, "MAX_BATCH", 1), mock.patch.object(subject.oracle, "MAX_JOBS", 7):
+            with self.assertRaisesRegex(ValueError, "replay-batches"):
+                subject.verify_workbooks(samples, parse)
+        self.assertEqual(2, len(batches))
 
 
 class ExportPreflightContracts(unittest.TestCase):
@@ -123,7 +153,7 @@ class ExportPreflightContracts(unittest.TestCase):
             yield response
 
         with tempfile.TemporaryDirectory() as folder, mock.patch.object(subject.urllib.request, "build_opener") as opener, \
-             mock.patch.object(subject, "verify_download", return_value={"semanticSha256": "same"}):
+             mock.patch.object(subject, "verify_workbooks", return_value=[{"semanticSha256": "same"}] * 6):
             opener.return_value.open.side_effect = exchange
             result = subject.run_preflight(Path(folder), targets, tokens, None)
             self.assertTrue(result["passed"])

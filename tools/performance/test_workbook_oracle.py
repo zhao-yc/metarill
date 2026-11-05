@@ -51,6 +51,21 @@ class WorkbookOracleTests(unittest.TestCase):
         self.assertEqual('xls', read['format'])
         self.assertEqual([{'名称': '原导出', '标识': '9007199254740993', '金额': 12.5}], read['rows'])
 
+    def test_real_read_batch_preserves_order_and_rejects_bad_member(self):
+        """真实引擎批量读回不同 XLSX，每个原始摘要和单元格都可独立校验。"""
+        workbooks = [self.invoke({'version': 1, 'operation': 'create', 'headers': ['名称'], 'rows': [[value]]})
+                     for value in ('甲', '乙')]
+        requests = [{'version': 1, 'operation': 'read', 'base64': workbook['workbookBase64'],
+                     'expectedSha256': workbook['sha256']} for workbook in workbooks]
+        batch = {'version': 1, 'operation': 'read-batch', 'workbooks': requests}
+        observed = self.invoke(batch)['workbooks']
+        self.assertEqual([['甲'], ['乙']], [workbook['cells'][1] for workbook in observed])
+        self.assertEqual([workbook['sha256'] for workbook in workbooks], [workbook['sha256'] for workbook in observed])
+        requests[1]['expectedSha256'] = '0' * 64
+        self.invoke(batch, success=False, reason='workbook-digest')
+        batch['workbooks'] = [batch.copy()]
+        self.invoke(batch, success=False, reason='workbook-batch-item')
+
     def test_invalid_digest_non_excel_duplicate_headers_and_unsafe_ids_are_rejected(self):
         """错文件、伪Excel、重名表头及已经丢精度的数字ID不能给出成功回执。"""
         data = b'{"not":"excel"}'

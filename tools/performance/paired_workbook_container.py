@@ -15,6 +15,7 @@ LIBRARY_SHA256 = 'cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f
 MAX_INPUT = 6 * 1024 * 1024
 MAX_OUTPUT = 16 * 1024 * 1024
 MAX_JOBS = 12
+MAX_BATCH = 128
 
 
 def require(ok, code):
@@ -30,6 +31,23 @@ def descriptor(run):
                 leaseStatus='running', nodeImage=NODE_IMAGE, librarySha256=LIBRARY_SHA256)
 
 
+def validate_request(request):
+    """先验证批次结构；单项读取沿用固定字段，批次不能嵌套。"""
+    require(type(request) is dict and type(request.get('version')) is int and request['version'] == 1, 'request')
+    operation = request.get('operation')
+    keys = {'version', 'operation'}
+    if operation == 'read-batch':
+        require(set(request) == keys | {'workbooks'} and type(request['workbooks']) is list
+                and 0 < len(request['workbooks']) <= MAX_BATCH, 'batch')
+        require(all(type(item) is dict and item.get('operation') == 'read' for item in request['workbooks']), 'batch-item')
+        for item in request['workbooks']:
+            validate_request(item)
+    else:
+        require(operation in ('create', 'read'), 'request')
+        expected = {'headers', 'rows'} if operation == 'create' else {'base64', 'expectedSha256'}
+        require(set(request) == keys | expected, 'request')
+
+
 def validate(value, state, root, state_path, request):
     """先纯内存核租约／归属和请求上限，未知输入不能触碰文件或Docker。"""
     run = value.get('runId')
@@ -38,10 +56,7 @@ def validate(value, state, root, state_path, request):
             type(state.get('ownerToken')) is str and re.fullmatch('[a-f0-9]{64}', state['ownerToken']) and
             type(state.get('jobs')) is list, 'owner')
     require(root == resources.root_for(run) and state_path == root / 'native-state.json', 'root')
-    require(type(request) is dict and type(request.get('version')) is int and request['version'] == 1 and
-            request.get('operation') in ('create', 'read'), 'request')
-    expected = {'version', 'operation', 'headers', 'rows'} if request['operation'] == 'create' else {'version', 'operation', 'base64', 'expectedSha256'}
-    require(set(request) == expected, 'request')
+    validate_request(request)
     try:
         raw = json.dumps(request, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
     except (TypeError, ValueError):
@@ -75,6 +90,12 @@ def verify_result(raw, request):
     except (ValueError, UnicodeError):
         raise ValueError('workbook-container-output-json') from None
     require(type(result) is dict, 'output-shape')
+    if request['operation'] == 'read-batch':
+        workbooks = result.get('workbooks')
+        require(set(result) == {'workbooks'} and type(workbooks) is list
+                and len(workbooks) == len(request['workbooks']), 'output-batch')
+        return {'workbooks': [verify_result(json.dumps(item, ensure_ascii=False).encode('utf-8'), source)
+                              for item, source in zip(workbooks, request['workbooks'], strict=True)]}
     keys = {'format', 'byteLength', 'sha256', 'sheetNames', 'headers', 'rows', 'cells', 'sheetJsVersion', 'nodeVersion'}
     require(set(result) == keys | ({'workbookBase64'} if request['operation'] == 'create' else set()), 'output-shape')
     require(result['sheetJsVersion'] == '0.20.3' and result['nodeVersion'] == 'v24.14.0', 'runtime')
@@ -152,10 +173,13 @@ def invoke(value, request, root, state, state_path):
             raise ValueError('workbook-container-process')
         require(not completed.stderr, 'stderr')
         result = verify_result(completed.stdout, request)
-        item['workbook'] = dict(operation=request['operation'], inputSha256=hashlib.sha256(raw).hexdigest(),
-                                outputSha256=hashlib.sha256(completed.stdout).hexdigest(), fileSha256=result['sha256'],
-                                byteLength=result['byteLength'], format=result['format'], rows=len(result['rows']),
-                                nodeImage=NODE_IMAGE, librarySha256=LIBRARY_SHA256)
+        receipt = dict(operation=request['operation'], inputSha256=hashlib.sha256(raw).hexdigest(),
+                       outputSha256=hashlib.sha256(completed.stdout).hexdigest(), nodeImage=NODE_IMAGE, librarySha256=LIBRARY_SHA256)
+        if request['operation'] == 'read-batch':
+            receipt.update(workbooks=len(result['workbooks']), byteLength=sum(w['byteLength'] for w in result['workbooks']))
+        else:
+            receipt.update(fileSha256=result['sha256'], byteLength=result['byteLength'], format=result['format'], rows=len(result['rows']))
+        item['workbook'] = receipt
         return result
     finally:
         # create返回丢失时也先检查标签，绝不能把未知容器算作本轮或直接删掉。

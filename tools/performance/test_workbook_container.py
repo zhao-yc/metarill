@@ -115,6 +115,30 @@ class WorkbookContainerTests(unittest.TestCase):
                     self.invoke()
         self.assertEqual([], self.commands)
 
+    def test_read_batch_binds_every_output_to_its_input_and_closes_container(self):
+        """双文件摘要按顺序逐个核验，缺项和交换回执不能通过。"""
+        outputs = []
+        requests = []
+        for raw in (self.bytes, self.bytes + b'2'):
+            checksum = hashlib.sha256(raw).hexdigest()
+            requests.append(dict(version=1, operation='read', base64=base64.b64encode(raw).decode(), expectedSha256=checksum))
+            outputs.append({**{k: v for k, v in self.output.items() if k != 'workbookBase64'},
+                            'sha256': checksum, 'byteLength': len(raw)})
+        self.request = dict(version=1, operation='read-batch', workbooks=requests)
+        self.output = dict(workbooks=outputs)
+        self.assertEqual(self.output, self.invoke())
+        receipt = self.state['jobs'][0]['workbook']
+        self.assertEqual((2, sum(item['byteLength'] for item in outputs)), (receipt['workbooks'], receipt['byteLength']))
+        self.assertTrue(self.state['jobs'][0]['containerAbsent'])
+        for wrong in (outputs[:1], outputs[::-1]):
+            with self.subTest(wrong=len(wrong)), self.assertRaisesRegex(ValueError, 'output-(batch|digest)'):
+                oracle.verify_result(json.dumps({'workbooks': wrong}).encode(), self.request)
+        self.commands.clear()
+        self.request['workbooks'] = [self.request.copy()]
+        with self.assertRaisesRegex(ValueError, 'batch-item'):
+            self.invoke()
+        self.assertFalse(self.commands)
+
     def test_input_tampering_or_foreign_collision_is_not_adopted(self):
         """变更模块字节在创建前拒绝；外来同名容器不启动、不删除、不记成已清理。"""
         self.script.chmod(0o666)

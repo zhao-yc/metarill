@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const MAX_BYTES = 4 * 1024 * 1024;
 const ROW_LIMIT = 256;
 const COLUMN_LIMIT = 32;
+const BATCH_LIMIT = 128;
 
 /** 拒绝超出固定验收范围的输入，不回显业务值或文件内容。 */
 function requireFact(ok, code) {
@@ -51,6 +52,15 @@ function inspect(XLSX, bytes) {
 /** 创建后必须再解析实际XLSX；读取既有导出时必须匹配下载所得摘要。 */
 function execute(XLSX, input) {
   requireFact(input && Object.getPrototypeOf(input) === Object.prototype && input.version === 1, 'workbook-input');
+  if (input.operation === 'read-batch') {
+    requireFact(Object.keys(input).sort().join(',') === 'operation,version,workbooks' &&
+      Array.isArray(input.workbooks) && input.workbooks.length > 0 && input.workbooks.length <= BATCH_LIMIT, 'workbook-batch');
+    // 只接收普通读取，拒绝嵌套或写入；每项继续核原始字节摘要及完整工作簿结构。
+    return {workbooks: input.workbooks.map(item => {
+      requireFact(item && item.operation === 'read', 'workbook-batch-item');
+      return execute(XLSX, item);
+    })};
+  }
   if (input.operation === 'create') {
     requireFact(Object.keys(input).sort().join(',') === 'headers,operation,rows,version', 'workbook-input');
     const {headers, rows} = input;
