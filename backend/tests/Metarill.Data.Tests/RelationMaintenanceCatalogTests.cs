@@ -20,6 +20,34 @@ public sealed class RelationMaintenanceCatalogTests
         var model=Catalog();if(intermediate){model.ConfigTables[1].IsRongyu=0;var name=model.ConfigColumns.Single(column=>column.Id=="target_name");name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.name");model.ConfigTables.Add(new(){Id="company",TableName="maintenance_company",IsRongyu=1});AddBasics(model,"company");model.ConfigColumns.Add(new(){Id="target_company",ConfigTableId="target",ColumnName="company_id",LogicalType="int64",LinkConfigTableId="company"});model.ConfigColumns.Add(new(){Id="company_name",ConfigTableId="company",ColumnName="name",LogicalType="string",ColumnLength="100"});}
         var plan=RelationMaintenanceCatalog.Compile(model);using var database=Offline();using var cancellation=new CancellationTokenSource();cancellation.Cancel();await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>new RelationMaintenanceExecutor(database).BackfillAsync(plan,"source",cancellation.Token));
     }
+    /// <summary>字符串外键先走目标主键，再以原字节条件确认，数字外键保留直接相等。</summary>
+    [Theory]
+    [InlineData("string")]
+    [InlineData("int64")]
+    public void Scalar_refresh_keeps_exact_equality_with_indexable_lookup(string type)
+    {
+        var model=Catalog();
+        var relation=model.ConfigColumns.Single(column=>column.Id=="foreign");
+        relation.LogicalType=type;
+        if(type=="string")relation.ColumnLength="50";
+        var catalog=RelationMaintenanceCatalog.Compile(model);
+        var from=catalog.Plans["source"].Read!.FromForFields(["target_name"]);
+        Assert.Contains(".`yz_project_id`=@project_scope_number",from);
+        Assert.Contains(".`delete_no` IS NULL",from);
+        if(type=="string")
+        {
+            Assert.Contains(".`id`=CASE WHEN REGEXP_LIKE(CONCAT(",from);
+            Assert.Contains("'^(0|-?[1-9][0-9]{0,18})#$'",from);
+            Assert.Contains("AS DECIMAL(20,0)) END AND BINARY CAST(",from);
+            Assert.Contains(".`id` AS CHAR)=BINARY ",from);
+        }
+        else
+        {
+            Assert.Contains(".`id`=b.`target_id`",from);
+            Assert.DoesNotContain("REGEXP_LIKE",from);
+        }
+    }
+
     /// <summary>同一表任何不支持字段必须拒绝整表，不能只执行可编译字段。</summary>
     [Theory][InlineData("missingPath")][InlineData("virtual")][InlineData("mismatch")][InlineData("project")][InlineData("credential")][InlineData("conflict")]
     public async Task Invalid_member_rejects_whole_table_before_connection(string kind)

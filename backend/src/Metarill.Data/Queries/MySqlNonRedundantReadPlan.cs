@@ -387,6 +387,13 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
             var equality=(refreshFields is not null||global)&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
+            if(refreshFields is not null&&sourceType=="string")
+            {
+                // 先以来源的规范整数形式查找目标主键，再用原字节比较排除隐式等值。
+                // 使用定点数覆盖有符号 64 位边界，超界字符串不会溢出或转换成另一目标。
+                var lookup=$"CASE WHEN REGEXP_LIKE(CONCAT({source},'#'),'^(0|-?[1-9][0-9]{{0,18}})#$','c') THEN CAST({source} AS DECIMAL(20,0)) END";
+                equality=$"{alias}.`id`={lookup} AND {equality}";
+            }
             var sql=" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+equality+(scope.Length==0?"":" AND "+scope);joins.Add(sql);if(refreshFields is not null)maintenanceJoins.Add((alias,sql));return alias;
         }
         /// <summary>范围字段必须是真实物理列；普通读取固定绑定项目，仅已证明的全局目标别名可省略项目谓词。</summary>
