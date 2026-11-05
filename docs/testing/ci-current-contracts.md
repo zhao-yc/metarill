@@ -120,3 +120,8 @@ Windows 上传的 11 份 TRX 显示后端十项目 6,082 通过、0 失败、464
 0c8c0bb 的运行 [41977100585](https://github.com/zhao-yc/metarill/actions/runs/41977100585) 已结束。前端通过，Windows 和 Ubuntu 后端均在第 8 步原页面固定请求检查失败。原平台列表使用共享合并函数后，隔离探针中的 yzp 仅含请求和提示替身，缺少该函数。
 
 探针现在仍只装载实际共享模块的函数声明，并限制可取出口，原列表保存场景注入真实合并函数。19 页继续按三端与两视口执行。增加长 ID、显式 null、列表专用字段和选择态保持、详情专用字段隔离及零请求断言。原 CI 命令本机 12 项通过，实际 ASP.NET Core 原页面路由专项 10 项通过，均零跳过。新提交的远端 CI 结果须单独核对。
+
+
+## 2026-11-05 e8a646d Windows 回环采集超时
+
+[e8a646d 的 GitHub Actions](https://github.com/zhao-yc/metarill/actions/runs/41994937980) 中，前端作业通过。Windows 采集宿主作业的 34 项中 33 项通过，`Unexpected_database_is_not_reported_as_complete_evidence` 在读取回环 HTTP 响应时触发 10 秒客户端超时。日志未确定宿主未及时响应的原因。本机按相同 Release 命令和原门槛复跑采集项目，34 项通过、0 项跳过。保留远端失败，后续以新提交的实际 CI 结果为准。
