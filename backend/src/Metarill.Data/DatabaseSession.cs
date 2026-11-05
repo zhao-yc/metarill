@@ -33,6 +33,7 @@ public sealed class DatabaseSession : IDisposable
         }
     }
     public DbTransaction? CurrentTransaction => _transaction.Value?.Transaction;
+    internal bool UsesOwnedOrm => _ownsOrm;
 
     /// <summary>只在实际持有元数据锁的会话事务内复用同一发布计划的结构证明。</summary>
     internal HashSet<MySqlNonRedundantReadPlan>? PinnedRelationLayouts(DbTransaction transaction)

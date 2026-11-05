@@ -9,6 +9,18 @@ internal static class GlobalCachedParentCompilation
     /// <summary>同一父表的不同来源列分别验证，不能只凭表名代替角色。</summary>
     internal static IReadOnlyList<GlobalCachedSourceBinding> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel parent)
         =>page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>ForColumn(model,table,page,scope.Column)).OfType<GlobalCachedSourceBinding>().Where(binding=>binding.Target.Source.Id==parent.Source.Id).ToArray();
+    /// <summary>只合并同一直接父角色与纯常量的原候选当前读，其他来源父或动态范围仍由原OptionsScope处理。</summary>
+    internal static bool CanCombineCandidate(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
+        =>relation.Target.IsGlobal&&relation.TargetPage.Condition is not null&&relation.Conditions is null
+            &&relation.ParentBinding?.Declared!=true&&relation.TargetParents.Count==0&&relation.Scopes.Count==0
+            &&relation.TargetPage.Scopes.Count==0&&relation.SourceParents.Count==1&&relation.SourceParents[0].Source.Id==relation.Target.Source.Id
+            &&page.Scopes.Count(scope=>scope.Source=="parent")==1
+            &&ForColumn(model,table,page,relation.SourceColumn)?.Target.Source.Id==relation.Target.Source.Id
+            &&SharedGlobalParentCompilation.ForTable(model,table,page,relation.Target).Count==0
+            &&SharedRedundantParentCompilation.ForTable(model,table,page,relation.Target).Count==0;
+    /// <summary>已取得的父锁只从原新增入口传入，其余调用保留默认空值和原校验。</summary>
+    internal static bool HasCombinedCandidate(GenerationModel model,TableModel table,PageModel page)
+        =>RelationCompilation.ForPage(model,page,true).Any(relation=>CanCombineCandidate(model,table,page,relation));
     /// <summary>写入取当前写锁，候选来源父只读；原父范围规则仍不借用目标页面的列表权限。</summary>
     internal static string Call(GlobalCachedSourceBinding binding,PageModel page,string parent,string locking)
         =>$"        await ValidateGlobalCachedParent{page.Source.Id}_{binding.Foreign.Source.Id}Async({parent},actor,{locking},cancellationToken);\n";

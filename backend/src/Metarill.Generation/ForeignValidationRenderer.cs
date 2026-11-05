@@ -28,7 +28,7 @@ internal static class ForeignValidationRenderer
     public static string Render(GenerationModel model, TableModel table, PageModel page)
     {
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
-            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.EntityType} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)})")
+            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.EntityType} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)}{(GlobalCachedParentCompilation.HasCombinedCandidate(model,table,page)?", string? lockedParentId = null":"")})")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;").Append(SharedCrossTableRenderer.ValidateAll(model,table,page));
         var crossFields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id.Source.Id,level.Name.Source.Id}).ToHashSet(StringComparer.Ordinal);
         var derived = MaterializedDerivedWriteCompilation.ForTable(model, table).Where(binding=>!crossFields.Contains(binding.Storage.Source.Id)).ToArray();
@@ -116,6 +116,17 @@ internal static class ForeignValidationRenderer
                         .AppendLine($"            var relationIds{number} = relation{number}.RootElement.EnumerateArray().Select(value => long.Parse(value.ToString(), CultureInfo.InvariantCulture)).Distinct().ToArray();");
                 else
                     result.AppendLine($"            var relationIds{number} = new[] {{ {IdExpression(column)} }};");
+                var assignments = derived.Where(binding => binding.ForeignKey.Source.Id == column.Source.Id).ToArray();
+                var combineParent = constantRelation is not null && assignments.Length==0 && !column.IsJsonArray &&
+                    GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,constantRelation);
+                if(combineParent)
+                {
+                    var softDelete=target.Columns.Any(candidate=>candidate.Source.ColumnName=="delete_no")?"true":"false";
+                    result.AppendLine($"            if (lockedParentId == relationIds{number}[0].ToString(CultureInfo.InvariantCulture) && Metarill.Data.Queries.MySqlExactParentCandidate.CanUse(session))")
+                        .AppendLine("            {").AppendLine("                ValidateActor(actor);")
+                        .AppendLine($"                await Metarill.Data.Queries.MySqlExactParentCandidate.RequireAsync(session,{Literal(target.Source.TableName)},relationIds{number}[0],{softDelete},OptionsPageCondition{page.Source.Id}_{column.Source.Id},cancellationToken);")
+                        .AppendLine("            }").AppendLine("            else").AppendLine("            {");
+                }
                 if (constantRelation is not null) result.Append(RelationConditionsCompilation.WriteQuery(model,table,page,constantRelation,number.ToString(CultureInfo.InvariantCulture)));
                 else result.AppendLine($"            var relationQuery{number} = session.Select<{target.EntityType}>().Where(row => relationIds{number}.Contains(row.Id));");
                 if (target.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"            relationQuery{number} = relationQuery{number}.Where(row => row.DeleteNo == null);");
@@ -126,7 +137,6 @@ internal static class ForeignValidationRenderer
                     result.AppendLine($"            if (relationIds{number}.Length != 0) throw new InvalidOperationException(\"关联目标未声明项目归属，需要明确访问规则。\");");
                 if (constantRelation is null)
                     result.AppendLine($"            if (await relationQuery{number}.CountAsync(cancellationToken) != relationIds{number}.Length) throw new InvalidOperationException({Literal("关联记录不存在、已删除或不属于当前项目：" + column.Source.Name)});");
-                var assignments = derived.Where(binding => binding.ForeignKey.Source.Id == column.Source.Id).ToArray();
                 if (constantRelation is not null && assignments.Length == 0)
                     result.AppendLine($"            var lockedRelation{number} = await relationQuery{number}.ForUpdate().ToListAsync(row => new {{ row.Id }}, cancellationToken);")
                         .AppendLine($"            if (lockedRelation{number}.Count != relationIds{number}.Length) throw new InvalidOperationException(\"关联记录已离开当前固定候选范围。\");");
@@ -139,6 +149,7 @@ internal static class ForeignValidationRenderer
                     foreach (var binding in assignments)
                         result.AppendLine($"            entity.{binding.Storage.Property} = derivedRows{number}[0].{binding.Value.Property}; submitted.Add({Literal(binding.Storage.Source.ColumnName)});");
                 }
+                if(combineParent)result.AppendLine("            }");
             }
             result.AppendLine("        }");
         }

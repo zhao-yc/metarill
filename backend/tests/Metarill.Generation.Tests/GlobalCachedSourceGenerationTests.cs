@@ -16,6 +16,26 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class GlobalCachedSourceGenerationTests
 {
+    /// <summary>候选合并必须命中原直接父角色，仍生成自定义ORM的回退，其他目标范围走原查询。</summary>
+    [Fact]
+    public void Direct_parent_constant_candidate_combines_only_the_same_parent_role()
+    {
+        var metadata=Catalog();
+        metadata.ConfigPages.Single(page=>page.Id=="81002").WhereSql="name<>'范围外合同'";
+        var model=GenerationModel.Create(metadata,"Example.GlobalSource");
+        var table=model.Tables.Single(item=>item.Source.TableName=="sample_contract_line");
+        var page=Assert.Single(table.Pages);
+        var relation=Assert.Single(RelationCompilation.ForPage(model,page,true),item=>item.SourceColumn.Source.ColumnName=="sample_contract_id");
+        Assert.True(GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,relation));
+        Assert.False(GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,relation with { TargetParents=[relation.Target] }));
+        Assert.False(GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,relation with { SourceParents=[] }));
+        var rendered=BackendRenderer.Render(model).Single(file=>file.Path=="Services/SampleContractLineService.g.cs").Content;
+        Assert.Contains("MySqlExactParentCandidate.RequireAsync",rendered);
+        Assert.Contains("OptionsScope81003_82008Async",rendered);
+        Assert.Contains("lockedParentId == relationIds1[0].ToString(CultureInfo.InvariantCulture)",rendered);
+        Assert.Equal(1,rendered.Split("lockedParentId: parentId",StringSplitOptions.None).Length-1);
+    }
+
     /// <summary>全目录形成维护和反向传播，隐式名称仅加入原响应，不添加额外控件。</summary>
     [Fact]
     public void Original_sample_compiles_complete_cache_and_page_model_without_mutation()
