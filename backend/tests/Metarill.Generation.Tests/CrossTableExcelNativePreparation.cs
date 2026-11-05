@@ -6,7 +6,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>八种键/存储组合共享一个专属模型，基础表只安装一次；不连接数据库或创建账号。</summary>
 internal static partial class CrossTableExcelNativePreparation
 {
-    internal const string RootNamespace="Metarill.CrossExcelNative",ProductCommit="bb8a410ba8cba0a00aea1d2a59cc40e6cdab5eb7";
+    internal const string RootNamespace="Metarill.CrossExcelNative",ProductCommit="7783c44dd6d167321ecf7c9ae693cfdbb3611ad2";
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){WriteIndented=true,NewLine="\n"};
     /// <summary>每个组的表/字段/页面ID独立，项目/后台共用；整个普通矩阵可在同一新库验收并清理。</summary>
     internal static MetadataCatalog Catalog()

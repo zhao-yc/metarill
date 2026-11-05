@@ -39,7 +39,7 @@ public sealed class CrossTableExcelNativeMySqlTests
         using var document=JsonDocument.Parse(await File.ReadAllTextAsync(settingsPath));var settings=document.RootElement;
         var source=NonRedundantApplicationFixture.Root();var run=CrossTableExcelNativeLease.Validate(settings,CSharpGenerator.SafePath(source,".local/cross-table-excel-native/prepared"));
         var proof=settings.GetProperty("CrossTableExcelPreparation").Deserialize<CrossTableExcelPackageProof>()!;
-        var catalog=CrossTableExcelNativePreparation.Verify(proof);var options=FreshInstallConfiguration.Read("AgentDatabase","agent");
+        var catalog=CrossTableExcelNativePreparation.Verify(proof);var options=FreshInstallConfiguration.Read("AgentDatabase","agent");var loginRedis=FreshInstallConfiguration.ReadLoginRedis();
         var copied=CrossTableExcelNativePreparation.CopyForExecution(proof,CSharpGenerator.SafePath(source,".local/cross-table-excel-native/"+run+"/execution/application"));
         var evidence=CSharpGenerator.SafePath(source,".local/cross-table-excel-native/"+run+"/evidence");Directory.CreateDirectory(evidence);
         var storageBoundary=Path.Combine(evidence,"storage");var storage=Path.Combine(storageBoundary,Guid.NewGuid().ToString("N"));var hooks=Path.Combine(evidence,"real-transaction-hooks.jsonl");
@@ -55,6 +55,8 @@ public sealed class CrossTableExcelNativeMySqlTests
             info.ArgumentList.Add(CSharpGenerator.SafePath(hostDirectory,"bin/Release/net10.0/Application.Host.dll"));if(operation is not null)info.ArgumentList.Add(operation);
             info.Environment["ASPNETCORE_ENVIRONMENT"]="Production";info.Environment["DOTNET_ENVIRONMENT"]="Production";info.Environment["Logging__LogLevel__Default"]="Warning";
             info.Environment["Database__Provider"]="mysql";info.Environment["Database__ExpectedDatabase"]=options.ExpectedDatabase;info.Environment["Database__ConnectionString"]=options.ConnectionString;
+            // 正式 Web 启动使用本轮隔离的 Redis DB0 维护登录失败计数。
+            if(operation is null)info.Environment["Authentication__LoginFailures__ConnectionString"]=loginRedis;
             info.Environment["Authentication__Mode"]="Web";info.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";info.Environment["Authentication__Bootstrap__Username"]=owner;info.Environment["Authentication__Bootstrap__Password"]=password;
             info.Environment["Ids__WorkerId"]=WorkerId.ToString(CultureInfo.InvariantCulture);info.Environment["Agent__VerificationUri"]="https://agent.example/#/pages/custom/agent_authorize";
             info.Environment["Files__RootDirectory"]=Path.Combine(storage,"uploads");info.Environment["Files__LegacyPublicBaseUrl"]="";info.Environment["Files__PublicContentProjectId"]=catalog.YzProjectId;
@@ -150,7 +152,7 @@ public sealed class CrossTableExcelNativeMySqlTests
                 firstRow["名称"]="文件成功";await Import([firstRow]);await Slots("文件成功",2,pathIds);var fileRecord=await Record("文件成功");
                 Assert.Single(await files.ReadAsync("yz_file_ref",Row("file_id",long.Parse(fileId,CultureInfo.InvariantCulture),"record_id",SqlRowStore.Id(fileRecord))));
                 using(var download=await client.GetAsync("/api/admin/sys/file-library/protected-content/"+fileId)){Assert.Equal(HttpStatusCode.OK,download.StatusCode);Assert.Equal(uploadBytes,await download.Content.ReadAsByteArrayAsync());}
-                stage=prefix+"撤权且不写入";before=await Snapshot();await Grant(page.Id,"[\"is_query\"]");await Import([Input("权限拒绝","国甲//")],HttpStatusCode.Unauthorized);Assert.Equal(before,await Snapshot());await Grant(page.Id,"[\"is_all\"]");
+                stage=prefix+"撤权且不写入";before=await Snapshot();await Grant(page.Id,"[\"is_query\"]");await Import([Input("权限拒绝","国甲//")],HttpStatusCode.Forbidden);Assert.Equal(before,await Snapshot());await Grant(page.Id,"[\"is_all\"]");
                 completed.Add(prefix);await Receipt(prefix,new{run,passed=true,storage=table.IsRongyu,formalWeb=true,ordinaryAccount=true,fullPartialLegacy=true,originalXlsxRoundtrip=true,realTransactionHook=true,fileReferenceRollback=true,permissionRevoked=true,browserExecuted=false,performanceMeasured=false});
             }
             stage="重启保持正式会话";await host.DisposeAsync();host=null;host=await FreshHost.StartAsync(Info(),"/health");host.Client.DefaultRequestHeaders.Add("loginStateId",token);
