@@ -137,7 +137,7 @@ def uses_relation_indexes(value):
 def is_indexed_measurement(value):
     """原六初始化后单独升级索引；仅该用途可调用镜像内固定索引工具。"""
     return is_file_measurement(value) or value.get("purpose") in (INDEXED_WRITE_MEASUREMENT_NATIVE, INDEXED_WRITE_MEASUREMENT_RESOURCES,
-                                    INDEXED_READ_MEASUREMENT_NATIVE, INDEXED_READ_MEASUREMENT_RESOURCES)
+                                    INDEXED_READ_MEASUREMENT_NATIVE, INDEXED_READ_MEASUREMENT_RESOURCES) or is_unicode_read_measurement(value)
 
 
 # 当前 SQL 诊断只绑定已验证镜像和数据程序集，不改变历史用途或计时用途。
@@ -162,6 +162,9 @@ UNICODE_OBSERVED_NATIVE = "paired-native-unicode-like-observed-v1"
 UNICODE_OBSERVED_RESOURCES = "paired-unicode-like-observed-resources-v1"
 UNICODE_OBSERVED_BUSINESS = "paired-unicode-like-observed-business-v1"
 UNICODE_OBSERVED_IMAGES = {**COMMON_FILE_IMAGES,"csharp":"sha256:6b93c3076139f7782d76afd4c83eb91c17d36bb9d81fede7cf9d952cc2583b4f"}
+# 当前候选四读沿用共同关联索引，仅更换独立用途的镜像。
+UNICODE_READ_MEASUREMENT_NATIVE = "paired-native-unicode-indexed-read-v1"
+UNICODE_READ_MEASUREMENT_RESOURCES = "paired-unicode-indexed-read-resources-v1"
 UNICODE_OBSERVATION_DATA_SHA256 = "b0ace0df121fe7b98321eacfbc920a345dffd5e7c44f1c560e1fe858916c8bf7"
 WRITE_REQUEST_BUDGET = 8624
 EXISTING_LINE_IMAGES = {**OBSERVATION_IMAGES, "csharp": "sha256:491d411c8a79c08c5c3f591a64473cac1814e172d048c7bcd86bc9845ac615f0"}
@@ -201,6 +204,11 @@ def is_unicode_observed(value):
     return value.get("purpose") in (UNICODE_OBSERVED_NATIVE,UNICODE_OBSERVED_RESOURCES,UNICODE_OBSERVED_BUSINESS)
 
 
+def is_unicode_read_measurement(value):
+    """按独立用途固定当前Unicode候选的共同索引只读测量。"""
+    return value.get("purpose") in (UNICODE_READ_MEASUREMENT_NATIVE, UNICODE_READ_MEASUREMENT_RESOURCES)
+
+
 def is_pattern_observed(value):
     """新参数化LIKE候选仅接受独立采集用途，不能覆盖旧证据对应的镜像。"""
     return value.get("purpose") in (PATTERN_OBSERVED_NATIVE,PATTERN_OBSERVED_RESOURCES,PATTERN_OBSERVED_BUSINESS)
@@ -218,7 +226,7 @@ def is_current_observed(value):
 
 def images_for(value):
     """从固定的验收用途取得完整镜像内容 ID。"""
-    if is_unicode_observed(value): return UNICODE_OBSERVED_IMAGES
+    if is_unicode_observed(value) or is_unicode_read_measurement(value): return UNICODE_OBSERVED_IMAGES
     if is_pattern_observed(value): return PATTERN_OBSERVED_IMAGES
     if is_full_observed(value): return FULL_OBSERVED_IMAGES
     if is_common_file_measurement(value): return COMMON_FILE_IMAGES
@@ -246,7 +254,7 @@ LABEL = "metarill.performance."
 def validate(value):
     """纯内存核对精确用途和名称；未批准入口不接触文件或运行子进程。"""
     run = value.get("runId", "")
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-resources-v1", "paired-observed-resources-v1", EXISTING_LINE_RESOURCES, MEASUREMENT_RESOURCES, WRITE_MEASUREMENT_RESOURCES, CURRENT_MEASUREMENT_RESOURCES, CURRENT_WRITE_MEASUREMENT_RESOURCES, CURRENT_OBSERVED_RESOURCES, FULL_OBSERVED_RESOURCES, PATTERN_OBSERVED_RESOURCES, UNICODE_OBSERVED_RESOURCES, UNICODE_READ_MEASUREMENT_RESOURCES, INDEXED_WRITE_MEASUREMENT_RESOURCES, INDEXED_READ_MEASUREMENT_RESOURCES, EXTENDED_READINESS_RESOURCES, EXTENDED_BUSINESS_RESOURCES, FILE_AUTH_BUSINESS_RESOURCES, DEEP_EXCEL_RESOURCES, IMPORT_RULE_RESOURCES, FILE_MEASUREMENT_RESOURCES, COMMON_FILE_MEASUREMENT_RESOURCES} or not re.fullmatch(r"[a-f0-9]{32}", run):
         raise ValueError("资源用途或运行号无效")
     if value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "running":
         raise ValueError("本轮没有可执行资源租约")

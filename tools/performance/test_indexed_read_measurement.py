@@ -26,6 +26,27 @@ class IndexedReadContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):native.validate({**value,'purpose':native.resources.INDEXED_WRITE_MEASUREMENT_NATIVE,'writeReplayRequests':8624})
         self.assertEqual(['--Metarill:Paired:SqlObservation:Enabled=false'],native.resources.observation_arguments(descriptor,'csharp'))
 
+    def test_unicode_read_cannot_reuse_old_measurement_or_observation_scope(self):
+        """当前读用途与旧镜像、采集和写预算隔离，且禁止加载观察桥。"""
+        resources = native.resources
+        value = indexed_read()
+        value.update(purpose=resources.UNICODE_READ_MEASUREMENT_NATIVE, images=dict(resources.UNICODE_OBSERVED_IMAGES))
+        descriptor = native.validate(value)
+        self.assertEqual(resources.UNICODE_READ_MEASUREMENT_RESOURCES, descriptor["purpose"])
+        self.assertTrue(resources.uses_relation_indexes(descriptor))
+        self.assertTrue(resources.is_measurement(descriptor))
+        self.assertFalse(resources.is_observed(descriptor))
+        self.assertFalse(resources.is_write_measurement(descriptor))
+        self.assertEqual(["--Metarill:Paired:SqlObservation:Enabled=false"], resources.observation_arguments(descriptor, "csharp"))
+        for change in (
+            {"images": resources.INDEXED_WRITE_IMAGES}, {"purpose": resources.INDEXED_READ_MEASUREMENT_NATIVE},
+            {"purpose": resources.UNICODE_OBSERVED_NATIVE}, {"workbookReplayRequests": 1},
+            {"writeReplayRequests": resources.WRITE_REQUEST_BUDGET}, {"readReplayRequests": resources.READ_REQUEST_BUDGET + 1},
+            {"authorizationStatus": "pending"}, {"relationIndexProfile": None},
+        ):
+            with self.subTest(change=change), mock.patch.object(native, "verify_tool_sources", side_effect=AssertionError("禁止IO")), self.assertRaises(ValueError):
+                native.run({**value, **change})
+
     def test_actual_scenario_budget_counts_preflight_warmup_and_every_step(self):
         """真实场景增删步骤必须拒绝，不能只核入口中声明的数字。"""
         value=measurement.config_for(read_tests.RUN,read_tests.TARGETS,read_tests.TOKENS)
@@ -55,6 +76,7 @@ class IndexedReadFlowTests(previous.FlowFixture):
         return receipt(value,side,mode)
     def test_complete_coordinator_upgrades_then_seeds_reads_and_verifies_without_write_branch(self):
         """最新完整候选执行同索引后原四读，原数据后验及清理保持，写入分支不得调用。"""
+        self.value.update(purpose=native.resources.UNICODE_READ_MEASUREMENT_NATIVE, images=dict(native.resources.UNICODE_OBSERVED_IMAGES))
         def seeded(mysql,value,owner,model,side):self.events.append('seed-'+side);return {'target':side}
         def measured(*args):self.events.append('read');return {'measurementValid':True,'stableRegression':False}
         def preserved(run,side,query,*,relation_indexes=False,exclude_write_samples=False):self.assertTrue(relation_indexes);self.assertFalse(exclude_write_samples);return {'target':side}

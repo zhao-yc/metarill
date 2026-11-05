@@ -34,15 +34,15 @@ JOBS = ("java-preview", "java-apply", "csharp-preview", "csharp-apply", "csharp-
 
 def validate(value):
     """批准校验先于文件、凭据或系统命令；名称和目标镜像不能由调用方自由选择。"""
-    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.FULL_OBSERVED_NATIVE, resources.PATTERN_OBSERVED_NATIVE, resources.UNICODE_OBSERVED_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
+    if type(value.get("version")) is not int or value.get("version") != 1 or value.get("purpose") not in {"paired-native-v1", "paired-native-observed-v1", resources.EXISTING_LINE_NATIVE, resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.CURRENT_OBSERVED_NATIVE, resources.FULL_OBSERVED_NATIVE, resources.PATTERN_OBSERVED_NATIVE, resources.UNICODE_OBSERVED_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.EXTENDED_READINESS_NATIVE, resources.EXTENDED_BUSINESS_NATIVE, resources.FILE_AUTH_BUSINESS_NATIVE, resources.DEEP_EXCEL_NATIVE, resources.IMPORT_RULE_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE} or value.get("authorizationStatus") != "approved" or value.get("leaseStatus") != "not-started":
         raise ValueError("本轮没有可启动的原生双端直接授权")
     if resources.is_full_observed(value) and any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
         raise ValueError("完整候选SQL采集不能携带性能回放预算")
     if resources.uses_relation_indexes(value):
         if value.get("relationIndexProfile") != resources.RELATION_INDEX_PROFILE: raise ValueError("索引用途缺少固定元数据升级配置")
     elif "relationIndexProfile" in value: raise ValueError("旧用途不能隐式升级索引")
-    if value.get("purpose")==resources.INDEXED_READ_MEASUREMENT_NATIVE:
-        if type(value.get("readReplayRequests")) is not int or value["readReplayRequests"]!=resources.READ_REQUEST_BUDGET or "writeReplayRequests" in value:raise ValueError("只读用途必须使用完整原读预算，不能带写入范围")
+    if value.get("purpose") in (resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE):
+        if type(value.get("readReplayRequests")) is not int or value["readReplayRequests"]!=resources.READ_REQUEST_BUDGET or any(key in value for key in ("writeReplayRequests", "workbookReplayRequests")):raise ValueError("只读用途必须使用完整原读预算，不能带写入范围")
     elif value.get("purpose")==resources.INDEXED_WRITE_MEASUREMENT_NATIVE and "readReplayRequests" in value:raise ValueError("写入用途不能混入读取预算")
     if resources.is_file_measurement(value):
         if type(value.get("fileReplayRequests")) is not int or value["fileReplayRequests"]!=resources.FILE_REQUEST_BUDGET or type(value.get("fileFixtureRequests")) is not int or value["fileFixtureRequests"]!=resources.FILE_FIXTURE_REQUESTS or any(key in value for key in ("readReplayRequests","writeReplayRequests","workbookReplayRequests")):
@@ -67,6 +67,7 @@ def validate(value):
         purpose = resources.INDEXED_WRITE_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_WRITE_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.WRITE_MEASUREMENT_RESOURCES
     elif resources.is_measurement(value):
         purpose = resources.INDEXED_READ_MEASUREMENT_RESOURCES if resources.uses_relation_indexes(value) else resources.CURRENT_MEASUREMENT_RESOURCES if resources.is_current_measurement(value) else resources.MEASUREMENT_RESOURCES
+    if resources.is_unicode_read_measurement(value): purpose = resources.UNICODE_READ_MEASUREMENT_RESOURCES
     if resources.is_file_measurement(value): purpose = resources.COMMON_FILE_MEASUREMENT_RESOURCES if resources.is_common_file_measurement(value) else resources.FILE_MEASUREMENT_RESOURCES
     if resources.is_extended_readiness(value): purpose = resources.EXTENDED_READINESS_RESOURCES
     if resources.is_extended_business(value): purpose = resources.IMPORT_RULE_RESOURCES if resources.is_import_rule_business(value) else resources.DEEP_EXCEL_RESOURCES if resources.is_deep_excel_import(value) else resources.FILE_AUTH_BUSINESS_RESOURCES if resources.is_file_auth_business(value) else resources.EXTENDED_BUSINESS_RESOURCES
@@ -173,7 +174,7 @@ def require_database_ownership(mysql,value,owner_token):
         raise ValueError("business-fixture-ownership")
 def seed_measurement_database(mysql,value,owner_token,fixture,target):
     """只供新性能用途调用，固定种子写后独立核对全部行和结构。"""
-    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
+    if value.get("purpose") not in (resources.MEASUREMENT_NATIVE, resources.WRITE_MEASUREMENT_NATIVE, resources.CURRENT_MEASUREMENT_NATIVE, resources.CURRENT_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_WRITE_MEASUREMENT_NATIVE, resources.INDEXED_READ_MEASUREMENT_NATIVE, resources.UNICODE_READ_MEASUREMENT_NATIVE, resources.FILE_MEASUREMENT_NATIVE, resources.COMMON_FILE_MEASUREMENT_NATIVE) or value.get("authorizationStatus")!="approved" or value.get("leaseStatus")!="not-started":
         raise ValueError("measurement-seed-lease")
     require_database_ownership(mysql,value,owner_token)
     run=value["runId"]
