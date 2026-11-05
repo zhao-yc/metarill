@@ -588,6 +588,7 @@
 | V255 | ✅ 同库及分库文件事务实库复验通过 | Server-200 MySQL、固定三项 | 同库文件与事务隔离、分库逻辑删除／回滚、分库物理删除均通过。双库、账号及归属记录已独立核零。V04 完整矩阵继续验收。 | [实库验收](testing/project-file-database-combinations-v255.md)，2026-11-05 |
 | V256 | ✅ 同库 Production 空库自举实库通过 | Server-200 MySQL、固定 Production 宿主与隔离 Redis | 普通启动零表，显式初始化 25 表、11 类 1,531 条种子，重复保护、原 HTTP 登录／菜单／失败审计及重启通过。预留业务库保持零表，临时资源已独立核零。 | [正式验收](testing/platform-bootstrap-shared-database-v256.md)，2026-11-05 |
 | V257 | ✅ 同库／分库普通权限与发布页实库通过 | Server-200 MySQL、同一固定 Production 宿主 | 两种拓扑的原登录、工作台授予、普通 CRUD、跨项目拒绝、物理回读及原令牌撤权均通过。暂停中断轮次已清理并补跑，全部独占资源已核零。 | [正式验收](testing/platform-business-permissions-v257.md)，2026-11-05 |
+| V258 | 🟡 同库／分库导入回滚和写入争用已接线 | 同一 Production 业务页、真实普通角色 | 新增第 2 行输入失败后物理行数不变、修正后成功，以及两条原 HTTP 写请求争用同一业务行后两字段都保留。两种拓扑待实测。 | [普通权限 V257](testing/platform-business-permissions-v257.md)，2026-11-05 |
 
 ## 五、后续数据库（MySQL 首版完整验收后逐批推进）
 

@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Metarill.Data;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 using Xunit;
@@ -82,15 +84,88 @@ public sealed partial class FreshInstallMySqlTests
         Assert.Equal(project, SqlRowStore.Id(physical, "yz_project_id"));
         Assert.Equal(56.78m, physical["amount"]);
         Assert.Null(physical["notes"]);
+        await VerifyCompetingCustomerUpdatesAsync(ordinary, business.Session, customer, key, id!);
+        var merged = Assert.Single(await business.ReadAsync(table, new Dictionary<string, object?> { ["id"] = key }));
+        Assert.Equal(67.89m, merged["amount"]);
+        Assert.Equal("并发保留的备注", merged["notes"]);
+        Assert.Equal(account, SqlRowStore.Id(merged, "update_manager_id"));
         await FreshWebHttp.SendAsync(ordinary, HttpMethod.Delete, customer, new { id });
         Assert.Empty(await business.ReadAsync(table, new Dictionary<string, object?> { ["id"] = key }));
         var untouched = Assert.Single(await business.ReadAsync(table, new Dictionary<string, object?> { ["id"] = foreignId }));
         Assert.Equal(marker, untouched["name"]);
         Assert.Null(untouched["notes"]);
 
+        var import = customer + "/importDatas" + page;
+        var validRow = new Dictionary<string, object?> { ["名称"] = "组合验收导入", ["金额"] = 12.34m };
+        await DeniedAsync(ordinary, HttpMethod.Post, import, new { requestJson = new[] { validRow } });
+        await GrantAsync("is_all");
+        var invalidRow = new Dictionary<string, object?> { ["名称"] = "不应提交的末行", ["金额"] = "无法转换" };
+        var businessRowCount = await ScalarAsync(business.Session, "SELECT COUNT(*) FROM demo_customer");
+        await DeniedAsync(ordinary, HttpMethod.Post, import, new { requestJson = new[] { validRow, invalidRow } }, "第2行，列「金额」：应填写有效数字。");
+        Assert.Equal(businessRowCount, await ScalarAsync(business.Session, "SELECT COUNT(*) FROM demo_customer"));
+        await FreshWebHttp.SendAsync(ordinary, HttpMethod.Post, import, new { requestJson = new[] { validRow } });
+        var imported = Assert.Single(await business.ReadAsync(table, new Dictionary<string, object?> { ["name"] = validRow["名称"] }));
+        Assert.Equal(project, SqlRowStore.Id(imported, "yz_project_id"));
+        Assert.Equal(account, SqlRowStore.Id(imported, "insert_manager_id"));
+        Assert.Equal(12.34m, imported["amount"]);
+
         await GrantAsync();
         await DeniedAsync(ordinary, HttpMethod.Post, customer + "/page", filter);
         await DeniedAsync(ordinary, HttpMethod.Post, customer + "/add", new { name = marker });
+    }
+
+    /// <summary>第三连接先持有目标行锁，再观察两条原 HTTP 请求争用。释放后两项明确字段更新都必须保留。</summary>
+    private static async Task VerifyCompetingCustomerUpdatesAsync(HttpClient client, DatabaseSession session, string route, long key, string id)
+    {
+        await using var holder = session.Provider.CreateConnection(session.Options);
+        await using var observer = session.Provider.CreateConnection(session.Options);
+        await holder.OpenAsync();
+        await observer.OpenAsync();
+        await using var transaction = await holder.BeginTransactionAsync();
+        await using (var command = holder.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "SELECT id FROM demo_customer WHERE id=@id FOR UPDATE";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@id";
+            parameter.Value = key;
+            command.Parameters.Add(parameter);
+            Assert.Equal(key, await command.ExecuteScalarAsync());
+        }
+
+        var amount = FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/update", new { id, amount = 67.89m });
+        var notes = FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/update", new { id, notes = "并发保留的备注" });
+        try
+        {
+            // 临时账号只观察本账号的连接。查询正文只在内存中匹配固定表和锁子句。
+            await using var probe = observer.CreateCommand();
+            probe.CommandText = "SHOW FULL PROCESSLIST";
+            var wait = Stopwatch.StartNew();
+            var waiting = 0;
+            while (wait.Elapsed < TimeSpan.FromSeconds(15) && !amount.IsCompleted && !notes.IsCompleted)
+            {
+                await using (var reader = await probe.ExecuteReaderAsync())
+                {
+                    var database = reader.GetOrdinal("db");
+                    var info = reader.GetOrdinal("Info");
+                    waiting = 0;
+                    while (await reader.ReadAsync())
+                    {
+                        if (reader.IsDBNull(database) || reader.IsDBNull(info) || reader.GetString(database) != session.Options.ExpectedDatabase) continue;
+                        var sql = reader.GetString(info);
+                        if (sql.Contains("demo_customer", StringComparison.OrdinalIgnoreCase) && sql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase)) waiting++;
+                    }
+                }
+                if (waiting == 2) break;
+                await Task.Delay(100);
+            }
+            Assert.Equal(2, waiting);
+        }
+        finally
+        {
+            await transaction.RollbackAsync();
+            await Task.WhenAll(amount, notes);
+        }
     }
 
     /// <summary>原 Web 拒绝沿用 HTTP 200 和业务码 500，异常正文不回显。</summary>
