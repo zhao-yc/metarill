@@ -41,7 +41,11 @@ public sealed class ImportedSchemaFreshMySqlTests
         var application = Path.Combine(root, "application"); var catalog = await Catalog(Path.Combine(application, "backend/metadata/project.json")); var security = await Catalog(Path.Combine(application, "backend/metadata/security.json")); var files = await Catalog(Path.Combine(application, "backend/metadata/files.json"));
         var table = Assert.Single(catalog.ConfigTables); var page = Assert.Single(catalog.ConfigPages); Assert.Matches("^mt_save_[a-f0-9]{32}_0$", table.TableName); Assert.Equal(source.RootElement.GetProperty("tableName").GetString(), table.TableName); Assert.Equal(hasProject, catalog.ConfigColumns.Any(column => column.ColumnName == "yz_project_id"));
         var original = source.RootElement.GetProperty("snapshot").Deserialize<SchemaInspectionSnapshot>(Json)!; var originalTable = Assert.Single(original.Schema.Tables); Assert.Equal(table.TableName, originalTable.Name); var originalDdl = originalTable.SnapshotDefinition ?? throw new InvalidOperationException("缺少固定源表定义。");
-        var physical = MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(catalog, files), security);
+        // 使用正式宿主的完整物理模型，登录必须由本轮独占 Redis DB0 提供失败计数。
+        var physical = MetadataCatalogComposition.MergePhysical(
+            MetadataCatalogComposition.MergePhysical(MetadataCatalogComposition.MergePhysical(catalog, files), security),
+            Metarill.Runtime.Agent.AgentFoundationCatalog.ForApplication(catalog));
+        var loginRedis = FreshInstallConfiguration.ReadLoginRedis();
         var options = FreshInstallConfiguration.Read(property, suffix); using var session = new DatabaseSession(options);
         await using var connection = session.Provider.CreateConnection(options); await connection.OpenAsync();
         await using (var pin = connection.CreateCommand())
@@ -57,6 +61,7 @@ public sealed class ImportedSchemaFreshMySqlTests
             var info = NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet", hostDirectory); info.ArgumentList.Add(Path.Combine(hostDirectory, "bin/Release/net10.0/Application.Host.dll")); if (operation is not null) info.ArgumentList.Add(operation);
             info.Environment["ASPNETCORE_ENVIRONMENT"] = "Production"; info.Environment["Database__Provider"] = "mysql"; info.Environment["Database__ExpectedDatabase"] = options.ExpectedDatabase; info.Environment["Database__ConnectionString"] = options.ConnectionString;
             info.Environment["Authentication__Mode"] = "Web"; info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = "false"; info.Environment["Authentication__Bootstrap__AdminTypeId"] = page.YzAdminTypeId; info.Environment["Authentication__Bootstrap__Username"] = username; info.Environment["Authentication__Bootstrap__Password"] = password; info.Environment["Ids__WorkerId"] = "804";
+            if (operation is null) info.Environment["Authentication__LoginFailures__ConnectionString"] = loginRedis;
             info.Environment["Files__RootDirectory"] = Path.Combine(evidence, "files"); info.Environment["Exports__RootDirectory"] = Path.Combine(evidence, "exports"); info.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"] = evidence; return info;
         }
         async Task SourceUnchanged()
@@ -84,7 +89,7 @@ public sealed class ImportedSchemaFreshMySqlTests
             var updated = (await FreshWebHttp.SendAsync(owner, HttpMethod.Post, route + "/update", new { id, name = "正式导入修改" })).GetProperty("data"); Assert.Equal("正式导入修改", updated.GetProperty("name").GetString());
             await FreshWebHttp.SendAsync(owner, HttpMethod.Post, route + "/update", new { id, name = (string?)null }, HttpStatusCode.BadRequest); Assert.Equal("正式导入修改", (await FreshWebHttp.SendAsync(owner, HttpMethod.Get, route + "/detail/" + id)).GetProperty("data").GetProperty("name").GetString());
             await FreshWebHttp.SendAsync(owner, HttpMethod.Post, route + "/update", new { id, sql = "1=1" }, HttpStatusCode.BadRequest);
-            var copied = (await FreshWebHttp.SendAsync(owner, HttpMethod.Post, route + "/copy", new { id })).GetProperty("data"); Assert.NotEqual(id, copied.GetProperty("id").GetString());
+            var copied = (await FreshWebHttp.SendAsync(owner, HttpMethod.Post, route + "/copy/" + id, new { })).GetProperty("data"); Assert.NotEqual(id, copied.GetProperty("id").GetString());
             await FreshWebHttp.SendAsync(owner, HttpMethod.Delete, route, new { id }); Assert.Equal(0L, await Active(id)); Assert.Equal(1L, await Active("1"));
             if (hasProject)
             {
