@@ -118,7 +118,7 @@ class ExportContractTests(unittest.TestCase):
         self.assertEqual(1, len({p["semanticSha256"] for p in results}))
         with mock.patch.object(subject.oracle, "MAX_BATCH", 1), mock.patch.object(subject.oracle, "MAX_JOBS", 7):
             with self.assertRaisesRegex(ValueError, "replay-batches"):
-                subject.verify_workbooks(samples, parse)
+                subject.verify_workbooks(samples, parse, max_batches=1)
         self.assertEqual(2, len(batches))
 
 

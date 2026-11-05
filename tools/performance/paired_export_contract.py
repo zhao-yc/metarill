@@ -93,7 +93,7 @@ def workbook_proof(side, kind, workbook):
             "sha256": workbook["sha256"], "format": workbook["format"]}
 
 
-def verify_workbooks(samples, parse_workbook):
+def verify_workbooks(samples, parse_workbook, *, max_batches=6):
     """对所有下载做计时外验证，相同语言、页面和字节可复用逐格结论。"""
     sample_keys = []
     unique = {}
@@ -121,8 +121,8 @@ def verify_workbooks(samples, parse_workbook):
         size += item_bytes + bool(pending)
         pending.append((key, item))
     batches.append(pending)
-    # 每阶段最多使用一半容器额度，预检和正式读回合计不超过既有上限。
-    if len(batches) > oracle.MAX_JOBS - EXCEL_EXPORT_PREFLIGHT_REQUESTS // 2:
+    # 调用者按当前阶段为原容器额度保留余量。
+    if not 1 <= max_batches <= oracle.MAX_JOBS or len(batches) > max_batches:
         raise ValueError("measurement-export-replay-batches")
     proofs = {}
     for batch in batches:
@@ -137,7 +137,7 @@ MAX_DOWNLOAD = 4 * 1024 * 1024
 LOOPBACK_API = re.compile(r"http://127[.]0[.]0[.]1:(?:[23][0-9]{4}|40000)/api")
 
 
-def fetch_download(base_url, ticket):
+def fetch_download(base_url, ticket, *, limit=MAX_DOWNLOAD):
     """按原 openUrl 无会话头下载，禁止代理、跳转、压缩变换及超限实体。"""
     if not LOOPBACK_API.fullmatch(base_url):
         raise ValueError("measurement-export-loopback")
@@ -153,15 +153,15 @@ def fetch_download(base_url, ticket):
         lengths = response.headers.get_all("Content-Length", [])
         if lengths and (len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,7}", lengths[0]) or response.headers.get("Transfer-Encoding")):
             raise ValueError("measurement-export-download-length")
-        raw = response.read(MAX_DOWNLOAD + 1)
+        raw = response.read(limit + 1)
     if lengths and int(lengths[0]) != len(raw):
         raise ValueError("measurement-export-download-length")
-    if not 0 < len(raw) <= MAX_DOWNLOAD:
+    if not 0 < len(raw) <= limit:
         raise ValueError("measurement-export-download-size")
     return raw
 
 
-def run_preflight(root, targets, tokens, parse_workbook):
+def run_preflight(root, targets, tokens, parse_workbook, *, limit=MAX_DOWNLOAD, max_batches=6):
     """执行两端三组原票据与完整下载，校验实际文件后生成预检收据。"""
     if set(targets) != set(FORMAT):
         raise ValueError("measurement-export-targets")
@@ -185,10 +185,10 @@ def run_preflight(root, targets, tokens, parse_workbook):
             if ticket in tickets:
                 raise ValueError("measurement-export-ticket-reused")
             tickets.add(ticket)
-            raw = fetch_download(target["baseUrl"], ticket)
+            raw = fetch_download(target["baseUrl"], ticket, limit=limit)
             (output / f"{side}-{kind}.{FORMAT[side]}").write_bytes(raw)
             samples.append((side, kind, raw))
-    for (side, kind, _), proof in zip(samples, verify_workbooks(samples, parse_workbook), strict=True):
+    for (side, kind, _), proof in zip(samples, verify_workbooks(samples, parse_workbook, max_batches=max_batches), strict=True):
         facts[side][kind] = proof
     (output / "receipts.json").write_bytes(http.canonical(facts))
     if any(facts["java"][kind]["semanticSha256"] != facts["csharp"][kind]["semanticSha256"] for kind in HEADERS):
