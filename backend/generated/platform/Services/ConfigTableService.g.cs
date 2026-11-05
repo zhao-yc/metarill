@@ -84,7 +84,7 @@ public partial class ConfigTableService
                         break;
                     }
                     var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
-                    query = query.Where(entity => entity.Name != null && value != null && entity.Name.Contains(value));
+                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.Name,value!);
                     break;
                 }
                 case "tableName":
@@ -97,7 +97,7 @@ public partial class ConfigTableService
                         break;
                     }
                     var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
-                    query = query.Where(entity => entity.TableName != null && value != null && entity.TableName.Contains(value));
+                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.TableName,value!);
                     break;
                 }
                 case "isView":

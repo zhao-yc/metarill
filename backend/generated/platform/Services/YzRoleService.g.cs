@@ -75,7 +75,7 @@ public partial class YzRoleService
                         break;
                     }
                     var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
-                    query = query.Where(entity => entity.Name != null && value != null && entity.Name.Contains(value));
+                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.Name,value!);
                     break;
                 }
                 default: throw new ArgumentException("页面未开放该筛选字段：" + filter.Key);

@@ -76,6 +76,7 @@ public sealed class JsonArrayNameQueryTests
         var before = query.ToSql();
         Assert.Throws<NotSupportedException>(() => JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, row => row.Names, "名称"));
         Assert.Throws<NotSupportedException>(() => StringNameQuery.ApplyLike(session, query, row => row.Names, "名称"));
+        Assert.Throws<NotSupportedException>(() => StringNameQuery.ApplyPattern(session, query, row => row.Names, "名称"));
         Assert.Equal(before, query.ToSql());
     }
 

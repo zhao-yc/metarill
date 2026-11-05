@@ -2,7 +2,7 @@ using System.Data.Common;
 
 namespace Metarill.Data.Queries;
 
-public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains, JsonArrayHasId }
+public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains, JsonArrayHasId, LikePattern }
 public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison,object? Value=null);
 public sealed record FixedReadOrder(string Field,bool Descending=false);
 public sealed record FixedReadPage(long Total,IReadOnlyList<IReadOnlyDictionary<string,object?>> Records);
@@ -207,7 +207,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(converted is TimeSpan time)new MySqlDatabaseProvider().ValidateTimeValue(time);
         return filter with{Value=converted};
     }
-    /// <summary>校验完整操作与标量类型；NULL使用明确SQL语义，LIKE使用字面转义。</summary>
+    /// <summary>校验完整操作与标量类型；Contains按字面转义，LikePattern保留原LIKE模式。</summary>
     private static string Filter(MySqlNonRedundantReadPlan plan,FixedReadFilter filter,int index)
     {
         var expression=plan.Expression(filter.Field);var value=filter.Value;var parameter="@filter_"+index;
@@ -226,6 +226,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             // 元素匹配不能退化为序列化JSON文本LIKE；根COUNT、分页及统计仍使用同一EXISTS。
             return arrayPredicate.Replace("{parameter}",parameter,StringComparison.Ordinal);
         }
+        // 普通文本保留旧LIKE模式；Contains继续用于已确认的字面名称搜索，不能混用。
+        if(filter.Comparison==FixedReadComparison.LikePattern)
+        {if(value is not string||plan.Types[filter.Field]!="string")throw new InvalidOperationException("原LIKE模式仅适用于文本字段。");return expression+" LIKE "+parameter;}
         if(filter.Comparison==FixedReadComparison.Contains)
         {if(value is not string||plan.Types[filter.Field]!="string")throw new InvalidOperationException("字面包含仅适用于文本字段。");return expression+" LIKE "+parameter+" ESCAPE '!'";}
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
@@ -245,7 +248,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     {
         Add(command,"project_scope_text",projectId);Add(command,"project_scope_number",long.Parse(projectId,System.Globalization.CultureInfo.InvariantCulture));
         for(var i=0;i<filters.Count;i++)
-        {var filter=filters[i];if(filter.Comparison==FixedReadComparison.In){var items=(IReadOnlyList<object?>)filter.Value!;for(var item=0;item<items.Count;item++)if(items[item] is {} memberValue)Add(command,"filter_"+i+"_"+item,memberValue);continue;}if(filter.Value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)continue;var value=filter.Comparison is FixedReadComparison.Contains or FixedReadComparison.JsonArrayAnyContains?"%"+((string)filter.Value).Replace("!","!!",StringComparison.Ordinal).Replace("%","!%",StringComparison.Ordinal).Replace("_","!_",StringComparison.Ordinal)+"%":filter.Value;Add(command,"filter_"+i,value);}
+        {var filter=filters[i];if(filter.Comparison==FixedReadComparison.In){var items=(IReadOnlyList<object?>)filter.Value!;for(var item=0;item<items.Count;item++)if(items[item] is {} memberValue)Add(command,"filter_"+i+"_"+item,memberValue);continue;}if(filter.Value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)continue;var value=filter.Comparison==FixedReadComparison.LikePattern?"%"+(string)filter.Value+"%":filter.Comparison is FixedReadComparison.Contains or FixedReadComparison.JsonArrayAnyContains?"%"+((string)filter.Value).Replace("!","!!",StringComparison.Ordinal).Replace("%","!%",StringComparison.Ordinal).Replace("_","!_",StringComparison.Ordinal)+"%":filter.Value;Add(command,"filter_"+i,value);}
     }
     /// <summary>无项目列来源必须绑定发布目录身份，不能靠请求参数取得另一项目的全局数据。</summary>
     private static string RequirePlanProject(MySqlNonRedundantReadPlan plan,string? project)

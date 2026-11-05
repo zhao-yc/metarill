@@ -315,7 +315,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 var like = column.Type == "string?" && (matchName == "like" || (string.IsNullOrEmpty(matchName) && column.Source.ControlKind is not "List" and not "ConstList" and not "ConstDownList" and not "SelectPage"));
                 // 已管理的名称数组也可能直接开放为原文本筛选；按JSON成员查询，兼容中文转义并保留原范围。
                 if(like&&table.Source.IsRongyu==1&&column.IsManagedMultiNames)result.AppendLine($"                    if (!string.IsNullOrWhiteSpace(value)) {{ query = Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, entity => entity.{column.Property}, value); break; }}");
-                result.AppendLine(like ? $"                    query = query.Where(entity => entity.{column.Property} != null && value != null && entity.{column.Property}.Contains(value));" : $"                    query = query.Where(entity => entity.{column.Property} == value);");
+                result.AppendLine(like ? $"                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.{column.Property},value!);" : $"                    query = query.Where(entity => entity.{column.Property} == value);");
             }
             result.AppendLine("                    break;").AppendLine("                }");
         }        result.AppendLine("                default: throw new ArgumentException(\"页面未开放该筛选字段：\" + filter.Key);").AppendLine("            }").AppendLine("        }")

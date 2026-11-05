@@ -93,7 +93,7 @@ public partial class ConfigPageService
                         break;
                     }
                     var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
-                    query = query.Where(entity => entity.Name != null && value != null && entity.Name.Contains(value));
+                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.Name,value!);
                     break;
                 }
                 default: throw new ArgumentException("页面未开放该筛选字段：" + filter.Key);
@@ -435,7 +435,7 @@ public partial class ConfigPageService
                         break;
                     }
                     var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
-                    query = query.Where(entity => entity.Name != null && value != null && entity.Name.Contains(value));
+                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.Name,value!);
                     break;
                 }
                 default: throw new ArgumentException("页面未开放该筛选字段：" + filter.Key);
@@ -714,7 +714,7 @@ public partial class ConfigPageService
                         break;
                     }
                     var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
-                    query = query.Where(entity => entity.Name != null && value != null && entity.Name.Contains(value));
+                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.Name,value!);
                     break;
                 }
                 case "configTableTableName":
@@ -727,7 +727,7 @@ public partial class ConfigPageService
                         break;
                     }
                     var value = JsonSerializer.Deserialize<string?>(filter.Value.GetRawText(), JsonOptions);
-                    query = query.Where(entity => entity.ConfigTableTableName != null && value != null && entity.ConfigTableTableName.Contains(value));
+                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.ConfigTableTableName,value!);
                     break;
                 }
                 default: throw new ArgumentException("页面未开放该筛选字段：" + filter.Key);

@@ -6,7 +6,7 @@
 
 `FixedConditionPlan` 识别字段白名单上的 AND、分组、比较、IN、LIKE、IS NULL/IS NOT NULL、数值/字符串/布尔/NULL 和独立变量符号。字符串中的 AND、逗号、SQL标点和双单引号保持字面量，反斜杠保持字符。未知字段、语句、注释、函数或其它表达式明确拒绝，不忽略尾部；定义、项数、分组和集合大小有界。字段及变量目录和条件节点均冻结。
 
-`FixedConditionSqlPlan` 在编译时固定字段逻辑类型与常量，在数据适配层用已校验标识符和参数占位符构建条件。运行时只绑定显式窄变量，总是 AND 到原查询，缺失或错误变量在修改查询前失败。LIKE 保留模式语义，区别于页面关键词的字面 Contains。=NULL、<>NULL 和 IN(NULL) 保持 SQL 三值语义，不偷换为 IS NULL。整数不经浮点转换，decimal 不静默舍入，非零 double 不下溢成零。逻辑 double 仍是浮点类型，不承诺任意十进制文字无损表示。
+`FixedConditionSqlPlan` 在编译时固定字段逻辑类型与常量，在数据适配层用已校验标识符和参数占位符构建条件。运行时只绑定显式窄变量，总是 AND 到原查询，缺失或错误变量在修改查询前失败。LIKE 保留模式语义，区别于已确认的关系名称字面 Contains；普通文本筛选保留原LIKE模式。=NULL、<>NULL 和 IN(NULL) 保持 SQL 三值语义，不偷换为 IS NULL。整数不经浮点转换，decimal 不静默舍入，非零 double 不下溢成零。逻辑 double 仍是浮点类型，不承诺任意十进制文字无损表示。
 
 真实 MySQL 适配层已经验证高位 ID、LIKE、IN、比较、空值、字符串注入样本、参数化 count，以及整数/文本两种项目列；样本只使用本轮自有随机表。这些适配层验证本身不授予页面或记录权限。下述 List 常量分支另外通过了正式生成 Controller 的 HTTP/MySQL 验证。
 

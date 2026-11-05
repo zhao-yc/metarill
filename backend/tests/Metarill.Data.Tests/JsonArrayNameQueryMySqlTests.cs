@@ -14,7 +14,7 @@ using Xunit.Abstractions;
 namespace Metarill.Data.Tests;
 
 /// <summary>真实隔离库验证解码后的string成员；不启动服务，也不向产品API传原生SQL。</summary>
-public sealed class JsonArrayNameQueryMySqlTests(ITestOutputHelper output)
+public sealed partial class JsonArrayNameQueryMySqlTests(ITestOutputHelper output)
 {
     /// <summary>计数、分页和导出投影共用已受限query，参数/别名不因多个名称谓词互相覆盖。</summary>
     [MySqlIntegrationFact]

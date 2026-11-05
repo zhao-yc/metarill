@@ -106,3 +106,10 @@ GitHub run41502116815已终态；Windows／Ubuntu均在Generation同8项失败�
 运行 `41662997276` 的前端、Ubuntu、Windows 三个作业均已成功。读取 Ubuntu 实际上传的 11 份 TRX，后端十项目合计 6,081 通过、0 失败、465 条件跳过，采集宿主项目另有 23 项通过、零失败或跳过。生成器 2,768 通过、268 条件跳过。逐用例与本机 Windows 的 3,036 项生成器报告对照，唯一状态差异是验证 Windows 独占删除句柄的用例，Ubuntu 按适用范围跳过。原始制品和逐项目摘要归档于私有 `.local/ci-118395f-run-41662997276/ubuntu`。两套系统结果不相加，正式实库、跨端和性能仍另验。
 
 Windows 上传的 11 份 TRX 显示后端十项目 6,082 通过、0 失败、464 条件跳过，采集宿主另有 23 项通过。两套系统逐用例对照，除 Windows 专用文件删除共享测试外，只有两个非有限数字用例的参数显示为 Infinity 或 ∞，两端结果均通过。Windows 制品归档于私有 `.local/ci-118395f-run-41662997276/windows`。
+
+
+## 2026-11-05 c290277 基线CI终态
+
+实读GitHub Actions run41904349745，对应c290277916698269db2565c30894b2d1c8798cea：backend(windows-latest)、backend(ubuntu-latest)、frontend三个作业均completed/success。它补齐该来源的CI子项，不将历史a86c43d的八项失败继续当作当前未修复结论。
+
+随后V209实际SQL审阅发现普通文本LOCATE与原LIKE语义差异，V210／V211已修正代码及生成产物。新提交必须重新检查CI及固定包、真实HTTP／SQL／代表性性能，不能沿用c290277绿色。CI本身不证明真实设备、完整角色Runtime A或MySQL首版总验收完成。
