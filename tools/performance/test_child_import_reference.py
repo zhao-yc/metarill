@@ -60,6 +60,22 @@ class ChildReferenceContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, error):
                 capture.verify_child_transaction(invalid,database,"java","late-row-rollback",run,proof)
 
+    def test_sql_csharp_inline_id_requires_the_exact_single_literal(self):
+        run = read_tests.RUN
+        database = subject.fixture.database_name(run, "csharp")
+        parent = str(subject.DELETED_PARENT_ID)
+        statement = "SELECT a.`id` FROM `sample_contract` a WHERE (((a.`id`) in ({}))) FOR UPDATE"
+        rollback = {"operation":"rollback", "succeeded":True, "connection":1, "transaction":7, "startedTimestamp":3}
+        lock = {"sql":statement.format(parent), "connection":1, "transaction":7, "succeeded":True,
+                "startedTimestamp":1, "finishedTimestamp":2, "parameters":[]}
+        trace = {"commands":[lock], "transactions":[rollback]}
+        facts = capture.verify_child_transaction(trace,database,"csharp","deleted-parent",run,b"x"*32)
+        self.assertEqual(["literal-integer"],facts["parentLockBindings"])
+        for value in (parent+"0", parent+",1", "'"+parent+"'"):
+            with self.assertRaisesRegex(ValueError,"capture-child-parent-lock"):
+                capture.verify_child_transaction({**trace,"commands":[{**lock,"sql":statement.format(value)}]},
+                                                 database,"csharp","deleted-parent",run,b"x"*32)
+
     def test_reference_image_and_budget_are_isolated(self):
         resources = native.resources
         original = previous.scope()
