@@ -17,9 +17,8 @@ internal static class PublishedReadProjectionCompilation
             .ThenBy(column => column.Source.Id, StringComparer.Ordinal).ToArray();
     }
 
-    /// <summary>账号表保留已有专用脱敏投影；其他普通读取生成固定强类型列集合。</summary>
-    internal static string Expression(GenerationModel model, TableModel table, PageModel page) => ManagerCredentialCompilation.IsTable(table)
-        ? ManagerCredentialCompilation.ReadProjection(table)
-        : "entity => new " + table.EntityType + " { " + string.Join(", ", Columns(model, table, page)
+    /// <summary>普通读取按页面生成强类型列集合，账号凭据由列编译阶段统一排除。</summary>
+    internal static string Expression(GenerationModel model, TableModel table, PageModel page) =>
+        "entity => new " + table.EntityType + " { " + string.Join(", ", Columns(model, table, page)
             .Select(column => column.Property + " = entity." + column.Property)) + " }";
 }

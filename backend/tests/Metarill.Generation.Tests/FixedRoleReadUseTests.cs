@@ -36,7 +36,9 @@ public sealed class FixedRoleReadUseTests
         Assert.Equal(0,result[0].GetProperty("yzRoleNames").GetArrayLength());Assert.Equal(JsonValueKind.Null,result[2].GetProperty("yzRoleNames").ValueKind);
         Assert.All(result.EnumerateArray(),row=>{Assert.False(row.TryGetProperty("password",out _));Assert.False(row.TryGetProperty("salt",out _));Assert.False(row.TryGetProperty("oldPassword",out _));});
         Assert.Equal(2,f.Rows.Commands.Count);Assert.Equal(1,f.Rows.MaxConcurrent);Assert.All(f.Auth.Requests,item=>Assert.Equal(Manager+":list",item));
-        var sourceSql=f.Rows.Commands[0];foreach(var secret in new[]{"password","salt","old_password"})Assert.DoesNotContain(secret,sourceSql,StringComparison.OrdinalIgnoreCase);
+        var sourceSql=f.Rows.Commands[0];
+        foreach(var hidden in new[]{"password","salt","old_password","internal_note"}) Assert.DoesNotContain(hidden,sourceSql,StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("yz_role_ids",sourceSql,StringComparison.OrdinalIgnoreCase);
         var namesSql=f.Rows.Commands[1];Assert.Contains("EXISTS",namesSql,StringComparison.OrdinalIgnoreCase);Assert.Contains("yz_admin_type",namesSql);Assert.Contains("yz_project_id",namesSql);Assert.Contains("delete_no",namesSql);
         var namesSelect=namesSql[..namesSql.IndexOf("FROM",StringComparison.OrdinalIgnoreCase)];Assert.DoesNotContain("is_super",namesSelect);Assert.DoesNotContain("yz_admin_type_id",namesSelect);
         foreach(var allowed in new[]{"create","update","detail","export"})
@@ -116,6 +118,8 @@ public sealed class FixedRoleReadUseTests
     {
         var catalog=FixedRoleCheckboxTests.Catalog();var full=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!,"../../metadata/platform.json"))),Json)!;
         foreach(var id in new[]{ManagerCredentialCompilation.PasswordId,"1679698328187744257","1679698328317767681"}){catalog.ConfigColumns.Add(full.ConfigColumns.Single(item=>item.Id==id));catalog.ConfigPageColumns.Add(full.ConfigPageColumns.Single(item=>item.ConfigPageId==Manager&&item.ConfigColumnId==id));}
+        // 已选回读使用真正生成的物理列投影，原页面未开放的附加资料不得被读取。
+        catalog.ConfigColumns.Add(new() { Id="offline_internal_note", ConfigTableId=ManagerCredentialCompilation.TableId, ColumnName="internal_note", LogicalType="string", ColumnLength="max" });
         foreach(var page in catalog.ConfigPages.Where(item=>item.Id is Manager or Role)){page.IsExport=1;page.Extra["exportMethod"]=JsonSerializer.SerializeToElement("list");page.Extra["type"]=JsonSerializer.SerializeToElement(2);}
         return catalog;
     }

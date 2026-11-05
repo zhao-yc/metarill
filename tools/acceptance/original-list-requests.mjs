@@ -13,11 +13,12 @@ const clone=value=>JSON.parse(JSON.stringify(value))
 const key=node=>node?.type==='Identifier'?node.name:node?.type==='StringLiteral'?node.value:null
 
 /** 只装载原模块函数声明，不执行import、顶层表达式或另一份近似状态机。 */
-export function runtimeFactory(source,parser,context) {
+export function runtimeFactory(source,parser,context,name='createListPageMixin') {
+  assert.ok(['createListPageMixin','mergeListRowAfterSave'].includes(name),'未知列表函数出口')
   const ast=parser.parse(source,{sourceType:'module'}),declarations=[]
   for(const item of ast.program.body){const node=item.type==='ExportNamedDeclaration'?item.declaration:item;assert.equal(node?.type,'FunctionDeclaration','列表模块出现未审查的顶层初始化');declarations.push(source.slice(node.start,node.end))}
-  assert.equal(ast.program.body.filter(item=>item.type==='ExportNamedDeclaration'&&item.declaration?.id?.name==='createListPageMixin').length,1)
-  return vm.runInNewContext('(()=>{'+declarations.join('\n')+';return createListPageMixin})()',context,{timeout:1000})
+  assert.equal(ast.program.body.filter(item=>item.type==='ExportNamedDeclaration'&&item.declaration?.id?.name===name).length,1)
+  return vm.runInNewContext('(()=>{'+declarations.join('\n')+';return '+name+'})()',context,{timeout:1000})
 }
 
 /** 仅接受原页明确的列表工厂；配置表达式、展开或另一工厂不能在拒绝前执行。 */
@@ -56,7 +57,15 @@ function execute(script,parser,utils,runtime,file,{pc,parent,action,child=false,
   assert.equal(page.page_sn,/list-([0-9]+)\.vue$/.exec(file)[1])
   const method={page:'getList',pagination:'paginationChange',refresh:'refreshData',filter:'filterList',append:'loadNextPage',reset:'resetFilter',update:'handleDetailChange'}[action];assert.equal(typeof page[method],'function',file+'原方法缺失：'+method)
   if(action==='reset'){page.filters={original:'清空前'};page.resetFilter();assert.deepEqual(clone(page.filters),{});assert.equal(requests.length,0);return {requests,mixin:!!mixin,line:component.methodLines[method]||options?.line}}
-  if(action==='update'){page.handleDetailChange({action:'save',method:'update',entity:{id:oldId,name:'已保存'}});assert.equal(page.list[0].name,'已保存');assert.equal(page.list[0].id,oldId);assert.equal(requests.length,0);return {requests,mixin:!!mixin,line:component.methodLines[method]||options?.line}}
+  if(action==='update'){
+    // 原页通过 yzp 接入共享函数。载入真实源码，避免用测试替身掩盖字段串入列表。
+    context.yzp.mergeListRowAfterSave=runtimeFactory(runtime,parser,context,'mergeListRowAfterSave')
+    page.list=[{id:oldId,name:'已有记录',remark:'待清空',listOnly:'保留',isSelect:true}]
+    page.handleDetailChange({action:'save',method:'update',entity:{id:oldId,name:'已保存',remark:null,detailOnly:'详情字段',isSelect:false}})
+    assert.deepEqual(clone(page.list),[{id:oldId,name:'已保存',remark:null,listOnly:'保留',isSelect:true}])
+    assert.equal(requests.length,0)
+    return {requests,mixin:!!mixin,line:component.methodLines[method]||options?.line}
+  }
   if(action==='append'){
     page.getList();assert.equal(requests.length,1);pending[0].success({code:200,data:{records:[{id:oldId}],pages:3,total:9},map:{statistics:{}}});pending[0].complete();page.loadNextPage()
   } else if(action==='pagination')page.paginationChange({current:2})

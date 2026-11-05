@@ -115,7 +115,10 @@ public sealed class ManagerCredentialCompatibilityTests
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-manager-credential");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
-            var catalog=Catalog();var model=GenerationModel.Create(catalog,"Example.ManagerCredential");var table=model.Tables.Single(t=>t.Source.Id==ManagerCredentialCompilation.TableId);var page=table.Pages.Single();
+            var catalog=Catalog();
+            // 物理存在但当前页不可读的账号资料不能随着页面读取进入进程。
+            catalog.ConfigColumns.Add(new() { Id="offline_internal_note", ConfigTableId=ManagerCredentialCompilation.TableId, ColumnName="internal_note", LogicalType="string", ColumnLength="max" });
+            var model=GenerationModel.Create(catalog,"Example.ManagerCredential");var table=model.Tables.Single(t=>t.Source.Id==ManagerCredentialCompilation.TableId);var page=table.Pages.Single();
             var projection=ReadProjectionCompilation.ForPage(model,table,page);Assert.DoesNotContain(projection.List.PhysicalColumns.Concat(projection.Detail.PhysicalColumns),c=>ManagerCredentialCompilation.IsCredential(table,c));
             Assert.Equal(3,projection.Detail.OutputFields.Count(field=>field.Kind==ReadProjectionOutputKind.CredentialEcho));Assert.DoesNotContain(projection.List.OutputFields,field=>field.Kind==ReadProjectionOutputKind.CredentialEcho);
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ManagerCredential");var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
@@ -155,6 +158,9 @@ public sealed class ManagerCredentialCompatibilityTests
             Assert.Contains("is_disabled",sql);Assert.Contains("1 -",sql);Assert.DoesNotContain("password",sql,StringComparison.OrdinalIgnoreCase);Assert.DoesNotContain("salt",sql,StringComparison.OrdinalIgnoreCase);
             string? detailSql=null;orm.Aop.CurdBefore+=(_,args)=>{detailSql=args.Sql;throw new OfflineSqlCapturedException();};
             var read=(Task)serviceType.GetMethod("Detail"+page.Source.Id+"Async")!.Invoke(service,[7L,null,actor,CancellationToken.None])!;Assert.NotNull(await Record.ExceptionAsync(()=>read));Assert.NotNull(detailSql);Assert.Equal(0,opens);Assert.DoesNotContain("password",detailSql,StringComparison.OrdinalIgnoreCase);Assert.DoesNotContain("salt",detailSql,StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("internal_note",detailSql,StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("is_disabled",detailSql,StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("yz_role_ids",detailSql,StringComparison.OrdinalIgnoreCase);
             filter.Filters["isDisabled"]=Parse("2");Assert.IsType<ArgumentException>(Assert.Throws<TargetInvocationException>(()=>Query()).InnerException);
             using(var writeSession=new DatabaseSession(session.Options,orm,new TransactionOnlyProvider()))
             {
@@ -169,6 +175,9 @@ public sealed class ManagerCredentialCompatibilityTests
             }
             var source=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/YzManagerService.g.cs"));var export=source.Split("Export"+page.Source.Id+"Async")[1].Split("public Task")[0];Assert.DoesNotContain("entity.Password",export);Assert.DoesNotContain("entity.Salt",export);Assert.DoesNotContain("entity.OldPassword",export);
             Assert.Contains("ManagerCredentialValue.RequireDigest(entity.Password)",source);Assert.Contains("ManagerCredentialValue.Input(request.Password.Value)",source);
+            var readExpression=PublishedReadProjectionCompilation.Expression(model,table,page);
+            Assert.Contains(".ToListAsync("+readExpression+", cancellationToken)",source);
+            Assert.Contains(".ToOneAsync("+readExpression+", cancellationToken)",source);
             var vue=Path.Combine(directory,"generated/frontend/pages/yzp/yz_manager-detail-6031906822946816.vue");var text=await File.ReadAllTextAsync(vue);Assert.Contains("v-model='entity.password' maxlength='50'",text);Assert.Contains("name='password' required",text);Assert.Contains("v-model='entity.salt'",text);Assert.Contains("v-model='entity.oldPassword'",text);
             var response=Path.Combine(directory,"response.json");await File.WriteAllTextAsync(response,detail.GetRawText());await RunVue(vue,response);
         }
