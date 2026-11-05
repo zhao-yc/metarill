@@ -120,18 +120,22 @@ class ImportMeasurementContracts(unittest.TestCase):
         tokens = {(side, "writer"): "offline" for side in targets}
         lookups = {subject.sample_sql(run, side, kind): kind
                    for side in targets for kind, *_ in subject.TABLES}
-        for mismatched in (False, True):
-            with self.subTest(mismatched=mismatched), tempfile.TemporaryDirectory() as folder:
+        for failure in (None, "warmup-response", "sample-parent"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as folder:
                 stage = [0]
 
                 def query(sql):
-                    return wire(run, lookups[sql], stage[0]) if stage[0] else ""
+                    raw = wire(run, lookups[sql], stage[0]) if stage[0] else ""
+                    if failure == "sample-parent" and stage[0] and sql == subject.sample_sql(run, "java", "line"):
+                        parent = str(fixture.ID_BASE + 10000)
+                        return raw.replace(f"\t{parent}\t", "\tNULL\t")
+                    return raw
 
                 def trials(output, config, probe, query, profile, *, transport, check_event):
                     for concurrency, replays in ((1, 8), (4, 316)):
                         stage[0] = replays
                         for side in targets:
-                            fingerprint = "错位" if mismatched and side == "csharp" else "一致"
+                            fingerprint = "错位" if failure == "warmup-response" and side == "csharp" else "一致"
                             check_event({"kind": "warmup", "concurrency": concurrency, "target": side,
                                          "trial": {"failedScenarios": 0, "rows": [
                                              {"fingerprints": [fingerprint] * 3} for _ in range(8)]}})
@@ -139,10 +143,12 @@ class ImportMeasurementContracts(unittest.TestCase):
                     return {"measurementValid": True}
 
                 with mock.patch.object(subject, "run_trials", side_effect=trials):
-                    if mismatched:
-                        with self.assertRaisesRegex(ValueError, "warmup-response"):
+                    if failure:
+                        with self.assertRaisesRegex(ValueError, failure):
                             subject.run_import_measurement(Path(folder), run, targets, tokens, None, query, workbook_stub)
                         self.assertFalse((Path(folder) / "measurement/warmup-readback.json").exists())
+                        snapshots = (Path(folder) / "measurement").glob("import-warmup-1-*.tsv")
+                        self.assertEqual(6 if failure == "sample-parent" else 0, len(list(snapshots)))
                     else:
                         result = subject.run_import_measurement(Path(folder), run, targets, tokens, None, query, workbook_stub)
                         self.assertEqual(4928, result["importReadback"]["csharp"]["line"])

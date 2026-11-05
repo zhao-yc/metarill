@@ -115,15 +115,13 @@ def sample_sql(run, side, kind):
             f"{fixture.import_sample_condition(run)} ORDER BY id LIMIT {BATCH_ROWS * REPLAYS + 1};")
 
 
-def verify_readback(run, side, query, *, before=False, replays=REPLAYS, record=None):
+def verify_readback(run, side, query, *, before=False, replays=REPLAYS):
     """逐行验证预热和正式写入，并以每个原格值的精确重复次数校验追加语义。"""
     require(replays in (WARMUP, ROUNDS * ITERATIONS + 2 * WARMUP, REPLAYS), "readback-budget")
     requests = workbook_requests(run)
     facts = {}
     for kind, _, _, _ in TABLES:
         raw = query(sample_sql(run, side, kind))
-        if record is not None:
-            record(kind, raw)
         if before:
             require(not raw.strip(), "sample-collision")
             continue
@@ -160,15 +158,18 @@ def run_import_measurement(root, run, targets, tokens, probe, query, make_workbo
     output = root / "measurement"
     output.mkdir(mode=0o700)
 
-    def readback(phase, side, **options):
-        """先保留本轮私有原始行，即使字段校验失败也可复核。"""
-        def record(kind, raw):
-            """文件名只由固定阶段、语言和表用途构成。"""
+    def snapshot(phase, side):
+        """先完整保留原始读回，即使另一端字段校验失败也可独立复核。"""
+        rows = {}
+        for kind, _, _, _ in TABLES:
+            sql = sample_sql(run, side, kind)
+            raw = query(sql)
             (output / f"import-{phase}-{side}-{kind}.tsv").write_bytes(raw.encode("utf-8"))
-        return verify_readback(run, side, query, record=record, **options)
+            rows[sql] = raw
+        return rows.__getitem__
 
     for side in ("java", "csharp"):
-        readback("before", side, before=True)
+        verify_readback(run, side, snapshot("before", side), before=True)
     workbooks = prepare_workbooks(run, make_workbook)
     config = config_for(run, targets, tokens, workbooks)
     for kind, workbook in workbooks.items():
@@ -198,14 +199,16 @@ def run_import_measurement(root, run, targets, tokens, probe, query, make_workbo
         if target == "csharp":
             require(warmups[concurrency, "java"] == warmups[concurrency, "csharp"], "warmup-response")
             replays = WARMUP if concurrency == CONCURRENCY[0] else ROUNDS * ITERATIONS + 2 * WARMUP
+            snapshots = {side: snapshot(f"warmup-{concurrency}", side) for side in ("java", "csharp")}
             warmup_readbacks[str(concurrency)] = {
-                side: readback(f"warmup-{concurrency}", side, replays=replays) for side in ("java", "csharp")
+                side: verify_readback(run, side, raw, replays=replays) for side, raw in snapshots.items()
             }
             (output / "warmup-readback.json").write_bytes(http.canonical(warmup_readbacks))
 
     result = run_trials(output, config, probe, query, PROFILE, transport=send, check_event=check_warmup)
     if result["measurementValid"]:
         require(set(warmup_readbacks) == {str(value) for value in CONCURRENCY}, "warmup-incomplete")
-        result["importReadback"] = {side: readback("after", side) for side in ("java", "csharp")}
+        snapshots = {side: snapshot("after", side) for side in ("java", "csharp")}
+        result["importReadback"] = {side: verify_readback(run, side, raw) for side, raw in snapshots.items()}
     result["workbooks"] = {kind: {"sha256": item["sha256"], "rows": len(item["rows"])} for kind, item in workbooks.items()}
     return result
