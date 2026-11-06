@@ -52,7 +52,8 @@ public sealed class DatabaseSession : IDisposable
     {
         if (_transaction.Value is not {ScalarCacheWrite:true} scope || !ReferenceEquals(scope.Transaction, transaction))
             throw new InvalidOperationException("合并追加必须属于当前写入事务。");
-        return scope.PackedAppendVariablePrefix ??= "@mp" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(16, lowercase:true) + "_";
+        // 固定长度和单字母后缀已划清变量名边界，保留 64 位随机量并减少批量 SQL 中反复出现的字符。
+        return scope.PackedAppendVariablePrefix ??= "@m" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(16, lowercase:true);
     }
 
     public DatabaseSession(DatabaseOptions options) : this(options, null, null) { }
