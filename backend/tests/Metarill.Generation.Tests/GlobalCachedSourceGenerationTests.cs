@@ -50,7 +50,8 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("TryInsertScalarSourceAsync",rendered);
         Assert.Contains("insertedCache is null && await mapper.InsertAsync",rendered);
         Assert.Contains("var relationPatch=insertedCache ?? await",rendered);
-        Assert.Contains("!guards.Any() && observers.All(observer => observer.CanBufferScalarAppend",rendered);
+        Assert.Contains("guards.All(guard => guard.CanBufferScalarAppend(\"sample_contract_line\"))",rendered);
+        Assert.Contains("observers.All(observer => observer.CanBufferScalarAppend",rendered);
         Assert.Contains("TryInsertPackedScalarSourceAsync",rendered);
         Assert.Contains("if (flushEarlierRows is not null) await flushEarlierRows();",rendered);
         Assert.Contains("queuePackedRow(entity, deferredParent, PersistAsync);",rendered);

@@ -8,10 +8,11 @@ internal static class PackedAppendRenderer
     private const string Propagator = "global::Metarill.Data.Relations.ProjectRelationMutationPropagator";
     private const string Parent = "global::Metarill.Data.Queries.MySqlExactParentCandidate.BatchRecheck";
 
-    /// <summary>没有手写扩展和守卫，且观察者证明原静态归属检查通过时才缓冲。</summary>
+    /// <summary>没有手写扩展，且全部守卫及观察者都声明当前页面可以安全缓冲时才接管。</summary>
     internal static string ImportSetup(GenerationModel model, TableModel table, PageModel page, RelationModel relation) => $$"""
         bool MayPackRows() => parentRecheck is not null && request.RequestJson.GetArrayLength() >= 3 &&
-            !guards.Any() && observers.All(observer => observer.CanBufferScalarAppend({{JsonSerializer.Serialize(page.Source.Id)}}, {{JsonSerializer.Serialize(table.Source.TableName)}}));
+            guards.All(guard => guard.CanBufferScalarAppend({{JsonSerializer.Serialize(table.Source.TableName)}})) &&
+            observers.All(observer => observer.CanBufferScalarAppend({{JsonSerializer.Serialize(page.Source.Id)}}, {{JsonSerializer.Serialize(table.Source.TableName)}}));
         var sharedParentLocked = session.Options.MySqlSharedAppendProofs?.ContainsKey({{JsonSerializer.Serialize(table.Source.TableName)}}) == true &&
             MayPackRows() && await new {{Propagator}}(session).TryLockSharedAppendParentAsync(
                 global::{{model.Namespace}}.Generated.GeneratedRelationMaintenance.Catalog, {{JsonSerializer.Serialize(table.Source.TableName)}}, actor.ProjectId,

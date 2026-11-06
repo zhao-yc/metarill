@@ -42,6 +42,9 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
     /// <summary>普通表在写入复核入口直接返回，安全表继续维持原检查顺序。</summary>
     public bool RequiresWriteValidation(string tableName) => SafetyTables.ContainsKey(tableName);
 
+    /// <summary>固定安全表外的准备和复核均直接返回，允许该表按原规则缓冲追加。</summary>
+    public bool CanBufferScalarAppend(string tableName) => !SafetyTables.ContainsKey(tableName);
+
     /// <summary>生成器已完成合并、对象规则与关系规则后，仍在同一事务中复核最终后台与角色。</summary>
     public async Task BeforeWriteAsync(RecordMutationValidation validation,CancellationToken cancellationToken=default)
     {

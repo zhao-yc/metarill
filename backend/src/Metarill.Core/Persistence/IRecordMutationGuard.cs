@@ -33,6 +33,8 @@ public interface IRecordMutationGuard
     Task BeforeMutationAsync(RecordMutationPreparation preparation, CancellationToken cancellationToken = default);
     /// <summary>未知宿主守卫按可能执行写入规则处理，禁止延后父候选重验。</summary>
     bool RequiresWriteValidation(string tableName) => true;
+    /// <summary>只有准备和写入复核都不会读取或改变该表写入状态的守卫，才可声明允许缓冲追加。</summary>
+    bool CanBufferScalarAppend(string tableName) => false;
     /// <summary>默认空实现保护现有宿主；安全协调器可复核准备后未变化的归属和锁后权限。</summary>
     Task BeforeWriteAsync(RecordMutationValidation validation, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

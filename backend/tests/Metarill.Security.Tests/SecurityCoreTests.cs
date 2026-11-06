@@ -1,3 +1,4 @@
+using Metarill.Core.Persistence;
 using Metarill.Runtime.Security;
 using Xunit;
 
@@ -20,6 +21,31 @@ public sealed class SecurityCoreTests
         var references=assembly.GetReferencedAssemblies().Select(value=>value.Name).ToArray();
         Assert.Contains("Metarill.Core",references);Assert.Contains("Metarill.Data",references);
         Assert.DoesNotContain(references,name=>name is not null&&name.StartsWith("Metarill.",StringComparison.Ordinal)&&name is not ("Metarill.Core" or "Metarill.Data"));
+    }
+
+    /// <summary>只有已知在目标表无副作用的守卫能启用追加缓冲。</summary>
+    [Fact]
+    public void Scalar_append_buffering_requires_a_guard_to_allow_the_target_table()
+    {
+        IRecordMutationGuard security = new SecurityRealmMutationGuard(null!, null!, null!, null!);
+        Assert.True(security.CanBufferScalarAppend("sample_contract_line"));
+        Assert.False(security.RequiresWriteValidation("sample_contract_line"));
+        foreach (var table in new[] { "yz_manager", "yz_role", "yz_admin_type", "yz_role_permission" })
+        {
+            Assert.False(security.CanBufferScalarAppend(table));
+            Assert.True(security.RequiresWriteValidation(table));
+        }
+
+        IRecordMutationGuard unknown = new PreparationOnlyGuard();
+        Assert.False(unknown.RequiresWriteValidation("sample_contract_line"));
+        Assert.False(unknown.CanBufferScalarAppend("sample_contract_line"));
+    }
+
+    private sealed class PreparationOnlyGuard : IRecordMutationGuard
+    {
+        public bool RequiresWriteValidation(string tableName) => false;
+        public Task BeforeMutationAsync(RecordMutationPreparation preparation, CancellationToken cancellationToken = default)
+            => Task.FromException(new InvalidOperationException("准备阶段可以影响当前批次。"));
     }
 
     /// <summary>扩展合同只有实际绑定三值，不让宿主扩展接触账号/会话的多余秘密字段。</summary>
