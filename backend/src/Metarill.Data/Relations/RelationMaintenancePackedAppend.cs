@@ -63,7 +63,7 @@ public sealed partial class RelationMaintenanceExecutor
 
         var source = database + "." + Q(table.Option.TableName);
         var cached = "b." + Q(field);
-        var value = $"(SELECT {output} FROM {database}.{Q(target.Table)} {target.Alias} WHERE {target.Predicate} FOR SHARE OF {target.Alias})";
+        var expectedBytes = $"CAST(CONVERT({expected} USING utf8mb4) AS BINARY)";
         for (var index = 0; index < rows.Count; index++)
         {
             var row = rows[index];
@@ -80,20 +80,20 @@ public sealed partial class RelationMaintenanceExecutor
             sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END INTO {verdict}")
                 .Append($"; SET {state}={verdict},{readId}=NULL,{before}=NULL,{expected}=NULL,{storedId}=NULL,{stored}=NULL")
                 .Append($"; {insert.Sql} AND {state}=2; SET {inserted}=ROW_COUNT()")
-                .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),CONVERT({output} USING utf8mb4){from}{where}")
+                .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),{output}{from}{where}")
                 .Append($" ORDER BY b.`id` LIMIT 2{plan.ImportMatchLock} INTO {readId},{before},{expected}")
                 // 更新前把预期送入独立结果，驱动读回时不信任写入之后的会话变量。
                 .Append($"; SELECT CAST({readId} AS SIGNED),CONVERT({before} USING utf8mb4),CONVERT({expected} USING utf8mb4)")
-                .Append($"; UPDATE {source} b SET {Q(field)}={value}{where} AND {inserted}=1 AND b.`id`={readId}")
-                // 两值已在上一语句锁住源行和目标行后读出，中间只有结果输出。赋值仍由原目标列完成。
-                .Append($" AND NOT (CAST({before} AS BINARY) <=> CAST({expected} AS BINARY))")
+                .Append($"; UPDATE {source} b SET {Q(field)}={expected}{where} AND {inserted}=1 AND b.`id`={readId}")
+                // 赋值使用锁读捕获的原生字符串，保留目标列字符集与排序规则。比较和驱动物理校验统一为 utf8mb4。
+                .Append($" AND NOT (CAST({before} AS BINARY) <=> {expectedBytes})")
                 .Append($"; SET {affected}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4) FROM {source} b{where} FOR UPDATE OF b INTO {storedId},{stored}")
                 .Append($"; SET {state}=CASE WHEN {state}<>2 THEN {state} ")
                 .Append($"WHEN {inserted}=1 AND {readId} IS NULL AND {storedId} IS NULL AND {affected}=0 THEN 2 ")
                 .Append($"WHEN {inserted}=1 AND ({readId}<=>@{id}) AND ({storedId}<=>@{id}) ")
-                .Append($"AND {affected}=IF(CAST({before} AS BINARY)<=>CAST({expected} AS BINARY),0,1) ")
-                .Append($"AND (CAST({stored} AS BINARY)<=>CAST({expected} AS BINARY)) THEN 2 ELSE 5 END")
+                .Append($"AND {affected}=IF(CAST({before} AS BINARY)<=>{expectedBytes},0,1) ")
+                .Append($"AND (CAST({stored} AS BINARY)<=>{expectedBytes}) THEN 2 ELSE 5 END")
                 .Append($"; SELECT CAST({state} AS SIGNED),CAST({verdict} AS SIGNED),CAST({inserted} AS SIGNED),")
                 .Append($"CAST({affected} AS SIGNED),CAST({storedId} AS SIGNED),CONVERT({stored} USING utf8mb4)");
         }
