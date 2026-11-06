@@ -75,8 +75,14 @@ jobs:
           npm run sync:custom-routes --prefix frontend/metarill_uni_admin
           npm run sync:original-list-options --prefix frontend/metarill_uni_admin
           if ($LASTEXITCODE -ne 0) { throw '原平台List同步失败' }
-          git diff --exit-code -- backend/generated frontend/metarill_uni_admin
+          git diff --exit-code HEAD -- backend/generated frontend/metarill_uni_admin
           if ($LASTEXITCODE -ne 0) { throw '生成产物与已提交内容不一致' }
+          # git diff 不包含新生成的未跟踪文件，单独核对，继续忽略依赖缓存。
+          $untracked = @(git ls-files --others --exclude-standard -- backend/generated frontend/metarill_uni_admin)
+          if ($untracked.Count -gt 0) {
+            $untracked | Write-Output
+            throw '生成产物包含未提交的文件'
+          }
       - name: 编译服务
         run: dotnet build backend/src/Metarill.Api --configuration Release
       - name: 验证C#私有采集宿主的真实HTTP接线
