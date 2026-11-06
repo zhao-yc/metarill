@@ -25,7 +25,8 @@ public sealed partial class RelationMaintenanceExecutor
         if (table.Read is not {} plan || session.PinnedRelationLayouts(transaction)?.GetValueOrDefault(plan) is not long packetLimit || packetLimit <= 0)
             return false;
         if (project != plan.ProjectId || !CanLockExactScalarSource(table) || plan.Constants.Count != 0 ||
-            plan.ScalarCacheTarget is not {} target || parent.Table != target.Table || !CanLookAhead(table, plan))
+            plan.ScalarCacheTarget is not {} target || parent.Table != target.Table || !CanLookAhead(table, plan) ||
+            plan.ImportMatchLock != " FOR UPDATE OF b FOR SHARE OF " + target.Alias)
             return false;
 
         var database = Q(session.Options.ExpectedDatabase);
@@ -81,7 +82,8 @@ public sealed partial class RelationMaintenanceExecutor
                 // 更新前把预期送入独立结果，驱动读回时不信任写入之后的会话变量。
                 .Append($"; SELECT CAST({readId} AS SIGNED),CONVERT({before} USING utf8mb4),CONVERT({expected} USING utf8mb4)")
                 .Append($"; UPDATE {source} b SET {Q(field)}={value}{where} AND {inserted}=1 AND b.`id`={readId}")
-                .Append($" AND NOT (CAST(CONVERT({cached} USING utf8mb4) AS BINARY) <=> CAST(CONVERT({value} USING utf8mb4) AS BINARY))")
+                // 两值已在上一语句锁住源行和目标行后读出，中间只有结果输出。赋值仍由原目标列完成。
+                .Append($" AND NOT (CAST({before} AS BINARY) <=> CAST({expected} AS BINARY))")
                 .Append($"; SET {affected}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4) FROM {source} b{where} FOR UPDATE OF b INTO {storedId},{stored}")
                 .Append($"; SET {state}=CASE WHEN {state}<>2 THEN {state} ")
