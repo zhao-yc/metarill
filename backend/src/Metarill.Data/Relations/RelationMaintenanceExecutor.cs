@@ -394,6 +394,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
             pinnedLayouts[plan]=packetLimit;
             return packetLimit;
         }
+        // 此处的字典普通读会建立 MySQL 可重复读快照。同父导入须保留原父候选读取在前，不能直接将结构核验移到父锁之前。
         const string engineSql="SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'";
         const string columnsSql="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";
         foreach(var group in plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal))
