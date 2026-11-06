@@ -97,11 +97,11 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
             Assert.Equal(2, rejected.Code); Assert.Empty(rejected.Output);
         }
 
-        // 连接池前置条件及底层连接异常均拒绝，控制台不得输出私有连接值。
-        var unsupportedPool = await CommandAsync(host, options with
-        { ConnectionString = options.ConnectionString + "Allow User Variables=true;Maximum Pool Size=1;" }, check);
-        Assert.Equal(1, unsupportedPool.Code); Assert.Empty(unsupportedPool.Output);
-        Assert.Contains("核验未完成", unsupportedPool.Error);
+        // 缺少连接重置或底层连接失败均拒绝，控制台不得输出私有连接值。
+        var withoutReset = await CommandAsync(host, options with
+        { ConnectionString = options.ConnectionString + "Allow User Variables=true;Connection Reset=false;" }, check);
+        Assert.Equal(1, withoutReset.Code); Assert.Empty(withoutReset.Output);
+        Assert.Contains("核验未完成", withoutReset.Error);
         var unreachable = await CommandAsync(host, options with
         { ConnectionString = options.ConnectionString + "Allow User Variables=true;Connection Timeout=1;" }, check);
         Assert.Equal(1, unreachable.Code); Assert.Empty(unreachable.Output);

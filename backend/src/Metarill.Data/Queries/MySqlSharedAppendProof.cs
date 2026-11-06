@@ -32,7 +32,7 @@ internal static class MySqlSharedAppendProof
                 await pin.ExecuteNonQueryAsync(token);
             }
 
-            await using var metadata = session.Provider.CreateConnection(session.Options);
+            await using var metadata = session.CreateSharedAppendProofConnection();
             await metadata.OpenAsync(token);
             if (!await MatchesInstanceAsync(metadata, null, session.Options.ExpectedDatabase, proof.ServerUuid, expectedAccount, token))
                 return false;

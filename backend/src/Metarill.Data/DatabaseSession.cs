@@ -1,5 +1,6 @@
 using FreeSql;
 using Metarill.Data.Queries;
+using MySqlConnector;
 using System.Data.Common;
 
 namespace Metarill.Data;
@@ -17,8 +18,9 @@ public sealed class DatabaseSession : IDisposable
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
     private readonly bool _ownsOrm;
-    private readonly Lock _ormGate = new();
+    private readonly Lock _resourceGate = new();
     private IFreeSql? _orm;
+    private MySqlDataSource? _sharedAppendProofSource;
     private bool _disposed;
     public DatabaseOptions Options { get; }
     public IDatabaseProvider Provider { get; }
@@ -27,7 +29,7 @@ public sealed class DatabaseSession : IDisposable
     {
         get
         {
-            lock (_ormGate)
+            lock (_resourceGate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 return _orm ??= Provider.CreateOrm(Options);
@@ -36,6 +38,22 @@ public sealed class DatabaseSession : IDisposable
     }
     public DbTransaction? CurrentTransaction => _transaction.Value?.Transaction;
     internal bool UsesOwnedOrm => _ownsOrm;
+
+    /// <summary>证明连接只读且不借用业务池，避免持有事务的请求等待同池第二条连接。</summary>
+    internal MySqlConnection CreateSharedAppendProofConnection()
+    {
+        lock (_resourceGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_sharedAppendProofSource is null)
+            {
+                // 保留目标、身份和连接上限。独立池按需使用，不复制业务池的预热连接数。
+                var options = new MySqlConnectionStringBuilder(Options.ConnectionString) { MinimumPoolSize = 0 };
+                _sharedAppendProofSource = new MySqlDataSource(options.ConnectionString);
+            }
+            return _sharedAppendProofSource.CreateConnection();
+        }
+    }
 
     /// <summary>只在实际持有元数据锁的会话事务内复用同一发布计划的结构证明。</summary>
     internal Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts(DbTransaction transaction)
@@ -136,16 +154,19 @@ public sealed class DatabaseSession : IDisposable
         finally { _transaction.Value = null; }
     }
 
-    /// <summary>仅释放本会话创建的 ORM，宿主注入的共享实例由宿主管理。</summary>
+    /// <summary>释放会话创建的证明池和 ORM，宿主注入的 ORM 由宿主管理。</summary>
     public void Dispose()
     {
         IFreeSql? ownedOrm;
-        lock (_ormGate)
+        MySqlDataSource? proofSource;
+        lock (_resourceGate)
         {
             if (_disposed) return;
             _disposed = true;
             ownedOrm = _ownsOrm ? _orm : null;
+            proofSource = _sharedAppendProofSource;
         }
-        ownedOrm?.Dispose();
+        try { proofSource?.Dispose(); }
+        finally { ownedOrm?.Dispose(); }
     }
 }

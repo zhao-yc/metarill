@@ -60,9 +60,9 @@ public static class MySqlSharedAppendInstallation
     {
         var plan = Preview(options, catalog, runtimeHost);
         var connection = new MySqlConnectionStringBuilder(options.ConnectionString);
-        // 共享追加需要主事务和独立证明连接；连接重置及用户变量也是合并写入的前置条件。
-        if (!connection.ConnectionReset || !connection.AllowUserVariables || (connection.Pooling && connection.MaximumPoolSize < 2))
-            throw new InvalidOperationException("共享追加需要连接重置、允许用户变量及至少两条可用连接。");
+        // 证明连接拥有独立池；业务池可只有一条连接，写入仍要求连接重置及用户变量。
+        if (!connection.ConnectionReset || !connection.AllowUserVariables)
+            throw new InvalidOperationException("共享追加需要连接重置及允许用户变量。");
         var expectedAccount = connection.UserID + "@" + runtimeHost;
         using var session = new DatabaseSession(options);
         var results = new List<VerificationEntry>();
