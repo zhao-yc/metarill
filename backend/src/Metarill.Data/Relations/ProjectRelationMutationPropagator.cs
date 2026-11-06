@@ -6,6 +6,20 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
 {
     public const int PackedAppendLimit = RelationMaintenanceExecutor.PackedAppendLimit;
 
+    /// <summary>只对生成器认定可缓冲的固定父追加，尝试在记录锁前比对已核验的完整定义。</summary>
+    public Task PreparePackedAppendLayoutAsync(RelationMaintenanceCatalog catalog, string source, string projectId,
+        string parent, string? parentId, CancellationToken token)
+    {
+        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var key) ||
+            key <= 0 || key.ToString(CultureInfo.InvariantCulture) != parentId ||
+            session.CurrentTransaction is not { } transaction ||
+            FindScalarAppendTable(catalog, source, projectId, transaction) is not { Read: { } plan } table ||
+            !MatchesSharedAppendParent(table, plan, parent) || !MySqlInsertCacheBatch.UsesPlainOrm(session))
+            return Task.CompletedTask;
+
+        return session.ImportLayoutProofs.PrepareAsync(session, transaction, plan, parent, source, token);
+    }
+
     /// <summary>只对生成器已排除逐行宿主副作用的叶子追加尝试共享父锁。返回 false 时调用原父校验。</summary>
     public Task<bool> TryLockSharedAppendParentAsync(RelationMaintenanceCatalog catalog, string source, string projectId,
         string parent, string? parentId, bool softDelete, Queries.MySqlExactParentCandidate.ImportRecheck recheck,

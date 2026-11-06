@@ -43,6 +43,9 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("await ValidateParents81003Async(parentId, actor, cancellationToken);",rendered);
         Assert.Contains("HoldsSharedImportParent",rendered);
         Assert.Contains("TryLockSharedAppendParentAsync",rendered);
+        Assert.Contains("if (!hasSharedProof && MayPackRows())",rendered);
+        var proofIndex=rendered.IndexOf("PreparePackedAppendLayoutAsync",StringComparison.Ordinal);
+        Assert.True(proofIndex>=0 && proofIndex<rendered.IndexOf("if (!sharedParentLocked) await ValidateParents81003Async",StringComparison.Ordinal));
         Assert.Contains("reuseInitialParentLock: canPackRows && !sharedParentLocked && rowNumber == 1",rendered);
         Assert.Contains("reuseInitialParentLock && canDeferParent && Metarill.Data.Queries.MySqlExactParentCandidate.CanReuseInitialImportLock(session)",rendered);
         Assert.Contains("result is null && !reuseParent && !Metarill.Data.Queries.MySqlExactParentCandidate.HoldsSharedImportParent",rendered);
@@ -67,6 +70,8 @@ public sealed class GlobalCachedSourceGenerationTests
         var overwritePage=Assert.Single(overwriteTable.Pages);
         Assert.Null(GlobalCachedParentCompilation.ForAppendRecheck(overwrite,overwriteTable,overwritePage));
         Assert.False(GlobalCachedParentCompilation.CanDeferAppendCandidate(overwrite,overwriteTable,overwritePage));
+        Assert.DoesNotContain("PreparePackedAppendLayoutAsync",
+            BackendRenderer.Render(overwrite).Single(file=>file.Path=="Services/SampleContractLineService.g.cs").Content);
     }
 
     /// <summary>默认文件观察者只能为发布目录中无物理文件列的精确页面放行。</summary>

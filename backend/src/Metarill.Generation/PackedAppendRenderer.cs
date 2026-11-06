@@ -13,7 +13,12 @@ internal static class PackedAppendRenderer
         bool MayPackRows() => parentRecheck is not null && request.RequestJson.GetArrayLength() >= 3 &&
             guards.All(guard => guard.CanBufferScalarAppend({{JsonSerializer.Serialize(table.Source.TableName)}})) &&
             observers.All(observer => observer.CanBufferScalarAppend({{JsonSerializer.Serialize(page.Source.Id)}}, {{JsonSerializer.Serialize(table.Source.TableName)}}));
-        var sharedParentLocked = session.Options.MySqlSharedAppendProofs?.ContainsKey({{JsonSerializer.Serialize(table.Source.TableName)}}) == true &&
+        var hasSharedProof = session.Options.MySqlSharedAppendProofs?.ContainsKey({{JsonSerializer.Serialize(table.Source.TableName)}}) == true;
+        if (!hasSharedProof && MayPackRows())
+            await new {{Propagator}}(session).PreparePackedAppendLayoutAsync(
+                global::{{model.Namespace}}.Generated.GeneratedRelationMaintenance.Catalog, {{JsonSerializer.Serialize(table.Source.TableName)}}, actor.ProjectId,
+                {{JsonSerializer.Serialize(relation.Target.Source.TableName)}}, request.ParentId, cancellationToken);
+        var sharedParentLocked = hasSharedProof &&
             MayPackRows() && await new {{Propagator}}(session).TryLockSharedAppendParentAsync(
                 global::{{model.Namespace}}.Generated.GeneratedRelationMaintenance.Catalog, {{JsonSerializer.Serialize(table.Source.TableName)}}, actor.ProjectId,
                 {{JsonSerializer.Serialize(relation.Target.Source.TableName)}}, request.ParentId,
