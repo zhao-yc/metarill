@@ -27,8 +27,9 @@ internal static class ForeignValidationRenderer
     /// <summary>调用 Service 规则后的实体值必须仍指向当前项目有效记录。</summary>
     public static string Render(GenerationModel model, TableModel table, PageModel page)
     {
+        var mergeParent=GlobalCachedParentCompilation.ForAppendRecheck(model,table,page);
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
-            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.EntityType} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)}{(GlobalCachedParentCompilation.HasCombinedCandidate(model,table,page)?", string? lockedParentId = null":"")})")
+            .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.EntityType} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)}{(GlobalCachedParentCompilation.HasCombinedCandidate(model,table,page)?", string? lockedParentId = null":"")}{(mergeParent is not null?", Metarill.Data.Queries.MySqlExactParentCandidate.ImportRecheck? parentRecheck = null, int? mergedCandidate = null":"")})")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;").Append(SharedCrossTableRenderer.ValidateAll(model,table,page));
         var crossFields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id.Source.Id,level.Name.Source.Id}).ToHashSet(StringComparer.Ordinal);
         var derived = MaterializedDerivedWriteCompilation.ForTable(model, table).Where(binding=>!crossFields.Contains(binding.Storage.Source.Id)).ToArray();
@@ -124,7 +125,10 @@ internal static class ForeignValidationRenderer
                     var softDelete=target.Columns.Any(candidate=>candidate.Source.ColumnName=="delete_no")?"true":"false";
                     result.AppendLine($"            if (lockedParentId == relationIds{number}[0].ToString(CultureInfo.InvariantCulture) && Metarill.Data.Queries.MySqlExactParentCandidate.CanUse(session))")
                         .AppendLine("            {").AppendLine("                ValidateActor(actor);")
-                        .AppendLine($"                await Metarill.Data.Queries.MySqlExactParentCandidate.RequireAsync(session,{Literal(target.Source.TableName)},relationIds{number}[0],{softDelete},OptionsPageCondition{page.Source.Id}_{column.Source.Id},cancellationToken);")
+                        .AppendLine(mergeParent?.SourceColumn==column
+                            ?$"                if (mergedCandidate is {{ }} status) Metarill.Data.Queries.MySqlExactParentCandidate.RequireCandidate(status);\n"+
+                             $"                else await Metarill.Data.Queries.MySqlExactParentCandidate.RequireAsync(session,{Literal(target.Source.TableName)},relationIds{number}[0],{softDelete},OptionsPageCondition{page.Source.Id}_{column.Source.Id},cancellationToken,parentRecheck);"
+                            :$"                await Metarill.Data.Queries.MySqlExactParentCandidate.RequireAsync(session,{Literal(target.Source.TableName)},relationIds{number}[0],{softDelete},OptionsPageCondition{page.Source.Id}_{column.Source.Id},cancellationToken);")
                         .AppendLine("            }").AppendLine("            else").AppendLine("            {");
                 }
                 if (constantRelation is not null) result.Append(RelationConditionsCompilation.WriteQuery(model,table,page,constantRelation,number.ToString(CultureInfo.InvariantCulture)));

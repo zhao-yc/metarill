@@ -36,6 +36,54 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("OptionsScope81003_82008Async",rendered);
         Assert.Contains("lockedParentId == relationIds1[0].ToString(CultureInfo.InvariantCulture)",rendered);
         Assert.Equal(1,rendered.Split("lockedParentId: parentId",StringSplitOptions.None).Length-1);
+        Assert.Contains("MySqlExactParentCandidate.TryRecheckAsync",rendered);
+        Assert.Contains("MySqlExactParentCandidate.RequireCandidate(status)",rendered);
+        Assert.Contains("HasBeforeSave81003 || ids is not SnowflakeIdGenerator",rendered);
+        Assert.Contains("if (mergedCandidate is null) await ValidateParents81003Async",rendered);
+
+        metadata.ConfigPages.Single(item=>item.Id=="81003").Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        var overwrite=GenerationModel.Create(metadata,"Example.GlobalSource");
+        var overwriteTable=overwrite.Tables.Single(item=>item.Source.TableName=="sample_contract_line");
+        Assert.Null(GlobalCachedParentCompilation.ForAppendRecheck(overwrite,overwriteTable,Assert.Single(overwriteTable.Pages)));
+    }
+
+    /// <summary>实际编译生成服务，证明未实现的 partial 消失，手写实现保留时禁用提前计算候选。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Compiled_append_recheck_detects_a_handwritten_rule(bool withHook)
+    {
+        var metadata=Catalog();
+        metadata.ConfigPages.Single(page=>page.Id=="81002").WhereSql="name<>'范围外合同'";
+        metadata.ConfigPages.Single(page=>page.Id=="81003").IsImport=1;
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-source-parent-hook");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(metadata,generated,"Example.GlobalParentHook");
+            if(withHook)
+                await File.WriteAllTextAsync(Path.Combine(generated,"Services","SampleContractLine.cs"),"""
+namespace Example.GlobalParentHook.Generated.Services;
+public partial class SampleContractLineService
+{
+    partial void BeforeSave(Example.GlobalParentHook.Generated.Entities.SampleContractLine entity,
+        Metarill.Core.Security.RuntimeActor actor, bool creating, System.Collections.Generic.ISet<string> submittedFields)
+    {
+        entity.SampleContractId = "4";
+    }
+}
+""");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType("Example.GlobalParentHook.Generated.Services.SampleContractLineService",true)!;
+            var gate=service.GetField("HasBeforeSave81003",BindingFlags.Static|BindingFlags.NonPublic);
+            Assert.NotNull(gate);
+            Assert.Equal(withHook,Assert.IsType<bool>(gate.GetValue(null)));
+        }
+        finally
+        {
+            if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
     }
 
     /// <summary>全目录形成维护和反向传播，隐式名称仅加入原响应，不添加额外控件。</summary>

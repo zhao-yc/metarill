@@ -18,6 +18,26 @@ internal static class GlobalCachedParentCompilation
             &&ForColumn(model,table,page,relation.SourceColumn)?.Target.Source.Id==relation.Target.Source.Id
             &&SharedGlobalParentCompilation.ForTable(model,table,page,relation.Target).Count==0
             &&SharedRedundantParentCompilation.ForTable(model,table,page,relation.Target).Count==0;
+    /// <summary>只有独立标量追加、单一固定物理父且无其他关联写入校验，才允许合并后续行。</summary>
+    internal static RelationModel? ForAppendRecheck(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!ImportRenderer.Enabled(page)||ImportRenderer.Mode(page) is "OverWriteByFirstColumn" or "custom"||
+            BackendRenderer.HasPhysicalFileColumns(model,table)||TrustedSecurityServiceCompilation.Applies(model,table)||
+            ExactDataManageCompilation.Declared(page)||ImportRenderer.RelationOperationAware(model,table,page)||
+            NonRedundantCrossParentCompilation.Enabled(model,table,page)||
+            GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)!=1||
+            BoundRelationValidationRenderer.RequiresAuthorization(table)||
+            SharedCrossTableRenderer.ValidateAll(model,table,page).Length!=0||
+            page.Writable.Any(column=>column.IsJsonArray))
+            return null;
+        var relation=RelationCompilation.ForPage(model,page,true).SingleOrDefault(candidate=>CanCombineCandidate(model,table,page,candidate));
+        if(relation is null||relation.SourceColumn.IsJsonArray||MaterializedDerivedWriteCompilation.ForTable(model,table).Any(binding=>binding.ForeignKey.Source.Id==relation.SourceColumn.Source.Id))
+            return null;
+        return table.Columns.Any(column=>!column.IsSystem&&column!=relation.SourceColumn&&
+            (column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CascadeTree"||
+             FixedOptionCatalogCompilation.Resolve(model,page,column).Declared||ForeignValidationRenderer.Target(model,column) is not null)) ? null : relation;
+    }
+
     /// <summary>已取得的父锁只从原新增入口传入，其余调用保留默认空值和原校验。</summary>
     internal static bool HasCombinedCandidate(GenerationModel model,TableModel table,PageModel page)
         =>RelationCompilation.ForPage(model,page,true).Any(relation=>CanCombineCandidate(model,table,page,relation));
