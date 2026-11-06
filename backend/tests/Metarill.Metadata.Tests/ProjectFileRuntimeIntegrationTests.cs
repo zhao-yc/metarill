@@ -162,6 +162,66 @@ public sealed partial class ProjectFileRuntimeIntegrationTests
     }
 
     [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Split_database_file_deletion_retries_after_object_cleanup_fails() =>
+        VerifyFileDeletionRetryAsync(shareDatabase: false);
+
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Shared_database_file_deletion_retries_after_object_cleanup_fails() =>
+        VerifyFileDeletionRetryAsync(shareDatabase: true);
+
+    /// <summary>数据库失效后只允许原删除权限重试对象清理，墓碑和其他对象保持不变。</summary>
+    private static async Task VerifyFileDeletionRetryAsync(bool shareDatabase)
+    {
+        await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase);
+        AssertDatabaseTopology(fixture, shareDatabase);
+        var project = fixture.Registry.Demo.YzProjectId;
+        var runtime = fixture.Runtimes.Resolve(project);
+        var owner = new RuntimeActor(8801, "文件上传者", false, project, "");
+        FileLibraryService Service(RuntimeActor actor) => new(runtime.Store, runtime.Metadata, fixture.Ids,
+            new TestFileAuthorization(actor), runtime.Options);
+
+        var service = Service(owner);
+        var file = await fixture.ReadyAsync(service, "delete-retry.txt", fixture.ProtectedColumn);
+        var untouched = await fixture.ReadyAsync(service, "untouched.txt", fixture.ProtectedColumn);
+        using var witnessSession = new DatabaseSession(runtime.Session.Options);
+        var witness = new SqlRowStore(witnessSession, fixture.Runtimes.ComposePhysical(fixture.Registry.Demo));
+        var key = new Dictionary<string, object?> { ["id"] = file.FileId };
+        var row = Assert.Single(await witness.ReadAsync("yz_file_library", key));
+        var path = Path.Combine(runtime.Options.RootDirectory, SqlRowStore.Text(row, "storage_key"));
+        var retained = path + ".retained";
+        var original = await File.ReadAllBytesAsync(path);
+
+        // 用同名目录让实际文件系统拒绝删除，恢复原路径后可再次清理同一个对象。
+        File.Move(path, retained);
+        Directory.CreateDirectory(path);
+        Assert.False((await service.DeleteAsync(file.FileId)).StorageRemoved);
+        var tombstone = Assert.Single(await witness.ReadIncludingDeletedAsync("yz_file_library", key));
+        Assert.Equal("deleted", SqlRowStore.Text(tombstone, "status"));
+        Assert.NotNull(tombstone["delete_no"]);
+        Assert.Empty(await witness.ReadAsync("yz_file_library", key));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(file.FileId));
+        Directory.Delete(path);
+        File.Move(retained, path);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(new RuntimeActor(8802, "同项目其他账号", false, project, "")).DeleteAsync(file.FileId));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(new RuntimeActor(8801, "外项目管理员", true, fixture.Registry.Platform.YzProjectId, "")).DeleteAsync(file.FileId));
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+
+        var retry = await Record.ExceptionAsync(async () => Assert.True((await service.DeleteAsync(file.FileId)).StorageRemoved));
+        Assert.True(retry is null, "已失效文件无法重试原对象清理。" + retry?.GetType().Name);
+        Assert.False(File.Exists(path));
+        Assert.True((await service.DeleteAsync(file.FileId)).StorageRemoved);
+        Assert.Equal(JsonSerializer.Serialize(tombstone),
+            JsonSerializer.Serialize(Assert.Single(await witness.ReadIncludingDeletedAsync("yz_file_library", key))));
+        var readerService = Service(new RuntimeActor(8803, "对照读取管理员", true, project, ""));
+        await using var otherContent = (await readerService.OpenContentAsync(untouched.FileId)).Stream;
+        using var reader = new StreamReader(otherContent);
+        Assert.Equal("验收内容", await reader.ReadToEndAsync());
+    }
+
+    [ProjectFileIntegrationFact(freshOnly: true)]
     public Task Split_database_upload_retry_preserves_the_original_object() =>
         VerifyUploadRetryAsync(shareDatabase: false);
 

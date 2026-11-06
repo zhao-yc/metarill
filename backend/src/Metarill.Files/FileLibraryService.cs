@@ -148,10 +148,20 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
 
         var key = await store.Session.InTransactionAsync(async () =>
         {
-            var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, true, cancellationToken); RequireDeleteOwner(row, actor);
-            if ((await store.ReadForUpdateAsync(References, new Dictionary<string, object?> { ["file_id"] = id }, cancellationToken)).Count > 0) throw new BusinessRuleException("文件仍被业务记录引用，不能删除。");
-            var storageKey = SqlRowStore.Text(row, "storage_key"); Storage.ValidateKey(storageKey, Root);
-            await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "deleted", ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
+            var actor = authorization.RequireActor();
+            var row = await store.ReadFileForDeletionAsync(id, cancellationToken)
+                ?? throw new UnauthorizedAccessException("文件或目录不存在或不可访问。");
+            RequireDeleteOwner(row, actor);
+            var isDeleted = row["delete_no"] is not null;
+            if (isDeleted && SqlRowStore.Text(row, "status") != "deleted")
+                throw new UnauthorizedAccessException("文件或目录不存在或不可访问。");
+            if ((await store.ReadForUpdateAsync(References, new Dictionary<string, object?> { ["file_id"] = id }, cancellationToken)).Count > 0)
+                throw new BusinessRuleException("文件仍被业务记录引用，不能删除。");
+            var storageKey = SqlRowStore.Text(row, "storage_key");
+            Storage.ValidateKey(storageKey, Root);
+            // 同一对象可重试清理，已经提交的墓碑无需重新写入。
+            if (!isDeleted)
+                await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "deleted", ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
             return storageKey;
         }, cancellationToken);
         return new FileDeleteResult(id, await Storage.DeleteAsync(key, Root, cancellationToken));

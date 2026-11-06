@@ -8,7 +8,7 @@
 - 受保护草稿仅当前超级身份/管理员或上传者读取；就绪文件保留超级身份路径，普通账号按真实业务引用与当前来源页/父范围验证，所有权不是永久授权。客户端pageId/recordId不授予权限；未证明的复杂组合继续拒绝。
 - `FileReferenceMutationObserver` 必须随生成 Service 的业务事务执行。它核对实际页、字段、项目、物理记录及真实字段内容；只处理 `FileLibrary` 列，省略保持、显式 null 清空。引用与文件删除使用相同文件行锁；已被引用文件不能删除。
 - 未提供完整父记录证明的复杂 `WhereSql` 范围明确拒绝；首期只支持空范围或真实项目范围。平台库和业务库不能跨库同步引用，各项目文件表必须与业务记录处于同一数据库事务。
-- API 注册需要 `FileLibraryService`、`FileLibraryOptions`、`FileReferenceMutationObserver`；服务可按请求注入认证上下文。物理删除失败时数据库已经失效，返回 `StorageRemoved=false`，需后续维护清理，不能声称存储完全删除。
+- API 注册需要 `FileLibraryService`、`FileLibraryOptions`、`FileReferenceMutationObserver`；服务可按请求注入认证上下文。物理删除失败时数据库已经失效，返回 `StorageRemoved=false`，原删除权限可用同一文件 ID 重试对象清理，重试期间文件继续不可读，原删除时间保持。
 - 真正的隔离数据库测试使用 `METARILL_TEST_SETTINGS` 与 `METARILL_PLATFORM_METADATA`。文件基础设施必须已显式初始化；测试只创建随机 `mt_test_files_` 业务表、唯一ID文件记录及项目临时目录，最后清理，不改生产库。
 
 - 文件服务、引用观察器及 HTTP Controller 位于独立 `Metarill.Files` 工程，平台与生成应用复用同一实现。命名空间沿用既有名称以保持调用兼容；基础设施行存储位于 `Metarill.Data`，不依赖平台注册器。

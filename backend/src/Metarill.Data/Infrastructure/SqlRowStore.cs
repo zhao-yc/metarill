@@ -98,6 +98,15 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         // 配置写属于管理低频入口；选择完整范围锁，不依赖未知索引/排序规则证明不存在。
         return await ReadInternalAsync("config_table", null, true, token, true);
     }
+    /// <summary>文件对象清理只锁定指定文件，并保留墓碑供原删除权限核验后重试。</summary>
+    public async Task<Dictionary<string, object?>?> ReadFileForDeletionAsync(long id, CancellationToken token = default)
+    {
+        if (session.CurrentTransaction is null) throw new InvalidOperationException("文件删除读取必须加入当前事务。");
+        if (id <= 0) throw new InvalidOperationException("文件或目录标识无效。");
+        var rows = await ReadInternalAsync("yz_file_library", new Dictionary<string, object?> { ["id"] = id }, true, token, includeDeleted: true);
+        return rows.SingleOrDefault();
+    }
+
     public Task<List<Dictionary<string,object?>>> ReadForUpdateAsync(string table,IReadOnlyDictionary<string,object?> filters,CancellationToken cancellationToken=default)
     {
         if(session.CurrentTransaction is null)throw new InvalidOperationException("锁查询必须在事务内。");
