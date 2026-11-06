@@ -184,6 +184,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
                 var persisted = await restarted.Client.GetFromJsonAsync<JsonElement>("/api/admin/sys/yz_manager/getCurrentPermissions");
                 Assert.Equal(200, persisted.GetProperty("code").GetInt32()); Assert.True(persisted.GetProperty("data").GetProperty("isSuper").GetBoolean());
                 Assert.Equal(seedBefore, await SeedSnapshotAsync(seedStore, snapshotTables));
+                await VerifyPlatformOptionAliasesAsync(restarted.Client, seedStore, catalog, demo);
                 if (native?.VerifyPublishedBusinessPermissions == true)
                     await VerifyPublishedBusinessPermissionsAsync(restarted.Client.BaseAddress!, seedStore, new SqlRowStore(businessSession, businessCatalog), catalog.YzProjectId, demo.YzProjectId);
             }
