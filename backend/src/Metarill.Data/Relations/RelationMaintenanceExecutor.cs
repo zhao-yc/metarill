@@ -6,7 +6,7 @@ namespace Metarill.Data.Relations;
 internal sealed record RelationRowPatch(long Id,IReadOnlyDictionary<string,object?> Values);
 
 /// <summary>维护只执行已发布的整表计划，不接收字段、SQL、连接或项目覆盖。</summary>
-public sealed class RelationMaintenanceExecutor(DatabaseSession session)
+public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
 {
     private const int WriteBatchSize=128;
     private const int CleanReadBatchSize=512;

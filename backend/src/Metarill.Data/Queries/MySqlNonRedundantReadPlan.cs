@@ -9,7 +9,7 @@ namespace Metarill.Data.Queries;
 /// <summary>多值投影只持有编译后的标识符与固定范围，执行阶段不再读取元数据。</summary>
 internal sealed record MySqlPhysicalReference(string Table,Metarill.Data.Schema.ColumnSchema Column);
 internal sealed record MySqlValueOrigin(string Table,string Column);
-internal sealed record MySqlScalarCacheTarget(string Table,string Alias,string Predicate);
+internal sealed record MySqlScalarCacheTarget(string Table,string Alias,string Predicate,string ForeignColumn);
 internal sealed record MySqlReverseProjection(string TargetTable,string From,string ForeignExpression,string ForeignType,IReadOnlyDictionary<string,IReadOnlySet<string>> Outputs)
 {
     /// <summary>普通等值供字符串索引预筛选，二进制条件仍决定精确ID；数组谓词和整数键保持原义。</summary>
@@ -407,7 +407,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 maintenanceJoins.Add((alias,sql));
                 if(directSave&&global&&target.Id!=root.Id)
-                    scalarCacheTarget=new(target.TableName,alias,predicate);
+                    scalarCacheTarget=new(target.TableName,alias,predicate,relation.ColumnName);
             }
             return alias;
         }

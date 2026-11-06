@@ -13,6 +13,7 @@ public sealed class DatabaseSession : IDisposable
         public bool RollbackOnly { get; set; }
         public bool ScalarCacheWrite { get; } = scalarCacheWrite;
         public Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts { get; set; }
+        public string? PackedAppendVariablePrefix { get; set; }
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
     private readonly bool _ownsOrm;
@@ -45,6 +46,14 @@ public sealed class DatabaseSession : IDisposable
     /// <summary>仅由当前会话明确建立的可重复读写事务允许合并缓存写回。</summary>
     internal bool HasScalarCacheWriteProof(DbTransaction transaction)=>
         _transaction.Value is {ScalarCacheWrite:true} scope&&ReferenceEquals(scope.Transaction,transaction);
+
+    /// <summary>每个事务只分配一组私有变量名，连续小批先清空并复用，避免大工作簿累积会话变量。</summary>
+    internal string GetPackedAppendVariablePrefix(DbTransaction transaction)
+    {
+        if (_transaction.Value is not {ScalarCacheWrite:true} scope || !ReferenceEquals(scope.Transaction, transaction))
+            throw new InvalidOperationException("合并追加必须属于当前写入事务。");
+        return scope.PackedAppendVariablePrefix ??= "@mt_packed_" + Guid.NewGuid().ToString("N") + "_";
+    }
 
     public DatabaseSession(DatabaseOptions options) : this(options, null, null) { }
 

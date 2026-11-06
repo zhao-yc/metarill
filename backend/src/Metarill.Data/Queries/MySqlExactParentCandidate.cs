@@ -25,12 +25,16 @@ public static class MySqlExactParentCandidate
         internal const string Accepted=GuardVariable+"=2";
         internal const string DatabaseGate="CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY)";
         internal DbTransaction Transaction { get; }
+        internal string Table { get; }
+        internal long ParentId { get; }
         internal string Expression { get; }
         internal IReadOnlyDictionary<string,object?> Parameters { get; }
 
-        internal BatchRecheck(DbTransaction transaction,string expression,IReadOnlyDictionary<string,object?> parameters)
+        internal BatchRecheck(DbTransaction transaction,string table,long parentId,string expression,IReadOnlyDictionary<string,object?> parameters)
         {
             Transaction=transaction;
+            Table=table;
+            ParentId=parentId;
             Expression=expression;
             Parameters=parameters;
         }
@@ -52,7 +56,7 @@ public static class MySqlExactParentCandidate
         {
             ["mt_import_parent_id"]=parentId
         };
-        return new BatchRecheck(transaction,RecheckExpression(from,clause.Sql,BatchRecheck.DatabaseGate),parameters);
+        return new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,BatchRecheck.DatabaseGate),parameters);
     }
 
     /// <summary>保留旧生成应用入口，只有追加导入的私有调用携带同批状态。</summary>

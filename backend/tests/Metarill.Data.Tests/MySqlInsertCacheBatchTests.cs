@@ -32,6 +32,25 @@ public sealed class MySqlInsertCacheBatchTests
         Assert.Equal(0, auditCalls);
     }
 
+    [Fact]
+    public void Packed_parameters_keep_types_and_require_the_same_canonical_parent()
+    {
+        using var session = CreateSession();
+        var row = new CacheSource { Id = 9007199254740993, ParentId = "11", Caption = "中文🌲 " };
+        var first = Assert.IsType<MySqlInsertCacheBatch>(
+            MySqlInsertCacheBatch.Prepare(session, "cache_source", row.Id, row, "first_", ("parent_id", 11)));
+        var second = Assert.IsType<MySqlInsertCacheBatch>(
+            MySqlInsertCacheBatch.Prepare(session, "cache_source", row.Id, row, "second_", ("parent_id", 11)));
+        Assert.All(first.Parameters, parameter => Assert.StartsWith("@first_", parameter.ParameterName));
+        Assert.All(second.Parameters, parameter => Assert.StartsWith("@second_", parameter.ParameterName));
+        Assert.Equal(first.Parameters.Select(parameter => (parameter.DbType, parameter.Value)),
+            second.Parameters.Select(parameter => (parameter.DbType, parameter.Value)));
+        Assert.All(first.Parameters, parameter => Assert.Contains(parameter.ParameterName, first.Sql));
+        Assert.Null(MySqlInsertCacheBatch.Prepare(session, "cache_source", row.Id, row, "first_", ("parent_id", 12)));
+        row.ParentId = "011";
+        Assert.Null(MySqlInsertCacheBatch.Prepare(session, "cache_source", row.Id, row, "first_", ("parent_id", 11)));
+    }
+
     private static DatabaseSession CreateSession() => new(new()
     {
         ExpectedDatabase = "offline",

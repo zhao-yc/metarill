@@ -9,7 +9,7 @@ namespace Metarill.Data.Relations;
 internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters,long ParameterBudget)
 {
     /// <summary>只接受默认 ORM 生成的固定表与一一对应的 VALUES 参数，其他形态回到原 Mapper。</summary>
-    internal static MySqlInsertCacheBatch? Prepare<T>(DatabaseSession session,string table,long id,T entity) where T:class
+    internal static MySqlInsertCacheBatch? Prepare<T>(DatabaseSession session,string table,long id,T entity,string? parameterPrefix=null,(string Column,long Id)? parentKey=null) where T:class
     {
         var orm=session.Orm;
         var aop=orm.Aop;
@@ -35,6 +35,7 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
         var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase){"@expected_database","@exact_id"};
         long budget=0;
         var exactId=false;
+        var exactParent=parentKey is null;
         for(var index=0;index<columns.Length;index++)
         {
             var column=columns[index];
@@ -44,11 +45,23 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
                 parameters[index] is not MySqlParameter parameter||parameter.ParameterName!=name)
                 return null;
             if(column=="`id`")exactId=parameter.Value is long key&&key==id;
+            if(parentKey is {} parent&&column=="`"+parent.Column+"`")
+                exactParent=parameter.Value is long parentId&&parentId==parent.Id ||
+                    parameter.Value is string parentText&&parentText==parent.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var bytes=ParameterBytes(parameter.Value);
             if(bytes<0)return null;
             budget+=bytes;
         }
-        if(!exactId)return null;
+        if(!exactId||!exactParent)return null;
+        // 多行命令各用独立参数名，保留原 MySqlParameter 的类型、值与绑定顺序。
+        if(parameterPrefix is not null)
+        {
+            for(var index=0;index<parameters.Length;index++)
+            {
+                placeholders[index]="@"+parameterPrefix+placeholders[index][1..];
+                parameters[index].ParameterName=placeholders[index];
+            }
+        }
         var database=session.Provider.QuoteIdentifier(session.Options.ExpectedDatabase);
         return new("INSERT INTO "+database+"."+quotedTable+"("+string.Join(", ",columns)+") SELECT "+
             string.Join(", ",placeholders)+" WHERE CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY)",parameters,budget);
