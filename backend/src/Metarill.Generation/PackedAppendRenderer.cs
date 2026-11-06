@@ -9,9 +9,16 @@ internal static class PackedAppendRenderer
     private const string Parent = "global::Metarill.Data.Queries.MySqlExactParentCandidate.BatchRecheck";
 
     /// <summary>没有手写扩展和守卫，且观察者证明原静态归属检查通过时才缓冲。</summary>
-    internal static string ImportSetup(TableModel table, PageModel page) => $$"""
-        var canPackRows = parentRecheck is not null && request.RequestJson.GetArrayLength() >= 3 &&
+    internal static string ImportSetup(GenerationModel model, TableModel table, PageModel page, RelationModel relation) => $$"""
+        bool MayPackRows() => parentRecheck is not null && request.RequestJson.GetArrayLength() >= 3 &&
             !guards.Any() && observers.All(observer => observer.CanBufferScalarAppend({{JsonSerializer.Serialize(page.Source.Id)}}, {{JsonSerializer.Serialize(table.Source.TableName)}}));
+        var sharedParentLocked = session.Options.MySqlSharedAppendProofs?.ContainsKey({{JsonSerializer.Serialize(table.Source.TableName)}}) == true &&
+            MayPackRows() && await new {{Propagator}}(session).TryLockSharedAppendParentAsync(
+                global::{{model.Namespace}}.Generated.GeneratedRelationMaintenance.Catalog, {{JsonSerializer.Serialize(table.Source.TableName)}}, actor.ProjectId,
+                {{JsonSerializer.Serialize(relation.Target.Source.TableName)}}, request.ParentId,
+                {{(relation.Target.Columns.Any(column => column.Source.ColumnName == "delete_no") ? "true" : "false")}}, parentRecheck!, cancellationToken);
+        if (!sharedParentLocked) await ValidateParents{{page.Source.Id}}Async(request.ParentId, actor, cancellationToken);
+        var canPackRows = sharedParentLocked || MayPackRows();
         var pendingRows = canPackRows ? new List<(int Row, long Id, {{table.EntityType}} Entity, {{Parent}} Parent, Func<Task> Persist)>({{Propagator}}.PackedAppendLimit) : null;
 
 """ + "\n";

@@ -529,7 +529,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     {
         const string candidate="Metarill.Data.Queries.MySqlExactParentCandidate";
         var suffix=page.Source.Id;
-        var arguments=$"session, {Literal(relation.Target.Source.TableName)}, recheckKey, {(relation.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no")?"true":"false")}, OptionsPageCondition{suffix}_{relation.SourceColumn.Source.Id}, parentRecheck";
+        var scopeArguments=$"session, {Literal(relation.Target.Source.TableName)}, recheckKey, {(relation.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no")?"true":"false")}";
+        var arguments=$"{scopeArguments}, OptionsPageCondition{suffix}_{relation.SourceColumn.Source.Id}, parentRecheck";
         return $$"""
         long recheckKey = 0;
         var canRecheck = parentRecheck is not null && long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out recheckKey) && recheckKey > 0 && parentId == recheckKey.ToString(CultureInfo.InvariantCulture);
@@ -538,7 +539,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         async Task<int?> CheckParentCandidateAsync()
         {
             var result = canRecheck ? await {{candidate}}.TryRecheckAsync({{arguments}}, cancellationToken) : null;
-            if (result is null) await ValidateParents{{suffix}}Async(parentId, actor, cancellationToken);
+            if (result is null && !{{candidate}}.HoldsSharedImportParent({{scopeArguments}}, parentRecheck))
+                await ValidateParents{{suffix}}Async(parentId, actor, cancellationToken);
             return result;
         }
         if (deferredParent is null && flushEarlierRows is not null) await flushEarlierRows();

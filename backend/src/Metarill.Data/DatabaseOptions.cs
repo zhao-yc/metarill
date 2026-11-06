@@ -10,6 +10,18 @@ public sealed record DatabaseOptions
     public string Provider { get; init; } = "mysql";
     public string ConnectionString { get; init; } = "";
     public string ExpectedDatabase { get; init; } = "";
+    /// <summary>按明细物理表绑定管理员已核验的共享追加证明，缺省继续原排他锁。</summary>
+    public Dictionary<string, MySqlSharedAppendProofOptions> MySqlSharedAppendProofs { get; init; } = new(StringComparer.Ordinal);
+}
+
+/// <summary>例程由独立部署账号管理，运行账号只需该例程的精确执行权限。</summary>
+public sealed record MySqlSharedAppendProofOptions
+{
+    public string ServerUuid { get; init; } = "";
+    public string ParentTable { get; init; } = "";
+    public string Schema { get; init; } = "";
+    public string Procedure { get; init; } = "";
+    public string Definer { get; init; } = "";
 }
 
 /// <summary>区分规划中的品牌与已完成验收的实现，不能用驱动支持冒充产品支持。</summary>

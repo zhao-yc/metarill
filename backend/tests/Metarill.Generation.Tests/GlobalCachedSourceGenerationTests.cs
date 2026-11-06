@@ -40,7 +40,9 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("MySqlExactParentCandidate.TryRecheckAsync",rendered);
         Assert.Contains("MySqlExactParentCandidate.RequireCandidate(status)",rendered);
         Assert.Contains("HasBeforeSave81003 || ids is not SnowflakeIdGenerator",rendered);
-        Assert.Contains("if (result is null) await ValidateParents81003Async",rendered);
+        Assert.Contains("await ValidateParents81003Async(parentId, actor, cancellationToken);",rendered);
+        Assert.Contains("HoldsSharedImportParent",rendered);
+        Assert.Contains("TryLockSharedAppendParentAsync",rendered);
         Assert.Contains("guard.RequiresWriteValidation(\"sample_contract_line\")",rendered);
         Assert.Contains("MySqlExactParentCandidate.PlanBatch",rendered);
         Assert.Contains("deferParentCandidate: deferredParent is not null",rendered);

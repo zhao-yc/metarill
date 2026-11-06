@@ -16,6 +16,32 @@ public static class MySqlExactParentCandidate
     public sealed class ImportRecheck
     {
         internal (DbTransaction Transaction, string Table, long ParentId, bool SoftDelete, FixedConditionSqlPlan Condition)? FirstRead { get; set; }
+        internal (DbTransaction Transaction, string Table, long ParentId, bool SoftDelete)? SharedParent { get; set; }
+    }
+
+    /// <summary>只复用当前事务已实际取得的共享父锁，生成入口据此避免再次升级。</summary>
+    public static bool HoldsSharedImportParent(DatabaseSession session, string table, long parentId, bool softDelete, ImportRecheck? recheck) =>
+        recheck?.SharedParent is {} shared && ReferenceEquals(shared.Transaction, session.CurrentTransaction) &&
+        shared.Table == table && shared.ParentId == parentId && shared.SoftDelete == softDelete;
+
+    /// <summary>部署证据核验后保持原父存在性语义，只变更锁模式。</summary>
+    internal static async Task<bool> TryLockSharedImportParentAsync(DatabaseSession session, MySqlConnection connection,
+        DbTransaction transaction, string source, string table, long parentId, bool softDelete,
+        MySqlSharedAppendProofOptions proof, ImportRecheck recheck, CancellationToken token)
+    {
+        if (recheck.SharedParent is not null)
+            return HoldsSharedImportParent(session, table, parentId, softDelete, recheck);
+        if (recheck.FirstRead is not null ||
+            !await MySqlSharedAppendProof.VerifyAsync(session, connection, transaction, source, table, proof, token))
+            return false;
+        await using var command = MySqlFloatingCommand.Wrap(connection.CreateCommand());
+        command.Transaction = transaction;
+        BindKey(command, parentId);
+        command.CommandText = "SELECT `id`" + ParentFrom(session, table, softDelete) + " FOR SHARE";
+        if (await command.ExecuteScalarAsync(token) is null or DBNull)
+            throw new InvalidOperationException("父记录不存在或已删除。");
+        recheck.SharedParent = (transaction, table, parentId, softDelete);
+        return true;
     }
 
     /// <summary>合并命令保留同事务的原父快照；只能从成功的首行证明建立。</summary>
@@ -56,7 +82,7 @@ public static class MySqlExactParentCandidate
         {
             ["mt_import_parent_id"]=parentId
         };
-        return new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,BatchRecheck.DatabaseGate),parameters);
+        return new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,HoldsSharedImportParent(session,table,parentId,softDelete,recheck),BatchRecheck.DatabaseGate),parameters);
     }
 
     /// <summary>保留旧生成应用入口，只有追加导入的私有调用携带同批状态。</summary>
@@ -64,7 +90,7 @@ public static class MySqlExactParentCandidate
         FixedConditionSqlPlan condition,CancellationToken cancellationToken) =>
         RequireAsync(session,table,parentId,softDelete,condition,cancellationToken,null);
 
-    /// <summary>同一语句返回原快照及当前候选结果；调用者已在原事务取得这个精确主键的排他锁。</summary>
+    /// <summary>同一语句返回原快照及当前候选结果，并复用调用者已取得的父锁模式。</summary>
     public static async Task RequireAsync(DatabaseSession session,string table,long parentId,bool softDelete,
         FixedConditionSqlPlan condition,CancellationToken cancellationToken,ImportRecheck? recheck)
     {
@@ -78,7 +104,7 @@ public static class MySqlExactParentCandidate
         var candidate=condition.BindConstants(command,session,"parent_candidate");
         // MySQL 可在表达式求值前读取常量主键。生成器仅在该父锁已由原入口取得时使用本语句。
         command.CommandText="SELECT CASE WHEN EXISTS(SELECT 1"+from+") THEN (SELECT 2"+from+
-            (candidate.Length==0?"":" AND "+candidate)+" FOR UPDATE) ELSE 0 END";
+            (candidate.Length==0?"":" AND "+candidate)+LockClause(HoldsSharedImportParent(session,table,parentId,softDelete,recheck))+") ELSE 0 END";
         var result=await command.ExecuteScalarAsync(cancellationToken);
         if(result is null or DBNull)throw new InvalidOperationException("关联记录已离开当前固定候选范围。");
         RequireCandidate(Convert.ToInt32(result,CultureInfo.InvariantCulture));
@@ -99,18 +125,20 @@ public static class MySqlExactParentCandidate
         BindKey(command,parentId);
         var candidate=condition.BindConstants(command,session,"parent_candidate");
         // CASE 中保持标量候选，物理主键漂移时仍拒绝返回多行。
-        command.CommandText="SELECT "+RecheckExpression(from,candidate);
+        command.CommandText="SELECT "+RecheckExpression(from,candidate,HoldsSharedImportParent(session,table,parentId,softDelete,recheck));
         var result=Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken),CultureInfo.InvariantCulture);
         if(result==0)throw new InvalidOperationException("父记录不存在或已删除。");
         return result;
     }
 
     /// <summary>独立读取和合并读取共用 CASE；SELECT INTO 保持普通子查询的原一致性快照。</summary>
-    private static string RecheckExpression(string from,string candidate,string? databaseGate=null) =>
+    private static string RecheckExpression(string from,string candidate,bool shared,string? databaseGate=null) =>
         "CASE "+(databaseGate is null?"":"WHEN NOT ("+databaseGate+") THEN -1 ")+
-        "WHEN NOT EXISTS(SELECT 1"+from+" FOR UPDATE) THEN 0 "+
+        "WHEN NOT EXISTS(SELECT 1"+from+LockClause(shared)+") THEN 0 "+
         "WHEN NOT EXISTS(SELECT 1"+from+") THEN 1 ELSE COALESCE((SELECT 2"+from+
-        (candidate.Length==0?"":" AND "+candidate)+" FOR UPDATE),3) END";
+        (candidate.Length==0?"":" AND "+candidate)+LockClause(shared)+"),3) END";
+
+    private static string LockClause(bool shared) => shared ? " FOR SHARE" : " FOR UPDATE";
 
     /// <summary>首行证明只在原连接、原事务及原固定候选计划中使用。</summary>
     private static bool HasFirstRead(DatabaseSession session,string table,long parentId,bool softDelete,

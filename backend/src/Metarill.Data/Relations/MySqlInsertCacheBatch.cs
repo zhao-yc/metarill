@@ -8,16 +8,22 @@ namespace Metarill.Data.Relations;
 /// <summary>从原 Mapper 的单行参数化 INSERT 取绑定，禁止改变浮点协议或绕过宿主 AOP。</summary>
 internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters,long ParameterBudget)
 {
+    /// <summary>只有自有、无写入钩子且不会自动同步结构的 ORM 可使用原生追加。</summary>
+    internal static bool UsesPlainOrm(DatabaseSession session)
+    {
+        if (!session.UsesOwnedOrm) return false;
+        var orm = session.Orm;
+        var aop = orm.Aop;
+        return aop.AuditValueHandler is null && aop.CurdBeforeHandler is null && aop.CurdAfterHandler is null &&
+            aop.CommandBeforeHandler is null && aop.CommandAfterHandler is null &&
+            aop.TraceBeforeHandler is null && aop.TraceAfterHandler is null &&
+            !orm.CodeFirst.IsAutoSyncStructure && orm.GlobalFilter.GetAllFilters().Count == 0;
+    }
+
     /// <summary>只接受默认 ORM 生成的固定表与一一对应的 VALUES 参数，其他形态回到原 Mapper。</summary>
     internal static MySqlInsertCacheBatch? Prepare<T>(DatabaseSession session,string table,long id,T entity,string? parameterPrefix=null,(string Column,long Id)? parentKey=null) where T:class
     {
-        var orm=session.Orm;
-        var aop=orm.Aop;
-        if(aop.AuditValueHandler is not null||aop.CurdBeforeHandler is not null||aop.CurdAfterHandler is not null||
-            aop.CommandBeforeHandler is not null||aop.CommandAfterHandler is not null||
-            aop.TraceBeforeHandler is not null||aop.TraceAfterHandler is not null||
-            orm.CodeFirst.IsAutoSyncStructure||orm.GlobalFilter.GetAllFilters().Count!=0)
-            return null;
+        if (!UsesPlainOrm(session)) return null;
         if(session.Insert<T>().AppendData(entity) is not InsertProvider<T> insert)
             return null;
         var original=insert.ToSql();

@@ -57,16 +57,17 @@ public sealed partial class {{page.Name}}ImportRequest
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
         var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
             ?"InScalarCacheImportTransactionAsync":"InTransactionAsync";
-        var mergeParent=GlobalCachedParentCompilation.ForAppendRecheck(model,table,page) is not null;
+        var appendParent=GlobalCachedParentCompilation.ForAppendRecheck(model,table,page);
+        var mergeParent=appendParent is not null;
         var packedAppend=mergeParent&&GlobalCachedParentCompilation.CanDeferAppendCandidate(model,table,page);
         var result = new StringBuilder().Append(NonRedundantImportMatchRenderer.Declaration(model,table,page,logicalMatch)).AppendLine("    /// <summary>任意行失败时撤销整批；单行复用标准新增或明确字段更新。</summary>")
             .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.{transaction}(async () =>")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
             .Append(BackendRenderer.PrepareCall(model, table, page, "Import", "null", null, "request.ParentId"))
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")
-            .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});")
+            .Append(packedAppend?"":$"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});\n")
             .Append(mergeParent?$"        var parentRecheck = HasBeforeSave{page.Source.Id} || ids is not SnowflakeIdGenerator ? null : new Metarill.Data.Queries.MySqlExactParentCandidate.ImportRecheck();\n":"")
-            .Append(packedAppend?PackedAppendRenderer.ImportSetup(table,page):"")
+            .Append(packedAppend?PackedAppendRenderer.ImportSetup(model,table,page,appendParent!):"")
             .AppendLine("        var rowBuffer = new global::System.Buffers.ArrayBufferWriter<byte>();")
             .AppendLine("        using var rowWriter = new Utf8JsonWriter(rowBuffer, new JsonWriterOptions { MaxDepth = 64 });")
             .AppendLine("        var rowNumber = 0;")
