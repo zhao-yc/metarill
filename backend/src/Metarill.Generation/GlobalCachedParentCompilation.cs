@@ -38,6 +38,16 @@ internal static class GlobalCachedParentCompilation
              FixedOptionCatalogCompilation.Resolve(model,page,column).Declared||ForeignValidationRenderer.Target(model,column) is not null)) ? null : relation;
     }
 
+    /// <summary>插入到名称刷新之间必须没有其他生成的写后操作。</summary>
+    internal static bool CanBatchAppendInsert(GenerationModel model,TableModel table,PageModel page) =>
+        ForAppendRecheck(model,table,page) is not null&&
+        TimeFieldCompilation.AfterWrite(model,table).Length==0&&
+        CrossTableWriteRenderer.After(model,table,page,true,false).Length==0&&
+        CascadeTreeTopologyRenderer.After(model,table,page,true).Length==0&&
+        CascadeTreeMergedWriteRenderer.After(model,table,page,true,false).Length==0&&
+        NonRedundantCrossParentCompilation.VerifyCall(model,table,page).Length==0&&
+        SharedRedundantParentCompilation.VerifyCall(model,table,page).Length==0;
+
     /// <summary>已取得的父锁只从原新增入口传入，其余调用保留默认空值和原校验。</summary>
     internal static bool HasCombinedCandidate(GenerationModel model,TableModel table,PageModel page)
         =>RelationCompilation.ForPage(model,page,true).Any(relation=>CanCombineCandidate(model,table,page,relation));

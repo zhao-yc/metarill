@@ -4,6 +4,23 @@ namespace Metarill.Data.Relations;
 /// <summary>一个事务事件队列统一普通多值与混合单值副本，内部更新不再次进入消费者Service／钩子。</summary>
 public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
 {
+    /// <summary>仅在已核验结构的追加事务中合并叶子来源插入。返回 null 表示尚未发出写入，可走原 Mapper。</summary>
+    public async Task<IReadOnlyDictionary<string,object?>?> TryInsertScalarSourceAsync<T>(RelationMaintenanceCatalog catalog,
+        string table,long id,string projectId,T entity,CancellationToken token) where T:class
+    {
+        if(projectId!=catalog.ProjectId||id<=0||!session.UsesOwnedOrm||
+            session.Provider is not MySqlDatabaseProvider||session.CurrentTransaction is not {Connection:MySqlConnector.MySqlConnection} transaction||
+            !session.HasScalarCacheWriteProof(transaction)||catalog.Mixed.Targets.Contains(table)||
+            catalog.Propagation.Bindings.Any(binding=>binding.Target.Name==table))
+            return null;
+        var consumer=catalog.Mixed.Consumers.SingleOrDefault(item=>item.Table.Option.TableName==table);
+        if(consumer is null)return null;
+        var patches=await new RelationMaintenanceExecutor(session).TryInsertExactScalarAsync(
+            consumer.Table,id,projectId,entity,transaction,token);
+        return patches is null?null:patches.SingleOrDefault()?.Values??
+            new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>());
+    }
+
     /// <summary>生成服务传入实际身份／记录项目和变更字段；只返回原实体被刷新值，回执与同事务数据库保持一致。</summary>
     public async Task<IReadOnlyDictionary<string,object?>> AfterMutationAsync(RelationMaintenanceCatalog catalog,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,bool refreshSource,CancellationToken token=default)
     {

@@ -27,12 +27,12 @@ internal static class GeneratedRelationMutation
 """;
     }
     /// <summary>通知观察者前传播，异常由同一外层事务回滚；自身被刷新字段补回实体以保证VO一致。</summary>
-    internal static string Notify(GenerationModel model,TableModel table,string project)
+    internal static string Notify(GenerationModel model,TableModel table,string project,bool batchInsert)
     {
         var bindings=RelationPropagationCompilation.Bindings(model);var catalog=MixedRelationPropagationCompilation.ForModel(model);if(!bindings.Any(binding=>binding.Target.Source.Id==table.Source.Id)&&!catalog.MixedTargets.Contains(table.Source.TableName)&&!catalog.MixedSourceColumns.ContainsKey(table.Source.TableName))return "";
         // 全局目标的记录项目值可能为空或属于其它项目；消费者只使用当前已认证宿主项目。
         if(table.IsGlobal)project="actor.ProjectId";
-        var text=$"        var relationPatch=await new Metarill.Data.Relations.ProjectRelationMutationPropagator(session).AfterMutationAsync(global::{model.Namespace}.Generated.GeneratedRelationMaintenance.Catalog, {JsonSerializer.Serialize(table.Source.TableName)},entity.Id,{project},new HashSet<string>(submitted,StringComparer.Ordinal),deleting||allFields,!deleting,cancellationToken);\n";
+        var text=$"        var relationPatch={(batchInsert?"insertedCache ?? ":"")}await new Metarill.Data.Relations.ProjectRelationMutationPropagator(session).AfterMutationAsync(global::{model.Namespace}.Generated.GeneratedRelationMaintenance.Catalog, {JsonSerializer.Serialize(table.Source.TableName)},entity.Id,{project},new HashSet<string>(submitted,StringComparer.Ordinal),deleting||allFields,!deleting,cancellationToken);\n";
         var caches=bindings.Where(binding=>binding.Source.Source.Id==table.Source.Id).Select(binding=>binding.Cache).Concat(catalog.MixedSourceColumns.GetValueOrDefault(table.Source.TableName,[]).Select(name=>table.Columns.Single(column=>column.Source.ColumnName==name))).DistinctBy(cache=>cache.Source.Id);
         foreach(var cache in caches)text+=$"        if(relationPatch.ContainsKey({JsonSerializer.Serialize(cache.Source.ColumnName)})){{entity.{cache.Property}=Metarill.Data.Queries.NonRedundantReads.Value<{cache.Type}>(relationPatch,{JsonSerializer.Serialize(cache.Source.ColumnName)});submitted.Add({JsonSerializer.Serialize(cache.Source.ColumnName)});}}\n";
         return text;

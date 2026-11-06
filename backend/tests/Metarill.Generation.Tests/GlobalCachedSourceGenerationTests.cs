@@ -40,6 +40,11 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("MySqlExactParentCandidate.RequireCandidate(status)",rendered);
         Assert.Contains("HasBeforeSave81003 || ids is not SnowflakeIdGenerator",rendered);
         Assert.Contains("if (mergedCandidate is null) await ValidateParents81003Async",rendered);
+        Assert.Contains("TryInsertScalarSourceAsync",rendered);
+        Assert.Contains("insertedCache is null && await mapper.InsertAsync",rendered);
+        Assert.Contains("var relationPatch=insertedCache ?? await",rendered);
+        Assert.True(rendered.IndexOf("await ValidateMutationAsync(\"81003\", RecordMutationOperation.Create",StringComparison.Ordinal) <
+            rendered.IndexOf("TryInsertScalarSourceAsync",StringComparison.Ordinal));
 
         metadata.ConfigPages.Single(item=>item.Id=="81003").Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
         var overwrite=GenerationModel.Create(metadata,"Example.GlobalSource");

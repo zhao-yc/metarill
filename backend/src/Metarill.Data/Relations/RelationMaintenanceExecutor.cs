@@ -191,9 +191,22 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         else await WriteScalarBatchAsync(table,table.Read!,project,patches,0,transaction,token);
         return patches;
     }
+    /// <summary>首行仍用原插入及结构预检，后续行只使用同一事务已固定的结构和报文预算。</summary>
+    internal async Task<IReadOnlyList<RelationRowPatch>?> TryInsertExactScalarAsync<T>(
+        MaintenanceTable table,long id,string project,T entity,DbTransaction transaction,CancellationToken token) where T:class
+    {
+        var plan=table.Read!;
+        var packet=session.PinnedRelationLayouts(transaction)?.GetValueOrDefault(plan)??0;
+        if(packet<=0||project!=plan.ProjectId||!CanLockExactScalarSource(table)||plan.Constants.Count!=0||
+            plan.ScalarCacheTarget is not {} target||!CanLookAhead(table,plan))
+            return null;
+        var insert=MySqlInsertCacheBatch.Prepare(session,table.Option.TableName,id,entity);
+        return insert is null?null:await TryWriteExactScalarAsync(table,target,id,packet,transaction,token,insert);
+    }
+
     /// <summary>重复读中保留原来源排他锁和目标共享锁，先取预期值，写后仍由驱动核对物理存储。</summary>
     private async Task<IReadOnlyList<RelationRowPatch>?> TryWriteExactScalarAsync(
-        MaintenanceTable table,MySqlScalarCacheTarget target,long id,long packetLimit,DbTransaction transaction,CancellationToken token)
+        MaintenanceTable table,MySqlScalarCacheTarget target,long id,long packetLimit,DbTransaction transaction,CancellationToken token,MySqlInsertCacheBatch? insert=null)
     {
         var plan=table.Read!;
         var field=table.Fields[0].Name;
@@ -209,16 +222,21 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         var value="(SELECT "+output+" FROM "+database+"."+Q(target.Table)+" "+target.Alias+" WHERE "+target.Predicate+" FOR SHARE OF "+target.Alias+")";
         await using var command=Command(transaction);
         // 统一文本编码再做二进制比较，保留 CLR 字符串对尾空格、大小写和 NULL 的区别。
-        command.CommandText=ReadConnectionIdentity+"; SELECT b.`id`,"+cached+","+output+from+where+
+        command.CommandText=ReadConnectionIdentity+(insert is null?"; ":"; "+insert.Sql+"; SELECT ROW_COUNT(); ")+"SELECT b.`id`,"+cached+","+output+from+where+
             " ORDER BY b.`id` LIMIT 2"+plan.ImportMatchLock+"; UPDATE "+source+" b SET "+Q(field)+"="+value+where+
-            " AND NOT (CAST(CONVERT("+cached+" USING utf8mb4) AS BINARY) <=> CAST(CONVERT("+value+" USING utf8mb4) AS BINARY)); SELECT b.`id`,"+
+            " AND NOT (CAST(CONVERT("+cached+" USING utf8mb4) AS BINARY) <=> CAST(CONVERT("+value+" USING utf8mb4) AS BINARY)); "+
+            (insert is null?"":"SELECT ROW_COUNT(); ")+"SELECT b.`id`,"+
             cached+" FROM "+source+" b"+where+" FOR UPDATE OF b";
-        if(System.Text.Encoding.UTF8.GetByteCount(command.CommandText)+6L*System.Text.Encoding.UTF8.GetByteCount(session.Options.ExpectedDatabase)+128>packetLimit)
+        if(System.Text.Encoding.UTF8.GetByteCount(command.CommandText)+6L*System.Text.Encoding.UTF8.GetByteCount(session.Options.ExpectedDatabase)+128+(insert?.ParameterBudget??0)>packetLimit)
             return null;
         Add(command,"expected_database",session.Options.ExpectedDatabase);
         Add(command,"exact_id",id);
+        if(insert is not null)
+            foreach(var parameter in insert.Parameters)command.Parameters.Add(parameter);
         await using var reader=await command.ExecuteReaderAsync(token);
         _=await RequireConnectionIdentityAsync(reader,token);
+        if(insert is not null)
+            await RequireBatchRowCountAsync(reader,1,"新增失败。",token);
         if(!await reader.NextResultAsync(token))throw new InvalidOperationException("维护连接没有返回已核验的锁读结果。");
         var exists=await reader.ReadAsync(token);
         string? before=null,expected=null;
@@ -230,7 +248,9 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
             if(await reader.ReadAsync(token))throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
         }
         var changed=exists&&!string.Equals(before,expected,StringComparison.Ordinal);
-        if(!await reader.NextResultAsync(token)||reader.RecordsAffected!=(changed?1:0))
+        if(insert is not null)
+            await RequireBatchRowCountAsync(reader,changed?1:0,"回填来源在同事务不再匹配，整批拒绝提交。",token);
+        if(!await reader.NextResultAsync(token)||insert is null&&reader.RecordsAffected!=(changed?1:0))
             throw new InvalidOperationException("回填来源在同事务不再匹配，整批拒绝提交。");
         if(await reader.ReadAsync(token)!=exists||exists&&reader.GetInt64(0)!=id)
             throw new InvalidOperationException("关系缓存在存储后不再匹配，当前事务未提交。");
@@ -244,6 +264,14 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         return changed?[new RelationRowPatch(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(
             new Dictionary<string,object?>(StringComparer.Ordinal){{field,expected}}))]:[];
     }
+    /// <summary>MySqlDataReader 的受影响行数会累计，合并插入必须分别读取服务器结果。</summary>
+    private static async Task RequireBatchRowCountAsync(DbDataReader reader,int expected,string message,CancellationToken token)
+    {
+        if(!await reader.NextResultAsync(token)||!await reader.ReadAsync(token)||
+            reader.GetInt64(0)!=expected||await reader.ReadAsync(token))
+            throw new InvalidOperationException(message);
+    }
+
     /// <summary>仅单文本缓存按来源主键批量写入。所有实际值在传播前由原核验器读回，异常仍回滚整表。</summary>
     private async Task WriteScalarBatchAsync(MaintenanceTable table,MySqlNonRedundantReadPlan plan,string project,
         IReadOnlyList<RelationRowPatch> patches,long packetLimit,DbTransaction transaction,CancellationToken token)
