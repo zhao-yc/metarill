@@ -54,14 +54,17 @@ public static class MySqlExactParentCandidate
         internal string Table { get; }
         internal long ParentId { get; }
         internal string Expression { get; }
+        internal string PinnedPrimaryKeyExpression { get; }
         internal IReadOnlyDictionary<string,object?> Parameters { get; }
 
-        internal BatchRecheck(DbTransaction transaction,string table,long parentId,string expression,IReadOnlyDictionary<string,object?> parameters)
+        internal BatchRecheck(DbTransaction transaction,string table,long parentId,string expression,
+            string pinnedPrimaryKeyExpression,IReadOnlyDictionary<string,object?> parameters)
         {
             Transaction=transaction;
             Table=table;
             ParentId=parentId;
             Expression=expression;
+            PinnedPrimaryKeyExpression=pinnedPrimaryKeyExpression;
             Parameters=parameters;
         }
     }
@@ -82,7 +85,9 @@ public static class MySqlExactParentCandidate
         {
             ["mt_import_parent_id"]=parentId
         };
-        return new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,HoldsSharedImportParent(session,table,parentId,softDelete,recheck),BatchRecheck.DatabaseGate),parameters);
+        var shared=HoldsSharedImportParent(session,table,parentId,softDelete,recheck);
+        return new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,shared,BatchRecheck.DatabaseGate),
+            PinnedPrimaryKeyRecheckExpression(from,clause.Sql,shared),parameters);
     }
 
     /// <summary>保留旧生成应用入口，只有追加导入的私有调用携带同批状态。</summary>
@@ -137,6 +142,13 @@ public static class MySqlExactParentCandidate
         "WHEN NOT EXISTS(SELECT 1"+from+LockClause(shared)+") THEN 0 "+
         "WHEN NOT EXISTS(SELECT 1"+from+") THEN 1 ELSE COALESCE((SELECT 2"+from+
         (candidate.Length==0?"":" AND "+candidate)+LockClause(shared)+"),3) END";
+
+    /// <summary>结构锁已固定单列主键时，一次当前锁读同时判断父行和候选；内层普通读保留原快照和错误优先级。</summary>
+    private static string PinnedPrimaryKeyRecheckExpression(string from,string candidate,bool shared) =>
+        "CASE WHEN NOT ("+BatchRecheck.DatabaseGate+") THEN -1 ELSE COALESCE((SELECT CASE "+
+        "WHEN NOT EXISTS(SELECT 1"+from+") THEN 1 "+
+        (candidate.Length==0?"ELSE 2 ":"WHEN "+candidate+" THEN 2 ELSE 3 ")+
+        "END"+from+LockClause(shared)+"),0) END";
 
     private static string LockClause(bool shared) => shared ? " FOR SHARE" : " FOR UPDATE";
 

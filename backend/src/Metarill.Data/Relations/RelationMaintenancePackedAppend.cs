@@ -29,6 +29,9 @@ public sealed partial class RelationMaintenanceExecutor
             plan.ImportMatchLock != " FOR UPDATE OF b FOR SHARE OF " + target.Alias)
             return false;
 
+        // 只有同一事务已核验父表的单列物理主键，才把存在性与候选判断合并为一次当前读。
+        var parentExpression = plan.PhysicalReferences.Any(item => item.Table == parent.Table &&
+            item.Column.Name == "id" && item.Column.PrimaryKey) ? parent.PinnedPrimaryKeyExpression : parent.Expression;
         var database = Q(session.Options.ExpectedDatabase);
         if (plan.QualifiedMaintenanceFrom(database) is not {} from)
             return false;
@@ -74,7 +77,7 @@ public sealed partial class RelationMaintenanceExecutor
             Add(command, id, row.Id);
             var where = $" WHERE {Scope(table, "b.")} AND b.`id`=CASE WHEN {MySqlExactParentCandidate.BatchRecheck.DatabaseGate} AND {state}=2 THEN @{id} END";
             // 首错状态不可恢复。候选拒绝后所有主键表达式为 NULL，不读锁住的后续行。
-            sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parent.Expression}) ELSE {state} END INTO {verdict}")
+            sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END INTO {verdict}")
                 .Append($"; SET {state}={verdict},{readId}=NULL,{before}=NULL,{expected}=NULL,{storedId}=NULL,{stored}=NULL")
                 .Append($"; {insert.Sql} AND {state}=2; SET {inserted}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),CONVERT({output} USING utf8mb4){from}{where}")
