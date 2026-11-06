@@ -253,11 +253,12 @@ def verify_child_transaction(trace, database, side, step, run, key):
             cache = caches_by_id.pop(id_proof(row,"id_0"),None)
             # 多结果命令在业务中核验受影响行数，采集器只在原 reader 边界证明同一命令含精确物理回读。
             if cache is not None and combined_cache(cache):
-                isolated = [item for item in commands
-                            if item["sql"]=="SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"
-                            and item["succeeded"] and item["connection"]==owner[0] and item["transaction"] is None
-                            and item[finish]<=locks[0][start]]
-                verified_write = (len(isolated)==1 and cache["operation"]=="reader" and cache["affectedRows"] is None
+                # 驱动的 Begin 已记录实际隔离级别，独立 SET 不是事务证明。
+                begins = [item for item in trace["transactions"]
+                          if item["operation"]=="begin" and item["succeeded"]
+                          and (item["connection"],item["transaction"])==owner
+                          and item["isolation"]=="RepeatableRead" and item[finish]<=locks[0][start]]
+                verified_write = (len(begins)==1 and cache["operation"]=="reader" and cache["affectedRows"] is None
                                   and carries(cache,database)=={"string"})
             else:
                 verified_write = cache is not None and carries(cache,"性能合同-0000") and (
