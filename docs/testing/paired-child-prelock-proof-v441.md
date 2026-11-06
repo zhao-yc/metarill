@@ -16,4 +16,4 @@
 
 生成器、探针及完整 Linux 宿主严格构建。生成门禁与手写扩展 4 通过、0 失败、0 跳过。生成完整应用 679 个文件，Linux 发布产物固定 49 项摘要，393 个前端文件逐字匹配 V439 完整包。
 
-当前 HTTP 专项执行原生成 Controller、Service 和真实 MySQL，身份由探针注入。正式 Java／C# 同条件计时另行执行，MySQL 首版性能门槛保持待验。
+该 HTTP 专项执行原生成 Controller、Service 和真实 MySQL，身份由探针注入。后续 V442 的正式 Java／C# 同条件计时确认四并发仍触发稳定退化，开发分支已撤回该候选。[正式性能复测](paired-child-default-prelock-proof-timing-v442.md)

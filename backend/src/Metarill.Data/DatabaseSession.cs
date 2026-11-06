@@ -14,7 +14,6 @@ public sealed class DatabaseSession : IDisposable
         public bool RollbackOnly { get; set; }
         public bool ScalarCacheWrite { get; } = scalarCacheWrite;
         public Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts { get; set; }
-        public MySqlImportLayoutProofs.Attempt? ImportLayoutAttempt { get; set; }
         public string? PackedAppendVariablePrefix { get; set; }
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
@@ -39,17 +38,6 @@ public sealed class DatabaseSession : IDisposable
     }
     public DbTransaction? CurrentTransaction => _transaction.Value?.Transaction;
     internal bool UsesOwnedOrm => _ownsOrm;
-    internal MySqlImportLayoutProofs ImportLayoutProofs { get; } = new();
-
-    /// <summary>锁前证明只由当前导入事务提交给原结构校验位置，首行写入前不进入结构缓存。</summary>
-    internal MySqlImportLayoutProofs.Attempt? GetImportLayoutAttempt(DbTransaction transaction) =>
-        _transaction.Value is { } scope && ReferenceEquals(scope.Transaction, transaction) ? scope.ImportLayoutAttempt : null;
-
-    internal void SetImportLayoutAttempt(DbTransaction transaction, MySqlImportLayoutProofs.Attempt attempt)
-    {
-        if (_transaction.Value is { ScalarCacheWrite: true } scope && ReferenceEquals(scope.Transaction, transaction))
-            scope.ImportLayoutAttempt = attempt;
-    }
 
     /// <summary>证明连接只读且不借用业务池，避免持有事务的请求等待同池第二条连接。</summary>
     internal MySqlConnection CreateSharedAppendProofConnection()

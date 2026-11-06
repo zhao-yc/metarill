@@ -389,8 +389,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
         }
         // 显式事务持有已探测表的元数据锁直至结束。库名与当前会话报文限制仍逐次读取。
         var pinnedLayouts=reusePinnedStructure?session.PinnedRelationLayouts(transaction):null;
-        if(pinnedLayouts is not null && (pinnedLayouts.ContainsKey(plan) ||
-            session.GetImportLayoutAttempt(transaction) is { Reusable: true } attempt && ReferenceEquals(attempt.Plan, plan)))
+        if(pinnedLayouts?.ContainsKey(plan)==true)
         {
             pinnedLayouts[plan]=packetLimit;
             return packetLimit;
@@ -438,11 +437,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                     actual.Add(reader.GetString(0),(reader.GetString(1).ToLowerInvariant(),reader.GetString(2)=="YES",reader.GetString(3)=="PRI",!reader.IsDBNull(5)&&!string.IsNullOrWhiteSpace(reader.GetString(5))||reader.GetString(4).Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!reader.GetString(4).Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase)));
             }
         }
-        if(pinnedLayouts is not null)
-        {
-            pinnedLayouts.Add(plan,packetLimit);
-            await session.ImportLayoutProofs.RememberAsync(session,transaction,plan,token);
-        }
+        if(pinnedLayouts is not null)pinnedLayouts.Add(plan,packetLimit);
         return packetLimit;
 
         static void RequireEngine(object? value)
