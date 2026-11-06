@@ -149,6 +149,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
     public string RecordRoute => $"/api/admin/auto/{Table}/{Catalog.ConfigPages.Single().Id}";
     public string FileRoute => "/api/admin/sys/file-library";
     public string Output => Path.Combine(temporary, "application");
+    public string StorageRoot => Path.Combine(temporary, "objects");
     public string HostDirectory => Path.Combine(Output, "backend/Application.Host");
     public HttpClient Client { get; private set; } = null!;
     public HttpClient Anonymous { get; private set; } = null!;
@@ -402,7 +403,7 @@ internal sealed class PackagedFilesFixture : IAsyncDisposable
         info.Environment["Authentication__Mode"] = formalWeb?"Web":"Development";
         info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = formalWeb?"false":"true"; info.Environment["Authentication__DevelopmentBootstrap__Username"] = "files-probe"; info.Environment["Authentication__DevelopmentBootstrap__Password"] = password;
         info.Environment["Ids__WorkerId"] = "852";
-        info.Environment["Files__RootDirectory"] = Path.Combine(temporary, "objects"); info.Environment["Files__MaxFileBytes"] = "4096";
+        info.Environment["Files__RootDirectory"] = StorageRoot; info.Environment["Files__MaxFileBytes"] = "4096";
         return info;
     }
     /// <summary>所有子进程隐藏窗口，并消费标准输出避免阻塞。</summary>

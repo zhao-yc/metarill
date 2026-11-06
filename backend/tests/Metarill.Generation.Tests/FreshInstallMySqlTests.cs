@@ -64,8 +64,48 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
         var added = await fixture.SuccessAsync(HttpMethod.Post, fixture.RecordRoute + "/add", new { name = "首次安装业务", attachments = new[] { file.ToString() } });
         var record = long.Parse(added.GetProperty("data").GetProperty("id").ToString()); fixture.RecordIds.Add(record);
         await fixture.AssertReferenceAsync(record, file); await fixture.AssertContentAsync(file, bytes, publicly: false);
+        await AssertFileCleanupRetryAsync(fixture, bytes);
         await AssertWebAuthenticationAsync(fixture, record);
-        output.WriteLine($"独立应用：0表启动/预览均无DDL，显式CLI安装{physical.ConfigTables.Count}张模型声明的基础表，二次无差异；真实Web普通账号授权/撤权、改密撤会话、重启持久身份及文件引用/下载成功，非RR或并发验收。");
+        output.WriteLine($"独立应用：0表启动/预览均无DDL，显式CLI安装{physical.ConfigTables.Count}张模型声明的基础表，二次无差异；真实Web普通账号授权/撤权、改密撤会话、重启持久身份及文件引用/下载与对象删除失败重试成功，非RR或并发验收。");
+    }
+
+    /// <summary>用本轮文件实际触发存储失败，验证完整包原删除路由的业务响应、权限和恢复。</summary>
+    private static async Task AssertFileCleanupRetryAsync(PackagedFilesFixture fixture, byte[] bytes)
+    {
+        var file = await fixture.UploadAsync("fresh-delete-retry.txt", bytes);
+        var storageKey = Assert.IsType<string>(await fixture.ScalarAsync(
+            "SELECT `storage_key` FROM `yz_file_library` WHERE `id`=@id", file));
+        Assert.Matches("^[a-f0-9]{32}\\.blob$", storageKey);
+        var path = Path.Combine(fixture.StorageRoot, storageKey);
+        var retained = path + ".retained";
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+        var route = fixture.FileRoute + "/" + file;
+
+        // 用同名目录触发本地存储删除失败，恢复后原 ID 继续走已部署的 HTTP 删除入口。
+        File.Move(path, retained);
+        Directory.CreateDirectory(path);
+        using (var failed = await fixture.Client.DeleteAsync(route))
+        {
+            Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
+            var result = await failed.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(500, result.GetProperty("code").GetInt32());
+            Assert.Equal("文件记录已失效，物理对象清理失败。", result.GetProperty("msg").GetString());
+        }
+        Directory.Delete(path);
+        File.Move(retained, path);
+
+        const string tombstoneSql = "SELECT `delete_no` FROM `yz_file_library` WHERE `id`=@id AND `status`='deleted'";
+        var tombstone = Assert.IsType<DateTime>(await fixture.ScalarAsync(tombstoneSql, file));
+        using (var protectedContent = await fixture.Client.GetAsync(fixture.ContentPath(file, publicly: false)))
+            Assert.Equal(HttpStatusCode.Unauthorized, protectedContent.StatusCode);
+        using (var anonymousDelete = await fixture.Anonymous.DeleteAsync(route))
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousDelete.StatusCode);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+
+        var retry = await fixture.SuccessAsync(HttpMethod.Delete, route);
+        Assert.Equal("删除成功", retry.GetProperty("data").GetString());
+        Assert.False(File.Exists(path));
+        Assert.Equal(tombstone, await fixture.ScalarAsync(tombstoneSql, file));
     }
 
     /// <summary>平台首次安装必须创建完整元数据表、内置元数据和管理员，重复初始化不重置密码。</summary>
