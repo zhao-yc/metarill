@@ -178,7 +178,13 @@ def verify_child_transaction(trace, database, side, step, run, key):
     parent_select = re.compile(r"(?is)^\s*SELECT\b.*?\bFROM\s+" + schema + r"`?sample_contract`?(?=\s|$)")
     source = f"`{database}`.`sample_contract_line`"
     target = f"`{database}`.`sample_contract`"
-    guarded_key = "b.`id`=CASE WHEN CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY) THEN @exact_id END"
+    database_gate = "CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY)"
+    parent_status = "@metarill_import_parent_status"
+    parent_gate = " AND "+parent_status+"=2"
+    guarded_key = "b.`id`=CASE WHEN "+database_gate+" THEN @exact_id END"
+    parent_from = f" FROM {target} WHERE `id`=CASE WHEN {database_gate} THEN @mt_import_parent_id END AND `delete_no` IS NULL"
+    parent_prefix = (f"SELECT CASE WHEN NOT ({database_gate}) THEN -1 WHEN NOT EXISTS(SELECT 1{parent_from} FOR UPDATE) THEN 0 "
+                     f"WHEN NOT EXISTS(SELECT 1{parent_from}) THEN 1 ELSE COALESCE((SELECT 2{parent_from}")
 
     identity = "SELECT DATABASE(),@@SESSION.max_allowed_packet"
     row_count = "SELECT ROW_COUNT()"
@@ -186,26 +192,40 @@ def verify_child_transaction(trace, database, side, step, run, key):
                                r" SELECT (@[a-zA-Z0-9_]+(?:, @[a-zA-Z0-9_]+)*)"
                                r" WHERE CAST\(DATABASE\(\) AS BINARY\)=CAST\(@expected_database AS BINARY\)")
 
-    def cache_segments(parts):
+    def cache_segments(parts, with_parent=False):
         """锁读、写回和物理读回都须命中已校验的限定库与同一个键。"""
+        key = guarded_key.replace(" THEN",parent_gate+" THEN") if with_parent else guarded_key
         return (len(parts)==4 and parts[0]==identity
                 and f" FROM {source} b LEFT JOIN {target} r0 ON " in parts[1]
                 and parts[1].endswith("FOR UPDATE OF b FOR SHARE OF r0")
                 and parts[2].startswith(f"UPDATE {source} b SET `sample_contract_name`=(SELECT r0.`name` FROM {target} r0 WHERE ")
                 and "FOR SHARE OF r0)" in parts[2] and "<=>" in parts[2]
                 and parts[3].startswith(f"SELECT b.`id`,b.`sample_contract_name` FROM {source} b WHERE ")
-                and parts[3].endswith("FOR UPDATE OF b") and all(guarded_key in part for part in parts[1:]))
+                and parts[3].endswith("FOR UPDATE OF b") and all(key in part for part in parts[1:]))
 
     def combined_cache(row):
         return cache_segments(row["sql"].split("; "))
 
+    def combined_parent(parts):
+        """父候选的原快照、锁读和拒绝标记必须先于写入，会话标记在命令末清空。"""
+        return (len(parts)==10 and parts[1].startswith(parent_prefix)
+                and parts[1].endswith(" FOR UPDATE),3) END INTO "+parent_status)
+                and parts[2]=="SELECT "+parent_status and parts[9]=="SET "+parent_status+"=NULL")
+
     def combined_insert(row):
         """确认插入确实使用物理回读的那个 ID，并保留两段独立的影响行数检查。"""
         parts = row["sql"].split("; ")
-        if side!="csharp" or len(parts)!=7 or parts[2]!=row_count or parts[5]!=row_count:
+        if side!="csharp":
+            return False
+        with_parent = combined_parent(parts)
+        if with_parent:
+            if not parts[3].endswith(parent_gate):
+                return False
+            parts = [parts[0],parts[3].removesuffix(parent_gate),*parts[4:9]]
+        if len(parts)!=7 or parts[2]!=row_count or parts[5]!=row_count:
             return False
         match = insert_values.fullmatch(parts[1])
-        if match is None or not cache_segments([parts[i] for i in (0,3,4,6)]):
+        if match is None or not cache_segments([parts[i] for i in (0,3,4,6)],with_parent):
             return False
         columns, parameters = (part.split(", ") for part in match.groups())
         return (len(columns)==len(parameters)==len(set(columns))==len(set(parameters))
@@ -287,6 +307,10 @@ def verify_child_transaction(trace, database, side, step, run, key):
                        and carries(row,database)=={"string"} and carries(row,parent)
                        and id_proof(row,"exact_id")==id_proof(row,"id_0"),
                        "capture-child-insert-batch-binding")
+        if combined_parent(row["sql"].split("; ")):
+            exact_parent = hmac.digest(key,("integer\0"+parent).encode(),"sha256").hex()
+            reader.require(hmac.compare_digest(id_proof(row,"mt_import_parent_id"),exact_parent),
+                           "capture-child-insert-batch-parent-binding")
 
     caches_by_id = {id_proof(row,"exact_id" if combined_cache(row) or combined_insert(row) else "id"):row
                     for row in caches}
@@ -336,7 +360,9 @@ def verify_child_transaction(trace, database, side, step, run, key):
             "childInserts":len(inserts), "successfulInserts":len(successful),
             "failedInserts":sum(not row["succeeded"] for row in inserts), "insertResultsUnobserved":len(unresolved),
             "affectedRowsReported":sum(row["affectedRows"] is not None for row in successful),
-            "combinedInsertCacheCommands":len(insert_batches), "cacheUpdates":len(caches),
+            "combinedInsertCacheCommands":len(insert_batches),
+            "parentRechecksInInsertCacheCommands":sum(combined_parent(row["sql"].split("; ")) for row in insert_batches),
+            "cacheUpdates":len(caches),
             "layoutChecks":layouts, "transaction":outcome}
 
 

@@ -4,9 +4,14 @@ namespace Metarill.Data.Relations;
 /// <summary>一个事务事件队列统一普通多值与混合单值副本，内部更新不再次进入消费者Service／钩子。</summary>
 public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
 {
+    /// <summary>保留已有生成程序的单行插入与缓存命令入口。</summary>
+    public Task<IReadOnlyDictionary<string,object?>?> TryInsertScalarSourceAsync<T>(RelationMaintenanceCatalog catalog,
+        string table,long id,string projectId,T entity,CancellationToken token) where T:class =>
+        TryInsertScalarSourceAsync(catalog,table,id,projectId,entity,token,null);
+
     /// <summary>仅在已核验结构的追加事务中合并叶子来源插入。返回 null 表示尚未发出写入，可走原 Mapper。</summary>
     public async Task<IReadOnlyDictionary<string,object?>?> TryInsertScalarSourceAsync<T>(RelationMaintenanceCatalog catalog,
-        string table,long id,string projectId,T entity,CancellationToken token) where T:class
+        string table,long id,string projectId,T entity,CancellationToken token,Queries.MySqlExactParentCandidate.BatchRecheck? parent) where T:class
     {
         if(projectId!=catalog.ProjectId||id<=0||!session.UsesOwnedOrm||
             session.Provider is not MySqlDatabaseProvider||session.CurrentTransaction is not {Connection:MySqlConnector.MySqlConnection} transaction||
@@ -16,7 +21,7 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
         var consumer=catalog.Mixed.Consumers.SingleOrDefault(item=>item.Table.Option.TableName==table);
         if(consumer is null)return null;
         var patches=await new RelationMaintenanceExecutor(session).TryInsertExactScalarAsync(
-            consumer.Table,id,projectId,entity,transaction,token);
+            consumer.Table,id,projectId,entity,transaction,token,parent);
         return patches is null?null:patches.SingleOrDefault()?.Values??
             new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>());
     }

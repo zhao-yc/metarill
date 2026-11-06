@@ -48,6 +48,20 @@ internal static class GlobalCachedParentCompilation
         NonRedundantCrossParentCompilation.VerifyCall(model,table,page).Length==0&&
         SharedRedundantParentCompilation.VerifyCall(model,table,page).Length==0;
 
+    /// <summary>只延后单一固定父规则，存在额外写前处理时继续逐步校验。</summary>
+    internal static bool CanDeferAppendCandidate(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!CanBatchAppendInsert(model,table,page))return false;
+        var cache=GlobalCachedSourceCompilation.ForModel(model).Single(binding=>binding.Source.Source.Id==table.Source.Id).Cache;
+        // 本次合并维护的唯一缓存允许保留派生标记，生成实体只能以空值进入原关联校验。
+        return table.Columns.All(column=>column.Type is "long" or "long?" or "int?" or "string?" or "decimal?" or "bool?" or "DateTime?")&&
+            table.Columns.All(column=>!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")||
+                column.Source.Id==cache.Source.Id&&string.IsNullOrWhiteSpace(column.Source.DefaultValue)&&!page.Writable.Contains(column))&&
+            SharedCrossTableSparseRenderer.Capture(model,table,page).Length==0&&
+            CrossTableWriteRenderer.ScopeCheck(model,table,page).Length==0&&
+            NonRedundantCrossTableCompilation.PackCall(model,table,page).Length==0;
+    }
+
     /// <summary>已取得的父锁只从原新增入口传入，其余调用保留默认空值和原校验。</summary>
     internal static bool HasCombinedCandidate(GenerationModel model,TableModel table,PageModel page)
         =>RelationCompilation.ForPage(model,page,true).Any(relation=>CanCombineCandidate(model,table,page,relation));

@@ -28,6 +28,7 @@ public sealed class GlobalCachedSourceGenerationTests
         var page=Assert.Single(table.Pages);
         var relation=Assert.Single(RelationCompilation.ForPage(model,page,true),item=>item.SourceColumn.Source.ColumnName=="sample_contract_id");
         Assert.True(GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,relation));
+        Assert.True(GlobalCachedParentCompilation.CanDeferAppendCandidate(model,table,page));
         Assert.False(GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,relation with { TargetParents=[relation.Target] }));
         Assert.False(GlobalCachedParentCompilation.CanCombineCandidate(model,table,page,relation with { SourceParents=[] }));
         var rendered=BackendRenderer.Render(model).Single(file=>file.Path=="Services/SampleContractLineService.g.cs").Content;
@@ -35,11 +36,15 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("session.InScalarCacheImportTransactionAsync",rendered);
         Assert.Contains("OptionsScope81003_82008Async",rendered);
         Assert.Contains("lockedParentId == relationIds1[0].ToString(CultureInfo.InvariantCulture)",rendered);
-        Assert.Equal(1,rendered.Split("lockedParentId: parentId",StringSplitOptions.None).Length-1);
+        Assert.Equal(2,rendered.Split("lockedParentId: parentId",StringSplitOptions.None).Length-1);
         Assert.Contains("MySqlExactParentCandidate.TryRecheckAsync",rendered);
         Assert.Contains("MySqlExactParentCandidate.RequireCandidate(status)",rendered);
         Assert.Contains("HasBeforeSave81003 || ids is not SnowflakeIdGenerator",rendered);
-        Assert.Contains("if (mergedCandidate is null) await ValidateParents81003Async",rendered);
+        Assert.Contains("if (result is null) await ValidateParents81003Async",rendered);
+        Assert.Contains("guard.RequiresWriteValidation(\"sample_contract_line\")",rendered);
+        Assert.Contains("MySqlExactParentCandidate.PlanBatch",rendered);
+        Assert.Contains("deferParentCandidate: deferredParent is not null",rendered);
+        Assert.Contains("if (deferredParent is not null && insertedCache is null)",rendered);
         Assert.Contains("TryInsertScalarSourceAsync",rendered);
         Assert.Contains("insertedCache is null && await mapper.InsertAsync",rendered);
         Assert.Contains("var relationPatch=insertedCache ?? await",rendered);
@@ -49,7 +54,9 @@ public sealed class GlobalCachedSourceGenerationTests
         metadata.ConfigPages.Single(item=>item.Id=="81003").Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
         var overwrite=GenerationModel.Create(metadata,"Example.GlobalSource");
         var overwriteTable=overwrite.Tables.Single(item=>item.Source.TableName=="sample_contract_line");
-        Assert.Null(GlobalCachedParentCompilation.ForAppendRecheck(overwrite,overwriteTable,Assert.Single(overwriteTable.Pages)));
+        var overwritePage=Assert.Single(overwriteTable.Pages);
+        Assert.Null(GlobalCachedParentCompilation.ForAppendRecheck(overwrite,overwriteTable,overwritePage));
+        Assert.False(GlobalCachedParentCompilation.CanDeferAppendCandidate(overwrite,overwriteTable,overwritePage));
     }
 
     /// <summary>实际编译生成服务，证明未实现的 partial 消失，手写实现保留时禁用提前计算候选。</summary>

@@ -44,12 +44,7 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
                 parameters[index] is not MySqlParameter parameter||parameter.ParameterName!=name)
                 return null;
             if(column=="`id`")exactId=parameter.Value is long key&&key==id;
-            var bytes=parameter.Value switch
-            {
-                null or DBNull or bool or byte or sbyte or short or ushort or int or uint or long or ulong or decimal or DateTime or DateOnly =>128L,
-                string text=>6L*Encoding.UTF8.GetByteCount(text)+128,
-                _=>-1
-            };
+            var bytes=ParameterBytes(parameter.Value);
             if(bytes<0)return null;
             budget+=bytes;
         }
@@ -58,6 +53,14 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
         return new("INSERT INTO "+database+"."+quotedTable+"("+string.Join(", ",columns)+") SELECT "+
             string.Join(", ",placeholders)+" WHERE CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY)",parameters,budget);
     }
+
+    /// <summary>估算固定文本协议参数大小；需要不同传输形态的值回到原命令。</summary>
+    internal static long ParameterBytes(object? value) => value switch
+    {
+        null or DBNull or bool or byte or sbyte or short or ushort or int or uint or long or ulong or decimal or DateTime or DateOnly =>128L,
+        string text=>6L*Encoding.UTF8.GetByteCount(text)+128,
+        _=>-1
+    };
 
     /// <summary>接受原 ORM 的普通 ASCII 标识符，阻止把额外 SQL 拼进命令。</summary>
     private static bool Identifier(ReadOnlySpan<char> value)

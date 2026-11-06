@@ -18,6 +18,43 @@ public static class MySqlExactParentCandidate
         internal (DbTransaction Transaction, string Table, long ParentId, bool SoftDelete, FixedConditionSqlPlan Condition)? FirstRead { get; set; }
     }
 
+    /// <summary>合并命令保留同事务的原父快照；只能从成功的首行证明建立。</summary>
+    public sealed class BatchRecheck
+    {
+        internal const string GuardVariable="@metarill_import_parent_status";
+        internal const string Accepted=GuardVariable+"=2";
+        internal const string DatabaseGate="CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY)";
+        internal DbTransaction Transaction { get; }
+        internal string Expression { get; }
+        internal IReadOnlyDictionary<string,object?> Parameters { get; }
+
+        internal BatchRecheck(DbTransaction transaction,string expression,IReadOnlyDictionary<string,object?> parameters)
+        {
+            Transaction=transaction;
+            Expression=expression;
+            Parameters=parameters;
+        }
+    }
+
+    /// <summary>固定父证明、连接重置及显式用户变量支持缺一时，生成服务保持原读写顺序。</summary>
+    public static BatchRecheck? PlanBatch(DatabaseSession session,string table,long parentId,bool softDelete,
+        FixedConditionSqlPlan condition,ImportRecheck? recheck)
+    {
+        if(!HasFirstRead(session,table,parentId,softDelete,condition,recheck,out var transaction)||
+            transaction.Connection is not MySqlConnection connection)
+            return null;
+        var options=new MySqlConnectionStringBuilder(connection.ConnectionString);
+        if(!options.AllowUserVariables||!options.ConnectionReset)return null;
+        var clause=condition.RenderConstants(session.Provider,"mt_import_parent_candidate",session.Provider.QuoteIdentifier);
+        var from=" FROM "+session.Provider.QuoteIdentifier(session.Options.ExpectedDatabase)+"."+session.Provider.QuoteIdentifier(table)+
+            " WHERE `id`=CASE WHEN "+BatchRecheck.DatabaseGate+" THEN @mt_import_parent_id END"+(softDelete?" AND `delete_no` IS NULL":"");
+        var parameters=new Dictionary<string,object?>(clause.Parameters,StringComparer.Ordinal)
+        {
+            ["mt_import_parent_id"]=parentId
+        };
+        return new BatchRecheck(transaction,RecheckExpression(from,clause.Sql,BatchRecheck.DatabaseGate),parameters);
+    }
+
     /// <summary>保留旧生成应用入口，只有追加导入的私有调用携带同批状态。</summary>
     public static Task RequireAsync(DatabaseSession session,string table,long parentId,bool softDelete,
         FixedConditionSqlPlan condition,CancellationToken cancellationToken) =>
@@ -49,9 +86,8 @@ public static class MySqlExactParentCandidate
     public static async Task<int?> TryRecheckAsync(DatabaseSession session,string table,long parentId,bool softDelete,
         FixedConditionSqlPlan condition,ImportRecheck? recheck,CancellationToken cancellationToken)
     {
-        if(recheck?.FirstRead is not {} first||session.CurrentTransaction is not {Connection:MySqlConnection connection} transaction||
-            !ReferenceEquals(first.Transaction,transaction)||first.Table!=table||first.ParentId!=parentId||first.SoftDelete!=softDelete||
-            !ReferenceEquals(first.Condition,condition)||!CanUse(session))
+        if(!HasFirstRead(session,table,parentId,softDelete,condition,recheck,out var transaction)||
+            transaction.Connection is not MySqlConnection connection)
             return null;
         var from=ParentFrom(session,table,softDelete);
         await using var command=MySqlFloatingCommand.Wrap(connection.CreateCommand());
@@ -59,12 +95,27 @@ public static class MySqlExactParentCandidate
         BindKey(command,parentId);
         var candidate=condition.BindConstants(command,session,"parent_candidate");
         // CASE 中保持标量候选，物理主键漂移时仍拒绝返回多行。
-        command.CommandText="SELECT CASE WHEN NOT EXISTS(SELECT 1"+from+" FOR UPDATE) THEN 0 "+
-            "WHEN NOT EXISTS(SELECT 1"+from+") THEN 1 ELSE COALESCE((SELECT 2"+from+
-            (candidate.Length==0?"":" AND "+candidate)+" FOR UPDATE),3) END";
+        command.CommandText="SELECT "+RecheckExpression(from,candidate);
         var result=Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken),CultureInfo.InvariantCulture);
         if(result==0)throw new InvalidOperationException("父记录不存在或已删除。");
         return result;
+    }
+
+    /// <summary>独立读取和合并读取共用 CASE；SELECT INTO 保持普通子查询的原一致性快照。</summary>
+    private static string RecheckExpression(string from,string candidate,string? databaseGate=null) =>
+        "CASE "+(databaseGate is null?"":"WHEN NOT ("+databaseGate+") THEN -1 ")+
+        "WHEN NOT EXISTS(SELECT 1"+from+" FOR UPDATE) THEN 0 "+
+        "WHEN NOT EXISTS(SELECT 1"+from+") THEN 1 ELSE COALESCE((SELECT 2"+from+
+        (candidate.Length==0?"":" AND "+candidate)+" FOR UPDATE),3) END";
+
+    /// <summary>首行证明只在原连接、原事务及原固定候选计划中使用。</summary>
+    private static bool HasFirstRead(DatabaseSession session,string table,long parentId,bool softDelete,
+        FixedConditionSqlPlan condition,ImportRecheck? recheck,[System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out DbTransaction? transaction)
+    {
+        transaction=session.CurrentTransaction;
+        return recheck?.FirstRead is {} first&&transaction is not null&&ReferenceEquals(first.Transaction,transaction)&&
+            first.Table==table&&first.ParentId==parentId&&first.SoftDelete==softDelete&&
+            ReferenceEquals(first.Condition,condition)&&CanUse(session);
     }
 
     /// <summary>快照缺父或候选拒绝仍在原关联校验位置处理。</summary>

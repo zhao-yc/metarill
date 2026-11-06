@@ -127,6 +127,33 @@ class ChildReferenceContract(unittest.TestCase):
         self.assertEqual((8,8,7,0), tuple(facts[key] for key in
                          ("successfulInserts","cacheUpdates","combinedInsertCacheCommands","insertResultsUnobserved")))
 
+        parent_status = "@metarill_import_parent_status"
+        database_gate = "CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY)"
+        parent_gate = " AND "+parent_status+"=2"
+        parent_from = f" FROM {target} WHERE `id`=CASE WHEN {database_gate} THEN @mt_import_parent_id END AND `delete_no` IS NULL"
+        parent_read = (f"SELECT CASE WHEN NOT ({database_gate}) THEN -1 WHEN NOT EXISTS(SELECT 1{parent_from} FOR UPDATE) THEN 0 "
+                       f"WHEN NOT EXISTS(SELECT 1{parent_from}) THEN 1 ELSE COALESCE((SELECT 2{parent_from} FOR UPDATE),3) END INTO {parent_status}")
+        guarded_batch = "; ".join((identity,parent_read,"SELECT "+parent_status,insert+parent_gate,"SELECT ROW_COUNT()",
+                                    lock_read.replace(guarded,guarded.replace(" THEN",parent_gate+" THEN")),
+                                    update.replace(guarded,guarded.replace(" THEN",parent_gate+" THEN")),
+                                    "SELECT ROW_COUNT()",
+                                    readback.replace(guarded,guarded.replace(" THEN",parent_gate+" THEN")),
+                                    "SET "+parent_status+"=NULL"))
+        def guarded_record(row):
+            return {**row,"sql":guarded_batch,"parameters":[*row["parameters"],parameter("@mt_import_parent_id","integer",parent)]}
+        combined = {**positive,"commands":[*positive["commands"][:3],*(guarded_record(row) for row in positive["commands"][3:])]}
+        combined_facts = capture.verify_child_transaction(combined,database,"csharp","positive",run,proof)
+        self.assertEqual(7,combined_facts["parentRechecksInInsertCacheCommands"])
+        last = combined["commands"][-1]
+        for replacement, problem in (
+            ({"sql":guarded_batch.removesuffix("; SET "+parent_status+"=NULL")},"insert-batch-shape"),
+            ({"parameters":[*last["parameters"][:-1],parameter("@mt_import_parent_id","integer",99)]},
+             "insert-batch-parent-binding"),
+        ):
+            invalid = {**combined,"commands":[*combined["commands"][:-1],{**last,**replacement}]}
+            with self.assertRaisesRegex(ValueError,"capture-child-"+problem):
+                capture.verify_child_transaction(invalid,database,"csharp","positive",run,proof)
+
         prefix = subject.fixture.import_sample_prefix(run)
         rollback = append([prefix+"rollback-first",prefix+"rollback-last-"+"长"*2048],"rollback")
         facts = capture.verify_child_transaction(rollback,database,"csharp","late-row-rollback",run,proof)

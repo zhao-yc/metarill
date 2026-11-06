@@ -193,20 +193,23 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
     }
     /// <summary>首行仍用原插入及结构预检，后续行只使用同一事务已固定的结构和报文预算。</summary>
     internal async Task<IReadOnlyList<RelationRowPatch>?> TryInsertExactScalarAsync<T>(
-        MaintenanceTable table,long id,string project,T entity,DbTransaction transaction,CancellationToken token) where T:class
+        MaintenanceTable table,long id,string project,T entity,DbTransaction transaction,CancellationToken token,
+        MySqlExactParentCandidate.BatchRecheck? parent) where T:class
     {
         var plan=table.Read!;
         var packet=session.PinnedRelationLayouts(transaction)?.GetValueOrDefault(plan)??0;
-        if(packet<=0||project!=plan.ProjectId||!CanLockExactScalarSource(table)||plan.Constants.Count!=0||
+        if(packet<=0||project!=plan.ProjectId||parent is not null&&!ReferenceEquals(parent.Transaction,transaction)||
+            !CanLockExactScalarSource(table)||plan.Constants.Count!=0||
             plan.ScalarCacheTarget is not {} target||!CanLookAhead(table,plan))
             return null;
         var insert=MySqlInsertCacheBatch.Prepare(session,table.Option.TableName,id,entity);
-        return insert is null?null:await TryWriteExactScalarAsync(table,target,id,packet,transaction,token,insert);
+        return insert is null?null:await TryWriteExactScalarAsync(table,target,id,packet,transaction,token,insert,parent);
     }
 
     /// <summary>重复读中保留原来源排他锁和目标共享锁，先取预期值，写后仍由驱动核对物理存储。</summary>
     private async Task<IReadOnlyList<RelationRowPatch>?> TryWriteExactScalarAsync(
-        MaintenanceTable table,MySqlScalarCacheTarget target,long id,long packetLimit,DbTransaction transaction,CancellationToken token,MySqlInsertCacheBatch? insert=null)
+        MaintenanceTable table,MySqlScalarCacheTarget target,long id,long packetLimit,DbTransaction transaction,CancellationToken token,MySqlInsertCacheBatch? insert=null,
+        MySqlExactParentCandidate.BatchRecheck? parent=null)
     {
         var plan=table.Read!;
         var field=table.Fields[0].Name;
@@ -217,28 +220,47 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
         if(from is null)return null;
         var source=database+"."+Q(table.Option.TableName);
         var cached="b."+Q(field);
-        var exact="b.`id`=CASE WHEN CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY) THEN @exact_id END";
+        var parentGate=parent is null?"":" AND "+MySqlExactParentCandidate.BatchRecheck.Accepted;
+        var exact="b.`id`=CASE WHEN "+MySqlExactParentCandidate.BatchRecheck.DatabaseGate+parentGate+" THEN @exact_id END";
         var where=" WHERE "+Scope(table,"b.")+" AND "+exact;
         var value="(SELECT "+output+" FROM "+database+"."+Q(target.Table)+" "+target.Alias+" WHERE "+target.Predicate+" FOR SHARE OF "+target.Alias+")";
         await using var command=Command(transaction);
         // 统一文本编码再做二进制比较，保留 CLR 字符串对尾空格、大小写和 NULL 的区别。
-        command.CommandText=ReadConnectionIdentity+(insert is null?"; ":"; "+insert.Sql+"; SELECT ROW_COUNT(); ")+"SELECT b.`id`,"+cached+","+output+from+where+
+        var guardVariable=MySqlExactParentCandidate.BatchRecheck.GuardVariable;
+        var parentRead=parent is null?"":"; SELECT "+parent.Expression+" INTO "+guardVariable+"; SELECT "+guardVariable;
+        command.CommandText=ReadConnectionIdentity+parentRead+(insert is null?"; ":"; "+insert.Sql+parentGate+"; SELECT ROW_COUNT(); ")+"SELECT b.`id`,"+cached+","+output+from+where+
             " ORDER BY b.`id` LIMIT 2"+plan.ImportMatchLock+"; UPDATE "+source+" b SET "+Q(field)+"="+value+where+
             " AND NOT (CAST(CONVERT("+cached+" USING utf8mb4) AS BINARY) <=> CAST(CONVERT("+value+" USING utf8mb4) AS BINARY)); "+
             (insert is null?"":"SELECT ROW_COUNT(); ")+"SELECT b.`id`,"+
-            cached+" FROM "+source+" b"+where+" FOR UPDATE OF b";
-        if(System.Text.Encoding.UTF8.GetByteCount(command.CommandText)+6L*System.Text.Encoding.UTF8.GetByteCount(session.Options.ExpectedDatabase)+128+(insert?.ParameterBudget??0)>packetLimit)
+            cached+" FROM "+source+" b"+where+" FOR UPDATE OF b"+(parent is null?"":"; SET "+guardVariable+"=NULL");
+        var budget=insert?.ParameterBudget??0;
+        if(parent is not null)
+        {
+            var reserved=insert!.Parameters.Select(p=>p.ParameterName.TrimStart('@')).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if(reserved.Contains(guardVariable[1..]))return null;
+            foreach(var parameter in parent.Parameters)
+            {
+                var bytes=MySqlInsertCacheBatch.ParameterBytes(parameter.Value);
+                if(bytes<0||reserved.Contains(parameter.Key))return null;
+                budget+=bytes;
+            }
+        }
+        if(System.Text.Encoding.UTF8.GetByteCount(command.CommandText)+6L*System.Text.Encoding.UTF8.GetByteCount(session.Options.ExpectedDatabase)+128+budget>packetLimit)
             return null;
         Add(command,"expected_database",session.Options.ExpectedDatabase);
         Add(command,"exact_id",id);
         if(insert is not null)
             foreach(var parameter in insert.Parameters)command.Parameters.Add(parameter);
+        if(parent is not null)
+            foreach(var parameter in parent.Parameters)Add(command,parameter.Key,parameter.Value);
         await using var reader=await command.ExecuteReaderAsync(token);
         _=await RequireConnectionIdentityAsync(reader,token);
+        var status=parent is null?2:await ReadBatchIntegerAsync(reader,"父候选重验没有返回唯一结果。",token);
         if(insert is not null)
-            await RequireBatchRowCountAsync(reader,1,"新增失败。",token);
+            await RequireBatchRowCountAsync(reader,status==2?1:0,"新增失败。",token);
         if(!await reader.NextResultAsync(token))throw new InvalidOperationException("维护连接没有返回已核验的锁读结果。");
         var exists=await reader.ReadAsync(token);
+        if(status!=2&&exists)throw new InvalidOperationException("未通过父候选仍读取了来源，当前事务未提交。");
         string? before=null,expected=null;
         if(exists)
         {
@@ -261,15 +283,28 @@ public sealed class RelationMaintenanceExecutor(DatabaseSession session)
                 throw new InvalidOperationException("关系缓存在存储后发生变化，当前事务未提交。");
             if(await reader.ReadAsync(token))throw new InvalidOperationException("关系缓存在存储后不再匹配，当前事务未提交。");
         }
+        if(parent is not null)
+        {
+            if(await reader.NextResultAsync(token))throw new InvalidOperationException("父候选合并写入返回了额外结果。");
+            // 拒绝路径也消费完命令，验证无写入并确认会话内标记已经清空。
+            MySqlExactParentCandidate.RequireCandidate(checked((int)status));
+        }
         return changed?[new RelationRowPatch(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(
             new Dictionary<string,object?>(StringComparer.Ordinal){{field,expected}}))]:[];
     }
     /// <summary>MySqlDataReader 的受影响行数会累计，合并插入必须分别读取服务器结果。</summary>
     private static async Task RequireBatchRowCountAsync(DbDataReader reader,int expected,string message,CancellationToken token)
     {
-        if(!await reader.NextResultAsync(token)||!await reader.ReadAsync(token)||
-            reader.GetInt64(0)!=expected||await reader.ReadAsync(token))
-            throw new InvalidOperationException(message);
+        if(await ReadBatchIntegerAsync(reader,message,token)!=expected)throw new InvalidOperationException(message);
+    }
+
+    /// <summary>每个标量结果只允许一行，不能把额外读取误当成后续写入结果。</summary>
+    private static async Task<long> ReadBatchIntegerAsync(DbDataReader reader,string message,CancellationToken token)
+    {
+        if(!await reader.NextResultAsync(token)||!await reader.ReadAsync(token))throw new InvalidOperationException(message);
+        var value=reader.GetInt64(0);
+        if(await reader.ReadAsync(token))throw new InvalidOperationException(message);
+        return value;
     }
 
     /// <summary>仅单文本缓存按来源主键批量写入。所有实际值在传播前由原核验器读回，异常仍回滚整表。</summary>

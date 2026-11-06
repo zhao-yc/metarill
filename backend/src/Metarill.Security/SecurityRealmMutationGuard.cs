@@ -39,10 +39,13 @@ public sealed partial class SecurityRealmMutationGuard(SqlRowStore store,ISecuri
         state.Pending.Add(new(preparation,original));
     }
 
+    /// <summary>普通表在写入复核入口直接返回，安全表继续维持原检查顺序。</summary>
+    public bool RequiresWriteValidation(string tableName) => SafetyTables.ContainsKey(tableName);
+
     /// <summary>生成器已完成合并、对象规则与关系规则后，仍在同一事务中复核最终后台与角色。</summary>
     public async Task BeforeWriteAsync(RecordMutationValidation validation,CancellationToken cancellationToken=default)
     {
-        if(!SafetyTables.ContainsKey(validation.TableName))return;
+        if(!RequiresWriteValidation(validation.TableName))return;
         if(validation.TableName=="yz_role_permission")throw new InvalidOperationException("角色授权必须通过授权工作台写入，普通表级写入口未开放。");
         var request=RequireRequest(validation.Actor,validation.Transaction);
         if(!_states.TryGetValue(validation.Transaction,out var state))throw Changed();
