@@ -86,3 +86,5 @@ GRANT EXECUTE ON PROCEDURE proof_db.read_child_append_proof TO 'business_runtime
 完整独立应用使用显式共享锁配置时，同父八行明细导入在并发 4 的三轮均达标。C# 吞吐为 Java 的 117.6%～122.3%，p95 为 Java 的 80.6%～90.1%。同一镜像的默认排他锁配置仍触发稳定退化。这里的性能结论只覆盖已实测的工作簿和配置。 [共享锁正式对照](testing/paired-child-shared-guard-scope-timing-v399.md) · [默认配置正式对照](testing/paired-child-default-guard-scope-timing-v398.md)
 
 完整包禁网生成计划、实际 MySQL 安装、真实运行账号复核及原导入回滚已在固定独占样本验收。 [安装与原导入实库记录](testing/paired-child-installation-plan-mysql-v402.md)
+
+证明例程位于独立库时，安装计划、最小授权及真实账号调用也已在固定独占样本验收。撤销该例程的执行权后，原导入实测回退排他锁，恢复执行权后回到共享锁。 [独立证明库与撤权实库验收](testing/paired-child-separated-proof-schema-v403.md)
