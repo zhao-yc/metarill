@@ -15,7 +15,7 @@ using Xunit;
 
 namespace Metarill.Metadata.Tests;
 
-public sealed class ProjectFileRuntimeIntegrationTests
+public sealed partial class ProjectFileRuntimeIntegrationTests
 {
     /// <summary>平台包装器必须在业务槽复用同一个观察器；平台连接不能借用业务删除证明。</summary>
     [ProjectFileIntegrationFact]
@@ -356,6 +356,9 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
     public string TableName { get; private set; } = "";
     public string RelationTable { get; private set; } = "";
     public RelationCacheDefinition? MultipleRelation { get; private set; }
+    public IReadOnlyList<string> CascadeTables { get; private set; } = [];
+    public IReadOnlyList<string> CascadePageIds { get; private set; } = [];
+    public string CascadeColumnId { get; private set; } = "";
     public string PageId { get; private set; } = "";
     public string ProtectedColumn { get; private set; } = "";
     public string PublicColumn { get; private set; } = "";
@@ -363,7 +366,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
     public List<long> RecordIds { get; } = [];
 
     /// <summary>先验证真实连接库名，再通过显式 SchemaService 预览、执行文件和唯一业务表计划。</summary>
-    public static async Task<ProjectFileDatabaseFixture> CreateAsync(bool physicalDelete=false, bool shareDatabase=false, bool relation=false, bool multiple=false)
+    public static async Task<ProjectFileDatabaseFixture> CreateAsync(bool physicalDelete=false, bool shareDatabase=false, bool relation=false, bool multiple=false, bool sparseCascade=false)
     {
         var fixture = new ProjectFileDatabaseFixture();
         try
@@ -371,7 +374,9 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             var leasePath = Environment.GetEnvironmentVariable(ProjectFileFreshLease.SettingsVariable);
             using var leaseDocument = string.IsNullOrWhiteSpace(leasePath) ? null : JsonDocument.Parse(await File.ReadAllTextAsync(leasePath));
             var fresh = leaseDocument is null ? null : ProjectFileFreshLease.Parse(leaseDocument.RootElement);
-            if ((shareDatabase || relation) && fresh is null) throw new InvalidOperationException("同库或关联组合仅允许在本轮独占租约执行。");
+            if ((shareDatabase || relation || sparseCascade) && fresh is null) throw new InvalidOperationException("同库或关联组合仅允许在本轮独占租约执行。");
+            if (sparseCascade && (physicalDelete || relation || multiple))
+                throw new InvalidOperationException("稀疏级联使用独占业务样本。");
             Directory.CreateDirectory(fixture.directory);
             using var settings = fresh is null ? JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_TEST_SETTINGS")!)) : null;
             DatabaseOptions Options(string key, string expected)
@@ -383,7 +388,7 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             var source = Environment.GetEnvironmentVariable("METARILL_PLATFORM_METADATA")!;
             var platform = MetadataRegistry.Load(source); var demo = MetadataRegistry.Load(Path.Combine(Path.GetDirectoryName(source)!, "demo.json"));
             // 库拓扑、删除方式、关联和多值用途各占一位，正式用例不能复用物理表。
-            var sampleNumber = (shareDatabase ? 2 : 0) + (physicalDelete ? 1 : 0) + (relation ? 4 : 0) + (multiple ? 8 : 0);
+            var sampleNumber = (shareDatabase ? 2 : 0) + (sparseCascade ? 9 : (physicalDelete ? 1 : 0) + (relation ? 4 : 0) + (multiple ? 8 : 0));
             fixture.TableName = "mt_project_files_" + (fresh is null ? Guid.NewGuid().ToString("N")[..12] : fresh.RunId[..11] + sampleNumber.ToString("x", System.Globalization.CultureInfo.InvariantCulture));
             var table = new TableMetadata { Id = SharedIds.NextId().ToString(), TableName = fixture.TableName, YzProjectId = demo.YzProjectId };
             ColumnMetadata Column(string name, string type, string control = "", string detail = "") => new() { Id = SharedIds.NextId().ToString(), ConfigTableId = table.Id, ColumnName = name, LogicalType = type, ColumnLength = type == "string" ? "max" : "", IsDbNotNull = name == "id" ? 1 : 0, ControlKind = control, ControlDetail = detail, YzProjectId = demo.YzProjectId };
@@ -392,6 +397,51 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
             if(physicalDelete)columns=columns.Where(column=>column.ColumnName!="delete_no").ToArray();
             var sampleTables = new List<TableMetadata> { table };
             var extraColumns = new List<ColumnMetadata>();
+            if (sparseCascade)
+            {
+                string[] levels = ["country", "area", "place"];
+                var targets = levels.Select(level => new TableMetadata
+                {
+                    Id = SharedIds.NextId().ToString(), TableName = fixture.TableName + "_" + level, YzProjectId = demo.YzProjectId, IsRongyu = 1
+                }).ToArray();
+                var pages = targets.Select(target => new PageMetadata
+                {
+                    Id = SharedIds.NextId().ToString(), ConfigTableId = target.Id, YzProjectId = demo.YzProjectId,
+                    WhereSql = "yz_project_id=@current_yz_project_id"
+                }).ToArray();
+                fixture.CascadeTables = targets.Select(target => target.TableName).ToArray();
+                fixture.CascadePageIds = pages.Select(target => target.Id).ToArray();
+                sampleTables.AddRange(targets);
+                demo.ConfigPages.AddRange(pages);
+                table.IsRongyu = 0;
+                var detail = new List<object>();
+                for (var index = 0; index < levels.Length; index++)
+                {
+                    var target = targets[index];
+                    foreach (var (name, type) in new[] { ("id", "int64"), ("yz_project_id", "int64"), ("delete_no", "datetime"), ("name", "string") })
+                    {
+                        var field = Column(name, type);
+                        field.ConfigTableId = target.Id;
+                        if (name == "name") field.ColumnLength = "100";
+                        extraColumns.Add(field);
+                    }
+                    if (index == 0)
+                        detail.Add(new { table = target.TableName, columnPrefix = levels[index], nameField = "name" });
+                    else
+                    {
+                        var ancestor = targets[index - 1];
+                        var parent = Column(ancestor.TableName + "_id", "int64");
+                        parent.ConfigTableId = target.Id;
+                        parent.LinkConfigTableId = ancestor.Id;
+                        extraColumns.Add(parent);
+                        detail.Add(new { table = target.TableName, columnPrefix = levels[index], parentField = parent.ColumnName, nameField = "name" });
+                    }
+                }
+                var selection = Column("place_id", "int64", "CascadeTree", JsonSerializer.Serialize(new { sourceMode = "crossTable", levels = detail }));
+                selection.LinkConfigTableId = targets[^1].Id;
+                columns = [..columns, selection];
+                fixture.CascadeColumnId = selection.Id;
+            }
             if (relation)
             {
                 fixture.RelationTable = fixture.TableName + "_relation";
@@ -510,10 +560,11 @@ internal sealed class ProjectFileDatabaseFixture : IAsyncDisposable
                     await using var command = connection.CreateCommand(); command.CommandText = "DELETE FROM " + session.Provider.QuoteIdentifier(table) + " WHERE " + session.Provider.QuoteIdentifier(field) + "=@id";
                     var parameter = command.CreateParameter(); parameter.ParameterName = "id"; parameter.Value = id; command.Parameters.Add(parameter); await command.ExecuteNonQueryAsync();
                 }
-            foreach (var name in new[] { TableName, RelationTable }.Where(name => name.Length > 0))
+            foreach (var name in new[] { TableName, RelationTable }.Where(name => name.Length > 0).Concat(CascadeTables))
             {
                 if (!System.Text.RegularExpressions.Regex.IsMatch(TableName, "^mt_project_files_[a-f0-9]{12}$")
-                    || (name != TableName && name != TableName + "_relation")) throw new InvalidOperationException("随机业务表清理范围无效。");
+                    || (name != TableName && !new[] { "_relation", "_country", "_area", "_place" }.Any(suffix => name == TableName + suffix)))
+                    throw new InvalidOperationException("随机业务表清理范围无效。");
                 await using var drop = connection.CreateCommand(); drop.CommandText = "DROP TABLE IF EXISTS " + session.Provider.QuoteIdentifier(name); await drop.ExecuteNonQueryAsync();
             }
         }
