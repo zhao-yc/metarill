@@ -34,6 +34,21 @@ test('已选整体拒绝/丢项/软删保留原ID并明确不可用', () => {
  f.runtime.open(); f.finish(f.requests[1], null, 500); assert.deepEqual(f.runtime.getState().selected.map(row => row.id), ['1', '2'])
 })
 
+test('目标页拒绝交给选择器处理，后台回读保留原ID', () => {
+ const f = fixture()
+ f.runtime.setValue('9007199254740993')
+ const selected = f.requests[0]
+ assert.equal(selected.options.showError, false)
+ f.finish(selected, null, 403)
+ assert.equal(f.runtime.getState().selected[0].id, '9007199254740993')
+ assert.match(f.runtime.getState().message, /保留原值/)
+ f.runtime.open()
+ const page = f.requests.find(request => request.options.url.endsWith('/page'))
+ assert.equal(page.options.showError, false)
+ f.finish(page, null, 403)
+ assert.match(f.runtime.getState().message, /关联候选读取失败/)
+})
+
 test('零、不安全数值及超量ID不发送错误回读，不自动清空', () => {
  for (const value of [0, 9007199254740992, Array.from({ length: 201 }, (_, i) => String(i + 1))]) { const f = fixture(); f.runtime.setValue(value); assert.equal(f.requests.length, 0); assert.ok(f.runtime.getState().selected.length); assert.match(f.runtime.getState().message, /保留原值/) }
 })
