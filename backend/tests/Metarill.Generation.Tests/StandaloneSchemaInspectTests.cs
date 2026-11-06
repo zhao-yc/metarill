@@ -41,9 +41,12 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
             Assert.Equal(2, result.Code); Assert.Empty(result.Output); Assert.True(result.Error.Contains("必须单独使用", StringComparison.Ordinal));
             Assert.Equal(metadata, MetadataSnapshot(output)); Assert.False(Directory.Exists(Path.Combine(host, ".local")));
         }
-        var unsupported = await CommandAsync(host, null, "--shared-append-plan");
-        Assert.Equal(2, unsupported.Code); Assert.Empty(unsupported.Output);
-        Assert.Contains("正式完整应用包", unsupported.Error);
+        foreach (var command in new[] { "--shared-append-plan", "--shared-append-check" })
+        {
+            var unsupported = await CommandAsync(host, null, command);
+            Assert.Equal(2, unsupported.Code); Assert.Empty(unsupported.Output);
+            Assert.Contains("正式完整应用包", unsupported.Error);
+        }
     }
 
     /// <summary>真实独立包离线输出窄安装范围，参数错误或父表错绑均拒绝。</summary>
@@ -51,6 +54,7 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
     public async Task Shared_append_plan_is_offline_and_bound_to_the_published_leaf()
     {
         const string command = "--shared-append-plan";
+        const string check = "--shared-append-check";
         const string source = "sample_contract_line";
         var output = Path.Combine(temporary, "shared-append");
         var catalog = GlobalCachedSourceGenerationTests.Catalog();
@@ -86,11 +90,24 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
             "read_append" + (char)96 + " TO 'fixture_runtime'@'%';", install[^1]);
         var second = await CommandAsync(host, options, command);
         Assert.Equal(first.Output, second.Output);
-        foreach (var args in new[] { new[] { command, "--schema-apply" }, new[] { command, command }, new[] { command + "=true" } })
+        foreach (var args in new[] { new[] { command, "--schema-apply" }, new[] { command, command }, new[] { command + "=true" },
+            new[] { command, check }, new[] { check, "--initialize-security" }, new[] { check, check }, new[] { check + "=true" } })
         {
             var rejected = await CommandAsync(host, options, args);
             Assert.Equal(2, rejected.Code); Assert.Empty(rejected.Output);
         }
+
+        // 连接池前置条件及底层连接异常均拒绝，控制台不得输出私有连接值。
+        var unsupportedPool = await CommandAsync(host, options with
+        { ConnectionString = options.ConnectionString + "Allow User Variables=true;Maximum Pool Size=1;" }, check);
+        Assert.Equal(1, unsupportedPool.Code); Assert.Empty(unsupportedPool.Output);
+        Assert.Contains("核验未完成", unsupportedPool.Error);
+        var unreachable = await CommandAsync(host, options with
+        { ConnectionString = options.ConnectionString + "Allow User Variables=true;Connection Timeout=1;" }, check);
+        Assert.Equal(1, unreachable.Code); Assert.Empty(unreachable.Output);
+        Assert.Contains("核验未完成", unreachable.Error);
+        Assert.DoesNotContain("offline-secret", unreachable.Error);
+        Assert.DoesNotContain("127.0.0.1", unreachable.Error);
 
         options.MySqlSharedAppendProofs[source] = options.MySqlSharedAppendProofs[source] with { ParentTable = "sample_customer" };
         var mismatch = await CommandAsync(host, options, command);

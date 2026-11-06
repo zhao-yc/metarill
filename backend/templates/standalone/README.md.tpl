@@ -29,7 +29,13 @@ FullApplication的web-database-v1结构同步严格组合业务project.json、fi
 dotnet run --project backend/Application.Host -- --shared-append-plan
 ~~~
 
-命令仅输出 JSON。部署管理员在目标实例先确认 targetCheckSql 返回 1，再按顺序审阅并执行 installSql，最后核验管理员和运行账号的两条复核语句。完成核验后再启用对应配置。
+命令仅输出 JSON。部署管理员在目标实例先确认 targetCheckSql 返回 1，再按顺序审阅并执行 installSql，最后核对例程正文、定义者及运行账号的调用结果。
+
+使用正式运行账号的私有配置执行安装复核。命令会调用管理员已审阅的例程，逐表核对实际 MySQL 实例、账号、表结构及运行时锁前证明，不启动 Web。仅全部条目 `ready: true` 时退出码为 0。启用后仍按每次导入的运行时证据选择锁路径。
+
+~~~powershell
+dotnet run --project backend/Application.Host -- --shared-append-check
+~~~
 ## 认证
 
 FullApplication默认`Authentication:Mode=Web`，使用数据库账号、PBKDF2摘要、持久化会话和本包已发布权限。普通启动不建表、不初始化账号；无数据库配置及匿名请求在打开连接前拒绝，不回退开发账户。`/health`只报告进程状态，不代表数据库或业务验收。已完成且标记PUBLIC的文件内容仍允许匿名GET/HEAD。

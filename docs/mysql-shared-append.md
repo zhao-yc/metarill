@@ -14,7 +14,19 @@ dotnet run --project backend/Application.Host -- --shared-append-plan
 
 在同一个明确的目标实例上，管理员先执行每项 `targetCheckSql`，只在 `target_ready` 为 `1` 时继续。检查包含实际 UUID、InnoDB 和单列主键、父表外键、明细触发器、准确运行账号、定义者及例程是否已占用。按 `installSql` 给出的顺序逐条执行，任一步错误立即停止并核对已成功的步骤。MySQL 这些 DDL 会分别生效。已有例程按原归属人工核验，不重复应用首次安装计划。
 
-执行 `administratorReviewSql` 核对例程正文和定义者，再用真实运行账号执行 `runtimeProbeSql`，核对契约、业务库、明细表、父表和最后两列分别为 `1`、`0`。部署前完成这些核验，再启用应用对应配置。以下手工示例用于说明授权范围。
+执行 `administratorReviewSql` 核对例程正文和定义者，再用真实运行账号执行 `runtimeProbeSql`，核对契约、业务库、明细表、父表和最后两列分别为 `1`、`0`。以下手工示例用于说明授权范围。
+
+## 启用前复核
+
+完成管理员审阅后，使用部署将采用的运行账号连接串、`SharedAppendInstallation:RuntimeHost` 和证明配置执行：
+
+```sh
+dotnet run --project backend/Application.Host -- --shared-append-check
+```
+
+命令逐表执行同一运行时的锁前证明。两条实际连接均核对库名、实例 UUID 和 MySQL 的 `CURRENT_USER()`。它会固定并核对表结构、调用已审阅的证明例程，随后释放结构锁。命令自身不发出 DDL 或业务写入，也不启动 Web。例程正文和部署账号的权限边界仍由管理员审阅。
+
+仅全部条目 `ready: true` 时退出码为 0。任一条目不就绪时输出对应表并返回 1，配置或连接异常也返回 1，并且不会输出连接串或数据库异常原文。命令需要连接重置、允许用户变量及至少两条可用连接。实际池容量仍须覆盖预计并发。复核结果只反映当前安装，后续导入仍根据当次证据选择锁路径。
 
 ## 手工 SQL 示例
 

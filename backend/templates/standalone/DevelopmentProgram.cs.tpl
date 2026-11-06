@@ -21,7 +21,7 @@ Console.OutputEncoding = System.Text.Encoding.UTF8;
 // 在构造Web宿主前拒绝混合、重复或未知结构命令，避免误启动服务或误执行写入。
 if (args.Any(value => value.StartsWith("--shared-append", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.Error.WriteLine("共享追加安装计划请使用正式完整应用包。");
+    Console.Error.WriteLine("共享追加安装与核验请使用正式完整应用包。");
     Environment.ExitCode = 2; return;
 }
 string[] schemaCommands = ["--schema-inspect", "--schema-preview", "--schema-apply"];

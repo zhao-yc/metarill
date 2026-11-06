@@ -9,6 +9,8 @@ public static class MySqlSharedAppendInstallation
     public sealed record Entry(string Source, string Parent, string Schema, string Routine, string TargetCheckSql,
         IReadOnlyList<string> InstallSql, string AdministratorReviewSql, string RuntimeProbeSql);
     public sealed record Plan(string ExpectedDatabase, string ExpectedServerUuid, IReadOnlyList<Entry> Entries);
+    public sealed record VerificationEntry(string Source, string Parent, bool Ready);
+    public sealed record Verification(string ExpectedDatabase, string ExpectedServerUuid, bool Ready, IReadOnlyList<VerificationEntry> Entries);
 
     /// <summary>校验私有配置及冻结关系目录，只返回计划，不连接数据库。</summary>
     public static Plan Preview(DatabaseOptions options, RelationMaintenanceCatalog catalog, string? runtimeHost)
@@ -50,6 +52,32 @@ public static class MySqlSharedAppendInstallation
             entries.Add(CreateEntry(options.ExpectedDatabase, uuid, source, proof, definer, runtimeUser, runtimeHost));
         }
         return new(options.ExpectedDatabase, instance!.Value.ToString("D"), entries.AsReadOnly());
+    }
+
+    /// <summary>使用应用账号验证管理员已审阅的例程。逐表复用真实锁前证明，验证结束立即释放事务内结构锁。</summary>
+    public static async Task<Verification> VerifyInstalledAsync(DatabaseOptions options, RelationMaintenanceCatalog catalog,
+        string? runtimeHost, CancellationToken cancellationToken = default)
+    {
+        var plan = Preview(options, catalog, runtimeHost);
+        var connection = new MySqlConnectionStringBuilder(options.ConnectionString);
+        // 共享追加需要主事务和独立证明连接；连接重置及用户变量也是合并写入的前置条件。
+        if (!connection.ConnectionReset || !connection.AllowUserVariables || (connection.Pooling && connection.MaximumPoolSize < 2))
+            throw new InvalidOperationException("共享追加需要连接重置、允许用户变量及至少两条可用连接。");
+        var expectedAccount = connection.UserID + "@" + runtimeHost;
+        using var session = new DatabaseSession(options);
+        var results = new List<VerificationEntry>();
+        foreach (var entry in plan.Entries)
+        {
+            var proof = options.MySqlSharedAppendProofs[entry.Source];
+            var ready = await session.InScalarCacheImportTransactionAsync(async () =>
+            {
+                var transaction = session.CurrentTransaction!;
+                return await MySqlSharedAppendProof.VerifyAsync(session, (MySqlConnection)transaction.Connection!, transaction,
+                    entry.Source, entry.Parent, proof, cancellationToken, expectedAccount);
+            }, cancellationToken);
+            results.Add(new(entry.Source, entry.Parent, ready));
+        }
+        return new(plan.ExpectedDatabase, plan.ExpectedServerUuid, results.All(result => result.Ready), results.AsReadOnly());
     }
 
     /// <summary>生成精确目标检查、安装和安装后核验。名称已限定为不依赖 SQL 模式的字符。</summary>

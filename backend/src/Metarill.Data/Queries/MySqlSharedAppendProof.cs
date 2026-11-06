@@ -10,7 +10,7 @@ internal static class MySqlSharedAppendProof
 
     /// <summary>在业务事务固定结构，在独立连接读取权限和触发器，避免提前建立业务一致性快照。</summary>
     internal static async Task<bool> VerifyAsync(DatabaseSession session, MySqlConnection connection, DbTransaction transaction,
-        string source, string parent, MySqlSharedAppendProofOptions proof, CancellationToken token)
+        string source, string parent, MySqlSharedAppendProofOptions proof, CancellationToken token, string? expectedAccount = null)
     {
         if (source == parent || proof.ParentTable != parent || !Guid.TryParseExact(proof.ServerUuid, "D", out _) ||
             !IsIdentifier(proof.Schema) || !IsIdentifier(proof.Procedure) || string.IsNullOrWhiteSpace(proof.Definer))
@@ -18,7 +18,7 @@ internal static class MySqlSharedAppendProof
 
         try
         {
-            if (!await MatchesInstanceAsync(connection, transaction, session.Options.ExpectedDatabase, proof.ServerUuid, token))
+            if (!await MatchesInstanceAsync(connection, transaction, session.Options.ExpectedDatabase, proof.ServerUuid, expectedAccount, token))
                 return false;
             var database = session.Provider.QuoteIdentifier(session.Options.ExpectedDatabase);
             var parentName = database + "." + session.Provider.QuoteIdentifier(parent);
@@ -34,7 +34,7 @@ internal static class MySqlSharedAppendProof
 
             await using var metadata = session.Provider.CreateConnection(session.Options);
             await metadata.OpenAsync(token);
-            if (!await MatchesInstanceAsync(metadata, null, session.Options.ExpectedDatabase, proof.ServerUuid, token))
+            if (!await MatchesInstanceAsync(metadata, null, session.Options.ExpectedDatabase, proof.ServerUuid, expectedAccount, token))
                 return false;
             if (!await VerifyLayoutAsync(metadata, parentName, sourceName, token) ||
                 !await VerifyRoutineAsync(metadata, proof, token))
@@ -61,16 +61,17 @@ internal static class MySqlSharedAppendProof
         }
     }
 
-    /// <summary>实际实例及库名均须符合部署绑定，不能借同名例程跨库复用证明。</summary>
+    /// <summary>实际实例及库名均须符合部署绑定。安装复核另核对两条连接实际命中的 MySQL 账号。</summary>
     private static async Task<bool> MatchesInstanceAsync(DbConnection connection, DbTransaction? transaction,
-        string database, string serverUuid, CancellationToken token)
+        string database, string serverUuid, string? expectedAccount, CancellationToken token)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT DATABASE(),@@server_uuid";
+        command.CommandText = expectedAccount is null ? "SELECT DATABASE(),@@server_uuid" : "SELECT DATABASE(),@@server_uuid,CURRENT_USER()";
         await using var reader = await command.ExecuteReaderAsync(token);
         return await reader.ReadAsync(token) && ReadText(reader, 0) == database &&
-            string.Equals(ReadText(reader, 1), serverUuid, StringComparison.OrdinalIgnoreCase);
+            string.Equals(ReadText(reader, 1), serverUuid, StringComparison.OrdinalIgnoreCase) &&
+            (expectedAccount is null || string.Equals(ReadText(reader, 2), expectedAccount, StringComparison.Ordinal));
     }
 
     /// <summary>保守拒绝非 InnoDB、非单列主键及父表外键，防止明细缓存更新通过级联写回父表。</summary>
