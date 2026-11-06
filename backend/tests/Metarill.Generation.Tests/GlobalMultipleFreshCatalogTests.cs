@@ -13,6 +13,33 @@ public sealed class GlobalMultipleFreshCatalogTests
     {
         var c=Catalog(profile);var before=JsonSerializer.Serialize(c);var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-multiple-catalog");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{var output=Path.Combine(directory,"application");var model=GenerationModel.Create(c,"Example.GlobalMultipleFresh");Assert.Empty(GenerationCapabilityAudit.Collect(model));Assert.True(new ApplicationPackager().Create(c,output,model.Namespace,NonRedundantApplicationFixture.Root()).FrontendIncluded);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);var probe=NonRedundantApplicationFixture.Start("node",output);foreach(var argument in new[]{Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GlobalMultipleVueProbe.mjs"),output})probe.ArgumentList.Add(argument);await NonRedundantApplicationFixture.RunAsync(probe);Assert.Equal(before,JsonSerializer.Serialize(c));foreach(var path in new[]{"uni_modules/uni-data-checkbox/components/uni-data-checkbox/uni-data-checkbox.vue","common/yzp_runtime/originalSelectionPageMixin.js"})Assert.Equal(File.ReadAllBytes(Path.Combine(NonRedundantApplicationFixture.Root(),"frontend/metarill_uni_admin",path)),File.ReadAllBytes(Path.Combine(output,"frontend",path)));}finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+
+    /// <summary>按原自动回传标志，复选首次读取实际表单值，字段变更隔离旧响应。</summary>
+    [Theory]
+    [InlineData("segment")]
+    [InlineData("gsSingleSource.segment")]
+    public async Task Linked_checkbox_loads_initial_form_values_and_ignores_stale_candidates(string slot)
+    {
+        var catalog=Catalog("cross3");
+        var segment=catalog.ConfigColumns.Single(column=>column.Id=="2106");
+        segment.Extra["isAutoPostBack"]=JsonSerializer.SerializeToElement(1);
+        var checkbox=catalog.ConfigColumns.Single(column=>column.Id=="2204");
+        checkbox.Extra["isAutoPostBackQuery"]=JsonSerializer.SerializeToElement(1);
+        checkbox.ControlDetail=checkbox.ControlDetail.Replace("@formParameters.segment","@formParameters."+slot,StringComparison.Ordinal);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-linked-checkbox-vue");
+        var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,output,"Example.LinkedCheckbox");
+            var probe=NonRedundantApplicationFixture.Start("node",output);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GeneratedLinkedCheckboxProbe.mjs"));
+            probe.ArgumentList.Add(output);
+            await NonRedundantApplicationFixture.RunAsync(probe);
+        }
+        finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
+    }
+
+
     /// <summary>隐藏全局复选也不能绕过发布证明；全局消费者、缓存目标和矛盾覆盖仍拒绝。</summary>
     [Theory][InlineData("ownerGlobal")][InlineData("targetR0")][InlineData("cachedName")][InlineData("unpublished")][InlineData("variable")][InlineData("multiPage")][InlineData("checkboxPage")][InlineData("hiddenBad")]
     public async Task Unproven_global_multiple_rejects_before_package_staging(string kind)

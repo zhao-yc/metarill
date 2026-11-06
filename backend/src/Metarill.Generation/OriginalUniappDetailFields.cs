@@ -137,10 +137,18 @@ internal static class OriginalUniappDetailFields
         var relation=checkbox?null:RelationCompilation.ForPage(c.Model,c.Page).SingleOrDefault(item=>item.SourceColumn.Source.Id==column.Source.Id);
         var context=relation is null?null:ControlRenderer.RelationContext(c.Page,relation,false);
         var target=context?.TargetParentField is {} parent?"that.entity."+parent:context?.SameParent==true?"that.parent_id":null;
+        var method="loadOriginalOptions"+column.Source.Id;
+        var dynamic=Enabled(column.Source.Extra,"isAutoPostBackQuery");
+        var forms=checkbox&&dynamic?DatabaseCheckboxCompilation.Resolve(c.Model,c.Table,c.Page,column).Definition?.Conditions?.Forms:null;
+        var form=forms is {Count:>0}&&forms.All(binding=>Enabled(binding.Column.Source.Extra,"isAutoPostBack"))
+            ? WatchLinkedCheckboxForm(c,column,forms,method)
+            : null;
+        var captureForm=form is null?"":$"const optionForm=that.{form}();if(optionForm===null)return;";
+        var currentForm=form is null?"":$"&&optionForm===that.{form}()";
+        var parameters=form is null?"uni.getStorageSync(that.formParametersName)":"JSON.parse(optionForm)";
         var load = context?.UnresolvedTarget==true
             ? "that."+list+"=[];uni.showModal({showCancel:false,content:'关联目标父范围尚未明确，不能加载候选项'});"
-            : "(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["+Js(column.Source.Id)+"]||0)+1;that._originalOptions["+Js(column.Source.Id)+"]=optionSequence;const optionParent="+(target is null?"null":"String("+target+"??'')")+";that.originalRequest({url:"+Js(endpoint)+",isCurrent:()=>optionSequence===that._originalOptions["+Js(column.Source.Id)+"]&&"+(target is null?"true":"optionParent===String("+target+"??'')")+",data:{parentId:that.parent_id,"+(target is null?"":"targetParentId:optionParent,")+"formParameters:uni.getStorageSync(that.formParametersName)"+(f.ReadOnly?",id:that.entity."+column.JsonName:",...(that.readOnlyCondition?{id:that.entity."+column.JsonName+"}:{})")+"},method:'POST',sendSessionId:true,success(res){if(res.code===200){that."+list+"=res.data||[];"+(checkbox?"that."+column.JsonName+"Change();":"")+"}else uni.showModal({showCancel:false,content:res.msg});}});})();";
-        var method="loadOriginalOptions"+column.Source.Id;
+            : "(()=>{that._originalOptions=that._originalOptions||{};const optionSequence=(that._originalOptions["+Js(column.Source.Id)+"]||0)+1;that._originalOptions["+Js(column.Source.Id)+"]=optionSequence;const optionParent="+(target is null?"null":"String("+target+"??'')")+";"+captureForm+"that.originalRequest({url:"+Js(endpoint)+",isCurrent:()=>optionSequence===that._originalOptions["+Js(column.Source.Id)+"]&&"+(target is null?"true":"optionParent===String("+target+"??'')")+currentForm+",data:{parentId:that.parent_id,"+(target is null?"":"targetParentId:optionParent,")+"formParameters:"+parameters+(f.ReadOnly?",id:that.entity."+column.JsonName:",...(that.readOnlyCondition?{id:that.entity."+column.JsonName+"}:{})")+"},method:'POST',sendSessionId:true,success(res){if(res.code===200){that."+list+"=res.data||[];"+(checkbox?"that."+column.JsonName+"Change();":"")+"}else uni.showModal({showCancel:false,content:res.msg});}});})();";
         // 独立父字段即使没有开启旧联动标志，也必须失效原候选缓存；实体的已选ID/名称不被清空。
         if(context?.TargetParentField is {} targetField)
         {
@@ -152,7 +160,28 @@ this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._orig
             load=load.Replace(";that.originalRequest({", ";"+guard+"that.originalRequest({",StringComparison.Ordinal);
         }
         c.Methods.AppendLine($"{method}() {{const that=this;that.{list}=[];{load}}},");
-        if (Enabled(column.Source.Extra, "isAutoPostBackQuery")) c.DynamicInit.AppendLine($"that.{method}();"); else c.Init.AppendLine($"that.{method}();");
+        if(form is null)(dynamic?c.DynamicInit:c.Init).AppendLine($"that.{method}();");
+    }
+    /// <summary>原联动复选使用当前详情的已编译槽，首次读回和同一轮字段变化统一触发一次。</summary>
+    private static string WatchLinkedCheckboxForm(OriginalDetailContext c,ColumnModel column,IReadOnlyList<RelationFormBinding> forms,string load)
+    {
+        var method="originalCheckboxForm"+column.Source.Id;
+        var table=Js(GenerationModel.Camel(c.Table.Source.TableName));
+        var fields=forms.Select(binding=>binding.Column).DistinctBy(field=>field.JsonName).ToArray();
+        var entries=string.Join(",",fields.Select(field=>Js(field.JsonName)).Select(field=>$"[{field}]:this.entity[{field}]"));
+        var nonText=Js(fields.Where(field=>field.Type!="string?").Select(field=>field.JsonName));
+        c.Methods.AppendLine($$$"""
+{{{method}}}() {
+  if(!this.permissionsReady || !this._alive || this.readOnlyCondition) return null;
+  const fields={{{{entries}}}};
+  if(Object.values(fields).includes(undefined) ||
+     {{{nonText}}}.some(key=>typeof fields[key]==='string' && !fields[key].trim())) return null;
+  return JSON.stringify({[{{{table}}}]:fields});
+},
+""");
+        // 监听实体引用与固定槽，区分同值回读、实例切换和当前表单编辑；不读取其他实例的页面缓存。
+        c.OptionWatchers.AppendLine($"this.$watch(()=>[this.entity,this.{method}()],()=>this.{load}(),{{flush:'post'}});");
+        return method;
     }
     /// <summary>沿用现有DTO/VO常量类型；长整数保留字符串，小数按decimal解析，不经JavaScript整数转换。</summary>
     private static object? ConstValue(ColumnModel column, string value) => column.Type switch
