@@ -75,11 +75,11 @@ public sealed partial class RelationMaintenanceExecutor
                 command.Parameters.Add(parameter);
             var id = rowPrefix + "exact_id";
             Add(command, id, row.Id);
-            var where = $" WHERE {Scope(table, "b.")} AND b.`id`=CASE WHEN {MySqlExactParentCandidate.BatchRecheck.DatabaseGate} AND {state}=2 THEN @{id} END";
-            // 首错状态不可恢复。候选拒绝后所有主键表达式为 NULL，不读锁住的后续行。
-            sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END INTO {verdict}")
-                .Append($"; SET {state}={verdict},{readId}=NULL,{before}=NULL,{expected}=NULL,{storedId}=NULL,{stored}=NULL")
-                .Append($"; {insert.Sql} AND {state}=2; SET {inserted}=ROW_COUNT()")
+            var where = $" WHERE {Scope(table, "b.")} AND b.`id`=CASE WHEN {MySqlExactParentCandidate.BatchRecheck.DatabaseGate} AND {verdict}=2 THEN @{id} END";
+            // 首错状态只由上一行的最终核验更新。本行候选一次返回，同时清除上一行读回值。
+            sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END,NULL,NULL,NULL,NULL,NULL")
+                .Append($" INTO {verdict},{readId},{before},{expected},{storedId},{stored}")
+                .Append($"; {insert.Sql} AND {verdict}=2; SET {inserted}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),CONVERT({output} USING utf8mb4){from}{where}")
                 .Append($" ORDER BY b.`id` LIMIT 2{plan.ImportMatchLock} INTO {readId},{before},{expected}")
                 // 更新前把预期送入独立结果，驱动读回时不信任写入之后的会话变量。
@@ -89,7 +89,7 @@ public sealed partial class RelationMaintenanceExecutor
                 .Append($" AND NOT (CAST({before} AS BINARY) <=> CAST({expected} AS BINARY))")
                 .Append($"; SET {affected}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4) FROM {source} b{where} FOR UPDATE OF b INTO {storedId},{stored}")
-                .Append($"; SET {state}=CASE WHEN {state}<>2 THEN {state} ")
+                .Append($"; SET {state}=CASE WHEN {verdict}<>2 THEN {verdict} ")
                 .Append($"WHEN {inserted}=1 AND {readId} IS NULL AND {storedId} IS NULL AND {affected}=0 THEN 2 ")
                 .Append($"WHEN {inserted}=1 AND ({readId}<=>@{id}) AND ({storedId}<=>@{id}) ")
                 .Append($"AND {affected}=IF(CAST({before} AS BINARY)<=>CAST({expected} AS BINARY),0,1) ")
