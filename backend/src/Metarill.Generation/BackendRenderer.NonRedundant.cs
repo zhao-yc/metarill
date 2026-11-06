@@ -168,16 +168,29 @@ internal static class GeneratedNonRedundantReadCatalog
         var definitions=OriginalListStatisticsCompilation.ForPage(model,table,page);if(definitions is null)return "";
         var suffix=page.Source.Id;var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
         if(definitions.Count==0)result.AppendLine("        await Task.CompletedTask;");
+        var sums=definitions.Where(definition=>definition.Kind==1).ToArray();
+        var batchSums=sums.Any(definition=>definition.Column.Type.TrimEnd('?')!="double");
+        // 有精确数值时共用其基础聚合。仅有浮点时保留原分桶查询，避免额外扫描一次范围取计数。
+        if(batchSums)
+        {
+            var sumFields=sums.Select(definition=>Literal(definition.Column.Source.ColumnName));
+            result.AppendLine($"        var totals=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},{NonRedundantFilterCall(model,table,page)},new string[]{{{string.Join(",",sumFields)}}},cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});");
+        }
         foreach(var definition in definitions)
         {
             var column=definition.Column;var key=Literal(column.JsonName);var local="stat"+column.Property;
             if(definition.Kind==1&&column.Type.TrimEnd('?')=="double")
             {
-                result.AppendLine($"        var {local}=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},{NonRedundantFilterCall(model,table,page)},new string[]{{{Literal(column.Source.ColumnName)}}},cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});")
-                    .AppendLine($"        statistics[{key}]=new{{currentPage=LegacyStatisticsMath.SumDouble(page.Records.Select(row=>(double?)row.{column.Property})),total={local}.DoubleSums[{Literal(column.Source.ColumnName)}]??0d}};");
+                var field=Literal(column.Source.ColumnName);
+                if(!batchSums)
+                    result.AppendLine($"        var {local}=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},{NonRedundantFilterCall(model,table,page)},new string[]{{{field}}},cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});");
+                result.AppendLine($"        statistics[{key}]=new{{currentPage=LegacyStatisticsMath.SumDouble(page.Records.Select(row=>(double?)row.{column.Property})),total={(batchSums?"totals":local)}.DoubleSums[{field}]??0d}};");
             }
             else if(definition.Kind==1)
-            {var current=column.Type.EndsWith('?')?"(decimal)(row."+column.Property+"??0)":"(decimal)row."+column.Property;result.AppendLine($"        var {local}=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},{NonRedundantFilterCall(model,table,page)},new string[]{{{Literal(column.Source.ColumnName)}}},cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});").AppendLine($"        statistics[{key}]=new{{currentPage=page.Records.Sum(row=>{current}),total={local}.Sums[{Literal(column.Source.ColumnName)}]??0m}};");}
+            {
+                var current=column.Type.EndsWith('?')?"(decimal)(row."+column.Property+"??0)":"(decimal)row."+column.Property;
+                result.AppendLine($"        statistics[{key}]=new{{currentPage=page.Records.Sum(row=>{current}),total=totals.Sums[{Literal(column.Source.ColumnName)}]??0m}};");
+            }
             else
             {result.AppendLine($"        var {local}=new Dictionary<string,object?>();if(page.Records.Count>0){local}[\"currentPage\"]=LegacyStatisticsMath.Percentage(page.Records.LongCount(row=>row.{column.Property}==2),page.Records.Count);").AppendLine($"        if(page.Total>0){{var filters={NonRedundantFilterCall(model,table,page)};filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,2));var matches=await new NonRedundantReader(session).StatisticsAsync(ReadPlan{suffix},filters,Array.Empty<string>(),cancellationToken,actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page)});{local}[\"total\"]=LegacyStatisticsMath.Percentage(matches.Total,page.Total);}}").AppendLine($"        statistics[{key}]={local};");}
         }
