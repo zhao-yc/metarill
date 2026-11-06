@@ -113,6 +113,54 @@ public sealed partial class ProjectFileRuntimeIntegrationTests
     public Task Shared_database_preserves_file_ownership_and_transaction_isolation() =>
         VerifyBusinessFilesAsync(shareDatabase: true);
 
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Split_database_cannot_remove_file_content_inside_an_outer_transaction() =>
+        VerifyFileDeletionBoundaryAsync(shareDatabase: false);
+
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Shared_database_cannot_remove_file_content_inside_an_outer_transaction() =>
+        VerifyFileDeletionBoundaryAsync(shareDatabase: true);
+
+    /// <summary>外层业务事务回滚后，独立连接和真实下载都必须能读到原文件。</summary>
+    private static async Task VerifyFileDeletionBoundaryAsync(bool shareDatabase)
+    {
+        await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase);
+        AssertDatabaseTopology(fixture, shareDatabase);
+        var project = fixture.Registry.Demo.YzProjectId;
+        var actor = new RuntimeActor(8801, "项目文件删除验收", true, project, "");
+        var authorization = new TestFileAuthorization(actor);
+        var service = new ProjectFileLibraryResolver(fixture.Runtimes, authorization, fixture.Ids).RequireCurrent();
+        var file = await fixture.ReadyAsync(service, "transaction-delete.txt", fixture.ProtectedColumn);
+        var runtime = fixture.Runtimes.Resolve(project);
+        using var witnessSession = new DatabaseSession(runtime.Session.Options);
+        var witness = new SqlRowStore(witnessSession, fixture.Runtimes.ComposePhysical(fixture.Registry.Demo));
+        var key = new Dictionary<string, object?> { ["id"] = file.FileId };
+        var before = JsonSerializer.Serialize(await witness.ReadIncludingDeletedAsync("yz_file_library", key));
+
+        Exception? nestedFailure = null;
+        var rollback = new InvalidOperationException("回滚外层业务事务");
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Session.InTransactionAsync<bool>(async () =>
+        {
+            nestedFailure = await Record.ExceptionAsync(() => service.DeleteAsync(file.FileId));
+            throw rollback;
+        }));
+        Assert.Same(rollback, failure);
+        Assert.Equal(before, JsonSerializer.Serialize(await witness.ReadIncludingDeletedAsync("yz_file_library", key)));
+
+        // 仅检查数据库记录无法发现外部对象已被删除，必须经真实文件服务读取。
+        await using (var content = (await service.OpenContentAsync(file.FileId)).Stream)
+        {
+            using var reader = new StreamReader(content);
+            Assert.Equal("验收内容", await reader.ReadToEndAsync());
+        }
+        Assert.Equal("文件对象删除必须在业务事务提交后单独执行。",
+            Assert.IsType<InvalidOperationException>(nestedFailure).Message);
+        Assert.True((await service.DeleteAsync(file.FileId)).StorageRemoved);
+        var deleted = Assert.Single(await witness.ReadIncludingDeletedAsync("yz_file_library", key));
+        Assert.NotNull(deleted["delete_no"]);
+        Assert.Equal("deleted", SqlRowStore.Text(deleted, "status"));
+    }
+
     private static async Task VerifyBusinessFilesAsync(bool shareDatabase)
     {
         await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase);

@@ -143,6 +143,10 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     /// <summary>删除前锁定文件并确认无有效引用；数据库先失效，磁盘清理失败明确返回。</summary>
     public async Task<FileDeleteResult> DeleteAsync(long id, CancellationToken cancellationToken = default)
     {
+        // 对象无法随外层业务事务回滚。只有本入口能确认数据库提交后，才可删除对象。
+        if (store.Session.CurrentTransaction is not null)
+            throw new InvalidOperationException("文件对象删除必须在业务事务提交后单独执行。");
+
         var key = await store.Session.InTransactionAsync(async () =>
         {
             var actor = authorization.RequireActor(); var row = await RequiredAsync(Files, id, true, cancellationToken); RequireDeleteOwner(row, actor);
