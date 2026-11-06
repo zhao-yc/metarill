@@ -76,7 +76,7 @@ internal static class PackedAppendRenderer
 """ + "\n";
 
     internal static string CreateArguments(TableModel table) =>
-        $", Action<{table.EntityType}, {Parent}, Func<Task>>? queuePackedRow = null, Func<Task>? flushEarlierRows = null";
+        $", Action<{table.EntityType}, {Parent}, Func<Task>>? queuePackedRow = null, Func<Task>? flushEarlierRows = null, bool reuseInitialParentLock = false";
 
     /// <summary>准备逻辑与普通新增相同，缓冲只延迟持久化及已证明无副作用的通知。</summary>
     internal static string CreateBuffer(PageModel page) => $$"""

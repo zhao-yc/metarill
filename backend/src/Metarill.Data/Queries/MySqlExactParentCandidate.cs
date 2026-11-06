@@ -12,6 +12,11 @@ public static class MySqlExactParentCandidate
         session.Provider is MySqlDatabaseProvider && session.UsesOwnedOrm &&
         session.CurrentTransaction?.Connection is MySqlConnection && session.Orm.GlobalFilter.GetAllFilters().Count == 0;
 
+    /// <summary>仅已声明的可重复读追加事务及无宿主写入扩展的 ORM 可以省去首行重复锁读。</summary>
+    public static bool CanReuseInitialImportLock(DatabaseSession session) =>
+        CanUse(session) && session.CurrentTransaction is {} transaction && session.HasScalarCacheWriteProof(transaction) &&
+        Relations.MySqlInsertCacheBatch.UsesPlainOrm(session);
+
     /// <summary>只记录本批首个成功的原查询，后续各行仍从数据库读取当前父和候选。</summary>
     public sealed class ImportRecheck
     {

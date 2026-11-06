@@ -534,12 +534,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         return $$"""
         long recheckKey = 0;
         var canRecheck = parentRecheck is not null && long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out recheckKey) && recheckKey > 0 && parentId == recheckKey.ToString(CultureInfo.InvariantCulture);
-        var deferredParent = canRecheck && !guards.Any(guard => guard.RequiresWriteValidation({{Literal(table.Source.TableName)}}))
-            ? {{candidate}}.PlanBatch({{arguments}}) : null;
+        var canDeferParent = canRecheck && !guards.Any(guard => guard.RequiresWriteValidation({{Literal(table.Source.TableName)}}));
+        var deferredParent = canDeferParent ? {{candidate}}.PlanBatch({{arguments}}) : null;
         async Task<int?> CheckParentCandidateAsync()
         {
             var result = canRecheck ? await {{candidate}}.TryRecheckAsync({{arguments}}, cancellationToken) : null;
-            if (result is null && !{{candidate}}.HoldsSharedImportParent({{scopeArguments}}, parentRecheck))
+            // 导入入口已持有原父锁，首行之前无写入。只省去重复锁读，首行固定候选仍按原位置查询。
+            var reuseParent = reuseInitialParentLock && canDeferParent && {{candidate}}.CanReuseInitialImportLock(session);
+            if (result is null && !reuseParent && !{{candidate}}.HoldsSharedImportParent({{scopeArguments}}, parentRecheck))
                 await ValidateParents{{suffix}}Async(parentId, actor, cancellationToken);
             return result;
         }

@@ -43,6 +43,9 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("await ValidateParents81003Async(parentId, actor, cancellationToken);",rendered);
         Assert.Contains("HoldsSharedImportParent",rendered);
         Assert.Contains("TryLockSharedAppendParentAsync",rendered);
+        Assert.Contains("reuseInitialParentLock: canPackRows && !sharedParentLocked && rowNumber == 1",rendered);
+        Assert.Contains("reuseInitialParentLock && canDeferParent && Metarill.Data.Queries.MySqlExactParentCandidate.CanReuseInitialImportLock(session)",rendered);
+        Assert.Contains("result is null && !reuseParent && !Metarill.Data.Queries.MySqlExactParentCandidate.HoldsSharedImportParent",rendered);
         Assert.Contains("guard.RequiresWriteValidation(\"sample_contract_line\")",rendered);
         Assert.Contains("MySqlExactParentCandidate.PlanBatch",rendered);
         Assert.Contains("deferParentCandidate: deferredParent is not null",rendered);

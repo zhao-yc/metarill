@@ -99,7 +99,7 @@ public sealed partial class {{page.Name}}ImportRequest
         }
         result.AppendLine($"                var create = ReadRow<{page.Name}CreateRequest>(values);")
             .AppendLine(mergeParent
-                ?$"                await Create{page.Source.Id}WithParentRecheckAsync(create, request.ParentId, actor, parentRecheck, cancellationToken{(packedAppend?", canPackRows ? QueuePackedRow : null, canPackRows ? FlushPackedRowsAsync : null":"")});"
+                ?$"                await Create{page.Source.Id}WithParentRecheckAsync(create, request.ParentId, actor, parentRecheck, cancellationToken{(packedAppend?", canPackRows ? QueuePackedRow : null, canPackRows ? FlushPackedRowsAsync : null, reuseInitialParentLock: canPackRows && !sharedParentLocked && rowNumber == 1":"")});"
                 :$"                await Create{page.Source.Id}{(fileImport?"Core":"")}Async(create, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
             .Append(packedAppend?PackedAppendRenderer.FlushAfterRow:"")
             .AppendLine("            }");
