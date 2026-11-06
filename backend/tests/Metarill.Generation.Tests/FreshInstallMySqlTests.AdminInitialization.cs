@@ -65,11 +65,39 @@ public sealed partial class FreshInstallMySqlTests
         {
             await DeniedAsync(owner, HttpMethod.Post, direct, new { id = platformAdminTypeId });
             Assert.True(PasswordHasher.Verify(oldPassword, SqlRowStore.Text(await ReadAccountAsync(), "password")));
-            var first = await FreshWebHttp.SendAsync(owner, HttpMethod.Post, central, new
+            var initialization = new
             {
                 buttonId = AdminAccountInitializationBusiness.ButtonId, entityId = adminTypeId,
                 entity = new { id = adminTypeId, password = "本轮客户端干扰值" }
-            });
+            };
+
+            // 最后一步撤销会话失败时，前面的账号、角色和分库归属写入须整体回滚。
+            var accountBeforeFailure = await ReadAccountAsync();
+            var sessionBeforeFailure = Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId }));
+            var blockedSessionId = SqlRowStore.Id(sessionBeforeFailure);
+            const string lateConstraint = "mt_admin_init_late_session";
+            await ExecuteSessionConstraintAsync($"ADD CONSTRAINT {lateConstraint} CHECK (id <> {blockedSessionId} OR delete_no IS NULL)");
+            try
+            {
+                await DeniedAsync(owner, HttpMethod.Post, central, initialization, "操作失败，请查看服务端日志。");
+                var afterFailure = await ReadAccountAsync();
+                Assert.True(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(accountBeforeFailure), JsonSerializer.SerializeToElement(afterFailure)),
+                    "会话撤销失败后，账号的口令、角色及档案必须整体回滚。");
+                Assert.Empty(await target.ReadAsync("yz_role", new Dictionary<string, object?> { ["yz_admin_type_id"] = admin, ["is_super"] = 1 }));
+                var activeSession = Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId }));
+                Assert.True(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(sessionBeforeFailure), JsonSerializer.SerializeToElement(activeSession)),
+                    "会话撤销失败后，本轮原会话必须仍然有效。");
+                if (sharedDatabase)
+                    await FreshWebHttp.SendAsync(targetWeb, HttpMethod.Get, permissions);
+                else
+                {
+                    Assert.Empty(await target.ReadAsync("yz_project", new Dictionary<string, object?> { ["id"] = project }));
+                    Assert.Empty(await target.ReadAsync("yz_admin_type", new Dictionary<string, object?> { ["id"] = admin }));
+                }
+            }
+            finally { await ExecuteSessionConstraintAsync($"DROP CHECK {lateConstraint}"); }
+
+            var first = await FreshWebHttp.SendAsync(owner, HttpMethod.Post, central, initialization);
             Assert.Equal(JsonValueKind.Null, first.GetProperty("data").ValueKind);
             var initializedRole = await AssertResetAsync();
             if (sharedDatabase)
@@ -124,6 +152,15 @@ public sealed partial class FreshInstallMySqlTests
         finally { owner.DefaultRequestHeaders.Remove("sysParams"); }
         await FreshWebHttp.SendAsync(owner, HttpMethod.Get, permissions);
 
+        // DDL 仅用于本轮空库夹具，和待验证的业务事务分别提交。
+        async Task ExecuteSessionConstraintAsync(string clause)
+        {
+            await using var connection = target.Session.Provider.CreateConnection(target.Session.Options);
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE sys_session " + clause;
+            await command.ExecuteNonQueryAsync();
+        }
         async Task<Dictionary<string, object?>> ReadAccountAsync() =>
             Assert.Single(await target.ReadAsync("yz_manager", new Dictionary<string, object?> { ["name"] = username }));
 
