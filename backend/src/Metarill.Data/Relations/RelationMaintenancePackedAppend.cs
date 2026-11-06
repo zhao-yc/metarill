@@ -49,6 +49,7 @@ public sealed partial class RelationMaintenanceExecutor
         var sql = new StringBuilder("/* metarill:packed-append */ ").Append(ReadConnectionIdentity);
         // 独立会话变量名防止与宿主已有变量撞名。驱动只绑定参数，变量在借用连接结束时也由重置清除。
         var prefix = session.GetPackedAppendVariablePrefix(transaction);
+        var state = prefix + "s";
         var verdict = prefix + "v";
         var inserted = prefix + "i";
         var readId = prefix + "r";
@@ -58,12 +59,11 @@ public sealed partial class RelationMaintenanceExecutor
         var storedId = prefix + "d";
         var stored = prefix + "c";
         var reset = $"{verdict}=NULL,{inserted}=NULL,{readId}=NULL,{before}=NULL,{expected}=NULL,{affected}=NULL,{storedId}=NULL,{stored}=NULL";
-        sql.Append($"; SET {reset}");
+        sql.Append($"; SET {state}=2,{reset}");
 
         var source = database + "." + Q(table.Option.TableName);
         var cached = "b." + Q(field);
         var value = $"(SELECT {output} FROM {database}.{Q(target.Table)} {target.Alias} WHERE {target.Predicate} FOR SHARE OF {target.Alias})";
-        string? previousId = null;
         for (var index = 0; index < rows.Count; index++)
         {
             var row = rows[index];
@@ -76,17 +76,8 @@ public sealed partial class RelationMaintenanceExecutor
             var id = rowPrefix + "exact_id";
             Add(command, id, row.Id);
             var where = $" WHERE {Scope(table, "b.")} AND b.`id`=CASE WHEN {MySqlExactParentCandidate.BatchRecheck.DatabaseGate} AND {verdict}=2 THEN @{id} END";
-            // 在覆盖上一行结果前核验它；首错保留原判定，后续行不再检查候选或写入。
-            sql.Append("; SELECT ");
-            if (previousId is null)
-                sql.Append(parentExpression);
-            else
-                sql.Append($"CASE WHEN {verdict}<>2 THEN {verdict} ")
-                    .Append($"WHEN {inserted}=1 AND (({readId} IS NULL AND {storedId} IS NULL AND {affected}=0) ")
-                    .Append($"OR (({readId}<=>@{previousId}) AND ({storedId}<=>@{previousId}) ")
-                    .Append($"AND {affected}=IF(CAST({before} AS BINARY)<=>CAST({expected} AS BINARY),0,1) ")
-                    .Append($"AND (CAST({stored} AS BINARY)<=>CAST({expected} AS BINARY)))) THEN ({parentExpression}) ELSE 5 END");
-            sql.Append(",NULL,NULL,NULL,NULL,NULL")
+            // 首错状态只由上一行的最终核验更新。本行候选一次返回，同时清除上一行读回值。
+            sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END,NULL,NULL,NULL,NULL,NULL")
                 .Append($" INTO {verdict},{readId},{before},{expected},{storedId},{stored}")
                 .Append($"; {insert.Sql} AND {verdict}=2; SET {inserted}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),CONVERT({output} USING utf8mb4){from}{where}")
@@ -98,11 +89,15 @@ public sealed partial class RelationMaintenanceExecutor
                 .Append($" AND NOT (CAST({before} AS BINARY) <=> CAST({expected} AS BINARY))")
                 .Append($"; SET {affected}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4) FROM {source} b{where} FOR UPDATE OF b INTO {storedId},{stored}")
-                .Append($"; SELECT CAST({verdict} AS SIGNED),CAST({inserted} AS SIGNED),")
+                .Append($"; SET {state}=CASE WHEN {verdict}<>2 THEN {verdict} ")
+                .Append($"WHEN {inserted}=1 AND {readId} IS NULL AND {storedId} IS NULL AND {affected}=0 THEN 2 ")
+                .Append($"WHEN {inserted}=1 AND ({readId}<=>@{id}) AND ({storedId}<=>@{id}) ")
+                .Append($"AND {affected}=IF(CAST({before} AS BINARY)<=>CAST({expected} AS BINARY),0,1) ")
+                .Append($"AND (CAST({stored} AS BINARY)<=>CAST({expected} AS BINARY)) THEN 2 ELSE 5 END")
+                .Append($"; SELECT CAST({state} AS SIGNED),CAST({verdict} AS SIGNED),CAST({inserted} AS SIGNED),")
                 .Append($"CAST({affected} AS SIGNED),CAST({storedId} AS SIGNED),CONVERT({stored} USING utf8mb4)");
-            previousId = id;
         }
-        sql.Append($"; SET {reset}");
+        sql.Append($"; SET {state}=NULL,{reset}");
         command.CommandText = sql.ToString();
         if (!FitsPackedCommand(command, packetLimit))
             return false;
@@ -157,14 +152,15 @@ public sealed partial class RelationMaintenanceExecutor
         var before = reader.IsDBNull(1) ? null : reader.GetString(1);
         var expected = reader.IsDBNull(2) ? null : reader.GetString(2);
         await ReadPackedResultAsync(reader, token);
-        MySqlExactParentCandidate.RequireCandidate(checked((int)reader.GetInt64(0)));
-        if (reader.GetInt64(1) != 1)
+        var state = reader.GetInt64(0);
+        MySqlExactParentCandidate.RequireCandidate(checked((int)reader.GetInt64(1)));
+        if (reader.GetInt64(2) != 1)
             throw new InvalidOperationException("新增失败。");
-        var actualId = reader.IsDBNull(3) ? (long?)null : reader.GetInt64(3);
-        var actual = reader.IsDBNull(4) ? null : reader.GetString(4);
+        var actualId = reader.IsDBNull(4) ? (long?)null : reader.GetInt64(4);
+        var actual = reader.IsDBNull(5) ? null : reader.GetString(5);
         var changed = source.HasValue && !string.Equals(before, expected, StringComparison.Ordinal);
-        if (source.HasValue && source.Value != id || actualId != source ||
-            reader.GetInt64(2) != (changed ? 1 : 0) || !string.Equals(actual, expected, StringComparison.Ordinal))
+        if (state != 2 || source.HasValue && source.Value != id || actualId != source ||
+            reader.GetInt64(3) != (changed ? 1 : 0) || !string.Equals(actual, expected, StringComparison.Ordinal))
             throw new InvalidOperationException("关系缓存在存储后不再匹配，当前事务未提交。");
         if (await reader.ReadAsync(token))
             throw new InvalidOperationException("追加写入返回了额外行。");
