@@ -180,10 +180,15 @@ def verify_child_transaction(trace, database, side, step, run, key):
     target = f"`{database}`.`sample_contract`"
     guarded_key = "b.`id`=CASE WHEN CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY) THEN @exact_id END"
 
-    def combined_cache(row):
-        """仅接受同一限定库、同一主键和显式锁读、写回、物理读回三段。"""
-        parts = row["sql"].split("; ")
-        return (len(parts)==4 and parts[0]=="SELECT DATABASE(),@@SESSION.max_allowed_packet"
+    identity = "SELECT DATABASE(),@@SESSION.max_allowed_packet"
+    row_count = "SELECT ROW_COUNT()"
+    insert_values = re.compile(rf"INSERT INTO {re.escape(source)}\((`[a-zA-Z0-9_]+`(?:, `[a-zA-Z0-9_]+`)*)\)"
+                               r" SELECT (@[a-zA-Z0-9_]+(?:, @[a-zA-Z0-9_]+)*)"
+                               r" WHERE CAST\(DATABASE\(\) AS BINARY\)=CAST\(@expected_database AS BINARY\)")
+
+    def cache_segments(parts):
+        """锁读、写回和物理读回都须命中已校验的限定库与同一个键。"""
+        return (len(parts)==4 and parts[0]==identity
                 and f" FROM {source} b LEFT JOIN {target} r0 ON " in parts[1]
                 and parts[1].endswith("FOR UPDATE OF b FOR SHARE OF r0")
                 and parts[2].startswith(f"UPDATE {source} b SET `sample_contract_name`=(SELECT r0.`name` FROM {target} r0 WHERE ")
@@ -191,8 +196,27 @@ def verify_child_transaction(trace, database, side, step, run, key):
                 and parts[3].startswith(f"SELECT b.`id`,b.`sample_contract_name` FROM {source} b WHERE ")
                 and parts[3].endswith("FOR UPDATE OF b") and all(guarded_key in part for part in parts[1:]))
 
+    def combined_cache(row):
+        return cache_segments(row["sql"].split("; "))
+
+    def combined_insert(row):
+        """确认插入确实使用物理回读的那个 ID，并保留两段独立的影响行数检查。"""
+        parts = row["sql"].split("; ")
+        if side!="csharp" or len(parts)!=7 or parts[2]!=row_count or parts[5]!=row_count:
+            return False
+        match = insert_values.fullmatch(parts[1])
+        if match is None or not cache_segments([parts[i] for i in (0,3,4,6)]):
+            return False
+        columns, parameters = (part.split(", ") for part in match.groups())
+        return (len(columns)==len(parameters)==len(set(columns))==len(set(parameters))
+                and dict(zip(columns,parameters)).get("`id`","").lower()=="@id_0")
+
     commands = trace["commands"]
-    inserts = [row for row in commands if child_insert.match(row["sql"])]
+    # 含限定子表 INSERT 的身份开头命令，形态不完整也要拒绝，不能被当成普通读取。
+    insert_batches = [row for row in commands if side=="csharp" and row["sql"].startswith(identity+"; ")
+                      and any(child_insert.match(part) for part in row["sql"].split("; ")[1:])]
+    reader.require(all(combined_insert(row) for row in insert_batches), "capture-child-insert-batch-shape")
+    inserts = [row for row in commands if child_insert.match(row["sql"]) or combined_insert(row)]
     caches = [row for row in commands if cache_update.match(row["sql"]) or combined_cache(row)]
     if step=="parent-page":
         reader.require(not inserts and not caches and all(row["succeeded"] for row in commands), "capture-child-page-write")
@@ -217,14 +241,25 @@ def verify_child_transaction(trace, database, side, step, run, key):
             kinds.add("literal-integer")
         return kinds
 
-    selects = [row for row in commands if parent_select.match(row["sql"]) and not combined_cache(row)]
+    selects = [row for row in commands if parent_select.match(row["sql"]) and not combined_cache(row)
+               and not combined_insert(row)]
     locks = [row for row in selects if re.search(r"\bFOR\s+UPDATE\b", row["sql"], re.I)]
     reader.require(locks and all(row["succeeded"] and parent_binding(row) for row in locks), "capture-child-parent-lock")
     owner = (locks[0]["connection"], locks[0]["transaction"])
     writes = inserts+caches
     reader.require(owner[1] is not None and all((row["connection"],row["transaction"])==owner for row in locks+writes),
                    "capture-child-transaction-owner")
-    successful = [row for row in inserts if row["succeeded"]]
+    unresolved = []
+    if step=="late-row-rollback" and len(inserts)==2 and combined_insert(inserts[-1]):
+        late_name = fixture.fixture.import_sample_prefix(run)+"rollback-last-"+"长"*2048
+        last = inserts[-1]
+        reader.require(carries(last,late_name)=={"string"} and carries(last,parent)
+                       and inserts[0][finish]<=last[start], "capture-child-late-insert-batch")
+        # ExecuteReader 可能先返回连接身份，随后消费下一结果才抛错。
+        # 保留这一段的未知状态。失败响应及两行均未落库由独立物理快照证明。
+        if last["succeeded"]:
+            unresolved.append(last)
+    successful = [row for row in inserts if row["succeeded"] and row not in unresolved]
     if step=="positive":
         names = {row[0] for row in fixture.workbook.workbook_requests(run)["line"]["rows"]}
         reader.require(len(inserts)==len(successful)==len(names), "capture-child-commit-writes")
@@ -234,6 +269,7 @@ def verify_child_transaction(trace, database, side, step, run, key):
     else:
         names = set()
         reader.require(not inserts, "capture-child-denied-write")
+    caches += [row for row in successful if combined_insert(row)]
     reader.require(len(caches)==(len(successful) if side=="csharp" else 0), "capture-child-cache-write-count")
 
     def id_proof(row, name):
@@ -242,7 +278,18 @@ def verify_child_transaction(trace, database, side, step, run, key):
         reader.require(len(identifiers)==1, "capture-child-cache-id")
         return identifiers[0]
 
-    caches_by_id = {id_proof(row,"exact_id" if combined_cache(row) else "id"):row for row in caches}
+    begins = [item for item in trace["transactions"]
+              if side=="csharp" and item["operation"]=="begin" and item["succeeded"]
+              and (item["connection"],item["transaction"])==owner
+              and item["isolation"]=="RepeatableRead" and item[finish]<=locks[0][start]]
+    for row in insert_batches:
+        reader.require(len(begins)==1 and row["operation"]=="reader" and row["affectedRows"] is None
+                       and carries(row,database)=={"string"} and carries(row,parent)
+                       and id_proof(row,"exact_id")==id_proof(row,"id_0"),
+                       "capture-child-insert-batch-binding")
+
+    caches_by_id = {id_proof(row,"exact_id" if combined_cache(row) or combined_insert(row) else "id"):row
+                    for row in caches}
     reader.require(len(caches_by_id)==len(caches), "capture-child-cache-id")
     for row in successful:
         matched = {name for name in names if carries(row,name)}
@@ -252,12 +299,10 @@ def verify_child_transaction(trace, database, side, step, run, key):
         if side=="csharp":
             cache = caches_by_id.pop(id_proof(row,"id_0"),None)
             # 多结果命令在业务中核验受影响行数，采集器只在原 reader 边界证明同一命令含精确物理回读。
-            if cache is not None and combined_cache(cache):
+            if cache is not None and combined_insert(cache):
+                verified_write = cache is row
+            elif cache is not None and combined_cache(cache):
                 # 驱动的 Begin 已记录实际隔离级别，独立 SET 不是事务证明。
-                begins = [item for item in trace["transactions"]
-                          if item["operation"]=="begin" and item["succeeded"]
-                          and (item["connection"],item["transaction"])==owner
-                          and item["isolation"]=="RepeatableRead" and item[finish]<=locks[0][start]]
                 verified_write = (len(begins)==1 and cache["operation"]=="reader" and cache["affectedRows"] is None
                                   and carries(cache,database)=={"string"})
             else:
@@ -265,10 +310,10 @@ def verify_child_transaction(trace, database, side, step, run, key):
                     cache["operation"]=="nonQuery" and cache["affectedRows"]==1
                     or cache["operation"]=="reader" and cache["affectedRows"] is None and cache_readback.search(cache["sql"]))
             reader.require(verified_write and cache["succeeded"] and
-                           row[finish]<=cache[start], "capture-child-cache-binding")
+                           (row is cache or row[finish]<=cache[start]), "capture-child-cache-binding")
         else:
             reader.require(carries(row,"性能合同-0000"), "capture-child-cache-binding")
-        if side!="java" or row["operation"]!="execute":
+        if not combined_insert(row) and (side!="java" or row["operation"]!="execute"):
             reader.require(row["affectedRows"]==1, "capture-child-affected-rows")
     reader.require(not names and not caches_by_id, "capture-child-workbook-coverage")
     outcome = "commit" if step=="positive" else "rollback"
@@ -289,8 +334,10 @@ def verify_child_transaction(trace, database, side, step, run, key):
     return {"commands":len(commands), "parentReads":len(selects), "parentLockReads":len(locks),
             "parentLockBindings":sorted(set().union(*(parent_binding(row) for row in locks))),
             "childInserts":len(inserts), "successfulInserts":len(successful),
-            "failedInserts":len(inserts)-len(successful), "affectedRowsReported":sum(row["affectedRows"] is not None for row in successful),
-            "cacheUpdates":len(caches), "layoutChecks":layouts, "transaction":outcome}
+            "failedInserts":sum(not row["succeeded"] for row in inserts), "insertResultsUnobserved":len(unresolved),
+            "affectedRowsReported":sum(row["affectedRows"] is not None for row in successful),
+            "combinedInsertCacheCommands":len(insert_batches), "cacheUpdates":len(caches),
+            "layoutChecks":layouts, "transaction":outcome}
 
 
 def capture_for_review(root,value,exchange,graceful):

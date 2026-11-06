@@ -75,6 +75,74 @@ class ChildReferenceContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, error):
                 capture.verify_child_transaction(invalid,database,"java","late-row-rollback",run,proof)
 
+    def test_combined_insert_proves_one_command_and_preserves_unread_late_result(self):
+        run = read_tests.RUN
+        database = subject.fixture.database_name(run, "csharp")
+        parent = str(subject.PARENT_ID)
+        proof = b"x"*32
+        source = f"`{database}`.`sample_contract_line`"
+        target = f"`{database}`.`sample_contract`"
+        guarded = "b.`id`=CASE WHEN CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY) THEN @exact_id END"
+        identity = "SELECT DATABASE(),@@SESSION.max_allowed_packet"
+        lock_read = f"SELECT b.`id` FROM {source} b LEFT JOIN {target} r0 ON 1=1 WHERE {guarded} FOR UPDATE OF b FOR SHARE OF r0"
+        update = (f"UPDATE {source} b SET `sample_contract_name`=(SELECT r0.`name` FROM {target} r0 "
+                  f"WHERE 1=1 FOR SHARE OF r0) WHERE {guarded} AND NOT (NULL <=> NULL)")
+        readback = f"SELECT b.`id`,b.`sample_contract_name` FROM {source} b WHERE {guarded} FOR UPDATE OF b"
+        insert = (f"INSERT INTO {source}(`id`, `name`, `parent_id`) SELECT @Id_0, @Name_0, @ParentId_0 "
+                  "WHERE CAST(DATABASE() AS BINARY)=CAST(@expected_database AS BINARY)")
+        batch = "; ".join((identity, insert, "SELECT ROW_COUNT()", lock_read, update, "SELECT ROW_COUNT()", readback))
+
+        def parameter(name, kind, value):
+            return {"name":name, "valueKind":kind,
+                    "valueHash":hmac.digest(proof,(kind+"\0"+str(value)).encode(),"sha256").hex()}
+
+        def command(sql, start, params=(), operation="reader", affected=None):
+            return {"sql":sql, "connection":1, "transaction":7, "operation":operation, "succeeded":True,
+                    "startedTimestamp":start, "finishedTimestamp":start+1, "affectedRows":affected, "parameters":params}
+
+        def transaction(operation, start):
+            return {"operation":operation, "succeeded":True, "connection":1, "transaction":7,
+                    "isolation":"RepeatableRead", "startedTimestamp":start, "finishedTimestamp":start+1}
+
+        parent_parameter = parameter("@ParentId_0","string",parent)
+        database_parameter = parameter("@expected_database","string",database)
+        lock = command(f"SELECT a.`id` FROM {target} a WHERE a.`id`=@ParentId_0 FOR UPDATE", 2,[parent_parameter])
+
+        def append(rows, end):
+            name, *following = rows
+            first = command(f"INSERT INTO {source}(`name`) VALUES(@Name_0)",4,
+                            [parameter("@Name_0","string",name), parent_parameter, parameter("@Id_0","integer",1)],
+                            "nonQuery",1)
+            cache = command("; ".join((identity,lock_read,update,readback)),6,
+                            [database_parameter,parameter("@exact_id","integer",1)])
+            merged = [command(batch,6+identifier*2,[database_parameter,parent_parameter,
+                              parameter("@Id_0","integer",identifier),parameter("@exact_id","integer",identifier),
+                              parameter("@Name_0","string",item)])
+                      for identifier,item in enumerate(following,2)]
+            return {"commands":[lock,first,cache,*merged], "transactions":[transaction("begin",0),transaction(end,40)]}
+
+        names = [row[0] for row in subject.workbook.workbook_requests(run)["line"]["rows"]]
+        positive = append(names,"commit")
+        facts = capture.verify_child_transaction(positive,database,"csharp","positive",run,proof)
+        self.assertEqual((8,8,7,0), tuple(facts[key] for key in
+                         ("successfulInserts","cacheUpdates","combinedInsertCacheCommands","insertResultsUnobserved")))
+
+        prefix = subject.fixture.import_sample_prefix(run)
+        rollback = append([prefix+"rollback-first",prefix+"rollback-last-"+"长"*2048],"rollback")
+        facts = capture.verify_child_transaction(rollback,database,"csharp","late-row-rollback",run,proof)
+        self.assertEqual((2,1,0,1), tuple(facts[key] for key in
+                         ("childInserts","successfulInserts","failedInserts","insertResultsUnobserved")))
+        last = rollback["commands"][-1]
+        for replacement, problem in (
+            ({"sql":batch.replace("SELECT ROW_COUNT()", "SELECT 1",1)}, "insert-batch-shape"),
+            ({"parameters":[*last["parameters"][:-2],parameter("@exact_id","integer",99),last["parameters"][-1]]},
+             "insert-batch-binding"),
+            ({"parameters":last["parameters"][:-1]}, "late-insert-batch"),
+        ):
+            wrong = {**rollback,"commands":[*rollback["commands"][:-1],{**last,**replacement}]}
+            with self.assertRaisesRegex(ValueError,"capture-child-"+problem):
+                capture.verify_child_transaction(wrong,database,"csharp","late-row-rollback",run,proof)
+
     def test_sql_csharp_inline_id_requires_the_exact_single_literal(self):
         run = read_tests.RUN
         database = subject.fixture.database_name(run, "csharp")
