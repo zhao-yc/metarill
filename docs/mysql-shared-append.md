@@ -88,3 +88,5 @@ GRANT EXECUTE ON PROCEDURE proof_db.read_child_append_proof TO 'business_runtime
 完整包禁网生成计划、实际 MySQL 安装、真实运行账号复核及原导入回滚已在固定独占样本验收。 [安装与原导入实库记录](testing/paired-child-installation-plan-mysql-v402.md)
 
 证明例程位于独立库时，安装计划、最小授权及真实账号调用也已在固定独占样本验收。撤销该例程的执行权后，原导入实测回退排他锁，恢复执行权后回到共享锁。 [独立证明库与撤权实库验收](testing/paired-child-separated-proof-schema-v403.md)
+
+当前产品 190a7da4 已复核同一镜像下的默认配置与显式共享配置。显式共享配置两个并发档均未触发稳定退化，四并发吞吐为 Java 的 111.0%／130.9%／105.8%。撤销并恢复本轮运行账号的例程执行权后，原导入实际从共享转为排他等待，再恢复共享，三次前检均回滚。 [当前构建正式对照](testing/paired-child-current-lock-modes-v434-v435.md)
