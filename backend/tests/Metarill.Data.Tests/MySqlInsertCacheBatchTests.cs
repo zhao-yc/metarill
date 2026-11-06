@@ -1,5 +1,7 @@
+using System.Text;
 using FreeSql.DataAnnotations;
 using Metarill.Data.Relations;
+using MySqlConnector;
 using Xunit;
 
 namespace Metarill.Data.Tests;
@@ -49,6 +51,34 @@ public sealed class MySqlInsertCacheBatchTests
         Assert.Null(MySqlInsertCacheBatch.Prepare(session, "cache_source", row.Id, row, "first_", ("parent_id", 12)));
         row.ParentId = "011";
         Assert.Null(MySqlInsertCacheBatch.Prepare(session, "cache_source", row.Id, row, "first_", ("parent_id", 11)));
+    }
+
+    /// <summary>按原语句形状核对单次绑定、重复绑定和 UTF-8 字节同时计入，且超限仍拒绝合并。</summary>
+    [Fact]
+    public void Packed_budget_charges_mapper_bindings_once_and_repeated_guards_at_each_use()
+    {
+        using var session = CreateSession();
+        using var command = new MySqlCommand();
+        var database = command.Parameters.AddWithValue("expected_database", "offline");
+        var parent = command.Parameters.AddWithValue("parent_candidate", "父🌲");
+        var first = Assert.IsType<MySqlInsertCacheBatch>(MySqlInsertCacheBatch.Prepare(session, "cache_source", 1,
+            new CacheSource { Id = 1, ParentId = "11", Caption = "中文'🌲 " }, "mp0_", ("parent_id", 11)));
+        var second = Assert.IsType<MySqlInsertCacheBatch>(MySqlInsertCacheBatch.Prepare(session, "cache_source", 2,
+            new CacheSource { Id = 2, ParentId = "11", Caption = null }, "mp1_", ("parent_id", 11)));
+        command.Parameters.AddRange(first.Parameters);
+        command.Parameters.AddRange(second.Parameters);
+        var firstId = command.Parameters.AddWithValue("mp0_exact_id", 1L);
+        var secondId = command.Parameters.AddWithValue("mp1_exact_id", 2L);
+        command.CommandText = $"/* 中文 */ SELECT @parent_candidate; {first.Sql}; SELECT @mp0_exact_id,@mp0_exact_id; " +
+            $"SELECT @parent_candidate; {second.Sql}; SELECT @mp1_exact_id,@expected_database";
+        var insertBudget = first.ParameterBudget + second.ParameterBudget;
+        var repeated = new[] { database, parent, firstId, secondId };
+        var exactBudget = Encoding.UTF8.GetByteCount(command.CommandText) + 128L +
+            command.Parameters.Cast<MySqlParameter>().Sum(parameter => MySqlInsertCacheBatch.ParameterBytes(parameter.Value) *
+                command.CommandText.AsSpan().Count("@" + parameter.ParameterName.TrimStart('@')));
+
+        Assert.True(RelationMaintenanceExecutor.FitsPackedCommand(command, exactBudget, insertBudget, repeated));
+        Assert.False(RelationMaintenanceExecutor.FitsPackedCommand(command, exactBudget - 1, insertBudget, repeated));
     }
 
     private static DatabaseSession CreateSession() => new(new()

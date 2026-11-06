@@ -45,6 +45,10 @@ public sealed partial class RelationMaintenanceExecutor
         Add(command, "expected_database", session.Options.ExpectedDatabase);
         foreach (var parameter in parent.Parameters)
             Add(command, parameter.Key, parameter.Value);
+        var repeatedParameters = new List<DbParameter>(command.Parameters.Count + rows.Count);
+        foreach (DbParameter parameter in command.Parameters)
+            repeatedParameters.Add(parameter);
+        long insertParameterBudget = 0;
 
         var sql = new StringBuilder("/* metarill:packed-append */ ").Append(ReadConnectionIdentity);
         // 独立会话变量名防止与宿主已有变量撞名。驱动只绑定参数，变量在借用连接结束时也由重置清除。
@@ -71,10 +75,13 @@ public sealed partial class RelationMaintenanceExecutor
             var insert = MySqlInsertCacheBatch.Prepare(session, table.Option.TableName, row.Id, row.Entity, rowPrefix, (target.ForeignColumn, parent.ParentId));
             if (insert is null)
                 return false;
+            // Prepare 已证明每个带本行前缀的插入参数仅在 VALUES 对应位置绑定一次。
+            insertParameterBudget += insert.ParameterBudget;
             foreach (var parameter in insert.Parameters)
                 command.Parameters.Add(parameter);
             var id = rowPrefix + "exact_id";
             Add(command, id, row.Id);
+            repeatedParameters.Add(command.Parameters[command.Parameters.Count - 1]);
             var where = $" WHERE {Scope(table, "b.")} AND b.`id`=CASE WHEN {MySqlExactParentCandidate.BatchRecheck.DatabaseGate} AND {verdict}=2 THEN @{id} END";
             // 首错状态只由上一行的最终核验更新。本行候选一次返回，同时清除上一行读回值。
             sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END,NULL,NULL,NULL,NULL,NULL")
@@ -99,7 +106,7 @@ public sealed partial class RelationMaintenanceExecutor
         }
         sql.Append($"; SET {state}=NULL,{reset}");
         command.CommandText = sql.ToString();
-        if (!FitsPackedCommand(command, packetLimit))
+        if (!FitsPackedCommand(command, packetLimit, insertParameterBudget, repeatedParameters))
             return false;
 
         var rowNumber = rows[0].Row;
@@ -123,15 +130,18 @@ public sealed partial class RelationMaintenanceExecutor
     }
 
     /// <summary>MySQL 文本命令会重复替换每次参数引用，预算覆盖每次绑定，超限时原路径接管。</summary>
-    private static bool FitsPackedCommand(DbCommand command, long packetLimit)
+    internal static bool FitsPackedCommand(DbCommand command, long packetLimit, long insertParameterBudget,
+        IReadOnlyList<DbParameter> repeatedParameters)
     {
         // 保持完整 SQL 与参数证据可由原观察器核对，超过边界按逐行命令处理。
         if (command.CommandText.Length > DatabaseCommandObservation.MaximumSqlLength ||
             command.Parameters.Count > DatabaseCommandObservation.MaximumParameters)
             return false;
         var limit = Math.Min(packetLimit, 256 * 1024);
-        long bytes = Encoding.UTF8.GetByteCount(command.CommandText) + 128;
-        foreach (DbParameter parameter in command.Parameters)
+        var bytes = Encoding.UTF8.GetByteCount(command.CommandText) + 128 + insertParameterBudget;
+        if (bytes > limit)
+            return false;
+        foreach (var parameter in repeatedParameters)
         {
             var parameterBytes = MySqlInsertCacheBatch.ParameterBytes(parameter.Value);
             if (parameterBytes < 0)
