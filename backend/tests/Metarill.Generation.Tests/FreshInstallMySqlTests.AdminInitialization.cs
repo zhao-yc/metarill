@@ -58,6 +58,7 @@ public sealed partial class FreshInstallMySqlTests
         }
         Assert.Equal(1L, await ScalarAsync(target.Session, $"SELECT COUNT(*) FROM sys_session WHERE account_id={accountId} AND delete_no IS NULL"));
 
+        var blockedSessionIdForRace = SqlRowStore.Id(Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId })));
         // 工作台项目选择仅由原 sysParams 传入。未切换与切换后指向平台后台都应拒绝。
         await DeniedAsync(owner, HttpMethod.Post, direct, new { id = adminTypeId });
         owner.DefaultRequestHeaders.Add("sysParams", Uri.EscapeDataString(JsonSerializer.Serialize(new { yzProjectId = projectId })));
@@ -97,19 +98,16 @@ public sealed partial class FreshInstallMySqlTests
             }
             finally { await ExecuteSessionConstraintAsync($"DROP CHECK {lateConstraint}"); }
 
-            var first = await FreshWebHttp.SendAsync(owner, HttpMethod.Post, central, initialization);
+            var first = sharedDatabase
+                ? await RunLoginRaceAsync(true, central, initialization, oldPassword)
+                : await FreshWebHttp.SendAsync(owner, HttpMethod.Post, central, initialization);
             Assert.Equal(JsonValueKind.Null, first.GetProperty("data").ValueKind);
             var initializedRole = await AssertResetAsync();
             if (sharedDatabase)
             {
                 await DeniedAsync(targetWeb, HttpMethod.Get, permissions, expectedMessage: "登录超时");
                 using var obsoleteLogin = new HttpClient { BaseAddress = owner.BaseAddress };
-                using var response = await obsoleteLogin.PostAsync(login, new FormUrlEncodedContent(new Dictionary<string, string>
-                {
-                    ["username"] = username, ["password"] = oldPassword
-                }));
-                Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
-                Assert.Equal(500, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetInt32());
+                await RejectPasswordAsync(obsoleteLogin, oldPassword);
                 // 原登录页使用 notSendSessionId，过期会话只用于上面的拒绝验证。
                 targetWeb.DefaultRequestHeaders.Remove("loginStateId");
                 await FreshWebHttp.LoginAsync(targetWeb, username, savedPassword, form: true);
@@ -122,7 +120,9 @@ public sealed partial class FreshInstallMySqlTests
                 Assert.Equal(initializedRole.ToString(CultureInfo.InvariantCulture), activeRole.GetProperty("id").GetString());
             }
 
-            var repeated = await FreshWebHttp.SendAsync(owner, HttpMethod.Post, direct, new { id = adminTypeId });
+            var repeated = sharedDatabase
+                ? await RunLoginRaceAsync(false, direct, new { id = adminTypeId }, savedPassword)
+                : await FreshWebHttp.SendAsync(owner, HttpMethod.Post, direct, new { id = adminTypeId });
             Assert.Equal(JsonValueKind.Null, repeated.GetProperty("data").ValueKind);
             Assert.Equal(initializedRole, await AssertResetAsync());
             if (sharedDatabase)
@@ -151,6 +151,103 @@ public sealed partial class FreshInstallMySqlTests
         }
         finally { owner.DefaultRequestHeaders.Remove("sysParams"); }
         await FreshWebHttp.SendAsync(owner, HttpMethod.Get, permissions);
+
+        // 第三连接控制确定的事务先后，只在内存识别本轮账号下的锁语句。
+        async Task<JsonElement> RunLoginRaceAsync(bool resetFirst, string resetRoute, object resetBody, string loginPassword)
+        {
+            await using var holder = target.Session.Provider.CreateConnection(target.Session.Options);
+            await using var observer = target.Session.Provider.CreateConnection(target.Session.Options);
+            await holder.OpenAsync();
+            await observer.OpenAsync();
+            await using var transaction = await holder.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead);
+            await using (var command = holder.CreateCommand())
+            {
+                command.Transaction = transaction;
+                // 登录先行时，在主键上持有下一条会话记录的插入区间，让登录持住账号行锁。
+                command.CommandText = resetFirst
+                    ? "SELECT id FROM sys_session WHERE id=@id FOR UPDATE"
+                    : "SELECT id FROM sys_session FORCE INDEX (PRIMARY) WHERE id>@id FOR UPDATE";
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = "@id";
+                parameter.Value = resetFirst ? blockedSessionIdForRace : await ScalarAsync(target.Session, "SELECT MAX(id) FROM sys_session");
+                command.Parameters.Add(parameter);
+                var locked = await command.ExecuteScalarAsync();
+                if (resetFirst) Assert.Equal(blockedSessionIdForRace, locked);
+                else Assert.Null(locked);
+            }
+
+            using var racingWeb = new HttpClient { BaseAddress = owner.BaseAddress };
+            Task<JsonElement>? reset = null;
+            Task? signingIn = null;
+            try
+            {
+                if (resetFirst)
+                {
+                    reset = FreshWebHttp.SendAsync(owner, HttpMethod.Post, resetRoute, resetBody);
+                    await ObserveAsync(reset, "FROM `sys_session`", "AND `account_id`=", "FOR UPDATE");
+                    signingIn = RejectPasswordAsync(racingWeb, loginPassword);
+                    await ObserveAsync(signingIn, "FROM `yz_manager`", "AND `name`=", "FOR UPDATE");
+                }
+                else
+                {
+                    signingIn = FreshWebHttp.LoginAsync(racingWeb, username, loginPassword, form: true);
+                    await ObserveAsync(signingIn, "INSERT INTO `sys_session`");
+                    reset = FreshWebHttp.SendAsync(owner, HttpMethod.Post, resetRoute, resetBody);
+                    await ObserveAsync(reset, "FROM `yz_manager`", "WHERE `name`=", "FOR UPDATE");
+                }
+            }
+            finally
+            {
+                await transaction.RollbackAsync();
+                await Task.WhenAll(reset ?? Task.CompletedTask, signingIn ?? Task.CompletedTask);
+            }
+
+            if (!resetFirst)
+                await DeniedAsync(racingWeb, HttpMethod.Get, permissions, expectedMessage: "登录超时");
+            return await reset!;
+
+            async Task ObserveAsync(Task operation, params string[] fragments)
+            {
+                await using var probe = observer.CreateCommand();
+                probe.CommandText = "SHOW FULL PROCESSLIST";
+                var started = System.Diagnostics.Stopwatch.StartNew();
+                long previousMatch = 0;
+                while (started.Elapsed < TimeSpan.FromSeconds(7) && !operation.IsCompleted)
+                {
+                    long matched = 0;
+                    await using (var reader = await probe.ExecuteReaderAsync())
+                    {
+                        var id = reader.GetOrdinal("Id");
+                        var database = reader.GetOrdinal("db");
+                        var info = reader.GetOrdinal("Info");
+                        while (await reader.ReadAsync())
+                        {
+                            if (reader.IsDBNull(database) || reader.IsDBNull(info) || reader.GetString(database) != target.Session.Options.ExpectedDatabase) continue;
+                            var sql = reader.GetString(info);
+                            if (fragments.All(fragment => sql.Contains(fragment, StringComparison.OrdinalIgnoreCase)))
+                                matched = Convert.ToInt64(reader.GetValue(id), CultureInfo.InvariantCulture);
+                        }
+                    }
+                    if (matched > 0 && matched == previousMatch) return;
+                    previousMatch = matched;
+                    await Task.Delay(100);
+                }
+                Assert.Fail("没有在同一数据库连接连续观察到本轮预期的登录或重置阻塞语句。");
+            }
+        }
+        // 旧密码拒绝沿用原表单和响应协议，且绝不能返回会话标识。
+        async Task RejectPasswordAsync(HttpClient client, string password)
+        {
+            using var response = await client.PostAsync(login, new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["username"] = username, ["password"] = password, ["captchaVerification"] = ""
+            }));
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(500, result.GetProperty("code").GetInt32());
+            Assert.Equal("用户名或者密码错误", result.GetProperty("msg").GetString());
+            Assert.False(result.GetProperty("map").TryGetProperty("loginStateId", out _));
+        }
 
         // DDL 仅用于本轮空库夹具，和待验证的业务事务分别提交。
         async Task ExecuteSessionConstraintAsync(string clause)
