@@ -45,7 +45,7 @@ public class PairedJavaObservationSmoke {
     }
     /** 另线程读取固定本地元数据并保持连接回指；不发送SQL或访问真实驱动会话。 */
     private static void metadata()throws Exception{
-        var observer=new PairedJdbcObservation(new PairedJdbcObservation.Metadata(){@Override public List<PairedJdbcObservation.Binding> parameters(PreparedStatement command){return List.of();}@Override public boolean serverPrepared(PreparedStatement command){return false;}});
+        var observer=new PairedJdbcObservation(new PairedJdbcObservation.Metadata(){@Override public List<PairedJdbcObservation.Binding> parameters(PreparedStatement command){return List.of();}@Override public boolean serverPrepared(PreparedStatement command){return false;}@Override public String database(Statement command){return "offline";}});
         var metadata=(DatabaseMetaData)Proxy.newProxyInstance(PairedJavaObservationSmoke.class.getClassLoader(),new Class<?>[]{DatabaseMetaData.class},(proxy,method,args)->switch(method.getName()){case "getURL"->"jdbc:mysql://127.0.0.1:1/offline";case "supportsMultipleResultSets"->true;default->null;});
         var raw=(Connection)Proxy.newProxyInstance(PairedJavaObservationSmoke.class.getClassLoader(),new Class<?>[]{Connection.class},(proxy,method,args)->method.getName().equals("getMetaData")?metadata:null);Connection connection=observer.wrap(raw);var scope=observer.begin(new byte[32],8);
         try(var executor=Executors.newSingleThreadExecutor()){if(!executor.submit(()->connection.getMetaData().getURL()).get().equals("jdbc:mysql://127.0.0.1:1/offline")||!connection.getMetaData().supportsMultipleResultSets()||connection.getMetaData().getConnection()!=connection)throw new IllegalStateException("元数据回指不符");}finally{scope.close();}

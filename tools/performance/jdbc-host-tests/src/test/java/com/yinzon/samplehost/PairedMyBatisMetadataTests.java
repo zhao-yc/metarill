@@ -17,6 +17,7 @@ class PairedMyBatisMetadataTests {
     private final PairedJdbcObservation observer=new PairedJdbcObservation(new PairedJdbcObservation.Metadata(){
         @Override public java.util.List<PairedJdbcObservation.Binding> parameters(PreparedStatement value){return List.of();}
         @Override public boolean serverPrepared(PreparedStatement value){return false;}
+        @Override public String database(Statement value){return "offline";}
     });
     /** 明确替身只模拟JDBC返回；实际MyBatis消费者代码不替换。 */
     private Connection original(){

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.*;
 import com.mysql.cj.*;
 import com.mysql.cj.conf.*;
 import com.mysql.cj.jdbc.JdbcPreparedStatement;
+import com.mysql.cj.jdbc.JdbcStatement;
 import jakarta.servlet.*;
 import java.io.*;
 import java.lang.reflect.*;
@@ -63,7 +64,7 @@ class PairedJdbcObservationHostTests {
             transaction.executeWithoutResult(status->{assertEquals(1,jdbc.queryForObject("SELECT 1",Integer.class));assertEquals(1,jdbc.update("UPDATE fixture SET name=?","PRIVATE-PARAMETER"));Connection connection=DataSourceUtils.getConnection(wrapped);try(Statement statement=connection.createStatement();ResultSet reader=statement.executeQuery("SELECT 2")){assertTrue(reader.next());}catch(SQLException failure){throw new IllegalStateException(failure);}finally{DataSourceUtils.releaseConnection(connection,wrapped);}});
             assertArrayEquals("password=PRIVATE-REQUEST-BODY".getBytes(StandardCharsets.UTF_8),request.getInputStream().readAllBytes());servletResponse.setCharacterEncoding("UTF-8");servletResponse.getWriter().write("原业务返回");
         });
-        assertEquals("原业务返回",response.getContentAsString());JsonNode record=trace(),sql=record.path("trace");assertTrue(sql.path("internallyConsistent").asBoolean());assertEquals(3,sql.path("commands").size());assertEquals(5,sql.path("transactions").size());Set<Long> connections=new HashSet<>(),transactions=new HashSet<>();for(JsonNode command:sql.path("commands")){connections.add(command.path("connection").asLong());transactions.add(command.path("transaction").asLong());assertTrue(command.path("succeeded").asBoolean());}assertEquals(1,connections.size());assertEquals(1,transactions.size());assertFalse(record.toString().contains("PRIVATE-"));assertEquals(RUN,record.path("sample").asText());assertFalse(index().path("finalized").asBoolean());
+        assertEquals("原业务返回",response.getContentAsString());JsonNode record=trace(),sql=record.path("trace");assertTrue(sql.path("internallyConsistent").asBoolean());assertEquals(3,sql.path("commands").size());assertEquals(5,sql.path("transactions").size());Set<Long> connections=new HashSet<>(),transactions=new HashSet<>();for(JsonNode command:sql.path("commands")){connections.add(command.path("connection").asLong());transactions.add(command.path("transaction").asLong());assertTrue(command.path("succeeded").asBoolean());assertEquals("metarill_fresh_1234567890abcdef_paired_java",command.path("database").asText());}assertEquals(1,connections.size());assertEquals(1,transactions.size());assertFalse(record.toString().contains("PRIVATE-"));assertEquals(RUN,record.path("sample").asText());assertFalse(index().path("finalized").asBoolean());
         context.close();assertTrue(index().path("internallyConsistent").asBoolean());assertEquals(1,source.opens.get());assertEquals(1,source.connectionCloses.get());assertEquals(1,source.commits.get());assertEquals(0,source.rollbacks.get());assertEquals(1,source.closes.get());exportSyntheticArtifacts();
     }
     /** 仅显式测试属性可保留合成采集供独立读取器核对；新目录不覆盖，绝不导出key。 */
@@ -168,9 +169,9 @@ class PairedJdbcObservationHostTests {
         }
         /** 原执行只返回合成一行；绑定通过真实驱动setter实现，不解析或执行SQL。 */
         private Statement statement(Connection connection,String sql){
-            NativeQueryBindings bindings=sql==null?null:bindings();Class<?> type=sql==null?Statement.class:JdbcPreparedStatement.class;
+            NativeQueryBindings bindings=sql==null?null:bindings();Class<?> type=sql==null?JdbcStatement.class:JdbcPreparedStatement.class;
             return (Statement)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{type},(proxy,method,args)->switch(method.getName()){
-                case "getQueryBindings"->bindings;case "setString"->{bindings.setString((Integer)args[0]-1,(String)args[1]);yield null;}case "setObject"->{bindings.setObject((Integer)args[0]-1,args[1]);yield null;}case "executeUpdate"->1;case "executeQuery"->rows();case "getConnection"->connection;case "toString"->"明确替身命令";case "hashCode"->System.identityHashCode(proxy);case "equals"->proxy==args[0];default->defaultValue(method.getReturnType());
+                case "getCurrentDatabase"->"metarill_fresh_1234567890abcdef_paired_java";case "getQueryBindings"->bindings;case "setString"->{bindings.setString((Integer)args[0]-1,(String)args[1]);yield null;}case "setObject"->{bindings.setObject((Integer)args[0]-1,args[1]);yield null;}case "executeUpdate"->1;case "executeQuery"->rows();case "getConnection"->connection;case "toString"->"明确替身命令";case "hashCode"->System.identityHashCode(proxy);case "equals"->proxy==args[0];default->defaultValue(method.getReturnType());
             });
         }
         private static Object defaultValue(Class<?> type){if(type==boolean.class)return false;if(type==int.class)return 0;if(type==long.class)return 0L;return null;}

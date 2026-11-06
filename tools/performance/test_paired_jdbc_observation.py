@@ -26,7 +26,7 @@ class PairedJdbcObservationTests(unittest.TestCase):
             self.assertEqual(0, compiled.returncode, compiled.stdout+compiled.stderr)
             executed = subprocess.run([java, "-Dstdout.encoding=UTF-8", "-cp", directory+os.pathsep+str(driver), "com.yinzon.samplehost.PairedJdbcObservationSelfTest", str(source/"sql-value-proof-v1.tsv")], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
             self.assertEqual(0, executed.returncode, executed.stdout+executed.stderr)
-            self.assertIn("通过：49项", executed.stdout)
+            self.assertIn("通过：50项", executed.stdout)
 
 if __name__ == "__main__":
     unittest.main()

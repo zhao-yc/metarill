@@ -15,10 +15,10 @@ import javax.crypto.spec.SecretKeySpec;
 /** 仅供独占配对验收宿主显式安装的JDBC观察器；不注册Bean、不写日志、不开连接。 */
 public final class PairedJdbcObservation {
     /** 驱动适配器只读取最终绑定状态，不执行SQL、不读取stream或调用未知值的toString。 */
-    public interface Metadata { List<Binding> parameters(PreparedStatement statement) throws Exception; boolean serverPrepared(PreparedStatement statement) throws Exception; }
+    public interface Metadata { List<Binding> parameters(PreparedStatement statement) throws Exception; boolean serverPrepared(PreparedStatement statement) throws Exception; String database(Statement statement) throws Exception; }
     public record Binding(int position,String driverType,Object value,boolean unsupported) {}
     public record Parameter(int position,String driverType,String javaType,String kind,String valueHash) {}
-    public record Command(long number,String operation,String sql,List<Parameter> parameters,long connection,Long transaction,boolean serverPrepared,boolean succeeded,String errorType,Integer errorCode,Long affectedRows,long startedNanos,long finishedNanos) {}
+    public record Command(long number,String operation,String sql,List<Parameter> parameters,String database,long connection,Long transaction,boolean serverPrepared,boolean succeeded,String errorType,Integer errorCode,Long affectedRows,long startedNanos,long finishedNanos) {}
     public record Boundary(long number,String operation,long connection,Long transaction,Boolean booleanValue,Integer isolationLevel,boolean succeeded,String errorType,Integer errorCode,long startedNanos,long finishedNanos) {}
     public record Snapshot(String valueProofFormat,List<Command> commands,List<Boundary> transactions,Set<String> problems,long started,long completed,long startedTransactions,long completedTransactions,boolean closed,boolean internallyConsistent) {}
     private final Metadata metadata;private volatile boolean escaped;
@@ -149,7 +149,7 @@ public final class PairedJdbcObservation {
         }
         /** 在原驱动执行之前快照实际绑定；元数据失败使证据失效，原调用仍执行且只执行一次。 */
         private Object execute(ConnectionState state,Statement statement,String operation,String sql,OriginalCall original)throws Throwable{
-            long number,connection,start=System.nanoTime();Long transaction;boolean retained,prepared=false;List<Parameter> parameters=List.of();String text=sql;
+            long number,connection,start=System.nanoTime();Long transaction;boolean retained,prepared=false;List<Parameter> parameters=List.of();String text=sql,database=null;
             synchronized(this){started++;number=++sequence;connection=connection(state);transaction=transactions.get(state);retained=started<=maximum;if(closed)problem("late-call");if(!retained)problem("command-limit");}
             if(retained){
                 try{
@@ -159,12 +159,16 @@ public final class PairedJdbcObservation {
                     if(text!=null){String head=text.stripLeading().split("\\s+",2)[0].toUpperCase(Locale.ROOT);if(Set.of("SET","START","BEGIN","COMMIT","ROLLBACK","SAVEPOINT","RELEASE","XA","USE").contains(head))problem("transaction-control-sql");if(transaction!=null&&Set.of("CREATE","ALTER","DROP","TRUNCATE","RENAME","LOCK","UNLOCK").contains(head))problem("implicit-commit-sql");}
                     if(statement instanceof CallableStatement)problem("callable-statement");
                     if(statement instanceof PreparedStatement ps){List<Binding> bindings=metadata.parameters(ps);if(bindings.size()>256)problem("parameter-limit");else{List<Parameter> captured=new ArrayList<>();for(Binding binding:bindings)captured.add(parameter(binding));parameters=List.copyOf(captured);}prepared=metadata.serverPrepared(ps);}
+                    // Connector/J 按语句创建时的库执行，连接当前库可能不同。
+                    String driverDatabase=metadata.database(statement);
+                    if(driverDatabase==null||!driverDatabase.matches("[A-Za-z0-9_]{1,64}"))problem("statement-database-missing");
+                    else database=driverDatabase;
                     if(!state.original.getAutoCommit()&&transaction==null)problem("missing-transaction-begin");
                 }catch(Exception failure){problem("metadata-failure");}
             }
             Throwable failure=null;Object result=null;
             try{result=original.run();return result;}catch(Throwable error){failure=error;throw error;}
-            finally{synchronized(this){completed++;if(closed)problem("late-call");if(retained)commands.add(new Command(number,operation,text,parameters,connection,transaction,prepared,failure==null,error(failure),code(failure),result instanceof Number rows?rows.longValue():null,start,System.nanoTime()));}}
+            finally{synchronized(this){completed++;if(closed)problem("late-call");if(retained)commands.add(new Command(number,operation,text,parameters,database,connection,transaction,prepared,failure==null,error(failure),code(failure),result instanceof Number rows?rows.longValue():null,start,System.nanoTime()));}}
         }
         /** JDBC没有独立begin API：只记录实际setAutoCommit(false)，不虚构服务器BEGIN语句。 */
         private Object boundary(ConnectionState state,String operation,Object[] args,OriginalCall original)throws Throwable{

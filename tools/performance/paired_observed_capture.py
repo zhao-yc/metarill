@@ -409,7 +409,10 @@ def review_saved_capture(value,exchange,saved):
             proof_key = key_path.read_bytes()
             child_facts = {}
         reader.shape(index,'format runId started completed observed problems requests finalized internallyConsistent '+('sourcesVerified dataSources' if java else 'dataAssemblySha256 expectedDatabases retainedEntries'))
-        reader.require(index['format']==('metarill-paired-jdbc-index-v1' if java else 'metarill-paired-dotnet-index-v1') and index['runId']==value['runId'],'capture-index-format')
+        index_formats = {'metarill-paired-jdbc-index-v1', 'metarill-paired-jdbc-index-v2'} if java else {'metarill-paired-dotnet-index-v1'}
+        reader.require(type(index['format']) is str and index['format'] in index_formats and index['runId']==value['runId'],'capture-index-format')
+        java_database_proof = java and index['format'] == 'metarill-paired-jdbc-index-v2'
+        java_version = 'v2' if java_database_proof else 'v1'
         reader.require(reader.flag(index['finalized']) and reader.flag(index['internallyConsistent']) and index['problems']==[],'capture-index-incomplete')
         expected={row['sample']:row for row in exchange.plans[target]};wanted=len(expected)
         unlabeled = list(IDENTITY_STEPS) if child_sql else []
@@ -424,7 +427,7 @@ def review_saved_capture(value,exchange,saved):
             reader.shape(reference,'id sha256');ident=reference['id'];reader.require(type(ident) is str and re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}' if java else '[a-f0-9]{32}',ident),'capture-record-id');name=ident+'.json';reader.require(name not in names,'capture-duplicate-record');names.add(name)
             reader.require(files.get(name)==reference['sha256'],'capture-reference-digest')
             record=reader.load(directory/name,reference['sha256'],64*1024*1024);reader.shape(record,'format runId id sample chainSucceeded errorType trace '+('statusAtFilterExit' if java else 'statusAtMiddlewareExit problems internallyConsistent'))
-            reader.require(record['format']==('metarill-paired-jdbc-http-v1' if java else 'metarill-paired-dotnet-http-v1') and record['runId']==value['runId'] and record['id']==ident,'capture-record-format')
+            reader.require(record['format']==('metarill-paired-jdbc-http-' + java_version if java else 'metarill-paired-dotnet-http-v1') and record['runId']==value['runId'] and record['id']==ident,'capture-record-format')
             label=record['sample']
             if label is None and child_sql:
                 # 原观察器会自动记录已由真实入口核验的九个就绪／认证请求。
@@ -437,7 +440,7 @@ def review_saved_capture(value,exchange,saved):
                 entry=expected[label]
             reader.require(reader.integer(record['statusAtFilterExit' if java else 'statusAtMiddlewareExit'],100,599)==entry['statusAtExit'] and reader.flag(record['chainSucceeded']) and record['errorType'] is None,'capture-record-outcome')
             if not java:reader.require(reader.flag(record['internallyConsistent']) and record['problems']==[],'capture-record-incomplete')
-            measured=reader.trace(record['trace'],target,{database})
+            measured=reader.trace(record['trace'],target,{database},java_database_proof=java_database_proof)
             step = entry['step']
             reader.require(measured['failedTransactions']==0 and
                            (measured['failedCommands']==0 or child_sql and step=="child:late-row-rollback" and measured['failedCommands']==1),
@@ -460,7 +463,7 @@ def review_saved_capture(value,exchange,saved):
                 rollback=any(command['succeeded'] and command['transaction'] in ended and re.match(update,command['sql']) for command in record['trace']['commands']);reader.require(rollback,'capture-update-before-rollback')
         reader.require(not unlabeled and seen==set(expected) and names==set(files),'capture-record-file-coverage')
         if not java:reader.require(reader.integer(index['retainedEntries'])==counts['commands']+counts['transactions'],'capture-retained-count')
-        summaries[target]={'indexSha256':files['index.json'],'files':files,'requests':wanted,**counts,'requestCoverageVerified':True,'traceStructureVerified':True,'sqlCountExpectationsVerified':False,'sqlSemanticAccepted':False,'physicalTargetVerified':False,'performanceAccepted':False}
+        summaries[target]={'indexSha256':files['index.json'],'files':files,'requests':wanted,**counts,'requestCoverageVerified':True,'traceStructureVerified':True,'commandDatabaseVerified':counts['commands']>0 and (not java or java_database_proof),'sqlCountExpectationsVerified':False,'sqlSemanticAccepted':False,'physicalTargetVerified':False,'performanceAccepted':False}
         if child_sql:
             summaries[target]['childImport'] = child_facts
             summaries[target]['automaticIdentityRequests'] = recorded-wanted

@@ -24,13 +24,13 @@ public final class PairedJdbcObservationSelfTest {
     @FunctionalInterface private interface Checked{void run()throws Exception;}
     /** 明确替身只提供原结果／异常，计数原调用；不模拟SQL引擎或权限。 */
     private static final class Driver implements InvocationHandler {
-        int executions,commits,rollbacks,reads;boolean auto=true;SQLException failure;String failing;CountDownLatch entered,release;
+        int executions,commits,rollbacks,reads;boolean auto=true;String database="statement_db";SQLException failure;String failing;CountDownLatch entered,release;
         List<PairedJdbcObservation.Binding> bindings=List.of();
         final Connection connection=(Connection)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{Connection.class},this);
         final ResultSet reader=(ResultSet)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{ResultSet.class},this);
         final Statement statement=(Statement)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{Statement.class},this);
         PreparedStatement prepared=(PreparedStatement)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{PreparedStatement.class},this);
-        final PairedJdbcObservation.Metadata metadata=new PairedJdbcObservation.Metadata(){public List<PairedJdbcObservation.Binding> parameters(PreparedStatement statement){return bindings;}public boolean serverPrepared(PreparedStatement statement){return false;}};
+        final PairedJdbcObservation.Metadata metadata=new PairedJdbcObservation.Metadata(){public List<PairedJdbcObservation.Binding> parameters(PreparedStatement statement){return bindings;}public boolean serverPrepared(PreparedStatement statement){return false;}public String database(Statement statement){return database;}};
         @Override public Object invoke(Object proxy,Method method,Object[] args)throws Throwable{
             String name=method.getName();if(name.equals("toString"))throw new AssertionError("不能读取原驱动文本");
             if(name.equals("getAutoCommit"))return auto;
@@ -121,7 +121,7 @@ public final class PairedJdbcObservationSelfTest {
             }
         });
         test(()->{
-            Driver driver=new Driver();PairedJdbcObservation observer=new PairedJdbcObservation(new PairedJdbcObservation.Metadata(){public List<PairedJdbcObservation.Binding> parameters(PreparedStatement statement){throw new IllegalStateException("私有诊断异常");}public boolean serverPrepared(PreparedStatement statement){throw new AssertionError("失败后不继续读取");}});var trace=observer.begin(KEY,2);
+            Driver driver=new Driver();PairedJdbcObservation observer=new PairedJdbcObservation(new PairedJdbcObservation.Metadata(){public List<PairedJdbcObservation.Binding> parameters(PreparedStatement statement){throw new IllegalStateException("私有诊断异常");}public boolean serverPrepared(PreparedStatement statement){throw new AssertionError("失败后不继续读取");}public String database(Statement statement){throw new AssertionError("失败后不继续读取");}});var trace=observer.begin(KEY,2);
             try(Connection connection=observer.wrap(driver.connection);PreparedStatement statement=connection.prepareStatement("SELECT @value")){check(statement.execute());}finally{trace.close();}
             check(driver.executions==1&&trace.snapshot().problems().contains("metadata-failure")&&!trace.snapshot().internallyConsistent());
         });
@@ -141,6 +141,19 @@ public final class PairedJdbcObservationSelfTest {
         test(()->vectors(Path.of(args[0])));
         test(()->actualBindings(Path.of(args[0])));
         test(()->actualTemporalBindings(Path.of(args[0]).resolveSibling("sql-native-java-values-v2.tsv")));
+        test(()->{
+            Driver driver=new Driver();
+            var observer=new PairedJdbcObservation(driver.metadata);
+            var trace=observer.begin(KEY,2);
+            try(Connection connection=observer.wrap(driver.connection);Statement command=connection.createStatement()){
+                command.execute("SELECT 1");
+                driver.database=null;
+                command.execute("SELECT 2");
+            }finally{trace.close();}
+            var snapshot=trace.snapshot();
+            check(driver.executions==2&&snapshot.commands().getFirst().database().equals("statement_db"));
+            check(snapshot.commands().getLast().database()==null&&snapshot.problems().contains("statement-database-missing")&&!snapshot.internallyConsistent());
+        });
         System.out.println("Java JDBC离线采集通过："+passed+"项；真实数据库、HTTP及性能未执行。");
     }
     /** 同一固定向量还由C#测试读取，摘要使用独立Python标准库生成。 */
@@ -156,7 +169,7 @@ public final class PairedJdbcObservationSelfTest {
         NativeSession session=new NativeSession(ConnectionUrl.getConnectionUrlInstance("jdbc:mysql://127.0.0.1:1/offline",new Properties()).getMainHost(),properties){@Override public com.mysql.cj.protocol.a.NativeProtocol getProtocol(){return offlineProtocol;}@Override public com.mysql.cj.protocol.ServerSession getServerSession(){return offlineServer;}};
         Object[] originals={LocalDateTime.of(2026,11,2,3,4,5,123456789),LocalTime.of(3,4,5,123456789),Duration.ofHours(26).plusNanos(123456789),Duration.ofNanos(-1),Duration.ofSeconds(Long.MAX_VALUE,999999999)};
         NativeQueryBindings bindings=new NativeQueryBindings(originals.length,session,NativeQueryBindValue::new);for(int i=0;i<originals.length;i++)bindings.setObject(i,originals[i]);
-        PreparedStatement statement=(PreparedStatement)Proxy.newProxyInstance(PairedJdbcObservationSelfTest.class.getClassLoader(),new Class<?>[]{JdbcPreparedStatement.class},(proxy,method,args)->{if(method.getName().equals("getQueryBindings"))return bindings;if(method.getName().equals("execute"))return true;if(method.getName().equals("close"))return null;throw new AssertionError("时间采集调用了未声明驱动方法");});
+        PreparedStatement statement=(PreparedStatement)Proxy.newProxyInstance(PairedJdbcObservationSelfTest.class.getClassLoader(),new Class<?>[]{JdbcPreparedStatement.class},(proxy,method,args)->{if(method.getName().equals("getQueryBindings"))return bindings;if(method.getName().equals("getCurrentDatabase"))return "statement_db";if(method.getName().equals("execute"))return true;if(method.getName().equals("close"))return null;throw new AssertionError("时间采集调用了未声明驱动方法");});
         Driver driver=new Driver();driver.prepared=statement;var observer=new PairedJdbcObservation(new MySqlJdbcObservationMetadata());var trace=observer.begin(KEY,2);try(Connection connection=observer.wrap(driver.connection);PreparedStatement wrapped=connection.prepareStatement("SELECT @datetime,@time,@duration,@negative,@large")){wrapped.execute();}finally{trace.close();}
         var snapshot=trace.snapshot();check(snapshot.internallyConsistent()&&snapshot.valueProofFormat().equals("metarill-sql-values-v2"));var parameters=snapshot.commands().getFirst().parameters();List<String> expected=Files.readAllLines(file);check(expected.size()==originals.length);
         for(int i=0;i<originals.length;i++){String[] row=expected.get(i).split("\t");check(parameters.get(i).kind().equals(row[1])&&parameters.get(i).valueHash().equals(row[2]));check(bindings.getBindValues()[i].getValue().equals(originals[i]));}
@@ -174,11 +187,12 @@ public final class PairedJdbcObservationSelfTest {
             @Override public com.mysql.cj.protocol.ServerSession getServerSession(){return offlineServer;}
         };
         NativeQueryBindings bindings=new NativeQueryBindings(5,session,NativeQueryBindValue::new);bindings.setLong(0,9007199254740993L);bindings.setBigDecimal(1,new BigDecimal("0.1234567890123456789012345678"));bindings.setDouble(2,Math.scalb(1d,-958));bindings.setString(3,"中文");bindings.setNull(4);
-        PreparedStatement statement=(PreparedStatement)Proxy.newProxyInstance(PairedJdbcObservationSelfTest.class.getClassLoader(),new Class<?>[]{JdbcPreparedStatement.class},(proxy,method,args)->{if(method.getName().equals("getQueryBindings"))return bindings;if(method.getName().equals("execute"))return true;if(method.getName().equals("close"))return null;throw new AssertionError("适配器调用了未声明驱动方法");});
+        PreparedStatement statement=(PreparedStatement)Proxy.newProxyInstance(PairedJdbcObservationSelfTest.class.getClassLoader(),new Class<?>[]{JdbcPreparedStatement.class},(proxy,method,args)->{if(method.getName().equals("getQueryBindings"))return bindings;if(method.getName().equals("getCurrentDatabase"))return "statement_db";if(method.getName().equals("execute"))return true;if(method.getName().equals("close"))return null;throw new AssertionError("适配器调用了未声明驱动方法");});
         var adapter=new MySqlJdbcObservationMetadata();var result=adapter.parameters(statement);check(result.size()==5&&result.stream().noneMatch(PairedJdbcObservation.Binding::unsupported));check(result.get(0).driverType().equals("BIGINT")&&result.get(0).value().equals(9007199254740993L));check(result.get(2).driverType().equals("DOUBLE")&&result.get(2).value().equals(Math.scalb(1d,-958)));check(!adapter.serverPrepared(statement));
         Driver driver=new Driver();driver.prepared=statement;PairedJdbcObservation observer=new PairedJdbcObservation(adapter);var trace=observer.begin(KEY,2);
         try(Connection connection=observer.wrap(driver.connection);PreparedStatement wrapped=connection.prepareStatement("SELECT @id,@amount,@value,@name,@missing")){wrapped.execute();}finally{trace.close();}
         check(trace.snapshot().internallyConsistent());Map<String,String> expected=new HashMap<>();for(String line:Files.readAllLines(vectors)){String[] parts=line.split("\t");expected.put(parts[0],parts[2]);}
+        check(trace.snapshot().commands().getFirst().database().equals("statement_db"));
         var captured=trace.snapshot().commands().getFirst().parameters();check(captured.get(0).valueHash().equals(expected.get("id"))&&captured.get(1).valueHash().equals(expected.get("decimal"))&&captured.get(2).valueHash().equals(expected.get("double"))&&captured.get(4).valueHash().equals(expected.get("null")));
         bindings.setBinaryStream(0,new InputStream(){@Override public int read(){throw new AssertionError("真实驱动流绑定不能被观察读取");}},-1);check(adapter.parameters(statement).getFirst().unsupported());
         var streamed=observer.begin(KEY,2);try(Connection connection=observer.wrap(driver.connection);PreparedStatement wrapped=connection.prepareStatement("SELECT @stream")){wrapped.execute();}finally{streamed.close();}check(streamed.snapshot().problems().contains("unsupported-binding")&&!streamed.snapshot().internallyConsistent());

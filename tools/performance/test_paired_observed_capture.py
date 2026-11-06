@@ -90,6 +90,30 @@ class CaptureTests(unittest.TestCase):
             self.assertLess(steps.index('business:line-add'),steps.index('business:business-rollback'))
             self.assertEqual(46,len(self.exchange.plans[side]))
 
+    def test_java_v2_validates_every_command_against_its_lease_database(self):
+        """现有采集入口按冻结库拒绝越界语句，旧档案保留各自格式。"""
+        for wrong in (False, True):
+            with self.subTest(wrong=wrong):
+                with tempfile.TemporaryDirectory() as directory:
+                    self.root = Path(directory)
+                    with mock.patch.object(subject.resources, 'root_for', return_value=self.root):
+                        self.exchange = subject.Exchange(self.scope, mock.Mock())
+                        self.materialize()
+                        self.indexes['java']['format'] = 'metarill-paired-jdbc-index-v2'
+                        database = 'metarill_fresh_' + self.scope['runId'][:16] + '_paired_java'
+                        for record in self.records['java']:
+                            record['format'] = 'metarill-paired-jdbc-http-v2'
+                            for command in record['trace']['commands']:
+                                command['database'] = database + '_other' if wrong else database
+                        self.write('java')
+                        if wrong:
+                            with self.assertRaisesRegex(ValueError, 'artifact-unexpected-database'):
+                                self.capture()
+                        else:
+                            result = self.capture()['targets']['java']
+                            self.assertTrue(result['commandDatabaseVerified'])
+                            self.assertFalse(result['physicalTargetVerified'])
+
     def test_existing_line_capture_reads_complete_artifacts_and_records_transaction_evidence(self):
         """从实际文件载入52条合成请求，核对同事务提交及回滚后才出具专项回执。"""
         self.scope={**self.scope,'purpose':subject.resources.EXISTING_LINE_NATIVE,'images':EXISTING_IMAGES}

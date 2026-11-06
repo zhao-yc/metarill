@@ -72,6 +72,32 @@ class SqlArtifactAuditTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             self.checked(side, change)
 
+    def test_java_statement_database_is_required_and_matches_the_independent_plan(self):
+        """新版按每条命令校验默认库，旧索引或缺库字段均不可降级。"""
+        def v2(index, record, expected):
+            index['format'] = 'metarill-paired-jdbc-index-v2'
+            record['format'] = 'metarill-paired-jdbc-http-v2'
+            expected['source']['databases'] = ['statement_db']
+            record['trace']['commands'][0]['database'] = 'statement_db'
+        result = self.checked('java', v2)
+        self.assertTrue(result['commandDatabaseVerified'])
+        self.assertFalse(result['physicalTargetVerified'])
+        self.assertFalse(self.checked('java')['commandDatabaseVerified'])
+        for defect in ('missing', 'wrong', 'legacy-record', 'legacy-index'):
+            with self.subTest(defect=defect):
+                def change(index, record, expected):
+                    v2(index, record, expected)
+                    command = record['trace']['commands'][0]
+                    if defect == 'missing':
+                        del command['database']
+                    elif defect == 'wrong':
+                        command['database'] = 'other_db'
+                    elif defect == 'legacy-record':
+                        record['format'] = 'metarill-paired-jdbc-http-v1'
+                    else:
+                        index['format'] = 'metarill-paired-jdbc-index-v1'
+                self.reject('java', change)
+
     def test_closed_actual_shapes_do_not_claim_semantics_or_performance(self):
         """两种格式可以内部有效，同时所有语义、物理和发布结论保持未验。"""
         for side in ('java','csharp'):

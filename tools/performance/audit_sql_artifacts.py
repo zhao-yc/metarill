@@ -113,7 +113,7 @@ def parameters(items, side, version):
     return native
 
 
-def trace(snapshot, side, databases):
+def trace(snapshot, side, databases, *, java_database_proof=False):
     """重算计数与事务引用，不相信产物自报internallyConsistent=true。"""
     fields = "valueProofFormat commands transactions problems started completed closed internallyConsistent startedTransactions completedTransactions"
     if side == "csharp":
@@ -197,7 +197,13 @@ def trace(snapshot, side, databases):
     transaction_numbers = numbers.copy(); command_numbers = set()
     for entry in commands:
         fields = "number operation sql parameters connection transaction serverPrepared succeeded errorType errorCode affectedRows startedNanos finishedNanos" if side == "java" else "number operation sql parameters database connection transaction prepared driverCalled succeeded canceled errorType affectedRows startedTimestamp driverTimestamp finishedTimestamp"
-        shape(entry, fields); number = integer(entry["number"], 1); require(number not in command_numbers and (side != "java" or number not in numbers), "artifact-entry-number"); command_numbers.add(number); numbers.add(number)
+        if side == "java" and java_database_proof:
+            fields += " database"
+        shape(entry, fields)
+        if side == "csharp" or java_database_proof:
+            text(entry["database"], 64)
+            require(entry["database"] in databases, "artifact-unexpected-database")
+        number = integer(entry["number"], 1); require(number not in command_numbers and (side != "java" or number not in numbers), "artifact-entry-number"); command_numbers.add(number); numbers.add(number)
         text(entry["operation"]); require(entry["operation"] in ({"execute", "executeQuery", "executeUpdate", "executeLargeUpdate"} if side == "java" else {"nonQuery", "scalar", "reader"}), "artifact-command-operation")
         require(type(entry["sql"]) is str and 0 < len(entry["sql"]) <= 32768 and "\0" not in entry["sql"], "artifact-sql-text"); connection = integer(entry["connection"], 1); transaction = entry["transaction"]
         success = flag(entry["succeeded"]); text(entry["errorType"], nullable=True); require((entry["errorType"] is None) == success, "artifact-outcome"); failures[0] += not success
@@ -214,7 +220,7 @@ def trace(snapshot, side, databases):
             start, finish = entry["startedNanos"], entry["finishedNanos"]
         else:
             flag(entry["prepared"]); flag(entry["driverCalled"]); flag(entry["canceled"]); require(not success or entry["driverCalled"] and not entry["canceled"], "artifact-outcome")
-            text(entry["database"], 64); require(entry["database"] in databases, "artifact-unexpected-database"); start, finish = entry["startedTimestamp"], entry["finishedTimestamp"]
+            start, finish = entry["startedTimestamp"], entry["finishedTimestamp"]
             if entry["driverCalled"]:
                 elapsed(start, entry["driverTimestamp"]); elapsed(entry["driverTimestamp"], finish)
             else:
@@ -257,12 +263,20 @@ def audit(directory, expected, index_digest):
     directory = ordinary(directory, True); index = load(directory/"index.json", index_digest, 4*1024*1024)
     fields = "format runId started completed observed problems requests finalized internallyConsistent"
     fields += " sourcesVerified dataSources" if side == "java" else " dataAssemblySha256 expectedDatabases retainedEntries"
-    shape(index, fields); require(index["format"] == ("metarill-paired-jdbc-index-v1" if side == "java" else "metarill-paired-dotnet-index-v1") and index["runId"] == run_id, "artifact-index-format")
+    source = expected["source"]
+    # 独立预期声明目标库时必须读取新版 Java 证据，旧格式不能降级通过。
+    java_database_proof = side == "java" and type(source) is dict and "databases" in source
+    java_version = "v2" if java_database_proof else "v1"
+    index_format = "metarill-paired-jdbc-index-" + java_version if side == "java" else "metarill-paired-dotnet-index-v1"
+    shape(index, fields)
+    require(index["format"] == index_format and index["runId"] == run_id, "artifact-index-format")
     require(flag(index["finalized"]) and flag(index["internallyConsistent"]) and index["problems"] == [], "artifact-index-incomplete")
     require(integer(index["started"], maximum=4096) == integer(index["completed"], maximum=4096) == integer(index["observed"], maximum=4096) == len(samples), "artifact-request-count")
-    source = expected["source"]
     if side == "java":
-        shape(source, "dataSources"); names(source["dataSources"], r"[A-Za-z0-9_.-]{1,100}", 16); require(flag(index["sourcesVerified"]) and index["dataSources"] == source["dataSources"], "artifact-data-sources"); databases = set()
+        shape(source, "dataSources databases" if java_database_proof else "dataSources")
+        names(source["dataSources"], r"[A-Za-z0-9_.-]{1,100}", 16)
+        require(flag(index["sourcesVerified"]) and index["dataSources"] == source["dataSources"], "artifact-data-sources")
+        databases = set(names(source["databases"], r"[A-Za-z0-9_]{1,64}", 16)) if java_database_proof else set()
     else:
         shape(source, "dataAssemblySha256 databases"); require(type(source["dataAssemblySha256"]) is str and HEX.fullmatch(source["dataAssemblySha256"]) and index["dataAssemblySha256"] == source["dataAssemblySha256"], "artifact-data-assembly"); databases = set(names(source["databases"], r"[A-Za-z0-9_]{1,64}", 16)); require(index["expectedDatabases"] == sorted(databases) and len(databases) == len(source["databases"]), "artifact-data-bases")
     refs = index["requests"]; require(type(refs) is list and len(refs) == len(samples), "artifact-reference-count")
@@ -272,12 +286,12 @@ def audit(directory, expected, index_digest):
         require(type(ident) is str and re.fullmatch(pattern, ident) and ident+".json" not in files, "artifact-reference-id"); name = ident+".json"; files.add(name); total_bytes += ordinary(directory/name).stat().st_size; require(total_bytes <= 512*1024*1024, "artifact-total-budget")
         record = load(directory/name, reference["sha256"], 64*1024*1024)
         fields = "format runId id sample chainSucceeded errorType trace" + (" statusAtFilterExit" if side == "java" else " statusAtMiddlewareExit problems internallyConsistent")
-        shape(record, fields); require(record["format"] == ("metarill-paired-jdbc-http-v1" if side == "java" else "metarill-paired-dotnet-http-v1") and record["runId"] == run_id and record["id"] == ident, "artifact-record-format")
+        shape(record, fields); require(record["format"] == ("metarill-paired-jdbc-http-" + java_version if side == "java" else "metarill-paired-dotnet-http-v1") and record["runId"] == run_id and record["id"] == ident, "artifact-record-format")
         label = record["sample"]; require(type(label) is str and label in planned and label not in seen, "artifact-unplanned-sample"); seen.add(label); sample = planned[label]
         require(flag(record["chainSucceeded"]) == sample["chainSucceeded"] and integer(record["statusAtFilterExit" if side == "java" else "statusAtMiddlewareExit"], 100, 599) == sample["statusAtExit"], "artifact-sample-outcome"); text(record["errorType"], nullable=True); require((record["errorType"] is None) == record["chainSucceeded"], "artifact-outcome")
         if side == "csharp":
             require(flag(record["internallyConsistent"]) and record["problems"] == [], "artifact-record-incomplete")
-        counts = trace(record["trace"], side, databases)
+        counts = trace(record["trace"], side, databases, java_database_proof=java_database_proof)
         for key in ("commands", "transactions", "failedCommands", "failedTransactions"):
             require(counts[key] == sample[key], "artifact-planned-entry-count")
         for key in totals:
@@ -286,7 +300,7 @@ def audit(directory, expected, index_digest):
     if side == "csharp":
         require(integer(index["retainedEntries"]) == totals["commands"]+totals["transactions"], "artifact-retained-entry-count")
     require({p.name for p in directory.iterdir()} == files, "artifact-unowned-or-missing-file")
-    return {"format": "metarill-sql-artifact-audit-v1", "side": side, "indexSha256": index_digest, "samples": len(seen), **totals, "evidenceInternallyValid": True, "semanticComparisonAccepted": False, "physicalTargetVerified": False, "performanceAccepted": False, "releaseAccepted": False}
+    return {"format": "metarill-sql-artifact-audit-v1", "side": side, "indexSha256": index_digest, "samples": len(seen), **totals, "evidenceInternallyValid": True, "commandDatabaseVerified": totals["commands"] > 0 and (side == "csharp" or java_database_proof), "semanticComparisonAccepted": False, "physicalTargetVerified": False, "performanceAccepted": False, "releaseAccepted": False}
 
 
 def main():

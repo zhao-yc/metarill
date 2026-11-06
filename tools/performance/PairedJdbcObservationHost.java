@@ -111,7 +111,7 @@ public final class PairedJdbcObservationHost implements BeanPostProcessor,BeanFa
                 synchronized(this){
                     if(!snapshot.internallyConsistent())problems.add("incomplete-request");
                     try{
-                        Map<String,Object> record=new TreeMap<>();record.put("format","metarill-paired-jdbc-http-v1");record.put("runId",runId);record.put("id",id);record.put("sample",label);record.put("statusAtFilterExit",response.getStatus());record.put("chainSucceeded",businessFailure==null);record.put("errorType",businessFailure==null?null:businessFailure.getClass().getName());record.put("trace",snapshot);
+                        Map<String,Object> record=new TreeMap<>();record.put("format","metarill-paired-jdbc-http-v2");record.put("runId",runId);record.put("id",id);record.put("sample",label);record.put("statusAtFilterExit",response.getStatus());record.put("chainSucceeded",businessFailure==null);record.put("errorType",businessFailure==null?null:businessFailure.getClass().getName());record.put("trace",snapshot);
                         byte[] bytes=json.writeValueAsBytes(record);atomic(id+".json",bytes);receipts.add(Map.of("id",id,"sha256",HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))));
                     }catch(IOException|RuntimeException|NoSuchAlgorithmException failure){problems.add("trace-io-failure");}
                 }
@@ -125,7 +125,7 @@ public final class PairedJdbcObservationHost implements BeanPostProcessor,BeanFa
     }
     /** 私有索引必须同时核请求数量、固定数据源和finalized；单个完整trace不代表整轮采集完成。 */
     private void writeIndex(boolean finalized)throws IOException{
-        Map<String,Object> index=new TreeMap<>();index.put("format","metarill-paired-jdbc-index-v1");index.put("runId",runId);index.put("started",started);index.put("completed",completed);index.put("observed",observed);index.put("sourcesVerified",sourcesVerified);index.put("dataSources",List.copyOf(wrappedSources));index.put("problems",Set.copyOf(problems));index.put("requests",List.copyOf(receipts));index.put("finalized",finalized);index.put("internallyConsistent",finalized&&sourcesVerified&&started==completed&&completed==observed&&observed==receipts.size()&&problems.isEmpty());atomic("index.json",json.writeValueAsBytes(index));
+        Map<String,Object> index=new TreeMap<>();index.put("format","metarill-paired-jdbc-index-v2");index.put("runId",runId);index.put("started",started);index.put("completed",completed);index.put("observed",observed);index.put("sourcesVerified",sourcesVerified);index.put("dataSources",List.copyOf(wrappedSources));index.put("problems",Set.copyOf(problems));index.put("requests",List.copyOf(receipts));index.put("finalized",finalized);index.put("internallyConsistent",finalized&&sourcesVerified&&started==completed&&completed==observed&&observed==receipts.size()&&problems.isEmpty());atomic("index.json",json.writeValueAsBytes(index));
     }
     private void safeIndex(boolean finalized){try{writeIndex(finalized);}catch(IOException|RuntimeException failure){problems.add("index-io-failure");}}
     /** 关闭先清零长期副本；宿主尚有请求则索引明确无效，不能用running索引宣告成功。 */
