@@ -18,6 +18,8 @@ public sealed partial class AuthenticationService
     {
         var failure=new UnauthorizedAccessException(message);failure.Data[FailureContextKey]=new LoginFailureContext(accountId,reason);return failure;
     }
+    /// <summary>仅识别认证服务标记的登录拒绝，供网页登录返回统一的凭据提示。</summary>
+    public static bool IsLoginRejection(UnauthorizedAccessException failure)=>failure.Data[FailureContextKey] is LoginFailureContext;
     /// <summary>拥有最外层锁的宿主须在认证回滚后调用；日志故障仅告警，不能覆盖原认证拒绝。</summary>
     public async Task RecordLoginFailureAsync(UnauthorizedAccessException failure,string username,string? clientIp,CancellationToken token=default)
     {

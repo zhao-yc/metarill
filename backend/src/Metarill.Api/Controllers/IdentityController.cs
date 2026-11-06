@@ -17,8 +17,16 @@ public sealed class IdentityController(AuthenticationService authentication,Http
     {
         await authentication.CheckLoginLocksAsync(username,HttpContext.Connection.RemoteIpAddress?.ToString(),cancellationToken);
         await cap.VerifyAsync(captchaVerification,cancellationToken);
-        var result=await authentication.LoginFromWebAsync(username,password,HttpContext.Connection.RemoteIpAddress?.ToString(),cancellationToken);
-        var response=R<Dictionary<string,object?>>.Success(result.User);response.Map["loginStateId"]=result.Token;return response;
+        try
+        {
+            var result=await authentication.LoginFromWebAsync(username,password,HttpContext.Connection.RemoteIpAddress?.ToString(),cancellationToken);
+            var response=R<Dictionary<string,object?>>.Success(result.User);response.Map["loginStateId"]=result.Token;return response;
+        }
+        catch(UnauthorizedAccessException failure) when(AuthenticationService.IsLoginRejection(failure))
+        {
+            // 保留原登录提示并统一账号不存在、密码错误和账号不可用的公开响应。
+            return R<Dictionary<string,object?>>.Error("用户名或者密码错误");
+        }
     }
     /// <summary>原匿名配置只含启用状态和公开站点地址，禁止缓存过期关闭状态。</summary>
     [HttpGet("cap-config"),ResponseCache(NoStore=true,Location=ResponseCacheLocation.None)]public R<object> CapConfig()=>cap.PublicConfiguration();
