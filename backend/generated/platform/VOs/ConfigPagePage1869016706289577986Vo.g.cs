@@ -17,6 +17,7 @@ public sealed partial class ConfigPagePage1869016706289577986Vo
     [JsonPropertyName("exactDataManageMatchField")]
     public string? ExactDataManageMatchField { get; init; }
     [JsonPropertyName("pageSize")]
+    [JsonNumberHandling(JsonNumberHandling.WriteAsString)]
     public int? PageSize { get; init; }
     [JsonPropertyName("isEdit")]
     public int? IsEdit { get; init; }

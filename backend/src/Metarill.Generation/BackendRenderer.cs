@@ -79,6 +79,13 @@ internal static partial class BackendRenderer
         return result.Append(ImportRenderer.Dto(page)).ToString();
     }
     /// <summary>生成页面可读投影、数组控件及原前端使用的常量展示字段。</summary>
+    /// <summary>原配置页面以文本接收每页条数，保留表单长度校验和整数持久化。</summary>
+    private static bool UsesOriginalConfigurationPageSizeText(GenerationModel model, TableModel table, PageModel page, ColumnModel column) =>
+        model.Catalog.YzProjectId == "1608097412978577409"
+        && table.Source is { Id: FixedRoleAdminNameCompilation.ConfigurationPageTable, TableName: "config_page" }
+        && page.Source.Id is FixedRoleAdminNameCompilation.ConfigurationRootPage or FixedRoleAdminNameCompilation.ConfigurationChildPage or FixedRoleAdminNameCompilation.ConfigurationSelectionPage
+        && column.Source is { Id: "1671100304635035650", ColumnName: "page_size" } && column.BoundaryType == "int?";
+
     private static string Vo(GenerationModel model, TableModel table, PageModel page)
     {
         if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantVo(model,table,page);
@@ -97,6 +104,8 @@ internal static partial class BackendRenderer
         {
             if (ManagerCredentialCompilation.IsCredential(table,column)) result.AppendLine("    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]");
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
+            if (UsesOriginalConfigurationPageSizeText(model, table, page, column))
+                result.AppendLine("    [JsonNumberHandling(JsonNumberHandling.WriteAsString)]");
             if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             if(column.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");

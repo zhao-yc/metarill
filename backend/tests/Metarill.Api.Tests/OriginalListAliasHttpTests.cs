@@ -2,6 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Metarill.Core.Security;
+using Metarill.Platform.Generated.DTOs;
+using Metarill.Platform.Generated.VOs;
+using Metarill.Runtime;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +18,27 @@ public sealed class OriginalListAliasHttpTests
 {
     private const string TargetPage="1696799309006348290";
     private static readonly string[] Pages=["1868973685063311361","6191175925956608"];
+
+    /// <summary>原表单收到文本并可原样提交，旧空值和部分更新的字段存在性也继续有效。</summary>
+    [Fact]
+    public void Original_configuration_pages_keep_page_size_text_on_read()
+    {
+        object[] views =
+        [
+            new ConfigPagePage6191175925956608Vo { PageSize = 14 },
+            new ConfigPagePage1868973685063311361Vo { PageSize = 14 },
+            new ConfigPagePage1869016706289577986Vo { PageSize = 14 }
+        ];
+        foreach (var view in views)
+            Assert.Equal("14", JsonSerializer.SerializeToElement(view, view.GetType(), JsonDefaults.Options).GetProperty("pageSize").GetString());
+
+        Assert.Equal(JsonValueKind.Null, JsonSerializer.SerializeToElement(new ConfigPagePage6191175925956608Vo(), JsonDefaults.Options).GetProperty("pageSize").ValueKind);
+        Assert.Equal(14, JsonSerializer.Deserialize<ConfigPagePage6191175925956608UpdateRequest>("""{"pageSize":"14"}""", JsonDefaults.Options)!.PageSize.Value);
+        var cleared = JsonSerializer.Deserialize<ConfigPagePage6191175925956608UpdateRequest>("""{"pageSize":null}""", JsonDefaults.Options)!.PageSize;
+        Assert.True(cleared.IsSpecified);
+        Assert.Null(cleared.Value);
+        Assert.False(JsonSerializer.Deserialize<ConfigPagePage6191175925956608UpdateRequest>("{}", JsonDefaults.Options)!.PageSize.IsSpecified);
+    }
 
     /// <summary>真实Program下新旧六路由都进入原匿名拒绝，不允许404或绕过现有身份。</summary>
     [Fact]
