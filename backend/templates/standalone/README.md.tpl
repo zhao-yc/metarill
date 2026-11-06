@@ -23,6 +23,13 @@ dotnet run --project backend/Application.Host -- --schema-apply
 
 FullApplication的web-database-v1结构同步严格组合业务project.json、files.json（三张文件基础表）、security.json（含登录审计表 `yz_manager_log` 的七张安全基础表）及固定Agent模型（两表、44列、3唯一索引）。安全基础表不开放业务CRUD页面；已带安全表CRUD页的应用仍拒绝Full，不会自动降级。基础表不生成业务页面；平台自举中的相同物理定义会去重，保留表名占用、字段或索引标识冲突在打包及启动时拒绝。正常 Web 启动不执行 DDL。只对包内元数据表进行结构同步。MySQL DDL 可能已经部分生效，失败后检查记录再预览，不承诺 DDL 事务回滚。
 
+如需启用同父追加的共享锁，可在私有配置登记 Database:MySqlSharedAppendProofs 和 SharedAppendInstallation:RuntimeHost 后执行以下命令生成离线安装计划。
+
+~~~powershell
+dotnet run --project backend/Application.Host -- --shared-append-plan
+~~~
+
+命令仅输出 JSON。部署管理员在目标实例先确认 targetCheckSql 返回 1，再按顺序审阅并执行 installSql，最后核验管理员和运行账号的两条复核语句。完成核验后再启用对应配置。
 ## 认证
 
 FullApplication默认`Authentication:Mode=Web`，使用数据库账号、PBKDF2摘要、持久化会话和本包已发布权限。普通启动不建表、不初始化账号；无数据库配置及匿名请求在打开连接前拒绝，不回退开发账户。`/health`只报告进程状态，不代表数据库或业务验收。已完成且标记PUBLIC的文件内容仍允许匿名GET/HEAD。

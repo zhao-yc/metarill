@@ -82,6 +82,9 @@ D:/HBuilderX/cli.exe publish web --project E:/git/metarill/.local/generated-ui-8
 
 命令不创建执行计划、不保存元数据或执行历史、不执行 DDL，也不启动 HTTP/后台服务。普通 Web 启动不因该能力读取或修改结构。`--schema-inspect`、`--schema-preview`、`--schema-apply` 互斥，不可重复；混用、赋值变体或未知 `--schema-*` 参数在构造宿主前明确拒绝。预期库和连接实际目标不一致时拒绝，不回退到其它数据库。
 
+采用可选共享父锁的正式独立包，可用 `--shared-append-plan` 生成需管理员审阅的离线安装计划。该命令须单独使用，结果按库和账号列出检查、安装和复核语句。部署步骤与已实测的性能范围见 [MySQL 同父追加共享锁](mysql-shared-append.md)。
+
+
 这是独立包本地管理员对固定受管模型的只读命令，不是 Metarill 平台 CLI 选项目，不提供未登记表目录、元数据反向导入或任意 SQL 入口；不会把快照当可执行计划。当前仍只有 MySQL 实现，顺序快照不保证外部并发 DDL 下的一致时刻，后续变更前须重新核验指纹。
 
 ## type=2 独立选择页浏览器补验（2026-10-19）

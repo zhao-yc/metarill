@@ -41,6 +41,67 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
             Assert.Equal(2, result.Code); Assert.Empty(result.Output); Assert.True(result.Error.Contains("必须单独使用", StringComparison.Ordinal));
             Assert.Equal(metadata, MetadataSnapshot(output)); Assert.False(Directory.Exists(Path.Combine(host, ".local")));
         }
+        var unsupported = await CommandAsync(host, null, "--shared-append-plan");
+        Assert.Equal(2, unsupported.Code); Assert.Empty(unsupported.Output);
+        Assert.Contains("正式完整应用包", unsupported.Error);
+    }
+
+    /// <summary>真实独立包离线输出窄安装范围，参数错误或父表错绑均拒绝。</summary>
+    [Fact]
+    public async Task Shared_append_plan_is_offline_and_bound_to_the_published_leaf()
+    {
+        const string command = "--shared-append-plan";
+        const string source = "sample_contract_line";
+        var output = Path.Combine(temporary, "shared-append");
+        var catalog = GlobalCachedSourceGenerationTests.Catalog();
+        catalog.ConfigPages.Single(page => page.Id == "81003").IsImport = 1;
+        new ApplicationPackager().Create(catalog, output, "Example.SharedAppendPlan", SourceRoot(), ApplicationPackageMode.FullApplication);
+        await BuildAsync(output);
+        var host = Path.Combine(output, "backend/Application.Host");
+        var options = new DatabaseOptions
+        {
+            ExpectedDatabase = "fixture_business",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=fixture_business;User ID=fixture_runtime;Password=offline-secret;",
+            MySqlSharedAppendProofs = new()
+            {
+                [source] = new()
+                {
+                    ServerUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", ParentTable = "sample_contract",
+                    Schema = "fixture_proof", Procedure = "read_append", Definer = "fixture_reader@localhost"
+                }
+            }
+        };
+        var metadata = MetadataSnapshot(output);
+        var first = await CommandAsync(host, options, command);
+        Assert.Equal(0, first.Code); Assert.Empty(first.Error);
+        Assert.DoesNotContain("offline-secret", first.Output);
+        using var json = JsonDocument.Parse(first.Output);
+        var entry = Assert.Single(json.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(source, entry.GetProperty("source").GetString());
+        Assert.Contains("target_ready", entry.GetProperty("targetCheckSql").GetString());
+        var install = entry.GetProperty("installSql").EnumerateArray().Select(value => value.GetString()).ToArray();
+        Assert.Equal(5, install.Length);
+        Assert.Equal("CREATE USER 'fixture_reader'@'localhost' ACCOUNT LOCK;", install[0]);
+        Assert.Equal("GRANT EXECUTE ON PROCEDURE " + (char)96 + "fixture_proof" + (char)96 + "." + (char)96 +
+            "read_append" + (char)96 + " TO 'fixture_runtime'@'%';", install[^1]);
+        var second = await CommandAsync(host, options, command);
+        Assert.Equal(first.Output, second.Output);
+        foreach (var args in new[] { new[] { command, "--schema-apply" }, new[] { command, command }, new[] { command + "=true" } })
+        {
+            var rejected = await CommandAsync(host, options, args);
+            Assert.Equal(2, rejected.Code); Assert.Empty(rejected.Output);
+        }
+
+        options.MySqlSharedAppendProofs[source] = options.MySqlSharedAppendProofs[source] with { ParentTable = "sample_customer" };
+        var mismatch = await CommandAsync(host, options, command);
+        Assert.Equal(1, mismatch.Code); Assert.Empty(mismatch.Output);
+        Assert.DoesNotContain("offline-secret", mismatch.Error);
+        options.MySqlSharedAppendProofs[source] = options.MySqlSharedAppendProofs[source] with
+        { ParentTable = "sample_contract", Schema = "fixture_proof';" };
+        var invalidIdentifier = await CommandAsync(host, options, command);
+        Assert.Equal(1, invalidIdentifier.Code); Assert.Empty(invalidIdentifier.Output);
+        Assert.Equal(metadata, MetadataSnapshot(output));
+        Assert.False(Directory.Exists(Path.Combine(host, ".local")));
     }
 
     /// <summary>通过包内命令实际读取Server-200随机表，逐项证明无DDL、无行改动、无元数据或执行历史改写。</summary>
@@ -135,6 +196,19 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
         info.Environment["ASPNETCORE_ENVIRONMENT"] = "Production"; info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = "false";
         foreach (var key in new[] { "Database__Provider", "Database__ExpectedDatabase", "Database__ConnectionString" }) info.Environment.Remove(key);
         if (options is not null) { info.Environment["Database__Provider"] = options.Provider; info.Environment["Database__ExpectedDatabase"] = options.ExpectedDatabase; info.Environment["Database__ConnectionString"] = options.ConnectionString; }
+        if (options?.MySqlSharedAppendProofs is { Count: > 0 } proofs)
+        {
+            info.Environment["SharedAppendInstallation__RuntimeHost"] = "%";
+            foreach (var (source, proof) in proofs)
+            {
+                var prefix = "Database__MySqlSharedAppendProofs__" + source + "__";
+                info.Environment[prefix + "ServerUuid"] = proof.ServerUuid;
+                info.Environment[prefix + "ParentTable"] = proof.ParentTable;
+                info.Environment[prefix + "Schema"] = proof.Schema;
+                info.Environment[prefix + "Procedure"] = proof.Procedure;
+                info.Environment[prefix + "Definer"] = proof.Definer;
+            }
+        }
         return RunAsync(info);
     }
 

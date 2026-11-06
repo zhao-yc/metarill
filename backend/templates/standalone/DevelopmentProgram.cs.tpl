@@ -19,6 +19,11 @@ using {{NAMESPACE}}.Host;
 // JSON与中文拒绝消息固定UTF8，重定向输出不依赖Windows当前控制台代码页。
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 // 在构造Web宿主前拒绝混合、重复或未知结构命令，避免误启动服务或误执行写入。
+if (args.Any(value => value.StartsWith("--shared-append", StringComparison.OrdinalIgnoreCase)))
+{
+    Console.Error.WriteLine("共享追加安装计划请使用正式完整应用包。");
+    Environment.ExitCode = 2; return;
+}
 string[] schemaCommands = ["--schema-inspect", "--schema-preview", "--schema-apply"];
 var requestedSchemaCommands = args.Where(value => value.StartsWith("--schema-", StringComparison.Ordinal)).ToArray();
 if (requestedSchemaCommands.Length > 1 || requestedSchemaCommands.Any(value => !schemaCommands.Contains(value, StringComparer.Ordinal)))

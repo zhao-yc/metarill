@@ -22,6 +22,13 @@ using {{NAMESPACE}}.Host;
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 // 在构造Web宿主前拒绝混合、重复或未知结构命令，避免误启动服务或误执行写入。
 string[] schemaCommands = ["--schema-inspect", "--schema-preview", "--schema-apply"];
+const string sharedAppendPlanCommand = "--shared-append-plan";
+var sharedAppendPlan = args.Length == 1 && args[0] == sharedAppendPlanCommand;
+if (!sharedAppendPlan && args.Any(value => value.StartsWith("--shared-append", StringComparison.OrdinalIgnoreCase)))
+{
+    Console.Error.WriteLine("共享追加计划只接受单独的 --shared-append-plan，配置只从私有文件或环境读取。");
+    Environment.ExitCode = 2; return;
+}
 var initializeSecurity=args.Contains("--initialize-security",StringComparer.Ordinal);
 if(InvalidSecurityArguments(args))
 {
@@ -35,8 +42,26 @@ if (requestedSchemaCommands.Length > 1 || requestedSchemaCommands.Any(value => !
     Environment.ExitCode = 2; return;
 }
 var schemaCommand = requestedSchemaCommands.SingleOrDefault();
-var builder = WebApplication.CreateBuilder(args.Where(value => !schemaCommands.Contains(value, StringComparer.Ordinal) && value!="--initialize-security").ToArray());
+var builder = WebApplication.CreateBuilder(args.Where(value => value != sharedAppendPlanCommand && !schemaCommands.Contains(value, StringComparer.Ordinal) && value!="--initialize-security").ToArray());
 builder.Configuration.AddJsonFile("appsettings.local.json", optional: true).AddEnvironmentVariables();
+if (sharedAppendPlan)
+{
+    try
+    {
+        var options = builder.Configuration.GetSection("Database").Get<DatabaseOptions>() ?? new();
+        var plan = Metarill.Data.Relations.MySqlSharedAppendInstallation.Preview(options, GeneratedRelationMaintenance.Catalog,
+            builder.Configuration["SharedAppendInstallation:RuntimeHost"]);
+        Console.WriteLine(JsonSerializer.Serialize(plan, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }));
+    }
+    catch (Exception)
+    {
+        // 私有连接值及底层异常不会回显，失败时不启动服务。
+        Console.Error.WriteLine("共享追加计划无法生成，请核对私有库配置、运行账号 Host 和发布关系目录。");
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
 // 仅显式开发认证启用时允许本机HBuilderX不同端口；不默认开放正式部署来源。
 var authenticationMode=ApplicationAuthenticationMode.Read(builder.Configuration,builder.Environment);
 var developmentCors = authenticationMode.Development;

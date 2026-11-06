@@ -16,7 +16,7 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
             key <= 0 || key.ToString(CultureInfo.InvariantCulture) != parentId ||
             session.CurrentTransaction is not { Connection: MySqlConnector.MySqlConnection connection } transaction ||
             FindScalarAppendTable(catalog, source, projectId, transaction) is not { Read: {} plan } table ||
-            !RelationMaintenanceExecutor.CanLockExactScalarSource(table) || plan.ScalarCacheTarget?.Table != parent ||
+            !MatchesSharedAppendParent(table, plan, parent) ||
             !MySqlInsertCacheBatch.UsesPlainOrm(session))
             return Task.FromResult(false);
 
@@ -56,8 +56,21 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
         System.Data.Common.DbTransaction transaction)
     {
         if (projectId != catalog.ProjectId || !session.UsesOwnedOrm || session.Provider is not MySqlDatabaseProvider ||
-            transaction.Connection is not MySqlConnector.MySqlConnection || !session.HasScalarCacheWriteProof(transaction) ||
-            catalog.Mixed.Targets.Contains(table) || catalog.Propagation.Bindings.Any(binding => binding.Target.Name == table))
+            transaction.Connection is not MySqlConnector.MySqlConnection || !session.HasScalarCacheWriteProof(transaction))
+            return null;
+        return FindScalarAppendLeaf(catalog, table);
+    }
+
+    /// <summary>离线安装计划和运行时使用同一叶子来源判定。</summary>
+    internal static bool MatchesSharedAppendParent(RelationMaintenanceCatalog catalog, string source, string parent)
+        => FindScalarAppendLeaf(catalog, source) is { Read: {} plan } table && MatchesSharedAppendParent(table, plan, parent);
+
+    private static bool MatchesSharedAppendParent(MaintenanceTable table, Queries.MySqlNonRedundantReadPlan plan, string parent)
+        => RelationMaintenanceExecutor.CanLockExactScalarSource(table) && plan.ScalarCacheTarget?.Table == parent;
+
+    private static MaintenanceTable? FindScalarAppendLeaf(RelationMaintenanceCatalog catalog, string table)
+    {
+        if (catalog.Mixed.Targets.Contains(table) || catalog.Propagation.Bindings.Any(binding => binding.Target.Name == table))
             return null;
         return catalog.Mixed.Consumers.SingleOrDefault(item => item.Table.Option.TableName == table)?.Table;
     }

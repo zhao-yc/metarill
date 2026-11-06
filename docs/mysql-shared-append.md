@@ -2,6 +2,22 @@
 
 此能力用于独立应用的固定父键追加导入。默认配置下走原父记录排他锁。只有符合单一物理缓存、叶子来源、默认 ORM 和无逐行副作用的页面会尝试共享锁。普通新增、更新、覆盖导入及有手写规则的导入继续使用原锁路径。存在宿主写入守卫时，每个守卫都须明确声明其准备及写入复核在当前表无副作用。内置安全守卫只对账号、角色、后台类型与角色授权之外的表允许缓冲，未声明的自定义守卫保持原路径。生成项目通过再生成取得此变更。
 
+## 离线安装计划
+
+以重新生成的正式独立包为准。先在私有配置准备下面的 `Database:MySqlSharedAppendProofs`，并将 `SharedAppendInstallation:RuntimeHost` 设为 MySQL 已有运行账号的准确 Host。计划从私有连接串读取用户名和预期库。不要在命令行传连接串或密码。
+
+```sh
+dotnet run --project backend/Application.Host -- --shared-append-plan
+```
+
+命令只输出 JSON，不连接 MySQL、不启动 Web，也不执行 SQL。计划复用运行时的固定父表和叶子明细判定。页面权限、守卫、观察者和最终效果仍由各自的运行验证覆盖。每项计划都要求新建独立的锁定定义者和例程，证明库应由部署管理员预先创建和管理。
+
+在同一个明确的目标实例上，管理员先执行每项 `targetCheckSql`，只在 `target_ready` 为 `1` 时继续。检查包含实际 UUID、InnoDB 和单列主键、父表外键、明细触发器、准确运行账号、定义者及例程是否已占用。按 `installSql` 给出的顺序逐条执行，任一步错误立即停止并核对已成功的步骤。MySQL 这些 DDL 会分别生效。已有例程按原归属人工核验，不重复应用首次安装计划。
+
+执行 `administratorReviewSql` 核对例程正文和定义者，再用真实运行账号执行 `runtimeProbeSql`，核对契约、业务库、明细表、父表和最后两列分别为 `1`、`0`。部署前完成这些核验，再启用应用对应配置。以下手工示例用于说明授权范围。
+
+## 手工 SQL 示例
+
 部署管理员先核对实际业务库、两张实体表和实例 UUID。使用部署账号安装以下定向例程。示例中的账号、库名、表名和例程名应替换成实际部署值，运行账号只能调用已登记的例程。使用受部署管理员控制的证明库，业务运行账号在其中只需要例程执行权限。例程定义者不能登录，只授明细表 `TRIGGER` 及该例程 `EXECUTE`。运行账号无需获得 `TRIGGER`、`SHOW_ROUTINE`、全局 `SELECT` 或 `PROCESS`。 [MySQL 例程权限](https://dev.mysql.com/doc/refman/8.4/en/stored-routines-privileges.html)
 
 ```sql
@@ -54,6 +70,9 @@ GRANT EXECUTE ON PROCEDURE proof_db.read_child_append_proof TO 'business_runtime
         "Definer": "metarill_proof_reader@localhost"
       }
     }
+  },
+  "SharedAppendInstallation": {
+    "RuntimeHost": "%"
   }
 }
 ```
