@@ -399,23 +399,34 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
         const string columnsSql="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";
         foreach(var group in plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal))
         {
-            var pinSql="SELECT "+string.Join(",",group.Select(item=>Q(item.Column.Name)))+" FROM "+Q(group.Key)+" LIMIT 0";
-            var batchSql=pinSql+"; "+engineSql+"; "+columnsSql;
+            var names=group.Select(item=>item.Column.Name).Distinct(StringComparer.Ordinal).ToArray();
+            var pinSql="SELECT "+string.Join(",",names.Select(Q))+" FROM "+Q(group.Key)+" LIMIT 0";
             var actual=new Dictionary<string,(string Type,bool Nullable,bool Primary,bool Generated)>(StringComparer.Ordinal);
-            // 每张表先用零行查询持有结构锁，再核引擎和列。报文预算包含两次表名绑定及协议开销。
+            // 零行查询仍先锁表结构。引擎和列同批返回，保留未被投影引用的主键列以识别复合主键。
+            var parameters=names.Select((_,index)=>"@column"+index).ToArray();
+            var batchSql=pinSql+"; SELECT t.engine,c.column_name,c.column_type,c.is_nullable,c.column_key,c.extra,c.generation_expression"+
+                " FROM information_schema.tables t LEFT JOIN information_schema.columns c"+
+                " ON c.table_schema=t.table_schema AND c.table_name=t.table_name"+
+                " AND (c.column_key='PRI' OR c.column_name IN ("+string.Join(",",parameters)+"))"+
+                " WHERE t.table_schema=DATABASE() AND t.table_name=@table AND t.table_type='BASE TABLE'";
+            var budget=System.Text.Encoding.UTF8.GetByteCount(batchSql)+128+
+                names.Append(group.Key).Sum(name=>4L*System.Text.Encoding.UTF8.GetByteCount(name)+2);
             if(pinnedLayouts is not null&&transaction.Connection is MySqlConnector.MySqlConnection
-                &&System.Text.Encoding.UTF8.GetByteCount(batchSql)+4L*System.Text.Encoding.UTF8.GetByteCount(group.Key)+128<=packetLimit)
+                &&names.Length<DatabaseCommandObservation.MaximumParameters&&batchSql.Length<=DatabaseCommandObservation.MaximumSqlLength
+                &&budget<=packetLimit)
             {
                 await using var batch=Command(transaction);
                 batch.CommandText=batchSql;
                 Add(batch,"table",group.Key);
+                for(var index=0;index<names.Length;index++)Add(batch,parameters[index],names[index]);
                 await using var reader=await batch.ExecuteReaderAsync(token);
                 if(!await reader.NextResultAsync(token)||!await reader.ReadAsync(token))
                     throw new InvalidOperationException("回填依赖必须为事务实体表。");
                 RequireEngine(reader.GetValue(0));
-                if(!await reader.NextResultAsync(token))
-                    throw new InvalidOperationException("回填连接未返回结构列定义。");
-                await ReadColumns(reader);
+                do
+                {
+                    if(!reader.IsDBNull(1))ReadColumn(reader,1);
+                }while(await reader.ReadAsync(token));
             }
             else
             {
@@ -425,16 +436,18 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 schema.CommandText=columnsSql;
                 Add(schema,"table",group.Key);
                 await using var reader=await schema.ExecuteReaderAsync(token);
-                await ReadColumns(reader);
+                while(await reader.ReadAsync(token))ReadColumn(reader,0);
             }
             foreach(var item in group)if(!actual.TryGetValue(item.Column.Name,out var column)||column.Type!=item.Column.StoreType||column.Nullable!=item.Column.Nullable||column.Primary!=item.Column.PrimaryKey||column.Generated)throw new InvalidOperationException($"回填物理列 {item.Table}.{item.Column.Name} 与已发布模型不一致（预期 {item.Column.StoreType}／可空={item.Column.Nullable}／主键={item.Column.PrimaryKey}，实际 {column.Type}／可空={column.Nullable}／主键={column.Primary}／生成列={column.Generated}），请先审查结构差异。");
             if(actual.Values.Count(column=>column.Primary)!=1||!actual.TryGetValue("id",out var id)||!id.Primary)throw new InvalidOperationException("回填依赖不是单列id主键。");
 
-            async Task ReadColumns(DbDataReader reader)
+            void ReadColumn(DbDataReader reader,int offset)
             {
                 // TEXT常量默认值的DEFAULT_GENERATED不是计算列；真正生成表达式及未知生成标记仍拒绝。
-                while(await reader.ReadAsync(token))
-                    actual.Add(reader.GetString(0),(reader.GetString(1).ToLowerInvariant(),reader.GetString(2)=="YES",reader.GetString(3)=="PRI",!reader.IsDBNull(5)&&!string.IsNullOrWhiteSpace(reader.GetString(5))||reader.GetString(4).Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!reader.GetString(4).Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase)));
+                var extra=reader.GetString(offset+4);
+                var generated=!reader.IsDBNull(offset+5)&&!string.IsNullOrWhiteSpace(reader.GetString(offset+5))
+                    ||extra.Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!extra.Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase);
+                actual.Add(reader.GetString(offset),(reader.GetString(offset+1).ToLowerInvariant(),reader.GetString(offset+2)=="YES",reader.GetString(offset+3)=="PRI",generated));
             }
         }
         if(pinnedLayouts is not null)pinnedLayouts.Add(plan,packetLimit);
