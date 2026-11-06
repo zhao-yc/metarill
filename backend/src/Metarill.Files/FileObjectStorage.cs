@@ -58,11 +58,23 @@ public sealed partial class FileObjectStorage : IDisposable
     /// <summary>只读取固定供应商标记，完整键及位置在对象操作时独立验证。</summary>
     public static string ProviderCode(string key) => key.StartsWith("s3:", StringComparison.Ordinal) ? "s3" : "local";
 
-    /// <summary>调用方已经计算大小与摘要；S3不可覆盖写，未知提交结果重试只接受逐字相同的实际对象。</summary>
+    /// <summary>调用方已计算大小与摘要。同一对象键不可覆盖，重试只接受大小与摘要相符的实际对象。</summary>
     public async Task CommitAsync(string key, string temporaryPath, string root, long length, string sha256, CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this); RequireBounds(length, sha256);
-        if (ProviderCode(key) == "local") { File.Move(temporaryPath, FileValidation.StoragePath(root, key), true); return; }
+        if (ProviderCode(key) == "local")
+        {
+            var destination = FileValidation.StoragePath(root, key);
+            try { File.Move(temporaryPath, destination, overwrite: false); }
+            catch (IOException) when (File.Exists(destination))
+            {
+                // 数据库结果未知时保留已写入对象，按实际字节校验同键重试。
+                await using var existing = await OpenAsync(key, root, length, sha256, token);
+                if (Convert.ToHexStringLower(await SHA256.HashDataAsync(existing, token)) != sha256)
+                    throw new InvalidOperationException("本地对象内容与本次上传不一致。");
+            }
+            return;
+        }
         var (profile, objectKey) = Resolve(key);
         await using var input = new FileStream(temporaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
         if (input.Length != length) throw new InvalidOperationException("S3暂存对象大小与计划不一致。");

@@ -161,6 +161,72 @@ public sealed partial class ProjectFileRuntimeIntegrationTests
         Assert.Equal("deleted", SqlRowStore.Text(deleted, "status"));
     }
 
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Split_database_upload_retry_preserves_the_original_object() =>
+        VerifyUploadRetryAsync(shareDatabase: false);
+
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Shared_database_upload_retry_preserves_the_original_object() =>
+        VerifyUploadRetryAsync(shareDatabase: true);
+
+    /// <summary>模拟对象已保存但上传事务回滚，同一计划只能用原字节恢复。</summary>
+    private static async Task VerifyUploadRetryAsync(bool shareDatabase)
+    {
+        await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase);
+        AssertDatabaseTopology(fixture, shareDatabase);
+        var project = fixture.Registry.Demo.YzProjectId;
+        var authorization = new TestFileAuthorization(new RuntimeActor(8801, "上传重试验收", true, project, ""));
+        var service = new ProjectFileLibraryResolver(fixture.Runtimes, authorization, fixture.Ids).RequireCurrent();
+        var runtime = fixture.Runtimes.Resolve(project);
+        var original = Encoding.UTF8.GetBytes("原始内容");
+        var changed = Encoding.UTF8.GetBytes("替代内容");
+        Assert.Equal(original.Length, changed.Length);
+        var plan = await service.PlanUploadAsync(new("retry.txt", null, original.Length, fixture.ProtectedColumn));
+        fixture.FileIds.Add(plan.FileId);
+        using var witnessSession = new DatabaseSession(runtime.Session.Options);
+        var witness = new SqlRowStore(witnessSession, fixture.Runtimes.ComposePhysical(fixture.Registry.Demo));
+        var key = new Dictionary<string, object?> { ["id"] = plan.FileId };
+        var rollback = new InvalidOperationException("回滚上传事务");
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Session.InTransactionAsync<bool>(async () =>
+        {
+            await service.UploadAsync(plan.FileId, new MemoryStream(original));
+            throw rollback;
+        }));
+        Assert.Same(rollback, failure);
+        var pending = Assert.Single(await witness.ReadAsync("yz_file_library", key));
+        Assert.Equal("planned", SqlRowStore.Text(pending, "status"));
+        var storagePath = Path.Combine(runtime.Options.RootDirectory, SqlRowStore.Text(pending, "storage_key"));
+        Assert.Equal(original, await File.ReadAllBytesAsync(storagePath));
+
+        var rejected = await Record.ExceptionAsync(() => service.UploadAsync(plan.FileId, new MemoryStream(changed)));
+        var stored = await File.ReadAllBytesAsync(storagePath);
+        Assert.True(original.SequenceEqual(stored), "重试覆盖了已保存对象的原始字节。");
+        Assert.IsType<InvalidOperationException>(rejected);
+        Assert.Equal("planned", SqlRowStore.Text(Assert.Single(await witness.ReadAsync("yz_file_library", key)), "status"));
+
+        await service.UploadAsync(plan.FileId, new MemoryStream(original));
+        await service.CompleteAsync(plan.FileId);
+        Assert.Equal("ready", SqlRowStore.Text(Assert.Single(await witness.ReadAsync("yz_file_library", key)), "status"));
+        Assert.Equal(storagePath, Assert.Single(Directory.EnumerateFiles(runtime.Options.RootDirectory)));
+        await using (var content = (await service.OpenContentAsync(plan.FileId)).Stream)
+        {
+            using var reader = new StreamReader(content);
+            Assert.Equal("原始内容", await reader.ReadToEndAsync());
+        }
+
+        // 原单步公开导入必须仍能在自己的事务中完成计划、写入和发布。
+        var legacy = "%PDF-1.4\n测试\n%%EOF"u8.ToArray();
+        var imported = await service.ImportLegacyPublicAsync("legacy.pdf", legacy.Length, new MemoryStream(legacy));
+        fixture.FileIds.Add(imported.FileId);
+        Assert.Equal("ready", imported.Status);
+        var publicResolver = new ProjectFileLibraryResolver(fixture.Runtimes, new TestFileAuthorization(null), fixture.Ids);
+        await using var publicContent = (await publicResolver.OpenPublicAsync(imported.FileId, project)).Stream;
+        using var result = new MemoryStream();
+        await publicContent.CopyToAsync(result);
+        Assert.Equal(legacy, result.ToArray());
+        Assert.Empty(Directory.EnumerateFiles(runtime.Options.RootDirectory, "*.part.*"));
+    }
+
     private static async Task VerifyBusinessFilesAsync(bool shareDatabase)
     {
         await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase);

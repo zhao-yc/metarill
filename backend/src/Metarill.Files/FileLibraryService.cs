@@ -93,7 +93,6 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 if (requestedHash.Length > 0 && !string.Equals(requestedHash, hash, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("上传内容摘要与计划不一致。");
                 // 数据库提交结果不明时保留随机对象供完成或重试核验，不能删除可能已提交的文件。
                 await Storage.CommitAsync(key, temporary, Root, actual, hash, cancellationToken);
-                if (FileObjectStorage.ProviderCode(key) == "local") temporary = null;
                 await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "uploaded", ["sha256"] = hash, ["update_time"] = BusinessCalendar.Now }, cancellationToken);
                 row["status"] = "uploaded"; row["sha256"] = hash;
                 return Describe(row);
