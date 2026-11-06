@@ -48,6 +48,10 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("TryInsertScalarSourceAsync",rendered);
         Assert.Contains("insertedCache is null && await mapper.InsertAsync",rendered);
         Assert.Contains("var relationPatch=insertedCache ?? await",rendered);
+        Assert.Contains("!guards.Any() && observers.All(observer => observer.CanBufferScalarAppend",rendered);
+        Assert.Contains("TryInsertPackedScalarSourceAsync",rendered);
+        Assert.Contains("if (flushEarlierRows is not null) await flushEarlierRows();",rendered);
+        Assert.Contains("queuePackedRow(entity, deferredParent, PersistAsync);",rendered);
         Assert.True(rendered.IndexOf("await ValidateMutationAsync(\"81003\", RecordMutationOperation.Create",StringComparison.Ordinal) <
             rendered.IndexOf("TryInsertScalarSourceAsync",StringComparison.Ordinal));
 
@@ -57,6 +61,23 @@ public sealed class GlobalCachedSourceGenerationTests
         var overwritePage=Assert.Single(overwriteTable.Pages);
         Assert.Null(GlobalCachedParentCompilation.ForAppendRecheck(overwrite,overwriteTable,overwritePage));
         Assert.False(GlobalCachedParentCompilation.CanDeferAppendCandidate(overwrite,overwriteTable,overwritePage));
+    }
+
+    /// <summary>默认文件观察者只能为发布目录中无物理文件列的精确页面放行。</summary>
+    [Fact]
+    public void File_observer_allows_only_the_published_non_file_page()
+    {
+        var observer=new FileReferenceMutationObserver(null!,new FileMetadataContext([Catalog()]),null!,null!);
+        Assert.True(observer.CanBufferScalarAppend("81003","sample_contract_line"));
+        Assert.False(observer.CanBufferScalarAppend("81002","sample_contract"));
+        Assert.False(observer.CanBufferScalarAppend("81003","sample_contract"));
+        Assert.False(observer.CanBufferScalarAppend("missing","sample_contract_line"));
+        Assert.False(((IRecordMutationObserver)new UnknownObserver()).CanBufferScalarAppend("81003","sample_contract_line"));
+    }
+
+    private sealed class UnknownObserver : IRecordMutationObserver
+    {
+        public Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken=default) => Task.CompletedTask;
     }
 
     /// <summary>实际编译生成服务，证明未实现的 partial 消失，手写实现保留时禁用提前计算候选。</summary>

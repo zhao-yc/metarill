@@ -4,6 +4,18 @@ namespace Metarill.Data.Relations;
 /// <summary>一个事务事件队列统一普通多值与混合单值副本，内部更新不再次进入消费者Service／钩子。</summary>
 public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
 {
+    public const int PackedAppendLimit = RelationMaintenanceExecutor.PackedAppendLimit;
+
+    /// <summary>生成追加入口已经核过宿主逐行钩子。只对当前发布目录的叶子来源接管连续写入。</summary>
+    public Task<bool> TryInsertPackedScalarSourceAsync<T>(RelationMaintenanceCatalog catalog, string table, string projectId,
+        IReadOnlyList<(int Row, long Id, T Entity)> rows, Queries.MySqlExactParentCandidate.BatchRecheck parent,
+        CancellationToken token) where T : class
+    {
+        if (session.CurrentTransaction is not {} transaction || FindScalarAppendTable(catalog, table, projectId, transaction) is not {} consumer)
+            return Task.FromResult(false);
+        return new RelationMaintenanceExecutor(session).TryInsertPackedScalarAsync(consumer, projectId, rows, transaction, parent, token);
+    }
+
     /// <summary>保留已有生成程序的单行插入与缓存命令入口。</summary>
     public Task<IReadOnlyDictionary<string,object?>?> TryInsertScalarSourceAsync<T>(RelationMaintenanceCatalog catalog,
         string table,long id,string projectId,T entity,CancellationToken token) where T:class =>
@@ -13,17 +25,23 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
     public async Task<IReadOnlyDictionary<string,object?>?> TryInsertScalarSourceAsync<T>(RelationMaintenanceCatalog catalog,
         string table,long id,string projectId,T entity,CancellationToken token,Queries.MySqlExactParentCandidate.BatchRecheck? parent) where T:class
     {
-        if(projectId!=catalog.ProjectId||id<=0||!session.UsesOwnedOrm||
-            session.Provider is not MySqlDatabaseProvider||session.CurrentTransaction is not {Connection:MySqlConnector.MySqlConnection} transaction||
-            !session.HasScalarCacheWriteProof(transaction)||catalog.Mixed.Targets.Contains(table)||
-            catalog.Propagation.Bindings.Any(binding=>binding.Target.Name==table))
+        if(id<=0||session.CurrentTransaction is not {} transaction||FindScalarAppendTable(catalog,table,projectId,transaction) is not {} consumer)
             return null;
-        var consumer=catalog.Mixed.Consumers.SingleOrDefault(item=>item.Table.Option.TableName==table);
-        if(consumer is null)return null;
         var patches=await new RelationMaintenanceExecutor(session).TryInsertExactScalarAsync(
-            consumer.Table,id,projectId,entity,transaction,token,parent);
+            consumer,id,projectId,entity,transaction,token,parent);
         return patches is null?null:patches.SingleOrDefault()?.Values??
             new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>());
+    }
+
+    /// <summary>两种追加命令共用叶子范围及事务证明，避免跳过会写下游的传播。</summary>
+    private MaintenanceTable? FindScalarAppendTable(RelationMaintenanceCatalog catalog, string table, string projectId,
+        System.Data.Common.DbTransaction transaction)
+    {
+        if (projectId != catalog.ProjectId || !session.UsesOwnedOrm || session.Provider is not MySqlDatabaseProvider ||
+            transaction.Connection is not MySqlConnector.MySqlConnection || !session.HasScalarCacheWriteProof(transaction) ||
+            catalog.Mixed.Targets.Contains(table) || catalog.Propagation.Bindings.Any(binding => binding.Target.Name == table))
+            return null;
+        return catalog.Mixed.Consumers.SingleOrDefault(item => item.Table.Option.TableName == table)?.Table;
     }
 
     /// <summary>生成服务传入实际身份／记录项目和变更字段；只返回原实体被刷新值，回执与同事务数据库保持一致。</summary>

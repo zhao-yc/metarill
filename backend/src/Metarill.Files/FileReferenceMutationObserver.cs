@@ -35,6 +35,18 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var proofs=deletions.GetValue(context.Transaction,_=>new());if(!proofs.TryAdd((context.PageId,context.TableName,context.RecordId),new(actor,context.ProjectId,new ReadOnlyDictionary<string,object?>(record),Array.AsReadOnly(parents))))throw new InvalidOperationException("同一记录物理删除已经准备，不能覆盖证明。");
     }
 
+    /// <summary>重复原文件观察的静态页面归属校验，仅无物理文件列的页面不需要逐行通知。</summary>
+    public bool CanBufferScalarAppend(string pageId, string tableName)
+    {
+        var catalog = registry.Catalogs.SingleOrDefault(candidate => candidate.ConfigPages.Any(page => page.Id == pageId));
+        if (catalog is null)
+            return false;
+        var page = catalog.ConfigPages.Single(candidate => candidate.Id == pageId);
+        var table = catalog.ConfigTables.SingleOrDefault(candidate => candidate.Id == page.ConfigTableId);
+        return table is not null && table.TableName == tableName &&
+            !registry.PhysicalColumns(catalog, table).Any(column => column.ControlKind.Equals("FileLibrary", StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>字段省略保持引用不变，显式 null 清空，任何非法引用令整个业务事务回滚。</summary>
     public Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)=>BeforeCommitCoreAsync(context,cancellationToken,false);
 

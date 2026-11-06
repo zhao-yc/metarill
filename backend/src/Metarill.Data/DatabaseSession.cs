@@ -52,7 +52,7 @@ public sealed class DatabaseSession : IDisposable
     {
         if (_transaction.Value is not {ScalarCacheWrite:true} scope || !ReferenceEquals(scope.Transaction, transaction))
             throw new InvalidOperationException("合并追加必须属于当前写入事务。");
-        return scope.PackedAppendVariablePrefix ??= "@mt_packed_" + Guid.NewGuid().ToString("N") + "_";
+        return scope.PackedAppendVariablePrefix ??= "@mp" + System.Security.Cryptography.RandomNumberGenerator.GetHexString(16, lowercase:true) + "_";
     }
 
     public DatabaseSession(DatabaseOptions options) : this(options, null, null) { }

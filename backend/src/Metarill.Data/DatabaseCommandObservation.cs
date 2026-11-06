@@ -10,6 +10,8 @@ namespace Metarill.Data;
 /// <summary>仅供可信宿主显式开启的当前异步调用链观测；不开连接、不写文件、不注册全局日志。</summary>
 public static class DatabaseCommandObservation
 {
+    internal const int MaximumSqlLength = 32768;
+    internal const int MaximumParameters = 256;
     private static readonly AsyncLocal<DatabaseCommandTrace?> Current=new();
     /// <summary>摘要密钥只用于本轮私有值证明；同链禁止嵌套，防止外层遗漏内部命令。</summary>
     public static DatabaseCommandTrace Begin(ReadOnlySpan<byte> valueKey,int maximumCommands=4096)
@@ -134,9 +136,9 @@ public sealed class DatabaseCommandTrace:IDisposable
             if(closed){problems.Add(DatabaseObservationProblem.LateCommand);return CommandSnapshot.Empty;}
             try
             {
-                var sql=command.CommandText??"";if(sql.Length>32768){problems.Add(DatabaseObservationProblem.SqlLength);sql=sql[..32768];}
-                var parameters=new List<DatabaseParameterObservation>();if(command.Parameters.Count>256)problems.Add(DatabaseObservationProblem.ParameterLimit);
-                foreach(DbParameter parameter in command.Parameters.Cast<DbParameter>().Take(256))
+                var sql=command.CommandText??"";if(sql.Length>DatabaseCommandObservation.MaximumSqlLength){problems.Add(DatabaseObservationProblem.SqlLength);sql=sql[..DatabaseCommandObservation.MaximumSqlLength];}
+                var parameters=new List<DatabaseParameterObservation>();if(command.Parameters.Count>DatabaseCommandObservation.MaximumParameters)problems.Add(DatabaseObservationProblem.ParameterLimit);
+                foreach(DbParameter parameter in command.Parameters.Cast<DbParameter>().Take(DatabaseCommandObservation.MaximumParameters))
                 {
                     var value=parameter.Value;var (kind,data)=Encode(value);string? hash=null;
                     if(data is not null)

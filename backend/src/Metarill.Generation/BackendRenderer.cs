@@ -378,7 +378,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>新增使用页级白名单及真实身份补齐系统字段。</summary>")
                 .AppendLine(mergeParent is null?MutationEntry(table,page,"Create",operationAwareImport):
                     $"    public Task<{page.Name}Vo> Create{suffix}Async({page.Name}CreateRequest request, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => Create{suffix}WithParentRecheckAsync(request, parentId, actor, null, cancellationToken);\n"+
-                    $"    private Task<{page.Name}Vo> Create{suffix}WithParentRecheckAsync({page.Name}CreateRequest request, string? parentId, RuntimeActor actor, Metarill.Data.Queries.MySqlExactParentCandidate.ImportRecheck? parentRecheck, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
+                    $"    private Task<{page.Name}Vo> Create{suffix}WithParentRecheckAsync({page.Name}CreateRequest request, string? parentId, RuntimeActor actor, Metarill.Data.Queries.MySqlExactParentCandidate.ImportRecheck? parentRecheck, CancellationToken cancellationToken{(deferParent?PackedAppendRenderer.CreateArguments(table):"")}) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(ExactDataManageCompilation.MutationAuthorization(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"create\"":"\"create\""))
                 .Append(PrepareCall(model, table, page, "Create", "null", "request"))
@@ -413,16 +413,21 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         }
         catch (Exception error) when (deferredParent is not null && error is not OperationCanceledException)
         {
-            // 本地规则拒绝时，先按原顺序报告父候选错误，再保留原本地错误。
+            // 本地规则拒绝时，先处理缓冲的前序行，再复核本行父候选。
+            if (flushEarlierRows is not null) await flushEarlierRows();
             if (await CheckParentCandidateAsync() is { } status)
                 Metarill.Data.Queries.MySqlExactParentCandidate.RequireCandidate(status);
             throw;
         }
 """+"\n":"")
-                .Append(batchInsert?$"        var insertedCache = parentRecheck is null ? null : await new Metarill.Data.Relations.ProjectRelationMutationPropagator(session).TryInsertScalarSourceAsync(global::{model.Namespace}.Generated.GeneratedRelationMaintenance.Catalog, {Literal(table.Source.TableName)}, entity.Id, actor.ProjectId, entity, cancellationToken{(deferParent?", deferredParent":"")});\n":"")
+                .Append(deferParent?PackedAppendRenderer.CreateBuffer(page):"");
+            var persistBodyStart=result.Length-1;
+            result.Append(batchInsert?$"        var insertedCache = parentRecheck is null ? null : await new Metarill.Data.Relations.ProjectRelationMutationPropagator(session).TryInsertScalarSourceAsync(global::{model.Namespace}.Generated.GeneratedRelationMaintenance.Catalog, {Literal(table.Source.TableName)}, entity.Id, actor.ProjectId, entity, cancellationToken{(deferParent?", deferredParent":"")});\n":"")
                 .Append(deferParent?$"        if (deferredParent is not null && insertedCache is null)\n        {{\n            mergedCandidate = await CheckParentCandidateAsync();\n            {validateRelations});\n        }}\n":"")
                 .AppendLine("        if ("+(batchInsert?"insertedCache is null && ":"")+"await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"新增失败。\");").Append(TimeFieldCompilation.AfterWrite(model,table)).Append(CrossTableWriteRenderer.After(model,table,page,true,ImportRenderer.RelationOperationAware(model,table,page))).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true,ImportRenderer.RelationOperationAware(model,table,page)))
-                .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(importFiles?", authorizationOperation":"")}{(batchInsert?", insertedCache: insertedCache":"")});").AppendLine($"        return {RoleResult(model,table,page,"create")};").AppendLine("    }, cancellationToken);");
+                .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(importFiles?", authorizationOperation":"")}{(batchInsert?", insertedCache: insertedCache":"")});").AppendLine($"        return {RoleResult(model,table,page,"create")};");
+            if(deferParent)result.Replace("\n        ","\n            ",persistBodyStart,result.Length-persistBodyStart).AppendLine("        }");
+            result.AppendLine("    }, cancellationToken);");
         }
         var buttonUpdate=BusinessRecordButtons(model,page).Count>0;
         var standardUpdate=Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source)||(ImportRenderer.Enabled(page)&&ImportRenderer.Mode(page)=="OverWriteByFirstColumn");
@@ -536,6 +541,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (result is null) await ValidateParents{{suffix}}Async(parentId, actor, cancellationToken);
             return result;
         }
+        if (deferredParent is null && flushEarlierRows is not null) await flushEarlierRows();
         var mergedCandidate = deferredParent is null ? await CheckParentCandidateAsync() : null;
 """;
     }

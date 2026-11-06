@@ -42,18 +42,18 @@ public sealed partial class RelationMaintenanceExecutor
         foreach (var parameter in parent.Parameters)
             Add(command, parameter.Key, parameter.Value);
 
-        var sql = new StringBuilder(ReadConnectionIdentity);
+        var sql = new StringBuilder("/* metarill:packed-append */ ").Append(ReadConnectionIdentity);
         // 独立会话变量名防止与宿主已有变量撞名。驱动只绑定参数，变量在借用连接结束时也由重置清除。
         var prefix = session.GetPackedAppendVariablePrefix(transaction);
-        var state = prefix + "state";
-        var verdict = prefix + "verdict";
-        var inserted = prefix + "inserted";
-        var readId = prefix + "id";
-        var before = prefix + "before";
-        var expected = prefix + "expected";
-        var affected = prefix + "affected";
-        var storedId = prefix + "stored_id";
-        var stored = prefix + "stored";
+        var state = prefix + "s";
+        var verdict = prefix + "v";
+        var inserted = prefix + "i";
+        var readId = prefix + "r";
+        var before = prefix + "b";
+        var expected = prefix + "e";
+        var affected = prefix + "a";
+        var storedId = prefix + "d";
+        var stored = prefix + "c";
         var reset = $"{verdict}=NULL,{inserted}=NULL,{readId}=NULL,{before}=NULL,{expected}=NULL,{affected}=NULL,{storedId}=NULL,{stored}=NULL";
         sql.Append($"; SET {state}=2,{reset}");
 
@@ -63,7 +63,7 @@ public sealed partial class RelationMaintenanceExecutor
         for (var index = 0; index < rows.Count; index++)
         {
             var row = rows[index];
-            var rowPrefix = prefix[1..] + index + "_";
+            var rowPrefix = "mp" + index + "_";
             var insert = MySqlInsertCacheBatch.Prepare(session, table.Option.TableName, row.Id, row.Entity, rowPrefix, (target.ForeignColumn, parent.ParentId));
             if (insert is null)
                 return false;
@@ -120,6 +120,10 @@ public sealed partial class RelationMaintenanceExecutor
     /// <summary>MySQL 文本命令会重复替换每次参数引用，预算覆盖每次绑定，超限时原路径接管。</summary>
     private static bool FitsPackedCommand(DbCommand command, long packetLimit)
     {
+        // 保持完整 SQL 与参数证据可由原观察器核对，超过边界按逐行命令处理。
+        if (command.CommandText.Length > DatabaseCommandObservation.MaximumSqlLength ||
+            command.Parameters.Count > DatabaseCommandObservation.MaximumParameters)
+            return false;
         var limit = Math.Min(packetLimit, 256 * 1024);
         long bytes = Encoding.UTF8.GetByteCount(command.CommandText) + 128;
         foreach (DbParameter parameter in command.Parameters)

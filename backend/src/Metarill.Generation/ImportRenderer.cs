@@ -58,6 +58,7 @@ public sealed partial class {{page.Name}}ImportRequest
         var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
             ?"InScalarCacheImportTransactionAsync":"InTransactionAsync";
         var mergeParent=GlobalCachedParentCompilation.ForAppendRecheck(model,table,page) is not null;
+        var packedAppend=mergeParent&&GlobalCachedParentCompilation.CanDeferAppendCandidate(model,table,page);
         var result = new StringBuilder().Append(NonRedundantImportMatchRenderer.Declaration(model,table,page,logicalMatch)).AppendLine("    /// <summary>任意行失败时撤销整批；单行复用标准新增或明确字段更新。</summary>")
             .AppendLine($"    public Task<string> Import{page.Source.Id}Async({page.Name}ImportRequest request, RuntimeActor actor, CancellationToken cancellationToken) => session.{transaction}(async () =>")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
@@ -65,6 +66,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("        if (request.RequestJson.ValueKind != JsonValueKind.Array) throw PageImportException.Input(PageImportError.RowsArray);")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken{NonRedundantCrossParentCompilation.ParentArgument(model,table,page)});")
             .Append(mergeParent?$"        var parentRecheck = HasBeforeSave{page.Source.Id} || ids is not SnowflakeIdGenerator ? null : new Metarill.Data.Queries.MySqlExactParentCandidate.ImportRecheck();\n":"")
+            .Append(packedAppend?PackedAppendRenderer.ImportSetup(table,page):"")
             .AppendLine("        var rowBuffer = new global::System.Buffers.ArrayBufferWriter<byte>();")
             .AppendLine("        using var rowWriter = new Utf8JsonWriter(rowBuffer, new JsonWriterOptions { MaxDepth = 64 });")
             .AppendLine("        var rowNumber = 0;")
@@ -96,15 +98,28 @@ public sealed partial class {{page.Name}}ImportRequest
         }
         result.AppendLine($"                var create = ReadRow<{page.Name}CreateRequest>(values);")
             .AppendLine(mergeParent
-                ?$"                await Create{page.Source.Id}WithParentRecheckAsync(create, request.ParentId, actor, parentRecheck, cancellationToken);"
+                ?$"                await Create{page.Source.Id}WithParentRecheckAsync(create, request.ParentId, actor, parentRecheck, cancellationToken{(packedAppend?", canPackRows ? QueuePackedRow : null, canPackRows ? FlushPackedRowsAsync : null":"")});"
                 :$"                await Create{page.Source.Id}{(fileImport?"Core":"")}Async(create, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
-            .AppendLine("            }").AppendLine("            catch (PageImportException error) when (error.IsInputError)").AppendLine("            {")
+            .Append(packedAppend?PackedAppendRenderer.FlushAfterRow:"")
+            .AppendLine("            }");
+        if(packedAppend)
+            result.AppendLine("            catch (Exception error) when (canPackRows && error is not OperationCanceledException)")
+                .AppendLine("            {")
+                .AppendLine("                await FlushPackedRowsAsync();")
+                .AppendLine("                var failure = ImportFailure(error, rowNumber);")
+                .AppendLine("                if (ReferenceEquals(failure, error)) throw;")
+                .AppendLine("                throw failure;")
+                .AppendLine("            }");
+        result.AppendLine("            catch (PageImportException error) when (error.IsInputError)").AppendLine("            {")
             .AppendLine("                throw error.AtRow(rowNumber);").AppendLine("            }")
             // 已声明业务规则保留原类型和提示，由外层事务回滚及宿主HTTP200/R500边界处理。
             .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException and not BusinessRuleException)").AppendLine("            {")
-            .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }").AppendLine("        }")
+            .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }");
+        result.AppendLine("        }")
+            .Append(packedAppend?"        await FlushPackedRowsAsync();\n":"")
             .Append(NonRedundantCrossParentCompilation.Enabled(model,table,page)?$"        await ValidateParents{page.Source.Id}Async(request.ParentId,actor,cancellationToken);\n":"")
             .AppendLine("        return $\"导入成功{rowNumber}条数据\";")
+            .Append(packedAppend?PackedAppendRenderer.ImportFunctions(model,table):"")
             .AppendLine()
             .AppendLine("        // 复用当前批次的 UTF-8 缓冲。深度 64 与原默认序列化一致，DTO 转换器与字段存在性沿用原选项。")
             .AppendLine("        T ReadRow<T>(Dictionary<string, JsonElement> values)")

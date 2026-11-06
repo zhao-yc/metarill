@@ -12,6 +12,9 @@ public sealed record RecordMutationContext(string PageId,string TableName,long R
 }
 public interface IRecordMutationObserver
 {
+    /// <summary>只有发布归属已核对且逐行通知无任何额外效果时才可合并追加。未知观察者默认逐行执行。</summary>
+    bool CanBufferScalarAppend(string pageId, string tableName) => false;
+
     /// <summary>物理删除前、原范围与业务规则已通过时准备基础设施证明；默认空实现兼容既有观察者。</summary>
     Task BeforePhysicalDeleteAsync(RecordMutationContext context,CancellationToken cancellationToken = default) => Task.CompletedTask;
     Task BeforeCommitAsync(RecordMutationContext context,CancellationToken cancellationToken = default);
