@@ -13,7 +13,7 @@ const { createPageWriteFilter } = await import('data:text/javascript;base64,' + 
 const writeSchema = JSON.parse(await readFile(new URL('../common/yzp_runtime/page-write-schema.generated.json', import.meta.url), 'utf8'))
 
 /** 使用真实请求封装和可控时钟，模拟 H5 加载框内部的延迟显示、关闭。 */
-function createFixture({ startError = false, loggedIn = true, abortCallbacks = true } = {}) {
+function createFixture({ startError = false, loggedIn = true, abortCallbacks = true, document } = {}) {
 	let now = 0
 	let nextTimerId = 0
 	let loadingType = ''
@@ -79,6 +79,7 @@ function createFixture({ startError = false, loggedIn = true, abortCallbacks = t
 		...relationRuntime,
 		filterPageWriteData: createPageWriteFilter(writeSchema),
 		uni,
+		document,
 		utils: { isBlank: value => value == null || value === '' },
 		getApp: () => ({ globalData: { environment: { base_url: 'http://test/api' } } }),
 		Date: class extends Date { static now() { return now } },
@@ -178,6 +179,45 @@ test('H5 显示后立刻完成，关闭任务遇到新请求会取消', () => {
 	f.finish(1)
 	f.advance(100)
 	assert.equal(f.ui.visible, false)
+})
+
+test('Web 公共请求拥有独立遮罩，串联关闭后释放节点且不操作原生提示', () => {
+	const mounted = new Set()
+	const document = {
+		body: { append: node => mounted.add(node) },
+		createElement(tag) {
+			return {
+				tag,
+				style: {},
+				children: [],
+				append(...children) { this.children.push(...children) },
+				setAttribute() {},
+				addEventListener() {},
+				remove() { mounted.delete(this) }
+			}
+		}
+	}
+	const f = createFixture({ document })
+	f.uni.showLoading = () => assert.fail('Web 请求不应与原生提示共用节点')
+	f.uni.hideLoading = () => assert.fail('Web 请求不应关闭其他操作的原生提示')
+	f.runtime.request({ url: '/保存' })
+	f.advance(180)
+	assert.equal(mounted.size, 1)
+	const [overlay] = mounted
+	assert.equal(overlay.tag, 'uni-toast')
+	assert.equal(overlay.children[0].className, 'uni-mask')
+	assert.equal(overlay.children[1].children[0].className, 'uni-toast__icon uni-loading')
+	assert.equal(overlay.children[1].children[1].textContent, '加载中')
+	f.finish(0)
+	f.runtime.request({ url: '/重开详情' })
+	f.advance(100)
+	assert.equal(mounted.size, 1)
+	assert.equal([...mounted][0], overlay)
+	f.finish(1)
+	f.advance(100)
+	assert.equal(mounted.size, 0)
+	assert.equal(f.runtime.getRequestLoadingState().visible, false)
+	assert.equal(f.timers.size, 0)
 })
 
 for (const phase of ['success', 'fail']) {

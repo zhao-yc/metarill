@@ -32,6 +32,53 @@ let requestLoadingHideTimer = null;
 let requestLoadingVisible = false;
 let requestLoadingShownAt = 0;
 
+// #ifdef H5
+let requestLoadingElement = null;
+// #endif
+
+/** Web 沿用 uni-app 的原加载样式，公共请求独立持有遮罩节点。 */
+function showRequestLoading() {
+	// #ifdef H5
+	if (typeof document !== 'undefined' && document.body) {
+		const overlay = document.createElement('uni-toast');
+		overlay.setAttribute('data-metarill-request-loading', '');
+		overlay.setAttribute('role', 'status');
+
+		const mask = document.createElement('div');
+		mask.className = 'uni-mask';
+		mask.style.background = 'transparent';
+		mask.addEventListener('touchmove', event => event.preventDefault(), { passive: false });
+
+		const panel = document.createElement('div');
+		panel.className = 'uni-toast';
+		const spinner = document.createElement('i');
+		spinner.className = 'uni-toast__icon uni-loading';
+		const title = document.createElement('p');
+		title.className = 'uni-toast__content';
+		title.textContent = '加载中';
+
+		panel.append(spinner, title);
+		overlay.append(mask, panel);
+		document.body.append(overlay);
+		requestLoadingElement = overlay;
+		return;
+	}
+	// #endif
+	uni.showLoading({ title: '加载中', mask: true });
+}
+
+/** Web 直接释放自己的遮罩，避免原生提示的交错过渡留下阻塞节点。 */
+function hideRequestLoading() {
+	// #ifdef H5
+	if (requestLoadingElement) {
+		requestLoadingElement.remove();
+		requestLoadingElement = null;
+		return;
+	}
+	// #endif
+	uni.hideLoading();
+}
+
 /** 记录有限的请求时序，便于排查偶发加载状态残留。 */
 function recordRequestEvent(id, path, phase) {
 	requestLoadingEvents.push({ id, path, phase, time: Date.now(), pending: pendingRequests.size });
@@ -54,7 +101,7 @@ function beginRequestLoading(path, showLoading) {
 				requestLoadingTimer = null;
 				requestLoadingVisible = true;
 				requestLoadingShownAt = Date.now();
-				uni.showLoading({ title: '加载中', mask: true });
+				showRequestLoading();
 				recordRequestEvent(id, path, 'show');
 			}, 150);
 		}
@@ -73,11 +120,11 @@ function beginRequestLoading(path, showLoading) {
 			clearTimeout(requestLoadingTimer);
 			requestLoadingTimer = null;
 			if (requestLoadingVisible && requestLoadingHideTimer === null) {
-				// H5 的显示内部还有异步渲染；留出显示时间，并让新请求取消待关闭任务。
+				// 保留最短显示时间，让串联的新请求取消待关闭任务。
 				requestLoadingHideTimer = setTimeout(() => {
 					requestLoadingHideTimer = null;
 					requestLoadingVisible = false;
-					uni.hideLoading();
+					hideRequestLoading();
 					recordRequestEvent(id, path, 'hide');
 				}, Math.max(0, 50 - (Date.now() - requestLoadingShownAt)));
 			}
