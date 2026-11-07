@@ -43,3 +43,5 @@
 新范围为 `metarill_fresh_61f5df7a799b44f1_{cross_ss,cross_sl,cross_ls,cross_ll}` 和 `mtf_61f5df7a799b44f1@%`，一次性用途 `global-derived-target-v1`。精确计划及固定清单在本机忽略目录 `.local/global-derived-target-native-20261101`，计划SHA-256：`1c6cedc4c8fc9b449c232827220337d206c19d16a340233c74c74a86243c03a3`。仍为pending／not-started；尚未生成真实口令、创建库或账号。
 
 正式用例的“来源项目隔离”在本批具体指其它来源项目的物理记录不被全局改名／维护／失败写入修改；不把该核验扩大成全部读取权限矩阵。固定来源、程序集、包、门禁回执及核验日志保留；旧C19／B106／V31范围不覆盖本批。清理按服务器记录与临时ownerToken绑定，清理未核实时按用户既定要求备份恢复标识，不擅自删除其他对象。
+
+2026-11-07 的 V497 使用当前产品、独占 Redis 和两组新租约完成正式复验，4 模型通过。本文的旧冻结包和旧 pending 记录保留为历史证据。见[当前正式结果](global-derived-target-web-mysql-v497.md)。

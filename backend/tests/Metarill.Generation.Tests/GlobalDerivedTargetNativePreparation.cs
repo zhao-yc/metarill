@@ -6,7 +6,7 @@ namespace Metarill.Generation.Tests;
 /// <summary>四种普通来源引用同一全局R0链；仅准备完整包，不连接数据库或创建对象。</summary>
 internal static class GlobalDerivedTargetNativePreparation
 {
-    internal const string RootNamespace="Metarill.GlobalDerivedTargetNative",ProductCommit="62ad0d37c320f42db3517a7e409f14b5a93300dd";
+    internal const string RootNamespace="Metarill.GlobalDerivedTargetNative",ProductCommit="a87e2e125c22a3977d816ec770999c10eda666cd";
     /// <summary>沿B105原模型生成，不为正式用例增加项目列、替换组件或简化维护关系。</summary>
     internal static MetadataCatalog Catalog(int mode,string type)=>GlobalDerivedTargetGenerationTests.Catalog(mode,type,InnerType(mode,type));
     /// <summary>四个正式模型与B111四个已验完整包相同；后缀只标识租约槽，内外键类型独立固定。</summary>
