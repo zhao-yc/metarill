@@ -13,7 +13,7 @@
 | 接线与身份 | 回环 URL 的宿主归属及普通账号的页面和数据范围 | 当前正式轮次验证实际宿主监听、真实普通账号和业务授权，双端使用各自角色与会话。[V539 SQL](testing/paired-current-sql-coverage-v539.md) |
 | 业务与清理 | 保留原接口、物理回读、回滚及独占资源回收证据 | 客户写入、文件下载、三页 Excel 导出、客户合同追加导入、同父明细导入及关系维护均有独立回读和清理回执。[V535 导出](testing/paired-current-excel-export-v535.md) · [V536 追加导入](testing/paired-current-parent-excel-import-v536.md) · [V537 同父导入](testing/paired-current-child-excel-import-v537.md) |
 
-固定场景的延迟和吞吐结论按各自报告审阅。文件与同父明细导入各有单轮触线，仍达到原稳定性门槛。客户复制首轮超时，五对配对已留证，完整计时及实库回读待复验。其他负载的整体 SQL 语义及资源签收继续跟踪。见 [V540 复制](testing/paired-current-customer-copy-v540.md)。工具的 `releaseAccepted` 固定为 false，首版性能与发布结论按 [实施进度](project-progress.md) 独立签收。
+固定场景的延迟和吞吐结论按各自报告审阅。文件与同父明细导入各有单轮触线，仍达到原稳定性门槛。客户复制完整复验六轮整场景达标，每端 616 对源与复制件墓碑已逐值读回。复制接口每档各一轮 p95 超过 1.10。其他负载的整体 SQL 语义及资源签收继续跟踪。见 [V542 复制](testing/paired-current-customer-copy-retry-v542.md)。工具的 `releaseAccepted` 固定为 false，首版性能与发布结论按 [实施进度](project-progress.md) 独立签收。
 
 ## 配置与运行
 
