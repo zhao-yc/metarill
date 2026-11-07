@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -105,7 +106,7 @@ public partial class CustomerService
             {
                 probe.Matches = matches;
                 var relation = await Assert.ThrowsAsync<PageImportException>(() => Call("{\"requestJson\":[{\"名称\":\"首行\"},{\"名称\":\"关系失败\",\"类别\":\"无匹配或重名\"}]}"));
-                Assert.True(relation.IsInputError); Assert.Equal(PageImportError.Relation, relation.Code); Assert.Equal(2, relation.RowNumber); Assert.Equal("类别", relation.ColumnName);
+                Assert.True(relation.IsInputError, relation.InnerException?.GetType().FullName); Assert.Equal(PageImportError.Relation, relation.Code); Assert.Equal(2, relation.RowNumber); Assert.Equal("类别", relation.ColumnName);
             }
             foreach (var failure in new Exception[] { new FormatException("SYNTHETIC-DRIVER-CONVERSION"), new JsonException("SYNTHETIC-DRIVER-JSON"), new IOException("SYNTHETIC-DRIVER-PATH") })
             {
@@ -142,13 +143,21 @@ public partial class CustomerService
         private object Select(Type type, Type entity)
         {
             object? query = null;
-            query = ProxyFor(type, (method, _) =>
+            query = ProxyFor(type, (method, arguments) =>
             {
                 if (method.Name == "ToListAsync")
                 {
                     if (ReadFailure is not null) throw ReadFailure;
-                    var listType = typeof(List<>).MakeGenericType(entity); var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
-                    for (var index = 0; index < Matches; index++) { var row = Activator.CreateInstance(entity)!; entity.GetProperty("Id")!.SetValue(row, (long)index + 1); list.Add(row); }
+                    // 执行生成查询的投影，返回驱动入口约定的结果类型。
+                    var projection = arguments?.OfType<LambdaExpression>().SingleOrDefault()?.Compile();
+                    var listType = method.ReturnType.GenericTypeArguments.Single();
+                    var list = (System.Collections.IList)Activator.CreateInstance(listType)!;
+                    for (var index = 0; index < Matches; index++)
+                    {
+                        var row = Activator.CreateInstance(entity)!;
+                        entity.GetProperty("Id")!.SetValue(row, (long)index + 1);
+                        list.Add(projection is null ? row : projection.DynamicInvoke(row));
+                    }
                     return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(listType).Invoke(null, [list]);
                 }
                 return query;
