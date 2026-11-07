@@ -714,19 +714,32 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"    [HttpPost({Literal(catalog.Endpoint)})] [RequestSizeLimit(16384)]")
                 .AppendLine($"    public R<IReadOnlyList<Metarill.Core.Metadata.TemplateVersionOption>> {catalog.Endpoint}([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] System.Text.Json.JsonElement? request) {{ Actor(\"list\"); if (Request.Query.Count != 0) throw new ArgumentException(\"版本候选不接受query参数。\"); return R<IReadOnlyList<Metarill.Core.Metadata.TemplateVersionOption>>.Success(Metarill.Core.Metadata.TemplateVersionCatalog.ReadOptions(request)); }}");
         foreach (var relation in RelationCompilation.ForPage(model, page))
-            result.AppendLine("    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
+        {
+            var managerAdminOption = IsTrustedManagerAdminOption(model, table, page, relation);
+            var targetGate = managerAdminOption ? "" : $"authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); ";
+            result.AppendLine(managerAdminOption ? "    /// <summary>原账号页可读取本项目的后台候选，不授予后台配置页权限。</summary>" : "    /// <summary>关系选项同时验证来源页和目标页读取权限。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint)})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint)})]"))
-                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RelationOptionsLegacyRequest? request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); request ??= new(); var selected = request.ToSelectedRequest(); return R<IReadOnlyList<GeneratedOption>>.Success(selected is null ? await service.Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ToPageRequest(), actor, cancellationToken, request.TargetParentId) : await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(selected, actor, cancellationToken)); }}")
-                .AppendLine("    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>")
+                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RelationOptionsLegacyRequest? request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); {targetGate}request ??= new(); var selected = request.ToSelectedRequest(); return R<IReadOnlyList<GeneratedOption>>.Success(selected is null ? await service.Options{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request.ToPageRequest(), actor, cancellationToken, request.TargetParentId) : await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(selected, actor, cancellationToken)); }}")
+                .AppendLine(managerAdminOption ? "    /// <summary>后台候选按本项目范围、关键词和固定顺序分页。</summary>" : "    /// <summary>关系关键词分页始终采用已编译目标、固定排序和双方页面权限。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/page")})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint + "/page")})]"))
-                .AppendLine($"    public async Task<R<PageResult<GeneratedOption>>> {relation.Endpoint}Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}")
+                .AppendLine($"    public async Task<R<PageResult<GeneratedOption>>> {relation.Endpoint}Page([FromBody] RelationOptionsPageRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); {targetGate}return R<PageResult<GeneratedOption>>.Success(await service.OptionsPage{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}")
                 .AppendLine("    /// <summary>已选项回读复用候选完整范围，任何非法项整体拒绝。</summary>")
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/selected")})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint + "/selected")})]"))
-                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); authorization.RequirePagePermission({Literal(relation.TargetPage.Source.Id)}, \"list\"); return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
+                .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); {targetGate}return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
+        }
         result.Append(TrustedSecurityProjectOptionsRenderer.Controller(model,table,page));
         result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(model, page));
         return result.AppendLine("}").ToString();
     }
+    /// <summary>可信管理包的账号后台下拉属于账号页，只投影本项目的后台标识与名称。其它关系仍检查双方页面。</summary>
+    private static bool IsTrustedManagerAdminOption(GenerationModel model, TableModel table, PageModel page, RelationModel relation) =>
+        page.Source.Id == "6031906822946816" && table.Source.Id == "6031906809708544"
+        && relation.SourceColumn.Source is { Id: "1679698329655750657", ColumnName: "yz_admin_type_id" }
+        && relation.Target.Source is { Id: "1696799308939239425", TableName: "yz_admin_type" }
+        && relation.TargetPage.Source.Id == "1696799309006348290" && relation.NameColumn.Source.ColumnName == "name"
+        && relation.SourceParents.Count == 0 && relation.TargetParents.Count == 0 && relation.ParentBinding?.Declared != true
+        && TrustedSecurityServiceCompilation.Applies(model, table);
+
     /// <summary>数组、分页和已选回读共用目标、真实父记录和固定范围，不生成通用查询网关。</summary>
     private static string Relations(GenerationModel model, PageModel page)
     {
@@ -765,6 +778,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
                 .AppendLine($"    private async Task<ISelect<{relation.Target.EntityType}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)})")
                 .AppendLine("    {");
+            if (IsTrustedManagerAdminOption(model, model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId), page, relation))
+                result.AppendLine("        // 候选服务直接调用也必须使用真实账号页权限；写入校验仍走既有协调器。")
+                    .AppendLine("        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"后台候选要求真实当前身份。\");")
+                    .AppendLine($"        if (requireSourceList) relationAuthorization.RequirePagePermission({Literal(page.Source.Id)}, \"list\");");
             if (relation.ParentBinding?.Declared == true)
             {
                 if (relation.ParentBinding.Binding is null) result.AppendLine($"        RejectBound{page.Source.Id}({Literal(relation.ParentBinding.Reason!)});");

@@ -155,6 +155,41 @@ public sealed class TrustedAdminProjectOptionsTests(TrustedSecurityServiceFixtur
         var routes=type.GetMethods().SelectMany(method=>method.GetCustomAttributes<HttpPostAttribute>()).Select(attribute=>attribute.Template).Where(route=>route?.StartsWith(TrustedSecurityProjectOptionsPlan.Endpoint,StringComparison.Ordinal)==true).ToArray();
         Assert.Equal(new[]{TrustedSecurityProjectOptionsPlan.Endpoint,TrustedSecurityProjectOptionsPlan.Endpoint+"/page",TrustedSecurityProjectOptionsPlan.Endpoint+"/selected"},routes);
     }
+    /// <summary>账号页编辑者不需要后台配置页权限，三种原候选入口均只能读本项目的有效后台。</summary>
+    [Fact]
+    public async Task Account_page_can_read_admin_options_without_configuration_permission()
+    {
+        const string accountPage="6031906822946816";
+        const string endpoint="findNameIdYzAdminType1679698329655750657";
+        await using var run=await TrustedSecurityServiceRun.Create(fixture);
+        var identity=run.Identity with{Permissions=new HashSet<string>{accountPage+":is_query",accountPage+":is_update"}};
+        SetIdentity(run,identity);
+        var project=long.Parse(fixture.Catalog.YzProjectId);
+        var admin=fixture.Models.Binding.ManagementAdminTypeId;
+        run.Add("yz_admin_type",("id",9007199254740993L),("yz_project_id",project),("name","当前项目另一个后台"));
+        run.Add("yz_admin_type",("id",9007199254740994L),("yz_project_id",42L),("name","外项目后台"));
+        run.Add("yz_admin_type",("id",9007199254740995L),("yz_project_id",project),("name","已删除后台"),("delete_no",DateTime.UtcNow));
+        var auth=run.Scope.ServiceProvider.GetRequiredService<IRuntimeAuthorization>();
+        Assert.Throws<SecurityException>(()=>auth.RequirePagePermission(Page,"list"));
+        var service=run.Service("YzManager");
+        var controller=(ControllerBase)Activator.CreateInstance(fixture.Type("Generated.Controllers.YzManagerPage"+accountPage+"Controller"),service,auth)!;
+        var legacy=Serialize(await run.Call(controller,endpoint,new RelationOptionsLegacyRequest(),CancellationToken.None)).GetProperty("data");
+        Assert.Equal(new[]{admin,"9007199254740993"}.Order(),legacy.EnumerateArray().Select(option=>option.GetProperty("id").GetString()!).Order());
+        var paged=Serialize(await run.Call(controller,endpoint+"Page",new RelationOptionsPageRequest{Keyword="另一个",PageSize=5},CancellationToken.None)).GetProperty("data");
+        Assert.Equal("9007199254740993",Assert.Single(paged.GetProperty("records").EnumerateArray()).GetProperty("id").GetString());
+        var selected=new RelationOptionsSelectedRequest{SelectedIds=[admin]};
+        var saved=Serialize(await run.Call(controller,endpoint+"Selected",selected,CancellationToken.None)).GetProperty("data");
+        var option=Assert.Single(saved.EnumerateArray());
+        Assert.Equal(admin,option.GetProperty("id").GetString());
+        Assert.Equal(new[]{"id","name","value","text"},option.EnumerateObject().Select(property=>property.Name));
+        selected=new(){SelectedIds=[admin,"9007199254740994"]};
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>run.Call(controller,endpoint+"Selected",selected,CancellationToken.None));
+        SetIdentity(run,identity with{Permissions=new HashSet<string>{Page+":is_query"}});
+        await Assert.ThrowsAsync<SecurityException>(()=>run.Call(controller,endpoint+"Selected",new RelationOptionsSelectedRequest(),CancellationToken.None));
+        await Assert.ThrowsAsync<SecurityException>(()=>run.Call(service,"OptionsSelected6031906822946816_1679698329655750657Async",new RelationOptionsSelectedRequest(),identity.Actor,CancellationToken.None));
+        Assert.Empty(run.Writes);
+    }
+
     /// <summary>请求解析只允许既有槽，未知/重复SQL或超大form不可变成后端查询。</summary>
     [Theory]
     [InlineData("ReadTrustedProjectLegacy","{\"projectId\":\"42\"}")][InlineData("ReadTrustedProjectLegacy","{\"adminId\":\"42\"}")]
