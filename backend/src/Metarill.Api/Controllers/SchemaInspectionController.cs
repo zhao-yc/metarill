@@ -1,0 +1,24 @@
+using System.Text.Json;
+using Metarill.Core.Contracts;
+using Metarill.Runtime.Metadata;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Metarill.Api.Controllers;
+
+/// <summary>受管结构只读反查入口；响应始终 executable=false，不能提交为执行计划。</summary>
+[ApiController, Route("api/admin/sys/database/inspect")]
+public sealed class SchemaInspectionController(ProjectSchemaInspectionBusiness business) : ControllerBase
+{
+    /// <summary>只接收空对象或当前项目的元数据tableId，不接受SQL、连接或客户端项目覆盖。</summary>
+    [HttpPost, RequestSizeLimit(4096)]
+    public async Task<R<ProjectSchemaInspection>> Inspect([FromBody] JsonElement request, CancellationToken token) =>
+        R<ProjectSchemaInspection>.Success(await business.InspectAsync(request, token));
+    /// <summary>目录只读且限定当前服务端项目连接，不授予导入或结构修改能力。</summary>
+    [HttpPost("/api/admin/sys/database/catalog"), RequestSizeLimit(4096)]
+    public async Task<R<ProjectSchemaCatalog>> Catalog([FromBody] JsonElement request, CancellationToken token) =>
+        R<ProjectSchemaCatalog>.Success(await business.CatalogAsync(request, token));
+    /// <summary>未登记表的反向逻辑草案只读预览；不能提交为DDL或元数据保存计划。</summary>
+    [HttpPost("/api/admin/sys/database/import/preview"), RequestSizeLimit(16384)]
+    public async Task<R<ProjectSchemaImportPreview>> PreviewImport([FromBody] JsonElement request, CancellationToken token) =>
+        R<ProjectSchemaImportPreview>.Success(await business.PreviewImportAsync(request, token));
+}

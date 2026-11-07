@@ -1,0 +1,173 @@
+name: 构建与契约验证
+on: [push, pull_request]
+permissions:
+  contents: read
+# 同一来源分支复用验证队列，保护运行中的矩阵，只保留最新待执行提交。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.ref_type }}-${{ github.head_ref || github.ref_name }}-${{ github.base_ref || github.event.repository.default_branch }}
+  cancel-in-progress: false
+jobs:
+  backend:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      METARILL_PLATFORM_METADATA: ${{ github.workspace }}/backend/metadata/platform.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: 安装原页面Vue回归依赖
+        run: npm ci --ignore-scripts --prefix frontend/metarill_uni_admin
+      - name: 验证空库 MySQL 与隔离 Redis 的服务器和清理边界
+        run: python -m unittest discover -s tools/acceptance -p 'test_server200_fresh*.py'
+      - name: 验证独占 MySQL TLS 证书及资源归属边界
+        run: python -m unittest discover -s tools/acceptance -p 'test_server200_mysql_tls.py'
+      - name: 验证S3固定来源及清理授权边界
+        run: python -m unittest discover -s tools/acceptance -p 'test_*s3*.py'
+      - name: 核对原页面固定请求AST及条件分支边界
+        run: node --test tools/acceptance/original-frontend-routes.test.mjs tools/acceptance/original-detail-requests.test.mjs tools/acceptance/original-list-requests.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: 准备固定Java SQL观察测试驱动
+        run: mvn --batch-mode --no-transfer-progress org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get "-Dartifact=com.mysql:mysql-connector-j:9.7.0" "-Dtransitive=false"
+      - name: 验证Java采集宿主的原事务和请求接线
+        run: mvn --batch-mode --no-transfer-progress -f tools/performance/jdbc-host-tests/pom.xml test
+      - name: 核对性能测量合同和回环HTTP
+        run: python -m unittest discover -s tools/performance -p 'test_*.py'
+      - name: 核对管理页面私有预览传输边界
+        run: node --test tools/acceptance/serve-management-browser.test.mjs tools/acceptance/serve-runtime-browser.test.mjs
+      - name: 核对平台元数据重建与已发布声明
+        run: node --test tools/metadata/platform-builder.test.mjs
+      - name: 核对文件基础表派生元数据
+        run: node tools/metadata/derive-files.mjs --check
+      - name: 核对安全基础表派生元数据与边界
+        shell: pwsh
+        run: |
+          # 任意生成或核对命令失败时立即结束，避免后续成功覆盖退出码。
+          $PSNativeCommandUseErrorActionPreference = $true
+          node --test tools/metadata/derive-security.test.mjs
+          node tools/metadata/derive-security.mjs --check
+          node --test tools/metadata/derive-security-management.test.mjs
+          node tools/metadata/derive-security-management.mjs --check
+      - name: 核对Agent固定基础表派生
+        run: |
+          node --test tools/metadata/derive-agent.test.mjs
+          node tools/metadata/derive-agent.mjs --check
+      - name: 重新生成并核对提交产物
+        shell: pwsh
+        run: |
+          # 任意生成或核对命令失败时立即结束，避免后续成功覆盖退出码。
+          $PSNativeCommandUseErrorActionPreference = $true
+          foreach ($target in @('platform','demo')) {
+            $namespace = if ($target -eq 'platform') { 'Metarill.Platform' } else { 'Metarill.Demo' }
+            dotnet run --project backend/src/Metarill.Cli -- generate --metadata backend/metadata/$target.json --output backend/generated/$target --namespace $namespace
+            if ($LASTEXITCODE -ne 0) { throw '重新生成失败' }
+          }
+          npm run sync:template-version --prefix frontend/metarill_uni_admin
+          npm run sync:write-schema --prefix frontend/metarill_uni_admin
+          npm run sync:custom-routes --prefix frontend/metarill_uni_admin
+          npm run sync:original-list-options --prefix frontend/metarill_uni_admin
+          if ($LASTEXITCODE -ne 0) { throw '原平台List同步失败' }
+          git diff --exit-code HEAD -- backend/generated frontend/metarill_uni_admin
+          if ($LASTEXITCODE -ne 0) { throw '生成产物与已提交内容不一致' }
+          # git diff 不包含新生成的未跟踪文件，单独核对，继续忽略依赖缓存。
+          $untracked = @(git ls-files --others --exclude-standard -- backend/generated frontend/metarill_uni_admin)
+          if ($untracked.Count -gt 0) {
+            $untracked | Write-Output
+            throw '生成产物包含未提交的文件'
+          }
+      - name: 编译服务
+        run: dotnet build backend/src/Metarill.Api --configuration Release
+      - name: 验证C#私有采集宿主的真实HTTP接线
+        run: dotnet test tools/performance/csharp-host.Tests --configuration Release --disable-build-servers -warnaserror --logger "trx;LogFileName=Metarill.Paired.SqlObservation.Tests.trx"
+      - name: 运行后端测试项目
+        shell: pwsh
+        run: |
+          # 生成测试由独立矩阵执行。其余项目全部运行后统一报告失败。
+          $generationProject = (Resolve-Path backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj).Path
+          $failedTestProjects = [System.Collections.Generic.List[string]]::new()
+          foreach ($testProject in Get-ChildItem backend/tests -Filter *.csproj -Recurse | Sort-Object FullName) {
+            if ($testProject.FullName -eq $generationProject) { continue }
+            dotnet test $testProject.FullName --logger "trx;LogFileName=$($testProject.BaseName).trx"
+            if ($LASTEXITCODE -ne 0) { $failedTestProjects.Add($testProject.BaseName) }
+          }
+          if ($failedTestProjects.Count -gt 0) { throw "测试失败：$($failedTestProjects -join '、')" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 测试报告-${{ matrix.os }}
+          path: |
+            backend/tests/**/TestResults/*.trx
+            tools/performance/csharp-host.Tests/TestResults/*.trx
+  generation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        shard: [1, 2, 3, 4, 5, 6]
+    runs-on: ${{ matrix.os }}
+    env:
+      METARILL_PLATFORM_METADATA: ${{ github.workspace }}/backend/metadata/platform.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: 安装原页面 Vue 回归依赖
+        run: npm ci --ignore-scripts --prefix frontend/metarill_uni_admin
+      - name: 运行生成测试分组
+        shell: pwsh
+        env:
+          GENERATION_TEST_SHARD: ${{ matrix.shard }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $shard = [int]$env:GENERATION_TEST_SHARD
+          # 按历史 TRX 的类耗时分组。前五组依次排除已覆盖前缀，第六组执行补集，自动收纳新测试。
+          $groups = @('R', 'GB', 'NM', 'SF', 'CL')
+          if ($shard -lt 1 -or $shard -gt ($groups.Count + 1)) { throw '生成测试分组编号无效' }
+          $exclude = foreach ($group in ($groups | Select-Object -First ($shard - 1))) {
+            foreach ($initial in $group.ToCharArray()) { "FullyQualifiedName!~Metarill.Generation.Tests.$initial" }
+          }
+          $include = if ($shard -le $groups.Count) {
+            $patterns = foreach ($initial in $groups[$shard - 1].ToCharArray()) {
+              "FullyQualifiedName~Metarill.Generation.Tests.$initial"
+            }
+            '(' + ($patterns -join '|') + ')'
+          }
+          $filter = (@($exclude | Where-Object { $_ }) + @($include | Where-Object { $_ })) -join '&'
+          dotnet test backend/tests/Metarill.Generation.Tests/Metarill.Generation.Tests.csproj --filter $filter --logger "trx;LogFileName=Metarill.Generation.Tests-$shard.trx" -- RunConfiguration.TreatNoTestsAsError=true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 生成测试报告-${{ matrix.os }}-${{ matrix.shard }}
+          path: backend/tests/Metarill.Generation.Tests/TestResults/*.trx
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: 按锁文件安装前端依赖
+        run: npm ci --ignore-scripts --prefix frontend/metarill_uni_admin
+      - name: 运行时与Agent协议测试
+        run: |
+          npm test --prefix frontend/metarill_uni_admin
+          npm run check --prefix tools/metarill-agent-cli
+          npm test --prefix tools/metarill-agent-cli
+          node --test tools/acceptance/online-helper-browser.test.mjs

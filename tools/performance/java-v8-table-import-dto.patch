@@ -1,0 +1,12 @@
+--- a/backend/yzp/src/main/java/com/yinzon/service/yzp/v8/JavaService.java
++++ b/backend/yzp/src/main/java/com/yinzon/service/yzp/v8/JavaService.java
+@@ -1088,3 +1088,3 @@
+                 && (!isNonRedundant(configTable) || "custom".equals(configPage.getImportMethod()))) {
+-            sb.append("import com.yinzon.entity.sys.ImportRequest;");
++            sb.append("import com.yinzon.yzp.runtime.dto.TableImportDTO;");
+         }
+@@ -3464,3 +3464,3 @@
+             sb.append("@PostMapping(value = \"/importDatas" + page.getId() + "\")");
+-            sb.append("public R importDatas" + page.getId() + "(@RequestBody ImportRequest importRequest){");
++            sb.append("public R importDatas" + page.getId() + "(@RequestBody TableImportDTO importRequest){");
+             sb.append("YzManager yzManager = PowerInterceptor.getCurrentLoginYzManager();");

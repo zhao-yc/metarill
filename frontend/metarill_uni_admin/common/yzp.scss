@@ -1,0 +1,846 @@
+/* 全局样式 */
+page {
+	background-color: #fff;
+}
+
+* {
+	font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+	/* font-family: "SimSun", "宋体", serif; */
+}
+
+uni-button[type=primary] {
+	// color: #fff;
+	background-color: $uni-primary !important;
+	// background-color: $uni-text-color !important;
+
+}
+
+uni-button[type=primary].button-hover {
+	// color: #fff;
+	background-color: $uni-primary-disable !important;
+}
+
+uni-modal .uni-modal__btn_primary {
+	color: $uni-primary !important;
+}
+
+.uni-selector-select .uni-picker-item.selected {
+	color: $uni-primary;
+}
+
+.uni-easyinput__content.is-focused {
+	border-color: $uni-primary !important;
+}
+
+.uni-easyinput__content.is-focused .content-clear-icon {
+	color: $uni-primary !important;
+}
+.is-input-border{
+	border-radius: $uni-border-radius !important;
+}
+
+.uni-table-scroll{
+	border-radius: $uni-border-radius;
+}
+// .segmented-control__item.segmented-control__item--button{
+// 	border-color: $uni-primary !important;
+// }
+// .segmented-control__item.segmented-control__item--button .segmented-control__text{
+// 	color: $uni-primary !important;
+// }
+
+/* 解决PC端点击弹出框之后,出现X轴滚动条的问题 */
+html {
+	overflow-x: hidden;
+}
+
+/*页面结构复杂，css样式太多的情况，使用 image 可能导致样式生效较慢，出现 “闪一下” 的情况，此时设置以下样式,可优化此问题。（官网拷贝，未复现此问题）*/
+image {
+	will-change: transform
+}
+
+uni-picker uni-view.uni-easyinput.can-read uni-view.is-disabled {
+	background-color: #fff !important;
+	color: inherit;
+}
+
+/* 点击过的列表页修改背景色 */
+.uni-table-tr-clicked {
+	background-color: #e1ebfd !important;
+}
+
+uni-left-window {
+	height: 100%;
+}
+
+.uni-table-td {
+	// padding: 2px 3px !important;
+}
+
+/* .uni-table-th {
+	color: rgb(51, 51, 51) !important;
+} */
+
+.uni-date__x-input {
+	padding-right: 5px;
+}
+
+.segmented-control {
+	background-color: #fff;
+}
+
+/*
+已废弃，该属性会引起手机端滑到底部翻页失效、以及返回上页面时丢失上页面的状态等问题
+开启主窗体滚动条,否则滚动条会连带window-top一起,滚动的时候,会带着左侧菜单 */
+/* uni-main {
+	overflow-y: auto;
+	overflow-x: hidden;
+} */
+
+/* Vue3 H5 会在 <uni-left-window> 内部生成 .uni-left-window。
+   常驻 leftWindow 的宽度必须交给框架测量，否则会和 --window-left 形成循环计算。 */
+/* #ifdef H5 */
+.uni-mask + .uni-left-window {
+	position: fixed;
+}
+/* #endif */
+
+/* 跟随leftwindow 动态显示底部tabbar */
+.uni-app--showleftwindow+.uni-tabbar-bottom {
+	display: none;
+}
+
+/* 在PC端的时候，允许选择文字 */
+.uni-app--showleftwindow {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+button {
+	/* border-radius: 0px; */
+}
+
+button.primary {
+	/* background-color: #0faf97; */
+	color: #fff;
+}
+
+uni-button:after {
+	/* border-radius: 0px; */
+}
+
+.uni-section .line {
+	/* background-color: #0faf97 !important; */
+}
+
+/*  picker view {
+ 	padding: 8px;
+ 	border: 1px solid rgb(227, 227, 227);
+ 	font-size: 14px;
+ 	border-radius: 4px;
+ } */
+
+/* 列表页样式 */
+.list-page {}
+
+/* 仅将具有标准正文容器的顶层 PC 列表做卡片化，避免影响子表和旧版定制页。 */
+.list-page.main-page > .list-page-pc:has(> .list-page-pc-body) {
+	box-sizing: border-box;
+	min-height: calc(100vh - var(--top-window-height, 0px));
+	padding-bottom: $uni-spacing-base;
+	background-color: #f5f7fa;
+}
+
+.list-page-pc-body {
+	padding: $uni-spacing-base;
+}
+
+.list-page.main-page > .list-page-pc:has(> .list-page-pc-body) > .list-page-pc-body {
+	box-sizing: border-box;
+	margin: $uni-spacing-base $uni-spacing-base 0;
+	background-color: $uni-white;
+	border: 1px solid $uni-border-2;
+	border-radius: $uni-border-radius;
+}
+
+.list-page-pc-body-table{
+	border-radius: $uni-border-radius;
+}
+
+.list-page .uni-table .uni-table-tr:nth-child(n + 2):hover {
+	background-color: #e3eeff !important;
+}
+
+.list-page .buttons > view {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px 12px;
+}
+
+.list-page .list-action-link {
+	color: $uni-primary;
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1.4;
+	padding: 2px 0;
+	white-space: nowrap;
+}
+
+.list-page .list-action-link:hover {
+	text-decoration: underline;
+}
+
+.list-page .list-action-link--warn {
+	color: $uni-error;
+}
+
+/* 同一选项自动换行使用紧凑行距，选项上下留白继续区分相邻选项。 */
+.uni-stat__select .uni-select__selector-scroll .uni-select__selector-item {
+	box-sizing: border-box;
+	min-height: 35px;
+	padding: 7px 10px;
+	line-height: 20px;
+}
+
+.list-page .pc-filters {
+	// padding: 10px 0 0 10px;
+	.uni-select{
+		width: 150px;
+	}
+}
+
+.list-page .pc-filters-buttons {
+	display: flex;
+	align-items: center;
+}
+.list-page .pc-filters button {
+	margin: 3px 8px 0px;
+}
+
+.list-page .uni-forms-item__content {
+	display: flex;
+	align-items: center;
+}
+
+.list-page .pc-filters .uni-forms-item {
+	margin-right: 15px;
+	margin-top: 5px;
+	margin-bottom: 5px;
+}
+
+.list-page .pc-filters .uni-forms-item .uni-forms-item__label {
+	padding-right: 5px;
+}
+
+.list-page .list-column-important {
+	font-weight: bold;
+	color: #000;
+}
+
+.list-page .list-page-buttons {
+	display: flex;
+	margin:$uni-spacing-sm auto;
+}
+
+.list-page .pc-filters uni-form>span {
+	display: flex;
+	flex-wrap: wrap;
+}
+
+uni-main {
+	/* Vue3 H5 的 leftWindow 由框架 flex 布局占位，不能再用 --window-left 反算主窗宽度。 */
+	min-width: 0;
+}
+
+.uni-pagination-box {
+	padding:$uni-spacing-sm 0;
+}
+
+.list-page.main-page .list-page-mobile {
+	padding-bottom: 62px;
+	padding-bottom: calc(62px + env(safe-area-inset-bottom));
+}
+
+.list-page .list-img {
+	/*  width: 100%; */
+	width: 50px;
+	height: 50px;
+	border-radius: 10%;
+}
+
+/* 移动端列表页样式1 */
+.list-page .row {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	width: 100%;
+}
+
+.list-page .uni-table-td.green-td,
+.list-page .row .row-item uni-text.green-td {
+	background-color: green;
+	color: white;
+}
+
+.list-page .row .row-item {
+	line-height: 25px;
+	// margin-right:$uni-spacing-base;
+}
+
+.list-page .row .row-item text:first-child {
+	color: #969696;
+	margin-right: 5px;
+}
+
+
+/* 移动端列表页样式2 */
+.list-page .yz-row-container{
+	padding: $uni-spacing-base;
+	background-color: $uni-bg-color;
+}
+
+.list-page .yz-row-container .yz-row {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: $uni-spacing-base;
+	padding:$uni-spacing-base;
+	background-color: #fff;
+	margin-top: $uni-spacing-base;
+	border-radius: $uni-border-radius;
+}
+
+.list-page .yz-row-container .yz-row:first-child {
+	margin-top: 0px;
+}
+
+.list-page .yz-row-container .yz-row .row-item text:first-child {
+	color: #969696;
+	margin-right: 5px;
+}
+
+.list-page .yz-row-container .yz-row .row-item.span2 {
+	grid-column: span 2;
+}
+
+
+
+/* 移动端列表页样式3 */
+.list-page .yz-row-container .yz-row3 {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: $uni-spacing-base;
+	padding:$uni-spacing-base;
+	background-color: #fff;
+	margin-top: $uni-spacing-base;
+	border-radius: $uni-border-radius;
+}
+
+.list-page .yz-row-container .yz-row3:first-child {
+	margin-top: 0px;
+}
+
+.list-page .yz-row-container .yz-row3 .yz-row3-first-row {
+	grid-column: span 2;
+	display: flex;
+}
+
+.list-page .yz-row-container .yz-row3 .yz-row3-first-row >view {
+	display: flex;
+}
+
+.list-page .yz-row-container .yz-row3 .yz-row3-first-row >view:last-child {
+    flex-direction: column;
+    justify-content: space-between;
+	margin-left: $uni-spacing-base;
+}
+
+.list-page .yz-row-container .yz-row3 .row-item text:first-child {
+	color: #969696;
+	margin-right: 5px;
+}
+
+.list-page .yz-row-container .yz-row3 .row-item.span2 {
+	grid-column: span 2;
+}
+
+
+.list-page .list-page-buttons button {
+	margin: 5px 8px;
+}
+
+.list-page .bottom-buttons {
+	/* H5 Safari 会把贴底固定层参与浏览器底部取色，白底承载层避免按钮色外溢。 */
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 2;
+	width: 100%;
+	/*  width: calc(100% - 240px); */
+	box-sizing: border-box;
+	display: flex;
+	background-color: $uni-white;
+	padding: 6px 0;
+	padding-bottom: calc(6px + env(safe-area-inset-bottom));
+}
+
+.list-page .bottom-buttons button {
+	width: 100%;
+	margin: 0;
+	/*  border-radius: 0px; */
+}
+
+.list-page .filter-popup .popup-footer {
+	/*  position: fixed; */
+	bottom: 0;
+	width: 100%;
+	display: flex;
+}
+
+.list-page .filter-popup .popup-footer button {
+	float: left;
+	flex: 1;
+}
+
+.list-page .filter-popup .section-view {
+	padding: 15px;
+}
+
+.list-page .filter-popup .section-view {
+	/* margin-bottom: 50px; */
+}
+
+.list-page .sort-filter-view {
+	display: flex;
+	background-color: #FFFFFF;
+	margin-top: 5px;
+	border-top: solid 1px #f7f7f7;
+}
+
+.list-page .sort-filter-view .sort-view {
+	flex: 1;
+}
+
+.list-page .sort-filter-view .filter-btn {
+	padding: 0px 20px;
+	border-left: 1px solid #EEEEEE;
+	line-height: 38px;
+}
+
+.multi-select-page-buttons{
+	display: flex;
+	justify-content: flex-end;
+}
+.multi-select-page-buttons uni-button{
+	margin: $uni-spacing-sm;
+}
+
+.select-page-uni-section{
+	border-radius: $uni-border-radius;
+}
+
+.son-page-uni-section {
+	margin-top: 10px;
+}
+
+.son-page-uni-section .uni-section-header{
+	padding:12px $uni-spacing-base !important;
+}
+
+/* 详情页样式 */
+.detail-page {
+	/* padding-bottom: 50px; */
+}
+
+.ismobile .segmented-control {
+	height: auto !important;
+	text-align: center;
+}
+
+.detail-page .input-tips {
+	font-size: 12px;
+	color: #999;
+	padding-top: 4px;
+	line-height: 1;
+}
+
+.select-page-dialog-view{
+	background-color: #fff;
+	// max-width: 100%;
+	margin:auto;
+	padding:$uni-spacing-base;
+	border-radius: $uni-border-radius;
+}
+
+.child-detail-dialog-view{
+	background-color: #fff;
+	width: min(960px, calc(100vw - 32px));
+	max-width: calc(100vw - 32px);
+	max-height: calc(100vh - 32px);
+	overflow: auto;
+	margin: auto;
+	border-radius: $uni-border-radius;
+}
+
+.child-detail-dialog-view.is-mobile{
+	width: 100vw;
+	max-width: 100vw;
+	height: 100vh;
+	max-height: 100vh;
+	border-radius: 0;
+}
+
+.child-detail-dialog-view .detail-page{
+	display: flex;
+	flex-direction: column;
+	min-height: 100%;
+	max-height: inherit;
+	background-color: #fff;
+}
+
+.child-detail-dialog-view .detail-page .base-info{
+	flex: 1 1 auto;
+	min-height: 280px;
+	overflow: auto;
+	margin-bottom: 0;
+}
+
+.detail-page .uni-forms-item__error {
+	width: 100%;
+	background-color: #fff;
+	/* 用于覆盖tips内容 */
+}
+
+.detail-page .uni-forms-item__label {
+	word-break: break-all;
+	/* 允许在任意字符间断行 */
+}
+
+.detail-page .uni-forms-item__content {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+
+	.uni-easyinput{
+		flex: none;
+	}
+}
+
+.detail-page .select-page-input-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+}
+
+/* 选择页单选控件：输入框占满剩余宽度，按钮固定在同一行 */
+.detail-page .select-page-input-row uni-easyinput,
+.detail-page .select-page-input-row .uni-easyinput {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.detail-page .select-page-input-row uni-button,
+.detail-page .select-page-input-row button {
+	flex: 0 0 auto;
+	margin: 0;
+}
+
+.detail-page .internet-img {
+	/*  width: 100%; */
+	width: 50px;
+	height: 50px;
+	border-radius: 10%;
+}
+
+.detail-page .base-info {
+	margin: 1px 0 10px;
+}
+
+.detail-page .segmented-control {
+	padding: 0 $uni-spacing-base;
+}
+
+/* 详情页子表页签：轻量化替代分段按钮，保留子表切换语义。 */
+.detail-page .yzp-child-tabs {
+	margin: 6px $uni-spacing-base 0;
+	padding: 4px;
+	background-color: #f7fafc;
+	border: 1px solid $uni-border-2;
+	border-radius: $uni-border-radius;
+	box-sizing: border-box;
+}
+
+.detail-page .yzp-child-tabs__scroll {
+	width: 100%;
+	white-space: nowrap;
+}
+
+.detail-page .yzp-child-tabs__inner {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 100%;
+}
+
+.detail-page .yzp-child-tabs__item {
+	flex: 1 1 0;
+	min-width: 96px;
+	height: 36px;
+	padding: 0 18px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: $uni-base-color;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 1;
+	background-color: transparent;
+	border: 1px solid transparent;
+	border-radius: $uni-border-radius;
+	box-sizing: border-box;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+
+.detail-page .yzp-child-tabs__item.is-active {
+	color: $uni-primary;
+	background-color: #fff;
+	border-color: rgba(10, 179, 173, .35);
+	box-shadow: 0 2px 8px rgba(10, 179, 173, .12);
+}
+
+.detail-page .yzp-child-tabs__text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.detail-page .yzp-child-content {
+	padding: 12px $uni-spacing-base $uni-spacing-base;
+	box-sizing: border-box;
+}
+
+/* 独立路由的标准 PC 详情页使用灰色画布，导航栏仍保持全宽。 */
+uni-page-body > .detail-page.ispc {
+	box-sizing: border-box;
+	min-height: calc(100vh - var(--top-window-height, 0px));
+	padding-bottom: $uni-spacing-base;
+	background-color: #f5f7fa;
+}
+
+/* 基本信息作为详情页的首张白色卡片。 */
+uni-page-body > .detail-page.ispc > .base-info {
+	box-sizing: border-box;
+	margin: $uni-spacing-base $uni-spacing-base 0;
+	background-color: $uni-white;
+	border: 1px solid $uni-border-2;
+	border-radius: $uni-border-radius;
+}
+
+/* 内容层继承卡片圆角，修正白色背景盖住内角的问题，同时避免裁剪下拉浮层。 */
+uni-page-body > .detail-page.ispc > .base-info > .section-view {
+	border-radius: inherit;
+}
+
+/* “子表上面”按钮作为编辑卡片页脚，不再形成卡片外的独立白色区块。 */
+.detail-page .base-info > .bottom-buttons.is-before-child {
+	position: static;
+	width: auto;
+	margin: 0;
+	padding: $uni-spacing-base;
+	box-sizing: border-box;
+	border-top: solid 1px $uni-border-2;
+	background-color: transparent;
+}
+
+/* 页签与子表卡片均由详情页画布统一控制间距，避免形成双倍左右留白。 */
+uni-page-body > .detail-page.ispc > .yzp-child-tabs {
+	margin: $uni-spacing-base $uni-spacing-base 0;
+}
+
+uni-page-body > .detail-page.ispc > .yzp-child-content {
+	padding: $uni-spacing-base 0 0;
+}
+
+/* 非页签和页签模式下，每个 PC 子表都拥有独立的无阴影白色卡片。 */
+uni-page-body > .detail-page.ispc > .list-page.main-page > .son-page-uni-section,
+uni-page-body > .detail-page.ispc > .yzp-child-content > * > .list-page.main-page > .son-page-uni-section {
+	box-sizing: border-box;
+	background-color: $uni-white;
+	border: 1px solid $uni-border-2;
+	border-radius: $uni-border-radius;
+}
+
+uni-page-body > .detail-page.ispc > .list-page.main-page > .son-page-uni-section {
+	margin: $uni-spacing-base $uni-spacing-base 0;
+}
+
+uni-page-body > .detail-page.ispc > .yzp-child-content > * > .list-page.main-page > .son-page-uni-section {
+	margin: 0 $uni-spacing-base;
+}
+
+.detail-page.ismobile .yzp-child-tabs__inner {
+	display: inline-flex;
+	min-width: 100%;
+}
+
+.detail-page.ismobile .yzp-child-tabs__item {
+	flex: 0 0 auto;
+}
+
+.detail-page .base-info .section-view {
+	padding: $uni-spacing-base;
+	background-color: #fff;
+}
+
+.detail-page .rtf-review {
+	max-height: 260px;
+	overflow: auto;
+	border: solid 1px #EEEEEE;
+	width: 100%;
+}
+
+.detail-page .rtf-review img {
+	max-width: 100%;
+	height: auto;
+}
+
+.detail-page .base-info .base64img {
+	max-width: 100px;
+	max-height: 100px;
+}
+
+.detail-page .rtf-buttons {
+	display: flex;
+}
+
+.detail-page .rtf-buttons button {
+	flex: 1;
+}
+
+.detail-page .bottom-buttons {
+	position: fixed;
+	bottom: 0px;
+	width: 100%;
+	display: flex;
+	/*  避免被图片上传组件的删除按钮遮挡 */
+	z-index: 2;
+	background-color: #fff;
+	border-top: solid 1px $uni-border-2;
+	gap: $uni-spacing-sm;
+	padding: $uni-spacing-sm 0;
+	justify-content: center;
+	flex-wrap: wrap;
+}
+
+.detail-page .bottom-buttons button{
+	margin: 0 $uni-spacing-sm;
+}
+
+.detail-page .bottom-buttons.is-before-child{
+	position: static;
+	width: auto;
+	margin: $uni-spacing-base $uni-spacing-base $uni-spacing-lg;
+	box-sizing: border-box;
+	border-top: 0;
+}
+
+.detail-page .bottom-buttons.is-embedded{
+	position: static;
+	width: auto;
+	margin-top: $uni-spacing-base;
+	padding: $uni-spacing-sm 0;
+	box-sizing: border-box;
+	flex-shrink: 0;
+	border-top: solid 1px $uni-border-2;
+	background-color: #fff;
+	justify-content: center;
+	flex-wrap: wrap;
+}
+
+.detail-page .bottom-buttons.is-embedded button{
+	flex: 0 0 auto;
+	min-width: 0;
+}
+
+.detail-page .bottom-buttons.is-embedded uni-button{
+	width: auto;
+	min-width: 96px;
+}
+
+.uni-app--showleftwindow .detail-page .bottom-buttons {
+	width: calc(100% - 200px);
+}
+
+.uni-app--showleftwindow .detail-page .bottom-buttons.is-before-child {
+	width: auto;
+}
+
+.uni-app--showleftwindow .detail-page .bottom-buttons.is-embedded {
+	width: 100%;
+}
+
+.detail-page.ispc .base-info .uni-forms > uni-form > span {
+	display: grid;
+	grid-template-columns: repeat(var(--detail-grid-columns, 2), minmax(0, 1fr));
+	gap: 20px $uni-spacing-lg;
+	align-items: start;
+}
+
+.detail-page.ispc .uni-forms-item {
+	width: auto;
+	min-width: 0;
+	margin-bottom: 0;
+}
+
+// 主表字段分组占满表单网格一行，与下方主子表标签保持独立。
+.detail-page .yzp-detail-groups {
+	grid-column: 1 / -1;
+	min-width: 0;
+	width: 100%;
+	margin: 8px 0 16px;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.detail-page .yzp-detail-groups__scroll {
+	width: 100%;
+	white-space: nowrap;
+}
+
+.detail-page .yzp-detail-groups__inner {
+	display: flex;
+	width: max-content;
+	min-width: 100%;
+	gap: 20px;
+}
+
+.detail-page .yzp-detail-groups__item {
+	flex: 0 0 auto;
+	padding: 10px 4px;
+	cursor: pointer;
+	border-bottom: 2px solid transparent;
+	color: #606266;
+}
+
+.detail-page .yzp-detail-groups__item.is-active {
+	color: $uni-primary;
+	border-bottom-color: $uni-primary;
+	font-weight: 600;
+}
+
+// 窄屏按实际可用宽度改为单列；桌面设备缩小窗口时同样保护输入区域。
+@media screen and (max-width: 767px) {
+	.detail-page.ispc .base-info .uni-forms > uni-form > span {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.detail-page .uni-forms-item {
+		// 覆盖备注/图片等生成的行内span 2，避免单列网格形成隐式第二列。
+		grid-column: 1 / -1 !important;
+		min-width: 0;
+	}
+}

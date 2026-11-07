@@ -1,0 +1,17 @@
+# 固定原登录来源；逐字提取方法/复制依赖，不执行应用或数据库。
+# sourceCommit=b6d64fb2ad4ac25b004eeaa326092de3cfb7f311
+# SHA256	原仓库相对路径	新宿主相对路径或提取动作
+34bd12b393eb3e5fd8b6f5e016e3d68e8d7a80887e33ebf75884af016aafa8fa	backend/yzp/src/main/java/com/yinzon/controller/admin/sys/YzManagerControllerSys.java	@extract-login
+7c09aec10a1427c0c695a6410bca1a2016efaa95056ae341d69ccd47a976622b	backend/yzp/src/main/java/com/yinzon/business/captcha/AdminCapCaptchaProperties.java	backend/src/main/java/com/yinzon/business/captcha/AdminCapCaptchaProperties.java
+9765e0b1590cafc706ab03781a8f36434b89db38a7f245acd65f78ed634c37b8	backend/yzp/src/main/java/com/yinzon/business/captcha/AdminCapCaptchaVerifier.java	backend/src/main/java/com/yinzon/business/captcha/AdminCapCaptchaVerifier.java
+378565d430b9a869dd096f80ceb98b69bbc202d0d9f9d36d756dbea8f473eaa7	backend/yzp/src/main/java/com/yinzon/business/captcha/AdminCapCaptchaException.java	backend/src/main/java/com/yinzon/business/captcha/AdminCapCaptchaException.java
+a400dc0c46492b2e974d5a0365d2ee4d96901b9b1be40136f7fd7239046211ce	backend/yzp/src/main/java/com/yinzon/common/IpUtils.java	backend/src/main/java/com/yinzon/common/IpUtils.java
+1c17fea8fb9a4bae88857c4870359cb4ad38c7b413e9304f39e9e691c3960acb	backend/yzp/src/main/java/com/yinzon/common/Md5Utils.java	backend/src/main/java/com/yinzon/common/Md5Utils.java
+eda2e8329a37b769f62f40ef0660b2fd38de9b60ed856e99d7961633db9581a0	backend/yzp/src/main/java/com/yinzon/entity/YzManagerLog.java	backend/src/main/java/com/yinzon/entity/YzManagerLog.java
+c62d5c82df62c1c0cbc34aa3b48ffc296d37cdadadcda5b128a8d541c4d8a23c	backend/yzp/src/main/java/com/yinzon/mapper/YzManagerLogMapper.java	backend/src/main/java/com/yinzon/mapper/YzManagerLogMapper.java
+998e9e4736db858465b92736db385b4de6aa6fa70b0750e7f5f7feb4e09f2706	backend/yzp/src/main/java/com/yinzon/service/YzManagerLogService.java	backend/src/main/java/com/yinzon/service/YzManagerLogService.java
+d7956f932ef789707c36c0d10154718f6fa6151738e5413c167c1ded1551811e	backend/yzp/src/main/java/com/yinzon/service/impl/YzManagerLogServiceImpl.java	backend/src/main/java/com/yinzon/service/impl/YzManagerLogServiceImpl.java
+35cc1f97d7591a52016db04638471f2266e025c1000961886cb4a2b2f89d80e8	backend/yzp/src/main/java/com/yinzon/enums/ActionType.java	backend/src/main/java/com/yinzon/enums/ActionType.java
+556a645c5d7e7505e1fb5332de33ac418bea92a12ce6532b6b5c55180a76dfe9	backend/yzp/src/main/java/com/yinzon/config/RestTemplateConfig.java	@verify-existing-rest-template
+5c38309ce133f930d6a80ec809edfd089cd54348b42a8b14e5914c5cb90e84f3	backend/yzp/src/main/resources/template/v8/init_project_db/yz_manager_log.sql	backend/src/test/resources/paired-login/yz_manager_log.sql
+4f213447541666d87c8d642675d9e9275f08ffa2cb4001a6757cb2e38712e64a	backend/yzp/src/test/java/com/yinzon/business/captcha/AdminCapCaptchaVerifierTests.java	backend/src/test/java/com/yinzon/business/captcha/AdminCapCaptchaVerifierTests.java

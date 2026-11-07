@@ -1,0 +1,304 @@
+{
+  "pages": [
+    {
+      "path": "pages/yzp/config_button-list-1870796062470516738",
+      "style": {
+        "navigationBarTitleText": "\u6309\u94AE",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_button-detail-1870796062470516738",
+      "style": {
+        "navigationBarTitleText": "\u6309\u94AE",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_button-list-7097193256583168",
+      "style": {
+        "navigationBarTitleText": "\u6309\u94AE",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_button-detail-7097193256583168",
+      "style": {
+        "navigationBarTitleText": "\u6309\u94AE",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_child-list-1679390851298631682",
+      "style": {
+        "navigationBarTitleText": "\u5B50\u8868\u5173\u7CFB",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_child-detail-1679390851298631682",
+      "style": {
+        "navigationBarTitleText": "\u5B50\u8868\u5173\u7CFB",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_column-list-6217715532627968",
+      "style": {
+        "navigationBarTitleText": "\u5217",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_column-detail-6217715532627968",
+      "style": {
+        "navigationBarTitleText": "\u5217",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_custom_page-list-2062361618137833473",
+      "style": {
+        "navigationBarTitleText": "\u81EA\u5B9A\u4E49\u9875\u9762",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_custom_page-detail-2062361618137833473",
+      "style": {
+        "navigationBarTitleText": "\u81EA\u5B9A\u4E49\u9875\u9762",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_index-list-2076977531071803393",
+      "style": {
+        "navigationBarTitleText": "\u7D22\u5F15\u914D\u7F6E",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_index-detail-2076977531071803393",
+      "style": {
+        "navigationBarTitleText": "\u7D22\u5F15\u914D\u7F6E",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_index_column-list-2076977554350190593",
+      "style": {
+        "navigationBarTitleText": "\u7D22\u5F15\u5B57\u6BB5",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_index_column-detail-2076977554350190593",
+      "style": {
+        "navigationBarTitleText": "\u7D22\u5F15\u5B57\u6BB5",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_menu-list-2200000000000099000",
+      "style": {
+        "navigationBarTitleText": "\u83DC\u5355",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_menu-detail-2200000000000099000",
+      "style": {
+        "navigationBarTitleText": "\u83DC\u5355",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-list-1868973685063311361",
+      "style": {
+        "navigationBarTitleText": "\u914D\u7F6E\u9875\u9762",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-detail-1868973685063311361",
+      "style": {
+        "navigationBarTitleText": "\u914D\u7F6E\u9875\u9762",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-list-1869016706289577986",
+      "style": {
+        "navigationBarTitleText": "\u9009\u62E9\u914D\u7F6E\u9875\u9762",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-detail-1869016706289577986",
+      "style": {
+        "navigationBarTitleText": "\u9009\u62E9\u914D\u7F6E\u9875\u9762",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-list-6191175925956608",
+      "style": {
+        "navigationBarTitleText": "\u914D\u7F6E\u9875\u9762",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_page-detail-6191175925956608",
+      "style": {
+        "navigationBarTitleText": "\u914D\u7F6E\u9875\u9762",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_page_column-list-6218036784398336",
+      "style": {
+        "navigationBarTitleText": "\u9875\u9762\u5B57\u6BB5",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_page_column-detail-6218036784398336",
+      "style": {
+        "navigationBarTitleText": "\u9875\u9762\u5B57\u6BB5",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/config_table-list-6191083005411328",
+      "style": {
+        "navigationBarTitleText": "\u8868",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/config_table-detail-6191083005411328",
+      "style": {
+        "navigationBarTitleText": "\u8868",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_admin_type-list-1696799309006348290",
+      "style": {
+        "navigationBarTitleText": "\u540E\u53F0\u7C7B\u578B",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_admin_type-detail-1696799309006348290",
+      "style": {
+        "navigationBarTitleText": "\u540E\u53F0\u7C7B\u578B",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager-list-6031906822946816",
+      "style": {
+        "navigationBarTitleText": "\u7BA1\u7406\u5458",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager-detail-6031906822946816",
+      "style": {
+        "navigationBarTitleText": "\u7BA1\u7406\u5458",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices-list-6220589291798528",
+      "style": {
+        "navigationBarTitleText": "\u7BA1\u7406\u5458\u4FE1\u606F\u6269\u5C55",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices-detail-6220589291798528",
+      "style": {
+        "navigationBarTitleText": "\u7BA1\u7406\u5458\u4FE1\u606F\u6269\u5C55",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices_project-list-6220608155484160",
+      "style": {
+        "navigationBarTitleText": "\u5404\u8D26\u53F7\u9879\u76EE\u914D\u7F6E",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_manager_devices_project-detail-6220608155484160",
+      "style": {
+        "navigationBarTitleText": "\u5404\u8D26\u53F7\u9879\u76EE\u914D\u7F6E",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_project-list-6186303424888832",
+      "style": {
+        "navigationBarTitleText": "\u9879\u76EE",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_project-detail-6186303424888832",
+      "style": {
+        "navigationBarTitleText": "\u9879\u76EE",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role-list-1692532858529329154",
+      "style": {
+        "navigationBarTitleText": "\u89D2\u8272",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role-detail-1692532858529329154",
+      "style": {
+        "navigationBarTitleText": "\u89D2\u8272",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role_permission-list-2063264600601714690",
+      "style": {
+        "navigationBarTitleText": "\u89D2\u8272\u6743\u9650",
+        "navigationStyle": "custom",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/yzp/yz_role_permission-detail-2063264600601714690",
+      "style": {
+        "navigationBarTitleText": "\u89D2\u8272\u6743\u9650",
+        "navigationStyle": "custom"
+      }
+    }
+  ]
+}

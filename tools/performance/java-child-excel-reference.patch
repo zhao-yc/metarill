@@ -1,0 +1,161 @@
+--- a/src/main/java/com/yinzon/generated/page/SampleContractLine81003ImportSupport.java
++++ b/src/main/java/com/yinzon/generated/page/SampleContractLine81003ImportSupport.java
+@@ -2,36 +2,57 @@
+ import com.yinzon.common.R;
+ import com.yinzon.controller.admin.interceptor.PowerInterceptor;
+ import com.yinzon.entity.YzManager;
++import com.yinzon.entity.SampleContract;
+ import com.yinzon.entity.SampleContractLine;
++import com.yinzon.mapper.SampleContractMapper;
+ import com.yinzon.service.SampleContractLineService;
+ import com.alibaba.fastjson2.JSONArray;
+ import com.alibaba.fastjson2.JSONObject;
++import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+ import com.yinzon.yzp.runtime.dto.TableImportDTO;
++import org.springframework.transaction.annotation.Transactional;
+ @org.springframework.stereotype.Component
+ public class SampleContractLine81003ImportSupport{
+     private final SampleContractLineService sampleContractLineService;
++    private final SampleContractMapper sampleContractMapper;
+     /** 注入页面依赖。 */
+-    public SampleContractLine81003ImportSupport(SampleContractLineService sampleContractLineService){
++    public SampleContractLine81003ImportSupport(SampleContractLineService sampleContractLineService,
++                                               SampleContractMapper sampleContractMapper){
+         this.sampleContractLineService=sampleContractLineService;
++        this.sampleContractMapper=sampleContractMapper;
+     }
+-    /** 保持既有批量导入协议与事务。 */
++    /** 对照夹具在同一事务验证父记录，再通过既有 Service 写入与补齐缓存。 */
++    @Transactional(rollbackFor = Exception.class)
+     public R importDatas81003(TableImportDTO importRequest){
+         YzManager yzManager = PowerInterceptor.getCurrentLoginYzManager();
+         JSONArray requestJson = importRequest.getRequestJson();
++        String parentId = importRequest.getParentId();
++        if (parentId == null || !parentId.matches("[1-9][0-9]{0,18}")) {
++            throw new IllegalArgumentException("当前页面要求规范正整数parentId。");
++        }
++        Long.parseLong(parentId);
++        if (requestJson == null) {
++            throw new IllegalArgumentException("导入数据不能为空。");
++        }
++        // 全局样板的父范围由当前业务库及逻辑删除条件决定。锁维持至整批提交。
++        var parent = sampleContractMapper.selectOne(new LambdaQueryWrapper<SampleContract>()
++                .select(SampleContract::getId)
++                .eq(SampleContract::getId, parentId)
++                .last("LIMIT 1 FOR UPDATE"));
++        if (parent == null) {
++            throw new IllegalArgumentException("父记录不存在或已删除。");
++        }
+         for (Integer i = 0; i < requestJson.size(); i++) {
+             JSONObject oneData = requestJson.getJSONObject(i);
+             SampleContractLine entity = new SampleContractLine();
+             entity.setName(oneData.getString("明细名称"));
+             entity.setAmount(oneData.getBigDecimal("明细金额"));
+             entity.setRemarks(oneData.getString("备注"));
+-            try {
+-                entity.setInsertManagerId(yzManager.getId());
+-                entity.setUpdateManagerId((yzManager==null?"":yzManager.getId()));
+-                sampleContractLineService.save(entity);
+-            }
+-            catch (Exception e) {
+-                e.printStackTrace();
+-                return R.error("添加失败。");
++            entity.setSampleContractId(parentId);
++            entity.setInsertManagerId(yzManager.getId());
++            entity.setUpdateManagerId(yzManager.getId());
++            if (!sampleContractLineService.save(entity)) {
++                throw new IllegalStateException("添加失败。");
+             }
+         }
+         return R.success("导入成功" + requestJson.size() + "条数据");
+--- /dev/null
++++ b/src/test/java/com/yinzon/samplehost/PairedChildImportReferenceTests.java
+@@ -0,0 +1,88 @@
++package com.yinzon.samplehost;
++
++import com.alibaba.fastjson2.JSON;
++import com.baomidou.mybatisplus.core.MybatisConfiguration;
++import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
++import com.yinzon.controller.admin.interceptor.PowerInterceptor;
++import com.yinzon.entity.SampleContract;
++import com.yinzon.entity.SampleContractLine;
++import com.yinzon.entity.YzManager;
++import com.yinzon.generated.page.SampleContractLine81003ImportSupport;
++import com.yinzon.mapper.SampleContractMapper;
++import com.yinzon.service.SampleContractLineService;
++import com.yinzon.yzp.runtime.dto.TableImportDTO;
++import org.apache.ibatis.builder.MapperBuilderAssistant;
++import org.junit.jupiter.api.BeforeAll;
++import org.junit.jupiter.api.Test;
++import org.mockito.ArgumentCaptor;
++import org.springframework.transaction.annotation.Transactional;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.Mockito.*;
++
++/** 离线验证对照夹具的字符串父键、身份和整批异常传播。 */
++class PairedChildImportReferenceTests {
++    private static final String PARENT = "9007199254760000";
++    private final SampleContractMapper parents = mock(SampleContractMapper.class);
++    private final SampleContractLineService lines = mock(SampleContractLineService.class);
++    private final SampleContractLine81003ImportSupport importer = new SampleContractLine81003ImportSupport(lines, parents);
++
++    @BeforeAll
++    static void initializeMapperMetadata() {
++        var assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "reference");
++        assistant.setCurrentNamespace(SampleContractMapper.class.getName());
++        assertTrue(TableInfoHelper.initTableInfo(assistant, SampleContract.class).isWithLogicDelete());
++    }
++
++    @Test
++    void bindsRequestParentBeforeOriginalServiceSave() {
++        var actor = new YzManager();
++        actor.setId("17");
++        try (var security = mockStatic(PowerInterceptor.class)) {
++            security.when(PowerInterceptor::getCurrentLoginYzManager).thenReturn(actor);
++            when(parents.selectOne(any())).thenReturn(new SampleContract());
++            when(lines.save(any())).thenReturn(true);
++            assertEquals(200, importer.importDatas81003(request(PARENT)).getCode());
++            var captured = ArgumentCaptor.forClass(SampleContractLine.class);
++            verify(lines, times(2)).save(captured.capture());
++            for (var row : captured.getAllValues()) {
++                assertEquals(PARENT, row.getSampleContractId());
++                assertEquals("17", row.getInsertManagerId());
++                assertEquals("17", row.getUpdateManagerId());
++            }
++            verify(parents).selectOne(argThat(query -> query.getSqlSegment().endsWith("LIMIT 1 FOR UPDATE")));
++        }
++    }
++
++    @Test
++    void invalidOrMissingParentDoesNotWrite() {
++        for (String id : new String[]{null, "0", "01", "-2", "9223372036854775808"}) {
++            assertThrows(IllegalArgumentException.class, () -> importer.importDatas81003(request(id)));
++        }
++        verifyNoInteractions(parents, lines);
++        assertThrows(IllegalArgumentException.class, () -> importer.importDatas81003(request(PARENT)));
++        verifyNoInteractions(lines);
++    }
++
++    @Test
++    void failedSecondSaveEscapesTransactionBoundary() throws NoSuchMethodException {
++        var tx = importer.getClass().getMethod("importDatas81003", TableImportDTO.class).getAnnotation(Transactional.class);
++        assertArrayEquals(new Class<?>[]{Exception.class}, tx.rollbackFor());
++        var actor = new YzManager();
++        actor.setId("17");
++        try (var security = mockStatic(PowerInterceptor.class)) {
++            security.when(PowerInterceptor::getCurrentLoginYzManager).thenReturn(actor);
++            when(parents.selectOne(any())).thenReturn(new SampleContract());
++            when(lines.save(any())).thenReturn(true, false);
++            assertThrows(IllegalStateException.class, () -> importer.importDatas81003(request(PARENT)));
++            verify(lines, times(2)).save(any());
++        }
++    }
++
++    private static TableImportDTO request(String parent) {
++        var request = new TableImportDTO();
++        request.setParentId(parent);
++        request.setRequestJson(JSON.parseArray("[{\"明细名称\":\"甲\",\"明细金额\":0.50},{\"明细名称\":\"乙\",\"明细金额\":1.50}]"));
++        return request;
++    }
++}

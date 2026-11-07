@@ -1,0 +1,252 @@
+"""只读性能专用用途和回放证据离线回归。"""
+import contextlib
+import io
+import hashlib
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest import mock
+
+import paired_measurement as measurement
+import paired_measurement_fixture as fixture
+import paired_native_bootstrap as native
+import paired_write_measurement as write
+import test_paired_native_bootstrap as previous
+
+
+RUN="aa"*16
+TARGETS={side:{"container":"metarill-perf-"+RUN+"-"+side,"expectedImageId":native.resources.EXISTING_LINE_IMAGES[side],
+              "containerPort":8080,"baseUrl":f"http://127.0.0.1:{port}/api"} for side,port in (("java",28191),("csharp",28192))}
+TOKENS={(side,"reader"):"PRIVATE-TEST-TOKEN" for side in TARGETS}
+
+
+class MeasurementReplayTests(unittest.TestCase):
+    def test_fixed_current_read_routes_and_warmup_bounds(self):
+        """只用原读入口，不忽略响应字段或使用超级账号。"""
+        config=measurement.config_for(RUN,TARGETS,TOKENS)
+        self.assertEqual((3,400,[1,4],8),(config["rounds"],config["iterations"],config["concurrency"],config["warmupIterations"]))
+        steps=config["scenarios"][0]["steps"]
+        self.assertEqual(["page","count",str(fixture.ID_BASE+10001),"page"],[step["path"].rsplit("/",1)[1] for step in steps])
+        self.assertTrue(all("ignorePointers" not in step and "capture" not in step for step in steps))
+        self.assertEqual(str(fixture.ID_BASE+10001),steps[3]["json"]["parentId"])
+
+    def test_child_preflight_uses_the_original_default_id_order(self):
+        """原明细页未开放名称排序，首条必须是同父活动记录中的最大主键。"""
+        child = measurement.read_scenario()["steps"][3]
+        self.assertNotIn("orderBy", child["json"])
+        columns = fixture.COLUMNS["sample_contract_line"]
+        parent_index = columns.index("sample_contract_id")
+        deleted_index = columns.index("delete_no")
+        active = [row[0] for row in fixture.rows("sample_contract_line")
+                  if row[parent_index] == child["json"]["parentId"] and row[deleted_index] is None]
+        checks = {check["pointer"]: check["equals"] for check in child["checks"]}
+        self.assertEqual(3, len(active))
+        self.assertEqual(len(active), checks["/data/total"])
+        self.assertEqual(str(max(active)), checks["/data/records/0/id"])
+
+    def test_preflight_response_difference_never_calls_measurement(self):
+        """一处业务响应不一致时停止，私有证据保留摘要而非正文或令牌。"""
+        with tempfile.TemporaryDirectory() as folder,mock.patch.object(measurement.http,"request",side_effect=["a"]*4+["a","b","a","a"]),mock.patch.object(measurement.http,"run") as run:
+            with self.assertRaisesRegex(ValueError,"measurement-preflight-response-mismatch"):
+                measurement.run_read_measurement(Path(folder),RUN,TARGETS,TOKENS,None,mock.Mock())
+            run.assert_not_called()
+            record=(Path(folder)/"measurement/preflight.json").read_text()
+            self.assertNotIn("PRIVATE",record)
+            self.assertEqual("b",json.loads(record)["responseFingerprints"]["csharp"][1])
+
+    def test_preflight_retains_exact_failed_assertion_without_response_or_replay(self):
+        """实际 HTTP 解析遇到错误类型后，收集固定断言位置，且不发送后续请求。"""
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.status = 200
+        response.read.return_value = b'{"code":200,"data":{"total":"RESPONSE-ONLY-PRIVATE"}}'
+        opener = mock.Mock()
+        opener.open.return_value = response
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(measurement.http.urllib.request, "build_opener", return_value=opener), \
+             mock.patch.object(measurement.http, "run") as run:
+            with self.assertRaisesRegex(ValueError, "measurement-preflight-request-failed"):
+                measurement.run_read_measurement(Path(folder), RUN, TARGETS, TOKENS, None, mock.Mock())
+            opener.open.assert_called_once()
+            run.assert_not_called()
+            output = Path(folder) / "measurement"
+            record = (output / "preflight-failure.json").read_text()
+            self.assertFalse((output / "preflight.json").exists())
+            self.assertNotIn("PRIVATE", record)
+            proof = json.loads(record)
+            self.assertEqual(("java", 1, 2, "type-mismatch"), tuple(proof[key] for key in ("target", "step", "assertion", "reason")))
+            self.assertEqual({"java": [], "csharp": []}, proof["responseFingerprints"])
+
+    def test_temporary_database_setting_change_invalidates_full_measurement(self):
+        """期中共享配置变化即使结束恢复也不出具有效成绩。"""
+        normal={"variables":{"bufferPoolBytes":"128"},"globalCounters":{},"loadAverage":[]}
+        changed={**normal,"variables":{"bufferPoolBytes":"256"}}
+        def measured(config,probe,on_event):
+            on_event({"kind":"trial-intent"})
+            on_event({"kind":"trial"})
+            return {"results":[{"measurementValid":True,"stableRegression":False}]*2}
+        with tempfile.TemporaryDirectory() as folder,mock.patch.object(measurement.http,"request",return_value="a"),mock.patch.object(measurement.http,"run",side_effect=measured),mock.patch.object(measurement,"database_context",side_effect=[normal,changed,normal,normal]):
+            result=measurement.run_read_measurement(Path(folder),RUN,TARGETS,TOKENS,None,mock.Mock())
+            self.assertFalse(result["measurementValid"])
+            self.assertFalse(result["stableRegression"])
+            self.assertNotIn("PRIVATE",(Path(folder)/"measurement/measurement.json").read_text())
+
+
+    def test_server_local_trials_use_and_verify_cumulative_cgroup_probe(self):
+        """真实宿主分支自动选择累计探针，并在写报告前核验绑定身份。"""
+        import paired_cgroup_probe as cgroups
+        config = measurement.config_for(RUN, TARGETS, TOKENS)
+        probe = object.__new__(measurement.http.Server200LocalProbe)
+        counters = mock.Mock()
+        expected = {"results": [{"measurementValid": True, "stableRegression": False}] * 2}
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(measurement, "database_context", return_value={"variables": {}}), \
+             mock.patch.object(measurement.http, "equal_limits", return_value={"pinned": True}), \
+             mock.patch.object(cgroups, "CgroupProbe", return_value=counters) as factory, \
+             mock.patch.object(measurement.http, "run", return_value=expected) as replay:
+            result = measurement.run_trials(Path(folder), config, probe, None, "read")
+            factory.assert_called_once_with(probe, config["targets"], {"pinned": True})
+            self.assertIs(counters, replay.call_args.kwargs["resource_probe"])
+            counters.verify.assert_called_once_with()
+            self.assertTrue(result["measurementValid"])
+            report = json.loads((Path(folder) / "measurement.json").read_bytes())
+            self.assertEqual(cgroups.METHOD, report["resourceSource"])
+
+
+class MeasurementFlowTests(previous.FlowFixture):
+    def setUp(self):
+        super().setUp()
+        self.value.update(purpose=native.resources.MEASUREMENT_NATIVE,images=native.resources.EXISTING_LINE_IMAGES)
+
+    def test_profile_keeps_current_images_and_turns_off_capture(self):
+        """旧用例仍依原固定镜像，本用途不能借旧授权。"""
+        descriptor=native.validate(self.value)
+        self.assertEqual(native.resources.MEASUREMENT_RESOURCES,descriptor["purpose"])
+        self.assertFalse(native.resources.is_observed(descriptor))
+        self.assertEqual(["--metarill.paired.sql-observation.enabled=false"],native.resources.observation_arguments(descriptor,"java"))
+        self.assertEqual(["--Metarill:Paired:SqlObservation:Enabled=false"],native.resources.observation_arguments(descriptor,"csharp"))
+        for change in ({"authorizationStatus":"pending"},{"images":native.resources.OBSERVATION_IMAGES}):
+            with mock.patch.object(native.importlib,"import_module") as importing,self.assertRaises(ValueError):
+                native.run({**self.value,**change})
+            importing.assert_not_called()
+
+    def test_measurement_reads_back_before_and_after_and_cleans(self):
+        """只有专用模式运行种子和计时，报告仍不宣称完整性能验收。"""
+        def seeded(mysql,value,owner,model,target):
+            self.events.append("seed-"+target)
+            return {"target":target}
+        def measured(*args):
+            self.events.append("measure")
+            return {"measurementValid":True,"stableRegression":False}
+        with mock.patch.object(native,"seed_measurement_database",side_effect=seeded),mock.patch.object(measurement,"run_read_measurement",side_effect=measured),mock.patch.object(fixture,"verify_readback",side_effect=lambda run,side,query:{"target":side}),contextlib.redirect_stdout(io.StringIO()):
+            result=native.run(self.value)
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["performanceAccepted"])
+        self.assertTrue(result["measurement"]["physicalFixtureUnchanged"])
+        self.assertLess(self.events.index("seed-csharp"),self.events.index("resources-start-hosts"))
+        self.assertLess(self.events.index("measure"),self.events.index("database-cleanup"))
+
+
+    def test_identity_failure_keeps_request_receipt_and_logs_before_cleanup(self):
+        """真实测量前身份失败留精确阶段，采集日志后仍按既定归属清理。"""
+        def fail(value,model,credentials,*,record_request):
+            record_request({"target":"java","step":"page-reader","errorType":"TimeoutError","elapsedMs":5000})
+            raise TimeoutError("private transport detail")
+        self.identity.side_effect=fail
+        with mock.patch.object(native,"seed_measurement_database",return_value={}), \
+             mock.patch.object(measurement,"run_read_measurement") as replay,contextlib.redirect_stdout(io.StringIO()):
+            result=native.run(self.value)
+        replay.assert_not_called()
+        self.assertFalse(result["passed"])
+        self.assertEqual("TimeoutError",result["identityRequests"][0]["errorType"])
+        self.assertNotIn("private transport detail",json.dumps(result))
+        self.assertLess(self.events.index("resources-wait-hosts"),self.events.index("resources-snapshot-hosts"))
+        self.assertLess(self.events.index("resources-snapshot-hosts"),self.events.index("resources-cleanup"))
+        self.assertEqual([],result["cleanupErrors"])
+
+
+class WriteMeasurementFlowTests(previous.FlowFixture):
+    def setUp(self):
+        self.original_verify=native.verify_tool_sources
+        super().setUp()
+        self.value.update(purpose=native.resources.WRITE_MEASUREMENT_NATIVE,
+                          images=native.resources.EXISTING_LINE_IMAGES,writeReplayRequests=8624)
+
+    def test_pending_or_wrong_budget_never_reaches_external_boundaries(self):
+        """用途和精确预算缺一不可，原只读用途不能从布尔或数量隐式升级。"""
+        for change in ({"authorizationStatus":"pending"},{"writeReplayRequests":8625},
+                       {"writeReplayRequests":True},{"writeReplayRequests":None}):
+            with mock.patch.object(native.importlib,"import_module") as importing,self.assertRaises(ValueError):
+                native.run({**self.value,**change})
+            importing.assert_not_called()
+        self.assertEqual([],self.events)
+        descriptor=native.validate(self.value)
+        self.assertEqual(native.resources.WRITE_MEASUREMENT_RESOURCES,descriptor["purpose"])
+        self.assertFalse(native.resources.is_observed(descriptor))
+
+    def test_only_write_purpose_requires_the_ninth_fixed_file(self):
+        """只读和写入都固定累计资源探针，写入再增加自己的回放源文件。"""
+        base=Path(native.__file__).resolve().parents[1]
+        names=("performance/paired_native_bootstrap.py","performance/paired_http.py","performance/paired_identity_seed.py",
+               "performance/server200_paired_resources.py","acceptance/server200-fresh-mysql.py",
+               "performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py",
+               "performance/paired_cgroup_probe.py")
+        checksums={name:hashlib.sha256((base/name).read_bytes()).hexdigest() for name in names}
+        value={**self.value,"toolSourceCommit":"a"*40,"toolSha256":checksums}
+        # FlowFixture 替换了执行前来源验证，单独调用原函数验证实际清单。
+        verify=self.original_verify
+        with self.assertRaises(ValueError):
+            verify(value)
+        verify({**value,"purpose":native.resources.MEASUREMENT_NATIVE})
+        name="performance/paired_write_measurement.py"
+        checksums[name]=hashlib.sha256((base/name).read_bytes()).hexdigest()
+        verify(value)
+
+    def test_success_requires_pre_post_tombstones_and_seed_readbacks(self):
+        """写入分支在归属和空样本之后，清理之前独立核验两个侧。"""
+        def seeded(mysql,value,owner,model,side):
+            return {"target":side}
+
+        def samples(run,data,*,before=False):
+            self.events.append("before-sample" if before else "after-sample")
+            return {"verifiedRows":0 if before else 616}
+
+        def measured(*args):
+            self.events.append("write")
+            return {"measurementValid":True,"stableRegression":False}
+
+        def preserved(run,side,query,*,exclude_write_samples=False):
+            self.assertTrue(exclude_write_samples)
+            self.events.append("preserved-"+side)
+            return {"target":side}
+
+        with mock.patch.object(native,"seed_measurement_database",side_effect=seeded), \
+             mock.patch.object(native,"require_database_ownership") as ownership, \
+             mock.patch.object(write,"run_write_measurement",side_effect=measured), \
+             mock.patch.object(write,"verify_readback",side_effect=samples), \
+             mock.patch.object(fixture,"verify_readback",side_effect=preserved), \
+             contextlib.redirect_stdout(io.StringIO()):
+            result=native.run(self.value)
+        ownership.assert_called_once()
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["performanceAccepted"])
+        self.assertEqual({"java":{"verifiedRows":616},"csharp":{"verifiedRows":616}},result["measurement"]["writeReadback"])
+        ordered=[name for name in self.events if name in {"before-sample","write","after-sample","preserved-java","preserved-csharp","resources-cleanup","database-cleanup"}]
+        self.assertEqual(["before-sample","before-sample","write","after-sample","after-sample",
+                          "preserved-java","preserved-csharp","resources-cleanup","database-cleanup"],ordered)
+
+    def test_ownership_failure_still_cleans_without_replay(self):
+        """未证明真实双库归属时不准发任何写入回放请求。"""
+        with mock.patch.object(native,"seed_measurement_database",return_value={}), \
+             mock.patch.object(native,"require_database_ownership",side_effect=ValueError("business-fixture-ownership")), \
+             mock.patch.object(write,"run_write_measurement") as measured,contextlib.redirect_stdout(io.StringIO()):
+            result=native.run(self.value)
+        measured.assert_not_called()
+        self.assertFalse(result["passed"])
+        self.assertEqual([],result["cleanupErrors"])
+        self.assertLess(self.events.index("resources-cleanup"),self.events.index("database-cleanup"))
+
+
+if __name__=="__main__":
+    unittest.main()

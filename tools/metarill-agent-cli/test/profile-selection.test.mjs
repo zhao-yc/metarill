@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import { selectHelperProfiles } from '../lib/cli.mjs';
+const bound={url:'https://example.test/api',generationAssistant:{bindingId:'11111111-1111-4111-8111-111111111111'}};
+test('all profiles只选择已有助手绑定且不改变配置顺序',()=>{const config={activeProfile:'current',profiles:{z:{...bound},current:{...bound},empty:{url:'https://example.test/api'}}};assert.deepEqual(selectHelperProfiles(config,undefined,true),['current','z']);assert.equal(config.activeProfile,'current')});
+test('单profile保持原active或显式profile行为',()=>{const config={activeProfile:'current',profiles:{current:{...bound},other:{...bound}}};assert.deepEqual(selectHelperProfiles(config,undefined),['current']);assert.deepEqual(selectHelperProfiles(config,'other'),['other'])});
+test('all与profile冲突、无绑定明确拒绝',()=>{const config={activeProfile:'current',profiles:{current:{...bound}}};assert.throws(()=>selectHelperProfiles(config,'current',true),{code:'invalid_argument'});assert.throws(()=>selectHelperProfiles({activeProfile:null,profiles:{empty:{}}},undefined,true),{code:'profile_missing'})});

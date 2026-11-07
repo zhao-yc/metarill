@@ -1,0 +1,198 @@
+[
+  {
+    "path": "C:\\Work\\Metarill",
+    "normalized": "windows|c:/work/metarill"
+  },
+  {
+    "path": "c:/work/metarill/",
+    "normalized": "windows|c:/work/metarill"
+  },
+  {
+    "path": "D:/git//Project A///",
+    "normalized": "windows|d:/git/project a"
+  },
+  {
+    "path": "E:/\u9879\u76ee/\u65b0\u5de5\u7a0b",
+    "normalized": "windows|e:/\u9879\u76ee/\u65b0\u5de5\u7a0b"
+  },
+  {
+    "path": "E:/\u00c4\u9879\u76ee/Folder",
+    "normalized": "windows|e:/\u00c4\u9879\u76ee/folder"
+  },
+  {
+    "path": "\\\\Server\\Share\\Repo",
+    "normalized": "windows|//server/share/repo"
+  },
+  {
+    "path": "//SERVER/Share/Repo//",
+    "normalized": "windows|//server/share/repo"
+  },
+  {
+    "path": "/Users/Someone/Project",
+    "normalized": "posix|/Users/Someone/Project"
+  },
+  {
+    "path": "/Users/someone/Project",
+    "normalized": "posix|/Users/someone/Project"
+  },
+  {
+    "path": "/home//\u9879\u76ee/\u5de5\u7a0b///",
+    "normalized": "posix|/home/\u9879\u76ee/\u5de5\u7a0b"
+  },
+  {
+    "path": "/root/a:b",
+    "normalized": "posix|/root/a:b"
+  },
+  {
+    "path": "/root/\u00c4",
+    "normalized": "posix|/root/\u00c4"
+  },
+  {
+    "path": "/root/\u00e4",
+    "normalized": "posix|/root/\u00e4"
+  },
+  {
+    "path": "",
+    "normalized": null
+  },
+  {
+    "path": " ",
+    "normalized": null
+  },
+  {
+    "path": " repo",
+    "normalized": null
+  },
+  {
+    "path": "repo",
+    "normalized": null
+  },
+  {
+    "path": "./repo",
+    "normalized": null
+  },
+  {
+    "path": "../repo",
+    "normalized": null
+  },
+  {
+    "path": "C:repo",
+    "normalized": null
+  },
+  {
+    "path": "C:/",
+    "normalized": null
+  },
+  {
+    "path": "/",
+    "normalized": null
+  },
+  {
+    "path": "//server/share",
+    "normalized": null
+  },
+  {
+    "path": "\\\\server\\share\\",
+    "normalized": null
+  },
+  {
+    "path": "C:/repo/..",
+    "normalized": null
+  },
+  {
+    "path": "C:/./repo",
+    "normalized": null
+  },
+  {
+    "path": "/root/../repo",
+    "normalized": null
+  },
+  {
+    "path": "/root/./repo",
+    "normalized": null
+  },
+  {
+    "path": "C:/repo./a",
+    "normalized": null
+  },
+  {
+    "path": "C:/repo /a",
+    "normalized": null
+  },
+  {
+    "path": "C:/CON.txt/repo",
+    "normalized": null
+  },
+  {
+    "path": "C:/nul/repo",
+    "normalized": null
+  },
+  {
+    "path": "C:/COM1/repo",
+    "normalized": null
+  },
+  {
+    "path": "C:/Lpt9.log/repo",
+    "normalized": null
+  },
+  {
+    "path": "C:/repo:x/a",
+    "normalized": null
+  },
+  {
+    "path": "C:/re?po/a",
+    "normalized": null
+  },
+  {
+    "path": "C:/re*po/a",
+    "normalized": null
+  },
+  {
+    "path": "C:/re|po/a",
+    "normalized": null
+  },
+  {
+    "path": "C:/re<po/a",
+    "normalized": null
+  },
+  {
+    "path": "C:/re>po/a",
+    "normalized": null
+  },
+  {
+    "path": "C:/re\"po/a",
+    "normalized": null
+  },
+  {
+    "path": "\\\\?\\C:\\repo",
+    "normalized": null
+  },
+  {
+    "path": "\\\\.\\pipe\\repo",
+    "normalized": null
+  },
+  {
+    "path": "/root/repo\\other",
+    "normalized": null
+  },
+  {
+    "path": "/root/line\nnext",
+    "normalized": null
+  },
+  {
+    "path": "/root/\u0000next",
+    "normalized": null
+  },
+  {
+    "path": "/root/\u0085next",
+    "normalized": null
+  },
+  {
+    "path": "/root/\ud800next",
+    "normalized": null
+  },
+  {
+    "path": "C:/repo ",
+    "normalized": null
+  }
+]

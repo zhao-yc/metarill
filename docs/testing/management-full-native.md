@@ -1,0 +1,152 @@
+# 完整管理同包正式验收
+
+当前结果：2026-11-01，C85以产品`a86eeb7`／执行器`35254ec`的同一固定完整包正式1/1通过、0跳过；唯一库／账号／所有权已独立核零。下方C53、C82～C84按原日期保留准备与失败，不作为已执行成功的历史来源。
+
+日期：2026-10-30；产品起点 `04680ac53d59e8d3037a1e1f344416a768f76bd3`，对应C05/C53。本记录分开验收准备、实际业务执行和独立清理；编译或离线批准形状都不是实库验收成功。
+
+## 同包范围
+
+从已提交普通demo元数据增加第二个已发布后台，调用公开CreateManagement生成FullManagementApplication，完整生产Program、真实管理Service、原工作台、Web/Agent/MCP和业务CRUD都来自同一包。不得注入身份、替换控制器/Service、时钟或数据库适配器。原页面、样式、模板和接口不改。
+
+| 场景 | 检查 |
+| --- | --- |
+| 全新安装 | 普通启动仍0表；显式预览不写库；显式结构安装后无差异 |
+| 两个后台 | 只显式初始化包内后台；初始化重跑不重置既有账号；异后台账号不能访问当前管理页 |
+| 普通编辑者 | 原工作台授予目录中的真实动作，再用持久Web身份运行管理CRUD |
+| 原V8规则 | 同后台普通编辑者可按已确认规则绑定super角色，不增加身份门槛 |
+| 事务/乐观锁 | 跨后台角色绑定拒绝且完整行不变；过期revision拒绝且授权集合不变 |
+| 真实OAuth/CLI | 原设备拒绝/批准、能力发现、预览、CRUD/null/字符串ID、任务去重、撤销和刷新重放 |
+| 真实MCP | 同一普通Web身份及同一生产宿主执行发现/角色CRUD；工作台撤权后当前MCP请求立即拒绝 |
+| 原初始化 | 异后台同名拒绝；保留本后台目标ID、姓名/档案，只改密码/角色，旧Web会话失效 |
+| 持久身份 | 同包进程重启后会话继续可用；注销后拒绝 |
+
+初始化目标先核对没有approved Agent授权。本轮不决定“仍有效刷新授权如何重置”，该规则仍待用户确认，不以本轮无授权账号结果宣称全覆盖。设备批准通过真实Web API驱动，HTTPS示例VerificationUri不作为原授权页人工点击或可达证明；原浏览器、设备、性能及复杂文件/关系联合矩阵仍待。
+
+## 来源与执行边界
+
+准备后严格构建，冻结全部源码、依赖、bin/obj及完整文件集合；核对实际FullManagementApplication、web-database-v1、两个后台、业务来源和固定模块。执行只复制到新独占目录，源包不写结构日志；运行副本只允许新增原结构审计文件，未知文件/改字节/链接拒绝。
+
+纯租约门禁要求本用途full-management-native-v1、产品起点、本轮规范运行ID、approved/running状态及精确包根。普通测试配置、旧Agent/文件/时间用途和已结束租约都拒绝；合成文档的门禁正例不等于用户已经批准。
+
+正式场景复用Server-200现有单库agent协调器：只允许本轮metarill_fresh_{run}_agent及mtf_{run}账号，不建共享测试库或修改既有平台/业务数据。每次Docker命令前由协调器核对服务器；首次连接实库先核数据库、主机和server_uuid，再允许DDL/业务。创建、执行、清理的具体对象在最终固定执行器和完整包准备后另列，未授权前不运行。
+
+## 2026-10-30初次离线准备验证（历史）
+
+最终相关39项通过、零失败、零跳过，包含10项本批准备/门禁、实际完整管理包、基础物理图和固定工厂；10项属于39项子集，不累加覆盖数。新增正式场景已随Release严格编译、零警告错误，未执行SQL。
+
+实际准备测试已严格编译公开完整管理包，逐项核对固定副本、源码/宿主程序集/元数据漂移、未知文件、结构审计例外；8种无授权/旧用途/结束租约等反例均拒绝。独立子进程实际运行正式入口，使用pending且故意缺少数据库字段的配置，先因租约未批准失败，执行目录未创建；这个预期拒绝不计为正式业务成功。
+
+提交后再以明确提交建立独立源码、程序集和完整包，逐文件冻结；精确范围与只读预检存于交付根私有 `.local/management-full-native-20261030/permission-plan.md`。正式MySQL场景尚未运行，不使用C12/C16等不同旧基线拼接为当前同包通过。
+
+
+## 2026-11-01 C82 当前来源重新准备
+
+旧C53来源04680ac／执行器1d7ab77及旧完整包、pending租约保持不变，不消费旧范围。当前产品1e57bb9含用户已明确批准的三个精确助手设备控制动作，原前端、页面及模板保持；本轮把专属执行器固定产品更新为该提交，重新从公开CreateManagement准备同一完整管理包。
+
+仍验证同包普通启动0表、显式安装、两个后台、真实普通账号／原工作台／角色绑定与revision、真实OAuth／CLI／MCP、保留账号ID初始化与会话重启注销。源码／包／程序集固定、未授权入口先拒绝及精确新单库计划准备后才进入真实MySQL；不把旧C53编译或历史不同包实库结果替代当前来源验收。初始化仅覆盖已明确没有approved Agent授权的账号，有效刷新授权重置仍未作新决定；原浏览器／设备与性能分别验收。
+
+### C82 固定准备结果
+
+产品 `1e57bb9`，执行器 `7514ada` 已从独立干净来源严格构建；固定源码2297份、正式输出152份、完整包990份。固定来源准备10项零跳过通过；9项门禁确认pending／ended／拒绝审计／缺人类回复／错误用途／产品／入口／来源均先于子进程拒绝，check-only仅逐文件核验。Server-200 MySQL 8.4.11只读确认新单库／账号／所有权均不存在。
+
+精确范围和清理计划在私有 `.local/management-full-current-20261101/permission-plan.md`；当前pending／not-started，尚未执行正式用例。需本轮单库／账号及独占CLI凭据、files／exports合成对象的创建、验收与清理直接授权。旧C53包、旧租约及失败证据保持，不使用其他批次授权。
+
+
+### C82 当前固定包生产启动与匿名HTTP检查
+
+2026-11-01，使用原已固定的产品1e57bb9／执行器7514ada、990文件FullManagementApplication，不改变pending／not-started租约。新独占副本逐文件核验后，实际启动编译好的Application.Host，显式Production／Web模式并关闭开发认证；没有替换身份、控制器、中间件或仓储。数据库配置只指向本机立即断开的TCP连接计数器，不提供MySQL协议、不连接Server-200；测试不提供有效凭据。
+
+12项实际HTTP全部通过：生产health为UP；登录前cap-config为200且Cap关闭；相同路径POST、原权限／菜单、角色页、后台初始化及MCP匿名请求均401；原form缺字段／未知字段、JSON错误类型／重复captcha字段均400。最终数据库连接尝试0，原准备包和执行副本全部990文件摘要保持，唯一自有宿主正常退出。只保留本轮私有执行副本、启动日志及HTTP状态／响应摘要，没有数据库对象或授权审计。
+
+证据：`.local/management-package-offline-startup-20261101/receipt.json`、`driver.log`、`host.log`和`run-offline.py`。实际命令由固定`.tools/dotnet/dotnet.exe`执行独占副本的`backend/Application.Host/bin/Release/net10.0/Application.Host.dll`，随机回环端口和非数据库计数器；不使用Docker或外部数据库。
+
+这批覆盖启动及匿名／输入边界，不能写为正式MySQL空库安装、真实Web登录、OAuth／CLI／MCP业务、设备、浏览器或性能通过。本轮精确库／账号尚未创建，仍等待直接授权；已准备的实库FQN和清理范围没有扩大。平台A20的双库初始化亦未执行。
+
+
+## 2026-11-01 C82正式首轮失败与菜单输入修正
+
+用户通过`call_119885eec745432a94c81867cc359018/0`明确批准唯一库`metarill_fresh_a21be3a8548b46af_agent`及账号`mtf_a21be3a8548b46af@%`的创建、验收与清理。固定产品1e57bb9／执行器7514ada、2297来源／152输出／990文件包在实际Server-200 MySQL 8.4.11执行，普通启动0表、显式预览／安装12表、两后台初始化、重复不重置及真实管理员表单登录已进入后续流程；**唯一正式用例1失败、0通过／0跳过，不计同包完整通过**。
+
+首个失败停在`原工作台为普通身份配置动作`的首次`/api/admin/sys/yzp_permission/save`：HTTP400，预期200。原夹具把同后台全部菜单ID（含根分组）作为授权草稿。原组件`permissionMenuRows`明确根分组只展示，`RolePermissionBusiness`也拒绝没有ParentMenuId的节点。未执行到普通账号登录、真实CLI／MCP、目标账号保留ID重置或重启会话；不能因前置阶段已执行而把后续旗标写为通过。
+
+修正只在测试源码：正式夹具统一从`ManagementNativePreparation.GrantableMenuIds`取同后台非根菜单，不改资源目录、权限规则、原页面或产品。新增回归经实际生成控制器／共享Business，先证明根分组请求按原消息拒绝且整库摘要不变，再用原生夹具同一输入方法成功保存可授权子节点；旧输入红灯1失败，过滤根节点后工作台／管理Service／完整包准备相关51项全部通过，零失败／零跳过，严格构建。ADO与身份在该回归中受控，不替代正式复验。后续账号启停输入已与原复选协议映射及既有真实Service回归核对，未擅自改值。
+
+C82无论失败仍完成finally：唯一库／账号删除，独立SSH确认均不存在，远端所有权记录再次只读核零；本轮CLI及存储尚未生成对象（清理目录0），私有连接及所有权秘密已删除，租约ended。原776文件逐字保持。原首因、TRX和冻结来源保留在`.local/management-full-current-20261101/`；红绿回归在`.local/management-full-menu-fix-20261101/`。不得复用本次一次性授权。
+
+C83将从修正后的提交重新冻结完整来源、包和执行器，使用独立新名字及直接授权后复验；当前只准备、不创建远端对象。有效Agent刷新授权重置策略、C65设备整链及浏览器／跨端／性能仍在原待办边界内。
+
+
+### C83 修正后独立固定准备结果
+
+执行器031962f已独立检出并严格构建，2297份来源、152份输出、990文件FullManagementApplication完整固定；与产品1e57bb9对照backend/src、backend/templates、backend/metadata、frontend无差异。固定来源准备10项及新增实际根菜单控制器回归1项通过（与原51项重叠），9项未批准门禁及3项实例pin传递／错实例拒绝合同通过；不连接数据库。只读核对Server-200、原实例及新唯一库／账号／所有权均不存在。
+
+本轮f307ea73c90b9369，精确计划在`.local/management-full-menu-retry-20261101/permission-plan.md`，来源、包、SDK和执行器固定摘要绑定新范围；当前pending／not-started，正式未执行。C82原1失败、清理及冻结来源不修改；本轮仅在获得新单库／账号与同轮CLI凭据／files／exports合成对象创建、复验、清理的直接授权后执行。
+
+
+## 2026-11-01 C83正式复验失败与审批身份修正
+
+本轮用户通过`call_369d1a2a86de49ac9001dabf7adfca61/0`明确批准f307ea73c90b9369。固定产品1e57bb9／执行器031962f执行唯一正式用例，1失败／0通过／0跳过，未计完整通过。已越过C82的根菜单输入问题：工作台授权、普通账号创建及表单登录／非super回读、异后台403已执行；停在`同包真实OAuth和CLI`。真实设备创建为200，而首个设备决定的`/api/admin/sys/agent/approve`返回401，子CLI随后被夹具终止，旧探针只留下unknown，尚未完成CLI业务或MCP／重置／重启。
+
+首因是夹具把普通编辑者Web令牌交给CLI审批。现有`AgentHostCatalog.CanApprove`对普通应用明确要求同应用已发布后台super；页面动作权不等于Agent审批资格。产品按原规则拒绝，不能为了测试通过而放宽。修正只在测试：先建立真实设备，验证普通编辑者审批401且grant完整行不变，再由后台管理员拒绝收尾；真实CLI使用已有同包后台管理员令牌，普通Web／MCP仍使用编辑者身份。正式回执增加ordinaryAgentApprovalRejected，下一轮执行器必须核对此标记。
+
+旧Node探针会用杀停CLI产生的unknown遮住审批HTTP拒绝。本次仅增加安全诊断：保留device-decision阶段、固定profile及HTTP数值状态，不输出远端正文或会话。新增回环HTTP用例执行真实探针与CLI：旧探针红灯1失败，修正后1通过并验证测试秘密均未出现在stderr；C#准备回归直接运行该测试，纳入正常CI。严格生成／准备／实际身份13项、现有Agent审批域8项通过，均0失败／0跳过；Node直接1与前13重叠，不相加。不将回环替身计为真实OAuth或MySQL通过。
+
+本轮finally已完成：唯一库／账号清理并独立SSH核零，远端所有权再次独立只读核零；CLI私有目录由原finally移除，剩余合成文件清理完成，连接和owner token私有文件删除，租约ended。原正式失败、日志、固定来源及凭据删除证明保留于`.local/management-full-menu-retry-20261101/`，安全诊断与身份回归于`.local/management-full-approver-fix-20261101/`。原776文件未变，产品及原界面不变。
+
+C84将在新提交上重新固定并申请独立新范围；当前仅准备，不复用C82/C83授权。有效Agent刷新授权重置策略、C65设备整链及其余首版边界不变。
+
+
+### C84审批身份修正后固定准备结果
+
+执行器55bbad3独立检出，2298份来源／152份正式输出／990文件完整管理包均固定并严格构建。backend/src、backend/templates、backend/metadata、frontend与产品1e57bb9无差异。固定来源准备11项零失败零跳过（包含真实探针／CLI安全诊断，与前13重叠），9项入口门禁及3项实例传递合同通过；正式回执还必须验证ordinaryAgentApprovalRejected。只读确认原Server-200实例和新库／账号／所有权均不存在，没有创建正式凭据。
+
+新编号20d65f200584611f，精确计划位于`.local/management-full-approver-retry-20261101/permission-plan.md`；当前pending／not-started，等待本轮唯一库／账号与独占CLI凭据／files／exports合成对象的创建、复验及清理直接授权。C82／C83已结束，旧失败、源码及清理证据全部保持，不复用旧范围。
+
+
+## 2026-11-01 C84 CLI／MCP阶段完成与初始化拒绝分类失败
+
+用户经`call_0d06c90f20c7408fafa8c02090ddfa29/0`明确批准20d65f200584611f。固定产品1e57bb9／执行器55bbad3运行唯一正式用例，1失败／0通过／0跳过，**整体仍未通过**。本次真实普通审批401／grant不变及管理员收尾已执行，真实CLI的14个旗标全部true：拒绝／批准、目录、预览／CRUD、显式null／字符串ID、任务、重复UUID拒绝、删除／撤权／刷新重放。普通账号管理CRUD、同后台super绑定、异后台失败不改行及旧revision已进入后续；同包实际MCP探针最终为logout-verified，完成发现／CRUD／撤权／注销。这些是本固定样例阶段证据，不是完整首版或其它组合通过。
+
+最终停在`保留账号ID初始化及异后台同名拒绝`的同名阴性：服务按既定规则抛`初始化账号名已被其他后台或已删除记录占用...`，但类型为普通InvalidOperationException，公开宿主返回HTTP500及泛化内部错误；旧夹具预期400也未遵循原业务提示协议。根据已有BusinessRuleException合同，修复唯一同名分支归为可展示业务规则，采用原HTTP200／R500和静态提示，不扩大其它异常。正式夹具同时核对该固定失败封装，并比较目标及异后台账号完整行；未放松为接受任意服务器500。成功保留ID重置及重启会话本轮未执行到。
+
+跨后台／墓碑两项旧类型红灯保留；修正后初始化／Agent审批域68项、实际完整宿主错误封装／管理配置／原生准备17项零失败零跳过，严格构建。仅此共享Security分支与对应验收调整，原776文件保持；无DDL、元数据、原UI或模板改动。旧Native失败回执中的realCli等字段按整条用例passed设置，因此仍false；阶段证据以real-cli.log、mcp-probe.json及固定执行顺序为准，不倒推整条通过。
+
+finally已清理唯一库／账号并独立SSH核零，远端所有权再次只读核零，CLI及存储剩余目录0、私有连接与owner文件清除，租约ended；原源码、正式1失败、CLI／MCP及清理证据保留于`.local/management-full-approver-retry-20261101/`。修正红绿记录在`.local/management-full-initialization-rule-fix-20261101/`。C85需以新产品提交重新固定、精确新租约复验，不复用C82～C84授权。
+
+
+### C85新产品锁
+
+产品a86eeb7包含唯一共享Security同名拒绝分类修复及原R合同／双账号不变检查；原生产品锁同步为该提交，后续固定来源不能继续声明旧1e57bb9。新的正式包／程序集将从这个产品之后的明确执行器提交独立检出；旧C84源码、部分CLI／MCP证据和已结束租约保持。
+
+
+### C85固定准备结果
+
+新产品a86eeb7／执行器35254ec从独立干净来源严格构建，2298来源、152输出、990文件完整管理包逐项固定；元数据摘要与C84相同。固定来源准备11项通过（与前17重叠），9入口门禁、3实例传递／错实例拒绝合同通过。产品源码／模板／元数据／前端与新产品提交无差异；原776文件保持。正式成功回执除原旗标外，必须同时核对ordinaryAgentApprovalRejected及foreignNameConflictRejected。
+
+新编号a948d08da30dc9d3；精确计划`.local/management-full-initialization-rule-retry-20261101/permission-plan.md`，只读确认新库／账号／所有权均不存在。当前pending／not-started，等待新单库／账号及独占CLI凭据／files／exports合成对象创建、复验与清理的直接批准。C84阶段证据及1失败／0跳过保持，旧租约不复用。
+
+
+## 2026-11-01 C85当前固定完整管理同包正式通过
+
+用户经`call_2cc4d0740e9a481f825a14068162cdf9/0`直接批准唯一库`metarill_fresh_a948d08da30dc9d3_agent`及账号`mtf_a948d08da30dc9d3@%`。新产品a86eeb7923ff68e63e12baa85fb9293da5f6ba99／执行器35254ec863712305f126fcd69695682726fc6f48，2298来源／152正式输出／990文件公开FullManagementApplication，在Server-200 MySQL8.4.11同一实例完成**1项完整正式用例通过，0失败／0跳过**。不是拼接前几轮阶段结果；本次从空库到重启所有步骤完整重跑，无身份／控制器／数据库适配器替身或开发认证。
+
+| 本次同包实际范围 | 结果 |
+| --- | --- |
+| 空库与结构 | Production普通启动0表；显式预览／安装12表；最终结构无差异 |
+| 双后台与初始化 | 两后台显式安全初始化；重复不重置既有管理员凭据；异后台访问拒绝 |
+| 原工作台与普通Web | 非根菜单授权、真实普通账号登录、角色／账号CRUD、同后台super绑定、异后台写失败完整行不变、旧revision失败授权不变 |
+| Agent审批边界 | 普通编辑者审批401且grant不变；同包后台super按原规则审批；ordinaryAgentApprovalRejected=true |
+| 真实CLI | 14旗标全true：拒绝／批准、目录、预览、CRUD、null、字符串ID、任务、重复UUID拒绝、删除、撤权、刷新重放 |
+| 真实MCP | 普通Web身份、真实SDK同宿主完成发现／角色CRUD／工作台撤权／注销；探针logout-verified |
+| 原初始化拒绝 | 同名按原HTTP200／R500及维护过的固定提示返回，目标和异后台账号完整行保持；foreignNameConflictRejected=true |
+| 成功初始化 | 保留目标账号ID／姓名／档案，重置密码／角色并使旧Web会话失效，新密码登录及角色回读成功 |
+| 重启与注销 | 同一固定包重启后原管理员及新目标会话持久有效；注销后401；结构、原包及执行副本再次核验 |
+| 清理 | 自有进程已结束；唯一库／账号删除并独立SSH核零，远端所有权再次独立只读不存在；私有连接／owner token及CLI凭据清除，剩余CLI／文件目录0；lease ended |
+
+本次TRX及execution均passed；verified中的samePackage、formalWeb、realCli、realMcp、ordinaryAgentApprovalRejected、foreignNameConflictRejected、initializationPreservedId均true，developmentAuthentication／identityInjected均false。准备包、执行副本和固定来源前后核验通过；原776份产物／元数据／前端／模板逐字不变。C82菜单、C83审批、C84同名分类失败及所有独立清理证据继续保留，不改写为当时通过；C53旧pending租约不消费。
+
+证据位于`.local/management-full-initialization-rule-retry-20261101/a948d08da30dc9d3/`：`native.trx`、`test-result.json`、`verified.json`、`execution.json`、`cleanup.json`及`independent-absence.json`；`readonly-final-zero.json`另外核对远端所有权不存在。CLI／MCP／生产宿主日志在相同固定来源的本轮evidence目录。精确单次计划及直接批准审计保留，已结束租约不能复用。实际执行为固定SDK `dotnet test formal-assembly/Metarill.Generation.Tests.dll --filter FullyQualifiedName=...Fixed_public_management_package_uses_real_identity_database_cli_mcp_and_initialization`，固定来源和凭据只经本轮专属环境，不在命令行。
+
+### 完成与未完成边界
+
+C53要求的当前固定样例完整管理同包正式范围由C85闭环；C05整体模块仍须其它发布／组合及原浏览器／设备验收。初始化只覆盖已确认无approved Agent授权的目标：activeAgentResetPolicyExecuted=false，仍有效刷新授权的重置规则没有被本次决定。browserApprovalExecuted／nativeDeviceExecuted／performanceExecuted均false；C65在线设备整链、复杂文件／关系联合、平台A20双库完整种子、跨库组合、跨端及同条件性能不因此通过。MySQL首版和后续数据库总目标仍未完成。

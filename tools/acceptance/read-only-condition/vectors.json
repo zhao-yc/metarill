@@ -1,0 +1,461 @@
+[
+  {
+    "name": "空串",
+    "condition": "",
+    "row": {},
+    "outcome": "writable"
+  },
+  {
+    "name": "原空白",
+    "condition": " \t",
+    "row": {},
+    "outcome": "writable"
+  },
+  {
+    "name": "真常量",
+    "condition": "true",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "假常量",
+    "condition": "false",
+    "row": {},
+    "outcome": "writable"
+  },
+  {
+    "name": "零",
+    "condition": "0",
+    "row": {},
+    "outcome": "writable"
+  },
+  {
+    "name": "负数",
+    "condition": "-1",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "空字符串",
+    "condition": "''",
+    "row": {},
+    "outcome": "writable"
+  },
+  {
+    "name": "非空假文字",
+    "condition": "'false'",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "字段真值",
+    "condition": "flag",
+    "row": {
+      "flag": true
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "字段为零",
+    "condition": "flag",
+    "row": {
+      "flag": 0
+    },
+    "outcome": "writable"
+  },
+  {
+    "name": "实体前缀",
+    "condition": "entity.flag",
+    "row": {
+      "flag": true
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "this前缀",
+    "condition": "this.entity.flag",
+    "row": {
+      "flag": true
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "严格数字文字",
+    "condition": "n === '1'",
+    "row": {
+      "n": 1
+    },
+    "outcome": "writable"
+  },
+  {
+    "name": "宽松数字文字",
+    "condition": "n == '1'",
+    "row": {
+      "n": 1
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "布尔数值",
+    "condition": "n == true",
+    "row": {
+      "n": 1
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "严格布尔数值",
+    "condition": "n === true",
+    "row": {
+      "n": 1
+    },
+    "outcome": "writable"
+  },
+  {
+    "name": "空值相同",
+    "condition": "n === null",
+    "row": {
+      "n": null
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "空值不等假",
+    "condition": "n == false",
+    "row": {
+      "n": null
+    },
+    "outcome": "writable"
+  },
+  {
+    "name": "空值序比较",
+    "condition": "null < true",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "或保留操作数",
+    "condition": "(name || 4) === 'x'",
+    "row": {
+      "name": "x"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "与保留操作数",
+    "condition": "(name && 0) === 0",
+    "row": {
+      "name": "x"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "优先级",
+    "condition": "true || false && false",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "括号否定",
+    "condition": "!(flag || n > 2)",
+    "row": {
+      "flag": false,
+      "n": 1
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "字符串文字序",
+    "condition": "'10' < '2'",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "UTF16顺序",
+    "condition": "'𐀀' < ''",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "巨大整数精度",
+    "condition": "n == 12345678901234567890123456789012345678901",
+    "row": {
+      "n": 12345678901234567890123456789012345678901
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "超decimal精度",
+    "condition": "n > 0.12345678901234567890123456789",
+    "row": {
+      "n": "0.1234567890123456789012345678901"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "巨大指数",
+    "condition": "n > 0",
+    "row": {
+      "n": "1e2147483647"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "最小scale合法",
+    "condition": "n > 0",
+    "row": {
+      "n": "1e2147483648"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "scale溢出拒绝",
+    "condition": "n > 0",
+    "row": {
+      "n": "1e-2147483648"
+    },
+    "outcome": "invalid"
+  },
+  {
+    "name": "文字空白数字",
+    "condition": "n == false",
+    "row": {
+      "n": " \t"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "NBSP不转零",
+    "condition": "n == false",
+    "row": {
+      "n": " "
+    },
+    "outcome": "invalid"
+  },
+  {
+    "name": "空白本身是真",
+    "condition": "n",
+    "row": {
+      "n": " "
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "Unicode数字字面量",
+    "condition": "١٢ > 10",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "Unicode数字文字",
+    "condition": "n == 12",
+    "row": {
+      "n": "١٢"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "中文标识",
+    "condition": "锁定",
+    "row": {
+      "锁定": true
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "字符串转义",
+    "condition": "n == 'a\\n\\tb'",
+    "row": {
+      "n": "a\n\tb"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "嵌套Map",
+    "condition": "entity.child.flag",
+    "row": {
+      "child": {
+        "flag": true
+      }
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "空父对象",
+    "condition": "child.flag",
+    "row": {
+      "child": null
+    },
+    "outcome": "invalid"
+  },
+  {
+    "name": "缺路径",
+    "condition": "child.flag",
+    "row": {
+      "child": {}
+    },
+    "outcome": "invalid"
+  },
+  {
+    "name": "空对象真值",
+    "condition": "n",
+    "row": {
+      "n": {}
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "空数组真值",
+    "condition": "n",
+    "row": {
+      "n": []
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "对象严格比较",
+    "condition": "a === b",
+    "row": {
+      "a": {},
+      "b": {}
+    },
+    "outcome": "writable"
+  },
+  {
+    "name": "对象宽松比较",
+    "condition": "a == b",
+    "row": {
+      "a": {},
+      "b": {}
+    },
+    "outcome": "invalid"
+  },
+  {
+    "name": "缺字段不短路与",
+    "condition": "false && missing",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "缺字段不短路或",
+    "condition": "true || missing",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "方法拒绝",
+    "condition": "false && n.trim()",
+    "row": {
+      "n": ""
+    },
+    "outcome": "invalid"
+  },
+  {
+    "name": "赋值拒绝",
+    "condition": "n=1",
+    "row": {
+      "n": 0
+    },
+    "outcome": "invalid"
+  },
+  {
+    "name": "反射路径拒绝",
+    "condition": "entity.constructor",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "原型路径拒绝",
+    "condition": "entity.__proto__.x",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "不支持转义",
+    "condition": "'\\u0041'",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "尾随脚本",
+    "condition": "true; false",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "比较链拒绝",
+    "condition": "1 < 2 < 3",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "数值指数字面量拒绝",
+    "condition": "1e3 > 0",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "非法小数拒绝",
+    "condition": "1.2.3 > 0",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "小数尾点",
+    "condition": "1.",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "NBSP不是语法空白",
+    "condition": " true",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "32层允许",
+    "condition": "(((((((((((((((((((((((((((((((true)))))))))))))))))))))))))))))))",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "33层拒绝",
+    "condition": "((((((((((((((((((((((((((((((((true))))))))))))))))))))))))))))))))",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "512令牌允许",
+    "condition": "true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true",
+    "row": {},
+    "outcome": "readonly"
+  },
+  {
+    "name": "令牌超限",
+    "condition": "true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true||true",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "长度超限",
+    "condition": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'",
+    "row": {},
+    "outcome": "invalid"
+  },
+  {
+    "name": "小数位抵消指数边界",
+    "condition": "n > 0",
+    "row": {
+      "n": "1.0e2147483649"
+    },
+    "outcome": "readonly"
+  },
+  {
+    "name": "最终scale越界拒绝",
+    "condition": "n > 0",
+    "row": {
+      "n": "1e2147483649"
+    },
+    "outcome": "invalid"
+  }
+]

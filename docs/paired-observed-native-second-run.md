@@ -1,0 +1,50 @@
+# V49正式复验、子页合同修正与Java采集边界
+
+日期：2026-11-03。V49按本轮直接授权只执行一次，整体失败；测试资源、源秘密及数据副本已新SSH独立核零，租约ended。本批不重建原对象或复用该授权，MySQL首版仍未通过。
+
+## 实际结果
+
+固定c01d123及V46原采集镜像，原六初始化和Java12／C#15普通身份播种完成。新的原进程监听／索引门槛通过，两端三普通角色真实密码登录、原页查询和权限拒绝通过；删除前宿主双流日志已保存，两宿主正常退出。V48的首请求连接重置没有重现，但不能以未复现抹去旧失败。
+
+Java共发送并完成33请求，其中9身份、24业务；C#完成9身份、未进入业务。Java的前23业务请求经过当前断言及独立物理核验；第24子页详情HTTP200，但脚本因缺少父键而报business-string-id。整条不得计通过，尚未执行的改名传播、尾部删除和C#业务不转记成功。
+
+独占runId fd4627bfdaa54916b699f12c1fba3b31，两个paired_java／paired_csharp库及mtf_fd4627bfdaa54916@%。新SSH确认原PID已结束、九容器／一网络／双库／账号／所有权／六源秘密／两数据目录不存在；清理无错误。65份私有回收文件、完整原始记录／宿主日志、请求计划及证据ZIP保留，审阅key与指定百度同步盘备份匹配。
+
+## V50：正确核对原子页VO
+
+原81003的DetailVO／ListVO只输出id、name、amount、remarks；父合同ID和名称并不是原子页的响应字段。脚本之前错误地要求它们出现，内存替身又返回了整行，导致离线用例未发现该错误。原CreateDTO允许提交sampleContractId，现有请求体及parentId参数保持，不借此改产品接口。
+
+新增SampleChildProjectionOracle直接对原固定编译实体设置高位字符串ID、父键、缓存及四个可见字段，再调用实际两个VO转换和Jackson序列化；两个原VO均只返回四字段。脚本改为严格核对这些公开字段，隐藏父键／缓存泄漏及数值ID仍拒绝；关联与缓存继续由独立SELECT逐字段核对，没有取消这些要求。替身同样按原四字段投影；新反例确保子页缓存过期仍由物理检查拦住。
+
+业务专项10项通过，原VO实际oracle另已执行；没有改变实体、元数据、产品后端、原前端或模板。
+
+## V51：真实JDBC产物暴露的元数据边界
+
+对回收的42份记录逐文件核SHA并运行严格trace读取：Java33份只有首个公开配置通过，其余32份因unscoped-call、jdbc-metadata-api及previous-escape拒绝；Java根索引finalized=true但internallyConsistent=false。C#9份身份记录全部通过结构核验，94命令／8事务边界；Java记录420命令／45边界只是已保存的原始计数，不能视为有效SQL证据。没有反填测量预期或重新解释旧无效产物。
+
+本地固定依赖源码确认：原MyBatis3.5.19结果处理器会调用supportsMultipleResultSets，Connector/J9.7.0该方法只返回true；产品名为常量，getURL仅返回连接本地URL。新增真实DefaultResultSetHandler调用和另线程本地getter用例，先复现3项中2失败，再修正。只把这几项固定本地读取保留在代理内，元数据getConnection仍返回原包装；查询型元数据和unwrap等逃逸继续使当前／后续证据失效，没有广泛放行任意元数据API。
+
+原Java同时有ApplicationRunner；监听及Bean构造完成不能证明这些启动读取已经结束。私有采集桥新增本context的ApplicationReadyEvent标记，等待工具必须同时核真实监听、源索引及匹配本轮／实例的标记，避免首HTTP与原启动读取重叠；不增加HTTP端点、不重试业务、不改变原runner／启动DDL规则。真实SpringApplication用例证明marker在runner后生成，单独refresh和其它context事件不生成。
+
+最终框架25项通过、零失败零跳过，含新增原MyBatis3项及Boot事件2项；原失败XML／日志保留。完整工具Windows208项203通过5条件跳过，Linux207通过1缺JDK／驱动跳过、管理27另通过；内部Java49含在Python一项中，不累加。禁止将这些替身／框架回归改记为新实库采集通过。
+
+## 新包准备与边界
+
+新四个采集来源严格编译为16class，替换原完整JAR的同16入口，仅6份字节实际变化，另698条ZIP入口逐字节保持（包含原业务class及资源）。新JAR SHA256为f8467a26340feb3270c04ee96f1e16f7690dc9fabae0abd87bf407fae0e392aa；C#原Data及镜像未改变。首个javac被原依赖路径中无关Lombok注解处理器的processing警告拦住，随后对不使用Lombok的四来源明确proc:none，仍保留Xlint:all和Werror；原失败日志不删除。
+
+新增禁网探针已严格编译，准备在Server-200仅加载采集桥与无连接DataSource，用真实JRE／Boot验证marker、关闭索引和本地元数据代理。它不启动原业务或原Program，不能替代原Web／登录／MySQL验收。当前尚未构建该新镜像或运行Linux探针；V46旧Java镜像不会生成新marker，不能直接拿旧镜像运行修正后的就绪合同。新镜像身份须实际固定后才能准备下一次正式范围。
+
+起点c01d123，本任务同提交同步进度表。当前改动只在验收工具／桥与文档。真实完整业务、有效双端SQL／参数／事务语义、代表性负载及MySQL首版仍待完成。
+
+
+## V51新Java镜像与禁网探针（2026-11-03）
+
+后续已从15640b7来源构建修正Java采集镜像，内容ID为sha256:11ed25d417c5f5469e499ace6f81e92480cd86b94f046f6716be153f2b5fd57c，父镜像仍V46的99face1；原ENTRYPOINT和父层保持，完整JAR为f8467a26340feb3270c04ee96f1e16f7690dc9fabae0abd87bf407fae0e392aa。C#仍5da4921／原Data89d2，Redis不变。
+
+Server-200仅新建一个network=none、无端口、非root、只读根、0.5CPU／512MiB的短探针。显式加载外置公开探针class，实际使用镜像内新采集桥和真实SpringApplication：无连接DataSource、原Boot runner后才生成Ready标记，正常关闭得到0HTTP完整索引，另线程本地元数据读取与连接回指检查通过。完整/app/application.jar在探针内部流式核SHA；key只是公开32字节11合成值，没有真实口令或数据库连接。
+
+这不是原业务Program／Web／登录／MySQL验收。探针容器已删除，新SSH独立核同名对象不存在、原PID／startTicks结束、父标签／父层不变及匹配本轮的Ready／关闭索引；保留新镜像、无密构建来源和日志，不清旧缓存或历史镜像。原六初始化／业务／真实SQL仍须新精确单轮。
+
+当前公共执行器的新采集用途已绑定11ed25d这一Java内容ID，旧IMAGES和旧v1初始化／身份用途仍绑定原镜像；历史V48／V49的冻结工具／输入及失败不改写。构建本身是非数据库开发验证，没有重用V49已结束实库租约。
+
+私有证据位于.local/paired-observed-metadata-fix-20261103：build-identity.json、image-build-plan.json、完整包保真、严格编译日志、image-result.json及independent-image-finish.json。原首次注解处理器警告和框架2个失败继续保留。新SHA CI与新实库仍须分别核对。

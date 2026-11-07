@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../csharp-host/Metarill.Paired.SqlObservation.csproj" /><ProjectReference Include="../csharp-indexes/Metarill.Paired.Indexes.csproj" /><FrameworkReference Include="Microsoft.AspNetCore.App" /><PackageReference Include="Microsoft.NET.Test.Sdk" /><PackageReference Include="xunit" /><PackageReference Include="xunit.runner.visualstudio" /></ItemGroup>
+</Project>
