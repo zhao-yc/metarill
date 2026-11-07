@@ -72,6 +72,51 @@ public sealed class FileObjectStorageTests
         });
     }
 
+    /// <summary>单步上传在收到云端回执前已登记回滚。不同标记的旧对象即使字节相同也不能被清理。</summary>
+    [Theory]
+    [InlineData("lost")][InlineData("canceled")][InlineData("existing")][InlineData("changed")][InlineData("missing")]
+    public async Task Legacy_rollback_cleans_only_an_object_owned_by_the_exact_upload_attempt(string scenario)
+    {
+        await InRoot(async root =>
+        {
+            var bytes = Encoding.UTF8.GetBytes("合成回滚对象");
+            var fake = new S3Transport
+            {
+                Bytes = scenario == "existing" ? bytes : null,
+                FailAfterCommit = scenario is "lost" or "changed",
+                CancelAfterCommit = scenario == "canceled",
+                FailBeforeCommit = scenario == "missing"
+            };
+            using var storage = Create(fake);
+            var path = Path.Combine(root, "input.part");
+            await File.WriteAllBytesAsync(path, bytes);
+            var callbacks = new List<Func<Task>>();
+            Task<bool> Write() => storage.CommitWithOwnershipAsync(storage.CreateKey(), path, root, bytes.Length, Hash(bytes), CancellationToken.None, callbacks.Add);
+            if (scenario == "existing") Assert.False(await Write());
+            else if (scenario == "canceled") await Assert.ThrowsAnyAsync<OperationCanceledException>(Write);
+            else await Assert.ThrowsAsync<InvalidOperationException>(Write);
+            Assert.Null(fake.DeletedKey);
+            var cleanup = Assert.Single(callbacks);
+            if (scenario == "changed")
+            {
+                fake.ConflictOnDelete = true;
+                await Assert.ThrowsAsync<AmazonS3Exception>(cleanup);
+                Assert.Equal(bytes, fake.Bytes);
+            }
+            else await cleanup();
+
+            if (scenario is "lost" or "canceled")
+            {
+                Assert.Equal(fake.Put!.Key, fake.DeletedKey);
+                Assert.Equal("synthetic-etag", fake.Delete!.IfMatch);
+                Assert.Null(fake.Bytes);
+            }
+            else Assert.Null(fake.DeletedKey);
+            if (scenario == "existing") Assert.Equal(bytes, fake.Bytes);
+            Assert.Equal(1, fake.MetadataReads);
+        });
+    }
+
     /// <summary>远端头、短流、超长流和摘要均独立验证，任何失败都不能留下可读缓存。</summary>
     [Theory]
     [InlineData("header")][InlineData("short")][InlineData("long")][InlineData("digest")]
@@ -172,6 +217,12 @@ public sealed class FileObjectStorageTests
         public byte[]? Bytes { get; set; }
         public long? DeclaredLength { get; set; }
         public bool FailAfterCommit { get; set; }
+        public bool CancelAfterCommit { get; set; }
+        public bool FailBeforeCommit { get; set; }
+        public bool ConflictOnDelete { get; set; }
+        public int MetadataReads { get; private set; }
+        public DeleteObjectRequest? Delete { get; private set; }
+        private string? attempt;
         public bool FailDelete { get; set; }
         public int Gets { get; private set; }
         public string? DeletedKey { get; private set; }
@@ -179,7 +230,10 @@ public sealed class FileObjectStorageTests
         {
             Put = request;
             if (Bytes is not null) throw new AmazonS3Exception("合成已存在") { StatusCode = HttpStatusCode.PreconditionFailed };
+            if (FailBeforeCommit) throw new AmazonS3Exception("合成请求未写入") { StatusCode = HttpStatusCode.InternalServerError };
             Bytes = await Read(request.InputStream);
+            attempt = request.Metadata["metarill-upload-attempt"];
+            if (CancelAfterCommit) throw new OperationCanceledException("合成回执期间取消");
             if (FailAfterCommit) throw new AmazonS3Exception("合成回执丢失") { StatusCode = HttpStatusCode.InternalServerError };
             return new() { HttpStatusCode = HttpStatusCode.OK };
         }
@@ -189,8 +243,18 @@ public sealed class FileObjectStorageTests
             return Task.FromResult(new GetObjectResponse
             { HttpStatusCode = HttpStatusCode.OK, ContentLength = DeclaredLength ?? Bytes!.Length, ResponseStream = new MemoryStream(Bytes!, false) });
         }
+        public override Task<GetObjectMetadataResponse> GetObjectMetadataAsync(GetObjectMetadataRequest request, CancellationToken token = default)
+        {
+            MetadataReads++;
+            if (Bytes is null) throw new AmazonS3Exception("合成对象缺失") { StatusCode = HttpStatusCode.NotFound };
+            var result = new GetObjectMetadataResponse { HttpStatusCode = HttpStatusCode.OK, ETag = "synthetic-etag" };
+            if (attempt is not null) result.Metadata["metarill-upload-attempt"] = attempt;
+            return Task.FromResult(result);
+        }
         public override Task<DeleteObjectResponse> DeleteObjectAsync(DeleteObjectRequest request, CancellationToken token = default)
         {
+            Delete = request;
+            if (ConflictOnDelete) throw new AmazonS3Exception("合成条件冲突") { StatusCode = HttpStatusCode.PreconditionFailed };
             if (FailDelete) throw new AmazonS3Exception("合成删除失败") { StatusCode = HttpStatusCode.InternalServerError };
             DeletedKey = request.Key; Bytes = null; return Task.FromResult(new DeleteObjectResponse { HttpStatusCode = HttpStatusCode.NoContent });
         }

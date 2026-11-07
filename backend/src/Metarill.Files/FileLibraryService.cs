@@ -96,23 +96,14 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 var requestedHash = SqlRowStore.Text(row, "sha256");
                 if (requestedHash.Length > 0 && !string.Equals(requestedHash, hash, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("上传内容摘要与计划不一致。");
                 // 数据库提交结果不明时保留随机对象供完成或重试核验，不能删除可能已提交的文件。
-                var created = await Storage.CommitWithOwnershipAsync(key, temporary, Root, actual, hash, cancellationToken);
-                if (cleanOnRollback && created)
-                    store.Session.AfterConfirmedRollback(() => RemoveRolledBackUploadAsync(key));
+                await Storage.CommitWithOwnershipAsync(key, temporary, Root, actual, hash, cancellationToken,
+                    cleanOnRollback ? store.Session.AfterConfirmedRollback : null);
                 await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "uploaded", ["sha256"] = hash, ["update_time"] = BusinessCalendar.Now }, cancellationToken);
                 row["status"] = "uploaded"; row["sha256"] = hash;
                 return Describe(row);
             }, cancellationToken);
         }
         finally { if (temporary is not null) TryDelete(temporary); }
-    }
-
-    /// <summary>由已确认回滚触发。独立于请求取消，按固定键清理并限制外部等待。</summary>
-    private async Task RemoveRolledBackUploadAsync(string key)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        if (!await Storage.DeleteAsync(key, Root, timeout.Token))
-            throw new IOException("回滚后无法清理本次上传对象。");
     }
 
     /// <summary>再次核对真实对象大小及摘要后发布 ready；重复完成是安全幂等操作。</summary>

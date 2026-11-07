@@ -11,6 +11,7 @@ namespace Metarill.Runtime.Files;
 public sealed partial class FileObjectStorage : IDisposable
 {
     private sealed record Profile(S3FileStorageProfile Options, string Location, Lazy<IAmazonS3> Client);
+    private const string UploadAttemptMetadata = "metarill-upload-attempt";
     private readonly Dictionary<string, Profile> profiles = new(StringComparer.Ordinal);
     private readonly string defaultProfile;
     private readonly long maximumBytes;
@@ -62,14 +63,15 @@ public sealed partial class FileObjectStorage : IDisposable
     public Task CommitAsync(string key, string temporaryPath, string root, long length, string sha256, CancellationToken token = default)
         => CommitWithOwnershipAsync(key, temporaryPath, root, length, sha256, token);
 
-    /// <summary>返回本次是否确认创建对象。相同内容的重试可以成功，但不会取得旧对象的清理权。</summary>
-    internal async Task<bool> CommitWithOwnershipAsync(string key, string temporaryPath, string root, long length, string sha256, CancellationToken token)
+    /// <summary>返回本次是否收到对象创建确认。单步上传另登记只属于本次请求的回滚清理。</summary>
+    internal async Task<bool> CommitWithOwnershipAsync(string key, string temporaryPath, string root, long length, string sha256, CancellationToken token,
+        Action<Func<Task>>? registerRollback = null)
     {
         ObjectDisposedException.ThrowIf(disposed, this); RequireBounds(length, sha256);
         if (ProviderCode(key) == "local")
         {
             var destination = FileValidation.StoragePath(root, key);
-            try { File.Move(temporaryPath, destination, overwrite: false); return true; }
+            try { File.Move(temporaryPath, destination, overwrite: false); }
             catch (IOException) when (File.Exists(destination))
             {
                 // 数据库结果未知时保留已写入对象，按实际字节校验同键重试。
@@ -78,18 +80,29 @@ public sealed partial class FileObjectStorage : IDisposable
                     throw new InvalidOperationException("本地对象内容与本次上传不一致。");
                 return false;
             }
+            registerRollback?.Invoke(() => RemoveRolledBackLocalUploadAsync(key, root));
+            return true;
         }
         var (profile, objectKey) = Resolve(key);
         await using var input = new FileStream(temporaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
         if (input.Length != length) throw new InvalidOperationException("S3暂存对象大小与计划不一致。");
+        var client = profile.Client.Value;
+        var request = new PutObjectRequest
+        {
+            BucketName = profile.Options.Bucket, Key = objectKey, InputStream = input, AutoCloseStream = false,
+            ContentType = "application/octet-stream", IfNoneMatch = "*",
+            ChecksumSHA256 = Convert.ToBase64String(Convert.FromHexString(sha256))
+        };
+        if (registerRollback is not null)
+        {
+            // 对象可能已落盘但回执丢失。发送前登记，使用私有标记区分同键旧对象。
+            var attempt = Guid.NewGuid().ToString("N");
+            request.Metadata[UploadAttemptMetadata] = attempt;
+            registerRollback(() => RemoveRolledBackS3UploadAsync(client, profile.Options.Bucket, objectKey, attempt));
+        }
         try
         {
-            await profile.Client.Value.PutObjectAsync(new PutObjectRequest
-            {
-                BucketName = profile.Options.Bucket, Key = objectKey, InputStream = input, AutoCloseStream = false,
-                ContentType = "application/octet-stream", IfNoneMatch = "*",
-                ChecksumSHA256 = Convert.ToBase64String(Convert.FromHexString(sha256))
-            }, token);
+            await client.PutObjectAsync(request, token);
             return true;
         }
         catch (AmazonS3Exception error) when (error.StatusCode == HttpStatusCode.PreconditionFailed)
@@ -99,6 +112,30 @@ public sealed partial class FileObjectStorage : IDisposable
             return false;
         }
         catch (AmazonS3Exception error) { throw new InvalidOperationException("S3对象保存失败，请稍后核验或重试。", error); }
+    }
+
+    /// <summary>仅在数据库确认回滚后清理本地新对象，清理不继承已取消的业务请求。</summary>
+    private async Task RemoveRolledBackLocalUploadAsync(string key, string root)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        if (!await DeleteAsync(key, root, timeout.Token)) throw new IOException("回滚后无法清理本次上传对象。");
+    }
+
+    /// <summary>只清理带有本次上传标记的对象，条件删除拦截核验后发生的内容替换。</summary>
+    private static async Task RemoveRolledBackS3UploadAsync(IAmazonS3 client, string bucket, string key, string attempt)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        GetObjectMetadataResponse actual;
+        try
+        {
+            actual = await client.GetObjectMetadataAsync(new GetObjectMetadataRequest { BucketName = bucket, Key = key }, timeout.Token);
+        }
+        catch (AmazonS3Exception error) when (error.StatusCode == HttpStatusCode.NotFound) { return; }
+        if (!string.Equals(actual.Metadata[UploadAttemptMetadata], attempt, StringComparison.Ordinal)) return;
+        if (string.IsNullOrWhiteSpace(actual.ETag) || actual.ETag.Trim('"') == "*")
+            throw new IOException("无法核实本次回滚对象的条件删除标记。");
+        var response = await client.DeleteObjectAsync(new DeleteObjectRequest { BucketName = bucket, Key = key, IfMatch = actual.ETag }, timeout.Token);
+        if ((int)response.HttpStatusCode is < 200 or >= 300) throw new IOException("回滚后无法清理本次上传对象。");
     }
 
     /// <summary>本地按原路径读取；S3先有界下载并核对实际摘要，再返回可寻址临时流，保留原Range读取能力。</summary>
