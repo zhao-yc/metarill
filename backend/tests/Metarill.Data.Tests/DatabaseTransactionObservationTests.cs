@@ -57,6 +57,42 @@ public sealed class DatabaseTransactionObservationTests
         Assert.Equal(3,entries.Count);Assert.True(entries[0].Succeeded);Assert.False(entries[1].Succeeded);Assert.Equal(!rollbackFails,entries[2].Succeeded);Assert.Equal(1,provider.Commits);Assert.Equal(1,provider.Rollbacks);Assert.Null(session.CurrentTransaction);
         Assert.DoesNotContain("private-",System.Text.Json.JsonSerializer.Serialize(trace.Snapshot()));
     }
+    /// <summary>外部补偿只在已知未提交且回滚成功时运行，并保留原始异常。</summary>
+    [Theory]
+    [InlineData("success", false)]
+    [InlineData("action", true)]
+    [InlineData("commit", false)]
+    [InlineData("rollback", false)]
+    public async Task External_cleanup_only_runs_after_confirmed_rollback(string stage, bool shouldClean)
+    {
+        var original = new InvalidOperationException("测试事务失败");
+        var provider = new Provider
+        {
+            CommitFailure = stage == "commit" ? original : null,
+            RollbackFailure = stage == "rollback" ? original : null
+        };
+        using var session = new DatabaseSession(Options(), null, provider);
+        var cleaned = 0;
+        var error = await Record.ExceptionAsync(() => session.InTransactionAsync(async () =>
+        {
+            await session.InTransactionAsync(() =>
+            {
+                session.AfterConfirmedRollback(() =>
+                {
+                    Assert.Equal(1, provider.Rollbacks);
+                    Assert.Null(session.CurrentTransaction);
+                    cleaned++;
+                    return Task.CompletedTask;
+                });
+                return Task.FromResult(true);
+            });
+            if (stage is "action" or "rollback") throw original;
+            return true;
+        }));
+        Assert.Same(stage == "success" ? null : original, error);
+        Assert.Equal(shouldClean ? 1 : 0, cleaned);
+    }
+
     /// <summary>诊断读取隔离级别失败不影响提交结果，证据必须明确不完整。</summary>
     [Fact]
     public async Task Broken_metadata_is_not_allowed_to_break_the_original_transaction()

@@ -38,7 +38,7 @@ public sealed class FileObjectStorageTests
             var fake = new S3Transport(); using var storage = Create(fake);
             var bytes = Encoding.UTF8.GetBytes("S3字节%_"); var temporary = Path.Combine(root, "input.part"); await File.WriteAllBytesAsync(temporary, bytes);
             var key = storage.CreateKey(); Assert.InRange(key.Length, 1, 100); Assert.Equal("s3", FileObjectStorage.ProviderCode(key));
-            await storage.CommitAsync(key, temporary, root, bytes.Length, Hash(bytes));
+            Assert.True(await storage.CommitWithOwnershipAsync(key, temporary, root, bytes.Length, Hash(bytes), CancellationToken.None));
             Assert.NotNull(fake.Put); Assert.Equal("*", fake.Put.IfNoneMatch); Assert.Equal("metarill-test", fake.Put.BucketName);
             Assert.StartsWith("objects/", fake.Put.Key); Assert.Equal(Convert.ToBase64String(SHA256.HashData(bytes)), fake.Put.ChecksumSHA256);
             Assert.True(File.Exists(temporary));
@@ -63,7 +63,8 @@ public sealed class FileObjectStorageTests
             var bytes = Encoding.UTF8.GetBytes("same"); var path = Path.Combine(root, "input.part"); await File.WriteAllBytesAsync(path, bytes);
             var key = storage.CreateKey();
             await Assert.ThrowsAsync<InvalidOperationException>(() => storage.CommitAsync(key, path, root, bytes.Length, Hash(bytes)));
-            fake.FailAfterCommit = false; await storage.CommitAsync(key, path, root, bytes.Length, Hash(bytes));
+            fake.FailAfterCommit = false;
+            Assert.False(await storage.CommitWithOwnershipAsync(key, path, root, bytes.Length, Hash(bytes), CancellationToken.None));
             Assert.Equal(1, fake.Gets);
             var other = Encoding.UTF8.GetBytes("evil"); await File.WriteAllBytesAsync(path, other);
             await Assert.ThrowsAsync<InvalidOperationException>(() => storage.CommitAsync(key, path, root, other.Length, Hash(other)));

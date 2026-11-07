@@ -12,6 +12,7 @@ public sealed class DatabaseSession : IDisposable
     {
         public DbTransaction Transaction { get; } = transaction;
         public bool RollbackOnly { get; set; }
+        public List<Func<Task>>? RollbackActions { get; set; }
         public bool ScalarCacheWrite { get; } = scalarCacheWrite;
         public Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts { get; set; }
         public string? PackedAppendVariablePrefix { get; set; }
@@ -98,6 +99,14 @@ public sealed class DatabaseSession : IDisposable
     /// <summary>完整业务流程开启事务；内层 Service 加入同一事务，任何内层失败均阻止外层提交。</summary>
     public Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default)=>ExecuteTransactionAsync(action,false,cancellationToken);
 
+    /// <summary>登记本事务新建的外部对象清理。只有未尝试提交且回滚成功时才执行。</summary>
+    public void AfterConfirmedRollback(Func<Task> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        var scope = _transaction.Value ?? throw new InvalidOperationException("回滚清理必须登记在当前事务内。");
+        (scope.RollbackActions ??= []).Add(action);
+    }
+
     /// <summary>生成的标量缓存导入显式固定原 MySQL 可重复读；嵌套调用保持外层事务和原隔离。</summary>
     public Task<T> InScalarCacheImportTransactionAsync<T>(Func<Task<T>> action,CancellationToken cancellationToken=default)=>
         ExecuteTransactionAsync(action,false,cancellationToken,scalarCacheWrite:true);
@@ -133,22 +142,39 @@ public sealed class DatabaseSession : IDisposable
         await using var ownedTransaction=transaction;
         var current = new TransactionScope(transaction,scalarCacheWrite);
         _transaction.Value = current;
+        var commitAttempted = false;
         try
         {
             var result = await action();
             cancellationToken.ThrowIfCancellationRequested();
             if (current.RollbackOnly) throw new InvalidOperationException("内层操作失败，事务已被标记为仅回滚。");
             var commitObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Commit);
+            commitAttempted = true;
             try{await transaction.CommitAsync(cancellationToken);commitObservation?.Complete(transaction,null);}
             catch(Exception error){commitObservation?.Complete(transaction,error);throw;}
             return result;
         }
-        catch
+        catch (Exception error)
         {
             // 回滚不使用已取消的请求令牌，避免取消使清理动作被跳过。
             var rollbackObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Rollback);
             try{await transaction.RollbackAsync(CancellationToken.None);rollbackObservation?.Complete(transaction,null);}
-            catch(Exception error){rollbackObservation?.Complete(transaction,error);throw;}
+            catch(Exception rollbackError){rollbackObservation?.Complete(transaction,rollbackError);throw;}
+            // 提交请求已发出时结果可能不明，即使随后回滚返回成功也必须保留对象。
+            if (!commitAttempted && current.RollbackActions is { } actions)
+            {
+                _transaction.Value = null;
+                foreach (var cleanup in actions)
+                {
+                    try { await cleanup(); }
+                    catch (Exception cleanupError)
+                    {
+                        // 清理失败单独留诊断，避免改变业务错误或取消语义。
+                        System.Diagnostics.Trace.TraceWarning("事务回滚后清理外部对象失败。错误类型 {0}，原错误类型 {1}。",
+                            cleanupError.GetType().Name, error.GetType().Name);
+                    }
+                }
+            }
             throw;
         }
         finally { _transaction.Value = null; }

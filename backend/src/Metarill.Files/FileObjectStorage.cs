@@ -59,21 +59,25 @@ public sealed partial class FileObjectStorage : IDisposable
     public static string ProviderCode(string key) => key.StartsWith("s3:", StringComparison.Ordinal) ? "s3" : "local";
 
     /// <summary>调用方已计算大小与摘要。同一对象键不可覆盖，重试只接受大小与摘要相符的实际对象。</summary>
-    public async Task CommitAsync(string key, string temporaryPath, string root, long length, string sha256, CancellationToken token = default)
+    public Task CommitAsync(string key, string temporaryPath, string root, long length, string sha256, CancellationToken token = default)
+        => CommitWithOwnershipAsync(key, temporaryPath, root, length, sha256, token);
+
+    /// <summary>返回本次是否确认创建对象。相同内容的重试可以成功，但不会取得旧对象的清理权。</summary>
+    internal async Task<bool> CommitWithOwnershipAsync(string key, string temporaryPath, string root, long length, string sha256, CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(disposed, this); RequireBounds(length, sha256);
         if (ProviderCode(key) == "local")
         {
             var destination = FileValidation.StoragePath(root, key);
-            try { File.Move(temporaryPath, destination, overwrite: false); }
+            try { File.Move(temporaryPath, destination, overwrite: false); return true; }
             catch (IOException) when (File.Exists(destination))
             {
                 // 数据库结果未知时保留已写入对象，按实际字节校验同键重试。
                 await using var existing = await OpenAsync(key, root, length, sha256, token);
                 if (Convert.ToHexStringLower(await SHA256.HashDataAsync(existing, token)) != sha256)
                     throw new InvalidOperationException("本地对象内容与本次上传不一致。");
+                return false;
             }
-            return;
         }
         var (profile, objectKey) = Resolve(key);
         await using var input = new FileStream(temporaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -86,11 +90,13 @@ public sealed partial class FileObjectStorage : IDisposable
                 ContentType = "application/octet-stream", IfNoneMatch = "*",
                 ChecksumSHA256 = Convert.ToBase64String(Convert.FromHexString(sha256))
             }, token);
+            return true;
         }
         catch (AmazonS3Exception error) when (error.StatusCode == HttpStatusCode.PreconditionFailed)
         {
             // 仅以真实有界GET和数据库已核对摘要证明相同；不能信任远端元数据或单独ETag。
             await using var existing = await OpenAsync(key, root, length, sha256, token);
+            return false;
         }
         catch (AmazonS3Exception error) { throw new InvalidOperationException("S3对象保存失败，请稍后核验或重试。", error); }
     }

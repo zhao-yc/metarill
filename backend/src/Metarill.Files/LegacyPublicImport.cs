@@ -23,7 +23,8 @@ public sealed partial class FileLibraryService
         return await store.Session.InTransactionAsync(async () =>
         {
             var plan = await PlanUploadCoreAsync(new(originalName, null, length), true, token);
-            await UploadAsync(plan.FileId, content, token); return await CompleteAsync(plan.FileId, token);
+            await UploadCoreAsync(plan.FileId, content, cleanOnRollback: true, token);
+            return await CompleteAsync(plan.FileId, token);
         }, token);
     }
 }

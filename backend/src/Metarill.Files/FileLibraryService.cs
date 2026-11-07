@@ -53,7 +53,11 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     }, cancellationToken);
 
     /// <summary>持有文件记录锁完成有界流写入和摘要核验，上传后为私有草稿，显式完成后才可绑定或公开。</summary>
-    public async Task<FileDescriptor> UploadAsync(long id, Stream body, CancellationToken cancellationToken = default)
+    public Task<FileDescriptor> UploadAsync(long id, Stream body, CancellationToken cancellationToken = default)
+        => UploadCoreAsync(id, body, cleanOnRollback: false, cancellationToken);
+
+    /// <summary>仅单步上传会回滚计划本身。普通分步上传保留对象供同一计划重试。</summary>
+    private async Task<FileDescriptor> UploadCoreAsync(long id, Stream body, bool cleanOnRollback, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(body);
         string? temporary = null;
@@ -92,13 +96,23 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 var requestedHash = SqlRowStore.Text(row, "sha256");
                 if (requestedHash.Length > 0 && !string.Equals(requestedHash, hash, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("上传内容摘要与计划不一致。");
                 // 数据库提交结果不明时保留随机对象供完成或重试核验，不能删除可能已提交的文件。
-                await Storage.CommitAsync(key, temporary, Root, actual, hash, cancellationToken);
+                var created = await Storage.CommitWithOwnershipAsync(key, temporary, Root, actual, hash, cancellationToken);
+                if (cleanOnRollback && created)
+                    store.Session.AfterConfirmedRollback(() => RemoveRolledBackUploadAsync(key));
                 await store.UpdateAsync(Files, id, new Dictionary<string, object?> { ["status"] = "uploaded", ["sha256"] = hash, ["update_time"] = BusinessCalendar.Now }, cancellationToken);
                 row["status"] = "uploaded"; row["sha256"] = hash;
                 return Describe(row);
             }, cancellationToken);
         }
         finally { if (temporary is not null) TryDelete(temporary); }
+    }
+
+    /// <summary>由已确认回滚触发。独立于请求取消，按固定键清理并限制外部等待。</summary>
+    private async Task RemoveRolledBackUploadAsync(string key)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        if (!await Storage.DeleteAsync(key, Root, timeout.Token))
+            throw new IOException("回滚后无法清理本次上传对象。");
     }
 
     /// <summary>再次核对真实对象大小及摘要后发布 ready；重复完成是安全幂等操作。</summary>

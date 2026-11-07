@@ -287,6 +287,62 @@ public sealed partial class ProjectFileRuntimeIntegrationTests
         Assert.Empty(Directory.EnumerateFiles(runtime.Options.RootDirectory, "*.part.*"));
     }
 
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Split_database_legacy_upload_removes_objects_after_rollback() =>
+        VerifyLegacyUploadRollbackAsync(shareDatabase: false);
+
+    [ProjectFileIntegrationFact(freshOnly: true)]
+    public Task Shared_database_legacy_upload_removes_objects_after_rollback() =>
+        VerifyLegacyUploadRollbackAsync(shareDatabase: true);
+
+    /// <summary>数据库在写入对象后拒绝发布，外层回滚也必须清理对象，同时保留已提交的对照文件。</summary>
+    private static async Task VerifyLegacyUploadRollbackAsync(bool shareDatabase)
+    {
+        await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase);
+        AssertDatabaseTopology(fixture, shareDatabase);
+        var project = fixture.Registry.Demo.YzProjectId;
+        var authorization = new TestFileAuthorization(new RuntimeActor(8801, "公开上传事务验收", true, project, ""));
+        var service = new ProjectFileLibraryResolver(fixture.Runtimes, authorization, fixture.Ids).RequireCurrent();
+        var runtime = fixture.Runtimes.Resolve(project);
+        var bytes = "%PDF-1.4\n测试\n%%EOF"u8.ToArray();
+        var control = await service.ImportLegacyPublicAsync("legacy-committed.pdf", bytes.Length, new MemoryStream(bytes));
+        fixture.FileIds.Add(control.FileId);
+        var root = runtime.Options.RootDirectory;
+        var committedPath = Assert.Single(Directory.EnumerateFiles(root));
+
+        using var witnessSession = new DatabaseSession(runtime.Session.Options);
+        var witness = new SqlRowStore(witnessSession, fixture.Runtimes.ComposePhysical(fixture.Registry.Demo));
+        await using (var connection = witnessSession.Provider.CreateConnection(witnessSession.Options))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "ALTER TABLE yz_file_library ADD CONSTRAINT mt_legacy_publish_failure CHECK (name <> 'legacy-db-rejected.pdf' OR status <> 'ready')";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var rejected = await Assert.ThrowsAsync<MySqlConnector.MySqlException>(() =>
+            service.ImportLegacyPublicAsync("legacy-db-rejected.pdf", bytes.Length, new MemoryStream(bytes)));
+        Assert.Equal(3819, rejected.Number);
+        var forced = new InvalidOperationException("回滚外层公开上传事务");
+        long nestedId = 0;
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Session.InTransactionAsync<bool>(async () =>
+        {
+            var nested = await service.ImportLegacyPublicAsync("legacy-outer-rollback.pdf", bytes.Length, new MemoryStream(bytes));
+            nestedId = nested.FileId;
+            Assert.True(Directory.EnumerateFiles(root).Count() >= 2);
+            throw forced;
+        }));
+        Assert.Same(forced, failure);
+        Assert.True(nestedId > 0);
+
+        var stored = Assert.Single(await witness.ReadAsync("yz_file_library",
+            new Dictionary<string, object?> { ["yz_project_id"] = long.Parse(project, System.Globalization.CultureInfo.InvariantCulture) }));
+        Assert.Equal(control.FileId, SqlRowStore.Id(stored));
+        Assert.Equal("ready", SqlRowStore.Text(stored, "status"));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(committedPath));
+        Assert.True(Directory.EnumerateFiles(root).SequenceEqual(new[] { committedPath }), "回滚后留下无文件记录的存储对象。");
+    }
+
     private static async Task VerifyBusinessFilesAsync(bool shareDatabase)
     {
         await using var fixture = await ProjectFileDatabaseFixture.CreateAsync(shareDatabase: shareDatabase);
