@@ -127,3 +127,5 @@ C104后续固定da137bb完成三表TIME正式1过／0败／0跳过：14表显式
 2026-11-07 V517。非冗余详情、写后回显及已选确认省掉无用的分页 COUNT。四种跨表键型和两项生成 HTTP/MySQL 回归通过，原存储校验与当前读锁核对一致，22 张合成表已独立核清。见 [非冗余主键回读 V517](testing/nonredundant-key-read-v517.md)。
 
 2026-11-07 V518／V519。固定 b6f8b251 的 Windows 九个后端项目、前端及 Agent CLI 通过，双轮再生成稳定。生成器全量发现原 Excel 离线夹具投影不匹配，修正后 13 项定向通过。Server-200 同库与分库 Production 空库、原权限及事务复验通过，资源独立核清。当前生成器全量、CI 和首版总验收继续。见 [当前回归与空库复验 V518／V519](testing/current-windows-bootstrap-v518-v519.md)。
+
+2026-11-07 V521／V522。固定 `10cf15ea` 的独立包通过 Production 空库安装、原身份和附件 HTTP，实际删除故障后用同一文件 ID 重试成功。公开 Full 固定 1,284 份包文件，六个 R0 模型通过普通账号原 Excel 覆盖、实库并发锁、业务与附件整批回滚。两轮独占资源已独立核清。见 [当前独立包与公开 R0 复验](testing/current-standalone-and-public-r0-v521-v522.md)。
