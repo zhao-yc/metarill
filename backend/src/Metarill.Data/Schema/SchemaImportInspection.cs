@@ -35,6 +35,8 @@ public sealed partial class SchemaService
         {
             var caseMode = Convert.ToInt32(await ScalarInTransactionAsync(connection, transaction, "SELECT @@lower_case_table_names", token));
             if (caseMode is < 0 or > 2) throw new InvalidOperationException("无法核实数据库名称比较规则。");
+            var comparison = caseMode == 0 ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            var physicalNames = new List<string>(names.Count);
             var total = 0L;
             foreach (var name in names.Order(StringComparer.Ordinal))
             {
@@ -45,17 +47,26 @@ public sealed partial class SchemaService
                 await using var command = session.Provider.CreateCommand(connection); command.Transaction = transaction; command.CommandTimeout = 15;
                 command.CommandText = "SELECT 1 FROM " + MySqlSchemaPlanner.Quote(name) + " LIMIT 0";
                 await using (var reader = await command.ExecuteReaderAsync(token)) { while (await reader.ReadAsync(token)) { } }
-                var count = Convert.ToInt64(await ScalarInTransactionAsync(connection, transaction,
-                    "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table", token, ("@table", name)));
+                // 取得 MDL 后以 MySQL 实际表名编译快照，避免将大小写别名保存到配置。
+                command.CommandText = "SELECT TABLE_NAME,COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table GROUP BY TABLE_NAME";
+                AddParameters(command, [("@table", name)]);
+                await using var layout = await command.ExecuteReaderAsync(token);
+                if (!await layout.ReadAsync(token)) throw new InvalidOperationException("源表在检查期间缺失。");
+                var physicalName = layout.GetString(0);
+                var count = layout.GetInt64(1);
+                if (!string.Equals(name, physicalName, comparison) || await layout.ReadAsync(token))
+                    throw new InvalidOperationException("无法唯一核实源表的物理名称。");
+                MetadataValidation.RequireIdentifier(physicalName);
+                physicalNames.Add(physicalName);
                 total += count;
                 if (count is < 1 or > 512 || total > 4096) throw new InvalidOperationException("源结构超过每表512列或本轮4096列预算，未返回截断模型。");
             }
-            var schema = await ReadSchemaAsync(connection, names, token, transaction);
+            var schema = await ReadSchemaAsync(connection, physicalNames, token, transaction);
             if (schema.Tables.Count != names.Count) throw new InvalidOperationException("源表在检查期间缺失。");
             if (schema.Tables.Sum(table => (long)(table.SnapshotDefinition?.Length ?? 0)) > 2 * 1024 * 1024)
                 throw new InvalidOperationException("源DDL快照超过2 MiB预算，未生成截断模型。");
             var issues = new List<SchemaImportIssue>();
-            foreach (var name in names.Order(StringComparer.Ordinal)) await ReadImportFeaturesAsync(connection, transaction, name, issues, token);
+            foreach (var name in physicalNames.Order(StringComparer.Ordinal)) await ReadImportFeaturesAsync(connection, transaction, name, issues, token);
             var result = await inspect(new(new(session.Provider.Name, schema, MySqlSchemaPlanner.Fingerprint(schema)), issues.Distinct().ToArray(), caseMode == 0, TargetIdentity(identity, caseMode)), token);
             var commitObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Commit);
             try{await transaction.CommitAsync(token);commitObservation?.Complete(transaction,null);}

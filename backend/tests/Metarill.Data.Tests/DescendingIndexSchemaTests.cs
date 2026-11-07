@@ -146,9 +146,25 @@ public sealed class DescendingIndexSchemaTests
         if(mode=="begin")Assert.Empty(inTransaction);else{Assert.NotEmpty(inTransaction);Assert.Single(inTransaction.Select(entry=>entry.Transaction).Distinct());Assert.All(inTransaction,entry=>Assert.Equal(snapshot.Transactions[0].Transaction,entry.Transaction));}
         Assert.All(snapshot.Transactions.Where(entry=>!entry.Succeeded),entry=>Assert.Equal((mode=="rollback"?rollback:primary).GetType().FullName,entry.ErrorType));
     }
+    /// <summary>反查使用数据库返回的物理名，而不是请求中的大小写别名。</summary>
+    [Theory]
+    [InlineData(0,"Record","Record")]
+    [InlineData(1,"ReCoRd","record")]
+    [InlineData(2,"record","ReCoRd")]
+    public async Task Import_snapshot_uses_physical_name_reported_under_the_verified_mysql_mode(int caseMode,string requested,string physical)
+    {
+        var provider=new RecordingProvider{TableExists=true,CaseMode=caseMode,PhysicalName=physical};
+        using var session=Session(provider);
+        var inspection=await new SchemaService(session).InspectForImportAsync([requested]);
+        Assert.Equal(caseMode==0,inspection.CaseSensitiveNames);
+        Assert.Equal(physical,Assert.Single(inspection.Snapshot.Schema.Tables).Name);
+        Assert.All(inspection.Issues,issue=>Assert.Equal(physical,issue.Table));
+        Assert.Equal(1,provider.Commits);Assert.Equal(0,provider.Rollbacks);
+    }
     private sealed class RecordingProvider:IDatabaseProvider
     {
         internal string Uuid {get;set;}="offline-instance";
+        internal int CaseMode;internal string PhysicalName="record";
         internal string Version="8.0.43";internal bool TableExists;internal string[] Directions=["D","A"];internal int Ddl,IndexReads,Locks,FactoryCommands,CreatedCommands,Begins,Commits,Rollbacks;internal bool ObserveCommands;internal Exception? BeginFailure,CommitFailure,RollbackFailure;internal CancellationToken RollbackToken;internal IsolationLevel BeginLevel;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public string QuoteIdentifier(string identifier)=>MySqlSchemaPlanner.Quote(identifier);public string ParameterPlaceholder(string name)=>"@"+name;
@@ -173,7 +189,7 @@ public sealed class DescendingIndexSchemaTests
         public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>parameters.CreateParameter();public override int ExecuteNonQuery(){provider.Ddl++;throw new InvalidOperationException("离线测试不可执行DDL。");}
         public override object? ExecuteScalar()
         {
-            if(CommandText=="SELECT @@lower_case_table_names")return 0;if(CommandText.StartsWith("SELECT COUNT(*) FROM information_schema.COLUMNS",StringComparison.Ordinal))return 2L;if(CommandText=="SELECT DATABASE()")return "direction_offline";if(CommandText=="SELECT @@server_uuid")return provider.Uuid;
+            if(CommandText=="SELECT @@lower_case_table_names")return provider.CaseMode;if(CommandText=="SELECT DATABASE()")return "direction_offline";if(CommandText=="SELECT @@server_uuid")return provider.Uuid;
             if(CommandText.StartsWith("SELECT TABLE_TYPE",StringComparison.Ordinal))return provider.TableExists?"BASE TABLE":null;if(CommandText.StartsWith("SELECT ENGINE",StringComparison.Ordinal))return "InnoDB";
             if(CommandText.Contains("GET_LOCK",StringComparison.Ordinal)){provider.Locks++;return 1;}if(CommandText.Contains("RELEASE_LOCK",StringComparison.Ordinal))return 1;throw new InvalidOperationException("未声明离线SQL。");
         }
@@ -181,6 +197,11 @@ public sealed class DescendingIndexSchemaTests
         {
             var table=new DataTable();void Columns(params string[] names){foreach(var name in names)table.Columns.Add(name,typeof(object));}
             if(CommandText.StartsWith("SELECT 1 FROM ",StringComparison.Ordinal)){Assert.EndsWith(" LIMIT 0",CommandText);Columns("constant");}
+            else if(CommandText.StartsWith("SELECT TABLE_NAME,COUNT(*) FROM information_schema.COLUMNS",StringComparison.Ordinal))
+            {
+                Assert.NotNull(DbTransaction);Assert.Single(DbParameterCollection.Cast<DbParameter>());
+                Columns("name","count");table.Rows.Add(provider.PhysicalName,2L);
+            }
             else if(CommandText.StartsWith("SELECT COLUMN_NAME",StringComparison.Ordinal)){Columns("name","type","nullable","key","default","extra","logical");table.Rows.Add("id","bigint","NO","PRI",DBNull.Value,"","bigint");table.Rows.Add("value","varchar(64)","YES","",DBNull.Value,"","varchar");}
             else if(CommandText.StartsWith("SELECT INDEX_NAME,NON_UNIQUE",StringComparison.Ordinal)){provider.IndexReads++;Assert.Contains(",COLLATION FROM",CommandText);Columns("name","non_unique","column","direction");table.Rows.Add("yzp_idx_value",1,"value",provider.Directions[0]);table.Rows.Add("yzp_idx_value",1,"id",provider.Directions[1]);}
             else if(CommandText.StartsWith("SELECT INDEX_NAME,SUB_PART",StringComparison.Ordinal))
@@ -188,7 +209,7 @@ public sealed class DescendingIndexSchemaTests
                 Columns("name","prefix","direction","type","visible");table.Rows.Add("yzp_idx_desc",DBNull.Value,"D","BTREE","YES");table.Rows.Add("PRIMARY",DBNull.Value,"D","BTREE","YES");table.Rows.Add("prefix",10,"D","BTREE","YES");table.Rows.Add("hidden",DBNull.Value,"D","BTREE","NO");table.Rows.Add("hash",DBNull.Value,DBNull.Value,"HASH","YES");table.Rows.Add("unknown",DBNull.Value,"Q","BTREE","YES");
             }
             else if(CommandText.StartsWith("SELECT CONSTRAINT_NAME",StringComparison.Ordinal)){Columns("name","type");}
-            else if(CommandText.StartsWith("SHOW CREATE",StringComparison.Ordinal)){Columns("name","ddl");table.Rows.Add("record","CREATE TABLE record (id bigint, value varchar(64))");}
+            else if(CommandText.StartsWith("SHOW CREATE",StringComparison.Ordinal)){Columns("name","ddl");table.Rows.Add(provider.PhysicalName,$"CREATE TABLE {provider.PhysicalName} (id bigint, value varchar(64))");}
             else throw new InvalidOperationException("未声明离线反查SQL。");
             return table.CreateDataReader();
         }
