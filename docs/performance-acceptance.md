@@ -56,7 +56,7 @@ V492 为 Server-200 的原生回放补充 `resourceWindow`。在业务计时开�
 
 V493 的原维护用途可显式选择 `maintenanceReplayProfile=fresh-repair-cost-v1`，固定总预算为 208 次回放。两端每种表分别预热 16 次，三轮各记录 12 次真实修复。每次都重新制造并核验 132 个缓存故障，准备和核验在该次 HTTP／CPU 窗口之外。CPU 比较按切片差值合计，吞吐按这些 HTTP 窗口的合计时长计算，窗口内存逐次保留。其他维护回放继续使用原配置。
 
-Server-200 固定双端实测完成，充分预热后的明细 CPU 差异未稳定重现，明细吞吐三轮触线、p95 两轮触线，资源已独立核清。该固定负载继续阻断首版性能验收，详见 [V493 原始结果及范围](testing/paired-maintenance-repair-cpu-v493.md)。
+Server-200 固定双端实测完成，充分预热后的明细 CPU 差异未稳定重现，明细吞吐三轮触线、p95 两轮触线，资源已独立核清。V493 当轮固定负载失败，详见 [原始结果及范围](testing/paired-maintenance-repair-cpu-v493.md)。V494 后续为叶子表恢复干净区间宽扫描，同配置复测中明细仅首轮触线，后两轮及合同三轮通过，固定负载达到原稳定性门槛，见 [V494 修复与正式复验](testing/paired-maintenance-leaf-clean-scan-v494.md)。首轮波动和修复前失败记录继续保留。
 
 ## 结果与失败处理
 

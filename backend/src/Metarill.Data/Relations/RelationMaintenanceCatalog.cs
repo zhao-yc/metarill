@@ -27,6 +27,9 @@ public sealed class RelationMaintenanceCatalog
     internal IReadOnlyDictionary<string,MaintenanceTable> Plans{get;}
     internal RelationMutationPlan Propagation{get;}
     internal MixedRelationMutationPlan Mixed{get;}
+    /// <summary>普通和混合传播共用下游判定，叶子维护才能重新扩大无变化扫描窗口。</summary>
+    internal bool HasDownstreamCaches(string table) =>
+        Mixed.Targets.Contains(table) || Propagation.Bindings.Any(binding => binding.Target.Name == table);
     /// <summary>全局来源事件必须使用本目录项目身份，普通按行项目范围保持原合同。</summary>
     internal bool RequiresPublishedProjectIdentity=>Plans.Values.Any(plan=>plan.Read?.RequiresPublishedProjectIdentity==true);
     /// <summary>生成器据此只挂载已证明的目标和来源实体补丁，公开投影不包含SQL。</summary>

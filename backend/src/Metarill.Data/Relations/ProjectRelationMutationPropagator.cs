@@ -70,7 +70,7 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
 
     private static MaintenanceTable? FindScalarAppendLeaf(RelationMaintenanceCatalog catalog, string table)
     {
-        if (catalog.Mixed.Targets.Contains(table) || catalog.Propagation.Bindings.Any(binding => binding.Target.Name == table))
+        if (catalog.HasDownstreamCaches(table))
             return null;
         return catalog.Mixed.Consumers.SingleOrDefault(item => item.Table.Option.TableName == table)?.Table;
     }

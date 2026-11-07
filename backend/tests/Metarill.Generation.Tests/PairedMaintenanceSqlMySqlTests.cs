@@ -94,6 +94,7 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         output.WriteLine($"显式单级联接物理结果一致。活动行={ActiveRows}，实际变化={result.AffectedRows}，C# 观测SQL={trace.Commands.Count}，其中写入={writes}。未计时。");
         await VerifyLockModesAsync(session, compiled);
         await VerifyCleanLookaheadAsync(session, compiled, store);
+        await VerifySparseLeafWindowAsync(session, compiled, store);
         await VerifyLateTruncationAsync(session, catalog, store);
         await VerifyLargeTextFallbackAsync(session, catalog, store);
     }
@@ -121,6 +122,60 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         Assert.Contains("LIMIT 512", lateCommands[1].Sql);
         Assert.All(lateCommands.Skip(2), command => Assert.Contains("LIMIT 128", command.Sql));
         Assert.Equal(before, Serialize(await SnapshotAsync(store)));
+    }
+
+    /// <summary>脏行分散在宽窗口中时不能跳过，首批修复后的干净区间重新采用宽读取。</summary>
+    private static async Task VerifySparseLeafWindowAsync(DatabaseSession session, RelationMaintenanceCatalog catalog, SqlRowStore store)
+    {
+        const int count=1152;
+        var first=BaseId+10000;
+        var before=Serialize(await SnapshotAsync(store));
+        try
+        {
+            await session.InTransactionAsync(async()=>
+            {
+                for(var index=0;index<count;index++)
+                    await store.InsertAsync(Source,new Dictionary<string,object?>
+                    {
+                        ["id"]=first+index,["yz_project_id"]=54L,["target_id"]=BaseId,
+                        ["target_name"]="目标新名称",["note"]="稀疏保留值"+index
+                    });
+                return true;
+            });
+            foreach(var index in new[]{5,700,1100})
+                Assert.Equal(1,await store.UpdateAsync(Source,first+index,new Dictionary<string,object?>{{"target_name","稀疏旧缓存"}}));
+            var observation=DatabaseCommandObservation.Begin(RandomNumberGenerator.GetBytes(32));
+            using(observation)
+                Assert.Equal(3,(await new RelationMaintenanceExecutor(session).BackfillAsync(catalog,"1")).AffectedRows);
+            var commands=observation.Snapshot().Commands.ToArray();
+            var firstWrite=Array.FindIndex(commands,command=>command.Operation==DatabaseCommandOperation.NonQuery&&command.Sql.StartsWith("UPDATE ",StringComparison.Ordinal));
+            Assert.True(firstWrite>=0);
+            Assert.Contains(commands.Skip(firstWrite+1),command=>command.Sql.Contains("FOR UPDATE OF b FOR SHARE OF",StringComparison.Ordinal)&&command.Sql.Contains("LIMIT 512",StringComparison.Ordinal));
+            var rows=(await SnapshotAsync(store)).Where(row=>SqlRowStore.Id(row)>=first&&SqlRowStore.Id(row)<first+count).ToArray();
+            Assert.Equal(count,rows.Length);
+            for(var index=0;index<count;index++)
+            {
+                Assert.Equal(first+index,SqlRowStore.Id(rows[index]));
+                Assert.Equal("目标新名称",rows[index]["target_name"]);
+                Assert.Equal("稀疏保留值"+index,rows[index]["note"]);
+                Assert.Equal(BaseId,SqlRowStore.Id(rows[index],"target_id"));
+            }
+        }
+        finally
+        {
+            // 只删除此夹具新增的连续ID，恢复原133行后再验证后续故障回滚。
+            await session.InTransactionAsync(async()=>
+            {
+                await using var command=session.CurrentTransaction!.Connection!.CreateCommand();
+                command.Transaction=session.CurrentTransaction;
+                command.CommandText="DELETE FROM mt_maint_pair_source WHERE id>=@first AND id<@last AND yz_project_id=54";
+                var low=command.CreateParameter();low.ParameterName="first";low.Value=first;command.Parameters.Add(low);
+                var high=command.CreateParameter();high.ParameterName="last";high.Value=first+count;command.Parameters.Add(high);
+                await command.ExecuteNonQueryAsync();
+                return true;
+            });
+        }
+        Assert.Equal(before,Serialize(await SnapshotAsync(store)));
     }
 
     /// <summary>无变化回填同样持有来源排他锁及目标共享锁，直到调用方事务退出。</summary>

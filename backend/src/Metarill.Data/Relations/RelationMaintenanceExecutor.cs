@@ -27,6 +27,8 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
         var scalar=table.Multiples.Count==0&&plan.Crosses.Count==0&&plan.MultiProjections.Count==0
             &&plan.Expression("id")=="b.`id`"&&plan.ImportMatchLock is not null;
         var allowLookahead=scalar&&CanLookAhead(table,plan);
+        // 叶子修复不会传播到后续来源，遇到干净批后可以恢复宽窗口。
+        var resumeCleanLookahead=allowLookahead&&!catalog.HasDownstreamCaches(table.Option.TableName);
         var readLimit=WriteBatchSize;
         while(true)
         {
@@ -40,12 +42,12 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                     // 宽窗口只确认没有变化。发现旧值后按原边界重读，避免使用传播前的后续行投影。
                     if(readLimit!=WriteBatchSize)
                         batch=await LockScalarBatchAsync(table,catalog.ProjectId,after,WriteBatchSize,transaction,token);
-                    allowLookahead=false;
+                    allowLookahead=resumeCleanLookahead;
                 }
                 if(batch.LastId==after)break;
                 after=batch.LastId;
                 patches=batch.Patches;
-                readLimit=allowLookahead?CleanReadBatchSize:WriteBatchSize;
+                readLimit=allowLookahead&&patches.Count==0?CleanReadBatchSize:WriteBatchSize;
                 await WriteScalarBatchAsync(table,plan,catalog.ProjectId,patches,packetLimit,transaction,token);
             }
             else

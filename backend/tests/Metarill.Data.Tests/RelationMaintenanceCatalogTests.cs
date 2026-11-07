@@ -48,6 +48,27 @@ public sealed class RelationMaintenanceCatalogTests
         }
     }
 
+    /// <summary>叶子可恢复宽扫描，新增下游后必须由同一冻结传播目录识别。</summary>
+    [Fact]
+    public void Leaf_scope_changes_when_its_cache_becomes_a_downstream_input()
+    {
+        var model=Catalog();
+        Assert.False(RelationMaintenanceCatalog.Compile(model).HasDownstreamCaches("maintenance_source"));
+        model.ConfigTables.Add(new(){Id="child",TableName="maintenance_child",IsRongyu=1});
+        AddBasics(model,"child");
+        model.ConfigColumns.AddRange([
+            new(){Id="child_foreign",ConfigTableId="child",ColumnName="source_id",LogicalType="int64",LinkConfigTableId="source"},
+            new(){Id="child_cache",ConfigTableId="child",ColumnName="source_name",LogicalType="string",ColumnLength="100",
+                Extra=new(){{"isJoinColumn",JsonSerializer.SerializeToElement(1)},{"columnFullName",JsonSerializer.SerializeToElement("source.target_name")}}}
+        ]);
+        var catalog=RelationMaintenanceCatalog.Compile(model);
+        Assert.True(catalog.HasDownstreamCaches("maintenance_source"));
+        Assert.False(catalog.HasDownstreamCaches("maintenance_child"));
+        model.ConfigTables.Clear();
+        model.ConfigColumns.Clear();
+        Assert.True(catalog.HasDownstreamCaches("maintenance_source"));
+    }
+
     /// <summary>包预算按 UTF-8 字节及转义上限，超出时不能把多条合法写入拼成一条。</summary>
     [Fact]
     public void Text_batch_rejects_large_payload_and_non_string_values()
