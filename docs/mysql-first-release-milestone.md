@@ -207,3 +207,5 @@ C104后续固定da137bb完成三表TIME正式1过／0败／0跳过：14表显式
 2026-11-08 V565。当前产品的两宿主以 MySQL VerifyFull 和 TLS 1.3 通过显式安装、登录及原业务 CRUD。普通启动与证书拒绝均保持三个空库，独立核对最终 24／13／13 表和两端业务落库。见 [数据库 TLS 实测](testing/mysql-strict-tls-web-v565.md)。
 
 2026-11-08 V566。当前两套 H5 已导出并通过受控同源 HTTPS 原接口。平台原桌面经本机 HTTP 验收桥通过登录、项目、菜单和注销。Windows 临时证书导入未完成，浏览器直接 HTTPS 及当前独立应用移动视口继续验收。见 [Web 网关分项证据](testing/web-https-gateway-v566.md)。
+
+2026-11-08 V567。当前公开 Full 的原独立应用 390×844 浏览器通过两个普通角色登录、CRUD、只读写拒绝、删除取消及注销。真实 33 请求和 MySQL 持久状态核对通过。浏览器直连 HTTPS 继续跟踪。见 [移动 Web 实测](testing/current-standalone-mobile-crud-v567.md)。
