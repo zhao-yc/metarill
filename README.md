@@ -1,6 +1,6 @@
 # Metarill · 元溪
 
-当前明确交付节点：**先完成并验收 MySQL 首版，交付 Web 管理端和 Web 业务生成**。2026-11-06 已确认小程序、Android 和 iOS 单列为后续兼容性验收；其它数据库仍按后续路线图推进。原 Web 界面、功能／权限／事务／生成及同条件性能要求保持，详见[MySQL首版交付范围](docs/mysql-first-release-milestone.md)。
+当前明确交付节点：**先完成并验收 MySQL 首版，交付 Web 管理端和 Web 业务生成**。首版验收覆盖桌面与移动 Web 浏览器。微信小程序、Android 和 iOS 单列为后续兼容性验收，其它数据库按后续路线图推进。原 Web 界面、功能／权限／事务／生成及同条件性能要求保持，详见[MySQL首版交付范围](docs/mysql-first-release-milestone.md)。
 
 基于 YZP 主框架重写的开源元数据应用开发平台。平台和生成应用采用 C# / ASP.NET Core，管理端保留 HBuilderX uni-app Vue 3 工程。Apache-2.0 许可证。
 
