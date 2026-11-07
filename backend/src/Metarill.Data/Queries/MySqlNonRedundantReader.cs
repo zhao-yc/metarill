@@ -15,12 +15,29 @@ public sealed record FixedReadStatistics(long Total,IReadOnlyDictionary<string,d
 /// <summary>执行固定单值及多选读计划；调用方仍须先建立原页面授权和父对象读取范围。</summary>
 public sealed class MySqlNonRedundantReader(DatabaseSession session)
 {
+    private const string InvalidCrossStorage = "跨表稀疏存储含歧义或无效ID，未返回不完整逻辑路径。";
     // 名称数组也是原Excel的纯文本单元格；保持中文与标点可读，对外HTTP仍由宿主JSON编码。
     private static readonly System.Text.Json.JsonSerializerOptions MultiNamesJson=new(){Encoder=System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping};
     /// <summary>相同SQL范围用于总数与分页，派生值在数据库内先筛选、排序再分页。</summary>
     public async Task<FixedReadPage> ReadPageAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken=default,bool unpaged=false,string? projectId=null,FixedConditionSqlPlan? condition=null,bool currentRead=false)
         => await ReadAsync(plan,filters,order,page,pageSize,cancellationToken,unpaged,projectId,true,condition,currentRead);
+    /// <summary>详情及已选回读由主键集合限定，逐行保留原分页的全部跨表存储校验。</summary>
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadKeyRowsAsync(
+        MySqlNonRedundantReadPlan plan, IReadOnlyList<FixedReadFilter> filters, IReadOnlyList<long> keys,
+        CancellationToken cancellationToken=default, string? projectId=null, FixedConditionSqlPlan? condition=null, bool currentRead=false)
+    {
+        ArgumentNullException.ThrowIfNull(filters);
+        ArgumentNullException.ThrowIfNull(keys);
+        if (keys.Count is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(keys));
+        var keyFilter = keys.Count == 1
+            ? new FixedReadFilter("id", FixedReadComparison.Equal, keys[0])
+            : new FixedReadFilter("id", FixedReadComparison.In, keys.Cast<object?>().ToArray());
+        var rows = await ReadAsync(plan, filters.Append(keyFilter).ToArray(), [], 1, keys.Count, cancellationToken,
+            false, projectId, false, condition, currentRead, validateAllCrosses: true);
+        return rows.Records;
+    }
+
     /// <summary>有界导出只读明细，不额外执行分页总数；限制与查询验证仍共用固定读取入口。</summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
@@ -41,7 +58,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         return (await ReadAsync(plan,filters,[],1,2,cancellationToken,false,projectId,false,condition,true,plan.ImportMatchLock)).Records;
     }
     private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false,string? rowLock=null)
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false,string? rowLock=null,bool validateAllCrosses=false)
     {
         if(currentRead&&session.CurrentTransaction is null)throw new InvalidOperationException("当前读必须加入真实业务事务。");
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
@@ -67,11 +84,17 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
             var multis=plan.Outputs.Where(name=>!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)).ToArray();var hidden=new Dictionary<string,string>(StringComparer.Ordinal);var projection=plan.Outputs.Select(name=>(!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)?"NULL":plan.OutputExpression(name))+" AS "+Q(name)).ToList();
             var ordinal=0;foreach(var name in multis){string alias;do{alias="metarill_multi_input_"+ordinal++;}while(plan.Outputs.Contains(alias,StringComparer.OrdinalIgnoreCase));hidden.Add(name,alias);projection.Add(plan.MultiProjections[name].SourceExpression+" AS "+Q(alias));}
-            var crossInputs=new List<(MySqlCrossTableProjection Plan,Dictionary<string,string> Fields)>();var sharedValidity=new List<string>();var used=plan.Outputs.Concat(hidden.Values).Concat(plan.RuleOutputAliases.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var crossInputs=new List<(MySqlCrossTableProjection Plan,Dictionary<string,string> Fields)>();var crossValidityColumns=new List<string>();var used=plan.Outputs.Concat(hidden.Values).Concat(plan.RuleOutputAliases.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach(var rule in plan.RuleOutputAliases)projection.Add(plan.Expression(rule.Key)+" AS "+Q(rule.Value));
             foreach(var cross in plan.Crosses)
             {
-                if(cross.RequireRowValidity){string validAlias;do{validAlias="metarill_cross_valid_"+ordinal++;}while(!used.Add(validAlias));sharedValidity.Add(validAlias);projection.Add("CASE WHEN ("+cross.Validity+") THEN 1 ELSE 0 END AS "+Q(validAlias));}
+                if (cross.RequireRowValidity || validateAllCrosses)
+                {
+                    string alias;
+                    do { alias = "metarill_cross_valid_" + ordinal++; } while (!used.Add(alias));
+                    crossValidityColumns.Add(alias);
+                    projection.Add("CASE WHEN (" + cross.Validity + ") THEN 1 ELSE 0 END AS " + Q(alias));
+                }
                 var fields=new Dictionary<string,string>(StringComparer.Ordinal);foreach(var pair in cross.RawSlots){string alias;do{alias="metarill_cross_input_"+ordinal++;}while(!used.Add(alias));fields.Add(pair.Key,alias);projection.Add(pair.Value+" AS "+Q(alias));}crossInputs.Add((cross,fields));
             }
             read.CommandText="SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(rowLock??(currentRead?" FOR SHARE":""));
@@ -81,8 +104,14 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
                 {var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var i=0;i<reader.FieldCount;i++)row.Add(reader.GetName(i),await reader.IsDBNullAsync(i,cancellationToken)?null:reader.GetValue(i));records.Add(row);}
             foreach(var row in records)
             {
-                // 无COUNT用途也必须拒绝冲突的共享祖先，不能只在分页总数阶段验证。
-                foreach(var alias in sharedValidity){if(Convert.ToInt64(row[alias],System.Globalization.CultureInfo.InvariantCulture)!=1)throw new InvalidOperationException("共享跨表存储或实际祖先路径冲突，未返回数据。");row.Remove(alias);}foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
+                // 主键读取覆盖匹配的全部行，可以在同一条SELECT校验原COUNT中的跨表条件。
+                foreach (var alias in crossValidityColumns)
+                {
+                    if (Convert.ToInt64(row[alias], System.Globalization.CultureInfo.InvariantCulture) != 1)
+                        throw new InvalidOperationException(validateAllCrosses ? InvalidCrossStorage : "共享跨表存储或实际祖先路径冲突，未返回数据。");
+                    row.Remove(alias);
+                }
+                foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
             }
             foreach(var name in multis)await PopulateMultiAsync(connection,plan.MultiProjections[name],name,hidden[name],records,projectId,currentRead,cancellationToken);
             return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());
@@ -237,7 +266,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     /// <summary>COUNT与统计在同一原范围内检测坏稀疏存储，不隐藏错误行或增加逐行查询。</summary>
     private static string CrossValidity(MySqlNonRedundantReadPlan plan)=>"COALESCE(MAX(CASE WHEN "+string.Join(" AND ",plan.Crosses.Select(cross=>"("+cross.Validity+")"))+" THEN 0 ELSE 1 END),0)";
     /// <summary>多位、非规范或越界ID明确拒绝，不在读取时修补历史值。</summary>
-    private static void RequireValidCross(DbDataReader reader,int ordinal){if(Convert.ToInt32(reader.GetValue(ordinal),System.Globalization.CultureInfo.InvariantCulture)!=0)throw new InvalidOperationException("跨表稀疏存储含歧义或无效ID，未返回不完整逻辑路径。");}
+    private static void RequireValidCross(DbDataReader reader,int ordinal){if(Convert.ToInt32(reader.GetValue(ordinal),System.Globalization.CultureInfo.InvariantCulture)!=0)throw new InvalidOperationException(InvalidCrossStorage);}
     /// <summary>固定目标条件与请求筛选分开绑定，分页、数量及统计使用同一份冻结常量。</summary>
     private static void BindCross(DbCommand command,MySqlNonRedundantReadPlan plan){foreach(var pair in plan.Constants)Add(command,pair.Key,pair.Value??DBNull.Value);}
     /// <summary>固定页面条件的常量参数与用户筛选分别命名，所有COUNT/明细/统计共用同一绑定。</summary>

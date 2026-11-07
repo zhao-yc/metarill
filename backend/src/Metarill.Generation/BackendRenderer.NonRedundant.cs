@@ -141,23 +141,23 @@ internal static class GeneratedNonRedundantReadCatalog
             .AppendLine("    /// <summary>私有写后当前读不暴露HTTP开关，防止旧事务快照覆盖已经验证的名称。</summary>")
             .AppendLine($"    private async Task<{page.Name}Vo?> ReadDetail{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken,bool currentRead)").AppendLine("    {")
             .AppendLine(SelectionPageRenderer.Enabled(page)?$"        await ValidateSelectionParents{suffix}Async(parentId,actor,cancellationToken);":"")
-            .AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=parentId}},actor);filters.Add(new(\"id\",FixedReadComparison.Equal,id));")
-            .AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)},currentRead:currentRead);")
-            .AppendLine($"        return rows.Records.Count==0?null:{NonRedundantProjectionCall(model,table,page,"rows.Records","currentRead",true)};").AppendLine("    }");
+            .AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=parentId}},actor);")
+            .AppendLine($"        var rows=await new NonRedundantReader(session).KeyRowsAsync(ReadPlan{suffix},filters,[id],cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)},currentRead:currentRead);")
+            .AppendLine($"        return rows.Count==0?null:{NonRedundantProjectionCall(model,table,page,"rows","currentRead",true)};").AppendLine("    }");
         if(ExactDataManageCompilation.Declared(page)||page.Condition is not null)
         {
             result.AppendLine("    /// <summary>只供已授权且已写入的对象回显；固定主键/项目/父与实际事务，不能由HTTP选择此入口。</summary>")
                 .AppendLine($"    private async Task<{page.Name}Vo?> MutationResult{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)")
                 .AppendLine("    {")
                 .AppendLine("        ValidateActor(actor);if(session.CurrentTransaction is null)throw new InvalidOperationException(\"写后回显必须使用实际写入事务。\");")
-                .AppendLine("        var filters=new List<FixedReadFilter>{new(\"id\",FixedReadComparison.Equal,id)};");
+                .AppendLine("        var filters=new List<FixedReadFilter>();");
             foreach(var (column,source) in fixedQuery.IdentityScopes)
             {
                 if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");
                 result.AppendLine($"        filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")}));");
             }
-            result.AppendLine($"        var rows=await new NonRedundantReader(session).PageAsync(ReadPlan{suffix},filters,Array.Empty<FixedReadOrder>(),1,1,cancellationToken,projectId:actor.ProjectId,currentRead:true);")
-                .AppendLine($"        return rows.Records.Count==0?null:{NonRedundantProjectionCall(model,table,page,"rows.Records","true",true)};").AppendLine("    }");
+            result.AppendLine($"        var rows=await new NonRedundantReader(session).KeyRowsAsync(ReadPlan{suffix},filters,[id],cancellationToken,projectId:actor.ProjectId,currentRead:true);")
+                .AppendLine($"        return rows.Count==0?null:{NonRedundantProjectionCall(model,table,page,"rows","true",true)};").AppendLine("    }");
         }
         result.Append(NonRedundantCascadeFilters(model,table,page)).Append(NonRedundantCascadeProjection(model,table,page));
         return result.ToString();

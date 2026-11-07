@@ -18,6 +18,22 @@ public sealed class NonRedundantReadRequestTests
     {
         var row=new Dictionary<string,object?>{{"id","9007199254740993"},{"amount",12.50m},{"empty",null},{"enabled",1}};Assert.Equal(9007199254740993L,NonRedundantReads.Value<long>(row,"id"));Assert.Equal(12.50m,NonRedundantReads.Value<decimal?>(row,"amount"));Assert.Null(NonRedundantReads.Value<decimal?>(row,"empty"));Assert.True(NonRedundantReads.Value<bool?>(row,"enabled"));Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.Value<string>(row,"unknown"));
     }
+    /// <summary>主键回读必须有界，锁读要求已经进入业务事务。</summary>
+    [Fact]
+    public async Task Key_reads_require_bounded_keys_and_an_actual_transaction_for_current_reads()
+    {
+        using var session = new DatabaseSession(new DatabaseOptions
+        {
+            ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=invalid;Connection Timeout=1"
+        });
+        var plan = NonRedundantReads.Compile(NonRedundantReadTests.Catalog("mt_read_root", "mt_read_party"), "1", ["id"]);
+        var reader = new NonRedundantReader(session);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reader.KeyRowsAsync(plan, [], []));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reader.KeyRowsAsync(plan, [], new long[201]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => reader.KeyRowsAsync(plan, [], [1], currentRead:true));
+    }
+
     /// <summary>集合仅接受可冻结标量，不接受嵌套值或把小数ID取整。</summary>
     [Theory]
     [InlineData("nested")][InlineData("fraction")][InlineData("invalidProject")][InlineData("unpaged")]

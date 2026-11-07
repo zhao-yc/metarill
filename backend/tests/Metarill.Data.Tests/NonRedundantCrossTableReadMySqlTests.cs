@@ -44,6 +44,7 @@ public sealed class NonRedundantCrossTableReadMySqlTests
                 await Target(3,1007,"已删市",node,deleted:true);await Target(3,1008,"其它项目市",node,foreign:true);await Target(3,1009,"坏父市",999);await Target(3,1010,"范围外市",node,enabled:false);
                 await Source(0,[]);await Source(1,[node]);await Source(2,[other]);await Source(3,[node,node]);await Source(4,[node,node,node]);await Source(5,[other,other]);await Source(6,[other,other,other]);await Source(7,[node,node,999]);await Source(8,[node,node,1007]);await Source(9,[node,node,1008]);await Source(10,[node,999,1009]);await Source(11,[node,node,1010]);await Source(20,[node],deleted:true);await Source(21,[node,node,node],foreign:true);return true;
             });rowsHash=await RowsHash();
+            await VerifyKeyReadAsync();
             var all=await reader.ReadPageAsync(plan,[],[],1,30);Assert.Equal(12,all.Total);Assert.Equal(12,all.Records.Count);Assert.All(all.Records,row=>Assert.Equal(columns.Order(),row.Keys.Order()));
             foreach(var (offset,depth,id) in new[]{(1,0,node),(2,0,other),(3,1,node),(4,2,node),(5,1,other),(6,2,other)})
             {
@@ -77,6 +78,28 @@ public sealed class NonRedundantCrossTableReadMySqlTests
                 Assert.Empty((await inspection.InspectAsync(catalog)).Tables);await using var independent=cleanup.Provider.CreateConnection(options);await independent.OpenAsync();foreach(var name in names){await using var command=independent.CreateCommand();command.CommandText="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@name";var parameter=command.CreateParameter();parameter.ParameterName="name";parameter.Value=name;command.Parameters.Add(parameter);Assert.Equal(0,Convert.ToInt32(await command.ExecuteScalarAsync(),CultureInfo.InvariantCulture));}await Receipt("cleaned",true);
             }
         }
+        /// <summary>单次主键读取与原分页返回相同物理和派生属性；当前读仍在事务内使用共享锁。</summary>
+        async Task VerifyKeyReadAsync()
+        {
+            var expected = (await reader.ReadPageAsync(plan, [new("id",FixedReadComparison.Equal,first)], [], 1, 1)).Records;
+            await VerifyAsync(false);
+            await session.InTransactionAsync(async () => { await VerifyAsync(true); return true; });
+
+            async Task VerifyAsync(bool currentRead)
+            {
+                var observation = DatabaseCommandObservation.Begin(new byte[32]);
+                IReadOnlyList<IReadOnlyDictionary<string,object?>> actual;
+                try { actual = await reader.ReadKeyRowsAsync(plan, [], [first], currentRead:currentRead); }
+                finally { observation.Dispose(); }
+                Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
+                var command = Assert.Single(observation.Snapshot().Commands, item => item.Sql.Contains(" FROM `" + names[0] + "` ", StringComparison.Ordinal));
+                Assert.DoesNotContain("COUNT(", command.Sql, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("metarill_cross_valid_", command.Sql);
+                Assert.Equal(currentRead, command.Sql.EndsWith(" FOR SHARE", StringComparison.Ordinal));
+                Assert.Equal(currentRead, command.Transaction is not null);
+            }
+        }
+
         /// <summary>原字符串父键的前导零仍可回读；损坏或越界父键只隐藏派生路径，不改写来源选择。</summary>
         async Task VerifyParentValues()
         {
@@ -100,7 +123,7 @@ public sealed class NonRedundantCrossTableReadMySqlTests
                 {
                     var values=selection.PackValidatedPath([]).ToDictionary();values["country_id"]=sourceType=="string"?node.ToString(CultureInfo.InvariantCulture):(object)node;
                     if(kind=="multiple")values["place_id"]=sourceType=="string"?node.ToString(CultureInfo.InvariantCulture):(object)node;else values["country_id"]=sourceType=="string"?"0"+node:(object)(-1L);
-                    Assert.Equal(1,await store.UpdateAsync(names[0],first,values));var filter=new[]{new FixedReadFilter("id",FixedReadComparison.Equal,first)};await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadPageAsync(plan,filter,[],1,10));await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadRowsAsync(plan,filter,[],10));await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadStatisticsAsync(plan,filter,["amount"]));throw new InvalidOperationException("故意回滚坏存储");
+                    Assert.Equal(1,await store.UpdateAsync(names[0],first,values));var filter=new[]{new FixedReadFilter("id",FixedReadComparison.Equal,first)};var pageError=await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadPageAsync(plan,filter,[],1,10));var keyError=await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadKeyRowsAsync(plan,[],[first]));Assert.Equal(pageError.Message,keyError.Message);await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadRowsAsync(plan,filter,[],10));await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadStatisticsAsync(plan,filter,["amount"]));throw new InvalidOperationException("故意回滚坏存储");
                 }));Assert.Equal("故意回滚坏存储",marker.Message);Assert.Equal(rowsHash,await RowsHash());
             }
         }

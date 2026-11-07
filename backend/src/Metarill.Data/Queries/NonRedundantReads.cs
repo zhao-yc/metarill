@@ -77,6 +77,12 @@ public sealed class NonRedundantReader(DatabaseSession session)
     private readonly MySqlNonRedundantReader mysql=new(session);
     /// <summary>复用适配层完整范围和参数绑定，不扩展页面输出权限。</summary>
     public Task<FixedReadPage> PageAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken token=default,bool unpaged=false,string? projectId=null,FixedConditionSqlPlan? condition=null,bool currentRead=false)=>mysql.ReadPageAsync(plan.MySql,filters,order,page,pageSize,token,unpaged,projectId,condition,currentRead);
+    /// <summary>按固定主键集合回读，保留原范围、跨表校验与当前读事务约束。</summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> KeyRowsAsync(NonRedundantReadPlan plan,
+        IReadOnlyList<FixedReadFilter> filters, IReadOnlyList<long> keys, CancellationToken token=default,
+        string? projectId=null, FixedConditionSqlPlan? condition=null, bool currentRead=false)
+        => mysql.ReadKeyRowsAsync(plan.MySql, filters, keys, token, projectId, condition, currentRead);
+
     /// <summary>有界导出按固定顺序读取原列投影，不发出不需要的COUNT。</summary>
     public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> RowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadRowsAsync(plan.MySql,filters,order,limit,token,projectId,condition);
     /// <summary>写校验沿真实事务锁定固定投影及联接名称，不执行COUNT；旧RowsAsync合同保持。</summary>
