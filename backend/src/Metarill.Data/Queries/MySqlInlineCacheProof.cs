@@ -10,7 +10,8 @@ internal static class MySqlInlineCacheProof
     internal static async Task<bool> VerifyAsync(DatabaseSession session, MySqlConnection connection, DbTransaction transaction,
         string source, string field, string parent, string parentField, CancellationToken token)
     {
-        if (source == parent || !connection.ServerVersion.StartsWith("8.4.", StringComparison.Ordinal))
+        if (source == parent || !connection.ServerVersion.StartsWith("8.4.", StringComparison.Ordinal) ||
+            session.IsInlineCacheTriggerGrantMissing(source))
             return false;
 
         string instance, account;
@@ -47,13 +48,15 @@ internal static class MySqlInlineCacheProof
                     SELECT PRIVILEGE_TYPE, NULL
                     FROM information_schema.SCHEMA_PRIVILEGES
                     WHERE TABLE_SCHEMA=@database AND BINARY TABLE_SCHEMA=BINARY @database AND BINARY GRANTEE=BINARY @grantee
+                ), trigger_grant AS (
+                    SELECT EXISTS (SELECT 1 FROM direct_grants WHERE PRIVILEGE_TYPE='TRIGGER'
+                                   AND (TABLE_NAME IS NULL OR TABLE_NAME=@source AND BINARY TABLE_NAME=BINARY @source)) AS allowed
                 )
-                SELECT CAST(
-                    BINARY DATABASE()=BINARY @database AND @@server_uuid=@instance
-                    AND BINARY CURRENT_USER()=BINARY @account AND CURRENT_ROLE()='NONE'
-                    AND EXISTS (SELECT 1 FROM direct_grants WHERE PRIVILEGE_TYPE='TRIGGER'
-                                AND (TABLE_NAME IS NULL OR TABLE_NAME=@source AND BINARY TABLE_NAME=BINARY @source))
-                    AND EXISTS (SELECT 1 FROM direct_grants WHERE PRIVILEGE_TYPE='SELECT'
+                SELECT CAST(CASE
+                    WHEN NOT (BINARY DATABASE()<=>BINARY @database AND @@server_uuid=@instance
+                              AND BINARY CURRENT_USER()=BINARY @account AND CURRENT_ROLE()='NONE') THEN 0
+                    WHEN NOT allowed THEN 2
+                    WHEN EXISTS (SELECT 1 FROM direct_grants WHERE PRIVILEGE_TYPE='SELECT'
                                 AND (TABLE_NAME IS NULL OR TABLE_NAME=@source AND BINARY TABLE_NAME=BINARY @source))
                     AND EXISTS (SELECT 1 FROM direct_grants WHERE PRIVILEGE_TYPE='SELECT'
                                 AND (TABLE_NAME IS NULL OR BINARY TABLE_NAME=BINARY @parent))
@@ -84,7 +87,9 @@ internal static class MySqlInlineCacheProof
                           AND BINARY s.COLUMN_NAME=BINARY @field
                           AND s.IS_NULLABLE='YES' AND s.DATA_TYPE='varchar' AND p.DATA_TYPE='varchar'
                           AND s.CHARACTER_SET_NAME='utf8mb4' AND s.COLLATION_NAME=p.COLLATION_NAME
-                    ) AS SIGNED)
+                    ) THEN 1
+                    ELSE 0
+                    END AS SIGNED) FROM trigger_grant
                 """;
             command.Parameters.AddWithValue("@grantee", $"'{parts[0]}'@'{parts[1]}'");
             command.Parameters.AddWithValue("@database", session.Options.ExpectedDatabase);
@@ -94,7 +99,11 @@ internal static class MySqlInlineCacheProof
             command.Parameters.AddWithValue("@field", field);
             command.Parameters.AddWithValue("@parent", parent);
             command.Parameters.AddWithValue("@parentField", parentField);
-            return await command.ExecuteScalarAsync(token) is long result && result == 1;
+            var result = await command.ExecuteScalarAsync(token);
+            // 只有同库、同实例、同有效身份明确缺少直接授权才记入短期缓存。
+            if (result is 2L)
+                session.RememberMissingInlineCacheTriggerGrant(source);
+            return result is 1L;
         }
         catch (MySqlException) when (!token.IsCancellationRequested)
         {

@@ -1,6 +1,7 @@
 using FreeSql;
 using Metarill.Data.Queries;
 using MySqlConnector;
+using System.Collections.Concurrent;
 using System.Data.Common;
 
 namespace Metarill.Data;
@@ -18,6 +19,7 @@ public sealed class DatabaseSession : IDisposable
         public string? PackedAppendVariablePrefix { get; set; }
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
+    private readonly ConcurrentDictionary<string, long> _missingInlineTriggerGrants = new(StringComparer.Ordinal);
     private readonly bool _ownsOrm;
     private readonly Lock _resourceGate = new();
     private IFreeSql? _orm;
@@ -55,6 +57,14 @@ public sealed class DatabaseSession : IDisposable
             return _sharedAppendProofSource.CreateConnection();
         }
     }
+
+    /// <summary>短期跳过已确认缺少直接权限的表。缓存只会选择原两阶段写入。</summary>
+    internal bool IsInlineCacheTriggerGrantMissing(string table) =>
+        _missingInlineTriggerGrants.TryGetValue(table, out var expires) && Environment.TickCount64 < expires;
+
+    /// <summary>只记明确缺少的权限，授权变更最多等待半分钟后重新探测。</summary>
+    internal void RememberMissingInlineCacheTriggerGrant(string table) =>
+        _missingInlineTriggerGrants[table] = Environment.TickCount64 + 30_000;
 
     /// <summary>只在实际持有元数据锁的会话事务内复用同一发布计划的结构证明。</summary>
     internal Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts(DbTransaction transaction)
