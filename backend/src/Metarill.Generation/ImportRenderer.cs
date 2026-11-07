@@ -83,7 +83,7 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine($"                if (!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null) throw new ArgumentException(\"覆盖匹配字段不能为空。\");")
                 .AppendLine($"                var key = matchValue.Deserialize<{first.BoundaryType}>(JsonOptions);");
             if(logicalMatch is not null)result.Append(NonRedundantImportMatchRenderer.Match(model,table,page,logicalMatch));
-            else result.AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync(cancellationToken);")
+            else result.AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync({OverwriteMatchProjection(table,page,dependency)}, cancellationToken);")
                 .AppendLine("                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
             if(contextual)
             {
@@ -244,6 +244,16 @@ public sealed partial class {{page.Name}}ImportRequest
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))result.Append(MultiSelectExcelRenderer.Import(model,table,page,multi,dependency));
         return result.ToString();
     }
+    /// <summary>匹配锁定读只取主键和省略输入需要的旧上下文。标准更新再读取完整实体。</summary>
+    private static string OverwriteMatchProjection(TableModel table, PageModel page, ImportDependencyPlan dependency)
+    {
+        var columns = table.Columns.Where(column => column.IsId)
+            .Concat(dependency.ContextValues.Where(column => column.Source.ColumnName != "yz_project_id"
+                && !page.Scopes.Any(scope => scope.Source == "parent" && scope.Column.Source.Id == column.Source.Id)))
+            .DistinctBy(column => column.Source.Id);
+        return $"entity => new {table.EntityType} {{ {string.Join(", ", columns.Select(column => $"{column.Property} = entity.{column.Property}"))} }}";
+    }
+
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>
     private static string RelationResolver(GenerationModel model,RelationModel relation, PageModel page, ImportDependencyPlan dependency)
     {
@@ -276,7 +286,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("            query = query.Where(entity => entity.Id == id);").AppendLine("        }")
             .AppendLine("        else").AppendLine("        {").AppendLine("            var name = cell.ToString().Trim();")
             .AppendLine($"            query = query.Where(entity => entity.{relation.NameColumn.Property} == name);").AppendLine("        }")
-            .AppendLine(bound ? "        var candidates = await query.Limit(2).ToListAsync(entity => new { entity.Id }, cancellationToken);" : "        var candidates = await query.Limit(2).ToListAsync(cancellationToken);")
+            .AppendLine("        var candidates = await query.Limit(2).ToListAsync(entity => new { entity.Id }, cancellationToken);")
             .AppendLine("        if (candidates.Count != 1) throw PageImportException.Input(PageImportError.Relation);")
             .AppendLine("        return JsonSerializer.SerializeToElement(candidates[0].Id.ToString(CultureInfo.InvariantCulture));").AppendLine("    }");
         return result.ToString();

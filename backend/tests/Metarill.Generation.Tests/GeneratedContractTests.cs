@@ -29,7 +29,10 @@ public sealed class GeneratedContractTests
             catalog.ConfigColumns.Add(new() { Id = "19", ConfigTableId = "1", ColumnName = "fee", LogicalType = "decimal", ControlKind = "ConstList", ControlDetail = "一个单位|1.00,同值重复|1" });
             catalog.ConfigColumns.Add(new() { Id = "20", ConfigTableId = "1", ColumnName = "rank", LogicalType = "int64", ControlKind = "ConstList", ControlDetail = "大整数|9007199254740993" });
             foreach (var id in new[] { "18", "19", "20" }) catalog.ConfigPageColumns.Add(new() { Id = "1" + id, ConfigPageId = "101", ConfigColumnId = id, IsEdit = 1, IsShow = 1 });
-            new CSharpGenerator().Generate(catalog, Path.Combine(root, "generated"), "Example.Contract");
+            var generated = Path.Combine(root, "generated");
+            new CSharpGenerator().Generate(catalog, generated, "Example.Contract");
+            var service = await File.ReadAllTextAsync(Path.Combine(generated, "Services/CustomerService.g.cs"));
+            Assert.Contains(".ForUpdate().Limit(2).ToListAsync(entity => new global::Example.Contract.Generated.Entities.Customer { Id = entity.Id }, cancellationToken)", service);
             var repository = FindRepository();
             var dataProject = Environment.GetEnvironmentVariable("METARILL_DATA_PROJECT") ?? Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj");
             if (!File.Exists(dataProject)) throw new InvalidOperationException("真实 Metarill.Data 项目尚未集成，不能用替身冒充生成产物编译验收。");

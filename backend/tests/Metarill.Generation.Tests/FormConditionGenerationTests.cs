@@ -15,7 +15,16 @@ public sealed class FormConditionGenerationTests
         var plan=ImportDependencyCompilation.ForPage(model,table,page);Assert.Equal(new[]{"25","27","28"},plan.MatchFields.Order());
         var order=plan.Order.Select(column=>column.Source.Id).ToList();Assert.True(order.IndexOf("27")<order.IndexOf("25"));Assert.True(order.IndexOf("28")<order.IndexOf("25"));
         var directory=Path.Combine(Path.GetTempPath(),"metarill-form-plan",Guid.NewGuid().ToString("N"));
-        try{new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.NotNull(assembly.GetType("Example.FormPlan.Generated.Services.RelationSourceService",true));}
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,model.Namespace);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationSourceService.g.cs"));
+            Assert.Contains(".ForUpdate().Limit(2).ToListAsync(entity => new global::Example.FormPlan.Generated.Entities.RelationSource { Id = entity.Id, Allowed = entity.Allowed, Minimum = entity.Minimum }, cancellationToken)",service);
+            Assert.Contains("var candidates = await query.Limit(2).ToListAsync(entity => new { entity.Id }, cancellationToken);",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            Assert.NotNull(assembly.GetType("Example.FormPlan.Generated.Services.RelationSourceService",true));
+        }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,Path.Combine(Path.GetTempPath(),"metarill-form-plan"));}
     }
     /// <summary>联动字段本身是另一个关系时，循环必须在原子批次写盘前拒绝。</summary>

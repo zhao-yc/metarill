@@ -32,7 +32,7 @@ internal static class NonRedundantImportMatchRenderer
         (plan.Context.Count==0?"":"    /// <summary>解析只读逻辑上下文，不调用手写Entity构造函数，也不补交省略字段。</summary>\n"+
         $"    private sealed record ImportExistingContext{page.Source.Id}("+string.Join(",",plan.Context.Select(column=>$"{column.Type} {column.Property}"))+");\n"+
         $"    private static ImportExistingContext{page.Source.Id} ImportContext{page.Source.Id}(IReadOnlyDictionary<string,object?> row)=>new("+string.Join(",",plan.Context.Select(column=>$"NonRedundantReads.Value<{column.Type}>(row,{L(column.Source.ColumnName)})"))+");\n");
-    /// <summary>最多两条当前读负责歧义判断，再按主键取得原物理实体供标准更新事务使用。</summary>
+    /// <summary>逻辑当前读负责歧义判断，再按主键锁定并核验物理范围。标准更新负责完整读写。</summary>
     internal static string Match(GenerationModel model,TableModel table,PageModel page,NonRedundantImportMatchPlan plan)=>$$"""
                 var importFilters=ReadFilters{{page.Source.Id}}(new PageRequest{ParentId=request.ParentId},actor{{ExactDataManageCompilation.Argument(page,"\"import\"")}});
                 importFilters.Add(new({{L(plan.Key.Source.ColumnName)}},FixedReadComparison.Equal,key));
@@ -41,7 +41,7 @@ internal static class NonRedundantImportMatchRenderer
                 var existing=new List<{{table.EntityType}}>();
                 if(importMatches.Count==1){
                     var matchedId=NonRedundantReads.Value<long>(importMatches[0],"id");
-                    var stored=await Scope{{page.Source.Id}}(actor,request.ParentId{{ExactDataManageCompilation.Argument(page,"\"import\"")}}{{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}}).Where(entity=>entity.Id==matchedId).ForUpdate().ToOneAsync(cancellationToken);
+                    var stored=await Scope{{page.Source.Id}}(actor,request.ParentId{{ExactDataManageCompilation.Argument(page,"\"import\"")}}{{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}}).Where(entity=>entity.Id==matchedId).ForUpdate().ToOneAsync(entity => new {{table.EntityType}} { Id = entity.Id }, cancellationToken);
                     if(stored is null)throw new InvalidOperationException("覆盖匹配记录已发生变化，请重新导入。");
                     existing.Add(stored);
                 }

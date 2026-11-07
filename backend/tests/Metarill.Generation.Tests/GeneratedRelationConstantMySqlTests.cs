@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Metarill.Core.Exports;
 using Metarill.Runtime.Exports;
@@ -117,6 +119,8 @@ public partial class {{Pascal(prefix+"_source")}}Service
                 {await context.Response.WriteAsJsonAsync(R<string>.Error("固定条件验收拒绝"));}
             });app.MapControllers();await app.StartAsync();
             using var client=new HttpClient{BaseAddress=new Uri("http://127.0.0.1:"+port),Timeout=TimeSpan.FromSeconds(20)};
+            var commands = new ConcurrentQueue<string>();
+            session.Orm.Aop.CommandBefore += (_, args) => commands.Enqueue(args.Command.CommandText);
             var endpoint="/api/admin/auto/"+prefix+"_source/201";var candidate=endpoint+"/findNameIdTarget25";
             var legacy=Data(await Send(candidate,new{parentId=Parent.ToString(),formParameters=new{current_yz_project_id=(Project+1).ToString(),sql="1=1"}})).EnumerateArray().ToArray();
             Assert.Equal(new[]{First.ToString(),(First+1).ToString()},legacy.Select(Id).Order());
@@ -140,7 +144,9 @@ public partial class {{Pascal(prefix+"_source")}}Service
             Assert.Equal("保存合法",Data(await Get(endpoint+"/detail/"+id+"?parentId="+Parent)).GetProperty("name").GetString());
             Assert.Equal(500,(await Send(endpoint+"/copy/"+(First+9000)+"?parentId="+Parent,new{})).GetProperty("code").GetInt32());Assert.Equal(before+1,await Count());
             Data(await Send(endpoint+"/copy/"+id+"?parentId="+Parent,new{}));Assert.Equal(before+2,await Count());
+            commands.Clear();
             var accepted=await Send(endpoint+"/importDatas201",new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","导入合法"},{"目标","允许乙"}}}});Assert.Equal(200,accepted.GetProperty("code").GetInt32());
+            AssertImportProjection(commands, prefix + "_target", false, "id");
             var imported=await Count();Assert.Equal(before+3,imported);
             var rejected=await Send(endpoint+"/importDatas201",new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","应整批回滚"},{"目标","允许甲"}},new Dictionary<string,object?>{{"记录名","后行拒绝"},{"目标","允许排除"}}}});Assert.Equal(500,rejected.GetProperty("code").GetInt32());Assert.Equal(imported,await Count());
             var independentPage="/api/admin/auto/"+prefix+"_source/202";
@@ -182,7 +188,9 @@ public partial class {{Pascal(prefix+"_source")}}Service
                 Assert.Equal(200,(await Send(formPage+"/importDatas203",new{parentId=Parent.ToString(),requestJson=shuffled})).GetProperty("code").GetInt32());
                 var importCount=await Count();Assert.Equal(500,(await Send(formPage+"/importDatas203",new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","首行需回滚"},{"目标","允许甲"},{"分类","A AND B, C"}},new Dictionary<string,object?>{{"目标","允许排除"},{"分类","A AND B, C"},{"记录名","后行越界"}}}})).GetProperty("code").GetInt32());Assert.Equal(importCount,await Count());
                 var overwrite="/api/admin/auto/"+prefix+"_source/204/importDatas204";
+                commands.Clear();
                 Assert.Equal(200,(await Send(overwrite,new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","联动甲"},{"目标","允许乙"}}}})).GetProperty("code").GetInt32());
+                AssertImportProjection(commands, prefix + "_source", true, "id", "allowed", "minimum");
                 Assert.Equal(500,(await Send(overwrite,new{parentId=Parent.ToString(),requestJson=new[]{new Dictionary<string,object?>{{"记录名","联动甲"},{"分类","别的分类"}}}})).GetProperty("code").GetInt32());
                 Data(await Send(formPage+"/copy/"+mainId+"?parentId="+Parent,new{}));
                 // 已存在的不同联动上下文共享同一FK，导出不能借用另一组的名称缓存。
@@ -245,6 +253,20 @@ public partial class {{Pascal(prefix+"_source")}}Service
             }
             if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);
         }
+    }
+
+    /// <summary>仅检查用于判断重名的实际 SELECT，标准更新的整行锁读不参与投影断言。</summary>
+    private static void AssertImportProjection(IEnumerable<string> commands, string table, bool locked, params string[] columns)
+    {
+        var sql = Assert.Single(commands, text => text.TrimStart().StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+            && text.Contains((char)96 + table + (char)96, StringComparison.Ordinal)
+            && Regex.IsMatch(text, @"\bLIMIT\s+(?:0\s*,\s*)?2\b", RegexOptions.IgnoreCase)
+            && text.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase) == locked);
+        var from = sql.IndexOf("FROM", StringComparison.OrdinalIgnoreCase);
+        Assert.True(from > 0);
+        var projected = Regex.Matches(sql[..from], @"`([a-z_]+)`", RegexOptions.IgnoreCase)
+            .Select(match => match.Groups[1].Value);
+        Assert.Equal(columns.Order(), projected.Order());
     }
 
     /// <summary>在真实业务事务中制造旧一致性快照，再由独立连接改当前值，不使用全局观测权限。</summary>
