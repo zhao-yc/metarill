@@ -80,6 +80,7 @@ dotnet backend/src/Metarill.Api/bin/Release/net10.0/Metarill.Api.dll
 - [平台只读CLI与数据库目录](docs/schema-inspection.md)
 - [数据库反向逻辑草案与确认保存](docs/schema-import-draft.md)
 - [Web 反向代理的客户端地址配置](docs/web-reverse-proxy.md)
+- [MySQL 严格 TLS 配置](docs/mysql-connection-tls.md)
 - [来源与脱敏基线](docs/source-baseline.md)
 - [前端许可清单](frontend/metarill_uni_admin/THIRD-PARTY-NOTICES.md)
 - [Agent CLI](tools/metarill-agent-cli/README.md)
