@@ -21,7 +21,8 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
     }
 
     /// <summary>只接受默认 ORM 生成的固定表与一一对应的 VALUES 参数，其他形态回到原 Mapper。</summary>
-    internal static MySqlInsertCacheBatch? Prepare<T>(DatabaseSession session,string table,long id,T entity,string? parameterPrefix=null,(string Column,long Id)? parentKey=null) where T:class
+    internal static MySqlInsertCacheBatch? Prepare<T>(DatabaseSession session,string table,long id,T entity,string? parameterPrefix=null,(string Column,long Id)? parentKey=null,
+        (string Field,string ValueVariable,bool RequireActive)? inlineCache=null) where T:class
     {
         if (!UsesPlainOrm(session)) return null;
         if(session.Insert<T>().AppendData(entity) is not InsertProvider<T> insert)
@@ -42,6 +43,8 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
         long budget=0;
         var exactId=false;
         var exactParent=parentKey is null;
+        var cacheIndex=-1;
+        var active=inlineCache?.RequireActive!=true;
         for(var index=0;index<columns.Length;index++)
         {
             var column=columns[index];
@@ -51,6 +54,12 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
                 parameters[index] is not MySqlParameter parameter||parameter.ParameterName!=name)
                 return null;
             if(column=="`id`")exactId=parameter.Value is long key&&key==id;
+            if(inlineCache is {} cache)
+            {
+                // 只替换原 Mapper 已显式写入的空缓存，软删除来源还须证明本行是活动行。
+                if(column=="`"+cache.Field+"`"&&parameter.Value is null or DBNull)cacheIndex=index;
+                if(column=="`delete_no`"&&parameter.Value is null or DBNull)active=true;
+            }
             if(parentKey is {} parent&&column=="`"+parent.Column+"`")
                 exactParent=parameter.Value is long parentId&&parentId==parent.Id ||
                     parameter.Value is string parentText&&parentText==parent.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -58,7 +67,7 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
             if(bytes<0)return null;
             budget+=bytes;
         }
-        if(!exactId||!exactParent)return null;
+        if(!exactId||!exactParent||!active||inlineCache.HasValue&&cacheIndex<0)return null;
         // 多行命令各用独立参数名，保留原 MySqlParameter 的类型、值与绑定顺序。
         if(parameterPrefix is not null)
         {
@@ -67,6 +76,11 @@ internal sealed record MySqlInsertCacheBatch(string Sql,DbParameter[] Parameters
                 placeholders[index]="@"+parameterPrefix+placeholders[index][1..];
                 parameters[index].ParameterName=placeholders[index];
             }
+        }
+        if(inlineCache is {} binding)
+        {
+            placeholders[cacheIndex]=binding.ValueVariable;
+            parameters=parameters.Where((_,index)=>index!=cacheIndex).ToArray();
         }
         var database=session.Provider.QuoteIdentifier(session.Options.ExpectedDatabase);
         return new("INSERT INTO "+database+"."+quotedTable+"("+string.Join(", ",columns)+") SELECT "+

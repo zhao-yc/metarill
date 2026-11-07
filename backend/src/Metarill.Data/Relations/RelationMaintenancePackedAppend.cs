@@ -41,6 +41,12 @@ public sealed partial class RelationMaintenanceExecutor
             output != target.Alias + "." + Q(origin.Column))
             return false;
 
+        var value = $"(SELECT {output} FROM {database}.{Q(target.Table)} {target.Alias} WHERE {target.Predicate} FOR SHARE OF {target.Alias})";
+        // 无法证明插入和更新等价时，保留下面原有的逐行缓存更新。
+        if (await TryInsertInlinePackedScalarAsync(table, rows, transaction, parent, packetLimit,
+            field, origin.Column, plan, target, parentExpression, token))
+            return true;
+
         await using var command = Command(transaction);
         Add(command, "expected_database", session.Options.ExpectedDatabase);
         foreach (var parameter in parent.Parameters)
@@ -67,7 +73,6 @@ public sealed partial class RelationMaintenanceExecutor
 
         var source = database + "." + Q(table.Option.TableName);
         var cached = "b." + Q(field);
-        var value = $"(SELECT {output} FROM {database}.{Q(target.Table)} {target.Alias} WHERE {target.Predicate} FOR SHARE OF {target.Alias})";
         for (var index = 0; index < rows.Count; index++)
         {
             var row = rows[index];

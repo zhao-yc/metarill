@@ -81,6 +81,23 @@ public sealed class MySqlInsertCacheBatchTests
         Assert.False(RelationMaintenanceExecutor.FitsPackedCommand(command, exactBudget - 1, insertBudget, repeated));
     }
 
+    [Fact]
+    public void Inline_cache_replaces_only_the_explicit_null_binding()
+    {
+        using var session = CreateSession();
+        var row = new CacheSource { Id = 9007199254740993, ParentId = "11" };
+        var batch = Assert.IsType<MySqlInsertCacheBatch>(MySqlInsertCacheBatch.Prepare(session, "cache_source",
+            row.Id, row, "mi0_", ("parent_id", 11), ("caption", "@inline_expected", false)));
+
+        Assert.Contains("@inline_expected", batch.Sql);
+        Assert.Equal(new object?[] { row.Id, row.ParentId }, batch.Parameters.Select(parameter => parameter.Value));
+        Assert.Null(MySqlInsertCacheBatch.Prepare(session, "cache_source",
+            row.Id, row, "mi0_", ("parent_id", 11), ("caption", "@inline_expected", true)));
+        row.Caption = "";
+        Assert.Null(MySqlInsertCacheBatch.Prepare(session, "cache_source",
+            row.Id, row, "mi0_", ("parent_id", 11), ("caption", "@inline_expected", false)));
+    }
+
     private static DatabaseSession CreateSession() => new(new()
     {
         ExpectedDatabase = "offline",
