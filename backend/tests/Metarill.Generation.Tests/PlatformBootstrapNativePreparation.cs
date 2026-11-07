@@ -12,6 +12,7 @@ internal sealed record PlatformBootstrapNativePreparation(string HostRoot, Dicti
     public bool SharePlatformDatabase { get; init; }
     // 授权和业务夹具只能由冻结的独占空库执行方案显式启用。
     public bool VerifyPublishedBusinessPermissions { get; init; }
+    public PlatformBootstrapSplitBusinessHost? SplitBusinessHost { get; init; }
     internal string AssemblyPath => Path.Combine(HostRoot, "Metarill.Api.dll");
 
     /// <summary>只有明确选择本轮正式配置才启用固定宿主，验证先于数据库连接和子进程。</summary>
@@ -45,6 +46,18 @@ internal sealed record PlatformBootstrapNativePreparation(string HostRoot, Dicti
         if (!actual.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(Files.Keys) || Files.Any(file => !actual.TryGetValue(file.Key, out var digest) || digest != file.Value)) throw new InvalidOperationException("平台生产宿主完整集合或字节发生漂移。");
         foreach (var required in new[] { "Metarill.Api.dll", "Metarill.Api.deps.json", "Metarill.Api.runtimeconfig.json" })
             if (!Files.ContainsKey(required)) throw new InvalidOperationException("平台生产宿主缺少正式入口或依赖说明。");
+        if (SplitBusinessHost is { } standalone)
+        {
+            if (SharePlatformDatabase || !VerifyPublishedBusinessPermissions || !Path.IsPathFullyQualified(standalone.HostRoot) ||
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(standalone.HostRoot)) != standalone.HostRoot)
+                throw new InvalidOperationException("独立业务宿主只用于固定分库验收。");
+            var businessFiles = CaptureHost(standalone.HostRoot);
+            if (!businessFiles.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(standalone.Files.Keys) ||
+                standalone.Files.Any(file => !businessFiles.TryGetValue(file.Key, out var digest) || digest != file.Value))
+                throw new InvalidOperationException("独立业务宿主文件发生漂移。");
+            foreach (var required in new[] { "Application.Host.dll", "Application.Host.deps.json", "Application.Host.runtimeconfig.json", "metadata/project.json" })
+                if (!businessFiles.ContainsKey(required)) throw new InvalidOperationException("独立业务宿主缺少发布入口或项目元数据。");
+        }
         var metadata = new[] { "platform", "demo", "files", "security" }.ToDictionary(name => "backend/metadata/" + name + ".json", name => Hash(CSharpGenerator.SafePath(sourceRoot, "backend/metadata/" + name + ".json")), StringComparer.Ordinal);
         if (!metadata.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(MetadataFiles.Keys) || metadata.Any(file => !MetadataFiles.TryGetValue(file.Key, out var digest) || digest != file.Value)) throw new InvalidOperationException("平台正式验收元数据发生漂移。");
     }
@@ -68,3 +81,5 @@ internal sealed record PlatformBootstrapNativePreparation(string HostRoot, Dicti
     /// <summary>仅记录摘要，不回显源码或配置秘密。</summary>
     private static string Hash(string path) => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
 }
+
+internal sealed record PlatformBootstrapSplitBusinessHost(string HostRoot, Dictionary<string, string> Files);

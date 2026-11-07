@@ -1,6 +1,10 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Metarill.Core.Metadata;
+using Metarill.Data;
 using Metarill.Runtime.Persistence;
 using Metarill.Runtime.Security;
 using Xunit;
@@ -9,9 +13,35 @@ namespace Metarill.Generation.Tests;
 
 public sealed partial class FreshInstallMySqlTests
 {
+    /// <summary>正式生成宿主只读目标业务库配置，普通启动不执行安装或安全初始化命令。</summary>
+    private static async Task<FreshHost> StartSplitBusinessHostAsync(PlatformBootstrapSplitBusinessHost frozen, DatabaseOptions options,
+        string redis, string evidence, MetadataCatalog expected)
+    {
+        var metadata = await CatalogAsync(Path.Combine(frozen.HostRoot, "metadata/project.json"));
+        Assert.Equal(expected.YzProjectId, metadata.YzProjectId);
+        Assert.Equal(expected.YzAdminTypes.Single().Id, metadata.YzAdminTypes.Single().Id);
+        var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+        {
+            WorkingDirectory = frozen.HostRoot, CreateNoWindow = true, UseShellExecute = false,
+            RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        info.ArgumentList.Add(Path.Combine(frozen.HostRoot, "Application.Host.dll"));
+        info.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+        info.Environment["DOTNET_ENVIRONMENT"] = "Production";
+        info.Environment["Database__Provider"] = options.Provider;
+        info.Environment["Database__ExpectedDatabase"] = options.ExpectedDatabase;
+        info.Environment["Database__ConnectionString"] = options.ConnectionString;
+        info.Environment["Authentication__Mode"] = "Web";
+        info.Environment["Authentication__LoginFailures__ConnectionString"] = redis;
+        info.Environment["Ids__WorkerId"] = "855";
+        info.Environment["Files__RootDirectory"] = Path.Combine(evidence, "split-business-files");
+        info.Environment["Exports__RootDirectory"] = Path.Combine(evidence, "split-business-exports");
+        info.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"] = evidence;
+        return await FreshHost.StartAsync(info, "/health");
+    }
     /// <summary>通过原两个 HTTP 入口重置本轮独占后台账号，并核对实际写入位置及旧会话。</summary>
     private static async Task VerifyAdminInitializationAsync(HttpClient owner, SqlRowStore platform, SqlRowStore target,
-        string projectId, string adminTypeId, string platformAdminTypeId, bool sharedDatabase)
+        string projectId, string adminTypeId, string platformAdminTypeId, bool sharedDatabase, Uri? splitBusinessAddress)
     {
         const string central = "/api/admin/sys/config_button/execute", direct = "/api/admin/custom/index/init_admin";
         const string permissions = "/api/admin/sys/yz_manager/getCurrentPermissions", login = "/api/admin/sys/yz_manager/login";
@@ -58,7 +88,6 @@ public sealed partial class FreshInstallMySqlTests
         }
         Assert.Equal(1L, await ScalarAsync(target.Session, $"SELECT COUNT(*) FROM sys_session WHERE account_id={accountId} AND delete_no IS NULL"));
 
-        var blockedSessionIdForRace = SqlRowStore.Id(Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId })));
         // 工作台项目选择仅由原 sysParams 传入。未切换与切换后指向平台后台都应拒绝。
         await DeniedAsync(owner, HttpMethod.Post, direct, new { id = adminTypeId });
         owner.DefaultRequestHeaders.Add("sysParams", Uri.EscapeDataString(JsonSerializer.Serialize(new { yzProjectId = projectId })));
@@ -99,7 +128,7 @@ public sealed partial class FreshInstallMySqlTests
             finally { await ExecuteSessionConstraintAsync($"DROP CHECK {lateConstraint}"); }
 
             var first = sharedDatabase
-                ? await RunLoginRaceAsync(true, central, initialization, oldPassword)
+                ? await RunLoginRaceAsync(true, central, initialization, oldPassword, owner.BaseAddress!, blockedSessionId)
                 : await FreshWebHttp.SendAsync(owner, HttpMethod.Post, central, initialization);
             Assert.Equal(JsonValueKind.Null, first.GetProperty("data").ValueKind);
             var initializedRole = await AssertResetAsync();
@@ -121,7 +150,7 @@ public sealed partial class FreshInstallMySqlTests
             }
 
             var repeated = sharedDatabase
-                ? await RunLoginRaceAsync(false, direct, new { id = adminTypeId }, savedPassword)
+                ? await RunLoginRaceAsync(false, direct, new { id = adminTypeId }, savedPassword, owner.BaseAddress!)
                 : await FreshWebHttp.SendAsync(owner, HttpMethod.Post, direct, new { id = adminTypeId });
             Assert.Equal(JsonValueKind.Null, repeated.GetProperty("data").ValueKind);
             Assert.Equal(initializedRole, await AssertResetAsync());
@@ -134,6 +163,34 @@ public sealed partial class FreshInstallMySqlTests
                 Assert.Null(targetAdmin.GetValueOrDefault("user_name"));
                 Assert.Null(targetAdmin.GetValueOrDefault("password"));
                 Assert.Empty(await platform.ReadAsync("yz_manager", new Dictionary<string, object?> { ["name"] = username }));
+                if (splitBusinessAddress is not null)
+                {
+                    using var standalone = new HttpClient { BaseAddress = splitBusinessAddress };
+                    var previousPassword = savedPassword;
+                    var token = await FreshWebHttp.LoginAsync(standalone, username, previousPassword, form: true);
+                    var standalonePermissions = (await FreshWebHttp.SendAsync(standalone, HttpMethod.Get, permissions)).GetProperty("data");
+                    Assert.True(standalonePermissions.GetProperty("isSuper").GetBoolean());
+                    var navigation = await FreshWebHttp.SendAsync(standalone, HttpMethod.Get, "/api/admin/sys/yz_manager/getMenu");
+                    Assert.NotEmpty(navigation.GetProperty("menu").EnumerateArray());
+                    using var platformTokenProbe = new HttpClient { BaseAddress = owner.BaseAddress };
+                    platformTokenProbe.DefaultRequestHeaders.Add("loginStateId", token);
+                    await RequireRevokedSessionAsync(platformTokenProbe);
+
+                    // 第二次口令轮换使用真正由独立应用签发的业务库会话，而非前面的合成会话。
+                    var active = Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId }));
+                    savedPassword = Guid.NewGuid().ToString("N");
+                    Assert.Equal(1, await platform.UpdateAsync("yz_admin_type", admin, new Dictionary<string, object?> { ["password"] = savedPassword }));
+                    await RunLoginRaceAsync(true, central, initialization, previousPassword, splitBusinessAddress, SqlRowStore.Id(active));
+                    await RequireRevokedSessionAsync(standalone);
+                    Assert.Equal(initializedRole, await AssertResetAsync());
+
+                    standalone.DefaultRequestHeaders.Remove("loginStateId");
+                    await FreshWebHttp.LoginAsync(standalone, username, savedPassword, form: true);
+                    await RunLoginRaceAsync(false, direct, new { id = adminTypeId }, savedPassword, splitBusinessAddress);
+                    await RequireRevokedSessionAsync(standalone);
+                    Assert.Equal(initializedRole, await AssertResetAsync());
+                    Assert.Empty(await platform.ReadAsync("yz_manager", new Dictionary<string, object?> { ["name"] = username }));
+                }
             }
 
             // 其他后台和删除记录共享用户名唯一约束；冲突不能触碰已经重置的账号或角色。
@@ -153,7 +210,7 @@ public sealed partial class FreshInstallMySqlTests
         await FreshWebHttp.SendAsync(owner, HttpMethod.Get, permissions);
 
         // 第三连接控制确定的事务先后，只在内存识别本轮账号下的锁语句。
-        async Task<JsonElement> RunLoginRaceAsync(bool resetFirst, string resetRoute, object resetBody, string loginPassword)
+        async Task<JsonElement> RunLoginRaceAsync(bool resetFirst, string resetRoute, object resetBody, string loginPassword, Uri loginAddress, long? sessionToBlock = null)
         {
             await using var holder = target.Session.Provider.CreateConnection(target.Session.Options);
             await using var observer = target.Session.Provider.CreateConnection(target.Session.Options);
@@ -169,14 +226,16 @@ public sealed partial class FreshInstallMySqlTests
                     : "SELECT id FROM sys_session FORCE INDEX (PRIMARY) WHERE id>@id FOR UPDATE";
                 var parameter = command.CreateParameter();
                 parameter.ParameterName = "@id";
-                parameter.Value = resetFirst ? blockedSessionIdForRace : await ScalarAsync(target.Session, "SELECT MAX(id) FROM sys_session");
+                parameter.Value = resetFirst ? sessionToBlock!.Value : await ScalarAsync(target.Session, "SELECT MAX(id) FROM sys_session");
                 command.Parameters.Add(parameter);
                 var locked = await command.ExecuteScalarAsync();
-                if (resetFirst) Assert.Equal(blockedSessionIdForRace, locked);
+                if (resetFirst) Assert.Equal(sessionToBlock!.Value, locked);
                 else Assert.Null(locked);
             }
 
-            using var racingWeb = new HttpClient { BaseAddress = owner.BaseAddress };
+            // 独立宿主与分库初始化均先锁目标项目，共库平台登录直接锁账号。
+            var split = splitBusinessAddress is not null && loginAddress == splitBusinessAddress;
+            using var racingWeb = new HttpClient { BaseAddress = loginAddress };
             Task<JsonElement>? reset = null;
             Task? signingIn = null;
             try
@@ -186,14 +245,14 @@ public sealed partial class FreshInstallMySqlTests
                     reset = FreshWebHttp.SendAsync(owner, HttpMethod.Post, resetRoute, resetBody);
                     await ObserveAsync(reset, "FROM `sys_session`", "AND `account_id`=", "FOR UPDATE");
                     signingIn = RejectPasswordAsync(racingWeb, loginPassword);
-                    await ObserveAsync(signingIn, "FROM `yz_manager`", "AND `name`=", "FOR UPDATE");
+                    await ObserveAsync(signingIn, split ? "FROM `yz_project`" : "FROM `yz_manager`", split ? "AND `id`=" : "AND `name`=", "FOR UPDATE");
                 }
                 else
                 {
                     signingIn = FreshWebHttp.LoginAsync(racingWeb, username, loginPassword, form: true);
                     await ObserveAsync(signingIn, "INSERT INTO `sys_session`");
                     reset = FreshWebHttp.SendAsync(owner, HttpMethod.Post, resetRoute, resetBody);
-                    await ObserveAsync(reset, "FROM `yz_manager`", "WHERE `name`=", "FOR UPDATE");
+                    await ObserveAsync(reset, split ? "FROM `yz_project`" : "FROM `yz_manager`", split ? "WHERE `id`=" : "WHERE `name`=", "FOR UPDATE");
                 }
             }
             finally
@@ -203,7 +262,7 @@ public sealed partial class FreshInstallMySqlTests
             }
 
             if (!resetFirst)
-                await DeniedAsync(racingWeb, HttpMethod.Get, permissions, expectedMessage: "登录超时");
+                await RequireRevokedSessionAsync(racingWeb);
             return await reset!;
 
             async Task ObserveAsync(Task operation, params string[] fragments)
@@ -235,6 +294,14 @@ public sealed partial class FreshInstallMySqlTests
                 Assert.Fail("没有在同一数据库连接连续观察到本轮预期的登录或重置阻塞语句。");
             }
         }
+        // 独立应用沿用自身 401 回执，平台保留原 HTTP 200/R500 的登录超时回执。
+        async Task RequireRevokedSessionAsync(HttpClient client)
+        {
+            if (splitBusinessAddress is not null && client.BaseAddress == splitBusinessAddress)
+                await FreshWebHttp.SendAsync(client, HttpMethod.Get, permissions, expected: HttpStatusCode.Unauthorized);
+            else
+                await DeniedAsync(client, HttpMethod.Get, permissions, expectedMessage: "登录超时");
+        }
         // 旧密码拒绝沿用原表单和响应协议，且绝不能返回会话标识。
         async Task RejectPasswordAsync(HttpClient client, string password)
         {
@@ -242,10 +309,11 @@ public sealed partial class FreshInstallMySqlTests
             {
                 ["username"] = username, ["password"] = password, ["captchaVerification"] = ""
             }));
-            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            var standalone = splitBusinessAddress is not null && client.BaseAddress == splitBusinessAddress;
+            Assert.Equal(standalone ? HttpStatusCode.Unauthorized : HttpStatusCode.OK, response.StatusCode);
             var result = await response.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal(500, result.GetProperty("code").GetInt32());
-            Assert.Equal("用户名或者密码错误", result.GetProperty("msg").GetString());
+            Assert.Equal(standalone ? 401 : 500, result.GetProperty("code").GetInt32());
+            if (!standalone) Assert.Equal("用户名或者密码错误", result.GetProperty("msg").GetString());
             Assert.False(result.GetProperty("map").TryGetProperty("loginStateId", out _));
         }
 
