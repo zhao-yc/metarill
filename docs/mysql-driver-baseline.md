@@ -18,3 +18,7 @@ Directory.Packages.props现在显式固定MySqlConnector2.6.1，Metarill.Data.cs
 ## C39：当前服务器的真实TLS模式子集
 
 新增只读实连与证书对照，实际2.6.1在Required和指定公开CA的VerifyCA下使用TLS1.3；两个无CA严格模式及指定CA的VerifyFull按当前无域名SAN证书明确拒绝。五种模式均按预期完成，九项无网络门禁另验。没有修改服务器证书/TLS设置、系统信任库或应用连接配置，也没有DDL/DML。此结果仅补当前Windows客户端/Server-200的连接子集，匹配域名证书的VerifyFull正向部署、容器、双向TLS和中间人测试仍待；完整边界与复现见[只读TLS验证](testing/mysql-tls-readonly.md)。
+
+## V495：域名匹配与双向证书实连
+
+2026-11-07，Windows 客户端到 Server-200 独占 MySQL 8.4.11 容器的固定链已通过：指定 CA 的 VerifyFull、TLS1.2／1.3、双向证书、错误 CA／主机名、纯明文拒绝，以及平台适配器／FreeSql 冷／热认证路径和真实事务回滚。C# 8 项通过、零跳过；资源独立核清。无现有配置、证书、业务库或前端变更。此前 C39 的未覆盖描述是当时边界；本项补上述子集，Linux 应用客户端、证书轮换／吊销／过期及中间人仍未验证。详见[正式结果与复现](testing/mysql-strict-tls-v495.md)。
