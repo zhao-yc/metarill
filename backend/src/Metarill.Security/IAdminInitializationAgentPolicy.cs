@@ -6,4 +6,7 @@ public interface IAdminInitializationAgentPolicy
 {
     /// <summary>按账号读取并处理当前授权；不能自行提交事务，也不能读取其他账号的授权。</summary>
     Task PrepareAsync(SqlRowStore target,long accountId,CancellationToken token);
+
+    /// <summary>识别应保留的防重放账本。默认不豁免任何非Web记录。</summary>
+    bool IsRetainedReplayRecord(IReadOnlyDictionary<string,object?> row)=>false;
 }

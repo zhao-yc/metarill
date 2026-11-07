@@ -40,12 +40,14 @@ public sealed partial class AdminAccountInitializationTests
     {
         using var f=new Fixture();f.ExistingAccount();f.Memory.Add("sys_session",("id",50L),("account_id",30L),("kind","web"),("expires_at",DateTime.UtcNow.AddHours(1)));
         f.Memory.Add("sys_session",("id",51L),("account_id",8L),("kind","web"),("expires_at",DateTime.UtcNow.AddHours(1)));
+        f.Memory.Add("sys_session",("id",52L),("account_id",30L),("kind","agent_refresh_used"),("grant_id",72L));
         f.Memory.Add("yz_role",("id",40L),("yz_admin_type_id",91L),("is_super",1));
         var result=await(await f.Business()).InitializeAsync("91");
         Assert.Equal("30",result.AccountId);Assert.Single(f.TargetAccounts);Assert.Single(f.TargetRoles);
         Assert.Equal("保留业务档案",f.Memory.Row("yz_manager",30)["notes"]);Assert.Equal("保留姓名",f.Memory.Row("yz_manager",30)["real_name"]);
         Assert.Null(f.Memory.Row("yz_manager",30)["salt"]);Assert.Null(f.Memory.Row("yz_manager",30)["old_password"]);
         Assert.NotNull(f.Memory.Row("sys_session",50)["delete_no"]);Assert.Null(f.Memory.Row("sys_session",51).GetValueOrDefault("delete_no"));
+        Assert.Null(f.Memory.Row("sys_session",52).GetValueOrDefault("delete_no"));
         Assert.Null(f.Memory.WebSession.GetValueOrDefault("delete_no"));
     }
 

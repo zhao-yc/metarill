@@ -33,12 +33,101 @@ public sealed partial class FreshInstallMySqlTests
         info.Environment["Database__ConnectionString"] = options.ConnectionString;
         info.Environment["Authentication__Mode"] = "Web";
         info.Environment["Authentication__LoginFailures__ConnectionString"] = redis;
+        info.Environment["Agent__VerificationUri"] = "https://agent.example.invalid/#/pages/custom/agent_authorize";
         info.Environment["Ids__WorkerId"] = "855";
         info.Environment["Files__RootDirectory"] = Path.Combine(evidence, "split-business-files");
         info.Environment["Exports__RootDirectory"] = Path.Combine(evidence, "split-business-exports");
         info.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"] = evidence;
         return await FreshHost.StartAsync(info, "/health");
     }
+    /// <summary>用真实 OAuth 授权验证当前初始化门禁，凭据和物理快照仅在内存比较。</summary>
+    private static async Task<JsonElement> VerifySplitAdminAgentGrantGuardAsync(HttpClient owner, HttpClient standalone,
+        SqlRowStore target, long accountId, string adminTypeId, object initialization)
+    {
+        const string clientId = "metarill-agent-cli", tokenRoute = "/api/agent/oauth/token", meRoute = "/api/admin/sys/agent/me";
+        const string guardMessage = "该账号的Agent授权重置规则尚待确认，本次未执行初始化。";
+        using var oauth = new HttpClient { BaseAddress = standalone.BaseAddress };
+        var device = await OAuthFormAsync("/api/agent/oauth/device", HttpStatusCode.OK, new() { ["client_id"] = clientId });
+        var userCode = device.GetProperty("user_code").GetString();
+        await FreshWebHttp.SendAsync(standalone, HttpMethod.Post, "/api/admin/sys/agent/approve", new { userCode, approve = true });
+        var issued = await OAuthFormAsync(tokenRoute, HttpStatusCode.OK, new()
+        {
+            ["client_id"] = clientId, ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
+            ["device_code"] = device.GetProperty("device_code").GetString()!
+        });
+        using var agent = new HttpClient { BaseAddress = standalone.BaseAddress };
+        SetAccess(issued);
+        var identity = (await FreshWebHttp.SendAsync(agent, HttpMethod.Get, meRoute)).GetProperty("data");
+        Assert.Equal(accountId.ToString(CultureInfo.InvariantCulture), identity.GetProperty("accountId").ToString());
+        var grantId = identity.GetProperty("grantId").ToString();
+        var grantKey = long.Parse(grantId, CultureInfo.InvariantCulture);
+        var grantFilter = new Dictionary<string, object?> { ["id"] = grantKey };
+        var accountFilter = new Dictionary<string, object?> { ["id"] = accountId };
+        var sessionFilter = new Dictionary<string, object?> { ["account_id"] = accountId };
+        var agentSession = Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?>
+        {
+            ["grant_id"] = grantKey, ["kind"] = "agent"
+        }));
+        // 只让本轮短期访问会话过期，保留真实刷新授权。独立宿主必须拒绝旧 access。
+        Assert.Equal(1, await target.UpdateAsync("sys_session", SqlRowStore.Id(agentSession), new Dictionary<string, object?>
+        {
+            ["expires_at"] = DateTime.UtcNow.AddMinutes(-1)
+        }));
+        await FreshWebHttp.SendAsync(agent, HttpMethod.Get, meRoute, expected: HttpStatusCode.Unauthorized);
+        var before = await SnapshotAsync();
+        await DeniedAsync(owner, HttpMethod.Post, "/api/admin/sys/config_button/execute", initialization, guardMessage);
+        await DeniedAsync(owner, HttpMethod.Post, "/api/admin/custom/index/init_admin", new { id = adminTypeId }, guardMessage);
+        Assert.True(JsonElement.DeepEquals(before, await SnapshotAsync()), "两个初始化入口拒绝后，目标账号、会话和授权必须保持。");
+        await FreshWebHttp.SendAsync(standalone, HttpMethod.Get, "/api/admin/sys/yz_manager/getCurrentPermissions");
+
+        var refreshed = await RefreshAsync(issued, HttpStatusCode.OK);
+        SetAccess(refreshed);
+        await FreshWebHttp.SendAsync(agent, HttpMethod.Get, meRoute);
+        await FreshWebHttp.SendAsync(standalone, HttpMethod.Post, "/api/admin/sys/agent/revoke", new { grantId });
+        await FreshWebHttp.SendAsync(agent, HttpMethod.Get, meRoute, expected: HttpStatusCode.Unauthorized);
+        var rejected = await RefreshAsync(refreshed, HttpStatusCode.BadRequest);
+        Assert.Equal("invalid_grant", rejected.GetProperty("error").GetString());
+        var revoked = Assert.Single(await target.ReadAsync("sys_agent_grant", grantFilter));
+        Assert.Equal("revoked", SqlRowStore.Text(revoked, "status"));
+        Assert.Null(revoked.GetValueOrDefault("refresh_hash"));
+        return await CaptureRevokedGrantAndReplayAsync(target, accountId);
+
+        void SetAccess(JsonElement response)
+        {
+            var access = response.GetProperty("access_token").GetString();
+            Assert.True(access is { Length: 64 }, "OAuth 未签发规范的访问令牌。");
+            agent.DefaultRequestHeaders.Authorization = new("Bearer", access);
+        }
+
+        Task<JsonElement> RefreshAsync(JsonElement response, HttpStatusCode expected) => OAuthFormAsync(tokenRoute, expected, new()
+        {
+            ["client_id"] = clientId, ["grant_type"] = "refresh_token",
+            ["refresh_token"] = response.GetProperty("refresh_token").GetString()!
+        });
+
+        async Task<JsonElement> OAuthFormAsync(string route, HttpStatusCode expected, Dictionary<string, string> values)
+        {
+            using var response = await oauth.PostAsync(route, new FormUrlEncodedContent(values));
+            Assert.Equal(expected, response.StatusCode);
+            return await response.Content.ReadFromJsonAsync<JsonElement>();
+        }
+
+        async Task<JsonElement> SnapshotAsync() => JsonSerializer.SerializeToElement(new
+        {
+            Account = Assert.Single(await target.ReadAsync("yz_manager", accountFilter)),
+            Roles = (await target.ReadAsync("yz_role", new Dictionary<string, object?> { ["yz_admin_type_id"] = long.Parse(adminTypeId, CultureInfo.InvariantCulture) })).OrderBy(row => SqlRowStore.Id(row)).ToArray(),
+            Sessions = (await target.ReadIncludingDeletedAsync("sys_session", sessionFilter)).OrderBy(row => SqlRowStore.Id(row)).ToArray(),
+            Grant = Assert.Single(await target.ReadAsync("sys_agent_grant", grantFilter))
+        });
+    }
+    /// <summary>保留实际撤权后的授权和刷新防重放记录，复验初始化不改动它们。</summary>
+    private static async Task<JsonElement> CaptureRevokedGrantAndReplayAsync(SqlRowStore target, long accountId) =>
+        JsonSerializer.SerializeToElement(new
+        {
+            Grant = Assert.Single(await target.ReadAsync("sys_agent_grant", new Dictionary<string, object?> { ["account_id"] = accountId })),
+            Replay = Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId, ["kind"] = "agent_refresh_used" }))
+        });
+
     /// <summary>通过原两个 HTTP 入口重置本轮独占后台账号，并核对实际写入位置及旧会话。</summary>
     private static async Task VerifyAdminInitializationAsync(HttpClient owner, SqlRowStore platform, SqlRowStore target,
         string projectId, string adminTypeId, string platformAdminTypeId, bool sharedDatabase, Uri? splitBusinessAddress)
@@ -86,7 +175,7 @@ public sealed partial class FreshInstallMySqlTests
                 ["expires_at"] = DateTime.UtcNow.AddMinutes(20), ["kind"] = "web", ["project_id"] = project
             });
         }
-        Assert.Equal(1L, await ScalarAsync(target.Session, $"SELECT COUNT(*) FROM sys_session WHERE account_id={accountId} AND delete_no IS NULL"));
+        Assert.Equal(1L, await ScalarAsync(target.Session, $"SELECT COUNT(*) FROM sys_session WHERE account_id={accountId} AND kind IN ('web','agent') AND delete_no IS NULL"));
 
         // 工作台项目选择仅由原 sysParams 传入。未切换与切换后指向平台后台都应拒绝。
         await DeniedAsync(owner, HttpMethod.Post, direct, new { id = adminTypeId });
@@ -176,8 +265,9 @@ public sealed partial class FreshInstallMySqlTests
                     platformTokenProbe.DefaultRequestHeaders.Add("loginStateId", token);
                     await RequireRevokedSessionAsync(platformTokenProbe);
 
+                    var revokedGrant = await VerifySplitAdminAgentGrantGuardAsync(owner, standalone, target, accountId, adminTypeId, initialization);
                     // 第二次口令轮换使用真正由独立应用签发的业务库会话，而非前面的合成会话。
-                    var active = Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId }));
+                    var active = Assert.Single(await target.ReadAsync("sys_session", new Dictionary<string, object?> { ["account_id"] = accountId, ["kind"] = "web" }));
                     savedPassword = Guid.NewGuid().ToString("N");
                     Assert.Equal(1, await platform.UpdateAsync("yz_admin_type", admin, new Dictionary<string, object?> { ["password"] = savedPassword }));
                     await RunLoginRaceAsync(true, central, initialization, previousPassword, splitBusinessAddress, SqlRowStore.Id(active));
@@ -189,6 +279,8 @@ public sealed partial class FreshInstallMySqlTests
                     await RunLoginRaceAsync(false, direct, new { id = adminTypeId }, savedPassword, splitBusinessAddress);
                     await RequireRevokedSessionAsync(standalone);
                     Assert.Equal(initializedRole, await AssertResetAsync());
+                    Assert.True(JsonElement.DeepEquals(revokedGrant, await CaptureRevokedGrantAndReplayAsync(target, accountId)),
+                        "初始化不得复活已撤销的 Agent 授权或更改防重放记录。");
                     Assert.Empty(await platform.ReadAsync("yz_manager", new Dictionary<string, object?> { ["name"] = username }));
                 }
             }
@@ -342,7 +434,7 @@ public sealed partial class FreshInstallMySqlTests
             var superId = SqlRowStore.Id(role);
             Assert.NotEqual(roleId, superId);
             Assert.Equal(superId.ToString(CultureInfo.InvariantCulture), Assert.Single(JsonSerializer.Deserialize<string[]>(SqlRowStore.Text(row, "yz_role_ids"))!));
-            Assert.Equal(0L, await ScalarAsync(target.Session, $"SELECT COUNT(*) FROM sys_session WHERE account_id={accountId} AND delete_no IS NULL"));
+            Assert.Equal(0L, await ScalarAsync(target.Session, $"SELECT COUNT(*) FROM sys_session WHERE account_id={accountId} AND kind IN ('web','agent') AND delete_no IS NULL"));
             Assert.True(Convert.ToInt64(await ScalarAsync(target.Session, $"SELECT COUNT(*) FROM sys_session WHERE account_id={accountId} AND delete_no IS NOT NULL"), CultureInfo.InvariantCulture) > 0);
             return superId;
         }

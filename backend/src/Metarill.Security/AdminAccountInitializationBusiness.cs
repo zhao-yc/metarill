@@ -65,6 +65,8 @@ public sealed class AdminAccountInitializationBusiness(SqlRowStore store,Securit
         // Agent表协议由独立模块负责；保持账号→grant→session锁序，共享账号核心不读取OAuth表。
         if(existing is not null)await agentPolicy.PrepareAsync(store,SqlRowStore.Id(existing),token);
         var sessions=existing is null?[]:await store.ReadForUpdateAsync("sys_session",new Dictionary<string,object?>{{"account_id",SqlRowStore.Id(existing)}},token);
+        // 防重放账本须保留，其他非Web会话继续拒绝，不能绕过Agent授权策略。
+        sessions.RemoveAll(session=>agentPolicy.IsRetainedReplayRecord(session));
         if(sessions.Any(session=>SqlRowStore.Text(session,"kind")!="web"))
             throw new InvalidOperationException("目标账号存在未接线的非Web会话，未执行账号初始化。");
         // 保留原非空、最长50字符配置语义；普通新账号的12字符规则不在此入口强加到原页面。
