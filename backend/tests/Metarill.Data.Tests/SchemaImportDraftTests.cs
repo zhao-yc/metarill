@@ -91,6 +91,7 @@ public sealed class SchemaImportDraftTests
         foreach (var names in new[] { Array.Empty<string>(), new[] { "x", "X" }, Enumerable.Range(0, 17).Select(index => "table_" + index).ToArray() })
             await Assert.ThrowsAnyAsync<ArgumentException>(() => service.InspectForImportAsync(names));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.InspectForImportAsync(["x;DROP TABLE users"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.InspectForImportAsync(["record\n"]));
     }
     /// <summary>草案还须满足既有元数据ID/排序词表，不得在保存时才强制扩大源字段类型。</summary>
     [Theory]

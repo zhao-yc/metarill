@@ -145,6 +145,7 @@ public sealed class PlatformSchemaCliTests
     [InlineData("first,FIRST")]
     [InlineData("other_database.table")]
     [InlineData("table;DROP TABLE other")]
+    [InlineData("first_table\n")]
     [InlineData("")]
     public async Task Invalid_import_preview_selections_are_rejected_locally(string tables)
     {

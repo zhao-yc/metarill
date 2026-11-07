@@ -120,9 +120,12 @@ public static class MetadataValidation
         foreach (var field in catalog.ConfigPageColumns)
             if (!pages.ContainsKey(field.ConfigPageId) || !columns.ContainsKey(field.ConfigColumnId)) throw new InvalidOperationException("页面字段引用无效。");
     }
+    /// <summary>按完整字符串验证数据库标识符，供元数据、结构服务和 CLI 共用。</summary>
+    public static bool IsIdentifier(string? identifier) =>
+        identifier is not null && System.Text.RegularExpressions.Regex.IsMatch(identifier, @"\A[a-zA-Z_][a-zA-Z0-9_]{0,63}\z");
+
     public static void RequireIdentifier(string identifier)
     {
-        if (string.IsNullOrWhiteSpace(identifier) || !System.Text.RegularExpressions.Regex.IsMatch(identifier, "^[a-zA-Z_][a-zA-Z0-9_]{0,63}$"))
-            throw new InvalidOperationException("数据库标识符无效。");
+        if (!IsIdentifier(identifier)) throw new InvalidOperationException("数据库标识符无效。");
     }
 }

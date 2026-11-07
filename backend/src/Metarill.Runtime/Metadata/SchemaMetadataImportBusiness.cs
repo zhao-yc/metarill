@@ -102,7 +102,10 @@ public sealed class SchemaMetadataImportBusiness(SqlRowStore store, MetadataRepo
         var target = source.Target ?? throw new InvalidOperationException("缺少源目标身份。");
         var comparer = target.CaseSensitiveNames ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
         var names = source.Snapshot.Schema.Tables.Select(table => table.Name).ToHashSet(comparer);
-        if (catalog.ConfigTables.Any(table => names.Contains(table.TableName))) throw new InvalidOperationException("源表已在当前项目登记或属于当前基础设施。");
+        // 生成和结构同步要求项目内表名忽略大小写后唯一；跨项目归属仍按物理名称规则比较。
+        var projectNames = target.CaseSensitiveNames ? names.ToHashSet(StringComparer.OrdinalIgnoreCase) : names;
+        if (catalog.ConfigTables.Any(table => projectNames.Contains(table.TableName)))
+            throw new InvalidOperationException("源表名称与当前项目已登记的表或基础设施冲突。");
         // 安全基础表属于保留领域，不能作为普通业务表导入绕过安全运行时。
         var securityCatalog = MetadataRegistry.Load(Path.Combine(Path.GetDirectoryName(registry.PlatformPath)!, "security.json"));
         if (securityCatalog.ConfigTables.Any(table => names.Contains(table.TableName))) throw new InvalidOperationException("安全基础表不能作为普通业务结构导入。");

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Metarill.Core.Metadata;
 
 namespace Metarill.Cli;
 
@@ -59,7 +60,7 @@ internal static class PlatformSchemaCommand
         if (options.TryGetValue("--tables", out var supplied))
         {
             names = supplied.Split(',');
-            if (names.Length is < 1 or > 16 || names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Length || names.Any(name => !Regex.IsMatch(name, "^[A-Za-z_][A-Za-z0-9_]{0,63}$", RegexOptions.CultureInvariant)))
+            if (names.Length is < 1 or > 16 || names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Length || names.Any(name => !MetadataValidation.IsIdentifier(name)))
                 throw new ArgumentException("--tables要求1至16个逗号分隔、不重复的规范物理表名。");
         }
         var endpoint = Endpoint(server, args[1]);
