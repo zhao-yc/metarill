@@ -538,7 +538,8 @@ def verify_tool_sources(value):
     if resources.is_write_measurement(value): expected.add("performance/paired_write_measurement.py")
     if resources.is_excel_import_measurement(value):
         expected.update({"performance/paired_import_measurement.py","performance/paired_workbook_container.py","performance/paired_workbook_oracle.cjs"})
-    if resources.is_excel_parent_import(value) or resources.is_excel_child_layout_measurement(value):
+    if (resources.is_measurement(value) or resources.is_file_measurement(value)
+            or resources.is_excel_import_measurement(value) and not resources.is_excel_child_reference(value)):
         expected.add("performance/paired_cgroup_probe.py")
     if resources.is_excel_child_reference(value): expected.add("performance/paired_child_import_reference.py")
     if resources.uses_excel_export(value):

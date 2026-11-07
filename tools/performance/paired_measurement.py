@@ -110,10 +110,18 @@ def run_trials(output,config,probe,query,profile,*,transport=None,check_event=No
             os.fsync(stream.fileno())
         if check_event is not None:
             check_event(event)
+    owned_probe = None
+    if resource_probe is None and isinstance(probe, http.Server200LocalProbe):
+        import paired_cgroup_probe as cgroups
+        limits = http.equal_limits(probe, config["targets"])
+        owned_probe = resource_probe = cgroups.CgroupProbe(probe, config["targets"], limits)
     options={} if transport is None else {"transport":transport}
     if minimum_iterations != 100: options["minimum_iterations"] = minimum_iterations
     if resource_probe is not None: options["resource_probe"] = resource_probe
     report=http.run(config,probe,on_event=journal,**options)
+    if owned_probe is not None:
+        owned_probe.verify()
+        report["resourceSource"] = cgroups.METHOD
     final=database_context(query)
     report.update(databaseBefore=initial,databaseAfter=final,databaseVariablesUnchanged=settings_unchanged and initial["variables"]==final["variables"])
     (output/"measurement.json").write_bytes(http.canonical(report))

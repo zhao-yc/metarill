@@ -93,6 +93,27 @@ class MeasurementReplayTests(unittest.TestCase):
             self.assertNotIn("PRIVATE",(Path(folder)/"measurement/measurement.json").read_text())
 
 
+    def test_server_local_trials_use_and_verify_cumulative_cgroup_probe(self):
+        """真实宿主分支自动选择累计探针，并在写报告前核验绑定身份。"""
+        import paired_cgroup_probe as cgroups
+        config = measurement.config_for(RUN, TARGETS, TOKENS)
+        probe = object.__new__(measurement.http.Server200LocalProbe)
+        counters = mock.Mock()
+        expected = {"results": [{"measurementValid": True, "stableRegression": False}] * 2}
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(measurement, "database_context", return_value={"variables": {}}), \
+             mock.patch.object(measurement.http, "equal_limits", return_value={"pinned": True}), \
+             mock.patch.object(cgroups, "CgroupProbe", return_value=counters) as factory, \
+             mock.patch.object(measurement.http, "run", return_value=expected) as replay:
+            result = measurement.run_trials(Path(folder), config, probe, None, "read")
+            factory.assert_called_once_with(probe, config["targets"], {"pinned": True})
+            self.assertIs(counters, replay.call_args.kwargs["resource_probe"])
+            counters.verify.assert_called_once_with()
+            self.assertTrue(result["measurementValid"])
+            report = json.loads((Path(folder) / "measurement.json").read_bytes())
+            self.assertEqual(cgroups.METHOD, report["resourceSource"])
+
+
 class MeasurementFlowTests(previous.FlowFixture):
     def setUp(self):
         super().setUp()
@@ -165,11 +186,12 @@ class WriteMeasurementFlowTests(previous.FlowFixture):
         self.assertFalse(native.resources.is_observed(descriptor))
 
     def test_only_write_purpose_requires_the_ninth_fixed_file(self):
-        """只读仍核对八文件，写入必须核对实际第九文件，不能漏报。"""
+        """只读和写入都固定累计资源探针，写入再增加自己的回放源文件。"""
         base=Path(native.__file__).resolve().parents[1]
         names=("performance/paired_native_bootstrap.py","performance/paired_http.py","performance/paired_identity_seed.py",
                "performance/server200_paired_resources.py","acceptance/server200-fresh-mysql.py",
-               "performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py")
+               "performance/paired_business_http.py","performance/paired_measurement_fixture.py","performance/paired_measurement.py",
+               "performance/paired_cgroup_probe.py")
         checksums={name:hashlib.sha256((base/name).read_bytes()).hexdigest() for name in names}
         value={**self.value,"toolSourceCommit":"a"*40,"toolSha256":checksums}
         # FlowFixture 替换了执行前来源验证，单独调用原函数验证实际清单。

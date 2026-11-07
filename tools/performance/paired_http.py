@@ -414,6 +414,37 @@ def resource_values(raw, container):
     return {"cpuPercent": cpu, "memoryBytes": byte_value(memory[0]), "memoryLimitBytes": byte_value(memory[1])}
 
 
+def validate_resource_snapshot(snapshot):
+    """累计计数必须来自同一有界容器。布尔值和不可读计数不能充当证据。"""
+    if (not isinstance(snapshot, dict) or type(snapshot.get("containerId")) is not str
+            or not re.fullmatch(r"[a-f0-9]{64}", snapshot["containerId"])):
+        raise ContractError("累计资源容器身份无效")
+    for key in ("cpuUsageUsec", "observedAtNs", "memoryCurrentBytes", "memoryLimitBytes"):
+        if type(snapshot.get(key)) is not int or snapshot[key] < 0:
+            raise ContractError("累计资源计数无效")
+    if snapshot["memoryLimitBytes"] == 0:
+        raise ContractError("累计资源缺少内存上限")
+
+
+def resource_window(before, after, elapsed, completed):
+    """按计时边界差分，内存只报告两个观察点。"""
+    if (type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0
+            or type(completed) is not int or completed < 0):
+        raise ContractError("累计资源业务窗口无效")
+    validate_resource_snapshot(before)
+    validate_resource_snapshot(after)
+    duration = after["observedAtNs"] - before["observedAtNs"]
+    cpu = after["cpuUsageUsec"] - before["cpuUsageUsec"]
+    if (before["containerId"] != after["containerId"]
+            or before["memoryLimitBytes"] != after["memoryLimitBytes"]
+            or duration <= 0 or cpu < 0
+            or duration / 1e9 + 1e-6 < elapsed):
+        raise ContractError("累计资源计数或容器边界发生变化")
+    return {"before": before, "after": after, "elapsedNs": duration,
+            "cpuUsageUsec": cpu, "cpuUsecPerCompletedScenario": cpu / completed if completed else None,
+            "observedBoundaryMaxMemoryBytes": max(before["memoryCurrentBytes"], after["memoryCurrentBytes"])}
+
+
 def run_trial(config, target, scenario, concurrency, round_index, phase, iterations, transport=request, probe=None):
     """每个工作线程串行回放完整业务场景；出错立即停止该场景且绝不重试。"""
     samples, sample_errors, stop = [], [], threading.Event()
@@ -458,6 +489,12 @@ def run_trial(config, target, scenario, concurrency, round_index, phase, iterati
                 row["binaryResponses"] = binary_responses
             result.append(row)
         return result
+    # 计数包住业务窗口，且结束快照早于等待采样线程退出。
+    snapshot = getattr(probe, "snapshot", None)
+    if snapshot is not None:
+        before = snapshot(target["container"])
+        validate_resource_snapshot(before)
+    after = None
     started = time.perf_counter()
     sampler = threading.Thread(target=sample_resources, daemon=True) if probe else None
     if sampler:
@@ -466,6 +503,13 @@ def run_trial(config, target, scenario, concurrency, round_index, phase, iterati
         with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
             rows = [row for group in pool.map(worker, range(concurrency)) for row in group]
         elapsed = time.perf_counter() - started
+        if snapshot is not None:
+            try:
+                after = snapshot(target["container"])
+                validate_resource_snapshot(after)
+            except Exception as error:
+                sample_errors.append(type(error).__name__)
+                after = None
     finally:
         stop.set()
         if sampler:
@@ -483,6 +527,13 @@ def run_trial(config, target, scenario, concurrency, round_index, phase, iterati
             "rows": rows, "resources": timed_samples, "lateResources": late_samples,
             "resourceErrors": sample_errors.copy(), "resourceSampleCount": len(timed_samples),
             "sampledResources": {"meanCpuPercent": statistics.mean(item["values"]["cpuPercent"] for item in timed_samples) if timed_samples else None, "observedMaxMemoryBytes": max((item["values"]["memoryBytes"] for item in timed_samples), default=None)}}
+    if after is not None:
+        try:
+            # 失败轮仍保留累计计数，但不把失败流量按成功场景归一化。
+            report["resourceWindow"] = resource_window(before, after, elapsed,
+                                                       len(successful) if len(successful) == iterations else 0)
+        except ContractError as error:
+            report["resourceErrors"].append(type(error).__name__)
     if any(step.get("responseKind") == "binary" for step in scenario["steps"]):
         # 只统计完整成功场景的已验证字节；部分失败的已读数据不能抬高有效业务吞吐。
         downloads = [item for row in successful for item in row["binaryResponses"]]
@@ -507,6 +558,27 @@ def compare_pair(java, csharp, config):
     latency = csharp["p95Ms"] / java["p95Ms"]
     throughput = csharp["scenarioThroughput"] / java["scenarioThroughput"]
     result = {"valid": True, "p95Ratio": latency, "throughputRatio": throughput, "regression": latency > config["maxP95Ratio"] or throughput < config["minThroughputRatio"]}
+    if "resourceWindow" in java or "resourceWindow" in csharp:
+        windows = []
+        for trial in (java, csharp):
+            try:
+                window = trial["resourceWindow"]
+                expected_window = resource_window(window["before"], window["after"], trial["elapsedSeconds"], config["iterations"])
+            except (KeyError, TypeError, ContractError):
+                return {"valid": False, "reason": "累计资源证据不完整"}
+            if window != expected_window:
+                return {"valid": False, "reason": "累计资源汇总与原始计数不一致"}
+            windows.append(window)
+        left, right = windows
+        if (left["before"]["memoryLimitBytes"] != right["before"]["memoryLimitBytes"]
+                or left["before"]["containerId"] == right["before"]["containerId"]):
+            return {"valid": False, "reason": "两端累计资源身份或上限不匹配"}
+        cpu = left["cpuUsageUsec"]
+        memory = left["observedBoundaryMaxMemoryBytes"]
+        result["resourceRatios"] = {
+            "cpuUsecPerCompletedScenario": right["cpuUsageUsec"] / cpu if cpu else None,
+            "observedBoundaryMaxMemory": right["observedBoundaryMaxMemoryBytes"] / memory if memory else None,
+        }
     if "binaryDownload" in java or "binaryDownload" in csharp or any("binaryResponses" in row for trial in (java, csharp) for row in trial["rows"]):
         # 下载汇总还须与原逐项证据吻合，不能由缺失或非有限统计值制造快成绩。
         for trial in (java, csharp):

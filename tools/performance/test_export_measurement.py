@@ -1,5 +1,6 @@
 """固定导出回放的请求数、完整逐文件核验及性能证据门槛。"""
 import itertools
+import time
 from pathlib import Path
 import tempfile
 import unittest
@@ -66,10 +67,19 @@ class ExportMeasurementTests(unittest.TestCase):
                     verified.extend(samples)
                     return [{"semanticSha256": "错位" if corrupt and i == 0 else kind} for i, (_, kind, _) in enumerate(samples)]
 
+                counters = mock.Mock()
+
+                def snapshot(container):
+                    """资源桩提供合法原始计数，采样失败仍由既有资源门槛拒绝。"""
+                    return {"containerId": ("a" if container == "java" else "b") * 64,
+                            "observedAtNs": time.perf_counter_ns(), "cpuUsageUsec": 1,
+                            "memoryCurrentBytes": 1024, "memoryLimitBytes": 4096}
+
+                counters.snapshot.side_effect = snapshot
                 output = Path(folder) / "measurement"
                 with mock.patch.object(subject.http, "equal_limits", return_value={}), \
                      mock.patch.object(subject.http, "verify_transport", return_value={"verified": True}), \
-                     mock.patch.object(subject.cgroups, "CgroupProbe", return_value=mock.Mock()), \
+                     mock.patch.object(subject.cgroups, "CgroupProbe", return_value=counters), \
                      mock.patch.object(subject, "database_context", return_value={"variables": {}}), \
                      mock.patch.object(subject.export, "run_preflight", return_value=preflight), \
                      mock.patch.object(subject.http, "request", side_effect=ticket), \

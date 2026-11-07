@@ -68,7 +68,7 @@ class CgroupProbe:
         entries = re.findall(r"^usage_usec ([0-9]{1,24})$", (path / "cpu.stat").read_text(encoding="ascii"), re.MULTILINE)
         if len(entries) != 1:
             raise ValueError("measurement-cgroup-cpu-counter")
-        return int(entries[0]), time.monotonic_ns()
+        return int(entries[0]), time.perf_counter_ns()
 
     def snapshot(self, container):
         """短回放在计时两端直接读内核累计值，内存只代表观察点。"""

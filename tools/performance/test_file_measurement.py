@@ -48,7 +48,7 @@ class FileMeasurementContractTests(unittest.TestCase):
 
     def test_actual_file_module_is_required_in_fixed_git_source_set(self):
         """不能仅声明版本号，模块必须与其它八份实际运行源码一并逐摘要固定。"""
-        v=value();v['toolSourceCommit']='a'*40;root=Path(native.__file__).resolve().parents[1];names=['acceptance/server200-fresh-mysql.py','performance/paired_native_bootstrap.py','performance/paired_http.py','performance/paired_identity_seed.py','performance/server200_paired_resources.py','performance/paired_business_http.py','performance/paired_measurement_fixture.py','performance/paired_measurement.py','performance/paired_file_measurement.py'];v['toolSha256']={n:hashlib.sha256((root/n).read_bytes()).hexdigest() for n in names};native.verify_tool_sources(v);del v['toolSha256']['performance/paired_file_measurement.py']
+        v=value();v['toolSourceCommit']='a'*40;root=Path(native.__file__).resolve().parents[1];names=['acceptance/server200-fresh-mysql.py','performance/paired_native_bootstrap.py','performance/paired_http.py','performance/paired_identity_seed.py','performance/server200_paired_resources.py','performance/paired_business_http.py','performance/paired_measurement_fixture.py','performance/paired_measurement.py','performance/paired_cgroup_probe.py','performance/paired_file_measurement.py'];v['toolSha256']={n:hashlib.sha256((root/n).read_bytes()).hexdigest() for n in names};native.verify_tool_sources(v);del v['toolSha256']['performance/paired_file_measurement.py']
         with self.assertRaises(ValueError):native.verify_tool_sources(v)
 
     def test_exact_extra_contract_cannot_hide_original_rows_or_other_tables(self):
