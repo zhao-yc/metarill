@@ -88,7 +88,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             await NonRedundantApplicationFixture.RunAsync(node);
             using(var rows=JsonDocument.Parse(await File.ReadAllTextAsync(received)))await Post(reader,Route+"importDatas"+SourcePage,new{requestJson=rows.RootElement});
             Assert.Equal(original,SqlRowStore.Id(await Record("覆盖后")));Assert.Equal(prior,(await store.ReadIncludingDeletedAsync(Source)).Count);
-            await Sparse("覆盖后",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
+            await CheckStorage("覆盖后",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
             Assert.Equal("外项目对照",SqlRowStore.Text(await Physical(Source,At(Lookup)+1),"name"));
             Assert.Equal("已删除对照",SqlRowStore.Text(await Physical(Source,At(Lookup)+2),"name"));
             var duplicate=(await Post(reader,Route+"copy/"+Id(original),new{})).GetProperty("id").GetString()!;
@@ -114,26 +114,32 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             using(var anonymous=new HttpClient{BaseAddress=reader.BaseAddress})await Send(anonymous,HttpMethod.Post,Route+"importDatas"+SourcePage,new{requestJson=Array.Empty<object>()},HttpStatusCode.Unauthorized);
             await Candidates();
             await Import(Input("完整",Full,shared?Secondary:null),Input("根级",First,shared?labels[0]+"//":null),Input("中级",Middle,shared?labels[0]+"/"+labels[1]+"/":null),Input("空值",null,null));
-            await Sparse("完整",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);await Sparse("根级",0,At(Country),shared?0:-1,shared?At(Country):null);await Sparse("中级",1,At(Area),shared?1:-1,shared?At(Area):null);await Sparse("空值",-1,null,-1,null);
+            await CheckStorage("完整",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);await CheckStorage("根级",0,At(Country),shared?0:-1,shared?At(Country):null);await CheckStorage("中级",1,At(Area),shared?1:-1,shared?At(Area):null);await CheckStorage("空值",-1,null,-1,null);
             await store.InsertAsync(Source,Row("id",At(Lookup)+1,"name","其它项目","yz_project_id",Project+1,shorter?"area_id":"place_id",key=="string"?Id(At(shorter?Area:Place)):At(shorter?Area:Place)));
             var exported=await Export();Assert.Equal(4,exported.Count);Assert.False(exported.ContainsKey("其它项目"));Assert.Equal((Full,shared?Secondary:null),exported["完整"]);Assert.Equal((First,shared?labels[0]+"//":null),exported["根级"]);Assert.Equal((Middle,shared?labels[0]+"/"+labels[1]+"/":null),exported["中级"]);Assert.Equal(((string?)null,(string?)null),exported["空值"]);
-            await Import(exported.Select(value=>Input("往返"+value.Key,value.Value.Main,value.Value.Second)).ToArray());await Sparse("往返完整",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);await Sparse("往返根级",0,At(Country),shared?0:-1,shared?At(Country):null);await Sparse("往返中级",1,At(Area),shared?1:-1,shared?At(Area):null);await Sparse("往返空值",-1,null,-1,null);
+            await Import(exported.Select(value=>Input("往返"+value.Key,value.Value.Main,value.Value.Second)).ToArray());await CheckStorage("往返完整",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);await CheckStorage("往返根级",0,At(Country),shared?0:-1,shared?At(Country):null);await CheckStorage("往返中级",1,At(Area),shared?1:-1,shared?At(Area):null);await CheckStorage("往返空值",-1,null,-1,null);
             // 来源普通新增／修改／复制仍走实际生成接口，不能仅让专用导入路径通过。
             var main=catalog.ConfigColumns.Single(column=>column.ConfigTableId==SourceTable.Id&&column.ControlKind=="CascadeTree"&&column.Name=="区域");
             var body=Row("name","普通新增",GenerationModel.Camel(main.ColumnName),Id(At(shorter?Area:Place)));
+            if(SourceTable.IsRongyu==1)
+            {
+                body["countryId"]=Id(At(Country));
+                body["areaId"]=Id(At(Area));
+            }
             if(shared)body["warehouseId"]=Id(At(Warehouse));var created=(await Post(reader,Route+"add",body)).GetProperty("id").GetString()!;
-            await Post(reader,Route+"update",new{id=created,name="普通修改"});await Sparse("普通修改",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
+            await Post(reader,Route+"update",new{id=created,name="普通修改"});await CheckStorage("普通修改",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
             var ordinaryCopy=(await Post(reader,Route+"copy/"+created,new{})).GetProperty("id").GetString()!;
             await Post(reader,Route+"update",new{id=ordinaryCopy,name="普通复制"});
             // 全局字典更新必须沿同一生产Service传播，缓存和原XLSX都读取新值。
             var changed=shared?1:role;labels[changed]+="新";var lookupTable=catalog.ConfigTables.Single(table=>table.TableName==prefix+"_lookup");var lookupPage=catalog.ConfigPages.Single(page=>page.ConfigTableId==lookupTable.Id).Id;
             await Post(reader,"/api/admin/auto/"+lookupTable.TableName+"/"+lookupPage+"/update",new{id=Id(At(Lookup)),name=labels[changed]});
             Assert.Equal(labels[changed],SqlRowStore.Text(await Physical(prefix+"_cached_global",At(new[]{Country,Area,Place}[changed])),"lookup_name"));
+            await CheckStorage("完整",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
             exported=await Export();Assert.Equal((Full,shared?Secondary:null),exported["完整"]);
             var before=await Snapshot();await Import(HttpStatusCode.BadRequest,Input("旧名不得写入",shorter?"国甲/区甲":"国甲/区甲/城甲",shared?"国甲/区甲/仓甲":null));Assert.Equal(before,await Snapshot());
-            await Import(Input("改名后",Full,shared?Secondary:null));await Sparse("改名后",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
+            await Import(Input("改名后",Full,shared?Secondary:null));await CheckStorage("改名后",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
             if(shared){before=await Snapshot();await Import(HttpStatusCode.BadRequest,Input("共享冲突",First,Secondary));Assert.Equal(before,await Snapshot());}
-            await Maintenance(changed);await LatePropagationFailure(lookupTable,lookupPage);await AmbiguousNames(changed);await FileRollback();await Revoke(main);
+            await Maintenance(changed);await LatePropagationFailure(lookupTable,lookupPage);await AmbiguousNames(changed);await FileRollback();await Revoke(main,SourceTable.IsRongyu==1?HttpStatusCode.Forbidden:HttpStatusCode.Unauthorized);
         }
         /// <summary>候选需要真实来源／目标页权限，路径回读保持原长ID和名称。</summary>
         private async Task Candidates()
@@ -279,7 +285,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             var saved=await Record("并发成功");
             Assert.Equal(original,SqlRowStore.Id(saved));
             Assert.Equal(previousAttachment,saved["attachments"]);
-            await Sparse("并发成功",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
+            await CheckStorage("并发成功",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
             Assert.Equal(before,await Snapshot(original));
         }
 
@@ -304,13 +310,44 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             using var response=await reader.GetAsync(ExportDownloadAccess.DownloadPath+"?exportId="+Uri.EscapeDataString(grant));Assert.Equal(HttpStatusCode.OK,response.StatusCode);
             return GlobalCachedCrossExcelMySqlTests.ReadOriginalWorkbook(await response.Content.ReadAsByteArrayAsync(),shared,shorter);
         }
-        /// <summary>独立连接检查真实物理存储；共享祖先只保留两条路径并集的最深必要位置。</summary>
-        private async Task Sparse(string name,int depth,long? selected,int secondDepth,long? second)
+        /// <summary>独立连接分别核对 R0 稀疏位置和 R1 的逐级物理 ID 与名称。</summary>
+        private async Task CheckStorage(string name,int depth,long? selected,int secondDepth,long? second)
         {
             var row=await Record(name);Assert.True(SqlRowStore.Id(row)>9007199254740991);var expected=new Dictionary<string,long?>{{"country_id",null},{"area_id",null}};if(!shorter)expected["place_id"]=null;if(shared)expected["warehouse_id"]=null;
-            var fields=shorter?new[]{"country_id","area_id"}:new[]{"country_id","area_id","place_id"};if(depth>=0)expected[fields[depth]]=selected;
-            if(shared&&secondDepth>=0){var secondary=new[]{"country_id","area_id","warehouse_id"};expected[secondary[secondDepth]]=second;if(depth!=secondDepth)foreach(var ancestor in secondary.Take(Math.Max(depth,secondDepth)))expected[ancestor]=null;}
-            foreach(var value in expected)Assert.Equal(value.Value is{} id?Id(id):null,row[value.Key] is null?null:Convert.ToString(row[value.Key],CultureInfo.InvariantCulture));Assert.DoesNotContain(row.Keys,value=>value.EndsWith("_name",StringComparison.Ordinal));
+            var fields=shorter?new[]{"country_id","area_id"}:new[]{"country_id","area_id","place_id"};
+            var secondary=new[]{"country_id","area_id","warehouse_id"};
+            if(SourceTable.IsRongyu==1)
+            {
+                // 两条路径共用祖先，但各自末级及对应名称独立保存。
+                var expectedNames=expected.Keys.ToDictionary(field=>field[..^3]+"_name",_ => (string?)null,StringComparer.Ordinal);
+                Apply(fields,labels,depth,selected);
+                if(shared)Apply(secondary,[labels[0],labels[1],"仓甲"],secondDepth,second);
+                foreach(var (field,value) in expectedNames)Assert.Equal(value,row[field] as string);
+
+                void Apply(string[] columns,string[] names,int last,long? leaf)
+                {
+                    var ancestorIds=new[]{Country,Area};
+                    for(var i=0;i<=last;i++)
+                    {
+                        var field=columns[i];
+                        var id=i==last?leaf:At(ancestorIds[i]);
+                        if(expected[field] is not null)Assert.Equal(expected[field],id);
+                        expected[field]=id;
+                        expectedNames[field[..^3]+"_name"]=names[i];
+                    }
+                }
+            }
+            else
+            {
+                if(depth>=0)expected[fields[depth]]=selected;
+                if(shared&&secondDepth>=0)
+                {
+                    expected[secondary[secondDepth]]=second;
+                    if(depth!=secondDepth)foreach(var ancestor in secondary.Take(Math.Max(depth,secondDepth)))expected[ancestor]=null;
+                }
+                Assert.DoesNotContain(row.Keys,value=>value.EndsWith("_name",StringComparison.Ordinal));
+            }
+            foreach(var (field,id) in expected)Assert.Equal(id is{} value?Id(value):null,row[field] is null?null:Convert.ToString(row[field],CultureInfo.InvariantCulture));
         }
         /// <summary>失败比较覆盖六组全部业务表和文件，包括墓碑，不能只看当前主行。</summary>
         private async Task<string> Snapshot(long? exceptSourceId=null)

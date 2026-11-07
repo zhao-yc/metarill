@@ -28,3 +28,5 @@
 2026-11-01 B118获精确授权后已实际执行R0六模型，0／6在测试id表头假设处失败，32表与六临时目录／504文件已清理核零。B119只修原表头及GUID目录夹具，固定17d38cc的12准备和六原真实工作簿解析复验通过；新精确32表范围待批准，修正后完整实库未执行，公开门槛保持，见[R0真实SQL及完整失败链](testing/global-cached-cross-excel-mysql.md)。
 
 2026-11-01 B119固定17d38cc获新精确授权后，R0六模型真实MySQL／原生成HTTP／XLSX往返、稀疏存储、全局改名传播及首行DML后通知失败回滚全部6通过／0失败／0跳过；32表及六GUID临时目录独立核零、租约ended，原776文件保持。B118原失败不改写；测试Actor不计正式Web／OAuth、浏览器／并发／性能，公开Full继续关闭。见[实际复验及清理](testing/global-cached-cross-excel-mysql.md)。
+
+2026-11-07 V498 冗余跨表级联固定六模型已通过内部准备包的 Production HTTP 和 MySQL 验收。真实普通账号、逐级物理 ID 与名称缓存、原 XLSX 往返、改名传播、原维护、事务回滚及重启均有回执。公开 Full 与原浏览器仍单独验收。见[V498 实库验收](testing/global-cached-cross-excel-r1-mysql-v498.md)。

@@ -11,15 +11,17 @@ internal static class GlobalCachedCrossExcelNativePreparation
 {
     internal const string RootNamespace="Metarill.GlobalCrossExcelNative";
     internal const string Root=".local/global-cached-cross-excel-native";
+    internal const string RedundantRoot=".local/global-cached-cross-excel-r1-native";
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){WriteIndented=true,NewLine="\n"};
     /// <summary>六组使用同一后台、项目和基础设施，每组表/列/页/按钮均有独立配置ID。</summary>
-    internal static MetadataCatalog Catalog()
+    internal static MetadataCatalog Catalog(bool redundant=false)
     {
         var result=new MetadataCatalog{YzProjectId="100",YzProjectName="全局缓存级联六模型验收"};
         var index=0;string? adminTypes=null;
         foreach(var p in GlobalCachedCrossExcelMySqlLease.Profiles)
         {
-            var catalog=p.Shared?GlobalCrossCachedTargetFixture.CreateShared(0,p.Key,p.Parent,p.Shorter):GlobalCrossCachedTargetFixture.Create(0,p.Role,p.Key,p.Parent,p.AllGlobal);
+            var mode=redundant?1:0;
+            var catalog=p.Shared?GlobalCrossCachedTargetFixture.CreateShared(mode,p.Key,p.Parent,p.Shorter):GlobalCrossCachedTargetFixture.Create(mode,p.Role,p.Key,p.Parent,p.AllGlobal);
             if(catalog.ConfigIndexes.Count!=0||catalog.ConfigIndexColumns.Count!=0||catalog.ConfigChildren.Count!=0||catalog.ConfigCustomPages.Count!=0||catalog.YzAdminTypes.Count!=1||catalog.YzAdminTypes[0].Id!="9"||catalog.YzProjectId!="100")throw new InvalidOperationException("六模型出现未经合并证明的新目录。");
             var currentAdminTypes=JsonSerializer.Serialize(catalog.YzAdminTypes,Json);
             if(adminTypes is null){adminTypes=currentAdminTypes;result.YzAdminTypes=JsonSerializer.Deserialize<List<AdminTypeMetadata>>(currentAdminTypes,Json)!;}
@@ -99,9 +101,9 @@ public partial class {{type}}Service
 """+"\n";
     }
     /// <summary>只生成不可发布准备包，两轮正规生成必须保护六份手写partial。</summary>
-    internal static void Create(string source,string output)
+    internal static void Create(string source,string output,bool redundant=false)
     {
-        var catalog=Catalog();new CrossTableExcelApplicationPreparer().Prepare(catalog,output,RootNamespace,source);
+        var catalog=Catalog(redundant);new CrossTableExcelApplicationPreparer().Prepare(catalog,output,RootNamespace,source);
         var generated=CSharpGenerator.SafePath(output,"backend/generated");
         var hands=catalog.ConfigTables.Where(table=>table.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)).ToDictionary(table=>"Services/"+GenerationModel.Pascal(table.TableName)+"Service.cs",table=>Handwritten(table.TableName),StringComparer.Ordinal);
         foreach(var hand in hands)File.WriteAllText(CSharpGenerator.SafePath(generated,hand.Key),hand.Value);
@@ -114,7 +116,7 @@ public partial class {{type}}Service
     /// <summary>复用现有不跟随链接的全文件捕获；不复用八个普通模型的语义白名单。</summary>
     internal static CrossTableExcelPackageProof Capture(string package)=>CrossTableExcelNativePreparation.Capture(package);
     /// <summary>完整文件、原模型、真实认证与六个精确手写钩子共同固定，重新计算摘要不能收编额外源文件。</summary>
-    internal static MetadataCatalog Verify(CrossTableExcelPackageProof proof,bool runtime=false)
+    internal static MetadataCatalog Verify(CrossTableExcelPackageProof proof,bool runtime=false,bool redundant=false)
     {
         if(!Path.IsPathFullyQualified(proof.PackageRoot)||Path.TrimEndingDirectorySeparator(Path.GetFullPath(proof.PackageRoot))!=proof.PackageRoot)throw new InvalidOperationException("准备包根必须规范。");
         const string journal="backend/Application.Host/.local/schema-history.jsonl";
@@ -124,7 +126,7 @@ public partial class {{type}}Service
         using var marker=JsonDocument.Parse(File.ReadAllText(CSharpGenerator.SafePath(proof.PackageRoot,CrossTableExcelApplicationPreparer.Marker)));var value=marker.RootElement;
         if(value.GetProperty("schemaVersion").GetInt32()!=1||value.GetProperty("profile").GetString()!="cross-table-excel-preparation-v1"||value.GetProperty("readyForPublication").GetBoolean()||value.GetProperty("authenticationProfile").GetString()!="web-database-v1"||value.GetProperty("rootNamespace").GetString()!=RootNamespace)throw new InvalidOperationException("必须是六模型原生产Web不可发布准备包。");
         var catalog=JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(CSharpGenerator.SafePath(proof.PackageRoot,"backend/metadata/project.json")),Json)!;
-        if(!JsonNode.DeepEquals(JsonSerializer.SerializeToNode(catalog),JsonSerializer.SerializeToNode(Catalog())))throw new InvalidOperationException("六模型实际元数据与原定义不符。");
+        if(!JsonNode.DeepEquals(JsonSerializer.SerializeToNode(catalog),JsonSerializer.SerializeToNode(Catalog(redundant))))throw new InvalidOperationException("六模型实际元数据与原定义不符。");
         if(value.GetProperty("metadataSha256").GetString()!=Convert.ToHexStringLower(SHA256.HashData(CSharpGenerator.CanonicalMetadata(catalog)))||value.GetProperty("securityCatalogSha256").GetString()!=proof.MetadataSha256)throw new InvalidOperationException("实际元数据与安全绑定不符。");
         var hands=catalog.ConfigTables.Where(table=>table.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)).ToDictionary(table=>"backend/generated/Services/"+GenerationModel.Pascal(table.TableName)+"Service.cs",table=>Handwritten(table.TableName),StringComparer.Ordinal);
         var declared=value.GetProperty("files").EnumerateArray().Select(file=>file.GetProperty("path").GetString()!).ToHashSet(StringComparer.Ordinal);
@@ -140,11 +142,11 @@ public partial class {{type}}Service
         return catalog;
     }
     /// <summary>固定包始终只读，任何真实宿主运行都使用新的完整副本。</summary>
-    internal static CrossTableExcelPackageProof CopyForExecution(CrossTableExcelPackageProof proof,string destination)
+    internal static CrossTableExcelPackageProof CopyForExecution(CrossTableExcelPackageProof proof,string destination,bool redundant=false)
     {
-        Verify(proof);var root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination));if(Directory.Exists(root)||File.Exists(root))throw new InvalidOperationException("六模型执行副本已存在。");
+        Verify(proof,redundant:redundant);var root=Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination));if(Directory.Exists(root)||File.Exists(root))throw new InvalidOperationException("六模型执行副本已存在。");
         _=CSharpGenerator.SafePath(root,".metarill-execution-boundary");Directory.CreateDirectory(root);
         foreach(var file in proof.Files){var target=CSharpGenerator.SafePath(root,file.Key);Directory.CreateDirectory(Path.GetDirectoryName(target)!);File.Copy(CSharpGenerator.SafePath(proof.PackageRoot,file.Key),target);}
-        var copied=proof with{PackageRoot=root};Verify(copied);return copied;
+        var copied=proof with{PackageRoot=root};Verify(copied,redundant:redundant);return copied;
     }
 }

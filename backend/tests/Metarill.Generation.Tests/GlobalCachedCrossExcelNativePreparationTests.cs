@@ -38,38 +38,48 @@ public sealed class GlobalCachedCrossExcelNativePreparationTests
     }
     /// <summary>真实完整源码严格编译、两轮partial保护及文件漂移拒绝，冻结副本只接受明确运行审计。</summary>
     [Fact]
-    public async Task Combined_prepared_host_builds_and_freezes_all_six_original_transaction_hooks()
+    public Task Combined_prepared_host_builds_and_freezes_all_six_original_transaction_hooks()=>BuildPrepared(false);
+
+    /// <summary>六种 R1 形态使用同一验收宿主，冻结时核对真实逐级名称存储。</summary>
+    [Fact]
+    public Task R1_prepared_host_builds_and_freezes_six_level_cache_models()=>BuildPrepared(true);
+
+    private static async Task BuildPrepared(bool redundant)
     {
+        var evidenceRoot=redundant?GlobalCachedCrossExcelNativePreparation.RedundantRoot:GlobalCachedCrossExcelNativePreparation.Root;
         var source=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-cross-excel-native");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var package=Path.Combine(directory,"application");
         try
         {
-            GlobalCachedCrossExcelNativePreparation.Create(source,package);
+            GlobalCachedCrossExcelNativePreparation.Create(source,package,redundant);
             var build=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",package);
             foreach(var argument in new[]{"build","backend/Application.Host/Application.Host.csproj","-c","Release","-warnaserror","--disable-build-servers","--verbosity","quiet"})build.ArgumentList.Add(argument);
             await NonRedundantApplicationFixture.RunAsync(build);
-            var proof=GlobalCachedCrossExcelNativePreparation.Capture(package);var catalog=GlobalCachedCrossExcelNativePreparation.Verify(proof);Assert.Equal(32,catalog.ConfigTables.Count);
+            var proof=GlobalCachedCrossExcelNativePreparation.Capture(package);var catalog=GlobalCachedCrossExcelNativePreparation.Verify(proof,redundant:redundant);Assert.Equal(32,catalog.ConfigTables.Count);
             foreach(var asset in new[]{"components/yzp-cascade-tree/yzp-cascade-tree.vue","common/yzp_runtime/detailLayoutRuntime.js"})Assert.Equal(File.ReadAllBytes(Path.Combine(source,"frontend/metarill_uni_admin",asset)),File.ReadAllBytes(Path.Combine(package,"frontend",asset)));
             var hostDirectory=CSharpGenerator.SafePath(package,"backend/Application.Host");var host=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",hostDirectory);
             host.ArgumentList.Add(CSharpGenerator.SafePath(hostDirectory,"bin/Release/net10.0/Application.Host.dll"));host.Environment["ASPNETCORE_ENVIRONMENT"]="Production";host.Environment["DOTNET_ENVIRONMENT"]="Production";host.Environment["Authentication__Mode"]="Web";host.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";host.Environment["Database__Provider"]="mysql";host.Environment["Database__ExpectedDatabase"]="offline";host.Environment["Database__ConnectionString"]="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1";host.Environment["Files__RootDirectory"]=Path.Combine(directory,"files");host.Environment["Exports__RootDirectory"]=Path.Combine(directory,"exports");
-            var logs=CSharpGenerator.SafePath(source,GlobalCachedCrossExcelNativePreparation.Root+"/offline-hosts/"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(logs);host.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=logs;
+            var logs=CSharpGenerator.SafePath(source,evidenceRoot+"/offline-hosts/"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(logs);host.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=logs;
             await using(var running=await FreshHost.StartAsync(host,"/health"))foreach(var table in catalog.ConfigTables.Where(value=>value.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)))
             {
                 var page=catalog.ConfigPages.Single(value=>value.ConfigTableId==table.Id);var route="/api/admin/auto/"+table.TableName+"/"+page.Id+"/";
                 foreach(var action in new[]{"page","importDatas"+page.Id,"initExport"})await FreshWebHttp.SendAsync(running.Client,HttpMethod.Post,route+action,new{},System.Net.HttpStatusCode.Unauthorized);
             }
-            GlobalCachedCrossExcelNativePreparation.Verify(proof);
+            GlobalCachedCrossExcelNativePreparation.Verify(proof,redundant:redundant);
             Assert.False(File.Exists(Path.Combine(package,".metarill-package.json")));
+            Assert.All(catalog.ConfigTables.Where(table=>table.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)),
+                table=>Assert.Equal(redundant?1:0,table.IsRongyu));
+            Assert.Throws<InvalidOperationException>(()=>GlobalCachedCrossExcelNativePreparation.Verify(proof,redundant:!redundant));
             Assert.Equal(6,proof.Files.Keys.Count(path=>path.StartsWith("backend/generated/Services/",StringComparison.Ordinal)&&path.EndsWith("CrossConsumerService.cs",StringComparison.Ordinal)));
             foreach(var path in new[]{"src/Metarill.Core/Cascades/CrossTableExcelPath.cs","backend/metadata/project.json",CrossTableExcelApplicationPreparer.Marker,"backend/Application.Host/bin/Release/net10.0/Application.Host.dll"})
-            {var file=CSharpGenerator.SafePath(package,path);var bytes=await File.ReadAllBytesAsync(file);await File.AppendAllTextAsync(file,"本轮漂移");Assert.ThrowsAny<Exception>(()=>GlobalCachedCrossExcelNativePreparation.Verify(proof));await File.WriteAllBytesAsync(file,bytes);}
-            var foreign=CSharpGenerator.SafePath(package,"backend/Application.Host/ForeignOverride.cs");await File.WriteAllTextAsync(foreign,"// 不允许通过重新冻结收编额外源文件。\n");Assert.Throws<InvalidOperationException>(()=>GlobalCachedCrossExcelNativePreparation.Verify(GlobalCachedCrossExcelNativePreparation.Capture(package)));File.Delete(foreign);
-            var markerPath=CSharpGenerator.SafePath(package,CrossTableExcelApplicationPreparer.Marker);var markerBytes=await File.ReadAllBytesAsync(markerPath);var marker=JsonNode.Parse(markerBytes)!;marker["readyForPublication"]=true;await File.WriteAllTextAsync(markerPath,marker.ToJsonString());Assert.Throws<InvalidOperationException>(()=>GlobalCachedCrossExcelNativePreparation.Verify(GlobalCachedCrossExcelNativePreparation.Capture(package)));await File.WriteAllBytesAsync(markerPath,markerBytes);
-            var copied=GlobalCachedCrossExcelNativePreparation.CopyForExecution(proof,Path.Combine(directory,"execution/application"));var journal=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host/.local/schema-history.jsonl");Directory.CreateDirectory(Path.GetDirectoryName(journal)!);await File.WriteAllTextAsync(journal,"{}\n");Assert.Throws<InvalidOperationException>(()=>GlobalCachedCrossExcelNativePreparation.Verify(copied));GlobalCachedCrossExcelNativePreparation.Verify(copied,true);GlobalCachedCrossExcelNativePreparation.Verify(proof);
-            var output=Environment.GetEnvironmentVariable("METARILL_GLOBAL_CROSS_EXCEL_PREPARE_OUTPUT");
+            {var file=CSharpGenerator.SafePath(package,path);var bytes=await File.ReadAllBytesAsync(file);await File.AppendAllTextAsync(file,"本轮漂移");Assert.ThrowsAny<Exception>(()=>GlobalCachedCrossExcelNativePreparation.Verify(proof,redundant:redundant));await File.WriteAllBytesAsync(file,bytes);}
+            var foreign=CSharpGenerator.SafePath(package,"backend/Application.Host/ForeignOverride.cs");await File.WriteAllTextAsync(foreign,"// 不允许通过重新冻结收编额外源文件。\n");Assert.Throws<InvalidOperationException>(()=>GlobalCachedCrossExcelNativePreparation.Verify(GlobalCachedCrossExcelNativePreparation.Capture(package),redundant:redundant));File.Delete(foreign);
+            var markerPath=CSharpGenerator.SafePath(package,CrossTableExcelApplicationPreparer.Marker);var markerBytes=await File.ReadAllBytesAsync(markerPath);var marker=JsonNode.Parse(markerBytes)!;marker["readyForPublication"]=true;await File.WriteAllTextAsync(markerPath,marker.ToJsonString());Assert.Throws<InvalidOperationException>(()=>GlobalCachedCrossExcelNativePreparation.Verify(GlobalCachedCrossExcelNativePreparation.Capture(package),redundant:redundant));await File.WriteAllBytesAsync(markerPath,markerBytes);
+            var copied=GlobalCachedCrossExcelNativePreparation.CopyForExecution(proof,Path.Combine(directory,"execution/application"),redundant);var journal=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host/.local/schema-history.jsonl");Directory.CreateDirectory(Path.GetDirectoryName(journal)!);await File.WriteAllTextAsync(journal,"{}\n");Assert.Throws<InvalidOperationException>(()=>GlobalCachedCrossExcelNativePreparation.Verify(copied,redundant:redundant));GlobalCachedCrossExcelNativePreparation.Verify(copied,true,redundant);GlobalCachedCrossExcelNativePreparation.Verify(proof,redundant:redundant);
+            var output=Environment.GetEnvironmentVariable(redundant?"METARILL_GLOBAL_CROSS_EXCEL_R1_PREPARE_OUTPUT":"METARILL_GLOBAL_CROSS_EXCEL_PREPARE_OUTPUT");
             if(!string.IsNullOrWhiteSpace(output))
             {
-                Assert.Equal(CSharpGenerator.SafePath(source,GlobalCachedCrossExcelNativePreparation.Root+"/prepared"),Path.GetFullPath(output));
-                var exported=GlobalCachedCrossExcelNativePreparation.CopyForExecution(proof,output);await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(output)!,"prepared-receipt.json"),JsonSerializer.Serialize(exported,new JsonSerializerOptions{WriteIndented=true}));
+                Assert.Equal(CSharpGenerator.SafePath(source,evidenceRoot+"/prepared"),Path.GetFullPath(output));
+                var exported=GlobalCachedCrossExcelNativePreparation.CopyForExecution(proof,output,redundant);await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(output)!,"prepared-receipt.json"),JsonSerializer.Serialize(exported,new JsonSerializerOptions{WriteIndented=true}));
             }
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
