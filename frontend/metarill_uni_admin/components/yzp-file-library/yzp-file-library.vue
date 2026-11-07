@@ -2011,8 +2011,14 @@ export default {
       if (url.indexOf('http://') === 0 || url.indexOf('https://') === 0) {
         return url
       }
-      var baseUrl = getApp().globalData.environment.base_url || ''
-      return baseUrl.replace(/\/$/, '') + '/' + String(url).replace(/^\//, '')
+      var baseUrl = (getApp().globalData.environment.base_url || '').replace(/\/$/, '')
+      var path = '/' + String(url).replace(/^\//, '')
+      var pathname = path.split(/[?#]/, 1)[0]
+      // 同源部署返回的根相对地址可能已经解析过，按完整路径段识别原 API 前缀。
+      if (baseUrl.startsWith('/') && (pathname === baseUrl || pathname.startsWith(baseUrl + '/'))) {
+        return path
+      }
+      return baseUrl + path
     },
     thumbnailUrl(file) {
       if (!file) {

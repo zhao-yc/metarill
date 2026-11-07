@@ -7,17 +7,23 @@ const component = await readFile(new URL('../components/yzp-file-library/yzp-fil
 const wrapper = await readFile(new URL('../../../backend/templates/standalone-frontend/frontend-yzp.js.tpl', import.meta.url), 'utf8')
 
 /** 在同一运行时对象执行实际组件和独立包适配，只模拟请求与弹窗。 */
-function fixture() {
- const dialogs = [], requests = []
+function fixture(baseUrl = '/api') {
+ const dialogs = [], requests = [], downloads = []
  const yzp = { request: options => requests.push(options) }
- const context = vm.createContext({ yzp, uni: { showModal: options => dialogs.push(options) } })
+ const getApp = () => ({ globalData: { environment: { base_url: baseUrl } } })
+ const uni = {
+  showModal: options => dialogs.push(options),
+  downloadFile: options => downloads.push(options),
+  getStorageSync: key => key === 'loginStateId' ? '合成会话' : key === 'sysParams' ? { yzProjectId: '100' } : ''
+ }
+ const context = vm.createContext({ yzp, uni, getApp })
  vm.runInContext(wrapper.replace(/^import .*$/m, '').replace('export default yzp', ''), context)
  const script = component.match(/<script>([\s\S]*?)<\/script>/)[1]
  const { methods } = vm.runInContext(script.replace(/^import\s+[\s\S]+? from '[^']+'\s*$/gm, '').replace('export default {', '({') + ')', context)
  const record = { fileId: '9007199254740993' }
  const state = { ...methods, files: [record], dialogFiles: [record], libraryFiles: [record] }
  state.normalizeFileItem = item => item
- return { dialogs, requests, state, record }
+ return { dialogs, requests, downloads, state, record }
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -65,4 +71,29 @@ test('主动预览仍使用原提示，和后台解析共用同一地址', () =>
  assert.equal(dialogs.length, 1)
  assert.equal(dialogs[0].content, '没有当前操作权限。')
  return tick().then(() => assert.equal(rejection.message, '没有当前操作权限。'))
+})
+
+test('同源 API 下解析过的受保护地址直接进入鉴权下载', () => {
+ const route = '/admin/sys/file-library/protected-content/9007199254740993'
+ for (const base of ['/api', '/metarill/api/', 'https://example.invalid/api/']) {
+  for (const mode of ['LOCAL_STREAM', 'PROXY_STREAM']) {
+   const { state, record, downloads } = fixture(base)
+   const file = state.mergeResolvedAccess(record, { url: route, mode, mimeType: 'application/zip' })
+   state.openFile(file)
+   assert.equal(downloads.length, 1)
+   assert.equal(downloads[0].url, base.replace(/\/$/, '') + route)
+   assert.equal(downloads[0].header.loginStateId, '合成会话')
+   assert.equal(decodeURIComponent(downloads[0].header.sysParams), '{"yzProjectId":"100"}')
+  }
+ }
+})
+
+test('公开缩略图和带相似前缀的原接口路径均只拼接一次', () => {
+ const { state, record } = fixture('/api/')
+ const route = '/admin/sys/file-library/public-content/9007199254740993?projectId=100'
+ const file = state.mergeResolvedAccess(record, { url: route, mode: 'PUBLIC_URL', mimeType: 'image/png' })
+ assert.equal(state.thumbnailUrl(file), '/api' + route)
+ assert.equal(state.buildAbsoluteUrl('/apifiles/a.zip'), '/api/apifiles/a.zip')
+ const signed = 'https://storage.example.invalid/object?signature=test'
+ assert.equal(state.buildAbsoluteUrl(signed), signed)
 })
