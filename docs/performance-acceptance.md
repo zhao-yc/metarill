@@ -52,6 +52,12 @@ V492 为 Server-200 的原生回放补充 `resourceWindow`。在业务计时开�
 
 读、写、文件和 Excel 原生回放均固定累计资源探针的源文件。调用旧工具的固定历史范围仍以其原源码和回执为准。详见 [V492 实证和资源差异](testing/cumulative-resource-window-v492.md)。
 
+## 逐次真实修复资源取证
+
+V493 的原维护用途可显式选择 `maintenanceReplayProfile=fresh-repair-cost-v1`，固定总预算为 208 次回放。两端每种表分别预热 16 次，三轮各记录 12 次真实修复。每次都重新制造并核验 132 个缓存故障，准备和核验在该次 HTTP／CPU 窗口之外。CPU 比较按切片差值合计，吞吐按这些 HTTP 窗口的合计时长计算，窗口内存逐次保留。其他维护回放继续使用原配置。
+
+Server-200 固定双端实测完成，充分预热后的明细 CPU 差异未稳定重现，明细吞吐三轮触线、p95 两轮触线，资源已独立核清。该固定负载继续阻断首版性能验收，详见 [V493 原始结果及范围](testing/paired-maintenance-repair-cpu-v493.md)。
+
 ## 结果与失败处理
 
 `intent.json` 先记录runId和配置摘要；`events.jsonl` 每次预热/正式意图/完成后追加并落盘，保存已完成阶段。`measurement.json` 保存完整汇总；异常另写不含异常正文的 `failure.json`。报告只保存响应摘要，不保存认证头、正文或口令。私有原始SQL/样本证明也应脱敏并另存。

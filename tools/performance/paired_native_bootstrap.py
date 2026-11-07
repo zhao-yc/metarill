@@ -71,6 +71,10 @@ def validate(value):
             raise ValueError("维护计时只接受固定的回放预算")
     elif "maintenanceReplayRequests" in value:
         raise ValueError("其它用途不能携带维护回放预算")
+    if "maintenanceReplayProfile" in value:
+        if (not resources.is_maintenance_measurement(value)
+                or value["maintenanceReplayProfile"] != "fresh-repair-cost-v1"):
+            raise ValueError("维护资源取证只接受明确的逐次重新制造故障配置")
     if resources.uses_excel_export(value):
         if type(value.get("exportPreflightRequests")) is not int or value["exportPreflightRequests"] != resources.EXCEL_EXPORT_PREFLIGHT_REQUESTS or any(key in value for key in ("readReplayRequests", "writeReplayRequests", "workbookReplayRequests")):
             raise ValueError("导出用途只接受固定票据及下载请求数")
@@ -770,7 +774,10 @@ def run(value):
                     import paired_maintenance_measurement as maintenance_replay
                     if maintenance_replay.REPLAY_REQUESTS != resources.MAINTENANCE_REPLAY_REQUESTS:
                         raise ValueError("measurement-maintenance-replay-budget")
-                    state["measurement"].update(maintenance_replay.run_measurement(
+                    replay = (maintenance_replay.run_repair_cost_measurement
+                              if value.get("maintenanceReplayProfile") == "fresh-repair-cost-v1"
+                              else maintenance_replay.run_measurement)
+                    state["measurement"].update(replay(
                         root, run_id, targets, probe, mysql.mysql, execute_maintenance_fixture, maintenance_request))
             elif file_measurement is not None:
                 stage("真实附件样本及无SQL采集的受保护文件下载性能回放")
