@@ -250,7 +250,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 number++;
                 result.AppendLine($"        var parent{number} = session.Select<{parent.EntityType}>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
                 if (parent.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"        parent{number} = parent{number}.Where(entity => entity.DeleteNo == null);");
-                result.AppendLine($"        if (await parent{number}.ForUpdate().FirstAsync(cancellationToken) is null) throw new InvalidOperationException(\"父记录不存在或不属于当前项目。\");");
+                // 父锁只验证命中，避免在同一事务内传输父表的其他业务列。
+                result.AppendLine($"        if ((await parent{number}.ForUpdate().Limit(1).ToListAsync(entity => entity.Id, cancellationToken)).Count != 1) throw new InvalidOperationException(\"父记录不存在或不属于当前项目。\");");
             }
         }
         if (!page.Scopes.Any(scope => scope.Source == "parent")) result.AppendLine("        await Task.CompletedTask;");

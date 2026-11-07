@@ -27,7 +27,7 @@ public sealed class GeneratedMutationGuardScopeTests
             Assert.Contains("query = query.Where(entity => entity." + property + " == ", source);
             Assert.DoesNotContain("[\"" + column + "\"]", source.Split("MutationScopeValues(global::Example.Scope.Generated.Entities.Customer entity)")[1].Split("private static readonly")[0]);
             Assert.DoesNotContain(source.Split('\n'), line => line.Contains("mutationScopeValues[\"" + column + "\"]", StringComparison.Ordinal));
-            Assert.Contains("parent1.ForUpdate().FirstAsync", source);
+            Assert.Contains("parent1.ForUpdate().Limit(1).ToListAsync(entity => entity.Id, cancellationToken)", source);
 
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
@@ -45,7 +45,7 @@ public sealed class GeneratedMutationGuardScopeTests
             Assert.Contains("[\"owner_id\"] = entity.OwnerId", source);
             Assert.Contains("mutationScopeValues[\"owner_id\"] = long.Parse(parentId, CultureInfo.InvariantCulture)", source);
             Assert.Contains("[\"yz_project_id\"] = entity.YzProjectId", source);
-            Assert.Contains("parent1.ForUpdate().FirstAsync", source);
+            Assert.Contains("parent1.ForUpdate().Limit(1).ToListAsync(entity => entity.Id, cancellationToken)", source);
             var import = source.Split("public Task<string> Import101Async")[1].Split("var rowNumber")[0];
             Assert.Contains("mutationScopeValues[\"owner_id\"] = long.Parse(request.ParentId, CultureInfo.InvariantCulture)", import);
             Assert.True(import.IndexOf("PrepareMutationAsync", StringComparison.Ordinal) < import.IndexOf("ValidateParents101Async", StringComparison.Ordinal));
@@ -83,7 +83,7 @@ public sealed class GeneratedMutationGuardScopeTests
     }
 
     /// <summary>显式合法外键和已发布父表使旧parent编译真实可达，反例不是缺少父定义造成的假失败。</summary>
-    private static MetadataCatalog Catalog(string columnName, string logicalType)
+    internal static MetadataCatalog Catalog(string columnName, string logicalType)
     {
         var catalog = GeneratorTests.Catalog();
         foreach (var column in catalog.ConfigColumns.Where(column => column.LogicalType == "id")) column.LogicalType = "int64";

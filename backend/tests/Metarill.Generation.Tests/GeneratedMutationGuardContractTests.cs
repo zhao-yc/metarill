@@ -234,6 +234,14 @@ public sealed class GeneratedMutationGuardRun : IDisposable
                 SeedRow?.Invoke(row);
                 return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(type).Invoke(null, [row]);
             }
+            // 父归属只读取主键，替身执行真实生成选择器，保留其他完整锁读。
+            if (method.Name == "ToListAsync" && method.IsGenericMethod && method.GetGenericArguments().Single() == typeof(long))
+            {
+                var row = Activator.CreateInstance(type)!;
+                type.GetProperty("Id")!.SetValue(row, 1L);
+                var projection = (System.Linq.Expressions.LambdaExpression)args![0]!;
+                return Task.FromResult(new List<long> { (long)projection.Compile().DynamicInvoke(row)! });
+            }
             if (method.Name == "CountAsync") return Task.FromResult(1L);
             return query;
         }); return query;

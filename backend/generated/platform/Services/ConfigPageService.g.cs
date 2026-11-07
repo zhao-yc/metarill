@@ -62,7 +62,7 @@ public partial class ConfigPageService
         if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException("当前页面要求 parentId。");
         var parent1 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigTable>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         parent1 = parent1.Where(entity => entity.DeleteNo == null);
-        if (await parent1.ForUpdate().FirstAsync(cancellationToken) is null) throw new InvalidOperationException("父记录不存在或不属于当前项目。");
+        if ((await parent1.ForUpdate().Limit(1).ToListAsync(entity => entity.Id, cancellationToken)).Count != 1) throw new InvalidOperationException("父记录不存在或不属于当前项目。");
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
     private ISelect<global::Metarill.Platform.Generated.Entities.ConfigPage> Scope1868973685063311361(RuntimeActor actor, string? parentId)

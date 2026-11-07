@@ -129,3 +129,7 @@ B97 独立通过 `PublishedReadProjectionCompilation` 缩小普通实体纯读�
 ## V517 固定主键回读
 
 非冗余详情、写后回显及已选确认改为有界查询，保留原单 VO、范围和跨表存储校验。此项使用现有非冗余固定读取计划。独立用途 VO 与本文件的 IR 接线仍待验证。见 [非冗余主键回读 V517](testing/nonredundant-key-read-v517.md)。
+
+## 2026-11-08 普通父记录归属锁读
+
+V552 将普通父范围新增与导入的父行锁读收窄为主键。实库核对项目、软删除、事务锁及原 HTTP，独立用途 VO 仍按上文跟踪。见 [父锁投影](testing/generated-parent-lock-projection-v551-v552.md)。
