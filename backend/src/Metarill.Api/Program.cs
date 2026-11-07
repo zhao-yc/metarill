@@ -135,6 +135,7 @@ if(initialize)
     await app.Services.GetRequiredService<BootstrapService>().InitializeAsync(builder.Configuration["Metarill:Bootstrap:Username"]??"",builder.Configuration["Metarill:Bootstrap:Password"]??"",businessOptions);
     Console.WriteLine("平台与独立业务库初始化完成；重复执行不会重置管理员密码。");return;
 }
+app.UseTrustedClientIp();
 app.UseRouting();app.UseCors();app.UseRateLimiter();
 app.Use(async(context,next)=>
 {

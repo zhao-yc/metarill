@@ -48,6 +48,8 @@ dotnet run --project backend/Application.Host -- --initialize-security
 
 该命令只初始化本包项目/后台及新生成长ID的应用管理员角色/账号，**不执行DDL、不导入平台Config/Demo/Agent/设备数据**。重复仅核验并返回unchanged，不重置密码、复活墓碑或补绑既有用户名。并发初始化由真实事务与固定项目主键取锁/唯一冲突保护；冲突失败回滚，不自动重试。初始化前须完成上述包结构同步。
 
+同源 Web 网关应保留 /api 路径，将 X-Forwarded-For 覆盖为实际客户端地址。后端仅监听私有接口，并在私有配置的 Metarill:ReverseProxy:TrustedIps 中填写直接连接的网关 IP 列表。空列表沿用连接地址。使用受管运行时更新升级已有应用，并在重启前保留自己的 appsettings.local.json。
+
 配置私有 Redis DB0 后再登录。将连接串设置在 `Authentication:LoginFailures:ConnectionString` 或环境变量 `Authentication__LoginFailures__ConnectionString`。缺少配置或 Redis 不可用时，正式登录会拒绝。
 
 在包根启动宿主，日志输出到终端，按 Ctrl+C 停止。

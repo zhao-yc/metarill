@@ -191,6 +191,7 @@ if (schemaCommand is not null)
     return;
 }
 // CORS必须在认证前处理OPTIONS预检；允许来源只解决浏览器访问，绝不赋予API身份。
+app.UseTrustedClientIp();
 app.UseRouting();
 if (developmentCors) app.UseCors();
 // 在控制器创建数据库服务前认证，因此无数据库配置时默认也能明确返回 401。

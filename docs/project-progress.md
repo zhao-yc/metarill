@@ -852,6 +852,8 @@
 | V559 | ✅ 反查名称边界修复通过 | 修复前后 Production、Server-200 大小写敏感 MySQL | 两个物理名各自读回，旧同项目计划在保存才失败，修复后提前拒绝。共享库不同项目各自登记。末尾换行在 CLI 请求和数据库连接前拒绝，数据 1,594／元数据 577 通过，四轮资源核清。 | [名称边界](testing/schema-import-name-boundaries-v559.md)，2026-11-08 |
 | V560 | ✅ MySQL 模式 1 反查实际表名通过 | 独占 MySQL、修复前后 Production 分别验收 | 旧版两个别名产生不同指纹并保存请求拼写。修复后快照、指纹、审核和配置均对应实际物理名，重复拒绝。原源表及独占资源核对通过。 | [物理表名复验](testing/schema-import-physical-name-v560-v561.md)，2026-11-08 |
 | V561 | ✅ MySQL 模式 0 精确表名回归通过 | 同一修复宿主、Server-200 大小写敏感 MySQL | 两张仅大小写不同的表仍按物理名区分，同项目审核冲突及跨项目分别登记通过。最终数据层 1,597 通过，元数据定向 46 通过，双库资源核清。 | [敏感模式回归](testing/schema-import-physical-name-v560-v561.md)，2026-11-08 |
+| V562 | 🟡 当前 Windows 生成回归运行中 | 固定 1bd29bb4 | 前端 365、Agent CLI 141、原 Vue 请求 12 项通过。Agent 首次调用缺 SDK 路径和回环能力，修正环境后全量通过。生成器严格编译已通过，六组继续。d50ed43e 的历史 CI 15 作业成功，当前提交的 PR CI 仍待。 | [历史 CI](https://github.com/zhao-yc/metarill/actions/runs/42391513996)、[基线 CI](https://github.com/zhao-yc/metarill/actions/runs/42400186916)，2026-11-08 |
+| V563 | ✅ Web 宿主代理限流与受管升级固定子集通过 | 平台、公开 Full 及已升级独立应用 Production | 旧平台共用限流额度复现。修复后两个客户端区分，同来源仍限流，非受信及伪造头拒绝，18 项 API 回归通过。旧包受管更新写 3 份文件，389 份原前端一致、私有设置/AppID/手写保留，升级宿主实际复验。真实网关验收待部署时执行。 | [代理专项](testing/web-proxy-client-ip-v563.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 

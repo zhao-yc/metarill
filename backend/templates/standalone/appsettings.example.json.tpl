@@ -6,5 +6,5 @@
   "Agent": { "VerificationUri": "", "DeviceCodeSeconds": 600, "PollingSeconds": 5, "AccessTokenSeconds": 900, "GrantSeconds": 2592000 },
   "Authentication": { "Mode": "Web", "LoginFailures": { "ConnectionString": "" }, "Cap": { "Enabled": false, "ServerUrl": "", "SiteKey": "", "SecretKey": "" }, "Bootstrap": { "AdminTypeId": "", "Username": "", "Password": "" }, "DevelopmentBootstrap": { "Enabled": false, "Username": "", "Password": "", "SessionLifetimeSeconds": 3600 } },
   "AllowedHosts": "localhost;127.0.0.1",
-  "Metarill": { "TinyCloud": { "ApiKey": "", "CloudChannel": "8", "PremiumPlugins": [] } }
+  "Metarill": { "ReverseProxy": { "TrustedIps": [] }, "TinyCloud": { "ApiKey": "", "CloudChannel": "8", "PremiumPlugins": [] } }
 }
