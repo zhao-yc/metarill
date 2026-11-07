@@ -24,22 +24,23 @@ public sealed class PublicR0CrossExcelNativePreparationTests
 
     /// <summary>公开包自身严格构建、六partial保护、文件漂移与重新捕获拒绝，并核对18个匿名原入口。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Public_full_builds_freezes_and_rejects_drift_without_a_database(bool overwrite)
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    public async Task Public_full_builds_freezes_and_rejects_drift_without_a_database(bool overwrite,bool redundant)
     {
         var source=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-public-r0-cross-excel");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var package=Path.Combine(directory,"application");
         try
         {
-            PublicR0CrossExcelNativePreparation.Create(source,package,overwrite);
+            PublicR0CrossExcelNativePreparation.Create(source,package,overwrite,redundant);
             var build=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",package);
             foreach(var argument in new[]{"build","backend/Application.Host/Application.Host.csproj","-c","Release","-warnaserror","--disable-build-servers","--verbosity","quiet"})build.ArgumentList.Add(argument);
             var logs=CSharpGenerator.SafePath(source,PublicR0CrossExcelNativePreparation.Root+"/offline-builds/"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(logs);build.Environment["METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY"]=logs;await NonRedundantApplicationFixture.RunAsync(build);
             // 先逐份证明文件就是原钩子的原始字节，避免用行尾规范化掩盖手写内容漂移。
             foreach(var table in PublicR0CrossExcelNativePreparation.Catalog().ConfigTables.Where(table=>table.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)))
                 Assert.Equal(System.Text.Encoding.UTF8.GetBytes(GlobalCachedCrossExcelNativePreparation.Handwritten(table.TableName)),await File.ReadAllBytesAsync(Path.Combine(package,"backend/generated/Services",GenerationModel.Pascal(table.TableName)+"Service.cs")));
-            var proof=PublicR0CrossExcelNativePreparation.Capture(package);var catalog=PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:overwrite);
-            Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:!overwrite));
+            var proof=PublicR0CrossExcelNativePreparation.Capture(package);var catalog=PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:overwrite,redundant:redundant);
+            Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:redundant?overwrite:!overwrite,redundant:false));
             Assert.True(File.Exists(Path.Combine(package,".metarill-package.json")));Assert.False(File.Exists(Path.Combine(package,CrossTableExcelApplicationPreparer.Marker)));
             Assert.Equal(6,proof.Files.Keys.Count(path=>path.StartsWith("backend/generated/Services/",StringComparison.Ordinal)&&path.EndsWith("CrossConsumerService.cs",StringComparison.Ordinal)));
             foreach(var asset in new[]{"components/yzp-cascade-tree/yzp-cascade-tree.vue","common/yzp_runtime/detailLayoutRuntime.js","common/yzp_runtime/yzp-runtime.js"})Assert.Equal(File.ReadAllBytes(Path.Combine(source,"frontend/metarill_uni_admin",asset)),File.ReadAllBytes(Path.Combine(package,"frontend",asset)));
@@ -52,20 +53,20 @@ public sealed class PublicR0CrossExcelNativePreparationTests
             }
             foreach(var path in new[]{"src/Metarill.Core/Cascades/CrossTableExcelPath.cs","backend/metadata/project.json","backend/Application.Host/bin/Release/net10.0/Application.Host.dll"})
             {
-                var file=CSharpGenerator.SafePath(package,path);var bytes=await File.ReadAllBytesAsync(file);await File.AppendAllTextAsync(file,"本轮来源漂移");Assert.ThrowsAny<Exception>(()=>PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:overwrite));
+                var file=CSharpGenerator.SafePath(package,path);var bytes=await File.ReadAllBytesAsync(file);await File.AppendAllTextAsync(file,"本轮来源漂移");Assert.ThrowsAny<Exception>(()=>PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:overwrite,redundant:redundant));
                 // 托管源码必须符合原生成清单，重新捕获也不能收编；编译输出由原冻结快照和外层授权范围绑定。
-                if(!path.Contains("/bin/",StringComparison.Ordinal))Assert.ThrowsAny<Exception>(()=>PublicR0CrossExcelNativePreparation.Verify(PublicR0CrossExcelNativePreparation.Capture(package),overwrite:overwrite));
+                if(!path.Contains("/bin/",StringComparison.Ordinal))Assert.ThrowsAny<Exception>(()=>PublicR0CrossExcelNativePreparation.Verify(PublicR0CrossExcelNativePreparation.Capture(package),overwrite:overwrite,redundant:redundant));
                 await File.WriteAllBytesAsync(file,bytes);
             }
-            var foreign=CSharpGenerator.SafePath(package,"src/Metarill.Core/Foreign.cs");await File.WriteAllTextAsync(foreign,"// 重新捕获不能收编额外源码。\n");Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(PublicR0CrossExcelNativePreparation.Capture(package),overwrite:overwrite));File.Delete(foreign);
-            var marker=CSharpGenerator.SafePath(package,".metarill-package.json");var markerBytes=await File.ReadAllBytesAsync(marker);var node=JsonNode.Parse(markerBytes)!;node["authenticationProfile"]="development-only";await File.WriteAllTextAsync(marker,node.ToJsonString());Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(PublicR0CrossExcelNativePreparation.Capture(package),overwrite:overwrite));await File.WriteAllBytesAsync(marker,markerBytes);
-            var copied=PublicR0CrossExcelNativePreparation.CopyForExecution(proof,Path.Combine(directory,"execution/application"),overwrite);var journal=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host/.local/schema-history.jsonl");Directory.CreateDirectory(Path.GetDirectoryName(journal)!);await File.WriteAllTextAsync(journal,"{}\n");Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(copied,overwrite:overwrite));PublicR0CrossExcelNativePreparation.Verify(copied,true,overwrite);PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:overwrite);
-            var output=Environment.GetEnvironmentVariable(overwrite?"METARILL_PUBLIC_R0_CROSS_OVERWRITE_PREPARE_OUTPUT":"METARILL_PUBLIC_R0_CROSS_EXCEL_PREPARE_OUTPUT");
+            var foreign=CSharpGenerator.SafePath(package,"src/Metarill.Core/Foreign.cs");await File.WriteAllTextAsync(foreign,"// 重新捕获不能收编额外源码。\n");Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(PublicR0CrossExcelNativePreparation.Capture(package),overwrite:overwrite,redundant:redundant));File.Delete(foreign);
+            var marker=CSharpGenerator.SafePath(package,".metarill-package.json");var markerBytes=await File.ReadAllBytesAsync(marker);var node=JsonNode.Parse(markerBytes)!;node["authenticationProfile"]="development-only";await File.WriteAllTextAsync(marker,node.ToJsonString());Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(PublicR0CrossExcelNativePreparation.Capture(package),overwrite:overwrite,redundant:redundant));await File.WriteAllBytesAsync(marker,markerBytes);
+            var copied=PublicR0CrossExcelNativePreparation.CopyForExecution(proof,Path.Combine(directory,"execution/application"),overwrite,redundant);var journal=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host/.local/schema-history.jsonl");Directory.CreateDirectory(Path.GetDirectoryName(journal)!);await File.WriteAllTextAsync(journal,"{}\n");Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativePreparation.Verify(copied,overwrite:overwrite,redundant:redundant));PublicR0CrossExcelNativePreparation.Verify(copied,true,overwrite,redundant);PublicR0CrossExcelNativePreparation.Verify(proof,overwrite:overwrite,redundant:redundant);
+            var output=Environment.GetEnvironmentVariable(redundant?"METARILL_PUBLIC_R1_CROSS_EXCEL_PREPARE_OUTPUT":overwrite?"METARILL_PUBLIC_R0_CROSS_OVERWRITE_PREPARE_OUTPUT":"METARILL_PUBLIC_R0_CROSS_EXCEL_PREPARE_OUTPUT");
             if(!string.IsNullOrWhiteSpace(output))
             {
-                var root=overwrite?PublicR0CrossExcelNativePreparation.OverwriteRoot:PublicR0CrossExcelNativePreparation.Root;
+                var root=redundant?PublicR0CrossExcelNativePreparation.RedundantRoot:overwrite?PublicR0CrossExcelNativePreparation.OverwriteRoot:PublicR0CrossExcelNativePreparation.Root;
                 Assert.Equal(CSharpGenerator.SafePath(source,root+"/prepared"),Path.GetFullPath(output));
-                var exported=PublicR0CrossExcelNativePreparation.CopyForExecution(proof,output,overwrite);await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(output)!,"prepared-receipt.json"),JsonSerializer.Serialize(exported,new JsonSerializerOptions{WriteIndented=true}));
+                var exported=PublicR0CrossExcelNativePreparation.CopyForExecution(proof,output,overwrite,redundant);await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(output)!,"prepared-receipt.json"),JsonSerializer.Serialize(exported,new JsonSerializerOptions{WriteIndented=true}));
             }
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

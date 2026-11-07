@@ -18,9 +18,11 @@ internal static class RedundantCrossTableSubset
             if(ExactDataManageCompilation.Declared(page))return "冗余跨表精确权限的完整用途仍待证明。";
             if(page.Scopes.Any(scope=>scope.Source=="parent"))SharedRedundantParentCompilation.Require(model,table,page);
             RequireRealm(model,table,page);var bindings=RelationPropagationCompilation.Bindings(model).Concat(RelationPropagationCompilation.DerivedBindings(model)).ToArray();
+            var plans=new List<CrossTableWriteModel>(trees.Length);
             foreach(var source in trees)
             {
                 var plan=CrossTableWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null)return "冗余跨表完整写入证明缺失，隐藏控件不能绕过。";
+                plans.Add(plan);
                 var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
                 if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.Source.ControlDetail)))return "冗余跨表页级角色覆盖尚未完成统一完整用途证明。";
                 if(CrossTableFrontendProof.Reason(plan) is{} mismatch)return mismatch;
@@ -29,13 +31,31 @@ internal static class RedundantCrossTableSubset
                     RequireRealm(model,level.Read.Target,level.Read.Page);
                     if(level.Read.DerivedName&&!MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns.GetValueOrDefault(table.Source.TableName,[]).Contains(level.Name.Source.ColumnName,StringComparer.Ordinal))return "冗余跨表派生名称缺少完整混合传播闭包。";
                     if(!bindings.Any(binding=>binding.Source.Source.Id==table.Source.Id&&(binding.CrossTableColumnId==source.Source.Id&&binding.CrossTableLevelKey==level.Read.Key||SharedCrossTableCompilation.ForSource(model,table,page,source.Source.Id) is{} shared&&shared.Plans.Any(p=>p.Read.Source.Source.Id==binding.CrossTableColumnId&&p.Levels.Any(l=>l.Read.Key==binding.CrossTableLevelKey&&l.Id.Source.Id==level.Id.Source.Id)))&&binding.Foreign.Source.Id==level.Id.Source.Id&&binding.Cache.Source.Id==level.Name.Source.Id&&binding.Target.Source.Id==level.Read.Target.Source.Id&&binding.Value.Source.Id==level.Read.Name.Source.Id&&binding.CrossTablePageId==(level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null)))return "冗余跨表各级名称缓存尚未形成完整静态传播闭包。";
-                    if(ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name))return CrossTableExcelRenderer.ExportAcceptancePending;
                 }
-                if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>column.Source.Id==source.Source.Id))return CrossTableExcelRenderer.ImportAcceptancePending;
             }
+            var slots=plans.SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id,level.Name}).DistinctBy(column=>column.Source.Id).ToArray();
+            var pathIds=trees.Select(tree=>tree.Source.Id).ToHashSet(StringComparer.Ordinal);
+            var imports=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
+            var exportedSlots=slots.Where(column=>ExportRenderer.IncludesColumn(page,column)).ToArray();
+            var importedSlots=slots.Where(column=>imports.Any(field=>field.Source.Id==column.Source.Id)).ToArray();
+            if(exportedSlots.Length==0&&importedSlots.Length==0)return null;
+            var supported=companions.Length==trees.Length&&SupportsPathCells(model,table,page,plans);
+            if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list")||
+                exportedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ExportAcceptancePending;
+            if(importedSlots.Length>0&&(!supported||ImportRenderer.Mode(page) is not ("" or "OnlyNew")||
+                importedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ImportAcceptancePending;
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "冗余跨表完整用途未通过："+error.Message;}
+    }
+    /// <summary>正式 MySQL 路径单元格覆盖物理候选以及一条路径或经统一协调的双路径。父页、派生目标与重复角色单独验收。</summary>
+    private static bool SupportsPathCells(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
+    {
+        if(model.Catalog.DatabaseProvider!="mysql"||page.Scopes.Any(scope=>scope.Source=="parent")||plans.Count>2)return false;
+        if(plans.Any(plan=>plan.Levels.Count is <2 or >3||
+            plan.Levels.Any(level=>level.Read.Target.Source.IsRongyu!=1||level.Read.DerivedName||level.Read.Target.Source.Id==table.Source.Id)||
+            plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()!=plan.Levels.Count))return false;
+        return plans.Count==1||SharedCrossTableCompilation.ForSource(model,table,page,plans[0].Read.Source.Source.Id)?.Plans.Count==plans.Count;
     }
     /// <summary>包内表、候选页及后台必须明确发布于同一项目，不能从空项目推断授权。</summary>
     private static void RequireRealm(GenerationModel model,TableModel table,PageModel page)

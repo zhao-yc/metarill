@@ -10,7 +10,7 @@ internal static class ExportRenderer
     /// <summary>保留旧 exportMethod，也支持明确的导出开关。</summary>
     public static bool Enabled(PageModel page) => page.Source.IsExport == 1 || Mode(page) is "list" or "edit";
     /// <summary>未指定时使用列表列，编辑导出明确使用详情列。</summary>
-    private static string Mode(PageModel page) => page.Source.Extra.TryGetValue("exportMethod", out var mode) ? mode.ToString() : "";
+    internal static string Mode(PageModel page) => page.Source.Extra.TryGetValue("exportMethod", out var mode) ? mode.ToString() : "";
     /// <summary>定制组件没有通用 Excel 表示，不能自动导出内部配置。</summary>
     private static IReadOnlyList<ColumnModel> Columns(PageModel page) => (Mode(page) == "edit" ? page.DetailColumns : page.ListColumns).Where(column => column.Source.ControlKind != "CustomControl" && !ManagerCredentialCompilation.IsObsolete(column) && !(column.Source.ConfigTableId==ManagerCredentialCompilation.TableId&&column.Source.Id==ManagerCredentialCompilation.PasswordId)).ToArray();
     /// <summary>能力门禁复用真实导出开启和列选择规则，未导出该列不产生该用途缺口。</summary>

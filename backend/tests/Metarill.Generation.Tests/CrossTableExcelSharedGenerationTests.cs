@@ -20,7 +20,7 @@ namespace Metarill.Generation.Tests;
 public sealed class CrossTableExcelSharedGenerationTests
 {
     private const string Prefix="shared_excel",Namespace="Example.SharedExcel";
-    /// <summary>四个R1物理组合执行双路径聚合；独立R0／派生组合通过公开审计，R1的Excel门槛保持。</summary>
+    /// <summary>四个R1物理组合执行双路径聚合；物理R1和既有R0通过公开审计，R1派生目标继续拒绝。</summary>
     [Theory]
     [InlineData("shared-r1")][InlineData("short-r1")][InlineData("global-r1")][InlineData("global-no-project-r1")]
     [InlineData("shared-r0")][InlineData("short-r0")][InlineData("derived-r1")][InlineData("derived-short-r0")]
@@ -29,7 +29,7 @@ public sealed class CrossTableExcelSharedGenerationTests
         var definition=Definition(profile);var catalog=Catalog(profile);var before=JsonSerializer.Serialize(catalog);
         var model=GenerationModel.Create(catalog,Namespace);var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);
         var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,page).Groups);Assert.Equal(2,group.Plans.Count);
-        var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);if(definition.Redundant==0)Assert.Empty(proof.Gaps);else Assert.NotEmpty(proof.Gaps);
+        var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);var accepted=definition.Redundant==0||!definition.Derived;if(accepted)Assert.Empty(proof.Gaps);else Assert.NotEmpty(proof.Gaps);
         Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(proof.Baseline,Namespace)));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-excel");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -39,7 +39,7 @@ public sealed class CrossTableExcelSharedGenerationTests
             Assert.NotNull(assembly.GetType(Namespace+".Generated.Controllers.SharedExcelSourcePage201Controller"));
             var partial=Path.Combine(generated,"Services/SharedExcelSourceService.cs");await File.AppendAllTextAsync(partial,"\n// 共享Excel保留的手写扩展。\n");var bytes=await File.ReadAllBytesAsync(partial);
             new CSharpGenerator().Generate(catalog,generated,Namespace);Assert.Equal(bytes,await File.ReadAllBytesAsync(partial));Assert.Equal(before,JsonSerializer.Serialize(catalog));
-            if(definition.Redundant==0)new FrontendPackager().Validate(catalog);else Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+            if(accepted)new FrontendPackager().Validate(catalog);else Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
             if(definition.Redundant==1&&!definition.Derived)await Exercise(assembly,catalog,definition.Shorter,definition.Global,definition.NoProject);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

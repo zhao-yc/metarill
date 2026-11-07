@@ -33,6 +33,27 @@ public sealed class PublicR0CrossExcelNativeLeaseTests
         Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),root));Assert.False(Directory.Exists(root));
     }
 
+    /// <summary>公开 R1 只接受自己的用途、固定包及结构预算。</summary>
+    [Fact]
+    public void Public_R1_requires_separate_lease()
+    {
+        var root=Path.Combine(Path.GetTempPath(),"metarill-public-r1-cross-gate",Guid.NewGuid().ToString("N"));
+        var catalog=PublicR0CrossExcelNativePreparation.Catalog(redundant:true);
+        var value=JsonSerializer.SerializeToNode(new
+        {
+            Purpose=PublicR0CrossExcelNativeLease.RedundantPurpose,AuthorizationStatus="approved",LeaseStatus="running",
+            ProductCommit=PublicR0CrossExcelNativePreparation.RedundantBaseCommit,RunId="0123456789abcdef",PublicCrossExcelPreparation=new{PackageRoot=root},
+            Profiles=GlobalCachedCrossExcelMySqlLease.Profiles.Select(p=>GlobalCachedCrossExcelMySqlLease.Profile(p.Role,p.Key,p.Parent,p.AllGlobal,p.Shared,p.Shorter)),
+            BusinessTables=catalog.ConfigTables.Select(table=>table.TableName),MaximumBusinessRows=512,MaximumTables=44
+        })!;
+        Assert.Equal(44,FreshInstallConfiguration.ExpectedFullTableCount(catalog));
+        Assert.Equal("0123456789abcdef",PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),root,redundant:true));
+        Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),root));
+        value["AuthorizationStatus"]="pending";
+        Assert.Throws<InvalidOperationException>(()=>PublicR0CrossExcelNativeLease.Validate(JsonSerializer.SerializeToElement(value),root,redundant:true));
+        Assert.False(Directory.Exists(root));
+    }
+
     /// <summary>追加和覆盖不能互借用途、产品来源、固定根或表数预算。</summary>
     [Fact]
     public void Public_overwrite_requires_its_own_lease_and_fixed_package()

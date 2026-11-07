@@ -13,7 +13,7 @@ public sealed class GlobalCachedCrossExcelGenerationTests
 {
     private const string Namespace="Example.GlobalCachedCrossExcel";
     private const long Country=9007199254742011,Area=9007199254742021,Place=9007199254742031,Warehouse=9007199254742041;
-    /// <summary>各级名称及共享/短级联沿同一生成器往返，原导入导出开关和公开门槛均保留。</summary>
+    /// <summary>各级名称及共享/短级联沿同一生成器往返，原导入导出开关、元数据和公开打包一致。</summary>
     [Theory]
     [InlineData(0,"string","string",false,false,false)]
     [InlineData(1,"string","int64",false,false,false)]
@@ -26,8 +26,7 @@ public sealed class GlobalCachedCrossExcelGenerationTests
     public async Task Generated_global_cached_names_roundtrip_original_paths(int role,string key,string parent,bool allGlobal,bool shared,bool shorter)
     {
         var catalog=shared?GlobalCrossCachedTargetFixture.CreateShared(1,key,parent,shorter):GlobalCrossCachedTargetFixture.Create(1,role,key,parent,allGlobal);
-        var before=JsonSerializer.Serialize(catalog);var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);Assert.NotEmpty(proof.Gaps);
-        Assert.All(proof.Gaps,gap=>Assert.Contains(gap.Reason,new[]{CrossTableExcelRenderer.ImportAcceptancePending,CrossTableExcelRenderer.ExportAcceptancePending}));
+        var before=JsonSerializer.Serialize(catalog);var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);Assert.Empty(proof.Gaps);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-cached-cross-excel");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var generated=Path.Combine(directory,"generated");
         try
         {
@@ -74,7 +73,7 @@ public sealed class GlobalCachedCrossExcelGenerationTests
             var cachedIndex=shared?1:role;Seed(cachedIndex,ids[cachedIndex]+200,names[cachedIndex],cachedIndex==0?null:ids[cachedIndex-1]);
             await Assert.ThrowsAsync<PageImportException>(()=>Parse(full,shared?"国甲/区甲/仓甲":null));
             await Assert.ThrowsAsync<InvalidOperationException>(()=>runtime.Export());
-            Assert.Equal(before,JsonSerializer.Serialize(catalog));Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+            Assert.Equal(before,JsonSerializer.Serialize(catalog));new FrontendPackager().Validate(catalog);
             return;
             Task<Dictionary<string,JsonElement>> Parse(string? main,string? second){var row=new Dictionary<string,object?>{{"区域",main}};if(shared)row["仓库"]=second;return runtime.Parse(row);}
             void Seed(int index,long id,string text,long? parentId,int status=1,bool deleted=false)

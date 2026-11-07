@@ -109,11 +109,14 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
         }
 
         /// <summary>真实普通账号逐项经过原候选、路径、Excel、复制、文件及权限边界。</summary>
-        internal async Task Verify()
+        internal async Task Verify(string? workbookStorage,string sourceRoot)
         {
             using(var anonymous=new HttpClient{BaseAddress=reader.BaseAddress})await Send(anonymous,HttpMethod.Post,Route+"importDatas"+SourcePage,new{requestJson=Array.Empty<object>()},HttpStatusCode.Unauthorized);
             await Candidates();
-            await Import(Input("完整",Full,shared?Secondary:null),Input("根级",First,shared?labels[0]+"//":null),Input("中级",Middle,shared?labels[0]+"/"+labels[1]+"/":null),Input("空值",null,null));
+            var rows=new[]{Input("完整",Full,shared?Secondary:null),Input("根级",First,shared?labels[0]+"//":null),
+                Input("中级",Middle,shared?labels[0]+"/"+labels[1]+"/":null),Input("空值",null,null)};
+            if(workbookStorage is null)await Import(rows);
+            else await ImportWithOriginalPicker(rows,workbookStorage,sourceRoot);
             await CheckStorage("完整",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);await CheckStorage("根级",0,At(Country),shared?0:-1,shared?At(Country):null);await CheckStorage("中级",1,At(Area),shared?1:-1,shared?At(Area):null);await CheckStorage("空值",-1,null,-1,null);
             await store.InsertAsync(Source,Row("id",At(Lookup)+1,"name","其它项目","yz_project_id",Project+1,shorter?"area_id":"place_id",key=="string"?Id(At(shorter?Area:Place)):At(shorter?Area:Place)));
             var exported=await Export();Assert.Equal(4,exported.Count);Assert.False(exported.ContainsKey("其它项目"));Assert.Equal((Full,shared?Secondary:null),exported["完整"]);Assert.Equal((First,shared?labels[0]+"//":null),exported["根级"]);Assert.Equal((Middle,shared?labels[0]+"/"+labels[1]+"/":null),exported["中级"]);Assert.Equal(((string?)null,(string?)null),exported["空值"]);
@@ -296,6 +299,33 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             await Import(HttpStatusCode.Forbidden,Input("拒权不得写入",Full,shared?Secondary:null));await Send(reader,HttpMethod.Post,Route+"initExport",new{},HttpStatusCode.Forbidden);await Send(reader,HttpMethod.Post,Route+"cascadeTreeOptions"+main.Id,new{levelKey="country",selectedPath=new{}},HttpStatusCode.Forbidden);Assert.Equal(before,await Snapshot());
             Assert.NotNull(lastFile);using(var denied=await reader.GetAsync("/api/admin/sys/file-library/protected-content/"+lastFile))Assert.Equal(fileDenied,denied.StatusCode);
             await Grant(SourcePage,"[\"is_all\"]");
+        }
+        /// <summary>用实际工作簿驱动原选择函数和 SheetJS，再把原回调 JSON 交给生成接口。</summary>
+        private async Task ImportWithOriginalPicker(IReadOnlyList<Dictionary<string,object?>> rows,string storage,string sourceRoot)
+        {
+            Directory.CreateDirectory(storage);
+            var workbook=Path.Combine(storage,profile+"-paths.xlsx");
+            var expected=Path.Combine(storage,profile+"-expected.json");
+            var received=Path.Combine(storage,profile+"-received.json");
+            var headers=shared?new[]{"名称","区域","仓库"}:new[]{"名称","区域"};
+            using(var book=new XLWorkbook())
+            {
+                var sheet=book.AddWorksheet("原级联导入");
+                for(var column=0;column<headers.Length;column++)
+                {
+                    sheet.Cell(1,column+1).Value=headers[column];
+                    for(var row=0;row<rows.Count;row++)
+                        if(rows[row][headers[column]] is string cell)sheet.Cell(row+2,column+1).Value=cell;
+                }
+                book.SaveAs(workbook);
+            }
+            await File.WriteAllTextAsync(expected,JsonSerializer.Serialize(rows.Select(row=>row.Where(cell=>cell.Value is not null).ToDictionary())));
+            var node=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node",sourceRoot);
+            foreach(var argument in new[]{Path.Combine(sourceRoot,"backend/tests/Metarill.Generation.Tests/OriginalExcelImportProbe.mjs"),sourceRoot,workbook,expected,received})node.ArgumentList.Add(argument);
+            Stage="原工作簿解析";
+            await NonRedundantApplicationFixture.RunAsync(node);
+            using var parsed=JsonDocument.Parse(await File.ReadAllTextAsync(received));
+            await Post(reader,Route+"importDatas"+SourcePage,new{requestJson=parsed.RootElement});
         }
         /// <summary>来源只提交原中文表头，普通原请求不新增配置列或隐藏字段。</summary>
         private Dictionary<string,object?> Input(string name,string? main,string? second){var row=Row("名称",name,"区域",main);if(shared)row["仓库"]=second;return row;}

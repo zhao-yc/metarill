@@ -22,13 +22,33 @@ public sealed class CrossTableExcelPublicationTests
         Assert.Equal(before, JsonSerializer.Serialize(catalog));
     }
 
-    /// <summary>R1的物理名称缓存仍需独立完整证据，不能借R0的正式通过解除其Excel门槛。</summary>
+    /// <summary>公开 R1 保留全部六页、八个跨表控件及原导入导出开关。</summary>
     [Fact]
-    public void R1_cross_excel_keeps_its_independent_publication_gap()
+    public void Proven_R1_six_models_publish_all_eight_original_paths()
+    {
+        var catalog=GlobalCachedCrossExcelNativePreparation.Catalog(redundant:true);
+        var model=GenerationModel.Create(catalog,"Example.PublishedR1Excel");
+        var sources=model.Tables.Where(table=>table.Source.TableName.EndsWith("_cross_consumer",StringComparison.Ordinal)).ToArray();
+        Assert.Equal(6,sources.Length);
+        Assert.All(sources,table=>{var page=Assert.Single(table.Pages);Assert.Equal(1,page.Source.IsImport);Assert.Equal(1,page.Source.IsExport);});
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        using var capabilities=JsonDocument.Parse(UniappRenderer.Render(model).Single(file=>file.Path=="generation-capabilities.json").Content);
+        var paths=capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray()
+            .Where(row=>row.TryGetProperty("sourceMode",out var mode)&&mode.GetString()=="crossTable"&&row.GetProperty("storageMode").GetString()=="redundant").ToArray();
+        Assert.Equal(8,paths.Length);
+        Assert.All(paths,row=>Assert.True(row.GetProperty("fullApplicationAccepted").GetBoolean()));
+    }
+
+    /// <summary>只发布已验证的追加与列表路径导出，覆盖和详情导出仍须独立证明。</summary>
+    [Theory]
+    [InlineData("importMethod","OverWriteByFirstColumn",CrossTableExcelRenderer.ImportAcceptancePending)]
+    [InlineData("exportMethod","edit",CrossTableExcelRenderer.ExportAcceptancePending)]
+    public void R1_cross_excel_keeps_unverified_publication_gaps(string method,string mode,string expected)
     {
         var catalog = GlobalCrossCachedTargetFixture.Create(1, 1, "string", "int64", false);
+        catalog.ConfigPages.Single(page=>page.Id=="30").Extra[method]=JsonSerializer.SerializeToElement(mode);
         var gaps = GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, "Example.UnprovenR1Excel"));
-        Assert.Contains(gaps, gap => gap.Reason == CrossTableExcelRenderer.ImportAcceptancePending || gap.Reason == CrossTableExcelRenderer.ExportAcceptancePending);
+        Assert.Contains(gaps, gap => gap.Reason == expected);
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
     }
 

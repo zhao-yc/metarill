@@ -7,24 +7,26 @@ internal static class PublicR0CrossExcelNativeLease
 {
     internal const string EnvironmentKey="METARILL_PUBLIC_R0_CROSS_EXCEL_NATIVE_SETTINGS";
     internal const string Purpose="public-r0-cross-excel-native-v1";
+    internal const string RedundantEnvironmentKey="METARILL_PUBLIC_R1_CROSS_EXCEL_NATIVE_SETTINGS";
+    internal const string RedundantPurpose="public-r1-cross-excel-native-v1";
     internal const string OverwriteEnvironmentKey="METARILL_PUBLIC_R0_CROSS_OVERWRITE_NATIVE_SETTINGS";
     internal const string OverwritePurpose="public-r0-cross-overwrite-v1";
     internal const int OverwriteMaximumTables=44;
     internal const int MaximumBusinessRows=512,MaximumTables=43;
 
     /// <summary>用途、来源、固定包、六模型及32业务表预算必须在文件复制／宿主／连接之前校验。</summary>
-    internal static string Validate(JsonElement settings,string preparedRoot,bool overwrite=false)
+    internal static string Validate(JsonElement settings,string preparedRoot,bool overwrite=false,bool redundant=false)
     {
-        var purpose=overwrite?OverwritePurpose:Purpose;
-        var product=overwrite?PublicR0CrossExcelNativePreparation.OverwriteProductCommit:PublicR0CrossExcelNativePreparation.ProductCommit;
+        var purpose=redundant?RedundantPurpose:overwrite?OverwritePurpose:Purpose;
+        var product=redundant?PublicR0CrossExcelNativePreparation.RedundantBaseCommit:overwrite?PublicR0CrossExcelNativePreparation.OverwriteProductCommit:PublicR0CrossExcelNativePreparation.ProductCommit;
         if(Text(settings,"Purpose")!=purpose||Text(settings,"AuthorizationStatus")!="approved"||Text(settings,"LeaseStatus")!="running"||Text(settings,"ProductCommit")!=product)
             throw new InvalidOperationException("公开R0六模型尚无本轮独占新库授权。");
         var run=Text(settings,"RunId");if(!Regex.IsMatch(run,"\\A[a-f0-9]{16}\\z"))throw new InvalidOperationException("公开R0运行标识不规范。");
         if(!settings.TryGetProperty("PublicCrossExcelPreparation",out var proof)||proof.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("公开R0固定完整包缺失。");
         var root=Text(proof,"PackageRoot");if(!Path.IsPathFullyQualified(root)||Path.GetFullPath(root)!=Path.GetFullPath(preparedRoot))throw new InvalidOperationException("公开R0固定包根不符。");
         var expected=GlobalCachedCrossExcelMySqlLease.Profiles.Select(p=>GlobalCachedCrossExcelMySqlLease.Profile(p.Role,p.Key,p.Parent,p.AllGlobal,p.Shared,p.Shorter)).ToArray();
-        RequireNames(settings,"Profiles",expected);RequireNames(settings,"BusinessTables",PublicR0CrossExcelNativePreparation.Catalog(overwrite).ConfigTables.Select(table=>table.TableName).ToArray());
-        RequireBudget(settings,"MaximumBusinessRows",MaximumBusinessRows);RequireBudget(settings,"MaximumTables",overwrite?OverwriteMaximumTables:MaximumTables);return run;
+        RequireNames(settings,"Profiles",expected);RequireNames(settings,"BusinessTables",PublicR0CrossExcelNativePreparation.Catalog(overwrite,redundant).ConfigTables.Select(table=>table.TableName).ToArray());
+        RequireBudget(settings,"MaximumBusinessRows",MaximumBusinessRows);RequireBudget(settings,"MaximumTables",redundant||overwrite?OverwriteMaximumTables:MaximumTables);return run;
     }
     /// <summary>集合必须完整、唯一、无额外项，不接受排序第一项或空值回退。</summary>
     private static void RequireNames(JsonElement settings,string key,IReadOnlyList<string> expected)
