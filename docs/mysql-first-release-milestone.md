@@ -193,3 +193,5 @@ C104后续固定da137bb完成三表TIME正式1过／0败／0跳过：14表显式
 2026-11-08 V555。当前 Production 平台在 Server-200 分库验证同名源表，保存业务库实际列及索引，原两库数据保持。跨项目重放和限定库名被拒绝，两轮资源独立核清。见 [分库同名归属](testing/schema-import-split-target-v555.md)。
 
 2026-11-08 V556。修复原单步公开上传在 S3 写入回执丢失后的孤儿对象。旧共库宿主实库复现，修复后共库与分库均通过真实 SeaweedFS 故障、条件删除和独立 MySQL／对象读回。三轮资源核清。见 [回执丢失回滚](testing/legacy-s3-ambiguous-rollback-v556.md)。
+
+2026-11-08 V557／V558。当前公开 Full 独立应用在真实 SeaweedFS 验证旧单步回滚、分步保留对象、不同字节拒绝及相同字节并发恢复。同地址重启后原两普通会话和上传计划仍有效，原绑定、权限、Range 和实库回收通过。见 [独立应用重试与重启](testing/standalone-s3-upload-retry-v557-v558.md)。
