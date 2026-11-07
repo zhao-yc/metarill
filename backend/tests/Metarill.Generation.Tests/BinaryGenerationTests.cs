@@ -60,6 +60,11 @@ public partial class CustomerService
                 }
                 var error=await Assert.ThrowsAsync<PageImportException>(()=>ClockTimeGenerationTests.Invoke(service,"ParseImport101Async",JsonSerializer.SerializeToElement(new Dictionary<string,string>{{"名称","错误"},{"二进制","不是Base64"}}),null,run.Actor,CancellationToken.None));
                 Assert.Equal(PageImportError.Binary,error.Code);Assert.Equal("二进制",error.ColumnName);
+                var tooLong = await Assert.ThrowsAsync<PageImportException>(() => ClockTimeGenerationTests.Invoke(service,
+                    "ParseImport101Async", JsonSerializer.SerializeToElement(new Dictionary<string, string>
+                    { { "名称", "过长输入" }, { "二进制", "AQIDBAU=" } }), null, run.Actor, CancellationToken.None));
+                Assert.Equal(PageImportError.BinaryLength, tooLong.Code);
+                Assert.Equal("二进制", tooLong.ColumnName);
             }
             foreach(var json in new[]{"""{"name":"超长输入","payload":"AQIDBAU="}""","""{"name":"超长钩子","payload":""}"""})
             {

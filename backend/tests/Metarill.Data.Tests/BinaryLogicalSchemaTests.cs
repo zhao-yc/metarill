@@ -45,6 +45,30 @@ public sealed class BinaryLogicalSchemaTests
         var schema=new DatabaseSchema("db",[new("record",[new("id","bigint",false,true),new("value","varbinary(4)",true,DefaultSql:sql)])]);
         Assert.False(SchemaImportDraftCompiler.Compile(new(new("mysql",schema,"source"),[]),"123").ColumnsAndIndexesRepresentable);
     }
+    /// <summary>复用实库 SHOW CREATE，零字节不能沿截断的 COLUMN_DEFAULT 错当成空默认。</summary>
+    [Theory]
+    [InlineData("varbinary(4)", "0x00FF007F", "X'00FF007F'")]
+    [InlineData("longblob", "(0x00ff007f)", "X'00FF007F'")]
+    [InlineData("varbinary(4)", "0x", "X''")]
+    public void Binary_create_table_default_keeps_the_complete_physical_bytes(string type, string literal, string expected)
+    {
+        var ddl = "CREATE TABLE \x60record\x60 (\n  \x60value\x60 " + type + " DEFAULT " + literal + " COMMENT 'DEFAULT 0xFF',\n  PRIMARY KEY (\x60id\x60)\n)";
+        Assert.True(MySqlBinaryDefault.TryReadCreateDefault(ddl, "value", type, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>注释、函数、未知包装及同名重复行均不能提供二进制默认证明。</summary>
+    [Theory]
+    [InlineData("DEFAULT (unhex('00FF'))")]
+    [InlineData("COMMENT 'DEFAULT 0x00FF'")]
+    [InlineData("DEFAULT ((0x00FF))")]
+    public void Binary_create_table_unknown_expressions_keep_schema_protected(string clause)
+    {
+        var ddl = "CREATE TABLE \x60record\x60 (\n  \x60value\x60 varbinary(4) " + clause + "\n)";
+        Assert.False(MySqlBinaryDefault.TryReadCreateDefault(ddl, "value", "varbinary(4)", out _));
+        Assert.False(MySqlBinaryDefault.TryReadCreateDefault(ddl, "other", "varbinary(4)", out _));
+    }
+
     /// <summary>空二进制常量是合法物理值，但不能丢成现有元数据的“无默认”；生成列表达式保持保护。</summary>
     [Fact]
     public void Empty_and_generated_defaults_do_not_silently_lose_semantics()

@@ -28,3 +28,7 @@ MySQL适配器把固定字节编译为 X'00FF007F'；longblob 使用 (X'00FF007F
 - 新默认完整包已从自身源码严格构建，但没有正式登录／HTTP／持久化结果；构建、离线执行和真实数据库验收分别记录。
 
 私有日志与TRX位于 .local/binary-defaults-20261030。真实DDL、物理默认生成/清除/反查、不同长度与SQL模式、HTTP持久化及原Excel空值往返仍需独占正式样本验收。B102与C38既有待批冻结范围没有变更，不消费其租约；MySQL首版和跨端／性能门槛继续保留。
+
+## V490 真实持久化与原 XLSX
+
+Server-200 的完整独立应用已通过 VARBINARY／BLOB 默认、真实普通账号 HTTP、字段省略／null／零字节、原 XLSX／SheetJS 回导、整批回滚及重启。真实 MySQL 复现并修复默认快照截断，导入超长字节也已按本列输入分类返回。null 单元格沿原解析器省略，重建时使用默认。详细范围及剩余限制见 [V490](testing/binary-persistence-v490.md)。

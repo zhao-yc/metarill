@@ -23,6 +23,24 @@ internal static class MySqlBinaryDefault
         if(hex.Length%2!=0||hex.Any(value=>!char.IsAsciiHexDigit(value)))return false;
         sql="X'"+hex.ToUpperInvariant()+"'";return true;
     }
+    /// <summary>MySQL 的 VARBINARY 默认快照可能在零字节处截断，改从同一次反查的建表文本核对明确常量。</summary>
+    internal static bool TryReadCreateDefault(string ddl, string column, string storeType, out string? sql)
+    {
+        sql = null;
+        if (!Supports(storeType)) return false;
+        var name = "\x60" + column.Replace("\x60", "\x60\x60") + "\x60";
+        var hex = "(?:0x[0-9a-f]*|x'[0-9a-f]*')";
+        var pattern = @"^[ \t]*" + System.Text.RegularExpressions.Regex.Escape(name)
+            + @"[ \t]+" + System.Text.RegularExpressions.Regex.Escape(storeType)
+            + @"[ \t]+(?:(?:NOT[ \t]+)?NULL[ \t]+)?DEFAULT[ \t]+(?<value>"
+            + hex + @"|\(" + hex + @"\))(?=[ \t,\r\n]|$)";
+        var matches = System.Text.RegularExpressions.Regex.Matches(ddl, pattern,
+            System.Text.RegularExpressions.RegexOptions.Multiline
+            | System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        return matches.Count == 1 && TryNormalize(matches[0].Groups["value"].Value, out sql);
+    }
+
     /// <summary>反查只还原已归一字节，不将SQL文字误作为Base64默认内容。</summary>
     internal static byte[] Read(string raw)
     {

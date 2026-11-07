@@ -217,8 +217,13 @@ public sealed partial class {{page.Name}}ImportRequest
             {
                 // 先在本列内用与DTO一致的类型/JSON选项核验，避免整DTO反序列化后只剩属性路径、丢中文列名。
                 result.AppendLine("                    try").AppendLine("                    {")
-                    .AppendLine($"                        var normalized = {CellExpression(column)};")
-                    .AppendLine($"                        _ = normalized.Deserialize<{column.BoundaryType}>(JsonOptions);");
+                    .AppendLine($"                        var normalized = {CellExpression(column)};");
+                var binaryMaximum = column.Type == "byte[]?"
+                    ? global::Metarill.Core.Contracts.BinaryFieldValue.MaximumLength(column.Source.ColumnLength) : null;
+                if (binaryMaximum is { } maximum)
+                    result.AppendLine($"                        if (normalized.Deserialize<{column.BoundaryType}>(JsonOptions) is {{ Length: > {maximum} }}) throw PageImportException.Input(PageImportError.BinaryLength);");
+                else
+                    result.AppendLine($"                        _ = normalized.Deserialize<{column.BoundaryType}>(JsonOptions);");
                 if (column.IsJsonArray) result.AppendLine("                        if (normalized.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null)) throw PageImportException.Input(PageImportError.Array);");
                 result.AppendLine($"                        values[{Literal(column.JsonName)}] = normalized;")
                     .AppendLine("                    }").AppendLine("                    catch (PageImportException error) when (error.IsInputError)").AppendLine("                    {")

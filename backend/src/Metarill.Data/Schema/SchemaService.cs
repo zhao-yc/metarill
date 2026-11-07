@@ -151,6 +151,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                 "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @table", token, ("@table", name)), CultureInfo.InvariantCulture);
             if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("受管辖表必须使用 InnoDB，以保证业务事务。");
             var columns = new List<ColumnSchema>();
+            var binaryDefaults = new HashSet<string>(StringComparer.Ordinal);
             await using (var command = session.Provider.CreateCommand(connection))
             {
                 command.Transaction = transaction;
@@ -168,8 +169,9 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                     if(type is "text" or "longtext"&&extra.Equals("DEFAULT_GENERATED",StringComparison.Ordinal)&&MySqlTextDefault.TryNormalize(rawDefault,out var normalized)){defaultSql=normalized;generated=false;}
                     // 仅固定审计时间的已证明CURRENT_TIMESTAMP默认可解除DEFAULT_GENERATED，未知EXTRA继续保护。
                     if(extra.Equals("DEFAULT_GENERATED",StringComparison.Ordinal)&&MySqlSchemaPlanner.TryAuditTimestampDefault(reader.GetString(0),type,rawDefault,out var auditDefault)){defaultSql=auditDefault;generated=false;}
-                    // 仅精确DEFAULT_GENERATED且确认为十六进制常量时解除二进制默认保护。
-                    if(MySqlBinaryDefault.Supports(type)&&extra.Equals("DEFAULT_GENERATED",StringComparison.Ordinal)&&MySqlBinaryDefault.TryNormalize(rawDefault,out var binaryDefault)){defaultSql=binaryDefault;generated=false;}
+                    // 二进制默认先保留候选，必须再用 SHOW CREATE 核对，避免 COLUMN_DEFAULT 截断零字节。
+                    if (MySqlBinaryDefault.Supports(type) && rawDefault is not null && extra is "" or "DEFAULT_GENERATED")
+                        binaryDefaults.Add(reader.GetString(0));
                     columns.Add(new ColumnSchema(reader.GetString(0), type, reader.GetString(2) == "YES", reader.GetString(3) == "PRI", defaultSql,generated));
                 }
             }
@@ -196,6 +198,14 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
             await using var ddlReader = await ddlCommand.ExecuteReaderAsync(token);
             if (!await ddlReader.ReadAsync(token)) throw new InvalidOperationException("结构反查期间表发生变化。");
             var ddl = Regex.Replace(ddlReader.GetString(1), @"\bAUTO_INCREMENT=\d+\s*", "", RegexOptions.CultureInvariant);
+            for (var index = 0; index < columns.Count; index++)
+            {
+                var column = columns[index];
+                if (!binaryDefaults.Contains(column.Name)) continue;
+                columns[index] = MySqlBinaryDefault.TryReadCreateDefault(ddl, column.Name, column.StoreType, out var binaryDefault)
+                    ? column with { DefaultSql = binaryDefault, Generated = false }
+                    : column with { Generated = true };
+            }
             tables.Add(new TableSchema(name, columns, ddl, indexes));
         }
         return new DatabaseSchema(session.Options.ExpectedDatabase, tables);
