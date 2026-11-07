@@ -1955,6 +1955,22 @@ export default {
             })
             return
           }
+          // #ifdef H5
+          var mimeType = String(file.mimeType || that.guessMimeType(file.name)).toLowerCase()
+          if (mimeType !== 'application/pdf' && !/^(text|audio|video)\//.test(mimeType)) {
+            // 浏览器打开 Blob 地址会丢失响应中的文件名，下载时显式传递原名。
+            var link = document.createElement('a')
+            link.href = res.tempFilePath
+            link.download = file.name || file.originalName || '下载文件'
+            document.body.appendChild(link)
+            try {
+              link.click()
+            } finally {
+              link.remove()
+            }
+            return
+          }
+          // #endif
           uni.openDocument({
             filePath: res.tempFilePath,
             fail: function() {

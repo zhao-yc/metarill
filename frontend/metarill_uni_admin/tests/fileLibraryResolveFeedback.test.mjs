@@ -9,21 +9,31 @@ const wrapper = await readFile(new URL('../../../backend/templates/standalone-fr
 /** 在同一运行时对象执行实际组件和独立包适配，只模拟请求与弹窗。 */
 function fixture(baseUrl = '/api') {
  const dialogs = [], requests = [], downloads = []
+ const saved = [], previews = []
  const yzp = { request: options => requests.push(options) }
  const getApp = () => ({ globalData: { environment: { base_url: baseUrl } } })
  const uni = {
   showModal: options => dialogs.push(options),
   downloadFile: options => downloads.push(options),
+  previewImage: options => previews.push({ image: options.urls[0] }),
+  openDocument: options => previews.push({ document: options.filePath }),
   getStorageSync: key => key === 'loginStateId' ? '合成会话' : key === 'sysParams' ? { yzProjectId: '100' } : ''
  }
- const context = vm.createContext({ yzp, uni, getApp })
+ const document = {
+  createElement: () => ({
+   click() { saved.push({ href: this.href, name: this.download }) },
+   remove() {}
+  }),
+  body: { appendChild() {} }
+ }
+ const context = vm.createContext({ yzp, uni, getApp, document })
  vm.runInContext(wrapper.replace(/^import .*$/m, '').replace('export default yzp', ''), context)
  const script = component.match(/<script>([\s\S]*?)<\/script>/)[1]
  const { methods } = vm.runInContext(script.replace(/^import\s+[\s\S]+? from '[^']+'\s*$/gm, '').replace('export default {', '({') + ')', context)
  const record = { fileId: '9007199254740993' }
  const state = { ...methods, files: [record], dialogFiles: [record], libraryFiles: [record] }
  state.normalizeFileItem = item => item
- return { dialogs, requests, downloads, state, record }
+ return { dialogs, requests, downloads, saved, previews, state, record }
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -96,4 +106,33 @@ test('公开缩略图和带相似前缀的原接口路径均只拼接一次', ()
  assert.equal(state.buildAbsoluteUrl('/apifiles/a.zip'), '/api/apifiles/a.zip')
  const signed = 'https://storage.example.invalid/object?signature=test'
  assert.equal(state.buildAbsoluteUrl(signed), signed)
+})
+
+test('H5 受保护的压缩包使用原文件名和已鉴权的临时地址', () => {
+ const { state, downloads, saved, previews } = fixture()
+ const url = '/api/admin/sys/file-library/protected-content/9007199254740993'
+ state.downloadAndOpen({ url, name: '验收 附件.zip', mimeType: 'application/zip' })
+ assert.equal(downloads[0].url, url)
+ assert.equal(downloads[0].header.loginStateId, '合成会话')
+ downloads[0].success({ statusCode: 200, tempFilePath: 'blob:synthetic' })
+ assert.deepEqual(saved, [{ href: 'blob:synthetic', name: '验收 附件.zip' }])
+ assert.deepEqual(previews, [])
+ assert.equal(downloads.length, 1)
+})
+
+test('H5 仍预览图片和 PDF，下载失败时不打开临时地址', () => {
+ const { state, downloads, saved, previews } = fixture()
+ const messages = []
+ state.showToast = message => messages.push(message)
+ for (const [name, mimeType, statusCode] of [
+  ['图片.png', 'image/png', 200],
+  ['文档.pdf', 'application/pdf', 200],
+  ['附件.zip', 'application/zip', 403]
+ ]) {
+  state.downloadAndOpen({ url: '/protected', name, mimeType })
+  downloads.at(-1).success({ statusCode, tempFilePath: 'blob:' + name })
+ }
+ assert.deepEqual(previews, [{ image: 'blob:图片.png' }, { document: 'blob:文档.pdf' }])
+ assert.deepEqual(saved, [])
+ assert.deepEqual(messages, ['文件下载失败'])
 })
