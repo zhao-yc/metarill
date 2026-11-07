@@ -62,7 +62,8 @@ public sealed class FormConditionGenerationTests
         var catalog=Catalog();
         foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "27" or "28"))column.Extra["isAutoPostBack"]=JsonSerializer.SerializeToElement(1);
         catalog.ConfigColumns.Single(column=>column.Id=="25").Extra["isAutoPostBackQuery"]=JsonSerializer.SerializeToElement(1);
-        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigColumnId is "25" or "27" or "28"))
+            field.Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-form-list-ui");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {

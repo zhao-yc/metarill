@@ -120,6 +120,28 @@ test('原详情与筛选按发布依赖传原表单槽，联动变化隔离迟�
   }finally{f.app.unmount()}
  }
 })
+test('生成列表没有缓存键时只从筛选草稿取声明字段，并隔离联动前回执',()=>{
+ const f=fixture('filters',false,false,[{field:'allowed',table:'source'},{field:'minimum',table:'source'}]);try{
+  f.vm.formParametersName=undefined
+  f.storage.undefined={source:{allowed:'错误的旧缓存',minimum:'1'}}
+  Object.assign(f.vm.filters,{allowed:'甲',minimum:'9007199254743000',password:'不发送'})
+  f.vm.loadOriginalRemoteOptions('25');const old=f.selected().at(-1)
+  assert.deepEqual(old.options.data.formParameters,{allowed:'甲',minimum:'9007199254743000'})
+  f.respond(old,[row(id,'甲组已选')]);f.vm.openOriginalRemoteOptions('25');const pending=f.pages().at(-1)
+  f.vm.filters.allowed='乙';const current=f.selected().at(-1)
+  assert.notEqual(current,old);assert.equal(pending.aborted,true)
+  assert.equal(current.options.data.formParameters.allowed,'乙')
+  assert.equal(old.options.data.formParameters.allowed,'甲')
+  f.respond(pending,{records:[row(id,'甲组迟到')],pages:'1'})
+  assert.equal(f.vm.target_list.length,0);assert.equal(f.value(),id)
+  f.vm.openOriginalRemoteOptions('25')
+  assert.deepEqual(f.pages().at(-1).options.data.formParameters,{allowed:'乙',minimum:'9007199254743000'})
+  assert.equal(f.pages().at(-1).options.data.pageNo,1)
+  f.vm.filters.allowed=null;delete f.vm.filters.minimum
+  assert.deepEqual(f.selected().at(-1).options.data.formParameters,{allowed:null})
+ }finally{f.app.unmount()}
+})
+
 test('表单槽缺失与显式null不混同，无发布依赖时不发送缓存或使候选失效',()=>{
  let f=fixture('entity',false,false,[{field:'allowed',table:'source'}]);try{
   f.storage['dynamic-form']={source:{allowed:null,password:'不能泄漏'}};f.ready()

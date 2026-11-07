@@ -7,6 +7,8 @@ import { createRemoteRelationOptions } from '@/common/yzp_runtime/remoteRelation
 function originalFormParameters(source, fields) {
  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
  const scalar = value => value === null || ['string', 'number', 'boolean'].includes(typeof value) ? value : {}
+ // 先追踪当前尚不存在的筛选字段，再拒绝继承键，首次输入和清除均能使候选失效。
+ const owns = (value, key) => Reflect.has(value, key) && Object.prototype.hasOwnProperty.call(value, key)
  if (!object(source)) return null
  const result = Object.create(null), flat = new Set(fields.map(item => item.field)), tables = new Map()
  for (const { field, table } of fields) {
@@ -15,10 +17,10 @@ function originalFormParameters(source, fields) {
  }
  // 按根键合并，表名碰巧等于字段名时也保留原容器与标量语义，不依赖描述的排列。
  for (const key of new Set([...flat, ...tables.keys()])) {
-  if (!Object.prototype.hasOwnProperty.call(source, key)) continue
+  if (!owns(source, key)) continue
   if (tables.has(key) && object(source[key])) {
    const nested = Object.create(null)
-   for (const field of tables.get(key)) if (Object.prototype.hasOwnProperty.call(source[key], field)) nested[field] = scalar(source[key][field])
+   for (const field of tables.get(key)) if (owns(source[key], field)) nested[field] = scalar(source[key][field])
    result[key] = nested
   } else result[key] = flat.has(key) ? scalar(source[key]) : null
  }
@@ -67,7 +69,13 @@ export function createOriginalRemoteOptionsMixin(definitions = [], owner = 'enti
     const login = uni.getStorageSync('loginStateId'), permissions = this.permissionsReady, record = this.recordReady, id = this.id, loaded = this.loadEntitySuccess, entityId = this.entity?.id
     // 原平台页没有新宿主的ready字段；明确选择兼容模式，既有记录仍须实际回读同一字符串ID。
     const ready = owner !== 'entity' || Boolean(originalHost ? !id || loaded && typeof entityId === 'string' && entityId === id : this._alive && permissions && (!id || record))
-    return { ...(definition.formFields?.length ? { formParameters: originalFormParameters(uni.getStorageSync(this.formParametersName), definition.formFields) } : {}), endpoint: definition.endpoint, parentId: this.parent_id || null, targetParentId: definition.targetParentField ? this[owner]?.[definition.targetParentField] ?? '' : definition.sameParent ? this.parent_id || null : undefined, requireParent: definition.requireParent, requireTargetParent: definition.requireTargetParent, sameParent: definition.sameParent, readonly: !!(definition.readonlyField && this[definition.readonlyField]), authenticated: !!login && ready && this._originalRemoteAlive, identity: JSON.stringify([login || '', uni.getStorageSync('sysParams') || {}, this.parent_id || '', owner === 'entity' ? [this.id || '', this._detailEpoch || 0, ready] : !!this.is_son_page]) }
+    // 生成列表没有详情缓存键。联动候选使用原筛选框的草稿，仍只投影发布的依赖。
+    const form = definition.formFields?.length ? {
+     formParameters: originalFormParameters(
+      owner === 'filters' && !this.formParametersName ? this.filters : uni.getStorageSync(this.formParametersName),
+      definition.formFields)
+    } : {}
+    return { ...form, endpoint: definition.endpoint, parentId: this.parent_id || null, targetParentId: definition.targetParentField ? this[owner]?.[definition.targetParentField] ?? '' : definition.sameParent ? this.parent_id || null : undefined, requireParent: definition.requireParent, requireTargetParent: definition.requireTargetParent, sameParent: definition.sameParent, readonly: !!(definition.readonlyField && this[definition.readonlyField]), authenticated: !!login && ready && this._originalRemoteAlive, identity: JSON.stringify([login || '', uni.getStorageSync('sysParams') || {}, this.parent_id || '', owner === 'entity' ? [this.id || '', this._detailEpoch || 0, ready] : !!this.is_son_page]) }
    },
    /** 初始化只回读已选；展开后才分页，不预先拉完整候选集合。 */
    loadOriginalRemoteOptions(id) { const definition = definitions.find(item => item.id === id); if (this._originalRemoteAlive && definition) this._originalRemoteControllers.get(id).setValue(this[owner]?.[definition.field]) },
