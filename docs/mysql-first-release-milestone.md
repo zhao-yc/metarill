@@ -131,6 +131,10 @@ V715／V716 以固定候选复验分库与共库 S3 的原路由、普通权限�
 
 V717 固定候选用公开工厂生成完整管理包，完成正式 Web、真实 OAuth CLI、MCP 撤权、账号初始化和重启。见 [V717 固定候选完整管理包](testing/integrated-management-package-v717.md)。
 
+V718 固定候选补在线助手双项目真实写入、仅后端同步及同地址重启后的原批次恢复。见 [V718 固定候选在线助手](testing/integrated-device-runtime-v718.md)。
+
+V719 固定候选从原 Web 实测在线助手三批六任务及回执丢失后的只读恢复。见 [V719 原 Web 批量恢复](testing/integrated-device-browser-v719.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
