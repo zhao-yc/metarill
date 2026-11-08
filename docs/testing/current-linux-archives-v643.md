@@ -22,3 +22,5 @@
 独立 SQL 核对了 168 个二级索引成员，分库平台 54、分库业务 30、共库 54、独立 Full 30。均为可见、非前缀 BTREE，前后目录结果一致。独占 MySQL 容器删除前已核对四库及账号均不存在，随后用新 SSH 连接确认本轮容器、网络、数据目录及临时凭据已清理。
 
 本轮覆盖固定 Linux x64 宿主和原 HTTP 接口。站点 H5 按部署者 AppID 单独构建。完整浏览器矩阵、当前候选 CI 和 MySQL 首版签收按 [首版交付清单](../mysql-first-release-milestone.md) 跟踪。
+
+两份 ZIP 的发行摘要重新校验后，逐项核对 Apache-2.0 根许可、前端第三方清单、原选择器许可及通知、SheetJS 与 TinyMCE Vue 封装许可。两包均只锁定 TinyMCE Vue 封装 6.3.0，未带编辑器核心，示例配置中的 Tiny Cloud ApiKey 均为空。实际 Cloud 编辑仍待部署方配置后单独验收。
