@@ -90,7 +90,8 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
         Assert.Equal(2, writes);
         Assert.Equal(2, VerificationReads(trace));
         Assert.Equal(3, trace.Commands.Count(command => command.Sql.Contains("FOR UPDATE OF b FOR SHARE OF", StringComparison.Ordinal)));
-        Assert.Equal(14, trace.Commands.Count);
+        Assert.Equal(2, trace.Commands.Count(command => command.Sql.Contains("LIMIT 0; SELECT t.engine,c.column_name", StringComparison.Ordinal)));
+        Assert.Equal(10, trace.Commands.Count);
         output.WriteLine($"显式单级联接物理结果一致。活动行={ActiveRows}，实际变化={result.AffectedRows}，C# 观测SQL={trace.Commands.Count}，其中写入={writes}。未计时。");
         await VerifyLockModesAsync(session, compiled);
         await VerifyCleanLookaheadAsync(session, compiled, store);

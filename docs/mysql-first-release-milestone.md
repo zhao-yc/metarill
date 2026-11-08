@@ -79,6 +79,12 @@ V685 在同存储设备的独占 MySQL 对 230 个原写入请求做服务端分
 
 V686 追加提交阶段采集。178 笔提交均匹配服务端 handler commit，C# 明细最慢样本中该阶段为 208.1 毫秒。具体等待原因与正式复验仍待。见 [V686 提交阶段](testing/fixed-commit-waits-v686.md)。
 
+V688 关闭采集并按原门槛复验 8,544 个正式请求。明细逐次修复再次稳定退化，客户复制本轮未触发稳定退化，V681 正式失败保留。见 [V687／V688 诊断与复验](testing/fixed-write-formal-recheck-v687-v688.md)。
+
+V689 核对 178 笔提交的同线程 binlog 同步以及独占实例 redo 计数。明细最慢 C# 样本中，同线程 binlog 同步约 66.9 毫秒，实例 redo 计数另列。见 [V689 binlog 与 redo 诊断](testing/fixed-redo-binlog-diagnostics-v689.md)。
+
+V690 合并整表回填结构核验，真实 MySQL 物理对照确认驱动命令从 14 条降到 10 条，原锁、回滚及回退通过。待用新固定包复验正式性能。见 [V690 回填结构核验](testing/maintenance-schema-check-batch-v690.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |

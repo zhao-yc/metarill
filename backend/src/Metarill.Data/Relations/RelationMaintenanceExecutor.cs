@@ -23,7 +23,11 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
     /// <summary>当前锁读分批来源和目标，只更新派生列；不调用消费者Service／钩子或文件观察者。</summary>
     private async Task<MaintenanceResult> RunAsync(RelationMaintenanceCatalog catalog,MaintenanceTable table,CancellationToken token)
     {
-        var transaction=session.CurrentTransaction??throw new InvalidOperationException("回填缺少完整业务事务。");var plan=table.Read!;var packetLimit=await ValidatePhysical(plan,transaction,token);var counts=table.Fields.ToDictionary(field=>field.Name,_=>0L,StringComparer.Ordinal);long after=0;
+        var transaction=session.CurrentTransaction??throw new InvalidOperationException("回填缺少完整业务事务。");
+        var plan=table.Read!;
+        // 合并结构核验命令，仍在当前事务先锁表结构，再核对引擎和物理列。
+        var packetLimit=await ValidatePhysical(plan,transaction,token,reusePinnedStructure:true);
+        var counts=table.Fields.ToDictionary(field=>field.Name,_=>0L,StringComparer.Ordinal);long after=0;
         var scalar=table.Multiples.Count==0&&plan.Crosses.Count==0&&plan.MultiProjections.Count==0
             &&plan.Expression("id")=="b.`id`"&&plan.ImportMatchLock is not null;
         var allowLookahead=scalar&&CanLookAhead(table,plan);
