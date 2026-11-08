@@ -129,6 +129,8 @@ V714 从固定候选源码完成真实 MySQL 同库和分库的文件归属、�
 
 V715／V716 以固定候选复验分库与共库 S3 的原路由、普通权限、对象回滚与删除，共库补同址重启。见 [V715／V716 固定候选平台 S3](testing/integrated-platform-s3-v715-v716.md)。
 
+V717 固定候选用公开工厂生成完整管理包，完成正式 Web、真实 OAuth CLI、MCP 撤权、账号初始化和重启。见 [V717 固定候选完整管理包](testing/integrated-management-package-v717.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
