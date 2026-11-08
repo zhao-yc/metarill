@@ -53,3 +53,7 @@ C#原实现存在以下差异：
 ## C60跟进
 
 原getPageDetailLayout/savePageDetailLayout随后已接回平台，并补纯输入前检/执行后失败分类。最终446元数据（含19项真实SDK/原HTTP）与87平台API通过，实库条件跳过另列；真实Program工具注册与原匿名边界通过。原前端、生成物及本页C59历史数字不改写，见[当前MCP合同](testing/detail-layout-mcp.md)。正式MCP/MySQL/原工作台浏览器继续。
+
+## V665 原桌面工作台与实库快照生成
+
+当前候选通过原入口加组、分配、保存、并发版本拒绝及停用保留归属。独立 MySQL 读回与原响应的字段标识一致，使用固定示例重放两模式的公开 Full 生成。生成后的真实业务浏览器和正式 MCP 双会话仍单独验收。见 [V664／V665 原详情布局](testing/current-detail-layout-web-v664-v665.md)。
