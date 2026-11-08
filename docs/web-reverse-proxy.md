@@ -39,4 +39,4 @@ metarill.example.com {
 }
 ```
 
-`TrustedIps` 按上方示例登记 `127.0.0.1`。静态目录只挂原 H5 构建产物。私有设置由后端运行账户读取，发布物可只读挂载，运行目录和临时目录按所用 UID 单独赋权。实际回环验收、登录审计与重启结果见 [V627](testing/current-caddy-release-v627.md)。
+`TrustedIps` 按上方示例登记 `127.0.0.1`。静态目录只挂原 H5 构建产物。私有设置由后端运行账户读取，发布物可只读挂载，运行目录和临时目录按所用 UID 单独赋权。实际回环验收、登录审计与重启结果见 [V627](testing/current-caddy-release-v627.md)。Caddy HTTPS、证书正反例及原桌面浏览器见 [V628](testing/current-caddy-https-v628.md)。
