@@ -1,8 +1,10 @@
 # Java／C# 同条件性能测量
 
-当前 C# 候选固定为 0b8e8c0e，镜像 f0674b68ba3a。当前范围和发布条件见 [MySQL 首版交付节点](mysql-first-release-milestone.md)。下表归集这一候选的正式证据，后文保留各版本和失败轮次。
+当前 C# 候选为 `5c8fcb82`，镜像 `2720fc4b3120`。V634 已复算这一候选的九类固定负载和 V626 独立 SQL 采集，正式数据、逐轮触线和场景边界见 [当前性能矩阵](testing/current-mysql-performance-matrix-v634.md)。签收范围见 [MySQL 首版交付节点](mysql-first-release-milestone.md)。
 
-## 实验前必须固定的条件
+## 历史候选 0b8e8c0e 的正式证据
+
+以下归集镜像 `f0674b68ba3a` 的历史正式结果，并保留原失败及对照配置。
 
 | 条件 | 可审查证据 | 当前候选证据 |
 | --- | --- | --- |
