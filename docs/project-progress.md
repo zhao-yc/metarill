@@ -929,6 +929,7 @@
 | V655 | ✅ 当前固定 SQL 及 Web 冲突语义通过 | 31cf5321 原 108 请求 | 1,313 条驱动命令，双端回放过期摘要为 HTTP 200／R500，零业务写入并回滚。实库对象与资源已独立核清。 | [当前 SQL 与回滚](testing/current-paired-sql-v655.md)，2026-11-08 |
 | V656 | 🟡 首轮保留失败，资源已核清 | 31cf5321 原 Web | 失败批次零残留、成功两行。测试容器导出根只读，实际导出 HTTP 500。移动端与完整导出由 V657 复验。 | [原 Web 与 Excel](testing/current-original-web-excel-v656-v657.md)，2026-11-08 |
 | V657 | ✅ 固定桌面与移动 Web 链路通过 | 31cf5321，原 311 文件 | 平台表配置读回，普通账号原 XLSX 回滚／导入／真实下载，移动只读回看与三次注销。独立 MySQL 及两轮资源核零。 | [原 Web 与 Excel](testing/current-original-web-excel-v656-v657.md)，2026-11-08 |
+| V658 | ✅ 当前原 Web 结构同步通过 | 31cf5321，MySQL 8.4.11，原 311 文件 | 原表详情入口预览，取消零 DDL／零审计，确认一次恢复两个索引列。自动与手动复查零差异，宿主审计与独立 MySQL 核对一致，资源核清。 | [原 Web 结构同步](testing/current-original-web-schema-v658.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 
