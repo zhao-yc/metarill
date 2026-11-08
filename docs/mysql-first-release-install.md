@@ -24,7 +24,7 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 将平台四份元数据及 `global.json` 按表格布置。发布后核对全部文件摘要，包括依赖和元数据。发行物和 Web 静态目录与私有配置、数据库备份、文件库及导出临时文件分开。部署配置由服务账户读取，持久目录由运行账户写入。
 
-收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。V638 固定包及三种隔离安装的实际结果见 [发行包与空库安装](testing/fixed-linux-release-archives-v638.md)。
+收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。当前固定包及三种隔离安装的实际结果见 [V643 Linux 候选](testing/current-linux-archives-v643.md)。V638 的上一轮包与验收见 [历史发行包](testing/fixed-linux-release-archives-v638.md)。
 
 ## 首次安装
 
