@@ -23,6 +23,8 @@
 - 平台库、示例业务库和其他项目库分别配置。未配置的项目明确失败，不回退到平台库。
 - 结构变更必须显式预览、确认执行、核验并记录；启动不会自动修改数据库。
 
+部署与恢复见 [MySQL 首版安装与恢复](docs/mysql-first-release-install.md)。
+
 ## 开发入口
 
 先安装 [global.json](global.json) 中声明的 .NET SDK、Node.js 24 和 HBuilderX。安装位置与版本必须实际核验。

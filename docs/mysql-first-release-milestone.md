@@ -35,13 +35,15 @@ MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项�
 
 当前固定应用候选 `5c8fcb82` 的同父明细 Excel 追加已通过 V603 正式门槛。四并发吞吐为 Java 的 95.8%、99.5%、99.7%，一轮 p95 触线，未构成稳定退化。该结果覆盖固定原八行工作簿及最小权限配置。同一 C# 候选的四读未构成稳定退化、七步写入未构成稳定退化。客户及合同 Excel 追加导入未构成稳定退化。V608 本地受保护下载及 V609 三页 Excel 导出分别未构成稳定退化、未构成稳定退化。V611 合同及明细的六组关系维护未构成稳定退化。其余性能场景和整体签收继续核对。见 [文件、导出及维护复验](testing/paired-release-candidate-file-export-v608-v610.md)。见 [V601–V604 验收](testing/paired-child-negative-grant-cache-v604.md) 和 [V605–V607 复验](testing/paired-release-candidate-read-write-v605-v606.md)。
 
+V616 以同一候选补齐原客户复制，8,624 次请求、六轮整场景达标。V617 以同一候选补齐合同和明细逐次修复的 208 次回放，同一表三轮中未达到稳定退化条件。逐轮比值、实库读回与资源核验见 [当前复制与逐次修复](testing/paired-release-candidate-copy-repair-v616-v617.md)。
+
 历史候选的 V573、V579 和 V588 保留为退化和诊断证据。其结果对应各自固定版本。V600 确认最小权限账号走两阶段写入，V602 证实缩减的是重复权限探测。具备权限时的单次写入和故障回滚由 V604 独立核验。见 [V588 独占持续诊断](testing/paired-current-child-isolated-continuous-v588.md) 和 [V597–V600 运行路径](testing/paired-child-inline-cache-web-v600.md)。
 
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
 | --- | --- | --- |
-| 安装、空库及生成 | 当前 Linux 候选实际通过平台分库、共库和独立 Full 的 Production 空库安装、重复保护、原 HTTP CRUD、会话隔离与重启。独立 Full 两次生成的 681 个文件逐份一致。见 [当前 Linux 空库](testing/current-linux-candidate-runtime-v613.md)、[严格 MySQL TLS](testing/mysql-strict-tls-web-v565.md)、[再生成](testing/mysql-release-rebuild-v463.md)。 | 核对最终发行配置与固定发行物的一致性。 |
+| 安装、空库及生成 | 当前 Linux 候选实际通过平台分库、共库和独立 Full 的 Production 空库安装、重复保护、原 HTTP CRUD、会话隔离与重启。独立 Full 两次生成的 681 个文件逐份一致。见 [当前 Linux 空库](testing/current-linux-candidate-runtime-v613.md)、[严格 MySQL TLS](testing/mysql-strict-tls-web-v565.md)、[再生成](testing/mysql-release-rebuild-v463.md)。 | 按 [首版安装与恢复](mysql-first-release-install.md) 在实际发行环境核对配置与安装。 |
 | 桌面与移动 Web | 平台桌面原登录／项目选择／菜单／退出，独立 Full 普通角色移动原客户 CRUD／退出和 MySQL 读回通过。五轮各自的三库、账号、Redis 和本机临时配置已核清。 见 [当前浏览器直连 HTTPS](testing/current-browser-direct-https-v614-v615.md)。 | 实际部署网关、其余角色和复杂业务组合继续验收。 真实 Tiny Cloud 编辑需已批准的配置。原移动裁切按 V01／V02 单列。 |
 | 关系、事务、文件及 Excel | 公开 Full 六个 R0 模型有真实 XLSX、并发锁和回滚证据。单步 S3 回执丢失已复验精确归属清理。见 [六模型覆盖](testing/current-standalone-and-public-r0-v521-v522.md)、[文件回滚](testing/legacy-s3-ambiguous-rollback-v556.md)。 | 按 V03／V04 完成其余必要文件、角色及关系矩阵，再核对最终候选。 |
 | 原助手、CLI 和 MCP | C85、C88 已分别验证固定管理包的 CLI／MCP 及原浏览器双项目批量运行时。见 [设备批量浏览器记录](testing/device-runtime-browser-native.md)。 | 按 C 各项保留待验的宿主与权限组合，最终版本核对同包来源。 |
