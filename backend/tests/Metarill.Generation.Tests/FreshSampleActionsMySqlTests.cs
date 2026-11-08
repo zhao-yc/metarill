@@ -29,6 +29,7 @@ public sealed class FreshSampleActionsMySqlTests
         var source=Path.GetFullPath(Environment.GetEnvironmentVariable("METARILL_SAMPLE_ACTION_NATIVE_SOURCE_ROOT")??NonRedundantApplicationFixture.Root());
         // 先验证本轮专属批准/来源/固定根，再读取连接配置；通用旧租约与同名运行号不能触发正式副作用。
         var run=SampleActionsNativeLease.Validate(config,Environment.GetEnvironmentVariable(SampleActionsNativeMySqlFactAttribute.RunVariable),source);
+        var observeRecordLocks=config.TryGetProperty("SampleActionsObserveRecordLocks",out var observation)&&observation.GetBoolean();
         var options=FreshInstallConfiguration.Read("AgentDatabase","agent");
         var prepared=config.GetProperty("SampleActionsPreparation").Deserialize<GlobalCachedPackageProof>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.Equal(CSharpGenerator.SafePath(source,".local/sample-actions-native/prepared"),prepared.PackageRoot);
@@ -87,6 +88,25 @@ public sealed class FreshSampleActionsMySqlTests
             Assert.Equal("合同在预览后已变化，请重新查询和预览",originalConflict.GetProperty("msg").GetString());
             Assert.Equal(originalConflict.GetProperty("msg").GetString(),directConflict.GetProperty("msg").GetString());
             Assert.Equal(before,await Snapshot());await Physical(third,"待处理");
+            if(observeRecordLocks)
+            {
+                stage="原按钮等待合同行锁，阻塞方提交";
+                var id=long.Parse(thirdId,CultureInfo.InvariantCulture);
+                var digest=(await Button(first.Client,"86000",third)).GetProperty("data").GetProperty("expectedDigest").GetString();
+                const string concurrentName="等待行锁后已提交";
+                var committedSnapshot=await Snapshot(id,concurrentName);
+                var stale=await SampleActionsNativeRowLock.RunAsync(options,evidence,run,id,concurrentName,commit:true,
+                    token=>Post(ordinaryClient,Central,new{buttonId="86001",entityId=thirdId,entity=new{id=thirdId,expectedDigest=digest}},code:500,token:token));
+                Assert.Equal(originalConflict.GetProperty("msg").GetString(),stale.GetProperty("msg").GetString());
+                Assert.Equal(committedSnapshot,await Snapshot());
+                stage="直接回滚动作等待合同行锁，阻塞方回滚";
+                var refreshedDigest=(await Button(first.Client,"86000",third)).GetProperty("data").GetProperty("expectedDigest").GetString();
+                before=await Snapshot();
+                var rollback=await SampleActionsNativeRowLock.RunAsync(options,evidence,run,id,"等待行锁后撤回",commit:false,
+                    token=>Post(second.Client,"/api/admin/custom/sample-contract-agent/rollback",new{id=thirdId,expectedDigest=refreshedDigest},code:500,token:token));
+                Assert.Equal("合同金额不能小于零",rollback.GetProperty("msg").GetString());
+                Assert.Equal(before,await Snapshot());await Physical(third,"待处理");
+            }
             stage="两个真实宿主及Agent共用占用拒绝";before=await Snapshot();
             await using(var held=await session.Provider.TryAcquireExecutionLeaseAsync(session.Options,"original-button:"+catalog.YzProjectId+":86000",TimeSpan.FromMinutes(30),TimeProvider.System)??throw new InvalidOperationException("本轮独占按钮锁未取得。"))
             {
@@ -100,7 +120,7 @@ public sealed class FreshSampleActionsMySqlTests
             using var agent=new HttpClient{BaseAddress=first.Client.BaseAddress,Timeout=TimeSpan.FromSeconds(20)};agent.DefaultRequestHeaders.Add("Authorization","Bearer "+bearer);var me=(await FreshWebHttp.SendAsync(agent,HttpMethod.Get,"/api/admin/sys/agent/me")).GetProperty("data");
             await Post(first.Client,"/api/admin/sys/agent/revoke",new{grantId=me.GetProperty("grantId").ToString()});await FreshWebHttp.SendAsync(agent,HttpMethod.Get,"/api/admin/sys/agent/me",expected:HttpStatusCode.Unauthorized);
             await References(file,3);using(var downloaded=await first.Client.GetAsync(Files+"protected-content/"+file)){Assert.Equal(HttpStatusCode.OK,downloaded.StatusCode);Assert.Equal(bytes,await downloaded.Content.ReadAsByteArrayAsync());}Assert.Empty((await new SchemaService(session).PreviewAsync(all)).Changes);SampleActionsNativePreparation.Verify(prepared,source);SampleActionsNativePreparation.Verify(runtime,source,true);passed=true;
-            await Receipt("receipt",new{run,passed,formalWeb=true,realCli=true,developmentAuthentication=false,injectedAuthorization=false,ordinaryButtonOnly=true,ordinaryRevocation=true,webStaleConflict=true,realRollback=true,fileReferencesPreserved=true,twoProcessesBusy=true,agentBusyTaskUnknown=true,webAndAgentRestart=true,browserApprovalExecuted=false,crossDatabaseExecuted=false,businessHoldingLockRaceExecuted=false,performanceExecuted=false});
+            await Receipt("receipt",new{run,passed,formalWeb=true,realCli=true,developmentAuthentication=false,injectedAuthorization=false,ordinaryButtonOnly=true,ordinaryRevocation=true,webStaleConflict=true,realRollback=true,fileReferencesPreserved=true,twoProcessesBusy=true,agentBusyTaskUnknown=true,webAndAgentRestart=true,browserApprovalExecuted=false,crossDatabaseExecuted=false,businessHoldingLockRaceExecuted=observeRecordLocks,performanceExecuted=false});
 
             // 只消费真实CLI标准入口；秘密环境和CLI配置从不进入参数或回执。
             async Task Probe(string mode)
@@ -138,12 +158,28 @@ public sealed class FreshSampleActionsMySqlTests
         // 文件引用条数和项目归属都必须来自本轮实际库。
         async Task References(string file,int count){var refs=await fileStore.ReadAsync("yz_file_ref",Row("file_id",long.Parse(file,CultureInfo.InvariantCulture)));Assert.Equal(count,refs.Count);Assert.All(refs,row=>Assert.Equal(catalog.YzProjectId,SqlRowStore.Text(row,"yz_project_id")));}
         // 只对本轮业务表和文件引用作摘要，不包含账号、密码或令牌。
-        async Task<string> Snapshot(){var state=new Dictionary<string,object>();foreach(var table in catalog.ConfigTables)state[table.TableName]=(await store.ReadIncludingDeletedAsync(table.TableName)).OrderBy(row=>SqlRowStore.Id(row)).ToArray();state["fileRefs"]=(await fileStore.ReadIncludingDeletedAsync("yz_file_ref")).OrderBy(row=>SqlRowStore.Id(row)).ToArray();return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(state))));}
+        async Task<string> Snapshot(long? changedContractId=null,string? changedName=null)
+        {
+            var state=new Dictionary<string,object>();
+            foreach(var table in catalog.ConfigTables)
+            {
+                var rows=(await store.ReadIncludingDeletedAsync(table.TableName)).OrderBy(row=>SqlRowStore.Id(row)).ToArray();
+                // 阻塞方的合成SQL只改名称，期望快照也只替换同一字段。
+                if(changedContractId is long id&&table.TableName=="sample_contract")
+                {
+                    var row=Assert.Single(rows,row=>SqlRowStore.Id(row)==id);
+                    rows[Array.IndexOf(rows,row)]=new Dictionary<string,object?>(row){["name"]=changedName};
+                }
+                state[table.TableName]=rows;
+            }
+            state["fileRefs"]=(await fileStore.ReadIncludingDeletedAsync("yz_file_ref")).OrderBy(row=>SqlRowStore.Id(row)).ToArray();
+            return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(state))));
+        }
     }
     /// <summary>原中央请求及原单层R；状态与业务码分别验证，错误正文不回显。</summary>
     private static Task<JsonElement> Button(HttpClient client,string button,JsonElement record,HttpStatusCode http=HttpStatusCode.OK,int code=200)=>Post(client,Central,new{buttonId=button,entityId=record.GetProperty("id").GetString(),entity=record},http,code);
     /// <summary>分别核对HTTP状态及原R业务码，失败不打印响应正文。</summary>
-    private static async Task<JsonElement> Post(HttpClient client,string route,object body,HttpStatusCode http=HttpStatusCode.OK,int code=200){using var response=await client.PostAsJsonAsync(route,body);Assert.Equal(http,response.StatusCode);using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(code,json.RootElement.GetProperty("code").GetInt32());return json.RootElement.Clone();}
+    private static async Task<JsonElement> Post(HttpClient client,string route,object body,HttpStatusCode http=HttpStatusCode.OK,int code=200,CancellationToken token=default){using var response=await client.PostAsJsonAsync(route,body,token);Assert.Equal(http,response.StatusCode);using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(code,json.RootElement.GetProperty("code").GetInt32());return json.RootElement.Clone();}
     /// <summary>只读取原完整包的固定基础设施目录，不从客户端选择资源来源。</summary>
     private static MetadataCatalog ReadCatalog(string package,string name)=>JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(CSharpGenerator.SafePath(package,"backend/metadata/"+name+".json")),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     /// <summary>仅为固定测试种子字段建立参数字典，不拼接请求SQL。</summary>
