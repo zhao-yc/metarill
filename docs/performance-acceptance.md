@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | Java／C# 版本 | 两套独立生成应用的源码、元数据、手写规则、构建命令和镜像摘要 | 691 份包内文件、六份原手写规则、49 份 Linux 应用文件和五份验收工具逐项核对。[V531 构建与修复](testing/paired-current-repair-performance-v531.md) |
 | 数据与索引 | 同规模、分布、固定 ID、逻辑删除和范围，核对前后数据及索引 | 每端 10,752 行种子，独立核对共同关系索引。文件访问索引另作空表、启动和负载后复核。[V532 四读](testing/paired-current-indexed-read-v532.md) · [V534 受保护附件](testing/paired-current-protected-file-v534.md) |
-| 实际 SQL | 业务参数、分页 COUNT、关系、锁、事务和写入钩子 | 双端 108 个固定请求、1,313 条驱动命令，已逐一核对默认库和直接表目标，固定请求均有独立业务语义审阅。[V539 SQL](testing/paired-current-sql-coverage-v539.md) |
+| 实际 SQL | 业务参数、分页 COUNT、关系、锁、事务和写入钩子 | 双端 108 个固定请求、1,313 条驱动命令，已逐一核对默认库和直接表目标，固定请求均有独立业务语义审阅。V626 对当前候选完成同一请求集复验。[V626 当前 SQL](testing/current-paired-sql-v626.md) · [V539 历史 SQL](testing/paired-current-sql-coverage-v539.md) |
 | 计算及数据库资源 | 同一 Server-200、相同 CPU／内存／交换空间限制，逐轮资源和数据库配置 | 当前四读、写入、文件、导入导出和维护保留累计 CPU 与边界内存窗口。明细维护存在单轮 CPU 高于 Java，保留逐轮实测。[V533 写入](testing/paired-current-customer-write-v533.md) · [V538 维护矩阵](testing/paired-current-maintenance-matrix-v538.md) |
 | 接线与身份 | 回环 URL 的宿主归属及普通账号的页面和数据范围 | 当前正式轮次验证实际宿主监听、真实普通账号和业务授权，双端使用各自角色与会话。[V539 SQL](testing/paired-current-sql-coverage-v539.md) |
 | 业务与清理 | 保留原接口、物理回读、回滚及独占资源回收证据 | 客户写入、文件下载、三页 Excel 导出、客户合同追加导入、同父明细导入及关系维护均有独立回读和清理回执。[V535 导出](testing/paired-current-excel-export-v535.md) · [V536 追加导入](testing/paired-current-parent-excel-import-v536.md) · [V537 同父导入](testing/paired-current-child-excel-import-v537.md) |

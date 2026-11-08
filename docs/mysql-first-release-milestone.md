@@ -33,7 +33,7 @@
 
 MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项勾选为准，不给出未经完整核对的完成百分比。本次范围调整保留既有验收记录以及原 Web 界面、移动视口和性能要求。
 
-当前固定应用候选 `5c8fcb82` 的同父明细 Excel 追加已通过 V603 正式门槛。四并发吞吐为 Java 的 95.8%、99.5%、99.7%，一轮 p95 触线，未构成稳定退化。该结果覆盖固定原八行工作簿及最小权限配置。同一 C# 候选的四读未构成稳定退化、七步写入未构成稳定退化。客户及合同 Excel 追加导入未构成稳定退化。V608 本地受保护下载及 V609 三页 Excel 导出分别未构成稳定退化、未构成稳定退化。V611 合同及明细的六组关系维护未构成稳定退化。其余性能场景和整体签收继续核对。见 [文件、导出及维护复验](testing/paired-release-candidate-file-export-v608-v610.md)。见 [V601–V604 验收](testing/paired-child-negative-grant-cache-v604.md) 和 [V605–V607 复验](testing/paired-release-candidate-read-write-v605-v606.md)。
+当前固定应用候选 `5c8fcb82` 的同父明细 Excel 追加已通过 V603 正式门槛。四并发吞吐为 Java 的 95.8%、99.5%、99.7%，一轮 p95 触线，未构成稳定退化。该结果覆盖固定原八行工作簿及最小权限配置。同一 C# 候选的四读未构成稳定退化、七步写入未构成稳定退化。客户及合同 Excel 追加导入未构成稳定退化。V608 本地受保护下载及 V609 三页 Excel 导出分别未构成稳定退化、未构成稳定退化。V611 合同及明细的六组关系维护未构成稳定退化。V626 用相同候选复验 108 个固定原请求、1,313 条驱动命令及事务语义，见 [当前 SQL 与事务](testing/current-paired-sql-v626.md)。其余性能场景和整体签收继续核对。见 [文件、导出及维护复验](testing/paired-release-candidate-file-export-v608-v610.md)。见 [V601–V604 验收](testing/paired-child-negative-grant-cache-v604.md) 和 [V605–V607 复验](testing/paired-release-candidate-read-write-v605-v606.md)。
 
 V616 以同一候选补齐原客户复制，8,624 次请求、六轮整场景达标。V617 以同一候选补齐合同和明细逐次修复的 208 次回放，同一表三轮中未达到稳定退化条件。逐轮比值、实库读回与资源核验见 [当前复制与逐次修复](testing/paired-release-candidate-copy-repair-v616-v617.md)。
 
