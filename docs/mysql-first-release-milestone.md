@@ -111,6 +111,24 @@ V703 已配置的共享锁证明可在本事务复用。四个同父并发请求
 
 V705 验证默认同父追加合并双表物理预检的单文件候选，本轮两档均未达到稳定退化条件。整包仍待核对。见 [V705 合并追加物理预检](testing/combined-append-layout-v705.md)。
 
+V706 集成包已严格构建并独立再生成。V707 用同一固定产品 cfdfb2fe 复验默认同父追加，1,200 次正式请求和六轮均达标。完整性能矩阵待核对。见 [V707 集成包默认同父复验](testing/current-integrated-child-append-v707.md)。
+
+V709 从 cfdfb2fe 的固定 Git 归档通过 Windows 29 组，九个后端套件 3382 项通过，219 项条件跳过，715 份生成与同步文件逐字一致。见 [V709 Windows 回归](testing/integrated-windows-v709.md)。
+
+V708 以 cfdfb2fe 的同一固定包完成 45,756 个正式请求、66 个配对轮次。九类固定负载均未达到稳定退化条件。见 [V708 集成性能矩阵](testing/integrated-mysql-performance-v708.md)。
+
+V710 用 cfdfb2fe 的平台与 Full 固定包及逐字核对的原 H5，在受控同源网关实测平台桌面登录、菜单和退出，以及独立应用移动 Web 普通只读、编辑 CRUD 和退出。MySQL 独立回读和资源清理通过。实际发行域名、公开证书和其余组合继续独立核验。见 [V710 集成包 Web](testing/integrated-web-v710.md)。
+
+V711 补同一候选的平台移动 Web 配置列表与独立 Full 桌面普通角色的只读和 CRUD。合并 V710，平台和独立应用均有两种 Web 视口实测。三次会话注销和数据结果已独立核对。实际发行域名及公开证书按部署环境验收。见 [V711 集成包交叉视口 Web](testing/integrated-web-cross-viewports-v711.md)。
+
+V712 用同一固定候选验证平台与独立 Full 的 Caddy TLS 1.3、正确主机与错误证书、原静态及真实登录和生成 CRUD。公开发行环境与浏览器直连另验。见 [V712 固定候选 HTTPS](testing/integrated-caddy-tls-v712.md)。
+
+V713 以同一候选实测原配置页、独立 Full 桌面 XLSX 回滚与实际下载、移动只读及独立 MySQL。见 [V713 固定候选原 Web 与 Excel](testing/integrated-original-web-excel-v713.md)。
+
+V714 从固定候选源码完成真实 MySQL 同库和分库的文件归属、删除与对象重试、关系传播和稀疏级联回滚，18 项全过。见 [V714 固定候选文件事务](testing/integrated-file-transactions-v714.md)。
+
+V715／V716 以固定候选复验分库与共库 S3 的原路由、普通权限、对象回滚与删除，共库补同址重启。见 [V715／V716 固定候选平台 S3](testing/integrated-platform-s3-v715-v716.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
