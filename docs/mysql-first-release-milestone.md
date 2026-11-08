@@ -33,7 +33,7 @@
 
 MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项勾选为准，不给出未经完整核对的完成百分比。本次范围调整保留既有验收记录以及原 Web 界面、移动视口和性能要求。
 
-当前固定应用候选 `5c8fcb82` 的同父明细 Excel 追加已通过 V603 正式门槛。四并发吞吐为 Java 的 95.8%、99.5%、99.7%，一轮 p95 触线，未构成稳定退化。该结果覆盖固定原八行工作簿及最小权限配置。同一 C# 候选的四读未构成稳定退化、七步写入未构成稳定退化。客户及合同 Excel 追加导入未构成稳定退化。其余性能场景和整体签收继续核对。见 [V601–V604 验收](testing/paired-child-negative-grant-cache-v604.md) 和 [V605–V607 复验](testing/paired-release-candidate-read-write-v605-v606.md)。
+当前固定应用候选 `5c8fcb82` 的同父明细 Excel 追加已通过 V603 正式门槛。四并发吞吐为 Java 的 95.8%、99.5%、99.7%，一轮 p95 触线，未构成稳定退化。该结果覆盖固定原八行工作簿及最小权限配置。同一 C# 候选的四读未构成稳定退化、七步写入未构成稳定退化。客户及合同 Excel 追加导入未构成稳定退化。V608 本地受保护下载及 V609 三页 Excel 导出分别未构成稳定退化、未构成稳定退化。V611 合同及明细的六组关系维护未构成稳定退化。其余性能场景和整体签收继续核对。见 [文件、导出及维护复验](testing/paired-release-candidate-file-export-v608-v610.md)。见 [V601–V604 验收](testing/paired-child-negative-grant-cache-v604.md) 和 [V605–V607 复验](testing/paired-release-candidate-read-write-v605-v606.md)。
 
 历史候选的 V573、V579 和 V588 保留为退化和诊断证据。其结果对应各自固定版本。V600 确认最小权限账号走两阶段写入，V602 证实缩减的是重复权限探测。具备权限时的单次写入和故障回滚由 V604 独立核验。见 [V588 独占持续诊断](testing/paired-current-child-isolated-continuous-v588.md) 和 [V597–V600 运行路径](testing/paired-child-inline-cache-web-v600.md)。
 
@@ -41,8 +41,8 @@ MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项�
 
 | 项目 | 已核对的证据 | 待核对 |
 | --- | --- | --- |
-| 安装、空库及生成 | Production 显式安装、同库和分库、严格 TLS、重复初始化，以及固定来源再生成保护均有实测记录。见 [两种拓扑](testing/mysql-platform-topology-current-v461.md)、[TLS 安装](testing/mysql-strict-tls-web-v565.md)、[再生成](testing/mysql-release-rebuild-v463.md)。 | 已从当前候选冻结 49 个 Linux 平台宿主编译文件。继续绑定最终平台发布包及生成 Full 应用，核对数据库与产物清单。 |
-| 桌面与移动 Web | 平台桌面原登录、选项目和注销有实际浏览器证据。公开 Full 的移动 Web 已验证普通角色 CRUD 和权限拒绝。见 [网关分项](testing/web-https-gateway-v566.md)、[移动 CRUD](testing/current-standalone-mobile-crud-v567.md)。 | 直接 HTTPS 浏览器、剩余原页面与角色组合继续验收。真实 Tiny Cloud 编辑需已批准的配置。原移动裁切等界面问题按 V01／V02 单列。 |
+| 安装、空库及生成 | Production 显式安装、同库和分库、严格 TLS、重复初始化，以及固定来源再生成保护均有实测记录。见 [两种拓扑](testing/mysql-platform-topology-current-v461.md)、[TLS 安装](testing/mysql-strict-tls-web-v565.md)、[再生成](testing/mysql-release-rebuild-v463.md)。 | 已从当前候选冻结平台与独立 Linux 宿主各 49 个发布文件。Full 两次生成的 681 个文件逐份一致。继续核对最终发行配置及两宿主实际空库运行。 |
+| 桌面与移动 Web | 平台桌面原登录、选项目和注销有实际浏览器证据。公开 Full 的移动 Web 已验证普通角色 CRUD 和权限拒绝。见 [网关分项](testing/web-https-gateway-v566.md)、[移动 CRUD](testing/current-standalone-mobile-crud-v567.md)。 | V610 已复现默认浏览器对未信任合成证书的拒绝。直接 HTTPS 实际业务、剩余原页面与角色组合继续验收。真实 Tiny Cloud 编辑需已批准的配置。原移动裁切等界面问题按 V01／V02 单列。 |
 | 关系、事务、文件及 Excel | 公开 Full 六个 R0 模型有真实 XLSX、并发锁和回滚证据。单步 S3 回执丢失已复验精确归属清理。见 [六模型覆盖](testing/current-standalone-and-public-r0-v521-v522.md)、[文件回滚](testing/legacy-s3-ambiguous-rollback-v556.md)。 | 按 V03／V04 完成其余必要文件、角色及关系矩阵，再核对最终候选。 |
 | 原助手、CLI 和 MCP | C85、C88 已分别验证固定管理包的 CLI／MCP 及原浏览器双项目批量运行时。见 [设备批量浏览器记录](testing/device-runtime-browser-native.md)。 | 按 C 各项保留待验的宿主与权限组合，最终版本核对同包来源。 |
 | 最终回归与交付 | 历史 V10 有 15 个绿色 CI 作业。 | 以最终发布提交的 CI、发布包与实际运行证据签收。按 V11 检查说明、升级和恢复资料。 |
