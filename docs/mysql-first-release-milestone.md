@@ -42,10 +42,10 @@ MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项�
 | 项目 | 已核对的证据 | 待核对 |
 | --- | --- | --- |
 | 安装、空库及生成 | 当前 Linux 候选实际通过平台分库、共库和独立 Full 的 Production 空库安装、重复保护、原 HTTP CRUD、会话隔离与重启。独立 Full 两次生成的 681 个文件逐份一致。见 [当前 Linux 空库](testing/current-linux-candidate-runtime-v613.md)、[严格 MySQL TLS](testing/mysql-strict-tls-web-v565.md)、[再生成](testing/mysql-release-rebuild-v463.md)。 | 核对最终发行配置与固定发行物的一致性。 |
-| 桌面与移动 Web | 平台桌面原登录、选项目和注销有实际浏览器证据。公开 Full 的移动 Web 已验证普通角色 CRUD 和权限拒绝。见 [网关分项](testing/web-https-gateway-v566.md)、[移动 CRUD](testing/current-standalone-mobile-crud-v567.md)。 | V610 已复现默认浏览器对未信任合成证书的拒绝。直接 HTTPS 实际业务、剩余原页面与角色组合继续验收。真实 Tiny Cloud 编辑需已批准的配置。原移动裁切等界面问题按 V01／V02 单列。 |
+| 桌面与移动 Web | 平台桌面原登录／项目选择／菜单／退出，独立 Full 普通角色移动原客户 CRUD／退出和 MySQL 读回通过。五轮各自的三库、账号、Redis 和本机临时配置已核清。 见 [当前浏览器直连 HTTPS](testing/current-browser-direct-https-v614-v615.md)。 | 实际部署网关、其余角色和复杂业务组合继续验收。 真实 Tiny Cloud 编辑需已批准的配置。原移动裁切按 V01／V02 单列。 |
 | 关系、事务、文件及 Excel | 公开 Full 六个 R0 模型有真实 XLSX、并发锁和回滚证据。单步 S3 回执丢失已复验精确归属清理。见 [六模型覆盖](testing/current-standalone-and-public-r0-v521-v522.md)、[文件回滚](testing/legacy-s3-ambiguous-rollback-v556.md)。 | 按 V03／V04 完成其余必要文件、角色及关系矩阵，再核对最终候选。 |
 | 原助手、CLI 和 MCP | C85、C88 已分别验证固定管理包的 CLI／MCP 及原浏览器双项目批量运行时。见 [设备批量浏览器记录](testing/device-runtime-browser-native.md)。 | 按 C 各项保留待验的宿主与权限组合，最终版本核对同包来源。 |
-| 最终回归与交付 | 历史 V10 有 15 个绿色 CI 作业。GitHub 上 V612 提交的 [本次运行](https://github.com/zhao-yc/metarill/actions/runs/42433423913) 已取消，作业数为 0。 | 以最终发布提交的 CI、发布包与实际运行证据签收。按 V11 检查说明、升级和恢复资料。 |
+| 最终回归与交付 | 历史 V10 有 15 个绿色 CI 作业。V613 提交的 push 运行已取消，作业数为 0，同 SHA 的 PR 运行在 V615 观测时仍在等待。见 [PR 运行](https://github.com/zhao-yc/metarill/actions/runs/42435830859)。 | 以最终发布提交的 CI、发布包与实际运行证据签收。按 V11 检查说明、升级和恢复资料。 |
 
 
 2026-11-02新增证据：B123固定公开Full六模型的真实Web／MySQL／原XLSX／传播维护／文件回滚／重启通过，测试资源独立核清；A30首轮在数值反查阶段失败且清理结束，夹具修正后仍需正式复验。它们分别更新进度表，不将固定子集通过扩展为首版完成。

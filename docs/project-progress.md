@@ -885,6 +885,8 @@
 | V611 | ✅ 六组关系维护未构成稳定退化 | 固定 `5c8fcb82`，V538 同条件 | 8 首检、208 回放，18 对轮次、修复及零变化实库读回通过。0 轮触线，48 个资源窗口和 28 份证据独立复算。明细单次修复一轮 CPU 为 Java 的 179.2%，资源已核清。 | [当前候选复验](testing/paired-release-candidate-file-export-v608-v610.md)，2026-11-08 |
 | V612 | 🟡 同候选独立 Full 可重现、严格发布通过 | 固定 `5c8fcb82`，干净 Git 归档及冻结合成元数据 | CLI 两次生成 681 文件逐份一致，使用八份匹配锁文件严格构建，独立宿主与平台各 49 个发布文件已冻结。实际空库安装及 Web 待验收。 | [当前候选复验](testing/paired-release-candidate-file-export-v608-v610.md)，2026-11-08 |
 | V613 | ✅ 当前 Linux 候选空库安装及会话通过 | 固定 `5c8fcb82`，Server-200 MySQL 8.4.11 | 平台分库 24＋13、共库 25、独立 Full 15 张表。普通启动零表，显式与重复安装、原登录／CRUD、6 次跨宿主会话拒绝、重启及注销通过。首轮夹具漏计 Agent 表的失败与两轮独立核零均留证。 | [空库与会话实测](testing/current-linux-candidate-runtime-v613.md)，2026-11-08 |
+| V614 | ✅ 临时浏览器证书正反例通过 | Chrome 156，独占回环 TLS 1.3 | 仅两条证书域名通过。错误主机名和两个干净配置拒绝，系统证书存储无本轮指纹。 | [浏览器直连 HTTPS](testing/current-browser-direct-https-v614-v615.md)，2026-11-08 |
+| V615 | ✅ 当前候选双宿主浏览器 HTTPS 通过 | 固定 `5c8fcb82`，当前 Windows 宿主、原 H5 和 Server-200 MySQL | 平台桌面原登录／项目选择／菜单／退出，独立 Full 普通角色移动原客户 CRUD／退出和 MySQL 读回通过。五轮各自的三库、账号、Redis 和本机临时配置已核清。 | [浏览器直连 HTTPS](testing/current-browser-direct-https-v614-v615.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 
