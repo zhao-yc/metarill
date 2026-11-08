@@ -72,6 +72,33 @@ S3 对象恢复见 [V631](testing/current-split-s3-backup-restore-v631.md)。停
 - 如果只有应用包发生变化，停写后核对旧包与现行数据库结构的兼容性，再恢复同一版宿主、元数据和 H5。若结构或数据已变化，按已验证的备份把数据库和文件恢复到独立目标后再切换。MySQL DDL 可隐式提交，部分成功时先保留执行回执和现场，重新反查后决定继续或恢复。恢复后复验真实登录、目标库写入、文件引用及注销。
 - 本首版按新部署的 MySQL 平台和新生成应用验收。原 YZP Java 存量库及业务源码的迁移另行评估。
 
+### 恢复快照中的会话与授权
+
+备份会保留采集时有效的 Web 会话、Agent 访问会话及刷新授权，恢复后旧凭据仍可能有效。保持恢复目标离线并隔离入口，应用启动对外服务前，在恢复目标的身份库核对实例和库名，再处理快照中的旧会话。平台使用承载 `sys_session` 和 `sys_agent_grant` 的平台库。先读出受影响数量，再在同一连接的事务中撤销。实测过程和边界见 [V633](testing/current-restored-session-invalidation-v633.md)。
+
+```sql
+SELECT @@hostname, @@server_uuid, DATABASE();
+SELECT kind, COUNT(*) FROM sys_session
+  WHERE delete_no IS NULL AND kind IN ('web', 'agent') GROUP BY kind;
+SELECT status, COUNT(*) FROM sys_agent_grant
+  WHERE delete_no IS NULL AND status IN ('pending', 'approved') GROUP BY status;
+```
+
+确认连接与恢复计划一致后，在同一连接执行下列事务语句。按前面的计数核对两次影响行数，完全相符后执行 `COMMIT`，否则执行 `ROLLBACK`。
+
+```sql
+START TRANSACTION;
+SET @restore_utc = UTC_TIMESTAMP(6);
+UPDATE sys_session SET delete_no = @restore_utc
+  WHERE delete_no IS NULL AND kind IN ('web', 'agent');
+SELECT ROW_COUNT() AS revoked_sessions;
+UPDATE sys_agent_grant SET status = 'revoked', refresh_hash = NULL
+  WHERE delete_no IS NULL AND status IN ('pending', 'approved');
+SELECT ROW_COUNT() AS revoked_grants;
+```
+
+在目标隔离入口验证旧 Web 会话、Agent 访问及刷新凭据均被拒绝，再核对新登录、授权及业务访问。该步骤保留已有注销时间和 Agent 已消费刷新记录。
+
 当前固定候选的空库安装、重复安装和 HTTP 会话见 [V613](testing/current-linux-candidate-runtime-v613.md)。平台桌面和独立 Full 移动 Web 的真实浏览器直连 HTTPS 见 [V615](testing/current-browser-direct-https-v614-v615.md)。实际部署域名及其网关按部署环境单独留证。
 
 V618 从 `5c8fcb82` 验证平台发行根的 2,841 份公开源码与 49 份 Linux 宿主文件，以及独立 Full 的 49 份发布物。CLI 以该发行根作为来源两次生成 659 文件的示例 Full，逐份一致，生成宿主严格构建通过。该目录核对与 V613／V615 的实际安装和浏览器验收分列。

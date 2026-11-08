@@ -904,6 +904,7 @@
 | V630 | ✅ 平台分库的 MySQL 与本地附件恢复通过 | `5c8fcb82`，51 份 Windows Production 宿主 | 从停止写入的源端恢复平台 24 表和业务 13 表，六类目录与备份数据一致。22 个原 HTTP 请求核对普通权限、双附件字节及会话。三轮资源独立核清。 | [分库恢复演练](testing/current-split-backup-restore-v630.md)，2026-11-08 |
 | V631 | ✅ 平台分库 MySQL 与 S3 对象恢复通过 | `5c8fcb82`，同一 51 份 Windows Production 宿主 | 24／13 表、两份 S3 附件、25 个原 HTTP 请求、13 项独立 S3 探针。不同逻辑端点拒绝，沿用原逻辑地址和独立目标凭据后原引用可读，三会话注销且临时资源核清。 | [分库 S3 恢复演练](testing/current-split-s3-backup-restore-v631.md)，2026-11-08 |
 | V632 | ✅ 跨两个 MySQL 实例的分库及本地附件恢复通过 | `5c8fcb82`，两个 MySQL 8.4.11 实例，51 份 Windows Production 宿主 | 源目标主机名及 UUID 不同，24／13 表、六类目录、数据及两份附件相符。22 个原 HTTP 请求核对恢复账号、权限和旧会话，临时资源独立核清。 | [跨 MySQL 实例恢复](testing/current-cross-instance-backup-restore-v632.md)，2026-11-08 |
+| V633 | ✅ 恢复快照的 Web 与 OAuth 会话处置通过 | `5c8fcb82`，跨 MySQL 8.4.11 实例，51 份 Windows Production 宿主 | 实测快照中 Web、Agent access 和 refresh 恢复后可用。离线撤销 3 条活动会话和 2 条授权，重复 0／0，旧凭据拒绝、新凭据可用，源端保持。50 个原 HTTP 请求和资源回收通过。 | [恢复会话处置](testing/current-restored-session-invalidation-v633.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 
