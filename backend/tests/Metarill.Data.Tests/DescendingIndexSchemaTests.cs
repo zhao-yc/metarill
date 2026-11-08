@@ -37,7 +37,7 @@ public sealed class DescendingIndexSchemaTests
             var draft=SchemaImportDraftCompiler.Compile(new(new("mysql",invalid,"source"),[]),"123");Assert.Contains(draft.Issues,issue=>issue.Code=="INDEX_UNREPRESENTABLE");
         }
     }
-    /// <summary>读取真实服务的STATISTICS结果列，不能用SHOW CREATE字符串猜测ASC／DESC。</summary>
+    /// <summary>读取真实服务的SHOW INDEX结果列，不能用SHOW CREATE字符串猜测ASC／DESC。</summary>
     [Fact]
     public async Task Snapshot_reads_each_collation_and_preview_detects_direction_conflict()
     {
@@ -46,6 +46,47 @@ public sealed class DescendingIndexSchemaTests
         provider.Directions=["A","A"];await Assert.ThrowsAsync<InvalidOperationException>(()=>service.PreviewAsync(Catalog()));Assert.Equal(0,provider.Ddl);
         provider.Directions=["?","A"];await Assert.ThrowsAsync<NotSupportedException>(()=>service.InspectAsync(Catalog()));Assert.Equal(0,provider.Ddl);Assert.True(provider.FactoryCommands>0);Assert.Equal(provider.CreatedCommands,provider.FactoryCommands);
     }
+    /// <summary>同名索引只有物理语义一致时才允许零差异，未声明索引继续由数据库管理员维护。</summary>
+    [Theory]
+    [InlineData(10, "BTREE", "YES")]
+    [InlineData(null, "BTREE", "NO")]
+    [InlineData(null, "FULLTEXT", "YES")]
+    public async Task Preview_rejects_same_named_index_with_different_physical_features(int? prefix, string type, string visibility)
+    {
+        var provider = new RecordingProvider
+        {
+            TableExists = true,
+            PrefixLength = prefix,
+            IndexType = type,
+            IndexVisibility = visibility,
+            SingleIndexColumn = true,
+            Directions = [type == "FULLTEXT" ? null : "A"],
+        };
+        using var session = Session(provider);
+        var service = new SchemaService(session);
+
+        var catalog = Catalog("ASC");
+        catalog.ConfigIndexColumns.RemoveAt(0);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.PreviewAsync(catalog));
+        Assert.Contains("索引 record.yzp_idx_value 已存在但结构不同", error.Message);
+        Assert.Equal(0, provider.Ddl);
+
+        catalog.ConfigIndexes.Clear();
+        catalog.ConfigIndexColumns.Clear();
+        Assert.Empty((await service.PreviewAsync(catalog)).Changes);
+        Assert.Equal(0, provider.Ddl);
+    }
+
+    /// <summary>旧服务器返回的结果集省略可见性列，完整普通索引保持零差异。</summary>
+    [Fact]
+    public async Task Legacy_snapshot_without_visibility_column_preserves_ascending_indexes()
+    {
+        var provider = new RecordingProvider { TableExists = true, Version = "5.7.44", Directions = ["A", "A"], HasVisibilityColumn = false };
+        using var session = Session(provider);
+        Assert.Empty((await new SchemaService(session).PreviewAsync(Catalog("ASC"))).Changes);
+        Assert.Equal(0, provider.Ddl);
+    }
+
     /// <summary>执行真实特征查询：普通DESC可表示，但主键方向、前缀、隐藏和非BTREE仍保留阻断。</summary>
     [Fact]
     public async Task Desc_secondary_indexes_do_not_unblock_unrepresented_import_features()
@@ -165,7 +206,12 @@ public sealed class DescendingIndexSchemaTests
     {
         internal string Uuid {get;set;}="offline-instance";
         internal int CaseMode;internal string PhysicalName="record";
-        internal string Version="8.0.43";internal bool TableExists;internal string[] Directions=["D","A"];internal int Ddl,IndexReads,Locks,FactoryCommands,CreatedCommands,Begins,Commits,Rollbacks;internal bool ObserveCommands;internal Exception? BeginFailure,CommitFailure,RollbackFailure;internal CancellationToken RollbackToken;internal IsolationLevel BeginLevel;
+        internal string Version="8.0.43";internal bool TableExists;internal string?[] Directions=["D","A"];internal int Ddl,IndexReads,Locks,FactoryCommands,CreatedCommands,Begins,Commits,Rollbacks;internal bool ObserveCommands;internal Exception? BeginFailure,CommitFailure,RollbackFailure;internal CancellationToken RollbackToken;internal IsolationLevel BeginLevel;
+        internal bool SingleIndexColumn;
+        internal bool HasVisibilityColumn = true;
+        internal int? PrefixLength;
+        internal string IndexType = "BTREE";
+        internal string IndexVisibility = "YES";
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public string QuoteIdentifier(string identifier)=>MySqlSchemaPlanner.Quote(identifier);public string ParameterPlaceholder(string name)=>"@"+name;
         public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new Connection(this);
@@ -203,7 +249,22 @@ public sealed class DescendingIndexSchemaTests
                 Columns("name","count");table.Rows.Add(provider.PhysicalName,2L);
             }
             else if(CommandText.StartsWith("SELECT COLUMN_NAME",StringComparison.Ordinal)){Columns("name","type","nullable","key","default","extra","logical");table.Rows.Add("id","bigint","NO","PRI",DBNull.Value,"","bigint");table.Rows.Add("value","varchar(64)","YES","",DBNull.Value,"","varchar");}
-            else if(CommandText.StartsWith("SELECT INDEX_NAME,NON_UNIQUE",StringComparison.Ordinal)){provider.IndexReads++;Assert.Contains(",COLLATION FROM",CommandText);Columns("name","non_unique","column","direction");table.Rows.Add("yzp_idx_value",1,"value",provider.Directions[0]);table.Rows.Add("yzp_idx_value",1,"id",provider.Directions[1]);}
+            else if (CommandText.StartsWith("SHOW INDEX FROM ", StringComparison.Ordinal))
+            {
+                provider.IndexReads++;
+                Assert.Equal($"SHOW INDEX FROM `{provider.PhysicalName}`", CommandText);
+                Columns("Key_name", "Non_unique", "Seq_in_index", "Column_name", "Collation", "Sub_part", "Index_type");
+                if (provider.HasVisibilityColumn) Columns("Visible");
+                void AddIndexPart(string name, int number, string column, string? direction, int? prefix, string type, string visibility)
+                {
+                    object[] fields = [name, name == "PRIMARY" ? 0 : 1, number, column, (object?)direction ?? DBNull.Value, (object?)prefix ?? DBNull.Value, type];
+                    table.Rows.Add(provider.HasVisibilityColumn ? [.. fields, visibility] : fields);
+                }
+                // 按反序返回成员，验证序号而非驱动行序决定复合索引字段顺序。
+                AddIndexPart("PRIMARY", 1, "id", "A", null, "BTREE", "YES");
+                if (!provider.SingleIndexColumn) AddIndexPart("yzp_idx_value", 2, "id", provider.Directions[1], null, "BTREE", "YES");
+                AddIndexPart("yzp_idx_value", 1, "value", provider.Directions[0], provider.PrefixLength, provider.IndexType, provider.IndexVisibility);
+            }
             else if(CommandText.StartsWith("SELECT INDEX_NAME,SUB_PART",StringComparison.Ordinal))
             {
                 Columns("name","prefix","direction","type","visible");table.Rows.Add("yzp_idx_desc",DBNull.Value,"D","BTREE","YES");table.Rows.Add("PRIMARY",DBNull.Value,"D","BTREE","YES");table.Rows.Add("prefix",10,"D","BTREE","YES");table.Rows.Add("hidden",DBNull.Value,"D","BTREE","NO");table.Rows.Add("hash",DBNull.Value,DBNull.Value,"HASH","YES");table.Rows.Add("unknown",DBNull.Value,"Q","BTREE","YES");

@@ -175,23 +175,7 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
                     columns.Add(new ColumnSchema(reader.GetString(0), type, reader.GetString(2) == "YES", reader.GetString(3) == "PRI", defaultSql,generated));
                 }
             }
-            var indexes = new List<IndexSchema>();
-            await using (var indexCommand = session.Provider.CreateCommand(connection))
-            {
-                indexCommand.Transaction = transaction;
-                indexCommand.CommandText = "SELECT INDEX_NAME,NON_UNIQUE,COLUMN_NAME,COLLATION FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table AND INDEX_NAME <> 'PRIMARY' ORDER BY INDEX_NAME,SEQ_IN_INDEX";
-                AddParameters(indexCommand, [("@table", name)]);
-                await using var indexReader = await indexCommand.ExecuteReaderAsync(token);
-                var rows = new List<(string Name, bool Unique, string Column,string Direction)>();
-                while (await indexReader.ReadAsync(token))
-                {
-                    // 函数索引不能误识别为普通字段索引；其原始定义仍进入漂移摘要。
-                    rows.Add((indexReader.GetString(0), Convert.ToInt32(indexReader.GetValue(1), CultureInfo.InvariantCulture) == 0,
-                        indexReader.IsDBNull(2) ? "<expression>" : indexReader.GetString(2),
-                        indexReader.IsDBNull(3)?"ASC":indexReader.GetString(3) switch{"A"=>"ASC","D"=>"DESC",_=>throw new NotSupportedException("结构反查遇到未知索引方向。") }));
-                }
-                indexes.AddRange(rows.GroupBy(r => r.Name).Select(g => IndexDirectionRules.Normalize(new IndexSchema(g.Key, g.First().Unique, g.Select(r => r.Column).ToArray()){Directions=g.Select(r=>r.Direction).ToArray()})));
-            }
+            var indexes = await ReadIndexesAsync(connection, transaction, name, token);
             await using var ddlCommand = session.Provider.CreateCommand(connection);
             ddlCommand.Transaction = transaction;
             ddlCommand.CommandText = "SHOW CREATE TABLE " + MySqlSchemaPlanner.Quote(name);
@@ -209,6 +193,53 @@ public sealed partial class SchemaService(DatabaseSession session, ISchemaChange
             tables.Add(new TableSchema(name, columns, ddl, indexes));
         }
         return new DatabaseSchema(session.Options.ExpectedDatabase, tables);
+    }
+
+    /// <summary>反查索引的物理属性。旧 MySQL 的 SHOW INDEX 没有可见性列，此时索引均可见。</summary>
+    private async Task<IReadOnlyList<IndexSchema>> ReadIndexesAsync(DbConnection connection, DbTransaction? transaction, string table, CancellationToken token)
+    {
+        await using var command = session.Provider.CreateCommand(connection);
+        command.Transaction = transaction;
+        command.CommandText = "SHOW INDEX FROM " + MySqlSchemaPlanner.Quote(table);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        var name = reader.GetOrdinal("Key_name");
+        var nonUnique = reader.GetOrdinal("Non_unique");
+        var position = reader.GetOrdinal("Seq_in_index");
+        var column = reader.GetOrdinal("Column_name");
+        var direction = reader.GetOrdinal("Collation");
+        var prefix = reader.GetOrdinal("Sub_part");
+        var type = reader.GetOrdinal("Index_type");
+        var visible = Enumerable.Range(0, reader.FieldCount)
+            .FirstOrDefault(index => string.Equals(reader.GetName(index), "Visible", StringComparison.OrdinalIgnoreCase), -1);
+        var rows = new List<(string Name, bool Unique, int Position, string Column, string Direction, bool Unsupported)>();
+        while (await reader.ReadAsync(token))
+        {
+            var indexName = reader.GetString(name);
+            if (indexName == "PRIMARY") continue;
+            var expression = reader.IsDBNull(column);
+            var physicalDirection = reader.IsDBNull(direction) ? "ASC" : reader.GetString(direction) switch
+            {
+                "A" => "ASC",
+                "D" => "DESC",
+                _ => throw new NotSupportedException("结构反查遇到未知索引方向。"),
+            };
+            var unsupported = expression || !reader.IsDBNull(prefix) || reader.GetString(type) != "BTREE" ||
+                (visible >= 0 && reader.GetString(visible) != "YES");
+            rows.Add((indexName, Convert.ToInt32(reader.GetValue(nonUnique), CultureInfo.InvariantCulture) == 0,
+                Convert.ToInt32(reader.GetValue(position), CultureInfo.InvariantCulture),
+                expression ? "<expression>" : reader.GetString(column), physicalDirection, unsupported));
+        }
+
+        return rows.GroupBy(row => row.Name, StringComparer.Ordinal).OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var parts = group.OrderBy(row => row.Position).ToArray();
+                return IndexDirectionRules.Normalize(new IndexSchema(group.Key, parts[0].Unique, parts.Select(row => row.Column).ToArray())
+                {
+                    Directions = parts.Select(row => row.Direction).ToArray(),
+                    HasUnsupportedPhysicalFeatures = parts.Any(row => row.Unsupported),
+                });
+            }).ToArray();
     }
 
     private static string NormalizeType(string type)

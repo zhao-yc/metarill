@@ -98,7 +98,10 @@ public static class MySqlSchemaPlanner
                 var foundIndex = actual.Indexes?.SingleOrDefault(x => x.Name == index.Name);
                 if (foundIndex is null)
                     changes.Add(new SchemaChange("addIndex", actual.Name, null, $"ALTER TABLE {Quote(actual.Name)} ADD {IndexDefinition(index)}"));
-                else if (foundIndex.Unique != index.Unique || !foundIndex.Columns.SequenceEqual(index.Columns, StringComparer.Ordinal) || !IndexDirectionRules.Read(foundIndex).SequenceEqual(IndexDirectionRules.Read(index),StringComparer.Ordinal))
+                // 元数据声明的普通索引要求覆盖完整列，且能被查询优化器使用。
+                else if (foundIndex.HasUnsupportedPhysicalFeatures || foundIndex.Unique != index.Unique ||
+                    !foundIndex.Columns.SequenceEqual(index.Columns, StringComparer.Ordinal) ||
+                    !IndexDirectionRules.Read(foundIndex).SequenceEqual(IndexDirectionRules.Read(index), StringComparer.Ordinal))
                     throw new InvalidOperationException($"索引 {actual.Name}.{index.Name} 已存在但结构不同，请单独制定迁移方案。");
             }
             // 未声明列不自动删除：元数据可能仅管辖一部分列，显式删除需后续独立方案。

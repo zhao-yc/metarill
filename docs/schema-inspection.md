@@ -8,6 +8,10 @@
 
 验收使用 Server-200 隔离业务库验证 HTTP/MCP 指纹一致、文件基础表组合、单表范围、匿名/非管理员/Agent/跨项目拒绝及未知SQL/重复键拒绝。快照前后执行历史不变，重复只读指纹相同。缺少私有测试配置的 CI 场景明确跳过；数据库真实性以协调者实际执行的 TRX 为准。
 
+## MySQL 普通索引对照
+
+同名物理索引若为前缀、不可见或非 BTREE，不能满足普通逻辑索引声明，结构预览按索引冲突拒绝。未声明索引由数据库管理员维护。反查继续返回原快照，若确需调整已有同名索引，须核对 DDL 后单独迁移。见 [V642 实库验证](testing/mysql-index-physical-drift-v642.md)。
+
 ## 独立包的固定受管结构命令
 
 在独立包根目录运行 `dotnet run --project backend/Application.Host -- --schema-inspect`。该命令固定读取包内 `project.json` 与 `files.json` 合并的 physical metadata，以及部署者的私有 `Database` 配置，复用 `SchemaService.InspectSnapshotAsync`。标准输出是单一 JSON：`executable:false`、`provider`、`databaseSchema` 和 `fingerprint`；`databaseSchema` 包含实际受管表、列、索引与 SHOW CREATE 快照，不包含业务行数据。

@@ -28,7 +28,7 @@
 | A04 | ✅ 已完成 | 菜单与页面归属优化 | 单表树菜单、页面直接归属后台类型，修正原角色权限页关联引用。 | [架构](architecture.md)、[权限引用](platform-permission-references.md) |
 | A05 | ✅ 已完成 | 原接口基础兼容 | `/api`、原业务路由、R、分页、字符串 ID、省略与显式 null 的基础合同；复杂功能另列。 | [接口合同](integration-contracts.md)、[原页兼容](original-page-api-compatibility.md) |
 | A06 | ✅ 已完成 | MySQL 普通纵向闭环 | 登录→配置表字段→结构预览／执行／核验→生成→普通业务 CRUD 已实际跑通。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
-| A07 | ✅ 已完成 | 显式结构变更与受管反查 | 已登记表的 HTTP／MCP 反查、差异计划、执行和核验；普通启动不 DDL。 | [结构反查](schema-inspection.md)、[验收台账](acceptance.md) |
+| A07 | ✅ 已完成 | 显式结构变更与受管反查 | 已登记表的 HTTP／MCP 反查、差异计划、执行和核验；普通启动不 DDL。V642 实库补齐同名前缀、不可见及全文索引的物理差异拒绝，普通新增索引执行与复查通过。 | [结构反查](schema-inspection.md)、[索引物理差异](testing/mysql-index-physical-drift-v642.md)、[验收台账](acceptance.md) |
 | A08 | ✅ 已完成 | 全新库安装基础场景 | 平台与普通独立应用显式安装、重复同步零差异、初始化不重置密码及真实登录；不含下表后台初始化按钮。 | [全新安装](fresh-install-acceptance.md) |
 | A09 | ✅ 已完成 | C# 模板版本下拉 | 保留原下拉与事件，切换到 Metarill C# v1 目录；已授权四笔配置修复有逐笔回读。 | [版本目录](template-version-catalog.md)、[前端纠偏](frontend-preservation-correction.md) |
 | A10 | ✅ 已完成 | 平台 CLI 与未登记表反查 | 原Web会话的项目受管反查CLI、HTTP／MCP物理目录及当前项目登记状态；真实CLI／MySQL、权限、重定向／流式预算通过。元数据328、API87、原更新／包74零失败零跳过；原546资源与两轮215产物保持。未登记列级导入另属A11。 | [结构反查](schema-inspection.md)，2026-10-28；产品源a7dc58d02a9c |
@@ -913,6 +913,7 @@
 | V639 | ✅ 固定提交 Windows 回归与生成产物核对通过 | 856abe23，Windows 固定源码 | 9 个后端套件、C# SQL 观察 34 项、生成定向 49 项、前端 365 项及 CLI 141 项通过，条件跳过分列。重生成与同步的 715 份文件逐字一致。完整 GitHub CI 另按 V10 跟踪。 | [Windows 回归](testing/windows-candidate-regression-v639.md)，2026-11-08 |
 | V640 | ✅ 平台分库文件绑定与删除竞态、撤权实测通过 | c6096545，固定 Production 文件宿主及合成双库 | 58 个原 HTTP 请求。两种提交顺序均观察真实锁等待与 NOWAIT。业务库文件和引用不串库，平台撤权后旧会话读文件拒绝，写者字节仍一致。两轮资源核零。 | [分库文件竞态](testing/platform-split-file-race-v640.md)，2026-11-08 |
 | V641 | ✅ 平台分库 S3 文件竞态及撤权实测通过 | 90213f54，固定 Production、独占 SeaweedFS 与 MySQL | 58 个原 HTTP、24 次独立 SDK 检查。绑定保留对象及引用，删除先提交时绑定回滚且独立读对象 404。撤权后两份原对象字节一致，空桶和资源核零。 | [分库 S3 竞态](testing/platform-split-s3-file-race-v641.md)，2026-11-08 |
+| V642 | ✅ MySQL 同名索引物理差异修复并实测 | ff1a3858 修复前基线，Server-200 MySQL 8.4.11 四张合成表 | 旧版三类误报零差异已复现，修复后拒绝。普通建表和增索引通过。Data 1,602 通过、32 条件跳过，平台与生成 Full 严格构建通过，资源独立核零。 | [索引差异专项](testing/mysql-index-physical-drift-v642.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 

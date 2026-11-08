@@ -8,6 +8,8 @@ public sealed record IndexSchema(string Name, bool Unique, IReadOnlyList<string>
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Directions { get; init; }
+    // 仅用于物理比较，旧反查 JSON 保持原形状。完整物理定义仍由表的 SHOW CREATE 记录。
+    internal bool HasUnsupportedPhysicalFeatures { get; init; }
 }
 public sealed record TableSchema(string Name, IReadOnlyList<ColumnSchema> Columns, string? SnapshotDefinition = null, IReadOnlyList<IndexSchema>? Indexes = null);
 public sealed record DatabaseSchema(string Database, IReadOnlyList<TableSchema> Tables);
