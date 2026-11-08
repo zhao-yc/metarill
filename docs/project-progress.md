@@ -198,7 +198,7 @@
 
 | B124 | ✅ 固定六模型公开 Full 与实库通过 | R0跨表覆盖导入逻辑匹配／上下文 | V304 内部包通过，V305 对 MySQL R0 独立／共享末级单值键开启受限公开 Full。正规包 44 表、原 XLSX 同主键覆盖、项目／墓碑排除、歧义、共享省略、六组真实附件整批回滚、撤权和重启通过。V308 将实库复验接入仓库并从独占库重跑通过。B126 首次匹配锁已实测，V310 六模型原 HTTP 同主键双会话争锁及附件回滚通过。V312 六模型桌面 H5 原选档与独立实库读回通过。跨端、其他并发组合及性能另计。 | [匹配与锁](testing/nonredundant-cross-overwrite-match.md)、[V305 公开 Full](testing/cross-overwrite-public-full-v305.md) |
 
-| B125 | ✅ 固定六模型正式宿主与公开 Full 已验 | R0跨表覆盖导入完整宿主子集 | 初始内部准备完成 32 个 Service、32 个原导入路由及 6 个匹配计划装载。V304 补内部六模型实际 MySQL、普通权限、原 XLSX 覆盖及附件整批回滚。V305 再用正规公开 Full 复验同一固定形态。实际浏览器人工选档、其余模型和同条件性能分别跟踪。 | [初始装载](testing/nonredundant-cross-overwrite-application.md)、[V304 内部实库](testing/cross-overwrite-mysql-v304.md)、[V305 公开 Full](testing/cross-overwrite-public-full-v305.md)，2026-11-06 |
+| B125 | ✅ 固定六模型正式宿主与公开 Full 已验 | R0跨表覆盖导入完整宿主子集 | 初始内部准备完成 32 个 Service、32 个原导入路由及 6 个匹配计划装载。V304 补内部六模型实际 MySQL、普通权限、原 XLSX 覆盖及附件整批回滚。V305 再用正规公开 Full 复验同一固定形态。V312 有六模型原桌面选档证据，V661 用当前候选复验六次选档、末行无效路径拒绝及独立回读。其余模型和同条件性能分别跟踪。 | [V661 当前原 Web](testing/current-cross-overwrite-web-v660-v661.md)、[初始装载](testing/nonredundant-cross-overwrite-application.md)、[V304 内部实库](testing/cross-overwrite-mysql-v304.md)、[V305 公开 Full](testing/cross-overwrite-public-full-v305.md)，2026-11-06 |
 
 | B126 | ✅ 首次匹配锁的实库子集通过 | R0 跨表覆盖导入的首次匹配锁 | 固定 f3c36f4，Server-200 MySQL 8.4.11 两用例、四种 ID／父键组合真实通过。验证两条上限、项目和软删、来源排他锁、关联共享锁及回滚后重新匹配。16 表精确清理，新连接独立核零。原导入 HTTP、整批文件回滚及公开 Full 另计。 | [锁顺序与正式证据](testing/nonredundant-cross-overwrite-match.md#b126-server-200-正式结果)，2026-11-03 |
 
@@ -931,6 +931,8 @@
 | V657 | ✅ 固定桌面与移动 Web 链路通过 | 31cf5321，原 311 文件 | 平台表配置读回，普通账号原 XLSX 回滚／导入／真实下载，移动只读回看与三次注销。独立 MySQL 及两轮资源核零。 | [原 Web 与 Excel](testing/current-original-web-excel-v656-v657.md)，2026-11-08 |
 | V658 | ✅ 当前原 Web 结构同步通过 | 31cf5321，MySQL 8.4.11，原 311 文件 | 原表详情入口预览，取消零 DDL／零审计，确认一次恢复两个索引列。自动与手动复查零差异，宿主审计与独立 MySQL 核对一致，资源核清。 | [原 Web 结构同步](testing/current-original-web-schema-v658.md)，2026-11-08 |
 | V659 | ✅ 当前降序索引分库反查与保存通过 | 31cf5321，MySQL 8.4.11，311 文件 | 真实 HTTP 验证混合方向草案、审核后漂移拒绝、分库同名归属、配置保存与正向零差异。独立核对配置和物理方向，源表记录保持，资源核清。 | [当前降序索引](testing/current-descending-index-import-v659.md)，2026-11-08 |
+| V660 | 🟡 首轮浏览器通过，物理读回断言失败 | 31cf5321 公开 Full | 六次原选档及无效路径拒绝完成。夹具误把共享短级联可推导地区作为必存列，独占资源已核清，由 V661 复验。 | [原 Web 覆盖](testing/current-cross-overwrite-web-v660-v661.md)，2026-11-08 |
+| V661 | ✅ 当前六模型跨表覆盖原桌面 Web 通过 | 31cf5321 公开 Full，44 表，原 154 H5 文件 | 普通账号六次原选档及同主键覆盖，另验末行无效路径整批拒绝。独立核对稀疏存储、外项目及删除记录、注销和回收。 | [原 Web 覆盖](testing/current-cross-overwrite-web-v660-v661.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 
