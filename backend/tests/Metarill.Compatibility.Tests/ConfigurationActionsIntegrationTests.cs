@@ -124,6 +124,9 @@ public sealed class ConfigurationActionsIntegrationTests
         var created=await f.Gateway().ExecuteLegacyAsync("/admin/custom/config_table/create_page",f.Table.ToString());Assert.Equal("createPage",created.Configuration!.Action);
         var menu=await f.Gateway().ExecuteAsync("1696339787104047106",f.Page.ToString());Assert.Equal("createMenu",menu.Configuration!.Action);
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Gateway().ExecuteLegacyAsync("/admin/custom/config_table/create_view",f.Table.ToString()));
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Gateway().ExecuteLegacyAsync("/admin/custom/config_table/add_join_columns",f.Table.ToString()));
+        var joinPath = $"/pages/custom/add_join_columns?config_table_id={f.Table}";
+        Assert.Equal(new CompatibilityButtonResult("path",joinPath),await f.Gateway().ExecuteAsync("2062356006758912000",f.Table.ToString()));
+        Assert.Equal(new CompatibilityButtonResult("path",joinPath),await f.Gateway().ExecuteLegacyAsync("/admin/custom/config_table/add_join_columns",f.Table.ToString()));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Gateway().ExecuteAsync("2062356006758912000",f.ForeignTable.ToString()));
     }
 }

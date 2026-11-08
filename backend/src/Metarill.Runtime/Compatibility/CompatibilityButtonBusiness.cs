@@ -17,6 +17,7 @@ public static class CompatibilityButtonPolicy
     {
         ["/admin/custom/config_table/config_columns_sort"] = new("", "config_table", "sort"),
         ["/admin/custom/config_table/config_indexes"] = new("", "config_table", "indexes"),
+        ["/admin/custom/config_table/add_join_columns"] = new("", "config_table", "joins"),
         ["/admin/custom/config_table/batch_create_columns"] = new("", "config_table", "batch"),
         ["/admin/custom/config_table/create_page"] = new("", "config_table", "createPage"),
         ["/admin/custom/config_page/copy_page"] = new("", "config_page", "copyPage"),

@@ -33,6 +33,7 @@ public sealed class CompatibilityButtonTests
 
     [Theory]
     [InlineData("/admin/custom/config_table/config_columns_sort","/pages/custom/config_columns_sort?config_table_id=888")]
+    [InlineData("/admin/custom/config_table/add_join_columns","/pages/custom/add_join_columns?config_table_id=888")]
     [InlineData("/admin/custom/config_table/batch_create_columns","/pages/custom/batch_create_columns?config_table_id=888")]
     [InlineData("/admin/custom/config_table/create_table","/pages/custom/schema_sync?projectId=777&tableId=888")]
     public void Registered_navigation_uses_database_entity(string route,string expected)
