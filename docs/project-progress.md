@@ -909,6 +909,7 @@
 | V635 | ✅ 样板 Web 冲突协议已兼容 | f0bb64e9 起点上的本提交，原合同两条 Web 入口 | 过期摘要按原 Web HTTP 200／R500 回包。完整包回环 36 项、Agent 冲突与回读 4 项、正式包准备及租约拒绝 13 项，均零跳过。实际回环两入口零写入并回滚，MySQL 用例已加两入口与快照断言，V636 实际通过。 | [原 Web 冲突兼容](testing/sample-contract-web-conflict-v635.md)，2026-11-08 |
 | V636 | ✅ 固定合同样板正式 MySQL 复验通过 | ee015a97，Server-200 独占 MySQL／Redis，Production Full | 正式 1 项通过。两条 Web 返回 HTTP 200／R500，真实 Agent CLI 保留 HTTP 409 与任务回读。独立 SQL 核对 3 个合同、金额与 3 条附件引用；原按钮、撤权、双宿主与重启通过。同轮资源核零。 | [正式实库复验](testing/sample-contract-web-mysql-v636.md)，2026-11-08 |
 | V637 | ✅ 固定合同样板两种实库行锁竞态通过 | 4c2b4450，Server-200 Production Full | 两个真实 HTTP 会话分别观察到合同行锁等待及独立 NOWAIT 3572。阻塞方提交后旧摘要按原 Web 拒绝，回滚后进入对象规则并撤销首笔业务写入。正式 1 项通过，三轮资源均核零。 | [真实行锁复验](testing/sample-contract-lock-mysql-v637.md)，2026-11-08 |
+| V638 | ✅ 固定 Linux 发行包与三种安装形态通过 | df64ea4f，平台及独立 Full ZIP | 2915／708 份载荷逐字读回；解包后生成与两次原生成的 659 文件一致。实际安装 24／13、25、13 表，真实登录、CRUD、6 次会话隔离、重启注销和资源回收通过。站点 H5 与最终 CI 单列。 | [发行包及空库安装](testing/fixed-linux-release-archives-v638.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 

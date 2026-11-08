@@ -24,6 +24,8 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 将平台四份元数据及 `global.json` 按表格布置。发布后核对全部文件摘要，包括依赖和元数据。发行物和 Web 静态目录与私有配置、数据库备份、文件库及导出临时文件分开。部署配置由服务账户读取，持久目录由运行账户写入。
 
+收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。V638 固定包及三种隔离安装的实际结果见 [发行包与空库安装](testing/fixed-linux-release-archives-v638.md)。
+
 ## 首次安装
 
 1. 为平台库、业务库及独立应用库配置明确的 MySQL 目标和库级授权，确保连接串的 `Database` 与 `ExpectedDatabase` 一致。平台按 [示例配置](../backend/appsettings.Example.json)设置 `Metarill:Database`、`Metarill:BusinessDatabase`。额外业务项目用服务端的 `Metarill:ProjectDatabases` 绑定。独立 Full 设置顶层 `Database`。连接参数见 [MySQL 严格 TLS](mysql-connection-tls.md)。
