@@ -30,7 +30,8 @@ public sealed partial class RelationMaintenanceExecutor
         object? foreignValue = foreignType == "bigint" ? parent.ParentId :
             foreignType?.StartsWith("varchar(", StringComparison.Ordinal) == true ? parent.ParentId.ToString(CultureInfo.InvariantCulture) : null;
         if (foreignValue is null || !await MySqlInlineCacheProof.VerifyAsync(session, (MySqlConnection)transaction.Connection!,
-            transaction, table.Option.TableName, field, parent.Table, parentField, token))
+            transaction, table.Option.TableName, field, parent.Table, parentField,
+            parent.VerifiedAppendSource == table.Option.TableName, token))
             return false;
 
         // 同一父锁下读实际值。值超出缓存列宽度时，让原两阶段路径保留数据库约束与报错行为。

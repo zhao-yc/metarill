@@ -8,10 +8,10 @@ internal static class MySqlInlineCacheProof
 {
     /// <summary>独立连接核对本次有效账号和物理布局，避免用旧的业务快照推断触发器可见性。</summary>
     internal static async Task<bool> VerifyAsync(DatabaseSession session, MySqlConnection connection, DbTransaction transaction,
-        string source, string field, string parent, string parentField, CancellationToken token)
+        string source, string field, string parent, string parentField, bool hasInsertUpdateTriggerProof, CancellationToken token)
     {
         if (source == parent || !connection.ServerVersion.StartsWith("8.4.", StringComparison.Ordinal) ||
-            session.IsInlineCacheTriggerGrantMissing(source))
+            (!hasInsertUpdateTriggerProof && session.IsInlineCacheTriggerGrantMissing(source)))
             return false;
 
         string instance, account;
@@ -55,15 +55,15 @@ internal static class MySqlInlineCacheProof
                 SELECT CAST(CASE
                     WHEN NOT (BINARY DATABASE()<=>BINARY @database AND @@server_uuid=@instance
                               AND BINARY CURRENT_USER()=BINARY @account AND CURRENT_ROLE()='NONE') THEN 0
-                    WHEN NOT allowed THEN 2
+                    WHEN NOT allowed AND @append_proof=0 THEN 2
                     WHEN EXISTS (SELECT 1 FROM direct_grants WHERE PRIVILEGE_TYPE='SELECT'
                                 AND (TABLE_NAME IS NULL OR TABLE_NAME=@source AND BINARY TABLE_NAME=BINARY @source))
                     AND EXISTS (SELECT 1 FROM direct_grants WHERE PRIVILEGE_TYPE='SELECT'
                                 AND (TABLE_NAME IS NULL OR BINARY TABLE_NAME=BINARY @parent))
-                    AND NOT EXISTS (
+                    AND (@append_proof=1 OR NOT EXISTS (
                         SELECT 1 FROM information_schema.TRIGGERS
                         WHERE EVENT_OBJECT_SCHEMA=@database AND BINARY EVENT_OBJECT_SCHEMA=BINARY @database AND EVENT_OBJECT_TABLE=@source AND BINARY EVENT_OBJECT_TABLE=BINARY @source
-                    )
+                    ))
                     AND NOT EXISTS (
                         SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
                         WHERE TABLE_SCHEMA=@database AND BINARY TABLE_SCHEMA=BINARY @database AND TABLE_NAME=@source AND BINARY TABLE_NAME=BINARY @source
@@ -95,6 +95,8 @@ internal static class MySqlInlineCacheProof
             command.Parameters.AddWithValue("@database", session.Options.ExpectedDatabase);
             command.Parameters.AddWithValue("@instance", instance);
             command.Parameters.AddWithValue("@account", account);
+            // 同事务的部署例程只替代触发器可见性证明，列、索引和约束仍在本次逐项核验。
+            command.Parameters.AddWithValue("@append_proof", hasInsertUpdateTriggerProof ? 1 : 0);
             command.Parameters.AddWithValue("@source", source);
             command.Parameters.AddWithValue("@field", field);
             command.Parameters.AddWithValue("@parent", parent);

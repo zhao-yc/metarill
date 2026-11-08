@@ -93,6 +93,8 @@ GRANT EXECUTE ON PROCEDURE proof_db.read_child_append_proof TO 'business_runtime
 
 停用时移除对应配置并等待在途请求结束。回到原排他锁后，可由部署管理员撤销运行账号该例程的执行权限，再按部署归属删除例程及专用定义者账号。应用启动与再生成均不执行这些 DDL。
 
+已登记的例程可在同一事务为单次缓存写入提供触发器证明。运行时仍单独核验列、索引、约束和字符集。符合条件的八行导入只保留首行缓存 UPDATE，后七行在 INSERT 一次写入。保留已有例程和授权，更新生成项目的宿主运行时并重新发布即可生效。新增 CHECK 时保持双阶段写入，撤权或出现写触发器时回到排他父锁。见 [V703 部署证明复用](testing/inline-cache-shared-proof-v703.md)。
+
 ## 实测范围
 
 完整独立应用使用显式共享锁配置时，同父八行明细导入在并发 4 的三轮均达标。C# 吞吐为 Java 的 117.6%～122.3%，p95 为 Java 的 80.6%～90.1%。同一镜像的默认排他锁配置仍触发稳定退化。这里的性能结论只覆盖已实测的工作簿和配置。 [共享锁正式对照](testing/paired-child-shared-guard-scope-timing-v399.md) · [默认配置正式对照](testing/paired-child-default-guard-scope-timing-v398.md)

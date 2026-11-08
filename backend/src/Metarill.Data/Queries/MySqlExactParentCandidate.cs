@@ -21,7 +21,7 @@ public static class MySqlExactParentCandidate
     public sealed class ImportRecheck
     {
         internal (DbTransaction Transaction, string Table, long ParentId, bool SoftDelete, FixedConditionSqlPlan Condition)? FirstRead { get; set; }
-        internal (DbTransaction Transaction, string Table, long ParentId, bool SoftDelete)? SharedParent { get; set; }
+        internal (DbTransaction Transaction, string Source, string Table, long ParentId, bool SoftDelete)? SharedParent { get; set; }
     }
 
     /// <summary>只复用当前事务已实际取得的共享父锁，生成入口据此避免再次升级。</summary>
@@ -34,8 +34,8 @@ public static class MySqlExactParentCandidate
         DbTransaction transaction, string source, string table, long parentId, bool softDelete,
         MySqlSharedAppendProofOptions proof, ImportRecheck recheck, CancellationToken token)
     {
-        if (recheck.SharedParent is not null)
-            return HoldsSharedImportParent(session, table, parentId, softDelete, recheck);
+        if (recheck.SharedParent is {} shared)
+            return shared.Source == source && HoldsSharedImportParent(session, table, parentId, softDelete, recheck);
         if (recheck.FirstRead is not null ||
             !await MySqlSharedAppendProof.VerifyAsync(session, connection, transaction, source, table, proof, token))
             return false;
@@ -45,7 +45,7 @@ public static class MySqlExactParentCandidate
         command.CommandText = "SELECT `id`" + ParentFrom(session, table, softDelete) + " FOR SHARE";
         if (await command.ExecuteScalarAsync(token) is null or DBNull)
             throw new InvalidOperationException("父记录不存在或已删除。");
-        recheck.SharedParent = (transaction, table, parentId, softDelete);
+        recheck.SharedParent = (transaction, source, table, parentId, softDelete);
         return true;
     }
 
@@ -60,16 +60,18 @@ public static class MySqlExactParentCandidate
         internal long ParentId { get; }
         internal string Expression { get; }
         internal string PinnedPrimaryKeyExpression { get; }
+        internal string? VerifiedAppendSource { get; }
         internal IReadOnlyDictionary<string,object?> Parameters { get; }
 
         internal BatchRecheck(DbTransaction transaction,string table,long parentId,string expression,
-            string pinnedPrimaryKeyExpression,IReadOnlyDictionary<string,object?> parameters)
+            string pinnedPrimaryKeyExpression,IReadOnlyDictionary<string,object?> parameters,string? verifiedAppendSource)
         {
             Transaction=transaction;
             Table=table;
             ParentId=parentId;
             Expression=expression;
             PinnedPrimaryKeyExpression=pinnedPrimaryKeyExpression;
+            VerifiedAppendSource=verifiedAppendSource;
             Parameters=parameters;
         }
     }
@@ -92,7 +94,7 @@ public static class MySqlExactParentCandidate
         };
         var shared=HoldsSharedImportParent(session,table,parentId,softDelete,recheck);
         return new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,shared,BatchRecheck.DatabaseGate),
-            PinnedPrimaryKeyRecheckExpression(from,clause.Sql,shared),parameters);
+            PinnedPrimaryKeyRecheckExpression(from,clause.Sql,shared),parameters,shared ? recheck?.SharedParent?.Source : null);
     }
 
     /// <summary>保留旧生成应用入口，只有追加导入的私有调用携带同批状态。</summary>
