@@ -87,7 +87,8 @@ public sealed partial class RelationMaintenanceExecutor
             var id = rowPrefix + "exact_id";
             Add(command, id, row.Id);
             repeatedParameters.Add(command.Parameters[command.Parameters.Count - 1]);
-            var where = $" WHERE {Scope(table, "b.")} AND b.`id`=CASE WHEN {MySqlExactParentCandidate.BatchRecheck.DatabaseGate} AND {verdict}=2 THEN @{id} END";
+            var sourceMatch = $"{Scope(table, "b.")} AND b.`id`=CASE WHEN {MySqlExactParentCandidate.BatchRecheck.DatabaseGate} AND {verdict}=2 THEN @{id} END";
+            var where = " WHERE " + sourceMatch;
             // 首错状态只由上一行的最终核验更新。本行候选一次返回，同时清除上一行读回值。
             sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END,NULL,NULL,NULL,NULL,NULL")
                 .Append($" INTO {verdict},{readId},{before},{expected},{storedId},{stored}")
@@ -99,13 +100,15 @@ public sealed partial class RelationMaintenanceExecutor
                 .Append($"; UPDATE {source} b SET {Q(field)}={value}{where} AND {inserted}=1 AND b.`id`={readId}")
                 // 两值已在上一语句锁住源行和目标行后读出，中间只有结果输出。赋值仍由原目标列完成。
                 .Append($" AND NOT (CAST({before} AS BINARY) <=> CAST({expected} AS BINARY))")
-                .Append($"; SET {affected}=ROW_COUNT()")
-                .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4) FROM {source} b{where} FOR UPDATE OF b INTO {storedId},{stored}")
-                .Append($"; SET {state}=CASE WHEN {verdict}<>2 THEN {verdict} ")
-                .Append($"WHEN {inserted}=1 AND {readId} IS NULL AND {storedId} IS NULL AND {affected}=0 THEN 2 ")
-                .Append($"WHEN {inserted}=1 AND ({readId}<=>@{id}) AND ({storedId}<=>@{id}) ")
-                .Append($"AND {affected}=IF(CAST({before} AS BINARY)<=>CAST({expected} AS BINARY),0,1) ")
-                .Append($"AND (CAST({stored} AS BINARY)<=>CAST({expected} AS BINARY)) THEN 2 ELSE 5 END")
+                // 更新后同一次锁读取计数、物理值和状态。固定一行保留来源不可见时的 NULL 回执。
+                .Append($"; SELECT ROW_COUNT(),b.`id`,CONVERT({cached} USING utf8mb4),")
+                .Append($"CASE WHEN {verdict}<>2 THEN {verdict} ")
+                .Append($"WHEN {inserted}=1 AND {readId} IS NULL AND b.`id` IS NULL AND ROW_COUNT()=0 THEN 2 ")
+                .Append($"WHEN {inserted}=1 AND ({readId}<=>@{id}) AND (b.`id`<=>@{id}) ")
+                .Append($"AND ROW_COUNT()=IF(CAST({before} AS BINARY)<=>CAST({expected} AS BINARY),0,1) ")
+                .Append($"AND (CAST(CONVERT({cached} USING utf8mb4) AS BINARY)<=>CAST({expected} AS BINARY)) THEN 2 ELSE 5 END")
+                .Append($" FROM (SELECT 1) receipt LEFT JOIN {source} b ON {sourceMatch}")
+                .Append($" FOR UPDATE OF b INTO {affected},{storedId},{stored},{state}")
                 .Append($"; SELECT CAST({state} AS SIGNED),CAST({verdict} AS SIGNED),CAST({inserted} AS SIGNED),")
                 .Append($"CAST({affected} AS SIGNED),CAST({storedId} AS SIGNED),CONVERT({stored} USING utf8mb4)");
         }
