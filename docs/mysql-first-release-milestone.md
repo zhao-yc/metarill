@@ -73,7 +73,7 @@ V683 在受控同源网关用固定包实测平台桌面登录、菜单和退出
 
 V684 同包复验逐次修复。合同／明细分别有 1／1 轮触线。V681 原失败保留，复制七步已按原回执分段，性能继续阻断。见 [V684 复现性核对](testing/fixed-repair-repro-v684.md)。
 
-固定产品 `c2eddf71` 的 [GitHub CI](https://github.com/zhao-yc/metarill/actions/runs/42491229657) 已有 14 项成功，Linux 生成器第 1 组仍在执行。
+固定产品 `c2eddf71` 的 [GitHub CI](https://github.com/zhao-yc/metarill/actions/runs/42491229657) 已通过全部 15 个作业，含 Linux／Windows 后端、12 个生成分组和前端。
 
 V685 在同存储设备的独占 MySQL 对 230 个原写入请求做服务端分段。C# 明细和删除副本最慢样本的 COMMIT 分别约占 55% 和 80%。正式性能阻塞仍按 V681 记录。见 [V685 服务端分段](testing/fixed-write-server-phases-v685.md)。
 
