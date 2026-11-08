@@ -87,6 +87,10 @@ V690 合并整表回填结构核验，真实 MySQL 物理对照确认驱动命�
 
 V691 固定 b99fdcec 的平台与独立 Full 已通过包读回、许可及三种真实 MySQL 安装。V692：逐次修复未触发稳定退化，合同／明细触线 0／1 轮。六组整表维护未触发稳定退化。其他性能及最终签收继续核对。见 [V691／V692 固定包与复验](testing/schema-batch-fixed-release-v691-v692.md)。
 
+V693 用 b99fdcec 的固定 Full 复验客户复制，8,400 个正式请求，单／四并发分别触线 0／0 轮，未触发稳定退化。见 [V693 客户复制](testing/schema-batch-customer-copy-v693.md)。
+
+V695 从 b99fdcec 的固定 Git 归档通过 Windows 29 组，九个后端套件 3382 项通过，219 项条件跳过，715 份生成与同步文件逐字一致。见 [V695 Windows 回归](testing/schema-batch-windows-v695.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
