@@ -53,6 +53,8 @@ dotnet host/Application.Host.dll --initialize-security
 dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 ```
 
+独立 Full 使用只读容器根文件系统时，将顶层 `Exports:RootDirectory` 指向应用进程可写的私有挂载。也可用 `Exports__RootDirectory` 明确指定该路径。沿用基础镜像时同时核对其继承的环境变量。以运行账户验证可创建及删除临时文件，再用原页面导出并实际下载一次。见 [V657 原 Web 复验](testing/current-original-web-excel-v656-v657.md)。
+
 已有管理员密码由账号流程维护。两种宿主的显式初始化重复执行会保留现有账号密码。确认本次安装回执后，从正式运行配置移除仅用于引导的密码。
 
 ## Web 与网关
