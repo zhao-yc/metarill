@@ -992,6 +992,7 @@
 | V719 | ✅ 固定候选原浏览器批量恢复通过 | cfdfb2fe，原桌面 Web／真实 CLI | 三批六任务，回执丢失后只查询原批次，独立核对数据与回收。 | [V719 原 Web 批量恢复](testing/integrated-device-browser-v719.md)，2026-11-09 |
 | V720 | ✅ 固定候选原合同大候选 Web 通过 | cfdfb2fe，独立 Full／MySQL 8.4.11 | 5,014 个有效候选；原桌面滚动 50→100、字面搜索、保存、回读及筛选，原移动 Web 回读、搜索和退出通过。独立 SQL 与资源清零通过。 | [V720 原合同大候选](testing/integrated-contract-options-browser-v720.md)，2026-11-09 |
 | V721 | ✅ 固定 Linux 发行包三种空库安装通过 | cfdfb2fe，MySQL 8.4.11 | 分库、共库、独立 Full，普通启动不建表，显式安装及重复保护，原 HTTP 登录、CRUD、反查、重启、注销和资源核清。 | [V721 固定发行包安装](testing/integrated-linux-install-v721.md)，2026-11-09 |
+| V722 | ✅ 固定候选跨实例恢复与会话撤销通过 | cfdfb2fe，MySQL 8.4.11 | 分库 24／13 表、公开／受保护附件和活动会话恢复，计数不符回滚、正式撤销 3／2、重复 0／0，50 个原请求及资源核清。 | [V722 固定候选恢复](testing/integrated-cross-instance-recovery-v722.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 
