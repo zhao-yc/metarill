@@ -403,11 +403,25 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
         // 此处的字典普通读会建立 MySQL 可重复读快照。同父导入须保留原父候选读取在前，不能直接将结构核验移到父锁之前。
         const string engineSql="SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'";
         const string columnsSql="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";
-        foreach(var group in plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal))
+        var groups=plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal).ToArray();
+        if(pinnedLayouts is not null&&session.HasScalarCacheWriteProof(transaction)&&plan.ScalarCacheTarget is not null&&
+            transaction.Connection is MySqlConnector.MySqlConnection&&groups.Length==2&&
+            await ReadAppendLayoutsAsync(groups,transaction,packetLimit,token) is {} layouts)
         {
-            var names=group.Select(item=>item.Column.Name).Distinct(StringComparer.Ordinal).ToArray();
+            foreach(var group in groups)
+            {
+                var layout=layouts[group.Key];
+                RequireEngine(layout.Engine);
+                RequireColumns(group,layout.Columns);
+            }
+            pinnedLayouts.Add(plan,packetLimit);
+            return packetLimit;
+        }
+        foreach(var group in groups)
+        {
+            var names=PhysicalNames(group);
             var pinSql="SELECT "+string.Join(",",names.Select(Q))+" FROM "+Q(group.Key)+" LIMIT 0";
-            var actual=new Dictionary<string,(string Type,bool Nullable,bool Primary,bool Generated)>(StringComparer.Ordinal);
+            var actual=new Dictionary<string,PhysicalColumn>(StringComparer.Ordinal);
             // 零行查询仍先锁表结构。引擎和列同批返回，保留未被投影引用的主键列以识别复合主键。
             var parameters=names.Select((_,index)=>"@column"+index).ToArray();
             var batchSql=pinSql+"; SELECT t.engine,c.column_name,c.column_type,c.is_nullable,c.column_key,c.extra,c.generation_expression"+
@@ -431,7 +445,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 RequireEngine(reader.GetValue(0));
                 do
                 {
-                    if(!reader.IsDBNull(1))ReadColumn(reader,1);
+                    if(!reader.IsDBNull(1))ReadPhysicalColumn(actual,reader,1);
                 }while(await reader.ReadAsync(token));
             }
             else
@@ -442,28 +456,103 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 schema.CommandText=columnsSql;
                 Add(schema,"table",group.Key);
                 await using var reader=await schema.ExecuteReaderAsync(token);
-                while(await reader.ReadAsync(token))ReadColumn(reader,0);
+                while(await reader.ReadAsync(token))ReadPhysicalColumn(actual,reader,0);
             }
-            foreach(var item in group)if(!actual.TryGetValue(item.Column.Name,out var column)||column.Type!=item.Column.StoreType||column.Nullable!=item.Column.Nullable||column.Primary!=item.Column.PrimaryKey||column.Generated)throw new InvalidOperationException($"回填物理列 {item.Table}.{item.Column.Name} 与已发布模型不一致（预期 {item.Column.StoreType}／可空={item.Column.Nullable}／主键={item.Column.PrimaryKey}，实际 {column.Type}／可空={column.Nullable}／主键={column.Primary}／生成列={column.Generated}），请先审查结构差异。");
-            if(actual.Values.Count(column=>column.Primary)!=1||!actual.TryGetValue("id",out var id)||!id.Primary)throw new InvalidOperationException("回填依赖不是单列id主键。");
-
-            void ReadColumn(DbDataReader reader,int offset)
-            {
-                // TEXT常量默认值的DEFAULT_GENERATED不是计算列；真正生成表达式及未知生成标记仍拒绝。
-                var extra=reader.GetString(offset+4);
-                var generated=!reader.IsDBNull(offset+5)&&!string.IsNullOrWhiteSpace(reader.GetString(offset+5))
-                    ||extra.Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!extra.Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase);
-                actual.Add(reader.GetString(offset),(reader.GetString(offset+1).ToLowerInvariant(),reader.GetString(offset+2)=="YES",reader.GetString(offset+3)=="PRI",generated));
-            }
+            RequireColumns(group,actual);
         }
         if(pinnedLayouts is not null)pinnedLayouts.Add(plan,packetLimit);
         return packetLimit;
+    }
 
-        static void RequireEngine(object? value)
+    private sealed record PhysicalColumn(string Type,bool Nullable,bool Primary,bool Generated);
+    private sealed record PhysicalLayout(object Engine,Dictionary<string,PhysicalColumn> Columns);
+
+    /// <summary>追加事务已进入原父候选快照。按原顺序锁定两张表，再一次读取当前库的依赖列与主键。</summary>
+    private async Task<Dictionary<string,PhysicalLayout>?> ReadAppendLayoutsAsync(
+        IGrouping<string,MySqlPhysicalReference>[] groups,DbTransaction transaction,long packetLimit,CancellationToken token)
+    {
+        await using var command=Command(transaction);
+        var pins=new List<string>(groups.Length);
+        var tables=new List<string>(groups.Length);
+        var scopes=new List<string>(groups.Length);
+        long budget=128;
+        for(var index=0;index<groups.Length;index++)
         {
-            if(!string.Equals(Convert.ToString(value,CultureInfo.InvariantCulture),"InnoDB",StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("回填依赖必须为事务实体表。");
+            var group=groups[index];
+            var names=PhysicalNames(group);
+            var table="append_table"+index;
+            var columns=names.Select((_,column)=>"append_column"+index+"_"+column).ToArray();
+            pins.Add("SELECT "+string.Join(",",names.Select(Q))+" FROM "+Q(group.Key)+" LIMIT 0");
+            tables.Add("@"+table);
+            scopes.Add("(BINARY t.table_name=BINARY @"+table+" AND c.column_name IN ("+string.Join(",",columns.Select(column=>"@"+column))+"))");
+            Add(command,table,group.Key);
+            budget+=MySqlInsertCacheBatch.ParameterBytes(group.Key)*2;
+            for(var column=0;column<columns.Length;column++)
+            {
+                Add(command,columns[column],names[column]);
+                budget+=MySqlInsertCacheBatch.ParameterBytes(names[column]);
+            }
         }
+        command.CommandText="/* metarill:append-layout */ "+string.Join("; ",pins)+
+            "; SELECT t.table_name,t.engine,c.column_name,c.column_type,c.is_nullable,c.column_key,c.extra,c.generation_expression"+
+            " FROM information_schema.tables t LEFT JOIN information_schema.columns c"+
+            " ON c.table_schema=t.table_schema AND c.table_name=t.table_name"+
+            " AND (c.column_key='PRI' OR "+string.Join(" OR ",scopes)+")"+
+            " WHERE t.table_schema=DATABASE() AND t.table_name IN ("+string.Join(",",tables)+") AND t.table_type='BASE TABLE'";
+        if(command.Parameters.Count>DatabaseCommandObservation.MaximumParameters||
+            command.CommandText.Length>DatabaseCommandObservation.MaximumSqlLength||
+            System.Text.Encoding.UTF8.GetByteCount(command.CommandText)+budget>Math.Min(packetLimit,256*1024))
+            return null;
+
+        var known=groups.Select(group=>group.Key).ToHashSet(StringComparer.Ordinal);
+        var result=new Dictionary<string,PhysicalLayout>(StringComparer.Ordinal);
+        try
+        {
+            await using var reader=await command.ExecuteReaderAsync(token);
+            for(var index=0;index<pins.Count;index++)
+                if(!await reader.NextResultAsync(token))return null;
+            while(await reader.ReadAsync(token))
+            {
+                var table=reader.GetString(0);
+                if(!known.Contains(table))return null;
+                if(!result.TryGetValue(table,out var layout))
+                    result.Add(table,layout=new(reader.GetValue(1),new(StringComparer.Ordinal)));
+                if(!reader.IsDBNull(2))ReadPhysicalColumn(layout.Columns,reader,2);
+            }
+        }
+        catch(MySqlConnector.MySqlException error)when(error.Number is 1054 or 1146)
+        {
+            // 仅重试读失败。按原逐表顺序确定首个缺失表或列，未缓存不完整的结构。
+            return null;
+        }
+        return result.Count==groups.Length?result:null;
+    }
+
+    private static string[] PhysicalNames(IGrouping<string,MySqlPhysicalReference> group)=>
+        group.Select(item=>item.Column.Name).Distinct(StringComparer.Ordinal).ToArray();
+
+    private static void RequireColumns(IGrouping<string,MySqlPhysicalReference> group,Dictionary<string,PhysicalColumn> actual)
+    {
+        foreach(var item in group)
+            if(!actual.TryGetValue(item.Column.Name,out var column)||column.Type!=item.Column.StoreType||column.Nullable!=item.Column.Nullable||column.Primary!=item.Column.PrimaryKey||column.Generated)
+                throw new InvalidOperationException($"回填物理列 {item.Table}.{item.Column.Name} 与已发布模型不一致（预期 {item.Column.StoreType}／可空={item.Column.Nullable}／主键={item.Column.PrimaryKey}，实际 {column?.Type}／可空={column?.Nullable??false}／主键={column?.Primary??false}／生成列={column?.Generated??false}），请先审查结构差异。");
+        if(actual.Values.Count(column=>column.Primary)!=1||!actual.TryGetValue("id",out var id)||!id.Primary)
+            throw new InvalidOperationException("回填依赖不是单列id主键。");
+    }
+
+    private static void ReadPhysicalColumn(Dictionary<string,PhysicalColumn> columns,DbDataReader reader,int offset)
+    {
+        // TEXT常量默认值的DEFAULT_GENERATED不是计算列；真正生成表达式及未知生成标记仍拒绝。
+        var extra=reader.GetString(offset+4);
+        var generated=!reader.IsDBNull(offset+5)&&!string.IsNullOrWhiteSpace(reader.GetString(offset+5))
+            ||extra.Contains("GENERATED",StringComparison.OrdinalIgnoreCase)&&!extra.Equals("DEFAULT_GENERATED",StringComparison.OrdinalIgnoreCase);
+        columns.Add(reader.GetString(offset),new(reader.GetString(offset+1).ToLowerInvariant(),reader.GetString(offset+2)=="YES",reader.GetString(offset+3)=="PRI",generated));
+    }
+
+    private static void RequireEngine(object? value)
+    {
+        if(!string.Equals(Convert.ToString(value,CultureInfo.InvariantCulture),"InnoDB",StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("回填依赖必须为事务实体表。");
     }
     /// <summary>每次使用实际服务器库名和会话报文上限，结构证明不替代连接核验。</summary>
     private async Task<long> RequireConnectionIdentityAsync(DbDataReader reader,CancellationToken token)
