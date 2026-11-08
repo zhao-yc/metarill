@@ -903,6 +903,7 @@
 | V629 | ✅ 当前独立 Full 经 Caddy HTTPS 的原移动客户 CRUD 通过 | `5c8fcb82`，49 Linux 宿主／60 原 H5，390×844 | 空库显式安装 15 项／重复预览零项，普通角色原客户 CRUD、19 个同源 TLS 1.3 回执、401／404 边界、旧会话失效及独立 MySQL 读回通过。各轮独占资源已核清。 | [独立 Full 移动 Web](testing/current-full-caddy-mobile-v629.md)，2026-11-08 |
 | V630 | ✅ 平台分库的 MySQL 与本地附件恢复通过 | `5c8fcb82`，51 份 Windows Production 宿主 | 从停止写入的源端恢复平台 24 表和业务 13 表，六类目录与备份数据一致。22 个原 HTTP 请求核对普通权限、双附件字节及会话。三轮资源独立核清。 | [分库恢复演练](testing/current-split-backup-restore-v630.md)，2026-11-08 |
 | V631 | ✅ 平台分库 MySQL 与 S3 对象恢复通过 | `5c8fcb82`，同一 51 份 Windows Production 宿主 | 24／13 表、两份 S3 附件、25 个原 HTTP 请求、13 项独立 S3 探针。不同逻辑端点拒绝，沿用原逻辑地址和独立目标凭据后原引用可读，三会话注销且临时资源核清。 | [分库 S3 恢复演练](testing/current-split-s3-backup-restore-v631.md)，2026-11-08 |
+| V632 | ✅ 跨两个 MySQL 实例的分库及本地附件恢复通过 | `5c8fcb82`，两个 MySQL 8.4.11 实例，51 份 Windows Production 宿主 | 源目标主机名及 UUID 不同，24／13 表、六类目录、数据及两份附件相符。22 个原 HTTP 请求核对恢复账号、权限和旧会话，临时资源独立核清。 | [跨 MySQL 实例恢复](testing/current-cross-instance-backup-restore-v632.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 
