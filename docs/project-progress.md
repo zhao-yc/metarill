@@ -900,6 +900,7 @@
 | V626 | ✅ 当前候选 108 个固定原请求 SQL 对照通过 | C# `5c8fcb82`／镜像 `2720fc4b`，沿用 V539 原 Java 对照 | 1,313 条命令的默认库及表目标通过，核对全部固定请求的参数、拒权、传播、复制和事务回滚。132 份证据与资源回收经独立核验。 | [当前 SQL 与事务](testing/current-paired-sql-v626.md)，2026-11-08 |
 | V627 | ✅ 当前 Linux 候选 Caddy 同源部署实测通过 | `5c8fcb82`，Caddy 2.11.8／Compose 5.5.0／210 固定文件 | 12 个原请求，静态资源、API 404、可信客户端地址、生成 CRUD、重启会话及注销独立核对。两轮资源均核零，初始化夹具失败和 Redis 补查留证。 | [当前 Caddy 网关](testing/current-caddy-release-v627.md)，2026-11-08 |
 | V628 | ✅ 当前 Linux 候选 Caddy HTTPS 和原桌面 Web 通过 | `5c8fcb82`，同一 210 文件发布物和短期测试证书 | TLS 1.3 正向、未信任和错误主机名拒绝。12 个真实原请求、7 个浏览器同源回执和三个会话注销均核对，独占资源及证书工作副本核零。 | [当前 HTTPS](testing/current-caddy-https-v628.md)，2026-11-08 |
+| V629 | ✅ 当前独立 Full 经 Caddy HTTPS 的原移动客户 CRUD 通过 | `5c8fcb82`，49 Linux 宿主／60 原 H5，390×844 | 空库显式安装 15 项／重复预览零项，普通角色原客户 CRUD、19 个同源 TLS 1.3 回执、401／404 边界、旧会话失效及独立 MySQL 读回通过。各轮独占资源已核清。 | [独立 Full 移动 Web](testing/current-full-caddy-mobile-v629.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 
