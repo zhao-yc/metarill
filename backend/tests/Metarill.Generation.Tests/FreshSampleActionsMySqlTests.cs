@@ -78,7 +78,15 @@ public sealed class FreshSampleActionsMySqlTests
             await Button(ordinaryClient,"86000",records[1]);var before=await Snapshot();await Button(ordinaryClient,"86002",records[1],code:500);Assert.Equal(before,await Snapshot());await Physical(records[1],"待处理");
             await Button(ordinaryClient,"86001",records[1]);await Physical(records[1],"已处理");await References(file,3);
             before=await Snapshot();await securityStore.UpdateAsync("yz_role_permission",grants["86000"],Row("config_button_id",86002L));await Button(ordinaryClient,"86000",records[1],http:HttpStatusCode.Forbidden,code:403);Assert.Equal(before,await Snapshot());
-            stage="原Web旧值拒绝";var third=records[2];await Post(first.Client,Contract+"update",new{id=third.GetProperty("id").GetString(),name="Web预览后改名"});before=await Snapshot();await Button(first.Client,"86001",third,HttpStatusCode.Conflict,409);Assert.Equal(before,await Snapshot());await Physical(third,"待处理");
+            stage="原Web旧值拒绝";
+            var third=records[2];var thirdId=third.GetProperty("id").GetString()!;
+            var oldDigest=(await Button(first.Client,"86000",third)).GetProperty("data").GetProperty("expectedDigest").GetString();
+            await Post(first.Client,Contract+"update",new{id=thirdId,name="Web预览后改名"});before=await Snapshot();
+            var originalConflict=await Button(first.Client,"86001",third,code:500);
+            var directConflict=await Post(first.Client,"/api/admin/custom/sample-contract-agent/complete",new{id=thirdId,expectedDigest=oldDigest},code:500);
+            Assert.Equal("合同在预览后已变化，请重新查询和预览",originalConflict.GetProperty("msg").GetString());
+            Assert.Equal(originalConflict.GetProperty("msg").GetString(),directConflict.GetProperty("msg").GetString());
+            Assert.Equal(before,await Snapshot());await Physical(third,"待处理");
             stage="两个真实宿主及Agent共用占用拒绝";before=await Snapshot();
             await using(var held=await session.Provider.TryAcquireExecutionLeaseAsync(session.Options,"original-button:"+catalog.YzProjectId+":86000",TimeSpan.FromMinutes(30),TimeProvider.System)??throw new InvalidOperationException("本轮独占按钮锁未取得。"))
             {

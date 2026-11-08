@@ -106,7 +106,7 @@ public sealed partial class SampleContractActionPackageTests(SampleContractActio
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => run.Invoke("CompleteAsync", 7L, expected, false, CancellationToken.None)); Assert.DoesNotContain("write", run.Trace); Assert.Empty(run.Observer.Contexts);
         if (!afterLock) Assert.Empty(run.Trace); else Assert.Equal("rollback", run.Trace[^1]);
     }
-    /// <summary>原Controller的Web冲突保留409；Agent明确冲突由共享中间件继续处理为unknown任务。</summary>
+    /// <summary>原Controller以Web业务错误返回冲突；Agent明确冲突由共享中间件继续处理为unknown任务。</summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -114,11 +114,11 @@ public sealed partial class SampleContractActionPackageTests(SampleContractActio
     {
         using var run = fixture.Run(); var controller = (ControllerBase)Activator.CreateInstance(fixture.Assembly.GetType("Metarill.GlobalSample.Controllers.SampleContractAgentController", true)!, run.Business)!;
         var context = new DefaultHttpContext(); controller.ControllerContext = new() { HttpContext = context };
-        if (agent) context.Items[typeof(AgentRequestIdentity)] = new AgentRequestIdentity(new(run.Authorization.RequireActor(), new HashSet<string>(), 1, 2), "agent", 2);
+        context.Items[typeof(AgentRequestIdentity)] = new AgentRequestIdentity(new(run.Authorization.RequireActor(), new HashSet<string>(), 1, agent ? 2 : null), agent ? "agent" : "web", agent ? 2 : null);
         var request = JsonSerializer.Deserialize("{\"id\":\"7\",\"expectedDigest\":\"过期摘要\"}", fixture.Assembly.GetType("Metarill.GlobalSample.Controllers.ContractChangeRequest", true)!, Metarill.Runtime.JsonDefaults.Options)!;
         var task = (Task)controller.GetType().GetMethod("Complete")!.Invoke(controller, [request, CancellationToken.None])!;
         if (agent) await Assert.ThrowsAsync<AgentActionConflictException>(async () => await task);
-        else { await task; var result = task.GetType().GetProperty("Result")!.GetValue(task)!; Assert.Equal(409, context.Response.StatusCode); Assert.Equal(409, result.GetType().GetProperty("Code")!.GetValue(result)); }
+        else { await task; var result = task.GetType().GetProperty("Result")!.GetValue(task)!; Assert.Equal(200, context.Response.StatusCode); Assert.Equal(500, result.GetType().GetProperty("Code")!.GetValue(result)); }
         Assert.DoesNotContain("write", run.Trace); Assert.Equal("rollback", run.Trace[^1]);
     }
     /// <summary>实际启动完整Web宿主验证三个路由没有绕过身份；空数据库配置不启动真实连接。</summary>
@@ -160,12 +160,16 @@ public sealed partial class SampleContractActionPackageTests(SampleContractActio
         }
         else
         {
-            var result=Assert.IsType<ObjectResult>(await Execute());
+            var result=await Execute();
             if(scenario is "stale" or "missing-original" or "fraction")
-            {Assert.Equal(409,result.StatusCode);Assert.DoesNotContain("write",run.Trace);Assert.Equal("待处理",run.Get("Remarks"));}
+            {
+                var rejected=Assert.IsType<R<object>>(Assert.IsType<OkObjectResult>(result).Value);
+                Assert.Equal(500,rejected.Code);Assert.Null(rejected.Data);Assert.DoesNotContain("write",run.Trace);Assert.Equal("待处理",run.Get("Remarks"));
+            }
             else
             {
-                Assert.Equal(200,(int)result.Value!.GetType().GetProperty("Code")!.GetValue(result.Value)!);
+                var success=Assert.IsType<ObjectResult>(result);
+                Assert.Equal(200,(int)success.Value!.GetType().GetProperty("Code")!.GetValue(success.Value)!);
                 if(scenario is "complete" or "numeric" or "explicit"){Assert.Equal("已处理",run.Get("Remarks"));Assert.Single(run.Observer.Contexts);Assert.Equal("86001",run.Observer.Contexts[0].BusinessButtonId);}
                 else Assert.DoesNotContain("begin",run.Trace);
             }
@@ -237,6 +241,7 @@ public sealed partial class SampleContractActionPackageTests(SampleContractActio
     public async Task Original_central_route_accepts_actual_json_and_returns_single_R_with_conflict_and_rollback()
     {
         using var run=fixture.Run();var builder=WebApplication.CreateBuilder(Array.Empty<string>());builder.Logging.ClearProviders();builder.WebHost.UseUrls("http://127.0.0.1:0");RegisterButtonServices(builder.Services,run);
+        builder.Services.AddSingleton(run.Business.GetType(),run.Business);
         await using var app=builder.Build();
         // 此处只复现已公开对象规则的HTTP200/R500边界，不声称复现完整生产认证或中间件。
         app.Use(async(context,next)=>{try{await next();}catch(BusinessRuleException error){context.Response.StatusCode=200;await context.Response.WriteAsJsonAsync(R<object>.Error(error.Message));}});
@@ -252,7 +257,18 @@ public sealed partial class SampleContractActionPackageTests(SampleContractActio
             gate.Busy=false;
             using var preview=await client.PostAsJsonAsync(path,new{buttonId="86000",entityId="7",entity});Assert.Equal(HttpStatusCode.OK,preview.StatusCode);
             using var previewBody=JsonDocument.Parse(await preview.Content.ReadAsStringAsync());Assert.Equal(200,previewBody.RootElement.GetProperty("code").GetInt32());Assert.Equal(run.Digest(),previewBody.RootElement.GetProperty("data").GetProperty("expectedDigest").GetString());
-            run.Set("Name","另一次修改");using var stale=await client.PostAsJsonAsync(path,new{buttonId="86001",entityId="7",entity});Assert.Equal(HttpStatusCode.Conflict,stale.StatusCode);Assert.DoesNotContain("write",run.Trace);
+            run.Set("Name","另一次修改");
+            using var stale=await client.PostAsJsonAsync(path,new{buttonId="86001",entityId="7",entity});
+            using var replay=await client.PostAsJsonAsync("/api/admin/custom/sample-contract-agent/complete",new{id="7",expectedDigest=previewBody.RootElement.GetProperty("data").GetProperty("expectedDigest").GetString()});
+            foreach(var conflict in new[]{stale,replay})
+            {
+                Assert.Equal(HttpStatusCode.OK,conflict.StatusCode);
+                using var response=JsonDocument.Parse(await conflict.Content.ReadAsStringAsync());
+                Assert.Equal(500,response.RootElement.GetProperty("code").GetInt32());
+                Assert.Equal("合同在预览后已变化，请重新查询和预览",response.RootElement.GetProperty("msg").GetString());
+                Assert.Equal(JsonValueKind.Null,response.RootElement.GetProperty("data").ValueKind);
+            }
+            Assert.DoesNotContain("write",run.Trace);Assert.Equal(2,run.Trace.Count(value=>value=="rollback"));
             run.Set("Name","待处理合同😀");using var completed=await client.PostAsJsonAsync(path,new{buttonId="86001",entityId="7",entity});Assert.Equal(HttpStatusCode.OK,completed.StatusCode);
             using var body=JsonDocument.Parse(await completed.Content.ReadAsStringAsync());Assert.Equal(200,body.RootElement.GetProperty("code").GetInt32());Assert.Equal("已处理",body.RootElement.GetProperty("data").GetProperty("remarks").GetString());Assert.False(body.RootElement.GetProperty("data").TryGetProperty("code",out _));
             run.Set("Remarks","待处理");var commits=run.Trace.Count(value=>value=="commit");using var rollback=await client.PostAsJsonAsync(path,new{buttonId="86002",entityId="7",entity});Assert.Equal(HttpStatusCode.OK,rollback.StatusCode);

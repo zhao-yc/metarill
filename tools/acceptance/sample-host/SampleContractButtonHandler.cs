@@ -13,7 +13,7 @@ public sealed class SampleContractButtonHandler(string buttonId,SampleContractAg
     private readonly int amountScale=metadata.ConfigColumns.Single(column=>column.ConfigTableId==metadata.ConfigTables.Single(table=>table.TableName=="sample_contract").Id&&column.ColumnName=="amount").Scale;
     public string ButtonId {get;}=buttonId;
     public string Path=>"/admin/custom/sample-contract-agent/"+(ButtonId switch{"86000"=>"preview","86001"=>"complete","86002"=>"rollback",_=>throw new NotSupportedException("样板按钮未登记。")});
-    /// <summary>仍调用同一个手写业务及生成Service，原R数据、409冲突、404缺失和对象规则保持统一。</summary>
+    /// <summary>仍调用同一个手写业务及生成Service，原页面从R读取业务冲突提示。</summary>
     public async Task<IActionResult> ExecuteAsync(OriginalBusinessButtonRequest request,CancellationToken cancellationToken)
     {
         var id=long.Parse(request.EntityId!,CultureInfo.InvariantCulture);
@@ -23,7 +23,7 @@ public sealed class SampleContractButtonHandler(string buttonId,SampleContractAg
             var result=await business.CompleteAsync(id,ExpectedDigest(id,request.Entity),ButtonId=="86002",cancellationToken);
             return new ObjectResult(R<SampleContractCompletion>.Success(result));
         }
-        catch(SampleContractConflictException error){return new ObjectResult(R<object>.Error(error.Message,409)){StatusCode=409};}
+        catch(SampleContractConflictException error){return new OkObjectResult(R<object>.Error(error.Message));}
         catch(SampleContractMissingException error){return new ObjectResult(R<object>.Error(error.Message,404)){StatusCode=404};}
     }
     /// <summary>显式摘要可沿用；普通详情正文按原摘要字段精确计算，列表缺原值则要求打开详情。</summary>

@@ -906,6 +906,7 @@
 | V632 | ✅ 跨两个 MySQL 实例的分库及本地附件恢复通过 | `5c8fcb82`，两个 MySQL 8.4.11 实例，51 份 Windows Production 宿主 | 源目标主机名及 UUID 不同，24／13 表、六类目录、数据及两份附件相符。22 个原 HTTP 请求核对恢复账号、权限和旧会话，临时资源独立核清。 | [跨 MySQL 实例恢复](testing/current-cross-instance-backup-restore-v632.md)，2026-11-08 |
 | V633 | ✅ 恢复快照的 Web 与 OAuth 会话处置通过 | `5c8fcb82`，跨 MySQL 8.4.11 实例，51 份 Windows Production 宿主 | 实测快照中 Web、Agent access 和 refresh 恢复后可用。离线撤销 3 条活动会话和 2 条授权，重复 0／0，旧凭据拒绝、新凭据可用，源端保持。50 个原 HTTP 请求和资源回收通过。 | [恢复会话处置](testing/current-restored-session-invalidation-v633.md)，2026-11-08 |
 | V634 | ✅ 当前九类固定性能负载达到稳定性门槛 | `5c8fcb82`，同一 C# 镜像，按场景固定 Java 基线 | 1,185 份证据按清单核验。复算 45,756 个正式请求、7,182 对响应、264 个资源窗口和 66 对轮次。3 轮各自触线，0 个测试组稳定退化。V626 的 SQL 采集独立保留。 | [当前性能矩阵](testing/current-mysql-performance-matrix-v634.md)，2026-11-08 |
+| V635 | 🟡 样板 Web 冲突协议已兼容，正式 MySQL 待复验 | f0bb64e9 起点上的本提交，原合同两条 Web 入口 | 过期摘要按原 Web HTTP 200／R500 回包。完整包回环 36 项、Agent 冲突与回读 4 项、正式包准备及租约拒绝 13 项，均零跳过。实际回环两入口零写入并回滚，MySQL 用例已加两入口与快照断言，尚未执行。 | [原 Web 冲突兼容](testing/sample-contract-web-conflict-v635.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 

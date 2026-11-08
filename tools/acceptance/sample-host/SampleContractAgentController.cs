@@ -22,14 +22,14 @@ public sealed class SampleContractAgentController(SampleContractAgentBusiness bu
     [HttpPost("rollback"), AgentAction("sample-contract-rollback", "回滚验收", "86002")]
     public Task<R<SampleContractCompletion>> Rollback([FromBody] ContractChangeRequest request, CancellationToken cancellationToken) =>
         ExecuteAsync(() => business.CompleteAsync(request.Id, request.ExpectedDigest, true, cancellationToken));
-    /// <summary>Web保持原显式状态；Agent冲突保留原代码并要求先查任务，不宣称业务未执行。</summary>
+    /// <summary>Web沿用原Java的业务错误响应；Agent冲突保留专用类型并要求先查任务。</summary>
     private async Task<R<T>> ExecuteAsync<T>(Func<Task<T>> action)
     {
         try { return R<T>.Success(await action()); }
         catch (SampleContractConflictException error)
         {
             if (HttpContext.Items[typeof(AgentRequestIdentity)] is AgentRequestIdentity { Kind: "agent" }) throw new AgentActionConflictException(error.Message);
-            Response.StatusCode = 409; return R<T>.Error(error.Message, 409);
+            return R<T>.Error(error.Message);
         }
         catch (SampleContractMissingException error) { Response.StatusCode = 404; return R<T>.Error(error.Message, 404); }
     }

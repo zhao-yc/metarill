@@ -18,7 +18,7 @@ Controller只绑定严格请求和响应，Business管理外层事务，生成Se
 
 摘要严格沿原顺序：记录ID、名称、金额普通表示、备注；null取空串，每项使用UTF-16代码单元长度、冒号和值拼接，最后UTF-8 SHA-256。金额保留decimal的scale，不使用当前文化或指数格式；大小写与原MessageDigest比较语义一致。
 
-预览过期和错误状态在首笔更新前拒绝。Web显式冲突保持HTTP409/R409；Agent使用单独的公开冲突类型，公共中间件在账本记录成功时保留HTTP409/`YZP_CONFLICT`，但任务仍为unknown并要求查询/回读。不能通过抛错声明此前一定没有写入；账本失败和未知内部异常维持503/通用unknown，普通CRUD也不套用这个业务动作分类。
+预览过期和错误状态在首笔更新前拒绝。Web 显式冲突自 V635 起返回 HTTP 200／R500，见 [原 Web 冲突兼容](testing/sample-contract-web-conflict-v635.md)。Agent 使用单独的公开冲突类型，公共中间件在账本记录成功时保留HTTP409/`YZP_CONFLICT`，但任务仍为unknown并要求查询/回读。不能通过抛错声明此前一定没有写入；账本失败和未知内部异常维持503/通用unknown，普通CRUD也不套用这个业务动作分类。
 
 ## 实际证据
 
@@ -53,7 +53,7 @@ Controller只绑定严格请求和响应，Business管理外层事务，生成Se
 
 ## 原页面中央按钮接线（2026-10-29）
 
-[原中央入口专项](original-business-button-execution.md)已接平台分支及 FullApplication 原Controller模板，并增加第六份手写 SampleContractButtonHandler。原详情/entity协议进入相同 Business 和生成 Service，预览不写、锁后摘要冲突409、负金额撤销第一笔写入，正常结果保持单层R。源头页面和生成前端不修改。实际模板与JSON回环只替入身份和数据库传输；正式登录/数据库/分布式互斥/父范围仍待，不以本节覆盖历史验收边界。
+[原中央入口专项](original-business-button-execution.md)已接平台分支及 FullApplication 原Controller模板，并增加第六份手写 SampleContractButtonHandler。原详情/entity协议进入相同 Business 和生成 Service，预览不写、锁后摘要冲突按 V635 的 Web 响应返回、负金额撤销第一笔写入，正常结果保持单层R。源头页面和生成前端不修改。实际模板与JSON回环只替入身份和数据库传输；正式登录/数据库/分布式互斥/父范围仍待，不以本节覆盖历史验收边界。
 
 
 ## 正式应用执行器准备（2026-10-29，尚未执行）
