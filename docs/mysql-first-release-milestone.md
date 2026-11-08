@@ -91,6 +91,12 @@ V693 用 b99fdcec 的固定 Full 复验客户复制，8,400 个正式请求，�
 
 V695 从 b99fdcec 的固定 Git 归档通过 Windows 29 组，九个后端套件 3382 项通过，219 项条件跳过，715 份生成与同步文件逐字一致。见 [V695 Windows 回归](testing/schema-batch-windows-v695.md)。
 
+V694 用 b99fdcec 固定 Full 完成剩余六类负载，37,056 个正式请求，六组资源独立核清。合并同候选 V692／V693 已核对 45,756 个正式请求，存在稳定退化，继续阻断签收。见 [V694 当前固定性能矩阵](testing/schema-batch-performance-matrix-v694.md)。
+
+V696 从 b99fdcec 的平台与 Full 固定 ZIP 重新导出 H5，并在受控同源网关实测平台桌面登录、菜单和退出，以及独立应用移动 Web 普通只读、编辑 CRUD 和退出。MySQL 独立回读和资源清理通过。实际发行域名、公开证书和其余组合继续独立核验。见 [V696 固定包 Web](testing/fixed-release-browser-v696.md)。
+
+V697 以 b99fdcec 的固定公开 Full 实测六种跨表覆盖原桌面入口及无效级联末行整批拒绝。独立 MySQL 核对原主键、稀疏字段、对照记录和本轮资源。见 [V697 原 Web 覆盖](testing/current-cross-overwrite-web-v697.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
