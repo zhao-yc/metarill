@@ -64,6 +64,26 @@ const childList=(parent,extra={})=>mountGenerated(listSource,{parent_id:parent.s
  }finally{detail.app.unmount()}
  console.log('通过：原只读子页允许预览，所有写入/复制/删除/编辑入口均拒绝')
 }
+if(detailSource.includes("@blur='saveEntity()'")){
+ // 原行内详情的失焦保存仍必须带当前父记录，并禁止继承只读时发写入请求。
+ const detail=mountGenerated(detailSource,{is_props:true,props_id:childId,props_parent_id:parentId,props_parent_page_sn:'101',parentReadOnlyCondition:false})
+ try{
+  const loaded=detail.requests.at(-1)
+  assert.ok(loaded.options.url.includes('parentId='+parentId))
+  detail.respond(loaded,{id:childId,name:'原子记录',customerId:parentId})
+  await detail.flush()
+  detail.state.change('name','行内修改');detail.state.saveEntity();await detail.flush()
+  const write=lastWrite(detail)
+  assert.equal(write.options.url,'/admin/auto/customer_note/201/update?parentId='+parentId)
+  assert.equal(write.options.data.customerId,parentId)
+  assert.equal(write.options.data.name,'行内修改')
+  detail.respond(write,{id:childId,name:'行内修改',customerId:parentId});await detail.flush()
+  detail.setProps({parentReadOnlyCondition:true});await detail.flush()
+  detail.state.change('name','禁止行内写');detail.state.saveEntity();await detail.flush()
+  assert.equal(detail.writes().length,1)
+ }finally{detail.app.unmount()}
+ console.log('通过：原嵌入列表行内保存绑定当前父范围并继承只读')
+}
 {
  const create=mountGenerated(createDetailSource,{}, {parent_id:parentId,parent_page_sn:'101'}),list=mountGenerated(createListSource,{parent_id:parentId,parent_page_sn:'101',is_son_page:true})
  try{

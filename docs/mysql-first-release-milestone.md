@@ -97,6 +97,8 @@ V696 从 b99fdcec 的平台与 Full 固定 ZIP 重新导出 H5，并在受控同
 
 V697 以 b99fdcec 的固定公开 Full 实测六种跨表覆盖原桌面入口及无效级联末行整批拒绝。独立 MySQL 核对原主键、稀疏字段、对照记录和本轮资源。见 [V697 原 Web 覆盖](testing/current-cross-overwrite-web-v697.md)。
 
+V698 恢复原嵌入子表列表页编辑。普通编辑、只读、父范围和实际失焦保存已通过固定应用的桌面 Web 与独立 MySQL。见 [V698 子表列表编辑](testing/embedded-child-inline-edit-v698.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |

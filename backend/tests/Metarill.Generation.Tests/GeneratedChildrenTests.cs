@@ -11,18 +11,33 @@ namespace Metarill.Generation.Tests;
 public sealed class GeneratedChildrenTests
 {
     /// <summary>执行真正生成的页签、子列表、导航和弹层脚本，不以拼接字符串代替行为验证。</summary>
-    [Theory][InlineData("id")][InlineData("string")]
-    public async Task Generated_children_execute_saved_parent_popup_navigation_and_readonly_contracts(string parentType)
+    [Theory]
+    [InlineData("id", false)] [InlineData("string", false)]
+    [InlineData("id", true)] [InlineData("string", true)]
+    public async Task Generated_children_execute_saved_parent_popup_navigation_and_readonly_contracts(string parentType, bool inlineEdit)
     {
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-generated-children"); var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
         {
-            var catalog = Catalog();catalog.ConfigColumns.Single(column=>column.Id=="203").LogicalType=parentType; new CSharpGenerator().Generate(catalog, output, "Example.Children");
+            var catalog = Catalog();
+            catalog.ConfigColumns.Single(column => column.Id == "203").LogicalType = parentType;
+            if (inlineEdit)
+                catalog.ConfigPages.Single(page => page.Id == "201").Extra["isListEdit"] = JsonSerializer.SerializeToElement(1);
+            new CSharpGenerator().Generate(catalog, output, "Example.Children");
             var path = Path.Combine(output, "frontend/pages/yzp/customer-detail-101.vue"); var before = File.ReadAllText(path);
             Assert.Single(System.Text.RegularExpressions.Regex.Matches(before, "<uni-forms "));
             Assert.True(before.IndexOf("</uni-forms>", StringComparison.Ordinal) < before.IndexOf("<ChildList", StringComparison.Ordinal));
             Assert.Contains("v-show=\"currentSonItem === 0\"", before); Assert.Contains(":parent_id='id'", before); Assert.Contains(":parentReadOnlyCondition='readOnlyCondition'", before);
             catalog.ConfigChildren.Reverse(); new CSharpGenerator().Generate(catalog, output, "Example.Children"); Assert.Equal(before, File.ReadAllText(path));
+            if (inlineEdit)
+            {
+                var list = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/customer_note-list-201.vue"));
+                var detail = File.ReadAllText(Path.Combine(output, "frontend/pages/yzp/customer_note-detail-201.vue"));
+                Assert.Contains("<template v-for=\"item in list\" :key=\"item.id\">", list);
+                Assert.Contains(":props_id='item.id' :props_parent_id='parent_id' :props_parent_page_sn='parent_page_sn'", list);
+                Assert.Contains(":parentReadOnlyCondition='readOnlyCondition'", list);
+                Assert.Contains("@blur='saveEntity()'", detail);
+            }
             await RunProbe(output);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
@@ -75,7 +90,7 @@ public sealed class GeneratedChildrenTests
                 case "admin": catalog.ConfigPages.Single(page => page.Id == "201").YzAdminTypeId = "other"; break;
                 case "placement": catalog.ConfigPages[0].Extra["childPlace"] = JsonSerializer.SerializeToElement("Unknown"); break;
                 case "readonlyExpression": catalog.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("locked || sideEffect()"); break;
-                case "listEdit": catalog.ConfigPages.Single(page => page.Id == "201").Extra["isListEdit"] = JsonSerializer.SerializeToElement(1); break;
+                case "listEdit": catalog.ConfigPages.Single(page => page.Id == "201").Extra["isListEdit"] = JsonSerializer.SerializeToElement(2); break;
                 case "unknownType": catalog.ConfigPages.Single(page => page.Id == "201").Extra["type"] = JsonSerializer.SerializeToElement(2); break;
                 case "duplicate": catalog.ConfigChildren.Add(catalog.ConfigChildren[0]); break;
                 case "cycle":

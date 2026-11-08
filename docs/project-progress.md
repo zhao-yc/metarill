@@ -969,6 +969,7 @@
 | V695 | ✅ 当前固定 Windows 回归通过 | 后端、原前端、生成与工具 | V695 从 b99fdcec 的固定 Git 归档通过 Windows 29 组，九个后端套件 3382 项通过，219 项条件跳过，715 份生成与同步文件逐字一致。见 [V695 Windows 回归](testing/schema-batch-windows-v695.md)。 | [V695 Windows 回归](testing/schema-batch-windows-v695.md)，2026-11-09 |
 | V696 | ✅ 固定包原桌面及移动 Web 子集通过 | b99fdcec，平台 H5／独立 Full | 平台登录、项目、菜单及退出，独立应用普通只读和编辑 CRUD，独立数据库与测试资源核对。 | [V696 固定包 Web](testing/fixed-release-browser-v696.md)，2026-11-09 |
 | V697 | ✅ 当前六模型跨表覆盖原桌面 Web 通过 | b99fdcec 公开 Full，44 表，原 154 H5 文件 | 普通账号六次选档及同主键覆盖，末行无效路径整批拒绝。独立核对稀疏存储、跨项目、删除记录及资源回收。 | [V697 原 Web 覆盖](testing/current-cross-overwrite-web-v697.md)，2026-11-09 |
+| V698 | ✅ 原嵌入子表列表编辑通过 | 原桌面列表与父范围 | 44 项定向回归。实际普通角色失焦保存、重开、只读、双父隔离和 MySQL 审计通过。 | [V698 子表列表编辑](testing/embedded-child-inline-edit-v698.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 

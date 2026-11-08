@@ -26,7 +26,9 @@ internal static class ChildrenCompilation
             if (Text(source, "yzProjectId") is { Length: > 0 } project && project != model.Catalog.YzProjectId) throw new InvalidOperationException("子页面不属于当前项目：" + id);
             if (parent.Page.Source.YzAdminTypeId != child.Page.Source.YzAdminTypeId) throw new InvalidOperationException("主子页面必须属于相同后台类型：" + id);
             if (parent.Table.Source.IsFunctionTable == 1 || child.Table.Source.IsFunctionTable == 1) throw new InvalidOperationException("功能表不能作为记录主子页面：" + id);
-            if (Integer(child.Page.Source.Extra, "type", 0) != 0 || Integer(child.Page.Source.Extra, "isListEdit", 0) != 0 || Integer(child.Page.Source.Extra, "isNotGenerateDetailPage", 0) != 0) throw new InvalidOperationException("子页面列表类型尚未接入主子编辑：" + id);
+            // 原桌面列表编辑复用详情组件，父范围和只读状态仍由嵌入列表传入。
+            var listEdit = Integer(child.Page.Source.Extra, "isListEdit", 0);
+            if (Integer(child.Page.Source.Extra, "type", 0) != 0 || listEdit is not (0 or 1) || Integer(child.Page.Source.Extra, "isNotGenerateDetailPage", 0) != 0) throw new InvalidOperationException("子页面列表类型尚未接入主子编辑：" + id);
             var scopes = child.Page.Scopes.Where(scope => scope.Source == "parent").ToArray();
             if (scopes.Length != 1) throw new InvalidOperationException("子页面必须具有唯一的 parentId 范围：" + id);
             var column = scopes[0].Column;
