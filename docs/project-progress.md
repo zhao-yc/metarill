@@ -901,6 +901,7 @@
 | V627 | ✅ 当前 Linux 候选 Caddy 同源部署实测通过 | `5c8fcb82`，Caddy 2.11.8／Compose 5.5.0／210 固定文件 | 12 个原请求，静态资源、API 404、可信客户端地址、生成 CRUD、重启会话及注销独立核对。两轮资源均核零，初始化夹具失败和 Redis 补查留证。 | [当前 Caddy 网关](testing/current-caddy-release-v627.md)，2026-11-08 |
 | V628 | ✅ 当前 Linux 候选 Caddy HTTPS 和原桌面 Web 通过 | `5c8fcb82`，同一 210 文件发布物和短期测试证书 | TLS 1.3 正向、未信任和错误主机名拒绝。12 个真实原请求、7 个浏览器同源回执和三个会话注销均核对，独占资源及证书工作副本核零。 | [当前 HTTPS](testing/current-caddy-https-v628.md)，2026-11-08 |
 | V629 | ✅ 当前独立 Full 经 Caddy HTTPS 的原移动客户 CRUD 通过 | `5c8fcb82`，49 Linux 宿主／60 原 H5，390×844 | 空库显式安装 15 项／重复预览零项，普通角色原客户 CRUD、19 个同源 TLS 1.3 回执、401／404 边界、旧会话失效及独立 MySQL 读回通过。各轮独占资源已核清。 | [独立 Full 移动 Web](testing/current-full-caddy-mobile-v629.md)，2026-11-08 |
+| V630 | ✅ 平台分库的 MySQL 与本地附件恢复通过 | `5c8fcb82`，51 份 Windows Production 宿主 | 从停止写入的源端恢复平台 24 表和业务 13 表，六类目录与备份数据一致。22 个原 HTTP 请求核对普通权限、双附件字节及会话。三轮资源独立核清。 | [分库恢复演练](testing/current-split-backup-restore-v630.md)，2026-11-08 |
 
 ## 五、后续跨端兼容性验收
 
