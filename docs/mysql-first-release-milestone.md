@@ -163,7 +163,9 @@ V738 从固定候选源码完成真实 MySQL 同库和分库的文件归属、�
 
 V740／V741 以固定候选复验分库与共库 S3 的原路由、普通权限、对象回滚与删除，共库补同址重启。见 [V740／V741 固定候选平台 S3](testing/exact-platform-s3-v740-v741.md)。
 
-V745 短文本叶子维护候选已通过实库锁读、稀疏末端旧值和回滚用例。固定镜像同条件复验仍待执行。见 [V745 叶子维护窗口](testing/leaf-maintenance-clean-window-v745.md)。
+V745 短文本叶子维护候选已通过实库锁读、稀疏末端旧值和回滚用例。后续固定镜像复验见 V747。见 [V745 叶子维护窗口](testing/leaf-maintenance-clean-window-v745.md)。
+
+V747 固定候选完成逐次修复和整表维护同条件复验。两组均达到原稳定性门槛。V748 已启动同一候选的其余七类复验，完整矩阵及首版签收仍待核对。见 [V747 固定候选维护性能](testing/leaf-maintenance-paired-performance-v747.md)。
 
 ### 首版签收核对
 
