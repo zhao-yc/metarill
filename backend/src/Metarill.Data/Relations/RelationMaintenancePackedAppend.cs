@@ -30,8 +30,13 @@ public sealed partial class RelationMaintenanceExecutor
             return false;
 
         // 只有同一事务已核验父表的单列物理主键，才把存在性与候选判断合并为一次当前读。
-        var parentExpression = plan.PhysicalReferences.Any(item => item.Table == parent.Table &&
-            item.Column.Name == "id" && item.Column.PrimaryKey) ? parent.PinnedPrimaryKeyExpression : parent.Expression;
+        var parentKeyPinned = plan.PhysicalReferences.Any(item => item.Table == parent.Table &&
+            item.Column.Name == "id" && item.Column.PrimaryKey);
+        var parentExpression = parentKeyPinned ? parent.PinnedPrimaryKeyExpression : parent.Expression;
+        // 同一事务已核验两张表的单列 id 主键。精确来源与单一父联接至多产生一行，可以省去排序和截取。
+        var sourceKeyPinned = plan.PhysicalReferences.Any(item => item.Table == table.Option.TableName &&
+            item.Column.Name == "id" && item.Column.PrimaryKey);
+        var lockReadOrder = sourceKeyPinned && parentKeyPinned ? "" : " ORDER BY b.`id` LIMIT 2";
         var database = Q(session.Options.ExpectedDatabase);
         if (plan.QualifiedMaintenanceFrom(database) is not {} from)
             return false;
@@ -94,7 +99,7 @@ public sealed partial class RelationMaintenanceExecutor
                 .Append($" INTO {verdict},{readId},{before},{expected},{storedId},{stored}")
                 .Append($"; {insert.Sql} AND {verdict}=2; SET {inserted}=ROW_COUNT()")
                 .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),CONVERT({output} USING utf8mb4){from}{where}")
-                .Append($" ORDER BY b.`id` LIMIT 2{plan.ImportMatchLock} INTO {readId},{before},{expected}")
+                .Append($"{lockReadOrder}{plan.ImportMatchLock} INTO {readId},{before},{expected}")
                 // 更新前把预期送入独立结果，驱动读回时不信任写入之后的会话变量。
                 .Append($"; SELECT CAST({readId} AS SIGNED),CONVERT({before} USING utf8mb4),CONVERT({expected} USING utf8mb4)")
                 .Append($"; UPDATE {source} b SET {Q(field)}={value}{where} AND {inserted}=1 AND b.`id`={readId}")
