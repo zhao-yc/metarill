@@ -1003,6 +1003,8 @@
 | V730 | ✅ 发行来源校正与平台富文本生成通过 | c7491f41，Linux x64／MySQL 8.4.11 | 修复程序集继承外层 Git 提交，仓库内外历史重建逐字一致。当前候选三种安装，平台原字段配置及重复下载、精确 ZIP 严格编译和隔离回收通过。 | [V730 来源与生成](testing/release-source-revision-and-rich-text-v730.md)，2026-11-09 |
 | V731 | ✅ 平台空库字段布局默认值通过 | 14ccf11d 加本次三份源码，MySQL 8.4.11 | 分库、共库的 650 条平台和 15 条示例字段各自无空布局；原详情省略布局可改控件，重复初始化保留手工值及原密码。独占资源已核清。 | [V731 空库字段布局](testing/platform-seed-layout-defaults-v731.md)，2026-11-09 |
 | V732 | ✅ 同一候选两 ZIP 与三种安装通过 | de6da757，Linux x64／MySQL 8.4.11 | 18 个项目程序集来源吻合。分库、共库、独立 Full 空库启动、显式安装、反查、原 HTTP CRUD、会话与重启通过；两平台核对 665 条种子布局，独占资源已核清。 | [V732 固定候选安装](testing/exact-release-install-v732.md)，2026-11-09 |
+| V733 | ✅ 固定候选 Windows 回归通过 | de6da757，2945 份来源 | 九个后端套件、SQL 观察器、定向生成、原前端和 Agent CLI 141 项通过，717 份再生成产物一致。保留条件跳过；CI 单列。 | [V733 Windows 本机回归](testing/exact-release-windows-v733.md)，2026-11-09 |
+| V734 | ✅ 固定候选双端 Web 构建通过 | de6da757，HBuilderX 5.34 | 两个原 ZIP 导出 156／52 个 Web 文件，入口完整。独立 Full 仅在临时副本配置根 AppID 和回环 API，两工程已关闭。实际浏览器验收另计。 | [V734 固定候选 Web](testing/exact-release-web-build-v734.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 

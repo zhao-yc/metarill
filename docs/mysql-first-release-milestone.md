@@ -145,6 +145,10 @@ V731 补齐空库字段布局默认值。分库和共库均用原接口验证省
 
 V732 使用 de6da757 的平台与独立 Full 原始 ZIP，在同一轮通过三种 Production 安装及原 HTTP。两个包的 18 个项目程序集均指向候选提交。见 [V732 固定候选安装](testing/exact-release-install-v732.md)。
 
+V733 固定 de6da757 的 Windows 本机回归通过，覆盖九个后端套件、SQL 观察器、定向生成、原前端与 Agent CLI，717 份再生成产物逐份一致。见 [V733 Windows 本机回归](testing/exact-release-windows-v733.md)。
+
+V734 从 V732 的两个 ZIP 导出平台与独立应用 Web 产物，校验首页入口和全部导出文件。见 [V734 固定候选 Web](testing/exact-release-web-build-v734.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
