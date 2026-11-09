@@ -35,7 +35,7 @@ internal static class NonRedundantCrossTableSubset
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
             var exports=plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
-            // 同一固定链的逻辑父范围已验证追加和列表路径导出；物理或混合父范围继续按原门槛。
+            // 同一固定链的逻辑父范围支持已验证的追加、首列覆盖和列表路径导出。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var hasParent=parentColumns.Length>0;
             var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&!ExactDataManageCompilation.Declared(page)&&
@@ -44,12 +44,13 @@ internal static class NonRedundantCrossTableSubset
                     plan.Definition.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Definition.Levels.Count);
             var pathSupported=independent&&(!hasParent||SupportsScopedPath(plans,parentColumns));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
-            if(imports&&(!pathSupported||!appendImport&&
-                (hasParent||!SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns))))
+            var scopedOverwrite=hasParent&&pathSupported&&(imports||exports)&&SupportsScopedOverwrite(model,table,page,importColumns);
+            if(imports&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
+                SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns))))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
-            // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验该页的追加模式。
+            // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面的实际导入模式。
             if(exports&&(!pathSupported||hasParent&&(ExportRenderer.Mode(page) is not ("" or "list")||
-                ImportRenderer.Enabled(page)&&!appendImport)))
+                ImportRenderer.Enabled(page)&&!appendImport&&!scopedOverwrite)))
                 return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;
         }
@@ -66,6 +67,21 @@ internal static class NonRedundantCrossTableSubset
         return levels.Any(level=>level.Id.Source.Id==parent.Source.Id)&&levels.All(level=>level.Id.Type=="string?"&&
             level.Read.Target.Source.IsRongyu==1&&!level.Read.Target.IsGlobal&&!level.Read.DerivedName);
     }
+
+    /// <summary>逻辑父范围的覆盖使用表级首个可导入的物理文本字段，不扩大到关系键或额外解析依赖。</summary>
+    private static bool SupportsScopedOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)
+    {
+        if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||columns.Count==0)return false;
+        var key=table.Columns.First(columns.Contains);
+        return key.Type=="string?"&&key.Source.ControlKind is "" or "Text"&&
+            NonRedundantReadCompilation.Physical(model,table,key)&&!ImportDependencyCompilation.ForPage(model,table,page).Contextual;
+    }
+
+    /// <summary>新开放的逻辑父范围路径覆盖可给出固定重名提示；原无父及纯标量路径沿各自协议。</summary>
+    internal static bool ReportsScopedOverwriteAmbiguity(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
+        table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent")&&
+        table.Columns.Any(column=>Declared(column)&&(columns.Contains(column)||ExportRenderer.IncludesColumn(page,column)))&&
+        SupportsScopedOverwrite(model,table,page,columns)&&Reason(model,table,page) is null;
 
     /// <summary>公开覆盖只接受已验收的末级单值键、项目范围和独立或共享级联，不扩张到逻辑祖先或附加上下文。</summary>
     private static bool SupportsOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns)

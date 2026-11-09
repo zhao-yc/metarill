@@ -28,7 +28,10 @@ public sealed class CrossTableExcelPublicationTests
     [InlineData("country_id", "", "", true)]
     [InlineData("area_id", "OnlyNew", "list", true)]
     [InlineData("place_id", "OnlyNew", "list", false)]
-    public void Proven_R0_logical_parents_publish_append_and_list_export(string parentColumn, string importMode, string exportMode, bool pathImport)
+    [InlineData("country_id", "OverWriteByFirstColumn", "list", true)]
+    [InlineData("area_id", "OverWriteByFirstColumn", "list", true)]
+    [InlineData("place_id", "OverWriteByFirstColumn", "list", false)]
+    public void Proven_R0_logical_parents_publish_import_and_list_export(string parentColumn, string importMode, string exportMode, bool pathImport)
     {
         var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
         var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
@@ -40,14 +43,15 @@ public sealed class CrossTableExcelPublicationTests
         Assert.True(path.GetProperty("sourceParentSupported").GetBoolean());
         Assert.Equal(pathImport, path.GetProperty("pathCellImportSupported").GetBoolean());
         Assert.True(path.GetProperty("pathCellExportSupported").GetBoolean());
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = Assert.Single(table.Pages);
         if (!pathImport)
-        {
-            var page = model.Tables.Single(table => table.Source.Id == "2").Pages.Single();
             Assert.Equal(new[] { "name", "amount" }, ImportRenderer.Columns(page).Select(column => column.Source.ColumnName));
-        }
+        if (importMode == "OverWriteByFirstColumn")
+            Assert.Contains("PageImportError.AmbiguousOverwrite", ImportRenderer.Service(model, table, page));
     }
 
-    /// <summary>覆盖及详情导出继续受原门槛保护，末级固定父键也不能借列表导出开放覆盖。</summary>
+    /// <summary>未验收的数字首列和详情导出保留门槛，末级固定父键仍不扩大覆盖范围。</summary>
     [Theory]
     [InlineData("area_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
     [InlineData("country_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
@@ -56,6 +60,8 @@ public sealed class CrossTableExcelPublicationTests
     public void Unverified_R0_parent_paths_keep_publication_gaps(string parentColumn, string importMode, string exportMode, string expected)
     {
         var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
+        if (importMode == "OverWriteByFirstColumn")
+            catalog.ConfigColumns.Single(column => column.Id == "22").LogicalType = "int64";
         var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
         Assert.Contains(GenerationCapabilityAudit.Collect(model), gap => gap.PageId == "201" && gap.Reason == expected);
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));

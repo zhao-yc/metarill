@@ -24,6 +24,8 @@ public sealed class PageImportErrorTests
         var input = PageImportException.Input(PageImportError.Number, columnName: "金额", inner: inner).AtRow(2);
         Assert.Equal("第2行，列「金额」：应填写有效数字。", input.Message); Assert.Same(inner, input.InnerException);
         Assert.Same(input, input.AtRow(3)); Assert.Equal(2, input.RowNumber);
+        var ambiguous = PageImportException.Input(PageImportError.AmbiguousOverwrite, columnName: "名称", inner: inner).AtRow(3);
+        Assert.Equal("第3行，列「名称」：当前父范围内有多个同名匹配，请先消除重名后再导入。", ambiguous.Message);
         Assert.Throws<ArgumentOutOfRangeException>(() => input.AtRow(0)); Assert.Throws<ArgumentOutOfRangeException>(() => input.AtRow(-1));
         Assert.Throws<ArgumentOutOfRangeException>(() => PageImportException.Input(PageImportError.Number, 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => PageImportException.Input((PageImportError)999));

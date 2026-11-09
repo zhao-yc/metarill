@@ -84,7 +84,9 @@ public sealed partial class {{page.Name}}ImportRequest
                 .AppendLine($"                var key = matchValue.Deserialize<{first.BoundaryType}>(JsonOptions);");
             if(logicalMatch is not null)result.Append(NonRedundantImportMatchRenderer.Match(model,table,page,logicalMatch));
             else result.AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync({OverwriteMatchProjection(table,page,dependency)}, cancellationToken);")
-                .AppendLine("                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
+                .AppendLine(NonRedundantCrossTableSubset.ReportsScopedOverwriteAmbiguity(model,table,page,columns)
+                    ?$"                if (existing.Count > 1) throw PageImportException.Input(PageImportError.AmbiguousOverwrite, columnName: {Literal(Header(first))});"
+                    :"                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
             if(contextual)
             {
                 if(logicalMatch is null)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];");
