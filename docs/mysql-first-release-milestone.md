@@ -173,6 +173,8 @@ V748 以 4ef3ca76 的同一固定包完成 45,756 个正式请求、66 个配对
 
 V756 使用 4ef3ca76 的平台与独立 Full 原始 ZIP，在同一轮通过三种 Production 安装及原 HTTP。两个包的 18 个项目程序集均指向候选提交。见 [V756 固定候选安装](testing/leaf-public-release-install-v756.md)。
 
+V752 用 4ef3ca76 公开 ZIP 宿主和同源 H5，实测平台管理端与独立应用各自的桌面和移动 Web。普通只读及编辑角色、合成 CRUD、六次注销和独立 MySQL 读回通过。见 [V752 固定候选浏览器](testing/leaf-public-release-browser-v752.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
