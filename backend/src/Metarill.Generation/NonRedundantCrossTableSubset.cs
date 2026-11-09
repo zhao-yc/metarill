@@ -35,7 +35,7 @@ internal static class NonRedundantCrossTableSubset
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
             var exports=plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
-            // 同一固定链的逻辑父范围支持已验证的追加、首列覆盖和列表路径导出。
+            // 同一固定链的逻辑父范围支持追加、首列覆盖及列表和详情路径导出。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var hasParent=parentColumns.Length>0;
             var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&!ExactDataManageCompilation.Declared(page)&&
@@ -49,7 +49,7 @@ internal static class NonRedundantCrossTableSubset
                 SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns))))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
             // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面的实际导入模式。
-            if(exports&&(!pathSupported||hasParent&&(ExportRenderer.Mode(page) is not ("" or "list")||
+            if(exports&&(!pathSupported||hasParent&&(ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
                 ImportRenderer.Enabled(page)&&!appendImport&&!scopedOverwrite)))
                 return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;

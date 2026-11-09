@@ -51,12 +51,39 @@ public sealed class CrossTableExcelPublicationTests
             Assert.Contains("PageImportError.AmbiguousOverwrite", ImportRenderer.Service(model, table, page));
     }
 
-    /// <summary>未验收的数字首列和详情导出保留门槛，末级固定父键仍不扩大覆盖范围。</summary>
+    /// <summary>详情导出复用原页父范围和权限，投影包含详情专用列而排除列表专用列。</summary>
+    [Theory]
+    [InlineData("country_id", "OverWriteByFirstColumn")]
+    [InlineData("area_id", "OverWriteByFirstColumn")]
+    [InlineData("place_id", "OverWriteByFirstColumn")]
+    [InlineData("country_id", "OnlyNew")]
+    [InlineData("area_id", "OnlyNew")]
+    [InlineData("place_id", "OnlyNew")]
+    public void Proven_R0_logical_parents_publish_detail_export(string parentColumn, string importMode)
+    {
+        var catalog = ParentScopedCatalog(parentColumn, importMode, "edit");
+        var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = Assert.Single(table.Pages);
+
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        Assert.True(ExportRenderer.IncludesColumn(page, table.Columns.Single(column => column.Source.Id == "25")));
+        if (parentColumn != "place_id")
+        {
+            var detailOnly = table.Columns.Single(column => column.Source.Id == "28");
+            Assert.Contains(detailOnly, page.DetailColumns);
+            Assert.DoesNotContain(detailOnly, page.ListColumns);
+            Assert.True(ExportRenderer.IncludesColumn(page, detailOnly));
+        }
+    }
+
+    /// <summary>数字首列和未知导出模式保留门槛，末级固定父键仍不扩大覆盖范围。</summary>
     [Theory]
     [InlineData("area_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
     [InlineData("country_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
     [InlineData("place_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ExportAcceptancePending)]
-    [InlineData("country_id", "OnlyNew", "edit", CrossTableExcelRenderer.ExportAcceptancePending)]
+    [InlineData("country_id", "OnlyNew", "unknown", CrossTableExcelRenderer.ExportAcceptancePending)]
     public void Unverified_R0_parent_paths_keep_publication_gaps(string parentColumn, string importMode, string exportMode, string expected)
     {
         var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
