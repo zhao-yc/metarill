@@ -149,6 +149,8 @@ V733 固定 de6da757 的 Windows 本机回归通过，覆盖九个后端套件�
 
 V734 从 V732 的两个 ZIP 导出平台与独立应用 Web 产物，校验首页入口和全部导出文件。见 [V734 固定候选 Web](testing/exact-release-web-build-v734.md)。
 
+V735 用同一 de6da757 候选的宿主和 H5，实测平台管理端与独立应用各自的桌面和移动 Web。普通只读及编辑角色、合成 CRUD、六次注销和独立 MySQL 读回通过。见 [V735 固定候选浏览器](testing/exact-release-browser-v735.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
