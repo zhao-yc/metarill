@@ -1050,6 +1050,7 @@
 | V783 | ✅ 修复后 Windows 平台回归通过 | 74411104，2,985 份源文件 | 九套后端、原前端、Agent CLI、工具及 717 份再生成核对通过。 | [V783 Windows 平台回归](testing/patched-windows-platform-v783.md)，2026-11-09 |
 | V784 | 🔴 独占事务诊断复现四并发退化 | a88bbc89／MySQL 8.4.11 | 12 窗及 1,200 组事务完整。父锁调用是最大的平均时差，缓存锁读及更新和 COMMIT 时差已分列。 | [V784 同父明细事务分段](testing/patched-mysql-child-phases-v784.md)，2026-11-09 |
 | V787 | ✅ 修复后两份 Linux ZIP 独立重建一致 | a88bbc89／公开发行工具 | 平台及独立 Full ZIP 与实际 MySQL 验收包逐字相同。 | [V787 Linux 发行包复现](testing/patched-linux-release-rebuild-v787.md)，2026-11-09 |
+| V790 | 🔴 完整采集同父明细 COMMIT 阶段 | a88bbc89／独占 MySQL | 12 窗、1,200 笔提交已复算，提交时差主要在 waiting for handler commit。正式性能仍阻断。 | [V790 同父明细 COMMIT 分段](testing/patched-mysql-child-commit-waits-v790.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 
