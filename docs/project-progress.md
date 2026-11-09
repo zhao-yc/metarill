@@ -1090,6 +1090,7 @@
 | V841 | ✅ 固定候选原浏览器 OAuth 通过 | 86775982／完整管理包／75 H5 | 真实设备链接登录回跳、原页确认及撤权，旧令牌拒绝，独立核清。 | [V841 固定候选原浏览器 OAuth](testing/fixed-management-oauth-web-v841.md)，2026-11-10 |
 | V842 | 🧪 历史发布清单拒绝，V843 复验通过 | 86775982／Server-200 | 验收清单缺两个计数字段，未启动应用。双库、Redis、网关及临时证书工作副本均核清。 | [V842–V843 固定候选平台 HTTPS](testing/fixed-platform-caddy-https-v842-v843.md)，2026-11-10 |
 | V843 | ✅ 固定候选平台 Caddy HTTPS 与原桌面通过 | 86775982／Caddy／TLS 1.3 | 原浏览器登录、项目菜单及退出，原 API CRUD 与重启会话，错误证书拒绝，资源独立核清。 | [V842–V843 固定候选平台 HTTPS](testing/fixed-platform-caddy-https-v842-v843.md)，2026-11-10 |
+| V844 | ✅ 固定候选独立 Full 移动 HTTPS 通过 | 86775982／49 宿主／52 H5／390×844 | 原移动客户页普通账号增改删、重开及注销通过。19 个同源 TLS 1.3 API、独立 MySQL 墓碑和会话撤销、证书拒绝及资源核清。 | [V844 固定候选独立 Full 移动 HTTPS](testing/fixed-full-caddy-mobile-https-v844.md)，2026-11-10 |
 
 ## 五、后续跨端兼容性验收
 
