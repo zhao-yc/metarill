@@ -25,6 +25,8 @@ jobs:
           node-version: 24
       - name: 安装原页面Vue回归依赖
         run: npm ci --ignore-scripts --prefix frontend/metarill_uni_admin
+      - name: 核对发行包摘要和安全解包边界
+        run: python -m unittest discover -s scripts -p 'test_build_release.py'
       - name: 验证空库 MySQL 与隔离 Redis 的服务器和清理边界
         run: python -m unittest discover -s tools/acceptance -p 'test_server200_fresh*.py'
       - name: 验证独占 MySQL TLS 证书及资源归属边界

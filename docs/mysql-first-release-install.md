@@ -26,6 +26,17 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。当前固定包及三种隔离安装的实际结果见 [V721 Linux x64 候选](testing/integrated-linux-install-v721.md)。较早轮次见 [V668](testing/current-mysql-release-packages-v668.md)、 [V643](testing/current-linux-archives-v643.md) 和 [V638](testing/fixed-linux-release-archives-v638.md)。
 
+### 从固定提交构建发行包
+
+在 Git 检出中使用 Git、Python 3.10 及以上，以及仓库 `global.json` 指定的 .NET SDK。输出目录须是上级目录已存在的新目录。Linux 和 Windows 均可执行相同命令，目标始终为 Linux x64。
+
+```bash
+python scripts/build-release.py build --commit cfdfb2fede0defc7af53d485aa207db834e5cd4c --output metarill-linux-candidate
+python scripts/build-release.py verify --output metarill-linux-candidate
+```
+
+构建只读取指定 Git 提交，独立示例 Full 从同一份元数据生成两次并核对。两份 ZIP 均含 Linux x64 宿主、源码、许可及逐文件清单。网站静态文件按下一节的部署配置单独构建。离线环境可通过 `--nuget-source` 指定已经包含所需包的本地目录，非默认 SDK 路径可通过 `--dotnet` 指定。拿到发行文件后，先从可信交付渠道取得对应的 `SHA256SUMS`，再用 `verify` 核对外层摘要、包内路径、源码提交和文件内容。
+
 ## 首次安装
 
 1. 为平台库、业务库及独立应用库配置明确的 MySQL 目标和库级授权，确保连接串的 `Database` 与 `ExpectedDatabase` 一致。平台按 [示例配置](../backend/appsettings.Example.json)设置 `Metarill:Database`、`Metarill:BusinessDatabase`。额外业务项目用服务端的 `Metarill:ProjectDatabases` 绑定。独立 Full 设置顶层 `Database`。连接参数见 [MySQL 严格 TLS](mysql-connection-tls.md)。
