@@ -37,6 +37,7 @@ public sealed partial class MetadataRepository(SqlRowStore store, MetadataRegist
             var values=json.EnumerateObject().ToDictionary(p=>MetadataRegistry.Snake(p.Name),p=>(object?)p.Value.Clone());
             if(!values.TryGetValue("id",out var idValue)||!long.TryParse(idValue?.ToString(),out var id))throw new InvalidOperationException("种子记录缺少合法标识。");
             if(existing.Contains(id))continue;
+            if(record is ColumnMetadata)ConfigurationColumnDefaults.FillLayout(values);
             if(record is PageMetadata page){values.TryAdd("is_edit",1);values.TryAdd("is_update",page.IsSave);}
             if(record is PageColumnMetadata field){values["is_in_edit"]=field.IsEdit;values["is_in_grid"]=field.IsShow;values["is_must"]=field.IsRequired;}
             values.TryAdd("insert_time",BusinessCalendar.Now);values.TryAdd("update_time",BusinessCalendar.Now);

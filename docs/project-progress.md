@@ -1001,6 +1001,7 @@
 | V728 | ✅ 固定产品公开发行构建与安装通过 | cfdfb2fe，Linux x64／MySQL 8.4.11 | 两个独立构建目录的对应 ZIP 逐字一致，6 项发行校验测试通过。新 ZIP 的三种 Production 安装、原 HTTP、重启和独立回收通过。 | [V728 发行构建与安装](testing/public-release-build-v728.md)，2026-11-09 |
 | V729 | ✅ 原富文本 Web 空配置与内嵌过滤通过 | 两轮独立 Full／MySQL 8.4.11 | 原预览、空 key、HTML 原字节与普通账号通过；修复生成详情中的危险事件属性执行，正常链接保持，既有工程真实更新及资源核清。 | [V729 富文本 Web](testing/empty-tiny-cloud-rich-text-v729.md)，2026-11-09 |
 | V730 | ✅ 发行来源校正与平台富文本生成通过 | c7491f41，Linux x64／MySQL 8.4.11 | 修复程序集继承外层 Git 提交，仓库内外历史重建逐字一致。当前候选三种安装，平台原字段配置及重复下载、精确 ZIP 严格编译和隔离回收通过。 | [V730 来源与生成](testing/release-source-revision-and-rich-text-v730.md)，2026-11-09 |
+| V731 | ✅ 平台空库字段布局默认值通过 | 14ccf11d 加本次三份源码，MySQL 8.4.11 | 分库、共库的 650 条平台和 15 条示例字段各自无空布局；原详情省略布局可改控件，重复初始化保留手工值及原密码。独占资源已核清。 | [V731 空库字段布局](testing/platform-seed-layout-defaults-v731.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 

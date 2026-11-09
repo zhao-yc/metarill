@@ -41,6 +41,7 @@ public sealed class DevelopmentSeedSynchronizer(SqlRowStore store,MetadataRegist
                 {
                     var values=record.EnumerateObject().ToDictionary(p=>MetadataRegistry.Snake(p.Name),p=>(object?)p.Value.Clone());
                     var id=long.Parse(values["id"]!.ToString()!);expected.Add(id);
+                    if(table=="config_column")ConfigurationColumnDefaults.FillLayout(values);
                     if(table=="config_page_column")
                     {
                         values["is_in_edit"]=record.GetProperty("isEdit").GetInt32();
