@@ -128,7 +128,7 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
     /// <summary>脏行分散在宽窗口中时不能跳过，首批修复后的干净区间重新采用宽读取。</summary>
     private static async Task VerifySparseLeafWindowAsync(DatabaseSession session, RelationMaintenanceCatalog catalog, SqlRowStore store)
     {
-        const int count=1152;
+        const int count=2176;
         var first=BaseId+10000;
         var before=Serialize(await SnapshotAsync(store));
         try
@@ -143,7 +143,7 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
                     });
                 return true;
             });
-            foreach(var index in new[]{5,700,1100})
+            foreach(var index in new[]{5,700,2100})
                 Assert.Equal(1,await store.UpdateAsync(Source,first+index,new Dictionary<string,object?>{{"target_name","稀疏旧缓存"}}));
             var observation=DatabaseCommandObservation.Begin(RandomNumberGenerator.GetBytes(32));
             using(observation)
@@ -152,6 +152,11 @@ public sealed class PairedMaintenanceSqlMySqlTests(ITestOutputHelper output)
             var firstWrite=Array.FindIndex(commands,command=>command.Operation==DatabaseCommandOperation.NonQuery&&command.Sql.StartsWith("UPDATE ",StringComparison.Ordinal));
             Assert.True(firstWrite>=0);
             Assert.Contains(commands.Skip(firstWrite+1),command=>command.Sql.Contains("FOR UPDATE OF b FOR SHARE OF",StringComparison.Ordinal)&&command.Sql.Contains("LIMIT 512",StringComparison.Ordinal));
+            // 连续干净数据进入 1024 窗口，末端旧值仍按原 128 行边界重读后才能更新。
+            var lockReads=commands.Where(command=>command.Sql.Contains("FOR UPDATE OF b FOR SHARE OF",StringComparison.Ordinal)).ToArray();
+            Assert.Contains(lockReads.Zip(lockReads.Skip(1)),pair=>
+                pair.First.Sql.Contains("LIMIT 1024",StringComparison.Ordinal)&&
+                pair.Second.Sql.Contains("LIMIT 128",StringComparison.Ordinal));
             var rows=(await SnapshotAsync(store)).Where(row=>SqlRowStore.Id(row)>=first&&SqlRowStore.Id(row)<first+count).ToArray();
             Assert.Equal(count,rows.Length);
             for(var index=0;index<count;index++)

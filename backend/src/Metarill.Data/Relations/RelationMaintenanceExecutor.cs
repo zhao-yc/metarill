@@ -10,6 +10,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
 {
     private const int WriteBatchSize=128;
     private const int CleanReadBatchSize=512;
+    private const int LeafCleanReadBatchSize=1024;
     private const string ReadConnectionIdentity="SELECT DATABASE(),@@SESSION.max_allowed_packet";
     /// <summary>整批使用一个业务事务，结构不匹配、取消、约束或并发失败全部回滚。</summary>
     public async Task<MaintenanceResult> BackfillAsync(RelationMaintenanceCatalog catalog,string tableId,CancellationToken token=default)
@@ -51,7 +52,10 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 if(batch.LastId==after)break;
                 after=batch.LastId;
                 patches=batch.Patches;
-                readLimit=allowLookahead&&patches.Count==0?CleanReadBatchSize:WriteBatchSize;
+                // 叶子连续读满干净窗口才再扩大。宽读发现变化会先回到 128 行重读，不能据此晋级。
+                var nextCleanLimit=resumeCleanLookahead&&readLimit>=CleanReadBatchSize&&batch.RowCount==readLimit
+                    ?LeafCleanReadBatchSize:CleanReadBatchSize;
+                readLimit=allowLookahead&&patches.Count==0?nextCleanLimit:WriteBatchSize;
                 await WriteScalarBatchAsync(table,plan,catalog.ProjectId,patches,packetLimit,transaction,token);
             }
             else
@@ -86,7 +90,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
         }
     }
     /// <summary>标量维护一次锁读真实来源和已发布目标，来源排他、目标共享，保留两套原范围谓词。</summary>
-    private async Task<(long LastId,IReadOnlyList<RelationRowPatch> Patches,long PacketLimit)> LockScalarBatchAsync(
+    private async Task<(long LastId,IReadOnlyList<RelationRowPatch> Patches,long PacketLimit,int RowCount)> LockScalarBatchAsync(
         MaintenanceTable table,string project,long after,int limit,DbTransaction transaction,CancellationToken token,long? exactId=null,string? verifiedFrom=null)
     {
         var plan=table.Read!;
@@ -124,6 +128,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
         foreach(var pair in plan.Constants)Add(command,pair.Key,pair.Value);
         var patches=new List<RelationRowPatch>();
         var lastId=after;
+        var rowCount=0;
         await using var reader=await command.ExecuteReaderAsync(token);
         if(verifiedFrom is not null)
         {
@@ -135,6 +140,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
             var id=reader.GetInt64(0);
             if(id<=lastId||exactId.HasValue&&id!=exactId.Value)throw new InvalidOperationException("回填锁读返回重复或越界的来源。");
             lastId=id;
+            rowCount++;
             Dictionary<string,object?>? changes=null;
             for(var index=0;index<fields.Count;index++)
             {
@@ -146,7 +152,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
             }
             if(changes is not null)patches.Add(new(id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(changes)));
         }
-        return (lastId,patches.AsReadOnly(),packetLimit);
+        return (lastId,patches.AsReadOnly(),packetLimit,rowCount);
     }
     /// <summary>仅已发布全局标量且来源与投影活动范围一致时，可在一条当前读中取旧副本和新名称。</summary>
     internal static bool CanLockExactScalarSource(MaintenanceTable table)
@@ -184,7 +190,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
             if(batch is not null)return batch;
         }
         // 留出第二条的检测槽。若结构不再满足唯一来源，仍按原行为拒绝整笔写入。
-        var (_,patches,readPacketLimit)=await LockScalarBatchAsync(table,project,0,2,transaction,token,exactId:id,verifiedFrom:verifiedFrom);
+        var (_,patches,readPacketLimit,_)=await LockScalarBatchAsync(table,project,0,2,transaction,token,exactId:id,verifiedFrom:verifiedFrom);
         if(verifiedFrom is not null)packetLimit=readPacketLimit;
         // 仅已锁单主键、单文本副本及保守报文预算允许合并发送，复杂值仍走原独立读回。
         if(patches.Count==1&&patches[0].Values.Count==1&&transaction.Connection is MySqlConnector.MySqlConnection
