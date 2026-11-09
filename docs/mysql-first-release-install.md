@@ -78,7 +78,7 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 平台分库加本地附件的隔离恢复顺序已在 [V630](testing/current-split-backup-restore-v630.md) 实测。停止源写入后分别取得平台库、业务库及附件目录的同点备份。为恢复目标分配空库、专属账号、Redis 和持久目录，用目标库级账号导入对应的两个库，再按文件键复制附件。以同版宿主和元数据指向恢复库，通过正常启动命令验证真实登录、文件引用、下载字节及权限。复导出的 DDL 如有文本差异，应核对真实列定义、排序规则、索引和约束，再核对所有数据语句。
 
-跨 MySQL 实例恢复见 [V632](testing/current-cross-instance-backup-restore-v632.md)。先分别读取源、目标的主机名及实例 UUID，核对目标空库名称及导入账号归属。两份备份按平台库和业务库分别导入，可使用目标的新库名。宿主私有配置使用目标连接和对应的 `ExpectedDatabase`。恢复后从目标独立核对客户、文件与引用，再通过原接口验证账号、权限和会话。
+当前候选的跨 MySQL 实例恢复见 [V769](testing/integrated-cross-instance-recovery-v769.md)。先分别读取源、目标的主机名及实例 UUID，核对目标空库名称及导入账号归属。两份备份按平台库和业务库分别导入，可使用目标的新库名。宿主私有配置使用目标连接和对应的 `ExpectedDatabase`。恢复后从目标独立核对客户、文件与引用，再通过原接口验证账号、权限和会话。
 
 S3 对象恢复见 [V631](testing/current-split-s3-backup-restore-v631.md)。停写后备份 MySQL 与对应对象键，按清单核对目标空桶，写回相同键并独立读取实际大小和 SHA-256。原文件定位要求保留原配置别名、规范化端点、区域、桶、前缀和寻址方式，凭据可独立轮换。恢复服务可用同一逻辑地址指向物理目标，再核对公开和受保护内容的原权限。直接更换逻辑端点会拒绝旧引用，涉及改名的迁移应单独核对文件定位。 [S3 定位规则](s3-object-storage.md)
 
@@ -89,7 +89,7 @@ S3 对象恢复见 [V631](testing/current-split-s3-backup-restore-v631.md)。停
 
 ### 恢复快照中的会话与授权
 
-备份会保留采集时有效的 Web 会话、Agent 访问会话及刷新授权，恢复后旧凭据仍可能有效。保持恢复目标离线并隔离入口，应用启动对外服务前，在恢复目标的身份库核对实例和库名，再处理快照中的旧会话。平台使用承载 `sys_session` 和 `sys_agent_grant` 的平台库。先读出受影响数量，再在同一连接的事务中撤销。当前候选的跨实例恢复、计数不符回滚与重复撤销见 [V722](testing/integrated-cross-instance-recovery-v722.md)。较早实测见 [V633](testing/current-restored-session-invalidation-v633.md)。
+备份会保留采集时有效的 Web 会话、Agent 访问会话及刷新授权，恢复后旧凭据仍可能有效。保持恢复目标离线并隔离入口，应用启动对外服务前，在恢复目标的身份库核对实例和库名，再处理快照中的旧会话。平台使用承载 `sys_session` 和 `sys_agent_grant` 的平台库。先读出受影响数量，再在同一连接的事务中撤销。当前候选的跨实例恢复、计数不符回滚与重复撤销见 [V769](testing/integrated-cross-instance-recovery-v769.md)。较早实测见 [V722](testing/integrated-cross-instance-recovery-v722.md)。
 
 ```sql
 SELECT @@hostname, @@server_uuid, DATABASE();
