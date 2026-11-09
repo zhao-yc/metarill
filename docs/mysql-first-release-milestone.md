@@ -143,6 +143,8 @@ V730 固定发行工具的程序集来源标记，历史包从 Git 仓库内外�
 
 V731 补齐空库字段布局默认值。分库和共库均用原接口验证省略布局可保存，重复初始化保留手工布局和原密码。见 [V731 空库字段布局](testing/platform-seed-layout-defaults-v731.md)。
 
+V732 使用 de6da757 的平台与独立 Full 原始 ZIP，在同一轮通过三种 Production 安装及原 HTTP。两个包的 18 个项目程序集均指向候选提交。见 [V732 固定候选安装](testing/exact-release-install-v732.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
