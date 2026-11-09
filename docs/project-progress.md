@@ -993,6 +993,7 @@
 | V720 | ✅ 固定候选原合同大候选 Web 通过 | cfdfb2fe，独立 Full／MySQL 8.4.11 | 5,014 个有效候选；原桌面滚动 50→100、字面搜索、保存、回读及筛选，原移动 Web 回读、搜索和退出通过。独立 SQL 与资源清零通过。 | [V720 原合同大候选](testing/integrated-contract-options-browser-v720.md)，2026-11-09 |
 | V721 | ✅ 固定 Linux 发行包三种空库安装通过 | cfdfb2fe，MySQL 8.4.11 | 分库、共库、独立 Full，普通启动不建表，显式安装及重复保护，原 HTTP 登录、CRUD、反查、重启、注销和资源核清。 | [V721 固定发行包安装](testing/integrated-linux-install-v721.md)，2026-11-09 |
 | V722 | ✅ 固定候选跨实例恢复与会话撤销通过 | cfdfb2fe，MySQL 8.4.11 | 分库 24／13 表、公开／受保护附件和活动会话恢复，计数不符回滚、正式撤销 3／2、重复 0／0，50 个原请求及资源核清。 | [V722 固定候选恢复](testing/integrated-cross-instance-recovery-v722.md)，2026-11-09 |
+| V723 | ✅ 固定候选公开 Full 六模型跨表 Excel 通过 | cfdfb2fe，追加及首列覆盖 | 原普通登录、稀疏级联、改名传播、维护、锁等待、18 个 DML／文件引用钩子及重启注销，两轮资源独立核清。 | [V723 六模型跨表 Excel](testing/integrated-public-r0-cross-excel-v723.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 

@@ -64,7 +64,8 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
         var run=published?PublicR0CrossExcelNativeLease.Validate(settings,preparedRoot,overwrite,redundant):GlobalCachedCrossExcelNativeLease.Validate(settings,preparedRoot,redundant);
         var proof=settings.GetProperty(published?"PublicCrossExcelPreparation":"GlobalCrossExcelPreparation").Deserialize<CrossTableExcelPackageProof>()!;
         var catalog=Verify(proof);var options=FreshInstallConfiguration.Read("AgentDatabase","agent");
-        var loginRedis=overwrite||redundant?FreshInstallConfiguration.ReadLoginRedis():null;
+        // Production 登录始终校验 Redis，追加与覆盖使用同一隔离验收配置。
+        var loginRedis=FreshInstallConfiguration.ReadLoginRedis();
         var evidence=CSharpGenerator.SafePath(source,root+"/"+run+"/evidence");if(Directory.Exists(evidence))throw new InvalidOperationException("六模型本轮证据目录已存在，不自动重跑。");Directory.CreateDirectory(evidence);
         var copied=Copy(proof,CSharpGenerator.SafePath(source,root+"/"+run+"/execution/application"));
         var hostDirectory=CSharpGenerator.SafePath(copied.PackageRoot,"backend/Application.Host");var storageBoundary=Path.Combine(evidence,"storage");var storage=Path.Combine(storageBoundary,Guid.NewGuid().ToString("N"));var hooks=Path.Combine(evidence,"transaction-hooks.jsonl");

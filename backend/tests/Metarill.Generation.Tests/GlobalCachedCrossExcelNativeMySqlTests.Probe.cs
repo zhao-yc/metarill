@@ -105,7 +105,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             Assert.Equal(original,SqlRowStore.Id(active));
             var tombstone=Assert.Single(comparison,value=>value["delete_no"] is not null);
             Assert.NotEqual(original,SqlRowStore.Id(tombstone));
-            await Revoke(main,HttpStatusCode.Forbidden);
+            await Revoke(main);
         }
 
         /// <summary>真实普通账号逐项经过原候选、路径、Excel、复制、文件及权限边界。</summary>
@@ -142,7 +142,7 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             var before=await Snapshot();await Import(HttpStatusCode.BadRequest,Input("旧名不得写入",shorter?"国甲/区甲":"国甲/区甲/城甲",shared?"国甲/区甲/仓甲":null));Assert.Equal(before,await Snapshot());
             await Import(Input("改名后",Full,shared?Secondary:null));await CheckStorage("改名后",shorter?1:2,At(shorter?Area:Place),shared?2:-1,shared?At(Warehouse):null);
             if(shared){before=await Snapshot();await Import(HttpStatusCode.BadRequest,Input("共享冲突",First,Secondary));Assert.Equal(before,await Snapshot());}
-            await Maintenance(changed);await LatePropagationFailure(lookupTable,lookupPage);await AmbiguousNames(changed);await FileRollback();await Revoke(main,SourceTable.IsRongyu==1?HttpStatusCode.Forbidden:HttpStatusCode.Unauthorized);
+            await Maintenance(changed);await LatePropagationFailure(lookupTable,lookupPage);await AmbiguousNames(changed);await FileRollback();await Revoke(main);
         }
         /// <summary>候选需要真实来源／目标页权限，路径回读保持原长ID和名称。</summary>
         private async Task Candidates()
@@ -292,12 +292,12 @@ public sealed partial class GlobalCachedCrossExcelNativeMySqlTests
             Assert.Equal(before,await Snapshot(original));
         }
 
-        /// <summary>来源撤权后普通导入导出均403、文件按各已验收场景拒绝且业务/文件全量摘要不变，再恢复原明确许可。</summary>
-        private async Task Revoke(ColumnMetadata main,HttpStatusCode fileDenied=HttpStatusCode.Unauthorized)
+        /// <summary>已认证账号撤权后，导入、导出、级联和受保护附件均返回403，并核对业务及文件摘要不变。</summary>
+        private async Task Revoke(ColumnMetadata main)
         {
             var before=await Snapshot();await Grant(SourcePage,"[]");
             await Import(HttpStatusCode.Forbidden,Input("拒权不得写入",Full,shared?Secondary:null));await Send(reader,HttpMethod.Post,Route+"initExport",new{},HttpStatusCode.Forbidden);await Send(reader,HttpMethod.Post,Route+"cascadeTreeOptions"+main.Id,new{levelKey="country",selectedPath=new{}},HttpStatusCode.Forbidden);Assert.Equal(before,await Snapshot());
-            Assert.NotNull(lastFile);using(var denied=await reader.GetAsync("/api/admin/sys/file-library/protected-content/"+lastFile))Assert.Equal(fileDenied,denied.StatusCode);
+            Assert.NotNull(lastFile);using(var denied=await reader.GetAsync("/api/admin/sys/file-library/protected-content/"+lastFile))Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
             await Grant(SourcePage,"[\"is_all\"]");
         }
         /// <summary>用实际工作簿驱动原选择函数和 SheetJS，再把原回调 JSON 交给生成接口。</summary>
