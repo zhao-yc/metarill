@@ -33,7 +33,19 @@
 
 MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项勾选为准，不给出未经完整核对的完成百分比。本次范围调整保留既有验收记录以及原 Web 界面、移动视口和性能要求。
 
-固定产品 `4ef3ca76` 已通过[公开包构建](testing/leaf-public-release-build-v750.md)、[三种安装拓扑](testing/leaf-public-release-install-v756.md)、[桌面与移动 Web](testing/leaf-public-release-browser-v752.md)、[九类同条件性能](testing/exact-mysql-performance-v748.md)以及[跨库文件事务和 S3 两种拓扑](testing/leaf-platform-file-transactions-s3-v757-v759.md)。[平台原接口生成、下载及独立安装](testing/leaf-platform-download-install-v760.md)也已通过。[实际下载包的桌面和移动 Web](testing/leaf-downloaded-package-web-v761.md)已核对普通编辑、只读、实库与注销。V762 固定候选用公开工厂生成完整管理包，完成正式 Web、真实 OAuth CLI、MCP 撤权、账号初始化和重启。见 [V762 固定候选完整管理包](testing/leaf-management-package-v762.md)。V765 固定候选补在线助手双项目真实写入、仅后端同步及同地址重启后的原批次恢复。见 [V765 固定候选在线助手](testing/leaf-device-runtime-v765.md)。V766 固定候选从原 Web 实测在线助手三批六任务及回执丢失后的只读恢复。见 [V766 原 Web 批量恢复](testing/leaf-device-browser-v766.md)。Windows 平台回归通过，完整生成分组及最终 GitHub CI 继续验收。
+当前候选产品提交为 `4ef3ca76`。历史候选和条件跳过的用例分别保留记录。
+
+| 范围 | 当前候选证据 | 状态 |
+| --- | --- | --- |
+| 开源发行包 | 平台与独立 Full 的两份 Linux x64 ZIP 独立重建逐字一致，核对程序集来源和许可清单。[V750](testing/leaf-public-release-build-v750.md) | 通过 |
+| 空库与生成 | 分库、共库及独立空库显式安装，普通启动零 DDL。由平台实际下载 Full 并独立安装，新配置表 CRUD 与重启通过。[V756](testing/leaf-public-release-install-v756.md)、[V760](testing/leaf-platform-download-install-v760.md) | 通过 |
+| 原桌面与移动 Web | 管理端和独立 Full 的两个视口通过，实际下载包验证桌面编辑、移动只读、字符串 ID 和注销。[V752](testing/leaf-public-release-browser-v752.md)、[V761](testing/leaf-downloaded-package-web-v761.md) | 通过 |
+| 关系、Excel 与文件 | 六模型原 XLSX 追加、按首列覆盖、改名传播、维护、并发锁及整批回滚。分库和共库文件事务与 S3 独立复验。[V767](testing/leaf-public-r0-cross-excel-v767.md)、[V757–V759](testing/leaf-platform-file-transactions-s3-v757-v759.md) | 固定范围通过 |
+| 权限与工具 | 完整管理包、OAuth CLI、MCP、初始化和重启。在线助手真实工程写入、手写保护与原浏览器回执恢复。[V762](testing/leaf-management-package-v762.md)、[V765](testing/leaf-device-runtime-v765.md)、[V766](testing/leaf-device-browser-v766.md) | 固定范围通过 |
+| 同条件性能 | Server-200 上九类固定 Java／C# 负载、45,756 个正式请求、66 个配对轮次。[V748](testing/exact-mysql-performance-v748.md) | 通过 |
+| Windows 本机回归 | 平台九套及原前端回归。六组生成回归覆盖独立枚举的 3,072 个用例，2,799 项通过，273 项按环境条件跳过。[V755](testing/leaf-windows-platform-v755.md)、[V751](testing/leaf-windows-generation-v751.md) | 通过 |
+| 最终 GitHub CI | 以既定开发分支的最终提交为准。[PR 检查](https://github.com/zhao-yc/metarill/pull/1/checks) | 待验收 |
+| 真实 Tiny Cloud 编辑 | 原控件及空配置回归已有证据。[V754](testing/leaf-original-controls-v754.md) | 待有效配置后验收 |
 
 较早候选 `5c8fcb82` 的同父明细 Excel 追加已通过 V603 正式门槛。四并发吞吐为 Java 的 95.8%、99.5%、99.7%，一轮 p95 触线，未构成稳定退化。该结果覆盖固定原八行工作簿及最小权限配置。同一 C# 候选的四读未构成稳定退化、七步写入未构成稳定退化。客户及合同 Excel 追加导入未构成稳定退化。V608 本地受保护下载及 V609 三页 Excel 导出分别未构成稳定退化、未构成稳定退化。V611 合同及明细的六组关系维护未构成稳定退化。V626 用相同候选复验 108 个固定原请求、1,313 条驱动命令及事务语义，见 [当前 SQL 与事务](testing/current-paired-sql-v626.md)。其余性能场景和整体签收继续核对。见 [文件、导出及维护复验](testing/paired-release-candidate-file-export-v608-v610.md)。见 [V601–V604 验收](testing/paired-child-negative-grant-cache-v604.md) 和 [V605–V607 复验](testing/paired-release-candidate-read-write-v605-v606.md)。
 
