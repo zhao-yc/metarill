@@ -165,9 +165,13 @@ V740／V741 以固定候选复验分库与共库 S3 的原路由、普通权限�
 
 V745 短文本叶子维护候选已通过实库锁读、稀疏末端旧值和回滚用例。后续固定镜像复验见 V747。见 [V745 叶子维护窗口](testing/leaf-maintenance-clean-window-v745.md)。
 
-V747 固定候选完成逐次修复和整表维护同条件复验。两组均达到原稳定性门槛。V748 同一候选的核心读写和同父明细追加达到原门槛。核心读写见 [V748 核心读写](testing/leaf-core-read-write-v748.md)。客户及合同 Excel 追加、受保护附件下载同样通过。导出、复制和首版签收仍待核对。见 [V747 固定候选维护性能](testing/leaf-maintenance-paired-performance-v747.md)。
+V747 固定候选完成逐次修复和整表维护同条件复验。两组均达到原稳定性门槛。
 
 V750 已用公开工具构建并校验 4ef3ca76 的平台与独立 Full ZIP，固定前端输入逐字一致。实际安装和浏览器证据另验。见 [V750 公开工具固定包](testing/leaf-public-release-build-v750.md)。
+
+V748 以 4ef3ca76 的同一固定包完成 45,756 个正式请求、66 个配对轮次。九类固定负载均未构成稳定退化，性能矩阵达到原门槛。见 [V748 集成性能矩阵](testing/exact-mysql-performance-v748.md)。
+
+V756 使用 4ef3ca76 的平台与独立 Full 原始 ZIP，在同一轮通过三种 Production 安装及原 HTTP。两个包的 18 个项目程序集均指向候选提交。见 [V756 固定候选安装](testing/leaf-public-release-install-v756.md)。
 
 ### 首版签收核对
 
