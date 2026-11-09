@@ -1046,7 +1046,7 @@
 | V777 | ✅ 安装示例空代理名单修复、本机宿主通过 | 旧基线 4ef3ca76／共享修复 | 旧包实测拒绝启动，修复后两宿主可启动、允许 Host 200、外部 Host 400，专项 15 项通过。当前发行包正式 MySQL 复验单列。 | [V777 空代理名单](testing/empty-trusted-proxy-install-v777.md)，2026-11-09 |
 | V778 | ✅ 修复后固定发行包三拓扑安装通过 | a88bbc89／Linux x64／MySQL 8.4.11 | 明确空代理名单，普通启动保持空库，显式安装及重复保护、原 HTTP CRUD、会话与独立核清均通过。 | [V778 Linux 安装](testing/empty-trusted-proxy-linux-v778.md)，2026-11-09 |
 | V779 | ✅ 修复后两类宿主双视口 Web 通过 | a88bbc89／MySQL 8.4.11 | 分库平台原登录与表分页，独立 Full 普通只读与编辑，六次注销及实库读回。 | [V779 固定包双视口 Web](testing/patched-release-browser-v779.md)，2026-11-09 |
-| V782 | 🔴 同父明细 Excel 四并发稳定退化 | a88bbc89 与原 Java，Server-200 | 1,200 个正式请求，每端 4,928 行，四并发三轮中两轮触线，阻断发布。核心读写 27,600 个请求和客户、合同 Excel 追加 864 个请求均达标，其余负载单独跟踪。 | [V782 同父明细退化](testing/patched-mysql-child-regression-v782.md)，2026-11-09 |
+| V782 | 🔴 同父明细 Excel 四并发稳定退化 | a88bbc89 与原 Java，Server-200 | 1,200 个正式请求，每端 4,928 行，四并发三轮中两轮触线，阻断发布。核心读写 27,600 个请求、客户及合同 Excel 追加 864 个请求、三页 Excel 导出 2,592 个请求均达标。附件下载 4,800 个请求未构成稳定退化，客户复制另验。 | [V782 同父明细退化](testing/patched-mysql-child-regression-v782.md)，2026-11-09 |
 | V783 | ✅ 修复后 Windows 平台回归通过 | 74411104，2,985 份源文件 | 九套后端、原前端、Agent CLI、工具及 717 份再生成核对通过。 | [V783 Windows 平台回归](testing/patched-windows-platform-v783.md)，2026-11-09 |
 | V787 | ✅ 修复后两份 Linux ZIP 独立重建一致 | a88bbc89／公开发行工具 | 平台及独立 Full ZIP 与实际 MySQL 验收包逐字相同。 | [V787 Linux 发行包复现](testing/patched-linux-release-rebuild-v787.md)，2026-11-09 |
 
