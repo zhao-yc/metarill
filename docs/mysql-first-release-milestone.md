@@ -153,6 +153,8 @@ V735 用同一 de6da757 候选的宿主和 H5，实测平台管理端与独立�
 
 V736 固定 de6da757 的同父明细 Excel 追加通过，1,200 个正式请求，四并发一轮吞吐触线且未构成稳定退化。见 [V736 同父明细追加](testing/exact-mysql-child-append-v736.md)。
 
+V743 固定 de6da757 的合同明细逐次修复出现三轮两轮触线，当前性能签收阻断。见 [V743 性能阻断](testing/exact-mysql-repair-regression-v743.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |
