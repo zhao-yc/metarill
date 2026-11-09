@@ -17,6 +17,7 @@ public sealed class DatabaseSession : IDisposable
         public bool ScalarCacheWrite { get; } = scalarCacheWrite;
         public Dictionary<MySqlNonRedundantReadPlan,long>? PinnedRelationLayouts { get; set; }
         public string? PackedAppendVariablePrefix { get; set; }
+        public long AppendPacketLimitHint { get; set; }
     }
     private readonly AsyncLocal<TransactionScope?> _transaction = new();
     private readonly ConcurrentDictionary<string, long> _missingInlineTriggerGrants = new(StringComparer.Ordinal);
@@ -75,6 +76,18 @@ public sealed class DatabaseSession : IDisposable
     /// <summary>仅由当前会话明确建立的可重复读写事务允许合并缓存写回。</summary>
     internal bool HasScalarCacheWriteProof(DbTransaction transaction)=>
         _transaction.Value is {ScalarCacheWrite:true} scope&&ReferenceEquals(scope.Transaction,transaction);
+
+    /// <summary>同一事务首次父候选读取得的报文提示只用于估算。后续结构命令仍核对实际连接。</summary>
+    internal long AppendPacketLimitHint(DbTransaction transaction) =>
+        _transaction.Value is { ScalarCacheWrite: true } scope && ReferenceEquals(scope.Transaction, transaction)
+            ? scope.AppendPacketLimitHint : 0;
+
+    /// <summary>不跨事务复用报文限制，避免池化连接或服务器设置变化影响下一批。</summary>
+    internal void RememberAppendPacketLimit(DbTransaction transaction, long packetLimit)
+    {
+        if (_transaction.Value is { ScalarCacheWrite: true } scope && ReferenceEquals(scope.Transaction, transaction))
+            scope.AppendPacketLimitHint = packetLimit;
+    }
 
     /// <summary>每个事务只分配一组私有变量名，连续小批先清空并复用，避免大工作簿累积会话变量。</summary>
     internal string GetPackedAppendVariablePrefix(DbTransaction transaction)

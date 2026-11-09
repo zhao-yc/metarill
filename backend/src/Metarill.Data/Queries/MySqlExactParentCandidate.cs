@@ -120,12 +120,27 @@ public static class MySqlExactParentCandidate
         // MySQL 可在表达式求值前读取常量主键。生成器仅在该父锁已由原入口取得时使用本语句。
         command.CommandText="SELECT CASE WHEN EXISTS(SELECT 1"+from+") THEN (SELECT 2"+from+
             (candidate.Length==0?"":" AND "+candidate)+LockClause(HoldsSharedImportParent(session,table,parentId,softDelete,recheck))+") ELSE 0 END";
-        var result=await command.ExecuteScalarAsync(cancellationToken);
+        var scalarAppend = recheck is not null && session.HasScalarCacheWriteProof(transaction);
+        var packetLimit = 0L;
+        object? result;
+        if (scalarAppend && session.AppendPacketLimitHint(transaction) == 0)
+        {
+            // 已有父候选锁读同时返回报文提示，结构验证仍在原写入位置执行。
+            command.CommandText += ",DATABASE(),@@SESSION.max_allowed_packet";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            result = await reader.ReadAsync(cancellationToken) ? reader.GetValue(0) : null;
+            if (result is not null and not DBNull && !reader.IsDBNull(1) &&
+                reader.GetString(1) == session.Options.ExpectedDatabase)
+                packetLimit = reader.GetInt64(2);
+        }
+        else
+            result = await command.ExecuteScalarAsync(cancellationToken);
         if(result is null or DBNull)throw new InvalidOperationException("关联记录已离开当前固定候选范围。");
         RequireCandidate(Convert.ToInt32(result,CultureInfo.InvariantCulture));
-        if(recheck is not null&&session.HasScalarCacheWriteProof(transaction))
+        if(scalarAppend)
         {
-            recheck.FirstRead=(transaction,table,parentId,softDelete,condition);
+            if (packetLimit > 0) session.RememberAppendPacketLimit(transaction, packetLimit);
+            recheck!.FirstRead=(transaction,table,parentId,softDelete,condition);
             recheck.Batch=null;
         }
     }

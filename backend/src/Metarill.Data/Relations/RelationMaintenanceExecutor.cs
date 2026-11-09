@@ -392,27 +392,33 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
     internal async Task<long> ValidatePhysical(MySqlNonRedundantReadPlan plan,DbTransaction transaction,CancellationToken token,
         bool reusePinnedStructure=false)
     {
-        long packetLimit;
-        await using(var identity=Command(transaction))
+        // 字典普通读仍位于原父候选及首次写入之后，保持可重复读快照与错误顺序。
+        var pinnedLayouts = reusePinnedStructure ? session.PinnedRelationLayouts(transaction) : null;
+        var alreadyPinned = pinnedLayouts?.ContainsKey(plan) == true;
+        var groups = plan.PhysicalReferences.GroupBy(item => item.Table).OrderBy(group => group.Key, StringComparer.Ordinal).ToArray();
+        var canBatch = pinnedLayouts is not null && !alreadyPinned && session.HasScalarCacheWriteProof(transaction) &&
+            plan.ScalarCacheTarget is not null && transaction.Connection is MySqlConnector.MySqlConnection && groups.Length == 2;
+        var packetLimit = canBatch ? session.AppendPacketLimitHint(transaction) : 0;
+        var layouts = packetLimit > 0
+            ? await ReadAppendLayoutsAsync(groups, transaction, packetLimit, token, verifyConnection: true) : null;
+        if (layouts is null)
         {
-            identity.CommandText=ReadConnectionIdentity;
-            await using var reader=await identity.ExecuteReaderAsync(token);
-            packetLimit=await RequireConnectionIdentityAsync(reader,token);
+            // 无提示、预算超限或组合读不完整时，保留独立库名核验和原结构探测顺序。
+            await using (var identity = Command(transaction))
+            {
+                identity.CommandText = ReadConnectionIdentity;
+                await using var reader = await identity.ExecuteReaderAsync(token);
+                packetLimit = await RequireConnectionIdentityAsync(reader, token);
+            }
+            if (alreadyPinned)
+            {
+                pinnedLayouts![plan] = packetLimit;
+                return packetLimit;
+            }
+            if (canBatch)
+                layouts = await ReadAppendLayoutsAsync(groups, transaction, packetLimit, token);
         }
-        // 显式事务持有已探测表的元数据锁直至结束。库名与当前会话报文限制仍逐次读取。
-        var pinnedLayouts=reusePinnedStructure?session.PinnedRelationLayouts(transaction):null;
-        if(pinnedLayouts?.ContainsKey(plan)==true)
-        {
-            pinnedLayouts[plan]=packetLimit;
-            return packetLimit;
-        }
-        // 此处的字典普通读会建立 MySQL 可重复读快照。同父导入须保留原父候选读取在前，不能直接将结构核验移到父锁之前。
-        const string engineSql="SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'";
-        const string columnsSql="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";
-        var groups=plan.PhysicalReferences.GroupBy(item=>item.Table).OrderBy(group=>group.Key,StringComparer.Ordinal).ToArray();
-        if(pinnedLayouts is not null&&session.HasScalarCacheWriteProof(transaction)&&plan.ScalarCacheTarget is not null&&
-            transaction.Connection is MySqlConnector.MySqlConnection&&groups.Length==2&&
-            await ReadAppendLayoutsAsync(groups,transaction,packetLimit,token) is {} layouts)
+        if (layouts is not null)
         {
             foreach(var group in groups)
             {
@@ -420,9 +426,11 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 RequireEngine(layout.Engine);
                 RequireColumns(group,layout.Columns);
             }
-            pinnedLayouts.Add(plan,packetLimit);
+            pinnedLayouts!.Add(plan,packetLimit);
             return packetLimit;
         }
+        const string engineSql="SELECT ENGINE FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=@table AND table_type='BASE TABLE'";
+        const string columnsSql="SELECT column_name,column_type,is_nullable,column_key,extra,generation_expression FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table";
         foreach(var group in groups)
         {
             var names=PhysicalNames(group);
@@ -475,10 +483,13 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
 
     /// <summary>追加事务已进入原父候选快照。按原顺序锁定两张表，再一次读取当前库的依赖列与主键。</summary>
     private async Task<Dictionary<string,PhysicalLayout>?> ReadAppendLayoutsAsync(
-        IGrouping<string,MySqlPhysicalReference>[] groups,DbTransaction transaction,long packetLimit,CancellationToken token)
+        IGrouping<string,MySqlPhysicalReference>[] groups,DbTransaction transaction,long packetLimit,CancellationToken token,
+        bool verifyConnection = false)
     {
         await using var command=Command(transaction);
         var pins=new List<string>(groups.Length);
+        // 合并核验时，零行结构锁始终显式限定到配置库，避免碰触当前连接的其它库。
+        var database = verifyConnection ? Q(session.Options.ExpectedDatabase) + "." : "";
         var tables=new List<string>(groups.Length);
         var scopes=new List<string>(groups.Length);
         long budget=128;
@@ -488,7 +499,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
             var names=PhysicalNames(group);
             var table="append_table"+index;
             var columns=names.Select((_,column)=>"append_column"+index+"_"+column).ToArray();
-            pins.Add("SELECT "+string.Join(",",names.Select(Q))+" FROM "+Q(group.Key)+" LIMIT 0");
+            pins.Add("SELECT "+string.Join(",",names.Select(Q))+" FROM "+database+Q(group.Key)+" LIMIT 0");
             tables.Add("@"+table);
             scopes.Add("(BINARY t.table_name=BINARY @"+table+" AND c.column_name IN ("+string.Join(",",columns.Select(column=>"@"+column))+"))");
             Add(command,table,group.Key);
@@ -499,7 +510,8 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 budget+=MySqlInsertCacheBatch.ParameterBytes(names[column]);
             }
         }
-        command.CommandText="/* metarill:append-layout */ "+string.Join("; ",pins)+
+        command.CommandText="/* metarill:append-layout */ "+
+            (verifyConnection ? ReadConnectionIdentity + "; " : "") + string.Join("; ",pins)+
             "; SELECT t.table_name,t.engine,c.column_name,c.column_type,c.is_nullable,c.column_key,c.extra,c.generation_expression"+
             " FROM information_schema.tables t LEFT JOIN information_schema.columns c"+
             " ON c.table_schema=t.table_schema AND c.table_name=t.table_name"+
@@ -515,6 +527,12 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
         try
         {
             await using var reader=await command.ExecuteReaderAsync(token);
+            if (verifyConnection)
+            {
+                // 提示不能充当正式证明。目标库和会话报文限制仍来自这次命令的首个结果。
+                if (await RequireConnectionIdentityAsync(reader, token) != packetLimit || !await reader.NextResultAsync(token))
+                    return null;
+            }
             for(var index=0;index<pins.Count;index++)
                 if(!await reader.NextResultAsync(token))return null;
             while(await reader.ReadAsync(token))
