@@ -13,17 +13,30 @@ public sealed class TrustedProxyTests
 {
     /// <summary>用真实转发中间件核对直接对端、最后一跳及其余转发字段的边界。</summary>
     [Theory]
-    [InlineData(null, "127.0.0.1", "203.0.113.10", "127.0.0.1")]
-    [InlineData("127.0.0.1", "127.0.0.1", "198.51.100.5, 203.0.113.10", "203.0.113.10")]
-    [InlineData("127.0.0.1", "::ffff:127.0.0.1", "203.0.113.10", "203.0.113.10")]
-    [InlineData("127.0.0.1", "127.0.0.2", "203.0.113.10", "127.0.0.2")]
-    [InlineData("127.0.0.1", "127.0.0.1", "198.51.100.5, invalid", "127.0.0.1")]
-    [InlineData("127.0.0.1", null, "203.0.113.10", null)]
-    public async Task Only_configured_tcp_proxy_can_supply_one_client_ip(string? trusted, string? peer, string header, string? expected)
+    [InlineData(null, "127.0.0.1", "203.0.113.10", "127.0.0.1", false)]
+    [InlineData("127.0.0.1", "127.0.0.1", "198.51.100.5, 203.0.113.10", "203.0.113.10", false)]
+    [InlineData("127.0.0.1", "::ffff:127.0.0.1", "203.0.113.10", "203.0.113.10", false)]
+    [InlineData("127.0.0.1", "127.0.0.2", "203.0.113.10", "127.0.0.2", false)]
+    [InlineData("127.0.0.1", "127.0.0.1", "198.51.100.5, invalid", "127.0.0.1", false)]
+    [InlineData("127.0.0.1", null, "203.0.113.10", null, false)]
+    [InlineData(null, "127.0.0.1", "203.0.113.10", "127.0.0.1", true)]
+    [InlineData("127.0.0.1", "127.0.0.1", "203.0.113.10", "203.0.113.10", true)]
+    [InlineData("127.0.0.2", "127.0.0.1", "203.0.113.10", "127.0.0.1", true)]
+    public async Task Only_configured_tcp_proxy_can_supply_one_client_ip(string? trusted, string? peer, string header, string? expected,
+        bool useEmptyJson)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        if (trusted is not null) builder.Configuration["Metarill:ReverseProxy:TrustedIps:0"] = trusted;
+        if (useEmptyJson)
+        {
+            // 模拟低优先级的旧代理配置，再从实际 JSON 提供器加载示例配置的空数组。
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                { ["Metarill:ReverseProxy:TrustedIps:0"] = "127.0.0.1" });
+            using var json = new MemoryStream("""{"Metarill":{"ReverseProxy":{"TrustedIps":[]}}}"""u8.ToArray());
+            builder.Configuration.AddJsonStream(json);
+        }
+        if (trusted is not null) builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            { ["Metarill:ReverseProxy:TrustedIps:0"] = trusted });
 
         await using var app = builder.Build();
         app.UseTrustedClientIp();
@@ -44,6 +57,18 @@ public sealed class TrustedProxyTests
 
         using var body = new StreamReader(response.Response.Body);
         Assert.Equal($"{expected}|http|localhost", await body.ReadToEndAsync());
+    }
+
+    /// <summary>空数组兼容只适用于框架的空标记，非空标量仍拒绝启动。</summary>
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData(" ")]
+    public async Task Nonempty_scalar_proxy_configuration_fails_at_startup(string value)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Configuration["Metarill:ReverseProxy:TrustedIps"] = value;
+        await using var app = builder.Build();
+        Assert.Throws<InvalidOperationException>(() => app.UseTrustedClientIp());
     }
 
     /// <summary>配置错误直接拒绝启动，避免误把所有地址或网段当成受信代理。</summary>

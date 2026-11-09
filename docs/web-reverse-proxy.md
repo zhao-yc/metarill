@@ -16,7 +16,7 @@
 
 在直连互联网客户端的 Nginx 网关上，用 `proxy_set_header X-Forwarded-For $remote_addr;` 覆盖来自客户端的转发头，并保留 `/api` 路径。其它网关同样应写入自己核实的客户端地址。如果网关前还有负载均衡器，应先在网关核实并还原客户端地址，再传给应用。Metarill 只读取直接代理提供的最后一项 `X-Forwarded-For`，只接受明确 IP。请求的 Host 和 Scheme 沿用原处理。ASP.NET Core 全局 `FORWARDEDHEADERS_ENABLED` 开关须关闭。 [ASP.NET Core 反向代理文档](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0)
 
-未配置时，限流继续按连接对端计算。已有完整应用先用受管运行时更新同步宿主及依赖，再按本页补私有配置并重启。独立包的 AppID 和业务手写扩展按现有更新流程保留。部署验收应从两个实际客户端各自访问原登录入口，同时确认后端监听端口只对受信代理开放。
+省略 `TrustedIps` 或将其设为空数组时，限流按连接对端计算。高优先级配置的空数组会屏蔽低优先级代理名单。可以用更高优先级的编号配置显式提供代理地址。已有完整应用先用受管运行时更新同步宿主及依赖，再按本页补私有配置并重启。独立包的 AppID 和业务手写扩展按现有更新流程保留。部署验收应从两个实际客户端各自访问原登录入口，同时确认后端监听端口只对受信代理开放。
 
 ### Caddy 与后端在同一主机
 

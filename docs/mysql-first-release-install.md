@@ -24,22 +24,25 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 将平台四份元数据及 `global.json` 按表格布置。发布后核对全部文件摘要，包括依赖和元数据。发行物和 Web 静态目录与私有配置、数据库备份、文件库及导出临时文件分开。部署配置由服务账户读取，持久目录由运行账户写入。
 
-收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。当前固定包及三种隔离安装的实际结果见 [V721 Linux x64 候选](testing/integrated-linux-install-v721.md)。较早轮次见 [V668](testing/current-mysql-release-packages-v668.md)、 [V643](testing/current-linux-archives-v643.md) 和 [V638](testing/fixed-linux-release-archives-v638.md)。
+收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。三种隔离安装的完整实测记录见 [V756 Linux x64 候选](testing/leaf-public-release-install-v756.md)，对应平台与独立 Full 的桌面及移动 Web 见 [V752](testing/leaf-public-release-browser-v752.md)。部署新提交时按[首版清单](mysql-first-release-milestone.md)核对该版本的验收状态。
 
 ### 从固定提交构建发行包
 
-在 Git 检出中使用 Git、Python 3.10 及以上，以及仓库 `global.json` 指定的 .NET SDK。输出目录须是上级目录已存在的新目录。Linux 和 Windows 均可执行相同命令，目标始终为 Linux x64。
+先检出[首版清单](mysql-first-release-milestone.md)中要构建的候选提交，再从该检出执行下列命令。构建需要 Git、Python 3.10 及以上，以及 `global.json` 指定的 .NET SDK。输出目录须是上级目录已存在的新目录。Windows 和 Linux 上的构建目标均为 Linux x64。
 
 ```bash
-python scripts/build-release.py build --commit cfdfb2fede0defc7af53d485aa207db834e5cd4c --output metarill-linux-candidate
+git rev-parse --verify HEAD
+python scripts/build-release.py build --commit HEAD --output metarill-linux-candidate
 python scripts/build-release.py verify --output metarill-linux-candidate
 ```
+
+确认第一条命令打印的完整 SHA 与拟交付的候选一致，再开始构建。构建工具解析并记录该 SHA，校验输出中的两个包角色和同一源码版本。
 
 构建只读取指定 Git 提交，独立示例 Full 从同一份元数据生成两次并核对。项目程序集的 ProductVersion 使用该目标提交。编译保留固定路径和调试符号，并关闭上级 Git 检出的源码链接。两份 ZIP 均含 Linux x64 宿主、源码、许可及逐文件清单。网站静态文件按下一节的部署配置单独构建。离线环境可通过 `--nuget-source` 指定已经包含所需包的本地目录，非默认 SDK 路径可通过 `--dotnet` 指定。拿到发行文件后，先从可信交付渠道取得对应的 `SHA256SUMS`，再用 `verify` 核对外层摘要、包内路径、源码提交和文件内容。
 
 ## 首次安装
 
-1. 为平台库、业务库及独立应用库配置明确的 MySQL 目标和库级授权，确保连接串的 `Database` 与 `ExpectedDatabase` 一致。平台按 [示例配置](../backend/appsettings.Example.json)设置 `Metarill:Database`、`Metarill:BusinessDatabase`。额外业务项目用服务端的 `Metarill:ProjectDatabases` 绑定。独立 Full 设置顶层 `Database`。连接参数见 [MySQL 严格 TLS](mysql-connection-tls.md)。
+1. 为平台库、业务库及独立应用库配置明确的 MySQL 目标和库级授权，确保连接串的 `Database` 与 `ExpectedDatabase` 一致。平台按 [示例配置](../backend/appsettings.Example.json)设置 `Metarill:Database`、`Metarill:BusinessDatabase`。额外业务项目用服务端的 `Metarill:ProjectDatabases` 绑定。独立 Full 以 `backend/Application.Host/appsettings.example.json` 为样例，将私有配置保存为发行根的 `appsettings.local.json`，设置顶层 `Database`。连接参数见 [MySQL 严格 TLS](mysql-connection-tls.md)。
 2. 配置 Redis DB0、初始化用户名及随机密码。平台配置 `Metarill:Authentication:LoginFailures:ConnectionString` 和 `Metarill:Bootstrap`。独立 Full 配置 `Authentication:Mode=Web`、`Authentication:LoginFailures:ConnectionString` 和 `Authentication:Bootstrap`。多后台应用另指定 `Authentication:Bootstrap:AdminTypeId`。不同进程分配独立的 `Metarill:WorkerId` 或 `Ids:WorkerId`。
 3. 核对目标库归属后，从相应的发行根执行命令。平台首次 `--initialize` 显式同步固定基础结构并补种子。独立 Full 先核对结构预览及目标库，再应用计划并初始化安全表中的项目、后台和账号。普通宿主启动只启动服务。
 4. 用原登录页完成真实密码登录和菜单读取，再做目标业务库的一次新增、回读、逻辑删除和注销。健康接口分别为平台 `/api/runtime/health/check` 和 Full `/health`。Redis、真实账号和业务库通过登录与业务操作验证。
@@ -70,7 +73,9 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 ## Web 与网关
 
-用各工程自己的 AppID、锁定的前端依赖和 HBuilderX 导出 Web。平台在部署域名使用同源 `/api`。独立 Full 将 `frontend/common/application.config.js` 的 API 地址填为自己的 HTTPS 站点地址并以 `/api` 结尾。网关只发布 H5 静态目录，并将原 `/api` 路径转发到对应的私有宿主。文件下载、上传和 Agent／MCP 如需开放，按其协议及权限验证，并保留文件根在静态目录之外。 [可信反向代理](web-reverse-proxy.md) · [独立应用配置](standalone-application.md) · [Tiny Cloud](tiny-cloud.md)
+用各工程自己的 AppID、锁定的前端依赖和 HBuilderX 导出 Web。平台在部署域名使用同源 `/api`。独立 Full 将 `frontend/common/application.config.js` 的 API 地址填为自己的 HTTPS 站点地址并以 `/api` 结尾。网关只发布 H5 静态目录，并将原 `/api` 路径转发到对应的私有宿主。当代理保留客户端 Host 且宿主启用 `AllowedHosts` 时，把实际部署域名加入顶层允许列表。独立 Full 示例默认只允许本机地址。域名列表使用分号分隔，填写主机名即可。文件下载、上传和 Agent／MCP 如需开放，按其协议及权限验证，并保留文件根在静态目录之外。 [可信反向代理](web-reverse-proxy.md) · [独立应用配置](standalone-application.md) · [Tiny Cloud](tiny-cloud.md)
+
+启用 Agent 时，在平台私有配置中设置 `Metarill:Agent:VerificationUri`，独立 Full 设置 `Agent:VerificationUri`。使用各自部署域名的完整 HTTPS 授权页地址，例如 `https://app.example.com/#/pages/custom/agent_authorize`。从实际 OAuth 设备链接验收登录回跳、批准和撤销，确认链接指向本应用。
 
 上线前用实际域名与证书链分别检查桌面和移动 Web。至少验证有效证书、原登录及注销、相同来源的 API、生成业务 CRUD、公开与受保护文件、未授权请求和网关实际看到的客户端地址。记录服务器、发行物摘要和操作时间。
 

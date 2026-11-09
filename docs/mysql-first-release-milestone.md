@@ -33,7 +33,7 @@
 
 MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项勾选为准，不给出未经完整核对的完成百分比。本次范围调整保留既有验收记录以及原 Web 界面、移动视口和性能要求。
 
-当前候选产品提交为 `4ef3ca76`。历史候选和条件跳过的用例分别保留记录。
+最近完成完整三拓扑安装与九类性能对照的产品基线为 `4ef3ca76`。后续修复了安装示例空代理名单的启动问题。已完成两种宿主的本机启动核对，修复后的固定发行物和正式 MySQL 复验继续跟踪。下表保留基线各项证据。[V777 空代理名单](testing/empty-trusted-proxy-install-v777.md)。
 
 | 范围 | 当前候选证据 | 状态 |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项�
 | 权限与工具 | 完整管理包、OAuth CLI、MCP、初始化和重启。原浏览器设备链接登录回跳、授权与撤销通过。[V775 原浏览器 OAuth](testing/leaf-management-oauth-browser-v775.md)。独立完整包的授权列表与撤销隔离通过。[V776 授权隔离](testing/leaf-management-grant-isolation-v776.md)。原工作台普通编辑者权限保存及库读回通过。同项目角色列表和异后台工作台读写边界已核对。[V774 角色后台范围](testing/role-realm-parity-v774.md)。[V772 原管理工作台](testing/leaf-management-browser-v772.md)。在线助手真实工程写入、手写保护与原浏览器回执恢复。[V762](testing/leaf-management-package-v762.md)、[V765](testing/leaf-device-runtime-v765.md)、[V766](testing/leaf-device-browser-v766.md) | 固定范围通过 |
 | 同条件性能 | Server-200 上九类固定 Java／C# 负载、45,756 个正式请求、66 个配对轮次。[V748](testing/exact-mysql-performance-v748.md) | 通过 |
 | Windows 本机回归 | 平台九套及原前端回归。六组生成回归覆盖独立枚举的 3,072 个用例，2,799 项通过，273 项按环境条件跳过。[V755](testing/leaf-windows-platform-v755.md)、[V751](testing/leaf-windows-generation-v751.md) | 通过 |
-| 最终 GitHub CI | 同一产品源码的 07ab5353 已通过全部 15 个作业，较产品提交仅增加文档。后续含两份测试夹具变更，最终开发提交仍须单独通过。[已通过的矩阵](https://github.com/zhao-yc/metarill/actions/runs/42563731801) · [PR 检查](https://github.com/zhao-yc/metarill/pull/1/checks) | 待验收 |
+| 最终 GitHub CI | 同一产品源码的 07ab5353 已通过全部 15 个作业，较产品提交仅增加文档。后续含测试夹具和共享启动修复，最终开发提交仍须单独通过。[已通过的矩阵](https://github.com/zhao-yc/metarill/actions/runs/42563731801) · [PR 检查](https://github.com/zhao-yc/metarill/pull/1/checks) | 待验收 |
 | 真实 Tiny Cloud 编辑 | 原控件及空配置回归已有证据。[V754](testing/leaf-original-controls-v754.md) | 待有效配置后验收 |
 
 较早候选 `5c8fcb82` 的同父明细 Excel 追加已通过 V603 正式门槛。四并发吞吐为 Java 的 95.8%、99.5%、99.7%，一轮 p95 触线，未构成稳定退化。该结果覆盖固定原八行工作簿及最小权限配置。同一 C# 候选的四读未构成稳定退化、七步写入未构成稳定退化。客户及合同 Excel 追加导入未构成稳定退化。V608 本地受保护下载及 V609 三页 Excel 导出分别未构成稳定退化、未构成稳定退化。V611 合同及明细的六组关系维护未构成稳定退化。V626 用相同候选复验 108 个固定原请求、1,313 条驱动命令及事务语义，见 [当前 SQL 与事务](testing/current-paired-sql-v626.md)。其余性能场景和整体签收继续核对。见 [文件、导出及维护复验](testing/paired-release-candidate-file-export-v608-v610.md)。见 [V601–V604 验收](testing/paired-child-negative-grant-cache-v604.md) 和 [V605–V607 复验](testing/paired-release-candidate-read-write-v605-v606.md)。

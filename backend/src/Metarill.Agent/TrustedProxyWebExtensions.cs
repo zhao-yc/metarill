@@ -16,9 +16,23 @@ public static class TrustedProxyWebExtensions
             throw new InvalidOperationException("请关闭 FORWARDEDHEADERS_ENABLED，并在 Metarill:ReverseProxy:TrustedIps 中配置确切代理地址。");
 
         var section = app.Configuration.GetSection("Metarill:ReverseProxy:TrustedIps");
-        if (section.Value is not null)
+        if (section.Value is { Length: > 0 })
             throw new InvalidOperationException("反向代理地址必须配置为 IP 地址数组。");
-        var proxies = section.Get<string[]>();
+
+        // .NET 10 的 JSON 提供器用空字符串表示 []。空名单只允许更高优先级的显式配置补充地址。
+        string?[]? proxies;
+        if (section.Value == string.Empty)
+        {
+            var overrides = ((IConfigurationRoot)app.Configuration).Providers.Reverse()
+                .TakeWhile(provider => !provider.TryGet(section.Path, out _)).ToArray();
+            proxies = section.GetChildren()
+                .Where(child => overrides.Any(provider => provider.TryGet(child.Path, out _)))
+                .Select(child => child.Value).ToArray();
+        }
+        else
+        {
+            proxies = section.Get<string[]>();
+        }
         if (proxies is not { Length: > 0 }) return;
 
         var options = new ForwardedHeadersOptions
