@@ -22,6 +22,7 @@ public static class MySqlExactParentCandidate
     {
         internal (DbTransaction Transaction, string Table, long ParentId, bool SoftDelete, FixedConditionSqlPlan Condition)? FirstRead { get; set; }
         internal (DbTransaction Transaction, string Source, string Table, long ParentId, bool SoftDelete)? SharedParent { get; set; }
+        internal BatchRecheck? Batch { get; set; }
     }
 
     /// <summary>只复用当前事务已实际取得的共享父锁，生成入口据此避免再次升级。</summary>
@@ -80,9 +81,11 @@ public static class MySqlExactParentCandidate
     public static BatchRecheck? PlanBatch(DatabaseSession session,string table,long parentId,bool softDelete,
         FixedConditionSqlPlan condition,ImportRecheck? recheck)
     {
-        if(!HasFirstRead(session,table,parentId,softDelete,condition,recheck,out var transaction)||
+        if(recheck is null||!HasFirstRead(session,table,parentId,softDelete,condition,recheck,out var transaction)||
             transaction.Connection is not MySqlConnection connection)
             return null;
+        // 同批只复用已绑定事务、父键和固定条件的 SQL 计划。每行的父状态仍由当前锁读决定。
+        if(recheck.Batch is {} batch)return batch;
         var options=new MySqlConnectionStringBuilder(connection.ConnectionString);
         if(!options.AllowUserVariables||!options.ConnectionReset)return null;
         var clause=condition.RenderConstants(session.Provider,"mt_import_parent_candidate",session.Provider.QuoteIdentifier);
@@ -93,8 +96,8 @@ public static class MySqlExactParentCandidate
             ["mt_import_parent_id"]=parentId
         };
         var shared=HoldsSharedImportParent(session,table,parentId,softDelete,recheck);
-        return new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,shared,BatchRecheck.DatabaseGate),
-            PinnedPrimaryKeyRecheckExpression(from,clause.Sql,shared),parameters,shared ? recheck?.SharedParent?.Source : null);
+        return recheck.Batch=new BatchRecheck(transaction,table,parentId,RecheckExpression(from,clause.Sql,shared,BatchRecheck.DatabaseGate),
+            PinnedPrimaryKeyRecheckExpression(from,clause.Sql,shared),parameters,shared ? recheck.SharedParent?.Source : null);
     }
 
     /// <summary>保留旧生成应用入口，只有追加导入的私有调用携带同批状态。</summary>
@@ -121,7 +124,10 @@ public static class MySqlExactParentCandidate
         if(result is null or DBNull)throw new InvalidOperationException("关联记录已离开当前固定候选范围。");
         RequireCandidate(Convert.ToInt32(result,CultureInfo.InvariantCulture));
         if(recheck is not null&&session.HasScalarCacheWriteProof(transaction))
+        {
             recheck.FirstRead=(transaction,table,parentId,softDelete,condition);
+            recheck.Batch=null;
+        }
     }
 
     /// <summary>在原逐行父校验位置重读当前父及候选。首行或证明变化时继续原查询。</summary>
