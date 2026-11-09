@@ -139,6 +139,8 @@ V728 提供仓库内可执行的发行构建与校验命令，固定 cfdfb2fe �
 
 V729 从原生成详情复验 Tiny Cloud 空配置、预览及原 HTML 字节保留，并修复内嵌 HTML 事件属性执行。独立 Full 的真实浏览器、实库和既有项目更新均已核对。实际 Cloud 编辑与发行域名仍待验收。见 [V729 富文本 Web](testing/empty-tiny-cloud-rich-text-v729.md)。
 
+V730 固定发行工具的程序集来源标记，历史包从 Git 仓库内外重建逐字一致。含富文本修正的 c7491f41 候选两包通过三种安装，实际平台按原接口配置富文本并下载 Full，返回的原 ZIP 严格编译及前端闭包通过。见 [V730 发行来源与富文本生成](testing/release-source-revision-and-rich-text-v730.md)。
+
 ### 首版签收核对
 
 | 项目 | 已核对的证据 | 待核对 |

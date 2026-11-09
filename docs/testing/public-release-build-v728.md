@@ -12,3 +12,5 @@
 从新 ZIP 提取 98 个宿主文件及 5 份平台元数据和配置，在 Server-200 的独占 MySQL 8.4.11 和 Redis 上复验。普通启动与 Full 预览保持空库，显式安装覆盖平台分库 24／13 表、平台共库 25 表及 Full 13 表。原登录、业务 CRUD、重启、会话撤销及四库归属经独立核验。全部本轮资源以新 SSH 连接独立核清。
 
 固定产品的 [GitHub CI](https://github.com/zhao-yc/metarill/actions/runs/42521008986) 已通过 15 个作业。发行工具和新增 CI 步骤随本轮开发提交核对。实际部署域名、证书链和自有 Tiny Cloud 实测继续按首版清单跟踪。
+
+后续来源复验发现，本轮存档的 ZIP 清单指向正确提交，项目程序集 ProductVersion 继承了外层 Git 检出。实际安装回执对应本轮存档。修正及仓库内外复验见 [V730](release-source-revision-and-rich-text-v730.md)。

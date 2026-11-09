@@ -35,7 +35,7 @@ python scripts/build-release.py build --commit cfdfb2fede0defc7af53d485aa207db83
 python scripts/build-release.py verify --output metarill-linux-candidate
 ```
 
-构建只读取指定 Git 提交，独立示例 Full 从同一份元数据生成两次并核对。两份 ZIP 均含 Linux x64 宿主、源码、许可及逐文件清单。网站静态文件按下一节的部署配置单独构建。离线环境可通过 `--nuget-source` 指定已经包含所需包的本地目录，非默认 SDK 路径可通过 `--dotnet` 指定。拿到发行文件后，先从可信交付渠道取得对应的 `SHA256SUMS`，再用 `verify` 核对外层摘要、包内路径、源码提交和文件内容。
+构建只读取指定 Git 提交，独立示例 Full 从同一份元数据生成两次并核对。项目程序集的 ProductVersion 使用该目标提交。编译保留固定路径和调试符号，并关闭上级 Git 检出的源码链接。两份 ZIP 均含 Linux x64 宿主、源码、许可及逐文件清单。网站静态文件按下一节的部署配置单独构建。离线环境可通过 `--nuget-source` 指定已经包含所需包的本地目录，非默认 SDK 路径可通过 `--dotnet` 指定。拿到发行文件后，先从可信交付渠道取得对应的 `SHA256SUMS`，再用 `verify` 核对外层摘要、包内路径、源码提交和文件内容。
 
 ## 首次安装
 

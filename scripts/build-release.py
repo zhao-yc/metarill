@@ -200,6 +200,10 @@ def build_release(args):
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith(ignored)}
     env.update(DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_GENERATE_ASPNET_CERTIFICATE="false")
 
+    # 归档目录可能位于另一 Git 检出之下，程序集只标记实际打包的提交。
+    # 源码链接也不能沿上级检出推断仓库地址及路径。
+    provenance = (f"-p:SourceRevisionId={commit}", "-p:EnableSourceControlManagerQueries=false", "-p:EnableSourceLink=false")
+
     def dotnet(cwd, *command):
         subprocess.run([args.dotnet, *map(str, command)], cwd=cwd, env=env, check=True)
 
@@ -212,7 +216,9 @@ def build_release(args):
         # 固定编译器的文档和调试路径，避免不同构建目录写入 DLL 或 PDB。
         dotnet(cwd, "publish", project, "-c", "Release", "-r", "linux-x64", "--self-contained", "false",
                "--no-restore", "--disable-build-servers", "-m:1", "-warnaserror", "--nologo",
-               f"-p:PathMap={cwd}=/_/metarill", "-o", destination)
+               f"-p:PathMap={cwd}=/_/metarill", *provenance, "-o", destination)
+        assembly = destination / (Path(project).stem + ".dll")
+        require(commit.encode("ascii") in assembly.read_bytes(), "宿主程序集缺少目标 Git 提交")
         marker = cwd.parent.name.encode("utf-8")
         for artifact in destination.rglob("*"):
             if artifact.is_file() and artifact.suffix in (".dll", ".pdb"):
@@ -227,7 +233,7 @@ def build_release(args):
         cli = "backend/src/Metarill.Cli/Metarill.Cli.csproj"
         restore(source, cli)
         dotnet(source, "build", cli, "-c", "Release", "--no-restore", "--disable-build-servers", "-m:1",
-               "-warnaserror", "--nologo", "-o", work / "cli")
+               "-warnaserror", "--nologo", *provenance, "-o", work / "cli")
         full, repeat = work / "full", work / "repeat"
         for destination in (full, repeat):
             dotnet(source, work / "cli/Metarill.Cli.dll", "package", "--metadata", "backend/metadata/demo.json",
