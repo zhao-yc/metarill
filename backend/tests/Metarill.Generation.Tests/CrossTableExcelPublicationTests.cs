@@ -22,13 +22,15 @@ public sealed class CrossTableExcelPublicationTests
         Assert.Equal(before, JsonSerializer.Serialize(catalog));
     }
 
-    /// <summary>已验收的根父范围沿用原追加及列表导出，公开包的能力声明必须同步。</summary>
+    /// <summary>三级逻辑父范围均可发布，末级固定父键继续从原导入列排除。</summary>
     [Theory]
-    [InlineData("OnlyNew", "list")]
-    [InlineData("", "")]
-    public void Proven_R0_root_parent_publishes_append_and_list_export(string importMode, string exportMode)
+    [InlineData("country_id", "OnlyNew", "list", true)]
+    [InlineData("country_id", "", "", true)]
+    [InlineData("area_id", "OnlyNew", "list", true)]
+    [InlineData("place_id", "OnlyNew", "list", false)]
+    public void Proven_R0_logical_parents_publish_append_and_list_export(string parentColumn, string importMode, string exportMode, bool pathImport)
     {
-        var catalog = ParentScopedCatalog("country_id", importMode, exportMode);
+        var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
         var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
@@ -36,14 +38,20 @@ public sealed class CrossTableExcelPublicationTests
         var path = Assert.Single(capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray(),
             item => item.GetProperty("pageId").GetString() == "201" && item.GetProperty("columnId").GetString() == "25");
         Assert.True(path.GetProperty("sourceParentSupported").GetBoolean());
-        Assert.True(path.GetProperty("pathCellImportSupported").GetBoolean());
+        Assert.Equal(pathImport, path.GetProperty("pathCellImportSupported").GetBoolean());
         Assert.True(path.GetProperty("pathCellExportSupported").GetBoolean());
+        if (!pathImport)
+        {
+            var page = model.Tables.Single(table => table.Source.Id == "2").Pages.Single();
+            Assert.Equal(new[] { "name", "amount" }, ImportRenderer.Columns(page).Select(column => column.Source.ColumnName));
+        }
     }
 
-    /// <summary>独立保留中层父、覆盖及详情导出的公开门槛，防止只改页面开关便放行。</summary>
+    /// <summary>覆盖及详情导出继续受原门槛保护，末级固定父键也不能借列表导出开放覆盖。</summary>
     [Theory]
-    [InlineData("area_id", "OnlyNew", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
+    [InlineData("area_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
     [InlineData("country_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
+    [InlineData("place_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ExportAcceptancePending)]
     [InlineData("country_id", "OnlyNew", "edit", CrossTableExcelRenderer.ExportAcceptancePending)]
     public void Unverified_R0_parent_paths_keep_publication_gaps(string parentColumn, string importMode, string exportMode, string expected)
     {
@@ -68,15 +76,19 @@ public sealed class CrossTableExcelPublicationTests
         if (importMode.Length > 0) page.Extra["importMethod"] = JsonSerializer.SerializeToElement(importMode);
         if (exportMode.Length > 0) page.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
         catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").IsShow = 1;
-        catalog.ConfigColumns.Add(new()
+        // 末级使用已声明的级联列，根和中层在测试目录中显式登记逻辑父字段。
+        if (parentColumn != "place_id")
         {
-            Id = "28", ConfigTableId = "2", ColumnName = parentColumn, Name = parentColumn == "country_id" ? "国家ID" : "地区ID", LogicalType = "string",
-            LinkConfigTableId = parentColumn == "country_id" ? "3" : "4", SortNo = 30
-        });
-        catalog.ConfigPageColumns.Add(new()
-        {
-            Id = "20128", ConfigPageId = "201", ConfigColumnId = "28", IsShow = 0, IsEdit = 1, SortNo = 30
-        });
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "28", ConfigTableId = "2", ColumnName = parentColumn, Name = parentColumn == "country_id" ? "国家ID" : "地区ID", LogicalType = "string",
+                LinkConfigTableId = parentColumn == "country_id" ? "3" : "4", SortNo = 30
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id = "20128", ConfigPageId = "201", ConfigColumnId = "28", IsShow = 0, IsEdit = 1, SortNo = 30
+            });
+        }
         RedundantMultiNameCacheTests.Published(catalog);
         catalog.YzAdminTypes.Single().Name = "验收后台";
         catalog.ConfigMenus.Add(new()
