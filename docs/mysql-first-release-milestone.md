@@ -33,12 +33,12 @@
 
 MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项勾选为准，不给出未经完整核对的完成百分比。本次范围调整保留既有验收记录以及原 Web 界面、移动视口和性能要求。
 
-最近完成完整三拓扑安装与九类性能对照的产品基线为 `4ef3ca76`。后续修复了安装示例空代理名单的启动问题。已完成两种宿主的本机启动核对，修复后的固定发行物和正式 MySQL 复验继续跟踪。下表保留基线各项证据。[V777 空代理名单](testing/empty-trusted-proxy-install-v777.md)。
+最近完成完整三拓扑安装与九类性能对照的产品基线为 `4ef3ca76`。后续修复了安装示例空代理名单的启动问题。修复后候选产品为 `a88bbc89`。两份 Linux 发行包以显式空名单通过正式 MySQL 三拓扑安装。[V778 Linux 安装](testing/empty-trusted-proxy-linux-v778.md)。下表其余项目保留基线各项证据。[V777 空代理名单](testing/empty-trusted-proxy-install-v777.md)。
 
 | 范围 | 当前候选证据 | 状态 |
 | --- | --- | --- |
 | 开源发行包 | 平台与独立 Full 的两份 Linux x64 ZIP 独立重建逐字一致，核对程序集来源和许可清单。[V750](testing/leaf-public-release-build-v750.md) | 通过 |
-| 空库与生成 | 分库、共库及独立空库显式安装，普通启动零 DDL。由平台实际下载 Full 并独立安装，新配置表 CRUD 与重启通过。[V756](testing/leaf-public-release-install-v756.md)、[V760](testing/leaf-platform-download-install-v760.md)。原管理页预览、取消、旧计划拒绝及重新执行通过。[V771](testing/integrated-schema-sync-web-v771.md) | 通过 |
+| 空库与生成 | 分库、共库及独立空库显式安装，普通启动零 DDL。由平台实际下载 Full 并独立安装，新配置表 CRUD 与重启通过。[V756](testing/leaf-public-release-install-v756.md)、[V760](testing/leaf-platform-download-install-v760.md)。修复后固定 ZIP 三拓扑复验通过。[V778 Linux 安装](testing/empty-trusted-proxy-linux-v778.md)。原管理页预览、取消、旧计划拒绝及重新执行通过。[V771](testing/integrated-schema-sync-web-v771.md) | 通过 |
 | 分库恢复 | 当前 Windows Production 宿主通过同版 MySQL 跨实例恢复、公开及受保护本地附件读回、旧 Web／OAuth 凭据撤销及计数不符回滚。同一候选也通过分库 S3 按原键恢复及旧引用读回。[V769](testing/integrated-cross-instance-recovery-v769.md)、[V770](testing/leaf-s3-backup-restore-v770.md) | 固定范围通过 |
 | 原桌面与移动 Web | 管理端和独立 Full 的两个视口通过，实际下载包验证桌面编辑、移动只读、字符串 ID 和注销。[V752](testing/leaf-public-release-browser-v752.md)、[V761](testing/leaf-downloaded-package-web-v761.md) | 通过 |
 | 关系、Excel 与文件 | 六模型原 XLSX 追加、按首列覆盖、改名传播、维护、并发锁及整批回滚。分库和共库文件事务与 S3 独立复验。[V767](testing/leaf-public-r0-cross-excel-v767.md)、[V768 原 Web 六模型覆盖](testing/integrated-cross-overwrite-web-v768.md)、[V757–V759](testing/leaf-platform-file-transactions-s3-v757-v759.md) | 固定范围通过 |
