@@ -120,10 +120,11 @@ internal static class OriginalUniappDetailFields
             case "SelectPage": case "MultiSelectPage": return OriginalUniappDetailSelection.Render(c, f, ro);
             case "CascadeTree": return Cascade(c, f, ro);
             case "RTF":
+                c.Import("YzpRtfPreview", "@/components/yzp-rtf-preview/yzp-rtf-preview.vue");
                 c.Methods.AppendLine($$$"""
 {{{name}}}RtfDo(action) { if(!['edit','review'].includes(action) || action==='edit' && this.{{{ro}}}) return; const current=this.originalContext(), original=this.entity.{{{name}}}, text=original??'', that=this; uni.navigateTo({url:'/pages/main/rtf/rtf?action='+action,events:{onReceiveRtf(rtf){that.permissionVersion++;if(action==='edit' && !that.{{{ro}}} && current() && typeof rtf==='string' && rtf!==text) that.entity.{{{name}}}=rtf;}},success(result){if(current())result.eventChannel.emit('sendRtf',{data:text});}}); },
 """);
-                return Hidden(f) + $"<view class='rtf-buttons'><button size='mini' @click=\"{name}RtfDo('review')\">预览</button><button size='mini' v-if='!{ro}' @click=\"{name}RtfDo('edit')\">编辑</button></view><view class='rtf-review' v-html='entity.{name}'></view>";
+                return Hidden(f) + $"<view class='rtf-buttons'><button size='mini' @click=\"{name}RtfDo('review')\">预览</button><button size='mini' v-if='!{ro}' @click=\"{name}RtfDo('edit')\">编辑</button></view><yzp-rtf-preview :html='entity.{name}' />";
             // 原V8样板用Text表达默认文本框，保持与原空类型相同的HTML和数值输入行为。
             case "": case "Text":
                 return $"<uni-easyinput primaryColor=\"{primary}\" v-if='!{ro}' v-model='entity.{name}' {(column.Type == "string?" ? $"maxlength='{(InputLength(c,f) == "max" ? "-1" : Html(InputLength(c,f)))}'" : "")} {(column.Type is "int?" or "decimal?" or "double?" ? "type='number'" : "")} {(Enabled(c.Page.Source.Extra, "isListEdit") ? "@blur='saveEntity()'" : "")} /><text v-if='{ro}'>{{{{entity.{name}}}}}</text>";

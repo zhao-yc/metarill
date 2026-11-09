@@ -5,6 +5,7 @@
   "components/yzp-menu/yzp-menu.vue",
   "components/yzp-popup/yzp-popup.vue",
   "components/yzp-relation-select/yzp-relation-select.vue",
+  "components/yzp-rtf-preview/yzp-rtf-preview.vue",
   "components/zxz-uni-data-select/LICENSE",
   "components/zxz-uni-data-select/LICENSE.upstream",
   "components/zxz-uni-data-select/NOTICE.md",

@@ -21,6 +21,7 @@ function fixture(loadOptions={id,parent_id:'9007199254742000'}){
  const createDetailLayoutMixin=new Function('uni',layoutSource.replace('export function','function')+';return createDetailLayoutMixin')(uni)
  const createMultiSelectFieldMixin=new Function('uni',multiSource.replace('export function','function')+';return createMultiSelectFieldMixin')(uni)
  const linked=Object.fromEntries([...descriptor.script.content.matchAll(/^import (\w+) from [^\n]*pages\/yzp[^\n]*$/gm)].map(match=>[match[1],{props:['parent_id','parentReadOnlyCondition','parent_page_sn','is_son_page','child_page_open_type','selectedIds','selectedNames','selectedNameField'],emits:['onPopSelect','onPopClose'],methods:{refreshData(){childRefreshes++}},render(){return h('linked-page')}}]))
+ if(descriptor.script.content.includes('import YzpRtfPreview '))linked.YzpRtfPreview={props:['html'],render(){return h('rtf-preview')}}
  const script=descriptor.script.content.replace(/^import[^\n]*\n/gm,'').replace('export default','return')
  const options=new Function('utils','yzp','project','uni','getApp','createDetailLayoutMixin','createMultiSelectFieldMixin',...Object.keys(linked),script)(utils,yzp,{},uni,()=>({globalData:{readOnly:false}}),createDetailLayoutMixin,createMultiSelectFieldMixin,...Object.values(linked))
  options.render=compile(descriptor.template.content)

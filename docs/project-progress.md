@@ -999,6 +999,7 @@
 | V726 | ✅ 固定平台生成下载到独立安装通过 | cfdfb2fe，Linux x64／MySQL 8.4.11 | 原接口新增配置和同步、重复下载包内容一致、同一 ZIP 严格发布、独立安装 14 表、原登录及新配置表 CRUD，资源核清。 | [V726 生成到安装](testing/integrated-platform-download-install-v726.md)，2026-11-09 |
 | V727 | ✅ 原下载 ZIP 桌面与移动 Web 通过 | cfdfb2fe，原 ZIP／MySQL 8.4.11 | 391 份前端源文件、58 份 H5 产物。普通编辑桌面增改删，普通只读移动回看同一长 ID，独立核对物理数据、三次注销和资源回收。 | [V727 原下载包 Web](testing/integrated-downloaded-package-web-v727.md)，2026-11-09 |
 | V728 | ✅ 固定产品公开发行构建与安装通过 | cfdfb2fe，Linux x64／MySQL 8.4.11 | 两个独立构建目录的对应 ZIP 逐字一致，6 项发行校验测试通过。新 ZIP 的三种 Production 安装、原 HTTP、重启和独立回收通过。 | [V728 发行构建与安装](testing/public-release-build-v728.md)，2026-11-09 |
+| V729 | ✅ 原富文本 Web 空配置与内嵌过滤通过 | 两轮独立 Full／MySQL 8.4.11 | 原预览、空 key、HTML 原字节与普通账号通过；修复生成详情中的危险事件属性执行，正常链接保持，既有工程真实更新及资源核清。 | [V729 富文本 Web](testing/empty-tiny-cloud-rich-text-v729.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 

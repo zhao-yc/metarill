@@ -33,3 +33,5 @@
 | `static/images/menu-selected.png` | `414e607ffc02299212d530108ee55c739d1fee0f56dea25d5684d82ee0fb74b0` |
 | `static/images/my.png` | `57925af35265074b4a6ad7a7aa67d096b301668dcc156468ef95a4bf6970ab21` |
 | `static/images/my-selected.png` | `abedbf5a314c29b975a4aa68f70dff9d71671946c36334023ff3ac2001a515f2` |
+
+DOMPurify 3.4.17 仅用于 Web 富文本内嵌渲染。按上游的 Apache-2.0 许可选项使用，许可见 licenses/dompurify.LICENSE，版本与完整性见 package-lock.json。
