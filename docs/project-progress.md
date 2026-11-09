@@ -1088,6 +1088,8 @@
 | V839 | ✅ 固定候选原富文本空配置通过 | 86775982／独立 Full／原 Web | 原预览零配置请求，编辑一次同源请求、零 Tiny Cloud 请求；保存与重开保留原 HTML 字节，匿名拒绝及资源核清。 | [V839 固定候选原富文本空配置](testing/fixed-empty-tiny-cloud-web-v839.md)，2026-11-10 |
 | V840 | ✅ 固定候选独立完整管理包通过 | 86775982／原 HTTP、OAuth、CLI 与 MCP | 三身份授权列表、三次越权撤销拒绝、原初始化保留 ID、撤权及重启通过，资源核清。 | [V840 固定候选独立完整管理包](testing/fixed-management-native-v840.md)，2026-11-10 |
 | V841 | ✅ 固定候选原浏览器 OAuth 通过 | 86775982／完整管理包／75 H5 | 真实设备链接登录回跳、原页确认及撤权，旧令牌拒绝，独立核清。 | [V841 固定候选原浏览器 OAuth](testing/fixed-management-oauth-web-v841.md)，2026-11-10 |
+| V842 | 🧪 历史发布清单拒绝，V843 复验通过 | 86775982／Server-200 | 验收清单缺两个计数字段，未启动应用。双库、Redis、网关及临时证书工作副本均核清。 | [V842–V843 固定候选平台 HTTPS](testing/fixed-platform-caddy-https-v842-v843.md)，2026-11-10 |
+| V843 | ✅ 固定候选平台 Caddy HTTPS 与原桌面通过 | 86775982／Caddy／TLS 1.3 | 原浏览器登录、项目菜单及退出，原 API CRUD 与重启会话，错误证书拒绝，资源独立核清。 | [V842–V843 固定候选平台 HTTPS](testing/fixed-platform-caddy-https-v842-v843.md)，2026-11-10 |
 
 ## 五、后续跨端兼容性验收
 
