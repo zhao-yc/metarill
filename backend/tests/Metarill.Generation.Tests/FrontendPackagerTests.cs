@@ -8,7 +8,7 @@ using Xunit;
 namespace Metarill.Generation.Tests;
 
 /// <summary>独立宿主必须具有闭合的路由/组件及明确来源，不能挟带平台配置或覆盖手写内容。</summary>
-public sealed class FrontendPackagerTests : IAsyncDisposable
+public sealed class FrontendPackagerTests : IAsyncLifetime
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "metarill-frontend-package", Guid.NewGuid().ToString("N"));
     private static string SourceRoot([CallerFilePath] string file = "") => Environment.GetEnvironmentVariable("METARILL_PACKAGE_SOURCE_ROOT") ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../../.."));
@@ -236,16 +236,25 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         File.Copy(Path.Combine(SourceRoot(), "frontend/metarill_uni_admin/main.js"), Path.Combine(frontend, "main.js"));
         File.Copy(Path.Combine(SourceRoot(), "frontend/metarill_uni_admin/uni.scss"), Path.Combine(frontend, "uni.scss"));
         var link = Path.Combine(frontend, "common"); var target = Path.Combine(SourceRoot(), "frontend/metarill_uni_admin/common");
-        if (OperatingSystem.IsWindows())
+        try
         {
-            // 只创建本测试GUID目录中的junction，无需提升符号链接特权；禁止shell元字符进入命令。
-            if ((link + target).IndexOfAny(['&', '|', '<', '>', '^', '%', '!', '\"', '\r', '\n']) >= 0) throw new InvalidOperationException("测试路径包含shell特殊字符。");
-            var start = new ProcessStartInfo("cmd.exe") { Arguments = "/c mklink /J \"" + link + "\" \"" + target + "\"", UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            using var process = Process.Start(start)!; process.WaitForExit(); Assert.Equal(0, process.ExitCode);
+            if (OperatingSystem.IsWindows())
+            {
+                // 只创建本测试GUID目录中的junction，无需提升符号链接特权；禁止shell元字符进入命令。
+                if ((link + target).IndexOfAny(['&', '|', '<', '>', '^', '%', '!', '\"', '\r', '\n']) >= 0) throw new InvalidOperationException("测试路径包含shell特殊字符。");
+                var start = new ProcessStartInfo("cmd.exe") { Arguments = "/c mklink /J \"" + link + "\" \"" + target + "\"", UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                using var process = Process.Start(start)!; process.WaitForExit(); Assert.Equal(0, process.ExitCode);
+            }
+            else Directory.CreateSymbolicLink(link, target);
+            var generated = Path.Combine(root, "generated"); new CSharpGenerator().Generate(Demo(), generated, "Example.Frontend");
+            var error = Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Create(Demo(), Path.Combine(generated, "frontend"), Path.Combine(root, "out"), source)); Assert.Contains("符号链接", error.Message); Assert.False(Directory.Exists(Path.Combine(root, "out")));
         }
-        else Directory.CreateSymbolicLink(link, target);
-        var generated = Path.Combine(root, "generated"); new CSharpGenerator().Generate(Demo(), generated, "Example.Frontend");
-        var error = Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Create(Demo(), Path.Combine(generated, "frontend"), Path.Combine(root, "out"), source)); Assert.Contains("符号链接", error.Message); Assert.False(Directory.Exists(Path.Combine(root, "out")));
+        finally
+        {
+            // 只解除测试创建的目录链接，保留被链接的原前端源码。
+            if (Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0)
+                Directory.Delete(link, false);
+        }
     }
 
     /// <summary>固定资产清单不存在时明确失败，不能偷偷引用平台环境作为回退。</summary>
@@ -284,5 +293,8 @@ public sealed class FrontendPackagerTests : IAsyncDisposable
         return (process.ExitCode, await stdout.WaitAsync(timeout.Token), await stderr.WaitAsync(timeout.Token));
     }
 
-    public async ValueTask DisposeAsync() => await TestDirectoryCleanup.DeleteAsync(root, Path.Combine(Path.GetTempPath(), "metarill-frontend-package"));
+    // xUnit v2 通过 IAsyncLifetime 调用异步清理。
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public Task DisposeAsync() => TestDirectoryCleanup.DeleteAsync(root, Path.Combine(Path.GetTempPath(), "metarill-frontend-package"));
 }

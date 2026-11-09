@@ -1057,6 +1057,8 @@
 | V795 | 🔴 同父明细仍有稳定退化 | 2b654bcd／Server-200 | 1,200 个正式请求，单并发零触线，四并发三轮触线。完整九类矩阵待齐。 | [V793 安装与 V795 同父明细复验](testing/exact-lock-release-v793-v795.md)，2026-11-09 |
 | V796 | ✅ 最新发行包独立重建一致 | 2b654bcd／公开发行工具 | 两份 Linux ZIP 与 V793 实际安装包逐字一致。 | [V793／V795／V796 同一候选复验](testing/exact-lock-release-v793-v795.md)，2026-11-09 |
 | V801 | ✅ 固定候选 Web 构建通过 | 2b654bcd／HBuilderX | 平台 156、独立 Full 52 个 Web 产物。V802 原浏览器实测待执行。 | [V801 Web 独立导出](testing/exact-web-rebuild-v801.md)，2026-11-09 |
+| V804 | ✅ 本机双视口登录页通过 | 2b654bcd／Ego | 两应用四组渲染和合成拒绝通过，V802 实库待执行。 | [V804／V805 Web 与测试清理](testing/web-login-and-test-cleanup-v804-v805.md)，2026-11-09 |
+| V805 | ✅ 前端打包测试清理已修 | f6d6c976 加测试补丁／Windows | 整个前端打包测试类 19 项通过，测试目录无残留，40 份链接目标源码一致。 | [V804／V805 Web 与测试清理](testing/web-login-and-test-cleanup-v804-v805.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 
