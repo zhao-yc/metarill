@@ -1048,6 +1048,7 @@
 | V779 | ✅ 修复后两类宿主双视口 Web 通过 | a88bbc89／MySQL 8.4.11 | 分库平台原登录与表分页，独立 Full 普通只读与编辑，六次注销及实库读回。 | [V779 固定包双视口 Web](testing/patched-release-browser-v779.md)，2026-11-09 |
 | V782 | 🔴 修复后候选有稳定退化 | a88bbc89／Server-200 | 45,756 个正式请求和 66 个配对轮次。稳定退化场景为同父合同明细 Excel 追加，继续阻断性能签收。 | [V782 修复后性能矩阵](testing/patched-mysql-performance-v782.md)，2026-11-09 |
 | V783 | ✅ 修复后 Windows 平台回归通过 | 74411104，2,985 份源文件 | 九套后端、原前端、Agent CLI、工具及 717 份再生成核对通过。 | [V783 Windows 平台回归](testing/patched-windows-platform-v783.md)，2026-11-09 |
+| V786 | ✅ Windows 六组生成回归通过 | 74411104／2,985 份源码 | 3,072 项逐项复算，2,799 通过，273 条件跳过，零失败。 | [V786 Windows 生成回归](testing/patched-windows-generation-v786.md)，2026-11-09 |
 | V784 | 🔴 独占事务诊断复现四并发退化 | a88bbc89／MySQL 8.4.11 | 12 窗及 1,200 组事务完整。父锁调用是最大的平均时差，缓存锁读及更新和 COMMIT 时差已分列。 | [V784 同父明细事务分段](testing/patched-mysql-child-phases-v784.md)，2026-11-09 |
 | V787 | ✅ 修复后两份 Linux ZIP 独立重建一致 | a88bbc89／公开发行工具 | 平台及独立 Full ZIP 与实际 MySQL 验收包逐字相同。 | [V787 Linux 发行包复现](testing/patched-linux-release-rebuild-v787.md)，2026-11-09 |
 | V790 | 🔴 完整采集同父明细 COMMIT 阶段 | a88bbc89／独占 MySQL | 12 窗、1,200 笔提交已复算，提交时差主要在 waiting for handler commit。正式性能仍阻断。 | [V790 同父明细 COMMIT 分段](testing/patched-mysql-child-commit-waits-v790.md)，2026-11-09 |
@@ -1055,6 +1056,7 @@
 | V793 | ✅ 三拓扑安装通过 | 2b654bcd／Server-200 | 固定 Linux 平台与 Full 安装、重复保护、真实登录、CRUD 和重启通过。 | [V793 安装与 V795 同父明细复验](testing/exact-lock-release-v793-v795.md)，2026-11-09 |
 | V795 | 🔴 同父明细仍有稳定退化 | 2b654bcd／Server-200 | 1,200 个正式请求，单并发零触线，四并发三轮触线。完整九类矩阵待齐。 | [V793 安装与 V795 同父明细复验](testing/exact-lock-release-v793-v795.md)，2026-11-09 |
 | V796 | ✅ 最新发行包独立重建一致 | 2b654bcd／公开发行工具 | 两份 Linux ZIP 与 V793 实际安装包逐字一致。 | [V793／V795／V796 同一候选复验](testing/exact-lock-release-v793-v795.md)，2026-11-09 |
+| V801 | ✅ 固定候选 Web 构建通过 | 2b654bcd／HBuilderX | 平台 156、独立 Full 52 个 Web 产物。V802 原浏览器实测待执行。 | [V801 Web 独立导出](testing/exact-web-rebuild-v801.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 
