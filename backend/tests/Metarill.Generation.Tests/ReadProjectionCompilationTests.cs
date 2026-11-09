@@ -39,7 +39,10 @@ public sealed class ReadProjectionCompilationTests
             new CSharpGenerator().Generate(catalog, generated, "Example.Projection");
             var list = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/customer-list-101.vue"));
             var detail = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/customer-detail-101.vue"));
-            Assert.DoesNotContain("item.remark", list); Assert.Contains("item.statusShow", list); Assert.Contains("v-html='entity.remark'", detail);
+            Assert.DoesNotContain("item.remark", list);
+            Assert.Contains("item.statusShow", list);
+            Assert.Contains("<yzp-rtf-preview :html='entity.remark' />", detail);
+            Assert.DoesNotContain("v-html='entity.remark'", detail);
             Assert.DoesNotContain(plan.List.OutputFields, field => field.JsonName == "remark");
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             // 当前VO仍为原并集，明确证明没有把此IR误报成已完成SQL投影接线。
@@ -162,7 +165,9 @@ public sealed class ReadProjectionCompilationTests
         var catalog = Catalog(); var field = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "13");
         field.Extra["controlKind"] = JsonSerializer.SerializeToElement("CustomControl");
         var (model, table, page) = Model(catalog);
-        Assert.Contains("v-html='entity.remark'", OriginalUniappDetailRenderer.Render(model, table, page, []));
+        var detail = OriginalUniappDetailRenderer.Render(model, table, page, []);
+        Assert.Contains("<yzp-rtf-preview :html='entity.remark' />", detail);
+        Assert.DoesNotContain("v-html='entity.remark'", detail);
         Assert.True(ReadProjectionCompilation.ForPage(model, table, page).Detail.CanCompile);
         field.Extra["isInGrid"] = JsonSerializer.SerializeToElement(1);
         (model, table, page) = Model(catalog); Assert.False(ReadProjectionCompilation.ForPage(model, table, page).List.CanCompile);
