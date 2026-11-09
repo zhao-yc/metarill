@@ -65,6 +65,18 @@ public sealed class DeviceRuntimeNativeMySqlTests
         }
         try
         {
+            // 旧工程由旧提交的 CLI 和资源一起生成，避免当前资源清单要求旧版本尚未包含的文件。
+            stage = "构建固定旧版 CLI";
+            var dotnet = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
+            var baselineCli = Path.Combine(proof.ExecutionRoot, "baseline-cli");
+            var build = NonRedundantApplicationFixture.Start(dotnet, proof.BaselineSourceRoot);
+            foreach (var argument in new[] { "build", "backend/src/Metarill.Cli/Metarill.Cli.csproj", "-c", "Release", "--nologo",
+                         "--disable-build-servers", "--artifacts-path", Path.Combine(proof.ExecutionRoot, "baseline-artifacts"),
+                         "--output", baselineCli, "-warnaserror", "-p:NuGetAudit=false" })
+                build.ArgumentList.Add(argument);
+            await Process(build, "baseline-cli-build");
+
+            stage = "显式平台初始化";
             await Process(Info("--initialize"), "initialize");
             var registry = new MetadataRegistry(Path.Combine(source, "backend/metadata/platform.json"), Path.Combine(source, "backend/metadata/demo.json")); var store = new SqlRowStore(session, registry.Platform); var metadata = new MetadataRepository(store, registry);
             var second = JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(registry.Demo, JsonDefaults.Options).Replace("220000000000010", "220000000000020", StringComparison.Ordinal), JsonDefaults.Options)!;
@@ -76,7 +88,14 @@ public sealed class DeviceRuntimeNativeMySqlTests
             var projects = new[] { registry.Demo.YzProjectId, second.YzProjectId }; var targets = projects.Select((_, index) => Path.Combine(proof.ExecutionRoot, "target-" + index)).ToArray(); var works = projects.Select((_, index) => Path.Combine(proof.ExecutionRoot, "work-" + index)).ToArray();
             for (var index = 0; index < projects.Length; index++)
             {
-                var catalog = await metadata.LoadProjectAsync(projects[index]); new ApplicationPackager().Create(catalog, targets[index], "Metarill.DeviceRuntime" + index, proof.BaselineSourceRoot);
+                var catalog = await metadata.LoadProjectAsync(projects[index]);
+                var metadataPath = Path.Combine(credentials, $"baseline-project-{index}.json");
+                await File.WriteAllTextAsync(metadataPath, JsonSerializer.Serialize(catalog, JsonDefaults.Options));
+                var package = NonRedundantApplicationFixture.Start(dotnet, proof.BaselineSourceRoot);
+                foreach (var argument in new[] { Path.Combine(baselineCli, "Metarill.Cli.dll"), "package", "--metadata", metadataPath,
+                             "--output", targets[index], "--namespace", "Metarill.DeviceRuntime" + index, "--source-root", proof.BaselineSourceRoot })
+                    package.ArgumentList.Add(argument);
+                await Process(package, $"baseline-package-{index}");
                 await File.WriteAllTextAsync(Path.Combine(targets[index], "业务手写保留.txt"), "本轮手写文件必须保持原样");
             }
             var before = targets.Select(Snapshot).ToArray();
@@ -156,7 +175,7 @@ public sealed class DeviceRuntimeNativeMySqlTests
     {
         for (var index = 0; index < 2; index++)
         {
-            var after = Snapshot(targets[index]); const string runtimePath = "src/Metarill.Security/AdminAccountInitializationBusiness.cs";
+            var after = Snapshot(targets[index]); const string runtimePath = DeviceRuntimeNativePreparation.BaselineChangedRuntimePath;
             Assert.NotEqual(before[index][runtimePath], after[runtimePath]);
             Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(source, "backend", runtimePath)))), after[runtimePath]); Assert.Equal("本轮手写文件必须保持原样", await File.ReadAllTextAsync(Path.Combine(targets[index], "业务手写保留.txt")));
             if (index == 1) Assert.Equal(before[index].Where(file => file.Key.StartsWith("frontend/", StringComparison.Ordinal)).ToArray(), after.Where(file => file.Key.StartsWith("frontend/", StringComparison.Ordinal)).ToArray());

@@ -18,7 +18,9 @@ public sealed class DeviceRuntimeNativeMySqlFactAttribute : FactAttribute
 internal sealed record DeviceRuntimeNativePreparation(PlatformBootstrapNativePreparation Host, string CliRoot, Dictionary<string,string> CliFiles, string BaselineSourceRoot, Dictionary<string,string> BaselineFiles, string ExecutionRoot)
 {
     internal const string Purpose = "device-runtime-batch-native-v1";
-    internal const string BaselineCommit = "1e57bb94acbb8f74538be9d4b10647bca1d884f3";
+    // 运行时单独同步的正向场景使用生成页兼容的旧提交，差异仍来自真实发布源码。
+    internal const string BaselineCommit = "de6da757876b5a2e4b3feeb4f89677d301e2deda";
+    internal const string BaselineChangedRuntimePath = "src/Metarill.Data/Relations/RelationMaintenanceExecutor.cs";
     internal const string SecondProject = "2200000000000200000", UnboundProject = "2200000000000300000", DisabledProject = "2200000000000400000";
 
     /// <summary>专用用途和running状态必须先于读连接、生成目标、启动进程及任何SQL。</summary>
