@@ -40,7 +40,7 @@ MySQL首版尚未验收通过。以[实施进度表](project-progress.md)逐项�
 | 开源发行包 | 平台与独立 Full 的两份 Linux x64 ZIP 独立重建逐字一致，核对程序集来源和许可清单。[V750](testing/leaf-public-release-build-v750.md) | 通过 |
 | 空库与生成 | 分库、共库及独立空库显式安装，普通启动零 DDL。由平台实际下载 Full 并独立安装，新配置表 CRUD 与重启通过。[V756](testing/leaf-public-release-install-v756.md)、[V760](testing/leaf-platform-download-install-v760.md) | 通过 |
 | 原桌面与移动 Web | 管理端和独立 Full 的两个视口通过，实际下载包验证桌面编辑、移动只读、字符串 ID 和注销。[V752](testing/leaf-public-release-browser-v752.md)、[V761](testing/leaf-downloaded-package-web-v761.md) | 通过 |
-| 关系、Excel 与文件 | 六模型原 XLSX 追加、按首列覆盖、改名传播、维护、并发锁及整批回滚。分库和共库文件事务与 S3 独立复验。[V767](testing/leaf-public-r0-cross-excel-v767.md)、[V757–V759](testing/leaf-platform-file-transactions-s3-v757-v759.md) | 固定范围通过 |
+| 关系、Excel 与文件 | 六模型原 XLSX 追加、按首列覆盖、改名传播、维护、并发锁及整批回滚。分库和共库文件事务与 S3 独立复验。[V767](testing/leaf-public-r0-cross-excel-v767.md)、[V768 原 Web 六模型覆盖](testing/integrated-cross-overwrite-web-v768.md)、[V757–V759](testing/leaf-platform-file-transactions-s3-v757-v759.md) | 固定范围通过 |
 | 权限与工具 | 完整管理包、OAuth CLI、MCP、初始化和重启。在线助手真实工程写入、手写保护与原浏览器回执恢复。[V762](testing/leaf-management-package-v762.md)、[V765](testing/leaf-device-runtime-v765.md)、[V766](testing/leaf-device-browser-v766.md) | 固定范围通过 |
 | 同条件性能 | Server-200 上九类固定 Java／C# 负载、45,756 个正式请求、66 个配对轮次。[V748](testing/exact-mysql-performance-v748.md) | 通过 |
 | Windows 本机回归 | 平台九套及原前端回归。六组生成回归覆盖独立枚举的 3,072 个用例，2,799 项通过，273 项按环境条件跳过。[V755](testing/leaf-windows-platform-v755.md)、[V751](testing/leaf-windows-generation-v751.md) | 通过 |
