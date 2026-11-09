@@ -22,6 +22,71 @@ public sealed class CrossTableExcelPublicationTests
         Assert.Equal(before, JsonSerializer.Serialize(catalog));
     }
 
+    /// <summary>已验收的根父范围沿用原追加及列表导出，公开包的能力声明必须同步。</summary>
+    [Theory]
+    [InlineData("OnlyNew", "list")]
+    [InlineData("", "")]
+    public void Proven_R0_root_parent_publishes_append_and_list_export(string importMode, string exportMode)
+    {
+        var catalog = ParentScopedCatalog("country_id", importMode, exportMode);
+        var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        using var capabilities = JsonDocument.Parse(UniappRenderer.Render(model).Single(file => file.Path == "generation-capabilities.json").Content);
+        var path = Assert.Single(capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray(),
+            item => item.GetProperty("pageId").GetString() == "201" && item.GetProperty("columnId").GetString() == "25");
+        Assert.True(path.GetProperty("sourceParentSupported").GetBoolean());
+        Assert.True(path.GetProperty("pathCellImportSupported").GetBoolean());
+        Assert.True(path.GetProperty("pathCellExportSupported").GetBoolean());
+    }
+
+    /// <summary>独立保留中层父、覆盖及详情导出的公开门槛，防止只改页面开关便放行。</summary>
+    [Theory]
+    [InlineData("area_id", "OnlyNew", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
+    [InlineData("country_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
+    [InlineData("country_id", "OnlyNew", "edit", CrossTableExcelRenderer.ExportAcceptancePending)]
+    public void Unverified_R0_parent_paths_keep_publication_gaps(string parentColumn, string importMode, string exportMode, string expected)
+    {
+        var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
+        var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
+        Assert.Contains(GenerationCapabilityAudit.Collect(model), gap => gap.PageId == "201" && gap.Reason == expected);
+        Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+    }
+
+    /// <summary>复用原跨表模型及页字段，形成固定逻辑父范围；验收准备与公开打包使用同一目录。</summary>
+    internal static MetadataCatalog ParentScopedCatalog(string parentColumn, string importMode, string exportMode)
+    {
+        var catalog = CrossTableExcelImportColumnsTests.Catalog("cx_parent_excel", "string");
+        catalog.YzProjectName = "跨表级联来源父范围验收";
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = 0;
+        var page = catalog.ConfigPages.Single(page => page.Id == "201");
+        page.Name = "来源明细";
+        page.WhereSql += $" AND {parentColumn}=@parent_id";
+        page.IsNew = page.IsSave = page.IsImport = page.IsExport = 1;
+        page.Extra.Remove("type");
+        page.Extra.Remove("importMethod");
+        if (importMode.Length > 0) page.Extra["importMethod"] = JsonSerializer.SerializeToElement(importMode);
+        if (exportMode.Length > 0) page.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").IsShow = 1;
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "28", ConfigTableId = "2", ColumnName = parentColumn, Name = parentColumn == "country_id" ? "国家ID" : "地区ID", LogicalType = "string",
+            LinkConfigTableId = parentColumn == "country_id" ? "3" : "4", SortNo = 30
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = "20128", ConfigPageId = "201", ConfigColumnId = "28", IsShow = 0, IsEdit = 1, SortNo = 30
+        });
+        RedundantMultiNameCacheTests.Published(catalog);
+        catalog.YzAdminTypes.Single().Name = "验收后台";
+        catalog.ConfigMenus.Add(new()
+        {
+            Id = "2200", YzProjectId = catalog.YzProjectId, YzAdminTypeId = "5", Name = "国家",
+            Kind = "GENERATED_PAGE", ConfigPageId = "301"
+        });
+        return catalog;
+    }
+
     /// <summary>公开 R1 保留全部六页、八个跨表控件及原导入导出开关。</summary>
     [Fact]
     public void Proven_R1_six_models_publish_all_eight_original_paths()

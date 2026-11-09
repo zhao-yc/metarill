@@ -35,18 +35,32 @@ internal static class NonRedundantCrossTableSubset
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
             var exports=plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
-            // 来源父范围、混合自树和重复角色的 Excel 用途仍分别验收。
+            // 逻辑根父范围的实库证明覆盖追加和列表路径导出；其它父范围仍分别验收。
+            var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+            var hasParent=parentColumns.Length>0;
             var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&!ExactDataManageCompilation.Declared(page)&&
-                !page.Scopes.Any(scope=>scope.Source=="parent")&&companions.All(Declared)&&plans.All(plan=>
+                companions.All(Declared)&&plans.All(plan=>
                     plan.Definition!.Levels.All(level=>level.Read.Target.Source.Id!=table.Source.Id)&&
                     plan.Definition.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Definition.Levels.Count);
-            if(imports&&(!independent||ImportRenderer.Mode(page) is not ("" or "OnlyNew")&&
-                !SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns)))
+            var pathSupported=independent&&(!hasParent||SupportsRootScopedPath(plans,parentColumns));
+            if(imports&&(!pathSupported||ImportRenderer.Mode(page) is not ("" or "OnlyNew")&&
+                (hasParent||!SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns))))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
-            if(!independent&&exports)return CrossTableExcelRenderer.ExportAcceptancePending;
+            if(exports&&(!pathSupported||hasParent&&ExportRenderer.Mode(page) is not ("" or "list")))
+                return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "非冗余跨表完整用途未通过："+error.Message;}
+    }
+
+    /// <summary>仅开放已验收的单条三层链；父ID来自逻辑根，跨表名称按本项目的真实物理候选读取。</summary>
+    private static bool SupportsRootScopedPath(IReadOnlyList<CrossTableWriteResult> plans,IReadOnlyList<ColumnModel> parents)
+    {
+        if(plans is not [{Definition: {Levels: [var root,var middle,var leaf]}}]||parents is not [var parent]||
+            root.Id.Source.Id!=parent.Source.Id||middle.Read.Parent?.Type!="long?"||leaf.Read.Parent?.Type!="long?")
+            return false;
+        return new[]{root,middle,leaf}.All(level=>level.Id.Type=="string?"&&
+            level.Read.Target.Source.IsRongyu==1&&!level.Read.Target.IsGlobal&&!level.Read.DerivedName);
     }
 
     /// <summary>公开覆盖只接受已验收的末级单值键、项目范围和独立或共享级联，不扩张到逻辑祖先或附加上下文。</summary>
