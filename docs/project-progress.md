@@ -1006,6 +1006,7 @@
 | V733 | ✅ 固定候选 Windows 回归通过 | de6da757，2945 份来源 | 九个后端套件、SQL 观察器、定向生成、原前端和 Agent CLI 141 项通过，717 份再生成产物一致。保留条件跳过；CI 单列。 | [V733 Windows 本机回归](testing/exact-release-windows-v733.md)，2026-11-09 |
 | V734 | ✅ 固定候选双端 Web 构建通过 | de6da757，HBuilderX 5.34 | 两个原 ZIP 导出 156／52 个 Web 文件，入口完整。独立 Full 仅在临时副本配置根 AppID 和回环 API，两工程已关闭。实际浏览器验收另计。 | [V734 固定候选 Web](testing/exact-release-web-build-v734.md)，2026-11-09 |
 | V735 | ✅ 固定候选双应用双视口原 Web 通过 | de6da757，MySQL 8.4.11／ego Chromium | 管理端两个视口原登录、表分页及注销；独立 Full 普通只读和编辑均在两个视口通过，实库读回两条墓碑和六次注销，独占资源及浏览器已核清。 | [V735 固定候选浏览器](testing/exact-release-browser-v735.md)，2026-11-09 |
+| V736 | ✅ 固定候选同父明细追加通过 | de6da757／原 Java 同条件 | 1,200 个正式请求，四并发一轮吞吐触线，无稳定退化；两端各 4,928 条明细及全部资源核清。其余八类单列。 | [V736 同父明细追加](testing/exact-mysql-child-append-v736.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 
