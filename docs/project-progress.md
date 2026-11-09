@@ -997,6 +997,7 @@
 | V724 | ✅ 固定候选六模型原桌面覆盖通过 | cfdfb2fe，原 H5／MySQL 8.4.11 | 六次有效覆盖和六次末行无效整批拒绝，实库核对原主键、稀疏级联、数据隔离及资源回收。 | [V724 原 Web 六模型覆盖](testing/integrated-cross-overwrite-web-v724.md)，2026-11-09 |
 | V725 | ✅ 固定候选原 Web 结构同步通过 | cfdfb2fe，MySQL 8.4.11 | 原预览与取消、结构变化后旧计划执行零条、重新预览一次成功、零差异及 21 行配置全值一致，资源核清。 | [V725 原 Web 结构同步](testing/integrated-schema-sync-web-v725.md)，2026-11-09 |
 | V726 | ✅ 固定平台生成下载到独立安装通过 | cfdfb2fe，Linux x64／MySQL 8.4.11 | 原接口新增配置和同步、重复下载包内容一致、同一 ZIP 严格发布、独立安装 14 表、原登录及新配置表 CRUD，资源核清。 | [V726 生成到安装](testing/integrated-platform-download-install-v726.md)，2026-11-09 |
+| V727 | ✅ 原下载 ZIP 桌面与移动 Web 通过 | cfdfb2fe，原 ZIP／MySQL 8.4.11 | 391 份前端源文件、58 份 H5 产物。普通编辑桌面增改删，普通只读移动回看同一长 ID，独立核对物理数据、三次注销和资源回收。 | [V727 原下载包 Web](testing/integrated-downloaded-package-web-v727.md)，2026-11-09 |
 
 ## 五、后续跨端兼容性验收
 

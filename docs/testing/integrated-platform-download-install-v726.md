@@ -10,4 +10,4 @@
 | 独立业务 | 源库专用客户记录未进入新库。真实原表单登录、菜单、客户增查改删、字符串 ID、字段省略与显式 null、同址重启会话和退出均通过。新配置的表也使用下载包生成的路由增查改删，字段更新及逻辑删除经独立 SQL 核对。 |
 | 回收 | 两轮分别用新 SSH 核清数据库、账号、容器、网络、凭据与临时数据。 |
 
-本轮从公开发行平台的真实生成接口取得包，再使用返回的同一 ZIP 安装。此包验收到正式 HTTP 和实库。原生成前端的浏览器验收见 [V710](integrated-web-v710.md) 和 [V711](integrated-web-cross-viewports-v711.md)。
+本轮从公开发行平台的真实生成接口取得包，再使用返回的同一 ZIP 安装。本轮验收到正式 HTTP 和实库。同一原 ZIP 的浏览器证据补于 [V727](integrated-downloaded-package-web-v727.md)。原生成前端的浏览器验收见 [V710](integrated-web-v710.md) 和 [V711](integrated-web-cross-viewports-v711.md)。
