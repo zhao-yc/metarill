@@ -58,6 +58,14 @@ public sealed class ManagementNativeMySqlTests
             var editorId=Id(await Send(host.Client,HttpMethod.Post,Route("yz_manager",ManagerPage)+"/add",new{name=editor,realName="必须保留的普通档案",password,isDisabled=1,yzAdminTypeId=ManagementNativePreparation.Admin,yzRoleIds=new[]{roleId}}));
             using var ordinary=new HttpClient{BaseAddress=host.Client.BaseAddress,Timeout=TimeSpan.FromSeconds(25)};var editorToken=await FreshWebHttp.LoginAsync(ordinary,editor,password,form:true);Assert.False((await Send(ordinary,HttpMethod.Get,"/api/admin/sys/yz_manager/getCurrentPermissions")).GetProperty("data").GetProperty("isSuper").GetBoolean());
             using(var foreign=new HttpClient{BaseAddress=host.Client.BaseAddress}){await FreshWebHttp.LoginAsync(foreign,foreignOwner,password,form:true);await FreshWebHttp.SendAsync(foreign,HttpMethod.Post,Route("yz_role",RolePage)+"/page",new{},HttpStatusCode.Forbidden);}
+            stage="真实 OAuth 授权列表与跨身份撤销隔离";
+            using (var otherOwner = new HttpClient { BaseAddress = host.Client.BaseAddress, Timeout = TimeSpan.FromSeconds(25) })
+            {
+                await FreshWebHttp.LoginAsync(otherOwner, foreignOwner, password, form: true);
+                await VerifyGrantIsolationAsync(host.Client, otherOwner, ordinary, store, physical.YzProjectId,
+                    SqlRowStore.Text(await Account(owner), "id"), SqlRowStore.Text(await Account(foreignOwner), "id"), evidence);
+                await Send(otherOwner, HttpMethod.Post, "/api/admin/sys/yz_manager/exit_login", new { });
+            }
             stage="普通编辑者不能审批Agent授权";
             using(var device=await host.Client.PostAsync("/api/agent/oauth/device",new FormUrlEncodedContent(new Dictionary<string,string>{{"client_id","metarill-agent-cli"}})))
             {
@@ -97,6 +105,102 @@ public sealed class ManagementNativeMySqlTests
         async Task<Dictionary<string,object?>> Account(string name)=>Assert.Single(await store.ReadAsync("yz_manager",Row("name",name)));
     }
     /// <summary>只访问原HTTP/R协议，拒绝把未知失败正文拼进断言。</summary>
+    /// <summary>使用真实设备令牌和普通 Web 会话验证归属。拒绝操作后独立读回授权及活动会话。</summary>
+    private static async Task VerifyGrantIsolationAsync(HttpClient owner, HttpClient otherOwner, HttpClient ordinary,
+        SqlRowStore store, string projectId, string ownerId, string otherOwnerId, string evidence)
+    {
+        const string oauth = "/api/agent/oauth/";
+        const string management = "/api/admin/sys/agent/";
+        using var anonymous = new HttpClient { BaseAddress = owner.BaseAddress, Timeout = TimeSpan.FromSeconds(25) };
+
+        async Task<(string Id, string Access, string Refresh)> Issue(HttpClient web, string name)
+        {
+            using var device = await anonymous.PostAsync(oauth + "device", new FormUrlEncodedContent(new Dictionary<string,string>
+                { ["client_id"] = "metarill-agent-cli", ["client_name"] = name }));
+            Assert.Equal(HttpStatusCode.OK, device.StatusCode);
+            var offer = await device.Content.ReadFromJsonAsync<JsonElement>();
+            var userCode = offer.GetProperty("user_code").GetString()!;
+            await Send(web, HttpMethod.Post, management + "approve", new { userCode, approve = true });
+            using var exchanged = await anonymous.PostAsync(oauth + "token", new FormUrlEncodedContent(new Dictionary<string,string>
+                { ["client_id"] = "metarill-agent-cli", ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
+                  ["device_code"] = offer.GetProperty("device_code").GetString()! }));
+            Assert.Equal(HttpStatusCode.OK, exchanged.StatusCode);
+            var tokens = await exchanged.Content.ReadFromJsonAsync<JsonElement>();
+            var row = Assert.Single(await store.ReadAsync("sys_agent_grant", Row("user_code", userCode)));
+            Assert.Equal("approved", SqlRowStore.Text(row, "status"));
+            Assert.Equal(projectId, SqlRowStore.Text(row, "project_id"));
+            return (SqlRowStore.Text(row, "id"), tokens.GetProperty("access_token").GetString()!, tokens.GetProperty("refresh_token").GetString()!);
+        }
+
+        async Task<string[]> List(HttpClient web) =>
+            (await Send(web, HttpMethod.Get, management + "grants")).GetProperty("data").EnumerateArray()
+                .Select(grant => grant.GetProperty("id").GetString()!).Order(StringComparer.Ordinal).ToArray();
+
+        Dictionary<string,object?> GrantKey(string id) => Row("id", long.Parse(id, CultureInfo.InvariantCulture));
+        Dictionary<string,object?> Sessions(string id) => Row("grant_id", long.Parse(id, CultureInfo.InvariantCulture));
+        async Task<string> Snapshot(string id) => Fingerprint(new
+        {
+            Grant = Assert.Single(await store.ReadIncludingDeletedAsync("sys_agent_grant", GrantKey(id))),
+            Sessions = await store.ReadIncludingDeletedAsync("sys_session", Sessions(id))
+        });
+
+        using var cli = new HttpClient { BaseAddress = owner.BaseAddress, Timeout = TimeSpan.FromSeconds(25) };
+        var first = await Issue(owner, "Metarill V776 连接甲");
+        var sibling = await Issue(owner, "Metarill V776 连接乙");
+        var foreign = await Issue(otherOwner, "Metarill V776 异后台连接");
+        cli.DefaultRequestHeaders.Authorization = new("Bearer", first.Access);
+        async Task AssertIdentity(string grant, string account, string access)
+        {
+            cli.DefaultRequestHeaders.Authorization = new("Bearer", access);
+            var data = (await Send(cli, HttpMethod.Get, management + "me")).GetProperty("data");
+            Assert.Equal(grant, data.GetProperty("grantId").GetString());
+            Assert.Equal(account, data.GetProperty("accountId").GetString());
+            Assert.Equal(projectId, data.GetProperty("projectId").GetString());
+        }
+        await AssertIdentity(first.Id, ownerId, first.Access);
+        await AssertIdentity(sibling.Id, ownerId, sibling.Access);
+        await AssertIdentity(foreign.Id, otherOwnerId, foreign.Access);
+        cli.DefaultRequestHeaders.Authorization = new("Bearer", first.Access);
+
+        Assert.Equal(new[] { first.Id, sibling.Id }.Order(StringComparer.Ordinal), await List(owner));
+        Assert.Equal(new[] { foreign.Id }, await List(otherOwner));
+        Assert.Empty(await List(ordinary));
+        await FreshWebHttp.SendAsync(anonymous, HttpMethod.Get, management + "grants", expected: HttpStatusCode.Unauthorized);
+        await FreshWebHttp.SendAsync(cli, HttpMethod.Get, management + "grants", expected: HttpStatusCode.Unauthorized);
+
+        var siblingBefore = await Snapshot(sibling.Id);
+        var foreignBefore = await Snapshot(foreign.Id);
+        await FreshWebHttp.SendAsync(cli, HttpMethod.Post, management + "revoke", new { grantId = sibling.Id }, HttpStatusCode.Unauthorized);
+        await FreshWebHttp.SendAsync(owner, HttpMethod.Post, management + "revoke", new { grantId = foreign.Id }, HttpStatusCode.Unauthorized);
+        await FreshWebHttp.SendAsync(ordinary, HttpMethod.Post, management + "revoke", new { grantId = foreign.Id }, HttpStatusCode.Unauthorized);
+        Assert.Equal(siblingBefore, await Snapshot(sibling.Id));
+        Assert.Equal(foreignBefore, await Snapshot(foreign.Id));
+
+        await Send(cli, HttpMethod.Post, management + "revoke", new { grantId = first.Id });
+        await FreshWebHttp.SendAsync(cli, HttpMethod.Get, management + "me", expected: HttpStatusCode.Unauthorized);
+        using var deniedRefresh = await anonymous.PostAsync(oauth + "token", new FormUrlEncodedContent(new Dictionary<string,string>
+            { ["client_id"] = "metarill-agent-cli", ["grant_type"] = "refresh_token", ["refresh_token"] = first.Refresh }));
+        Assert.Equal(HttpStatusCode.BadRequest, deniedRefresh.StatusCode);
+        Assert.Equal("invalid_grant", (await deniedRefresh.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        Assert.Equal(new[] { sibling.Id }, await List(owner));
+        Assert.Equal(new[] { foreign.Id }, await List(otherOwner));
+        Assert.Equal(siblingBefore, await Snapshot(sibling.Id));
+        Assert.Equal(foreignBefore, await Snapshot(foreign.Id));
+        await AssertIdentity(sibling.Id, ownerId, sibling.Access);
+        await AssertIdentity(foreign.Id, otherOwnerId, foreign.Access);
+        await Send(owner, HttpMethod.Post, management + "revoke", new { grantId = sibling.Id });
+        await Send(otherOwner, HttpMethod.Post, management + "revoke", new { grantId = foreign.Id });
+        Assert.Empty(await List(owner));
+        Assert.Empty(await List(otherOwner));
+        await File.WriteAllTextAsync(Path.Combine(evidence, "grant-isolation.json"), JsonSerializer.Serialize(new
+        {
+            passed = true, realWebAccounts = 3, realDeviceGrants = 3, stringIds = true, scopedLists = true,
+            anonymousAndCliListDenied = true, crossGrantAndCrossAccountRevokesDenied = 3,
+            independentSnapshotsUnchanged = true, ownCliRevokeAccess = 401, ownCliRevokeRefresh = "invalid_grant",
+            otherTokensStayedUsable = true, ownWebRevokes = 2
+        }));
+    }
+
     private static Task<JsonElement> Send(HttpClient client,HttpMethod method,string route,object? body=null)=>FreshWebHttp.SendAsync(client,method,route,body);
     /// <summary>新增/修改原响应中的ID保持字符串，不走浮点转换。</summary>
     private static string Id(JsonElement response)=>response.GetProperty("data").GetProperty("id").GetString()!;
