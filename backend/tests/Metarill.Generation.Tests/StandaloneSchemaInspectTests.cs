@@ -202,7 +202,10 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
         foreach (var operation in new[] { "restore", "build" })
         {
             var info = StartInfo(output); foreach (var argument in new[] { operation, "backend/Application.Host/Application.Host.csproj", "--nologo", "--disable-build-servers", "--verbosity", "quiet" }) info.ArgumentList.Add(argument);
-            if (operation == "build") info.ArgumentList.Add("--no-restore"); var result = await RunAsync(info); Assert.True(result.Code == 0, "独立结构命令包构建失败，私有日志未输出。");
+            if (operation == "build") info.ArgumentList.Add("--no-restore");
+            // 冷构建完整应用包沿用独立生成夹具的三分钟预算，运行已编译结构命令仍限一分钟。
+            var result = await RunAsync(info, TimeSpan.FromMinutes(3));
+            Assert.True(result.Code == 0, "独立结构命令包构建失败，私有日志未输出。");
         }
     }
 
@@ -226,14 +229,14 @@ public sealed class StandaloneSchemaInspectTests : IAsyncDisposable
                 info.Environment[prefix + "Definer"] = proof.Definer;
             }
         }
-        return RunAsync(info);
+        return RunAsync(info, TimeSpan.FromSeconds(60));
     }
 
     /// <summary>命令必须自行结束；如果误启动HTTP服务会超时失败并仅终止本次子进程。</summary>
-    private static async Task<CommandResult> RunAsync(ProcessStartInfo info)
+    private static async Task<CommandResult> RunAsync(ProcessStartInfo info, TimeSpan timeLimit)
     {
         using var process = Process.Start(info)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(timeLimit);
         try { await process.WaitForExitAsync(timeout.Token); } catch { if (!process.HasExited) process.Kill(true); throw new InvalidOperationException("独立结构命令未按时退出，已终止本次测试子进程。"); }
         return new(process.ExitCode, await output.WaitAsync(timeout.Token), await error.WaitAsync(timeout.Token));
     }
