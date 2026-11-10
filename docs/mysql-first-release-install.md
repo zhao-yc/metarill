@@ -24,7 +24,7 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 将平台四份元数据及 `global.json` 按表格布置。发布后核对全部文件摘要，包括依赖和元数据。发行物和 Web 静态目录与私有配置、数据库备份、文件库及导出临时文件分开。部署配置由服务账户读取，持久目录由运行账户写入。
 
-收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。当前固定候选的三种隔离安装及 CLI 见 [V897 Linux x64 候选](testing/current-linux-release-v897.md)，同一候选的平台与独立 Full 桌面及移动 Web 见 [V913](testing/current-exact-release-web-v913.md)。部署新提交时按[首版清单](mysql-first-release-milestone.md)核对该版本的验收状态。
+收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。当前固定候选为 `0b65780c`，双包及配置样例见 [V943](testing/text-projection-linux-release-v943.md) 和 [V963](testing/current-release-distribution-v963.md)，三种隔离安装见 [V944](testing/text-projection-runtime-topologies-v944.md)。部署新提交时按 [首版清单](mysql-first-release-milestone.md) 核对该版本的验收状态。
 
 ### 从固定提交构建发行包
 
@@ -119,6 +119,6 @@ SELECT ROW_COUNT() AS revoked_grants;
 
 在目标隔离入口验证旧 Web 会话、Agent 访问及刷新凭据均被拒绝，再核对新登录、授权及业务访问。该步骤保留已有注销时间和 Agent 已消费刷新记录。
 
-当前固定候选的空库安装、重复安装和 HTTP 会话见 [V897](testing/current-linux-release-v897.md)。原桌面和移动 Web 见 [V913](testing/current-exact-release-web-v913.md)。早期候选的浏览器直连 HTTPS 见 [V615](testing/current-browser-direct-https-v614-v615.md)。实际部署域名及其网关按部署环境单独留证。
+当前独立 Full 的原合同选择器桌面与移动 Web 见 [V948](testing/current-contract-web-package-v948.md)。平台及独立 Full 的双视口权限参考见较早的 [V913](testing/current-exact-release-web-v913.md)。实际部署域名和证书链按部署环境单独留证。
 
 V618 从 `5c8fcb82` 验证平台发行根的 2,841 份公开源码与 49 份 Linux 宿主文件，以及独立 Full 的 49 份发布物。CLI 以该发行根作为来源两次生成 659 文件的示例 Full，逐份一致，生成宿主严格构建通过。该目录核对与 V613／V615 的实际安装和浏览器验收分列。
