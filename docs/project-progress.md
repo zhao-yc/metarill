@@ -27,7 +27,7 @@
 | A03 | ✅ 已完成 | partial 与重复生成保护 | 同程序集生成／手写分离；189 个归属输出、2 份清单及24个手写文件（合计215文件）两轮稳定，手写 partial 保持。V463 对当前平台与示例重新生成两轮，215 个目录文件及其中 24 份手写 C# 逐字一致，另有修改手写和宿主配置的定向保护实测。仅对应已验模型。 | [主框架审计末尾批次](framework-gap-audit.md)，`b97ce89`、[V463 再生成](testing/mysql-release-rebuild-v463.md) |
 | A04 | ✅ 已完成 | 菜单与页面归属优化 | 单表树菜单、页面直接归属后台类型，修正原角色权限页关联引用。 | [架构](architecture.md)、[权限引用](platform-permission-references.md) |
 | A05 | ✅ 已完成 | 原接口基础兼容 | `/api`、原业务路由、R、分页、字符串 ID、省略与显式 null 的基础合同；复杂功能另列。 | [接口合同](integration-contracts.md)、[原页兼容](original-page-api-compatibility.md) |
-| A06 | ✅ 已完成 | MySQL 普通纵向闭环 | 登录→配置表字段→结构预览／执行／核验→生成→普通业务 CRUD 已实际跑通。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
+| A06 | ✅ 已完成 | MySQL 普通纵向闭环 | 登录→配置表字段→结构预览／执行／核验→生成→普通业务 CRUD 已实际跑通。 V917 以当前发行包复验原 HTTP 实际下载、相同 ZIP 独立安装及新表 CRUD。见 [V917 生成到独立安装](testing/current-generated-delivery-v917.md)。 | [验收台账](acceptance.md)、[全新安装](fresh-install-acceptance.md) |
 | A07 | ✅ 已完成 | 显式结构变更与受管反查 | 固定 86775982 的原管理页预览、取消、旧计划拒绝与新计划执行通过。见 [V831 固定候选原 Web 结构同步](testing/fixed-schema-sync-web-v831.md)。已登记表的 HTTP／MCP 反查、差异计划、执行和核验；普通启动不 DDL。V642 实库补齐同名前缀、不可见及全文索引的物理差异拒绝，普通新增索引执行与复查通过。 | [结构反查](schema-inspection.md)、[索引物理差异](testing/mysql-index-physical-drift-v642.md)、[验收台账](acceptance.md) |
 | A08 | ✅ 已完成 | 全新库安装基础场景 | 平台与普通独立应用显式安装、重复同步零差异、初始化不重置密码及真实登录；不含下表后台初始化按钮。 | [全新安装](fresh-install-acceptance.md) |
 | A09 | ✅ 已完成 | C# 模板版本下拉 | 保留原下拉与事件，切换到 Metarill C# v1 目录；已授权四笔配置修复有逐笔回读。 | [版本目录](template-version-catalog.md)、[前端纠偏](frontend-preservation-correction.md) |
@@ -1148,6 +1148,7 @@
 | V914 | 🟡 当前候选 CI 已进入队列 | 68af5319 与 PR #1 | [旧候选 CI](https://github.com/zhao-yc/metarill/actions/runs/42737923651) 的未启动队列已取消。已分配 15 个作业，全部排队，结果待核验。 | [68af5319 的 GitHub CI](https://github.com/zhao-yc/metarill/actions/runs/42747715116)，2026-11-10 |
 | V915 | ✅ 两组隔离诊断与独立复算完成 | ffcd80d3／68af5319 | 共 2,400 个正式请求及 24 个计时窗口。四并发两组均三轮触线，C# binlog 为 Java 的 2.44 倍，两组物理明细和独占资源核零均通过。V912 正式门槛仍阻断。 | [V915 同合同隔离对照](testing/current-child-isolated-control-v915.md)，2026-11-10 |
 | V916 | ✅ 历史通过轮与当前退化轮完成复核 | 86775982／68af5319 | 8 份基准宿主载荷一致，8,849 个运行时方法体仅覆盖重名错误文案变化，四并发 C# p95 三轮中位数 526.07→584.57 ms。历史缺 7 项持久化设置证据，当前性能门槛仍阻断。 | [V916 历史通过轮复核](testing/current-child-historical-pass-v916.md)，2026-11-10 |
+| V917 | ✅ 当前发行包从原平台生成到独立安装通过 | 68af5319／Server-200 两组独占环境 | 两次实际下载 672 份文件一致，同一 ZIP 严格发布 49 个 Linux 宿主文件。原接口、新表 CRUD、字段存在性、重启及两组资源核零通过。 | [V917 生成到独立安装](testing/current-generated-delivery-v917.md)，2026-11-10 |
 
 ## 五、后续跨端兼容性验收
 
