@@ -71,6 +71,8 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 已有管理员密码由账号流程维护。两种宿主的显式初始化重复执行会保留现有账号密码。确认本次安装回执后，从正式运行配置移除仅用于引导的密码。
 
+由平台下载的独立 Full 可按包内配置执行同一安装流程。当前候选已核对实际返回 ZIP、严格构建、空库预览和显式安装，并从生成的新表原接口读写。[V987 当前生成到独立安装](testing/current-generated-delivery-v917.md#v987-当前发行包生成下载及独立安装正式通过)。
+
 ## Web 与网关
 
 用各工程自己的 AppID、锁定的前端依赖和 HBuilderX 导出 Web。平台在部署域名使用同源 `/api`。独立 Full 将 `frontend/common/application.config.js` 的 API 地址填为自己的 HTTPS 站点地址并以 `/api` 结尾。网关只发布 H5 静态目录，并将原 `/api` 路径转发到对应的私有宿主。当代理保留客户端 Host 且宿主启用 `AllowedHosts` 时，把实际部署域名加入顶层允许列表。独立 Full 示例默认只允许本机地址。域名列表使用分号分隔，填写主机名即可。文件下载、上传和 Agent／MCP 如需开放，按其协议及权限验证，并保留文件根在静态目录之外。 [可信反向代理](web-reverse-proxy.md) · [独立应用配置](standalone-application.md) · [Tiny Cloud](tiny-cloud.md)
