@@ -59,7 +59,8 @@ public sealed class ApplicationPackagerTests : IAsyncLifetime
         foreach (var argument in new[] { "build", "backend/Application.Host/Application.Host.csproj", "--nologo", "--disable-build-servers", "--verbosity", "quiet" }) start.ArgumentList.Add(argument);
         start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        // 独立包首次还原和编译沿用同类生成夹具的三分钟预算。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
         Assert.True(process.ExitCode == 0, await stdout.WaitAsync(timeout.Token) + await stderr.WaitAsync(timeout.Token));
         Assert.True(File.Exists(Path.Combine(output, "backend/Application.Host/packages.lock.json")));
