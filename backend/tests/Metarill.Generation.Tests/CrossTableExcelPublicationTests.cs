@@ -165,6 +165,57 @@ public sealed class CrossTableExcelPublicationTests
         return catalog;
     }
 
+    /// <summary>六种混合存储排列分别验证三级父范围的原追加、覆盖和两种导出。</summary>
+    public static IEnumerable<object[]> MixedParentCases()
+    {
+        for (var mask = 1; mask < 7; mask++)
+            foreach (var parent in new[] { "country_id", "area_id", "place_id" })
+                foreach (var (import, export) in new[] { ("OnlyNew", "list"), ("OverWriteByFirstColumn", "edit") })
+                    yield return [mask, parent, import, export];
+    }
+
+    /// <summary>路径保留每层逻辑类型；末级作为固定父键时沿用原导入表头。</summary>
+    [Theory]
+    [MemberData(nameof(MixedParentCases))]
+    public void Mixed_R0_logical_parents_keep_the_original_excel_contract(int mask, string parentColumn, string importMode, string exportMode)
+    {
+        var catalog = MixedParentScopedCatalog(mask, parentColumn, importMode, exportMode);
+        var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = Assert.Single(table.Pages);
+        var source = table.Columns.Single(column => column.Source.Id == "25");
+        var path = CrossTableWriteCompilation.Resolve(model, table, page, source).Definition!;
+        Assert.Equal(Enumerable.Range(0, 3).Select(index => (mask & (1 << index)) == 0 ? "string?" : "long?"),
+            path.Levels.Select(level => level.Id.Type));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        Assert.Equal(parentColumn != "place_id", ImportRenderer.Columns(page).Contains(source));
+        Assert.True(ExportRenderer.IncludesColumn(page, source));
+    }
+
+    /// <summary>显式登记三个逻辑槽以固定每层类型；候选的物理主键与父外键仍由原目录定义。</summary>
+    internal static MetadataCatalog MixedParentScopedCatalog(int mask, string parentColumn, string importMode, string exportMode)
+    {
+        var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
+        var fields = new[] { ("country_id", "3", "国家ID"), ("area_id", "4", "地区ID"), ("place_id", "5", "城市ID") };
+        for (var index = 0; index < fields.Length; index++)
+        {
+            var (columnName, target, label) = fields[index];
+            var column = catalog.ConfigColumns.SingleOrDefault(item => item.ConfigTableId == "2" && item.ColumnName == columnName);
+            if (column is null)
+            {
+                column = new()
+                {
+                    Id = (281 + index).ToString(System.Globalization.CultureInfo.InvariantCulture), ConfigTableId = "2",
+                    ColumnName = columnName, Name = label, LinkConfigTableId = target, YzProjectId = catalog.YzProjectId
+                };
+                catalog.ConfigColumns.Add(column);
+            }
+            column.LogicalType = (mask & (1 << index)) == 0 ? "string" : "int64";
+        }
+        return catalog;
+    }
+
     /// <summary>公开 R1 保留全部六页、八个跨表控件及原导入导出开关。</summary>
     [Fact]
     public void Proven_R1_six_models_publish_all_eight_original_paths()
