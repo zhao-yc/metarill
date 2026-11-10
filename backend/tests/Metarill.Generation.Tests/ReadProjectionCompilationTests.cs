@@ -11,10 +11,14 @@ namespace Metarill.Generation.Tests;
 public sealed class ReadProjectionCompilationTests
 {
     /// <summary>保留原页标志优先级，查询/排序/项目列不因范围需要而自动输出。</summary>
-    [Fact]
-    public void Purposes_follow_original_flags_without_expanding_all_readable()
+    [Theory]
+    [InlineData("")]
+    [InlineData("Text")]
+    public void Purposes_follow_original_flags_without_expanding_all_readable(string textControlKind)
     {
-        var catalog = Catalog(); var before = JsonSerializer.Serialize(catalog); var (model, table, page) = Model(catalog);
+        var catalog = Catalog();
+        catalog.ConfigColumns.Single(column => column.Id == "17").ControlKind = textControlKind;
+        var before = JsonSerializer.Serialize(catalog); var (model, table, page) = Model(catalog);
         var plan = ReadProjectionCompilation.ForPage(model, table, page);
         Assert.True(plan.List.CanCompile); Assert.True(plan.Detail.CanCompile); Assert.True(plan.Selection.CanCompile);
         Assert.Equal(new[] { "id", "name", "status" }, Names(plan.List));
