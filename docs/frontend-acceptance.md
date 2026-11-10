@@ -2,7 +2,7 @@
 
 首版发布范围见[MySQL 首版交付节点](mysql-first-release-milestone.md)。此处保留分批验收证据，旧 AppID 阻塞属于历史记录。
 
-当前固定发行源码为 `0b65780c`。平台 502 份和独立 Full 391 份原前端源码与前一发行包逐字一致，当前包的合同选择器已通过桌面与移动 Web。平台管理端和独立 Full 的六条桌面与移动流程已通过，原 Excel 选档、整批回滚、导出及移动只读回查已通过，真实 Tiny Cloud 编辑仍待有效配置。[当前发行包](testing/text-projection-linux-release-v943.md) · [合同选择器](testing/current-contract-web-package-v948.md) · [双视口 Web](testing/current-exact-release-web-v913.md#v976-正式结果) · [原 Excel](testing/integrated-original-web-excel-v713.md#v984-当前发行包原-web-excel-正式通过)
+当前固定发行源码为 `0b65780c`。平台 502 份和独立 Full 391 份原前端源码与前一发行包逐字一致，当前包的合同选择器已通过桌面与移动 Web。平台管理端和独立 Full 的六条桌面与移动流程已通过，实际下载包的原生成页也通过两种视口，原 Excel 选档、整批回滚、导出及移动只读回查已通过，真实 Tiny Cloud 编辑仍待有效配置。[当前发行包](testing/text-projection-linux-release-v943.md) · [合同选择器](testing/current-contract-web-package-v948.md) · [双视口 Web](testing/current-exact-release-web-v913.md#v976-正式结果) · [原 Excel](testing/integrated-original-web-excel-v713.md#v984-当前发行包原-web-excel-正式通过) · [V988 当前实际下载包原 Web](testing/current-downloaded-package-web-v918.md#v988-当前实际下载包原-web-正式通过)
 
 2026-10-18：用户提供AppID __UNI__CF80CAE后，HBuilderX已实际编译并导出Web成功；发行产物经静态服务完成真实登录、项目选择、菜单、配置表列表与详情回读。保留原交互及组件许可占位；完整写入闭环和多端仍待验收。
 
