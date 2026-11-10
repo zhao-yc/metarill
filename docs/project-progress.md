@@ -1141,6 +1141,7 @@
 | V907 | ✅ 父级 Excel 导入达到性能门槛 | 68af5319 Linux Full 派生镜像 | 864 正式请求、64 预热，每端 3,712 条新增逐值读回，12 个正式资源窗口独立复算，双库及暂存核清。 | [V907 当前候选父级 Excel 导入](testing/current-exact-parent-excel-performance-v907.md)，2026-11-10 |
 | V908 | 🟡 同合同隔离诊断输入已固定 | V896 基准镜像与 V898 候选镜像 | 两组各 1,200 正式请求及 32 预热，同一 Java 载荷和新版持久化核验，错误镜像和未授权离线拒绝。正式诊断待执行。 | [同合同复核](testing/current-exact-child-performance-v898-v899.md)，2026-11-10 |
 | V909 | ✅ 受保护附件下载达到性能门槛 | 68af5319 Linux Full 派生镜像 | 4,800 正式下载、300 MiB，12 个正式资源窗口及三次文件索引状态独立复核，双库及暂存核清。 | [V909 当前候选受保护下载性能](testing/current-exact-protected-download-performance-v909.md)，2026-11-10 |
+| V910 | 🟡 原失败用例已通过隔离复验 | 68af5319 另一份固定 Windows 源码 | 并行嵌套构建共享中间文件时触发 CS2012。原失败用例单独复验通过，整组待串行复验。 | [V910 编译冲突隔离复验](testing/current-windows-release-v904.md#v910-全量生成的本机编译冲突复验)，2026-11-10 |
 
 ## 五、后续跨端兼容性验收
 
