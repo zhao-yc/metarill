@@ -61,10 +61,10 @@ internal static class NonRedundantCrossTableSubset
     private static bool SupportsScopedPath(IReadOnlyList<CrossTableWriteResult> plans,IReadOnlyList<ColumnModel> parents)
     {
         if(plans is not [{Definition: {Levels: [var root,var middle,var leaf]}}]||parents is not [var parent]||
-            middle.Read.Parent?.Type!="long?"||leaf.Read.Parent?.Type!="long?")
+            middle.Read.Parent?.Type is not ("string?" or "long?")||leaf.Read.Parent?.Type is not ("string?" or "long?"))
             return false;
         var levels=new[]{root,middle,leaf};
-        // 每层独立沿用已证明的字符串或 bigint 存储，父范围仍须来自同一条逻辑链。
+        // 来源槽与目标父外键分别允许字符串或 bigint，父范围仍须来自同一条逻辑链。
         return levels.Any(level => level.Id.Source.Id == parent.Source.Id) &&
             levels.All(level => (level.Id.Type is "string?" or "long?") &&
                 level.Read.Target.Source.IsRongyu == 1 && !level.Read.Target.IsGlobal && !level.Read.DerivedName);

@@ -216,6 +216,75 @@ public sealed class CrossTableExcelPublicationTests
         return catalog;
     }
 
+    /// <summary>三种含字符串的目标父外键组合均验证三级父范围及原追加、覆盖、列表和详情导出。</summary>
+    public static IEnumerable<object[]> TargetForeignKeyParentCases()
+    {
+        foreach (var (middle, leaf) in new[] { ("string", "int64"), ("int64", "string"), ("string", "string") })
+            foreach (var parent in new[] { "country_id", "area_id", "place_id" })
+                foreach (var (import, export) in new[] { ("OnlyNew", "list"), ("OverWriteByFirstColumn", "edit") })
+                    yield return [middle, leaf, parent, import, export];
+    }
+
+    /// <summary>候选表父外键独立保留字符串或 bigint，来源槽、固定父范围和原表头各自生效。</summary>
+    [Theory]
+    [MemberData(nameof(TargetForeignKeyParentCases))]
+    public void R0_logical_parents_allow_independent_text_target_foreign_keys(
+        string middle, string leaf, string parentColumn, string importMode, string exportMode)
+    {
+        var catalog = TargetForeignKeyParentScopedCatalog(middle, leaf, parentColumn, importMode, exportMode);
+        var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = Assert.Single(table.Pages);
+        var source = table.Columns.Single(column => column.Source.Id == "25");
+        var path = CrossTableWriteCompilation.Resolve(model, table, page, source).Definition!;
+        Assert.Equal(middle == "string" ? "string?" : "long?", path.Levels[1].Read.Parent!.Type);
+        Assert.Equal(leaf == "string" ? "string?" : "long?", path.Levels[2].Read.Parent!.Type);
+        Assert.Equal(new[] { "long?", "string?", "long?" }, path.Levels.Select(level => level.Id.Type));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        Assert.Equal(parentColumn != "place_id", ImportRenderer.Columns(page).Contains(source));
+        Assert.True(ExportRenderer.IncludesColumn(page, source));
+        var excel = CrossTableExcelRenderer.Helpers(model, table, page);
+        Assert.Equal((middle == "string" ? 1 : 0) + (leaf == "string" ? 1 : 0),
+            excel.AsSpan().Count("var parentKey=parent?.ToString(CultureInfo.InvariantCulture)"));
+    }
+
+    /// <summary>复用原三级父范围夹具，仅分别变更两张目标表的物理父外键。</summary>
+    internal static MetadataCatalog TargetForeignKeyParentScopedCatalog(
+        string middle, string leaf, string parentColumn, string importMode, string exportMode)
+    {
+        var catalog = MixedParentScopedCatalog(5, parentColumn, importMode, exportMode);
+        catalog.ConfigColumns.Single(column => column.Id == "45").LogicalType = middle;
+        catalog.ConfigColumns.Single(column => column.Id == "55").LogicalType = leaf;
+        return catalog;
+    }
+
+    /// <summary>双字符串目标父外键的公开完整包须实际编译，并复用原组件及 Web 认证入口。</summary>
+    [Fact]
+    public async Task Public_R0_Full_with_text_target_foreign_keys_builds_and_keeps_web_authentication()
+    {
+        var source = NonRedundantApplicationFixture.Root();
+        var catalog = TargetForeignKeyParentScopedCatalog("string", "string", "country_id", "OverWriteByFirstColumn", "edit");
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-r0-excel-text-target-parent");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog, directory, "Example.ParentCrossExcel", source);
+            using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(directory, ".metarill-package.json")));
+            Assert.Equal("FullApplication", manifest.RootElement.GetProperty("packageMode").GetString());
+            Assert.Equal("web-database-v1", manifest.RootElement.GetProperty("authenticationProfile").GetString());
+            Assert.False(File.Exists(Path.Combine(directory, CrossTableExcelApplicationPreparer.Marker)));
+            const string component = "components/yzp-cascade-tree/yzp-cascade-tree.vue";
+            Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(source, "frontend/metarill_uni_admin", component)),
+                await File.ReadAllBytesAsync(Path.Combine(directory, "frontend", component)));
+            var build = NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet", directory);
+            foreach (var argument in new[] { "build", "backend/Application.Host/Application.Host.csproj", "-c", "Release", "-warnaserror", "--disable-build-servers", "--verbosity", "quiet" })
+                build.ArgumentList.Add(argument);
+            await NonRedundantApplicationFixture.RunAsync(build);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>公开 R1 保留全部六页、八个跨表控件及原导入导出开关。</summary>
     [Fact]
     public void Proven_R1_six_models_publish_all_eight_original_paths()
