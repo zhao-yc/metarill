@@ -1168,6 +1168,7 @@
 | V938 | 🧪 当前公开 Full MCP 待实库复验 | 68af5319／V897 公开 Full ZIP | 661 份源码逐项核验，Windows Production 严格离线发布 51 文件。与旧 V864 夹具存在 36 份源码差异。离线通过且验证 V937 未核清时拒绝启动，待真实 OAuth、只读能力与撤权回执。 | [公开发行 V897](testing/current-linux-release-v897.md)、[原独立 MCP V864](testing/fixed-standalone-mcp-agent-v864.md)，2026-11-10 |
 | V939 | ✅ 当前两份发行 ZIP 的前端文件核对完成 | 68af5319／V897 平台与公开独立 Full | 每包 10 份前端许可与声明、7 份原选择器文件，三个 Tiny Cloud 示例 key 均为空，锁定依赖及归档核对通过。实际 Cloud 编辑待配置。 | [V939 发行前端文件](testing/current-release-front-end-distribution-v939.md)，2026-11-10 |
 | V940 | ✅ 当前合同大候选生成与宿主构建通过 | 68af5319／V830 固定合成项目 | 两轮 683 文件一致。与 V830 的 395 前端逐字一致，后端只增加 Excel 覆盖重名提示。49 份当前 Linux 宿主和 62 份历史 H5 输出核对通过，当前浏览器待复验。 | [V940 当前生成对照](testing/current-contract-selector-package-v940.md)，2026-11-10 |
+| V941 | ✅ 当前合同页 Web 构建与只读预检通过 | 68af5319／V940 当前宿主与原前端 | 395 份生成前端重建 62 份 H5，33 份样式、图片和字体与历史一致。49 份宿主与 Web 同包逐项核验，Server-200 实例、四镜像、端口和本轮资源初态通过；实际浏览器待验。 | [V941 Web 构建与预检](testing/current-contract-selector-web-rebuild-v941.md)，2026-11-10 |
 
 ## 五、后续跨端兼容性验收
 
