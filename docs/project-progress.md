@@ -1155,6 +1155,8 @@
 | V924 | ✅ 双组隔离诊断完成，发布门槛仍阻断 | 68af5319／MySQL 8.4.11 | 两组共 2,400 正式请求、24 个窗口、两端样本与资源核零。C# binlog 减少 90.6%，两组四并发均 3／3 触线。 | [V924 日志压缩对照](testing/current-binlog-compression-v920-v924.md#v924-正式对照结果)，2026-11-10 |
 | V925 | ✅ 当前候选分库 S3 竞态和撤权通过 | 68af5319／V897 发行源码／Windows x64 Production | 双库实际行锁与两种先后顺序、原会话撤权、业务事务回滚、58 HTTP／24 SDK 及独立清理均通过。 | [V925 分库 S3 竞态与撤权](testing/current-split-s3-file-race-v925.md)，2026-11-10 |
 | V926 | ✅ redo 写入线程两组隔离诊断完成 | 68af5319／MySQL 8.4.11 | 2,400 个正式请求、64 次预热、24 个窗口及两组独立核零。开启和关闭两组的四并发均出现稳定退化，正式门槛仍按 V912。 | [V926 redo 线程对照](testing/current-redo-writer-control-v926.md)，2026-11-10 |
+| V927 | ✅ 当前候选跨实例本地附件恢复及授权处置通过 | 68af5319／Windows x64 Production／MySQL 8.4.11 | 双实例 24／13 表、50 个原请求、双附件字节、错误计数回滚和正式撤销 3／2，重复零变化。临时资源独立核清。 | [V927–V928 当前候选分库恢复](testing/current-split-recovery-v927-v928.md)，2026-11-10 |
+| V928 | ✅ 当前候选分库 SeaweedFS 原键恢复通过 | 68af5319／Windows x64 Production | 独占四库恢复、两个 S3 对象、异址拒绝、原址切换目标凭据、25 个原请求／13 项 SDK 及精确清理。 | [V927–V928 当前候选分库恢复](testing/current-split-recovery-v927-v928.md)，2026-11-10 |
 
 ## 五、后续跨端兼容性验收
 
