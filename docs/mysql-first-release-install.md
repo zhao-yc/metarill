@@ -24,7 +24,7 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 将平台四份元数据及 `global.json` 按表格布置。发布后核对全部文件摘要，包括依赖和元数据。发行物和 Web 静态目录与私有配置、数据库备份、文件库及导出临时文件分开。部署配置由服务账户读取，持久目录由运行账户写入。
 
-收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。三种隔离安装的完整实测记录见 [V756 Linux x64 候选](testing/leaf-public-release-install-v756.md)，对应平台与独立 Full 的桌面及移动 Web 见 [V752](testing/leaf-public-release-browser-v752.md)。部署新提交时按[首版清单](mysql-first-release-milestone.md)核对该版本的验收状态。
+收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。当前固定候选的三种隔离安装及 CLI 见 [V897 Linux x64 候选](testing/current-linux-release-v897.md)，同一候选的平台与独立 Full 桌面及移动 Web 见 [V913](testing/current-exact-release-web-v913.md)。部署新提交时按[首版清单](mysql-first-release-milestone.md)核对该版本的验收状态。
 
 ### 从固定提交构建发行包
 
@@ -83,9 +83,9 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 平台分库加本地附件的隔离恢复顺序已在 [V630](testing/current-split-backup-restore-v630.md) 实测。停止源写入后分别取得平台库、业务库及附件目录的同点备份。为恢复目标分配空库、专属账号、Redis 和持久目录，用目标库级账号导入对应的两个库，再按文件键复制附件。以同版宿主和元数据指向恢复库，通过正常启动命令验证真实登录、文件引用、下载字节及权限。复导出的 DDL 如有文本差异，应核对真实列定义、排序规则、索引和约束，再核对所有数据语句。
 
-当前候选的跨 MySQL 实例恢复见 [V769](testing/integrated-cross-instance-recovery-v769.md)。先分别读取源、目标的主机名及实例 UUID，核对目标空库名称及导入账号归属。两份备份按平台库和业务库分别导入，可使用目标的新库名。宿主私有配置使用目标连接和对应的 `ExpectedDatabase`。恢复后从目标独立核对客户、文件与引用，再通过原接口验证账号、权限和会话。
+当前候选的同版跨 MySQL 实例恢复见 [V927](testing/current-split-recovery-v927-v928.md)。先分别读取源、目标的主机名及实例 UUID，核对目标空库名称及导入账号归属。两份备份按平台库和业务库分别导入，可使用目标的新库名。宿主私有配置使用目标连接和对应的 `ExpectedDatabase`。恢复后从目标独立核对客户、文件与引用，再通过原接口验证账号、权限和会话。
 
-当前候选的 S3 对象恢复见 [V770](testing/leaf-s3-backup-restore-v770.md)。停写后备份 MySQL 与对应对象键，按清单核对目标空桶，写回相同键并独立读取实际大小和 SHA-256。原文件定位要求保留原配置别名、规范化端点、区域、桶、前缀和寻址方式，凭据可独立轮换。恢复服务可用同一逻辑地址指向物理目标，再核对公开和受保护内容的原权限。直接更换逻辑端点会拒绝旧引用，涉及改名的迁移应单独核对文件定位。 [S3 定位规则](s3-object-storage.md)
+当前候选的同实例分库 SeaweedFS 恢复见 [V928](testing/current-split-recovery-v927-v928.md)。停写后备份 MySQL 与对应对象键，按清单核对目标空桶，写回相同键并独立读取实际大小和 SHA-256。原文件定位要求保留原配置别名、规范化端点、区域、桶、前缀和寻址方式，凭据可独立轮换。恢复服务可用同一逻辑地址指向物理目标，再核对公开和受保护内容的原权限。直接更换逻辑端点会拒绝旧引用，涉及改名的迁移应单独核对文件定位。 [S3 定位规则](s3-object-storage.md)
 
 - 变更前保存上一发行物及其摘要，备份本次影响的配置库、业务库、持久文件和远端对象存储。先在隔离目标恢复备份，并复核表数据和文件引用是否对应。
 - 已有生成项目用 [受管源码更新](local-generation-update.md) 先预览再应用，保留手写 partial、AppID 和私有设置。结构变更单独核对目标与差异，按“预览、执行、核验、记录”处理。首次安装命令按本页的空库场景使用。
@@ -94,7 +94,7 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 ### 恢复快照中的会话与授权
 
-备份会保留采集时有效的 Web 会话、Agent 访问会话及刷新授权，恢复后旧凭据仍可能有效。保持恢复目标离线并隔离入口，应用启动对外服务前，在恢复目标的身份库核对实例和库名，再处理快照中的旧会话。平台使用承载 `sys_session` 和 `sys_agent_grant` 的平台库。先读出受影响数量，再在同一连接的事务中撤销。当前候选的跨实例恢复、计数不符回滚与重复撤销见 [V769](testing/integrated-cross-instance-recovery-v769.md)。较早实测见 [V722](testing/integrated-cross-instance-recovery-v722.md)。
+备份会保留采集时有效的 Web 会话、Agent 访问会话及刷新授权，恢复后旧凭据仍可能有效。保持恢复目标离线并隔离入口，应用启动对外服务前，在恢复目标的身份库核对实例和库名，再处理快照中的旧会话。平台使用承载 `sys_session` 和 `sys_agent_grant` 的平台库。先读出受影响数量，再在同一连接的事务中撤销。当前候选的跨实例恢复、计数不符回滚与重复撤销见 [V927](testing/current-split-recovery-v927-v928.md)。
 
 ```sql
 SELECT @@hostname, @@server_uuid, DATABASE();
@@ -119,6 +119,6 @@ SELECT ROW_COUNT() AS revoked_grants;
 
 在目标隔离入口验证旧 Web 会话、Agent 访问及刷新凭据均被拒绝，再核对新登录、授权及业务访问。该步骤保留已有注销时间和 Agent 已消费刷新记录。
 
-当前固定候选的空库安装、重复安装和 HTTP 会话见 [V613](testing/current-linux-candidate-runtime-v613.md)。平台桌面和独立 Full 移动 Web 的真实浏览器直连 HTTPS 见 [V615](testing/current-browser-direct-https-v614-v615.md)。实际部署域名及其网关按部署环境单独留证。
+当前固定候选的空库安装、重复安装和 HTTP 会话见 [V897](testing/current-linux-release-v897.md)。原桌面和移动 Web 见 [V913](testing/current-exact-release-web-v913.md)。早期候选的浏览器直连 HTTPS 见 [V615](testing/current-browser-direct-https-v614-v615.md)。实际部署域名及其网关按部署环境单独留证。
 
 V618 从 `5c8fcb82` 验证平台发行根的 2,841 份公开源码与 49 份 Linux 宿主文件，以及独立 Full 的 49 份发布物。CLI 以该发行根作为来源两次生成 659 文件的示例 Full，逐份一致，生成宿主严格构建通过。该目录核对与 V613／V615 的实际安装和浏览器验收分列。
