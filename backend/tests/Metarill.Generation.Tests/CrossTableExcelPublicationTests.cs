@@ -132,6 +132,39 @@ public sealed class CrossTableExcelPublicationTests
         return catalog;
     }
 
+    /// <summary>纯 bigint 三级父范围延续字符串 ID 协议、原导出列与固定父键的导入排除。</summary>
+    [Theory]
+    [InlineData("country_id", "OnlyNew", "list", true)]
+    [InlineData("area_id", "OnlyNew", "list", true)]
+    [InlineData("place_id", "OnlyNew", "list", false)]
+    [InlineData("country_id", "OverWriteByFirstColumn", "edit", true)]
+    [InlineData("area_id", "OverWriteByFirstColumn", "edit", true)]
+    [InlineData("place_id", "OverWriteByFirstColumn", "edit", false)]
+    public void Int64_R0_logical_parents_keep_the_original_excel_contract(string parentColumn, string importMode, string exportMode, bool pathImport)
+    {
+        var catalog = Int64ParentScopedCatalog(parentColumn, importMode, exportMode);
+        var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = Assert.Single(table.Pages);
+        var source = table.Columns.Single(column => column.Source.Id == "25");
+        var path = CrossTableWriteCompilation.Resolve(model, table, page, source).Definition!;
+        Assert.All(path.Levels, level => Assert.Equal("long?", level.Id.Type));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        Assert.Equal(pathImport, ImportRenderer.Columns(page).Contains(source));
+        Assert.True(ExportRenderer.IncludesColumn(page, source));
+    }
+
+    /// <summary>同一正式夹具使用纯 bigint 逻辑关系，候选表物理主键沿用原目录。</summary>
+    internal static MetadataCatalog Int64ParentScopedCatalog(string parentColumn, string importMode, string exportMode)
+    {
+        var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
+        foreach (var column in catalog.ConfigColumns.Where(column => column.ConfigTableId == "2" &&
+                     column.ColumnName is "country_id" or "area_id" or "place_id"))
+            column.LogicalType = "int64";
+        return catalog;
+    }
+
     /// <summary>公开 R1 保留全部六页、八个跨表控件及原导入导出开关。</summary>
     [Fact]
     public void Proven_R1_six_models_publish_all_eight_original_paths()

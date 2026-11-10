@@ -64,8 +64,10 @@ internal static class NonRedundantCrossTableSubset
             middle.Read.Parent?.Type!="long?"||leaf.Read.Parent?.Type!="long?")
             return false;
         var levels=new[]{root,middle,leaf};
-        return levels.Any(level=>level.Id.Source.Id==parent.Source.Id)&&levels.All(level=>level.Id.Type=="string?"&&
-            level.Read.Target.Source.IsRongyu==1&&!level.Read.Target.IsGlobal&&!level.Read.DerivedName);
+        // 三级来源键须统一采用原字符串 ID 或 bigint，混合类型仍由单独的实库验收开放。
+        return root.Id.Type is "string?" or "long?"&&levels.Any(level=>level.Id.Source.Id==parent.Source.Id)&&
+            levels.All(level=>level.Id.Type==root.Id.Type&&
+                level.Read.Target.Source.IsRongyu==1&&!level.Read.Target.IsGlobal&&!level.Read.DerivedName);
     }
 
     /// <summary>逻辑父范围的覆盖使用表级首个可导入的物理文本字段，不扩大到关系键或额外解析依赖。</summary>
