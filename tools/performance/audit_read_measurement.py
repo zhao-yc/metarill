@@ -95,10 +95,21 @@ def review(report, preflight, journal, run):
             and transport["proxyBypassed"] is True and report["releaseAccepted"] is False,
             "双端接线或首版边界不符")
     settings = report["databaseBefore"]["variables"]
-    require(set(settings) == {"version", "bufferPoolBytes", "maxConnections", "transactionIsolation",
-                              "globalTimeZone", "globalSqlMode"}
-            and settings == report["databaseAfter"]["variables"] and report["databaseVariablesUnchanged"] is True,
-            "实验期间数据库设置缺失或变化")
+    version = report.get("databaseSettingsVersion", 1)
+    fields = {"version", "bufferPoolBytes", "maxConnections", "transactionIsolation", "globalTimeZone", "globalSqlMode"}
+    # 旧归档可继续复算原指标，只有新版才有持久化及组提交证据。
+    require(type(version) is int and version in (1, 2), "数据库设置版本无效")
+    if version == 2:
+        fields |= {"logBin", "binlogFormat", "binlogRowImage", "syncBinlog", "innodbFlushLogAtTrxCommit",
+                   "binlogGroupCommitSyncDelay", "binlogGroupCommitSyncNoDelayCount"}
+    require(set(settings) == fields and settings == report["databaseAfter"]["variables"]
+            and report["databaseVariablesUnchanged"] is True, "实验期间数据库设置缺失或变化")
+    if version == 2:
+        numeric = [settings[name] for name in ("syncBinlog", "binlogGroupCommitSyncDelay", "binlogGroupCommitSyncNoDelayCount")]
+        require(all(isinstance(value, str) and value.isascii() and value.isdigit() for value in numeric)
+                and settings["logBin"] in ("0", "1") and settings["innodbFlushLogAtTrxCommit"] in ("0", "1", "2")
+                and settings["binlogFormat"] in ("ROW", "STATEMENT", "MIXED")
+                and settings["binlogRowImage"] in ("FULL", "MINIMAL", "NOBLOB"), "实验期间持久化设置无效")
     expected = [("container-preflight", None, None, None)]
     trials = {}
     outcomes = []
@@ -152,7 +163,8 @@ def review(report, preflight, journal, run):
     for concurrency in (1, 4):
         require(warmup[concurrency, "java"] == warmup[concurrency, "csharp"], "双端预热响应不一致")
     return {"runId": run, "measuredRequests": 19200, "warmupRequests": 128,
-            "preflightRequests": 8, "results": outcomes, "releaseAccepted": False}
+            "preflightRequests": 8, "durabilitySettingsObserved": version == 2,
+            "results": outcomes, "releaseAccepted": False}
 
 
 def review_indexed_archive(folder, run, state, evidence):

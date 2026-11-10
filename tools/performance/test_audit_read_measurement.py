@@ -69,6 +69,25 @@ class IndependentReadReviewTests(unittest.TestCase):
                                         values["meanCpuPercent"], values["observedMaxMemoryBytes"]))
         self.assertFalse(result["releaseAccepted"])
 
+    def test_v2_durability_evidence_is_required_and_historical_scope_is_explicit(self):
+        """新版逐窗比较持久化设置，旧归档仍只证明当时记录的范围。"""
+        report, first, events = evidence()
+        self.assertFalse(audit.review(report, first, events, RUN)["durabilitySettingsObserved"])
+        report["databaseSettingsVersion"] = 2
+        with self.assertRaisesRegex(ValueError, "设置缺失"):
+            audit.review(report, first, events, RUN)
+        settings = report["databaseBefore"]["variables"]
+        settings.update(logBin="1", binlogFormat="ROW", binlogRowImage="FULL", syncBinlog="1",
+                        innodbFlushLogAtTrxCommit="1", binlogGroupCommitSyncDelay="0", binlogGroupCommitSyncNoDelayCount="0")
+        self.assertTrue(audit.review(report, first, events, RUN)["durabilitySettingsObserved"])
+        changed = {**settings, "binlogGroupCommitSyncDelay": "100"}
+        events[3]["databaseContext"] = {"variables": changed}
+        with self.assertRaisesRegex(ValueError, "期中数据库配置"):
+            audit.review(report, first, events, RUN)
+        settings["innodbFlushLogAtTrxCommit"] = "3"
+        with self.assertRaisesRegex(ValueError, "持久化设置无效"):
+            audit.review(report, first, events, RUN)
+
     def test_step_timings_use_every_original_request_without_changing_verdict(self):
         """逐接口排序须独立计算，保留慢轮，不以百分位求和替代场景时延。"""
         report, first, events = evidence()

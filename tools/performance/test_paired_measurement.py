@@ -78,10 +78,25 @@ class MeasurementReplayTests(unittest.TestCase):
             self.assertEqual(("java", 1, 2, "type-mismatch"), tuple(proof[key] for key in ("target", "step", "assertion", "reason")))
             self.assertEqual({"java": [], "csharp": []}, proof["responseFingerprints"])
 
+    def test_database_context_pins_commit_durability_and_rejects_invalid_receipts(self):
+        """记录刷盘、binlog 和组提交设置；缺失或无效回执在计时前拒绝。"""
+        valid = ["8.4.11", "128", "100", "REPEATABLE-READ", "SYSTEM", "", "1", "ROW", "FULL", "1", "1", "0", "0"]
+        counters = "\n".join(name+"\t1" for name in measurement.STATUS_NAMES)
+        with mock.patch.object(measurement.os, "getloadavg", return_value=(1, 2, 3), create=True):
+            query = mock.Mock(side_effect=["\t".join(valid), counters])
+            snapshot = measurement.database_context(query)
+            self.assertEqual(("1", "1", "FULL", "0", "0"), tuple(snapshot["variables"][key] for key in (
+                "syncBinlog", "innodbFlushLogAtTrxCommit", "binlogRowImage",
+                "binlogGroupCommitSyncDelay", "binlogGroupCommitSyncNoDelayCount")))
+            self.assertEqual(mock.call(measurement.VARIABLE_SQL), query.call_args_list[0])
+            for bad in (valid[:-1], [*valid[:9], "unknown", *valid[10:]], [*valid[:10], "3", *valid[11:]]):
+                with self.assertRaisesRegex(ValueError, "measurement-database-context"):
+                    measurement.database_context(mock.Mock(side_effect=["\t".join(bad), counters]))
+
     def test_temporary_database_setting_change_invalidates_full_measurement(self):
-        """期中共享配置变化即使结束恢复也不出具有效成绩。"""
-        normal={"variables":{"bufferPoolBytes":"128"},"globalCounters":{},"loadAverage":[]}
-        changed={**normal,"variables":{"bufferPoolBytes":"256"}}
+        """期中刷盘配置变化即使结束恢复也不出具有效成绩。"""
+        normal={"variables":{"bufferPoolBytes":"128","syncBinlog":"1"},"globalCounters":{},"loadAverage":[]}
+        changed={**normal,"variables":{**normal["variables"],"syncBinlog":"0"}}
         def measured(config,probe,on_event):
             on_event({"kind":"trial-intent"})
             on_event({"kind":"trial"})
@@ -90,7 +105,9 @@ class MeasurementReplayTests(unittest.TestCase):
             result=measurement.run_read_measurement(Path(folder),RUN,TARGETS,TOKENS,None,mock.Mock())
             self.assertFalse(result["measurementValid"])
             self.assertFalse(result["stableRegression"])
-            self.assertNotIn("PRIVATE",(Path(folder)/"measurement/measurement.json").read_text())
+            report = (Path(folder)/"measurement/measurement.json").read_text()
+            self.assertNotIn("PRIVATE", report)
+            self.assertEqual(2, json.loads(report)["databaseSettingsVersion"])
 
 
     def test_server_local_trials_use_and_verify_cumulative_cgroup_probe(self):

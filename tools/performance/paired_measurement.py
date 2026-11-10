@@ -50,20 +50,44 @@ def config_for(run,targets,tokens):
     return config
 
 
-VARIABLE_SQL = ("SELECT @@version,@@global.innodb_buffer_pool_size,@@global.max_connections,"
-                "@@global.transaction_isolation,@@global.time_zone,@@global.sql_mode;")
+DATABASE_SETTINGS = {
+    "version": "@@version",
+    "bufferPoolBytes": "@@global.innodb_buffer_pool_size",
+    "maxConnections": "@@global.max_connections",
+    "transactionIsolation": "@@global.transaction_isolation",
+    "globalTimeZone": "@@global.time_zone",
+    "globalSqlMode": "@@global.sql_mode",
+    # 固定写入持久化和组提交条件，避免把刷盘策略差异算成应用性能差异。
+    "logBin": "@@global.log_bin",
+    "binlogFormat": "@@global.binlog_format",
+    "binlogRowImage": "@@global.binlog_row_image",
+    "syncBinlog": "@@global.sync_binlog",
+    "innodbFlushLogAtTrxCommit": "@@global.innodb_flush_log_at_trx_commit",
+    "binlogGroupCommitSyncDelay": "@@global.binlog_group_commit_sync_delay",
+    "binlogGroupCommitSyncNoDelayCount": "@@global.binlog_group_commit_sync_no_delay_count",
+}
+VARIABLE_SQL = "SELECT "+",".join(DATABASE_SETTINGS.values())+";"
 STATUS_NAMES = ("Threads_running","Threads_connected","Questions","Innodb_buffer_pool_reads","Innodb_buffer_pool_read_requests")
 STATUS_SQL = "SHOW GLOBAL STATUS WHERE Variable_name IN ("+",".join("'"+name+"'" for name in STATUS_NAMES)+");"
 
 
 def database_context(query):
-    """只保留公共实例负载计数，不采集其他会话、SQL 或数据。"""
-    names = ("version","bufferPoolBytes","maxConnections","transactionIsolation","globalTimeZone","globalSqlMode")
-    settings=query(VARIABLE_SQL).split("\t")
-    counters=dict(line.split("\t") for line in query(STATUS_SQL).splitlines())
-    if len(settings)!=len(names) or set(counters)!=set(STATUS_NAMES) or not all(v.isascii() and v.isdigit() for v in counters.values()):
+    """只保留实例设置和负载计数，不采集其他会话、SQL 或数据。"""
+    settings = query(VARIABLE_SQL).split("\t")
+    counters = dict(line.split("\t") for line in query(STATUS_SQL).splitlines())
+    if len(settings) != len(DATABASE_SETTINGS) or set(counters) != set(STATUS_NAMES):
         raise ValueError("measurement-database-context")
-    return {"variables":dict(zip(names,settings)),"globalCounters":{k:int(v) for k,v in counters.items()},"loadAverage":list(os.getloadavg())}
+    variables = dict(zip(DATABASE_SETTINGS, settings))
+    numeric = [variables[name] for name in ("bufferPoolBytes", "maxConnections", "syncBinlog",
+        "binlogGroupCommitSyncDelay", "binlogGroupCommitSyncNoDelayCount")]
+    if (not all(value.isascii() and value.isdigit() for value in [*numeric, *counters.values()])
+            or variables["logBin"] not in ("0", "1")
+            or variables["innodbFlushLogAtTrxCommit"] not in ("0", "1", "2")
+            or variables["binlogFormat"] not in ("ROW", "STATEMENT", "MIXED")
+            or variables["binlogRowImage"] not in ("FULL", "MINIMAL", "NOBLOB")):
+        raise ValueError("measurement-database-context")
+    return {"variables": variables, "globalCounters": {key: int(value) for key, value in counters.items()},
+            "loadAverage": list(os.getloadavg())}
 
 
 def run_read_measurement(root,run,targets,tokens,probe,query):
@@ -123,7 +147,8 @@ def run_trials(output,config,probe,query,profile,*,transport=None,check_event=No
         owned_probe.verify()
         report["resourceSource"] = cgroups.METHOD
     final=database_context(query)
-    report.update(databaseBefore=initial,databaseAfter=final,databaseVariablesUnchanged=settings_unchanged and initial["variables"]==final["variables"])
+    report.update(databaseSettingsVersion=2, databaseBefore=initial, databaseAfter=final,
+                  databaseVariablesUnchanged=settings_unchanged and initial["variables"]==final["variables"])
     (output/"measurement.json").write_bytes(http.canonical(report))
     results=report["results"]
     return {"measurementValid":report["databaseVariablesUnchanged"] and len(results)==len(config["concurrency"]) and all(item["measurementValid"] for item in results),
