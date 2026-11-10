@@ -97,6 +97,8 @@ GRANT EXECUTE ON PROCEDURE proof_db.read_child_append_proof TO 'business_runtime
 
 ## 实测范围
 
+当前生成合同应用的禁网计划、五条语句安装、真实账号缺失／安装／撤权／恢复四态及原八行导入已实测。见 [V882／V883 当前生成宿主安装与复核](testing/current-child-shared-proof-cli-v883.md)。
+
 固定产品 ffcd80d3 复验现有配置。每笔缓存 UPDATE 从八条降为一条，binlog 减少 48.7%。四并发吞吐为 Java 的 134.1%–139.5%，p95 为 74.8%–86.4%。此次覆盖同父八行导入。[V880 共享追加与日志量](testing/current-child-shared-log-volume-v880.md)。
 
 完整独立应用使用显式共享锁配置时，同父八行明细导入在并发 4 的三轮均达标。C# 吞吐为 Java 的 117.6%～122.3%，p95 为 Java 的 80.6%～90.1%。同一镜像的默认排他锁配置仍触发稳定退化。这里的性能结论只覆盖已实测的工作簿和配置。 [共享锁正式对照](testing/paired-child-shared-guard-scope-timing-v399.md) · [默认配置正式对照](testing/paired-child-default-guard-scope-timing-v398.md)
