@@ -1297,6 +1297,7 @@
 | V1079 | ✅ Linux 第 29 批两项失败复验通过 | abbe89fb／原 Linux 测试程序集 | 正式与开发宿主的数值 JSON 合同均通过。原失败保留，独占容器和目录已核清。 | [V1079 Linux 双模板复验](testing/current-linux-generation-batches-v945.md#v1079-linux-第-29-批双模板复验)，2026-11-11 |
 | V1080 | ✅ 当前发行候选严格 MySQL TLS 通过 | abbe89fb／双宿主／MySQL 8.4.11 | 三次证书拒绝保持空库，严格 TLS 显式安装 24／13／13 表，20 个原接口、两条业务及注销通过。 | [V1080 当前候选严格 MySQL TLS](testing/mysql-strict-tls-web-v565.md#v1080-当前发行候选严格-mysql-tls)，2026-11-11 |
 | V1082 | ✅ Linux 第 30 至 31 批登录用例复验通过 | abbe89fb／测试夹具编译时限修正 | 两项原失败及后续同源 9 项独立通过，资源已核清。后续 9 项暂单列。 | [V1082 Linux 登录用例复验](testing/current-linux-generation-batches-v945.md#v1082-linux-第-30-至-31-批登录用例复验)，2026-11-11 |
+| V1083 | ✅ 当前候选独立 Full 同版恢复通过 | abbe89fb／独占 MySQL 源和目标 | 两库各 13 表，19 个原请求，原附件、权限及旧会话处置通过。 | [V1083 独立 Full 恢复](testing/current-split-recovery-v927-v928.md#v1083-当前候选独立-full-同版恢复)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
