@@ -125,3 +125,9 @@ Windows 上传的 11 份 TRX 显示后端十项目 6,082 通过、0 失败、464
 ## 2026-11-05 e8a646d Windows 回环采集超时
 
 [e8a646d 的 GitHub Actions](https://github.com/zhao-yc/metarill/actions/runs/41994937980) 中，前端作业通过。Windows 采集宿主作业的 34 项中 33 项通过，`Unexpected_database_is_not_reported_as_complete_evidence` 在读取回环 HTTP 响应时触发 10 秒客户端超时。日志未确定宿主未及时响应的原因。本机按相同 Release 命令和原门槛复跑采集项目，34 项通过、0 项跳过。保留远端失败，后续以新提交的实际 CI 结果为准。
+
+## 2026-11-11 abbe89fb 当前候选 GitHub CI 终态
+
+按固定提交查询对应的 PR 工作流，运行 42965876964 已成功结束。Windows、Linux 的 2 个后端任务和各 6 个生成分组，以及 1 个前端任务，共 15 项均完成且成功。CI 已列出两份后端报告和十二份生成报告，共 14 个可用制品。本轮归档工作流回执、任务结论及制品索引。
+
+Server-200 独立生成器回归继续按 [V1045](current-linux-generation-batches-v945.md#v1045-当前候选前十七批复核) 复核。真实浏览器、MySQL 功能及性能证据分别见首版清单。[GitHub Actions 记录](https://github.com/zhao-yc/metarill/actions/runs/42965876964)
