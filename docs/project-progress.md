@@ -1329,6 +1329,7 @@
 | V1115 | ✅ 当前平台三库文件路由通过 | abbe89fb／平台、默认业务与额外映射三库 | 48 个原 HTTP，文件槽、物理库和目录独立核验，未发布项目拒绝。两轮资源核清。 | [V1115 三库文件路由](testing/schema-import-split-target-v555.md#v1115-当前候选三库文件路由验收)，2026-11-12 |
 | V1116 | ✅ Linux 第 54 批与双系统前 2,962 项对照完成 | abbe89fb／Windows 六组与 Linux 前 54 批 | 新增 30 项通过、2 项条件跳过。新增用例的名称、ID、结果与跳过原因均与 Windows 一致。 | [V1116 两系统前 54 批](testing/current-linux-generation-batches-v945.md#v1116-当前候选-linux-第-54-批逐项核对)，2026-11-12 |
 | V1118 | ✅ Linux 第 55 至 56 批与双系统前 3,088 项对照完成 | abbe89fb／Windows 六组与 Linux 前 56 批 | 新增 122 项通过、4 项条件跳过。新增用例的名称、ID、结果与跳过原因均与 Windows 一致。 | [V1118 两系统前 56 批](testing/current-linux-generation-batches-v945.md#v1118-当前候选-linux-第-55-至-56-批逐项核对)，2026-11-12 |
+| V1119 | ✅ 当前平台共库 SeaweedFS 恢复通过 | abbe89fb／源与目标各一库 | 25 表、25 个原 HTTP 与 13 次 S3 SDK 操作。双附件按原键恢复，异址拒绝，权限与回收核验通过。 | [V1119 平台共库 S3 恢复](testing/current-split-recovery-v927-v928.md#v1119-当前候选平台共库-s3-恢复)，2026-11-12 |
 
 ## 五、后续跨端兼容性验收
 
