@@ -1312,6 +1312,7 @@
 | V1095 | ✅ Linux 第 41、42 批及双系统前 2,340 项对照完成 | abbe89fb／Windows 六组与 Linux 前 42 批 | 新增 92 项通过、3 项条件跳过、零失败，逐项一致。 | [V1095 两系统前 42 批](testing/current-linux-generation-batches-v945.md#v1095-当前候选-linux-第-41-至-42-批逐项核对)，2026-11-11 |
 | V1096 | ✅ 当前候选五项原级联实库通过 | abbe89fb／Server-200 隔离业务库 | 自关联读写、原 Excel、跨表读和筛选共 16 组实跑，5 项通过、零跳过，40 张随机表独立核清。 | [V1096 原级联实库](cascade-tree-read-contract.md#v1096-当前候选五项原级联-mysql-复验)，2026-11-11 |
 | V1097 | ✅ Linux 第 43 至 44 批与双系统前 2,436 项对照完成 | abbe89fb／Windows 六组与 Linux 前 44 批 | 新增 92 项通过、4 项条件跳过、零失败，逐项一致。 | [V1097 两系统前 44 批](testing/current-linux-generation-batches-v945.md#v1097-当前候选-linux-第-43-至-44-批逐项核对)，2026-11-11 |
+| V1098 | 🟡 原 Excel 两项通过，父范围首轮两项失败 | abbe89fb／Server-200 | 原回执与失败行保留，32 张随机表独立核清，按已确认规则拆分断言复验。 | [V1098 首轮实库](nonredundant-cross-table-parent.md#v1098-当前候选非冗余跨表首轮实库)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
