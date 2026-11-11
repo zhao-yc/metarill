@@ -1304,6 +1304,7 @@
 | V1087 | ✅ Linux 第 34 批及复验核对完成 | abbe89fb／原 TRX 与独立复验 | 原 71 通过、11 条件跳过、1 失败。原失败由 V1082 同一用例通过；前 34 批计入复验后 1,622 通过、200 条件跳过。 | [V1087 Linux 第 34 批](testing/current-linux-generation-batches-v945.md#v1087-当前候选-linux-第-34-批及复验汇总)，2026-11-11 |
 | V1088 | ✅ 当前独立 Full 的 Web 与 Agent 授权恢复通过 | abbe89fb／单库同版恢复 | 43 个原请求，旧令牌、刷新及待批准设备码拒绝，撤销回滚、重复零变更、附件和精确回收通过。 | [V1088 独立 Full 授权恢复](testing/current-split-recovery-v927-v928.md#v1088-当前独立-full-的-web-与-agent-授权恢复)，2026-11-11 |
 | V1089 | ✅ Linux 第 35 批及六项复验核对完成 | abbe89fb／原 TRX 与独立复验 | 原 88 通过、15 条件跳过、6 失败。六个原失败均有 V1082 同用例通过；前 35 批计入复验后 1,716 通过、215 条件跳过。 | [V1089 Linux 第 35 批](testing/current-linux-generation-batches-v945.md#v1089-当前候选-linux-第-35-批及六项复验)，2026-11-11 |
+| V1090 | ✅ 当前独立 Full 的 MySQL 跨实例恢复通过 | abbe89fb／两个隔离 MySQL 8.4.11 | 43 个原请求，旧令牌、刷新及待批准设备码拒绝，撤销回滚、重复零变更、附件和精确回收通过。 | [V1090 独立 Full 跨实例恢复](testing/current-split-recovery-v927-v928.md#v1090-当前独立-full-的-mysql-跨实例恢复)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
