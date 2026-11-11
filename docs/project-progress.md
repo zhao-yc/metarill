@@ -1300,6 +1300,7 @@
 | V1083 | ✅ 当前候选独立 Full 同版恢复通过 | abbe89fb／独占 MySQL 源和目标 | 两库各 13 表，19 个原请求，原附件、权限及旧会话处置通过。 | [V1083 独立 Full 恢复](testing/current-split-recovery-v927-v928.md#v1083-当前候选独立-full-同版恢复)，2026-11-11 |
 | V1084 | ✅ 当前候选独立 Full 对象恢复通过 | abbe89fb／MySQL 与 SeaweedFS | 13 表、原键 466 字节、19 个原请求及权限、会话与精确回收通过。 | [V1084 独立 Full 对象恢复](testing/current-split-recovery-v927-v928.md#v1084-当前候选独立-full-对象恢复)，2026-11-11 |
 | V1085 | ✅ 当前平台 Caddy HTTPS 与原桌面 Web 通过 | abbe89fb／210 份固定文件 | TLS 1.3 证书正反例、12 个原接口步骤、7 个原浏览器同源 API、代理审计、三个会话注销与独立回收通过。 | [V1085 当前平台 HTTPS](testing/fixed-platform-caddy-https-v842-v843.md#v1085-当前发行平台-https-及原桌面-web-通过)，2026-11-11 |
+| V1086 | ✅ 当前独立 Full 移动 Web HTTPS 通过 | abbe89fb／49 宿主／52 原 H5 | 空库显式安装和重复保护、普通账号原客户增改删、19 个同源 API、证书拒绝、会话注销和独立回收均通过。 | [V1086 当前 Full 移动 HTTPS](testing/fixed-full-caddy-mobile-https-v844.md#v1086-当前发行-full-原移动-web-https-通过)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
