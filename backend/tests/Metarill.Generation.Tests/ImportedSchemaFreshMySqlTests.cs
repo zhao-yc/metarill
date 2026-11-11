@@ -67,7 +67,7 @@ public sealed class ImportedSchemaFreshMySqlTests
         async Task SourceUnchanged()
         {
             var now = Assert.Single((await new SchemaService(session).InspectSnapshotAsync(catalog)).Schema.Tables);
-            Assert.Equal(MySqlSchemaPlanner.Fingerprint(new("source-only", [originalTable])), MySqlSchemaPlanner.Fingerprint(new("source-only", [now])));
+            Assert.Equal(SourceFixtureFingerprint(originalTable), SourceFixtureFingerprint(now));
         }
         try
         {
@@ -149,6 +149,15 @@ public sealed class ImportedSchemaFreshMySqlTests
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     /// <summary>这里只读固定包内元数据，不访问平台库或执行反向导入。</summary>
     private static async Task<MetadataCatalog> Catalog(string path) => JsonSerializer.Deserialize<MetadataCatalog>(await File.ReadAllTextAsync(path), Json)!;
+    /// <summary>仅归一此夹具 name 列在 DDL 回放后由 MySQL 重述的同一字符集，其余结构仍逐项参与指纹比较。</summary>
+    private static string SourceFixtureFingerprint(TableSchema table)
+    {
+        const string declaredCharset = "`name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL";
+        const string inheritedCharset = "`name` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL";
+        var definition = table.SnapshotDefinition?.Replace(declaredCharset, inheritedCharset, StringComparison.Ordinal);
+        return MySqlSchemaPlanner.Fingerprint(new("source-only", [table with { SnapshotDefinition = definition }]));
+    }
+
     /// <summary>摘要不包含环境凭据，固定文件与程序集先于一切正式库访问核对。</summary>
     private static string Hash(byte[] value) => Convert.ToHexStringLower(SHA256.HashData(value));
     /// <summary>小型基础设施夹具值，只写本轮受限新库，不创建任何数据库或账号。</summary>
