@@ -139,3 +139,16 @@ GitHub Actions 运行 43030431808 对应 e8bc7af1，前端、两个系统的后�
 ## V1094 当前登录测试夹具的 Windows 定向复验
 
 开发分支的唯一非文档差异是已提交的登录测试夹具冷编译等待。当前夹具的 Windows 和 Linux 各 11 项定向通过。开发分支完整 GitHub CI 继续按精确提交核验。见 [Windows 复验](current-windows-generation-full-v921.md#v1094-当前登录测试夹具的-windows-定向复验)。
+
+## V1138 当前候选 GitHub CI
+
+2026-11-12。固定源码 e682cd12 的 GitHub Actions 第 43073785233 次运行已完成。前端、Windows／Ubuntu 后端以及两系统各六组生成测试，共 15 个作业全部成功。[GitHub Actions 原运行](https://github.com/zhao-yc/metarill/actions/runs/43073785233)
+
+下载的 14 份报告与 GitHub 制品 SHA-256 一致。两端生成器各 3,157 个测试 ID，按六组逐项核对冻结用例名称与计数。报告中的条件跳过均有原因。
+
+| 测试 | Windows 通过 | Windows 条件跳过 | Ubuntu 通过 | Ubuntu 条件跳过 | 失败 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 生成器 | 2,884 | 273 | 2,883 | 274 | 0 |
+| 后端 | 3,421 | 219 | 3,421 | 219 | 0 |
+
+生成器的两端差异仅为 Windows 文件删除共享句柄用例。该用例 Windows 通过，Ubuntu 按系统条件跳过。前端按官方作业成功回执验收。Server-200 的独立 Linux 回归、真实 MySQL 和性能继续各自跟踪。
