@@ -32,7 +32,7 @@
 
 ## 当前状态
 
-开发分支已修复普通下拉候选的原配置排序，生成及真实 MySQL 专项通过。以下 abbe89fb 记录仍对应最近已完成相应验收的固定发行包。新候选 e682cd12 两份 ZIP 独立复建一致，三拓扑安装、重启及原候选接口通过。[V1125／V1126 排序候选](testing/storage-mode-linux-release-v1009-v1010.md#v1125-与-v1126-排序候选独立双包及三拓扑)。[原配置页面桌面与移动 Web 下拉](relation-options.md#v1127-原配置页面的浏览器复验)功能通过。当前候选九类同条件实测已收回，逐次修复原退化经正式复验未重现。最新九类结果均达标。[V1139 逐次修复正式复验](testing/current-mysql-performance-v1130.md#v1139-逐次修复同条件正式复验)。[V1130 九类正式结果](testing/current-mysql-performance-v1130.md)。固定候选 GitHub CI 15 个作业已通过。[V1138 当前候选 GitHub CI](testing/ci-current-contracts.md#v1138-当前候选-github-ci)。[V1124 原下拉候选排序](relation-options.md#v1124-普通下拉候选的原配置排序)。
+开发分支已修复普通下拉候选的原配置排序，生成及真实 MySQL 专项通过。以下 abbe89fb 记录仍对应最近已完成相应验收的固定发行包。新候选 e682cd12 两份 ZIP 独立复建一致，三拓扑安装、重启及原候选接口通过。[V1125／V1126 排序候选](testing/storage-mode-linux-release-v1009-v1010.md#v1125-与-v1126-排序候选独立双包及三拓扑)。原配置表桌面与移动 Web 的排序、搜索及会话回收已完整核验。[V1155 原配置表下拉与注销](relation-options.md#v1155-当前原配置表下拉与注销)。[原配置页面桌面与移动 Web 下拉](relation-options.md#v1127-原配置页面的浏览器复验)功能通过。当前候选九类同条件实测已收回，逐次修复原退化经正式复验未重现。最新九类结果均达标。[V1139 逐次修复正式复验](testing/current-mysql-performance-v1130.md#v1139-逐次修复同条件正式复验)。[V1130 九类正式结果](testing/current-mysql-performance-v1130.md)。固定候选 GitHub CI 15 个作业已通过。[V1138 当前候选 GitHub CI](testing/ci-current-contracts.md#v1138-当前候选-github-ci)。[V1124 原下拉候选排序](relation-options.md#v1124-普通下拉候选的原配置排序)。
 
 MySQL 首版总验收仍在进行。前一候选 `0b65780c` 已通过两包复建、三拓扑安装、Windows 与独立 Linux 回归、原桌面与移动 Web、原 Excel、分库 S3 及九类同条件性能。真实 Tiny Cloud 编辑需有效配置。未签收范围以[实施进度表](project-progress.md)为准。
 
