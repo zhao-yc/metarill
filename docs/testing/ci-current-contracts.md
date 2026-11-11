@@ -131,3 +131,7 @@ Windows 上传的 11 份 TRX 显示后端十项目 6,082 通过、0 失败、464
 按固定提交查询对应的 PR 工作流，运行 42965876964 已成功结束。Windows、Linux 的 2 个后端任务和各 6 个生成分组，以及 1 个前端任务，共 15 项均完成且成功。CI 已列出两份后端报告和十二份生成报告，共 14 个可用制品。本轮归档工作流回执、任务结论及制品索引。
 
 Server-200 独立生成器回归继续按 [V1045](current-linux-generation-batches-v945.md#v1045-当前候选前十七批复核) 复核。真实浏览器、MySQL 功能及性能证据分别见首版清单。[GitHub Actions 记录](https://github.com/zhao-yc/metarill/actions/runs/42965876964)
+
+## 2026-11-11 e8bc7af1 GitHub CI 终态
+
+GitHub Actions 运行 43030431808 对应 e8bc7af1，前端、两个系统的后端及十二个生成分组共 15 项全部通过。与固定发行源码 abbe89fb 逐路径比较，变化只在 docs/。abbe89fb 自身的 42965876964 同样核对 15 项通过。后续测试夹具调整及更新后的开发分支仍按各自提交核对。见 [e8bc7af1 的运行](https://github.com/zhao-yc/metarill/actions/runs/43030431808)。
