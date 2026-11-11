@@ -65,7 +65,7 @@ V616 以同一候选补齐原客户复制，8,624 次请求、六轮整场景达
 
 ### 当前性能签收范围
 
-当前候选 `e682cd12` 的九类实测已收回，45,756 个正式请求、66 个配对轮次。逐次修复达到稳定退化条件，性能门槛受阻。[V1130 九类正式结果](testing/current-mysql-performance-v1130.md)。
+当前候选 `e682cd12` 的九类实测已收回，45,756 个正式请求、66 个配对轮次。逐次修复达到稳定退化条件，性能门槛受阻。[V1130 九类正式结果](testing/current-mysql-performance-v1130.md)。隔离诊断已完成，原正式结果待同条件复核。[V1133 逐次修复分段诊断](testing/current-release-child-performance-v957-v958.md#v1133-当前候选逐次修复分段诊断)。
 
 当前候选 `abbe89fb` 的九类实测已收回，45,756 个正式请求、66 个配对轮次。九类均通过稳定性门槛。[V1032 九类正式结果](testing/current-mysql-performance-v1032.md)。
 
