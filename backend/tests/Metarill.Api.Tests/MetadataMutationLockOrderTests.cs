@@ -79,5 +79,8 @@ public sealed partial class ApiAcceptanceTests
             if (preparation.TableName == "config_column" && preparation.Operation == RecordMutationOperation.Update) entered.TrySetResult();
             return inner.BeforeMutationAsync(preparation, cancellationToken);
         }
+
+        public Task BeforeWriteAsync(RecordMutationValidation validation, CancellationToken cancellationToken = default)
+            => inner.BeforeWriteAsync(validation, cancellationToken);
     }
 }

@@ -41,4 +41,20 @@ public sealed class ConfigurationMutationGuard(SqlRowStore store, MetadataRegist
         if ((await store.ReadForUpdateAsync("yz_project", new Dictionary<string, object?> { ["id"] = project }, cancellationToken)).Count != 1)
             throw new UnauthorizedAccessException("当前项目不存在。");
     }
+
+    /// <summary>更新时使用原事务内锁定的记录比较存储模式，避免旧整实体或直接调用绕过首次保存规则。</summary>
+    public Task BeforeWriteAsync(RecordMutationValidation validation, CancellationToken cancellationToken = default)
+    {
+        if (validation.Operation != RecordMutationOperation.Update || validation.TableName != "config_table"
+            || !registry.Platform.ConfigPages.Any(page => page.Id == validation.PageId && page.ConfigTableId == "6191080026669056"))
+            return Task.CompletedTask;
+
+        if (!ReferenceEquals(validation.Transaction, store.Session.CurrentTransaction)
+            || !validation.OriginalScopeValues.TryGetValue("is_rongyu", out var original)
+            || !validation.ScopeValues.TryGetValue("is_rongyu", out var current))
+            throw new InvalidOperationException("缺少同事务的表配置存储模式快照，请重新生成平台服务。");
+        if (!Equals(original, current))
+            throw new ArgumentException("配置表首次保存后不能修改冗余模式，请新建配置表");
+        return Task.CompletedTask;
+    }
 }

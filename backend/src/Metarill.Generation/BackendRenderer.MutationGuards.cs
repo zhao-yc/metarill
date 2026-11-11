@@ -52,7 +52,13 @@ internal static partial class BackendRenderer
     private static string Preparation(GenerationModel model, TableModel table)
     {
         var business=table.Pages.Any(page=>BusinessRecordButtons(model,page).Count>0);
-        var columns = table.Columns.Where(column => SecurityValueNames.Contains(column.Source.ColumnName)).Concat(table.Pages.SelectMany(page => SafeGuardScopes(model, page).Select(scope => scope.Column))).Where(column=>!NonRedundantCrossParentCompilation.IsSlot(model,table,column)).Distinct().ToArray();
+        // 只给固定平台表配置传递存储模式，最终写入守卫比较锁内原值和合并值。
+        var platformTableConfig = model.Catalog.YzProjectId == "1608097412978577409"
+            && table.Source.Id == "6191080026669056" && table.Source.TableName == "config_table";
+        var columns = table.Columns.Where(column => SecurityValueNames.Contains(column.Source.ColumnName)
+            || platformTableConfig && column.Source.ColumnName == "is_rongyu")
+            .Concat(table.Pages.SelectMany(page => SafeGuardScopes(model, page).Select(scope => scope.Column)))
+            .Where(column => !NonRedundantCrossParentCompilation.IsSlot(model, table, column)).Distinct().ToArray();
         var values = string.Join("\n", columns.Select(column => $"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},"));
         return $$"""
     /// <summary>窄字段快照不包含密码；原值在合并请求和手写钩子前读取。</summary>

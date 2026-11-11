@@ -394,7 +394,7 @@
     },
     {
       "path": "Services/ConfigTableService.g.cs",
-      "sha256": "1383e60a087fb636d67c5a394a72e36229eca30eb06c5261099d85bb11a7159e"
+      "sha256": "f33303bfed8a506e522b65292bc33ec1a1c7633ea00fc6b082e6e34152fcadff"
     },
     {
       "path": "Services/SysAgentGrantService.g.cs",

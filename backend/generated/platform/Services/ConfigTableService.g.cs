@@ -523,6 +523,7 @@ public partial class ConfigTableService
         ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["yz_project_id"] = entity.YzProjectId,
+            ["is_rongyu"] = entity.IsRongyu,
             ["yz_admin_type_id"] = entity.YzAdminTypeId,
         }) : EmptyMutationScope;
     private static readonly IReadOnlyDictionary<string, object?> EmptyMutationScope = new System.Collections.ObjectModel.ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
