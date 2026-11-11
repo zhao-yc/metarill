@@ -1284,10 +1284,10 @@
 | V1066 | ✅ 当前六模型原 Web 覆盖与拒绝通过 | abbe89fb／公开 Full／原桌面／MySQL | 六次有效覆盖、六次末行拒绝、18 条实际数据与资源回收通过。 | [V1066 当前原 Web 六模型覆盖](testing/fixed-cross-overwrite-web-v827.md#v1066-当前候选六模型原-web-覆盖与拒绝)，2026-11-11 |
 | V1067 | ✅ 当前六模型原 Web 追加与拒绝通过 | abbe89fb／公开 Full／原桌面／MySQL | 六次追加、六次末行拒绝、24 条实际记录与资源回收通过。 | [V1067 当前原 Web 六模型追加](testing/fixed-cross-overwrite-web-v827.md#v1067-当前候选六模型原-web-追加与拒绝)，2026-11-11 |
 | V1068 | ✅ 当前原桌面文件库目录管理通过 | abbe89fb／普通编辑／独立 Full | 八次原操作，六成功、两拒绝。独立确认目录父子关系、软删除、会话注销和资源回收。 | [V1068 原 Web 文件库目录](original-file-management.md#v1068-当前候选原-web-文件库目录管理)，2026-11-11 |
-| V1072 | ✅ 原移动 Web 公开文件改名、移动与删除通过 | abbe89fb／独立 Full／MySQL 与 SeaweedFS | 原引用保留及删除拒绝，解绑后物理对象删除，对照 ZIP 与会话回收通过。 | [V1072 原移动 Web 文件管理](original-file-management.md#v1072-当前候选原移动-web-文件改名移动与删除)，2026-11-11 |
 | V1069 | ✅ 原桌面公开文件改名、移动与删除通过 | abbe89fb／独立 Full／MySQL 与 SeaweedFS | 原引用保留及删除拒绝，解绑后物理对象删除，对照 ZIP 与会话回收通过。 | [V1069 原 Web 文件管理](original-file-management.md#v1069-当前候选原-web-文件改名移动与删除)，2026-11-11 |
 | V1070 | ✅ 当前候选审计默认与宿主时区通过 | abbe89fb／独立 Full／MySQL 8.4.11 | 两种会话默认、两种 Linux 宿主、八次生成变更和回收通过。 | [V1070 审计默认值与宿主时区](temporal-schema-compatibility.md#v1070-当前候选审计默认值与两种-linux-宿主时区)，2026-11-11 |
 | V1071 | ✅ 当前 R0 导出实库批读通过 | abbe89fb／公开 Full／MySQL 8.4.11 | 501 叶键分三批，两份 506 行原 XLSX、跨请求改名和重名拒绝通过。 | [V1071 当前 R0 实库批读](testing/cross-table-excel-batch.md#v1071-当前公开-full-的-r0-实库批读与原导出)，2026-11-11 |
+| V1072 | ✅ 原移动 Web 公开文件改名、移动与删除通过 | abbe89fb／独立 Full／MySQL 与 SeaweedFS | 原引用保留及删除拒绝，解绑后物理对象删除，对照 ZIP 与会话回收通过。 | [V1072 原移动 Web 文件管理](original-file-management.md#v1072-当前候选原移动-web-文件改名移动与删除)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
