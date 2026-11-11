@@ -1295,6 +1295,7 @@
 | V1077 | ✅ Linux 第 28 批失败用例复验通过 | abbe89fb／固定 Linux 测试程序集 | 日志目录改为仓库私有目录后同一认证用例通过。保留原失败，独立容器和目录已核清。 | [V1077 Linux 日志目录复验](testing/current-linux-generation-batches-v945.md#v1077-linux-第-28-批日志目录复验)，2026-11-11 |
 | V1078 | ✅ 当前候选共库 MCP 权限通过 | abbe89fb／Server-200 MySQL | 50 个实际请求。普通读者及 Agent 读取他项目记录与不存在记录均得到相同空结果，撤权旧令牌失效，物理值和任务账本已核对。 | [V1078 当前共库 MCP](testing/current-platform-full-mcp-v937-v938.md#v1078-当前候选共库-mcp-项目隔离)，2026-11-11 |
 | V1079 | ✅ Linux 第 29 批两项失败复验通过 | abbe89fb／原 Linux 测试程序集 | 正式与开发宿主的数值 JSON 合同均通过。原失败保留，独占容器和目录已核清。 | [V1079 Linux 双模板复验](testing/current-linux-generation-batches-v945.md#v1079-linux-第-29-批双模板复验)，2026-11-11 |
+| V1080 | ✅ 当前发行候选严格 MySQL TLS 通过 | abbe89fb／双宿主／MySQL 8.4.11 | 三次证书拒绝保持空库，严格 TLS 显式安装 24／13／13 表，20 个原接口、两条业务及注销通过。 | [V1080 当前候选严格 MySQL TLS](testing/mysql-strict-tls-web-v565.md#v1080-当前发行候选严格-mysql-tls)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
