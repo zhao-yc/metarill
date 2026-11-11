@@ -1266,6 +1266,7 @@
 | V1047 | ✅ 当前候选公开 Full MCP 通过 | abbe89fb／公开 Full ZIP | 30 次真实请求，显式安装、设备 OAuth、只读 MCP、写入拒绝、零任务及精确回收通过。 | [V1046–V1047 当前候选 MCP](testing/current-platform-full-mcp-v937-v938.md#v1046v1047-当前候选-mcp-实库权限复验)，2026-11-11 |
 | V1048 | ✅ 当前完整管理包同包实库通过 | abbe89fb／公开 FullManagementApplication | 13表显式安装、三账号三授权隔离、真实 CLI 18 项／MCP、保留ID初始化和重启通过，专用资源核清。 | [V1048 当前完整管理包](testing/fixed-management-native-v840.md#v1048-当前发行源码完整管理包正式通过)，2026-11-11 |
 | V1050 | ✅ 当前在线助手双工程与原批次重启通过 | abbe89fb／原 HTTP／真实 CLI | 双绑定、首次各写 8 份、重启续跑各零写入、手写及仅后端范围保持，独占资源核清。 | [V1050 当前在线助手双工程](testing/fixed-device-runtime-v837.md#v1050-当前发行源码在线助手双工程与原批次重启通过)，2026-11-11 |
+| V1051 | ✅ 固定候选原浏览器批量恢复通过 | abbe89fb／原桌面 Web／真实 CLI | 三批六任务，刷新后查询原批次，新增同步 POST 为零，旧会话拒绝及独立回收通过。 | [V1051 当前原 Web 批量恢复](testing/fixed-device-browser-v838.md#v1051-当前发行源码原-web-批量同步与回执恢复通过)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
