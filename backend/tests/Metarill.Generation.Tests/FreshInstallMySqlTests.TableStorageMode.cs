@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Runtime.Persistence;
@@ -8,9 +9,48 @@ namespace Metarill.Generation.Tests;
 
 public sealed partial class FreshInstallMySqlTests
 {
+    /// <summary>当前 Web 工作区决定能力。未绑定项目的显示字段或请求内容不能声明 MySQL 能力。</summary>
+    private static async Task VerifyStorageModePolicyAsync(HttpClient client, MetadataCatalog platform)
+    {
+        const string route = "/api/admin/custom/config_table/storage_mode_policy";
+        var initial = (await FreshWebHttp.SendAsync(client, HttpMethod.Post, route, new { })).GetProperty("data");
+        Assert.Equal(platform.YzProjectId, initial.GetProperty("projectId").GetString());
+        Assert.True(initial.GetProperty("isV8").GetBoolean());
+        Assert.True(initial.GetProperty("supportsNonRedundant").GetBoolean());
+
+        const string projectRoute = "/api/admin/auto/yz_project/6186303424888832/add";
+        var registered = (await FreshWebHttp.SendAsync(client, HttpMethod.Post, projectRoute, new
+        {
+            name = "本轮未绑定项目",
+            shortName = "storagepolicy",
+            dbType = 2,
+            dbName = "metarill_unbound_fixture",
+            mysqlConnStr = "仅供显示",
+            contextRoot = "/api",
+            eclipseBaseName = "Example.StoragePolicy",
+            primaryColor = "#0ab3ad",
+            yzYzpVersionId = TemplateVersionCatalog.CurrentId
+        })).GetProperty("data").GetProperty("id").GetString()!;
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, route)
+        {
+            Content = JsonContent.Create(new { projectId = platform.YzProjectId, provider = "mysql" })
+        };
+        request.Headers.Add("sysParams", Uri.EscapeDataString(JsonSerializer.Serialize(new { yzProjectId = registered })));
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var envelope = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(200, envelope.GetProperty("code").GetInt32());
+        var policy = envelope.GetProperty("data");
+        Assert.Equal(registered, policy.GetProperty("projectId").GetString());
+        Assert.True(policy.GetProperty("isV8").GetBoolean());
+        Assert.False(policy.GetProperty("supportsNonRedundant").GetBoolean());
+    }
+
     /// <summary>用原表配置入口及独立实库读回证明默认值、合法首次选择和保存后冻结。</summary>
     private static async Task VerifyTableStorageModeAsync(HttpClient client, SqlRowStore store, MetadataCatalog platform)
     {
+        await VerifyStorageModePolicyAsync(client, platform);
         const string route = "/api/admin/auto/config_table/6191083005411328";
         const string invalidMode = "冗余模式仅支持 0 或 1";
         const string frozenMode = "配置表首次保存后不能修改冗余模式，请新建配置表";

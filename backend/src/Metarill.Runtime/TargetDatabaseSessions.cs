@@ -16,13 +16,29 @@ public sealed class TargetDatabaseSessions:IDisposable
         this.registry=registry;targets=projectDatabases??new Dictionary<string,DatabaseOptions>();
         Platform=new(platformOptions);Business=new(businessOptions);
     }
+    /// <summary>配置页只查看已绑定的提供程序，不启动业务连接，也不使用客户端提供的数据库类型。</summary>
+    public string? GetConfiguredProvider(string projectId)
+    {
+        if (projectId == registry.Platform.YzProjectId) return Platform.Provider.Name;
+        if (projectId == registry.Demo.YzProjectId) return Business.Provider.Name;
+        return FindAdditionalOptions(projectId)?.Provider;
+    }
+
     /// <summary>每项目固定一个已验证连接；未配置时明确失败，不能退回平台库。</summary>
     public DatabaseSession Resolve(string projectId)
     {
         if(projectId==registry.Platform.YzProjectId)return Platform;
         if(projectId==registry.Demo.YzProjectId)return Business;
-        if(!long.TryParse(projectId,out var id)||id<=0||!targets.TryGetValue(projectId,out var options))throw new InvalidOperationException("项目尚未配置 Metarill:ProjectDatabases 服务端数据库连接。");
+        var options = FindAdditionalOptions(projectId)
+            ?? throw new InvalidOperationException("项目尚未配置 Metarill:ProjectDatabases 服务端数据库连接。");
         return additional.GetOrAdd(projectId,_=>new DatabaseSession(options));
     }
+
+    private DatabaseOptions? FindAdditionalOptions(string projectId)
+    {
+        if (!long.TryParse(projectId, out var id) || id <= 0) return null;
+        return targets.GetValueOrDefault(projectId);
+    }
+
     public void Dispose(){Platform.Dispose();Business.Dispose();foreach(var session in additional.Values)session.Dispose();}
 }

@@ -14,6 +14,10 @@ public sealed class NonRedundantReadPlan
 /// <summary>在生成校验或宿主启动阶段编译，业务方法不判断数据库品牌。</summary>
 public static class NonRedundantReads
 {
+    /// <summary>声明可配置非冗余表的方言，具体字段和关系组合仍由生成编译校验。</summary>
+    public static bool SupportsProvider(string? provider) =>
+        string.Equals(provider, "mysql", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>输出与隐藏查询依赖分别声明；后者不会自动出现在返回记录中。</summary>
     public static NonRedundantReadPlan Compile(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(metadata,tableId,outputs,[],dependencies,deferCascadeNames);
     /// <summary>规则记录专用：物理根实体输出与逻辑筛选/派生值分开，仍使用同一固定SQL及范围。</summary>

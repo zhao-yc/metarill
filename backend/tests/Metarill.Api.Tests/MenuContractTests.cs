@@ -31,7 +31,7 @@ public sealed partial class ApiAcceptanceTests
         foreach(var root in response.GetProperty("menu").EnumerateArray())Verify(root);
         Assert.Equal(source.Count,seen.Count);
     }
-    /// <summary>原控件能读取真实能力而不是404，未实现的非冗余能力不能被标记为支持。</summary>
+    /// <summary>原控件按真实 MySQL 项目展示存储选项，匿名请求继续拒绝。</summary>
     [MySqlApiFact]
     public async Task Storage_mode_policy_is_authenticated_and_reports_current_capabilities()
     {
@@ -40,7 +40,7 @@ public sealed partial class ApiAcceptanceTests
         Assert.Equal(Project,policy.GetProperty("projectId").GetString());
         Assert.Equal("csharp",policy.GetProperty("backendTarget").GetString());
         Assert.True(policy.GetProperty("isV8").GetBoolean());
-        Assert.False(policy.GetProperty("supportsNonRedundant").GetBoolean());
+        Assert.True(policy.GetProperty("supportsNonRedundant").GetBoolean());
         using var anonymous=factory.CreateClient();
         Assert.Equal(500,(await Post(anonymous,"/admin/custom/config_table/storage_mode_policy",new{})).GetProperty("code").GetInt32());
     }
