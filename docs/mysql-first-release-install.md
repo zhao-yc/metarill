@@ -26,6 +26,19 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。最近通过双包复建与三种隔离安装的候选为 `e682cd12`。实际回执见 [V1125／V1126 排序候选](testing/storage-mode-linux-release-v1009-v1010.md#v1125-与-v1126-排序候选独立双包及三拓扑)。当前候选的安装文件、配置样例及数据库能力边界见 [V1143 当前双包分发核对](testing/current-release-distribution-v963.md#v1143-当前双包分发与数据库边界)。部署新提交时按 [首版清单](mysql-first-release-milestone.md) 核对该版本的验收状态。
 
+当前候选源码为 `e682cd12aca55c89f5f3b100e641dae2c84478b0`。以下文件可用同一份 `SHA256SUMS` 核对。
+
+| 角色 | Linux x64 文件 | SHA-256 |
+| --- | --- | --- |
+| 平台 | `platform-linux-x64-e682cd12.zip` | `d24d5b2942a979547ef131180938e923f4c1c332f0a144f6e43cd2843c72d9a7` |
+| 独立 Full | `full-linux-x64-e682cd12.zip` | `5fd0bae78271df773d53d160a922695f25cbffd61ffbc33175de390782769cb8` |
+
+复核两份现成 ZIP 时，在对应的源码检出运行下列命令，把路径改为同时包含两个 ZIP 和摘要文件的目录。输出中的两个 commit 均应与上方完整提交一致。
+
+```bash
+python scripts/build-release.py verify --output "<发行文件所在目录>"
+```
+
 ### 从固定提交构建发行包
 
 先检出[首版清单](mysql-first-release-milestone.md)中要构建的候选提交，再从该检出执行下列命令。构建需要 Git、Python 3.10 及以上，以及 `global.json` 指定的 .NET SDK。输出目录须是上级目录已存在的新目录。Windows 和 Linux 上的构建目标均为 Linux x64。

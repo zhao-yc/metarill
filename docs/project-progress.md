@@ -1349,7 +1349,7 @@
 | V1138 | ✅ 当前候选官方 CI 通过 | e682cd12／43073785233 | 15 个作业成功，14 份报告摘要核对。两端生成器各覆盖 3,157 个冻结用例。 | [V1138 当前候选 GitHub CI](testing/ci-current-contracts.md#v1138-当前候选-github-ci)，2026-11-12 |
 | V1139 | ✅ 逐次修复正式复验通过 | e682cd12／原共享 MySQL | 144 个正式、64 个预热、六个配对轮均未触线。保留 V1130 初测失败，独占资源已核零。 | [V1139 逐次修复正式复验](testing/current-mysql-performance-v1130.md#v1139-逐次修复同条件正式复验)，2026-11-12 |
 | V1140 | ✅ 当前双包 Web 发行构建通过 | e682cd12／平台与独立 Full | 管理端 156、Full 52 份产物完成构建、入口及前序实测产物对照。 | [V1140 当前双包 Web 构建](testing/current-release-distribution-v963.md#v1140-当前候选双包-web-发行构建)，2026-11-12 |
-| V1141 | 🟡 当前候选独立 Linux 已启动复验 | e682cd12／命令文件 | 固定原 3,157 项和 57 批，单参数限制离线复验通过，正式结果继续。 | [V1141 独立 Linux 命令文件复验](testing/current-linux-generation-batches-v945.md#v1141-当前候选独立-linux-命令文件复验)，2026-11-12 |
+| V1141 | 🟡 当前候选独立 Linux 已启动复验 | e682cd12／命令文件 | 固定原 3,157 项和 57 批，原进程继续。已独立复核第 13 批，54 项通过、3 项条件跳过、0 失败。 | [V1141 独立 Linux 命令文件复验](testing/current-linux-generation-batches-v945.md#v1141-当前候选独立-linux-命令文件复验)，2026-11-12 |
 | V1143 | ✅ 当前双包分发与数据库边界通过 | e682cd12／两份正式 ZIP | 每包 10 份许可或声明及 7 份原选择器文件，三个 Tiny Cloud 样例为空。五种后续库在三处配置共 15 项连接前拒绝。 | [V1143 当前双包分发核对](testing/current-release-distribution-v963.md#v1143-当前双包分发与数据库边界)，2026-11-12 |
 | V1144 | ✅ 当前平台分库 MCP 通过 | e682cd12 | 46 个真实请求，发布页隔离、撤权与三次物理读回通过。 | [V1144–V1146 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1144v1146-当前候选三拓扑-mcp-权限)，2026-11-12 |
 | V1145 | ✅ 当前独立 Full MCP 通过 | e682cd12 | 30 个真实请求，空库显式安装、OAuth 读权限与撤权通过。 | [V1144–V1146 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1144v1146-当前候选三拓扑-mcp-权限)，2026-11-12 |
@@ -1378,6 +1378,7 @@
 | V1169 | ✅ 当前候选独立 Full 对象恢复通过 | e682cd12／MySQL 与 SeaweedFS | 13 表、原键 466 字节、19 个原请求及权限、会话与精确回收通过。 | [V1169 独立 Full 对象恢复](testing/current-split-recovery-v927-v928.md#v1169-当前候选独立-full-对象恢复)，2026-11-12 |
 | V1170 | ✅ 当前完整管理包同包实库通过 | e682cd12／公开 FullManagementApplication | 13表显式安装、三账号三授权隔离、真实 CLI 18 项／MCP、保留ID初始化和重启通过，专用资源核清。 | [V1170 当前完整管理包](testing/fixed-management-native-v840.md#v1170-当前发行源码完整管理包正式通过)，2026-11-12 |
 | V1171 | ✅ 当前完整包原网页授权与撤权通过 | e682cd12／原桌面 Web／真实 OAuth | 登录回跳、授权与撤权各一次，旧访问与刷新失效，真实 CLI 18 项、MCP、同址重启及独立回收通过。 | [V1171 当前原网页授权与撤权](testing/fixed-management-oauth-web-v841.md#v1171-当前完整管理包原网页授权与撤权通过)，2026-11-12 |
+| V1172 | ✅ 当前候选交付文件复核通过 | e682cd12／Linux x64 双包 | 本地与同步盘双包的外层 SHA-256、提交及逐文件清单一致。公开安装手册补充两包摘要，README 与 Windows 回归状态按已核验证据同步。 | [安装及校验](mysql-first-release-install.md#发行目录)，2026-11-12 |
 
 ## 五、后续跨端兼容性验收
 
