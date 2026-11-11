@@ -1350,6 +1350,9 @@
 | V1140 | ✅ 当前双包 Web 发行构建通过 | e682cd12／平台与独立 Full | 管理端 156、Full 52 份产物完成构建、入口及前序实测产物对照。 | [V1140 当前双包 Web 构建](testing/current-release-distribution-v963.md#v1140-当前候选双包-web-发行构建)，2026-11-12 |
 | V1141 | 🟡 当前候选独立 Linux 已启动复验 | e682cd12／命令文件 | 固定原 3,157 项和 57 批，单参数限制离线复验通过，正式结果继续。 | [V1141 独立 Linux 命令文件复验](testing/current-linux-generation-batches-v945.md#v1141-当前候选独立-linux-命令文件复验)，2026-11-12 |
 | V1143 | ✅ 当前双包分发与数据库边界通过 | e682cd12／两份正式 ZIP | 每包 10 份许可或声明及 7 份原选择器文件，三个 Tiny Cloud 样例为空。五种后续库在三处配置共 15 项连接前拒绝。 | [V1143 当前双包分发核对](testing/current-release-distribution-v963.md#v1143-当前双包分发与数据库边界)，2026-11-12 |
+| V1144 | ✅ 当前平台分库 MCP 通过 | e682cd12 | 46 个真实请求，发布页隔离、撤权与三次物理读回通过。 | [V1144–V1146 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1144v1146-当前候选三拓扑-mcp-权限)，2026-11-12 |
+| V1145 | ✅ 当前独立 Full MCP 通过 | e682cd12 | 30 个真实请求，空库显式安装、OAuth 读权限与撤权通过。 | [V1144–V1146 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1144v1146-当前候选三拓扑-mcp-权限)，2026-11-12 |
+| V1146 | ✅ 当前平台共库 MCP 通过 | e682cd12 | 50 个真实请求，跨项目两处记录隐藏，备用库零表，资源核清。 | [V1144–V1146 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1144v1146-当前候选三拓扑-mcp-权限)，2026-11-12 |
 
 ## 五、后续跨端兼容性验收
 
