@@ -69,10 +69,29 @@ internal static class RelationCompilation
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
-            if (binding.Binding is not null && !string.IsNullOrWhiteSpace(Mapped("orderBy")))
+            var orderBy = Mapped("orderBy");
+            if (!string.IsNullOrWhiteSpace(orderBy) && (binding.Binding is not null ||
+                source.Source.ControlKind == "List" && NonRedundantReadCompilation.Physical(model, target, name)))
             {
-                try { var order = GenerationModel.ValidateOrderBy(Mapped("orderBy"), target.Columns).ToList(); if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false)); ordering = order; }
-                catch (InvalidOperationException) { binding = new(true, null, "固定归属候选排序不能安全编译。"); }
+                try
+                {
+                    // 只为物理标量候选编译原排序，派生或凭据列不能进入 FreeSql 的列表达式。
+                    var order = GenerationModel.ValidateOrderBy(orderBy, target.Columns).ToList();
+                    if (order.Any(item => item.Column.IsJsonArray ||
+                        item.Column.Source.ControlKind is "Title" or "Tab" ||
+                        ManagerCredentialCompilation.IsCredential(target, item.Column) ||
+                        !NonRedundantReadCompilation.Physical(model, target, item.Column)))
+                        throw new InvalidOperationException("候选排序只支持目标表的非凭据物理标量列。");
+
+                    // 原排序不含主键时补稳定次序，避免同值候选在两页之间换位。
+                    if (!order.Any(item => item.Column.IsId))
+                        order.Add((target.Columns.Single(column => column.IsId), false));
+                    ordering = order;
+                }
+                catch (InvalidOperationException) when (binding.Binding is not null)
+                {
+                    binding = new(true, null, "固定归属候选排序不能安全编译。");
+                }
             }
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions);
             if(DerivedRelationNamesCompilation.Declared(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);

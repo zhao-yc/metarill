@@ -836,7 +836,7 @@ public partial class ConfigPageService
     {
         ArgumentNullException.ThrowIfNull(request);
         var query = await OptionsScope6191175925956608_1671100304320462849Async(request.ParentId, targetParentId, actor, cancellationToken);
-        var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        var entities = await query.OrderByDescending(entity => entity.Id).Limit(5001).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count > 5000) throw new InvalidOperationException("\u5173\u8054\u5019\u9009\u8D85\u8FC7 5000 \u6761\uFF0C\u8BF7\u4F7F\u7528 findNameIdConfigTable1671100304320462849/page \u5206\u9875\u67E5\u8BE2\u3002");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }
@@ -851,7 +851,7 @@ public partial class ConfigPageService
             query = query.Where(entity => entity.Name != null && entity.Name.Contains(keyword));
         }
         var total = await query.CountAsync(cancellationToken);
-        var entities = await query.OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Page(request.PageNo, request.PageSize).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        var entities = await query.OrderByDescending(entity => entity.Id).Page(request.PageNo, request.PageSize).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         return new(entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray(), total, (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);
     }
     /// <summary>已选回读忽略当前关键词，但不得扩大项目、页面或控件范围。</summary>
@@ -860,7 +860,7 @@ public partial class ConfigPageService
         ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();
         var query = await OptionsScope6191175925956608_1671100304320462849Async(request.ParentId, request.TargetParentId, actor, cancellationToken);
         if (selected.Length == 0) return [];
-        var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderBy(entity => entity.Name).OrderBy(entity => entity.Id).Limit(200).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
+        var entities = await query.Where(entity => selected.Contains(entity.Id)).OrderByDescending(entity => entity.Id).Limit(200).ToListAsync(entity => new { entity.Id, Name = entity.Name }, cancellationToken);
         if (entities.Count != selected.Length) throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");
         return entities.Select(entity => new GeneratedOption(entity.Id, entity.Name, entity.Id, entity.Name)).ToArray();
     }

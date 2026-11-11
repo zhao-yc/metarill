@@ -61,7 +61,7 @@ internal static class NonRedundantReadCompilation
         {
             if(relation.Source.ControlKind is not("List" or "SelectPage"))continue;
             var pageField=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==relation.Source.Id);
-            if(relation.Source.ControlKind!="SelectPage"&&pageField?.Extra.TryGetValue("controlDetail",out var detail)==true&&!string.IsNullOrWhiteSpace(detail.ToString())&&HasEffectiveOverride(relation.Source.ControlDetail,detail.ToString())&&!ProvenConditionOverride(model,page,relation,detail.ToString()))throw new InvalidOperationException("非冗余页级关系控件覆盖尚需接线。");
+            if(relation.Source.ControlKind!="SelectPage"&&pageField?.Extra.TryGetValue("controlDetail",out var detail)==true&&!string.IsNullOrWhiteSpace(detail.ToString())&&HasEffectiveOverride(relation.Source.ControlDetail,detail.ToString())&&!ProvenOptionsOverride(model,page,relation,detail.ToString()))throw new InvalidOperationException("非冗余页级关系控件覆盖尚需接线。");
             var nameField="name";if(!string.IsNullOrWhiteSpace(relation.Source.ControlDetail)){using var document=JsonDocument.Parse(relation.Source.ControlDetail);if(document.RootElement.TryGetProperty("nameField",out var name))nameField=name.GetString()!;}
             if(nameField=="id"||!relation.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联目标缺少已接通的固定候选来源。");
@@ -108,16 +108,32 @@ internal static class NonRedundantReadCompilation
         }
         catch(Exception error)when(error is JsonException or ArgumentException){throw new InvalidOperationException("关系覆盖必须是有效无重复键的JSON对象。",error);}
     }
-    /// <summary>仅放开完整候选计划已接通的where覆盖；目标、名称及其它定义不变，自动显示读取仍沿原来源。</summary>
-    private static bool ProvenConditionOverride(GenerationModel model,PageModel page,ColumnModel source,string overlay)
+    /// <summary>只接受已编译的候选条件和排序覆盖；目标与显示名称仍沿字段定义。</summary>
+    private static bool ProvenOptionsOverride(GenerationModel model, PageModel page, ColumnModel source, string overlay)
     {
-        var original=JsonNode.Parse(string.IsNullOrWhiteSpace(source.Source.ControlDetail)?"{}":source.Source.ControlDetail) as JsonObject??throw new InvalidOperationException("关系定义必须是JSON对象。");
-        var changes=JsonNode.Parse(overlay) as JsonObject??throw new InvalidOperationException("页级关系定义必须是JSON对象。");var effective=original.DeepClone().AsObject();
-        foreach(var pair in changes)effective[pair.Key]=pair.Value?.DeepClone();
-        original.Remove("whereSql");effective.Remove("whereSql");
-        if(!JsonNode.DeepEquals(original,effective))return false;
-        var compiled=RelationCompilation.ForPage(model,page).SingleOrDefault(relation=>relation.SourceColumn.Source.Id==source.Source.Id);
-        return compiled?.Conditions is not null&&compiled.Target.Source.Id==ForeignValidationRenderer.Target(model,source)?.Source.Id;
+        var original = JsonNode.Parse(string.IsNullOrWhiteSpace(source.Source.ControlDetail) ? "{}" : source.Source.ControlDetail) as JsonObject
+            ?? throw new InvalidOperationException("关系定义必须是JSON对象。");
+        var changes = JsonNode.Parse(overlay) as JsonObject
+            ?? throw new InvalidOperationException("页级关系定义必须是JSON对象。");
+        var effective = original.DeepClone().AsObject();
+        foreach (var pair in changes)
+            effective[pair.Key] = pair.Value?.DeepClone();
+
+        var conditionsChanged = !JsonNode.DeepEquals(original["whereSql"], effective["whereSql"]);
+        var orderChanged = !JsonNode.DeepEquals(original["orderBy"], effective["orderBy"]);
+        original.Remove("whereSql");
+        effective.Remove("whereSql");
+        original.Remove("orderBy");
+        effective.Remove("orderBy");
+        if (!JsonNode.DeepEquals(original, effective))
+            return false;
+
+        var compiled = RelationCompilation.ForPage(model, page)
+            .SingleOrDefault(relation => relation.SourceColumn.Source.Id == source.Source.Id);
+        return compiled is not null &&
+            compiled.Target.Source.Id == ForeignValidationRenderer.Target(model, source)?.Source.Id &&
+            (!conditionsChanged || compiled.Conditions is not null) &&
+            (!orderChanged || compiled.OptionsOrder is not null);
     }
     /// <summary>没有页面的依赖表仍必须先验证物理结构；本入口不写任何生成文件。</summary>
     internal static void Validate(GenerationModel model,TableModel table)

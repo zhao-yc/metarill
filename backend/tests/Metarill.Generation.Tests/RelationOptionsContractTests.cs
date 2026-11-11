@@ -58,6 +58,41 @@ public sealed class RelationOptionsContractTests
         Assert.Throws<InvalidOperationException>(() => Compile(catalog));
     }
 
+    /// <summary>页面排序覆盖表级排序，三个实际候选入口使用同一顺序。</summary>
+    [Theory]
+    [InlineData(0, false, ".OrderByDescending(entity => entity.Id)")]
+    [InlineData(0, true, ".OrderByDescending(entity => entity.Alias).OrderBy(entity => entity.Id)")]
+    [InlineData(1, false, ".OrderByDescending(entity => entity.Id)")]
+    [InlineData(1, true, ".OrderByDescending(entity => entity.Alias).OrderBy(entity => entity.Id)")]
+    public void Ordinary_list_preserves_configured_option_order(int storageMode, bool pageOverride, string expectedOrder)
+    {
+        var catalog = Catalog();
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = storageMode;
+        var column = catalog.ConfigColumns.Single(column => column.Id == "25");
+        column.ControlDetail = """{"tableId":"3","whereSql":"parent_id=@parentId","nameField":"name","orderBy":"id desc"}""";
+        if (pageOverride)
+            catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["controlDetail"] =
+                JsonSerializer.SerializeToElement("""{"orderBy":"alias desc"}""");
+
+        var service = Compile(catalog);
+        Assert.Contains($"query{expectedOrder}.Limit(5001)", service);
+        Assert.Contains($"query{expectedOrder}.Page(request.PageNo", service);
+        Assert.Contains($"selected.Contains(entity.Id)){expectedOrder}.Limit(200)", service);
+    }
+
+    /// <summary>配置只可引用目标表中实际存在的列，不能在生成候选 SQL 时解释任意表达式。</summary>
+    [Theory]
+    [InlineData("RAND()")]
+    [InlineData("missing_column desc")]
+    public void Ordinary_list_rejects_unsupported_option_order(string orderBy)
+    {
+        var catalog = Catalog();
+        catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["controlDetail"] =
+            JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new { orderBy }));
+
+        Assert.Throws<InvalidOperationException>(() => Compile(catalog));
+    }
+
     /// <summary>从真实元数据模型编译源页关系，不通过测试替身拼接范围。</summary>
     private static string Compile(MetadataCatalog catalog)
     {

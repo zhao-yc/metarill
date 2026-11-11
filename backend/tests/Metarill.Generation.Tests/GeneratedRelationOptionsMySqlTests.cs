@@ -41,7 +41,7 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
         // 第二来源页使用本表记录作父级，目标仍使用独立父表，不能把两个长 ID 混为一个。
         catalog.ConfigColumns.Add(new() { Id = "28", ConfigTableId = "2", ColumnName = "source_owner_id", LogicalType = "int64", LinkConfigTableId = "2" });
         catalog.ConfigPages.Add(new() { Id = "202", ConfigTableId = "2", WhereSql = "yz_project_id=@current_yz_project_id AND source_owner_id=@parentId" });
-        catalog.ConfigPageColumns.AddRange([new() { Id = "20201", ConfigPageId = "202", ConfigColumnId = "22" }, new() { Id = "20202", ConfigPageId = "202", ConfigColumnId = "25" }]);
+        catalog.ConfigPageColumns.AddRange([new() { Id = "20201", ConfigPageId = "202", ConfigColumnId = "22" }, new() { Id = "20202", ConfigPageId = "202", ConfigColumnId = "25", Extra = new() { ["controlDetail"] = JsonSerializer.SerializeToElement("""{"orderBy":"id desc"}""") } }]);
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-relation-mysql"); var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         WebApplication? app = null; var cleanup = false;
         try
@@ -104,7 +104,19 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
             }
             var otherParent = Data(await Post(client, endpoint, new { parentId = (Parent + 1).ToString() })).EnumerateArray().ToArray(); Assert.Equal((First + 6002).ToString(), Id(Assert.Single(otherParent)));
             var independent = endpoint.Replace("/201/", "/202/", StringComparison.Ordinal); var sourceParent = (First + 8000).ToString();
-            Assert.Equal(5014, long.Parse(Data(await Post(client, independent + "/page", new { parentId = sourceParent, targetParentId = Parent.ToString() })).GetProperty("total").ToString()));
+            // 原页级排序必须先于分页执行，已选回读沿用相同次序和真实父范围。
+            var ordered = Data(await Post(client, independent + "/page", new
+            {
+                parentId = sourceParent, targetParentId = Parent.ToString(), pageSize = 2
+            }));
+            var highest = (First + 5013).ToString();
+            Assert.Equal(5014, long.Parse(ordered.GetProperty("total").ToString()));
+            Assert.Equal(new[] { highest, (First + 5012).ToString() }, ordered.GetProperty("records").EnumerateArray().Select(Id));
+            var orderedSelected = Data(await Post(client, independent + "/selected", new
+            {
+                parentId = sourceParent, targetParentId = Parent.ToString(), selectedIds = new[] { selectedId, highest }
+            }));
+            Assert.Equal(new[] { highest, selectedId }, orderedSelected.EnumerateArray().Select(Id));
             Assert.Equal(selectedId, Id(Assert.Single(Data(await Post(client, independent + "/selected", new { parentId = sourceParent, targetParentId = Parent.ToString(), selectedIds = new[] { selectedId } })).EnumerateArray())));
             // 原数组及只读 id 也必须分别验证来源父和目标父，不能借 formParameters 选择目标。
             var legacyIndependent = independent.Replace("findNameId" + Pascal(prefix + "_target"), "findNameIdTarget", StringComparison.Ordinal);
@@ -179,8 +191,14 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
         {
             if (app is not null) { await app.StopAsync(); await app.DisposeAsync(); }
             // 宿主释放可能已释放注入的 session；清理使用同一经过核实的独立测试配置新会话。
-            if (cleanup) using (var cleanupSession = new DatabaseSession(options))
-                foreach (var table in catalog.ConfigTables) await Execute(cleanupSession, "DROP TABLE IF EXISTS " + cleanupSession.Provider.QuoteIdentifier(table.TableName));
+            if (cleanup)
+            {
+                using (var cleanupSession = new DatabaseSession(options))
+                    foreach (var table in catalog.ConfigTables)
+                        await Execute(cleanupSession, "DROP TABLE IF EXISTS " + cleanupSession.Provider.QuoteIdentifier(table.TableName));
+                using var readback = new DatabaseSession(options);
+                Assert.Empty((await new SchemaService(readback).InspectAsync(catalog)).Tables);
+            }
             await TestDirectoryCleanup.DeleteAsync(directory, boundary);
         }
     }
