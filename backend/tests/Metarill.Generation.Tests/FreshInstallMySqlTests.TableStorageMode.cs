@@ -9,9 +9,24 @@ namespace Metarill.Generation.Tests;
 
 public sealed partial class FreshInstallMySqlTests
 {
-    /// <summary>当前 Web 工作区决定能力。未绑定项目的显示字段或请求内容不能声明 MySQL 能力。</summary>
-    private static async Task VerifyStorageModePolicyAsync(HttpClient client, MetadataCatalog platform)
+    /// <summary>工作区只决定配置能力，平台导航继续跟随真实后台。</summary>
+    private static async Task VerifyStorageModePolicyAsync(HttpClient client, MetadataCatalog platform, string businessProjectId)
     {
+        async Task<JsonElement> ReadMenuAsync(string? workspace)
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Get, "/api/admin/sys/yz_manager/getMenu");
+            if (workspace is not null)
+                message.Headers.Add("sysParams", Uri.EscapeDataString(JsonSerializer.Serialize(new { yzProjectId = workspace })));
+            using var reply = await client.SendAsync(message);
+            reply.EnsureSuccessStatusCode();
+            var data = await reply.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(200, data.GetProperty("code").GetInt32());
+            return data.GetProperty("menu");
+        }
+
+        var principalMenu = await ReadMenuAsync(null);
+        Assert.Contains(principalMenu.EnumerateArray(), menu => menu.GetProperty("text").GetString() == "开发");
+        Assert.True(JsonElement.DeepEquals(principalMenu, await ReadMenuAsync(businessProjectId)));
         const string route = "/api/admin/custom/config_table/storage_mode_policy";
         var initial = (await FreshWebHttp.SendAsync(client, HttpMethod.Post, route, new { })).GetProperty("data");
         Assert.Equal(platform.YzProjectId, initial.GetProperty("projectId").GetString());
@@ -31,6 +46,7 @@ public sealed partial class FreshInstallMySqlTests
             primaryColor = "#0ab3ad",
             yzYzpVersionId = TemplateVersionCatalog.CurrentId
         })).GetProperty("data").GetProperty("id").GetString()!;
+        Assert.True(JsonElement.DeepEquals(principalMenu, await ReadMenuAsync(registered)));
 
         using var request = new HttpRequestMessage(HttpMethod.Post, route)
         {
@@ -48,9 +64,9 @@ public sealed partial class FreshInstallMySqlTests
     }
 
     /// <summary>用原表配置入口及独立实库读回证明默认值、合法首次选择和保存后冻结。</summary>
-    private static async Task VerifyTableStorageModeAsync(HttpClient client, SqlRowStore store, MetadataCatalog platform)
+    private static async Task VerifyTableStorageModeAsync(HttpClient client, SqlRowStore store, MetadataCatalog platform, string businessProjectId)
     {
-        await VerifyStorageModePolicyAsync(client, platform);
+        await VerifyStorageModePolicyAsync(client, platform, businessProjectId);
         const string route = "/api/admin/auto/config_table/6191083005411328";
         const string invalidMode = "冗余模式仅支持 0 或 1";
         const string frozenMode = "配置表首次保存后不能修改冗余模式，请新建配置表";

@@ -33,7 +33,7 @@ public sealed class IdentityController(AuthenticationService authentication,Http
     [HttpPost("exit_login")]public async Task<R<object>> Logout(CancellationToken cancellationToken){await authentication.LogoutAsync(authorization.RequireIdentity().SessionId,cancellationToken);return R<object>.Success();}
     [HttpGet("getMenu")]public async Task<object> GetMenu(CancellationToken cancellationToken)
     {
-        var actor=authorization.RequireActor();return new{code=200,menu=await menus.NavigationAsync(actor.ProjectId,cancellationToken),permissions=Permissions()};
+        return new { code = 200, menu = await menus.NavigationAsync(cancellationToken), permissions = Permissions() };
     }
     [HttpGet("getCurrentPermissions")]public R<object> CurrentPermissions()=>R<object>.Success(Permissions());
     private object Permissions()

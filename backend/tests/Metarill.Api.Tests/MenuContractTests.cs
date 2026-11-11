@@ -7,7 +7,7 @@ namespace Metarill.Api.Tests;
 
 public sealed partial class ApiAcceptanceTests
 {
-    /// <summary>以保留的菜单组件和刷新桥实际读取字段验证HTTP契约，防止接口成功但导航呈现空白。</summary>
+    /// <summary>平台管理员在业务工作区仍读取认证后台的导航，并提供原菜单组件所需字段。</summary>
     [MySqlApiFact]
     public async Task Menu_wire_contract_supplies_visible_labels_and_refresh_context()
     {
@@ -15,7 +15,10 @@ public sealed partial class ApiAcceptanceTests
         var registry=factory.Services.GetRequiredService<MetadataRegistry>();
         var response=await Body(await client.GetAsync("/api/admin/sys/yz_manager/getMenu"));
         Assert.Equal(200,response.GetProperty("code").GetInt32());
-        var source=registry.Demo.ConfigMenus.ToDictionary(menu=>menu.Id);
+        var adminTypeId = registry.Platform.YzAdminTypes.Single().Id;
+        var source = registry.Platform.ConfigMenus
+            .Where(menu => menu.YzAdminTypeId == adminTypeId && menu.IsHidden != 1)
+            .ToDictionary(menu => menu.Id);
         var seen=new HashSet<string>();
         void Verify(JsonElement node)
         {
@@ -24,7 +27,7 @@ public sealed partial class ApiAcceptanceTests
             Assert.False(string.IsNullOrWhiteSpace(node.GetProperty("text").GetString()));
             Assert.Equal(expected.Name,node.GetProperty("text").GetString());
             Assert.Equal(expected.IconName,node.GetProperty("icon").GetString());
-            Assert.Equal(Project,node.GetProperty("projectId").GetString());
+            Assert.Equal(registry.Platform.YzProjectId, node.GetProperty("projectId").GetString());
             Assert.Equal(expected.YzAdminTypeId,node.GetProperty("adminTypeId").GetString());
             foreach(var child in node.GetProperty("children").EnumerateArray())Verify(child);
         }

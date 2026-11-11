@@ -75,12 +75,16 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
         }
         finally{gate.Release();}
     }
-    /// <summary>提供旧菜单组件实际读取的展示字段及刷新上下文，导航可见性仍独立于页面操作授权。</summary>
-    public async Task<object[]> NavigationAsync(string projectId,CancellationToken cancellationToken=default)
+    /// <summary>原导航按登录账号所属后台读取，切换开发工作区只改变配置请求的数据范围。</summary>
+    public async Task<object[]> NavigationAsync(CancellationToken cancellationToken = default)
     {
-        var actor=authorization.RequireActor();var catalog=await metadata.LoadProjectAsync(projectId,cancellationToken);Validate(catalog);
-        var menus=catalog.ConfigMenus.Where(m=>m.IsHidden!=1).ToArray();
-        object[] Build(string? parent)=>menus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).ThenBy(m=>m.Id,StringComparer.Ordinal).Where(m=>actor.IsAdministrator||m.Kind=="DIRECTORY"||authorization.RequireIdentity().MenuIds.Contains(m.Id)).Select(m=>(object)new
+        var identity = authorization.RequireIdentity();
+        var catalog = await metadata.LoadProjectAsync(identity.PrincipalProjectId, cancellationToken);
+        Validate(catalog);
+        var menus = catalog.ConfigMenus
+            .Where(menu => menu.YzAdminTypeId == identity.PrincipalAdminTypeId && menu.IsHidden != 1)
+            .ToArray();
+        object[] Build(string? parent)=>menus.Where(m=>string.IsNullOrEmpty(m.ParentMenuId)?parent is null:m.ParentMenuId==parent).OrderBy(m=>m.SortNo).ThenBy(m=>m.Id,StringComparer.Ordinal).Where(m=>identity.Actor.IsAdministrator||m.Kind=="DIRECTORY"||identity.MenuIds.Contains(m.Id)).Select(m=>(object)new
         {id=m.Id,menu_id=m.Id,m.Name,text=m.Name,icon=m.IconName,projectId=m.YzProjectId,adminTypeId=m.YzAdminTypeId,nodeType=m.Kind,isShowCount=m.IsShowCount,target=Target(catalog,m),children=Build(m.Id)}).ToArray();
         return Build(null);
     }

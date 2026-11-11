@@ -236,7 +236,7 @@ public sealed partial class FreshInstallMySqlTests(ITestOutputHelper output)
                     await VerifyAdminInitializationAsync(restarted.Client, seedStore, businessStore, demo.YzProjectId, demo.YzAdminTypes.Single().Id, catalog.YzAdminTypes.Single().Id, sameDatabase, splitHost?.Client.BaseAddress);
                     await VerifyPublishedBusinessPermissionsAsync(restarted.Client.BaseAddress!, seedStore, businessStore, catalog.YzProjectId, demo.YzProjectId);
                 }
-                await VerifyTableStorageModeAsync(restarted.Client, seedStore, catalog);
+                await VerifyTableStorageModeAsync(restarted.Client, seedStore, catalog, demo.YzProjectId);
             }
             if (native is not null)
             {
