@@ -61,6 +61,8 @@ V616 以同一候选补齐原客户复制，8,624 次请求、六轮整场景达
 
 ### 当前性能签收范围
 
+当前候选 `310a0ab3` 已完成Excel 导出 2,592 个正式请求，未达到稳定退化条件。累计实测八类、37,356 个正式请求和 60 个配对轮次。[V1014 Excel 导出阶段](testing/current-release-child-performance-v957-v958.md#v1014-当前候选-excel-导出阶段)。
+
 当前候选 `310a0ab3` 已完成受保护附件下载 4,800 个正式请求，未达到稳定退化条件。累计实测七类、34,764 个正式请求和 54 个配对轮次。[V1014 受保护附件下载阶段](testing/current-release-child-performance-v957-v958.md#v1014-当前候选受保护附件下载阶段)。
 
 当前候选 `310a0ab3` 已完成父级 Excel 导入 864 个正式请求，未达到稳定退化条件。累计实测六类、29,964 个正式请求和 48 个配对轮次。[V1014 父级 Excel 导入阶段](testing/current-release-child-performance-v957-v958.md#v1014-当前候选父级-excel-导入阶段)。
