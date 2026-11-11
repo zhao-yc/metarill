@@ -26,7 +26,7 @@ public sealed class ManagementNativeFactAttribute:FactAttribute
 public sealed class ManagementNativeMySqlTests
 {
     private const string ManagerPage="6031906822946816",RolePage="1692532858529329154",AdminPage="1696799309006348290",Workbench="/api/admin/sys/yzp_permission";
-    /// <summary>原空库/正式Web/管理CRUD/OAuth/CLI/MCP/工作台/保留ID初始化在同一个固定完整包中完成。</summary>
+    /// <summary>同一固定完整包覆盖正式身份、CLI 跨重启、MCP、工作台和保留 ID 初始化。</summary>
     [ManagementNativeFact]
     public async Task Fixed_public_management_package_uses_real_identity_database_cli_mcp_and_initialization()
     {
@@ -76,7 +76,75 @@ public sealed class ManagementNativeMySqlTests
                 await Send(host.Client,HttpMethod.Post,"/api/admin/sys/agent/approve",new{userCode,approve=false});Assert.Equal("denied",SqlRowStore.Text(Assert.Single(await store.ReadAsync("sys_agent_grant",selection)),"status"));
             }
             // 独立应用审批沿原后台super规则；普通Web／MCP身份继续独立验证，不能放宽产品审批门槛。
-            stage="同包真实OAuth和CLI";var node=NonRedundantApplicationFixture.Start("node",root);foreach(var arg in new[]{Path.Combine(root,"backend/tests/Metarill.Generation.Tests/StandaloneAgentCliLiveProbe.mjs"),new Uri(host.Client.BaseAddress!,"/api").ToString(),ManagementNativePreparation.Catalog(root).ConfigPages.Single().Id,physical.YzProjectId,root,evidence})node.ArgumentList.Add(arg);node.Environment["METARILL_AGENT_WEB_TOKEN"]=rootToken;var cli=await Run(node,"real-cli",rootToken);using(var cliProof=JsonDocument.Parse(cli))foreach(var flag in new[]{"deviceDenied","deviceApproved","realCli","strictCatalog","preview","create","detail","explicitNull","stringId","task","duplicateUuid","delete","revoke","refreshReplay"})Assert.True(cliProof.RootElement.GetProperty(flag).GetBoolean());
+            stage = "重启前真实 OAuth 和 CLI 写入";
+            var agentAddress = host.Client.BaseAddress!;
+            var catalog = ManagementNativePreparation.Catalog(root);
+            var node = NonRedundantApplicationFixture.Start("node", root);
+            foreach (var argument in new[] { Path.Combine(root, "backend/tests/Metarill.Generation.Tests/StandaloneAgentCliLiveProbe.mjs"),
+                new Uri(agentAddress, "/api").ToString(), catalog.ConfigPages.Single().Id, physical.YzProjectId, root, evidence })
+                node.ArgumentList.Add(argument);
+            node.Environment["METARILL_AGENT_WEB_TOKEN"] = rootToken;
+            node.Environment["METARILL_AGENT_RESTART_CHECK"] = "1";
+            var cliRun = Run(node, "real-cli", rootToken);
+            try
+            {
+                var checkpoint = await ReadAgentRestartCheckpointAsync(evidence, cliRun);
+                var requestId = checkpoint.GetProperty("requestId").GetString()!;
+                var recordId = checkpoint.GetProperty("recordId").GetString()!;
+                var grantKey = Row("id", long.Parse(checkpoint.GetProperty("grantId").GetString()!, CultureInfo.InvariantCulture));
+                var taskKey = Row("request_id", requestId);
+                var table = catalog.ConfigTables.Single().TableName;
+                var grantBefore = Assert.Single(await store.ReadAsync("sys_agent_grant", grantKey));
+                var taskBefore = Assert.Single(await store.ReadAsync("sys_agent_task", taskKey));
+                var recordBefore = Assert.Single(await store.ReadAsync(table, Row("id", long.Parse(recordId, CultureInfo.InvariantCulture))));
+                Assert.Equal("approved", SqlRowStore.Text(grantBefore, "status"));
+                Assert.Equal(SqlRowStore.Text(await Account(owner), "id"), SqlRowStore.Text(grantBefore, "account_id"));
+                Assert.Equal(SqlRowStore.Text(grantBefore, "account_id"), SqlRowStore.Text(taskBefore, "account_id"));
+                Assert.Equal(physical.YzProjectId, SqlRowStore.Text(taskBefore, "project_id"));
+                Assert.Equal("applied", SqlRowStore.Text(taskBefore, "outcome"));
+                Assert.Equal(recordId, SqlRowStore.Text(taskBefore, "result_id"));
+
+                // 停止原进程后复用地址，让 CLI 沿用此前真实登录的配置。
+                stage = "同址重启后读取任务、刷新及去重";
+                await host.DisposeAsync();
+                host = null;
+                host = await FreshHost.StartAsync(Info(), "/health", agentAddress);
+                Assert.Equal(agentAddress, host.Client.BaseAddress);
+                host.Client.DefaultRequestHeaders.Add("loginStateId", rootToken);
+                var resume = Path.Combine(evidence, "agent-restart-resume");
+                await File.WriteAllTextAsync(resume + ".tmp", requestId);
+                File.Move(resume + ".tmp", resume);
+                using var cliProof = JsonDocument.Parse(await cliRun);
+                foreach (var flag in new[] { "deviceDenied", "deviceApproved", "realCli", "strictCatalog", "preview", "create", "detail",
+                    "explicitNull", "stringId", "task", "duplicateUuid", "delete", "revoke", "refreshReplay", "priorAccessAfterRestart",
+                    "taskAfterRestart", "refreshAfterRestart", "priorAccessRejectedAfterRefresh" })
+                    Assert.True(cliProof.RootElement.GetProperty(flag).GetBoolean(), flag);
+
+                // 用独立实库读回核对原任务和唯一业务行，避免仅凭重复请求的状态码判定。
+                var taskAfter = Assert.Single(await store.ReadAsync("sys_agent_task", taskKey));
+                Assert.Equal(Fingerprint(taskBefore), Fingerprint(taskAfter));
+                var recordAfter = Assert.Single(await store.ReadIncludingDeletedAsync(table, Row("name", SqlRowStore.Text(recordBefore, "name"))));
+                Assert.Equal(recordId, SqlRowStore.Text(recordAfter, "id"));
+                Assert.NotNull(recordAfter["delete_no"]);
+                var grantAfter = Assert.Single(await store.ReadAsync("sys_agent_grant", grantKey));
+                Assert.Equal("revoked", SqlRowStore.Text(grantAfter, "status"));
+                Assert.Null(grantAfter["refresh_hash"]);
+                Assert.Equal(grantBefore["refresh_expires_at"], grantAfter["refresh_expires_at"]);
+                var sessions = await store.ReadIncludingDeletedAsync("sys_session", Row("grant_id", SqlRowStore.Id(grantBefore)));
+                Assert.Single(sessions, session => SqlRowStore.Text(session, "kind") == "agent_refresh_used");
+                Assert.DoesNotContain(sessions, session => SqlRowStore.Text(session, "kind") == "agent" && session["delete_no"] is null);
+                await File.WriteAllTextAsync(Path.Combine(evidence, "agent-restart-proof.json"), JsonSerializer.Serialize(new
+                {
+                    sameAddress = true, originalProcessExited = true, taskUnchanged = true, uniqueBusinessRow = true,
+                    cleanupDeleteVerified = true, refreshDeadlineUnchanged = true, grantRevoked = true, activeAgentSessions = 0
+                }));
+            }
+            finally
+            {
+                // 即使宿主重启失败，也等待探针退出并清理私有凭据后才允许回收测试库。
+                if (!cliRun.IsCompleted)
+                    try { await cliRun; } catch (Exception) { /* 保留当前阶段的首个失败。 */ }
+            }
             stage="普通编辑者管理CRUD及跨后台回滚";var superRole=Id(await Send(ordinary,HttpMethod.Post,Route("yz_role",RolePage)+"/add",new{name="management-assigned-super",isSuper=1,sortNo=11,yzAdminTypeId=ManagementNativePreparation.Admin}));var child=Id(await Send(ordinary,HttpMethod.Post,Route("yz_manager",ManagerPage)+"/add",new{name="management-child",realName="原表单创建",password,isDisabled=1,yzAdminTypeId=ManagementNativePreparation.Admin,yzRoleIds=new[]{roleId}}));var before=Fingerprint(await Account("management-child"));
             var foreignRole=SqlRowStore.Text(Assert.Single(await store.ReadAsync("yz_role",Row("yz_admin_type_id",long.Parse(ManagementNativePreparation.ForeignAdmin,CultureInfo.InvariantCulture)))),"id");await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,Route("yz_manager",ManagerPage)+"/update",new{id=child,realName="失败不得保存",yzRoleIds=new[]{foreignRole}},HttpStatusCode.BadRequest);Assert.Equal(before,Fingerprint(await Account("management-child")));
             await Send(ordinary,HttpMethod.Post,Route("yz_manager",ManagerPage)+"/update",new{id=child,yzRoleIds=new[]{superRole}});using(var childClient=new HttpClient{BaseAddress=host.Client.BaseAddress}){await FreshWebHttp.LoginAsync(childClient,"management-child",password,form:true);Assert.True((await Send(childClient,HttpMethod.Get,"/api/admin/sys/yz_manager/getCurrentPermissions")).GetProperty("data").GetProperty("isSuper").GetBoolean());}
@@ -104,7 +172,26 @@ public sealed class ManagementNativeMySqlTests
         async Task<string> Run(ProcessStartInfo info,string name,params string[] additionalSecrets)=>await OwnedProcess(info,name,evidence,new[]{password,newPassword,options.ConnectionString,databasePassword}.Concat(additionalSecrets).ToArray());
         async Task<Dictionary<string,object?>> Account(string name)=>Assert.Single(await store.ReadAsync("yz_manager",Row("name",name)));
     }
-    /// <summary>只访问原HTTP/R协议，拒绝把未知失败正文拼进断言。</summary>
+    /// <summary>等待已提交写入的 CLI 检查点，探针提前退出时保留真实失败。</summary>
+    private static async Task<JsonElement> ReadAgentRestartCheckpointAsync(string evidence, Task<string> cli)
+    {
+        var path = Path.Combine(evidence, "agent-restart-ready.json");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
+        while (!File.Exists(path) && !cli.IsCompleted)
+            await Task.Delay(100, timeout.Token);
+        if (cli.IsCompleted)
+        {
+            await cli;
+            throw new InvalidOperationException("CLI 未等待正式宿主重启。");
+        }
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path, timeout.Token));
+        var checkpoint = document.RootElement;
+        AgentTaskStore.ValidateRequestId(checkpoint.GetProperty("requestId").GetString()!);
+        Assert.True(long.TryParse(checkpoint.GetProperty("recordId").GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var recordId) && recordId > 0);
+        Assert.True(long.TryParse(checkpoint.GetProperty("grantId").GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var grantId) && grantId > 0);
+        return checkpoint.Clone();
+    }
+
     /// <summary>使用真实设备令牌和普通 Web 会话验证归属。拒绝操作后独立读回授权及活动会话。</summary>
     private static async Task VerifyGrantIsolationAsync(HttpClient owner, HttpClient otherOwner, HttpClient ordinary,
         SqlRowStore store, string projectId, string ownerId, string otherOwnerId, string evidence)

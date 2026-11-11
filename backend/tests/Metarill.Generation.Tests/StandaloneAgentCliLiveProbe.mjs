@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -16,6 +16,56 @@ const cli=path.resolve(repository,'tools/metarill-agent-cli/bin/metarill-agent.m
 const env={...process.env,METARILL_AGENT_CONFIG:path.join(directory,'config.json')};
 const web={loginStateId:webToken,sysParams:encodeURIComponent(JSON.stringify({yzProjectId:projectId}))};
 let loginProcess;
+const restartCheck = process.env.METARILL_AGENT_RESTART_CHECK === '1';
+const readConfig = async () => JSON.parse(await readFile(env.METARILL_AGENT_CONFIG, 'utf8'));
+const agentIdentity = accessToken => request('/admin/sys/agent/me', undefined, { Authorization: 'Bearer ' + accessToken });
+
+// 只在正式管理包夹具中等待外层更换真实宿主，检查点不包含任何凭据。
+async function verifyRestart(requestId, recordId, detailCapability, createCapability) {
+ const { credentials: before } = (await readConfig()).profiles.acceptance;
+ const { data: identity } = await agentIdentity(before.accessToken);
+ if (identity.projectId !== projectId || !/^\d+$/.test(identity.grantId)) throw new Error('重启前 Agent 身份不符。');
+ const checkpoint = path.join(evidenceRoot, 'agent-restart-ready.json');
+ await writeFile(checkpoint + '.tmp', JSON.stringify({ requestId, recordId, grantId: identity.grantId }), { flag: 'wx' });
+ await rename(checkpoint + '.tmp', checkpoint);
+ const resume = path.join(evidenceRoot, 'agent-restart-resume');
+ const deadline = Date.now() + 60_000;
+ while (true) {
+  try {
+   if (await readFile(resume, 'utf8') !== requestId) throw new Error('宿主重启回执不属于当前任务。');
+   break;
+  } catch (error) {
+   if (error.code !== 'ENOENT') throw error;
+   if (Date.now() >= deadline) throw new Error('未收到本轮正式宿主重启回执。');
+   await new Promise(resolve => setTimeout(resolve, 100));
+  }
+ }
+
+ const checkIdentity = async accessToken => {
+  const { data } = await agentIdentity(accessToken);
+  for (const key of ['grantId', 'accountId', 'projectId'])
+   if (data[key] !== identity[key]) throw new Error('重启后 Agent 授权归属改变。');
+ };
+ await checkIdentity(before.accessToken);
+ const task = await call(['tasks', 'show', requestId, '--profile', 'acceptance']);
+ const detail = await call(['call', detailCapability, '--profile', 'acceptance', '--id', recordId]);
+ const saved = await readConfig();
+ const cached = saved.profiles.acceptance.credentials;
+ if (task.outcome !== 'applied' || task.resultId !== recordId || detail.data.id !== recordId ||
+     cached.accessToken !== before.accessToken || cached.refreshToken !== before.refreshToken)
+  throw new Error('重启后原 CLI 配置未能直接读取已提交任务和业务记录。');
+
+ // 仅修改本轮私有 CLI 缓存的到期时间，让真实刷新请求触发轮转。
+ cached.expiresAt = Date.now() - 1000;
+ await writeFile(env.METARILL_AGENT_CONFIG, JSON.stringify(saved));
+ const catalog = await call(['capabilities', 'list', '--profile', 'acceptance']);
+ const { credentials: rotated } = (await readConfig()).profiles.acceptance;
+ if (!catalog.capabilities.some(item => item.id === createCapability) ||
+     rotated.accessToken === before.accessToken || rotated.refreshToken === before.refreshToken)
+  throw new Error('重启后 Agent 凭据未正常轮转。');
+ await request('/admin/sys/agent/me', undefined, { Authorization: 'Bearer ' + before.accessToken }, 401);
+ await checkIdentity(rotated.accessToken);
+}
 
 // 业务状态与正文独立校验，错误不输出HTTP响应、连接或凭据。
 async function request(route,body,headers={},expected=200,form=false){
@@ -65,6 +115,7 @@ try{
  const id=added.data.id;if(typeof id!=='string'||!/^\d+$/.test(id))throw new Error('业务ID必须保持字符串。');
  const read=await call(['call',detail.id,'--profile','acceptance','--id',id]);if(read.data.id!==id||read.data.notes!==null)throw new Error('真实读取或显式null合同不符。');
  const task=await call(['tasks','show',requestId,'--profile','acceptance']);if(task.outcome!=='applied'||task.resultId!==id)throw new Error('任务与业务结果不符。');
+ if (restartCheck) await verifyRestart(requestId, id, detail.id, create.id);
  let duplicate=false;try{await call(['call',create.id,'--profile','acceptance','--json',body,'--confirm','--request-id',requestId]);}catch(error){duplicate=error.cliError==='http_409'&&error.businessCode==='YZP_REQUEST_ALREADY_RECORDED';}if(!duplicate)throw new Error('重复UUID没有拒绝。');
  await call(['call',remove.id,'--profile','acceptance','--json',JSON.stringify({id}),'--confirm']);
  const credentials=JSON.parse(await readFile(env.METARILL_AGENT_CONFIG,'utf8')).profiles.acceptance.credentials;
@@ -80,7 +131,10 @@ try{
  const replay=await request('/agent/oauth/token',{client_id:'metarill-agent-cli',grant_type:'refresh_token',refresh_token:before.refreshToken},{},400,true);
  if(replay.error!=='invalid_grant')throw new Error('旧刷新凭据未被拒绝。');
  let family=false;try{await call(['capabilities','list','--profile','replay']);}catch(error){family=error.cliError==='http_401';}if(!family)throw new Error('刷新重放未撤销授权家族。');
- console.log(JSON.stringify({deviceDenied:true,deviceApproved:true,realCli:true,strictCatalog:true,preview:true,create:true,detail:true,explicitNull:true,stringId:true,task:true,duplicateUuid:true,delete:true,revoke:true,refreshReplay:true}));
+ const proof = {deviceDenied:true,deviceApproved:true,realCli:true,strictCatalog:true,preview:true,create:true,detail:true,
+  explicitNull:true,stringId:true,task:true,duplicateUuid:true,delete:true,revoke:true,refreshReplay:true};
+ if (restartCheck) Object.assign(proof, { priorAccessAfterRestart: true, taskAfterRestart: true, refreshAfterRestart: true, priorAccessRejectedAfterRefresh: true });
+ console.log(JSON.stringify(proof));
 }finally{
  if(loginProcess)loginProcess.child.kill();
  await rm(directory,{recursive:true,force:true});
