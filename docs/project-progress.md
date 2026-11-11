@@ -1318,6 +1318,7 @@
 | V1102 | ✅ 当前非冗余逻辑父文件事务定向复验通过 | abbe89fb／Server-200 独占 MySQL | 同 ID 实库 1 项、两种模型。首轮在共享结构预览拒绝，独立核清 8 表、2 文件及引用、专用库和账号。 | [V1102 逻辑父文件事务](nonredundant-cross-table-parent-files.md#v1102-当前候选独占库的非冗余逻辑父文件事务)，2026-11-12 |
 | V1103 | ✅ Linux 第 47 批与双系统前 2,576 项对照完成 | abbe89fb／Windows 六组与 Linux 前 47 批 | 新增 41 项通过、2 项条件跳过，计入独立复验后逐项一致。 | [V1103 两系统前 47 批](testing/current-linux-generation-batches-v945.md#v1103-当前候选-linux-第-47-批逐项核对)，2026-11-12 |
 | V1105 | ✅ Linux 第 48 批与双系统前 2,618 项对照完成 | abbe89fb／Windows 六组与 Linux 前 48 批 | 新增 39 项通过、3 项条件跳过，计入独立复验后逐项一致。 | [V1105 两系统前 48 批](testing/current-linux-generation-batches-v945.md#v1105-当前候选-linux-第-48-批逐项核对)，2026-11-12 |
+| V1106 | ✅ 当前跨表 Full 四组正式空库与身份通过 | abbe89fb／四种来源与父键 | 四组实库原 HTTP、已认证撤权与保护文件、稀疏槽、回滚、改名及重启通过，两轮独占资源核清。 | [V1106 跨表 Full 正式空库](nonredundant-cross-table-fresh.md#v1106-当前候选跨表-full-空库与正式身份)，2026-11-12 |
 | V1107 | ✅ Linux 第 49 批与双系统前 2,659 项对照完成 | abbe89fb／Windows 六组与 Linux 前 49 批 | 新增 38 项通过、3 项条件跳过，计入独立复验后逐项一致。 | [V1107 两系统前 49 批](testing/current-linux-generation-batches-v945.md#v1107-当前候选-linux-第-49-批逐项核对)，2026-11-12 |
 
 ## 五、后续跨端兼容性验收
