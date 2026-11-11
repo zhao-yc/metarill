@@ -135,3 +135,7 @@ Server-200 独立生成器回归继续按 [V1045](current-linux-generation-batch
 ## 2026-11-11 e8bc7af1 GitHub CI 终态
 
 GitHub Actions 运行 43030431808 对应 e8bc7af1，前端、两个系统的后端及十二个生成分组共 15 项全部通过。与固定发行源码 abbe89fb 逐路径比较，变化只在 docs/。abbe89fb 自身的 42965876964 同样核对 15 项通过。后续测试夹具调整及更新后的开发分支仍按各自提交核对。见 [e8bc7af1 的运行](https://github.com/zhao-yc/metarill/actions/runs/43030431808)。
+
+## V1094 当前登录测试夹具的 Windows 定向复验
+
+开发分支的唯一非文档差异是已提交的登录测试夹具冷编译等待。当前夹具的 Windows 和 Linux 各 11 项定向通过。开发分支完整 GitHub CI 继续按精确提交核验。见 [Windows 复验](current-windows-generation-full-v921.md#v1094-当前登录测试夹具的-windows-定向复验)。

@@ -1308,6 +1308,7 @@
 | V1091 | ✅ Linux 第 36 批及两项复验核对完成 | abbe89fb／原 TRX 与独立复验 | 原 102 通过、13 条件跳过、2 失败。两项均有 V1082 同用例通过；前 36 批计入复验后 1,820 通过、228 条件跳过。 | [V1091 Linux 第 36 批](testing/current-linux-generation-batches-v945.md#v1091-当前候选-linux-第-36-批及两项复验)，2026-11-11 |
 | V1092 | ✅ Linux 第 37 批与双系统前 2,095 项对照完成 | abbe89fb／Windows 六组及 Linux 前 37 批 | 第 37 批原 44 通过、3 条件跳过；前 37 批计入复验后 1,864 通过、231 条件跳过，两系统逐项差异为零。 | [V1092 两系统逐项核对](testing/current-linux-generation-batches-v945.md#v1092-当前候选-windows-与-linux-前-37-批逐项核对)，2026-11-11 |
 | V1093 | ✅ Linux 第 38 至 40 批及双系统前 2,245 项对照完成 | abbe89fb／Windows 六组与 Linux 前 40 批 | 新增 144 项通过、6 项条件跳过，两系统逐项一致。只更新文档的 e8bc7af1 亦通过 GitHub CI 全部 15 项。 | [V1093 两系统前 40 批](testing/current-linux-generation-batches-v945.md#v1093-当前候选-linux-第-38-至-40-批逐项核对)，2026-11-11 |
+| V1094 | ✅ 当前登录夹具的 Windows 定向复验通过 | abbe89fb／开发分支同一测试夹具 | 11 项按名称与 ID 对照 Linux 同用例，全部通过，两个独占临时根已回收。 | [V1094 Windows 登录复验](testing/current-windows-generation-full-v921.md#v1094-当前登录测试夹具的-windows-定向复验)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 
