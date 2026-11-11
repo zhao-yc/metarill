@@ -100,7 +100,19 @@ public partial class {{entity}}Service
             // 原Excel空批次仍检真实父，首列覆盖在逻辑父范围内找原对象；普通动作与目标list均撤销。
             client.DefaultRequestHeaders.Add("denyOrdinary","1");client.DefaultRequestHeaders.Add("denyTargets","1");Data(await Import("202",rootId,Row("名称","只改名称","金额",42)));await Slots("只改名称",2,First+2,0,First+10);Data(await Import("202",rootId,Row("名称","导入新根","级联",null)));await Slots("导入新根",0,First,-1,null);
             Data(await Import("203",midId,Row("名称","导入新中","级联","")));await Slots("导入新中",1,First+1,-1,null);Data(await Import("204",leafId,Row("名称","导入新叶")));await Slots("导入新叶",2,First+2,-1,null);Data(await Import("202",rootId));
-            before=await State();Assert.Equal(500,(await Import("202",(First+9999).ToString())).GetProperty("code").GetInt32());Assert.Equal(500,(await Import("202",rootId,Row("名称","前行","级联",null),Row("名称","通知故障","级联",null))).GetProperty("code").GetInt32());Assert.Equal(before,await State());Assert.Equal(500,(await Import("202",rootId,Row("名称","非空路径","级联","国甲/区甲/城甲"))).GetProperty("code").GetInt32());Assert.Equal(before,await State());client.DefaultRequestHeaders.Remove("denyTargets");client.DefaultRequestHeaders.Remove("denyOrdinary");
+            before=await State();
+            Assert.Equal(500,(await Import("202",(First+9999).ToString())).GetProperty("code").GetInt32());
+            Assert.Equal(before,await State());
+            Assert.Equal(500,(await Import("202",rootId,Row("名称","前行","级联",null),Row("名称","通知故障","级联",null))).GetProperty("code").GetInt32());
+            Assert.Equal(before,await State());
+            // 完整路径按已确认的无损规则还原，仍受当前逻辑父范围限制。
+            Data(await Import("202",rootId,Row("名称","非空路径","级联","国甲/区甲/城甲")));
+            await Slots("非空路径",2,First+2,-1,null);
+            before=await State();
+            Assert.Equal(500,(await Import("202",rootId,Row("名称","合法首行","级联","国甲/区甲/城甲"),
+                Row("名称","越界路径","级联","国乙/区乙/城乙"))).GetProperty("code").GetInt32());
+            Assert.Equal(before,await State());
+            client.DefaultRequestHeaders.Remove("denyTargets");client.DefaultRequestHeaders.Remove("denyOrdinary");
             // 删除前的物理值与逻辑范围都复核，实际DELETE和软删使用同一入口。
             var badDelete=Data(await Post("202","add",new{name="删除改位",placeId=leafId},rootId));before=await State();await Delete("202",badDelete.GetProperty("id").GetString()!,rootId,false);Assert.Equal(before,await State());
             // 旧RR快照外部换父，当前写范围拒绝原父；守卫内同事务换父也必须在写后拒绝并回滚。
