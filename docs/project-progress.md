@@ -1302,6 +1302,7 @@
 | V1085 | ✅ 当前平台 Caddy HTTPS 与原桌面 Web 通过 | abbe89fb／210 份固定文件 | TLS 1.3 证书正反例、12 个原接口步骤、7 个原浏览器同源 API、代理审计、三个会话注销与独立回收通过。 | [V1085 当前平台 HTTPS](testing/fixed-platform-caddy-https-v842-v843.md#v1085-当前发行平台-https-及原桌面-web-通过)，2026-11-11 |
 | V1086 | ✅ 当前独立 Full 移动 Web HTTPS 通过 | abbe89fb／49 宿主／52 原 H5 | 空库显式安装和重复保护、普通账号原客户增改删、19 个同源 API、证书拒绝、会话注销和独立回收均通过。 | [V1086 当前 Full 移动 HTTPS](testing/fixed-full-caddy-mobile-https-v844.md#v1086-当前发行-full-原移动-web-https-通过)，2026-11-11 |
 | V1087 | ✅ Linux 第 34 批及复验核对完成 | abbe89fb／原 TRX 与独立复验 | 原 71 通过、11 条件跳过、1 失败。原失败由 V1082 同一用例通过；前 34 批计入复验后 1,622 通过、200 条件跳过。 | [V1087 Linux 第 34 批](testing/current-linux-generation-batches-v945.md#v1087-当前候选-linux-第-34-批及复验汇总)，2026-11-11 |
+| V1088 | ✅ 当前独立 Full 的 Web 与 Agent 授权恢复通过 | abbe89fb／单库同版恢复 | 43 个原请求，旧令牌、刷新及待批准设备码拒绝，撤销回滚、重复零变更、附件和精确回收通过。 | [V1088 独立 Full 授权恢复](testing/current-split-recovery-v927-v928.md#v1088-当前独立-full-的-web-与-agent-授权恢复)，2026-11-11 |
 
 ## 五、后续跨端兼容性验收
 

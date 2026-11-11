@@ -100,7 +100,7 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 ### 恢复快照中的会话与授权
 
-备份会保留采集时有效的 Web 会话、Agent 访问会话及刷新授权，恢复后旧凭据仍可能有效。保持恢复目标离线并隔离入口，应用启动对外服务前，在恢复目标的身份库核对实例和库名，再处理快照中的旧会话。平台使用承载 `sys_session` 和 `sys_agent_grant` 的平台库。先读出受影响数量，再在同一连接的事务中撤销。当前候选的跨实例恢复、计数不符回滚与重复撤销见 [V1041](testing/current-split-recovery-v927-v928.md#v1041v1042-当前发行候选同版分库恢复)。
+备份会保留采集时有效的 Web 会话、Agent 访问会话及刷新授权，恢复后旧凭据仍可能有效。保持恢复目标离线并隔离入口，应用启动对外服务前，在恢复目标的身份库核对实例和库名，再处理快照中的旧会话。平台使用承载 `sys_session` 和 `sys_agent_grant` 的平台库。先读出受影响数量，再在同一连接的事务中撤销。当前候选的跨实例恢复、计数不符回滚与重复撤销见 [V1041](testing/current-split-recovery-v927-v928.md#v1041v1042-当前发行候选同版分库恢复)。 独立 Full 在自身应用库执行同一组撤销语句，同实例恢复已实测旧 Web 会话、两代 Agent 访问与刷新令牌及待批准设备码。[V1088 独立 Full 授权恢复](testing/current-split-recovery-v927-v928.md#v1088-当前独立-full-的-web-与-agent-授权恢复)。
 
 ```sql
 SELECT @@hostname, @@server_uuid, DATABASE();
