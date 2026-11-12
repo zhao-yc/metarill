@@ -34,7 +34,7 @@
 
 当前冻结候选为 `b991b583`。平台和独立 Full 的两份 Linux x64 ZIP 独立复建一致，分库、共库和独立 Full 的空库安装及重启通过。[V1177／V1178 日期修复双包及三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1177-与-v1178-日期修复候选双包及三拓扑) · [V1176 原日期与登录窗口](account-calendar-compatibility.md#v1176-修复提交原管理员日期保存通过)
 
-MySQL 首版总验收仍在进行。b991b583 已完成日期专项、双包及三拓扑实库，完整 CI、回归与同条件性能按该提交继续核对。此前 e682cd12 的 GitHub CI 15 项、Windows 30 组及生成器六组通过，九类同条件性能达到门槛，逐次修复初测退化留证。其 Server-200 独立 Linux 回归仍在运行。真实 Tiny Cloud 编辑待有效配置。 [e682cd12 CI](testing/ci-current-contracts.md#v1138-当前候选-github-ci) · [独立 Linux 回归](testing/current-linux-generation-batches-v945.md#v1141-当前候选独立-linux-命令文件复验) · [实施进度表](project-progress.md)
+MySQL 首版总验收仍在进行。b991b583 已完成日期专项、双包及三拓扑实库，完整 CI 与回归按该提交继续核对。已重建同模型性能宿主，Server-200 同条件回放已启动。[当前性能复验](testing/current-mysql-performance-v1130.md#v1182-与-v1183-日期修复候选性能宿主)。此前 e682cd12 的 GitHub CI 15 项、Windows 30 组及生成器六组通过，九类同条件性能达到门槛，逐次修复初测退化留证。其 Server-200 独立 Linux 回归仍在运行。真实 Tiny Cloud 编辑待有效配置。 [e682cd12 CI](testing/ci-current-contracts.md#v1138-当前候选-github-ci) · [独立 Linux 回归](testing/current-linux-generation-batches-v945.md#v1141-当前候选独立-linux-命令文件复验) · [实施进度表](project-progress.md)
 
 此前候选 abbe89fb 已独立复建并通过三拓扑安装。两份 Linux x64 ZIP 逐字一致，实际分库、共库及独立 Full 通过。[V1028 当前候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1028-导航修复候选三拓扑实际安装)。当前源码的原菜单双视口验收另见 V1026。
 
