@@ -30,20 +30,24 @@ internal static class ChildrenCompilation
             var listEdit = Integer(child.Page.Source.Extra, "isListEdit", 0);
             if (Integer(child.Page.Source.Extra, "type", 0) != 0 || listEdit is not (0 or 1) || Integer(child.Page.Source.Extra, "isNotGenerateDetailPage", 0) != 0) throw new InvalidOperationException("子页面列表类型尚未接入主子编辑：" + id);
             var scopes = child.Page.Scopes.Where(scope => scope.Source == "parent").ToArray();
-            if (scopes.Length != 1) throw new InvalidOperationException("子页面必须具有唯一的 parentId 范围：" + id);
-            var column = scopes[0].Column;
-            var target = model.Tables.SingleOrDefault(table => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? table.Source.Id == column.Source.LinkConfigTableId : table.Source.TableName + "_id" == column.Source.ColumnName);
-            if(NonRedundantCrossParentCompilation.Find(model,child.Table,child.Page,column) is {} path)
+            if (scopes.Length == 0) throw new InvalidOperationException("子页面必须具有 parentId 范围：" + id);
+            // 原子页只传一个父 ID。每个约束都必须指向同一父表，才能保留原范围的交集。
+            foreach (var scope in scopes)
             {
-                // 级联层位的真实目标来自固定读取计划。显式关联与计划冲突时仍拒绝发布。
-                var logicalTarget=path.Read.Levels[path.Index].Target;
-                if(!string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)&&target!=logicalTarget)
-                    throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);
-                target=logicalTarget;
+                var column = scope.Column;
+                var linkedTableId = column.Source.LinkConfigTableId;
+                var hasLink = !string.IsNullOrWhiteSpace(linkedTableId);
+                var matchesParent = hasLink
+                    ? linkedTableId == parent.Table.Source.Id
+                    : parent.Table.Source.TableName + "_id" == column.Source.ColumnName;
+                if (NonRedundantCrossParentCompilation.Find(model, child.Table, child.Page, column) is { } path)
+                    matchesParent = path.Read.Levels[path.Index].Target == parent.Table && (!hasLink || matchesParent);
+                // 保留原字符串外键的物理归属检查及整数范围合同。
+                var supported = column.Type is "long" or "long?"
+                    || column.Type == "string?" && NonRedundantReadCompilation.Physical(model, child.Table, column)
+                        && !GenerationModel.Enabled(column.Source.Extra, "isJoinColumn");
+                if (!matchesParent || !supported) throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);
             }
-            // 前端父ID沿原字符串协议；新增字符串外键须证明物理归属，现有整数范围合同保持。
-            var supported=column.Type is "long" or "long?"||column.Type=="string?"&&NonRedundantReadCompilation.Physical(model,child.Table,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn");
-            if (target != parent.Table || !supported) throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);
             var openType = Integer(source, "childPageOpenType", 1);
             if (openType is not (1 or 2)) throw new InvalidOperationException("子页面打开方式仅支持 1（新页面）和 2（PC 弹出层）：" + id);
             children.Add(new(id, parent.Page, child.Table, child.Page, Integer(source, "sortNo", 0), openType));

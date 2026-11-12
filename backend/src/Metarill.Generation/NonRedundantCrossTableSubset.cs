@@ -31,7 +31,7 @@ internal static class NonRedundantCrossTableSubset
             if(plans.Any(plan=>plan.Definition is null))return "跨表同页完整写入证明缺失，不能忽略隐藏或混合级联。";
             // 原组件按前缀转换属性，原详情还读取显式属性；两者必须与同一后端JSON字段一致。
             foreach(var plan in plans.Select(plan=>plan.Definition!))if(CrossTableFrontendProof.Reason(plan) is{} mismatch)return mismatch;
-            _=NonRedundantReadCompilation.ForPage(model,table,page);_=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
+            _=NonRedundantReadCompilation.ForPage(model,table,page);var parentTables=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
             var exports=plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
@@ -43,7 +43,7 @@ internal static class NonRedundantCrossTableSubset
                 companions.All(Declared)&&plans.All(plan=>
                     plan.Definition!.Levels.All(level=>level.Read.Target.Source.Id!=table.Source.Id)&&
                     plan.Definition.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Definition.Levels.Count);
-            var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns));
+            var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
             var scopedOverwrite=hasParent&&pathSupported&&(imports||exports)&&SupportsScopedOverwrite(model,table,page,importColumns);
             if(imports&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
@@ -58,11 +58,11 @@ internal static class NonRedundantCrossTableSubset
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "非冗余跨表完整用途未通过："+error.Message;}
     }
 
-    /// <summary>父 ID 必须属于已证明的单路径或完整共享组，且各层保持原物理目标范围。</summary>
+    /// <summary>父 ID 必须属于已证明的逻辑路径。共享组允许同父表的物理约束继续取交集。</summary>
     private static bool SupportsScopedPath(GenerationModel model,TableModel table,PageModel page,
-        IReadOnlyList<CrossTableWriteResult> plans,IReadOnlyList<ColumnModel> parents)
+        IReadOnlyList<CrossTableWriteResult> plans,IReadOnlyList<ColumnModel> parents,IReadOnlyList<TableModel> parentTables)
     {
-        if(parents is not [var parent])return false;
+        if(parents.Count>1&&(plans.Count==1||parentTables.Count!=1))return false;
         var paths=plans.Select(plan=>plan.Definition!.Levels).ToArray();
         if(paths.Length==1)
         {
@@ -76,7 +76,10 @@ internal static class NonRedundantCrossTableSubset
         }
         // 两种键类型独立验证。共享组本身已经证明了各同伴的共同祖先身份。
         var levels=paths.SelectMany(path=>path).ToArray();
-        return levels.Any(level=>level.Id.Source.Id==parent.Source.Id)&&
+        var logicalParents=parents.Where(parent=>levels.Any(level=>level.Id.Source.Id==parent.Source.Id)).ToArray();
+        return logicalParents is [var logicalParent]&&
+            (parents.Count==1||string.IsNullOrWhiteSpace(logicalParent.Source.LinkConfigTableId)||
+                logicalParent.Source.LinkConfigTableId==parentTables[0].Source.Id)&&
             paths.All(path=>path.Skip(1).All(level=>level.Read.Parent?.Type is "string?" or "long?"))&&
             levels.All(level=>(level.Id.Type is "string?" or "long?")&&
                 level.Read.Target.Source.IsRongyu==1&&!level.Read.Target.IsGlobal&&!level.Read.DerivedName);

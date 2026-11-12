@@ -58,10 +58,20 @@ public sealed class SharedCrossExactScopeMySqlTests
     public Task Production_shared_leaf_parent_excel_overwrites_with_original_parent() =>
         Exercise("countryName", ParentScope.Place, "OverWriteByFirstColumn");
 
+    /// <summary>两条条件各自排除一条记录，原子页仍从国家详情进入并沿用同一父 ID。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_child_requires_both_bindings_to_the_same_country() =>
+        Exercise("scopeKey", ParentScope.Country, "OnlyNew", compoundParent: true);
+
+    /// <summary>固定城市及同表物理归属列并存时，仍校验仓库路径的真实祖先并回滚跨地区覆盖。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_fixed_city_child_overwrite_requires_both_bindings() =>
+        Exercise("scopeKey", ParentScope.Place, "OverWriteByFirstColumn", compoundParent: true);
+
     private enum ParentScope { None, Area, Country, Place }
 
     /// <summary>各配置共用相同宿主、原HTTP和独占MySQL验证。</summary>
-    private static async Task Exercise(string scope,ParentScope parentScope=ParentScope.None,string? excelMode=null)
+    private static async Task Exercise(string scope,ParentScope parentScope=ParentScope.None,string? excelMode=null,bool compoundParent=false)
     {
         var logical=scope!="scopeKey";
         var parentScoped=parentScope!=ParentScope.None;
@@ -72,7 +82,7 @@ public sealed class SharedCrossExactScopeMySqlTests
         var options = FreshInstallConfiguration.Read("AgentDatabase", "agent");
         using var session = new DatabaseSession(options);
         await FreshInstallConfiguration.VerifyEmptyLeaseAsync(session);
-        var catalog=ParentCatalog(scope,parentScope,excelMode);
+        var catalog=ParentCatalog(scope,parentScope,excelMode,compoundParent);
         var repository = NonRedundantApplicationFixture.Root();
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-shared-exact-mysql");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -83,6 +93,10 @@ public sealed class SharedCrossExactScopeMySqlTests
         const long allowed = country + 5, denied = country + 6, conflict = country + 7;
         const long otherCountry = country + 10, otherArea = country + 11, otherPlace = country + 12, otherWarehouse = country + 13;
         const long siblingArea=country+14,siblingPlace=country+15,siblingWarehouse=country+16,sibling=country+17;
+        const long outsideOwner = country + 18, outsidePath = country + 19;
+        var ownerField = fixedLeaf ? "owner_place_id" : "owner_country_id";
+        var matchingOwner = fixedLeaf ? place : country;
+        var siblingOwner = fixedLeaf ? siblingPlace : otherCountry;
         var allowedParent=parentScope switch
         {
             ParentScope.Country=>Id(country),
@@ -161,6 +175,12 @@ public sealed class SharedCrossExactScopeMySqlTests
             await business.InsertAsync(source, Source(denied, "row-denied", "scope-b",
                 logical?otherPlace:place,logical?otherWarehouse:firstWarehouse));
 
+            if (compoundParent)
+            {
+                await business.InsertAsync(source, Source(outsideOwner, "row-outside-owner", "scope-a", place, firstWarehouse, siblingOwner));
+                await business.InsertAsync(source, Source(outsidePath, "row-outside-path", "scope-a", siblingPlace, siblingWarehouse, matchingOwner));
+            }
+
             await using var host = await FreshHost.StartAsync(HostInfo(), "/health");
             using var client = new HttpClient{BaseAddress=host.Client.BaseAddress};
             var files=Array.Empty<string>();
@@ -198,6 +218,19 @@ public sealed class SharedCrossExactScopeMySqlTests
                 Assert.Equal(Id(sibling),Assert.Single(siblingPage.GetProperty("records").EnumerateArray()).GetProperty("id").GetString());
                 await DeniedMutations(allowed,siblingParent);
                 await DeniedMutations(denied,deniedParent);
+                if (compoundParent)
+                {
+                    foreach (var record in new[] { outsideOwner, outsidePath })
+                    {
+                        var fields = new Dictionary<string, object?> { ["id"] = record };
+                        var before = Assert.Single(await business.ReadAsync(source, fields));
+                        using var hidden = await client.GetAsync(WithParent(route + "/detail/" + Id(record), allowedParent));
+                        Assert.Equal(HttpStatusCode.OK, hidden.StatusCode);
+                        Assert.Equal(500, (await hidden.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetInt32());
+                        await DeniedMutations(record, allowedParent);
+                        Assert.Equal(JsonSerializer.Serialize(before), JsonSerializer.Serialize(Assert.Single(await business.ReadAsync(source, fields))));
+                    }
+                }
                 await CheckAttachmentRollback();
                 if(excelMode is not null)await CheckScopedExcel(excelMode=="OverWriteByFirstColumn");
                 await FreshWebHttp.SendAsync(client,HttpMethod.Post,"/api/admin/sys/yz_manager/exit_login",new{});
@@ -297,6 +330,7 @@ public sealed class SharedCrossExactScopeMySqlTests
                     Assert.Equal(Id(firstWarehouse),SqlRowStore.Text(added,"warehouse_id"));
                     Assert.Null(added["area_id"]);
                     Assert.Null(added["country_id"]);
+                    if (compoundParent) Assert.Equal(allowedParent, SqlRowStore.Text(added, ownerField));
                     var selectedExport=Assert.Single(await ExportRows(allowedParent!,Id(SqlRowStore.Id(added))));
                     Assert.Equal(primaryPath,selectedExport["主路径"]);
                     Assert.Equal("country/area/first",selectedExport["仓库路径"]);
@@ -481,13 +515,14 @@ public sealed class SharedCrossExactScopeMySqlTests
         }
 
         /// <summary>两条来源共享同一个原导入键，仅物理精确范围列取不同值。</summary>
-        Dictionary<string, object?> Source(long id, string name, string marker,long placeId,long warehouseId)
+        Dictionary<string, object?> Source(long id, string name, string marker,long placeId,long warehouseId,long? ownerId=null)
         {
             var row=new Dictionary<string,object?>
             {
                 ["id"]=id,["name"]=name,["yz_project_id"]=project,["scope_key"]=marker,["warehouse_id"]=Id(warehouseId)
             };
             if(!shorter)row["place_id"]=Id(placeId);
+            if(compoundParent)row[ownerField]=Id(ownerId??(warehouseId==siblingWarehouse?siblingOwner:matchingOwner));
             return row;
         }
 
@@ -518,8 +553,26 @@ public sealed class SharedCrossExactScopeMySqlTests
         Assert.NotEmpty(UniappRenderer.Render(model).ToArray());
     }
 
+    /// <summary>生成原公开完整包前检查同父范围可发布，异父仍拒绝。</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Compound_parent_excel_publishes_only_same_parent_bindings(bool isCountry)
+    {
+        var scope = isCountry ? ParentScope.Country : ParentScope.Place;
+        var mode = isCountry ? "OnlyNew" : "OverWriteByFirstColumn";
+        var catalog = ParentCatalog("scopeKey", scope, mode, compoundParent: true);
+        new FrontendPackager().Validate(catalog);
+
+        // 保留直接访问子页的模型，独立证明 Excel 校验本身也拒绝同值异父。
+        catalog.ConfigChildren.Clear();
+        catalog.ConfigColumns.Single(column => column.Id == "9002").LinkConfigTableId = "4";
+        var error = Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+        Assert.Contains(CrossTableExcelRenderer.ImportAcceptancePending, error.Message);
+    }
+
     /// <summary>短链和固定末级沿用原级联目录，只扩展当前验收的父绑定。</summary>
-    private static MetadataCatalog ParentCatalog(string scope,ParentScope parentScope,string? excelMode)
+    private static MetadataCatalog ParentCatalog(string scope,ParentScope parentScope,string? excelMode,bool compoundParent=false)
     {
         var logical=scope!="scopeKey";
         var parentScoped=parentScope!=ParentScope.None;
@@ -536,6 +589,17 @@ public sealed class SharedCrossExactScopeMySqlTests
                 _=>"area_id"
             };
             sourcePage.WhereSql+=$" AND {parentColumn}=@parent_id";
+            if(compoundParent)
+            {
+                var isCity = parentScope == ParentScope.Place;
+                var column = isCity ? "owner_place_id" : "owner_country_id";
+                catalog.ConfigColumns.Add(new()
+                {
+                    Id="9002", ConfigTableId="2", ColumnName=column, LogicalType="string",
+                    LinkConfigTableId=isCity?"5":"3", YzProjectId=catalog.YzProjectId
+                });
+                sourcePage.WhereSql+=$" AND {column}=@parent_id";
+            }
             if(parentScope is ParentScope.Country or ParentScope.Place)
             {
                 // 真实父页和子页关系一起随完整包生成。

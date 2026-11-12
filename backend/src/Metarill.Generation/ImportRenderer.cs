@@ -268,13 +268,16 @@ public sealed partial class {{page.Name}}ImportRequest
         IReadOnlyList<CrossTableWriteModel> imported)
     {
         if(table.Source.IsRongyu!=0||imported.Count==0)return null;
-        var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
-        if(parents is not [var parent])return null;
+        // 同一个父 ID 可同时约束物理列。固定末级仍从唯一逻辑层读取，不能丢掉祖先核对。
+        var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+        var logicalParents=parents.Where(column=>NonRedundantCrossParentCompilation.Find(model,table,page,column) is not null).ToArray();
+        if(logicalParents is not [var parent]||
+            parents.Length>1&&NonRedundantSelfTreeSubset.ParentTables(model,table,page).Count!=1)return null;
         return SharedCrossTableCompilation.ForPage(model,table,page).Groups
             .Where(group=>group.Plans.Any(plan=>imported.Any(item=>item.Read.Source.Source.Id==plan.Read.Source.Source.Id)))
             .SelectMany(group=>group.Plans)
-            .SingleOrDefault(plan=>plan.Read.Source.Source.Id==parent.Column.Source.Id&&
-                plan.Levels[^1].Id.Source.Id==parent.Column.Source.Id);
+            .SingleOrDefault(plan=>plan.Read.Source.Source.Id==parent.Source.Id&&
+                plan.Levels[^1].Id.Source.Id==parent.Source.Id);
     }
 
     /// <summary>首次读取级联单元格时锁读固定父路径。只校验共享祖先，不把它们当作用户提交字段。</summary>

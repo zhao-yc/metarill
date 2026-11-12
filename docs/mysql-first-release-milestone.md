@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+共享级联子页现可同时限定同一逻辑父和物理归属。固定国家追加及固定城市覆盖通过真实普通角色、双条件隔离和 Excel 整批回滚。最终原浏览器另验。[B135 同父子页](exact-data-management.md#b135-共享级联同父子页)
+
 `19db5528` 的 Java／C# 九类同条件复验已固定。首次 Server-200 等待窗口负载超出门槛，正式回放未启动，原 Linux 回归已继续。[V1260 性能复验准备](testing/current-mysql-performance-v1130.md#v1260-当前候选九类性能复验准备)
 
 `19db5528` 的 Windows 30 组固定回归通过，平台、示例及前端 717 份受管产物复生成一致。[V1259 当前 Windows 固定回归](testing/current-windows-regression-v946-v947.md#v1259-固定末级父候选-windows-回归)

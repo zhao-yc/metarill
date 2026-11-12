@@ -18,7 +18,13 @@ public sealed class SharedCrossParentGenerationTests
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)]
     public async Task Full_shared_parent_packages_keep_original_vue_and_partial(bool shorter,bool derived)
     {
-        var c=Catalog("shared_parent","string","int64",shorter,derived);var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-parent-full");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(directory,"app");
+        var c = Catalog("shared_parent", "string", "int64", shorter, derived);
+        c.ConfigChildren.Add(JsonSerializer.SerializeToElement(new
+        {
+            id = "9011", parentConfigPageId = "301", childConfigPageId = "206",
+            childPageOpenType = 2, yzProjectId = c.YzProjectId
+        }));
+        var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-parent-full");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(directory,"app");
         try{new ApplicationPackager().Create(c,output,"Example.SharedParentFull",root);var hand=Path.Combine(output,"backend/generated/Services/SharedParentSourceService.cs");await File.AppendAllTextAsync(hand,"\n// 共享逻辑父范围手写扩展。\n");var bytes=await File.ReadAllBytesAsync(hand);c.ConfigColumns.Single(x=>x.Id=="22").Name="主子记录名";var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(c,candidate,"Example.SharedParentFull",root);var updater=new LocalGenerationUpdater();var actions=new[]{"generate-project-config","sync-runtime","generate-all-page"};var plan=updater.Preview(output,candidate,actions);Assert.True(plan.CanApply);updater.Apply(plan,plan.PlanSha256);Assert.Equal(bytes,await File.ReadAllBytesAsync(hand));var repeated=updater.Preview(output,candidate,actions);Assert.Equal("unchanged",updater.Apply(repeated,repeated.PlanSha256).Status);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin/components/yzp-cascade-tree/yzp-cascade-tree.vue")),File.ReadAllBytes(Path.Combine(output,"frontend/components/yzp-cascade-tree/yzp-cascade-tree.vue")));var probe=NonRedundantApplicationFixture.Start("node",output);probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"SharedCrossParentVueProbe.mjs"));probe.ArgumentList.Add(Path.Combine(output,"frontend"));probe.ArgumentList.Add(shorter.ToString().ToLowerInvariant());await NonRedundantApplicationFixture.RunAsync(probe);}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>名称／来源主键不是父外键，虚拟项目身份、未知父表与精确权限仍在创建stage前拒绝。</summary>
@@ -27,6 +33,41 @@ public sealed class SharedCrossParentGenerationTests
     {
         var c=Catalog("shared_parent","string","int64");var page=c.ConfigPages.Single(p=>p.Id=="202");if(kind=="name")page.WhereSql="yz_project_id=@current_yz_project_id AND country_name=@parent_id";if(kind=="id")page.WhereSql="yz_project_id=@current_yz_project_id AND id=@parent_id";if(kind=="project")c.ConfigColumns.Single(x=>x.Id=="33").IsVirtualColumn=1;if(kind=="missing")c.ConfigColumns.Single(x=>x.Id=="91").LinkConfigTableId="999999";if(kind=="exact")page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("unpublished_scope_field");var boundary=Path.Combine(Path.GetTempPath(),"metarill-bad-shared-parent");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.BadSharedParent",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
+    /// <summary>原嵌入子页可用同一个父 ID 约束逻辑级联和物理外键，异表不能仅凭同值放行。</summary>
+    [Theory]
+    [InlineData("string", true)]
+    [InlineData("int64", true)]
+    [InlineData("string", false)]
+    public void Embedded_shared_child_checks_every_parent_binding(string physicalType, bool sameParent)
+    {
+        var catalog = Catalog("shared_parent", physicalType, "int64");
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "206");
+        if (!sameParent)
+            sourcePage.WhereSql = sourcePage.WhereSql.Replace("country_id=@parent_id AND", "area_id=@parent_id AND", StringComparison.Ordinal);
+
+        catalog.ConfigChildren.Add(JsonSerializer.SerializeToElement(new
+        {
+            id = "9011", parentConfigPageId = "301", childConfigPageId = sourcePage.Id,
+            childPageOpenType = 2, yzProjectId = catalog.YzProjectId
+        }));
+        var model = GenerationModel.Create(catalog, "Example.SharedParentEmbedded");
+        if (!sameParent)
+        {
+            var error = Assert.Throws<InvalidOperationException>(() => ChildrenCompilation.Compile(model));
+            Assert.Contains("父范围与父表不匹配", error.Message);
+            return;
+        }
+
+        var child = Assert.Single(ChildrenCompilation.Compile(model));
+        Assert.Equal("3", child.Parent.Source.ConfigTableId);
+        Assert.Equal(new[] { "country_id", "owner_country_id" }, child.Page.Scopes
+            .Where(scope => scope.Source == "parent").Select(scope => scope.Column.Source.ColumnName));
+        var parent = Assert.Single(UniappRenderer.Render(model),
+            file => file.Path == "frontend/pages/yzp/shared_parent_country-detail-301.vue");
+        Assert.Contains(":parent_id='id'", parent.Content);
+        Assert.Contains(":parent_page_sn='page_sn'", parent.Content);
+    }
+
     /// <summary>原页面元数据只增加父条件，普通物理外键可与共享逻辑祖先共同约束。</summary>
     internal static MetadataCatalog Catalog(string prefix,string type,string parent,bool shorter=false,bool derived=false)
     {
