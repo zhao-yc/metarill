@@ -19,6 +19,37 @@ public sealed class FileSharedCrossParentScopeTests
         foreach(var id in new[]{"101","102","103","104","105"}){var scope=context.PageScope(frozen,frozen.ConfigPages.Single(p=>p.Id==id));var cross=Assert.Single(scope.Crosses);Assert.Equal("15",cross.SourceId);Assert.Equal(shorter?3:4,cross.StorageNames.Count);if(id=="105")Assert.Single(scope.Parents);else Assert.Empty(scope.Parents);}
         c.ConfigColumns.Single(x=>x.Id=="16").ControlDetail="{}";Assert.Equal(shorter?3:4,Assert.Single(context.PageScope(frozen,frozen.ConfigPages.Single(p=>p.Id=="101")).Crosses).StorageNames.Count);
     }
+    /// <summary>普通物理列或共享逻辑列和父范围共存，非法精确字段不能放宽文件来源。</summary>
+    [Theory]
+    [InlineData("name", true, false)]
+    [InlineData("countryName", true, true)]
+    [InlineData("countryId", true, true)]
+    [InlineData("unknown_scope", false, false)]
+    [InlineData("api_key", false, false)]
+    [InlineData("array_scope", false, false)]
+    public void Shared_parent_exact_match_requires_a_published_scalar(string field,bool allowed,bool derived)
+    {
+        var catalog=Catalog("string","int64");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="102");
+        catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
+        page.YzAdminTypeId="900";
+        page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(field);
+        catalog.ConfigColumns.Add(new(){Id="901",YzProjectId=catalog.YzProjectId,ConfigTableId=page.ConfigTableId,ColumnName="api_key",LogicalType="string"});
+        catalog.ConfigColumns.Add(new(){Id="902",YzProjectId=catalog.YzProjectId,ConfigTableId=page.ConfigTableId,ColumnName="array_scope",LogicalType="json"});
+        var context=new FileMetadataContext([catalog]);
+        var frozen=context.Catalogs.Single();
+        var source=frozen.ConfigPages.Single(item=>item.Id==page.Id);
+        if(!allowed)
+        {
+            Assert.Throws<NotSupportedException>(()=>context.PageScope(frozen,source));
+            return;
+        }
+        Assert.True(Assert.Single(context.PageScope(frozen,source).Crosses).IsShared);
+        var exact=context.ExactField(frozen,source);
+        Assert.Equal(derived,exact.Derived);
+        Assert.Equal(derived,exact.Shared);
+    }
+
     /// <summary>共享同伴的坏名称／范围／覆盖、歧义目标页与非法父身份都不能按单个好分支发布。</summary>
     [Theory][InlineData("peer")][InlineData("overlay")][InlineData("target")][InlineData("ambiguous")][InlineData("hidden")][InlineData("constant")][InlineData("exact")][InlineData("global")][InlineData("view")][InlineData("parentName")]
     public void Broken_shared_peer_or_identity_keeps_entire_page_closed(string kind)

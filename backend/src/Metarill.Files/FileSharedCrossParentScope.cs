@@ -23,12 +23,24 @@ internal sealed class FileSharedCrossParentScope
     internal static FileCrossParentScope Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column,SharedCrossTableSparseSelection selection)
     {
         if(GlobalCrossTableTarget.Declared(table))throw new NotSupportedException("共享文件父范围要求普通项目来源。");var branches=new Dictionary<string,FileCrossParentScope>(StringComparer.Ordinal);var scopes=new List<NonRedundantCrossTableScope>();
-        // 仅本次已编译的共享逻辑精确字段与共享父范围组合；其它来源权限沿原门槛。
-        var allowExact=page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind==JsonValueKind.String&&
-            ExactDataManageValues.Field(exact.GetString()) is {Length:>0} field&&NonRedundantReads.SharedExactGroup(catalog,table,field) is not null;
+        var allowExact=AllowsExactSource(catalog,table,page);
         foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0,allowExactSource:allowExact);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());var plan=new FileSharedCrossParentScope(selection,branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan);
     }
+    /// <summary>逻辑父范围可与同一发布页面的物理或共享逻辑标量叠加；未知列和无发布后台的声明仍拒绝。</summary>
+    private static bool AllowsExactSource(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if(!page.Extra.TryGetValue("exactDataManageMatchField",out var exact)||exact.ValueKind!=JsonValueKind.String||
+            ExactDataManageValues.Field(exact.GetString()) is not {Length:>0} field||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId))return false;
+        var column=FileMetadataContext.ResolveExactColumn(catalog,table,field);
+        if(!FileReferenceReadAuthorization.IsScalarExactField(column))return false;
+        // 与实际授权使用相同的逻辑类型转换，编译阶段不读取账号值。
+        _=ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
+        return NonRedundantReads.SharedExactGroup(catalog,table,column.ColumnName) is not null||
+            MetadataStoragePolicy.ForTable(catalog,table).IsPhysical(column);
+    }
+
     /// <summary>在同一读快照／写事务内检查全部已存末端，拒绝实际祖先冲突；共同物理位只读取一次。</summary>
     internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,long project,bool locking,CancellationToken token)
     {

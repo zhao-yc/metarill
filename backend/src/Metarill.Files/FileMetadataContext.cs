@@ -55,6 +55,11 @@ public sealed class FileMetadataContext
         HasLogicalFileParents=snapshots.Any(catalog=>catalog.ConfigPages.Any(page=>pageScopes[(catalog.YzProjectId,page.Id)] is{Crosses.Count:>0}&&physicalColumns[(catalog.YzProjectId,page.ConfigTableId)].Any(column=>column.ControlKind=="FileLibrary")));
         foreach(var catalog in snapshots)foreach(var page in catalog.ConfigPages)CompileDerivedExact(catalog,page);
     }
+    /// <summary>文件父范围和精确读取使用同一张已发布表的规范字段身份。</summary>
+    internal static ColumnMetadata ResolveExactColumn(MetadataCatalog catalog,TableMetadata table,string field)=>
+        RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
+            .Single(column=>ExactDataManageValues.Field(column.ColumnName)==field);
+
     /// <summary>启动时核验派生终点并编译文件/主键/项目/父范围；坏配置保留原逐来源拒权语义。</summary>
     private void CompileDerivedExact(MetadataCatalog catalog,PageMetadata page)
     {
@@ -63,8 +68,7 @@ public sealed class FileMetadataContext
             if(!page.Extra.TryGetValue("exactDataManageMatchField",out var value)||value.ValueKind!=JsonValueKind.String)return;
             var name=ExactDataManageValues.Field(value.GetString());if(name.Length==0)return;
             var table=catalog.ConfigTables.Single(table=>table.Id==page.ConfigTableId);var physical=PhysicalColumns(catalog,table);
-            var column=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
-                .Single(column=>ExactDataManageValues.Field(column.ColumnName)==name);
+            var column=ResolveExactColumn(catalog,table,name);
             var group=NonRedundantReads.SharedExactGroup(catalog,table,column.ColumnName);
             var derived=group is not null||!physical.Any(item=>item.Id==column.Id);
             exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,group is not null));

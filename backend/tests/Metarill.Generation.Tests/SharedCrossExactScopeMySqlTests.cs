@@ -32,16 +32,33 @@ public sealed class SharedCrossExactScopeMySqlTests
     [FreshInstallMySqlFact]
     public Task Production_shared_cascade_matches_derived_name_and_files()=>Exercise("countryName");
 
-    /// <summary>三种配置共用相同宿主、原HTTP和独占MySQL验证。</summary>
-    private static async Task Exercise(string scope)
+    /// <summary>真实普通账号同时受物理精确字段与共享逻辑父范围约束。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_parent_and_physical_exact_allow_only_matching_records_and_files()=>Exercise("scopeKey",parentScoped:true);
+
+    /// <summary>共享派生名称和独立逻辑父范围分别核对，并验证附件引用随事务回滚。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_parent_and_logical_exact_allow_only_matching_records_and_files()=>Exercise("countryName",parentScoped:true);
+
+    /// <summary>各配置共用相同宿主、原HTTP和独占MySQL验证。</summary>
+    private static async Task Exercise(string scope,bool parentScoped=false)
     {
         var logical=scope!="scopeKey";
+        var includeFiles=logical||parentScoped;
         var loginRedis = FreshInstallConfiguration.ReadLoginRedis();
         var options = FreshInstallConfiguration.Read("AgentDatabase", "agent");
         using var session = new DatabaseSession(options);
         await FreshInstallConfiguration.VerifyEmptyLeaseAsync(session);
         var catalog = SharedCrossExactScopeGenerationTests.Catalog(scope);
-        if(logical)
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        if(parentScoped)
+        {
+            sourcePage.WhereSql+=" AND area_id=@parent_id";
+            sourcePage.IsImport=0;
+            sourcePage.IsExport=0;
+            sourcePage.Extra.Remove("importMethod");
+        }
+        if(includeFiles)
         {
             catalog.ConfigColumns.Add(new(){Id="9001",ConfigTableId="2",ColumnName="attachments",Name="附件",SortNo=100,
                 LogicalType="string",ColumnLength="max",ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\"}"});
@@ -56,6 +73,9 @@ public sealed class SharedCrossExactScopeMySqlTests
         const long firstWarehouse = country + 3, secondWarehouse = country + 4;
         const long allowed = country + 5, denied = country + 6, conflict = country + 7;
         const long otherCountry = country + 10, otherArea = country + 11, otherPlace = country + 12, otherWarehouse = country + 13;
+        const long siblingArea=country+14,siblingPlace=country+15,siblingWarehouse=country+16,sibling=country+17;
+        var allowedParent=parentScoped?Id(area):null;
+        var deniedParent=parentScoped?Id(logical?otherArea:area):null;
         const string ownerName="shared-exact-owner";
         const string source = "shared_cross_source";
         const string route = "/api/admin/auto/" + source + "/201";
@@ -107,6 +127,13 @@ public sealed class SharedCrossExactScopeMySqlTests
                 await business.InsertAsync("shared_cross_place", Target(otherPlace, "other-place", "shared_cross_area_id", otherArea));
                 await business.InsertAsync("shared_cross_warehouse", Target(otherWarehouse, "other-warehouse", "shared_cross_area_id", otherArea));
             }
+            if(parentScoped)
+            {
+                await business.InsertAsync("shared_cross_area",Target(siblingArea,"sibling-area","shared_cross_country_id",country));
+                await business.InsertAsync("shared_cross_place",Target(siblingPlace,"sibling-place","shared_cross_area_id",siblingArea));
+                await business.InsertAsync("shared_cross_warehouse",Target(siblingWarehouse,"sibling-warehouse","shared_cross_area_id",siblingArea));
+                await business.InsertAsync(source,Source(sibling,"row-sibling","scope-a",siblingPlace,siblingWarehouse));
+            }
             await business.InsertAsync(source, Source(allowed, "row-allowed", "scope-a", place, firstWarehouse));
             await business.InsertAsync(source, Source(denied, "row-denied", "scope-b",
                 logical?otherPlace:place,logical?otherWarehouse:firstWarehouse));
@@ -114,32 +141,43 @@ public sealed class SharedCrossExactScopeMySqlTests
             await using var host = await FreshHost.StartAsync(HostInfo(), "/health");
             using var client = new HttpClient{BaseAddress=host.Client.BaseAddress};
             var files=Array.Empty<string>();
-            if(logical)
+            if(includeFiles)
             {
                 await FreshWebHttp.LoginAsync(host.Client,ownerName,password,form:true);
-                files=[await Attach(host.Client,allowed),await Attach(host.Client,denied)];
-                await business.InsertAsync(source, Source(conflict,"row-conflict","scope-a",place,otherWarehouse));
+                files=[await Attach(host.Client,allowed,allowedParent),await Attach(host.Client,denied,deniedParent)];
+                if(logical)await business.InsertAsync(source, Source(conflict,"row-conflict","scope-a",place,otherWarehouse));
             }
             await FreshWebHttp.LoginAsync(client, username, password, form: true);
             var permissions = await FreshWebHttp.SendAsync(client, HttpMethod.Get, "/api/admin/sys/yz_manager/getCurrentPermissions");
             Assert.False(permissions.GetProperty("data").GetProperty("isSuper").GetBoolean());
-            var pageData = (await FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/page", new PageRequest()))
+            var pageData = (await FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/page", new PageRequest { ParentId=allowedParent }))
                 .GetProperty("data");
             Assert.Equal(1, pageData.GetProperty("total").GetInt64());
             var visible = Assert.Single(pageData.GetProperty("records").EnumerateArray());
             Assert.Equal(Id(allowed), visible.GetProperty("id").GetString());
             Assert.False(visible.TryGetProperty("scopeKey", out _));
-            var count = await FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/count", new PageRequest());
+            var count = await FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/count", new PageRequest { ParentId=allowedParent });
             Assert.Equal(1, count.GetProperty("data").GetInt64());
-            var detail = await FreshWebHttp.SendAsync(client, HttpMethod.Get, route + "/detail/" + Id(allowed));
+            var detail = await FreshWebHttp.SendAsync(client, HttpMethod.Get, WithParent(route + "/detail/" + Id(allowed),allowedParent));
             Assert.Equal("country", detail.GetProperty("data").GetProperty("countryName").GetString());
-            using var forbiddenDetail = await client.GetAsync(route + "/detail/" + Id(denied));
+            using var forbiddenDetail = await client.GetAsync(WithParent(route + "/detail/" + Id(denied),deniedParent));
             Assert.Equal(HttpStatusCode.OK, forbiddenDetail.StatusCode);
             Assert.Equal(500, (await forbiddenDetail.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetInt32());
-            if(logical)
+            if(includeFiles)
             {
                 await Download(files[0],HttpStatusCode.OK);
                 await Download(files[1],HttpStatusCode.Forbidden);
+            }
+            if(parentScoped)
+            {
+                var siblingPage=(await FreshWebHttp.SendAsync(client,HttpMethod.Post,route+"/page",
+                    new PageRequest{ParentId=Id(siblingArea)})).GetProperty("data");
+                Assert.Equal(Id(sibling),Assert.Single(siblingPage.GetProperty("records").EnumerateArray()).GetProperty("id").GetString());
+                await DeniedMutations(allowed,Id(siblingArea));
+                await DeniedMutations(denied,deniedParent);
+                await CheckAttachmentRollback();
+                await FreshWebHttp.SendAsync(client,HttpMethod.Post,"/api/admin/sys/yz_manager/exit_login",new{});
+                return;
             }
 
             var ticket = (await FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/initExport", new PageRequest()))
@@ -197,8 +235,76 @@ public sealed class SharedCrossExactScopeMySqlTests
                 await Download(files[0],HttpStatusCode.Forbidden);
             }
 
+            /// <summary>修改、复制和删除都必须拒绝错误父范围或错误精确值。</summary>
+            async Task DeniedMutations(long record,string? parent)
+            {
+                await FreshWebHttp.SendAsync(client,HttpMethod.Post,WithParent(route+"/update",parent),
+                    new{id=Id(record),warehouseId=Id(secondWarehouse)},HttpStatusCode.InternalServerError);
+                await FreshWebHttp.SendAsync(client,HttpMethod.Post,WithParent(route+"/copy/"+Id(record),parent),
+                    new{},HttpStatusCode.InternalServerError);
+                await FreshWebHttp.SendAsync(client,HttpMethod.Delete,WithParent(route,parent),
+                    new{id=Id(record)},HttpStatusCode.InternalServerError);
+            }
+
+            /// <summary>文件引用插入后段失败时，业务仓库和原引用须同事务回滚。</summary>
+            async Task CheckAttachmentRollback()
+            {
+                var fileMetadata=JsonSerializer.Deserialize<MetadataCatalog>(
+                    await File.ReadAllTextAsync(Path.Combine(directory,"backend/metadata/files.json")),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                var references=new SqlRowStore(session,fileMetadata);
+                var update=WithParent(route+"/update",allowedParent);
+                var replacement=await Upload(client);
+                var change=new{id=Id(allowed),warehouseId=Id(secondWarehouse),attachments=new[]{replacement}};
+                const string constraint="mt_shared_exact_file_rollback";
+                await ExecuteSql("ALTER TABLE `yz_file_ref` ADD CONSTRAINT `"+constraint+"` CHECK (`file_id` <> "+Id(long.Parse(replacement,CultureInfo.InvariantCulture))+")");
+                try
+                {
+                    await FreshWebHttp.SendAsync(client,HttpMethod.Post,update,change,HttpStatusCode.InternalServerError);
+                    await AssertRecord(firstWarehouse,files[0],replacement);
+                }
+                finally
+                {
+                    await ExecuteSql("ALTER TABLE `yz_file_ref` DROP CHECK `"+constraint+"`");
+                }
+                await FreshWebHttp.SendAsync(client,HttpMethod.Post,update,change);
+                await AssertRecord(secondWarehouse,replacement,files[0]);
+                await Download(replacement,HttpStatusCode.OK);
+                await Download(files[0],HttpStatusCode.Forbidden);
+
+                /// <summary>独立业务和文件读取分别核对事务结局。</summary>
+                async Task AssertRecord(long expectedWarehouse,string currentFile,string detachedFile)
+                {
+                    var row=Assert.Single(await business.ReadAsync(source,new Dictionary<string,object?>{["id"]=allowed}));
+                    Assert.Equal(Id(expectedWarehouse),SqlRowStore.Text(row,"warehouse_id"));
+                    Assert.Null(row["area_id"]);
+                    var linked=await references.ReadAsync("yz_file_ref",new Dictionary<string,object?>{["record_id"]=allowed});
+                    var live=linked.Where(reference=>reference.GetValueOrDefault("delete_no") is null).ToArray();
+                    Assert.Equal(currentFile,SqlRowStore.Text(Assert.Single(live),"file_id"));
+                    Assert.DoesNotContain(live,reference=>SqlRowStore.Text(reference,"file_id")==detachedFile);
+                }
+            }
+
+            /// <summary>仅在本轮独占库安装与撤回真实故障条件。</summary>
+            async Task ExecuteSql(string statement)
+            {
+                await using var connection=session.Provider.CreateConnection(session.Options);
+                await connection.OpenAsync();
+                await using var command=connection.CreateCommand();
+                command.CommandText=statement;
+                await command.ExecuteNonQueryAsync();
+            }
+
             /// <summary>只通过原上传和保存入口建立真实记录引用。</summary>
-            async Task<string> Attach(HttpClient owner,long record)
+            async Task<string> Attach(HttpClient owner,long record,string? parent)
+            {
+                var id=await Upload(owner);
+                await FreshWebHttp.SendAsync(owner,HttpMethod.Post,WithParent(route+"/update",parent),new{id=Id(record),attachments=new[]{id}});
+                return id;
+            }
+
+            /// <summary>分离上传和保存，以便附件引用后段故障可独立注入。</summary>
+            async Task<string> Upload(HttpClient owner)
             {
                 const string path="/api/admin/sys/file-library/";
                 var bytes=Encoding.UTF8.GetBytes("共享逻辑权限附件");
@@ -209,7 +315,6 @@ public sealed class SharedCrossExactScopeMySqlTests
                 content.Add(new ByteArrayContent(bytes),"file","shared-exact.txt");
                 await FreshWebHttp.SendAsync(owner,HttpMethod.Post,path+"local-upload/"+id,content);
                 await FreshWebHttp.SendAsync(owner,HttpMethod.Post,path+"complete",new{fileId=id});
-                await FreshWebHttp.SendAsync(owner,HttpMethod.Post,route+"/update",new{id=Id(record),attachments=new[]{id}});
                 return id;
             }
 
@@ -263,6 +368,9 @@ public sealed class SharedCrossExactScopeMySqlTests
             return row;
         }
     }
+
+    /// <summary>沿用原页面路由的父 ID 查询参数。</summary>
+    private static string WithParent(string route,string? parent)=>parent is null?route:route+"?parentId="+Uri.EscapeDataString(parent);
 
     /// <summary>超过 JavaScript 安全整数的业务 ID 保持字符串边界。</summary>
     private static string Id(long value) => value.ToString(CultureInfo.InvariantCulture);

@@ -26,3 +26,14 @@
 候选源码的兼容测试 19 通过、11 条件跳过、0 失败，包含原联接字段入口。首轮 VSTest 在受限回环内无法连接 testhost，执行数为零。随后使用同一编译产物和可用回环重跑通过。
 
 2026-11-08 20:45（北京时间）核对本候选的 GitHub Actions。PR 运行仍在等待，push 运行已取消，二者均无已开始的作业。站点实际域名、Tiny Cloud 实际编辑和最终同条件性能仍按首版清单签收。 [PR 检查](https://github.com/zhao-yc/metarill/actions/runs/42481194079) · [Push 检查](https://github.com/zhao-yc/metarill/actions/runs/42481189778) · [首版清单](../mysql-first-release-milestone.md)
+
+## V1248 共享级联精确范围候选双包复建
+
+2026-11-12。固定公开源码 `eadfdaaa639397d741f471f2ec53e2c68a372ed2` 和 77 份离线依赖。用独立构建目录、.NET CLI 主目录和 NuGet 缓存分别重建两次。发行清单与宿主载荷均由发行脚本核验。
+
+| ZIP | 源码文件 | Linux x64 宿主文件 | SHA-256 |
+| --- | ---: | ---: | --- |
+| `platform-linux-x64-eadfdaaa.zip` | 3,107 | 49 | `0ab18043b5ce09474d2a7f4f14d8ab728d3087c3f99d0f92962fc5dbd2f8eb07` |
+| `full-linux-x64-eadfdaaa.zip` | 661 | 49 | `f6d9c64f35db3bc5df756827a9a153ea2c9a0f6a6ead3b2302f3b7752101ea68` |
+
+两份 ZIP 和发行 SHA256SUMS 在两个目录逐字一致。上一候选 `e847ed09` 的三种安装、双视口 Web、CI 和性能各自保留。V1248 的新包实库安装、发布回归及首版总验收另行签收。

@@ -69,13 +69,18 @@ internal static class FileReferenceReadAuthorization
         bool Flag(string key,bool fallback)=>field.Extra.TryGetValue(key,out var value)?value.ValueKind==JsonValueKind.True||value.ToString()=="1":fallback;
     }
 
+    /// <summary>匹配字段须为非凭据标量，文件或数组控件不能承担来源权限。</summary>
+    internal static bool IsScalarExactField(ColumnMetadata column)=>
+        column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase")&&
+        !column.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)&&!ExactDataManageValues.IsSensitiveField(column.ColumnName);
+
     private sealed record ExactFileScope(ColumnMetadata Column,IReadOnlyList<object?> Values,bool Derived,bool Shared);
     /// <summary>文件真实引用另附来源页的查询精确范围，不能只看页面动作；值经同一逻辑类型转换并参数化。</summary>
     private static ExactFileScope? ExactScope(FileMetadataContext registry,MetadataCatalog catalog,IReadOnlyList<ColumnMetadata> physical,PageMetadata page,IRuntimeAuthorization authorization)
     {
         if(ExactDataManageValues.Field(Configured(page)).Length==0)return null;
         var (column,derived,shared)=registry.ExactField(catalog,page);
-        if(column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||column.LogicalType=="json"||ExactDataManageValues.IsSensitiveField(column.ColumnName))throw new NotSupportedException("文件来源匹配必须为非凭据单值列。");
+        if(!IsScalarExactField(column))throw new NotSupportedException("文件来源匹配必须为非凭据单值列。");
         if(derived&&physical.Where(item=>item.ControlKind=="FileLibrary").Any(file=>registry.DerivedExactPlan(catalog,page,file) is null))throw new NotSupportedException("文件来源派生匹配缺少固定读取证明。");
         var admin=catalog.YzAdminTypes.SingleOrDefault(admin=>admin.Id==page.YzAdminTypeId)??throw new NotSupportedException("文件来源页后台未发布。");
         var scope=authorization.ResolveFileSourceExactDataManage(page.Id,ExactDataManageValues.Field(Configured(admin)));
