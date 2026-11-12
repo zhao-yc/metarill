@@ -2,7 +2,7 @@
 
 当前明确交付节点：**先完成并验收 MySQL 首版，交付 Web 管理端和 Web 业务生成**。2026-11-06 已确认、2026-11-07 再次确认小程序、Android 和 iOS 单列为后续兼容性验收；其它数据库仍按后续路线图推进。原 Web 界面、功能／权限／事务／生成及同条件性能要求保持，详见[MySQL首版交付范围](mysql-first-release-milestone.md)。
 
-更新日期：2026-11-12。最新完成双包复建及三拓扑安装的版本为 `2c5bd5ee`，当前完整验收参考仍为 `e847ed09`，分支为 `codex/initial-platform`。首次盘点基线 `ef946fd` 及历次候选记录保留。
+更新日期：2026-11-13。最新完成双包复建及三拓扑安装的版本为 `19db5528`，当前完整验收参考仍为 `e847ed09`，分支为 `codex/initial-platform`。首次盘点基线 `ef946fd` 及历次候选记录保留。
 
 e847ed09 的 Linux 双包独立复建和三种隔离安装已通过。新候选独立 Windows 30 组和 GitHub CI 15 个作业已通过，九类同条件性能的最近有效正式结果均已达标。旧 b991b583 的日期窗口、CI 与性能证据按原提交保留。此前 e682cd12 的 Windows、GitHub CI、九类同条件性能与双视口 Web 已有正式回执，Server-200 独立 Linux 回归继续。Tiny Cloud 真实编辑待有效配置。MySQL 首版总验收继续按 V11 核对。
 
@@ -1452,6 +1452,7 @@ e847ed09 的 Linux 双包独立复建和三种隔离安装已通过。新候选�
 | V1250 | ✅ 双包与三拓扑安装通过 | 25cd19b1／Linux x64／Server-200 | 两份 ZIP 独立复建一致，分库、共库、独立 Full 空库安装、普通权限、原 CRUD 与重启通过。资源独立核清。 | [V1250 附件精确授权候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1250-附件精确授权候选双包及三拓扑)，2026-11-12 |
 | V1252 | ✅ 双包独立复建一致 | 80c174d7／平台与独立 Full Linux x64 | 两份 ZIP 的两次构建及原 893 份前端源码一致，最新包安装和总验收另计。 | [V1252 共享父范围 Excel 发行双包](testing/storage-mode-linux-release-v1009-v1010.md#v1252-共享父范围-excel-发行双包)，2026-11-12 |
 | V1254 | ✅ 双包与三拓扑安装通过 | 2c5bd5ee／Linux x64／Server-200 | 两份 ZIP 独立复建一致，分库、共库、独立 Full 空库安装、普通权限、原 CRUD 与重启通过。资源独立核清。 | [V1254 共享逻辑父表候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1254-共享逻辑父表候选双包及三拓扑)，2026-11-12 |
+| V1258 | ✅ 双包与三拓扑安装通过 | 19db5528／Linux x64／Server-200 | 两份 ZIP 独立复建一致，分库、共库、独立 Full 空库安装、普通权限、原 CRUD 与重启通过。资源独立核清。 | [V1258 固定末级父 Excel 三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1258-固定末级父-excel-候选双包及三拓扑)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 

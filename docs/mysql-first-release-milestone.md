@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+`19db5528` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1258 固定末级父 Excel 三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1258-固定末级父-excel-候选双包及三拓扑)
+
 `2c5bd5ee` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1254 共享逻辑父表候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1254-共享逻辑父表候选双包及三拓扑)
 
 `80c174d7` 的平台和独立 Full Linux x64 双包已复建一致。[V1252 共享父范围 Excel 发行双包](testing/storage-mode-linux-release-v1009-v1010.md#v1252-共享父范围-excel-发行双包)
