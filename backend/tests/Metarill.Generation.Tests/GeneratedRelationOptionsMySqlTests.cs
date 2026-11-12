@@ -253,7 +253,8 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
         await command.ExecuteNonQueryAsync();
     }
     /// <summary>真实引用 Core/Data 源码编译生成物，不用替身声明冒充生成项目可编译。</summary>
-    internal static async Task<Assembly> BuildGenerated(string directory, bool includeAgent = false, [CallerFilePath] string source = "")
+    internal static async Task<Assembly> BuildGenerated(string directory, bool includeAgent = false,
+        [CallerFilePath] string source = "", TimeSpan? buildTimeout = null)
     {
         var repository = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../../.."));
         var core = SecurityElement.Escape(Path.Combine(repository, "backend/src/Metarill.Core/Metarill.Core.csproj")); var data = SecurityElement.Escape(Path.Combine(repository, "backend/src/Metarill.Data/Metarill.Data.csproj"));
@@ -268,7 +269,7 @@ public sealed partial class GeneratedRelationOptionsMySqlTests
         using (await SharedSourceBuildGate.Shared.EnterAsync())
         {
             using var process = Process.Start(start)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60)); try { await process.WaitForExitAsync(timeout.Token); } catch (Exception interrupted) { await SharedSourceBuildGate.StopOwnProcessAsync(process, output, error, interrupted); throw; }
+            using var timeout = new CancellationTokenSource(buildTimeout ?? TimeSpan.FromSeconds(60)); try { await process.WaitForExitAsync(timeout.Token); } catch (Exception interrupted) { await SharedSourceBuildGate.StopOwnProcessAsync(process, output, error, interrupted); throw; }
             Assert.True(process.ExitCode == 0, await output + await error);
         }
         return AssemblyLoadContext.Default.LoadFromStream(new MemoryStream(await File.ReadAllBytesAsync(Path.Combine(directory, "bin/Debug/net10.0", assemblyName + ".dll"))));

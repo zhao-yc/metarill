@@ -19,7 +19,8 @@ public sealed class RuntimeTypeNameGenerationTests
             var catalog=Catalog();var before=JsonSerializer.Serialize(catalog);new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.TypeBinding");
             var hand=Path.Combine(directory,"generated/Services/RuntimeActorService.cs");await File.AppendAllTextAsync(hand,"\n// 手写扩展保留两个同名类型的明确身份。\npublic partial class RuntimeActorService { partial void BeforeSave(global::Example.TypeBinding.Generated.Entities.RuntimeActor entity,global::Metarill.Core.Security.RuntimeActor actor,bool creating,global::System.Collections.Generic.ISet<string> submittedFields) { entity.Name=actor.AccountName+\"：DateTime/RuntimeActor\"; } }\n");var handwritten=await File.ReadAllBytesAsync(hand);
             for(var round=0;round<2;round++){new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.TypeBinding");Assert.Equal(handwritten,await File.ReadAllBytesAsync(hand));}
-            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            // 此用例在同一程序集编译 34 个同名类型，使用与完整包构建一致的三分钟上限。
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory, buildTimeout: TimeSpan.FromMinutes(3));
             foreach(var table in catalog.ConfigTables)
             {
                 var name=GenerationModel.Pascal(table.TableName);var page=catalog.ConfigPages.Single(page=>page.ConfigTableId==table.Id).Id;var entity=assembly.GetType("Example.TypeBinding.Generated.Entities."+name,true)!;Assert.Equal(typeof(DateTime?),entity.GetProperty("InsertTime")!.PropertyType);Assert.Equal(typeof(string),entity.GetProperty("Payload")!.PropertyType);Assert.Equal(typeof(TimeSpan?),entity.GetProperty("Clock")!.PropertyType);
