@@ -26,12 +26,12 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。最近通过双包复建与三种隔离安装的候选为 `2a958f1f`。实际回执见 [V1263 同父子页候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1263-同父子页候选双包及三拓扑)。配置样例及数据库能力边界见 [V1272 同父子页候选双包分发与数据库边界](testing/current-release-distribution-v963.md#v1272-同父子页候选双包分发与数据库边界)。部署新提交时按 [首版清单](mysql-first-release-milestone.md) 核对该版本的验收状态。
 
-当前候选源码为 `b991b5830c4e3a91f9c57c89858eca1f9a4d1e9d`。以下文件可用同一份 `SHA256SUMS` 核对。
+已通过复建及安装验收的候选源码为 `2a958f1fbb46d2837414727524c974acc578a03c`。以下文件可用同一份 `SHA256SUMS` 核对。
 
 | 角色 | Linux x64 文件 | SHA-256 |
 | --- | --- | --- |
-| 平台 | `platform-linux-x64-b991b583.zip` | `321b88230b75317dc2bf736d8be46c9869e8cd5fbb8a81a7ee5f40b4b8b139bd` |
-| 独立 Full | `full-linux-x64-b991b583.zip` | `1e8000353640f57bce10371ce88610a5548503e99a5af49c1b0383f4937882ad` |
+| 平台 | `platform-linux-x64-2a958f1f.zip` | `75b45b953a8be83142f90cd8f2dbb68b394bff68e7d3ec1dcf6d5e00bcb39e49` |
+| 独立 Full | `full-linux-x64-2a958f1f.zip` | `5ec9e01287cd63a7e0b6b9a684aa8600564e6973b6f59858a51abf86d84b6979` |
 
 复核两份现成 ZIP 时，在对应的源码检出运行下列命令，把路径改为同时包含两个 ZIP 和摘要文件的目录。输出中的两个 commit 均应与上方完整提交一致。
 
