@@ -75,3 +75,9 @@ finally清理私有连接设置、CLI临时凭据和自身进程，按所有权�
 私有证据位于 `.local/rule-record-native-retry-20261029/db8d282b062aa370`：native.trx、test-result.json、verified.json、execution.json、cleanup.json及independent-absence.json；详细脱敏子过程日志保留在固定来源的本轮evidence目录。库/账号和凭据已不存在，保留的证据不含私有连接配置。
 
 此项是正式HTTP/Web身份、OAuth和真实CLI验收，没有执行浏览器点击、正向复制、完整自定义业务按钮、并发锁、性能或跨端验收；C24/C25完整关系矩阵及总体发布门槛继续保持未完成。
+
+## V1311 当前候选六页规则 Web、OAuth 和 CLI
+
+2026-11-13。对当前候选 2a958f1f 平台发行 ZIP 逐项核对 3,107 份源码。隔离检出只更新测试夹具的候选版本常量。规则完整包由原生成器生成，严格编译，已验证两次再生成及手写 partial 保护，并通过完整包文件集合和摘要防漂移检查。使用原正式用例，在 Server-200 独占合成 MySQL 库和 Redis 下通过 1 项，零失败、零跳过。第六批原 TRX 的条件跳过回执保留。
+
+真实 Web 密码登录、CLI 设备 OAuth 授权和普通账号撤去临时超级角色后均通过。六页共 12 次只读规则拒绝、5 次异父拒绝、2 次跨项目或墓碑拒绝，均发生于任务创建前。6 次允许的 CLI 写入均入账为 applied，逻辑详情与非冗余稀疏列已读回。撤权后继续拒绝旧能力并核对任务账本。库、账号、Redis、回环和私有运行配置均经独立检查回收。本项覆盖 HTTP 层 Web 身份及真实 OAuth/CLI。

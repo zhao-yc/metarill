@@ -1500,6 +1500,7 @@
 | V1306 | ✅ 当前平台共库跨实例恢复通过 | 2a958f1f／两个 MySQL 8.4.11 独占实例 | 单快照恢复 25 表，50 个原 HTTP、双附件、权限和旧授权处置通过，源端及清理独立核验。 | [V1306 平台共库跨实例恢复](testing/current-split-recovery-v927-v928.md#v1306-当前候选平台共库跨实例恢复)，2026-11-13 |
 | V1308 | ✅ 当前平台共库 SeaweedFS 恢复通过 | 2a958f1f／源与目标各一库 | 25 表、25 个原 HTTP 与 13 次 S3 SDK 操作。双附件按原键恢复，异址拒绝，权限与回收核验通过。 | [V1308 平台共库 S3 恢复](testing/current-split-recovery-v927-v928.md#v1308-当前候选平台共库-s3-恢复)，2026-11-13 |
 | V1309 | 🧪 当前独立 Linux 第六批结束 | 2a958f1f／Server-200 | 原 TRX 79 通过、9 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1309 当前独立 Linux 第六批](testing/current-linux-generation-batches-v945.md#v1309-当前独立-linux-第六批)，2026-11-13 |
+| V1311 | ✅ 当前候选六页规则实库通过 | 2a958f1f／Server-200 | 第六批专用条件跳过的 1 项通过。真实 Web／OAuth／CLI、19 次任务前拒绝、6 次入账写入及撤权均核验；独占资源核清。 | [V1311 当前候选六页规则实测](testing/rule-record-native-acceptance.md#v1311-当前候选六页规则-weboauth-和-cli)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
