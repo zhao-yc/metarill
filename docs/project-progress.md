@@ -1485,7 +1485,8 @@
 | V1290 | ✅ 当前独立 Full MCP 通过 | 2a958f1f／Server-200 | 30 次真实请求，空库显式安装、OAuth 读取与撤权通过。 | [V1289–V1291 当前候选三拓扑 MCP 权限](testing/current-platform-full-mcp-v937-v938.md#v1289v1291-当前候选三拓扑-mcp-权限)，2026-11-13 |
 | V1291 | ✅ 当前平台共库 MCP 通过 | 2a958f1f／Server-200 | 50 次真实请求，双身份跨项目记录不可见，备用库零表，资源核清。 | [V1289–V1291 当前候选三拓扑 MCP 权限](testing/current-platform-full-mcp-v937-v938.md#v1289v1291-当前候选三拓扑-mcp-权限)，2026-11-13 |
 | V1292 | ✅ 当前在线助手双工程与原批次重启通过 | 2a958f1f／原 HTTP／真实 CLI | 双绑定、首次各写 19 份、重启续跑各零写入、手写及仅后端范围保持，独占资源核清。 | [V1292 当前在线助手双工程](testing/fixed-device-runtime-v837.md#v1292-当前发行源码在线助手双工程与原批次重启通过)，2026-11-13 |
-| V1295 | 🧪 当前独立 Linux 第二批通过 | 2a958f1f／Server-200 | 12 项原 TRX 全部通过，3,184 项发现名单已逐项核对，其余批次继续。 | [V1295 当前独立 Linux 第二批](testing/current-linux-generation-batches-v945.md#v1288-当前独立-linux-第二批)，2026-11-13 |
+| V1294 | ✅ 固定候选原浏览器批量恢复通过 | 2a958f1f／原桌面 Web／真实 CLI | 三批六任务，刷新后查询原批次，新增同步 POST 为零，旧会话拒绝及独立回收通过。 | [V1294 当前原 Web 批量恢复](testing/fixed-device-browser-v838.md#v1294-当前发行源码原-web-批量同步与回执恢复通过)，2026-11-13 |
+| V1295 | 🧪 当前独立 Linux 第二批通过 | 2a958f1f／Server-200 | 12 项原 TRX 全部通过，3,184 项发现名单已逐项核对，其余批次继续。 | [V1295 当前独立 Linux 第二批](testing/current-linux-generation-batches-v945.md#v1295-当前独立-linux-第二批)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
