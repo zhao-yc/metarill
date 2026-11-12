@@ -1506,6 +1506,7 @@
 | V1312 | 🧪 当前独立 Linux 第七批结束 | 2a958f1f／Server-200 | 原 TRX 56 通过、8 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1312 当前独立 Linux 第七批](testing/current-linux-generation-batches-v945.md#v1312-当前独立-linux-第七批)，2026-11-13 |
 | V1314 | ✅ 当前候选原 Web Excel 通过 | 2a958f1f／原 H5／Server-200 MySQL | 原选档、整批回滚读回、两条成功导入、原工作簿下载、移动普通只读及注销通过。 | [V1314 当前发行包原 Web Excel](testing/integrated-original-web-excel-v713.md#v1314-当前候选原-web-excel-与实库回滚)，2026-11-13 |
 | V1316 | ✅ 当前独立完整管理包实库通过 | 2a958f1f／公开 FullManagementApplication | 13 表显式安装、三账号三授权隔离、真实 CLI 18 项、MCP、保留 ID 初始化与重启通过。独占资源核清。 | [V1316 当前独立管理包](testing/fixed-management-native-v840.md#v1316-当前发行候选独立管理包正式验收)，2026-11-13 |
+| V1317 | ✅ 当前公开 Full 六模型追加及覆盖通过 | 2a958f1f／正式普通身份／MySQL | 六模型原 XLSX、传播维护、两类锁等待和整批文件回滚通过，两轮独立核清。 | [V1317 当前公开六模型追加与覆盖](testing/fixed-cross-excel-v826.md#v1317-当前公开-full-六模型追加与覆盖)，2026-11-13 |
 | V1318 | 🧪 当前独立 Linux 第八批有失败 | 2a958f1f／Server-200 | 原 TRX 41 通过、8 实库条件跳过、1 项生成类型命名编译等待超时，3,184 项发现名单已逐项核对，其余批次继续。 | [V1318 当前独立 Linux 第八批](testing/current-linux-generation-batches-v945.md#v1318-当前独立-linux-第八批)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
