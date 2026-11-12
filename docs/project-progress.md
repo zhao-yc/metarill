@@ -1489,6 +1489,7 @@
 | V1295 | 🧪 当前独立 Linux 第二批通过 | 2a958f1f／Server-200 | 12 项原 TRX 全部通过，3,184 项发现名单已逐项核对，其余批次继续。 | [V1295 当前独立 Linux 第二批](testing/current-linux-generation-batches-v945.md#v1295-当前独立-linux-第二批)，2026-11-13 |
 | V1296 | ✅ 当前发行包两目录种子回滚与恢复通过 | 2a958f1f／固定发行宿主／双库 | 两个真实末条 CHECK、逐目录回滚、恢复 1,531 种子和真实登录通过，独占资源核清。 | [V1296 当前发行包种子回滚](testing/platform-seed-rollback-native.md#v1296-当前发行包两类目录末条种子回滚)，2026-11-13 |
 | V1297 | ✅ 当前平台双拓扑事务与权限通过 | 2a958f1f／发行 ZIP／Server-200 MySQL | 同一行两写、非法导入回滚、撤权及双宿主账号初始化通过。 | [V1297 当前双拓扑事务与权限](testing/mysql-platform-topology-current-v461.md#v1297-当前发行包双拓扑并发导入与权限)，2026-11-13 |
+| V1298 | ✅ 原配置、实际下载及独立安装通过 | 2a958f1f／Server-200 | 两次原下载 672 文件一致，独立安装 14 表，新表原 CRUD、重启与注销通过。两轮资源独立核清。 | [V1298 当前候选生成到独立安装](testing/current-generated-delivery-v917.md#v1298-当前候选配置下载及独立安装)，2026-11-13 |
 | V1299 | 🧪 当前独立 Linux 第三批结束 | 2a958f1f／Server-200 | 原 TRX 44 通过、8 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1299 当前独立 Linux 第三批](testing/current-linux-generation-batches-v945.md#v1299-当前独立-linux-第三批)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
