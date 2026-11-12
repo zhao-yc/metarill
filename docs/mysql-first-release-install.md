@@ -24,14 +24,14 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 将平台四份元数据及 `global.json` 按表格布置。发布后核对全部文件摘要，包括依赖和元数据。发行物和 Web 静态目录与私有配置、数据库备份、文件库及导出临时文件分开。部署配置由服务账户读取，持久目录由运行账户写入。
 
-收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。最近通过双包复建与三种隔离安装的候选为 `e682cd12`。实际回执见 [V1125／V1126 排序候选](testing/storage-mode-linux-release-v1009-v1010.md#v1125-与-v1126-排序候选独立双包及三拓扑)。当前候选的安装文件、配置样例及数据库能力边界见 [V1143 当前双包分发核对](testing/current-release-distribution-v963.md#v1143-当前双包分发与数据库边界)。部署新提交时按 [首版清单](mysql-first-release-milestone.md) 核对该版本的验收状态。
+收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。最近通过双包复建与三种隔离安装的候选为 `b991b583`。实际回执见 [V1177／V1178 日期修复双包及三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1177-与-v1178-日期修复候选双包及三拓扑)。此前 e682cd12 的配置样例及数据库能力边界核验见 [V1143 当前双包分发核对](testing/current-release-distribution-v963.md#v1143-当前双包分发与数据库边界)。部署新提交时按 [首版清单](mysql-first-release-milestone.md) 核对该版本的验收状态。
 
-当前候选源码为 `e682cd12aca55c89f5f3b100e641dae2c84478b0`。以下文件可用同一份 `SHA256SUMS` 核对。
+当前候选源码为 `b991b5830c4e3a91f9c57c89858eca1f9a4d1e9d`。以下文件可用同一份 `SHA256SUMS` 核对。
 
 | 角色 | Linux x64 文件 | SHA-256 |
 | --- | --- | --- |
-| 平台 | `platform-linux-x64-e682cd12.zip` | `d24d5b2942a979547ef131180938e923f4c1c332f0a144f6e43cd2843c72d9a7` |
-| 独立 Full | `full-linux-x64-e682cd12.zip` | `5fd0bae78271df773d53d160a922695f25cbffd61ffbc33175de390782769cb8` |
+| 平台 | `platform-linux-x64-b991b583.zip` | `321b88230b75317dc2bf736d8be46c9869e8cd5fbb8a81a7ee5f40b4b8b139bd` |
+| 独立 Full | `full-linux-x64-b991b583.zip` | `1e8000353640f57bce10371ce88610a5548503e99a5af49c1b0383f4937882ad` |
 
 复核两份现成 ZIP 时，在对应的源码检出运行下列命令，把路径改为同时包含两个 ZIP 和摘要文件的目录。输出中的两个 commit 均应与上方完整提交一致。
 
@@ -82,7 +82,7 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 独立 Full 使用只读容器根文件系统时，将顶层 `Exports:RootDirectory` 指向应用进程可写的私有挂载。也可用 `Exports__RootDirectory` 明确指定该路径。沿用基础镜像时同时核对其继承的环境变量。以运行账户验证可创建及删除临时文件，再用原页面导出并实际下载一次。见 [V657 原 Web 复验](testing/current-original-web-excel-v656-v657.md)。
 
-已有管理员密码由账号流程维护。两种宿主的显式初始化重复执行会保留现有账号密码。确认本次安装回执后，从正式运行配置移除仅用于引导的密码。当前候选的分库平台、共库平台及独立 Full 均已实测移除引导密码后重启。已有会话继续可用，管理员用原密码重新登录和注销均通过。[V1126 当前三种部署实测](testing/storage-mode-linux-release-v1009-v1010.md#v1125-与-v1126-排序候选独立双包及三拓扑)。
+已有管理员密码由账号流程维护。两种宿主的显式初始化重复执行会保留现有账号密码。确认本次安装回执后，从正式运行配置移除仅用于引导的密码。当前候选的分库平台、共库平台及独立 Full 均已实测移除引导密码后重启。已有会话继续可用，管理员用原密码重新登录和注销均通过。[V1177／V1178 日期修复双包及三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1177-与-v1178-日期修复候选双包及三拓扑)。
 
 由平台下载的独立 Full 可按包内配置执行同一安装流程。当前候选已核对实际返回 ZIP、严格构建、空库预览和显式安装，并从生成的新表原接口读写。[V1148 当前生成下载与独立安装](testing/current-generated-delivery-v917.md#v1148-当前发行包配置下载及独立安装)。
 
