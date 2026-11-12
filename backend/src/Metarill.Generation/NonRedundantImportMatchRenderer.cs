@@ -20,7 +20,12 @@ internal static class NonRedundantImportMatchRenderer
         var logicalIds=crosses.SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
         if(!logicalIds.Contains(key.Source.Id)&&!context.Any(column=>logicalIds.Contains(column.Source.Id)||!NonRedundantReadCompilation.Physical(model,table,column)))return null;
         var outputs=new[]{"id",key.Source.ColumnName}.Concat(context.Select(column=>column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var dependencies=FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column.Source.ColumnName).Concat(page.Condition?.Syntax.Fields??[]).Concat(outputs).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        // 覆盖匹配先按 import 权限和当前值找记录，隐藏范围列只参与条件。
+        var exact=ExactDataManageCompilation.Resolve(model,table,page);
+        var dependencies=FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column.Source.ColumnName)
+            .Concat(page.Condition?.Syntax.Fields??[])
+            .Concat(exact is null?[]:new[]{exact.Column.Source.ColumnName})
+            .Concat(outputs).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,outputs,NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,deferCascadeNames:true);
         if(key.IsJsonArray||compiled.OutputTypes[key.Source.ColumnName] is "json")throw new InvalidOperationException("覆盖匹配字段必须为已支持的单值列。");
         return new(key,context,outputs,dependencies);

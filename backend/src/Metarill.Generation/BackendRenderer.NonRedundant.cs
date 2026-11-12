@@ -141,7 +141,7 @@ internal static class GeneratedNonRedundantReadCatalog
             .AppendLine("    /// <summary>私有写后当前读不暴露HTTP开关，防止旧事务快照覆盖已经验证的名称。</summary>")
             .AppendLine($"    private async Task<{page.Name}Vo?> ReadDetail{suffix}Async(long id,string? parentId,RuntimeActor actor,CancellationToken cancellationToken,bool currentRead)").AppendLine("    {")
             .AppendLine(SelectionPageRenderer.Enabled(page)?$"        await ValidateSelectionParents{suffix}Async(parentId,actor,cancellationToken);":"")
-            .AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=parentId}},actor);")
+            .AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=parentId}},actor{ExactDataManageCompilation.Argument(page,"\"detail\"")});")
             .AppendLine($"        var rows=await new NonRedundantReader(session).KeyRowsAsync(ReadPlan{suffix},filters,[id],cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)},currentRead:currentRead);")
             .AppendLine($"        return rows.Count==0?null:{NonRedundantProjectionCall(model,table,page,"rows","currentRead",true)};").AppendLine("    }");
         if(ExactDataManageCompilation.Declared(page)||page.Condition is not null)
