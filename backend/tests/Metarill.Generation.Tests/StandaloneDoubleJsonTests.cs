@@ -5,11 +5,11 @@ using Xunit;
 
 namespace Metarill.Generation.Tests;
 
-/// <summary>执行原宿主模板的JSON登记片段，隔离验证真实MVC与最小接口，不能代替实库或完整应用验收。</summary>
+/// <summary>执行原宿主模板的 JSON 登记，验证 MVC 的数字和日历输入以及最小接口的数字响应。</summary>
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class StandaloneDoubleJsonTests
 {
-    /// <summary>两个宿主档案都必须保留相邻位型、字符串ID并拒绝非有限及非零下溢输入。</summary>
+    /// <summary>两个宿主档案保留数值合同，并接受原页面日期和显式清空。</summary>
     [Theory]
     [InlineData("Program.cs.tpl")]
     [InlineData("DevelopmentProgram.cs.tpl")]
@@ -47,11 +47,18 @@ public sealed class NumericProbeController : ControllerBase
     // 读取和提交均经过真实MVC格式化器。
     [HttpGet] public NumericProbe Get() => NumericProbe.Value();
     [HttpPost] public NumericProbe Post([FromBody] NumericProbe value) => value;
+    [HttpPost("calendar")] public object Calendar([FromBody] CalendarProbe value) => new
+    {
+        start=value.LoginRiseTime.Value, last=value.LastLoginTime, stop=value.LoginStopTime.Value,
+        stopSpecified=value.LoginStopTime.IsSpecified, validitySpecified=value.ValidityTime.IsSpecified
+    };
     // 分页和Count用原生成动作的真实合同；记录ID仍是高位字符串。
     [HttpGet("page")] public R<PageResult<NumericProbe>> Page() => R<PageResult<NumericProbe>>.Success(new(new[]{NumericProbe.Value()},2,1,1,20));
     [HttpGet("count")] public R<long> Count() => R<long>.Success(2);
 
 }
+public sealed record CalendarProbe(Optional<DateTime?> LoginRiseTime, DateTime LastLoginTime,
+    Optional<DateTime?> LoginStopTime, Optional<DateTime?> ValidityTime);
 """;
             await File.WriteAllTextAsync(Path.Combine(directory, "Program.cs"), program);
             var project = "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><ProjectReference Include=\"" + System.Security.SecurityElement.Escape(Path.Combine(source, "backend/src/Metarill.Core/Metarill.Core.csproj")) + "\" /></ItemGroup></Project>";
@@ -88,6 +95,20 @@ public sealed class NumericProbeController : ControllerBase
                 using var rejected = await host.Client.PostAsync("/numeric", new StringContent(body.Replace("4.1045368012983762E-289", invalid, StringComparison.Ordinal), Encoding.UTF8, "application/json"));
                 Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
             }
+            // 原详情提交带空格的日历日期，未修改的已读回字段仍可能是带小数秒的 ISO 文本。
+            const string calendar = """{"loginRiseTime":"2026-11-14 12:00:00","lastLoginTime":"2026-11-12T07:54:42.946363","loginStopTime":""}""";
+            using var dated = await host.Client.PostAsync("/numeric/calendar", new StringContent(calendar, Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.OK, dated.StatusCode);
+            using var date = JsonDocument.Parse(await dated.Content.ReadAsStringAsync());
+            var fields = date.RootElement;
+            Assert.Equal("2026-11-14T12:00:00", fields.GetProperty("start").GetString());
+            Assert.Equal("2026-11-12T07:54:42.946363", fields.GetProperty("last").GetString());
+            Assert.Equal(JsonValueKind.Null, fields.GetProperty("stop").ValueKind);
+            Assert.True(fields.GetProperty("stopSpecified").GetBoolean());
+            Assert.False(fields.GetProperty("validitySpecified").GetBoolean());
+            using var badDate = await host.Client.PostAsync("/numeric/calendar",
+                new StringContent(calendar.Replace("2026-11-14", "2026-11-31", StringComparison.Ordinal), Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.BadRequest, badDate.StatusCode);
         }
         finally
         {

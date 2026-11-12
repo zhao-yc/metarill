@@ -30,6 +30,10 @@ public static class JsonDefaults
         options.Converters.Add(new CompatibleDateTimeConverter());
         ConfigureCounterResponse(options);
     }
+    /// <summary>独立宿主兼容原日期控件的日历输入，继续输出原有的 ISO 日期时间。</summary>
+    public static void ConfigureOriginalCalendarInput(JsonSerializerOptions options) =>
+        options.Converters.Add(new OriginalCalendarInputConverter());
+
     /// <summary>R&lt;long&gt;是既有生成Count响应；只定制其Data，保留宿主描述器、嵌套ID及泛型R形状。</summary>
     public static void ConfigureCounterResponse(JsonSerializerOptions options)
     {
@@ -42,6 +46,23 @@ public static class JsonDefaults
                     property.CustomConverter = new NumericLongJsonConverter();
         });
     }
+    private sealed class OriginalCalendarInputConverter : JsonConverter<DateTime>
+    {
+        public override DateTime Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.String &&
+                (reader.TryGetDateTime(out var value) ||
+                 DateTime.TryParseExact(reader.GetString(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture,
+                     DateTimeStyles.None, out value)))
+                return value;
+
+            throw new JsonException("日期时间必须为 ISO 8601 或 yyyy-MM-dd HH:mm:ss。");
+        }
+
+        public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(value);
+    }
+
     private sealed class CompatibleDateTimeConverter : JsonConverter<DateTime>
     {
         public override DateTime Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) =>
