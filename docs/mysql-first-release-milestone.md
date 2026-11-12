@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+`2a958f1f` 已完成同合同明细导入、逐次修复和整表维护三类正式回放。三个场景均通过稳定性门槛。[V1270 同父子页候选三类关系性能实测](testing/current-mysql-performance-v1130.md#v1270-同父子页候选三类关系性能实测)。其余六类继续。
+
 `2a958f1f` 的两个实际发行 ZIP 已完成分发内容、许可、配置样例和 MySQL 能力边界核验。[V1272 同父子页候选双包分发与数据库边界](testing/current-release-distribution-v963.md#v1272-同父子页候选双包分发与数据库边界)。
 
 `2a958f1f` 的 Windows 30 组固定回归通过，平台、示例及前端 717 份受管产物复生成一致。[V1267 当前 Windows 固定回归](testing/current-windows-regression-v946-v947.md#v1267-同父子页候选-windows-回归)

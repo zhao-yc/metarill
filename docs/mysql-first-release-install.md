@@ -88,7 +88,7 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 ## Web 与网关
 
-解包后，平台前端工程在发行根的 `frontend/metarill_uni_admin`，独立 Full 在发行根的 `frontend`。先按下文配置 AppID 和 API 地址，再在对应工程目录用 `npm ci --omit=optional` 按锁文件安装依赖。用本机 HBuilderX CLI 执行 `publish web --project "<前端工程绝对路径>" --webTitle "<站点标题>" --webHosting false`。核对 CLI 的编译成功和导出 Web 成功回执，再部署前端工程下 `unpackage/dist/build/web`。当前候选的平台与独立 Full 实际 ZIP 构建回执见 [V1140 双包 Web 发行构建](testing/current-release-distribution-v963.md#v1140-当前候选双包-web-发行构建)。
+解包后，平台前端工程在发行根的 `frontend/metarill_uni_admin`，独立 Full 在发行根的 `frontend`。先按下文配置 AppID 和 API 地址，再在对应工程目录用 `npm ci --omit=optional` 按锁文件安装依赖。用本机 HBuilderX CLI 执行 `publish web --project "<前端工程绝对路径>" --webTitle "<站点标题>" --webHosting false`。核对 CLI 的编译成功和导出 Web 成功回执，再部署前端工程下 `unpackage/dist/build/web`。当前候选的平台与独立 Full 实际 ZIP 构建回执见 [V1273 同父子页候选双包 Web 构建](testing/current-release-distribution-v963.md#v1273-同父子页候选双包-web-构建)。
 
 使用各工程自己的 AppID。平台在部署域名使用同源 `/api`。独立 Full 将 `frontend/common/application.config.js` 的 API 地址填为自己的 HTTPS 站点地址并以 `/api` 结尾。网关只发布 H5 静态目录，并将原 `/api` 路径转发到对应的私有宿主。当代理保留客户端 Host 且宿主启用 `AllowedHosts` 时，把实际部署域名加入顶层允许列表。独立 Full 示例默认只允许本机地址。域名列表使用分号分隔，填写主机名即可。文件下载、上传和 Agent／MCP 如需开放，按其协议及权限验证，并保留文件根在静态目录之外。 [可信反向代理](web-reverse-proxy.md) · [独立应用配置](standalone-application.md) · [Tiny Cloud](tiny-cloud.md)
 
