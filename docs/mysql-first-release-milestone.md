@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+`2a958f1f` 当前候选已实测 4/9 类、20,700 个正式请求、36 个配对轮次。已测场景均通过稳定性门槛。[V1274 同父子页候选只读查询性能实测](testing/current-mysql-performance-v1130.md#v1274-同父子页候选只读查询性能实测)。
+
 `2a958f1f` 对应的 GitHub CI 15 个作业全部通过，14 份官方报告已逐件核对。[V1271 同父子页候选 GitHub CI](testing/ci-current-contracts.md#v1271-同父子页候选-github-ci)。
 
 `2a958f1f` 已完成同合同明细导入、逐次修复和整表维护三类正式回放。三个场景均通过稳定性门槛。[V1270 同父子页候选三类关系性能实测](testing/current-mysql-performance-v1130.md#v1270-同父子页候选三类关系性能实测)。其余六类继续。
