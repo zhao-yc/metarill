@@ -390,17 +390,20 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
     }
     /// <summary>先获取事务内元数据锁，再核库名、InnoDB、完整依赖列类型和主键；没有DDL或结构自动修复。</summary>
     internal async Task<long> ValidatePhysical(MySqlNonRedundantReadPlan plan,DbTransaction transaction,CancellationToken token,
-        bool reusePinnedStructure=false)
+        bool reusePinnedStructure=false,bool batchReverseLayouts=false)
     {
         // 字典普通读仍位于原父候选及首次写入之后，保持可重复读快照与错误顺序。
         var pinnedLayouts = reusePinnedStructure ? session.PinnedRelationLayouts(transaction) : null;
         var alreadyPinned = pinnedLayouts?.ContainsKey(plan) == true;
         var groups = plan.PhysicalReferences.GroupBy(item => item.Table).OrderBy(group => group.Key, StringComparer.Ordinal).ToArray();
-        var canBatch = pinnedLayouts is not null && !alreadyPinned && session.HasScalarCacheWriteProof(transaction) &&
-            plan.ScalarCacheTarget is not null && transaction.Connection is MySqlConnector.MySqlConnection && groups.Length == 2;
+        // 普通反查可以合并两表的只读结构验证。追加专用报文提示仍来自原事务证明。
+        var canBatch = pinnedLayouts is not null && !alreadyPinned && groups.Length == 2 &&
+            transaction.Connection is MySqlConnector.MySqlConnection &&
+            (batchReverseLayouts || plan.ScalarCacheTarget is not null && session.HasScalarCacheWriteProof(transaction));
         var packetLimit = canBatch ? session.AppendPacketLimitHint(transaction) : 0;
         var layouts = packetLimit > 0
-            ? await ReadAppendLayoutsAsync(groups, transaction, packetLimit, token, verifyConnection: true) : null;
+            ? await ReadPairedLayoutsAsync(groups,transaction,packetLimit,token,batchReverseLayouts,verifyConnection:true)
+            : null;
         if (layouts is null)
         {
             // 无提示、预算超限或组合读不完整时，保留独立库名核验和原结构探测顺序。
@@ -416,7 +419,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 return packetLimit;
             }
             if (canBatch)
-                layouts = await ReadAppendLayoutsAsync(groups, transaction, packetLimit, token);
+                layouts = await ReadPairedLayoutsAsync(groups,transaction,packetLimit,token,batchReverseLayouts);
         }
         if (layouts is not null)
         {
@@ -481,10 +484,10 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
     private sealed record PhysicalColumn(string Type,bool Nullable,bool Primary,bool Generated);
     private sealed record PhysicalLayout(object Engine,Dictionary<string,PhysicalColumn> Columns);
 
-    /// <summary>追加事务已进入原父候选快照。按原顺序锁定两张表，再一次读取当前库的依赖列与主键。</summary>
-    private async Task<Dictionary<string,PhysicalLayout>?> ReadAppendLayoutsAsync(
+    /// <summary>按原顺序获取两张表的结构锁，再一次读取当前库的依赖列与主键。</summary>
+    private async Task<Dictionary<string,PhysicalLayout>?> ReadPairedLayoutsAsync(
         IGrouping<string,MySqlPhysicalReference>[] groups,DbTransaction transaction,long packetLimit,CancellationToken token,
-        bool verifyConnection = false)
+        bool reverseLookup,bool verifyConnection=false)
     {
         await using var command=Command(transaction);
         var pins=new List<string>(groups.Length);
@@ -510,7 +513,7 @@ public sealed partial class RelationMaintenanceExecutor(DatabaseSession session)
                 budget+=MySqlInsertCacheBatch.ParameterBytes(names[column]);
             }
         }
-        command.CommandText="/* metarill:append-layout */ "+
+        command.CommandText=(reverseLookup?"/* metarill:reverse-layout */ ":"/* metarill:append-layout */ ")+
             (verifyConnection ? ReadConnectionIdentity + "; " : "") + string.Join("; ",pins)+
             "; SELECT t.table_name,t.engine,c.column_name,c.column_type,c.is_nullable,c.column_key,c.extra,c.generation_expression"+
             " FROM information_schema.tables t LEFT JOIN information_schema.columns c"+

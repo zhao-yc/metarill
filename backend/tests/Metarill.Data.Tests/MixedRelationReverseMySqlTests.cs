@@ -78,7 +78,20 @@ public sealed class MixedRelationReverseMySqlTests
                 }
                 return true;
             });inserted.AddRange(seeds);
-            var consumer=Assert.Single(RelationMaintenanceCatalog.Compile(metadata).Mixed.Consumers);var reverse=Assert.Single(consumer.Read.Reverse);
+            var catalog=RelationMaintenanceCatalog.Compile(metadata);
+            var consumer=Assert.Single(catalog.Mixed.Consumers);var reverse=Assert.Single(consumer.Read.Reverse);
+            await VerifyReverseLayoutAsync(session,catalog,source,target);
+            // 用过期模型模拟结构差异。仍在反查前拒绝，最终逐行核对合成数据保持。
+            foreign.ColumnLength="64";
+            try
+            {
+                var stale=RelationMaintenanceCatalog.Compile(metadata);
+                var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync(()=>
+                    new ProjectRelationMutationPropagator(session).AfterMutationAsync(stale,target,Target,"54",
+                        new HashSet<string>(),allFields:true,refreshSource:false)));
+                Assert.Contains(source+".target_id",error.Message);
+            }
+            finally{foreign.ColumnLength="50";}
             await session.InTransactionAsync(async()=>
             {
                 var first=await Lookup(session,consumer.Read,reverse,Target,0);Assert.Equal(Enumerable.Range(1,128).Select(i=>(long)i),first);
@@ -142,6 +155,31 @@ public sealed class MixedRelationReverseMySqlTests
             await File.WriteAllTextAsync(scopePath+".result.json",JsonSerializer.Serialize(new{runId=run,passed,installed,cleaned,rows=inserted.Count,paging=new[]{128,4,0},explainKey,unrelatedTargetsCompletedWhileHeld=passed},new JsonSerializerOptions{WriteIndented=true}));
         }
     }
+    /// <summary>普通混合关系传播只发一条结构查询，且两表锁、反查和提交位于同一事务。</summary>
+    private static async Task VerifyReverseLayoutAsync(DatabaseSession session,RelationMaintenanceCatalog catalog,string source,string target)
+    {
+        using var observation=DatabaseCommandObservation.Begin(new byte[32]);
+        await session.InTransactionAsync(()=>new ProjectRelationMutationPropagator(session).AfterMutationAsync(
+            catalog,target,905700000000000001L,"54",new HashSet<string>(),allFields:true,refreshSource:false));
+        observation.Dispose();
+        var snapshot=observation.Snapshot();
+        Assert.True(snapshot.InternallyConsistent);
+        var layout=Assert.Single(snapshot.Commands,command=>command.Sql.Contains("information_schema."));
+        Assert.StartsWith("/* metarill:reverse-layout */",layout.Sql);
+        Assert.Contains("FROM `"+source+"` LIMIT 0",layout.Sql);
+        Assert.Contains("FROM `"+target+"` LIMIT 0",layout.Sql);
+        var lookup=Assert.Single(snapshot.Commands,command=>command.Sql.StartsWith("SELECT b.`id`",StringComparison.Ordinal));
+        Assert.EndsWith("LIMIT 128 FOR UPDATE",lookup.Sql);
+        var identity=Assert.Single(snapshot.Commands,command=>command.Sql=="SELECT DATABASE(),@@SESSION.max_allowed_packet");
+        var commit=Assert.Single(snapshot.Transactions,transaction=>transaction.Operation==DatabaseTransactionOperation.Commit);
+        Assert.True(identity.Number<layout.Number&&layout.Number<lookup.Number);
+        Assert.NotNull(commit.Transaction);
+        Assert.Equal(commit.Transaction,identity.Transaction);
+        Assert.Equal(commit.Transaction,layout.Transaction);
+        Assert.Equal(commit.Transaction,lookup.Transaction);
+        Assert.All(snapshot.Commands,command=>Assert.Equal(session.Options.ExpectedDatabase,command.Database));
+    }
+
     /// <summary>反射仅访问现有私有执行方法，不为测试新增公共SQL或事务入口。</summary>
     private static Task<List<long>> Lookup(DatabaseSession session,MySqlNonRedundantReadPlan plan,MySqlReverseProjection reverse,long target,long after,string project="54")
         =>(Task<List<long>>)typeof(MySqlMixedRelationMutationExecutor).GetMethod("ReverseIds",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(new MySqlMixedRelationMutationExecutor(session),[plan,reverse,target,project,after,session.CurrentTransaction!,CancellationToken.None])!;
