@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+`2a958f1f` 已完成分库 S3 附件权限、竞态及事务实库验收。[V1283 同父子页候选分库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1283-同父子页候选分库-s3-附件验收)。
+
 `2a958f1f` 当前候选已实测 9/9 类、45,756 个正式请求、66 个配对轮次。已测场景均通过稳定性门槛。[V1280 同父子页候选导出与复制性能实测](testing/current-mysql-performance-v1130.md#v1280-同父子页候选导出与复制性能实测)。
 
 `2a958f1f` 实际平台和 Full 双包已通过严格 MySQL TLS、三库显式安装和原业务接口验收。[V1277 同父子页候选严格 MySQL TLS](testing/mysql-strict-tls-web-v565.md#v1277-同父子页候选严格-mysql-tls)。
