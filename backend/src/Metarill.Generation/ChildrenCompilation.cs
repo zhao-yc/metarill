@@ -33,6 +33,14 @@ internal static class ChildrenCompilation
             if (scopes.Length != 1) throw new InvalidOperationException("子页面必须具有唯一的 parentId 范围：" + id);
             var column = scopes[0].Column;
             var target = model.Tables.SingleOrDefault(table => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? table.Source.Id == column.Source.LinkConfigTableId : table.Source.TableName + "_id" == column.Source.ColumnName);
+            if(NonRedundantCrossParentCompilation.Find(model,child.Table,child.Page,column) is {} path)
+            {
+                // 级联层位的真实目标来自固定读取计划。显式关联与计划冲突时仍拒绝发布。
+                var logicalTarget=path.Read.Levels[path.Index].Target;
+                if(!string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)&&target!=logicalTarget)
+                    throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);
+                target=logicalTarget;
+            }
             // 前端父ID沿原字符串协议；新增字符串外键须证明物理归属，现有整数范围合同保持。
             var supported=column.Type is "long" or "long?"||column.Type=="string?"&&NonRedundantReadCompilation.Physical(model,child.Table,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn");
             if (target != parent.Table || !supported) throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);

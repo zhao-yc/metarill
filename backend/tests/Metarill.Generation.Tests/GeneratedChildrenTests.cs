@@ -104,6 +104,30 @@ public sealed class GeneratedChildrenTests
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }
 
+    /// <summary>共享级联隐式地区槽按真实路径绑定，不能配置为其它父表。</summary>
+    [Theory]
+    [InlineData("401",true)]
+    [InlineData("301",false)]
+    public void Shared_cross_parent_uses_the_proven_target(string parentPage,bool supported)
+    {
+        var catalog=CrossTableExcelSharedGenerationTests.Catalog("shared-r0");
+        Assert.DoesNotContain(catalog.ConfigColumns,column=>column.ConfigTableId=="2"&&column.ColumnName=="area_id");
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND area_id=@parent_id";
+        catalog.ConfigChildren.Add(JsonSerializer.SerializeToElement(new{
+            id="9011",parentConfigPageId=parentPage,childConfigPageId="201",childPageOpenType=2,yzProjectId=catalog.YzProjectId}));
+        var model=GenerationModel.Create(catalog,"Example.SharedLogicalChild");
+        if(!supported)
+        {
+            Assert.Throws<InvalidOperationException>(()=>ChildrenCompilation.Compile(model));
+            return;
+        }
+        var child=Assert.Single(ChildrenCompilation.Compile(model));
+        Assert.Equal("4",child.Parent.Source.ConfigTableId);
+        var output=Assert.Single(UniappRenderer.Render(model),file=>file.Path=="frontend/pages/yzp/shared_excel_area-detail-401.vue");
+        Assert.Contains(":parent_id='id'",output.Content);
+        Assert.Contains(":parent_page_sn='page_sn'",output.Content);
+    }
+
     /// <summary>覆盖原八条平台子定义，真实平台元数据必须能够完整渲染。</summary>
     [Fact]
     public async Task Platform_child_metadata_renders_all_existing_children()
