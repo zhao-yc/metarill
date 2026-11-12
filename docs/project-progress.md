@@ -1435,6 +1435,9 @@ e847ed09 的 Linux 双包独立复建和三种隔离安装已通过。新候选�
 | V1238 | ✅ 当前候选独立 Full 对象恢复通过 | e847ed09／MySQL 与 SeaweedFS | 13 表、原键 466 字节、19 个原请求及权限、会话与精确回收通过。 | [V1238 独立 Full 对象恢复](testing/current-split-recovery-v927-v928.md#v1238-当前候选独立-full-对象恢复)，2026-11-12 |
 | V1239 | ✅ 当前平台双拓扑事务与权限通过 | e847ed09／发行 ZIP／Server-200 MySQL | 同一行两写、非法导入回滚、撤权及双宿主账号初始化通过。 | [V1239 当前双拓扑事务与权限](testing/mysql-platform-topology-current-v461.md#v1239-当前发行包双拓扑并发导入与权限)，2026-11-12 |
 | V1240 | ✅ 当前发行包两目录种子回滚与恢复通过 | e847ed09／固定发行宿主／双库 | 两个真实末条 CHECK、逐目录回滚、恢复 1,531 种子和真实登录通过，独占资源核清。 | [V1240 当前发行包种子回滚](testing/platform-seed-rollback-native.md#v1240-当前发行包两类目录末条种子回滚)，2026-11-12 |
+| V1241 | ✅ 当前平台分库 MCP 通过 | e847ed09 | 46 个真实请求，发布页隔离、撤权与三次物理读回通过。 | [V1241–V1243 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1241v1243-当前候选三拓扑-mcp-权限)，2026-11-12 |
+| V1242 | ✅ 当前独立 Full MCP 通过 | e847ed09 | 30 个真实请求，空库显式安装、OAuth 读权限与撤权通过。 | [V1241–V1243 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1241v1243-当前候选三拓扑-mcp-权限)，2026-11-12 |
+| V1243 | ✅ 当前平台共库 MCP 通过 | e847ed09 | 50 个真实请求，跨项目两处记录隐藏，备用库零表，资源核清。 | [V1241–V1243 当前三拓扑 MCP](testing/current-platform-full-mcp-v937-v938.md#v1241v1243-当前候选三拓扑-mcp-权限)，2026-11-12 |
 
 ## 五、后续跨端兼容性验收
 
