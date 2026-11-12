@@ -4,7 +4,7 @@
 
 更新日期：2026-11-13。最新完成双包复建及三拓扑安装的版本为 `2a958f1f`，当前完整验收参考仍为 `e847ed09`，分支为 `codex/initial-platform`。首次盘点基线 `ef946fd` 及历次候选记录保留。
 
-2a958f1f 的双包复建、三种隔离安装、独立 Windows 30 组和 GitHub CI 15 项均已通过。Server-200 同条件性能九类全部达标，累计 45,756 个正式请求和 66 个配对轮次。独立 Linux 回归计划 3,184 项、57 批，前五批 105 项通过、22 项实库条件跳过，其余批次继续（V1288／V1295／V1299／V1301／V1305）。 第三批的 8 项条件跳过已另行在同版本 Linux／MySQL 实测通过（V1300）。同一候选的分库及独立 Full 恢复已取得实库回执（V1284–V1287）。余下原 Web、复杂关系与权限、助手及 MCP 组合按各行核对。Tiny Cloud 真实编辑待有效配置。MySQL 首版总验收继续按 V11 核对。
+2a958f1f 的双包复建、三种隔离安装、独立 Windows 30 组和 GitHub CI 15 项均已通过。Server-200 同条件性能九类全部达标，累计 45,756 个正式请求和 66 个配对轮次。独立 Linux 回归计划 3,184 项、57 批，前五批 105 项通过、22 项实库条件跳过，其余批次继续（V1288／V1295／V1299／V1301／V1305）。 第三批的 8 项条件跳过已另行在同版本 Linux／MySQL 实测通过（V1300）。 第四批的 7 项条件跳过也已实测通过（V1302）。同一候选的分库及独立 Full 恢复已取得实库回执（V1284–V1287）。余下原 Web、复杂关系与权限、助手及 MCP 组合按各行核对。Tiny Cloud 真实编辑待有效配置。MySQL 首版总验收继续按 V11 核对。
 
 ## 标记及维护规则
 
@@ -1493,6 +1493,7 @@
 | V1299 | 🧪 当前独立 Linux 第三批结束 | 2a958f1f／Server-200 | 原 TRX 44 通过、8 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1299 当前独立 Linux 第三批](testing/current-linux-generation-batches-v945.md#v1299-当前独立-linux-第三批)，2026-11-13 |
 | V1300 | ✅ 当前 Linux 第三批的 MySQL 补验通过 | 2a958f1f／Server-200／独占 MySQL | 原跳过的 8 项全部实测通过，业务表、数据库、账号和测试容器均核清。 | [V1300 第三批 MySQL 补验](testing/current-linux-generation-batches-v945.md#v1300-linux-第三批的-8-项-mysql-补验)，2026-11-13 |
 | V1301 | 🧪 当前独立 Linux 第四批结束 | 2a958f1f／Server-200 | 原 TRX 24 通过、7 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1301 当前独立 Linux 第四批](testing/current-linux-generation-batches-v945.md#v1301-当前独立-linux-第四批)，2026-11-13 |
+| V1302 | ✅ 当前 Linux 第四批的 MySQL 补验通过 | 2a958f1f／Server-200／独占 MySQL | 原跳过的 7 项全部实测通过，业务表、数据库、账号和测试容器均核清。 | [V1302 第四批 MySQL 补验](testing/current-linux-generation-batches-v945.md#v1302-linux-第四批的-7-项-mysql-补验)，2026-11-13 |
 | V1303 | ✅ 当前共库 S3 附件通过 | 2a958f1f／Server-200 | 58 次原 HTTP、24 次 SDK，绑定与删除竞态、撤权、共库归属和回滚通过，独立核清。 | [V1303 同父子页候选共库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1303-同父子页候选共库-s3-附件验收)，2026-11-13 |
 | V1304 | ✅ 原桌面及移动 Web 固定用例通过 | 2a958f1f／原 H5 与实际发行宿主 | 六组登录、工作区与表配置、普通读者及编辑者客户 CRUD；六次注销及四库、三账号、Redis、回环和浏览器空间独立核清。 | [V1304 当前候选原双视口 Web](testing/current-exact-release-web-v913.md#v1304-当前候选原桌面及移动-web)，2026-11-13 |
 | V1305 | 🧪 当前独立 Linux 第五批结束 | 2a958f1f／Server-200 | 原 TRX 10 通过、7 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1305 当前独立 Linux 第五批](testing/current-linux-generation-batches-v945.md#v1305-当前独立-linux-第五批)，2026-11-13 |
