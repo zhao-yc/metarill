@@ -34,7 +34,7 @@
 
 `2a958f1f` 的 Windows 30 组固定回归通过，平台、示例及前端 717 份受管产物复生成一致。[V1267 当前 Windows 固定回归](testing/current-windows-regression-v946-v947.md#v1267-同父子页候选-windows-回归)
 
-2a958f1f 的原 Java／C# 九类同条件复测已固定。Server-200 连续 12 次只读采样未达到计时条件，正式回放继续等待合适窗口。[V1266 当前候选性能准备](testing/current-mysql-performance-v1130.md#v1266-同父子页候选九类性能复测准备)
+2a958f1f 的原 Java／C# 九类同条件复测已固定。Server-200 连续 12 次只读采样未达到计时条件，随后取得窗口时发现旧脚本误绑定，已修正并重新通过只读预检。当前候选正式计时继续等待窗口。[V1269 性能回放绑定修正](testing/current-mysql-performance-v1130.md#v1269-性能回放绑定修正)。[V1266 当前候选性能准备](testing/current-mysql-performance-v1130.md#v1266-同父子页候选九类性能复测准备)
 
 `2a958f1f` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1263 同父子页候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1263-同父子页候选双包及三拓扑)
 
