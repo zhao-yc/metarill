@@ -40,8 +40,16 @@ public sealed class SharedCrossExactScopeMySqlTests
     [FreshInstallMySqlFact]
     public Task Production_shared_parent_and_logical_exact_allow_only_matching_records_and_files()=>Exercise("countryName",parentScoped:true);
 
+    /// <summary>按逻辑父和物理精确字段锁定同名覆盖目标，列表 Excel 保留原表头与路径。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_parent_excel_overwrites_only_the_matching_row()=>Exercise("scopeKey",parentScoped:true,excelMode:"OverWriteByFirstColumn");
+
+    /// <summary>按逻辑父和派生名称追加，详情 Excel 使用同一真实范围与原路径。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_parent_excel_appends_and_exports_detail_with_logical_exact()=>Exercise("countryName",parentScoped:true,excelMode:"OnlyNew");
+
     /// <summary>各配置共用相同宿主、原HTTP和独占MySQL验证。</summary>
-    private static async Task Exercise(string scope,bool parentScoped=false)
+    private static async Task Exercise(string scope,bool parentScoped=false,string? excelMode=null)
     {
         var logical=scope!="scopeKey";
         var includeFiles=logical||parentScoped;
@@ -57,6 +65,20 @@ public sealed class SharedCrossExactScopeMySqlTests
             sourcePage.IsImport=0;
             sourcePage.IsExport=0;
             sourcePage.Extra.Remove("importMethod");
+        }
+        if(excelMode is not null)
+        {
+            sourcePage.IsImport=1;
+            sourcePage.IsExport=1;
+            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(excelMode);
+            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(logical?"edit":"list");
+            foreach(var (id,title) in new[]{("22","名称"),("25","主路径"),("80","仓库路径")})
+                catalog.ConfigColumns.Single(column=>column.Id==id).Name=title;
+            // 父范围覆盖继续用普通文本首列。无父范围旧用例保留关系首列。
+            var nameField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="22");
+            nameField.Extra.Remove("isReadOnly");
+            nameField.IsEdit=1;
+            catalog.ConfigColumns.Single(column=>column.Id=="90").DefaultValue="scope-a";
         }
         if(includeFiles)
         {
@@ -176,6 +198,7 @@ public sealed class SharedCrossExactScopeMySqlTests
                 await DeniedMutations(allowed,Id(siblingArea));
                 await DeniedMutations(denied,deniedParent);
                 await CheckAttachmentRollback();
+                if(excelMode is not null)await CheckScopedExcel(excelMode=="OverWriteByFirstColumn");
                 await FreshWebHttp.SendAsync(client,HttpMethod.Post,"/api/admin/sys/yz_manager/exit_login",new{});
                 return;
             }
@@ -233,6 +256,79 @@ public sealed class SharedCrossExactScopeMySqlTests
                 await FreshWebHttp.SendAsync(client,HttpMethod.Post,route+"/update",
                     new{id=Id(allowed),warehouseId=Id(firstWarehouse)},HttpStatusCode.InternalServerError);
                 await Download(files[0],HttpStatusCode.Forbidden);
+            }
+
+            /// <summary>原票据下载的工作簿转回同一导入表头，核对当前父、精确权限和整批事务。</summary>
+            async Task CheckScopedExcel(bool overwrite)
+            {
+                var exported=await ExportRows(allowedParent!);
+                var row=Assert.Single(exported);
+                Assert.Equal("row-allowed",row["名称"]);
+                Assert.Equal("country/area/place",row["主路径"]);
+                Assert.Equal("country/area/second",row["仓库路径"]);
+                Assert.Equal("row-sibling",Assert.Single(await ExportRows(Id(siblingArea)))["名称"]);
+
+                // 同名但错误父或精确值的记录都不能成为覆盖对象。
+                await business.UpdateAsync(source,sibling,new Dictionary<string,object?>{["name"]="row-allowed"});
+                await business.UpdateAsync(source,denied,new Dictionary<string,object?>{["name"]="row-allowed"});
+                var before=await SourceRows();
+                row["仓库路径"]="country/area/first";
+                await ImportRows(HttpStatusCode.OK,row);
+                var after=await SourceRows();
+                Assert.Equal(before.Count+(overwrite?0:1),after.Count);
+                var allowedAfter=Assert.Single(after,item=>SqlRowStore.Id(item)==allowed);
+                Assert.Equal(Id(overwrite?firstWarehouse:secondWarehouse),SqlRowStore.Text(allowedAfter,"warehouse_id"));
+                Assert.Equal(Id(siblingWarehouse),SqlRowStore.Text(Assert.Single(after,item=>SqlRowStore.Id(item)==sibling),"warehouse_id"));
+                Assert.Equal(Id(logical?otherWarehouse:firstWarehouse),SqlRowStore.Text(Assert.Single(after,item=>SqlRowStore.Id(item)==denied),"warehouse_id"));
+                if(!overwrite)
+                {
+                    var added=Assert.Single(after,item=>before.All(old=>SqlRowStore.Id(old)!=SqlRowStore.Id(item)));
+                    Assert.Equal(Id(firstWarehouse),SqlRowStore.Text(added,"warehouse_id"));
+                    Assert.Null(added["area_id"]);
+                    Assert.Null(added["country_id"]);
+                    Assert.Equal("country/area/first",Assert.Single(await ExportRows(allowedParent!,Id(SqlRowStore.Id(added))))["仓库路径"]);
+                }
+                else
+                {
+                    // 仅改普通字段仍保持共享分支，导入上下文不能把遗漏的路径清空。
+                    await ImportRows(HttpStatusCode.OK,new Dictionary<string,string>{["名称"]="row-allowed"});
+                    Assert.Equal("country/area/first",Assert.Single(await ExportRows(allowedParent!))["仓库路径"]);
+                }
+
+                var stable=JsonSerializer.Serialize(await SourceRows());
+                await ImportRows(HttpStatusCode.BadRequest,
+                    new(){["名称"]="rollback-first",["主路径"]="country/area/place",["仓库路径"]="country/area/first"},
+                    new(){["名称"]="rollback-conflict",["主路径"]="country/area/place",["仓库路径"]="country/sibling-area/sibling-warehouse"});
+                Assert.Equal(stable,JsonSerializer.Serialize(await SourceRows()));
+                if(overwrite)
+                {
+                    await business.InsertAsync(source,Source(country+22,"row-allowed","scope-a",place,secondWarehouse));
+                    stable=JsonSerializer.Serialize(await SourceRows());
+                    await ImportRows(HttpStatusCode.BadRequest,row);
+                    Assert.Equal(stable,JsonSerializer.Serialize(await SourceRows()));
+                }
+
+                /// <summary>只读取原工作簿公开列；提交给原接口的形状与 SheetJS 解析一致。</summary>
+                async Task<IReadOnlyList<Dictionary<string,string>>> ExportRows(string parent,string? selected=null)
+                {
+                    var request=new PageRequest{ParentId=parent,SelectedIds=selected is null?[]:[selected]};
+                    var reply=await FreshWebHttp.SendAsync(client,HttpMethod.Post,route+"/initExport",request);
+                    using var response=await client.GetAsync(ExportDownloadAccess.DownloadPath+"?exportId="+reply.GetProperty("data").GetString());
+                    Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+                    using var workbook=new XLWorkbook(new MemoryStream(await response.Content.ReadAsByteArrayAsync()));
+                    var sheet=workbook.Worksheet(1);
+                    var fields=new[]{"名称","主路径","仓库路径"}.ToDictionary(title=>title,title=>
+                        Assert.Single(sheet.Row(1).CellsUsed(),cell=>cell.GetString()==title).Address.ColumnNumber);
+                    return sheet.RowsUsed().Skip(1).Select(data=>fields.ToDictionary(field=>field.Key,field=>data.Cell(field.Value).GetString())).ToArray();
+                }
+
+                /// <summary>父范围随原导入请求传输；业务失败继续用原状态和统一响应。</summary>
+                Task<JsonElement> ImportRows(HttpStatusCode status,params Dictionary<string,string>[] rows)=>
+                    FreshWebHttp.SendAsync(client,HttpMethod.Post,route+"/importDatas201",new{parentId=allowedParent,requestJson=rows},status);
+
+                /// <summary>独立读回物理值，包含其它父与范围外记录，用稳定顺序比较回滚。</summary>
+                async Task<IReadOnlyList<Dictionary<string,object?>>> SourceRows()=>
+                    (await business.ReadAsync(source,new Dictionary<string,object?>{["yz_project_id"]=project})).OrderBy(item=>SqlRowStore.Id(item)).ToArray();
             }
 
             /// <summary>修改、复制和删除都必须拒绝错误父范围或错误精确值。</summary>

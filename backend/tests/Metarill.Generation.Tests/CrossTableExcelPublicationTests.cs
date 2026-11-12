@@ -78,6 +78,39 @@ public sealed class CrossTableExcelPublicationTests
         }
     }
 
+    /// <summary>共享两条路径使用同一发布证明；被固定为父键的控件保持原导入列规则。</summary>
+    [Theory]
+    [InlineData("shared-r0", "area_id", "OnlyNew", "edit", true)]
+    [InlineData("shared-r0", "area_id", "OverWriteByFirstColumn", "list", true)]
+    [InlineData("short-r0", "country_id", "OnlyNew", "list", true)]
+    [InlineData("shared-r0", "place_id", "OverWriteByFirstColumn", "edit", false)]
+    public void Shared_R0_parent_paths_publish_original_excel(string profile,string parent,string import,string export,bool primaryImport)
+    {
+        var catalog=CrossTableExcelSharedGenerationTests.Catalog(profile);
+        var source=catalog.ConfigPages.Single(page=>page.Id=="201");
+        source.WhereSql+=$" AND {parent}=@parent_id";
+        source.Extra["importMethod"]=JsonSerializer.SerializeToElement(import);
+        source.Extra["exportMethod"]=JsonSerializer.SerializeToElement(export);
+        var model=GenerationModel.Create(catalog,"Example.SharedParentExcel");
+        var table=model.Tables.Single(candidate=>candidate.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        using var capabilities=JsonDocument.Parse(UniappRenderer.Render(model).Single(file=>file.Path=="generation-capabilities.json").Content);
+        var controls=capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray()
+            .Where(item=>item.GetProperty("pageId").GetString()=="201").ToArray();
+        Assert.Equal(2,controls.Length);
+        Assert.All(controls,control=>
+        {
+            Assert.True(control.GetProperty("sourceParentSupported").GetBoolean());
+            Assert.True(control.GetProperty("pathCellExportSupported").GetBoolean());
+            Assert.Equal(control.GetProperty("columnId").GetString()=="25"?primaryImport:true,
+                control.GetProperty("pathCellImportSupported").GetBoolean());
+        });
+        if(import=="OverWriteByFirstColumn")
+            Assert.Contains("PageImportError.AmbiguousOverwrite",ImportRenderer.Service(model,table,page));
+    }
+
     /// <summary>数字首列和未知导出模式保留门槛，末级固定父键仍不扩大覆盖范围。</summary>
     [Theory]
     [InlineData("area_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]

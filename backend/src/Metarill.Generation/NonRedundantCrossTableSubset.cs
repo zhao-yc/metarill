@@ -43,7 +43,7 @@ internal static class NonRedundantCrossTableSubset
                 companions.All(Declared)&&plans.All(plan=>
                     plan.Definition!.Levels.All(level=>level.Read.Target.Source.Id!=table.Source.Id)&&
                     plan.Definition.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Definition.Levels.Count);
-            var pathSupported=independent&&(!hasParent||SupportsScopedPath(plans,parentColumns));
+            var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
             var scopedOverwrite=hasParent&&pathSupported&&(imports||exports)&&SupportsScopedOverwrite(model,table,page,importColumns);
             if(imports&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
@@ -58,17 +58,28 @@ internal static class NonRedundantCrossTableSubset
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "非冗余跨表完整用途未通过："+error.Message;}
     }
 
-    /// <summary>仅开放已验收的单条三层链；父ID必须是该链的真实逻辑层位。</summary>
-    private static bool SupportsScopedPath(IReadOnlyList<CrossTableWriteResult> plans,IReadOnlyList<ColumnModel> parents)
+    /// <summary>父 ID 必须属于已证明的单路径或完整共享组，且各层保持原物理目标范围。</summary>
+    private static bool SupportsScopedPath(GenerationModel model,TableModel table,PageModel page,
+        IReadOnlyList<CrossTableWriteResult> plans,IReadOnlyList<ColumnModel> parents)
     {
-        if(plans is not [{Definition: {Levels: [var root,var middle,var leaf]}}]||parents is not [var parent]||
-            middle.Read.Parent?.Type is not ("string?" or "long?")||leaf.Read.Parent?.Type is not ("string?" or "long?"))
-            return false;
-        var levels=new[]{root,middle,leaf};
-        // 来源槽与目标父外键分别允许字符串或 bigint，父范围仍须来自同一条逻辑链。
-        return levels.Any(level => level.Id.Source.Id == parent.Source.Id) &&
-            levels.All(level => (level.Id.Type is "string?" or "long?") &&
-                level.Read.Target.Source.IsRongyu == 1 && !level.Read.Target.IsGlobal && !level.Read.DerivedName);
+        if(parents is not [var parent])return false;
+        var paths=plans.Select(plan=>plan.Definition!.Levels).ToArray();
+        if(paths.Length==1)
+        {
+            if(paths[0].Count!=3)return false;
+        }
+        else
+        {
+            var shared=SharedCrossTableCompilation.ForPage(model,table,page);
+            if(shared.Groups is not [var group]||group.Plans.Count!=paths.Length||
+                paths.Any(path=>path.Count is <2 or >3))return false;
+        }
+        // 两种键类型独立验证。共享组本身已经证明了各同伴的共同祖先身份。
+        var levels=paths.SelectMany(path=>path).ToArray();
+        return levels.Any(level=>level.Id.Source.Id==parent.Source.Id)&&
+            paths.All(path=>path.Skip(1).All(level=>level.Read.Parent?.Type is "string?" or "long?"))&&
+            levels.All(level=>(level.Id.Type is "string?" or "long?")&&
+                level.Read.Target.Source.IsRongyu==1&&!level.Read.Target.IsGlobal&&!level.Read.DerivedName);
     }
 
     /// <summary>逻辑父范围的覆盖使用表级首个可导入的物理文本字段，不扩大到关系键或额外解析依赖。</summary>

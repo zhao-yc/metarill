@@ -32,7 +32,9 @@
 
 ## 当前状态
 
-共享 R0 逻辑父范围叠加物理标量或派生名称时，两个固定普通账号的原 HTTP、附件授权与实际引用故障回滚已通过。父范围下的 Excel 及其他组合继续跟踪。[B129 附件事务](exact-data-management.md#b129-共享逻辑父范围与精确权限的附件事务)
+`25cd19b1` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1250 附件精确授权候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1250-附件精确授权候选双包及三拓扑)
+
+共享 R0 逻辑父范围叠加物理标量或派生名称时，两个固定普通账号的原 HTTP、附件授权与实际引用故障回滚已通过。共享父范围的两种原 Excel 正式用例已通过，短链和固定叶父的浏览器矩阵继续跟踪。[B130 共享父范围 Excel](exact-data-management.md#b130-共享逻辑父范围-excel-往返与事务)。[B129 附件事务](exact-data-management.md#b129-共享逻辑父范围与精确权限的附件事务)
 
 `eadfdaaa` 的平台与独立 Full Linux x64 双包已独立复建一致，新包安装及发布回归另计。[V1248 双包](testing/current-mysql-release-packages-v668.md#v1248-共享级联精确范围候选双包复建)
 
