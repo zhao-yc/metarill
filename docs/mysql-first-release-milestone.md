@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+`2a958f1f` 已完成共库 S3 附件权限、竞态及事务实库验收。[V1303 同父子页候选共库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1303-同父子页候选共库-s3-附件验收)。
+
 2a958f1f 的平台分库、独立 Full 和平台共库已通过 126 个真实 MCP 请求，权限隔离、撤权、实库读回和资源清理均已核验。[V1289–V1291 当前候选三拓扑 MCP 权限](testing/current-platform-full-mcp-v937-v938.md#v1289v1291-当前候选三拓扑-mcp-权限)。
 
 `2a958f1f` 已完成分库 S3 附件权限、竞态及事务实库验收。[V1283 同父子页候选分库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1283-同父子页候选分库-s3-附件验收)。

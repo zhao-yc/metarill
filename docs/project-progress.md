@@ -1492,6 +1492,7 @@
 | V1298 | ✅ 原配置、实际下载及独立安装通过 | 2a958f1f／Server-200 | 两次原下载 672 文件一致，独立安装 14 表，新表原 CRUD、重启与注销通过。两轮资源独立核清。 | [V1298 当前候选生成到独立安装](testing/current-generated-delivery-v917.md#v1298-当前候选配置下载及独立安装)，2026-11-13 |
 | V1299 | 🧪 当前独立 Linux 第三批结束 | 2a958f1f／Server-200 | 原 TRX 44 通过、8 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1299 当前独立 Linux 第三批](testing/current-linux-generation-batches-v945.md#v1299-当前独立-linux-第三批)，2026-11-13 |
 | V1301 | 🧪 当前独立 Linux 第四批结束 | 2a958f1f／Server-200 | 原 TRX 24 通过、7 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1301 当前独立 Linux 第四批](testing/current-linux-generation-batches-v945.md#v1301-当前独立-linux-第四批)，2026-11-13 |
+| V1303 | ✅ 当前共库 S3 附件通过 | 2a958f1f／Server-200 | 58 次原 HTTP、24 次 SDK，绑定与删除竞态、撤权、共库归属和回滚通过，独立核清。 | [V1303 同父子页候选共库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1303-同父子页候选共库-s3-附件验收)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
