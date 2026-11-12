@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+`19db5528` 的 Windows 30 组固定回归通过，平台、示例及前端 717 份受管产物复生成一致。[V1259 当前 Windows 固定回归](testing/current-windows-regression-v946-v947.md#v1259-固定末级父候选-windows-回归)
+
 `19db5528` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1258 固定末级父 Excel 三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1258-固定末级父-excel-候选双包及三拓扑)
 
 `2c5bd5ee` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1254 共享逻辑父表候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1254-共享逻辑父表候选双包及三拓扑)
