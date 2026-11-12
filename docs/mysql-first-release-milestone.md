@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+2a958f1f 的原 Java／C# 九类同条件复测已固定。Server-200 连续 12 次只读采样未达到计时条件，正式回放继续等待合适窗口。[V1266 当前候选性能准备](testing/current-mysql-performance-v1130.md#v1266-同父子页候选九类性能复测准备)
+
 `2a958f1f` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1263 同父子页候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1263-同父子页候选双包及三拓扑)
 
 共享级联子页现可同时限定同一逻辑父和物理归属。固定国家追加及固定城市覆盖通过真实普通角色、双条件隔离和 Excel 整批回滚。原桌面和移动 Web 也已通过。[B136 同父子页原 Web](exact-data-management.md#b136-共享级联同父子页原-web-双视口验收)。[B135 同父子页](exact-data-management.md#b135-共享级联同父子页)
