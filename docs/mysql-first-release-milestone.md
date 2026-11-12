@@ -32,7 +32,9 @@
 
 ## 当前状态
 
-共享级联子页现可同时限定同一逻辑父和物理归属。固定国家追加及固定城市覆盖通过真实普通角色、双条件隔离和 Excel 整批回滚。最终原浏览器另验。[B135 同父子页](exact-data-management.md#b135-共享级联同父子页)
+`2a958f1f` 的两份 Linux x64 ZIP 独立复建一致，使用原发行包完成三种隔离安装。[V1263 同父子页候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1263-同父子页候选双包及三拓扑)
+
+共享级联子页现可同时限定同一逻辑父和物理归属。固定国家追加及固定城市覆盖通过真实普通角色、双条件隔离和 Excel 整批回滚。原桌面和移动 Web 也已通过。[B136 同父子页原 Web](exact-data-management.md#b136-共享级联同父子页原-web-双视口验收)。[B135 同父子页](exact-data-management.md#b135-共享级联同父子页)
 
 `19db5528` 的 Java／C# 九类同条件复验已固定。首次 Server-200 等待窗口负载超出门槛，正式回放未启动，原 Linux 回归已继续。[V1260 性能复验准备](testing/current-mysql-performance-v1130.md#v1260-当前候选九类性能复验准备)
 
