@@ -115,7 +115,7 @@ dotnet host/Application.Host.dll --urls http://127.0.0.1:5080
 
 独立 Full 停写后，备份应用单库及 Files:RootDirectory。以目标库级账号把逻辑快照导入目标空库，按原键恢复文件，并用同版宿主和目标私有配置启动。对照客户记录和文件引用，实测授权下载、匿名公开内容和无权限拒绝。 跨 MySQL 8.4.11 实例恢复时，分别核对源和目标的服务器 UUID、独立库账号及空目标库。恢复授权与本地附件的实测见 [V1286 独立 Full 跨实例恢复](testing/current-split-recovery-v927-v928.md#v1286-当前独立-full-的-mysql-跨实例恢复)。独立应用的会话处置在其自身的身份库执行。[V1083 独立 Full 恢复](testing/current-split-recovery-v927-v928.md#v1083-当前候选独立-full-同版恢复)。
 
-独立 Full 使用 SeaweedFS 时，还需按原对象键恢复到目标桶。保留应用配置中的存储别名、逻辑端点、区域、桶、前缀和寻址方式，目标凭据可轮换。用独立 SDK 核对目标对象，再用原接口验证匿名公开文件和带权限的受保护文件。[V1238 独立 Full 对象恢复](testing/current-split-recovery-v927-v928.md#v1238-当前候选独立-full-对象恢复)。
+独立 Full 使用 SeaweedFS 时，还需按原对象键恢复到目标桶。保留应用配置中的存储别名、逻辑端点、区域、桶、前缀和寻址方式，目标凭据可轮换。用独立 SDK 核对目标对象，再用原接口验证匿名公开文件和带权限的受保护文件。[V1287 独立 Full 对象恢复](testing/current-split-recovery-v927-v928.md#v1287-当前候选独立-full-对象恢复)。
 
 ### 恢复快照中的会话与授权
 
