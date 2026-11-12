@@ -43,6 +43,20 @@ public sealed class CrossTableExcelRowTests
         var row=new CrossTableExcelRow();row.Add("城市",Values("{\"countryId\":\"1\",\"areaId\":null,\"cityId\":null}"),false);row.Add("仓库",Values("{\"countryId\":\"1\",\"areaId\":\"22\",\"warehouseId\":\"4\"}"),false);
         Assert.Throws<PageImportException>(()=>row.Merge(Values("{}")));
     }
+    /// <summary>固定城市祖先只约束仓库路径，清仓库时不提交共同祖先。</summary>
+    [Fact]
+    public void Fixed_parent_rejects_other_area_and_clear_preserves_shared_slots()
+    {
+        var row=new CrossTableExcelRow();
+        var fixedPath=Values("{\"countryId\":9007199254740993,\"areaId\":22}");
+        var wrong=Values("{\"countryId\":\"9007199254740993\",\"areaId\":23,\"warehouseId\":41}");
+        var error=Assert.Throws<PageImportException>(()=>row.Add("仓库路径",wrong,false,fixedPath));
+        Assert.Equal("仓库路径",error.ColumnName);
+        row.Add("仓库路径",Values("{\"countryId\":null,\"areaId\":null,\"warehouseId\":null}"),true,fixedPath);
+        var merged=row.Merge(Values("{}"));
+        Assert.Equal(JsonValueKind.Null,Assert.Single(merged).Value.ValueKind);
+        Assert.True(merged.ContainsKey("warehouseId"));
+    }
     /// <summary>非规范ID不得进入级联合并状态。</summary>
     [Theory][InlineData("\"01\"")][InlineData("1.0")][InlineData("{}")][InlineData("true")]
     public void Malformed_generated_or_explicit_ID_is_rejected(string value)

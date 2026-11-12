@@ -8,11 +8,26 @@ public sealed class CrossTableExcelRow
 {
     private readonly List<(string Header,Dictionary<string,JsonElement> Values,bool Clear)> cells=[];
     /// <summary>只接生成计划给出的ID槽；克隆单元格结果，避免JsonDocument释放或外部改写。</summary>
-    public void Add(string header,IReadOnlyDictionary<string,JsonElement> values,bool clear)
+    public void Add(string header,IReadOnlyDictionary<string,JsonElement> values,bool clear) =>
+        Add(header, values, clear, null);
+
+    /// <summary>固定父级的祖先只约束同行主动路径，保留原空值和字段存在性。</summary>
+    public void Add(string header, IReadOnlyDictionary<string,JsonElement> values, bool clear,
+        IReadOnlyDictionary<string,JsonElement>? fixedPath)
     {
         if(string.IsNullOrWhiteSpace(header)||cells.Any(cell=>cell.Header==header))throw Invalid(header);
-        var copy=values.ToDictionary(pair=>pair.Key,pair=>pair.Value.Clone(),StringComparer.Ordinal);
-        foreach(var pair in copy){if(string.IsNullOrWhiteSpace(pair.Key))throw Invalid(header);_=Key(pair.Value,header);}
+        var copy=new Dictionary<string,JsonElement>(StringComparer.Ordinal);
+        foreach(var pair in values)
+        {
+            if(string.IsNullOrWhiteSpace(pair.Key))throw Invalid(header);
+            var key=Key(pair.Value,header);
+            if(fixedPath is not null&&fixedPath.TryGetValue(pair.Key,out var fixedValue))
+            {
+                if(clear)continue;
+                if(key!=Key(fixedValue,header))throw Invalid(header);
+            }
+            copy.Add(pair.Key,pair.Value.Clone());
+        }
         cells.Add((header,copy,clear));
     }
     /// <summary>非空路径必须彼此及显式ID一致；空单元格仅填未声明的槽，保持旧清空合同。</summary>

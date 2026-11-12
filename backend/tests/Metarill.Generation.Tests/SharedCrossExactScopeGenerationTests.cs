@@ -61,9 +61,11 @@ public sealed class SharedCrossExactScopeGenerationTests
     }
 
     /// <summary>复用现有双分支非冗余元数据，声明普通物理匹配列和原覆盖导入。</summary>
-    internal static MetadataCatalog Catalog(string scope="scopeKey")
+    internal static MetadataCatalog Catalog(string scope="scopeKey", bool shorter=false)
     {
-        var catalog = SharedCrossTableSparseGenerationTests.Catalog("string", "int64");
+        var catalog = shorter
+            ? SharedCrossTableSparseGenerationTests.Catalog("int64", "string", shorter:true)
+            : SharedCrossTableSparseGenerationTests.Catalog("string", "int64");
         catalog.ConfigColumns.Add(new()
         {
             Id = "90", ConfigTableId = "2", YzProjectId = catalog.YzProjectId,

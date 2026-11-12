@@ -34,58 +34,45 @@ public sealed class SharedCrossExactScopeMySqlTests
 
     /// <summary>真实普通账号同时受物理精确字段与共享逻辑父范围约束。</summary>
     [FreshInstallMySqlFact]
-    public Task Production_shared_parent_and_physical_exact_allow_only_matching_records_and_files()=>Exercise("scopeKey",parentScoped:true);
+    public Task Production_shared_parent_and_physical_exact_allow_only_matching_records_and_files()=>Exercise("scopeKey",parentScope:ParentScope.Area);
 
     /// <summary>共享派生名称和独立逻辑父范围分别核对，并验证附件引用随事务回滚。</summary>
     [FreshInstallMySqlFact]
-    public Task Production_shared_parent_and_logical_exact_allow_only_matching_records_and_files()=>Exercise("countryName",parentScoped:true);
+    public Task Production_shared_parent_and_logical_exact_allow_only_matching_records_and_files()=>Exercise("countryName",parentScope:ParentScope.Area);
 
     /// <summary>按逻辑父和物理精确字段锁定同名覆盖目标，列表 Excel 保留原表头与路径。</summary>
     [FreshInstallMySqlFact]
-    public Task Production_shared_parent_excel_overwrites_only_the_matching_row()=>Exercise("scopeKey",parentScoped:true,excelMode:"OverWriteByFirstColumn");
+    public Task Production_shared_parent_excel_overwrites_only_the_matching_row()=>Exercise("scopeKey",parentScope:ParentScope.Area,excelMode:"OverWriteByFirstColumn");
 
     /// <summary>按逻辑父和派生名称追加，详情 Excel 使用同一真实范围与原路径。</summary>
     [FreshInstallMySqlFact]
-    public Task Production_shared_parent_excel_appends_and_exports_detail_with_logical_exact()=>Exercise("countryName",parentScoped:true,excelMode:"OnlyNew");
+    public Task Production_shared_parent_excel_appends_and_exports_detail_with_logical_exact()=>Exercise("countryName",parentScope:ParentScope.Area,excelMode:"OnlyNew");
+
+    /// <summary>两层主路径从仓库还原地区；国家父范围随原工作簿追加。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_short_shared_parent_excel_appends_under_fixed_country() =>
+        Exercise("scopeKey", ParentScope.Country, "OnlyNew");
+
+    /// <summary>固定城市由父上下文提供，详情导出仍保留该路径，原导入只写其余列。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_leaf_parent_excel_overwrites_with_original_parent() =>
+        Exercise("countryName", ParentScope.Place, "OverWriteByFirstColumn");
+
+    private enum ParentScope { None, Area, Country, Place }
 
     /// <summary>各配置共用相同宿主、原HTTP和独占MySQL验证。</summary>
-    private static async Task Exercise(string scope,bool parentScoped=false,string? excelMode=null)
+    private static async Task Exercise(string scope,ParentScope parentScope=ParentScope.None,string? excelMode=null)
     {
         var logical=scope!="scopeKey";
+        var parentScoped=parentScope!=ParentScope.None;
+        var shorter=parentScope==ParentScope.Country;
+        var fixedLeaf=parentScope==ParentScope.Place;
         var includeFiles=logical||parentScoped;
         var loginRedis = FreshInstallConfiguration.ReadLoginRedis();
         var options = FreshInstallConfiguration.Read("AgentDatabase", "agent");
         using var session = new DatabaseSession(options);
         await FreshInstallConfiguration.VerifyEmptyLeaseAsync(session);
-        var catalog = SharedCrossExactScopeGenerationTests.Catalog(scope);
-        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
-        if(parentScoped)
-        {
-            sourcePage.WhereSql+=" AND area_id=@parent_id";
-            sourcePage.IsImport=0;
-            sourcePage.IsExport=0;
-            sourcePage.Extra.Remove("importMethod");
-        }
-        if(excelMode is not null)
-        {
-            sourcePage.IsImport=1;
-            sourcePage.IsExport=1;
-            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(excelMode);
-            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(logical?"edit":"list");
-            foreach(var (id,title) in new[]{("22","名称"),("25","主路径"),("80","仓库路径")})
-                catalog.ConfigColumns.Single(column=>column.Id==id).Name=title;
-            // 父范围覆盖继续用普通文本首列。无父范围旧用例保留关系首列。
-            var nameField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="22");
-            nameField.Extra.Remove("isReadOnly");
-            nameField.IsEdit=1;
-            catalog.ConfigColumns.Single(column=>column.Id=="90").DefaultValue="scope-a";
-        }
-        if(includeFiles)
-        {
-            catalog.ConfigColumns.Add(new(){Id="9001",ConfigTableId="2",ColumnName="attachments",Name="附件",SortNo=100,
-                LogicalType="string",ColumnLength="max",ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\"}"});
-            catalog.ConfigPageColumns.Add(new(){Id="2019001",ConfigPageId="201",ConfigColumnId="9001",SortNo=100});
-        }
+        var catalog=ParentCatalog(scope,parentScope,excelMode);
         var repository = NonRedundantApplicationFixture.Root();
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-shared-exact-mysql");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -96,8 +83,22 @@ public sealed class SharedCrossExactScopeMySqlTests
         const long allowed = country + 5, denied = country + 6, conflict = country + 7;
         const long otherCountry = country + 10, otherArea = country + 11, otherPlace = country + 12, otherWarehouse = country + 13;
         const long siblingArea=country+14,siblingPlace=country+15,siblingWarehouse=country+16,sibling=country+17;
-        var allowedParent=parentScoped?Id(area):null;
-        var deniedParent=parentScoped?Id(logical?otherArea:area):null;
+        var allowedParent=parentScope switch
+        {
+            ParentScope.Country=>Id(country),
+            ParentScope.Area=>Id(area),
+            ParentScope.Place=>Id(place),
+            _=>null
+        };
+        var siblingParent=Id(parentScope switch
+        {
+            ParentScope.Country=>otherCountry,
+            ParentScope.Place=>siblingPlace,
+            _=>siblingArea
+        });
+        var deniedParent=parentScoped&&logical?Id(fixedLeaf?otherPlace:otherArea):allowedParent;
+        var primaryPath=shorter?"country/area":"country/area/place";
+        var siblingCountry=shorter?"other-country":"country";
         const string ownerName="shared-exact-owner";
         const string source = "shared_cross_source";
         const string route = "/api/admin/auto/" + source + "/201";
@@ -142,7 +143,7 @@ public sealed class SharedCrossExactScopeMySqlTests
             await business.InsertAsync("shared_cross_place", Target(place, "place", "shared_cross_area_id", area));
             await business.InsertAsync("shared_cross_warehouse", Target(firstWarehouse, "first", "shared_cross_area_id", area));
             await business.InsertAsync("shared_cross_warehouse", Target(secondWarehouse, "second", "shared_cross_area_id", area));
-            if(logical)
+            if(logical||shorter)
             {
                 await business.InsertAsync("shared_cross_country", Target(otherCountry, "other-country"));
                 await business.InsertAsync("shared_cross_area", Target(otherArea, "other-area", "shared_cross_country_id", otherCountry));
@@ -151,7 +152,7 @@ public sealed class SharedCrossExactScopeMySqlTests
             }
             if(parentScoped)
             {
-                await business.InsertAsync("shared_cross_area",Target(siblingArea,"sibling-area","shared_cross_country_id",country));
+                await business.InsertAsync("shared_cross_area",Target(siblingArea,"sibling-area","shared_cross_country_id",shorter?otherCountry:country));
                 await business.InsertAsync("shared_cross_place",Target(siblingPlace,"sibling-place","shared_cross_area_id",siblingArea));
                 await business.InsertAsync("shared_cross_warehouse",Target(siblingWarehouse,"sibling-warehouse","shared_cross_area_id",siblingArea));
                 await business.InsertAsync(source,Source(sibling,"row-sibling","scope-a",siblingPlace,siblingWarehouse));
@@ -193,9 +194,9 @@ public sealed class SharedCrossExactScopeMySqlTests
             if(parentScoped)
             {
                 var siblingPage=(await FreshWebHttp.SendAsync(client,HttpMethod.Post,route+"/page",
-                    new PageRequest{ParentId=Id(siblingArea)})).GetProperty("data");
+                    new PageRequest{ParentId=siblingParent})).GetProperty("data");
                 Assert.Equal(Id(sibling),Assert.Single(siblingPage.GetProperty("records").EnumerateArray()).GetProperty("id").GetString());
-                await DeniedMutations(allowed,Id(siblingArea));
+                await DeniedMutations(allowed,siblingParent);
                 await DeniedMutations(denied,deniedParent);
                 await CheckAttachmentRollback();
                 if(excelMode is not null)await CheckScopedExcel(excelMode=="OverWriteByFirstColumn");
@@ -264,9 +265,19 @@ public sealed class SharedCrossExactScopeMySqlTests
                 var exported=await ExportRows(allowedParent!);
                 var row=Assert.Single(exported);
                 Assert.Equal("row-allowed",row["名称"]);
-                Assert.Equal("country/area/place",row["主路径"]);
+                Assert.Equal(primaryPath,row["主路径"]);
                 Assert.Equal("country/area/second",row["仓库路径"]);
-                Assert.Equal("row-sibling",Assert.Single(await ExportRows(Id(siblingArea)))["名称"]);
+                var siblingExport=Assert.Single(await ExportRows(siblingParent));
+                Assert.Equal("row-sibling",siblingExport["名称"]);
+                Assert.Equal(siblingCountry+"/sibling-area/sibling-warehouse",siblingExport["仓库路径"]);
+                if(fixedLeaf)
+                {
+                    // 详情导出仍展示主路径，但原导入禁止把它作为可改的表头。
+                    var unchanged=JsonSerializer.Serialize(await SourceRows());
+                    await ImportRows(HttpStatusCode.BadRequest,row);
+                    Assert.Equal(unchanged,JsonSerializer.Serialize(await SourceRows()));
+                    row.Remove("主路径");
+                }
 
                 // 同名但错误父或精确值的记录都不能成为覆盖对象。
                 await business.UpdateAsync(source,sibling,new Dictionary<string,object?>{["name"]="row-allowed"});
@@ -286,20 +297,40 @@ public sealed class SharedCrossExactScopeMySqlTests
                     Assert.Equal(Id(firstWarehouse),SqlRowStore.Text(added,"warehouse_id"));
                     Assert.Null(added["area_id"]);
                     Assert.Null(added["country_id"]);
-                    Assert.Equal("country/area/first",Assert.Single(await ExportRows(allowedParent!,Id(SqlRowStore.Id(added))))["仓库路径"]);
+                    var selectedExport=Assert.Single(await ExportRows(allowedParent!,Id(SqlRowStore.Id(added))));
+                    Assert.Equal(primaryPath,selectedExport["主路径"]);
+                    Assert.Equal("country/area/first",selectedExport["仓库路径"]);
                 }
                 else
                 {
                     // 仅改普通字段仍保持共享分支，导入上下文不能把遗漏的路径清空。
                     await ImportRows(HttpStatusCode.OK,new Dictionary<string,string>{["名称"]="row-allowed"});
-                    Assert.Equal("country/area/first",Assert.Single(await ExportRows(allowedParent!))["仓库路径"]);
+                    var updated=Assert.Single(await ExportRows(allowedParent!));
+                    Assert.Equal(primaryPath,updated["主路径"]);
+                    Assert.Equal("country/area/first",updated["仓库路径"]);
+                    if(fixedLeaf)Assert.Equal(Id(place),SqlRowStore.Text(allowedAfter,"place_id"));
                 }
 
                 var stable=JsonSerializer.Serialize(await SourceRows());
-                await ImportRows(HttpStatusCode.BadRequest,
-                    new(){["名称"]="rollback-first",["主路径"]="country/area/place",["仓库路径"]="country/area/first"},
-                    new(){["名称"]="rollback-conflict",["主路径"]="country/area/place",["仓库路径"]="country/sibling-area/sibling-warehouse"});
+                var valid=new Dictionary<string,string>{["名称"]="rollback-first",["仓库路径"]="country/area/first"};
+                var invalid=new Dictionary<string,string>
+                {
+                    ["名称"]="rollback-conflict",["仓库路径"]=siblingCountry+"/sibling-area/sibling-warehouse"
+                };
+                if(!fixedLeaf)valid["主路径"]=invalid["主路径"]=primaryPath;
+                var rejected=await ImportRows(HttpStatusCode.BadRequest,valid,invalid);
+                var message=rejected.GetProperty("msg").GetString();
+                Assert.Contains("第2行",message);
+                if(fixedLeaf)Assert.Contains("仓库路径",message);
                 Assert.Equal(stable,JsonSerializer.Serialize(await SourceRows()));
+                if(fixedLeaf)
+                {
+                    await ImportRows(HttpStatusCode.OK,new Dictionary<string,string>{["名称"]="row-allowed",["仓库路径"]=""});
+                    var cleared=Assert.Single(await SourceRows(),item=>SqlRowStore.Id(item)==allowed);
+                    Assert.Equal(Id(place),SqlRowStore.Text(cleared,"place_id"));
+                    Assert.Null(cleared["warehouse_id"]);
+                    Assert.Equal(primaryPath,Assert.Single(await ExportRows(allowedParent!))["主路径"]);
+                }
                 if(overwrite)
                 {
                     await business.InsertAsync(source,Source(country+22,"row-allowed","scope-a",place,secondWarehouse));
@@ -450,11 +481,15 @@ public sealed class SharedCrossExactScopeMySqlTests
         }
 
         /// <summary>两条来源共享同一个原导入键，仅物理精确范围列取不同值。</summary>
-        Dictionary<string, object?> Source(long id, string name, string marker,long placeId,long warehouseId) => new()
+        Dictionary<string, object?> Source(long id, string name, string marker,long placeId,long warehouseId)
         {
-            ["id"] = id, ["name"] = name, ["yz_project_id"] = project, ["scope_key"] = marker,
-            ["place_id"] = Id(placeId), ["warehouse_id"] = Id(warehouseId)
-        };
+            var row=new Dictionary<string,object?>
+            {
+                ["id"]=id,["name"]=name,["yz_project_id"]=project,["scope_key"]=marker,["warehouse_id"]=Id(warehouseId)
+            };
+            if(!shorter)row["place_id"]=Id(placeId);
+            return row;
+        }
 
         /// <summary>所有目标由本轮独占库插入，父外键保持真实 bigint。</summary>
         Dictionary<string, object?> Target(long id, string name, string? parentField = null, long? parent = null)
@@ -463,6 +498,80 @@ public sealed class SharedCrossExactScopeMySqlTests
             if (parentField is not null) row.Add(parentField, parent);
             return row;
         }
+    }
+
+    /// <summary>先离线核对真实父页绑定和原表头，再用同一目录运行正式用例。</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Embedded_parent_boundary_models_publish_original_columns(bool shorter)
+    {
+        var parent=shorter?ParentScope.Country:ParentScope.Place;
+        var catalog=ParentCatalog(shorter?"scopeKey":"countryName",parent,shorter?"OnlyNew":"OverWriteByFirstColumn");
+        var model=GenerationModel.Create(catalog,"Example.SharedExactScope");
+        var child=Assert.Single(ChildrenCompilation.Compile(model));
+        Assert.Equal(shorter?"301":"501",child.Parent.Source.Id);
+        Assert.Equal("201",child.Page.Source.Id);
+        Assert.Equal(shorter,ImportRenderer.Columns(child.Page).Any(column=>column.Source.Id=="25"));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        Assert.NotEmpty(UniappRenderer.Render(model).ToArray());
+    }
+
+    /// <summary>短链和固定末级沿用原级联目录，只扩展当前验收的父绑定。</summary>
+    private static MetadataCatalog ParentCatalog(string scope,ParentScope parentScope,string? excelMode)
+    {
+        var logical=scope!="scopeKey";
+        var parentScoped=parentScope!=ParentScope.None;
+        var shorter=parentScope==ParentScope.Country;
+        var includeFiles=logical||parentScoped;
+        var catalog = SharedCrossExactScopeGenerationTests.Catalog(scope,shorter);
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        if(parentScoped)
+        {
+            var parentColumn=parentScope switch
+            {
+                ParentScope.Country=>"country_id",
+                ParentScope.Place=>"place_id",
+                _=>"area_id"
+            };
+            sourcePage.WhereSql+=$" AND {parentColumn}=@parent_id";
+            if(parentScope is ParentScope.Country or ParentScope.Place)
+            {
+                // 真实父页和子页关系一起随完整包生成。
+                var parentPage=catalog.ConfigPages.Single(page=>page.Id==(shorter?"301":"501"));
+                parentPage.Extra["childPlace"]=JsonSerializer.SerializeToElement("Tab");
+                catalog.ConfigChildren.Add(JsonSerializer.SerializeToElement(new
+                {
+                    id="9011",yzProjectId=catalog.YzProjectId,parentConfigPageId=parentPage.Id,
+                    childConfigPageId=sourcePage.Id,childPageOpenType=2,sortNo=1
+                }));
+            }
+            sourcePage.IsImport=0;
+            sourcePage.IsExport=0;
+            sourcePage.Extra.Remove("importMethod");
+        }
+        if(excelMode is not null)
+        {
+            sourcePage.IsImport=1;
+            sourcePage.IsExport=1;
+            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(excelMode);
+            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(logical?"edit":"list");
+            foreach(var (id,title) in new[]{("22","名称"),("25","主路径"),("80","仓库路径")})
+                catalog.ConfigColumns.Single(column=>column.Id==id).Name=title;
+            // 父范围覆盖继续用普通文本首列。无父范围旧用例保留关系首列。
+            var nameField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="22");
+            nameField.Extra.Remove("isReadOnly");
+            nameField.IsEdit=1;
+            catalog.ConfigColumns.Single(column=>column.Id=="90").DefaultValue="scope-a";
+        }
+        if(includeFiles)
+        {
+            catalog.ConfigColumns.Add(new(){Id="9001",ConfigTableId="2",ColumnName="attachments",Name="附件",SortNo=100,
+                LogicalType="string",ColumnLength="max",ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\"}"});
+            catalog.ConfigPageColumns.Add(new(){Id="2019001",ConfigPageId="201",ConfigColumnId="9001",SortNo=100});
+        }
+        return catalog;
     }
 
     /// <summary>沿用原页面路由的父 ID 查询参数。</summary>

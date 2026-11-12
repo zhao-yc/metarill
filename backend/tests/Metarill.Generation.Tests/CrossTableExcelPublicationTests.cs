@@ -107,8 +107,18 @@ public sealed class CrossTableExcelPublicationTests
             Assert.Equal(control.GetProperty("columnId").GetString()=="25"?primaryImport:true,
                 control.GetProperty("pathCellImportSupported").GetBoolean());
         });
+        var generatedImport=ImportRenderer.Service(model,table,page);
         if(import=="OverWriteByFirstColumn")
-            Assert.Contains("PageImportError.AmbiguousOverwrite",ImportRenderer.Service(model,table,page));
+            Assert.Contains("PageImportError.AmbiguousOverwrite",generatedImport);
+        if(primaryImport)
+            Assert.DoesNotContain("ReadFixedCrossParent",generatedImport);
+        else
+        {
+            Assert.Contains("fixedCrossParent ??= LoadFixedCrossParentAsync()",generatedImport);
+            Assert.Contains("CrossReader201_25(actor,true,false)",generatedImport);
+            Assert.Contains("path,clear,await readFixedCrossParent()",generatedImport);
+            Assert.DoesNotContain("case \"主路径\"",generatedImport);
+        }
     }
 
     /// <summary>数字首列和未知导出模式保留门槛，末级固定父键仍不扩大覆盖范围。</summary>
