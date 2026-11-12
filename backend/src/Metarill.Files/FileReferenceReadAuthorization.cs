@@ -39,7 +39,7 @@ internal static class FileReferenceReadAuthorization
             {
                 var name=SqlRowStore.Text(reference,"field_name");if(!fields.TryGetValue(name,out var field))continue;
                 var recordId=SqlRowStore.Id(reference,"record_id");if(recordId<=0)continue;
-                var record=await ReadRecordAsync(store,table,physical,field,scope,exact,registry.DerivedExactPlan(catalog,page,field),recordId,project,token,currentRead&&scope.Crosses.Count>0);if(record is null)continue;
+                var record=await ReadRecordAsync(store,table,physical,field,scope,exact,registry.DerivedExactPlan(catalog,page,field),recordId,project,token,currentRead);if(record is null)continue;
                 try
                 {
                     IReadOnlyList<long> actual;
@@ -69,18 +69,17 @@ internal static class FileReferenceReadAuthorization
         bool Flag(string key,bool fallback)=>field.Extra.TryGetValue(key,out var value)?value.ValueKind==JsonValueKind.True||value.ToString()=="1":fallback;
     }
 
-    private sealed record ExactFileScope(ColumnMetadata Column,IReadOnlyList<object?> Values,bool Derived);
+    private sealed record ExactFileScope(ColumnMetadata Column,IReadOnlyList<object?> Values,bool Derived,bool Shared);
     /// <summary>文件真实引用另附来源页的查询精确范围，不能只看页面动作；值经同一逻辑类型转换并参数化。</summary>
     private static ExactFileScope? ExactScope(FileMetadataContext registry,MetadataCatalog catalog,IReadOnlyList<ColumnMetadata> physical,PageMetadata page,IRuntimeAuthorization authorization)
     {
-        var field=ExactDataManageValues.Field(Configured(page));if(field.Length==0)return null;
-        var column=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==page.ConfigTableId&&ExactDataManageValues.Field(column.ColumnName)==field)??throw new NotSupportedException("文件来源页精确范围没有固定字段证明。");
+        if(ExactDataManageValues.Field(Configured(page)).Length==0)return null;
+        var (column,derived,shared)=registry.ExactField(catalog,page);
         if(column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||column.LogicalType=="json"||ExactDataManageValues.IsSensitiveField(column.ColumnName))throw new NotSupportedException("文件来源匹配必须为非凭据单值列。");
-        var derived=!physical.Any(item=>item.Id==column.Id);
         if(derived&&physical.Where(item=>item.ControlKind=="FileLibrary").Any(file=>registry.DerivedExactPlan(catalog,page,file) is null))throw new NotSupportedException("文件来源派生匹配缺少固定读取证明。");
         var admin=catalog.YzAdminTypes.SingleOrDefault(admin=>admin.Id==page.YzAdminTypeId)??throw new NotSupportedException("文件来源页后台未发布。");
         var scope=authorization.ResolveFileSourceExactDataManage(page.Id,ExactDataManageValues.Field(Configured(admin)));
-        return scope.IsRequired?new(column,scope.ReadLogical(column.LogicalType),derived):null;
+        return scope.IsRequired?new(column,scope.ReadLogical(column.LogicalType),derived,shared):null;
         /// <summary>损坏声明不能静默解释为未配置。</summary>
         static string Configured(MetadataRecord record)=>!record.Extra.TryGetValue("exactDataManageMatchField",out var value)||value.ValueKind==JsonValueKind.Null?"":value.ValueKind==JsonValueKind.String?value.GetString()??"":throw new NotSupportedException("精确管理字段声明无效。");
     }
@@ -96,8 +95,13 @@ internal static class FileReferenceReadAuthorization
         if(exact is {Derived:true})
         {
             if(derivedPlan is null)return null;
-            var filters=new List<FixedReadFilter>{new("id",FixedReadComparison.Equal,record),new(exact.Column.ColumnName,FixedReadComparison.In,exact.Values)};
-            var rows=await new NonRedundantReader(store.Session).RowsAsync(derivedPlan,filters,[],1,token,project.ToString(CultureInfo.InvariantCulture),scope.Condition);
+            var filters=new List<FixedReadFilter>{new("id",FixedReadComparison.Equal,record),exact.Shared?
+                FixedReadFilter.ForSharedExact(exact.Column.ColumnName,exact.Values):new(exact.Column.ColumnName,FixedReadComparison.In,exact.Values)};
+            var logicalReader=new NonRedundantReader(store.Session);var projectId=project.ToString(CultureInfo.InvariantCulture);
+            // 写事务必须看当前授权路径，不能用旧快照中的目标或名称继续授权文件。
+            var rows=exact.Shared&&currentRead?
+                await logicalReader.CurrentRowsAsync(derivedPlan,filters,[],1,token,projectId,scope.Condition):
+                await logicalReader.RowsAsync(derivedPlan,filters,[],1,token,projectId,scope.Condition);
             return rows.Count==0?null:rows[0].ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
         }
         var names=new[]{field.ColumnName,"id"}.Concat(owner is null?Array.Empty<string>():[owner.ColumnName]).Concat(scopes.Select(scope=>scope.Source.ColumnName)).Concat(scope.GlobalParents.Select(parent=>parent.ColumnName)).Concat(scope.Crosses.SelectMany(cross=>cross.StorageNames)).Distinct(StringComparer.Ordinal).ToArray();
@@ -111,7 +115,7 @@ internal static class FileReferenceReadAuthorization
         if(columns.Any(column=>column.ColumnName=="delete_no"))query+=" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL";
         if(exact is not null)query+=" AND "+provider.QuoteIdentifier(exact.Column.ColumnName)+" IN ("+string.Join(",",exact.Values.Select((value,index)=>Parameter(command,store,"exact_"+index,value!)))+")";
         if(scope.Condition is not null)query+=" AND "+scope.Condition.BindConstants(command,store.Session,"file_page");
-        command.CommandText=currentRead?provider.BuildSelectForUpdate(query):query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
+        command.CommandText=currentRead&&scope.Crosses.Count>0?provider.BuildSelectForUpdate(query):query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
     }
     /// <summary>父身份从实际记录读取，复用当前事务可看见本批刚建父；父仍须有效且同项目。</summary>
     private static async Task<bool> ParentExistsAsync(SqlRowStore store,FileParentScope scope,long id,long project,CancellationToken token)

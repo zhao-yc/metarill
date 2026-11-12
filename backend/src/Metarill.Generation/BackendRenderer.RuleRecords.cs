@@ -66,7 +66,7 @@ internal static partial class BackendRenderer
         if(exact is not null)result.AppendLine("        var ruleAuthorization=relationAuthorization??throw new UnauthorizedAccessException(\"精确管理需要宿主真实授权。\");")
             .AppendLine("        if(ruleAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"规则记录身份与当前真实身份不一致。\");")
             .AppendLine($"        var ruleScope=button?ruleAuthorization.ResolveButtonExactDataManage({Literal(page.Source.Id)},operation,{Literal(exact.ManagerField)}):ruleAuthorization.ResolveExactDataManage({Literal(page.Source.Id)},operation,{Literal(exact.ManagerField)});")
-            .AppendLine($"        if(ruleScope.IsRequired)filters.Add(new({Literal(exact.Column.Source.ColumnName)},FixedReadComparison.In,ruleScope.ReadLogical({Literal(exact.Column.Source.LogicalType)})));");
+            .AppendLine($"        if(ruleScope.IsRequired)filters.Add({ExactDataManageCompilation.Filter(exact,"ruleScope",spaces:false)});");
         result.AppendLine("        var reader=new NonRedundantReader(session);")
             .AppendLine($"        var rows=locking?await reader.CurrentRowsAsync(RuleRecordPlan{page.Source.Id},filters,Array.Empty<FixedReadOrder>(),1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)}):await reader.RowsAsync(RuleRecordPlan{page.Source.Id},filters,Array.Empty<FixedReadOrder>(),1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)});")
             .AppendLine("        if(rows.Count==0)return null;var row=rows.Single();")

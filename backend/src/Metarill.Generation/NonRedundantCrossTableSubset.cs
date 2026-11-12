@@ -38,7 +38,7 @@ internal static class NonRedundantCrossTableSubset
             // 同一固定链的逻辑父范围支持追加、首列覆盖及列表和详情路径导出。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var hasParent=parentColumns.Length>0;
-            // 前面的全部写计划已核对来源范围。共享组的独立物理匹配列由导入和导出各自按动作应用。
+            // 前面的全部写计划已核对来源范围。共享组的固定匹配列由导入和导出各自按动作应用。
             var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&
                 companions.All(Declared)&&plans.All(plan=>
                     plan.Definition!.Levels.All(level=>level.Read.Target.Source.Id!=table.Source.Id)&&

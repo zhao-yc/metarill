@@ -20,6 +20,19 @@ public static class NonRedundantReads
 
     /// <summary>输出与隐藏查询依赖分别声明；后者不会自动出现在返回记录中。</summary>
     public static NonRedundantReadPlan Compile(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(metadata,tableId,outputs,[],dependencies,deferCascadeNames);
+    /// <summary>判断物理外键槽是否属于已声明共享逻辑字段；名称和祖先ID使用同一组存储证明。</summary>
+    public static SharedCrossTableSparseSelection? SharedExactGroup(MetadataCatalog metadata,TableMetadata table,string field)=>
+        SharedCrossTableSparseSelection.CompileAll(table,metadata.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
+            .SingleOrDefault(group=>group.Slots.Any(slot=>slot.ColumnName==field||slot.ColumnName[..^3]+"_name"==field));
+
+    /// <summary>只编译当前权限列及共享同伴需要的固定路径，避免把无关显示字段加入写前锁定。</summary>
+    public static NonRedundantReadPlan CompileSharedExactMatch(MetadataCatalog metadata,string tableId,string field,IReadOnlyList<NonRedundantCrossTableScope> bindings)
+    {
+        var plan=CompileWithCrossTables(metadata,tableId,[field],bindings);
+        _=plan.MySql.SharedExactExpression(field);
+        return plan;
+    }
+
     /// <summary>规则记录专用：物理根实体输出与逻辑筛选/派生值分开，仍使用同一固定SQL及范围。</summary>
     public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null)
     {

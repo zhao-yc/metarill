@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Metarill.Core.Contracts;
@@ -21,13 +22,31 @@ public sealed class SharedCrossExactScopeMySqlTests
 {
     /// <summary>同首列的两个来源只有一个可覆盖，同时核对导出及写前拒绝。</summary>
     [FreshInstallMySqlFact]
-    public async Task Production_shared_cascade_limits_reads_and_overwrite_by_exact_role()
+    public Task Production_shared_cascade_limits_reads_and_overwrite_by_exact_role()=>Exercise("scopeKey");
+
+    /// <summary>物理祖先位为空时按完整现有路径授权，并对失效同伴拒权。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_cascade_matches_logical_ancestor_and_files()=>Exercise("countryId");
+
+    /// <summary>名称按目标当前值重算，真实文件引用与记录使用同一范围。</summary>
+    [FreshInstallMySqlFact]
+    public Task Production_shared_cascade_matches_derived_name_and_files()=>Exercise("countryName");
+
+    /// <summary>三种配置共用相同宿主、原HTTP和独占MySQL验证。</summary>
+    private static async Task Exercise(string scope)
     {
+        var logical=scope!="scopeKey";
         var loginRedis = FreshInstallConfiguration.ReadLoginRedis();
         var options = FreshInstallConfiguration.Read("AgentDatabase", "agent");
         using var session = new DatabaseSession(options);
         await FreshInstallConfiguration.VerifyEmptyLeaseAsync(session);
-        var catalog = SharedCrossExactScopeGenerationTests.Catalog();
+        var catalog = SharedCrossExactScopeGenerationTests.Catalog(scope);
+        if(logical)
+        {
+            catalog.ConfigColumns.Add(new(){Id="9001",ConfigTableId="2",ColumnName="attachments",Name="附件",SortNo=100,
+                LogicalType="string",ColumnLength="max",ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\"}"});
+            catalog.ConfigPageColumns.Add(new(){Id="2019001",ConfigPageId="201",ConfigColumnId="9001",SortNo=100});
+        }
         var repository = NonRedundantApplicationFixture.Root();
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-shared-exact-mysql");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -35,7 +54,9 @@ public sealed class SharedCrossExactScopeMySqlTests
         var project = long.Parse(catalog.YzProjectId, CultureInfo.InvariantCulture);
         const long country = 9007199254742001, area = country + 1, place = country + 2;
         const long firstWarehouse = country + 3, secondWarehouse = country + 4;
-        const long allowed = country + 5, denied = country + 6;
+        const long allowed = country + 5, denied = country + 6, conflict = country + 7;
+        const long otherCountry = country + 10, otherArea = country + 11, otherPlace = country + 12, otherWarehouse = country + 13;
+        const string ownerName="shared-exact-owner";
         const string source = "shared_cross_source";
         const string route = "/api/admin/auto/" + source + "/201";
         const string username = "shared-exact-user";
@@ -61,7 +82,8 @@ public sealed class SharedCrossExactScopeMySqlTests
             await security.InsertAsync("yz_manager", new Dictionary<string, object?>
             {
                 ["id"] = ids.NextId(), ["yz_project_id"] = project, ["yz_admin_type_id"] = 5L,
-                ["name"] = username, ["real_name"] = "scope-a", ["password"] = PasswordHasher.Hash(password),
+                ["name"] = username, ["real_name"] = scope=="countryId"?Id(country):scope=="countryName"?"country":"scope-a",
+                ["password"] = PasswordHasher.Hash(password),
                 ["is_disabled"] = 0, ["yz_role_ids"] = JsonSerializer.Serialize(new[] { Id(role) })
             });
             foreach (var page in catalog.ConfigPages)
@@ -78,11 +100,26 @@ public sealed class SharedCrossExactScopeMySqlTests
             await business.InsertAsync("shared_cross_place", Target(place, "place", "shared_cross_area_id", area));
             await business.InsertAsync("shared_cross_warehouse", Target(firstWarehouse, "first", "shared_cross_area_id", area));
             await business.InsertAsync("shared_cross_warehouse", Target(secondWarehouse, "second", "shared_cross_area_id", area));
-            await business.InsertAsync(source, Source(allowed, "row-allowed", "scope-a"));
-            await business.InsertAsync(source, Source(denied, "row-denied", "scope-b"));
+            if(logical)
+            {
+                await business.InsertAsync("shared_cross_country", Target(otherCountry, "other-country"));
+                await business.InsertAsync("shared_cross_area", Target(otherArea, "other-area", "shared_cross_country_id", otherCountry));
+                await business.InsertAsync("shared_cross_place", Target(otherPlace, "other-place", "shared_cross_area_id", otherArea));
+                await business.InsertAsync("shared_cross_warehouse", Target(otherWarehouse, "other-warehouse", "shared_cross_area_id", otherArea));
+            }
+            await business.InsertAsync(source, Source(allowed, "row-allowed", "scope-a", place, firstWarehouse));
+            await business.InsertAsync(source, Source(denied, "row-denied", "scope-b",
+                logical?otherPlace:place,logical?otherWarehouse:firstWarehouse));
 
             await using var host = await FreshHost.StartAsync(HostInfo(), "/health");
-            var client = host.Client;
+            using var client = new HttpClient{BaseAddress=host.Client.BaseAddress};
+            var files=Array.Empty<string>();
+            if(logical)
+            {
+                await FreshWebHttp.LoginAsync(host.Client,ownerName,password,form:true);
+                files=[await Attach(host.Client,allowed),await Attach(host.Client,denied)];
+                await business.InsertAsync(source, Source(conflict,"row-conflict","scope-a",place,otherWarehouse));
+            }
             await FreshWebHttp.LoginAsync(client, username, password, form: true);
             var permissions = await FreshWebHttp.SendAsync(client, HttpMethod.Get, "/api/admin/sys/yz_manager/getCurrentPermissions");
             Assert.False(permissions.GetProperty("data").GetProperty("isSuper").GetBoolean());
@@ -99,6 +136,11 @@ public sealed class SharedCrossExactScopeMySqlTests
             using var forbiddenDetail = await client.GetAsync(route + "/detail/" + Id(denied));
             Assert.Equal(HttpStatusCode.OK, forbiddenDetail.StatusCode);
             Assert.Equal(500, (await forbiddenDetail.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetInt32());
+            if(logical)
+            {
+                await Download(files[0],HttpStatusCode.OK);
+                await Download(files[1],HttpStatusCode.Forbidden);
+            }
 
             var ticket = (await FreshWebHttp.SendAsync(client, HttpMethod.Post, route + "/initExport", new PageRequest()))
                 .GetProperty("data").GetString();
@@ -126,11 +168,58 @@ public sealed class SharedCrossExactScopeMySqlTests
                 }
             });
             var rows = await business.ReadAsync(source, new Dictionary<string, object?> { ["yz_project_id"] = project });
-            Assert.Equal(2, rows.Count);
+            Assert.Equal(logical?3:2, rows.Count);
             Assert.Equal(Id(secondWarehouse), SqlRowStore.Text(Assert.Single(rows, row => SqlRowStore.Id(row) == allowed), "warehouse_id"));
-            Assert.Equal(Id(firstWarehouse), SqlRowStore.Text(Assert.Single(rows, row => SqlRowStore.Id(row) == denied), "warehouse_id"));
+            Assert.Equal(Id(logical?otherWarehouse:firstWarehouse), SqlRowStore.Text(Assert.Single(rows, row => SqlRowStore.Id(row) == denied), "warehouse_id"));
             Assert.All(rows, row => Assert.Null(row["country_id"]));
+            if(logical)
+            {
+                // 城市分支仍可恢复祖先，仓库目标失效却必须使整个来源失去权限。
+                await business.UpdateAsync("shared_cross_warehouse",secondWarehouse,new Dictionary<string,object?>{["status"]=0});
+                await RequireHidden();
+                await business.UpdateAsync("shared_cross_warehouse",secondWarehouse,new Dictionary<string,object?>{["status"]=1});
+                await Download(files[0],HttpStatusCode.OK);
+                if(scope=="countryName")
+                {
+                    await business.UpdateAsync("shared_cross_country",country,new Dictionary<string,object?>{["name"]="changed-country"});
+                    await RequireHidden();
+                }
+            }
             await FreshWebHttp.SendAsync(client, HttpMethod.Post, "/api/admin/sys/yz_manager/exit_login", new { });
+
+            /// <summary>同一个真实文件引用随当前关系范围失效，旧账号值不能继续放行。</summary>
+            async Task RequireHidden()
+            {
+                var page=await FreshWebHttp.SendAsync(client,HttpMethod.Post,route+"/page",new PageRequest());
+                Assert.Equal(0,page.GetProperty("data").GetProperty("total").GetInt64());
+                await FreshWebHttp.SendAsync(client,HttpMethod.Post,route+"/update",
+                    new{id=Id(allowed),warehouseId=Id(firstWarehouse)},HttpStatusCode.InternalServerError);
+                await Download(files[0],HttpStatusCode.Forbidden);
+            }
+
+            /// <summary>只通过原上传和保存入口建立真实记录引用。</summary>
+            async Task<string> Attach(HttpClient owner,long record)
+            {
+                const string path="/api/admin/sys/file-library/";
+                var bytes=Encoding.UTF8.GetBytes("共享逻辑权限附件");
+                var plan=await FreshWebHttp.SendAsync(owner,HttpMethod.Post,path+"upload-plan",
+                    new{originalName="shared-exact.txt",mimeType="text/plain",sizeBytes=bytes.Length,configColumnId="9001"});
+                var id=plan.GetProperty("data").GetProperty("fileId").GetString()!;
+                using var content=new MultipartFormDataContent();
+                content.Add(new ByteArrayContent(bytes),"file","shared-exact.txt");
+                await FreshWebHttp.SendAsync(owner,HttpMethod.Post,path+"local-upload/"+id,content);
+                await FreshWebHttp.SendAsync(owner,HttpMethod.Post,path+"complete",new{fileId=id});
+                await FreshWebHttp.SendAsync(owner,HttpMethod.Post,route+"/update",new{id=Id(record),attachments=new[]{id}});
+                return id;
+            }
+
+            /// <summary>验证受保护下载的实际状态与内容。</summary>
+            async Task Download(string id,HttpStatusCode expected)
+            {
+                using var response=await client.GetAsync("/api/admin/sys/file-library/protected-content/"+id);
+                Assert.Equal(expected,response.StatusCode);
+                if(expected==HttpStatusCode.OK)Assert.Equal("共享逻辑权限附件",await response.Content.ReadAsStringAsync());
+            }
         }
         finally
         {
@@ -151,7 +240,7 @@ public sealed class SharedCrossExactScopeMySqlTests
             info.Environment["Database__ConnectionString"] = options.ConnectionString;
             info.Environment["Authentication__Mode"] = "Web";
             info.Environment["Authentication__DevelopmentBootstrap__Enabled"] = "false";
-            info.Environment["Authentication__Bootstrap__Username"] = "shared-exact-owner";
+            info.Environment["Authentication__Bootstrap__Username"] = ownerName;
             info.Environment["Authentication__Bootstrap__Password"] = password;
             info.Environment["Ids__WorkerId"] = "932";
             info.Environment["Files__RootDirectory"] = Path.Combine(directory, "files");
@@ -160,10 +249,10 @@ public sealed class SharedCrossExactScopeMySqlTests
         }
 
         /// <summary>两条来源共享同一个原导入键，仅物理精确范围列取不同值。</summary>
-        Dictionary<string, object?> Source(long id, string name, string scope) => new()
+        Dictionary<string, object?> Source(long id, string name, string marker,long placeId,long warehouseId) => new()
         {
-            ["id"] = id, ["name"] = name, ["yz_project_id"] = project, ["scope_key"] = scope,
-            ["place_id"] = Id(place), ["warehouse_id"] = Id(firstWarehouse)
+            ["id"] = id, ["name"] = name, ["yz_project_id"] = project, ["scope_key"] = marker,
+            ["place_id"] = Id(placeId), ["warehouse_id"] = Id(warehouseId)
         };
 
         /// <summary>所有目标由本轮独占库插入，父外键保持真实 bigint。</summary>

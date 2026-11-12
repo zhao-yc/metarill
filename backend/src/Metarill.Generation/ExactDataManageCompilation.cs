@@ -1,32 +1,46 @@
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
+using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
-internal sealed record ExactDataManageModel(ColumnModel Column,string ManagerField,bool Derived);
+internal sealed record ExactDataManageModel(ColumnModel Column,string ManagerField,bool Derived,IReadOnlyList<CrossTableWriteModel>? SharedPlans=null);
 
 /// <summary>生成期固定精确范围字段；请求只能提供筛选值，不能替换账号字段或SQL表达式。</summary>
 internal static class ExactDataManageCompilation
 {
     /// <summary>未配置页面字段保持原产物；配置后必须能证明发布后台、真实物理列和标量类型。</summary>
     internal static bool Declared(PageModel page)=>Text(page.Source,"exactDataManageMatchField").Length>0;
+    /// <summary>只取已声明列，供共享组自身编译时检查，避免反向调用共享组读取计划。</summary>
+    internal static ColumnModel? MatchColumn(TableModel table,PageModel page)
+    {
+        var field=ExactDataManageValues.Field(Text(page.Source,"exactDataManageMatchField"));
+        return field.Length==0?null:table.Columns.SingleOrDefault(column=>ExactDataManageValues.Field(column.Source.ColumnName)==field)
+            ??throw new InvalidOperationException("精确管理记录匹配字段未声明。");
+    }
+
     /// <summary>物理标量沿原路径；派生字段由专用单值计划证明类型及路径，再用于关联锁定和读取。</summary>
     internal static ExactDataManageModel? Resolve(GenerationModel model,TableModel table,PageModel page)
     {
-        var field=ExactDataManageValues.Field(Text(page.Source,"exactDataManageMatchField"));if(field.Length==0)return null;
+        if(MatchColumn(table,page) is not{} column)return null;
         var admin=model.Catalog.YzAdminTypes.SingleOrDefault(admin=>admin.Id==page.Source.YzAdminTypeId)??throw new InvalidOperationException("精确管理页面必须声明已发布后台。");
-        var column=table.Columns.SingleOrDefault(column=>ExactDataManageValues.Field(column.Source.ColumnName)==field)??throw new InvalidOperationException("精确管理记录匹配字段未声明。");
         if(column.IsJsonArray||column.Source.LogicalType.ToLowerInvariant()=="json")throw new NotSupportedException("精确管理的数组记录字段尚需固定范围证明。");
-        var derived=!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
+        var field=column.Source.ColumnName;
+        IReadOnlyList<CrossTableWriteModel>? shared=null;
+        if(NonRedundantReads.SharedExactGroup(model.Catalog,table.Source,field) is{} storage)
+            shared=SharedCrossTableCompilation.ForSource(model,table,page,storage.Branches[0].SourceColumnId)?.Plans
+                ??throw new NotSupportedException("共享级联精确范围没有完整发布计划。");
+        var derived=shared is not null||!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
         if(derived)
         {
-            var plan=Metarill.Data.Queries.NonRedundantReads.CompileMatch(model.Catalog,table.Source.Id,column.Source.ColumnName);
-            if(plan.OutputTypes[column.Source.ColumnName]!=column.Source.LogicalType)throw new InvalidOperationException("精确管理派生列与真实来源逻辑类型不一致。");
+            var plan=shared is null?NonRedundantReads.CompileMatch(model.Catalog,table.Source.Id,field):
+                NonRedundantReads.CompileSharedExactMatch(model.Catalog,table.Source.Id,field,NonRedundantCrossTableCompilation.Bindings(shared));
+            if(plan.OutputTypes[field]!=column.Source.LogicalType)throw new InvalidOperationException("精确管理派生列与真实来源逻辑类型不一致。");
         }
         var manager=ExactDataManageValues.Field(Text(admin,"exactDataManageMatchField"));
         if(GenerationMetadataPublisher.IsSensitiveKey(column.Source.ColumnName)||manager.Length>0&&GenerationMetadataPublisher.IsSensitiveKey(manager))throw new InvalidOperationException("精确管理不能以凭据字段参与匹配。");
-        return new(column,manager,derived);
+        return new(column,manager,derived,shared);
     }
     /// <summary>仅新配置范围的私有方法增加操作参数，既有公开Service签名及普通产物保持。</summary>
     internal static string Parameter(PageModel page,string fallback)=>Declared(page)?", string authorizationOperation = "+Literal(fallback):"";
@@ -47,7 +61,16 @@ internal static class ExactDataManageCompilation
     {
         var definition=Resolve(model,table,page);if(definition is null)return "";
         return Authorization(page,definition,"actor","authorizationOperation","exact")
-            +$"        if (exactScope.IsRequired) result.Add(new({Literal(definition.Column.Source.ColumnName)}, FixedReadComparison.In, exactScope.ReadLogical({Literal(definition.Column.Source.LogicalType)})));\n";
+            +$"        if (exactScope.IsRequired) result.Add({Filter(definition,"exactScope")});\n";
+    }
+    /// <summary>保持原标量集合筛选；共享权限额外校验两个分支的当前有效路径。</summary>
+    internal static string Filter(ExactDataManageModel definition,string scope,bool spaces=true)
+    {
+        var field=Literal(definition.Column.Source.ColumnName);
+        var value=$"{scope}.ReadLogical({Literal(definition.Column.Source.LogicalType)})";
+        var comma=spaces?", ":",";
+        return definition.SharedPlans is null?$"new({field}{comma}FixedReadComparison.In{comma}{value})":
+            $"FixedReadFilter.ForSharedExact({field}, {value})";
     }
     /// <summary>新增只校验原新增/导入动作，不额外索要查询权；已授权写后回显另走固定记录私有入口。</summary>
     internal static string MutationAuthorization(PageModel page,string operation)

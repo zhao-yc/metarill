@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 using Metarill.Data.Queries;
 using Metarill.Runtime.Persistence;
 namespace Metarill.Runtime.Files;
@@ -21,7 +23,10 @@ internal sealed class FileSharedCrossParentScope
     internal static FileCrossParentScope Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column,SharedCrossTableSparseSelection selection)
     {
         if(GlobalCrossTableTarget.Declared(table))throw new NotSupportedException("共享文件父范围要求普通项目来源。");var branches=new Dictionary<string,FileCrossParentScope>(StringComparer.Ordinal);var scopes=new List<NonRedundantCrossTableScope>();
-        foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
+        // 仅本次已编译的共享逻辑精确字段与共享父范围组合；其它来源权限沿原门槛。
+        var allowExact=page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind==JsonValueKind.String&&
+            ExactDataManageValues.Field(exact.GetString()) is {Length:>0} field&&NonRedundantReads.SharedExactGroup(catalog,table,field) is not null;
+        foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0,allowExactSource:allowExact);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());var plan=new FileSharedCrossParentScope(selection,branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan);
     }
     /// <summary>在同一读快照／写事务内检查全部已存末端，拒绝实际祖先冲突；共同物理位只读取一次。</summary>

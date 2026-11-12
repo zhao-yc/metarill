@@ -68,10 +68,10 @@ internal static class SharedCrossTableCompilation
                     var sparse=SharedCrossTableSparseSelection.Compile(table.Source,component[0].Source.Id,model.Catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Source.Id));if(sparse.Branches.Count!=plans.Count||plans.Any(p=>!sparse.BranchSelection(p.Read.Source.Source.Id).Slots.Select(s=>s.ColumnName).SequenceEqual(p.Levels.Select(l=>l.Id.Source.ColumnName),StringComparer.Ordinal)))throw new InvalidOperationException("共享R0存储与当前页面层位不一致。");var names=sparse.Slots.SelectMany(s=>new[]{s.ColumnName,s.ColumnName[..^3]+"_name"}).ToHashSet(StringComparer.Ordinal);
                     if(page.Condition?.Syntax.Fields.Any(names.Contains)==true)
                         throw new NotSupportedException("共享R0来源逻辑条件尚需独立保存范围证明。");
-                    // 读计划会还原祖先，写前锁读及文件权限直接匹配落库值。范围只能使用两者同义的独立物理标量。
-                    if(ExactDataManageCompilation.Resolve(model,table,page) is {} exact &&
-                        (exact.Derived||names.Contains(exact.Column.Source.ColumnName)))
-                        throw new NotSupportedException("共享R0精确权限要求独立的物理标量，不能使用稀疏层位或派生名称。");
+                    // 此处只核对列归属，精确匹配的逻辑计划由完整共享组建立后统一编译。
+                    if(ExactDataManageCompilation.MatchColumn(table,page) is{} exact&&!storage.IsPhysical(exact.Source)&&
+                        Metarill.Data.Queries.NonRedundantReads.SharedExactGroup(model.Catalog,table.Source,exact.Source.ColumnName) is null)
+                        throw new NotSupportedException("共享R0精确权限需要独立物理标量或固定共享级联字段。");
                 }
                 if(table.Source.IsRongyu==0)SharedCrossTableParentCompilation.Require(model,table,page);
                 groups.Add(new(plans,new SharedCrossTableCoordinator(branches)));

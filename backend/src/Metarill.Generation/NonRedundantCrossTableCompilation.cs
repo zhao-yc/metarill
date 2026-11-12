@@ -19,18 +19,24 @@ internal static class NonRedundantCrossTableCompilation
         var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==plan.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
         if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(plan.Source.Source.ControlDetail)))throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
         var slots=storage.Slots.Select(slot=>slot.ColumnName).ToHashSet(StringComparer.Ordinal);
-        // 共享组已核对精确匹配列不属于任何稀疏层位；独立链维持原权限能力门槛。
+        // 共享组由精确范围编译器校验；独立链维持原权限能力门槛。
         if(page.Condition?.Syntax.Fields.Any(slots.Contains)==true||shared is null&&ExactDataManageCompilation.Declared(page))
             throw new InvalidOperationException("非冗余跨表来源逻辑条件／精确权限仍待独立接线。");
         _=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
     }
     /// <summary>从完整生成模型冻结真实目标页的常量条件，不从精简关系目录猜测条件。</summary>
-    internal static IReadOnlyList<NonRedundantCrossTableScope> Bindings(GenerationModel model,TableModel table,PageModel page)=>CrossTableWriteCompilation.ForService(model,table,page)
+    internal static IReadOnlyList<NonRedundantCrossTableScope> Bindings(GenerationModel model,TableModel table,PageModel page)=>
+        Bindings(CrossTableWriteCompilation.ForService(model,table,page));
+    /// <summary>精确匹配只冻结实际所属共享组，独立显示关系不参与写前锁定。</summary>
+    internal static IReadOnlyList<NonRedundantCrossTableScope> Bindings(IReadOnlyList<CrossTableWriteModel> plans)=>plans
         .Select(plan=>new NonRedundantCrossTableScope(plan.Read.Source.Source.Id,plan.Levels.Select(level=>new NonRedundantCrossTableTargetScope(level.Read.Page.Source.Id,level.Read.Page.Condition is{} condition?FixedConditionSqlPlan.Compile(condition.Syntax,condition.Types):null)).ToArray())).ToArray();
     /// <summary>直接内联不可变条件表达式，避免ReadPlan先于目标条件字段初始化而丢失范围。</summary>
-    internal static string BindingArgument(GenerationModel model,TableModel table,PageModel page)
+    internal static string BindingArgument(GenerationModel model,TableModel table,PageModel page)=>
+        BindingArgument(CrossTableWriteCompilation.ForService(model,table,page));
+    /// <summary>共享匹配与普通跨表读取使用同一固定目标页字面量。</summary>
+    internal static string BindingArgument(IReadOnlyList<CrossTableWriteModel> plans)
     {
-        var plans=CrossTableWriteCompilation.ForService(model,table,page);if(plans.Count==0)return "";
+        if(plans.Count==0)return "";
         return ",new Metarill.Data.Queries.NonRedundantCrossTableScope[]{"+string.Join(",",plans.Select(plan=>"new("+Literal(plan.Read.Source.Source.Id)+",new Metarill.Data.Queries.NonRedundantCrossTableTargetScope[]{"+string.Join(",",plan.Levels.Select(level=>"new("+Literal(level.Read.Page.Source.Id)+","+Condition(level.Read.Page)+")"))+"})"))+"}";
     }
     /// <summary>类型和字段来自已验证的常量计划，所有元数据文本只作为字符串字面量。</summary>

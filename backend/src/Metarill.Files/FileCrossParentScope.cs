@@ -43,10 +43,10 @@ internal sealed class FileCrossParentScope
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],[branch.Binding],[column.ColumnName]);return branch.Scope;
     }
     /// <summary>固定分支的页覆盖、目标页／常量与物理身份共用同一编译器，构造器不提供在线替换入口。</summary>
-    internal static (FileCrossParentScope Scope,NonRedundantCrossTableScope Binding) CompileBranch(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata source,CrossTableSparseSelection selection,int levelIndex)
+    internal static (FileCrossParentScope Scope,NonRedundantCrossTableScope Binding) CompileBranch(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata source,CrossTableSparseSelection selection,int levelIndex,bool allowExactSource=false)
     {
         var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.ControlDetail)))throw new NotSupportedException("文件跨表页覆盖不能改变固定存储链。");
-        if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind!=JsonValueKind.Null&&!string.IsNullOrWhiteSpace(exact.ToString()))throw new NotSupportedException("文件跨表精确权限尚需独立证明。");
+        if(!allowExactSource&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind!=JsonValueKind.Null&&!string.IsNullOrWhiteSpace(exact.ToString()))throw new NotSupportedException("文件跨表精确权限尚需独立证明。");
         using var definition=JsonDocument.Parse(source.ControlDetail);var bindings=new List<NonRedundantCrossTableTargetScope>();var targets=new List<Target>();
         foreach(var level in definition.RootElement.GetProperty("levels").EnumerateArray())
         {

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Collections.Frozen;
 using System.Text.Json;
@@ -96,6 +97,25 @@ public sealed class MySqlNonRedundantReadPlan
     public IReadOnlyList<string> Outputs { get; }
     /// <summary>筛选和排序仅能引用本计划明确编译的字段，标识符不是客户端SQL。</summary>
     internal string Expression(string name)=>Expressions.TryGetValue(name,out var expression)?expression:throw new InvalidOperationException("读取字段未编译："+name);
+
+    private ConcurrentDictionary<string,string>? sharedExactExpressions;
+    /// <summary>只编译一次权限字段的SQL，供同一不可变计划的后续请求复用。</summary>
+    internal string SharedExactExpression(string field)=>
+        LazyInitializer.EnsureInitialized(ref sharedExactExpressions,static ()=>new(StringComparer.Ordinal))
+            .GetOrAdd(field,static (name,plan)=>plan.BuildSharedExactExpression(name),this);
+
+    /// <summary>授权只接受所有实际末端均在发布范围内且共同祖先一致的逻辑值。</summary>
+    private string BuildSharedExactExpression(string field)
+    {
+        var key=Crosses.Where(cross=>cross.SharedGroupKey is not null&&cross.Selection.Slots.Any(
+            slot=>slot.ColumnName==field||slot.ColumnName[..^3]+"_name"==field))
+            .Select(cross=>cross.SharedGroupKey).Distinct(StringComparer.Ordinal).SingleOrDefault()
+            ??throw new InvalidOperationException("精确范围字段缺少固定共享级联计划。");
+        var valid=Crosses.Where(cross=>cross.SharedGroupKey==key).Select(cross=>
+            "("+cross.Validity+") AND (("+string.Join(" AND ",cross.RawSlots.Values.Select(raw=>
+                "NULLIF(BINARY CAST("+raw+" AS CHAR),BINARY '') IS NULL"))+") OR "+cross.Reachable+")");
+        return "(CASE WHEN "+string.Join(" AND ",valid)+" THEN "+Expression(field)+" END)";
+    }
 }
 
 /// <summary>编译单值联接与固定多选名称计划；未证明的级联和虚拟表达式继续明确拒绝。</summary>
