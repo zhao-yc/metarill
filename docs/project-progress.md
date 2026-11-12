@@ -1454,6 +1454,7 @@ e847ed09 的 Linux 双包独立复建和三种隔离安装已通过。新候选�
 | V1254 | ✅ 双包与三拓扑安装通过 | 2c5bd5ee／Linux x64／Server-200 | 两份 ZIP 独立复建一致，分库、共库、独立 Full 空库安装、普通权限、原 CRUD 与重启通过。资源独立核清。 | [V1254 共享逻辑父表候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1254-共享逻辑父表候选双包及三拓扑)，2026-11-12 |
 | V1258 | ✅ 双包与三拓扑安装通过 | 19db5528／Linux x64／Server-200 | 两份 ZIP 独立复建一致，分库、共库、独立 Full 空库安装、普通权限、原 CRUD 与重启通过。资源独立核清。 | [V1258 固定末级父 Excel 三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1258-固定末级父-excel-候选双包及三拓扑)，2026-11-13 |
 | V1259 | ✅ 固定源码 Windows 回归通过 | 19db5528／30 组 | .NET 3,685 通过、238 条件跳过，平台与示例及四项前端同步后 717 份受管产物一致。 | [V1259 当前 Windows 固定回归](testing/current-windows-regression-v946-v947.md#v1259-固定末级父候选-windows-回归)，2026-11-13 |
+| V1260 | 🧪 九类负载已固定，正式计时待运行 | 19db5528／Server-200 | 复核发行内容与性能宿主，九类冻结。首次主机负载窗口到期，零正式请求，原 Linux 回归已恢复。 | [V1260 当前候选性能](testing/current-mysql-performance-v1130.md#v1260-当前候选九类性能复验准备)，2026-11-13 |
 | V1261 | 🧪 最新候选离线准备通过 | 19db5528／六组完整生成回归 | 固定 3,177 项、57 批、3,107 份源码与 105 份离线依赖。正式 Linux 结果另计。 | [V1261 当前独立 Linux 准备](testing/current-linux-generation-batches-v945.md#v1261-当前候选完整-linux-回归离线准备)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
