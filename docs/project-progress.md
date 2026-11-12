@@ -1481,6 +1481,9 @@
 | V1286 | ✅ 当前独立 Full 的 MySQL 跨实例恢复通过 | 2a958f1f／两个隔离 MySQL 8.4.11 | 43 个原请求，旧令牌、刷新及待批准设备码拒绝，撤销回滚、重复零变更、附件和精确回收通过。 | [V1286 独立 Full 跨实例恢复](testing/current-split-recovery-v927-v928.md#v1286-当前独立-full-的-mysql-跨实例恢复)，2026-11-13 |
 | V1287 | ✅ 当前候选独立 Full 对象恢复通过 | 2a958f1f／MySQL 与 SeaweedFS | 13 表、原键 466 字节、19 个原请求及权限、会话与精确回收通过。 | [V1287 独立 Full 对象恢复](testing/current-split-recovery-v927-v928.md#v1287-当前候选独立-full-对象恢复)，2026-11-13 |
 | V1288 | 🧪 当前独立 Linux 首批通过 | 2a958f1f／Server-200 | 15 项原 TRX 全部通过，3,184 项发现名单已逐项核对，其余批次继续。 | [V1288 当前独立 Linux 首批](testing/current-linux-generation-batches-v945.md#v1288-当前独立-linux-首批)，2026-11-13 |
+| V1289 | ✅ 当前平台分库 MCP 通过 | 2a958f1f／Server-200 | 46 次真实请求，项目权限、撤权及三次物理读回通过。 | [V1289–V1291 当前候选三拓扑 MCP 权限](testing/current-platform-full-mcp-v937-v938.md#v1289v1291-当前候选三拓扑-mcp-权限)，2026-11-13 |
+| V1290 | ✅ 当前独立 Full MCP 通过 | 2a958f1f／Server-200 | 30 次真实请求，空库显式安装、OAuth 读取与撤权通过。 | [V1289–V1291 当前候选三拓扑 MCP 权限](testing/current-platform-full-mcp-v937-v938.md#v1289v1291-当前候选三拓扑-mcp-权限)，2026-11-13 |
+| V1291 | ✅ 当前平台共库 MCP 通过 | 2a958f1f／Server-200 | 50 次真实请求，双身份跨项目记录不可见，备用库零表，资源核清。 | [V1289–V1291 当前候选三拓扑 MCP 权限](testing/current-platform-full-mcp-v937-v938.md#v1289v1291-当前候选三拓扑-mcp-权限)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
