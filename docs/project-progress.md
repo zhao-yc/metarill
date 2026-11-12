@@ -1494,6 +1494,7 @@
 | V1300 | ✅ 当前 Linux 第三批的 MySQL 补验通过 | 2a958f1f／Server-200／独占 MySQL | 原跳过的 8 项全部实测通过，业务表、数据库、账号和测试容器均核清。 | [V1300 第三批 MySQL 补验](testing/current-linux-generation-batches-v945.md#v1300-linux-第三批的-8-项-mysql-补验)，2026-11-13 |
 | V1301 | 🧪 当前独立 Linux 第四批结束 | 2a958f1f／Server-200 | 原 TRX 24 通过、7 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1301 当前独立 Linux 第四批](testing/current-linux-generation-batches-v945.md#v1301-当前独立-linux-第四批)，2026-11-13 |
 | V1303 | ✅ 当前共库 S3 附件通过 | 2a958f1f／Server-200 | 58 次原 HTTP、24 次 SDK，绑定与删除竞态、撤权、共库归属和回滚通过，独立核清。 | [V1303 同父子页候选共库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1303-同父子页候选共库-s3-附件验收)，2026-11-13 |
+| V1304 | ✅ 原桌面及移动 Web 固定用例通过 | 2a958f1f／原 H5 与实际发行宿主 | 六组登录、工作区与表配置、普通读者及编辑者客户 CRUD；六次注销及四库、三账号、Redis、回环和浏览器空间独立核清。 | [V1304 当前候选原双视口 Web](testing/current-exact-release-web-v913.md#v1304-当前候选原桌面及移动-web)，2026-11-13 |
 | V1305 | 🧪 当前独立 Linux 第五批结束 | 2a958f1f／Server-200 | 原 TRX 10 通过、7 实库条件跳过、零失败，3,184 项发现名单已逐项核对，其余批次继续。 | [V1305 当前独立 Linux 第五批](testing/current-linux-generation-batches-v945.md#v1305-当前独立-linux-第五批)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
