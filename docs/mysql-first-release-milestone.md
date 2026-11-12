@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+`2a958f1f` 实际平台和 Full 双包已通过严格 MySQL TLS、三库显式安装和原业务接口验收。[V1277 同父子页候选严格 MySQL TLS](testing/mysql-strict-tls-web-v565.md#v1277-同父子页候选严格-mysql-tls)。
+
 `2a958f1f` 当前候选已实测 7/9 类、34,764 个正式请求、54 个配对轮次。已测场景均通过稳定性门槛。[V1278 同父子页候选文件与表格性能实测](testing/current-mysql-performance-v1130.md#v1278-同父子页候选文件与表格性能实测)。
 
 `2a958f1f` 当前候选已实测 5/9 类、29,100 个正式请求、42 个配对轮次。已测场景均通过稳定性门槛。[V1276 同父子页候选普通写入性能实测](testing/current-mysql-performance-v1130.md#v1276-同父子页候选普通写入性能实测)。
