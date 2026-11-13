@@ -36,7 +36,7 @@
 
 上一产品候选 `6252c24e` 已完成平台与独立 Full 双包独立复建、三种 MySQL 安装和原 Web 构建。[V1363 双包及三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1363-全局候选双包及三拓扑)。两种全局候选独立包的真实权限、维护、原工作簿与业务及文件回滚均通过。[B137](nonredundant-storage.md#b137-全局候选与行归属)。同版平台及独立应用的桌面和移动 Web 六组基础场景已通过。[V1369 原 Web 双视口](testing/current-exact-release-web-v913.md#v1369-全局候选原桌面及移动-web)。同合同明细导入四并发首测触线，随后同版复跑两档均达标，最终性能门槛待收口。[V1377 性能首测](testing/current-mysql-performance-v1130.md#v1377-全局候选同合同明细四并发退化)。复杂控件浏览器继续。
 
-2a958f1f 的相邻复验也在同合同明细四并发触线，6252c24e 在另一安静窗口的两档续跑均达标。两版性能宿主的导入计划投影一致，继续分段核对锁、写入和提交时间。[相邻对照与计划](testing/current-mysql-performance-v1130.md#v1378-相邻对照第一段)。6252c24e 的 Windows 30 组通过，2a958f1f 的独立 Linux 已收回 32／57 批，最新候选和测试修正的 GitHub CI 仍需收口。
+2a958f1f 的相邻复验也在同合同明细四并发触线，6252c24e 在另一安静窗口的两档续跑均达标。两版性能宿主的导入计划投影一致，继续分段核对锁、写入和提交时间。[相邻对照与计划](testing/current-mysql-performance-v1130.md#v1378-相邻对照第一段)。6252c24e 的 Windows 30 组通过，2a958f1f 的独立 Linux 已收回 32／57 批，49e9408a 的 GitHub CI 15 项通过，测试修正提交继续核对。[V1404 兼容候选 CI](testing/ci-current-contracts.md#v1404-兼容候选-github-ci)。
 
 `2a958f1f` 已完成共库 S3 附件权限、竞态及事务实库验收。[V1303 同父子页候选共库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1303-同父子页候选共库-s3-附件验收)。
 
