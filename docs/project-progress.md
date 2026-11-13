@@ -1516,6 +1516,7 @@
 | V1323 | ✅ 第八批类型命名单项复验通过 | 2a958f1f／Server-200 禁网 | 原 60 秒单项复现超时。仅测试子进程时限改为 180 秒，原生成断言通过，耗时 00:01:12.4487039。两轮资源独立核清。 | [V1323 Linux 类型命名单项](testing/current-linux-generation-batches-v945.md#v1323-linux-类型命名单项编译复验)，2026-11-13 |
 | V1325 | 🧪 当前独立 Linux 第十批结束 | 2a958f1f／Server-200 | 原 TRX 52 项通过、3 实库条件跳过、零失败。两项需通用配置，一项需全局级联 Excel 专用范围。 | [第十批回执](testing/current-linux-generation-batches-v945.md#v1325-当前独立-linux-第十批)，2026-11-13 |
 | V1328 | 🧪 当前独立 Linux 第十一批结束 | 2a958f1f／Server-200 | 原 TRX 56 项通过、3 实库条件跳过、零失败。两项需通用配置，一项需全局级联 Excel 专用范围。 | [第十一批回执](testing/current-linux-generation-batches-v945.md#v1328-当前独立-linux-第十一批)，2026-11-13 |
+| V1327 | ✅ 当前六模型原 Web 覆盖及回滚通过 | 2a958f1f／原桌面 Web／独占 MySQL | 6 次有效覆盖、6 次末行拒绝及 18 行实库独立核验，资源已核清。 | [V1327 当前原 Web 六模型覆盖](testing/fixed-cross-overwrite-web-v827.md#v1327-当前候选六模型原-web-覆盖与拒绝)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
