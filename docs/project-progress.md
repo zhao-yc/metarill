@@ -1540,6 +1540,10 @@
 | V1350 | ✅ 两模型原生成 HTTP／MySQL 通过 | Server-200／MySQL 8.4.11 | 原 List／单选、多选／复选、已选拒绝、派生名称及项目范围通过，独占资源核清。 | [B137](nonredundant-storage.md#b137-全局候选与行归属)，2026-11-13 |
 | V1353 | 🧪 独立 Linux 第十八批结束 | 2a958f1f／Server-200 | 原 TRX 49 项通过、4 项条件跳过、零失败。原 Excel、名称传播／文件、导出及短级联文件继续补实库。 | [第十八批回执](testing/current-linux-generation-batches-v945.md#v1353-当前独立-linux-第十八批)，2026-11-13 |
 | V1352 | ✅ 四模型原生成 HTTP／MySQL／XLSX 通过 | 6252c24e 对应运行源码／MySQL 8.4.11 | 44 份源码差异固定，四模型候选及普通权限隔离、两页原 Excel、R1 缓存刷新和外项目不写入通过；独占资源独立核清。 | [B137](nonredundant-storage.md#b137-全局候选与行归属)，2026-11-13 |
+| V1355 | ✅ 独立 Linux 第十九批通过 | 2a958f1f／Server-200 | 原 TRX 3 项通过、零失败、零条件跳过。 | [第十九批回执](testing/current-linux-generation-batches-v945.md#v1355-当前独立-linux-第十九批)，2026-11-13 |
+| V1358 | 🧪 独立 Linux 第二十批结束 | 2a958f1f／Server-200 | 29 项通过、2 项实库条件跳过、零失败。非冗余自树和跨表末层实库补验继续。 | [第二十批回执](testing/current-linux-generation-batches-v945.md#v1358-当前独立-linux-第二十批)，2026-11-13 |
+| V1354 | 🧪 首轮独立包断言失败，资源核清 | 6252c24e 产品／Server-200 | 正式登录、普通账号候选及项目列表通过；外项目更新返回现有 HTTP 500，测试错误期待其它状态。原两库、账号、Redis 和容器已核清，V1357 复验。 | [B137](nonredundant-storage.md#b137-全局候选与行归属)，2026-11-13 |
+| V1356 | 🧪 补验协调器在测试开始前退出 | 2a958f1f／Server-200 | 严格构建通过。多用例分派仍含单用例解包，三项均未执行，独占资源已核清，V1359 复验。 | [第十八批回执](testing/current-linux-generation-batches-v945.md#v1353-当前独立-linux-第十八批)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
