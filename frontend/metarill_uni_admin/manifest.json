@@ -1,0 +1,37 @@
+{
+  "name": "Metarill",
+  "appid": "__UNI__CF80CAE",
+  "description": "元数据驱动的开源应用开发平台",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "transformPx": false,
+  "vueVersion": "3",
+  "h5": {
+    "devServer": {
+      "port": 5188,
+      "strictPort": true
+    }
+  },
+  "app-plus": {
+    "usingComponents": true,
+    "nvueCompiler": "uni-app",
+    "modules": {},
+    "distribute": {
+      "android": {
+        "permissions": []
+      },
+      "ios": {},
+      "sdkConfigs": {}
+    }
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": true
+    },
+    "usingComponents": true
+  },
+  "uniStatistics": {
+    "enable": false
+  }
+}

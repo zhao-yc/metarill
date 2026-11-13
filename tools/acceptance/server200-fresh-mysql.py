@@ -1,0 +1,137 @@
+"""只在已核验的开发服务器创建/清理本轮随机验收库；不持久保存密码。"""
+import json
+import os
+import pathlib
+import re
+import subprocess
+import sys
+
+
+def verify_server():
+    """每条 Docker 命令前核对主机名与固定局域网地址。"""
+    if subprocess.check_output(["hostname"], text=True).strip() != "Server-200":
+        raise RuntimeError("拒绝操作非 Server-200 主机。")
+    addresses = subprocess.check_output(["ip", "-4", "addr", "show"], text=True)
+    if not re.search(r"\binet 192\.168\.31\.200/", addresses):
+        raise RuntimeError("Server-200 地址核验失败。")
+
+
+def mysql(sql, *, guarded_transaction=False):
+    """管理凭据只在容器读取；守护批次必须在首个错误断开，禁止重连后继续提交。"""
+    verify_server()
+    client = 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot --batch --skip-column-names'
+    if guarded_transaction: client += ' --skip-force --skip-reconnect'
+    result = subprocess.run(["docker", "-H", "unix:///var/run/docker.sock", "exec", "-i", "yinzon-mysql", "sh", "-c", client],
+        input=sql, text=True, capture_output=True, timeout=45)
+    if result.returncode:
+        error = RuntimeError("MySQL 随机验收对象操作失败，保留所有权记录供安全清理。")
+        # 仅附标准错误编号；SQL、连接参数与错误正文仍留在内存且不回显。
+        code = re.search(r"^ERROR ([0-9]{4,5}) \([0-9A-Z]{5}\)", result.stderr, re.MULTILINE)
+        if code: error.database_error_number = int(code[1])
+        raise error
+    return result.stdout.strip()
+
+
+def ownership_path(run):
+    """固定服务器临时目录下的本轮所有权记录，不接受调用方自选路径。"""
+    return pathlib.Path(f"/tmp/metarill-fresh-{run}.json")
+
+
+def main():
+    """所有名称来自同一随机编号；清理必须与创建成功后的所有权清单完全一致。"""
+    payload = json.load(sys.stdin)
+    run = payload["runId"]
+    if not re.fullmatch(r"[a-f0-9]{16}", run):
+        raise RuntimeError("验收编号不合法。")
+    # 固定场景白名单，不允许调用方指定任意数据库后缀；旧租约默认为baseline。
+    scenario = payload.get("scenario", "baseline")
+    baseline = ("platform", "business", "package", "nonred")
+    cross = ("cross_ss", "cross_sl", "cross_ls", "cross_ll")
+    derived = ("derived_declared", "derived_auto")
+    imported = ("import_without", "import_with")
+    # 双端运行只允许这两个新后缀；all保持旧八库，不能扩张已批准的历史范围。
+    profiles = {"platform_bootstrap": ("platform", "business"), "standalone_package": ("package",), "baseline": baseline, "cross": cross, "derived": derived, "imported": imported, "agent": ("agent",), "cached_source": ("cached_original", "cached_parent"), "paired": ("paired_java", "paired_csharp"), "array_cached_targets": ("array_t1_s1_long", "array_t1_s1_text"), "array_targets": tuple(f"array_t{target}_s{source}_{key}" for target in (0, 1) for source in (0, 1) for key in ("long", "text")), "all": baseline + cross}
+    if not isinstance(scenario, str) or scenario not in profiles:
+        raise RuntimeError("未知空库验收场景。")
+    databases = [f"metarill_fresh_{run}_{kind}" for kind in profiles[scenario]]
+    user = f"mtf_{run}"
+    state = ownership_path(run)
+    owner_token = payload.get("ownerToken")
+    if owner_token is not None and (not isinstance(owner_token, str) or not re.fullmatch(r"[a-f0-9]{64}", owner_token)):
+        raise RuntimeError("上层所有权标识无效。")
+    # 独立完整包只由已固定实际实例和归属标识的单库协调器操作。
+    if scenario == "standalone_package" and (owner_token is None or "expectedInstance" not in payload):
+        raise RuntimeError("独立完整包需要本轮实例指纹及所有权标识。")
+    verify_server()
+    fingerprint = mysql("SELECT @@hostname,@@server_uuid;").split("\t")
+    if len(fingerprint) != 2 or not re.fullmatch(r"[0-9a-f-]{36}", fingerprint[1]):
+        raise RuntimeError("MySQL 实例指纹无效。")
+    instance = {"hostname": fingerprint[0], "serverUuid": fingerprint[1]}
+    # 上层完整执行器可固定已确认实例；不匹配时在建立所有权记录/DDL前拒绝。
+    if "expectedInstance" in payload and payload["expectedInstance"] != instance:
+        raise RuntimeError("MySQL 实际实例与本轮预期不符。")
+    if payload["operation"] == "create":
+        password = payload["password"]
+        if not re.fullmatch(r"[a-f0-9]{64}", password) or state.exists():
+            raise RuntimeError("验收凭据或所有权清单状态不合法。")
+        expected = {"runId": run, "scenario": scenario, "databases": [], "user": None, "instance": instance}
+        if owner_token is not None: expected["ownerToken"] = owner_token
+        descriptor = os.open(state, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(expected, stream)
+        def save():
+            state.write_text(json.dumps(expected), encoding="utf-8")
+        for database in databases:
+            if mysql(f"SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='{database}';") != "0":
+                raise RuntimeError("随机库名已存在，拒绝复用或覆盖。")
+            mysql(f"CREATE DATABASE `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
+            expected["databases"].append(database)
+            save()
+        if mysql(f"SELECT COUNT(*) FROM mysql.user WHERE User='{user}';") != "0":
+            raise RuntimeError("随机账号已存在，拒绝覆盖。")
+        mysql(f"CREATE USER '{user}'@'%' IDENTIFIED BY '{password}';")
+        expected["user"] = user
+        save()
+        for database in databases:
+            mysql(f"GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES ON `{database}`.* TO '{user}'@'%';")
+        print(json.dumps({"scenario": scenario, "createdDatabases": databases, "createdUser": user, "server": "Server-200", "instance": instance}))
+    elif payload["operation"] == "cleanup":
+        if not state.exists():
+            raise RuntimeError("没有本轮所有权清单，拒绝猜测清理对象。")
+        expected = json.loads(state.read_text(encoding="utf-8"))
+        if expected.get("scenario", "baseline") != scenario or expected.get("instance") != instance or expected.get("runId") != run or any(name not in databases for name in expected.get("databases", [])) or expected.get("user") not in (None, user):
+            raise RuntimeError("所有权清单不匹配，拒绝清理。")
+        if expected.get("ownerToken") != owner_token:
+            raise RuntimeError("本轮上层所有权标识不匹配，拒绝清理。")
+        owned_databases = list(expected["databases"])
+        owned_user = expected["user"]
+        if expected["user"]:
+            mysql(f"DROP USER '{user}'@'%';")
+            if mysql(f"SELECT COUNT(*) FROM mysql.user WHERE User='{user}';") != "0":
+                raise RuntimeError("随机账号清理后仍存在。")
+            expected["user"] = None
+            state.write_text(json.dumps(expected), encoding="utf-8")
+        for database in list(expected["databases"]):
+            mysql(f"DROP DATABASE `{database}`;")
+            if mysql(f"SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='{database}';") != "0":
+                raise RuntimeError("随机库清理后仍存在。")
+            expected["databases"].remove(database)
+            state.write_text(json.dumps(expected), encoding="utf-8")
+        # 另起独立mysql命令核对本轮实际拥有的库和临时账号确实不存在，不能只凭DROP退出码报告清理。
+        for database in owned_databases:
+            if mysql(f"SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='{database}';") != "0":
+                raise RuntimeError("随机库清理后仍存在。")
+        if owned_user and mysql(f"SELECT COUNT(*) FROM mysql.user WHERE User='{user}';") != "0":
+            raise RuntimeError("随机账号清理后仍存在。")
+        state.unlink()
+        print(json.dumps({"cleaned": True, "scenario": scenario, "server": "Server-200", "instance": instance, "independentAbsenceVerified": True, "databaseCount": len(owned_databases)}))
+    else:
+        raise RuntimeError("未知验收操作。")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print("空库验收管理失败：" + str(error), file=sys.stderr)
+        sys.exit(1)

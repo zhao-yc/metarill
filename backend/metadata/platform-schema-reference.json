@@ -1,0 +1,1914 @@
+{
+  "schemaVersion": 1,
+  "description": "冻结原平台结构解析结果，仅包含按原顺序的字段名、类型和长度，不包含SQL正文或数据。",
+  "tables": [
+    {
+      "tableName": "yz_manager",
+      "columns": []
+    },
+    {
+      "tableName": "config_table",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "config_first_menu_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "config_first_menu_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "oracle_sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "where_sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "order_by",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "group_by",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "page_size",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_edit",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_new",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_save",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_delete",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_search",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "before_delete_sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "after_save_sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "after_import_sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "is_import",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_export",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_multi_select",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_lazy_query",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "grid_edit",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "title",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "name_2",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "name_3",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "title_2",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "title_3",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_sum",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "grid_width",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "is_print_preview",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_batch_delete",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "import_method",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "read_only_condition",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "pop_window_width",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "pop_window_height",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_export_edit",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_no_save_and_close",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_update",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_head_group",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_modify_log",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "layout",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "conn_string",
+          "type": "varchar",
+          "length": "100"
+        },
+        {
+          "name": "export_method",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "copy_method",
+          "type": "varchar",
+          "length": "20"
+        },
+        {
+          "name": "sql_more",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "authorize_scheme",
+          "type": "varchar",
+          "length": "20"
+        },
+        {
+          "name": "clear_method",
+          "type": "varchar",
+          "length": "20"
+        },
+        {
+          "name": "is_raw",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "same_edit_code",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "sql_grid",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "data_src",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "main_column",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "batch_new_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "edit_table_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "edit_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "edit_page_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "edit_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "edit_key_column",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "button_visible",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "auto_save",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "child_place",
+          "type": "varchar",
+          "length": "20"
+        },
+        {
+          "name": "super_column_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "edit_page_url",
+          "type": "varchar",
+          "length": "100"
+        },
+        {
+          "name": "display_option",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "bpm_step_kind",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "document_ready",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "help",
+          "type": "longtext",
+          "length": null
+        },
+        {
+          "name": "edit_width",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "yz_project_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_platform",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_sys",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_rongyu",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_function_table",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_view",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_repeat_pwd",
+          "type": "int",
+          "length": null
+        }
+      ]
+    },
+    {
+      "tableName": "config_page",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_first_menu_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_first_menu_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "order_by",
+          "type": "varchar",
+          "length": "500"
+        },
+        {
+          "name": "where_sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "config_table_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_edit",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "page_size",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_new",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_save",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_delete",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_search",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_lazy_query",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "title",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_sum",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_print_preview",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_batch_delete",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_update",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_update_edit_columns_only",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "parent_config_table_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "parent_config_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "parent_config_page_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "parent_config_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_import",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_export",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_multi_select",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_export_edit",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "export_method",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "is_copy",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "read_only_condition",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "import_method",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "button_visible",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_after_add",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_after_delete",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_after_save",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_before_save",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "child_place",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_repeat_pwd",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "save_auto_close",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "child_style",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_before_delete",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "yz_project_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_no_check",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "config_table_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_auto_hide",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_list_edit",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "type",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_before_query",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_not_generate_detail_page",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "mobile_list_page_style_type",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_auto_back_on_mobile_save",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "cols",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_before_get",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "exact_data_manage_match_field",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "detail_page_buttons_position",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "detail_layout",
+          "type": "longtext",
+          "length": null
+        }
+      ]
+    },
+    {
+      "tableName": "config_column",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_table_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "match_type",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "width",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_in_grid",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_in_filter",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_in_edit",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_read_only",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_must",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "control_kind",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "control_detail",
+          "type": "varchar",
+          "length": "2000"
+        },
+        {
+          "name": "sort_no",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "default_value",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "query_default_value",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "init_value",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "link_config_table_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "link_config_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "link_config_page_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "link_config_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "control_width",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "col_span",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "align",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "is_auto_post_back",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "visible_condition",
+          "type": "varchar",
+          "length": "2000"
+        },
+        {
+          "name": "is_auto_post_back_query",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "join_table",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_hide_select_grid",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_join_column",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "column_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "column_type",
+          "type": "varchar",
+          "length": "20"
+        },
+        {
+          "name": "column_constrain",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "column_length",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "column_full_name",
+          "type": "varchar",
+          "length": "200"
+        },
+        {
+          "name": "save_option",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "display_option",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "trim_option",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_print",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "description",
+          "type": "varchar",
+          "length": "500"
+        },
+        {
+          "name": "developer_remarks",
+          "type": "varchar",
+          "length": "500"
+        },
+        {
+          "name": "is_auto_update",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_copy",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "is_sort",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "sum_kind",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "filter_control_kind",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_virtual_column",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "mobile_list_page_col_span",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_db_not_null",
+          "type": "int",
+          "length": null
+        }
+      ]
+    },
+    {
+      "tableName": "config_page_column",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_column_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_column_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_page_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_in_grid",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_in_filter",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_in_edit",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_read_only",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "width",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "default_value",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "match_type",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "link_config_table_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "link_config_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "link_config_page_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "link_config_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_must",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "control_detail",
+          "type": "varchar",
+          "length": "500"
+        },
+        {
+          "name": "init_value",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_column_column_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "query_default_value",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "default_save_value",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "combine_cell",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "combine_super_column_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "combine_super_column_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "hint",
+          "type": "varchar",
+          "length": "100"
+        },
+        {
+          "name": "is_print",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "developer_remarks",
+          "type": "varchar",
+          "length": "500"
+        },
+        {
+          "name": "description",
+          "type": "varchar",
+          "length": "500"
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "config_column_sort_no",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_important",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_auto_focus",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_auto_save_after_change",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "sum_kind",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "detail_group_key",
+          "type": "varchar",
+          "length": "64"
+        }
+      ]
+    },
+    {
+      "tableName": "yz_manager_devices",
+      "columns": []
+    },
+    {
+      "tableName": "yz_manager_devices_project",
+      "columns": []
+    },
+    {
+      "tableName": "yz_project",
+      "columns": []
+    },
+    {
+      "tableName": "config_button",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "config_table_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "config_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_page_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "config_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "sql",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "sort_no",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "is_need_confirm",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "visible_scheme",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "visible_rule_json",
+          "type": "text",
+          "length": null
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "save_option",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "confirm_msg",
+          "type": "varchar",
+          "length": "100"
+        },
+        {
+          "name": "after_action",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_auto_close_after_action",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "place",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "type",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "is_batch_select_button",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "action_type",
+          "type": "int",
+          "length": null
+        }
+      ]
+    },
+    {
+      "tableName": "config_child",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "parent_config_page_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "parent_config_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "child_config_page_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "child_config_page_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "sort_no",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "child_page_open_type",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "45"
+        }
+      ]
+    },
+    {
+      "tableName": "yz_role",
+      "columns": []
+    },
+    {
+      "tableName": "yz_admin_type",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "user_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "password",
+          "type": "varchar",
+          "length": "100"
+        },
+        {
+          "name": "exact_data_manage_match_field",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        }
+      ]
+    },
+    {
+      "tableName": "config_custom_page",
+      "columns": []
+    },
+    {
+      "tableName": "yz_role_permission",
+      "columns": []
+    },
+    {
+      "tableName": "config_index",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "config_table_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_table_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "index_name",
+          "type": "varchar",
+          "length": "64"
+        },
+        {
+          "name": "index_type",
+          "type": "varchar",
+          "length": "10"
+        },
+        {
+          "name": "is_enabled",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "yz_project_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "45"
+        }
+      ]
+    },
+    {
+      "tableName": "config_index_column",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "config_index_id",
+          "type": "varchar",
+          "length": "64"
+        },
+        {
+          "name": "config_index_index_name",
+          "type": "varchar",
+          "length": "64"
+        },
+        {
+          "name": "config_column_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "config_column_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "column_name",
+          "type": "varchar",
+          "length": "64"
+        },
+        {
+          "name": "sort_no",
+          "type": "int",
+          "length": null
+        },
+        {
+          "name": "sort_direction",
+          "type": "varchar",
+          "length": "4"
+        },
+        {
+          "name": "yz_project_id",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "yz_project_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "import_no",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "delete_no",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "update_time",
+          "type": "datetime",
+          "length": null
+        },
+        {
+          "name": "insert_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "update_manager_id",
+          "type": "bigint",
+          "length": null
+        },
+        {
+          "name": "insert_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "update_manager_real_name",
+          "type": "varchar",
+          "length": "50"
+        },
+        {
+          "name": "insert_user_name",
+          "type": "varchar",
+          "length": "45"
+        },
+        {
+          "name": "update_user_name",
+          "type": "varchar",
+          "length": "45"
+        }
+      ]
+    }
+  ]
+}

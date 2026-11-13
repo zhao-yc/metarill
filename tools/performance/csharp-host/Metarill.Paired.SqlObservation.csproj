@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>Metarill.Paired.SqlObservation</AssemblyName></PropertyGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
+  <!-- 默认测试复用仓库Data；固定独立包可显式引用其已构建的同一Data程序集，避免混入平台版本。 -->
+  <ItemGroup Condition="'$(MetarillObservationDataAssembly)' == ''"><ProjectReference Include="../../../backend/src/Metarill.Data/Metarill.Data.csproj" /></ItemGroup>
+  <ItemGroup Condition="'$(MetarillObservationDataAssembly)' != ''"><Reference Include="Metarill.Data"><HintPath>$(MetarillObservationDataAssembly)</HintPath><Private>false</Private></Reference></ItemGroup>
+</Project>

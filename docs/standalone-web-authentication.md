@@ -1,0 +1,121 @@
+# 独立完整包的数据库Web认证宿主
+
+本片适用于普通业务`FullApplication`，profile为`web-database-v1`；只接通账号存储、Web会话、原登录/菜单/权限/注销/自助改密合同。不移入平台Config、Demo、自举编辑器、Agent或设备控制面。安全表带业务页面时仍拒绝严格物理合成，Runtime A与五处自定义组件门禁不在本片解除；共享Security程序集随包存在不等于三个安全Service手写partial已经下发。
+
+## 新包和既有模式
+
+- 新Full默认Web，显式组合业务 `project.json`、文件三表 `files.json`、含 `yz_manager_log` 的安全七表 `security.json`，以及固定 Agent 两表。当前标准单业务表示例共 13 表；正常启动、匿名请求及预览不执行DDL或账号初始化。
+- 已交付`BackendOnly`继续`development-only`原宿主、四个基础程序集与业务/文件物理范围，不因本片失去平台代码导出，也不自动获得数据库Web。Full失败不降级为BackendOnly。
+- Web配置缺失、匿名或非64位小写hex令牌，在解析数据库服务及Open前拒绝。显式Web配置/认证失败不调用开发登录。只有Development且显式启用的开发账户可使用原内存会话/私有摘要；Production强制拒绝该开发模式。
+- 原登录表单、DOM、CSS、请求和事件保留。此前独立模板的“独立开发认证”标签改为模式中立“独立应用”；`sysParams`后台使用可信登录回执的字符串`yzAdminTypeId`，开发回执缺该字段时才使用包内默认后台，项目始终固定包内ID。该客户端状态不参与服务端授权。
+
+## 初始化与身份
+
+先审核并显式apply结构，再从宿主私有配置或环境设置Bootstrap用户名/密码（12至1024位）。初始化只能单独执行`--initialize-security`，不接受CLI中的认证/连接秘密、项目或后台参数。多后台需私有配置明确选择包内后台；单后台使用唯一声明。项目/后台ID由包声明固定，角色/账号使用框架IIdGenerator新生成的长ID，不使用固定id1。
+
+命令仅在真实事务中初始化本应用项目/后台/管理员角色/账号。先current锁项目，再读取包含墓碑的既有记录，避免RR中先创建旧快照后等待。并发创建固定项目时，数据库唯一键冲突或死锁只失败回滚，不自动重试；本轮离线ADO替身只证明回滚入口，真实并发仍待专属MySQL验收。重复初始化不重置摘要、不复活账号、不补绑既有用户名，删除或归属冲突整批失败。初始化成功后可移除私有Bootstrap明文；它不参与后续数据库登录。
+
+每个Web请求复用共享AuthenticationService/PrincipalRolePolicy读取数据库会话、活动账号和同真实后台角色。本应用registry的IsPlatformRealm恒false，Agent附加证明恒拒，账号不能选择包外项目。后台super用独立`IsRealmSuper`表达，其Actor.IsAdministrator仍false；原菜单、按钮及动作只与本包已发布目录取交集，页开关仍由服务端逐项验证。
+
+密码修改锁序为项目→后台→当前会话→账号，同事务核旧密码、写PBKDF2、撤销该账号全部旧会话；注销只针对当前真实Web会话。文件与生成CRUD、认证基础设施复用同一个DatabaseSession；文件引用仍加入原业务事务。正常配置与表单不打印明文、令牌、摘要或连接。旧GET改密仅兼容保留，原页面使用POST，部署网关也必须避免记录敏感query。
+
+正式Web默认同源，不因启用认证开放CORS。HBuilderX不同本机端口的自动回环CORS仍只属于显式开发模式；正式分离部署应使用可信同源网关。本片未新增公开域名、部署或开放来源配置。
+
+## 本地更新与验收边界
+
+旧Full `development-only`目标仍可严格读取；新候选必须拥有当前Web profile的安全模型、宿主文件和Security工程闭包。只有显式`sync-runtime`并满足全部受管依赖才能迁移profile；仍保护AppID、私有配置、手写partial/宿主扩展，不读私有凭据、不自动DDL/初始化或安装。既有自定义认证partial应在更新前自行对照宿主合同，源码字节保护不等于其自定义行为已经验收。
+
+初始源码片验证真实CLI装配与独立包编译、直接执行该包程序集的认证/初始化/原请求解析、固定参数SQL的本机ADO替身事务，以及真实文件更新/journal恢复和Node原脚本。这些离线证据不算HTTP通信、MySQL锁/RR或浏览器验收；该源码片当时未运行Fresh。主协调者后续先完成1ce30批次的正式Web全新库，再完成下文4af8875的普通账号、改密和进程重启顺序补验；平台首次安装23/4表用例保持原范围。
+
+## 初始源码片的离线验证记录
+
+最终定向85/85、0跳过：实际包程序集认证/初始化/请求与命令边界57项，Full/BackendOnly与旧包profile升级8项，原前端装配/Node脚本19项，以及可信源码夹具补齐安全模型后的实际prepare复验1项。正式Release CLI重新导出487文件，包自身Release编译启用警告即错误并取得0警告/0错误，包内Node闭包校验通过；未启动Main、HTTP、数据库或HBuilderX。
+
+补充原生命令行配置提供器的斜杠参数反例：两种赋值形式实际绑定成功，而旧边界未拒绝；保留14项中12通过/2失败记录。修为同时识别横线与斜杠前缀后，增加两种分隔形式，最终85项覆盖四个斜杠场景。初始化独立单flag限制从始至终有效，此问题只属于普通启动的CLI秘密拒绝边界。
+
+保留历史失败：首次认证34项中33通过，注销事务外写入被本地ADO替身拦截，修为真实事务后34项全部通过；现有更新器完整64项取得63通过/1失败，唯一失败为trusted-source夹具未拷安全模型，补齐后仅定向重跑该项通过，不能将原64项批次重写为全绿。上述证据位于本任务私有`.local/standalone-web-auth`，没有数据库密码、真实账号或令牌交付。
+
+## 2026-10-20 正式Web顺序实库补验
+
+测试源码 `3c8ed14d2d8a17f8f7927a4830d0897437a47391` 集成为 `4af8875c411a4e0c03ef2d6596f2d6d055f53f3e`。主协调者在Server-200通过既有专属脚本运行 `228fdfff592c4283`，仍为两个Fresh Facts、三个本轮随机新空库和一个临时受限数据库账号，实际 **2/2通过，零失败、零跳过**。Full保留从0表显式安装10表、二次0差异、文件引用及受保护下载；另一平台Fact仍为23/4表、重复初始化不重置与真实登录，不把新合同拆成额外数据库用例。
+
+Full在原文件/业务CRUD之后新增以下真实进程、HTTP和MySQL顺序合同：
+
+- 仅在本轮完全自有package库通过明确夹具种下唯一普通角色、账号、query-only页授权及菜单显示授权；这不是通过已下发的安全管理CRUD创建账号。原form/JSON真实登录、原菜单和生成页detail允许，权限回执非super且只有query。
+- 同一真实 `POST initExport` URL先由bootstrap返回200和非空票据，再由普通账号返回403；普通账号新增也为403且业务行数/原记录不变。登录额外项目/后台/超级上下文拒绝，带伪项目/后台提示的认证请求不扩权；将自己的测试会话改为Agent类型后真实页读401，恢复Web后真实页读重新200。
+- 禁用测试账号后下个请求401；撤销其query授权后下个请求403，恢复后再次可读。它们是顺序撤销，不能替代并发/RR复核。
+- 错误旧密码返回403且摘要不变；两个改密前实际有效的Web令牌在成功改密后均真实HTTP 401，该账号活动session为0。新密码可以重新登录、旧密码被拒，PBKDF2摘要验证新密码。
+- bootstrap本人改密后，停止自有进程并用原Bootstrap配置再运行显式初始化，已改摘要保持不变。重新启动后，普通账号改密后签发的原令牌仍能从持久会话完成页读/query权限回读；退出后真实页读401、该账号活动session为0。最后默认客户端用新bootstrap密码恢复有效登录，不修改原启动密码配置。
+
+原始私有证据位于 `.local/fresh-install/228fdfff592c4283/`：
+
+| 证据 | SHA256 |
+| --- | --- |
+| `result.json`（2通过/0失败/0跳过，3库及1临时数据库账号已清理） | `0b5b2a298eae43a5945807bdbd3cbdd47c9a74918b137e036cc334a87a00b3a3` |
+| `fresh-install.trx`（两条实际Fresh方法） | `4163824c1602ea1e0f5096fc796036f2f9e59c9b111f1dce693d088a6dd80729` |
+| `cleanup-verification.json`（独立只读：库0、账号0、所有权文件不存在） | `57900dcdcb76eac5936b57a4d954b41f311c74e4c543f83c39156e86593d362d` |
+
+同目录 `test.log`、`build.log` 保留；本机 `settings.json` 已不存在，结果另记凭据文件已删。辅助 `.local/fresh-web-http-integrated.trx` 的5/5是纯HttpMessageHandler协议合同，SHA256 `4d17ff10d02c111513cbda63451f35e655fd0475fcff3f0d781708d2e37faa1d`；不计作五项实库或与Fresh相加成一个完整套件。
+
+旧1ce30 Fresh、84项加单独1项定向、487文件包Release/Node/HBuilderX证据仍按原冻结保留，见[验收台账](acceptance.md)，不累计重复运行。本次没有浏览器DOM/账号管理写入、设备、生产部署或新RR并发验收。角色工作台Business提取到共享Security只是工程闭包，不代表独立宿主已接入完整目录证明、协调器、三个安全Service手写partial或安全管理CRUD；Runtime A、五处Custom、Agent等既有门禁不因此关闭。
+
+## 2026-11-01 原登录前公开配置修复
+
+原前端login.vue在onLoad及提交密码前，以notSendSessionId=true读取GET /api/admin/sys/yz_manager/cap-config。独立Full模板虽然映射了此接口，但RequiresIdentity遗漏它，Production/Web匿名请求被中间件401拒绝，导致原页面不能完成配置读取。平台主服务的控制器/登录交互不在本次改动范围。
+
+已修复Program.cs.tpl，仅将原路径GET识别为登录前公开配置；返回仍只有enabled=false和apiEndpoint空串。不改变Cap验证配置、前端、密码/会话/权限判定，不公开POST/PUT/HEAD、相似前缀/子路径或菜单/权限/改密/退出。匿名与旧失效loginStateId头两种GET均验证，其余接口继续要求身份。
+
+先保留原模板新增9项实际编译/HTTP检查：7通过、2失败，两个失败分别是公开GET被判定需要身份和真实生成宿主HTTP401；修正后完整认证/装配回归141通过、0失败/跳过，包含真实Production/Web无数据库进程的公开GET与8个保护路径/方法、未初始化账号登录仍401。这里没有连接MySQL，不冒称真实密码登录/数据库事务再次通过。
+
+Server-200另用V19原4820313固定镜像启动禁网、只读、非root容器，实际运行原应用的回环HTTP，再次取得cap-config阶段401、探针退出1；独占容器已移除并独立核零。旧镜像/JAR/原包不覆盖；新C#包和镜像需从本次源码重新生成固定，并补修正后Linux HTTP证据，不能用旧镜像或本机工具回归代替。
+
+新Full包自动取得此模板；已有web-database-v1完整包通过原在线助手sync-runtime审查/更新受管Program.cs，保留手写partial、原前端、AppID及私有配置。单纯generate-project-config不能替代运行时更新。无需元数据、DDL、数据回填或账号重置；BackendOnly开发模板不属于此数据库Web缺口，不要求因此迁移profile。未实际更新的旧发布包仍可能存在该问题，本次不部署生产。
+
+原失败TRX、141项结果与旧Linux HTTP证据分别保留在私有paired-identity-seed-20261101/cap-config-before、cap-config-after及paired-cap-config-20261101，不修改历史结果。V08和MySQL首版仍待完整初始化/身份/业务/SQL/资源/性能验收。
+
+### 修正后固定包及Server-200实际HTTP
+
+产品来源3e0b1b19d729c1f872e3acdadf2c9652584eeed8已独立归档2258文件，使用该来源正规CLI生成Full 661文件，安装原六份公开手写源。严格Release构建零警告/错误；两轮34文件生成稳定、六手写保持，包内完整项目JSON与V17逐字相同。新宿主DLL SHA256为a9bc2d7e7a25351c6c96b045f8537012f4696b1076f2073ec29d3461a9d403cd。对23db838的产品源码差异仅Program.cs.tpl，Core/Data/Security算法源码未改；17个新编译运行文件的变化不能被误称为这些模块全部改写。
+
+200以同一官方ASP.NET manifest构建新镜像metarill-perf-f1bdaa2a046892b23a503d85f27e6121-csharp:cap-v1，实际内容ID为sha256:024b3fb9d9bcc52916ba67eb93010f1339b128d5a8d19e8ff2006f4b89c59a31。完整64文件核对，复用原47份未变文件、只传17份约3.1MB变化文件；旧上下文逐字保持。新的资源工具和pending示例固定到此ID，原4820313仅保留失败基线。
+
+使用与旧镜像完全相同的三文件.NET探针，在独占、network=none、非root、只读根、0.5CPU/512MiB容器内启动真实原宿主，11个HTTP检查全部符合预期：两种原GET配置200（无会话/旧失效头）、其它方法/相似路径/权限/菜单/退出/改密均401，未初始化账号登录401。旧1dd30e014c430448a2d6864083a01b62与新1a31bddc5315066e5f2d8dd5ea0a6508容器分别退出1/0，并分别独立查询核零；新镜像保留。没有数据库配置或外部网络、端口发布，没有数据库/账号/Redis键创建，不能当作真实密码登录、浏览器或性能成绩。
+
+更新镜像常量后性能工具94项：92通过、2项Windows上POSIX专属跳过，无失败。源码受保护清单776项中仅本任务Program.cs.tpl变化，其余原前端/模板/元数据/生成内容保持。已有Full需sync-runtime后重新编译后端，并在自己的获批部署流程中重启；本轮没有替任何既有项目更新或生产发布。
+
+镜像准备的首次远端脚本语法错误、随后固定4GiB临时分区余量假设拒绝均原样保留，发生在新上下文创建之前。只读核验/tmp约2.17GB、独立Docker分区约101.7GB，按实际508890499字节完整上下文核对双份临时量加512MiB及Docker三份量加2GiB余量后继续构建；没有删除缓存或其它任务文件。私有paired-cap-config-20261101保存源清单、包/生成/原产品差异、64文件、镜像构建、前后HTTP及日志。V08、普通真实身份播种、双端业务/SQL/负载仍待，不把本次公开HTTP修复扩写为首版完成。
+
+
+## 2026-11-01 原三字段登录协议与错误提示恢复
+
+独占Android x86模拟器实际运行499份原平台前端后，原登录页提交URL编码的username、password、captchaVerification三个字段；旧Full ReadLogin只接受两个字段，真实请求返回400及“请求参数不符合页面定义。”。这是后端协议兼容缺口，未修改原平台页面来回避。
+
+修复仅在Full模板允许可选、精确拼写的captchaVerification字符串，form/JSON均兼容。用户名和密码仍必需；重复值、大小写变体、额外项目/身份字段、JSON null/对象、query与4096字节总界限保持拒绝。当前Full公开配置仍为Cap关闭；兼容字符串不作为认证凭据，不表示已实现启用Cap的校验。
+
+另实测生成包登录script在code非200时直接return，会静默吞掉认证错误；恢复原登录页的模态错误提示。原平台前端不变，生成模板的template/style、按钮和成功后的会话/导航逻辑不变。
+
+新增15项先在未修产品上验证：9通过、6失败，分别为4个可选字段解析、1个真实生成宿主HTTP400、1个生成页面无错误反馈。首次探针曾遗漏生成页application描述，导致探针ReferenceError；保留该失败，不作为产品证据。补齐真实两份Vue脚本和包内描述后才取得上述15项结果。修复后选定认证与完整包组144项全部通过、零跳过；其中Node执行两份实际Vue方法在H5/APP-PLUS/MP-WEIXIN条件下取得请求，再由.NET发送给实际Production/Web宿主，并将真实401回执送回两份方法检查提示及提交状态恢复。它不是跨端编译或设备验收。
+
+本组没有数据库连接，预期认证拒绝401而不是成功登录。独立新包重建、原生原表单复验和前端/在线更新保护扩大回归另记后续实际结果；旧Linux镜像不因模板修改自动更新，正式双端计划中的固定镜像也不能静默替换。
+
+已有Full通过原在线助手sync-runtime审查更新受管Program.cs和frontend/pages/login.vue；两者均登记在运行时更新范围，不能用单纯generate-project-config或generate-all-page代替。保留手写partial、AppID及私有配置；无需元数据/DDL/回填/账号重置。没有替已有项目执行更新或生产部署。私有证据：original-login-captcha-compat-20261101目录的red2和green TRX。
+
+
+### 原三字段修正后固定包、Android与Linux实际验证
+
+产品e210c314c35f582dd5887047833edd0171cb11b9独立归档2264来源，实际生成661文件，六份原手写及34生成文件两轮保护通过。严格Release publish、完整项目JSON及原登录template/style核对通过。DLL SHA256为6a7db65e784b7a1a27d86c506a57e6a53850cc0066e16796d0657ea63c8b5784；publish比旧build输出多IIS web.config，运行文件实际65个，未为凑旧64计数而删除。复用来源中bin/obj不计Git归档源码，首次枚举2438项的原回执保留，逐项原归档核对后单列2264来源。
+
+原平台499前端文件在独占Android API30 x86标准基座真实运行，保持同页面假文本，只替换自有无库宿主；原请求由400变为401，且原模态正常显示错误、一次点击一笔请求。空值提示、冷启动及收尾见[原生专项](testing/android-emulator-native-smoke.md)，不重复计作生成页设备验收或有效账号登录。
+
+Server-200保留原024b3fb镜像，以核对内容ID的原缓存tag和19个摘要已核对差异文件（3102491字节）构建独立49649d47669f6b71db535f0221bd81855ae6792fe0325b341218b214662fc02c镜像，固定完整产品提交标签。每次Docker均重新核对Server-200/IP，显式Unix socket，不使用本机Docker。首次FROM裸sha256被BuildKit解释成镜像仓库名并403，原日志保留；新轮在构建前后核对缓存tag仍为原024内容ID，未替换旧镜像。
+
+新镜像在非root、只读根、network=none、0.5CPU/512MiB、无端口发布容器中，先逐项核对65个真实运行文件摘要，再启动实际Production/Web原宿主。两组分别完成：21个公开配置/保护方法/两字段/原三字段form与JSON/原限流检查；9个重复、未知身份、大小写、缺字段及JSON类型拒绝检查。第11次登录明确429，正常认证拒绝401、严格参数拒绝400，未放开任何边界。首轮探针把14笔登录放进一个分钟窗口，第11笔触发现有限流使该轮未通过；结果保留，拆为两个独立宿主验证，未增加额度或伪造通过。失败轮及两成功轮三容器均经新SSH独立检查不存在。没有数据库、账号、Redis键或业务写入，也不是负载/性能成绩。
+
+公开双端协调器及pending正式计划还需固定新镜像和原三字段请求；不能把原024镜像/旧来源审批自动解释为新来源批准。固定原前端、模型和权限不变。私有original-login-captcha-compat-20261101保存归档/首次发布失败/新包/新镜像、21项/9项实际HTTP、首轮限流失败及独立核零回执。
+
+
+### 同版前端装包与在线更新保护扩大回归
+
+2026-11-01，沿用e210c31的本次模板/Core实现，选定的172项实际回归全部通过，零失败/零跳过，持续52分31秒。TRX定义分别为LocalGenerationUpdateTests 152、FrontendPackagerTests 19、LocalGenerationUpdateShellProtectionTests 1；涵盖实际Full、原页面金样/脚本、运行时更新部件/范围、AppID/私有配置/手写partial保护及既有更新事务边界。没有把152项拆文件误记为多个套件，也不与前144项累加成独立覆盖数。
+
+原始证据original-login-captcha-compat-20261101/original-login-frontend-update.trx，SHA256 bc759e3003aa08115f70de9e55e6e27abe72721ac26aa328f66b298c9e08184f。该组运行期间模板/Core未再修改；后续性能工具四文件不在本组读取范围，独立119项已有对应证据。新2f0e1fe云端CI前端已成功，Windows/Linux后端仍在运行；旧7ab0c7b批次因新源码推送取消，旧Windows未通过，不能沿用旧前端/Linux结果冒充新完整CI。

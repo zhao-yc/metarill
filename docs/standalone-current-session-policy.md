@@ -1,0 +1,15 @@
+# 独立Full的当前会话适配准备
+
+本片只增加`SessionPolicy.cs.tpl`及实际编译模板的离线测试，不改Program、WebAuthentication、打包/更新器、目录适配或任何发布门禁。模板尚未作为独立Full产物发布，不因存在源文件就宣称Reader/Guard/工作台已经注册。
+
+`ApplicationSecurityCurrentSessionPolicy`实现共享`ISecurityCurrentSessionPolicy`唯一方法`ReadAgentGrantForUpdateAsync`。先核对注入Store.Session、实参Session及CurrentTransaction为同一对象且事务连接存在；上下文错误先拒绝，取消请求正常取消，有效事务中的Agent也明确拒绝。它不查询SQL、OAuth/grant表、不调用普通AuthenticationService，也不提前锁sys_session。
+
+共享Reader仅当请求GrantId非空才调用此policy。无grant的Web请求由Reader自身按同Session/事务锁读sys_session，核账号绑定、到期、kind/web且grant为空，再锁operator、同后台角色及授权和当前目录；不能用本适配返回虚假的Web证明。平台的真实grant→session顺序保持原样。
+
+登录先发现候选，再在事务按项目→后台→账号取锁；改密按项目→后台→当前会话→账号，再撤销该账号全部会话。协调器先项目/后台，再可选grant→session→operator/roles/grants/目录。注销只锁当前session并更新，不反向补项目/后台。此片不改变这些锁序，不把普通认证读取代替锁后当前读；不据离线结果证明MySQL并发或死锁行为。
+
+后续统一接线时，正式模式应把ApplicationWebAuthorization注册为scoped具体类型，IRuntimeAuthorization和ISecurityIdentityAccessor都映射到该同一实例；身份只能来自认证中间件的真实HttpContext.Items。开发内存id1不可伪装为持久Web会话。目录两接口须映射同一个ImmutablePackageSecurityResources实例，Policy/Reader/Guard再消费同一个SqlRowStore/DatabaseSession。当前分片没有实施这些DI变更，也不开放Agent或包外项目。
+
+离线实际模板验证11/11、0跳过，启用警告即错误：嵌入模板独立编译成仅引用Security及其Core/Data闭包的classlibrary，直接执行模板构造器和政策函数；DatabaseSession使用本机禁止SQL的ADO替身。覆盖null Store/Session/事务、错Session、旧事务、没有当前事务、当前事务缺连接、取消和有效事务中的Agent拒绝。此结果不代表真实Web current协调DI、独立Full产物下发、MySQL/RR、HTTP或设备验收。
+
+精确filter：`FullyQualifiedName~StandaloneCurrentSessionPolicyTests`。私有TRX：`.local/current-session-policy/standalone-current-session-policy-v1.trx`，日志：`.local/current-session-policy-v1.log`。后续打包需显式写入`backend/Application.Host/SessionPolicy.cs`并在受管清单/更新器中声明；本片没有替集成者完成这一步。

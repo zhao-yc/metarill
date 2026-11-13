@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><AssemblyName>Metarill.Paired.Indexes</AssemblyName></PropertyGroup>
+  <ItemGroup Condition="'$(MetarillObservationDataAssembly)' == ''"><ProjectReference Include="../../../backend/src/Metarill.Data/Metarill.Data.csproj" /></ItemGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
+  <!-- 镜像内工具只引用同一候选的Data/Core，不能混入平台或旧候选程序集。 -->
+  <ItemGroup Condition="'$(MetarillObservationDataAssembly)' != ''">
+    <Reference Include="Metarill.Data"><HintPath>$(MetarillObservationDataAssembly)</HintPath><Private>false</Private></Reference>
+    <Reference Include="Metarill.Core"><HintPath>$([System.IO.Path]::GetDirectoryName('$(MetarillObservationDataAssembly)'))/Metarill.Core.dll</HintPath><Private>false</Private></Reference>
+    <PackageReference Include="MySqlConnector" />
+  </ItemGroup>
+</Project>

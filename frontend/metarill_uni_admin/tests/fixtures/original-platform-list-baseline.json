@@ -1,0 +1,105 @@
+{
+  "baseline": "28a57a2f771e0a1190271f938a6ad4ae5eff27e0",
+  "pages": [
+    {
+      "page": "config_custom_page-detail-2062361618137833473.vue",
+      "columns": [
+        "2200000000000101010"
+      ],
+      "templateSha256": "de17855fb0b67a47a2187936477ba4703c29544a84e5bfcfb60af463dcf90d71",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "config_index-detail-2076977531071803393.vue",
+      "columns": [
+        "2076977821456142336"
+      ],
+      "templateSha256": "5a26c8a961bf64cfabae458b048a12af2901b3c80f32cdd1bf4fb3ebdc796d27",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "config_index_column-detail-2076977554350190593.vue",
+      "columns": [
+        "2076977805266128896",
+        "2076977805534564352"
+      ],
+      "templateSha256": "31c006377f483eac660c8a959cdd4a349a10d1c56319e2ca8cba3412d14b3cca",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "config_page-detail-1868973685063311361.vue",
+      "columns": [
+        "2200000000000000105"
+      ],
+      "templateSha256": "9b5b1a713b067077cad97248252c08c8c960568348a5c67f278cd4f690201351",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "config_page-detail-6191175925956608.vue",
+      "columns": [
+        "1671100304320462849",
+        "2200000000000000105"
+      ],
+      "templateSha256": "1827543ad80ded61b4af5022112dbcd63ef63a6400d05f71e6b9060f13d1f5b7",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "config_page_column-detail-6218036784398336.vue",
+      "columns": [
+        "1676901024774926338",
+        "1676901024972058625"
+      ],
+      "templateSha256": "9eaa519647cc38d35c8eeb7741f89d32ce0be819eee866feef85ebea6a442942",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "config_table-detail-6191083005411328.vue",
+      "columns": [
+        "2200000000000000087"
+      ],
+      "templateSha256": "ff7f4f280774a9b234ccf0f391af39c93af4283aae4ccfe1a232c3ef78aa9643",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "yz_manager-detail-6031906822946816.vue",
+      "columns": [
+        "1679698329655750657"
+      ],
+      "templateSha256": "d81e61092e559dcf7305916247d288ced2488d2d499c7a951b103598a9dc3e0a",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "yz_manager_devices-detail-6220589291798528.vue",
+      "columns": [
+        "1679383180512325633"
+      ],
+      "templateSha256": "444d3fa4be462cb02b3782200c2ba62a49a3b3c3604b061abf9981cfd43a64fb",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "yz_manager_devices_project-detail-6220608155484160.vue",
+      "columns": [
+        "1679323290301280258",
+        "1679323290464858113"
+      ],
+      "templateSha256": "928ea9adbfb9368b163517ca31f1b2115100fd651934b953248f47124635d0dc",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "yz_role-detail-1692532858529329154.vue",
+      "columns": [
+        "1692533179766878209"
+      ],
+      "templateSha256": "bbb11b2c16648fc4ab0f1aefa9f102bc3ddbd0958ff454c803d1562642c17fcc",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "page": "yz_role_permission-detail-2063264600601714690.vue",
+      "columns": [
+        "2063264600941453314"
+      ],
+      "templateSha256": "5c523653b42f0a3568fd0b362b300e0114c09f0697ebd3e62d3782841210b00d",
+      "styleSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ]
+}

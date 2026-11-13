@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../Metarill.Core/Metarill.Core.csproj" /><FrameworkReference Include="Microsoft.AspNetCore.App" /><PackageReference Include="ClosedXML" /></ItemGroup></Project>

@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "runId": "00000000000000000000000000000001",
+  "rounds": 3,
+  "iterations": 2000,
+  "warmupIterations": 20,
+  "concurrency": [
+    1,
+    8
+  ],
+  "requestTimeoutSeconds": 15,
+  "maxP95Ratio": 1.1,
+  "minThroughputRatio": 0.95,
+  "targets": {
+    "java": {
+      "baseUrl": "http://127.0.0.1:1/api",
+      "container": "owned-java-benchmark",
+      "headers": {}
+    },
+    "csharp": {
+      "baseUrl": "http://127.0.0.1:2/api",
+      "container": "owned-csharp-benchmark",
+      "headers": {}
+    }
+  },
+  "scenarios": [
+    {
+      "name": "page",
+      "steps": [
+        {
+          "method": "POST",
+          "path": "/admin/auto/demo_customer/2200000000000100020/page",
+          "status": 200,
+          "json": {
+            "pageNo": 1,
+            "pageSize": 20,
+            "filters": {}
+          },
+          "checks": [
+            {
+              "pointer": "/code",
+              "equals": 200
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "crud",
+      "steps": [
+        {
+          "method": "POST",
+          "path": "/admin/auto/demo_customer/2200000000000100020/add",
+          "status": 200,
+          "checks": [
+            {
+              "pointer": "/code",
+              "equals": 200
+            },
+            {
+              "pointer": "/data/name",
+              "equals": "${run}-${scenario}-${phase}-${concurrency}-${round}-${iteration}"
+            }
+          ],
+          "json": {
+            "name": "${run}-${scenario}-${phase}-${concurrency}-${round}-${iteration}",
+            "notes": "paired",
+            "amount": 12.5,
+            "isEnabled": 1
+          },
+          "capture": {
+            "record": "/data/id"
+          },
+          "ignorePointers": [
+            "/data/id"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/admin/auto/demo_customer/2200000000000100020/detail/${record}",
+          "status": 200,
+          "checks": [
+            {
+              "pointer": "/code",
+              "equals": 200
+            },
+            {
+              "pointer": "/data/name",
+              "equals": "${run}-${scenario}-${phase}-${concurrency}-${round}-${iteration}"
+            }
+          ],
+          "ignorePointers": [
+            "/data/id"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/admin/auto/demo_customer/2200000000000100020/update",
+          "status": 200,
+          "json": {
+            "id": "${record}",
+            "notes": null
+          },
+          "checks": [
+            {
+              "pointer": "/code",
+              "equals": 200
+            },
+            {
+              "pointer": "/data/notes",
+              "equals": null
+            }
+          ],
+          "ignorePointers": [
+            "/data/id"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/auto/demo_customer/2200000000000100020",
+          "status": 200,
+          "json": {
+            "id": "${record}"
+          },
+          "checks": [
+            {
+              "pointer": "/code",
+              "equals": 200
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

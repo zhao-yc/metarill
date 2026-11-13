@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "2200000000000100020": {
+      "route": "/admin/auto/demo_customer/2200000000000100020",
+      "createFields": [
+        "name",
+        "notes",
+        "amount",
+        "isEnabled"
+      ],
+      "updateFields": [
+        "id",
+        "name",
+        "notes",
+        "amount",
+        "isEnabled"
+      ]
+    }
+  }
+}

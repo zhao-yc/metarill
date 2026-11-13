@@ -1,14 +1,88 @@
 # Metarill · 元溪
 
-基于 YZP 主框架重写的开源元数据应用开发平台。平台和生成应用使用 C#，前端沿用 uni-app。
+当前明确交付节点：**先完成并验收 MySQL 首版，交付 Web 管理端和 Web 业务生成**。首版验收覆盖桌面与移动 Web 浏览器。微信小程序、Android 和 iOS 单列为后续兼容性验收，其它数据库按后续路线图推进。原 Web 界面、功能／权限／事务／生成及同条件性能要求保持，详见[MySQL首版交付范围](docs/mysql-first-release-milestone.md)。
+
+基于 YZP 主框架重写的开源元数据应用开发平台。平台和生成应用采用 C# / ASP.NET Core，管理端保留 HBuilderX uni-app Vue 3 工程。Apache-2.0 许可证。
 
 ## 当前状态
 
-项目正在实现首期 MySQL 版本。其他数据库、跨端运行、性能及完整能力均以验收记录为准。
+功能完成情况与后续待办统一见 [实施进度表](docs/project-progress.md)。每完成一项，同步更新状态及验收依据。
 
-## 核心约定
+当前是首期 MySQL 开发版，尚未达到完整替代 YZP 的发布标准。生成列表、详情和独立前端导航壳已切回原 YZP v8 模板与组件，C# 后端适配原接口；已实测原单表页面的 PC 分页、筛选排序、校验、保存、复制、删除及移动视口。复杂关系和配置组合按首版清单逐项验收。小程序、Android 和 iOS 的真机验收在后续兼容性范围单列。详见[原前端恢复及证据边界](docs/frontend-preservation-correction.md)。已完成真实 MySQL 的登录→表字段配置→结构预览/执行/核验→生成独立应用→业务 CRUD 闭环，以及菜单树、权限、文件、导入导出、MCP 和 Agent 的核心接口验收。具体证据与剩余范围见 [验收台账](docs/acceptance.md)。
 
-- 元数据驱动结构同步和强类型代码生成，平台自身支持自举。
-- 生成与手写代码通过 C# partial 分离，手写业务按需组织。
-- 平台库与生成项目业务库独立配置，数据库适配集中管理。
-- Apache-2.0 开源；不包含原项目业务数据和私有环境。
+前端已配置 Metarill 的 DCloud AppID，HBuilderX Web 发行构建成功。真实浏览器已验证登录、项目选择、菜单、配置表列表与详情回读，以及临时表保存、批量字段、结构预览/执行/零差异核验、生成下载和元数据删除。原选择器已确认 MIT 许可并接回，真实浏览器从零选择后台、建表、回读默认字段已通过；MySQL 8.4.11 已通过 b991b583 Linux 候选的三种隔离安装。此前 e682cd12 的九类 Java／C# 同条件性能对照已达标，包含四并发的同父明细 Excel 追加。原 Web Excel 和分库 S3 附件复验通过，MySQL 首版总验收仍在进行。可按[固定提交打包说明](docs/mysql-first-release-install.md#从固定提交构建发行包)重建和校验发行候选。各提交对应的 CI、业务组合、后续兼容性和多数据库进度见[首版清单](docs/mysql-first-release-milestone.md)。富文本沿用自有 Tiny Cloud，key 暂留空，实际 Cloud 加载与编辑待配置后验证。两个发行 ZIP 的原选择器、许可文件和空配置已核对。[当前双包与安装](docs/testing/storage-mode-linux-release-v1009-v1010.md#v1177-与-v1178-日期修复候选双包及三拓扑)
+
+独立生成应用随包提供共享 XLSX 导出和本地文件库。文件基础结构从平台元数据确定性派生，通过包内命令显式安装；生成业务记录与文件引用共用一个数据库事务。真实隔离 MySQL 验证了上传、公开/受保护下载、引用阻删和非法引用整体回滚。平台与示例业务库已分别接线文件服务，并以同一业务数据库事务维护引用；全新空库的显式安装已实际通过。原图片上传协议已恢复，公开地址由可信服务端配置生成。独立 FullApplication 包已装配 uni-app 宿主，开发登录、菜单与生成 list/detail 的真实 HTTP 脚本链路通过；该包已通过 HBuilderX Web 发行和真实浏览器登录、菜单、父子 CRUD、筛选排序、父只读及注销；独立 type=2 多选页另实测两页21项、取消/只读及确认前完整回读；冗余 MultiSelectPage 字段已在重新导出的完整包实测取消、跨页四项、确认/保存回读、父范围失效及空数组，其他多值子集仍按缺口处理。远程 List 另验甲128/乙105项、三页、字面搜索及父切换；固定合同页已通过 [5,014 条候选的桌面分页、字面搜索和移动读回](docs/testing/fixed-contract-options-web-v830.md)。固定业务模型已有 [桌面 Excel 覆盖与失败回滚](docs/testing/fixed-cross-overwrite-web-v827.md) 和 [分库附件事务与撤权](docs/testing/current-split-s3-file-race-v925.md) 的专项证据。其余组合继续按进度表跟踪。独立完整管理包已在固定候选 e682cd12 验证原 Web 登录回跳、Agent 授权与撤销、真实 CLI、MCP 和同址重启，专用资源已独立核清。[当前完整管理包验收](docs/testing/fixed-management-oauth-web-v841.md#v1171-当前完整管理包原网页授权与撤权通过)。有效 Agent 刷新授权的账号初始化规则和其他业务组合见实施进度表。具体边界见 [Agent 验收](docs/standalone-agent.md) 与 [独立 MCP](docs/standalone-mcp.md)。详见 [独立应用包](docs/standalone-application.md)。这些分批接口与早期包记录不代表恢复原模板后的全部流程已重新验收；当前实际原界面证据以纠偏记录为准。
+
+## 架构
+
+- 元数据驱动结构同步、强类型 Entity / DTO / VO / Mapper / Service / Controller 及页面生成。
+- 同一程序集内以 C# `partial` 分离生成文件与手写扩展；重复生成保护手写内容。
+- 普通 CRUD 由 Service 完成；跨对象流程按需建立手写 Business，并共享同一数据库事务。
+- FreeSql 负责普通持久化，MySqlConnector 作为 MySQL 驱动；数据库差异集中在适配层。
+- 平台库、示例业务库和其他项目库分别配置。未配置的项目明确失败，不回退到平台库。
+- 结构变更必须显式预览、确认执行、核验并记录；启动不会自动修改数据库。
+
+部署与恢复见 [MySQL 首版安装与恢复](docs/mysql-first-release-install.md)。
+
+## 开发入口
+
+先安装 [global.json](global.json) 中声明的 .NET SDK、Node.js 24 和 HBuilderX。安装位置与版本必须实际核验。
+
+1. 按 [配置示例](backend/appsettings.Example.json) 创建不提交的 `.local/development.settings.json`。提前准备独立的 MySQL 平台库和业务库，以及仅有对应库权限的账号；连接串中的库名须与 `ExpectedDatabase` 完全一致。
+2. 为平台登录准备可访问的 Redis DB0。在同一私有文件设置 `Metarill:Authentication:LoginFailures:ConnectionString`，也可通过环境变量 `Metarill__Authentication__LoginFailures__ConnectionString` 提供。公开示例留空。缺少配置或 Redis 不可用时，登录会提示“登录安全校验暂不可用，请稍后再试”。
+3. 设置随机管理员密码，为不同服务进程分配独立的 `WorkerId`。部署时通过服务端 `Metarill:ProjectDatabases` 按项目 ID 配置额外业务库；不能由客户端提供连接串。
+4. Windows 可执行以下命令。初始化会显式预览、执行首期结构并补缺失种子；重复初始化不会重置密码或复活已删除的元数据。普通启动不执行结构同步。
+
+```powershell
+npm ci --prefix frontend/metarill_uni_admin
+pwsh -NoProfile -File scripts/dev.ps1 initialize
+pwsh -NoProfile -File scripts/dev.ps1 generate
+pwsh -NoProfile -File scripts/dev.ps1 start
+```
+
+API 默认地址为 `http://127.0.0.1:8088/api`，内嵌 MCP 为 `/api/mcp`。启动后先检查 `/api/runtime/health/check`，再用初始化的账号在原前端完成登录。健康接口只检查宿主是否响应，Redis 连接在首次登录时建立。修改私有配置后重启宿主。
+
+查看日志或停止宿主可运行以下命令。
+
+```powershell
+pwsh -NoProfile -File scripts/dev.ps1 logs
+pwsh -NoProfile -File scripts/dev.ps1 stop
+```
+
+macOS／Linux 可在仓库根目录使用 .NET SDK 启动平台后端。仓库已提交平台和示例的生成产物，首次启动可直接使用。需要重新生成时，先安装锁定的前端依赖。
+
+```bash
+dotnet build backend/src/Metarill.Api --configuration Release
+export ASPNETCORE_ENVIRONMENT=Production
+# 首次安装先确认私有配置中的目标库，再执行显式初始化。
+dotnet backend/src/Metarill.Api/bin/Release/net10.0/Metarill.Api.dll --initialize
+dotnet backend/src/Metarill.Api/bin/Release/net10.0/Metarill.Api.dll
+```
+
+直接启动时日志输出到终端，按 Ctrl+C 停止宿主。另开终端可运行 `curl http://127.0.0.1:8088/api/runtime/health/check` 检查是否返回 HTTP 200 和 `code: 200`。
+
+完成上述依赖安装后，申请并配置自己的 DCloud AppID，再使用 HBuilderX 打开前端工程。已有一键入口见 [.vscode/tasks.json](.vscode/tasks.json) 和 [.codex/environments/environment.toml](.codex/environments/environment.toml)。完整前端要求及许可状态见 [前端说明](frontend/metarill_uni_admin/README.md)。
+
+## 验证
+
+先执行 `npm ci --prefix frontend/metarill_uni_admin`。随后 `scripts/dev.ps1 test` 核对原工作簿与页面合同所需的前端依赖，再遍历全部后端测试项目。`npm test --prefix frontend/metarill_uni_admin` 验证前端运行时，Agent CLI 另执行 `npm run check --prefix tools/metarill-agent-cli` 和 `npm test --prefix tools/metarill-agent-cli`。
+
+真实数据库测试仅接受隔离库名 `metarill_test` / `metarill_business_test`，通过 `METARILL_TEST_SETTINGS` 指向私有测试配置，并设置 `METARILL_PLATFORM_METADATA` 为平台元数据文件的绝对路径。未提供时相关用例明确跳过，不能算真实业务验收。CI 编译并运行所有测试项目，真实 MySQL 验收在核实身份后的 Server-200 独立测试库执行。
+
+## 进一步阅读
+
+- [独立应用包与前端宿主](docs/standalone-application.md)
+- [公共MCP与独立应用接线](docs/standalone-mcp.md)
+- [已有应用的本地源码更新](docs/local-generation-update.md)
+- [type=2 独立多选页合同](docs/selection-page-mode.md)
+- [架构与实施边界](docs/architecture.md)
+- [前后端契约](docs/integration-contracts.md)
+- [索引聚合配置及限制](docs/index-workbench.md)
+- [平台只读CLI与数据库目录](docs/schema-inspection.md)
+- [数据库反向逻辑草案与确认保存](docs/schema-import-draft.md)
+- [Web 反向代理的客户端地址配置](docs/web-reverse-proxy.md)
+- [MySQL 严格 TLS 配置](docs/mysql-connection-tls.md)
+- [来源与脱敏基线](docs/source-baseline.md)
+- [前端许可清单](frontend/metarill_uni_admin/THIRD-PARTY-NOTICES.md)
+- [Agent CLI](tools/metarill-agent-cli/README.md)
