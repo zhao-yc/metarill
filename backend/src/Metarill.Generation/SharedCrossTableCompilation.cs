@@ -47,10 +47,12 @@ internal static class SharedCrossTableCompilation
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var ids=component.Select(c=>c.Source.Id).ToHashSet(StringComparer.Ordinal);var plans=new List<CrossTableWriteModel>();var branches=new List<SharedCrossTableBranch>();
                 foreach(var control in component.OrderBy(c=>c.Source.Id,StringComparer.Ordinal))
                 {
-                    if(table.Source.IsRongyu==0){var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==control.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(control.Source.ControlDetail)))throw new NotSupportedException("共享R0页级覆盖不能改变固定存储定义。");}
+                    if (table.Source.IsRongyu==0 && !CrossTableFrontendProof.KeepsStorageDefinition(model, page, control))
+                        throw new NotSupportedException("共享R0页级覆盖不能改变固定存储定义。");
                     var read=CrossTableReadCompilation.Resolve(model,table,page,control);if(read.Definition is not{} definition)throw new InvalidOperationException(read.Reason??"共享同伴缺少完整读取链。");
                     if(definition.Levels.Any(l=>l.Target.Source.Id==table.Source.Id))throw new NotSupportedException("共享级联的来源自参与路径尚需独立聚合证明。");
-                    if(definition.Levels.Any(level=>level.Target.IsGlobal)){var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==control.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(control.Source.ControlDetail)))throw new NotSupportedException("全局共享控制列的页覆盖不能改变固定存储与传播定义。");}
+                    if (definition.Levels.Any(level=>level.Target.IsGlobal) && !CrossTableFrontendProof.KeepsStorageDefinition(model, page, control))
+                        throw new NotSupportedException("全局共享控制列的页覆盖不能改变固定存储与传播定义。");
                     var levels=new List<CrossTableWriteLevel>();var slots=new List<SharedCrossTableSlot>();
                     foreach(var level in definition.Levels)
                     {
@@ -61,7 +63,7 @@ internal static class SharedCrossTableCompilation
                         if(level.DerivedName&&Metarill.Data.Queries.NonRedundantReads.MatchReadsTable(model.Catalog,level.Target.Source.Id,level.Name.Source.ColumnName,table.Source.TableName))throw new NotSupportedException("共享派生路径不能间接回到当前写入来源。");
                         levels.Add(new(level,id,name));var scope=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,where=level.Page.Source.WhereSql}))));slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope));
                     }
-                    var plan=new CrossTableWriteModel(definition,levels);if(CrossTableFrontendProof.Reason(plan) is{} mismatch)throw new InvalidOperationException(mismatch);plans.Add(plan);branches.Add(new(control.Source.Id,slots));
+                    var plan=new CrossTableWriteModel(definition,levels);if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)throw new InvalidOperationException(mismatch);plans.Add(plan);branches.Add(new(control.Source.Id,slots));
                 }
                 if(table.Source.IsRongyu==0)
                 {
@@ -83,7 +85,7 @@ internal static class SharedCrossTableCompilation
     /// <summary>仅识别固定结构以定位坏同伴，真正读取和存储证明仍由编译链完成。</summary>
     private static HashSet<string> Prefixes(GenerationModel model,PageModel page,ColumnModel column)
     {
-        try{var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();using var json=JsonDocument.Parse(string.IsNullOrWhiteSpace(overlay)?column.Source.ControlDetail:overlay);var root=json.RootElement;if(root.TryGetProperty("sourceMode",out var mode)&&mode.GetString()!="crossTable"||!root.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array)return new(StringComparer.Ordinal);return levels.EnumerateArray().Select(level=>level.TryGetProperty("columnPrefix",out var p)?p.GetString():level.TryGetProperty("table",out var t)?t.GetString():null).Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p=>p!).ToHashSet(StringComparer.Ordinal);}
+        try{var overlay=CrossTableFrontendProof.PageOverride(model,page,column);using var json=JsonDocument.Parse(string.IsNullOrWhiteSpace(overlay)?column.Source.ControlDetail:overlay);var root=json.RootElement;if(root.TryGetProperty("sourceMode",out var mode)&&mode.GetString()!="crossTable"||!root.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array)return new(StringComparer.Ordinal);return levels.EnumerateArray().Select(level=>level.TryGetProperty("columnPrefix",out var p)?p.GetString():level.TryGetProperty("table",out var t)?t.GetString():null).Where(p=>!string.IsNullOrWhiteSpace(p)).Select(p=>p!).ToHashSet(StringComparer.Ordinal);}
         catch(Exception error)when(error is InvalidOperationException or JsonException){return new(StringComparer.Ordinal);}
     }
 }

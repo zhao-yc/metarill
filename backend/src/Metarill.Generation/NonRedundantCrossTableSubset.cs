@@ -30,7 +30,7 @@ internal static class NonRedundantCrossTableSubset
             var plans=trees.Select(tree=>CrossTableWriteCompilation.Resolve(model,table,page,tree)).ToArray();
             if(plans.Any(plan=>plan.Definition is null))return "跨表同页完整写入证明缺失，不能忽略隐藏或混合级联。";
             // 原组件按前缀转换属性，原详情还读取显式属性；两者必须与同一后端JSON字段一致。
-            foreach(var plan in plans.Select(plan=>plan.Definition!))if(CrossTableFrontendProof.Reason(plan) is{} mismatch)return mismatch;
+            foreach(var plan in plans.Select(plan=>plan.Definition!))if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)return mismatch;
             _=NonRedundantReadCompilation.ForPage(model,table,page);var parentTables=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Metarill.Testing;
 using Xunit;
@@ -19,6 +20,49 @@ public sealed class CrossTableExcelPublicationTests
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
         VerifyPathCapabilities(UniappRenderer.Render(model).Single(file => file.Path == "generation-capabilities.json").Content, true, true);
+        Assert.Equal(before, JsonSerializer.Serialize(catalog));
+    }
+
+    /// <summary>页级分隔符贯通原Vue、路径接口和Excel，级联名称传播仍使用表级结构。</summary>
+    [Theory]
+    [InlineData("shared-r0", " > ", " > ")]
+    [InlineData("shared-r1", " > ", " > ")]
+    [InlineData("global-r1", " > ", " > ")]
+    [InlineData("shared-r0", "", "/")]
+    [InlineData("shared-r1", null, "/")]
+    public void Page_display_joiner_preserves_the_cross_table_storage_and_excel_contract(
+        string profile, string? configured, string expected)
+    {
+        const string columnId = "25";
+        var catalog = CrossTableExcelSharedGenerationTests.Catalog(profile);
+        var control = catalog.ConfigColumns.Single(column => column.Id == columnId);
+        var field = catalog.ConfigPageColumns.Single(column => column.ConfigPageId == "201" && column.ConfigColumnId == columnId);
+        var tableDefinition = control.ControlDetail;
+        var overlay = JsonNode.Parse(tableDefinition)!.AsObject();
+        overlay["displayJoiner"] = configured;
+        field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(overlay.ToJsonString());
+        var before = JsonSerializer.Serialize(catalog);
+
+        var model = GenerationModel.Create(catalog, "Example.PageCrossDisplay");
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = table.Pages.Single(item => item.Source.Id == "201");
+        var group = Assert.Single(SharedCrossTableCompilation.ForPage(model, table, page).Groups);
+        Assert.Equal(2, group.Plans.Count);
+        var primary = group.Plans.Single(plan => plan.Read.Source.Source.Id == columnId);
+        Assert.Equal(expected, primary.Read.Joiner);
+        Assert.Equal("/", group.Plans.Single(plan => plan.Read.Source.Source.Id != columnId).Read.Joiner);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var frontend = UniappRenderer.Render(model);
+        var detail = Assert.Single(frontend, file => file.Path.EndsWith("-detail-201.vue", StringComparison.Ordinal)).Content;
+        Assert.Contains("displayJoiner", detail);
+        var detailJoiner = System.Security.SecurityElement.Escape(JsonSerializer.Serialize(expected));
+        Assert.Contains($"readonlyDisplayText([entity.countryName,entity.areaName,entity.placeName], {detailJoiner})", detail);
+        var excel = CrossTableExcelRenderer.Helpers(model, table, page);
+        Assert.Contains("CrossExcelResolve201_" + columnId, excel);
+        Assert.Contains("ResolveAsync(text,3," + JsonSerializer.Serialize(expected), excel);
+        Assert.Equal(tableDefinition, control.ControlDetail);
         Assert.Equal(before, JsonSerializer.Serialize(catalog));
     }
 

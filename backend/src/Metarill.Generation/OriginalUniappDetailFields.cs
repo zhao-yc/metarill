@@ -232,7 +232,10 @@ this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._orig
         if(mode=="crossTable")
         {
             if(!d.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array||levels.GetArrayLength()==0)throw new InvalidOperationException("原跨表级联必须包含levels。");
-            var names=new List<string>(); foreach(var level in levels.EnumerateArray()) { var prefix=Property(level,"columnPrefix",Property(level,"table")); var id=Property(level,"idPropertyName",GenerationModel.Camel(prefix+"_id")); var label=Property(level,"namePropertyName",GenerationModel.Camel(prefix+"_name")); if(!Regex.IsMatch(id,"^[A-Za-z_][A-Za-z0-9_]*$")||!Regex.IsMatch(label,"^[A-Za-z_][A-Za-z0-9_]*$"))throw new InvalidOperationException("级联需要已经解析的属性定义。"); c.Defaults.Append(id).Append(":'',").Append(label).Append(":'',"); names.Add("entity."+label); } display=$"readonlyDisplayText([{string.Join(',',names)}], {Html(Js(Property(d,"displayJoiner","/")))})";
+            var names=new List<string>(); foreach(var level in levels.EnumerateArray()) { var prefix=Property(level,"columnPrefix",Property(level,"table")); var id=Property(level,"idPropertyName",GenerationModel.Camel(prefix+"_id")); var label=Property(level,"namePropertyName",GenerationModel.Camel(prefix+"_name")); if(!Regex.IsMatch(id,"^[A-Za-z_][A-Za-z0-9_]*$")||!Regex.IsMatch(label,"^[A-Za-z_][A-Za-z0-9_]*$"))throw new InvalidOperationException("级联需要已经解析的属性定义。"); c.Defaults.Append(id).Append(":'',").Append(label).Append(":'',"); names.Add("entity."+label); }
+            // 原组件将空分隔符回退为斜线。只读详情和生成接口使用同一个显示结果。
+            var joiner = Property(d, "displayJoiner", "/");
+            display = $"readonlyDisplayText([{string.Join(',', names)}], {Html(Js(joiner.Length == 0 ? "/" : joiner))})";
         }
         var shared=SharedCrossTableRenderer.Frontend(c.Model,c.Table,c.Page,f.Column);
         c.Methods.AppendLine(shared is null?$"receiveCascadeTree{f.Column.Source.Id}(value) {{ if(this.{ro})return; this.entity=Object.assign({{}},this.entity,value||{{}}); }},":$"receiveCascadeTree{f.Column.Source.Id}(value) {{ if(this.{ro})return; {shared} }},");

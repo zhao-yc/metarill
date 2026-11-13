@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 namespace Metarill.Generation;
 
 /// <summary>冗余重复来源按层角色证明真实父字段和缓存槽位，不因同表或同ID合并角色。</summary>
@@ -8,8 +7,8 @@ internal static class RedundantRepeatedCrossSourceCompilation
     internal static void Require(GenerationModel model,TableModel table,PageModel page,CrossTableReadModel plan,IReadOnlySet<string> managed)
     {
         if(table.IsGlobal||plan.Levels.Any(level=>level.Target.IsGlobal||level.Target.Source.IsRongyu!=1||level.DerivedName))throw new InvalidOperationException("冗余重复来源要求普通同项目R1物理名称链。");
-        var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==plan.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
-        if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(plan.Source.Source.ControlDetail)))throw new InvalidOperationException("冗余重复来源页级角色覆盖尚未完成统一缓存证明。");
+        if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, plan.Source))
+            throw new InvalidOperationException("冗余重复来源页级角色覆盖尚未完成统一缓存证明。");
         foreach(var role in plan.Levels.Where(level=>level.Target.Source.Id==table.Source.Id))
         {
             if(managed.Contains(role.Name.Source.ColumnName)||role.Parent is{} parent&&managed.Contains(parent.Source.ColumnName))throw new InvalidOperationException("冗余重复来源名称／真实父键与受管槽位重叠，需要聚合协调。");

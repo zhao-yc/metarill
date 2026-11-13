@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using FreeSql;
 using Metarill.Core.Contracts;
@@ -22,11 +23,20 @@ public sealed class CrossTableExcelSharedGenerationTests
     private const string Prefix="shared_excel",Namespace="Example.SharedExcel";
     /// <summary>四个R1物理组合执行双路径聚合；物理R1和既有R0通过公开审计，R1派生目标继续拒绝。</summary>
     [Theory]
-    [InlineData("shared-r1")][InlineData("short-r1")][InlineData("global-r1")][InlineData("global-no-project-r1")]
+    [InlineData("shared-r1")][InlineData("shared-r1", " > ")][InlineData("short-r1")][InlineData("global-r1")][InlineData("global-no-project-r1")]
     [InlineData("shared-r0")][InlineData("short-r0")][InlineData("derived-r1")][InlineData("derived-short-r0")]
-    public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile)
+    public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile, string? displayJoiner = null)
     {
-        var definition=Definition(profile);var catalog=Catalog(profile);var before=JsonSerializer.Serialize(catalog);
+        var definition=Definition(profile);var catalog=Catalog(profile);
+        if (displayJoiner is not null)
+        {
+            var control = catalog.ConfigColumns.Single(column => column.Id == "25");
+            var overlay = JsonNode.Parse(control.ControlDetail)!.AsObject();
+            overlay["displayJoiner"] = displayJoiner;
+            var field = catalog.ConfigPageColumns.Single(column => column.ConfigPageId == "201" && column.ConfigColumnId == "25");
+            field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(overlay.ToJsonString());
+        }
+        var before=JsonSerializer.Serialize(catalog);
         var model=GenerationModel.Create(catalog,Namespace);var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);
         var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,page).Groups);Assert.Equal(2,group.Plans.Count);
         var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);var accepted=definition.Redundant==0||!definition.Derived;if(accepted)Assert.Empty(proof.Gaps);else Assert.NotEmpty(proof.Gaps);
@@ -40,7 +50,7 @@ public sealed class CrossTableExcelSharedGenerationTests
             var partial=Path.Combine(generated,"Services/SharedExcelSourceService.cs");await File.AppendAllTextAsync(partial,"\n// 共享Excel保留的手写扩展。\n");var bytes=await File.ReadAllBytesAsync(partial);
             new CSharpGenerator().Generate(catalog,generated,Namespace);Assert.Equal(bytes,await File.ReadAllBytesAsync(partial));Assert.Equal(before,JsonSerializer.Serialize(catalog));
             if(accepted)new FrontendPackager().Validate(catalog);else Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
-            if(definition.Redundant==1&&!definition.Derived)await Exercise(assembly,catalog,definition.Shorter,definition.Global,definition.NoProject);
+            if(definition.Redundant==1&&!definition.Derived)await Exercise(assembly,catalog,definition.Shorter,definition.Global,definition.NoProject,displayJoiner ?? "/");
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
@@ -65,10 +75,12 @@ public sealed class CrossTableExcelSharedGenerationTests
         _=>throw new ArgumentOutOfRangeException(nameof(profile))
     };
     /// <summary>真实解析器处理两条共享路径，空单元格保留另一控件共享祖先，互斥选择整行拒绝。</summary>
-    private static async Task Exercise(Assembly assembly,MetadataCatalog catalog,bool shorter,bool global,bool noProject)
+    private static async Task Exercise(Assembly assembly,MetadataCatalog catalog,bool shorter,bool global,bool noProject,string joiner)
     {
         using var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource");
-        var primary=shorter?"国甲/区甲":"国甲/区甲/城甲";var partial=shorter?"国甲/区甲":"国甲/区甲/";var root=shorter?"国甲/":"国甲//";
+        var primary = shorter ? string.Join(joiner, "国甲", "区甲") : string.Join(joiner, "国甲", "区甲", "城甲");
+        var partial = shorter ? primary : string.Join(joiner, "国甲", "区甲", "");
+        var root = shorter ? string.Join(joiner, "国甲", "") : string.Join(joiner, "国甲", "", "");
         Seed("Country",11,"国甲");Seed("Country",12,"国乙");Seed("Area",21,"区甲","SharedExcelCountryId",11);Seed("Area",22,"区乙","SharedExcelCountryId",12);
         Seed("Place",31,"城甲","SharedExcelAreaId",21);Seed("Place",32,"城乙","SharedExcelAreaId",22);Seed("Warehouse",41,"仓甲","SharedExcelAreaId",21);Seed("Warehouse",42,"仓乙","SharedExcelAreaId",22);
         Seed("Country",14,"国甲",status:0);Seed("Country",16,"国甲",deleted:true);

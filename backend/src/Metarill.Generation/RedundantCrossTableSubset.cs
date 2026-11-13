@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 namespace Metarill.Generation;
 
 /// <summary>R1完整用途逐项证明原UI、各级存储／缓存及包内权限身份，未证明的用途仍明确拒绝。</summary>
@@ -23,9 +22,9 @@ internal static class RedundantCrossTableSubset
             {
                 var plan=CrossTableWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null)return "冗余跨表完整写入证明缺失，隐藏控件不能绕过。";
                 plans.Add(plan);
-                var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
-                if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.Source.ControlDetail)))return "冗余跨表页级角色覆盖尚未完成统一完整用途证明。";
-                if(CrossTableFrontendProof.Reason(plan) is{} mismatch)return mismatch;
+                if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, source))
+                    return "冗余跨表页级角色覆盖尚未完成统一完整用途证明。";
+                if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)return mismatch;
                 foreach(var level in plan.Levels)
                 {
                     RequireRealm(model,level.Read.Target,level.Read.Page);

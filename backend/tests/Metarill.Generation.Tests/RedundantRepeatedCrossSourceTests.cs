@@ -47,7 +47,7 @@ public sealed class RedundantRepeatedCrossSourceTests
         if(kind=="global")c.ConfigTables.Single(x=>x.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(kind=="nonredundantTarget")c.ConfigTables.Single(x=>x.Id=="5").IsRongyu=0;
         if(kind=="sourceCondition")c.ConfigPages.Single(x=>x.Id=="201").WhereSql+=" AND country_id='9007199254745001'";
-        control.ControlDetail=json.ToJsonString();if(kind=="pageOverride"){json["displayJoiner"]=" / ";c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="25").Extra["controlDetail"]=JsonSerializer.SerializeToElement(json.ToJsonString());}
+        control.ControlDetail=json.ToJsonString();if(kind=="pageOverride"){json["levels"]![0]!["key"]="changed-root";c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="25").Extra["controlDetail"]=JsonSerializer.SerializeToElement(json.ToJsonString());}
         var model=GenerationModel.Create(c,"Example.RepeatedReject");var table=model.Tables.Single(x=>x.Source.Id=="2");Assert.Null(CrossTableWriteCompilation.Resolve(model,table,Assert.Single(table.Pages),table.Columns.Single(x=>x.Source.Id=="25")).Definition);
     }
     /// <summary>沿原R0角色目录只改存储模式；可为每个来源角色声明独立物理名称，原业务name保留。</summary>

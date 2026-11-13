@@ -1,15 +1,43 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 namespace Metarill.Generation;
 
 /// <summary>两种存储模式共用原跨表组件及页面字段映射证明，不改模板或元数据。</summary>
 internal static class CrossTableFrontendProof
 {
-    /// <summary>固定key、前缀、分隔符和显式属性必须与原组件／页面及后端JSON同时一致。</summary>
-    internal static string? Reason(CrossTableWriteModel plan)
+    /// <summary>原详情优先采用页字段的控件配置，空配置沿用表字段定义。</summary>
+    internal static string? PageOverride(GenerationModel model, PageModel page, ColumnModel source) =>
+        model.Catalog.ConfigPageColumns.SingleOrDefault(field =>
+            field.ConfigPageId == page.Source.Id && field.ConfigColumnId == source.Source.Id)
+            ?.Extra.GetValueOrDefault("controlDetail").ToString();
+
+    /// <summary>页面可配置显示分隔符。其余定义必须与物理存储和传播使用的表字段定义一致。</summary>
+    internal static bool KeepsStorageDefinition(GenerationModel model, PageModel page, ColumnModel source)
     {
-        using var json=JsonDocument.Parse(plan.Read.Source.Source.ControlDetail);var definition=json.RootElement;var entries=definition.GetProperty("levels").EnumerateArray().ToArray();
-        if(definition.TryGetProperty("displayJoiner",out var joiner)&&joiner.ValueKind!=JsonValueKind.Null&&(joiner.ValueKind!=JsonValueKind.String||joiner.GetString()!=plan.Read.Joiner))return "跨表级联分隔符在原页面与固定后端间不一致，完整包尚未支持该定义。";
+        var overlay = PageOverride(model, page, source);
+        if (string.IsNullOrWhiteSpace(overlay))
+            return true;
+        if (JsonNode.Parse(source.Source.ControlDetail) is not JsonObject baseline ||
+            JsonNode.Parse(overlay) is not JsonObject effective)
+            return false;
+
+        baseline.Remove("displayJoiner");
+        effective.Remove("displayJoiner");
+        return JsonNode.DeepEquals(baseline, effective);
+    }
+
+    /// <summary>固定key、前缀、分隔符和显式属性必须与原组件／页面及后端JSON同时一致。</summary>
+    internal static string? Reason(GenerationModel model, PageModel page, CrossTableWriteModel plan)
+    {
+        var overlay = PageOverride(model, page, plan.Read.Source);
+        using var json = JsonDocument.Parse(string.IsNullOrWhiteSpace(overlay)
+            ? plan.Read.Source.Source.ControlDetail : overlay);
+        var definition = json.RootElement;
+        var entries = definition.GetProperty("levels").EnumerateArray().ToArray();
+        if (definition.TryGetProperty("displayJoiner", out var joiner) && joiner.ValueKind != JsonValueKind.Null &&
+            (joiner.ValueKind != JsonValueKind.String || (joiner.GetString() is "" ? "/" : joiner.GetString()) != plan.Read.Joiner))
+            return "跨表级联分隔符在原页面与固定后端间不一致，完整包尚未支持该定义。";
         for(var index=0;index<plan.Levels.Count;index++)
         {
             var entry=entries[index];var level=plan.Levels[index];var tableName=entry.GetProperty("table").GetString()!;

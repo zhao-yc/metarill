@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Metarill.Data.Queries;
 
@@ -16,8 +15,8 @@ internal static class NonRedundantCrossTableCompilation
         foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))GlobalCrossTableTarget.Require(model.Catalog,level.Target.Source,level.Page.Source);
         var shared=SharedCrossTableCompilation.ForSource(model,table,page,plan.Source.Source.Id);var storage=shared is null?CrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)):SharedCrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)).BranchSelection(plan.Source.Source.Id);
         if(!storage.Slots.Select(slot=>slot.ColumnName).SequenceEqual(plan.Levels.Select(level=>level.Prefix+"_id"),StringComparer.Ordinal))throw new InvalidOperationException("页级跨表定义不能改变固定存储层位。");
-        var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==plan.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
-        if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(plan.Source.Source.ControlDetail)))throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
+        if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, plan.Source))
+            throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
         var slots=storage.Slots.Select(slot=>slot.ColumnName).ToHashSet(StringComparer.Ordinal);
         // 共享组由精确范围编译器校验；独立链维持原权限能力门槛。
         if(page.Condition?.Syntax.Fields.Any(slots.Contains)==true||shared is null&&ExactDataManageCompilation.Declared(page))
