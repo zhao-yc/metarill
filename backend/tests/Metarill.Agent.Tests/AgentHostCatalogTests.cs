@@ -64,6 +64,26 @@ public sealed class AgentHostCatalogTests
         Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
     }
 
+    /// <summary>旧元数据的显式空默认仍表示未配置，不能让发布目录初始化失败。</summary>
+    [Fact]
+    public void Legacy_null_default_keeps_the_published_create_field_required()
+    {
+        var source = Catalog("100", "31", "21");
+        var oldColumn = System.Text.Json.JsonSerializer.Deserialize<ColumnMetadata>(
+            """{"id":"12","configTableId":"1","columnName":"display_name","defaultValue":null}""",
+            Metarill.Runtime.JsonDefaults.Options)!;
+        source.ConfigColumns[1] = oldColumn;
+
+        Assert.Equal(new[] { "displayName" }, AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+        Assert.Null(Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(oldColumn).DefaultSql);
+        oldColumn.LogicalType = "binary";
+        oldColumn.ColumnLength = "4";
+        Assert.Null(Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(oldColumn).DefaultSql);
+        oldColumn.DefaultValue = Metarill.Core.Contracts.BinaryFieldValue.EmptyDefault;
+        Assert.Equal("X''", Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(oldColumn).DefaultSql);
+        Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+    }
+
     /// <summary>页面ID跨发布项目重复不能静默命中第一份目录。</summary>
     [Fact]
     public void Duplicate_page_identity_is_rejected_before_indexing_routes()

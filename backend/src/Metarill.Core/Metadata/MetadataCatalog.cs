@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -53,7 +54,14 @@ public sealed class ColumnMetadata : MetadataRecord
     public int Scale { get; set; } = 2;
     public string ControlKind { get; set; } = "";
     public string ControlDetail { get; set; } = "";
-    public string DefaultValue { get; set; } = "";
+    private string defaultValue = "";
+    /// <summary>旧元数据可能显式存 null，统一按未配置处理。二进制的零字节字面量继续保留。</summary>
+    [AllowNull]
+    public string DefaultValue
+    {
+        get => defaultValue;
+        set => defaultValue = value ?? "";
+    }
     public string LinkConfigTableId { get; set; } = "";
 }
 public sealed class PageMetadata : MetadataRecord
