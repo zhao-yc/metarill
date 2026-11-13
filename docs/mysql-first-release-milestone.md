@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+920e2dc1 的四并发分段诊断已完成，确认每批额外八次缓存 UPDATE，binlog 约为 Java 的 2.44 倍。正式性能仍受四并发吞吐阻断。[V1480 分段实测](testing/current-mysql-performance-v1130.md#v1480-同合同明细-sql-与提交分段实测)。
+
 920e2dc1 同合同明细导入单并发 1／3、四并发 2／3 轮触线，阻断。本候选其余八类待正式计时。[V1477 同合同明细](testing/current-mysql-performance-v1130.md#v1477-合同明细优化候选正式结果)。
 
 920e2dc1 的平台与独立应用双包已独立复建一致，893 份原前端保持，Server-200 三种安装方式通过。[V1477 双包与安装](testing/storage-mode-linux-release-v1009-v1010.md#v1477-合同明细优化候选双包与三拓扑)。
