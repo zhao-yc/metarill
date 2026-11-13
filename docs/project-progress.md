@@ -1600,7 +1600,7 @@
 | V1414 | ✅ 页级联分隔符真实 MySQL 与原 XLSX 通过 | 8fa7bcda／Server-200 | 六模型、32 张合成表。真实生成 HTTP／XLSX、完整与部分路径、共享次控件斜杠、改名传播、权限拒绝及后置整批回滚均通过，资源核清。浏览器另计。 | [页级联实库](nonredundant-storage.md#v1414-页级联分隔符实库-excel)，2026-11-13 |
 | V1420 | ✅ 级联候选双包原 Web 构建通过 | 8fa7bcda／HBuilderX 5.34 | 156／52 份产物，平台 365 项前端测试通过。独立应用逐件同前；平台唯一内容差异为构建器对同一空 uniCloud 列表的编码。 | [原 Web 构建](testing/current-exact-release-web-v913.md#v1420-级联候选双包原-web-构建)，2026-11-13 |
 
-| V1424 | 🧪 当前候选九类性能输入和镜像已核验 | 8fa7bcda／Server-200 | 实际 54 份性能镜像载荷、原 Java／模型／六份手写／索引与九类固定预算均已核对。构建资源已核清，正式计时另计。 | [性能准备](testing/current-mysql-performance-v1130.md#v1424-页级联候选性能复测准备)，2026-11-13 |
+| V1424 | 🔴 当前候选同合同明细并发性能触线 | 8fa7bcda／Server-200 | 1,200 正式请求及两端各 4,928 行复核。单并发三轮达标，四并发两轮触线，吞吐最低为 Java 的 88.9%，资源已独立核清。 | [正式性能](testing/current-mysql-performance-v1130.md#v1424-页级联候选合同明细正式结果)、[九类固定输入](testing/current-mysql-performance-v1130.md#v1424-页级联候选性能复测准备)，2026-11-13 |
 
 | V1423 | ✅ 十四项原回环 Linux 失败专项复验通过 | 2a958f1f／8fa7bcda 测试修正 | 原登录、Cap、数值和登录反馈 14 项零失败零跳过，严格编译及独立清理通过。历史回执保留。 | [十四项正式回环](testing/current-linux-generation-batches-v945.md#v1423-十四项原回环宿主-linux-复验通过)，2026-11-13 |
 
