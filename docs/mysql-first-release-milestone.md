@@ -38,7 +38,7 @@
 
 920e2dc1 的平台与独立应用双包已独立复建一致，893 份原前端保持，Server-200 三种安装方式通过。[V1477 双包与安装](testing/storage-mode-linux-release-v1009-v1010.md#v1477-合同明细优化候选双包与三拓扑)。
 
-合同明细导入优化已完成本机功能和两版 C# 对照，四并发三轮吞吐提高 1.7%–2.4%。进入 Server-200 Java／C# 正式复验，首版性能仍待签收。[V1476 本机对照](testing/current-mysql-performance-v1130.md#v1475-与-v1476-合同明细主键回读与本机对照)。旧候选 2a958f1f 的 Linux 原跳过项已核对 90／285，余 195 项。[V1487 Linux 实库补验](testing/current-linux-generation-batches-v945.md#v1487-第二十批两项级联实库补验)。
+合同明细导入优化已完成本机功能和两版 C# 对照，四并发三轮吞吐提高 1.7%–2.4%。进入 Server-200 Java／C# 正式复验，首版性能仍待签收。[V1476 本机对照](testing/current-mysql-performance-v1130.md#v1475-与-v1476-合同明细主键回读与本机对照)。旧候选 2a958f1f 的 Linux 原跳过项已核对 100／285，余 185 项。[V1490 Linux 实库补验](testing/current-linux-generation-batches-v945.md#v1490-第二十八批十项关系实库补验)。
 
 f8d4042e 的 GitHub Actions 15 个作业通过，14 份原始报告已独立核对。最终发行提交按同一口径签收。[V1467 官方 CI](testing/ci-current-contracts.md#v1467-级联附件候选-github-actions)。
 
