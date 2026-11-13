@@ -1520,6 +1520,7 @@
 | V1330 | 🧪 当前独立 Linux 第十二批结束 | 2a958f1f／Server-200 | 原 TRX 41 项通过、4 实库条件跳过、零失败。四项待通用 MySQL 补验。 | [第十二批回执](testing/current-linux-generation-batches-v945.md#v1330-当前独立-linux-第十二批)，2026-11-13 |
 | V1326 | 🧪 第十批实库首轮有失败 | 2a958f1f／Server-200 | 共享文件、多选事务各 1 项通过，Excel 六模型均因末段旧公开包拒绝断言失败。资源独立核清。 | [实库首轮](testing/current-linux-generation-batches-v945.md#v1326-第十批-mysql-首轮与旧发布断言)，2026-11-13 |
 | V1332 | ✅ 第十批六模型 Excel 实库复验通过 | 2a958f1f／Server-200／独占 MySQL | 仅修正旧公开包拒绝断言，六模型复验全部通过。连同 V1326 的两项通过，第十批三个条件跳过均已补验。 | [六模型实库复验](testing/current-linux-generation-batches-v945.md#v1332-第十批六模型-excel-实库复验)，2026-11-13 |
+| V1333 | ✅ 第十一批专用内部六模型正式通过 | 2a958f1f／Production／Server-200 | 真实原登录、Excel、传播维护、六次文件事务回滚和重启通过，资源独立核清。 | [内部六模型补验](testing/current-linux-generation-batches-v945.md#v1333-第十一批内部六模型-production-实库补验)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
