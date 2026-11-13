@@ -96,8 +96,8 @@ public sealed class GeneratedMultiSelectContractTests
             var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding=Encoding.UTF8, StandardErrorEncoding=Encoding.UTF8 };
             foreach (var argument in new[] { "build", "backend/Application.Host/Application.Host.csproj", "--nologo", "--disable-build-servers", "--verbosity", "quiet" }) start.ArgumentList.Add(argument);
             start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
-            using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; } Assert.True(process.ExitCode == 0, await stdout + await stderr);
+            // 独立包首次构建包含全部运行时源码，复用完整包的构建时限和退出核验。
+            await NonRedundantApplicationFixture.RunAsync(start);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
