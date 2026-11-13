@@ -22,7 +22,7 @@ internal static class MultiSelectFieldRenderer
             foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)).Where(item=>DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)))
             {
                 var dependencies=def.TargetPage.Scopes.Select(s=>s.Column.Source.ColumnName).Concat(def.TargetPage.Condition?.Syntax.Fields??[]).Distinct().Select(Literal);
-                result.AppendLine($"    private static readonly NonRedundantReadPlan MultiCachePlan{suffix}_{index}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileRelation({Literal(def.Target.Source.Id)},new string[]{{\"id\",{Literal(cache.Value.Source.ColumnName)}}},new string[]{{{string.Join(",",dependencies)}}});");
+                result.AppendLine($"    private static readonly NonRedundantReadPlan MultiCachePlan{suffix}_{index}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{NonRedundantReadCompilation.RelationPlanStart(def.Target,def.TargetPage)},new string[]{{\"id\",{Literal(cache.Value.Source.ColumnName)}}},new string[]{{{string.Join(",",dependencies)}}});");
             }
             result.AppendLine("    /// <summary>保留旧JSON文本字节，数组请求持久化为JSON文本；不接受对象或其它标量。</summary>")
                 .AppendLine($"    private static string? ReadMultiValue{suffix}(JsonElement? value)").AppendLine("    {")

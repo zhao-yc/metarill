@@ -12,7 +12,7 @@ internal static class DerivedCheckboxNamesRenderer
         var variables=def.Conditions?.Syntax.Variables.Select(variable=>"["+Literal(variable)+"]="+(variable.StartsWith("formParameters.",StringComparison.Ordinal)?"Metarill.Core.Contracts.FixedConditionFormValue.Require(formValues,"+Literal(variable)+")":variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"actor.ProjectId":"parentId"))??[];
         return $$"""
     /// <summary>只在类型初始化时编译，候选、保存、Excel共用原固定目标和范围。</summary>
-    private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.CompileRelation({{Literal(def.Target.Source.Id)}},new string[]{"id",{{Literal(def.Name.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
+    private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{NonRedundantReadCompilation.RelationPlanStart(def.Target,def.GlobalPage)}},new string[]{"id",{{Literal(def.Name.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
     /// <summary>父存在性和来源身份沿原入口验证；名称条件不读取IsIgnore实体属性。</summary>
     private async Task<IReadOnlyList<GeneratedOption>> DerivedCheckboxRows{{suffix}}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,long[]? ids,string? name,bool matchName,int limit,bool locking,CancellationToken cancellationToken)
     {

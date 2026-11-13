@@ -11,20 +11,28 @@ internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Ou
 /// <summary>生成侧提前证明单值／固定多选用途和物理写边界；数据库表达式由数据适配器编译。</summary>
 internal static class NonRedundantReadCompilation
 {
+    /// <summary>声明全局的R0表仍可拥有实际行归属，两种用途必须分别生成。</summary>
+    internal static bool HasGlobalRowProject(TableModel table)=>table.IsGlobal&&table.Source.IsRongyu==0&&table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id");
+
+    /// <summary>只有元数据中的单选和多选目标页公开全局分页入口。</summary>
+    internal static bool GlobalSelectionPage(TableModel table,PageModel page)=>HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2";
+
+    /// <summary>候选、已选和Excel从同一发布页取得目标范围。</summary>
+    internal static string RelationPlanStart(TableModel table,PageModel? page)=>
+        HasGlobalRowProject(table)&&page is not null
+            ?"CompileGlobalCandidate("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id)
+            :"CompileRelation("+JsonSerializer.Serialize(table.Source.Id);
+
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
-    internal static bool Requires(GenerationModel model,TableModel table)=>table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
+    internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
     /// <summary>只编译已经接通的标量用途；完整包还须通过全部控件、范围及独立宿主验证。</summary>
     internal static NonRedundantPagePlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
-        // 全局R0仅开放明确发布的固定目标页；原页面变量和精确管理范围仍由共享证明拒绝。
-        if(table.IsGlobal)
-        {
-            GlobalCrossTableTarget.RequireSingle(model.Catalog,table.Source,page.Source);
-            // 全局候选和对象自身项目读取是两个用途；带行项目的R0目标尚需独立候选范围接线。
-            if(table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new NotSupportedException("全局R0候选页暂不发布带行项目的来源组合。");
-        }
+        // 固定候选约束实际发布页，普通业务页可使用自己的项目条件。
+        if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
+        else if(table.IsGlobal)GlobalCrossTableTarget.RequireSingle(model.Catalog,table.Source,page.Source);
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿原FileLibrary事务写入；其它多值、派生文件及布局仍须独立编译。
@@ -84,6 +92,8 @@ internal static class NonRedundantReadCompilation
         // 图只取来源已授权行的所选ID；隐藏ID为私有投影依赖，不加入VO或页面字段。
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,deferCascadeNames:true);
+        if(GlobalSelectionPage(table,page))
+            _=NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies);
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
         return new(outputs,dependencies,readOutputs);

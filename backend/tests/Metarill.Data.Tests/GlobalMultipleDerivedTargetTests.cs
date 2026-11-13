@@ -30,7 +30,7 @@ public sealed class GlobalMultipleDerivedTargetTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new ProjectRelationMutationPropagator(database).AfterMutationAsync(plan,"global_target",1,"999",new HashSet<string>{"name"},false,false));Assert.Null(database.CurrentTransaction);Assert.Equal(before,JsonSerializer.Serialize(c));
     }
     /// <summary>显式全局不能绕过目录归属、物理身份、单值路径、非凭据终点和固定候选范围。</summary>
-    [Theory][InlineData("sourceProject")][InlineData("sourceGlobal")][InlineData("targetProject")][InlineData("rowProject")][InlineData("targetKey")][InlineData("privateTerminal")][InlineData("privateProducer")][InlineData("wrongPage")][InlineData("dynamicCondition")][InlineData("cacheCondition")][InlineData("virtual")][InlineData("file")][InlineData("array")][InlineData("badPath")][InlineData("credential")][InlineData("cycle")][InlineData("innerArray")]
+    [Theory][InlineData("sourceProject")][InlineData("sourceGlobal")][InlineData("targetProject")][InlineData("virtualRowProject")][InlineData("targetKey")][InlineData("privateTerminal")][InlineData("privateProducer")][InlineData("wrongPage")][InlineData("dynamicCondition")][InlineData("cacheCondition")][InlineData("virtual")][InlineData("file")][InlineData("array")][InlineData("badPath")][InlineData("credential")][InlineData("cycle")][InlineData("innerArray")]
     public void Invalid_global_r0_array_proof_rejects_before_any_connection(string invalid)
     {
         foreach(var kind in new[]{"MultiSelectPage","MultiCheckBoxDatabase"})foreach(var mode in new[]{0,1})
@@ -41,7 +41,7 @@ public sealed class GlobalMultipleDerivedTargetTests
                 case "sourceProject":c.ConfigColumns.RemoveAll(f=>f.Id=="32");break;
                 case "sourceGlobal":c.ConfigTables.Single(t=>t.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");break;
                 case "targetProject":middle.YzProjectId="101";break;
-                case "rowProject":c.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType="int64"});break;
+                case "virtualRowProject":c.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType="int64",IsVirtualColumn=1});break;
                 case "targetKey":c.ConfigColumns.Single(f=>f.Id=="11").IsDbNotNull=0;break;
                 case "privateTerminal":c.ConfigTables.Single(t=>t.Id=="2").Extra.Clear();break;
                 case "privateProducer":middle.Extra.Clear();break;

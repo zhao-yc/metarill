@@ -43,12 +43,15 @@ internal static class SelectionPageRenderer
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
             .AppendLine($"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);");
         if(NonRedundantReadCompilation.Requires(model,table))
-            return result.AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=request.ParentId}},actor);")
+        {
+            var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
+            return result.AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=request.ParentId}},actor{(globalCandidate?",globalCandidate:true":"")});")
                 .AppendLine("        if(selected.Length==0)return [];")
-                .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync(ReadPlan{suffix},filters,selected,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)});")
+                .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({(globalCandidate?"CandidateReadPlan":"ReadPlan")}{suffix},filters,selected,cancellationToken,projectId:actor.ProjectId{(globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page,true))});")
                 .AppendLine("        if(selectedRows.Count!=selected.Length)throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
                 .AppendLine("        var rows=selectedRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"));")
                 .AppendLine($"        return {BackendRenderer.NonRedundantProjectionCall(model,table,page,"selected.Select(id=>rows[id]).ToArray()","false")};").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").ToString();
+        }
         // 固定计算名称的实际来源动作仍是本页list；先拒绝再读源行，不借候选的任一动作权限。
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        RequireRoleNameAction{suffix}(actor,\"list\");");
         else if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        _ = RoleAdminNameScope{suffix}(actor,\"list\");");

@@ -119,18 +119,18 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
                 }
                 foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
             }
-            foreach(var name in multis)await PopulateMultiAsync(connection,plan.MultiProjections[name],name,hidden[name],records,projectId,currentRead,cancellationToken);
+            foreach(var name in multis)await PopulateMultiAsync(connection,plan,plan.MultiProjections[name],name,hidden[name],records,projectId,currentRead,cancellationToken);
             return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());
         },cancellationToken);
     }
     /// <summary>每个关系按页合并ID、分批主键读取名称；写回执使用目标当前锁读，不能被旧RR快照覆盖。</summary>
-    private async Task PopulateMultiAsync(DbConnection connection,MySqlMultiProjection projection,string output,string hidden,IReadOnlyList<Dictionary<string,object?>> rows,string projectId,bool currentRead,CancellationToken token)
+    private async Task PopulateMultiAsync(DbConnection connection,MySqlNonRedundantReadPlan plan,MySqlMultiProjection projection,string output,string hidden,IReadOnlyList<Dictionary<string,object?>> rows,string projectId,bool currentRead,CancellationToken token)
     {
         var members=rows.Select(row=>MultiMembers(row[hidden])).ToArray();var ids=members.SelectMany(items=>items).Where(id=>id is not null).Select(id=>long.TryParse(id,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var key)&&key>0&&key.ToString(System.Globalization.CultureInfo.InvariantCulture)==id?(long?)key:null).OfType<long>().Distinct().Order().ToArray();
         var names=new Dictionary<string,string?>(StringComparer.Ordinal);
         foreach(var batch in ids.Chunk(200))
         {
-            await using var command=Command(connection);Bind(command,projectId,[]);for(var index=0;index<batch.Length;index++)Add(command,"multi_id_"+index,batch[index]);
+            await using var command=Command(connection);Bind(command,projectId,[]);BindCross(command,plan);for(var index=0;index<batch.Length;index++)Add(command,"multi_id_"+index,batch[index]);
             command.CommandText="SELECT multi_value.`id`,"+(projection.NameExpression??"multi_value."+projection.TargetName)+" FROM "+projection.TargetTable+" multi_value"+projection.Joins+" WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":"");
             await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))names.Add(reader.GetInt64(0).ToString(System.Globalization.CultureInfo.InvariantCulture),await reader.IsDBNullAsync(1,token)?null:reader.GetString(1));
         }

@@ -7,20 +7,22 @@ namespace Metarill.Generation;
 internal static partial class BackendRenderer
 {
     /// <summary>无树筛选页面保留原同步签名；实际请求先完成固定图过滤再进入SQL。</summary>
-    internal static string NonRedundantFilterCall(GenerationModel model,TableModel table,PageModel page,string request="request",string actor="actor",string? operation=null)
+    internal static string NonRedundantFilterCall(GenerationModel model,TableModel table,PageModel page,string request="request",string actor="actor",string? operation=null,bool globalCandidate=false)
     {
         var async=page.Searchable.Any(column=>column.Source.ControlKind=="CascadeTree");
         var extra=operation is null?"":ExactDataManageCompilation.Argument(page,operation);
+        if(globalCandidate)extra+=",globalCandidate:true";
         return async?$"(await ReadCascadeFilters{page.Source.Id}Async({request},{actor},cancellationToken{extra}))":$"ReadFilters{page.Source.Id}({request},{actor}{extra})";
     }
     /// <summary>原节点对象仅解释固定ID，名称回显不成为SQL或拓扑依据。</summary>
     private static string NonRedundantCascadeFilters(GenerationModel model,TableModel table,PageModel page)
     {
         if(!page.Searchable.Any(column=>column.Source.ControlKind=="CascadeTree"))return "";
+        var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var awaits=page.Searchable.Any(column=>column.Source.ControlKind=="CascadeTree"&&!column.IsFixedCrossTableFilter);
         var result=new StringBuilder().AppendLine("    /// <summary>树范围在SQL分页／统计之前解析，未知节点键不能扩大候选。</summary>")
-            .AppendLine($"    private {(awaits?"async ":"")}Task<List<FixedReadFilter>> ReadCascadeFilters{page.Source.Id}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken{ExactDataManageCompilation.Parameter(page,"list")})")
-            .AppendLine("    {").AppendLine($"        var result=ReadFilters{page.Source.Id}(request,actor{ExactDataManageCompilation.Argument(page,"authorizationOperation")});");
+            .AppendLine($"    private {(awaits?"async ":"")}Task<List<FixedReadFilter>> ReadCascadeFilters{page.Source.Id}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken{ExactDataManageCompilation.Parameter(page,"list")}{(globalCandidate?",bool globalCandidate=false":"")})")
+            .AppendLine("    {").AppendLine($"        var result=ReadFilters{page.Source.Id}(request,actor{ExactDataManageCompilation.Argument(page,"authorizationOperation")}{(globalCandidate?",globalCandidate":"")});");
         foreach(var source in page.Searchable.Where(column=>column.Source.ControlKind=="CascadeTree"))
         {
             if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross)

@@ -28,6 +28,8 @@ internal static class DatabaseCheckboxRenderer
         {
             var suffix=Suffix(page,def);var project=def.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
+            if(def.GlobalPage is not null&&!def.DerivedName)
+                result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
                 .AppendLine($"    private async Task<ISelect<{def.Target.EntityType}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
@@ -51,6 +53,8 @@ internal static class DatabaseCheckboxRenderer
             result.AppendLine(def.Target.IsGlobal?$"        var query=session.Select<{def.Target.EntityType}>();":$"        var query=session.Select<{def.Target.EntityType}>().Where(row=>row.{project!.Property}=={Scope(project,"actor.ProjectId")});");
             if(def.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        query=query.Where(row=>row.DeleteNo==null);");
             foreach(var (column,source) in def.Scopes)result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={Scope(column,source=="project"?"actor.ProjectId":"parentId!")});");
+            if(def.GlobalPage is not null&&!def.DerivedName)
+                result.Append(FixedPageConditionCompilation.Apply(def.GlobalPage,"CheckboxGlobalCondition"+suffix,"checkbox_global_"+suffix));
             if(def.Conditions is {} condition)
             {
                 var variables=string.Join(", ",condition.Syntax.Variables.Select(variable=>"["+Literal(variable)+"] = "+(variable.StartsWith("formParameters.",StringComparison.Ordinal)?"Metarill.Core.Contracts.FixedConditionFormValue.Require(formValues,"+Literal(variable)+")":variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"actor.ProjectId":"parentId")));

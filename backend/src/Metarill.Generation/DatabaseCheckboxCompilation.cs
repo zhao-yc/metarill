@@ -3,7 +3,7 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
-internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false)
+internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
 {
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
     internal IEnumerable<ColumnModel> Dependencies=>(Conditions?.Forms.Select(binding=>binding.Column)??[]).Concat(SourceParent is null?[]:[SourceParent]).DistinctBy(column=>column.Source.Id);
@@ -51,7 +51,13 @@ internal static class DatabaseCheckboxCompilation
             var baseline=DatabaseCheckboxDefinition.Parse(source.Source.ControlDetail);var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);var overlay=field?.Extra.GetValueOrDefault("controlDetail").ToString();if(field?.Extra.GetValueOrDefault("controlKind").ToString() is{Length:>0} kind&&kind!="MultiCheckBoxDatabase")return Gap("页级控件覆盖改变了原复选存储协议。");var definition=DatabaseCheckboxDefinition.Parse(string.IsNullOrWhiteSpace(overlay)?source.Source.ControlDetail:overlay);
             var target=Target(model,source,definition);if(target.Source.Id!=Target(model,source,baseline).Source.Id)return Gap("页级目标覆盖未绑定同一物理关系，不能错读名称。");
             if(Protected(target))return Gap("目标必须是普通业务表。");
-            if(target.IsGlobal){var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)return Gap("全局复选页级目标覆盖与固定关系不一致。");}
+            PageModel? globalPage=null;
+            if(target.IsGlobal)
+            {
+                var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
+                if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)return Gap("全局复选页级目标覆盖与固定关系不一致。");
+                if(NonRedundantReadCompilation.HasGlobalRowProject(target))globalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
+            }
             if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
             if(definition.NameField!="name"&&!target.IsGlobal)return Gap("自定义复选名称当前只开放已证明的全局目标。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
@@ -70,7 +76,7 @@ internal static class DatabaseCheckboxCompilation
             var names=SelectionDisplayFieldCompilation.Resolve(table,source);
             if(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
             if(table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
-            var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived);
+            var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage);
             if(derived)DerivedCheckboxNamesCompilation.Require(model,table,result);
             return new(result,null);
         }

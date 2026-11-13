@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 namespace Metarill.Data.Relations;
 
 /// <summary>生成器只提供已证明关系的稳定字段ID，不提供SQL、物理名或请求可改写的计划。</summary>
@@ -23,7 +24,11 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
 
 }
 internal sealed record RelationTable(string Name,string ProjectType,bool Deleted);
-internal sealed record RelationCache(RelationTable Source,string Foreign,string ForeignType,RelationTable Target,string Value,string ValueType,string Cache,bool Multiple,int MaximumItems);
+internal sealed record RelationCache(RelationTable Source,string Foreign,string ForeignType,RelationTable Target,string Value,string ValueType,string Cache,bool Multiple,int MaximumItems)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public MySqlPublishedRelationCondition? PublishedCondition{get;init;}
+}
 
 /// <summary>编译后只保留不可变标识符／类型与依赖，不再保存外部可变元数据。</summary>
 public sealed class RelationMutationPlan
@@ -43,7 +48,7 @@ public sealed class RelationMutationPlan
             if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!plan.IsPhysical(key)||Enabled(key)||!globalTarget&&project is null||project is not null&&(project.LogicalType is not("int64" or "string")||!plan.IsPhysical(project)||Enabled(project)))throw new InvalidOperationException("传播表缺少真实主键或项目归属。");
             var deleted=columns[id].Values.SingleOrDefault(column=>column.ColumnName=="delete_no");if(deleted is not null&&(!plan.IsPhysical(deleted)||Enabled(deleted)||deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0))throw new InvalidOperationException("传播软删除定义不明确。");return new(table.TableName,globalTarget?"":project!.LogicalType,deleted is not null);
         }
-        foreach(var definition in definitions)
+        foreach(var definition in definitions.Distinct())
         {
             if(!tables.TryGetValue(definition.SourceTableId,out var source)||!tables.TryGetValue(definition.TargetTableId,out var target))throw new InvalidOperationException("传播关系引用了未发布的表。");
             var foreign=columns[source.Id].GetValueOrDefault(definition.ForeignColumnId);var value=columns[target.Id].GetValueOrDefault(definition.ValueColumnId);var cache=columns[source.Id].GetValueOrDefault(definition.CacheColumnId);
@@ -61,15 +66,28 @@ public sealed class RelationMutationPlan
             if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(!(selfTree&&path.Length==0)&&path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("传播缓存的联接路径不一致。");}
             foreach(var field in new[]{foreign,value,cache})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播字段超出发布项目。");
             var global=GlobalCrossTableTarget.Declared(target);
+            MySqlPublishedRelationCondition? publishedCondition=null;
             if(global)
             {
                 if(cross){if(definition.Multiple)throw new InvalidOperationException("跨表缓存不能冒充多值。");}
-                else if(definition.Multiple){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");}else _=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
+                else
+                {
+                    PageMetadata page;
+                    if(definition.Multiple)
+                    {
+                        var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);
+                        if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");
+                        page=proof.Page;
+                    }
+                    else page=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target).Page;
+                    if(target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
+                        publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
+                }
                 // 跨表先证明完整控制列/层/目标页；三种关系统一使用同一受管全局名称资格。
                 var published=GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,value);
                 if(!published)throw new NotSupportedException("全局缓存终点必须为非凭据物理标量或已证明的全局单值名称缓存。");
             }
-            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000));
+            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition});
         }
         var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>binding.Target).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
         // 拒绝字段级循环；普通自关联的物理名称不是派生列，不属于此循环。

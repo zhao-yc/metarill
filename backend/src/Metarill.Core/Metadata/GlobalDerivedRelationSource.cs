@@ -42,7 +42,7 @@ public static class GlobalDerivedRelationSource
     }
 
     /// <summary>真实实体、列、主键、软删及后台页归属同一目录；条件由实际选中目标页的共享证明约束。</summary>
-    internal static void RequireTable(MetadataCatalog catalog,TableMetadata source)
+    public static void RequireTable(MetadataCatalog catalog,TableMetadata source)
     {
         if(!long.TryParse(catalog.YzProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project)||project<=0||catalog.YzProjectId!=project.ToString(CultureInfo.InvariantCulture)||!GlobalCrossTableTarget.Declared(source)||source.IsRongyu is not(0 or 1)||source.IsView!=0||source.IsFunctionTable!=0||source.YzProjectId!=catalog.YzProjectId||!ReferenceEquals(catalog.ConfigTables.SingleOrDefault(t=>t.Id==source.Id),source))throw Invalid();
         var fields=catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,source);

@@ -6,12 +6,15 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
-        private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,ColumnMetadata value)
+        private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,PageMetadata? publishedPage)
         {
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))throw new NotSupportedException("派生多选名称要求已证明来源、R0目标及原多选／数据库复选；其它组合尚未接线。");
             var global=GlobalCrossTableTarget.Declared(target);
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
-            var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:"multi_name_",trackReverse:refreshFields is not null).Compile([value.ColumnName],[]);
+            var prefixForNames=publishedPage is null?"multi_name_":aliasPrefix+"global_array"+publishedArrayScopeCount+++"_";
+            var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
+                trackReverse:refreshFields is not null,candidatePage:publishedPage).Compile([value.ColumnName],[]);
+            foreach(var pair in nested.Constants)crossConstants.Add(pair.Key,pair.Value);
             if(trackReverse&&nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
             if(nested.Types[value.ColumnName]!="string"||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var valueOrigin)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(valueOrigin.Column))throw new NotSupportedException("多选派生名称必须落到已证明的非凭据单值字符串，不能借数组或级联路径绕过。");
             var prefix=" FROM "+Q(target.TableName)+" multi_value";

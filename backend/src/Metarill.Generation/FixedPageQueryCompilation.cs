@@ -11,13 +11,13 @@ internal static class FixedPageQueryCompilation
     /// <summary>Mapper的软删除起点也由同一入口识别；字段不存在时保持原有无过滤行为。</summary>
     internal static ColumnModel? SoftDeleteColumn(TableModel table) => table.Columns.SingleOrDefault(column => column.Source.ColumnName == "delete_no");
 
-    /// <summary>普通项目表自动绑定真实Actor项目；global只有显式项目范围才绑定。父范围始终独立绑定parentId。</summary>
+    /// <summary>带真实行归属的全局R0普通业务同样绑定当前项目，候选使用独立计划。</summary>
     internal static FixedPageQueryPlan For(TableModel table, PageModel page)
     {
         if (!table.Pages.Any(candidate => ReferenceEquals(candidate, page))) throw new ArgumentException("固定查询计划必须属于当前表的真实页面。");
         var scopes = new List<(ColumnModel Column, string Source)>();
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
-        if (project is not null && (!table.IsGlobal || page.Scopes.Any(scope => scope.Source == "project"))) scopes.Add((project, "project"));
+        if (project is not null && (!table.IsGlobal || NonRedundantReadCompilation.HasGlobalRowProject(table) || page.Scopes.Any(scope => scope.Source == "project"))) scopes.Add((project, "project"));
         scopes.AddRange(page.Scopes.Where(scope => scope.Source == "parent"));
         return new(table, page, SoftDeleteColumn(table), scopes, EffectiveOrder(table, page.Source.OrderBy));
     }
@@ -35,7 +35,9 @@ internal static class FixedPageQueryCompilation
     {
         try
         {
-            var allowed = target.IdentityScopes.Select(scope => (scope.Column.Source.Id, scope.Source)).ToHashSet();
+            var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(target.Table,target.Page);
+            var allowed = target.IdentityScopes.Where(scope=>!globalCandidate||scope.Source!="project")
+                .Select(scope => (scope.Column.Source.Id, scope.Source)).ToHashSet();
             // 附加项必须逐项已被目标页实际执行；不把来源控件的更窄条件偷换成宽目标页。
             var requested=Metarill.Core.Metadata.FixedConditionPlan.Compile(definition.WhereSql,target.Table.Columns.Select(column=>column.Source.ColumnName));
             var constants=target.Page.Condition?.Syntax.Terms.Select(FixedPageConditionCompilation.Term).ToHashSet(StringComparer.Ordinal)??new HashSet<string>(StringComparer.Ordinal);

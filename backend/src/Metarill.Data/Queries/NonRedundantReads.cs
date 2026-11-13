@@ -20,6 +20,16 @@ public static class NonRedundantReads
 
     /// <summary>输出与隐藏查询依赖分别声明；后者不会自动出现在返回记录中。</summary>
     public static NonRedundantReadPlan Compile(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(metadata,tableId,outputs,[],dependencies,deferCascadeNames);
+    /// <summary>只按已发布的全局目标页读取候选；普通对象读取继续使用按行归属的计划。</summary>
+    public static NonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog metadata,string tableId,string pageId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        return metadata.DatabaseProvider switch
+        {
+            "mysql"=>new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies)),
+            _=>throw new NotSupportedException("该数据库尚未完成固定全局候选读取适配。")
+        };
+    }
     /// <summary>判断物理外键槽是否属于已声明共享逻辑字段；名称和祖先ID使用同一组存储证明。</summary>
     public static SharedCrossTableSparseSelection? SharedExactGroup(MetadataCatalog metadata,TableMetadata table,string field)=>
         SharedCrossTableSparseSelection.CompileAll(table,metadata.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))

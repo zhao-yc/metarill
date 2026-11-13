@@ -45,7 +45,9 @@ internal static class DerivedRelationNamesCompilation
             .Concat(relation.Conditions?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>!NonRedundantReadCompilation.Physical(model,target,column)||column.IsJsonArray))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(new[]{"id",name.Source.ColumnName}).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var plan=NonRedundantReads.Compile(model.Catalog,target.Source.Id,["id",name.Source.ColumnName],dependencies);
+        var plan=NonRedundantReadCompilation.HasGlobalRowProject(target)
+            ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,["id",name.Source.ColumnName],dependencies)
+            :NonRedundantReads.Compile(model.Catalog,target.Source.Id,["id",name.Source.ColumnName],dependencies);
         if(plan.OutputTypes["id"]!="int64"||plan.OutputTypes[name.Source.ColumnName]!="string")throw new InvalidOperationException("关系名称必须可编译为固定单值字符串，不能借级联或数组冒充标量。");
         return dependencies;
     }

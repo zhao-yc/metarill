@@ -154,13 +154,28 @@ public sealed class GlobalDerivedTargetTests
         if(accepted)Assert.Equal(name,GlobalSingleRelationTarget.Require(c,owner,foreign,target).Name.ColumnName);else Assert.Throws<NotSupportedException>(()=>GlobalSingleRelationTarget.Require(c,owner,foreign,target));Assert.Equal(before,JsonSerializer.Serialize(c));
     }
 
-    /// <summary>全局只放宽关联目标行范围，作为根来源时仍保留原真实项目列。</summary>
-    [Fact]
-    public void Global_r0_target_role_does_not_remove_its_own_source_project_scope()
+    /// <summary>两种项目列都保持根记录隔离，候选和派生名称只按固定发布页读取。</summary>
+    [Theory]
+    [InlineData("int64","number")]
+    [InlineData("string","text")]
+    public void Global_r0_target_role_does_not_remove_its_own_source_project_scope(string type,string scopeKind)
     {
-        var c=Catalog(0,"int64","int64");c.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId=c.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"});
-        var consumer=MySqlNonRedundantReadCompiler.Compile(c,"3",["global_source_global_target_name"]);Assert.DoesNotContain("r0.`yz_project_id`",(string)Read(consumer,"From"));
-        var own=MySqlNonRedundantReadCompiler.Compile(c,"1",["global_target_name"]);Assert.Contains("b.`yz_project_id`=@project_scope_number",(string)Read(own,"Scope"));
+        var catalog=Catalog(0,"int64","int64");
+        catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId=catalog.YzProjectId,
+            ColumnName="yz_project_id",LogicalType=type,ColumnLength=type=="string"?"20":""});
+        catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName="status",LogicalType="int32"});
+        catalog.ConfigPages.Single(page=>page.Id=="10").WhereSql="status=1";
+        var consumer=MySqlNonRedundantReadCompiler.Compile(catalog,"3",["global_source_global_target_name"]);
+        var own=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["global_target_name"]);
+        var candidate=MySqlNonRedundantReadCompiler.CompileGlobalCandidate(catalog,"1","10",["global_target_name"]);
+
+        Assert.DoesNotContain("r0.`yz_project_id`",(string)Read(consumer,"From"));
+        Assert.Contains("r0.`status`",(string)Read(consumer,"From"));
+        Assert.Contains("b.`yz_project_id`=@project_scope_"+scopeKind,(string)Read(own,"Scope"));
+        Assert.DoesNotContain("project_scope",(string)Read(candidate,"Scope"));
+        Assert.Contains("b.`status`",(string)Read(candidate,"Scope"));
+        Assert.Contains("b.`delete_no` IS NULL",(string)Read(candidate,"Scope"));
+        Assert.True((bool)Read(candidate,"RequiresPublishedProjectIdentity"));
     }
 
     /// <summary>新实时名称保留精确管理的同类型int64约束，不借全局声明放开字符串键匹配。</summary>

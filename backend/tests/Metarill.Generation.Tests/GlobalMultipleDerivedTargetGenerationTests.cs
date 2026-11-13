@@ -73,12 +73,12 @@ public sealed class GlobalMultipleDerivedTargetGenerationTests
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>原公开完整包保持严格门槛，不以隐藏名称、动态目标或伪造全局声明绕开生成校验。</summary>
-    [Theory][InlineData("privateProducer")][InlineData("privateTerminal")][InlineData("hiddenName")][InlineData("dynamicPage")][InlineData("credential")][InlineData("fakePath")][InlineData("wrongProject")][InlineData("foreignName")][InlineData("producerProject")]
+    [Theory][InlineData("privateProducer")][InlineData("privateTerminal")][InlineData("hiddenName")][InlineData("dynamicPage")][InlineData("credential")][InlineData("fakePath")][InlineData("wrongProject")][InlineData("foreignName")][InlineData("virtualProducerProject")]
     public void Invalid_global_r0_array_application_is_rejected_before_staging(string kind)
     {
         var c=Catalog(0,false,"string");switch(kind)
         {
-            case "producerProject":c.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType="int64"});break;
+            case "virtualProducerProject":c.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType="int64",IsVirtualColumn=1});break;
             case "privateProducer":c.ConfigTables.Single(t=>t.Id=="1").Extra.Clear();break;
             case "privateTerminal":c.ConfigTables.Single(t=>t.Id=="2").Extra.Clear();break;
             case "hiddenName":c.ConfigPageColumns.RemoveAll(f=>f.ConfigColumnId=="14");break;
