@@ -204,7 +204,19 @@ public sealed partial class GlobalScopedCandidateTests
                     var titles=sheet.Row(1).CellsUsed().ToDictionary(cell=>cell.GetString(),cell=>cell.Address.ColumnNumber);
                     var exported=Assert.Single(sheet.RowsUsed().Skip(1));
                     Assert.Equal("原批量导入",exported.Cell(titles["名称"]).GetString());
-                    Assert.Contains("公开外项目名称",exported.Cell(titles["原下拉"]).GetString());
+                    var dropdown=exported.Cell(titles["原下拉"]).GetString();
+                    var selection=exported.Cell(titles["原单选"]).GetString();
+                    // 冗余多选和复选的原导出保留 JSON 字符串 ID 数组，单值导出仍显示名称。
+                    if(multiple)
+                    {
+                        Assert.Equal(new[]{Text(Published)},JsonSerializer.Deserialize<string[]>(dropdown));
+                        Assert.Equal(new[]{Text(Published)},JsonSerializer.Deserialize<string[]>(selection));
+                    }
+                    else
+                    {
+                        Assert.Equal("公开外项目名称",dropdown);
+                        Assert.Equal("公开外项目名称",selection);
+                    }
                 }
                 var fileId=await Upload(client);
                 await Sql("ALTER TABLE cached_consumer ADD CONSTRAINT mt_scoped_full_late CHECK (name <> '数据库拒绝末行')");
