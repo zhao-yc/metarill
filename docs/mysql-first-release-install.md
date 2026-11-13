@@ -24,7 +24,7 @@ dotnet publish backend/Application.Host/Application.Host.csproj -c Release -r li
 
 将平台四份元数据及 `global.json` 按表格布置。发布后核对全部文件摘要，包括依赖和元数据。发行物和 Web 静态目录与私有配置、数据库备份、文件库及导出临时文件分开。部署配置由服务账户读取，持久目录由运行账户写入。
 
-收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。最近通过双包复建与三种隔离安装的候选为 `2a958f1f`。实际回执见 [V1263 同父子页候选三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1263-同父子页候选双包及三拓扑)。配置样例及数据库能力边界见 [V1272 同父子页候选双包分发与数据库边界](testing/current-release-distribution-v963.md#v1272-同父子页候选双包分发与数据库边界)。部署新提交时按 [首版清单](mysql-first-release-milestone.md) 核对该版本的验收状态。
+收到固定候选 ZIP 时，先按同目录的 `SHA256SUMS` 核对归档摘要，再解包到各自的新目录。Linux 可以在下载目录执行 `sha256sum --check SHA256SUMS`，Windows 可用 `Get-FileHash -Algorithm SHA256` 逐包核对。内置 `release-manifest.json` 列出源码提交、角色、运行目标与所有载荷摘要。按本页从解包后的发行根用 `dotnet` 启动宿主。最近通过双包复建与三种隔离安装的候选为 `6252c24e`。实际回执见 [V1363 全局候选双包及三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1363-全局候选双包及三拓扑)。配置样例及数据库能力边界见 [V1380 全局候选双包分发与数据库边界](testing/current-release-distribution-v963.md#v1380-全局候选双包分发与数据库边界)。部署新提交时按 [首版清单](mysql-first-release-milestone.md) 核对该版本的验收状态。
 
 已通过复建及安装验收的候选源码为 `2a958f1fbb46d2837414727524c974acc578a03c`。以下文件可用同一份 `SHA256SUMS` 核对。
 

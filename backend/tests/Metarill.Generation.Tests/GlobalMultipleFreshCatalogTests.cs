@@ -41,10 +41,22 @@ public sealed class GlobalMultipleFreshCatalogTests
 
 
     /// <summary>隐藏全局复选也不能绕过发布证明；全局消费者、缓存目标和矛盾覆盖仍拒绝。</summary>
-    [Theory][InlineData("ownerGlobal")][InlineData("targetR0")][InlineData("cachedName")][InlineData("unpublished")][InlineData("variable")][InlineData("multiPage")][InlineData("checkboxPage")][InlineData("hiddenBad")]
+    [Theory][InlineData("ownerGlobal")][InlineData("targetR0WithoutSelectionPage")][InlineData("cachedName")][InlineData("unpublished")][InlineData("variable")][InlineData("multiPage")][InlineData("checkboxPage")][InlineData("hiddenBad")]
     public async Task Unproven_global_multiple_rejects_before_package_staging(string kind)
     {
-        var c=Catalog("cross3");if(kind=="ownerGlobal")c.ConfigTables.Single(x=>x.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="targetR0")c.ConfigTables.Single(x=>x.Id=="3").IsRongyu=0;if(kind=="cachedName")c.ConfigColumns.Single(x=>x.ConfigTableId=="3"&&x.ColumnName=="name").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);if(kind=="unpublished")c.ConfigPages.Single(x=>x.Id=="302").YzProjectId="";if(kind=="variable")c.ConfigPages.Single(x=>x.Id=="302").WhereSql="status=1 AND yz_project_id=@current_yz_project_id";if(kind=="multiPage")c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="2202").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"301\"}");if(kind=="checkboxPage")c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="2204").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"tableId\":\"3\",\"pageId\":\"302\"}");if(kind=="hiddenBad")c.ConfigColumns.Single(x=>x.Id=="2208").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("missing");var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-multiple-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.InvalidGlobalMultiple",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));}finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
+        var c=Catalog("cross3");
+        // R0 已支持；拒绝的是缺少原 type=2 多选候选页的全局 R0 关系。
+        if(kind=="targetR0WithoutSelectionPage")
+        {
+            var target=c.ConfigTables.Single(table=>table.Id=="3");
+            target.IsRongyu=0;
+            c.ConfigPages.Single(page=>page.Id=="302").Extra["type"]=JsonSerializer.SerializeToElement(1);
+            var owner=c.ConfigTables.Single(table=>table.Id=="2");
+            var foreign=c.ConfigColumns.Single(column=>column.Id=="2202");
+            var error=Assert.Throws<NotSupportedException>(()=>GlobalMultipleRelationTarget.Require(c,owner,foreign,target));
+            Assert.Equal("全局R0多选要求原type=2页面；复选继续使用独立候选入口。",error.Message);
+        }
+        if(kind=="ownerGlobal")c.ConfigTables.Single(x=>x.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="cachedName")c.ConfigColumns.Single(x=>x.ConfigTableId=="3"&&x.ColumnName=="name").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);if(kind=="unpublished")c.ConfigPages.Single(x=>x.Id=="302").YzProjectId="";if(kind=="variable")c.ConfigPages.Single(x=>x.Id=="302").WhereSql="status=1 AND yz_project_id=@current_yz_project_id";if(kind=="multiPage")c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="2202").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"301\"}");if(kind=="checkboxPage")c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="2204").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"tableId\":\"3\",\"pageId\":\"302\"}");if(kind=="hiddenBad")c.ConfigColumns.Single(x=>x.Id=="2208").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("missing");var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-multiple-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.InvalidGlobalMultiple",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));}finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
     /// <summary>四个发布模型覆盖显式／自动名称及目标项目列／来源父，不把租约槽位当成键类型。</summary>
     internal static (bool Automatic,bool NoProject,bool Parent) Definition(string profile)=>profile switch{"cross3"=>(false,false,false),"cross5"=>(true,true,true),"cross6"=>(true,false,false),"cross7"=>(false,true,true),_=>throw new ArgumentOutOfRangeException(nameof(profile))};

@@ -38,11 +38,12 @@ public sealed class NonRedundantApplicationPackageTests
     }
     /// <summary>不支持的存储用途仍在任何完整包文件写入前拒绝，不能因标量放开而静默降级。</summary>
     [Theory]
-    [InlineData("global")][InlineData("multi")][InlineData("badTarget")][InlineData("unprovedName")][InlineData("missingRealm")][InlineData("foreignRealm")]
+    [InlineData("global")][InlineData("globalSource")][InlineData("multi")][InlineData("badTarget")][InlineData("unprovedName")][InlineData("missingRealm")][InlineData("foreignRealm")]
     public void Full_application_preserves_specific_capability_gates(string scenario)
     {
         var catalog=NonRedundantApplicationFixture.Catalog("mt_nrs_offline");var source=catalog.ConfigColumns.Single(column=>column.Id=="15");
-        if(scenario=="global")catalog.ConfigTables[0].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(scenario=="global")catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(scenario=="globalSource")catalog.ConfigTables.Single(table=>table.Id=="1").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(scenario=="multi")source.ControlKind="MultiSelectPage";
         if(scenario=="badTarget")catalog.ConfigPages.Single(page=>page.Id=="201").Extra["type"]=JsonSerializer.SerializeToElement(2);
         if(scenario=="unprovedName")catalog.ConfigColumns.Single(column=>column.Id=="24").LogicalType="int64";
@@ -52,6 +53,7 @@ public sealed class NonRedundantApplicationPackageTests
         Action create=()=>new ApplicationPackager().Create(catalog,directory,"Example.NonRedPackage",NonRedundantApplicationFixture.Root());
         // 非法全局父变量由共享范围证明明确拒绝；精确异常与原因不能改成任意失败即通过。
         if(scenario=="global")Assert.Equal("全局跨表目标只能使用固定条件，不能混入项目或父上下文变量。",Assert.Throws<NotSupportedException>(create).Message);
+        else if(scenario=="globalSource")Assert.Equal("全局跨表目标要求显式声明的普通R0或R1实体。",Assert.Throws<NotSupportedException>(create).Message);
         else Assert.Throws<InvalidOperationException>(create);
         Assert.False(Directory.Exists(directory));if(Directory.Exists(Path.GetDirectoryName(directory)))Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(directory)!,Path.GetFileName(directory)+".staging-*"));
     }
