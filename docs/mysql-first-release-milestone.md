@@ -38,7 +38,7 @@
 
 8fa7bcda 的逐次修复及整表维护已达标。同合同明细单并发三轮达标，四并发三轮两轮触线，首版性能签收继续阻断。九类已测三类，其余六类待测。[V1424 同合同明细](testing/current-mysql-performance-v1130.md#v1424-页级联候选合同明细正式结果) · [V1424 两类维护性能](testing/current-mysql-performance-v1130.md#v1424-页级联候选逐次修复与整表维护)。
 
-原国家子页的附件绑定 HTTP 501 已复现并修复，文件模块 270 项通过，60 项条件跳过。原桌面、移动 Web 的专项目标页继续正式复验。[V1429 级联附件兼容](nonredundant-storage.md#v1429-页级显示分隔符与子页附件权限)。
+f8d4042e 修复国家子页附件绑定 501 后，原国家、固定城市子页的真实桌面和移动 Web、附件范围与撤权、Excel 追加／覆盖、失败回滚及独立 MySQL 回读均通过。[V1453 正式复验](nonredundant-storage.md#v1453-页级分隔符原-web-与附件正式复验)。
 
 兼容修复候选 49e9408a 的双包独立复建、三拓扑正式安装和原 Web 构建均已通过。两套原页面在桌面和移动 Web 的六组基础流程已通过。正式性能首项同合同明细导入，单并发三轮达标，四并发两轮触线，当前首版性能签收受阻。其余八类待测。[V1390 兼容候选双包](testing/storage-mode-linux-release-v1009-v1010.md#v1390-旧默认值兼容候选双包复建) · [V1397 双包 Web 构建](testing/current-exact-release-web-v913.md#v1397-兼容候选双包原-web-构建) · [V1402 原桌面与移动 Web](testing/current-exact-release-web-v913.md#v1402-兼容候选原桌面及移动-web) · [V1391 同合同明细](testing/current-mysql-performance-v1130.md#v1391-兼容候选同合同明细正式结果)。 独占实例的十二个分段窗口已核对父锁调用、缓存更新和提交差值。[V1401 分段诊断](testing/current-mysql-performance-v1130.md#v1401-兼容候选合同明细分段诊断)。
 
