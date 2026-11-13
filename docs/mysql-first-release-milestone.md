@@ -32,11 +32,11 @@
 
 ## 当前状态
 
-兼容修复候选 49e9408a 的双包独立复建、三拓扑正式安装和原 Web 构建均已通过。两套原页面在桌面和移动 Web 的六组基础流程已通过。正式性能首项同合同明细导入，单并发三轮达标，四并发两轮触线，当前首版性能签收受阻。其余八类待测。[V1390 兼容候选双包](testing/storage-mode-linux-release-v1009-v1010.md#v1390-旧默认值兼容候选双包复建) · [V1397 双包 Web 构建](testing/current-exact-release-web-v913.md#v1397-兼容候选双包原-web-构建) · [V1402 原桌面与移动 Web](testing/current-exact-release-web-v913.md#v1402-兼容候选原桌面及移动-web) · [V1391 同合同明细](testing/current-mysql-performance-v1130.md#v1391-兼容候选同合同明细正式结果)。
+兼容修复候选 49e9408a 的双包独立复建、三拓扑正式安装和原 Web 构建均已通过。两套原页面在桌面和移动 Web 的六组基础流程已通过。正式性能首项同合同明细导入，单并发三轮达标，四并发两轮触线，当前首版性能签收受阻。其余八类待测。[V1390 兼容候选双包](testing/storage-mode-linux-release-v1009-v1010.md#v1390-旧默认值兼容候选双包复建) · [V1397 双包 Web 构建](testing/current-exact-release-web-v913.md#v1397-兼容候选双包原-web-构建) · [V1402 原桌面与移动 Web](testing/current-exact-release-web-v913.md#v1402-兼容候选原桌面及移动-web) · [V1391 同合同明细](testing/current-mysql-performance-v1130.md#v1391-兼容候选同合同明细正式结果)。 独占实例的十二个分段窗口已核对父锁调用、缓存更新和提交差值。[V1401 分段诊断](testing/current-mysql-performance-v1130.md#v1401-兼容候选合同明细分段诊断)。
 
 上一产品候选 `6252c24e` 已完成平台与独立 Full 双包独立复建、三种 MySQL 安装和原 Web 构建。[V1363 双包及三拓扑](testing/storage-mode-linux-release-v1009-v1010.md#v1363-全局候选双包及三拓扑)。两种全局候选独立包的真实权限、维护、原工作簿与业务及文件回滚均通过。[B137](nonredundant-storage.md#b137-全局候选与行归属)。同版平台及独立应用的桌面和移动 Web 六组基础场景已通过。[V1369 原 Web 双视口](testing/current-exact-release-web-v913.md#v1369-全局候选原桌面及移动-web)。同合同明细导入四并发首测触线，随后同版复跑两档均达标，最终性能门槛待收口。[V1377 性能首测](testing/current-mysql-performance-v1130.md#v1377-全局候选同合同明细四并发退化)。复杂控件浏览器继续。
 
-2a958f1f 的相邻复验也在同合同明细四并发触线，6252c24e 在另一安静窗口的两档续跑均达标。两版性能宿主的导入计划投影一致，继续分段核对锁、写入和提交时间。[相邻对照与计划](testing/current-mysql-performance-v1130.md#v1378-相邻对照第一段)。6252c24e 的 Windows 30 组通过，2a958f1f 的独立 Linux 已收回 32／57 批，49e9408a 的 GitHub CI 15 项通过，测试修正提交继续核对。[V1404 兼容候选 CI](testing/ci-current-contracts.md#v1404-兼容候选-github-ci)。
+2a958f1f 的相邻复验也在同合同明细四并发触线，6252c24e 在另一安静窗口的两档续跑均达标。两版性能宿主的导入计划投影一致，继续分段核对锁、写入和提交时间。[相邻对照与计划](testing/current-mysql-performance-v1130.md#v1378-相邻对照第一段)。6252c24e 的 Windows 30 组通过，2a958f1f 的独立 Linux 已收回 33／57 批，49e9408a 的 GitHub CI 15 项通过，测试修正提交继续核对。[V1404 兼容候选 CI](testing/ci-current-contracts.md#v1404-兼容候选-github-ci)。
 
 `2a958f1f` 已完成共库 S3 附件权限、竞态及事务实库验收。[V1303 同父子页候选共库 S3 附件验收](testing/current-split-s3-file-race-v925.md#v1303-同父子页候选共库-s3-附件验收)。
 
