@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+合同明细导入优化已完成本机功能和两版 C# 对照，四并发三轮吞吐提高 1.7%–2.4%。进入 Server-200 Java／C# 正式复验，首版性能仍待签收。[V1476 本机对照](testing/current-mysql-performance-v1130.md#v1475-与-v1476-合同明细主键回读与本机对照)。旧候选 2a958f1f 的 Linux 原跳过项已核对 79／285，余 206 项。[V1464 实库补验](testing/current-linux-generation-batches-v945.md#v1464-第二十五批四项关系实库补验)。
+
 f8d4042e 的 GitHub Actions 15 个作业通过，14 份原始报告已独立核对。最终发行提交按同一口径签收。[V1467 官方 CI](testing/ci-current-contracts.md#v1467-级联附件候选-github-actions)。
 
 f8d4042e 同合同明细导入单并发 0／3、四并发 2／3 轮触线，阻断。当前候选九类已测完，共 45,756 个正式请求、66 个配对轮次，八类达标。[V1474 九类性能实测](testing/current-mysql-performance-v1130.md#v1474-级联附件候选普通写入及九类结果)。[V1473 只读查询](testing/current-mysql-performance-v1130.md#v1473-级联附件候选四类只读查询)。[V1471 客户复制](testing/current-mysql-performance-v1130.md#v1471-级联附件候选客户复制)。[V1468 三页 Excel 导出](testing/current-mysql-performance-v1130.md#v1468-级联附件候选三页-excel-导出)。[V1466 受保护附件下载](testing/current-mysql-performance-v1130.md#v1466-级联附件候选受保护附件下载)。[V1465 父级 Excel 导入](testing/current-mysql-performance-v1130.md#v1465-级联附件候选客户与合同-excel-导入)。[V1462 两类维护性能](testing/current-mysql-performance-v1130.md#v1462-级联附件候选逐次修复与整表维护)。[V1456 同合同明细](testing/current-mysql-performance-v1130.md#v1456-级联附件候选合同明细正式结果)。

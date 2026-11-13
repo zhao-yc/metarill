@@ -46,7 +46,6 @@ public sealed partial class RelationMaintenanceExecutor
             output != target.Alias + "." + Q(origin.Column))
             return false;
 
-        var value = $"(SELECT {output} FROM {database}.{Q(target.Table)} {target.Alias} WHERE {target.Predicate} FOR SHARE OF {target.Alias})";
         // 无法证明插入和更新等价时，保留下面原有的逐行缓存更新。
         if (await TryInsertInlinePackedScalarAsync(table, rows, transaction, parent, packetLimit,
             field, origin.Column, plan, target, parentExpression, token))
@@ -73,7 +72,15 @@ public sealed partial class RelationMaintenanceExecutor
         var affected = prefix + "a";
         var storedId = prefix + "d";
         var stored = prefix + "c";
-        var reset = $"{verdict}=NULL,{inserted}=NULL,{readId}=NULL,{before}=NULL,{expected}=NULL,{affected}=NULL,{storedId}=NULL,{stored}=NULL";
+        var targetId = prefix + "t";
+        // 两表的单列主键已在同一事务固定。锁读取实际落库的外键，赋值时按已锁目标主键读取原生列。
+        var exactTarget = sourceKeyPinned && parentKeyPinned;
+        var predicate = exactTarget ? $"{target.Alias}.`id`=CAST({targetId} AS DECIMAL(20,0))" : target.Predicate;
+        var value = $"(SELECT {output} FROM {database}.{Q(target.Table)} {target.Alias} WHERE {predicate} FOR SHARE OF {target.Alias})";
+        var targetSelect = exactTarget ? $",{target.Alias}.`id`" : "";
+        var targetInto = exactTarget ? $",{targetId}" : "";
+        var targetReset = exactTarget ? $",{targetId}=NULL" : "";
+        var reset = $"{verdict}=NULL,{inserted}=NULL,{readId}=NULL,{before}=NULL,{expected}=NULL,{affected}=NULL,{storedId}=NULL,{stored}=NULL{targetReset}";
         sql.Append($"; SET {state}=2,{reset}");
 
         var source = database + "." + Q(table.Option.TableName);
@@ -98,8 +105,8 @@ public sealed partial class RelationMaintenanceExecutor
             sql.Append($"; SELECT CASE WHEN {state}=2 THEN ({parentExpression}) ELSE {state} END,NULL,NULL,NULL,NULL,NULL")
                 .Append($" INTO {verdict},{readId},{before},{expected},{storedId},{stored}")
                 .Append($"; {insert.Sql} AND {verdict}=2; SET {inserted}=ROW_COUNT()")
-                .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),CONVERT({output} USING utf8mb4){from}{where}")
-                .Append($"{lockReadOrder}{plan.ImportMatchLock} INTO {readId},{before},{expected}")
+                .Append($"; SELECT b.`id`,CONVERT({cached} USING utf8mb4),CONVERT({output} USING utf8mb4){targetSelect}{from}{where}")
+                .Append($"{lockReadOrder}{plan.ImportMatchLock} INTO {readId},{before},{expected}{targetInto}")
                 // 更新前把预期送入独立结果，驱动读回时不信任写入之后的会话变量。
                 .Append($"; SELECT CAST({readId} AS SIGNED),CONVERT({before} USING utf8mb4),CONVERT({expected} USING utf8mb4)")
                 .Append($"; UPDATE {source} b SET {Q(field)}={value}{where} AND {inserted}=1 AND b.`id`={readId}")
