@@ -34,7 +34,7 @@
 
 f8d4042e 的 GitHub Actions 15 个作业通过，14 份原始报告已独立核对。最终发行提交按同一口径签收。[V1467 官方 CI](testing/ci-current-contracts.md#v1467-级联附件候选-github-actions)。
 
-f8d4042e 同合同明细导入单并发 0／3、四并发 2／3 轮触线，阻断。逐次修复、整表维护、客户与合同 Excel 导入、受保护附件下载、三页 Excel 导出、客户复制及只读查询已达标。当前候选已测八类，普通写入继续实测。[V1473 只读查询](testing/current-mysql-performance-v1130.md#v1473-级联附件候选四类只读查询)。[V1471 客户复制](testing/current-mysql-performance-v1130.md#v1471-级联附件候选客户复制)。[V1468 三页 Excel 导出](testing/current-mysql-performance-v1130.md#v1468-级联附件候选三页-excel-导出)。[V1466 受保护附件下载](testing/current-mysql-performance-v1130.md#v1466-级联附件候选受保护附件下载)。[V1465 父级 Excel 导入](testing/current-mysql-performance-v1130.md#v1465-级联附件候选客户与合同-excel-导入)。[V1462 两类维护性能](testing/current-mysql-performance-v1130.md#v1462-级联附件候选逐次修复与整表维护)。[V1456 同合同明细](testing/current-mysql-performance-v1130.md#v1456-级联附件候选合同明细正式结果)。
+f8d4042e 同合同明细导入单并发 0／3、四并发 2／3 轮触线，阻断。当前候选九类已测完，共 45,756 个正式请求、66 个配对轮次，八类达标。[V1474 九类性能实测](testing/current-mysql-performance-v1130.md#v1474-级联附件候选普通写入及九类结果)。[V1473 只读查询](testing/current-mysql-performance-v1130.md#v1473-级联附件候选四类只读查询)。[V1471 客户复制](testing/current-mysql-performance-v1130.md#v1471-级联附件候选客户复制)。[V1468 三页 Excel 导出](testing/current-mysql-performance-v1130.md#v1468-级联附件候选三页-excel-导出)。[V1466 受保护附件下载](testing/current-mysql-performance-v1130.md#v1466-级联附件候选受保护附件下载)。[V1465 父级 Excel 导入](testing/current-mysql-performance-v1130.md#v1465-级联附件候选客户与合同-excel-导入)。[V1462 两类维护性能](testing/current-mysql-performance-v1130.md#v1462-级联附件候选逐次修复与整表维护)。[V1456 同合同明细](testing/current-mysql-performance-v1130.md#v1456-级联附件候选合同明细正式结果)。
 
 f8d4042e 的平台和独立应用双包已独立复建一致，893 份原前端逐件一致。Server-200 三拓扑正式安装、原登录、CRUD、普通权限、重启及独立清理通过。九类同条件性能的固定输入已核对。[V1456 双包与安装](testing/storage-mode-linux-release-v1009-v1010.md#v1456-级联附件候选双包及三拓扑)。
 
