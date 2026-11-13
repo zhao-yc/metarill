@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Data.Schema;
 using Metarill.Data.Queries;
@@ -50,6 +51,8 @@ public sealed class BinaryLogicalSchemaTests
     [InlineData("varbinary(4)", "0x00FF007F", "X'00FF007F'")]
     [InlineData("longblob", "(0x00ff007f)", "X'00FF007F'")]
     [InlineData("varbinary(4)", "0x", "X''")]
+    [InlineData("varbinary(4)", "''", "X''")]
+    [InlineData("longblob", "(X'')", "X''")]
     public void Binary_create_table_default_keeps_the_complete_physical_bytes(string type, string literal, string expected)
     {
         var ddl = "CREATE TABLE \x60record\x60 (\n  \x60value\x60 " + type + " DEFAULT " + literal + " COMMENT 'DEFAULT 0xFF',\n  PRIMARY KEY (\x60id\x60)\n)";
@@ -60,6 +63,10 @@ public sealed class BinaryLogicalSchemaTests
     /// <summary>注释、函数、未知包装及同名重复行均不能提供二进制默认证明。</summary>
     [Theory]
     [InlineData("DEFAULT (unhex('00FF'))")]
+    [InlineData("DEFAULT NULL")]
+    [InlineData("DEFAULT 'abc'")]
+    [InlineData("DEFAULT '' 'abc'")]
+    [InlineData("DEFAULT ('')")]
     [InlineData("COMMENT 'DEFAULT 0x00FF'")]
     [InlineData("DEFAULT ((0x00FF))")]
     public void Binary_create_table_unknown_expressions_keep_schema_protected(string clause)
@@ -67,15 +74,24 @@ public sealed class BinaryLogicalSchemaTests
         var ddl = "CREATE TABLE \x60record\x60 (\n  \x60value\x60 varbinary(4) " + clause + "\n)";
         Assert.False(MySqlBinaryDefault.TryReadCreateDefault(ddl, "value", "varbinary(4)", out _));
         Assert.False(MySqlBinaryDefault.TryReadCreateDefault(ddl, "other", "varbinary(4)", out _));
+        Assert.False(MySqlBinaryDefault.TryReadCreateDefault("  `value` longblob DEFAULT ''", "value", "longblob", out _));
     }
 
-    /// <summary>空二进制常量是合法物理值，但不能丢成现有元数据的“无默认”；生成列表达式保持保护。</summary>
-    [Fact]
-    public void Empty_and_generated_defaults_do_not_silently_lose_semantics()
+    /// <summary>显式零字节默认在两种物理类型与元数据之间往返，仍区分未配置默认值。</summary>
+    [Theory]
+    [InlineData("4", "varbinary(4)", "X''")]
+    [InlineData("", "longblob", "(X'')")]
+    public void Empty_and_generated_defaults_do_not_silently_lose_semantics(string length, string storeType, string ddlDefault)
     {
-        Assert.True(MySqlBinaryDefault.TryNormalize("X''",out var empty));Assert.Equal("X''",empty);
-        var schema=new DatabaseSchema("db",[new("record",[new("id","bigint",false,true),new("value","varbinary(4)",true,DefaultSql:"X''")])]);
-        var draft=SchemaImportDraftCompiler.Compile(new(new("mysql",schema,"source"),[]),"123");Assert.False(draft.ColumnsAndIndexesRepresentable);Assert.Contains(draft.Issues,item=>item.Message.Contains("零字节"));
+        var sourceColumn = new ColumnSchema("value", storeType, true, DefaultSql: ddlDefault);
+        var schema = new DatabaseSchema("db", [new("record", [new("id", "bigint", false, true), sourceColumn])]);
+        var draft = SchemaImportDraftCompiler.Compile(new(new("mysql", schema, "source"), []), "123");
+        Assert.True(draft.ColumnsAndIndexesRepresentable, string.Join(";", draft.Issues));
+        var restored = draft.LogicalMetadata.ConfigColumns.Single(item => item.ColumnName == "value");
+        Assert.Equal(BinaryFieldValue.EmptyDefault, restored.DefaultValue);
+        Assert.Equal(ddlDefault, MySqlSchemaPlanner.CompileColumn(restored).DefaultSql);
+        Assert.Empty(MySqlSchemaPlanner.Compare(schema, MySqlSchemaPlanner.Compile(draft.LogicalMetadata, "db")));
+        Assert.False(MySqlSchemaPlanner.Equivalent(sourceColumn, MySqlSchemaPlanner.CompileColumn(Column(length))));
         var column=Column("4");column.DefaultValue="AA==";var expected=MySqlSchemaPlanner.CompileColumn(column);
         Assert.False(MySqlSchemaPlanner.Equivalent(expected with{Generated=true},expected));
         foreach(var value in new[]{"错误","AQIDBAU=","UNHEX('00FF')"})

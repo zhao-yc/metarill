@@ -49,7 +49,10 @@ public sealed class DevelopmentSeedSynchronizer(SqlRowStore store,MetadataRegist
                         values["is_must"]=record.GetProperty("isRequired").GetInt32();
                     }
                     foreach(var column in registry.Platform.ConfigColumns.Where(c=>c.ConfigTableId==physical.Id&&!values.ContainsKey(c.ColumnName)))
-                        values[column.ColumnName]=!string.IsNullOrEmpty(column.DefaultValue)?column.DefaultValue:column.IsDbNotNull==1&&column.LogicalType is "int32" or "int64" or "decimal"?0:null;
+                        values[column.ColumnName] = column.LogicalType == "binary"
+                            ? BinaryFieldValue.DefaultBytes(column.DefaultValue, column.ColumnLength)
+                            : !string.IsNullOrEmpty(column.DefaultValue) ? column.DefaultValue
+                            : column.IsDbNotNull == 1 && column.LogicalType is "int32" or "int64" or "decimal" ? 0 : null;
                     values["delete_no"]=null;values["update_time"]=BusinessCalendar.Now;
                     if(await store.UpdateAsync(table,id,values,token)==0)await store.InsertAsync(table,values,token);
                 }

@@ -38,6 +38,8 @@ internal static class OriginalUniappDetailFields
     private static string Default(OriginalDetailField f)
     {
         if (f.Column.Source.ControlKind is "Image" or "MultiImage" or "Upload" or "Video" or "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage") return "[]";
+        // 配置中的零字节字面量转换为原表单与请求使用的空 Base64 文本。
+        if (f.Column.Type == "byte[]?" && f.Default == Metarill.Core.Contracts.BinaryFieldValue.EmptyDefault) return Js("");
         // double默认值按有限binary64解析，保持原控件及数值绑定，避免误用decimal范围拒绝。
         if(f.Column.Type=="double?"&&!string.IsNullOrWhiteSpace(f.Default))
         {

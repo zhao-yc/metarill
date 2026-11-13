@@ -169,7 +169,10 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
         if(table.StartsWith("config_",StringComparison.Ordinal))
         {
             var defaults=values.ToDictionary(p=>p.Key,p=>p.Value);
-            foreach(var column in columns.Where(c=>!string.IsNullOrEmpty(c.DefaultValue)))defaults.TryAdd(column.ColumnName,column.DefaultValue);
+            foreach (var column in columns.Where(column => column.DefaultValue.Length > 0 && !defaults.ContainsKey(column.ColumnName)))
+                defaults.Add(column.ColumnName, column.LogicalType == "binary"
+                    ? Metarill.Core.Contracts.BinaryFieldValue.DefaultBytes(column.DefaultValue, column.ColumnLength)
+                    : column.DefaultValue);
             values=defaults;
         }
         var selected = columns.Where(c => values.ContainsKey(c.ColumnName)).ToArray();

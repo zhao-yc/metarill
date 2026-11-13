@@ -15,13 +15,18 @@ namespace Metarill.Generation.Tests;
 public sealed class BinaryGenerationTests
 {
     /// <summary>实际DTO、Service、导入与手写钩子保留字节，区分省略/null/空数组。</summary>
-    [Fact]
-    public async Task Generated_binary_crud_import_and_hooks_execute()
+    [Theory]
+    [InlineData("AP8=")]
+    [InlineData(BinaryFieldValue.EmptyDefault)]
+    public async Task Generated_binary_crud_import_and_hooks_execute(string configuredDefault)
     {
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-binary-generation");var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
-            var catalog=GeneratorTests.Catalog();AddBinary(catalog);catalog.ConfigColumns.Single(column=>column.ColumnName=="payload").DefaultValue="AP8=";new CSharpGenerator().Generate(catalog,Path.Combine(root,"generated"),"Example.GuardContract");
+            var catalog=GeneratorTests.Catalog();AddBinary(catalog);catalog.ConfigColumns.Single(column=>column.ColumnName=="payload").DefaultValue=configuredDefault;new CSharpGenerator().Generate(catalog,Path.Combine(root,"generated"),"Example.GuardContract");
+            var vue = await File.ReadAllTextAsync(Path.Combine(root, "generated/frontend/pages/yzp/customer-detail-101.vue"));
+            var base64 = configuredDefault == BinaryFieldValue.EmptyDefault ? "" : configuredDefault;
+            Assert.Contains("payload:" + JsonSerializer.Serialize(base64), vue);
             var hand=Path.Combine(root,"generated/Services/CustomerService.cs");
             await File.AppendAllTextAsync(hand,"""
 
@@ -43,8 +48,15 @@ public partial class CustomerService
                 async Task<object?> Save(string operation,string json)=>await ClockTimeGenerationTests.Invoke(service,operation+"101Async",Request(operation,json),null,run.Actor,CancellationToken.None);
                 byte[]? Bytes(object? value)=>(byte[]?)value!.GetType().GetProperty("Payload")!.GetValue(value);
                 var defaultA=await Save("Create","""{"name":"默认甲"}""");var defaultB=await Save("Create","""{"name":"默认乙"}""");
-                Assert.Equal(new byte[]{0,255},Bytes(defaultA));Assert.Equal(new byte[]{0,255},Bytes(defaultB));Assert.NotSame(Bytes(defaultA),Bytes(defaultB));
-                Bytes(defaultA)![0]=99;Assert.Equal((byte)0,Bytes(defaultB)![0]);
+                var expectedDefault = Convert.FromBase64String(base64);
+                Assert.Equal(expectedDefault, Bytes(defaultA));
+                Assert.Equal(expectedDefault, Bytes(defaultB));
+                if (expectedDefault.Length > 0)
+                {
+                    Assert.NotSame(Bytes(defaultA), Bytes(defaultB));
+                    Bytes(defaultA)![0] = 99;
+                    Assert.Equal((byte)0, Bytes(defaultB)![0]);
+                }
                 Assert.Null(Bytes(await Save("Create","""{"name":"主动空","payload":null}""")));
                 Assert.Empty(Bytes(await Save("Create","""{"name":"主动零字节","payload":""}"""))!);
                 var created=await Save("Create","""{"name":"字节","payload":"AP8Afw=="}""");Assert.Equal(new byte[]{0,255,0,127},Bytes(created));Assert.Contains("write:Insert",run.Trace);

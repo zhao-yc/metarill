@@ -25,6 +25,10 @@ public sealed class BinaryFieldValueTests
     public void Default_bytes_validate_length_and_do_not_share_mutable_arrays()
     {
         Assert.Null(BinaryFieldValue.DefaultBytes("","4"));
+        Assert.Equal("\"\"", BinaryFieldValue.EncodeDefault([]));
+        Assert.Empty(BinaryFieldValue.DefaultBytes(BinaryFieldValue.EmptyDefault, "4")!);
+        Assert.Equal("AP8=", BinaryFieldValue.EncodeDefault([0, 255]));
+        Assert.Throws<JsonException>(() => BinaryFieldValue.ParseText(BinaryFieldValue.EmptyDefault));
         var first=BinaryFieldValue.DefaultBytes("AP8=","4")!;var next=BinaryFieldValue.DefaultBytes("AP8=","4")!;
         Assert.Equal(new byte[]{0,255},first);Assert.NotSame(first,next);first[0]=99;Assert.Equal((byte)0,next[0]);
         foreach(var invalid in new[]{"不是Base64","AQIDBAU=","UNHEX('00FF')"," ","[0,255]"})Assert.Throws<InvalidOperationException>(()=>BinaryFieldValue.DefaultBytes(invalid,"4"));

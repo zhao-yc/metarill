@@ -30,15 +30,22 @@ internal static class MySqlBinaryDefault
         if (!Supports(storeType)) return false;
         var name = "\x60" + column.Replace("\x60", "\x60\x60") + "\x60";
         var hex = "(?:0x[0-9a-f]*|x'[0-9a-f]*')";
+        // MySQL 的 SHOW CREATE 将 VARBINARY 的 X'' 输出为字符形式的空字面量。
+        // 只在实际列定义末尾或已知的列注释前接受该拼写，避免把其它表达式截断成零字节。
+        var emptyVarbinary = storeType.StartsWith("varbinary(", StringComparison.Ordinal)
+            ? @"|''(?=[ \t]*(?:,|\r?$|COMMENT[ \t]))"
+            : "";
         var pattern = @"^[ \t]*" + System.Text.RegularExpressions.Regex.Escape(name)
             + @"[ \t]+" + System.Text.RegularExpressions.Regex.Escape(storeType)
             + @"[ \t]+(?:(?:NOT[ \t]+)?NULL[ \t]+)?DEFAULT[ \t]+(?<value>"
-            + hex + @"|\(" + hex + @"\))(?=[ \t,\r\n]|$)";
+            + hex + @"|\(" + hex + @"\)" + emptyVarbinary + @")(?=[ \t,\r\n]|$)";
         var matches = System.Text.RegularExpressions.Regex.Matches(ddl, pattern,
             System.Text.RegularExpressions.RegexOptions.Multiline
             | System.Text.RegularExpressions.RegexOptions.IgnoreCase
             | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-        return matches.Count == 1 && TryNormalize(matches[0].Groups["value"].Value, out sql);
+        if (matches.Count != 1) return false;
+        var value = matches[0].Groups["value"].Value;
+        return TryNormalize(value == "''" ? "X''" : value, out sql);
     }
 
     /// <summary>反查只还原已归一字节，不将SQL文字误作为Base64默认内容。</summary>

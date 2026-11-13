@@ -5,6 +5,11 @@ namespace Metarill.Core.Contracts;
 /// <summary>显式binary使用标准JSON Base64文本；null、空字节数组和省略由各入口分别保留。</summary>
 public static class BinaryFieldValue
 {
+    /// <summary>配置文本以 JSON 空字符串字面量表达零字节，空白配置仍没有默认值。</summary>
+    public const string EmptyDefault = "\"\"";
+
+    /// <summary>反查还原配置文本，确保零字节与未配置默认可分别保存。</summary>
+    public static string EncodeDefault(byte[] bytes) => bytes.Length == 0 ? EmptyDefault : Convert.ToBase64String(bytes);
     /// <summary>复用System.Text.Json实际byte[]解码，不接受JSON数值数组或任意对象。</summary>
     public static byte[]? Parse(JsonElement value)
     {
@@ -15,17 +20,18 @@ public static class BinaryFieldValue
     }
     /// <summary>手写基础设施与默认值检查沿同一JSON解码器，不自行采用不同的宽松语法。</summary>
     public static byte[]? ParseText(string? text)=>text is null?null:Parse(JsonSerializer.SerializeToElement(text));
-    /// <summary>元数据默认框留空表示无默认；非空沿公开Base64合同且先校验字节长度。</summary>
+    /// <summary>识别配置中的零字节字面量，其余默认值沿原 Base64 和长度校验。</summary>
     public static byte[]? DefaultBytes(string text,string length)
     {
         if(text.Length==0)return null;
         try
         {
-            var bytes=ParseText(text)!;Validate(bytes,MaximumLength(length));
-            if(bytes.Length==0)throw new ArgumentException("现有默认值配置不能区分零字节默认与未设置。");
+            var bytes = text == EmptyDefault ? [] : ParseText(text)!;
+            Validate(bytes, MaximumLength(length));
+            if (bytes.Length == 0 && text != EmptyDefault) throw new ArgumentException("零字节默认值必须使用明确的空字符串字面量。");
             return bytes;
         }
-        catch(Exception error)when(error is JsonException or ArgumentException){throw new InvalidOperationException("二进制默认值必须是长度范围内的非空Base64字节。",error);}
+        catch(Exception error)when(error is JsonException or ArgumentException){throw new InvalidOperationException("二进制默认值必须是长度范围内的 Base64 或空字符串字面量。",error);}
     }
     /// <summary>本机byte[]直接作为二进制参数；文本和JsonElement遵守公开Base64合同。</summary>
     public static byte[]? Coerce(object? value)=>value switch
