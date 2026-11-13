@@ -32,6 +32,8 @@
 
 ## 当前状态
 
+f8d4042e 的平台和独立应用双包已独立复建一致，893 份原前端逐件一致。Server-200 三拓扑正式安装、原登录、CRUD、普通权限、重启及独立清理通过。九类同条件性能的固定输入已核对。[V1456 双包与安装](testing/storage-mode-linux-release-v1009-v1010.md#v1456-级联附件候选双包及三拓扑)。
+
 最新页级联分隔符候选 8fa7bcda 的平台和独立应用双包已独立复建一致，893 份原前端逐件一致，Server-200 三拓扑正式安装、原登录和 CRUD、普通权限、重启及独立清理通过。页级联分隔符六模型通过真实 MySQL 与原 XLSX 往返，两个原 Web 构建通过。该分隔符的真实浏览器及性能签收继续跟踪。[V1414 实库 Excel](nonredundant-storage.md#v1414-页级联分隔符实库-excel) · [V1420 双包原 Web](testing/current-exact-release-web-v913.md#v1420-级联候选双包原-web-构建)。[V1412 双包复建](testing/storage-mode-linux-release-v1009-v1010.md#v1412-页级联分隔符候选双包复建) · [三拓扑正式安装](testing/storage-mode-linux-release-v1009-v1010.md#v1412-页级联候选三拓扑正式安装)。
 
 同一候选的原平台与独立应用桌面和移动 Web 六组基础流程通过，独立读回 MySQL 并核对六次注销。[V1425 双视口正式验收](testing/current-exact-release-web-v913.md#v1425-级联候选原桌面及移动-web)。
