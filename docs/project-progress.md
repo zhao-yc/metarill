@@ -1583,7 +1583,7 @@
 | V1398 | 🟡 独立 Linux 第 31 批原始回执已核对 | 2a958f1f | 78 通过、15 条件跳过、1 失败。失败为原登录回环用例继承外部日志路径，当前测试修正本机已覆盖，独立 Linux 复验继续。 | [第 31 批](testing/current-linux-generation-batches-v945.md#v1398-当前独立-linux-第三十一批)，2026-11-13 |
 | V1402 | ✅ 兼容候选原桌面及移动 Web 六组基础流程通过 | 49e9408a | 两视口各完成平台登录／原表列表、普通只读详情、普通编辑客户新增／修改／删除；MySQL 独立读回及六次退出通过。首轮因浏览器最小化取证中断，复验及两轮清理已核对。 | [双视口正式验收](testing/current-exact-release-web-v913.md#v1402-兼容候选原桌面及移动-web)，2026-11-13 |
 | V1403 | 🟡 独立 Linux 第 32 批原始回执已核对 | 2a958f1f | 94 通过、17 实库条件跳过、零失败。第 29 至 31 批四个回环用例另行复验，首次在资源等待阶段停止。 | [第 32 批](testing/current-linux-generation-batches-v945.md#v1403-当前独立-linux-第三十二批)，2026-11-13 |
-| V1404 | ✅ 兼容候选 GitHub CI 15 项通过 | 49e9408a | Windows 和 Ubuntu 各 1 个后端与 6 个生成分组，原前端 1 项，均通过。核对 14 份官方报告清单。独立 Linux 及正式性能另计。 | [官方 CI](testing/ci-current-contracts.md#v1404-兼容候选-github-ci)，2026-11-13 |
+| V1404 | ✅ 兼容候选 GitHub CI 15 项通过 | 49e9408a | Windows 和 Ubuntu 各 1 个后端与 6 个生成分组，原前端 1 项，均通过。14 份原报告与官方摘要逐件一致，两系统各 3,193 个唯一生成测试 ID，后端与生成零失败。独立 Linux 及正式性能另计。 | [官方 CI](testing/ci-current-contracts.md#v1404-兼容候选-github-ci)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
