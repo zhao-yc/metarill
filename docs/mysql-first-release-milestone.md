@@ -32,7 +32,7 @@
 
 ## 当前状态
 
-f8d4042e 同合同明细导入单并发 0／3、四并发 2／3 轮触线，阻断。逐次修复及整表维护已达标。当前候选已测三类，其余六类待正式计时。[V1462 两类维护性能](testing/current-mysql-performance-v1130.md#v1462-级联附件候选逐次修复与整表维护)。[V1456 同合同明细](testing/current-mysql-performance-v1130.md#v1456-级联附件候选合同明细正式结果)。
+f8d4042e 同合同明细导入单并发 0／3、四并发 2／3 轮触线，阻断。逐次修复、整表维护、客户与合同 Excel 导入已达标。当前候选已测四类，其余五类继续实测。[V1465 父级 Excel 导入](testing/current-mysql-performance-v1130.md#v1465-级联附件候选客户与合同-excel-导入)。[V1462 两类维护性能](testing/current-mysql-performance-v1130.md#v1462-级联附件候选逐次修复与整表维护)。[V1456 同合同明细](testing/current-mysql-performance-v1130.md#v1456-级联附件候选合同明细正式结果)。
 
 f8d4042e 的平台和独立应用双包已独立复建一致，893 份原前端逐件一致。Server-200 三拓扑正式安装、原登录、CRUD、普通权限、重启及独立清理通过。九类同条件性能的固定输入已核对。[V1456 双包与安装](testing/storage-mode-linux-release-v1009-v1010.md#v1456-级联附件候选双包及三拓扑)。
 
