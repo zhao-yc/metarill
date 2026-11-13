@@ -238,13 +238,20 @@ public sealed class ReadProjectionCompilationTests
     {
         var catalog = Catalog();
         if (kind == "join") catalog.ConfigColumns.Single(column => column.Id == "12").Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
-        if (kind == "nonred") catalog.ConfigTables.Single().IsRongyu = 0;
+        if (kind == "nonred")
+        {
+            catalog.ConfigTables.Single().IsRongyu = 0;
+            var unbound = catalog.ConfigColumns.Single(column => column.Id == "12");
+            unbound.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+            unbound.Extra["columnFullName"] = JsonSerializer.SerializeToElement("unknown.name");
+        }
         if (kind == "virtual") catalog.ConfigColumns.Single(column => column.Id == "12").IsVirtualColumn = 1;
         var rule = kind switch { "script" => "return entity.flag", "path" => "{\"conditions\":[{\"field\":\"remark.length\"}]}", "shape" => "{\"groups\":{}}", "duplicate" => "{\"conditions\":[],\"conditions\":[]}", "hidden" => "{\"conditions\":[{\"field\":\"queryKey\"}]}", "operator" => "{\"conditions\":[{\"field\":\"flag\",\"operator\":\"sql\"}]}", _ => "" };
         if (rule.Length > 0) catalog.ConfigButtons.Add(Button("EditAndGrid", JsonSerializer.SerializeToElement(rule)));
         if (kind == "collision") { catalog.ConfigColumns.Add(new() { Id = "21", ConfigTableId = "1", ColumnName = "status_show", LogicalType = "string" }); catalog.ConfigPageColumns.Add(new() { Id = "121", ConfigPageId = "101", ConfigColumnId = "21", IsShow = 0, IsEdit = 1 }); }
         var (model, table, page) = Model(catalog); var plan = ReadProjectionCompilation.ForPage(model, table, page);
         Assert.False(plan.List.CanCompile); Assert.NotEmpty(plan.List.Gaps);
+        if (kind == "nonred") Assert.Null(plan.List.FixedRead);
         Assert.DoesNotContain(plan.List.PhysicalColumns, column => column.Source.ColumnName is "query_key" or "order_key" or "yz_project_id");
         Assert.True(plan.List.PhysicalColumns.Count < table.Columns.Count);
     }
@@ -328,6 +335,82 @@ public sealed class ReadProjectionCompilationTests
             Assert.Contains(read.OutputFields, field => field.JsonName == "targetIds");
             Assert.Equal(mode != "hidden", read.OutputFields.Any(field => field.JsonName == "targetNames"));
         }
+    }
+
+    /// <summary>固定非冗余用途编译真实联接输出，保留查询依赖并隔离详情列和显式隐藏列。</summary>
+    [Fact]
+    public void Published_nonredundant_scalar_projects_fixed_joined_values_by_use()
+    {
+        var catalog = NonRedundantGeneratedFixture.Catalog("purpose_read");
+        NonRedundantGeneratedFixture.AddSelectionPage(catalog);
+        var (model, table, page) = Model(catalog);
+        var plan = ReadProjectionCompilation.ForPage(model, table, page);
+        Assert.All(new[] { plan.List, plan.Detail, plan.Selection }, use =>
+        {
+            Assert.True(use.CanCompile, string.Join("；", use.Gaps.Select(gap => gap.Reason)));
+            Assert.NotNull(use.FixedRead);
+            Assert.Equal("string", use.FixedRead.OutputTypes["customer_notes"]);
+            Assert.Equal("decimal", use.FixedRead.OutputTypes["customer_amount"]);
+            Assert.Contains(use.OutputFields, field => field.JsonName == "customerNotes" && field.Kind == ReadProjectionOutputKind.NonRedundantValue);
+            Assert.DoesNotContain(use.PhysicalColumns, field => field.Source.ColumnName is "customer_notes" or "customer_amount" or "group_id" or "yz_project_id");
+            Assert.DoesNotContain("group_id", use.FixedRead.OutputTypes.Keys);
+        });
+        Assert.DoesNotContain("private_payload", plan.List.FixedRead!.OutputTypes.Keys);
+        Assert.Contains("private_payload", plan.Detail.FixedRead!.OutputTypes.Keys);
+        Assert.DoesNotContain("private_payload", plan.Selection.FixedRead!.OutputTypes.Keys);
+
+        var selection = ReadProjectionCompilation.ForPage(model, table, table.Pages.Single(item => item.Source.Id == "102")).Selection;
+        Assert.True(selection.CanCompile, string.Join("；", selection.Gaps.Select(gap => gap.Reason)));
+        Assert.Equal("int64", selection.FixedRead!.OutputTypes["id"]);
+        Assert.DoesNotContain("private_payload", selection.FixedRead.OutputTypes.Keys);
+    }
+
+    /// <summary>移出用途的联接值仍可供已发布排序和筛选使用；隐藏字段不会以查询依赖的名义输出。</summary>
+    [Fact]
+    public void Nonredundant_filter_and_order_dependencies_do_not_expand_response()
+    {
+        var catalog = NonRedundantGeneratedFixture.Catalog("purpose_hidden");
+        var notes = catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "101" && field.ConfigColumnId == "16");
+        notes.IsShow = 0;
+        var (model, table, page) = Model(catalog);
+        var plan = ReadProjectionCompilation.ForPage(model, table, page);
+        Assert.True(plan.List.CanCompile, string.Join("；", plan.List.Gaps.Select(gap => gap.Reason)));
+        Assert.DoesNotContain("customer_notes", plan.List.FixedRead!.OutputTypes.Keys);
+        Assert.Contains("customer_notes", plan.Detail.FixedRead!.OutputTypes.Keys);
+    }
+
+    /// <summary>显式和自动复选名称由固定联接生成；显式隐藏名称仍受本页读取上限约束。</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Published_nonredundant_checkbox_uses_logical_names(bool automatic, bool hidden)
+    {
+        var catalog = DatabaseCheckboxGenerationTests.Catalog(true, automatic);
+        var ids = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25");
+        ids.IsShow = ids.IsEdit = 1;
+        if (hidden)
+        {
+            var names = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "27");
+            names.IsShow = names.IsEdit = 0;
+        }
+        var (model, table, page) = Model(catalog, "2", "201");
+        var plan = ReadProjectionCompilation.ForPage(model, table, page);
+        Assert.All(new[] { plan.List, plan.Detail, plan.Selection }, use =>
+        {
+            Assert.True(use.CanCompile == !hidden, string.Join("；", use.Gaps.Select(gap => gap.Reason)));
+            Assert.DoesNotContain(use.PhysicalColumns, field => field.Source.ColumnName == "target_names");
+            if (hidden)
+            {
+                Assert.Null(use.FixedRead);
+                Assert.Contains(use.Gaps, gap => gap.ColumnId == "27");
+                return;
+            }
+            // 自动名称没有详情显式字段，原详情回退 ID；原列表的实际显示仍使用自动名称。
+            var expectName = !automatic || use.Purpose != ReadProjectionPurpose.Detail;
+            Assert.Equal(expectName, use.OutputFields.Any(field => field.JsonName == "targetNames" && field.Kind == ReadProjectionOutputKind.NonRedundantValue));
+            Assert.Equal(expectName, use.FixedRead!.OutputTypes.ContainsKey("target_names"));
+        });
     }
 
     /// <summary>原runtime对OnlyDeve固定返回不可见，不读取其规则字段。</summary>

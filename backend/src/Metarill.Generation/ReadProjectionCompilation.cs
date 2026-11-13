@@ -1,20 +1,22 @@
 using System.Text.Json;
+using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
 internal enum ReadProjectionPurpose { List, Detail, Selection }
-internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName, CredentialEcho, CascadeDisplayText }
+internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName, CredentialEcho, CascadeDisplayText, NonRedundantValue }
 internal sealed record ReadProjectionOutput(string JsonName, string Property, ColumnModel Source, ReadProjectionOutputKind Kind, string? ControlDetail = null);
 internal sealed record ReadProjectionDependency(string ColumnId, IReadOnlyList<string> Reasons);
 internal sealed record ReadProjectionGap(string ColumnId, string Reason);
 internal sealed record ReadProjectionPlan(ReadProjectionPurpose Purpose, IReadOnlyList<ColumnModel> PhysicalColumns,
-    IReadOnlyList<ReadProjectionOutput> OutputFields, IReadOnlyList<ReadProjectionDependency> Dependencies, IReadOnlyList<ReadProjectionGap> Gaps)
+    IReadOnlyList<ReadProjectionOutput> OutputFields, IReadOnlyList<ReadProjectionDependency> Dependencies, IReadOnlyList<ReadProjectionGap> Gaps,
+    NonRedundantReadPlan? FixedRead = null)
 {
     public bool CanCompile => Gaps.Count == 0;
 }
 internal sealed record PageReadProjections(ReadProjectionPlan List, ReadProjectionPlan Detail, ReadProjectionPlan Selection);
 
-/// <summary>按原界面用途编译固定读取依赖；此IR不生成SQL，也不改变现有Readable或写入合同。</summary>
+/// <summary>按原界面用途编译固定读取依赖，复用已发布的非冗余 SQL 编译器；尚不改变现有接口或写入合同。</summary>
 internal static class ReadProjectionCompilation
 {
     /// <summary>列表、详情和选择确认独立规划；查询范围列不是响应授权，不自动加入输出。</summary>
@@ -22,9 +24,17 @@ internal static class ReadProjectionCompilation
     {
         if (!model.Tables.Any(candidate => ReferenceEquals(candidate, table)) || !table.Pages.Any(candidate => ReferenceEquals(candidate, page)))
             throw new ArgumentException("用途投影必须属于同一生成模型的真实表和页面。");
-        var list = new Builder(model, table, page, ReadProjectionPurpose.List);
-        var detail = new Builder(model, table, page, ReadProjectionPurpose.Detail);
-        var selection = new Builder(model, table, page, ReadProjectionPurpose.Selection);
+        NonRedundantPagePlan? published = null;
+        string? rejection = null;
+        if (NonRedundantReadCompilation.Requires(model, table))
+        {
+            try { published = NonRedundantReadCompilation.ForPage(model, table, page); }
+            catch (Exception error) when (error is InvalidOperationException or NotSupportedException or JsonException)
+            { rejection = error.Message; }
+        }
+        var list = new Builder(model, table, page, ReadProjectionPurpose.List, published, rejection);
+        var detail = new Builder(model, table, page, ReadProjectionPurpose.Detail, published, rejection);
+        var selection = new Builder(model, table, page, ReadProjectionPurpose.Selection, published, rejection);
         list.Base(page.ListColumns); detail.Base(page.DetailColumns); selection.Base(page.ListColumns); selection.FixedSelectionNames();
         list.Buttons(false); detail.Buttons(true); selection.Buttons(false);
         detail.DetailConditions();
@@ -33,7 +43,8 @@ internal static class ReadProjectionCompilation
     }
 
     /// <summary>按稳定字段ID收集去重依赖，未知来源只留缺口，不能扩成全表或全Readable。</summary>
-    private sealed class Builder(GenerationModel model, TableModel table, PageModel page, ReadProjectionPurpose purpose)
+    private sealed class Builder(GenerationModel model, TableModel table, PageModel page, ReadProjectionPurpose purpose,
+        NonRedundantPagePlan? published, string? rejection)
     {
         private readonly Dictionary<string, ColumnModel> physical = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ReadProjectionOutput> output = new(StringComparer.OrdinalIgnoreCase);
@@ -41,10 +52,10 @@ internal static class ReadProjectionCompilation
         private readonly List<ReadProjectionGap> gaps = [];
         private readonly HashSet<string> expanded = new(StringComparer.Ordinal);
 
-        /// <summary>基础列来自用途专属集合，主键始终保留；未完成的虚拟/非冗余读计划明确拒绝。</summary>
+        /// <summary>基础列来自用途专属集合，主键始终保留；缺失或拒绝的发布合同仍是明确缺口。</summary>
         internal void Base(IReadOnlyList<ColumnModel> columns)
         {
-            if (table.Source.IsRongyu != 1) Gap("", "非冗余用途读取计划尚未编译。");
+            if (rejection is not null) Gap("", "已发布的非冗余读取合同无法编译：" + rejection);
             Add(table.Columns.Single(column => column.IsId), "记录标识、原导航和控件上下文", false);
             foreach (var column in columns) Add(column, purpose == ReadProjectionPurpose.Detail ? "详情字段" : "列表字段");
             foreach (var settings in model.Catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Source.Id))
@@ -64,11 +75,28 @@ internal static class ReadProjectionCompilation
             if (FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin) Add(admin.Source,"原选择回执的固定后台名称");
         }
 
-        /// <summary>物理属性和派生展示字段分别登记；每个物理列都必须在当前页可读上限内。</summary>
+        /// <summary>联接输出必须与原非冗余响应的存储名和 JSON 属性同时匹配。</summary>
+        private bool IsPublishedOutput(ColumnModel column) => published?.Outputs.Any(field =>
+            field.Storage == column.Source.ColumnName && field.JsonName == column.JsonName) == true;
+
+        /// <summary>物理属性和派生展示字段分别登记，未知或隐藏来源保持显式缺口。</summary>
         private void Add(ColumnModel column, string reason, bool expand = true)
         {
             if (!table.Columns.Any(candidate => candidate.Source.Id == column.Source.Id) || !page.Readable.Any(candidate => candidate.Source.Id == column.Source.Id))
             { Gap(column.Source.Id, "读取依赖不属于本页已声明可读字段：" + column.JsonName); return; }
+            if (table.Source.IsRongyu == 0 && !NonRedundantReadCompilation.Physical(model, table, column))
+            {
+                if (column.Source.IsVirtualColumn != 0 || column.IsJsonArray && !column.IsManagedMultiNames || !IsPublishedOutput(column))
+                { Gap(column.Source.Id, "非冗余字段缺少已发布的标量读取合同：" + column.JsonName); return; }
+                Reason(column.Source.Id, reason);
+                Output(new(column.JsonName, column.Property, column, ReadProjectionOutputKind.NonRedundantValue));
+                // 派生常量仍需原值和标签。其它非文本控件要独立证明其实体和名称依赖。
+                if (Kind(column) is "ConstList" or "ConstDownList")
+                    Constant(column);
+                else if (Kind(column) is not ("" or "Text" or "TextArea"))
+                    Gap(column.Source.Id, "派生控件用途依赖尚未证明：" + Kind(column));
+                return;
+            }
             var physicalMultiName = column.IsManagedMultiNames && table.Source.IsRongyu == 1 &&
                 NonRedundantReadCompilation.Physical(model, table, column);
             if (column.Source.IsVirtualColumn != 0 ||
@@ -76,6 +104,8 @@ internal static class ReadProjectionCompilation
             { Gap(column.Source.Id, "联接或虚拟字段缺少固定读取计划：" + column.JsonName); return; }
             if(Kind(column)=="CascadeTree")
             {
+                if (table.Source.IsRongyu == 0)
+                { Gap(column.Source.Id, "非冗余级联需单独证明隐藏级 ID 与派生名称。"); return; }
                 if(CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is{} cross)
                 {
                     try{_ = CrossTableDisplayRenderer.ForPage(model,table,page);}
@@ -120,7 +150,7 @@ internal static class ReadProjectionCompilation
             DatabaseCheckboxModel? checkbox = null;
             if (Kind(column) == "MultiCheckBoxDatabase")
             {
-                if (DatabaseCheckboxCompilation.Generic(table, column) && table.Source.IsRongyu == 1)
+                if (DatabaseCheckboxCompilation.Generic(table, column))
                 {
                     var resolved = DatabaseCheckboxCompilation.Resolve(model, table, page, column);
                     if (resolved.Definition is null) { Gap(column.Source.Id, resolved.Reason!); return; }
@@ -188,13 +218,7 @@ internal static class ReadProjectionCompilation
             if (purpose != ReadProjectionPurpose.Detail &&
                 (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) || column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) && kind.Length > 0) && kind != "FileLibrary")
             { Auxiliary(column, SelectionDisplayFieldCompilation.Resolve(table, column)); return; }
-            if (kind is "ConstList" or "ConstDownList")
-            {
-                if (page.Readable.Any(candidate => candidate.Source.Id != column.Source.Id && candidate.JsonName.Equals(column.JsonName + "Show", StringComparison.OrdinalIgnoreCase)))
-                    Gap(column.Source.Id, "常量展示名与已声明字段冲突：" + column.JsonName + "Show");
-                else Output(new(column.JsonName + "Show", column.Property + "Show", column, ReadProjectionOutputKind.ConstantShow, Detail(column)));
-                Reason(column.Source.Id, "常量Show仅由本用途原值派生");
-            }
+            if (kind is "ConstList" or "ConstDownList") Constant(column);
             else if (kind == "List")
             {
                 if (purpose == ReadProjectionPurpose.Detail)
@@ -216,6 +240,15 @@ internal static class ReadProjectionCompilation
             else if (kind is "SelectPage" or "MultiSelectPage" && purpose == ReadProjectionPurpose.Detail) Selection(column);
         }
 
+        /// <summary>常量展示依赖原值，展示名不能覆盖另一已开放字段。</summary>
+        private void Constant(ColumnModel column)
+        {
+            if (page.Readable.Any(candidate => candidate.Source.Id != column.Source.Id && candidate.JsonName.Equals(column.JsonName + "Show", StringComparison.OrdinalIgnoreCase)))
+                Gap(column.Source.Id, "常量展示名与已声明字段冲突：" + column.JsonName + "Show");
+            else Output(new(column.JsonName + "Show", column.Property + "Show", column, ReadProjectionOutputKind.ConstantShow, Detail(column)));
+            Reason(column.Source.Id, "常量Show仅由本用途原值派生");
+        }
+
         /// <summary>原详情按表控件分支，列表才取页级非空覆盖；两种用途不能互相推断。</summary>
         private string Kind(ColumnModel column) => purpose == ReadProjectionPurpose.Detail ? column.Source.ControlKind : Setting(column, "controlKind", column.Source.ControlKind);
         /// <summary>控件明细沿用原页级非空覆盖，既不改原字段也不合成未知定义。</summary>
@@ -234,7 +267,14 @@ internal static class ReadProjectionCompilation
             var display = purpose == ReadProjectionPurpose.Detail
                 ? OriginalDetailContext.DisplayField(model, table, page, source)
                 : checkbox.Names.JsonName;
-            if (display == checkbox.Names.JsonName &&
+            if (display == checkbox.Names.JsonName && published is not null &&
+                !model.Catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Source.Id && column.ColumnName == checkbox.Names.Source.ColumnName) &&
+                IsPublishedOutput(checkbox.Names))
+            {
+                Reason(checkbox.Names.Source.Id, "原非冗余复选已发布的隐式名称：" + source.JsonName);
+                Output(new(checkbox.Names.JsonName, checkbox.Names.Property, checkbox.Names, ReadProjectionOutputKind.NonRedundantValue));
+            }
+            else if (display == checkbox.Names.JsonName &&
                 MultiNameStorageCompilation.IsImplicit(model, checkbox.Names) &&
                 MultiNameStorageCompilation.ImplicitNames(model, table, page).Any(name => name.Source.Id == checkbox.Names.Source.Id))
             {
@@ -245,8 +285,11 @@ internal static class ReadProjectionCompilation
             }
             else
             {
-                var auxiliary = table.Columns.Single(item => item.JsonName == display);
-                Auxiliary(source, auxiliary);
+                var auxiliary = table.Columns.SingleOrDefault(item => item.JsonName == display);
+                if (auxiliary is null)
+                    Gap(source.Source.Id, "原复选名称未形成已发布的显示字段：" + display);
+                else
+                    Auxiliary(source, auxiliary);
             }
             if (purpose == ReadProjectionPurpose.Detail && DatabaseCheckboxCompilation.LiveDetailForm(source, checkbox) is { } forms)
                 foreach (var field in forms)
@@ -458,9 +501,27 @@ internal static class ReadProjectionCompilation
         private void Gap(string id, string reason) => gaps.Add(new(id, reason));
 
         /// <summary>计划仅输出已证明的固定列；有Gap的计划不能视为可生成SQL。</summary>
-        internal ReadProjectionPlan Finish() => new(purpose, physical.Values.OrderBy(column => column.IsId ? 0 : 1).ThenBy(column => column.Source.Id, StringComparer.Ordinal).ToArray(),
-            output.Values.OrderBy(field => field.Source.IsId ? 0 : 1).ThenBy(field => field.Source.Source.Id, StringComparer.Ordinal).ThenBy(field => field.Kind).ToArray(),
-            dependencies.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => new ReadProjectionDependency(item.Key, item.Value.Order(StringComparer.Ordinal).ToArray())).ToArray(),
-            gaps.Distinct().OrderBy(gap => gap.ColumnId, StringComparer.Ordinal).ThenBy(gap => gap.Reason, StringComparer.Ordinal).ToArray());
+        internal ReadProjectionPlan Finish()
+        {
+            var fields = output.Values.OrderBy(field => field.Source.IsId ? 0 : 1).ThenBy(field => field.Source.Source.Id, StringComparer.Ordinal).ThenBy(field => field.Kind).ToArray();
+            NonRedundantReadPlan? read = null;
+            if (published is not null && gaps.Count == 0)
+            {
+                var outputs = fields.Select(field => field.Source.Source.ColumnName).Distinct(StringComparer.Ordinal).ToArray();
+                try
+                {
+                    // 筛选、排序、固定父范围继续沿用原发布依赖，不能把这些依赖公开成响应属性。
+                    read = purpose != ReadProjectionPurpose.Detail && NonRedundantReadCompilation.GlobalSelectionPage(table, page)
+                        ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, table.Source.Id, page.Source.Id, outputs, published.Dependencies)
+                        : NonRedundantReads.CompileWithCrossTables(model.Catalog, table.Source.Id, outputs,
+                            NonRedundantCrossTableCompilation.Bindings(model, table, page), published.Dependencies);
+                }
+                catch (Exception error) when (error is InvalidOperationException or NotSupportedException or JsonException)
+                { Gap("", "非冗余用途 SQL 无法编译：" + error.Message); }
+            }
+            return new(purpose, physical.Values.OrderBy(column => column.IsId ? 0 : 1).ThenBy(column => column.Source.Id, StringComparer.Ordinal).ToArray(), fields,
+                dependencies.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => new ReadProjectionDependency(item.Key, item.Value.Order(StringComparer.Ordinal).ToArray())).ToArray(),
+                gaps.Distinct().OrderBy(gap => gap.ColumnId, StringComparer.Ordinal).ThenBy(gap => gap.Reason, StringComparer.Ordinal).ToArray(), read);
+        }
     }
 }
