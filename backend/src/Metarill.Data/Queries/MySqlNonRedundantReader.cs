@@ -78,14 +78,25 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(!order.Any(item=>item.Field.Equals("id",StringComparison.OrdinalIgnoreCase)))orders.Add(plan.Expression("id")+" DESC");
         // 联接依赖同时包含响应、筛选、排序和固定条件；条件不能因未显示而丢失目标范围。
         var required=plan.HasMaintenanceJoinProjection?plan.Outputs.Concat(filters.Select(filter=>filter.Field)).Concat(order.Select(item=>item.Field)).Append("id").ToHashSet(StringComparer.OrdinalIgnoreCase):null;
-        var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",field=>{required?.Add(field);return plan.Expression(field);});
+        var aggregateFields = includeTotal && !currentRead && plan.AggregateFrom is not null
+            ? filters.Select(filter => filter.Field).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+        var conditionClause = condition?.RenderConstants(session.Provider, "page_condition", field =>
+        {
+            required?.Add(field);
+            aggregateFields?.Add(field);
+            return plan.Expression(field);
+        });
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(clauses).Where(part=>part.Length>0));
-        var from=(required is null?plan.From:plan.FromForFields(required))+(where.Length==0?"":" WHERE "+where);
+        var whereSql = where.Length == 0 ? "" : " WHERE " + where;
+        var from = (required is null ? plan.From : plan.FromForFields(required)) + whereSql;
+        // 计数使用筛选与固定条件。明细 SELECT 继续保留投影、排序及原联接。
+        var countFrom = aggregateFields is null ? from : plan.AggregateFrom!.Render(aggregateFields) + whereSql;
         var offset=checked(((long)page-1)*pageSize);
         return await OnConnection(async connection=>
         {
             var total=0L;
-            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+from+(currentRead?" FOR SHARE":"");if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
+            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+countFrom+(currentRead?" FOR SHARE":"");if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
             await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
             var multis=plan.Outputs.Where(name=>!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)).ToArray();var hidden=new Dictionary<string,string>(StringComparer.Ordinal);var projection=plan.Outputs.Select(name=>(!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)?"NULL":plan.OutputExpression(name))+" AS "+Q(name)).ToList();
@@ -151,13 +162,21 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(fields.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=fields.Length)throw new InvalidOperationException("统计字段重复。");
         foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal" or "double"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();
-        var conditionClause=condition?.RenderConstants(session.Provider,"page_condition",plan.Expression);
+        var aggregateFields = plan.AggregateFrom is null
+            ? null
+            : fields.Concat(filters.Select(filter => filter.Field)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var conditionClause = condition?.RenderConstants(session.Provider, "page_condition", field =>
+        {
+            aggregateFields?.Add(field);
+            return plan.Expression(field);
+        });
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(filters.Select((filter,index)=>Filter(plan,filter,index))).Where(part=>part.Length>0));
+        var scope = (aggregateFields is null ? plan.From : plan.AggregateFrom!.Render(aggregateFields))
+            + (where.Length == 0 ? "" : " WHERE " + where);
         if(fields.Any(field=>plan.Types[field]=="double"))
         {
             // 每个浮点字段最多2047桶；混合统计用一条UNION语句共享同一读视图，精确类型继续原SUM。
             var floatingFields=fields.Where(field=>plan.Types[field]=="double").ToArray();var exactFields=fields.Where(field=>plan.Types[field]!="double").ToArray();var needsBase=fields.Length!=1;
-            var scope=plan.From+(where.Length==0?"":" WHERE "+where);
             string Projection(int index,string? field)
             {
                 var prefix=field is null?"SELECT -1 AS field_no,NULL AS `Exponent`,NULL AS `Coefficient`,COUNT(*) AS `Rows`,0 AS `Values`":"SELECT "+index+" AS field_no,"+MySqlFloatingSum.Fields(plan.Expression(field));
@@ -193,7 +212,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
                 return new FixedReadStatistics(total??0,new System.Collections.ObjectModel.ReadOnlyDictionary<string,decimal?>(exact)){DoubleSums=new System.Collections.ObjectModel.ReadOnlyDictionary<string,double?>(doubles)};
             },cancellationToken);
         }
-        var sql="SELECT COUNT(*) AS total"+string.Concat(fields.Select((field,index)=>",SUM("+plan.Expression(field)+") AS sum_"+index))+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+plan.From+(where.Length==0?"":" WHERE "+where);
+        var sql="SELECT COUNT(*) AS total"+string.Concat(fields.Select((field,index)=>",SUM("+plan.Expression(field)+") AS sum_"+index))+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+scope;
         return await OnConnection(async connection=>
         {
             await using var command=Command(connection);Bind(command,projectId,filters);BindCross(command,plan);BindCondition(command,conditionClause);command.CommandText=sql;

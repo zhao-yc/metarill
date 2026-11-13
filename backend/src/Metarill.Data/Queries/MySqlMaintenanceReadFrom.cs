@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 namespace Metarill.Data.Queries;
 
-/// <summary>维护读取的固定LEFT JOIN片段及输出依赖；编译时冻结，不从SQL文本猜别名。</summary>
+/// <summary>固定 LEFT JOIN 片段及字段依赖，供维护读取和普通非冗余聚合使用；编译时冻结。</summary>
 internal sealed class MySqlMaintenanceReadFrom
 {
     private readonly string root;

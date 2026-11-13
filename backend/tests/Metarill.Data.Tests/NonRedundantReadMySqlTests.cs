@@ -55,6 +55,7 @@ public sealed class NonRedundantReadMySqlTests
             await Assert.ThrowsAsync<InvalidOperationException>(()=>session.InTransactionAsync<int>(async()=>
             {Assert.Equal(1,await store.UpdateAsync(names[1],101,new Dictionary<string,object?>{{"name","事务内名称"},{"amount",30.25m}}));var current=await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Equal,"事务内名称")],[],1,10);Assert.Equal(first,Convert.ToInt64(Assert.Single(current.Records)["id"],CultureInfo.InvariantCulture));Assert.Equal(51m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);throw new InvalidOperationException("读取事务尾部测试故障。");}));
             Assert.Equal(rowsHash,await RowsHash());Assert.Equal(31m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);Assert.Null((await reader.ReadStatisticsAsync(plan,[new("id",FixedReadComparison.Equal,-1L)],["bill_amount"])).Sums["bill_amount"]);Assert.Equal(1,(await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Contains,"%_!")],[],1,10)).Total);
+            await VerifyAggregateSqlAsync(session, plan, first);
             await VerifyMultiReadsAsync(session,store,catalog,first,second);
             await VerifyDerivedLocksAsync(options,catalog,first,second);
             await VerifyFixedConditionsAsync(options,catalog,first,second);
@@ -125,6 +126,42 @@ public sealed class NonRedundantReadMySqlTests
         async Task<int> RenameExternal(string value){await using var command=external.CreateCommand();command.CommandText="UPDATE "+session.Provider.QuoteIdentifier(target)+" SET name=@name WHERE id=@id";command.Parameters.AddWithValue("name",value);command.Parameters.AddWithValue("id",101L);return await command.ExecuteNonQueryAsync();}
     }
     /// <summary>在本轮已拥有的两表内实际执行绑定SQL，覆盖高位ID、LIKE、IN、NULL及双类型项目列；不代表正式候选API。</summary>
+    private static async Task VerifyAggregateSqlAsync(DatabaseSession session, MySqlNonRedundantReadPlan plan, long first)
+    {
+        var reader = new MySqlNonRedundantReader(session);
+        using var trace = DatabaseCommandObservation.Begin(new byte[32]);
+        var plain = await reader.ReadPageAsync(plan, [], [new("ship_name")], 1, 20);
+        var filtered = await reader.ReadPageAsync(plan, [new("bill_name", FixedReadComparison.Contains, "%_!")], [], 1, 10);
+        var chained = await reader.ReadStatisticsAsync(plan, [new("grand_label", FixedReadComparison.Equal, "B候选")], ["bill_amount"]);
+        var fixedCondition = FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile("ship_name='B候选'", ["ship_name"]),
+            new Dictionary<string, string> { ["ship_name"] = "string" });
+        var fixedCount = await reader.ReadStatisticsAsync(plan, [], [], condition: fixedCondition);
+        trace.Dispose();
+
+        Assert.Equal(4, plain.Total);
+        Assert.Equal(1, filtered.Total);
+        Assert.Equal(first, Convert.ToInt64(Assert.Single(filtered.Records)["id"], CultureInfo.InvariantCulture));
+        Assert.Equal(1, chained.Total);
+        Assert.Equal(10.25m, chained.Sums["bill_amount"]);
+        Assert.Equal(1, fixedCount.Total);
+        var snapshot = trace.Snapshot();
+        Assert.True(snapshot.InternallyConsistent);
+        Assert.All(snapshot.Commands, item => Assert.True(item.DriverCalled && item.Succeeded));
+        var sql = snapshot.Commands.Select(item => item.Sql).ToArray();
+        Assert.Equal(6, sql.Length);
+        Assert.DoesNotContain("LEFT JOIN", sql[0]);
+        Assert.Contains("ship_id", sql[1]);
+        Assert.Contains("bill_id", sql[2]);
+        Assert.DoesNotContain("ship_id", sql[2]);
+        Assert.Contains("ship_id", sql[3]);
+        Assert.Contains("bill_id", sql[4]);
+        Assert.Contains("r0.`parent_id`", sql[4]);
+        Assert.DoesNotContain("ship_id", sql[4]);
+        Assert.Contains("ship_id", sql[5]);
+        Assert.DoesNotContain("bill_id", sql[5]);
+    }
+
+    /// <summary>固定页面条件在真实 SQL 中独立绑定，保持项目范围。</summary>
     private static async Task VerifyFixedConditionsAsync(DatabaseOptions options,MetadataCatalog catalog,long first,long second)
     {
         using var session=new DatabaseSession(options);

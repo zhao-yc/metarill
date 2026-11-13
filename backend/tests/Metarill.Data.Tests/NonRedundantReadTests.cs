@@ -16,6 +16,26 @@ public sealed class NonRedundantReadTests
         catalog.ConfigColumns.Single(column=>column.Id=="22").ColumnName="renamed";catalog.ConfigTables[1].TableName="renamed_table";
         Assert.Equal(before,plan.Outputs);Assert.Throws<NotSupportedException>(()=>((IList<string>)plan.Outputs).Add("rogue"));
     }
+    /// <summary>聚合固定计划保留所需的共享路径，并拒绝对混合键联接裁剪。</summary>
+    [Fact]
+    public void Aggregate_plan_tracks_only_cardinality_preserving_join_paths()
+    {
+        var catalog = Catalog("mt_read_root", "mt_read_party");
+        var plan = Plan(catalog);
+        var from = Assert.IsType<MySqlMaintenanceReadFrom>(plan.AggregateFrom);
+        Assert.Equal(" FROM `mt_read_root` b", from.Render(new HashSet<string> { "name" }));
+        var bill = from.Render(new HashSet<string> { "bill_name" });
+        Assert.Contains("r0.`id`=b.`bill_id`", bill);
+        Assert.DoesNotContain("ship_id", bill);
+        var chain = from.Render(new HashSet<string> { "grand_label" });
+        Assert.Contains("r0.`id`=b.`bill_id`", chain);
+        Assert.Contains("r2.`id`=r0.`parent_id`", chain);
+        Assert.DoesNotContain("ship_id", chain);
+
+        catalog.ConfigColumns.Single(column => column.Id == "15").LogicalType = "string";
+        Assert.Null(Plan(catalog).AggregateFrom);
+    }
+
     /// <summary>实际递归字段循环被拒，普通自关联不是循环。</summary>
     [Fact]
     public void Rejects_real_derived_cycle()
