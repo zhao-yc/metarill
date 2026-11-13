@@ -185,3 +185,7 @@ GitHub Actions 运行 43030431808 对应 e8bc7af1，前端、两个系统的后�
 | 后端 | 3,428 | 219 | 3,428 | 219 |
 
 两系统各验证 3,184 个互异的生成测试 ID，后端和生成报告零失败。条件跳过分别保留实际原因。Server-200 独立回归与正式同条件性能仍按各自进度核对。
+
+## V1347 跨表 Excel 断言修正的 GitHub CI
+
+2026-11-13。GitHub API 核对 `a984b04b` 的 PR 运行已完成，15 个作业全部成功。该提交按当前公开 Full 合同更新跨表 Excel 断言，Server-200 六模型另由 V1332 验收。后续提交仍按各自 SHA 核对。 [GitHub Actions](https://github.com/zhao-yc/metarill/actions/runs/43339355209)

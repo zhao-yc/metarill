@@ -1529,6 +1529,8 @@
 | V1335 | ✅ 第十三批通用 MySQL 补验通过 | 2a958f1f／Server-200 | 共享级联仓库文件和固定关联条件的查询／已选／写入／复制／导入共 2 项通过，独占资源核清。 | [第十三批通用补验](testing/current-linux-generation-batches-v945.md#v1335-第十三批通用-mysql-补验)，2026-11-13 |
 | V1342 | 🧪 独立 Linux 第十五批结束 | 2a958f1f／Server-200 | 51 项通过、2 项条件跳过、零失败。公开 Full 六模型已有正式回执，原表单变量实库用例待补验。 | [第十五批回执](testing/current-linux-generation-batches-v945.md#v1342-当前独立-linux-第十五批)，2026-11-13 |
 | V1339 | ✅ 第十四批独立包冷构建复验通过 | 2a958f1f／Server-200 | 复用既有完整包构建等待及进程回收，原授权注册和实际独立包编译通过，2 分 20 秒，独立核清。 | [冷构建复验](testing/current-linux-generation-batches-v945.md#v1339-linux-第十四批生成包编译复验)，2026-11-13 |
+| V1341 | ✅ 第十四批通用 MySQL 补验通过 | 2a958f1f／Server-200 | 共享级联地点文件、多选联接名称与原实体选项范围共 3 项通过，独占资源核清。 | [第十四批通用补验](testing/current-linux-generation-batches-v945.md#v1341-第十四批通用-mysql-补验)，2026-11-13 |
+| V1347 | ✅ 跨表 Excel 断言修正的 CI 作业通过 | a984b04b／GitHub Actions | PR 运行 43339355209 的 15 个作业全部成功。独立 Server-200 实库补验与后续提交分别核对。 | [CI 作业结果](testing/ci-current-contracts.md#v1347-跨表-excel-断言修正的-github-ci)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
