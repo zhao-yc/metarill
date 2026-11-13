@@ -142,8 +142,8 @@ internal static class OriginalUniappDetailFields
         var target=context?.TargetParentField is {} parent?"that.entity."+parent:context?.SameParent==true?"that.parent_id":null;
         var method="loadOriginalOptions"+column.Source.Id;
         var dynamic=Enabled(column.Source.Extra,"isAutoPostBackQuery");
-        var forms=checkbox&&dynamic?DatabaseCheckboxCompilation.Resolve(c.Model,c.Table,c.Page,column).Definition?.Conditions?.Forms:null;
-        var form=forms is {Count:>0}&&forms.All(binding=>Enabled(binding.Column.Source.Extra,"isAutoPostBack"))
+        var checkboxModel = checkbox && dynamic ? DatabaseCheckboxCompilation.Resolve(c.Model,c.Table,c.Page,column).Definition : null;
+        var form = DatabaseCheckboxCompilation.LiveDetailForm(column, checkboxModel) is { } forms
             ? WatchLinkedCheckboxForm(c,column,forms,method)
             : null;
         var captureForm=form is null?"":$"const optionForm=that.{form}();if(optionForm===null)return;";

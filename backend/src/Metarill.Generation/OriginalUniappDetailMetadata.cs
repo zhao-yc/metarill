@@ -93,14 +93,17 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     }
     internal static string Property(JsonElement value, string key, string fallback = "") => value.TryGetProperty(key, out var item) && item.ValueKind != JsonValueKind.Null ? item.ToString() : fallback;
     /// <summary>名称列采用现有元数据或已证明目录的计算别名；普通关系缺辅助列仍沿用原ID。</summary>
-    internal string DisplayField(ColumnModel column, string nameField = "name")
+    internal string DisplayField(ColumnModel column, string nameField = "name") => DisplayField(Model, Table, Page, column, nameField);
+
+    /// <summary>详情模板和用途计划按同一原始规则定位展示属性。</summary>
+    internal static string DisplayField(GenerationModel model, TableModel table, PageModel page, ColumnModel column, string nameField = "name")
     {
-        if (FixedOptionCatalogCompilation.Resolve(Model, Page, column).Definition is { } catalog) return catalog.JsonName;
-        if (FixedRoleAdminNameCompilation.Resolve(Model,Table,Page,column).Definition is not null) return FixedRoleAdminNameModel.Alias;
-        if (column.Source.ControlKind == "MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(Model,Table,Page,column).Definition is not null) return FixedRoleCheckboxModel.Alias;
+        if (FixedOptionCatalogCompilation.Resolve(model, page, column).Definition is { } catalog) return catalog.JsonName;
+        if (FixedRoleAdminNameCompilation.Resolve(model,table,page,column).Definition is not null) return FixedRoleAdminNameModel.Alias;
+        if (column.Source.ControlKind == "MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null) return FixedRoleCheckboxModel.Alias;
         var stem = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
         var expected = stem + "_" + nameField + (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? "s" : "");
-        return Table.Columns.SingleOrDefault(item => item.Source.ColumnName == expected)?.JsonName ?? column.JsonName;
+        return table.Columns.SingleOrDefault(item => item.Source.ColumnName == expected)?.JsonName ?? column.JsonName;
     }
 }
 internal sealed record OriginalDetailField(ColumnModel Column, PageColumnMetadata Settings, string Detail, string Default, bool ReadOnly, bool Required, string GroupKey, int Span, bool Derived = false);

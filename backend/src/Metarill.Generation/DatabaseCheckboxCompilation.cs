@@ -37,6 +37,17 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>候选用于原详情及筛选，名称输出仍单独按实际Readable字段决定。
     /// </summary>
     internal static IReadOnlyList<DatabaseCheckboxModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>page.Readable.Concat(page.Writable).Concat(page.Searchable).DistinctBy(column=>column.Source.Id).Where(column=>Generic(table,column)).Select(column=>Resolve(model,table,page,column).Definition).OfType<DatabaseCheckboxModel>().ToArray();
+    /// <summary>原详情联动从当前实体读取已开启自动回传的字段。其他配置沿用原表单参数来源。</summary>
+    internal static IReadOnlyList<RelationFormBinding>? LiveDetailForm(ColumnModel source, DatabaseCheckboxModel? checkbox)
+    {
+        if (!GenerationModel.Enabled(source.Source.Extra, "isAutoPostBackQuery"))
+            return null;
+        var forms = checkbox?.Conditions?.Forms;
+        return forms is { Count: > 0 } && forms.All(binding => GenerationModel.Enabled(binding.Column.Source.Extra, "isAutoPostBack"))
+            ? forms
+            : null;
+    }
+
     /// <summary>仅物理ID和物理字符串名称开放；原条件完整编译，不拿目标页面的其他条件替换它。
     /// </summary>
     internal static DatabaseCheckboxResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)

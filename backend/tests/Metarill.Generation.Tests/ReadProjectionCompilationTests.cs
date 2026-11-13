@@ -263,11 +263,71 @@ public sealed class ReadProjectionCompilationTests
     [InlineData("FutureControl")] [InlineData("MultiCheckBoxDatabase")]
     public void Unproven_control_cannot_escape_through_a_physical_or_suffix_display(string kind)
     {
-        var catalog = SelectionCatalog(true); catalog.ConfigColumns.Single(column => column.Id == "25").ControlKind = kind;
+        var catalog = SelectionCatalog(true);
+        var source = catalog.ConfigColumns.Single(column => column.Id == "25");
+        source.ControlKind = kind;
+        if (kind == "MultiCheckBoxDatabase") source.ControlDetail = "第一段;第二段;unknown_field=@parentId;name desc";
         var (model, table, page) = Model(catalog, "2", "201"); var plan = ReadProjectionCompilation.ForPage(model, table, page);
-        Assert.False(plan.Detail.CanCompile); Assert.Contains(plan.Detail.Gaps, gap => gap.ColumnId == "25" && gap.Reason.Contains(kind, StringComparison.Ordinal));
+        var reason = kind == "MultiCheckBoxDatabase" ? "固定条件" : kind;
+        Assert.False(plan.Detail.CanCompile);
+        Assert.Contains(plan.Detail.Gaps, gap => gap.ColumnId == "25" && gap.Reason.Contains(reason, StringComparison.Ordinal));
         if (kind == "MultiCheckBoxDatabase") Assert.False(plan.List.CanCompile);
         Assert.DoesNotContain(plan.Detail.PhysicalColumns, column => column.Source.Id == "25");
+    }
+
+    /// <summary>复选读取依赖只来自已发布的名称和详情实际使用的联动字段。</summary>
+    [Theory]
+    [InlineData("implicit")]
+    [InlineData("joined")]
+    [InlineData("hidden")]
+    [InlineData("form")]
+    [InlineData("hidden-form")]
+    public void Published_redundant_checkbox_keeps_original_read_dependencies(string mode)
+    {
+        var catalog = DatabaseCheckboxGenerationTests.Catalog(false, mode == "implicit");
+        var source = catalog.ConfigColumns.Single(column => column.Id == "25");
+        var sourceField = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25");
+        sourceField.IsShow = sourceField.IsEdit = 1;
+        if (mode == "joined")
+        {
+            var name = catalog.ConfigColumns.Single(column => column.Id == "27");
+            name.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+            name.Extra["columnFullName"] = JsonSerializer.SerializeToElement("target.name");
+        }
+        if (mode == "hidden")
+        {
+            var nameField = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "27");
+            nameField.IsShow = nameField.IsEdit = 0;
+        }
+        if (mode is "form" or "hidden-form")
+        {
+            source.ControlDetail = "第一段;第二段;parent_id=@formParameters.parentId;name desc";
+            source.Extra["isAutoPostBackQuery"] = JsonSerializer.SerializeToElement(1);
+            catalog.ConfigColumns.Single(column => column.Id == "26").Extra["isAutoPostBack"] = JsonSerializer.SerializeToElement(1);
+            if (mode == "form")
+                catalog.ConfigPageColumns.Add(new() { Id = "2010", ConfigPageId = "201", ConfigColumnId = "26", IsShow = 0, IsEdit = 1 });
+        }
+        var (model, table, page) = Model(catalog, "2", "201");
+        var plan = ReadProjectionCompilation.ForPage(model, table, page);
+        if (mode == "hidden-form")
+        {
+            Assert.All(new[] { plan.List, plan.Detail, plan.Selection }, read =>
+            {
+                Assert.False(read.CanCompile);
+                Assert.Contains(read.Gaps, gap => gap.ColumnId == "25" && gap.Reason.Contains("表单依赖", StringComparison.Ordinal));
+                Assert.DoesNotContain(read.PhysicalColumns, column => column.Source.ColumnName is "parent_id" or "target_ids");
+            });
+            return;
+        }
+        Assert.Equal(mode != "hidden", plan.List.CanCompile);
+        Assert.Equal(mode != "hidden", plan.Detail.CanCompile);
+        Assert.DoesNotContain(plan.List.PhysicalColumns, column => column.Source.ColumnName is "parent_id" or "yz_project_id");
+        Assert.Equal(mode == "form", plan.Detail.PhysicalColumns.Any(column => column.Source.ColumnName == "parent_id"));
+        foreach (var read in new[] { plan.List, plan.Detail, plan.Selection })
+        {
+            Assert.Contains(read.OutputFields, field => field.JsonName == "targetIds");
+            Assert.Equal(mode != "hidden", read.OutputFields.Any(field => field.JsonName == "targetNames"));
+        }
     }
 
     /// <summary>原runtime对OnlyDeve固定返回不可见，不读取其规则字段。</summary>

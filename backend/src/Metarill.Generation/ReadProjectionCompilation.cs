@@ -69,7 +69,10 @@ internal static class ReadProjectionCompilation
         {
             if (!table.Columns.Any(candidate => candidate.Source.Id == column.Source.Id) || !page.Readable.Any(candidate => candidate.Source.Id == column.Source.Id))
             { Gap(column.Source.Id, "读取依赖不属于本页已声明可读字段：" + column.JsonName); return; }
-            if (column.Source.IsVirtualColumn != 0 || (GenerationModel.Enabled(column.Source.Extra, "isJoinColumn")&&!column.IsManagedCascadeName))
+            var physicalMultiName = column.IsManagedMultiNames && table.Source.IsRongyu == 1 &&
+                NonRedundantReadCompilation.Physical(model, table, column);
+            if (column.Source.IsVirtualColumn != 0 ||
+                GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !column.IsManagedCascadeName && !physicalMultiName)
             { Gap(column.Source.Id, "联接或虚拟字段缺少固定读取计划：" + column.JsonName); return; }
             if(Kind(column)=="CascadeTree")
             {
@@ -114,11 +117,21 @@ internal static class ReadProjectionCompilation
                 custom = fixedRead.Contract;
             }
             FixedRoleCheckboxModel? fixedRole = null;
+            DatabaseCheckboxModel? checkbox = null;
             if (Kind(column) == "MultiCheckBoxDatabase")
             {
-                var role = FixedRoleCheckboxCompilation.Resolve(model,table,page,column);
-                if (role.Definition is null) { Gap(column.Source.Id,role.Reason!); return; }
-                fixedRole = role.Definition;
+                if (DatabaseCheckboxCompilation.Generic(table, column) && table.Source.IsRongyu == 1)
+                {
+                    var resolved = DatabaseCheckboxCompilation.Resolve(model, table, page, column);
+                    if (resolved.Definition is null) { Gap(column.Source.Id, resolved.Reason!); return; }
+                    checkbox = resolved.Definition;
+                }
+                else
+                {
+                    var role = FixedRoleCheckboxCompilation.Resolve(model,table,page,column);
+                    if (role.Definition is null) { Gap(column.Source.Id,role.Reason!); return; }
+                    fixedRole = role.Definition;
+                }
             }
             if (Kind(column) is "Title" or "Tab" ||
                 purpose == ReadProjectionPurpose.Detail && Kind(column) is not ("" or "Text" or "date_time" or "date" or "month" or "time" or
@@ -149,6 +162,11 @@ internal static class ReadProjectionCompilation
                 return;
             }
             if (!expand || !expanded.Add(column.Source.Id)) return;
+            if (checkbox is not null)
+            {
+                Checkbox(column, checkbox);
+                return;
+            }
             if (custom is not null)
             {
                 Reason(column.Source.Id, "固定控件读取：" + custom.Tag);
@@ -208,6 +226,31 @@ internal static class ReadProjectionCompilation
             var settings = model.Catalog.ConfigPageColumns.SingleOrDefault(field => field.ConfigPageId == page.Source.Id && field.ConfigColumnId == column.Source.Id);
             var value = settings is null ? "" : OriginalDetailContext.Text(settings.Extra, key);
             return value.Length == 0 ? fallback : value;
+        }
+
+        /// <summary>原复选只读名称沿用发布列；详情联动的实体依赖逐项接受本页可读校验。</summary>
+        private void Checkbox(ColumnModel source, DatabaseCheckboxModel checkbox)
+        {
+            var display = purpose == ReadProjectionPurpose.Detail
+                ? OriginalDetailContext.DisplayField(model, table, page, source)
+                : checkbox.Names.JsonName;
+            if (display == checkbox.Names.JsonName &&
+                MultiNameStorageCompilation.IsImplicit(model, checkbox.Names) &&
+                MultiNameStorageCompilation.ImplicitNames(model, table, page).Any(name => name.Source.Id == checkbox.Names.Source.Id))
+            {
+                var cache = checkbox.Names;
+                physical.TryAdd(cache.Source.Id, cache);
+                Reason(cache.Source.Id, "原复选已发布的隐式名称：" + source.JsonName);
+                Output(new(cache.JsonName, cache.Property, cache, ReadProjectionOutputKind.Physical));
+            }
+            else
+            {
+                var auxiliary = table.Columns.Single(item => item.JsonName == display);
+                Auxiliary(source, auxiliary);
+            }
+            if (purpose == ReadProjectionPurpose.Detail && DatabaseCheckboxCompilation.LiveDetailForm(source, checkbox) is { } forms)
+                foreach (var field in forms)
+                    Add(field.Column, "原复选联动表单：" + source.JsonName, false);
         }
 
         /// <summary>缺辅助名时沿原UI保留ID；存在但未开放或无法证明的列不会偷偷暴露。</summary>
