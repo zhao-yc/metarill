@@ -43,7 +43,7 @@ public sealed partial class StandaloneWebAuthenticationTests
         start.Environment["Authentication__Cap__Enabled"]="true";start.Environment["Authentication__Cap__ServerUrl"]="https://cap.example.invalid";
         start.Environment["Authentication__Cap__SiteKey"]="test-site";start.Environment["Authentication__Cap__SecretKey"]="unit-only-private-cap-value";
         start.Environment["Logging__LogLevel__Default"]="Warning";
-        await using var server=await FreshHost.StartAsync(start,"/health");
+        await using var server=await FreshHost.StartProbeAsync(start,"/health");
         using var config=await server.Client.GetAsync(CapConfigurationPath);var body=await config.Content.ReadAsStringAsync();var value=JsonSerializer.Deserialize<JsonElement>(body);
         Assert.Equal(HttpStatusCode.OK,config.StatusCode);Assert.Equal(200,value.GetProperty("code").GetInt32());Assert.True(value.GetProperty("data").GetProperty("enabled").GetBoolean());
         Assert.Equal("https://cap.example.invalid/test-site/",value.GetProperty("data").GetProperty("apiEndpoint").GetString());Assert.DoesNotContain("unit-only-private-cap-value",body);
@@ -70,7 +70,7 @@ public sealed partial class StandaloneWebAuthenticationTests
         start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["DOTNET_ENVIRONMENT"]="Production";start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";
         start.Environment["Database__ConnectionString"]="";start.Environment["Database__ExpectedDatabase"]="";
         start.Environment["Authentication__Cap__Enabled"]="true";start.Environment["Authentication__Cap__ServerUrl"]=fake.Urls.Single();start.Environment["Authentication__Cap__SiteKey"]="test-site";start.Environment["Authentication__Cap__SecretKey"]="unit-only-wire-secret";start.Environment["Logging__LogLevel__Default"]="Warning";
-        await using var server=await FreshHost.StartAsync(start,"/health");
+        await using var server=await FreshHost.StartProbeAsync(start,"/health");
         using HttpContent content=json?JsonContent.Create(new{username="no-database-user",password="unit-only-password",captchaVerification="wire-proof"}):new FormUrlEncodedContent(new Dictionary<string,string>{{"username","no-database-user"},{"password","unit-only-password"},{"captchaVerification","wire-proof"}});
         using var response=await server.Client.PostAsync("/api/admin/sys/yz_manager/login",content);var value=await response.Content.ReadFromJsonAsync<JsonElement>();Assert.Equal(1,hits);Assert.Equal(0,redirected);Assert.Equal("unit-only-wire-secret",secret);Assert.Equal("wire-proof",proof);Assert.True(string.IsNullOrEmpty(query));
         Assert.DoesNotContain("unit-only-wire-secret",value.GetRawText());Assert.False(value.TryGetProperty("map",out var map)&&map.TryGetProperty("loginStateId",out _));
@@ -93,7 +93,7 @@ public sealed partial class StandaloneWebAuthenticationTests
         start.Environment["Files__RootDirectory"]=Path.Combine(host,".local/cap-public-files");
         start.Environment["Exports__RootDirectory"]=Path.Combine(host,".local/cap-public-exports");
         start.Environment["Logging__LogLevel__Default"]="Warning";
-        await using var server=await FreshHost.StartAsync(start,"/health");
+        await using var server=await FreshHost.StartProbeAsync(start,"/health");
         foreach(var stale in new[]{false,true})
         {
             using var request=new HttpRequestMessage(HttpMethod.Get,CapConfigurationPath);
@@ -124,7 +124,7 @@ public sealed partial class StandaloneWebAuthenticationTests
         start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["DOTNET_ENVIRONMENT"]="Production";start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";
         start.Environment["Database__ConnectionString"]="Server=127.0.0.1;Port=1;User ID=unit_only;Database=unit_only;Connection Timeout=1";start.Environment["Database__ExpectedDatabase"]="unit_only";
         start.Environment["Authentication__LoginFailures__ConnectionString"]="";start.Environment["Authentication__Cap__Enabled"]="true";start.Environment["Authentication__Cap__ServerUrl"]="https://cap.example.invalid";start.Environment["Authentication__Cap__SiteKey"]="unit-only-site";start.Environment["Authentication__Cap__SecretKey"]="unit-only-secret";start.Environment["Logging__LogLevel__Default"]="Warning";
-        await using var server=await FreshHost.StartAsync(start,"/health");using var body=json?(HttpContent)JsonContent.Create(new{username="unit-only-user",password="unit-only-password",captchaVerification=""}):new FormUrlEncodedContent(new Dictionary<string,string>{{"username","unit-only-user"},{"password","unit-only-password"},{"captchaVerification",""}});
+        await using var server=await FreshHost.StartProbeAsync(start,"/health");using var body=json?(HttpContent)JsonContent.Create(new{username="unit-only-user",password="unit-only-password",captchaVerification=""}):new FormUrlEncodedContent(new Dictionary<string,string>{{"username","unit-only-user"},{"password","unit-only-password"},{"captchaVerification",""}});
         using var response=await server.Client.PostAsync("/api/admin/sys/yz_manager/login",body);var value=await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.Equal(500,value.GetProperty("code").GetInt32());Assert.Equal("登录安全校验暂不可用，请稍后再试",value.GetProperty("msg").GetString());
         Assert.False(value.TryGetProperty("map",out var map)&&map.TryGetProperty("loginStateId",out _));Assert.DoesNotContain("unit-only-secret",value.ToString());

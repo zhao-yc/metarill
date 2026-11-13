@@ -469,7 +469,7 @@ public sealed class CrossTableExcelPublicationTests
             host.Environment["Database__Provider"] = "mysql"; host.Environment["Database__ExpectedDatabase"] = "offline";
             host.Environment["Database__ConnectionString"] = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1";
             host.Environment["Files__RootDirectory"] = Path.Combine(directory, "files"); host.Environment["Exports__RootDirectory"] = Path.Combine(directory, "exports");
-            await using var running = await FreshHost.StartAsync(host, "/health");
+            await using var running = await FreshHost.StartProbeAsync(host, "/health");
             foreach (var table in catalog.ConfigTables.Where(table => table.TableName.EndsWith("_cross_consumer", StringComparison.Ordinal)))
             {
                 var page = catalog.ConfigPages.Single(page => page.ConfigTableId == table.Id);

@@ -60,7 +60,7 @@ public sealed partial class StandaloneWebAuthenticationTests
         start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";
         start.Environment["Database__ConnectionString"]="";start.Environment["Database__ExpectedDatabase"]="";
         start.Environment["Logging__LogLevel__Default"]="Warning";
-        await using var server=await FreshHost.StartAsync(start,"/health");
+        await using var server=await FreshHost.StartProbeAsync(start,"/health");
         using var cap=await server.Client.GetAsync(CapConfigurationPath);Assert.Equal(HttpStatusCode.OK,cap.StatusCode);
         var configuration=await cap.Content.ReadFromJsonAsync<JsonElement>();Assert.False(configuration.GetProperty("data").GetProperty("enabled").GetBoolean());
         var payloads=await OriginalLoginPayloads(Path.GetFullPath(Path.Combine(host,"../../frontend/pages/login.vue")),configuration.GetProperty("data"));
@@ -93,7 +93,7 @@ public sealed partial class StandaloneWebAuthenticationTests
         start.Environment["ASPNETCORE_ENVIRONMENT"]="Production";start.Environment["DOTNET_ENVIRONMENT"]="Production";
         start.Environment["Authentication__Mode"]="Web";start.Environment["Authentication__DevelopmentBootstrap__Enabled"]="false";
         start.Environment["Database__ConnectionString"]="";start.Environment["Database__ExpectedDatabase"]="";start.Environment["Logging__LogLevel__Default"]="Warning";
-        await using var server=await FreshHost.StartAsync(start,"/health");
+        await using var server=await FreshHost.StartProbeAsync(start,"/health");
         using var response=await server.Client.PostAsJsonAsync("/api/admin/sys/yz_manager/login",new{username="original-client-offline",password="offline-invalid"});
         Assert.Equal(HttpStatusCode.Unauthorized,response.StatusCode);var rejected=await response.Content.ReadFromJsonAsync<JsonElement>();Assert.Equal(401,rejected.GetProperty("code").GetInt32());
         var payloads=await OriginalLoginPayloads(Path.GetFullPath(Path.Combine(host,"../../frontend/pages/login.vue")),JsonSerializer.SerializeToElement(new{enabled=false,apiEndpoint=""}),rejected);

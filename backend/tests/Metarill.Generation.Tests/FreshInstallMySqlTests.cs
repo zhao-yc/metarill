@@ -570,6 +570,12 @@ internal sealed class FreshHost : IAsyncDisposable
         process = Process.Start(info)!; stdout = process.StandardOutput.ReadToEndAsync(); stderr = process.StandardError.ReadToEndAsync();
         Client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(15) };
     }
+    /// <summary>纯回环探针只保留内存日志，避免继承批量执行器的外部日志路径。</summary>
+    internal static Task<FreshHost> StartProbeAsync(ProcessStartInfo info, string health)
+    {
+        info.Environment.Remove("METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY");
+        return StartAsync(info, health);
+    }
     /// <summary>取得临时端口并启动实际平台二进制，等待健康响应。</summary>
     public static async Task<FreshHost> StartAsync(ProcessStartInfo info, string health, Uri? previousAddress = null)
     {

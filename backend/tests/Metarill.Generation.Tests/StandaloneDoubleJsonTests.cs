@@ -69,9 +69,7 @@ public sealed record CalendarProbe(Optional<DateTime?> LoginRiseTime, DateTime L
             await NonRedundantApplicationFixture.RunAsync(build);
             var start = NonRedundantApplicationFixture.Start(sdk, directory);
             start.ArgumentList.Add(Path.Combine(directory, "bin/Release/net10.0/NumericProbe.dll"));
-            // 纯回环探针不写持久证据，不继承上层执行器的跨目录日志配置。
-            start.Environment.Remove("METARILL_TEST_PROCESS_EVIDENCE_DIRECTORY");
-            await using var host = await FreshHost.StartAsync(start, "/health");
+            await using var host = await FreshHost.StartProbeAsync(start, "/health");
             foreach (var path in new[] { "/numeric", "/minimal" })
             {
                 using var response = await host.Client.GetAsync(path);

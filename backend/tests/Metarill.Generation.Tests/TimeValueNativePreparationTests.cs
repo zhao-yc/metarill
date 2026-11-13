@@ -108,7 +108,7 @@ public sealed class NonAdminModelStateProbeController:Microsoft.AspNetCore.Mvc.C
         // 负向副本只移除这一工厂，真实启动观察旧MVC响应；冻结准备包完全不改。
         var withoutFactory=string.Join("\n",current.Split('\n').Where(line=>!line.Contains("options.InvalidModelStateResponseFactory",StringComparison.Ordinal)));Assert.NotEqual(current,withoutFactory);
         await File.WriteAllTextAsync(program,withoutFactory);await Build();
-        await using(var previous=await FreshHost.StartAsync(Start(),"/health"))
+        await using(var previous=await FreshHost.StartProbeAsync(Start(),"/health"))
         {
             await FreshWebHttp.LoginAsync(previous.Client,"offline-time-owner","offline-time-password-2026");
             using var response=await previous.Client.PostAsync("/api/admin/auto/sample_contract/81002/add",new StringContent("{",System.Text.Encoding.UTF8,"application/json"));
@@ -120,7 +120,7 @@ public sealed class NonAdminModelStateProbeController:Microsoft.AspNetCore.Mvc.C
 
         }
         await File.WriteAllTextAsync(program,current);await Build();
-        await using var host=await FreshHost.StartAsync(Start(),"/health");await FreshWebHttp.LoginAsync(host.Client,"offline-time-owner","offline-time-password-2026");
+        await using var host=await FreshHost.StartProbeAsync(Start(),"/health");await FreshWebHttp.LoginAsync(host.Client,"offline-time-owner","offline-time-password-2026");
         var index=0;
         foreach(var body in new[]{JsonSerializer.Serialize(new{name="离线无效时刻",clockMicro="bad-time"}),JsonSerializer.Serialize(new{name=new{value="错误类型"}}),JsonSerializer.Serialize(new{name="未知字段",unpublishedField=1})})
         {
