@@ -1556,6 +1556,8 @@
 | V1367 | ✅ 第十八批三项通用 MySQL 补验通过 | 2a958f1f 运行源码／Server-200 | 共享文件基础表以原元数据初始化。实际锁环与整笔回滚读回通过，三项零失败、零跳过，资源独立核清。 | [多选传播竞态](testing/current-linux-generation-batches-v945.md#v1367-第十八批三项实库补验通过)，2026-11-13 |
 | V1368 | 🧪 独立 Linux 第二十三批结束 | 2a958f1f／Server-200 | 40 通过、3 条件跳过、零失败。原始 TRX 与名单逐项核对，三项实库用例待补。 | [第 23 批](testing/current-linux-generation-batches-v945.md#v1368-当前独立-linux-第二十三批)，2026-11-13 |
 | V1369 | ✅ 当前候选原桌面和移动 Web 六组通过 | 6252c24e／同版平台及独立 Full 发行包 | 管理端真实登录及配置列表、独立普通读者和编辑者各双视口通过。MySQL 核对客户墓碑、只读样本、六次注销及零活动会话。六截图归档，资源独立核清。 | [原 Web 双视口](testing/current-exact-release-web-v913.md#v1369-全局候选原桌面及移动-web)，2026-11-13 |
+| V1370 | 🧪 当前候选同条件性能已固定 | 6252c24e／Server-200 | 原模型、手写逻辑和 Java 固定，C# 镜像及九类预算逐项核验。已获取计时窗口，正式结果待回收。 | [当前性能准备](testing/current-mysql-performance-v1130.md#v1370-全局候选同条件性能准备)，2026-11-13 |
+| V1372 | 🧪 独立 Linux 第二十四批结束 | 2a958f1f／Server-200 | 60 通过、4 条件跳过、零失败。原始 TRX 与名单逐项核对，四项实库用例待补。 | [第 24 批](testing/current-linux-generation-batches-v945.md#v1372-当前独立-linux-第二十四批)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
