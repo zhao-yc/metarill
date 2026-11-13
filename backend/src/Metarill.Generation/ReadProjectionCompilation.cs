@@ -4,13 +4,13 @@ using Metarill.Data.Queries;
 namespace Metarill.Generation;
 
 internal enum ReadProjectionPurpose { List, Detail, Selection }
-internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName, CredentialEcho, CascadeDisplayText, NonRedundantValue }
+internal enum ReadProjectionOutputKind { Physical, ConstantShow, CatalogName, RoleNames, RoleAdminName, CredentialEcho, CascadeDisplayText, NonRedundantValue, CascadeGraphName }
 internal sealed record ReadProjectionOutput(string JsonName, string Property, ColumnModel Source, ReadProjectionOutputKind Kind, string? ControlDetail = null);
 internal sealed record ReadProjectionDependency(string ColumnId, IReadOnlyList<string> Reasons);
 internal sealed record ReadProjectionGap(string ColumnId, string Reason);
 internal sealed record ReadProjectionPlan(ReadProjectionPurpose Purpose, IReadOnlyList<ColumnModel> PhysicalColumns,
     IReadOnlyList<ReadProjectionOutput> OutputFields, IReadOnlyList<ReadProjectionDependency> Dependencies, IReadOnlyList<ReadProjectionGap> Gaps,
-    NonRedundantReadPlan? FixedRead = null)
+    NonRedundantReadPlan? FixedRead, IReadOnlyList<ColumnModel> GraphInputs)
 {
     public bool CanCompile => Gaps.Count == 0;
 }
@@ -51,6 +51,9 @@ internal static class ReadProjectionCompilation
         private readonly Dictionary<string, HashSet<string>> dependencies = new(StringComparer.Ordinal);
         private readonly List<ReadProjectionGap> gaps = [];
         private readonly HashSet<string> expanded = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, ColumnModel> graphInputs = new(StringComparer.Ordinal);
+        private IReadOnlyList<CrossTableWriteModel>? crossPlans;
+        private IReadOnlyList<CascadeTreeReadModel>? treePlans;
 
         /// <summary>基础列来自用途专属集合，主键始终保留；缺失或拒绝的发布合同仍是明确缺口。</summary>
         internal void Base(IReadOnlyList<ColumnModel> columns)
@@ -84,6 +87,8 @@ internal static class ReadProjectionCompilation
         {
             if (!table.Columns.Any(candidate => candidate.Source.Id == column.Source.Id) || !page.Readable.Any(candidate => candidate.Source.Id == column.Source.Id))
             { Gap(column.Source.Id, "读取依赖不属于本页已声明可读字段：" + column.JsonName); return; }
+            if (published is not null && AddNonRedundantCascade(column, reason))
+                return;
             if (table.Source.IsRongyu == 0 && !NonRedundantReadCompilation.Physical(model, table, column))
             {
                 if (column.Source.IsVirtualColumn != 0 || column.IsJsonArray && !column.IsManagedMultiNames || !IsPublishedOutput(column))
@@ -238,6 +243,77 @@ internal static class ReadProjectionCompilation
                 else Auxiliary(column, SelectionDisplayFieldCompilation.Resolve(table, column));
             }
             else if (kind is "SelectPage" or "MultiSelectPage" && purpose == ReadProjectionPurpose.Detail) Selection(column);
+        }
+
+        /// <summary>非冗余跨表字段来自逻辑层位，自树名称由已发布祖先图装饰。</summary>
+        private bool AddNonRedundantCascade(ColumnModel column, string reason)
+        {
+            try
+            {
+                var crosses = crossPlans ??= CrossTableDisplayRenderer.ForPage(model, table, page);
+                var cross = crosses.FirstOrDefault(plan => plan.Read.Source.Source.Id == column.Source.Id)
+                    ?? crosses.FirstOrDefault(plan => plan.Levels.Any(level =>
+                        level.Id.Source.Id == column.Source.Id || level.Name.Source.Id == column.Source.Id));
+                if (cross is not null)
+                {
+                    AddPublishedCascadeValue(column, reason);
+                    if (cross.Read.Source.Source.Id != column.Source.Id)
+                        return true;
+
+                    foreach (var level in cross.Levels)
+                    {
+                        AddPublishedCascadeValue(level.Name, "跨表逻辑层名称：" + column.JsonName);
+                        if (purpose != ReadProjectionPurpose.List)
+                            AddPublishedCascadeValue(level.Id, "跨表详情与选择的逻辑级 ID：" + column.JsonName);
+                    }
+                    Output(new(column.JsonName + "DisplayText", column.Property + "DisplayText", column, ReadProjectionOutputKind.CascadeDisplayText));
+                    return true;
+                }
+                if (column.Source.ControlKind != "CascadeTree" && !column.IsManagedCascadeName)
+                    return false;
+
+                var tree = (treePlans ??= CascadeTreeViewRenderer.ForPage(model, table, page))
+                    .FirstOrDefault(plan => plan.Source.Source.Id == column.Source.Id ||
+                        CascadeTreeViewRenderer.Name(table, plan.Source)?.Source.Id == column.Source.Id);
+                if (tree is null || CascadeTreeViewRenderer.Name(table, tree.Source) is not { } name ||
+                    !IsPublishedOutput(name) || !published!.ReadOutputs.Contains(tree.Source.Source.ColumnName, StringComparer.Ordinal))
+                {
+                    Gap(column.Source.Id, "非冗余级联未形成已发布的读取合同：" + column.JsonName);
+                    return true;
+                }
+                var source = tree.Source;
+                graphInputs.TryAdd(source.Source.Id, source);
+                Reason(source.Source.Id, "自树名称与显示路径使用的固定图输入：" + name.JsonName);
+                Reason(name.Source.Id, "自树叶子名称由原固定图补齐：" + source.JsonName);
+                Output(new(name.JsonName, name.Property, name, ReadProjectionOutputKind.CascadeGraphName));
+                if (source.Source.Id != column.Source.Id)
+                {
+                    Reason(name.Source.Id, reason);
+                    return true;
+                }
+
+                physical.TryAdd(source.Source.Id, source);
+                Reason(source.Source.Id, reason);
+                Output(new(source.JsonName, source.Property, source, ReadProjectionOutputKind.Physical));
+                Output(new(source.JsonName + "DisplayText", source.Property + "DisplayText", source, ReadProjectionOutputKind.CascadeDisplayText));
+            }
+            catch (Exception error) when (error is InvalidOperationException or JsonException or NotSupportedException)
+            {
+                Gap(column.Source.Id, "非冗余级联用途依赖无法编译：" + error.Message);
+            }
+            return true;
+        }
+
+        /// <summary>跨表实际值必须属于已发布的逻辑行，原稀疏槽不能直接冒充返回值。</summary>
+        private void AddPublishedCascadeValue(ColumnModel column, string reason)
+        {
+            if (!IsPublishedOutput(column))
+            {
+                Gap(column.Source.Id, "跨表逻辑字段不属于原读取合同：" + column.JsonName);
+                return;
+            }
+            Reason(column.Source.Id, reason);
+            Output(new(column.JsonName, column.Property, column, ReadProjectionOutputKind.NonRedundantValue));
         }
 
         /// <summary>常量展示依赖原值，展示名不能覆盖另一已开放字段。</summary>
@@ -507,7 +583,10 @@ internal static class ReadProjectionCompilation
             NonRedundantReadPlan? read = null;
             if (published is not null && gaps.Count == 0)
             {
-                var outputs = fields.Select(field => field.Source.Source.ColumnName).Distinct(StringComparer.Ordinal).ToArray();
+                var outputs = fields.Where(field => field.Kind != ReadProjectionOutputKind.CascadeGraphName)
+                    .Select(field => field.Source.Source.ColumnName)
+                    .Concat(graphInputs.Values.Select(field => field.Source.ColumnName))
+                    .Distinct(StringComparer.Ordinal).ToArray();
                 try
                 {
                     // 筛选、排序、固定父范围继续沿用原发布依赖，不能把这些依赖公开成响应属性。
@@ -521,7 +600,8 @@ internal static class ReadProjectionCompilation
             }
             return new(purpose, physical.Values.OrderBy(column => column.IsId ? 0 : 1).ThenBy(column => column.Source.Id, StringComparer.Ordinal).ToArray(), fields,
                 dependencies.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => new ReadProjectionDependency(item.Key, item.Value.Order(StringComparer.Ordinal).ToArray())).ToArray(),
-                gaps.Distinct().OrderBy(gap => gap.ColumnId, StringComparer.Ordinal).ThenBy(gap => gap.Reason, StringComparer.Ordinal).ToArray(), read);
+                gaps.Distinct().OrderBy(gap => gap.ColumnId, StringComparer.Ordinal).ThenBy(gap => gap.Reason, StringComparer.Ordinal).ToArray(), read,
+                graphInputs.Values.OrderBy(field => field.Source.Id, StringComparer.Ordinal).ToArray());
         }
     }
 }

@@ -413,6 +413,73 @@ public sealed class ReadProjectionCompilationTests
         });
     }
 
+    /// <summary>跨表层位是逻辑结果，列表显示名称，详情与选择确认还使用全部层位 ID。</summary>
+    [Theory]
+    [InlineData("string", "string")]
+    [InlineData("string", "int64")]
+    [InlineData("int64", "string")]
+    [InlineData("int64", "int64")]
+    public void Nonredundant_cross_table_projects_logical_slots(string type, string parentType)
+    {
+        var catalog = NonRedundantCrossTableGenerationTests.Catalog("purpose_cross", type, parentType);
+        var field = catalog.ConfigPageColumns.Single(column => column.ConfigColumnId == "25");
+        field.IsShow = field.IsEdit = 1;
+        var (model, table, page) = Model(catalog, "2", "201");
+        var projections = ReadProjectionCompilation.ForPage(model, table, page);
+        foreach (var use in new[] { projections.List, projections.Detail, projections.Selection })
+        {
+            Assert.True(use.CanCompile, string.Join("；", use.Gaps.Select(gap => gap.Reason)));
+            Assert.NotNull(use.FixedRead);
+            Assert.Equal(type, use.FixedRead.OutputTypes["place_id"]);
+            Assert.Contains(use.OutputFields, field => field.JsonName == "placeIdDisplayText");
+            foreach (var storage in new[] { "country_name", "area_name", "place_name" })
+                Assert.Equal("string", use.FixedRead.OutputTypes[storage]);
+            Assert.Equal(use.Purpose != ReadProjectionPurpose.List, use.FixedRead.OutputTypes.ContainsKey("country_id"));
+            Assert.DoesNotContain(use.PhysicalColumns, field => field.Source.ColumnName is "country_id" or "place_id" or "place_name");
+            Assert.DoesNotContain(use.OutputFields, field => field.JsonName is "yzProjectId" or "deleteNo" or "secret");
+        }
+    }
+
+    /// <summary>只显示自树名称时，隐藏叶子键只作为服务端图输入，不进入响应。</summary>
+    [Fact]
+    public void Nonredundant_self_tree_hidden_leaf_key_is_private_graph_input()
+    {
+        var catalog = NonRedundantSelfTreeTests.Catalog("purpose_tree_name");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "25");
+        var names = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "26");
+        names.IsShow = names.IsEdit = 1;
+        var (model, table, page) = Model(catalog, "2", "201");
+        var list = ReadProjectionCompilation.ForPage(model, table, page).List;
+        Assert.True(list.CanCompile, string.Join("；", list.Gaps.Select(gap => gap.Reason)));
+        Assert.Contains("tree_id", list.FixedRead!.OutputTypes.Keys);
+        Assert.DoesNotContain(list.PhysicalColumns, field => field.Source.ColumnName == "tree_id");
+        Assert.DoesNotContain(list.OutputFields, field => field.JsonName is "treeId" or "treeIdDisplayText");
+        Assert.Contains(list.OutputFields, field => field.JsonName == "treeName" && field.Kind == ReadProjectionOutputKind.CascadeGraphName);
+    }
+
+    /// <summary>自树名称由已发布图读取，隐式叶子名称不会作为 SQL 字段或隐藏来源直接公开。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Nonredundant_self_tree_separates_graph_from_sql_output(bool automatic)
+    {
+        var catalog = NonRedundantSelfTreeTests.Catalog("purpose_tree", automatic: automatic);
+        var field = catalog.ConfigPageColumns.Single(column => column.ConfigColumnId == "25");
+        field.IsShow = field.IsEdit = 1;
+        var (model, table, page) = Model(catalog, "2", "201");
+        var projections = ReadProjectionCompilation.ForPage(model, table, page);
+        foreach (var use in new[] { projections.List, projections.Detail, projections.Selection })
+        {
+            Assert.True(use.CanCompile, string.Join("；", use.Gaps.Select(gap => gap.Reason)));
+            Assert.NotNull(use.FixedRead);
+            Assert.Contains("tree_id", use.FixedRead.OutputTypes.Keys);
+            Assert.DoesNotContain("tree_name", use.FixedRead.OutputTypes.Keys);
+            Assert.Equal("tree_id", Assert.Single(use.GraphInputs).Source.ColumnName);
+            Assert.Contains(use.OutputFields, field => field.JsonName == "treeName" && field.Kind == ReadProjectionOutputKind.CascadeGraphName);
+            Assert.Contains(use.OutputFields, field => field.JsonName == "treeIdDisplayText" && field.Kind == ReadProjectionOutputKind.CascadeDisplayText);
+        }
+    }
+
     /// <summary>原runtime对OnlyDeve固定返回不可见，不读取其规则字段。</summary>
     [Fact]
     public void Only_developer_buttons_do_not_require_hidden_row_values()
