@@ -31,18 +31,18 @@ public sealed class NonRedundantCrossFullTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>未验覆盖导入、隐藏坏链和未发布目标都必须在创建stage前拒绝。</summary>
-    [Theory][InlineData("import")][InlineData("targetRealm")][InlineData("hiddenBad")][InlineData("targetGlobal")][InlineData("unknownContext")][InlineData("hiddenTargetRealm")][InlineData("targetTableRealm")][InlineData("idPropertyName")][InlineData("namePropertyName")][InlineData("propertyCase")][InlineData("propertyType")][InlineData("prefixEmpty")][InlineData("prefixUpper")][InlineData("keyWhitespace")][InlineData("joinerEmpty")][InlineData("joinerWhitespace")]
+    [Theory][InlineData("import")][InlineData("targetRealm")][InlineData("hiddenBad")][InlineData("targetGlobal")][InlineData("unknownContext")][InlineData("hiddenTargetRealm")][InlineData("targetTableRealm")][InlineData("idPropertyName")][InlineData("namePropertyName")][InlineData("propertyCase")][InlineData("propertyType")][InlineData("prefixEmpty")][InlineData("prefixUpper")][InlineData("keyWhitespace")][InlineData("joinerWhitespace")]
     public void Full_cross_keeps_actual_unproven_uses_and_target_realms_gated(string kind)
     {
         var catalog=Catalog("string","int64",false);var page=catalog.ConfigPages.Single(page=>page.Id=="201");
-        if(kind.StartsWith("prefix",StringComparison.Ordinal)||kind is "keyWhitespace" or "joinerEmpty" or "joinerWhitespace")
+        if(kind.StartsWith("prefix",StringComparison.Ordinal)||kind is "keyWhitespace" or "joinerWhitespace")
         {
             var column=catalog.ConfigColumns.Single(column=>column.Id=="25");var json=JsonNode.Parse(column.ControlDetail)!;
             if(kind.StartsWith("prefix",StringComparison.Ordinal))
             {
                 json["levels"]![0]!["columnPrefix"]=kind=="prefixEmpty"?"":"COUNTRY";var removed=catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"&&page.Id!="201").Select(page=>page.Id).ToHashSet();catalog.ConfigPages.RemoveAll(page=>removed.Contains(page.Id));catalog.ConfigPageColumns.RemoveAll(field=>removed.Contains(field.ConfigPageId));
             }
-            else if(kind=="keyWhitespace")json["levels"]![0]!["key"]=" ";else json["displayJoiner"]=kind=="joinerEmpty"?"":" ";column.ControlDetail=json.ToJsonString();
+            else if(kind=="keyWhitespace")json["levels"]![0]!["key"]=" ";else json["displayJoiner"]=" ";column.ControlDetail=json.ToJsonString();
         }
         if(kind is "idPropertyName" or "namePropertyName" or "propertyCase" or "propertyType")
         {
@@ -58,6 +58,24 @@ public sealed class NonRedundantCrossFullTests
         if(kind=="unknownContext")catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND status=@unknown";
         var output=Path.Combine(Path.GetTempPath(),"metarill-cross-full-gate",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,"Example.CrossFullGate",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));if(Directory.Exists(Path.GetDirectoryName(output)))Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(output)!,Path.GetFileName(output)+".staging-*"));
     }
+    /// <summary>表字段留空时原级联回退到斜杠，完整包仍保留原字段和发布边界。</summary>
+    [Fact]
+    public void Empty_table_display_joiner_uses_slash_in_the_original_full_package()
+    {
+        var catalog = Catalog("string", "int64", false);
+        var column = catalog.ConfigColumns.Single(item => item.Id == "25");
+        var control = JsonNode.Parse(column.ControlDetail)!.AsObject();
+        control["displayJoiner"] = "";
+        column.ControlDetail = control.ToJsonString();
+        var model = GenerationModel.Create(catalog, "Example.CrossFullJoiner");
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = table.Pages.Single(item => item.Source.Id == "201");
+        var source = table.Columns.Single(item => item.Source.Id == column.Id);
+        Assert.Equal("/", CrossTableReadCompilation.Resolve(model, table, page, source).Definition!.Joiner);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+    }
+
     /// <summary>根页开放原路径导出后可正式打包，父范围同伴及覆盖导入仍按各自门槛检查。</summary>
     [Fact]
     public async Task Independent_root_path_export_is_a_public_Full_candidate()

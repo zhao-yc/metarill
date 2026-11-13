@@ -1,12 +1,29 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 namespace Metarill.Core.Metadata;
 
 /// <summary>跨表级联各级ID/名称的共同定义；是否物理由统一存储计划决定，不写元数据或执行DDL。</summary>
 public static class CrossTableStorageColumns
 {
     public const string ReservedIdPrefix="__mt_auto_cross_";
+    /// <summary>页面只可改变路径显示分隔符，生成和文件授权继续使用同一固定层级定义。</summary>
+    public static bool KeepsDefinition(string tableDetail, string? pageDetail)
+    {
+        if (string.IsNullOrWhiteSpace(pageDetail))
+            return true;
+        if (JsonNode.Parse(tableDetail) is not JsonObject baseline ||
+            JsonNode.Parse(pageDetail) is not JsonObject effective)
+            return false;
+
+        if (effective["displayJoiner"] is { } joiner && joiner.GetValueKind() != JsonValueKind.String)
+            return false;
+        baseline.Remove("displayJoiner");
+        effective.Remove("displayJoiner");
+        return JsonNode.DeepEquals(baseline, effective);
+    }
+
     /// <summary>沿原columnPrefix派生缺失列，显式声明包括错误类型和虚拟列均不覆盖。</summary>
     internal static IReadOnlyList<ColumnMetadata> Expand(TableMetadata table,IReadOnlyList<ColumnMetadata> columns)
     {

@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using Metarill.Core.Metadata;
 using System.Text.RegularExpressions;
 namespace Metarill.Generation;
 
@@ -13,19 +13,8 @@ internal static class CrossTableFrontendProof
             ?.Extra.GetValueOrDefault("controlDetail").ToString();
 
     /// <summary>页面可配置显示分隔符。其余定义必须与物理存储和传播使用的表字段定义一致。</summary>
-    internal static bool KeepsStorageDefinition(GenerationModel model, PageModel page, ColumnModel source)
-    {
-        var overlay = PageOverride(model, page, source);
-        if (string.IsNullOrWhiteSpace(overlay))
-            return true;
-        if (JsonNode.Parse(source.Source.ControlDetail) is not JsonObject baseline ||
-            JsonNode.Parse(overlay) is not JsonObject effective)
-            return false;
-
-        baseline.Remove("displayJoiner");
-        effective.Remove("displayJoiner");
-        return JsonNode.DeepEquals(baseline, effective);
-    }
+    internal static bool KeepsStorageDefinition(GenerationModel model, PageModel page, ColumnModel source) =>
+        CrossTableStorageColumns.KeepsDefinition(source.Source.ControlDetail, PageOverride(model, page, source));
 
     /// <summary>固定key、前缀、分隔符和显式属性必须与原组件／页面及后端JSON同时一致。</summary>
     internal static string? Reason(GenerationModel model, PageModel page, CrossTableWriteModel plan)

@@ -48,7 +48,9 @@ public static class RedundantSharedParents
     /// <summary>完整目标、页面及每个物理ID／缓存先冻结；坏同伴、变化覆盖和额外SQL不能被忽略。</summary>
     private static Branch CompileBranch(MetadataCatalog catalog,TableMetadata source,PageMetadata page,ColumnMetadata control,IReadOnlyList<ColumnMetadata> sourceColumns,IReadOnlyList<ColumnMetadata> controls)
     {
-        var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);if(control.IsVirtualColumn!=0||Join(control)||!sourceStorage.IsPhysical(control)||control.LogicalType is not("string" or "int64"))throw Unsupported();var overlay=catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(control.ControlDetail)))throw Unsupported();
+        var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);if(control.IsVirtualColumn!=0||Join(control)||!sourceStorage.IsPhysical(control)||control.LogicalType is not("string" or "int64"))throw Unsupported();
+        var overlay=catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
+        if (!CrossTableStorageColumns.KeepsDefinition(control.ControlDetail, overlay)) throw Unsupported();
         using var json=JsonDocument.Parse(control.ControlDetail);var root=json.RootElement;Object(root);if(Text(root,"sourceMode","crossTable")!="crossTable"||Extra(root)||!root.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array||levels.GetArrayLength()<2)throw Unsupported();
         var result=new List<RedundantSharedParentLevel>();var ids=new List<ColumnMetadata>();var names=new List<ColumnMetadata>();var keys=new HashSet<string>(StringComparer.Ordinal);var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);TableMetadata? previous=null;
         foreach(var level in levels.EnumerateArray())

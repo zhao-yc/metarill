@@ -50,6 +50,41 @@ public sealed class FileSharedCrossParentScopeTests
         Assert.Equal(derived,exact.Shared);
     }
 
+    /// <summary>展示分隔符不参与文件父身份；同一页修改目标父键仍须关闭整个范围。</summary>
+    [Theory]
+    [InlineData("single")]
+    [InlineData("shared")]
+    [InlineData("redundant")]
+    public void Page_display_joiner_preserves_file_parent_proof(string shape)
+    {
+        var (catalog, controlId, pageId) = shape switch
+        {
+            "single" => (FileCrossParentScopeTests.Catalog("file_display_joiner", "string", "int64"), "15", "101"),
+            "shared" => (Catalog("string", "int64", shorter: true), "16", "105"),
+            "redundant" => (FileRedundantSharedParentScopeTests.Catalog("string", "int64"), "16", "105"),
+            _ => throw new ArgumentException("未知测试模型。", nameof(shape))
+        };
+        var control = catalog.ConfigColumns.Single(column => column.Id == controlId);
+        var pageField = catalog.ConfigPageColumns.Single(field => field.ConfigPageId == pageId && field.ConfigColumnId == controlId);
+        var baseline = FileReferenceScope.CompilePage(catalog, catalog.ConfigTables[0], catalog.ConfigPages.Single(page => page.Id == pageId));
+        var overlay = JsonNode.Parse(control.ControlDetail)!.AsObject();
+        overlay["displayJoiner"] = " > ";
+        pageField.Extra["controlDetail"] = JsonSerializer.SerializeToElement(overlay.ToJsonString());
+
+        var registry = new FileMetadataContext([catalog]);
+        var published = registry.Catalogs.Single();
+        Assert.True(registry.HasLogicalFileParents);
+        var scope = registry.PageScope(published, published.ConfigPages.Single(page => page.Id == pageId));
+        Assert.Equal(Assert.Single(baseline.Crosses).StorageNames, Assert.Single(scope.Crosses).StorageNames);
+        Assert.Equal(baseline.Parents.Select(parent => parent.Source.Id), scope.Parents.Select(parent => parent.Source.Id));
+
+        overlay["levels"]![1]!["parentField"] = "id";
+        pageField.Extra["controlDetail"] = JsonSerializer.SerializeToElement(overlay.ToJsonString());
+        registry = new FileMetadataContext([catalog]);
+        published = registry.Catalogs.Single();
+        Assert.Throws<NotSupportedException>(() => registry.PageScope(published, published.ConfigPages.Single(page => page.Id == pageId)));
+    }
+
     /// <summary>共享同伴的坏名称／范围／覆盖、歧义目标页与非法父身份都不能按单个好分支发布。</summary>
     [Theory][InlineData("peer")][InlineData("overlay")][InlineData("target")][InlineData("ambiguous")][InlineData("hidden")][InlineData("constant")][InlineData("exact")][InlineData("global")][InlineData("view")][InlineData("parentName")]
     public void Broken_shared_peer_or_identity_keeps_entire_page_closed(string kind)

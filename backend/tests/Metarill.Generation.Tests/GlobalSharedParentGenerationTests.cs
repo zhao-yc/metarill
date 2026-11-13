@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -29,6 +30,30 @@ public sealed class GlobalSharedParentGenerationTests
             foreach(var script in new[]{"SharedCrossParentVueProbe.mjs","SharedCrossFilesVueProbe.mjs"}){var probe=NonRedundantApplicationFixture.Start("node",output);probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),script));probe.ArgumentList.Add(Path.Combine(output,"frontend"));if(script=="SharedCrossParentVueProbe.mjs")probe.ArgumentList.Add(shorter.ToString().ToLowerInvariant());await NonRedundantApplicationFixture.RunAsync(probe);}
         }finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>全局共享父页的显示分隔符和附件范围使用同一份已证明层级。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Global_file_parent_allows_page_specific_display_joiner(bool redundant)
+    {
+        var catalog = redundant
+            ? SharedRedundantParentGenerationTests.Catalog("shared_parent", "string", "int64", false, 1, true, true)
+            : Catalog("shared_parent", "string", "int64", false, 1, true, true);
+        var control = catalog.ConfigColumns.Single(column => column.Id == "80");
+        var field = catalog.ConfigPageColumns.Single(column => column.ConfigPageId == "202" && column.ConfigColumnId == control.Id);
+        var detail = JsonNode.Parse(control.ControlDetail)!.AsObject();
+        detail["displayJoiner"] = " > ";
+        field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(detail.ToJsonString());
+
+        var model = GenerationModel.Create(catalog, "Example.GlobalFileParent");
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var page = table.Pages.Single(item => item.Source.Id == "202");
+        var source = table.Columns.Single(item => item.Source.Id == control.Id);
+        Assert.Equal(" > ", CrossTableReadCompilation.Resolve(model, table, page, source).Definition!.Joiner);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+    }
+
     /// <summary>独立全局父、目标上下文、未发布、坏同伴、错页、物理父覆盖与精确来源继续拒绝。</summary>
     [Theory][InlineData("single")][InlineData("globalR0")][InlineData("variable")][InlineData("unpublished")][InlineData("badPeer")][InlineData("physicalPage")][InlineData("physicalOverlay")][InlineData("exact")]
     public void Unproven_global_parent_never_publishes_complete_package(string kind)

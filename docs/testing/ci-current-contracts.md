@@ -206,3 +206,7 @@ GitHub Actions 运行 43030431808 对应 e8bc7af1，前端、两个系统的后�
 | 后端 | 3,437 | 220 | 3,437 | 220 |
 
 Server-200 回归和同条件性能继续按各自验收。[GitHub Actions](https://github.com/zhao-yc/metarill/actions/runs/43369771254)
+
+## V1428 级联候选空分隔符断言
+
+2026-11-13。固定 8fa7bcda 的官方运行 43384817315，仅 Windows 和 Ubuntu 生成分组 3 各有一项失败。两个报告与官方摘要匹配。旧负例仍预期拒绝空分隔符；按原级联组件的斜杠回退行为改为正例，继续验证纯空白等不支持配置的拒绝。21 项本机回归通过，最终交付提交的官方矩阵继续核对。[GitHub Actions](https://github.com/zhao-yc/metarill/actions/runs/43384817315)

@@ -44,7 +44,10 @@ internal static class SharedGlobalParentCompilation
             var peers=group.Branches.Select(branch=>reads.SingleOrDefault(peer=>peer.Source.Source.Id==branch.SourceColumnId)??throw new InvalidOperationException("全局父范围的共享同伴读取定义缺失。")).ToArray();
             foreach(var peer in peers)
             {
-                var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==peer.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(peer.Source.Source.ControlDetail)))throw new NotSupportedException("全局共享父范围不能使用变动页覆盖。");if(peer.Levels.Any(level=>level.Target.Source.Id==table.Source.Id))throw new NotSupportedException("全局共享父范围的来源自参与尚需独立证明。");
+                if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, peer.Source))
+                    throw new NotSupportedException("全局共享父范围不能使用变动页覆盖。");
+                if (peer.Levels.Any(level => level.Target.Source.Id == table.Source.Id))
+                    throw new NotSupportedException("全局共享父范围的来源自参与尚需独立证明。");
             }
             var names=group.Slots.SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"}).ToHashSet(StringComparer.Ordinal);if(page.Condition?.Syntax.Fields.Any(names.Contains)==true)throw new NotSupportedException("全局共享来源逻辑常量范围尚需独立证明。");
             var scopes=peers.Select(peer=>new NonRedundantCrossTableScope(peer.Source.Source.Id,peer.Levels.Select(level=>new NonRedundantCrossTableTargetScope(level.Page.Source.Id,level.Page.Condition is{} condition?FixedConditionSqlPlan.Compile(condition.Syntax,condition.Types):null)).ToArray())).ToArray();_=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,["id"],scopes,group.Slots.Select(slot=>slot.ColumnName).ToArray());result.AddRange(peers);seen.UnionWith(peers.Select(peer=>peer.Source.Source.Id));
