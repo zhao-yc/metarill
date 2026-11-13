@@ -56,6 +56,7 @@ public sealed class NonRedundantReadMySqlTests
             {Assert.Equal(1,await store.UpdateAsync(names[1],101,new Dictionary<string,object?>{{"name","事务内名称"},{"amount",30.25m}}));var current=await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Equal,"事务内名称")],[],1,10);Assert.Equal(first,Convert.ToInt64(Assert.Single(current.Records)["id"],CultureInfo.InvariantCulture));Assert.Equal(51m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);throw new InvalidOperationException("读取事务尾部测试故障。");}));
             Assert.Equal(rowsHash,await RowsHash());Assert.Equal(31m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);Assert.Null((await reader.ReadStatisticsAsync(plan,[new("id",FixedReadComparison.Equal,-1L)],["bill_amount"])).Sums["bill_amount"]);Assert.Equal(1,(await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Contains,"%_!")],[],1,10)).Total);
             await VerifyAggregateSqlAsync(session, plan, first);
+            await VerifyReadJoinSqlAsync(session, catalog, first);
             await VerifyMultiReadsAsync(session,store,catalog,first,second);
             await VerifyDerivedLocksAsync(options,catalog,first,second);
             await VerifyFixedConditionsAsync(options,catalog,first,second);
@@ -159,6 +160,47 @@ public sealed class NonRedundantReadMySqlTests
         Assert.DoesNotContain("ship_id", sql[4]);
         Assert.Contains("ship_id", sql[5]);
         Assert.DoesNotContain("bill_id", sql[5]);
+    }
+
+    /// <summary>普通查询只执行实际使用的联接，当前读仍执行原完整计划。</summary>
+    private static async Task VerifyReadJoinSqlAsync(DatabaseSession session, MetadataCatalog catalog, long first)
+    {
+        var plan = MySqlNonRedundantReadCompiler.Compile(catalog, "1", ["id", "name"],
+            ["bill_name", "ship_name", "grand_label", "parent_name"]);
+        var reader = new MySqlNonRedundantReader(session);
+        var condition = FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile("ship_name='B候选'", ["ship_name"]),
+            new Dictionary<string, string> { ["ship_name"] = "string" });
+        using var trace = DatabaseCommandObservation.Begin(new byte[32]);
+        var page = await reader.ReadPageAsync(plan, [new("bill_name", FixedReadComparison.IsNotNull)],
+            [new("grand_label")], 1, 10);
+        var byKey = await reader.ReadKeyRowsAsync(plan, [], [first], condition: condition);
+        var ordinary = await reader.ReadRowsAsync(plan, [new("id", FixedReadComparison.Equal, first)], [], 1);
+        var locked = await session.InTransactionAsync(() => reader.ReadKeyRowsAsync(plan, [], [first], currentRead: true));
+        trace.Dispose();
+
+        Assert.Equal(2, page.Total);
+        Assert.Equal(2, page.Records.Count);
+        Assert.Equal(new[] { "id", "name" }, Assert.Single(byKey).Keys);
+        Assert.Equal("第一条", byKey[0]["name"]);
+        Assert.Equal("第一条", Assert.Single(ordinary)["name"]);
+        Assert.Equal("第一条", Assert.Single(locked)["name"]);
+        var snapshot = trace.Snapshot();
+        Assert.True(snapshot.InternallyConsistent);
+        Assert.All(snapshot.Commands, command => Assert.True(command.DriverCalled && command.Succeeded));
+        var sql = snapshot.Commands.Select(command => command.Sql).ToArray();
+        Assert.Equal(5, sql.Length);
+        Assert.Contains("bill_id", sql[0]);
+        Assert.DoesNotContain("r0.`parent_id`", sql[0]);
+        Assert.Contains("bill_id", sql[1]);
+        Assert.Contains("r0.`parent_id`", sql[1]);
+        Assert.DoesNotContain("ship_id", sql[1]);
+        Assert.DoesNotContain(" AS `grand_label`", sql[1]);
+        Assert.Contains("ship_id", sql[2]);
+        Assert.DoesNotContain("bill_id", sql[2]);
+        Assert.DoesNotContain("LEFT JOIN", sql[3]);
+        Assert.Contains("bill_id", sql[4]);
+        Assert.Contains("ship_id", sql[4]);
+        Assert.EndsWith(" FOR SHARE", sql[4]);
     }
 
     /// <summary>固定页面条件在真实 SQL 中独立绑定，保持项目范围。</summary>

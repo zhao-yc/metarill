@@ -77,8 +77,13 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var orders=order.Select(item=>plan.Expression(item.Field)+(item.Descending?" DESC":" ASC")).ToList();
         if(!order.Any(item=>item.Field.Equals("id",StringComparison.OrdinalIgnoreCase)))orders.Add(plan.Expression("id")+" DESC");
         // 联接依赖同时包含响应、筛选、排序和固定条件；条件不能因未显示而丢失目标范围。
-        var required=plan.HasMaintenanceJoinProjection?plan.Outputs.Concat(filters.Select(filter=>filter.Field)).Concat(order.Select(item=>item.Field)).Append("id").ToHashSet(StringComparer.OrdinalIgnoreCase):null;
-        var aggregateFields = includeTotal && !currentRead && plan.AggregateFrom is not null
+        // 普通快照读沿用聚合的单行联接证明。当前读仍按原计划取得锁。
+        var readJoins = currentRead ? null : plan.AggregateFrom;
+        var required = plan.HasMaintenanceJoinProjection || readJoins is not null
+            ? plan.Outputs.Concat(filters.Select(filter => filter.Field)).Concat(order.Select(item => item.Field))
+                .Append("id").ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+        var aggregateFields = includeTotal && readJoins is not null
             ? filters.Select(filter => filter.Field).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
         var conditionClause = condition?.RenderConstants(session.Provider, "page_condition", field =>
@@ -89,9 +94,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         });
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(clauses).Where(part=>part.Length>0));
         var whereSql = where.Length == 0 ? "" : " WHERE " + where;
-        var from = (required is null ? plan.From : plan.FromForFields(required)) + whereSql;
-        // 计数使用筛选与固定条件。明细 SELECT 继续保留投影、排序及原联接。
-        var countFrom = aggregateFields is null ? from : plan.AggregateFrom!.Render(aggregateFields) + whereSql;
+        var from = (required is null ? plan.From : readJoins?.Render(required) ?? plan.FromForFields(required)) + whereSql;
+        // 计数只使用筛选与固定条件，明细还保留实际输出和排序联接。
+        var countFrom = aggregateFields is null ? from : readJoins!.Render(aggregateFields) + whereSql;
         var offset=checked(((long)page-1)*pageSize);
         return await OnConnection(async connection=>
         {
