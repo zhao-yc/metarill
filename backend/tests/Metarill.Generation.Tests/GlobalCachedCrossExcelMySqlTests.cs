@@ -41,7 +41,7 @@ public sealed class GlobalCachedCrossExcelMySqlTests
 {
     internal const string Namespace = "Example.GlobalCachedCrossExcelSql";
     private const long Country = 9007199254742011, Area = 9007199254742021, Place = 9007199254742031, Warehouse = 9007199254742041, Lookup = 9007199254742051;
-    /// <summary>根／中／末、全局其它层及共享／短控件分别用真实生成方法与原接口往返；不解除公开Full门槛。</summary>
+    /// <summary>根／中／末、全局其它层及共享／短控件分别用真实生成方法与原接口往返；核对现行公开 Full 校验。</summary>
     [GlobalCachedCrossExcelMySqlTheory]
     [InlineData(0, "string", "int64", false, false, false)]
     [InlineData(1, "int64", "string", false, false, false)]
@@ -140,8 +140,9 @@ public sealed class GlobalCachedCrossExcelMySqlTests
             Assert.Equal(500, (await Post("initExport", new { })).GetProperty("code").GetInt32());
             Assert.NotEmpty(trace); Assert.Contains(trace, sql => sql.Contains("lookup_name", StringComparison.Ordinal)); Assert.True(exportReadCount > 0); Assert.Empty((await schema.PreviewAsync(catalog)).Changes);
             await Receipt("sql-trace", new { nonce, exportTargetReadsInRepeatableRead = exportReadCount, commands = trace.ToArray() });
-            Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog)); verified = true;
-            await Receipt("verified", new { nonce, role, key, parent, allGlobal, shared, shorter, names, passed = true, realMySql = true, realGeneratedHttp = true, realXlsx = true, sparseStorage = true, originalHeaders = true, exportTargetReadsInRepeatableRead = exportReadCount, globalCacheRenamePropagation = true, partialDmlRollback = observer.ObservedPartialDml, formalAuthentication = false, browserExecuted = false, performanceExecuted = false, publicFullStillClosed = true });
+            // 公开 Full 已支持这六种路径，随机表名前缀仍须通过正常发布校验。
+            new FrontendPackager().Validate(catalog); verified = true;
+            await Receipt("verified", new { nonce, role, key, parent, allGlobal, shared, shorter, names, passed = true, realMySql = true, realGeneratedHttp = true, realXlsx = true, sparseStorage = true, originalHeaders = true, exportTargetReadsInRepeatableRead = exportReadCount, globalCacheRenamePropagation = true, partialDmlRollback = observer.ObservedPartialDml, formalAuthentication = false, browserExecuted = false, performanceExecuted = false, publicFullValidationPassed = true });
 
             /// <summary>只调用原生成入口，错误响应保持失败，不将HTTP200或排队当成功。</summary>
             async Task<JsonElement> Post(string action, object body) { using var response = await client.PostAsJsonAsync(endpoint + action, body); return await response.Content.ReadFromJsonAsync<JsonElement>(); }
