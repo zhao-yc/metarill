@@ -1518,6 +1518,7 @@
 | V1328 | 🧪 当前独立 Linux 第十一批结束 | 2a958f1f／Server-200 | 原 TRX 56 项通过、3 实库条件跳过、零失败。两项需通用配置，一项需全局级联 Excel 专用范围。 | [第十一批回执](testing/current-linux-generation-batches-v945.md#v1328-当前独立-linux-第十一批)，2026-11-13 |
 | V1327 | ✅ 当前六模型原 Web 覆盖及回滚通过 | 2a958f1f／原桌面 Web／独占 MySQL | 6 次有效覆盖、6 次末行拒绝及 18 行实库独立核验，资源已核清。 | [V1327 当前原 Web 六模型覆盖](testing/fixed-cross-overwrite-web-v827.md#v1327-当前候选六模型原-web-覆盖与拒绝)，2026-11-13 |
 | V1330 | 🧪 当前独立 Linux 第十二批结束 | 2a958f1f／Server-200 | 原 TRX 41 项通过、4 实库条件跳过、零失败。四项待通用 MySQL 补验。 | [第十二批回执](testing/current-linux-generation-batches-v945.md#v1330-当前独立-linux-第十二批)，2026-11-13 |
+| V1326 | 🧪 第十批实库首轮有失败 | 2a958f1f／Server-200 | 共享文件、多选事务各 1 项通过，Excel 六模型均因末段旧公开包拒绝断言失败。资源独立核清。 | [实库首轮](testing/current-linux-generation-batches-v945.md#v1326-第十批-mysql-首轮与旧发布断言)，2026-11-13 |
 
 ## 五、后续跨端兼容性验收
 
