@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace Metarill.Core.Metadata;
 
-public enum FixedConditionComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Like, In, IsNull, IsNotNull }
+public enum FixedConditionComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Like, In, IsNull, IsNotNull, NotLike, NotIn, Between, NotBetween }
 public enum FixedConditionValueKind { String, Number, Boolean, Null, Variable }
 
 /// <summary>只由条件编译器构造的值节点；变量与字面量分离，不保存可执行SQL。</summary>
@@ -29,9 +29,16 @@ public sealed class FixedConditionTerm
     /// 字符串标点只保留为字面量，数据库执行仍须经类型计划和参数绑定。</summary>
     public string ToDefinition()
     {
-        var operation=Comparison switch{FixedConditionComparison.Equal=>"=",FixedConditionComparison.NotEqual=>"<>",FixedConditionComparison.Greater=>">",FixedConditionComparison.GreaterOrEqual=>">=",FixedConditionComparison.Less=>"<",FixedConditionComparison.LessOrEqual=>"<=",FixedConditionComparison.Like=>" LIKE ",FixedConditionComparison.In=>" IN ",FixedConditionComparison.IsNull=>" IS NULL",FixedConditionComparison.IsNotNull=>" IS NOT NULL",_=>throw new ArgumentException("固定条件节点无法格式化。")};
+        var operation=Comparison switch{FixedConditionComparison.Equal=>"=",FixedConditionComparison.NotEqual=>"<>",FixedConditionComparison.Greater=>">",FixedConditionComparison.GreaterOrEqual=>">=",FixedConditionComparison.Less=>"<",FixedConditionComparison.LessOrEqual=>"<=",FixedConditionComparison.Like=>" LIKE ",FixedConditionComparison.In=>" IN ",FixedConditionComparison.NotLike=>" NOT LIKE ",FixedConditionComparison.NotIn=>" NOT IN ",FixedConditionComparison.Between=>" BETWEEN ",FixedConditionComparison.NotBetween=>" NOT BETWEEN ",FixedConditionComparison.IsNull=>" IS NULL",FixedConditionComparison.IsNotNull=>" IS NOT NULL",_=>throw new ArgumentException("固定条件节点无法格式化。")};
         string Value(FixedConditionValue value)=>value.Kind switch{FixedConditionValueKind.String=>"'"+value.Text.Replace("'","''",StringComparison.Ordinal)+"'",FixedConditionValueKind.Number=>value.Text,FixedConditionValueKind.Boolean=>value.Text,FixedConditionValueKind.Null=>"NULL",FixedConditionValueKind.Variable=>"@"+value.Text,_=>throw new ArgumentException("固定条件节点无法格式化。")};
-        return Field+operation+(Comparison is FixedConditionComparison.IsNull or FixedConditionComparison.IsNotNull?"":Comparison==FixedConditionComparison.In?"("+string.Join(",",Values.Select(Value))+")":Value(Values.Single()));
+        var operand=Comparison switch
+        {
+            FixedConditionComparison.IsNull or FixedConditionComparison.IsNotNull=>"",
+            FixedConditionComparison.In or FixedConditionComparison.NotIn=>"("+string.Join(",",Values.Select(Value))+")",
+            FixedConditionComparison.Between or FixedConditionComparison.NotBetween=>string.Join(" AND ",Values.Select(Value)),
+            _=>Value(Values.Single())
+        };
+        return Field+operation+operand;
     }
 }
 
@@ -84,10 +91,13 @@ public sealed class FixedConditionPlan
             if(!fields.TryGetValue(name,out var field))throw new ArgumentException("固定条件引用了未发布字段。");
             FixedConditionComparison comparison;
             if(Word("IS")){var not=Word("NOT");if(!Word("NULL"))throw Invalid();comparison=not?FixedConditionComparison.IsNotNull:FixedConditionComparison.IsNull;terms.Add(new(field,comparison,[]));return;}
-            if(Word("LIKE"))comparison=FixedConditionComparison.Like;
-            else if(Word("IN"))comparison=FixedConditionComparison.In;
+            var negated=Word("NOT");
+            if(Word("LIKE"))comparison=negated?FixedConditionComparison.NotLike:FixedConditionComparison.Like;
+            else if(Word("IN"))comparison=negated?FixedConditionComparison.NotIn:FixedConditionComparison.In;
+            else if(Word("BETWEEN"))comparison=negated?FixedConditionComparison.NotBetween:FixedConditionComparison.Between;
             else
             {
+                if(negated)throw Invalid();
                 Space();if(Take('='))comparison=FixedConditionComparison.Equal;
                 else if(Take('!')){if(!Adjacent('='))throw Invalid();comparison=FixedConditionComparison.NotEqual;}
                 else if(Take('<'))comparison=Adjacent('=')?FixedConditionComparison.LessOrEqual:Adjacent('>')?FixedConditionComparison.NotEqual:FixedConditionComparison.Less;
@@ -95,11 +105,20 @@ public sealed class FixedConditionPlan
                 else throw Invalid();
             }
             var values=new List<FixedConditionValue>();
-            if(comparison==FixedConditionComparison.In)
+            if(comparison is FixedConditionComparison.In or FixedConditionComparison.NotIn)
             {
                 Require('(');values.Add(Value());while(Take(',')){if(values.Count>=1024)throw Invalid();values.Add(Value());}Require(')');
             }
-            else values.Add(Value());
+            else
+            {
+                values.Add(Value());
+                // BETWEEN 内部的 AND 属于两个操作数，不是页面条件的分隔符。
+                if(comparison is FixedConditionComparison.Between or FixedConditionComparison.NotBetween)
+                {
+                    if(!Word("AND"))throw Invalid();
+                    values.Add(Value());
+                }
+            }
             terms.Add(new(field,comparison,values));
         }
         /// <summary>SQL字符串只解释成对单引号；反斜杠保持字符，不依赖数据库会话转义模式。</summary>

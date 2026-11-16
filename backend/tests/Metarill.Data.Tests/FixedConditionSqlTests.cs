@@ -19,6 +19,26 @@ public sealed partial class FixedConditionSqlTests
         var sql=query.ToSql();Assert.Contains("@fixed_test_0",sql);Assert.Contains("@fixed_test_3",sql);Assert.DoesNotContain("9007199254740993",sql);Assert.DoesNotContain("private",sql);Assert.Contains("LIKE",sql,StringComparison.OrdinalIgnoreCase);Assert.Contains("AND",sql,StringComparison.OrdinalIgnoreCase);
         Assert.Equal(new[]{"parent_id","formParameters.allowed"},plan.Variables);
     }
+    /// <summary>区间内部的AND不会截断页面范围；排除与区间的值继续走参数绑定。</summary>
+    [Fact]
+    public void Published_range_and_exclusions_keep_order_and_sql_null_semantics()
+    {
+        var definition="id BETWEEN 9007199254740993 AND 9007199254740995 AND status NOT IN (1,NULL,2) AND name NOT LIKE '私有%'";
+        var types=Types();
+        var syntax=FixedConditionPlan.Compile(definition,types.Keys);
+        var canonical=string.Join(" AND ",syntax.Terms.Select(term=>term.ToDefinition()));
+        var plan=Compile(canonical);
+        using var session=Session();
+        var sql=plan.ApplyConstants(session.Select<Row>(),session,"advanced").ToSql();
+        Assert.Contains("BETWEEN @advanced_0 AND @advanced_1",sql);
+        Assert.Contains("NOT IN (@advanced_2,NULL,@advanced_3)",sql);
+        Assert.Contains("NOT LIKE @advanced_4",sql);
+        Assert.DoesNotContain("私有",sql);
+        Assert.Contains("NOT BETWEEN @advanced_0 AND @advanced_1",Compile("status NOT BETWEEN 1 AND 3").ApplyConstants(session.Select<Row>(),session,"advanced").ToSql());
+        Assert.Throws<ArgumentException>(()=>Compile("status BETWEEN 1 OR 3"));
+        Assert.Throws<ArgumentException>(()=>Compile("status NOT LIKE 1"));
+    }
+
     /// <summary>NULL比较不得被ORM路径改成IS NULL，IN中的NULL同样不匹配空列。</summary>
     [Fact]
     public void Sql_null_semantics_are_distinct_from_is_null()

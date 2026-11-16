@@ -31,7 +31,7 @@ public sealed class FixedConditionSqlPlan
             if(!fields.TryGetValue(term.Field,out var declared))throw Invalid();
             var empty=term.Comparison is FixedConditionComparison.IsNull or FixedConditionComparison.IsNotNull;
             var type=empty?"":Type(declared);
-            if(term.Comparison==FixedConditionComparison.Like&&type!="string")throw Invalid();
+            if(term.Comparison is FixedConditionComparison.Like or FixedConditionComparison.NotLike&&type!="string")throw Invalid();
             var values=term.Values.Select(value=>value.Kind==FixedConditionValueKind.Variable?new Value(value.Text,null):new Value(null,Scalar(value.Kind switch
             {FixedConditionValueKind.String=>value.Text,FixedConditionValueKind.Number=>new NumberText(value.Text),FixedConditionValueKind.Boolean=>value.Text=="true",FixedConditionValueKind.Null=>null,_=>throw Invalid()},type))).ToArray();
             result.Add(new(term.Field,type,term.Comparison,Array.AsReadOnly(values)));
@@ -122,8 +122,14 @@ public sealed class FixedConditionSqlPlan
                 var name=parameterPrefix+"_"+parameters.Count;parameters.Add(name,scalar);marks.Add(provider.ParameterPlaceholder(name));
             }
             var operation=term.Comparison switch
-            {FixedConditionComparison.Equal=>"=",FixedConditionComparison.NotEqual=>"<>",FixedConditionComparison.Greater=>">",FixedConditionComparison.GreaterOrEqual=>">=",FixedConditionComparison.Less=>"<",FixedConditionComparison.LessOrEqual=>"<=",FixedConditionComparison.Like=>" LIKE ",FixedConditionComparison.In=>" IN ",_=>throw Invalid()};
-            predicates.Add(column+operation+(term.Comparison==FixedConditionComparison.In?"("+string.Join(',',marks)+")":marks.Single()));
+            {FixedConditionComparison.Equal=>"=",FixedConditionComparison.NotEqual=>"<>",FixedConditionComparison.Greater=>">",FixedConditionComparison.GreaterOrEqual=>">=",FixedConditionComparison.Less=>"<",FixedConditionComparison.LessOrEqual=>"<=",FixedConditionComparison.Like=>" LIKE ",FixedConditionComparison.In=>" IN ",FixedConditionComparison.NotLike=>" NOT LIKE ",FixedConditionComparison.NotIn=>" NOT IN ",FixedConditionComparison.Between=>" BETWEEN ",FixedConditionComparison.NotBetween=>" NOT BETWEEN ",_=>throw Invalid()};
+            var operand=term.Comparison switch
+            {
+                FixedConditionComparison.In or FixedConditionComparison.NotIn=>"("+string.Join(',',marks)+")",
+                FixedConditionComparison.Between or FixedConditionComparison.NotBetween=>string.Join(" AND ",marks),
+                _=>marks.Single()
+            };
+            predicates.Add(column+operation+operand);
         }
         return new(string.Join(" AND ",predicates.Select(predicate=>"("+predicate+")")),parameters);
     }

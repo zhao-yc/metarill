@@ -49,7 +49,7 @@ public sealed class FixedConditionPlanTests
     [InlineData("id=@formParameters.")][InlineData("id=@.invalid")][InlineData("id=@formParameters .id")][InlineData("id=@formParameters.[id]")]
     [InlineData("id=")][InlineData("id=1 AND")][InlineData("(id=1")][InlineData("id=1)")][InlineData("()")]
     [InlineData("id=1AND name='x'")][InlineData("name='x' ANDROID=1")][InlineData("id< =1")][InlineData("id! =1")][InlineData("`id `=1")]
-    [InlineData("id=1e")][InlineData("id=1.")][InlineData("id=0x10")][InlineData("name=\"x\"")][InlineData("status BETWEEN 1 AND 2")]
+    [InlineData("id=1e")][InlineData("id=1.")][InlineData("id=0x10")][InlineData("name=\"x\"")][InlineData("status BETWEEN 1 OR 2")]
     public void Unproven_syntax_fails_before_any_query_is_emitted(string source)=>Assert.Throws<ArgumentException>(()=>FixedConditionPlan.Compile(source,Fields));
     /// <summary>工作量有界，配置内容和变量值不进入错误消息。</summary>
     [Fact]
