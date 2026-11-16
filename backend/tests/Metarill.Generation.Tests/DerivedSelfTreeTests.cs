@@ -42,7 +42,63 @@ public sealed class DerivedSelfTreeTests
         if(scenario=="derivedSort"){c.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="other_label",LogicalType="string",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("company.name")}});var source=c.ConfigColumns.Single(x=>x.Id=="25");source.ControlDetail=source.ControlDetail.Replace("\"rootMode\":\"blank\"","\"rootMode\":\"blank\",\"orderBy\":\"other_label asc\"",StringComparison.Ordinal);Assert.Contains("other_label asc",source.ControlDetail);}
         GenerationModel model;try{model=GenerationModel.Create(c,"Example.RejectDerivedTree");}catch(InvalidOperationException)when(scenario is "derivedCondition" or "derivedProject"){return;}var table=model.Tables.Single(x=>x.Source.Id=="2");var plan=CascadeTreeReadCompilation.Resolve(model,table,table.Pages.Single(),table.Columns.Single(x=>x.Source.Id=="25"));Assert.Null(plan.Definition);Assert.NotEmpty(plan.Reason!);
     }
-    /// <summary>沿原自树元数据，仅令树节点name来自company.name；父结构及发布条件仍是物理列。</summary>
+    /// <summary>显式全局R0树的派生名称按固定候选页读取，带行归属的目标也不会借普通列表扩大或缩小范围。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Global_derived_self_tree_builds_fixed_name_and_scope(bool rowProject)
+    {
+        const string ns = "Example.GlobalDerivedTree";
+        var catalog = Catalog("nr_tree", "string", "int64", true);
+        var target = catalog.ConfigTables.Single(table => table.Id == "3");
+        var upstream = catalog.ConfigTables.Single(table => table.Id == "4");
+        foreach (var table in new[] { target, upstream })
+            table.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        var targetPage = catalog.ConfigPages.Single(page => page.ConfigTableId == target.Id);
+        targetPage.WhereSql = "status=1";
+        // 树自身的编辑页用原 List 声明父关系，不能用只有表 ID 的普通外键假装全局候选。
+        var parent = catalog.ConfigColumns.Single(field => field.Id == "35");
+        parent.ControlKind = "List";
+        parent.ControlDetail = JsonSerializer.Serialize(new { tableId = target.Id, pageId = targetPage.Id, nameField = "name" });
+        AddName("company_name", "company.name");
+        AddName("parent_nr_tree_tree_name", "parent_nr_tree_tree.name");
+        void AddName(string field, string path) => catalog.ConfigColumns.Add(new()
+        {
+            Id = field, ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId, ColumnName = field, LogicalType = "string",
+            Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement(path) }
+        });
+        catalog.ConfigPages.Single(page => page.ConfigTableId == upstream.Id).WhereSql = "";
+        if (!rowProject)
+        {
+            var field = catalog.ConfigColumns.Single(column => column.ConfigTableId == target.Id && column.ColumnName == "yz_project_id");
+            catalog.ConfigColumns.Remove(field);
+            catalog.ConfigPageColumns.RemoveAll(pageField => pageField.ConfigColumnId == field.Id);
+        }
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(source.Pages);
+        var plan = Assert.Single(CascadeTreeReadCompilation.ForPage(model, source, page));
+        Assert.True(plan.DerivedName);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        Assert.Contains(rowProject ? "CompileGlobalCandidate" : "CompileRelation", DerivedCascadeNamesRenderer.Reader(model, source, page, plan));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-derived-tree");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.NrTreeSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var read = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField("DerivedCascadePlan201_25", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null));
+            Assert.Equal("string", read.OutputTypes["name"]);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>非冗余树的叶子名称使用已声明的单值联接；夹具保留宿主页面和物理父键。</summary>
     internal static MetadataCatalog Catalog(string prefix,string sourceType,string parentType,bool automatic)
     {
         var c=NonRedundantSelfTreeTests.Catalog(prefix,sourceType,parentType,automatic);c.ConfigTables.Single(table=>table.Id=="3").IsRongyu=0;var name=c.ConfigColumns.Single(column=>column.Id=="32");name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.name");

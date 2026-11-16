@@ -42,6 +42,17 @@ internal static class CascadeTreeReadCompilation
             if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
             var candidates=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id)).ToArray();
             if(candidates.Length!=1)return Gap("目标缺少唯一、无父参数的可读页面。");
+            if(target.IsGlobal)
+            {
+                // 显式全局树只改变目标候选范围。来源仍按真实项目执行，目标页不能带项目或父变量。
+                if(target.Source.IsRongyu==0)
+                {
+                    if(table.Source.IsRongyu!=0||table.IsGlobal)return Gap("全局非冗余自树名称需要普通非冗余来源。");
+                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSingleName(model.Catalog,target.Source,candidates[0].Source,name.Source);
+                }
+                else
+                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireName(model.Catalog,target.Source,candidates[0].Source,name.Source);
+            }
             // 此树入口使用实体最小三列查询，派生条件不能被当作物理列或忽略后扩大范围。
             var scopeFields=candidates[0].Scopes.Select(scope=>scope.Column).Concat(candidates[0].Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]);
             if(target.Source.IsRongyu==0&&scopeFields.Any(column=>!Physical(column)))return Gap("目标范围必须由已证明的物理列执行，派生范围尚未接线。");

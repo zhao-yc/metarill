@@ -47,7 +47,7 @@ internal static class NonRedundantReadCompilation
         foreach(var tree in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"))
         {
             if(CrossTableWriteCompilation.Resolve(model,table,page,tree).Definition is{} cross){NonRedundantCrossTableCompilation.Require(model,table,page,cross.Read);continue;}
-            if(CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition is not{} plan||plan.Read.Target.IsGlobal)throw new InvalidOperationException("非冗余级联要求已证明的同项目selfTree读写计划。");
+            if(CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition is not{} plan)throw new InvalidOperationException("非冗余级联要求已证明的selfTree读写计划。");
             var managed=CascadeTreeViewRenderer.Name(table,tree);
             if(managed is not null&&(page.Searchable.Concat(page.Sortable).Any(column=>column.Source.Id==managed.Source.Id)||page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true))throw new InvalidOperationException("非冗余级联名称直接筛选/排序尚待专用读取用途验证。");
         }

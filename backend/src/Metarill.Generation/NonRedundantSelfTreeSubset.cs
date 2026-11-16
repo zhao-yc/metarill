@@ -25,7 +25,7 @@ internal static class NonRedundantSelfTreeSubset
     internal static bool FixedTarget(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;
-        return plan is not null&&plan.Read.Target.Source.IsRongyu is 0 or 1&&!plan.Read.Target.IsGlobal;
+        return plan is not null;
     }
     /// <summary>普通父外键或唯一固定跨表层位均须证明目标物理主键／项目列，不能以来源主键冒充父关系。</summary>
     internal static IReadOnlyList<TableModel> ParentTables(GenerationModel model,TableModel table,PageModel page,Func<ColumnModel,(CrossTableReadModel Read,int Index)?>? resolveCross=null)

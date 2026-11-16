@@ -30,6 +30,69 @@ public sealed class NonRedundantSelfTreeTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>全局树按固定目标条件发布，来源继续按项目；非物理名称和带项目变量的目标仍拒绝。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn)
+    {
+        var catalog = RedundantMultiNameCacheTests.Published(Catalog("nr_tree", automatic: true));
+        var target = catalog.ConfigTables.Single(table => table.Id == "3");
+        target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        var targetPage = catalog.ConfigPages.Single(page => page.ConfigTableId == target.Id);
+        if (!keepsProjectColumn)
+        {
+            var project = catalog.ConfigColumns.Single(column => column.ConfigTableId == target.Id && column.ColumnName == "yz_project_id");
+            catalog.ConfigColumns.Remove(project);
+            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == project.Id);
+        }
+        targetPage.WhereSql = "status=1";
+        if (!catalog.ConfigColumns.Any(column => column.ConfigTableId == target.Id && column.ColumnName == "status"))
+            catalog.ConfigColumns.Add(new() { Id = "global_tree_status", ConfigTableId = target.Id, ColumnName = "status", LogicalType = "int32" });
+        var model = GenerationModel.Create(catalog, "Example.GlobalTree");
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(source.Pages);
+        var scope = CascadeTreeReadRenderer.Service(model, source, page);
+        Assert.Contains("CascadeScope201_25", scope);
+        Assert.Contains("RequirePagePermission(\"301\",\"list\")", scope);
+        Assert.DoesNotContain("row.YzProjectId", scope);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-self-tree");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), model.Namespace);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(model.Namespace + ".Generated.Services.NrTreeSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            using var runtime = new SharedExcelReadTransport(assembly, model.Namespace, "NrTreeSource");
+            AddNode(11, "上级");
+            AddNode(12, "启用子项", 11);
+            AddNode(13, "禁用子项", 11, 0);
+            var header = ImportRenderer.Header(source.Columns.Single(column => column.Source.Id == "25"));
+            var value = await runtime.Parse(new() { [header] = "上级/启用子项" });
+            Assert.Equal("12", value["treeId"].GetString());
+            await Assert.ThrowsAsync<Metarill.Core.Contracts.PageImportException>(() => runtime.Parse(new() { [header] = "上级/禁用子项" }));
+
+            // 候选节点故意属于另一个行项目，仍须遵守固定的启用条件。
+            void AddNode(long id, string name, long? parent = null, int status = 1)
+            {
+                var row = new Dictionary<string, object?>
+                    { ["Id"] = id, ["Name"] = name, ["ParentNrTreeTreeId"] = parent, ["Status"] = status };
+                if (keepsProjectColumn) row["YzProjectId"] = 2L;
+                runtime.Add("NrTreeTree", row);
+            }
+
+            targetPage.WhereSql = keepsProjectColumn ? "yz_project_id=@current_yz_project_id" : "status=@parent_id";
+            Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>真实生成页和原级联组件共同在Vue3挂载，网络受控；不替代浏览器或正式宿主验收。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public Task Original_self_tree_vue_keeps_paths_selection_clear_readonly_and_physical_write_contract(bool automatic)=>ExerciseOriginalVue(automatic,false);
