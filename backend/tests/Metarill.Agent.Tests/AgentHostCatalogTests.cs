@@ -86,6 +86,23 @@ public sealed class AgentHostCatalogTests
         Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
     }
 
+    /// <summary>原编辑开关和显式只读互相组合时，创建参数要与实际生成表单一致。</summary>
+    [Fact]
+    public void Legacy_edit_flag_and_explicit_read_only_control_create_requirements()
+    {
+        var source = Catalog("100", "31", "21");
+        var field = source.ConfigPageColumns[0];
+        field.Extra["isInEdit"] = JsonSerializer.SerializeToElement(0);
+        Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+
+        field.IsEdit = 0;
+        field.Extra["isInEdit"] = JsonSerializer.SerializeToElement(true);
+        Assert.Equal(new[] { "displayName" }, AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+
+        field.Extra["isReadOnly"] = JsonSerializer.SerializeToElement("1");
+        Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+    }
+
     /// <summary>旧元数据的显式空默认仍表示未配置，不能让发布目录初始化失败。</summary>
     [Fact]
     public void Legacy_null_default_keeps_the_published_create_field_required()

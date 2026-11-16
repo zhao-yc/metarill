@@ -57,9 +57,7 @@ public sealed class AgentHostCatalog
         var definitions = catalogs.SelectMany(catalog => catalog.ConfigPages.Select(page =>
         {
             var table = catalog.ConfigTables.Single(table => table.Id == page.ConfigTableId);
-            var required = catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Id && field.IsEdit == 1 &&
-                    (field.IsRequired == 1 || field.Extra.GetValueOrDefault("isMust") is var must &&
-                        (must.ValueKind == JsonValueKind.True || must.ToString() == "1")))
+            var required = catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Id && DeclaresRequiredInput(field))
                 .Select(field => (Field: field, Column: catalog.ConfigColumns.Single(column => column.Id == field.ConfigColumnId)))
                 .Where(entry => RequiresCreateInput(entry.Field, entry.Column)).Select(entry => JsonName(entry.Column.ColumnName))
                 .Distinct(StringComparer.Ordinal).ToArray();
@@ -119,6 +117,16 @@ public sealed class AgentHostCatalog
         if(readOnly is not null&&readOnly.Fields.Any(field=>!names.ContainsKey(field.Split('.')[0])))return null;
         return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility){Rule=rule,ReadOnlyRule=readOnly,RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal)};
     }
+    /// <summary>沿用生成表单的原编辑开关优先级，只读字段不能成为创建参数。</summary>
+    private static bool DeclaresRequiredInput(PageColumnMetadata field)
+    {
+        var inEdit = field.Extra.TryGetValue("isInEdit", out var edit) ? Enabled(edit) : field.IsEdit == 1;
+        return inEdit && !Enabled(field.Extra.GetValueOrDefault("isReadOnly")) &&
+            (field.IsRequired == 1 || Enabled(field.Extra.GetValueOrDefault("isMust")));
+
+        static bool Enabled(JsonElement value) => value.ValueKind == JsonValueKind.True || value.ToString() == "1";
+    }
+
     /// <summary>Agent 仅预要求无默认、无初始值的固定必填字段，条件必填由实际生成服务判断。</summary>
     private static bool RequiresCreateInput(PageColumnMetadata field, ColumnMetadata column)
     {
