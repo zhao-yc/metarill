@@ -117,6 +117,57 @@ public sealed class CrossTableExcelSharedGenerationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>共享上级的全局派生名称由两个分支使用同一发布页和同一逻辑槽。</summary>
+    [Fact]
+    public async Task Shared_global_derived_level_has_one_fixed_scope_for_both_paths()
+    {
+        const string ns = "Example.SharedGlobalDerivedExcel";
+        var catalog = Catalog("derived-short-r0");
+        var target = catalog.ConfigTables.Single(table => table.Id == "4");
+        var producer = catalog.ConfigTables.Single(table => table.Id == "6");
+        foreach (var table in new[] { target, producer })
+            table.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        catalog.ConfigPages.Single(page => page.ConfigTableId == target.Id).WhereSql = "status=1";
+        catalog.ConfigPages.Single(page => page.ConfigTableId == producer.Id).WhereSql = "";
+        // 原地区外键用于同一全局候选时，非冗余子表自己的编辑页也需发布实际 List。
+        var leafParent = catalog.ConfigColumns.Single(column => column.Id == "55");
+        leafParent.ControlKind = "List";
+        leafParent.ControlDetail = JsonSerializer.Serialize(new { tableId = target.Id, pageId = "401", nameField = "name" });
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "shared_company_name", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
+            ColumnName = "company_name", LogicalType = "string",
+            Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("company.name") }
+        });
+
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(source.Pages);
+        var group = Assert.Single(SharedCrossTableCompilation.ForPage(model, source, page).Groups);
+        Assert.Equal(2, group.Plans.Count);
+        Assert.All(group.Plans, plan =>
+        {
+            Assert.Equal(target.Id, plan.Levels[1].Read.Target.Source.Id);
+            Assert.Equal("401", plan.Levels[1].Read.Page.Source.Id);
+            Assert.True(plan.Levels[1].Read.DerivedName);
+        });
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-shared-global-derived-excel");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.SharedExcelSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>标题只用于独占元数据，原页面生成器／模板及字段归属保持。</summary>
     internal static MetadataCatalog Catalog(string profile)
     {

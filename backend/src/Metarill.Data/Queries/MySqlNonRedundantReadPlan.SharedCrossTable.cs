@@ -27,7 +27,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         var target=tables.Values.Single(t=>t.TableName==levels[index].GetProperty("table").GetString());if(target.Id==root.Id)throw new NotSupportedException("共享稀疏读取的来源自参与尚需独立证明。");var slot=branch.Slots[index];var scope=binding.Levels[index];
                         // 全局目标沿用单链发布／固定条件证明，来源项目与共享同伴页面仍分别核验。
-                        if(GlobalCrossTableTarget.Declared(target)){var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==scope.PageId&&p.ConfigTableId==target.Id)??throw new InvalidOperationException("共享全局目标页与实际目标表不符。");GlobalCrossTableTarget.Require(catalog,target,page);}if(scopes.TryGetValue(slot.ColumnName,out var old)&&(old.PageId!=scope.PageId||!SameSharedCondition(old.Condition,scope.Condition)))throw new InvalidOperationException("共享稀疏同一槽的候选页或固定条件不一致。");scopes[slot.ColumnName]=scope;
+                        if(GlobalCrossTableTarget.Declared(target)){var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==scope.PageId&&p.ConfigTableId==target.Id)??throw new InvalidOperationException("共享全局目标页与实际目标表不符。");GlobalCrossTableTarget.RequireSingle(catalog,target,page);}if(scopes.TryGetValue(slot.ColumnName,out var old)&&(old.PageId!=scope.PageId||!SameSharedCondition(old.Condition,scope.Condition)))throw new InvalidOperationException("共享稀疏同一槽的候选页或固定条件不一致。");scopes[slot.ColumnName]=scope;
                     }
                     _=CrossValue(table,owner,control,group.BranchSelection(branch.SourceColumnId),binding,branch.Slots[^1].ColumnName);
                 }
