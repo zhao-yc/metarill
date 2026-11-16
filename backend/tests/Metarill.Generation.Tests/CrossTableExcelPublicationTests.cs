@@ -402,23 +402,25 @@ public sealed class CrossTableExcelPublicationTests
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
     }
 
-    /// <summary>混合自树和来源重复角色的原读写仍可编译，Excel公开用途须保留独立验收门槛。</summary>
+    /// <summary>混合级联的父范围、覆盖及重复来源仍须证明，不能借已发布的普通追加路径绕过。</summary>
     [Theory]
-    [InlineData("mixed-self")]
+    [InlineData("mixed-scoped")]
+    [InlineData("mixed-overwrite")]
     [InlineData("repeated-source")]
     [InlineData("overwrite")]
     public void Unproven_R0_compositions_keep_their_excel_gap(string kind)
     {
         var catalog = kind switch
         {
-            "mixed-self" => NonRedundantMixedCascadeTests.Catalog("unproven_mix", "string", "int64"),
+            "mixed-scoped" or "mixed-overwrite" => NonRedundantMixedCascadeTests.Catalog("unproven_mix", "string", "int64"),
             "repeated-source" => RepeatedCrossSourceTests.Catalog("unproven_repeat", 3, "string", "int64", false),
             _ => NonRedundantCrossTableGenerationTests.Catalog("unproven_overwrite", "string", "int64")
         };
         // 混合／重复来源夹具本来已发布；该辅助方法会新增后台，只补尚未发布的覆盖导入夹具。
         if (kind == "overwrite") RedundantMultiNameCacheTests.Published(catalog);
         var importPage = catalog.ConfigPages.Single(page => page.Id == "201"); importPage.IsImport = 1;
-        if (kind == "overwrite") importPage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        if (kind == "mixed-scoped") importPage.WhereSql += " AND country_id=@parent_id";
+        if (kind is "overwrite" or "mixed-overwrite") importPage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
         var model = GenerationModel.Create(catalog, "Example.UnprovenR0Excel");
         var table = model.Tables.Single(table => table.Source.Id == "2");
         var page = table.Pages.Single(page => page.Source.Id == "201");

@@ -74,6 +74,48 @@ public sealed class NonRedundantMixedCascadeTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>同一原页面公开生成两类级联的 Excel，二者各自解析与导出完整路径。</summary>
+    [Theory]
+    [InlineData("string", "int64", "list")]
+    [InlineData("int64", "string", "edit")]
+    public async Task Full_mixed_application_publishes_original_excel(string type, string parentType, string exportMode)
+    {
+        var catalog = Catalog("nr_cascade_mix", type, parentType);
+        var pageConfig = catalog.ConfigPages.Single(page => page.Id == "201");
+        pageConfig.IsImport = 1;
+        pageConfig.IsExport = 1;
+        pageConfig.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        foreach (var (id, title) in new[] { ("25", "地区路径"), ("81", "分类路径"), ("83", "多选分类") })
+            catalog.ConfigColumns.Single(column => column.Id == id).Name = title;
+        var model = GenerationModel.Create(catalog, "Example.MixedCascadeExcel");
+        var table = model.Tables.Single(candidate => candidate.Source.Id == "2");
+        var page = table.Pages.Single(candidate => candidate.Source.Id == "201");
+
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        Assert.Contains(table.Columns.Single(column => column.Source.Id == "25"), ImportRenderer.Columns(page));
+        Assert.Contains(table.Columns.Single(column => column.Source.Id == "81"), ImportRenderer.Columns(page));
+        var import = ImportRenderer.Service(model, table, page);
+        Assert.Contains("crossInputs.Add", import);
+        Assert.Contains("ImportCascade201_25Async", import);
+        Assert.Contains("ImportCascade201_81Async", import);
+        Assert.Contains("ImportMulti201_83Async", import);
+        var export = ExportRenderer.Service(model, table, page);
+        Assert.Contains("ExcelCascadePlaceId", export);
+        Assert.Contains("ExcelCascadeTreeId", export);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-nr-mixed-cascade-excel");
+        var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.True(new ApplicationPackager().Create(catalog, output, "Example.MixedCascadeExcel",
+                NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            if (exportMode == "list")
+                foreach (var operation in new[] { "restore", "build" })
+                    await NonRedundantApplicationFixture.BuildAsync(output, operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
+    }
+
     /// <summary>隐藏有效同伴依然参与写入与复制，但不能因此把有效页面拒绝为未完成。</summary>
     [Theory]
     [InlineData("25")]
@@ -99,7 +141,6 @@ public sealed class NonRedundantMixedCascadeTests
     [InlineData("selfRealm")]
     [InlineData("crossRealm")]
     [InlineData("globalSelf")]
-    [InlineData("crossImport")]
     public void Invalid_mixed_companion_is_rejected_before_staging(string kind)
     {
         var catalog = Catalog("nr_cascade_mix", "string", "int64");
@@ -108,7 +149,6 @@ public sealed class NonRedundantMixedCascadeTests
         if (kind == "selfRealm") catalog.ConfigTables.Single(table => table.Id == "6").YzProjectId = "";
         if (kind == "crossRealm") catalog.ConfigTables.Single(table => table.Id == "3").YzProjectId = "";
         if (kind == "globalSelf") catalog.ConfigTables.Single(table => table.Id == "6").Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
-        if (kind == "crossImport") catalog.ConfigPages.Single(page => page.Id == "201").IsImport = 1;
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-nr-cascade-mix-reject");
         var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         Assert.ThrowsAny<Exception>(() => new ApplicationPackager().Create(catalog, output, "Example.RejectedMixedCascade", NonRedundantApplicationFixture.Root()));
