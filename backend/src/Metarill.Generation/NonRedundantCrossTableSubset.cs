@@ -39,16 +39,15 @@ internal static class NonRedundantCrossTableSubset
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var hasParent=parentColumns.Length>0;
             // 前面的全部写计划已核对来源范围。共享组的固定匹配列由导入和导出各自按动作应用。
-            var mixedCascade=companions.Length!=trees.Length;
             var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&plans.All(plan=>
                     plan.Definition!.Levels.All(level=>level.Read.Target.Source.Id!=table.Source.Id)&&
                     plan.Definition.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Definition.Levels.Count);
-            // 无父范围时，自树单元格写选中节点，跨表单元格合并自己的路径槽；两类读写计划已分别验证。
-            var pathSupported=independent&&(!hasParent||!mixedCascade&&SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
+            // 自树写自己的节点；跨表路径仍须证明逻辑父范围，覆盖仍按明确的匹配键与页面范围执行。
+            var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
             var scopedOverwrite=hasParent&&pathSupported&&(imports||exports)&&SupportsScopedOverwrite(model,table,page,importColumns);
-            if(imports&&(!pathSupported||!appendImport&&(mixedCascade||!(hasParent?scopedOverwrite:
-                SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns)))))
+            if(imports&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
+                SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns))))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
             // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面的实际导入模式。
             if(exports&&(!pathSupported||hasParent&&(ExportRenderer.Mode(page) is not ("" or "list" or "edit")||

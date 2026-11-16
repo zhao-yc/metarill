@@ -419,7 +419,15 @@ public sealed class CrossTableExcelPublicationTests
         // 混合／重复来源夹具本来已发布；该辅助方法会新增后台，只补尚未发布的覆盖导入夹具。
         if (kind == "overwrite") RedundantMultiNameCacheTests.Published(catalog);
         var importPage = catalog.ConfigPages.Single(page => page.Id == "201"); importPage.IsImport = 1;
-        if (kind == "mixed-scoped") importPage.WhereSql += " AND country_id=@parent_id";
+        if (kind == "mixed-scoped")
+        {
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "86", ConfigTableId = "2", ColumnName = "tree_owner_id", LogicalType = "int64",
+                LinkConfigTableId = "6", YzProjectId = catalog.YzProjectId
+            });
+            importPage.WhereSql += " AND tree_owner_id=@parent_id";
+        }
         if (kind is "overwrite" or "mixed-overwrite") importPage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
         var model = GenerationModel.Create(catalog, "Example.UnprovenR0Excel");
         var table = model.Tables.Single(table => table.Source.Id == "2");

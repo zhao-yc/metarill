@@ -60,7 +60,12 @@ internal static class MultiSelectCompilation
             var ordering = Value("orderBy");
             if (!string.IsNullOrWhiteSpace(ordering) && !GenerationModel.ValidateOrderBy(ordering, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)).SequenceEqual(GenerationModel.ValidateOrderBy(targetPage.Source.OrderBy, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)))) return Gap("控件排序与目标页不一致。");
             TableModel Parent(ColumnModel column) => model.Tables.Single(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName);
-            var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column).Source.Id).Distinct().Order().ToArray();
+            // 非冗余跨表祖先列按固定层位归属实际父表，列前缀与真实表名可以不同。
+            TableModel SourceParent(ColumnModel column) =>
+                NonRedundantCrossParentCompilation.Find(model, table, page, column) is { } path
+                    ? path.Read.Levels[path.Index].Target
+                    : Parent(column);
+            var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => SourceParent(scope.Column).Source.Id).Distinct().Order().ToArray();
             var targetParents = targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             if (targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
             var same = targetParents.Length > 0 && sourceParents.SequenceEqual(targetParents.Select(parent => parent.Source.Id).Order());

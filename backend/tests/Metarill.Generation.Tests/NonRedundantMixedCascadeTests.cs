@@ -78,13 +78,26 @@ public sealed class NonRedundantMixedCascadeTests
     [Theory]
     [InlineData("string", "int64", "list")]
     [InlineData("int64", "string", "edit")]
-    public async Task Full_mixed_application_publishes_original_excel(string type, string parentType, string exportMode)
+    [InlineData("string", "int64", "list", "country_id", true)]
+    [InlineData("int64", "string", "edit", "area_id")]
+    [InlineData("int64", "int64", "edit", null, true)]
+    public async Task Full_mixed_application_publishes_original_excel(string type, string parentType, string exportMode,
+        string? parentField = null, bool overwrite = false)
     {
         var catalog = Catalog("nr_cascade_mix", type, parentType);
         var pageConfig = catalog.ConfigPages.Single(page => page.Id == "201");
         pageConfig.IsImport = 1;
         pageConfig.IsExport = 1;
         pageConfig.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        if (parentField is not null)
+            pageConfig.WhereSql += $" AND {parentField}=@parent_id";
+        if (overwrite)
+        {
+            pageConfig.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            // 有逻辑父时按物理名称匹配；无父时复用既有末级单值键覆盖计划。
+            var match = parentField is null ? "25" : "22";
+            catalog.ConfigColumns.Single(column => column.Id == match).SortNo = -1;
+        }
         foreach (var (id, title) in new[] { ("25", "地区路径"), ("81", "分类路径"), ("83", "多选分类") })
             catalog.ConfigColumns.Single(column => column.Id == id).Name = title;
         var model = GenerationModel.Create(catalog, "Example.MixedCascadeExcel");
@@ -99,6 +112,13 @@ public sealed class NonRedundantMixedCascadeTests
         Assert.Contains("ImportCascade201_25Async", import);
         Assert.Contains("ImportCascade201_81Async", import);
         Assert.Contains("ImportMulti201_83Async", import);
+        if (parentField is not null)
+        {
+            Assert.True(NonRedundantCrossParentCompilation.Enabled(model, table, page));
+            Assert.Contains("ValidateParents201Async(request.ParentId, actor, cancellationToken,includeManaged:false)", import);
+        }
+        if (overwrite && parentField is not null)
+            Assert.Contains("PageImportError.AmbiguousOverwrite", import);
         var export = ExportRenderer.Service(model, table, page);
         Assert.Contains("ExcelCascadePlaceId", export);
         Assert.Contains("ExcelCascadeTreeId", export);
