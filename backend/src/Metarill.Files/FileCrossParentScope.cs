@@ -59,7 +59,7 @@ internal sealed class FileCrossParentScope
             var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:Condition(candidate,columns))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
             var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));
             // 仅显式全局目标免项目等值；固定发布、常量页与普通来源项目仍由完整编译器核验。
-            var global=GlobalCrossTableTarget.Declared(target);if(global)GlobalCrossTableTarget.Require(catalog,target,chosen.Page);var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,chosen.Page.Id,display.Id,project?.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
+            var global=GlobalCrossTableTarget.Declared(target);if(global){if(target.IsRongyu==0)GlobalCrossTableTarget.RequireSingleName(catalog,target,chosen.Page,display);else GlobalCrossTableTarget.Require(catalog,target,chosen.Page);}var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");targets.Add(new(target.TableName,chosen.Page.Id,display.Id,project?.LogicalType,columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan));
         }
         return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray()),new NonRedundantCrossTableScope(source.Id,bindings));
     }

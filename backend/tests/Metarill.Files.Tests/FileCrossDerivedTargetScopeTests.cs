@@ -15,6 +15,43 @@ public sealed class FileCrossDerivedTargetScopeTests
     {
         var c=Catalog(type,parentType,derived);var context=new FileMetadataContext([c]);var frozen=context.Catalogs.Single();var scope=context.PageScope(frozen,frozen.ConfigPages.Single(x=>x.Id=="101"));Assert.True(context.HasLogicalFileParents);Assert.Empty(scope.Parents);Assert.Equal(0,Assert.Single(scope.Crosses).Level);
     }
+    /// <summary>附件父计划只保存全局发布页和真实键，目标的行项目及派生名称都不充当父身份。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Global_derived_name_does_not_replace_the_physical_attachment_parent(bool rowProject)
+    {
+        var catalog=Catalog("string","int64",true);
+        catalog.YzAdminTypes.Add(new(){Id="1",YzProjectId=catalog.YzProjectId});
+        foreach(var page in catalog.ConfigPages)page.YzAdminTypeId="1";
+        var country=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var company=catalog.ConfigTables.Single(table=>table.Id=="5");
+        foreach(var table in new[]{country,company})table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="enabled=1";
+        catalog.ConfigPages.Add(new(){Id="501",ConfigTableId="5",YzAdminTypeId="1",YzProjectId=catalog.YzProjectId});
+        foreach(var relation in catalog.ConfigColumns.Where(column=>column.ColumnName=="company_id"))
+        {
+            relation.ControlKind="List";
+            relation.ControlDetail="{\"pageId\":\"501\"}";
+        }
+        if(!rowProject)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="23");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="23");
+        }
+        var metadata=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(metadata.Catalogs);
+        var scope=metadata.PageScope(frozen,frozen.ConfigPages.Single(page=>page.Id=="101"));
+        var parent=Assert.Single(scope.Crosses);
+        Assert.True(parent.CoversTargetAt(0,country.TableName,"201","22"));
+        Assert.Contains("country_id",parent.StorageNames);
+        Assert.Empty(scope.Parents);
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="enabled=@parent_id";
+        var invalid=new FileMetadataContext([catalog]);
+        var invalidCatalog=Assert.Single(invalid.Catalogs);
+        Assert.Throws<NotSupportedException>(()=>invalid.PageScope(invalidCatalog,invalidCatalog.ConfigPages.Single(page=>page.Id=="101")));
+    }
+
     /// <summary>接受逻辑名称不接受凭据、多值、非物理父／范围、隐藏或不确定目标。</summary>
     [Theory][InlineData("credential")][InlineData("array")][InlineData("parent")][InlineData("scope")][InlineData("hidden")][InlineData("global")][InlineData("view")][InlineData("ambiguous")]
     public void Unproven_names_or_ranges_keep_whole_page_closed(string kind)

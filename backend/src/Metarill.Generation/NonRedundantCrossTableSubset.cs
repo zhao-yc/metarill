@@ -82,7 +82,7 @@ internal static class NonRedundantCrossTableSubset
                 logicalParent.Source.LinkConfigTableId==parentTables[0].Source.Id)&&
             paths.All(path=>path.Skip(1).All(level=>level.Read.Parent?.Type is "string?" or "long?"))&&
             levels.All(level=>(level.Id.Type is "string?" or "long?")&&
-                !level.Read.Target.IsGlobal);
+                (!level.Read.Target.IsGlobal||level.Read.Target.Source.IsRongyu==0));
     }
 
     /// <summary>逻辑父范围的覆盖使用表级首个可导入的物理文本字段，不扩大到关系键或额外解析依赖。</summary>

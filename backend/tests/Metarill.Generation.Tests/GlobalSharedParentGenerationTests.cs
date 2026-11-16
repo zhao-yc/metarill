@@ -54,11 +54,70 @@ public sealed class GlobalSharedParentGenerationTests
         new FrontendPackager().Validate(catalog);
     }
 
+    /// <summary>同一已发布的全局R0名称层可作业务及附件的独立或共享逻辑父，实际父键仍由稀疏路径取得。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,true)]
+    public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject)
+    {
+        const string packageNamespace="Example.GlobalDerivedParent";
+        var catalog=Catalog("shared_parent","string","int64",false,1,!rowProject,true);
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        target.IsRongyu=0;
+        var countryPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        var name=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="name");
+        name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+        name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.name");
+        var company=new TableMetadata{Id="99",YzProjectId=catalog.YzProjectId,TableName="shared_parent_company",IsRongyu=1};
+        company.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigTables.Add(company);
+        catalog.ConfigPages.Add(new(){Id="9901",ConfigTableId=company.Id,YzAdminTypeId=countryPage.YzAdminTypeId,YzProjectId=catalog.YzProjectId});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="99011",ConfigTableId=company.Id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="99012",ConfigTableId=company.Id,ColumnName="name",LogicalType="string"},
+            new(){Id="99013",ConfigTableId="3",ColumnName="company_id",LogicalType="int64",ControlKind="List",LinkConfigTableId=company.Id,ControlDetail="{\"pageId\":\"9901\"}"},
+            new(){Id="99014",ConfigTableId="3",ColumnName="company_name",LogicalType="string",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("company.name")}}]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="99015",ConfigPageId="9901",ConfigColumnId="99012",IsShow=1},
+            new(){Id="99016",ConfigPageId="301",ConfigColumnId="99013",IsEdit=1}]);
+        if(!shared)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "80" or "91");
+            catalog.ConfigPages.RemoveAll(page=>page.Id is "205" or "206");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId is "205" or "206"||field.ConfigColumnId is "80" or "91");
+            catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId is "205" or "206");
+        }
+        var model=GenerationModel.Create(catalog,packageNamespace);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=source.Pages.Single(item=>item.Source.Id=="202");
+        var parent=Assert.Single(SharedGlobalParentCompilation.ForColumn(model,source,page,page.Scopes.Single(scope=>scope.Source=="parent").Column));
+        Assert.Equal("301",parent.Level.Page.Source.Id);
+        Assert.True(parent.Level.DerivedName);
+        Assert.Equal(shared,parent.Shared);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-derived-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),packageNamespace);
+            var generated=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=generated.GetType(packageNamespace+".Generated.Services.SharedParentSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Update202Async"));
+            var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/SharedParentSourceService.g.cs"));
+            Assert.Contains("LogicalParentScope202",code);
+            Assert.Contains("VerifyLogicalParent202Async",code);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>独立全局父、目标上下文、未发布、坏同伴、错页、物理父覆盖与精确来源继续拒绝。</summary>
     [Theory][InlineData("single")][InlineData("globalR0")][InlineData("variable")][InlineData("unpublished")][InlineData("badPeer")][InlineData("physicalPage")][InlineData("physicalOverlay")][InlineData("exact")]
     public void Unproven_global_parent_never_publishes_complete_package(string kind)
     {
-        var c=Catalog("global_parent","string","int64",false,1,true);if(kind=="single"){c.ConfigColumns.RemoveAll(column=>column.Id=="80");c.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="80");c.ConfigPages.RemoveAll(page=>page.Id=="205");c.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="205");c.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="205");MetadataValidation.Validate(c);_=GenerationModel.Create(c,"Example.ValidSingleGlobalParent");}if(kind=="globalR0")c.ConfigTables.Single(table=>table.Id=="3").IsRongyu=0;if(kind=="variable"){c.ConfigColumns.Add(new(){Id="399",ConfigTableId="3",YzProjectId=c.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"});c.ConfigPages.Single(page=>page.Id=="301").WhereSql="yz_project_id=@current_yz_project_id";}if(kind=="unpublished")c.ConfigTables.Single(table=>table.Id=="3").YzProjectId="";if(kind=="badPeer")c.ConfigColumns.Single(column=>column.Id=="80").ControlDetail="{}";if(kind=="physicalPage")c.ConfigColumns.Single(column=>column.Id=="91").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("401");if(kind=="physicalOverlay")c.ConfigPageColumns.Single(field=>field.ConfigPageId=="206"&&field.ConfigColumnId=="91").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{}");if(kind=="exact")c.ConfigPages.Single(page=>page.Id=="202").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");var output=Path.Combine(Path.GetTempPath(),"metarill-global-parent-reject",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.Reject",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
+        var c=Catalog("global_parent","string","int64",false,1,true);if(kind=="single"){c.ConfigColumns.RemoveAll(column=>column.Id=="80");c.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="80");c.ConfigPages.RemoveAll(page=>page.Id=="205");c.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="205");c.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="205");MetadataValidation.Validate(c);_=GenerationModel.Create(c,"Example.ValidSingleGlobalParent");}if(kind=="globalR0"){c.ConfigTables.Single(table=>table.Id=="3").IsRongyu=0;c.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="name").IsVirtualColumn=1;}if(kind=="variable"){c.ConfigColumns.Add(new(){Id="399",ConfigTableId="3",YzProjectId=c.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"});c.ConfigPages.Single(page=>page.Id=="301").WhereSql="yz_project_id=@current_yz_project_id";}if(kind=="unpublished")c.ConfigTables.Single(table=>table.Id=="3").YzProjectId="";if(kind=="badPeer")c.ConfigColumns.Single(column=>column.Id=="80").ControlDetail="{}";if(kind=="physicalPage")c.ConfigColumns.Single(column=>column.Id=="91").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("401");if(kind=="physicalOverlay")c.ConfigPageColumns.Single(field=>field.ConfigPageId=="206"&&field.ConfigColumnId=="91").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{}");if(kind=="exact")c.ConfigPages.Single(page=>page.Id=="202").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");var output=Path.Combine(Path.GetTempPath(),"metarill-global-parent-reject",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.Reject",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
     /// <summary>全部页面与字段都来源于原元数据工厂，只增加已发布全局声明。</summary>
     internal static MetadataCatalog Catalog(string prefix,string type,string parent,bool shorter,int mask,bool noProject,bool files=false,bool physicalDelete=false)
