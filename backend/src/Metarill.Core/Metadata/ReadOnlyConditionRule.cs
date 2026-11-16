@@ -23,7 +23,10 @@ public sealed partial class ReadOnlyConditionRule
     /// <summary>每次使用服务端原记录重新求值；字段缺失、对象转换及非有限值均拒绝，不默认成可写。</summary>
     public bool IsReadOnly(IReadOnlyDictionary<string,object?> record)=>Truth(root.Evaluate(record));
     /// <summary>只把已编译语法树输出为静态JS表达式；字段由生成器固定绑定，不重新执行或拼入原条件文本。</summary>
-    public string ToJavaScript(Func<string,string> bindField)
+    public string ToJavaScript(Func<string,string> bindField) => ToJavaScript(bindField,_=>false,(_,_,_)=>throw Invalid());
+
+    /// <summary>已知底层为整数的字段在 Web 上可能是字符串；这类比较保留字面量精度并交给生成的比较器。</summary>
+    public string ToJavaScript(Func<string,string> bindField,Func<string,bool> isIntegerField,Func<string,string,string,string> renderIntegerComparison)
     {
         ArgumentNullException.ThrowIfNull(bindField);
         return Render(root);
@@ -33,9 +36,16 @@ public sealed partial class ReadOnlyConditionRule
             Literal literal=>JsonSerializer.Serialize(literal.Value),
             Field field=>bindField(field.Name),
             Not not=>"(!"+Render(not.Value)+")",
+            Binary binary when binary.Operation is not("&&" or "||")&&
+                (IntegerField(binary.Left)&&NumericOperand(binary.Right)||IntegerField(binary.Right)&&NumericOperand(binary.Left))
+                =>renderIntegerComparison(binary.Operation,ExactOperand(binary.Left),ExactOperand(binary.Right)),
             Binary binary=>"("+Render(binary.Left)+" "+binary.Operation+" "+Render(binary.Right)+")",
             _=>throw Invalid()
         };
+
+        bool IntegerField(Node node)=>node is Field field&&isIntegerField(field.Name);
+        bool NumericOperand(Node node)=>node is Literal {NumberText:not null}||IntegerField(node);
+        string ExactOperand(Node node)=>node is Literal {NumberText:{} number}?JsonSerializer.Serialize(JavaScriptNumber(number)):Render(node);
     }
     /// <summary>普通十进制令牌归一为JS模块合法数字，去除旧式八进制前导零并映射Unicode十进制数字。</summary>
     private static string JavaScriptNumber(string source)

@@ -63,6 +63,31 @@ public sealed class GeneratedReadOnlyConditionTests
         finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
 
+    /// <summary>浏览器需区别相邻的雪花ID，并让整数比较与同一 AST 的服务端结果一致。</summary>
+    [Fact]
+    public async Task Integer_readonly_conditions_preserve_adjacent_ids_and_decimal_thresholds()
+    {
+        var catalog=Catalog();
+        foreach(var (id,name) in new[]{("18","owner_id"),("19","other_id")})
+        {
+            catalog.ConfigColumns.Add(new(){Id=id,ConfigTableId="1",ColumnName=name,LogicalType="int64"});
+            catalog.ConfigPageColumns.Add(new(){Id="1"+id,ConfigPageId="101",ConfigColumnId=id,IsEdit=1});
+        }
+        const string rule="ownerId === 9007199254740993 || (ownerId > otherId && ownerId < 0.5)";
+        catalog.ConfigPages[0].Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement(rule);
+        var parsed=Metarill.Core.Metadata.ReadOnlyConditionRule.Compile(rule);
+        Assert.True(parsed.IsReadOnly(new Dictionary<string,object?>{{"ownerId",9007199254740993L},{"otherId",9L}}));
+        Assert.False(parsed.IsReadOnly(new Dictionary<string,object?>{{"ownerId",9007199254740992L},{"otherId",9L}}));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-readonly-int64");
+        var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,output,"Example.ReadonlyInteger");
+            await Probe(output,"int64");
+        }
+        finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
+    }
+
     /// <summary>两个条件字段只在详情可读，列表没有该两列；不扩大现有页面读取上限。</summary>
     private static Metarill.Core.Metadata.MetadataCatalog Catalog()
     {

@@ -23,6 +23,45 @@ internal static class OriginalUniappDetailRenderer
       return value;
     },
 """;
+    private const string ReadOnlyIntegerComparison="""
+    // int64 响应使用字符串，避免 JS Number 舍入相邻ID。正负号、小数边界及 null 按服务端规则处理。
+    originalReadOnlyCompare(operation, left, right) {
+      const read = (value) => {
+        if (value === null || value === '') value = '0';
+        if (typeof value === 'number' && Number.isSafeInteger(value)) value = String(value);
+        if (typeof value !== 'string' || !/^-?[0-9]+(?:\.[0-9]+)?$/.test(value)) throw new Error('只读条件的数字字段无效');
+        const negative = value.startsWith('-');
+        const [whole, fraction = ''] = (negative ? value.slice(1) : value).split('.');
+        const integer = whole.replace(/^0+/, '') || '0';
+        const decimal = fraction.replace(/0+$/, '');
+        return { integer, decimal, negative: negative && (integer !== '0' || decimal !== '') };
+      };
+      const equality = ['==', '===', '!=', '!=='].includes(operation);
+      if (equality && (left === null || right === null)) return operation.startsWith('!') !== (left === right);
+      const a = read(left), b = read(right);
+      let order;
+      if (a.negative !== b.negative) order = a.negative ? -1 : 1;
+      else {
+        const length = Math.max(a.decimal.length, b.decimal.length);
+        const x = a.decimal.padEnd(length, '0'), y = b.decimal.padEnd(length, '0');
+        order = a.integer.length - b.integer.length ||
+          (a.integer === b.integer ? (x === y ? 0 : x < y ? -1 : 1) : a.integer < b.integer ? -1 : 1);
+        if (a.negative) order = -order;
+      }
+      switch (operation) {
+        case '==': case '===': return order === 0;
+        case '!=': case '!==': return order !== 0;
+        case '>': return order > 0;
+        case '>=': return order >= 0;
+        case '<': return order < 0;
+        case '<=': return order <= 0;
+        default: throw new Error('只读比较未发布');
+      }
+    },
+    originalCheckedReadOnly(check) {
+      try { return Boolean(check()); } catch { return true; }
+    },
+""";
     /// <summary>完整渲染单个原详情页，不写生成产物，不依赖旧Java服务或开发机绝对路径。</summary>
     internal static string Render(GenerationModel model, TableModel table, PageModel page, IReadOnlyList<ChildModel> children)
     {
@@ -61,6 +100,7 @@ internal static class OriginalUniappDetailRenderer
         var custom=OriginalUniappDetailButtons.Render(c);var position=Integer(page.Source.Extra,"detailPageButtonsPosition",0);if(position is not(0 or 1))throw new InvalidOperationException("原详情按钮位置仅支持0（固定底部）或1（子表前）。");
         var readOnly=PageReadOnlyCompilation.Compile(page);
         if(readOnly?.UsesObjectPaths==true)c.Methods.AppendLine(ReadOnlyObjectPath);
+        if(readOnly?.UsesIntegerComparisons==true)c.Methods.AppendLine(ReadOnlyIntegerComparison);
         c.Computed.AppendLine($$"""
 parentId() { return this.parent_id || ''; },
 originalChildrenReady() { return this.recordReady && this.permissionsReady && Boolean(this.id) && originalRecordId(this.entity.id)===this.id; },

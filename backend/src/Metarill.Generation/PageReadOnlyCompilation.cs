@@ -4,7 +4,7 @@ using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
 /// <summary>详情只读条件的静态表达式及最小字段依赖；不把原元数据文本直接插入Vue脚本。</summary>
-internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOnlyList<ColumnModel> Dependencies,bool UsesObjectPaths)
+internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOnlyList<ColumnModel> Dependencies,bool UsesObjectPaths,bool UsesIntegerComparisons)
 {
     /// <summary>只绑定本页真实可读字段；嵌套路径必须有明确JSON对象来源，歧义或未知字段拒绝生成。</summary>
     internal static PageReadOnlyCompilation? Compile(PageModel page)
@@ -26,11 +26,16 @@ internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOn
             if(!columns[field.Split('.')[0]].Source.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||columns[field.Split('.')[0]].IsJsonArray)
                 throw new InvalidOperationException("只读条件嵌套路径必须引用已声明的JSON对象字段："+page.Source.Id);
         var paths=rule.Fields.Where(field=>field.Contains('.')).Select((field,index)=>(Field:field,Local:"path"+index)).ToArray();
+        var integers=false;
         var javascript=rule.ToJavaScript(field=>
         {
             if(field.Contains('.'))return paths.Single(path=>path.Field==field).Local;
             var name=columns[field].JsonName;
             return PlainProperty().IsMatch(name)?"this.entity."+name:"this.entity["+JsonSerializer.Serialize(name)+"]";
+        }, field=>!field.Contains('.')&&columns[field].Type is ("long" or "long?"), (operation,left,right)=>
+        {
+            integers=true;
+            return "this.originalReadOnlyCompare("+JsonSerializer.Serialize(operation)+","+left+","+right+")";
         });
         if(paths.Length>0)
         {
@@ -44,7 +49,8 @@ internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOn
             });
             javascript="(("+parameters+") => (Boolean(this.id) && ("+missing+")) || ("+javascript+"))("+string.Join(",",bindings)+")";
         }
-        return new(javascript,Array.AsReadOnly(columns.Values.Distinct().ToArray()),paths.Length>0);
+        if(integers)javascript="this.originalCheckedReadOnly(() => ("+javascript+"))";
+        return new(javascript,Array.AsReadOnly(columns.Values.Distinct().ToArray()),paths.Length>0,integers);
     }
     /// <summary>已有普通字段继续保持原点号访问；其它合法JSON属性采用固定转义括号，不能生成脚本语法。</summary>
     [GeneratedRegex("^[A-Za-z_$][A-Za-z0-9_$]*$",RegexOptions.CultureInvariant)]private static partial Regex PlainProperty();

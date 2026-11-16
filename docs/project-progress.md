@@ -230,6 +230,7 @@
 | B151 | ✅ 已完成 | 详情页 JSON 对象子属性只读条件 | 原详情按已声明路径兼容 JSON 对象和历史文本；已保存记录缺少条件值或 JSON 无法解析时保持只读。兼容原权限和父只读，实际生成 Vue 验证。 | [详情只读编译](../backend/src/Metarill.Generation/PageReadOnlyCompilation.cs)，2026-11-16 |
 | B152 | ✅ 已完成 | 详情表单自动保存与回显 | 自动保存只处理可编辑字段的用户变化，后端读取和保存回显不会再次发起保存。实际生成 Vue 验证刷新、改值、服务端规范化回显、下一次正常编辑。B151／B152 共 27 项定向回归。 | [原详情表单模板](../backend/templates/uniapp/original-detail.methods.js.tpl)，2026-11-16 |
 | B153 | ✅ 原页面账号上下文条件完成 | 当页账号、商户、经销商、上级经销商及门店 | 原五种 WhereSql 等值从认证账号取值，支持普通／非冗余查询、关系候选及文件来源。新增为省略归属补值，更新和复制检查最终归属，缺少配置值时拒绝访问。固定跨表目标同时用于静态投影或维护时仍需独立范围。数据 46、文件 34、生成 40 项隔离回归通过。 | [账号变量](../backend/src/Metarill.Core/Security/AccountConditionVariables.cs)，2026-11-16 |
+| B154 | ✅ 已完成 | 大整数、数字阈值与复合详情只读 | int64 字段的字符串传输按实际数值与数字常量或另一 int64 字段比较，区分相邻雪花 ID、负数和小数阈值。畸形已载入值保持只读。生成 57 项、数据规则 75 项隔离回归通过，包括实际生成 Vue。 | [只读编译](../backend/src/Metarill.Generation/PageReadOnlyCompilation.cs)，2026-11-16 |
 
 ## 三、独立应用、初始化、助手与 Agent
 

@@ -3,6 +3,30 @@ import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {mountGenerated} from './GeneratedOriginalVueHarness.mjs'
 const source=await readFile(join(process.argv[2],'frontend/pages/yzp/customer-detail-101.vue'),'utf8')
+if (process.argv[3] === 'int64') {
+ const fixture=mountGenerated(source,{}, {id:'7'})
+ try {
+  await fixture.flush()
+  fixture.respond(fixture.requests.find(request=>request.options.url.includes('/detail/7')),
+    {id:'7',name:'记录',ownerId:'9007199254740992',otherId:'9'})
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,false)
+  fixture.state.entity.ownerId='9007199254740993'
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,true)
+  fixture.state.entity.ownerId='-2'
+  fixture.state.entity.otherId='-10'
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,true)
+  fixture.state.entity.ownerId='-20'
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,false)
+  fixture.state.entity.ownerId=9007199254740992
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,true)
+ } finally {fixture.app.unmount()}
+ process.exit(0)
+}
 if (process.argv[3] === 'json-form') {
  const fixture=mountGenerated(source,{}, {id:'7'})
  try {
