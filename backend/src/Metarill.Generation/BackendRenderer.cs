@@ -411,7 +411,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if (!string.IsNullOrWhiteSpace(column.Source.DefaultValue))
                     result.AppendLine($"        else entity.{column.Property} = {DefaultExpression(column)};");
             }
-            result.Append(Audit(table, true));
+            result.Append(PageInitialization(model,table,page)).Append(Audit(table, true));
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                     .AppendLine($"        entity.{column.Property} = {ScopeValue(column, "parentId")};");
@@ -642,14 +642,16 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         return result.ToString();
     }
     /// <summary>把固定默认值转为安全的类型表达式。</summary>
-    internal static string DefaultExpression(ColumnModel column)
+    internal static string DefaultExpression(ColumnModel column)=>DefaultExpression(column,column.Source.DefaultValue);
+
+    /// <summary>页面初始值和字段默认值共用物理标量转换，保持原请求格式。</summary>
+    private static string DefaultExpression(ColumnModel column,string raw)
     {
-        if (column.Type == "string?") return Literal(column.Source.DefaultValue);
+        if (column.Type == "string?") return Literal(raw);
         // 每次创建重新分配默认字节，不能共享可变数组；SQL形式仍只由数据库适配器生成。
-        if(column.Type=="byte[]?")return "global::System.Convert.FromBase64String("+Literal(Convert.ToBase64String(global::Metarill.Core.Contracts.BinaryFieldValue.DefaultBytes(column.Source.DefaultValue,column.Source.ColumnLength)!))+")";
+        if(column.Type=="byte[]?")return "global::System.Convert.FromBase64String("+Literal(Convert.ToBase64String(global::Metarill.Core.Contracts.BinaryFieldValue.DefaultBytes(raw,column.Source.ColumnLength)!))+")";
         try
         {
-            var raw = column.Source.DefaultValue;
             if(column.Type=="TimeSpan?")
             {
                 var clock=TimeFieldCompilation.IsClock(column)?global::Metarill.Core.Contracts.ClockTimeValue.DefaultText(raw,global::Metarill.Core.Metadata.MetadataColumnTypePolicy.TemporalPrecision(column.Source)):global::Metarill.Core.Contracts.SqlTimeValue.DefaultText(raw,global::Metarill.Core.Metadata.MetadataColumnTypePolicy.TemporalPrecision(column.Source));

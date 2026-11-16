@@ -155,7 +155,7 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine("        var relationContext = new Dictionary<string, JsonElement>(StringComparer.Ordinal);");
             foreach(var parent in dependency.ContextValues)
             {
-                var fallback=string.IsNullOrWhiteSpace(parent.Source.DefaultValue)?$"default({parent.Type})":BackendRenderer.DefaultExpression(parent);
+                var fallback=BackendRenderer.PageInitialValue(model,table,page,parent) ?? (string.IsNullOrWhiteSpace(parent.Source.DefaultValue)?$"default({parent.Type})":BackendRenderer.DefaultExpression(parent));
                 var value="existing is null ? "+fallback+" : existing."+parent.Property;
                 if(parent.Source.ColumnName=="yz_project_id")value=ScopeValue(parent,"actor.ProjectId");
                 else if(page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==parent.Source.Id))value=ScopeValue(parent,"parentId!");
@@ -252,7 +252,8 @@ public sealed partial class {{page.Name}}ImportRequest
                 foreach(var parent in dependency.ContextValues)
                     result.AppendLine($"                    if(crossContext.TryGetValue({Literal(parent.JsonName)},out var crossValue{parent.Source.Id}))relationContext[{Literal(parent.JsonName)}]=crossValue{parent.Source.Id};");
             }
-            else if(contextual&&dependency.ContextValues.Any(parent=>parent.Source.Id==column.Source.Id))result.AppendLine($"                    relationContext[{Literal(column.JsonName)}] = values[{Literal(column.JsonName)}];");
+            else if(contextual&&dependency.ContextValues.Any(parent=>parent.Source.Id==column.Source.Id))
+                result.AppendLine($"                    {(BackendRenderer.PageInitialValue(model,table,page,column) is null?"":"if(existing is not null) ")}relationContext[{Literal(column.JsonName)}] = values[{Literal(column.JsonName)}];");
             result.AppendLine("                    break;").AppendLine("                }");
         }
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
