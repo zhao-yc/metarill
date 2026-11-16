@@ -35,15 +35,15 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(target.IsRongyu is not(0 or 1))throw new NotSupportedException("跨表读取要求普通实体目标。");ValidateTarget(target);
                     var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==binding.Levels[index].PageId&&item.ConfigTableId==target.Id)??throw new InvalidOperationException("跨表目标页与固定目标表不符。");
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
-                    var global=GlobalCrossTableTarget.Declared(target);if(global)GlobalCrossTableTarget.Require(catalog,target,page);else if(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
+                    var global=GlobalCrossTableTarget.Declared(target);if(!global&&(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project)))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
                     if(display.LogicalType.ToLowerInvariant()!="string"||ExactDataManageValues.IsSensitiveField(display.ColumnName))throw new NotSupportedException("跨表名称须为非凭据单值字符串。");
+                    if(global)GlobalCrossTableTarget.RequireSingleName(catalog,target,page,display);
                     if(target.IsRongyu==0)
                     {
-                        var proof=new Builder(catalog,target.Id,matching:true).Compile([display.ColumnName],[]);if(proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
+                        var proof=new Builder(catalog,target.Id,matching:!global).Compile([display.ColumnName],[]);if(proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
                     }
-                    else if(global)GlobalCrossTableTarget.RequireName(catalog,target,page,display);
-                    else if(!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
+                    else if(!global&&!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
                     ColumnMetadata? parent=null;
                     if(index>0)
                     {

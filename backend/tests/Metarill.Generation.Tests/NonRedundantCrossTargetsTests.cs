@@ -19,6 +19,58 @@ public sealed class NonRedundantCrossTargetsTests
         try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),"Example.CrossTarget");await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.Equal(before,JsonSerializer.Serialize(c));Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(c,"Example.CrossTarget")));foreach(var target in c.ConfigTables.Where(x=>x.Id!="2"&&x.IsRongyu==0)){var storage=MetadataStoragePolicy.ForTable(c,target);Assert.Equal(scenario=="physical",storage.PhysicalColumns.Any(x=>x.ColumnName=="name"));}}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>显式全局中层使用固定派生名称，来源自己的逻辑路径仍按原项目隔离。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Independent_cross_tree_uses_published_global_derived_level(bool rowProject)
+    {
+        const string ns = "Example.GlobalDerivedCross";
+        var catalog = Catalog("nr_cross_target", "string", "int64", "mixed");
+        var target = catalog.ConfigTables.Single(table => table.Id == "4");
+        var producer = catalog.ConfigTables.Single(table => table.Id == "6");
+        foreach (var table in new[] { target, producer })
+            table.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        var targetPage = catalog.ConfigPages.Single(page => page.ConfigTableId == target.Id);
+        targetPage.WhereSql = "status=1";
+        catalog.ConfigPages.Single(page => page.ConfigTableId == producer.Id).WhereSql = "";
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "global_company_name", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
+            ColumnName = "company_name", LogicalType = "string",
+            Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("company.name") }
+        });
+        if (!rowProject)
+        {
+            var project = catalog.ConfigColumns.Single(column => column.ConfigTableId == target.Id && column.ColumnName == "yz_project_id");
+            catalog.ConfigColumns.Remove(project);
+            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == project.Id);
+        }
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        sourcePage.IsImport = sourcePage.IsExport = 1;
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = source.Pages.Single(item => item.Source.Id == "201");
+        var plan = Assert.Single(CrossTableReadCompilation.ForService(model, source, page));
+        Assert.True(plan.Levels[1].DerivedName);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        Assert.Contains(rowProject ? "CompileGlobalCandidate" : "CompileRelation", NonRedundantCrossTargetsRenderer.Service(model, source, page, plan, 1));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-derived-cross");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.NrCrossTargetSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>同一独立R0表可处在不同层位，计划和SQL别名按层区分，不借用来源自身覆盖。</summary>
     [Theory][InlineData("physical")][InlineData("derived")]
     public async Task Repeated_independent_target_roles_generate_without_alias_collision(string scenario)

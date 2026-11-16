@@ -51,6 +51,8 @@ internal static class SharedCrossTableCompilation
                         throw new NotSupportedException("共享R0页级覆盖不能改变固定存储定义。");
                     var read=CrossTableReadCompilation.Resolve(model,table,page,control);if(read.Definition is not{} definition)throw new InvalidOperationException(read.Reason??"共享同伴缺少完整读取链。");
                     if(definition.Levels.Any(l=>l.Target.Source.Id==table.Source.Id))throw new NotSupportedException("共享级联的来源自参与路径尚需独立聚合证明。");
+                    if (definition.Levels.Any(level=>level.Target.IsGlobal&&level.Target.Source.IsRongyu==0))
+                        throw new NotSupportedException("全局非冗余层用于独立跨表路径，共享槽的存储约束尚未接线。");
                     if (definition.Levels.Any(level=>level.Target.IsGlobal) && !CrossTableFrontendProof.KeepsStorageDefinition(model, page, control))
                         throw new NotSupportedException("全局共享控制列的页覆盖不能改变固定存储与传播定义。");
                     var levels=new List<CrossTableWriteLevel>();var slots=new List<SharedCrossTableSlot>();
