@@ -9,6 +9,20 @@ namespace Metarill.Generation;
 /// <summary>原v8详情模板的C#渲染入口；DOM与操作协议来自原GenerateDetail，仅增加必要身份/生命周期边界。</summary>
 internal static class OriginalUniappDetailRenderer
 {
+    private const string ReadOnlyObjectPath="""
+    // 只读取元数据声明的JSON对象自身属性，兼容旧接口的对象文本回显。
+    originalReadOnlyPath(field, path) {
+      let value = this.entity[field];
+      if (typeof value === 'string') {
+        try { value = JSON.parse(value); } catch { return undefined; }
+      }
+      for (const key of path) {
+        if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.prototype.hasOwnProperty.call(value, key)) return undefined;
+        value = value[key];
+      }
+      return value;
+    },
+""";
     /// <summary>完整渲染单个原详情页，不写生成产物，不依赖旧Java服务或开发机绝对路径。</summary>
     internal static string Render(GenerationModel model, TableModel table, PageModel page, IReadOnlyList<ChildModel> children)
     {
@@ -45,10 +59,12 @@ internal static class OriginalUniappDetailRenderer
             c.Mixins.Insert(0, "createDetailLayoutMixin(" + layout.GetRawText() + "," + Js(layoutFields) + ")");
         }
         var custom=OriginalUniappDetailButtons.Render(c);var position=Integer(page.Source.Extra,"detailPageButtonsPosition",0);if(position is not(0 or 1))throw new InvalidOperationException("原详情按钮位置仅支持0（固定底部）或1（子表前）。");
+        var readOnly=PageReadOnlyCompilation.Compile(page);
+        if(readOnly?.UsesObjectPaths==true)c.Methods.AppendLine(ReadOnlyObjectPath);
         c.Computed.AppendLine($$"""
 parentId() { return this.parent_id || ''; },
 originalChildrenReady() { return this.recordReady && this.permissionsReady && Boolean(this.id) && originalRecordId(this.entity.id)===this.id; },
-readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Boolean(this.id && !this.recordReady) || Boolean(this.parentReadOnlyCondition || this.routeReadOnly || getApp().globalData.readOnly || (this.page_is_function_table ? !this.page_is_update : this.id ? !this.page_is_update : !this.page_is_new)) || !yzp.hasPagePermission(this.page_sn,this.page_is_function_table || this.id ? 'is_update' : 'is_new'){{(PageReadOnlyCompilation.Compile(page) is {} readOnly ? " || Boolean("+readOnly.JavaScript+")" : "")}}; },
+readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Boolean(this.id && !this.recordReady) || Boolean(this.parentReadOnlyCondition || this.routeReadOnly || getApp().globalData.readOnly || (this.page_is_function_table ? !this.page_is_update : this.id ? !this.page_is_update : !this.page_is_new)) || !yzp.hasPagePermission(this.page_sn,this.page_is_function_table || this.id ? 'is_update' : 'is_new'){{(readOnly is not null ? " || Boolean("+readOnly.JavaScript+")" : "")}}; },
 """);
         c.Data.Append($"page_is_update:{ChildrenCompilation.CanUpdate(page).ToString().ToLowerInvariant()},page_is_save:{ChildrenCompilation.CanUpdate(page).ToString().ToLowerInvariant()},page_is_delete:{(page.Source.IsDelete==1).ToString().ToLowerInvariant()},page_is_new:{(page.Source.IsNew==1).ToString().ToLowerInvariant()},page_is_copy:{(page.Source.IsCopy==1).ToString().ToLowerInvariant()},page_is_function_table:{(table.Source.IsFunctionTable==1).ToString().ToLowerInvariant()},detailGridColumns:{c.GridColumns},permissionVersion:0,permissionsReady:false,recordReady:false,saving:false,routeReadOnly:false,changes:{{}},");
         var childMarkup=Children(c);var values=new Dictionary<string,string>

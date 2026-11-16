@@ -41,9 +41,28 @@ public sealed class GeneratedReadOnlyConditionTests
         var catalog=Catalog();var page=catalog.ConfigPages[0];Assert.Null(Compile());
         page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("locked");Assert.Equal("this.entity.locked",Compile()!.JavaScript);
         catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",ColumnName="payload",LogicalType="json"});catalog.ConfigPageColumns.Add(new(){Id="118",ConfigPageId="101",ConfigColumnId="18"});
-        page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("payload.locked && payload.flags.active");var condition=Compile()!;Assert.Single(condition.Dependencies);Assert.Equal("payload",condition.Dependencies[0].JsonName);Assert.Equal("(this.entity.payload[\"locked\"] && this.entity.payload[\"flags\"][\"active\"])",condition.JavaScript);
+        page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("payload.locked && payload.flags.active");var condition=Compile()!;Assert.Single(condition.Dependencies);Assert.Equal("payload",condition.Dependencies[0].JsonName);Assert.True(condition.UsesObjectPaths);Assert.Contains("this.originalReadOnlyPath(\"payload\",[\"flags\",\"active\"])",condition.JavaScript);
         PageReadOnlyCompilation? Compile()=>PageReadOnlyCompilation.Compile(GenerationModel.Create(catalog,"Example.Readonly").Tables.Single().Pages.Single());
     }
+    /// <summary>原详情读取对象及历史JSON文本，坏对象不会让页面崩溃或开放写入；回显不会触发第二次自动保存。</summary>
+    [Fact]
+    public async Task Json_readonly_and_form_autosave_respect_actual_edits()
+    {
+        var catalog=Catalog();
+        catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",ColumnName="payload",LogicalType="json"});
+        catalog.ConfigPageColumns.Add(new(){Id="118",ConfigPageId="101",ConfigColumnId="18"});
+        catalog.ConfigPages[0].Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("payload.flags.locked === true");
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="12").Extra["isAutoSaveAfterChange"]=JsonSerializer.SerializeToElement(1);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-json-readonly-form");
+        var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,output,"Example.ReadonlyForm");
+            await Probe(output,"json-form");
+        }
+        finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
+    }
+
     /// <summary>两个条件字段只在详情可读，列表没有该两列；不扩大现有页面读取上限。</summary>
     private static Metarill.Core.Metadata.MetadataCatalog Catalog()
     {
@@ -53,10 +72,10 @@ public sealed class GeneratedReadOnlyConditionTests
         return catalog;
     }
     /// <summary>执行实际Vue编译器和原详情方法；网络/权限仅为明确夹具，不宣称浏览器或Production身份验收。</summary>
-    private static async Task Probe(string output,[CallerFilePath]string source="")
+    private static async Task Probe(string output,string scenario="standard",[CallerFilePath]string source="")
     {
         var start=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_HOST_PATH")??"node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};
-        start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(source)!,"GeneratedReadOnlyConditionProbe.mjs"));start.ArgumentList.Add(output);
+        start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(source)!,"GeneratedReadOnlyConditionProbe.mjs"));start.ArgumentList.Add(output);start.ArgumentList.Add(scenario);
         using var process=Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try{await process.WaitForExitAsync(timeout.Token);}catch{process.Kill(true);throw;}Assert.True(process.ExitCode==0,await stdout+await stderr);
     }

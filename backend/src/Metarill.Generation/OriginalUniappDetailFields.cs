@@ -32,7 +32,9 @@ internal static class OriginalUniappDetailFields
         c.Fields.AppendLine("</uni-forms-item>");
         var watch = new StringBuilder();
         if (Enabled(column.Source.Extra, "isAutoPostBack")) watch.Append($"var parameters=uni.getStorageSync(this.formParametersName)||{{}}; parameters.{GenerationModel.Camel(c.Table.Source.TableName)}=parameters.{GenerationModel.Camel(c.Table.Source.TableName)}||{{}}; parameters.{GenerationModel.Camel(c.Table.Source.TableName)}.{name}=newVal; uni.setStorageSync(this.formParametersName,parameters); this.initDynamicLists();");
-        if (Enabled(f.Settings.Extra, "isAutoSaveAfterChange")) watch.Append("if(this.loadEntitySuccess && JSON.stringify(newVal)!==JSON.stringify(oldVal)) this.saveEntity();");
+        // 配置自动保存的字段只处理真正可编辑的本地变更；服务器回显不能再次触发保存。
+        if (!f.ReadOnly && Enabled(f.Settings.Extra, "isAutoSaveAfterChange"))
+            watch.Append($"if(this.loadEntitySuccess && !this._applyingServerForm && !this.{ro} && JSON.stringify(newVal)!==JSON.stringify(oldVal)) this.saveEntity();");
         if (watch.Length > 0) c.Watches.AppendLine($"'entity.{name}'(newVal,oldVal) {{ if(!this._alive || this.readOnlyCondition) return; {watch} }},");
     }
 

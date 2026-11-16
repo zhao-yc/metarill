@@ -240,7 +240,7 @@ export default {
               uni.showModal({ showCancel: false, content: '详情返回记录与当前页面不一致，请刷新后重试' });
               return;
             }
-            that.entity = res.data;
+            that.applyOriginalServerForm(res.data);
             //##get_entity_img_to_ary##
             that.markOriginalRecordReady();
             that.initLists();
@@ -297,7 +297,7 @@ export default {
               }
               that.notifyMenuMutation();
               that.id = originalRecordId(res.data.id);
-              that.entity = res.data;
+              that.applyOriginalServerForm(res.data);
               that.markOriginalRecordReady();
               // 新建后先确认真实记录ID，再继续原“先保存再执行”按钮动作。
               if (successFunction) {

@@ -4,7 +4,7 @@ using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
 /// <summary>详情只读条件的静态表达式及最小字段依赖；不把原元数据文本直接插入Vue脚本。</summary>
-internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOnlyList<ColumnModel> Dependencies)
+internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOnlyList<ColumnModel> Dependencies,bool UsesObjectPaths)
 {
     /// <summary>只绑定本页真实可读字段；嵌套路径必须有明确JSON对象来源，歧义或未知字段拒绝生成。</summary>
     internal static PageReadOnlyCompilation? Compile(PageModel page)
@@ -25,13 +25,26 @@ internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOn
         foreach(var field in rule.Fields.Where(field=>field.Contains('.')))
             if(!columns[field.Split('.')[0]].Source.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||columns[field.Split('.')[0]].IsJsonArray)
                 throw new InvalidOperationException("只读条件嵌套路径必须引用已声明的JSON对象字段："+page.Source.Id);
+        var paths=rule.Fields.Where(field=>field.Contains('.')).Select((field,index)=>(Field:field,Local:"path"+index)).ToArray();
         var javascript=rule.ToJavaScript(field=>
         {
-            var parts=field.Split('.');var name=columns[parts[0]].JsonName;
-            var result=PlainProperty().IsMatch(name)?"this.entity."+name:"this.entity["+JsonSerializer.Serialize(name)+"]";
-            return result+string.Concat(parts.Skip(1).Select(part=>"["+JsonSerializer.Serialize(part)+"]"));
+            if(field.Contains('.'))return paths.Single(path=>path.Field==field).Local;
+            var name=columns[field].JsonName;
+            return PlainProperty().IsMatch(name)?"this.entity."+name:"this.entity["+JsonSerializer.Serialize(name)+"]";
         });
-        return new(javascript,Array.AsReadOnly(columns.Values.Distinct().ToArray()));
+        if(paths.Length>0)
+        {
+            // 已保存记录缺少条件值时维持只读；新增仍能输入对象，显式 null 保留原比较语义。
+            var parameters=string.Join(",",paths.Select(path=>path.Local));
+            var missing=string.Join(" || ",paths.Select(path=>path.Local+" === undefined"));
+            var bindings=paths.Select(path=>
+            {
+                var parts=path.Field.Split('.');
+                return "this.originalReadOnlyPath("+JsonSerializer.Serialize(columns[parts[0]].JsonName)+","+JsonSerializer.Serialize(parts[1..])+")";
+            });
+            javascript="(("+parameters+") => (Boolean(this.id) && ("+missing+")) || ("+javascript+"))("+string.Join(",",bindings)+")";
+        }
+        return new(javascript,Array.AsReadOnly(columns.Values.Distinct().ToArray()),paths.Length>0);
     }
     /// <summary>已有普通字段继续保持原点号访问；其它合法JSON属性采用固定转义括号，不能生成脚本语法。</summary>
     [GeneratedRegex("^[A-Za-z_$][A-Za-z0-9_$]*$",RegexOptions.CultureInvariant)]private static partial Regex PlainProperty();

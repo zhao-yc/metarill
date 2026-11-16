@@ -3,6 +3,46 @@ import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {mountGenerated} from './GeneratedOriginalVueHarness.mjs'
 const source=await readFile(join(process.argv[2],'frontend/pages/yzp/customer-detail-101.vue'),'utf8')
+if (process.argv[3] === 'json-form') {
+ const fixture=mountGenerated(source,{}, {id:'7'})
+ try {
+  await fixture.flush()
+  const detail=fixture.requests.find(request=>request.options.url.includes('/detail/7'))
+  fixture.respond(detail,{id:'7',name:'原记录',payload:'{"flags":{"locked":false}}'})
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,false)
+  fixture.state.loadEntitySuccess=true
+  fixture.state.getEntity()
+  fixture.respond(fixture.requests.filter(request=>request.options.url.includes('/detail/7')).at(-1),{id:'7',name:'刷新回显',payload:{flags:{locked:false}}})
+  await fixture.flush()
+  assert.equal(fixture.writes().length,0)
+  for (const invalid of [null,'坏数据',{}, {flags:[]}]) {
+   fixture.state.entity.payload=invalid
+   await fixture.flush()
+   assert.equal(fixture.state.readOnlyCondition,true)
+  }
+  fixture.state.entity.payload={flags:{locked:true}}
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,true)
+  fixture.state.entity.name='只读期间的迟到变化'
+  await fixture.flush()
+  assert.equal(fixture.writes().length,0)
+  fixture.state.entity.payload={flags:{locked:false}}
+  await fixture.flush()
+  fixture.state.entity.name='用户更改'
+  await fixture.flush()
+  assert.equal(fixture.writes().length,1)
+  fixture.respond(fixture.writes()[0],{id:'7',name:'服务器规范值',payload:{flags:{locked:false}}})
+  await fixture.flush()
+  assert.equal(fixture.writes().length,1)
+  assert.equal(fixture.state.entity.name,'服务器规范值')
+  fixture.state.entity.name='下一次用户更改'
+  await fixture.flush()
+  assert.equal(fixture.writes().length,2)
+  console.log('通过：只读JSON对象与历史文本、缺失保护及自动保存回显去重')
+ } finally {fixture.app.unmount()}
+ process.exit(0)
+}
 const fixture=mountGenerated(source,{is_props:true,props_id:'7'})
 try {
  await fixture.flush()

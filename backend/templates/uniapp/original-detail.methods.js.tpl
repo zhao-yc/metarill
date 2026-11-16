@@ -1,6 +1,6 @@
 /** 页面/弹层进入使用同一实例边界，旧回调不能写到下一条记录。 */
 beginOriginalDetail(options) {
- this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={##defaults##};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
+ this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={##defaults##};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this._applyingServerForm=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
 },
 /** 卸载只取消本详情的任务与订阅，不触发保存或父表刷新。 */
 disposeOriginalDetail() {this._alive=false;this._detailEpoch=(this._detailEpoch||0)+1;(this._detailTasks||[]).forEach(task=>task?.abort?.());this._detailTasks=[];this.disposeMultiSelections?.();},
@@ -17,6 +17,13 @@ originalRequest(options) {
  const complete=options.complete,success=options.success,fail=options.fail;
  const task=yzp.request({...options,isCurrent:active,success:res=>{if(active())success?.call(options,res);},fail:error=>{if(active())fail?.call(options,error);},complete:value=>{if(this._alive&&epoch===this._detailEpoch&&parent===this.parent_id&&identity===this.currentIdentity()){if(mutation)this.saving=false;complete?.call(options,value);}}});
  if(task)this._detailTasks.push(task);else if(mutation)this.saving=false;return task;
+},
+/** 详情读取和保存回显可能改字段，Vue 本轮 watcher 只更新显示与候选，不触发自动保存。 */
+applyOriginalServerForm(entity) {
+ const token=Symbol();
+ this._applyingServerForm=token;
+ this.entity=entity;
+ this.$nextTick(()=>{if(this._applyingServerForm===token)this._applyingServerForm=false;});
 },
 /** 保留原300ms候选/控件准备时序，只有实际VO标识一致才开放子表。 */
 markOriginalRecordReady() {this.recordReady=Boolean(this.id&&originalRecordId(this.entity.id)===this.id);const current=this.originalContext();setTimeout(()=>{if(current())this.loadEntitySuccess=true;},300);},
