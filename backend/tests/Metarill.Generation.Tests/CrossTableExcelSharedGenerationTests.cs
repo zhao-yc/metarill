@@ -54,6 +54,57 @@ public sealed class CrossTableExcelSharedGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>冗余同页两种级联分别解析路径，原列表 Excel 导出后能按同一表头回读。</summary>
+    [Fact]
+    public async Task Redundant_mixed_cascades_publish_and_roundtrip_original_excel()
+    {
+        const string prefix = "mixed_excel";
+        const string ns = "Example.MixedRedundantExcel";
+        var catalog = CascadeMixedRequiredTests.Catalog(prefix);
+        RedundantMultiNameCacheTests.Published(catalog);
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        sourcePage.IsImport = 1;
+        sourcePage.IsExport = 1;
+        foreach (var (id, title) in new[] { ("25", "地区路径"), ("81", "分类路径") })
+            catalog.ConfigColumns.Single(column => column.Id == id).Name = title;
+        Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, ns)));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-r1-mixed-cascade-excel");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var runtime = new SharedExcelReadTransport(assembly, ns, "MixedExcelSource");
+            runtime.Add("MixedExcelCountry", new Dictionary<string, object?>
+                { ["Id"] = 11, ["Name"] = "国家", ["Status"] = 1, ["YzProjectId"] = 9007199254740993L });
+            runtime.Add("MixedExcelArea", new Dictionary<string, object?>
+                { ["Id"] = 21, ["Name"] = "地区", ["MixedExcelCountryId"] = 11, ["Status"] = 1, ["YzProjectId"] = 9007199254740993L });
+            runtime.Add("MixedExcelPlace", new Dictionary<string, object?>
+                { ["Id"] = 31, ["Name"] = "地点", ["MixedExcelAreaId"] = 21, ["Status"] = 1, ["YzProjectId"] = 9007199254740993L });
+            runtime.Add("MixedExcelTree", new Dictionary<string, object?>
+                { ["Id"] = 41, ["Name"] = "分类", ["Status"] = 1, ["YzProjectId"] = 9007199254740993L });
+            runtime.Add("MixedExcelTree", new Dictionary<string, object?>
+                { ["Id"] = 42, ["Name"] = "子类", ["ParentMixedExcelTreeId"] = 41, ["Status"] = 1, ["YzProjectId"] = 9007199254740993L });
+            runtime.Add("MixedExcelSource", new Dictionary<string, object?>
+                { ["Id"] = 101, ["CountryId"] = 11, ["AreaId"] = 21, ["PlaceId"] = 31, ["TreeId"] = 42, ["YzProjectId"] = 9007199254740993L });
+
+            var excel = await runtime.Export();
+            var row = Assert.Single(excel.Rows);
+            var cross = row[excel.Headers.ToList().IndexOf("地区路径")];
+            var self = row[excel.Headers.ToList().IndexOf("分类路径")];
+            Assert.Equal("国家/地区/地点", cross);
+            Assert.Equal("分类/子类", self);
+            var parsed = await runtime.Parse(new() { ["分类路径"] = self, ["地区路径"] = cross });
+            Assert.Equal("42", parsed["treeId"].ToString());
+            Assert.Equal("11", parsed["countryId"].ToString());
+            Assert.Equal("21", parsed["areaId"].ToString());
+            Assert.Equal("31", parsed["placeId"].ToString());
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>标题只用于独占元数据，原页面生成器／模板及字段归属保持。</summary>
     internal static MetadataCatalog Catalog(string profile)
     {
