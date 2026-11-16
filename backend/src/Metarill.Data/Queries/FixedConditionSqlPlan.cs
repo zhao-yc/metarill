@@ -50,6 +50,13 @@ public sealed class FixedConditionSqlPlan
         }).ToArray())}).ToArray();
         return new(Array.AsReadOnly(bound),Array.Empty<string>());
     }
+    /// <summary>账号条件只绑定认证身份中的原业务归属，缺失值直接拒绝，避免把空归属变成宽范围。</summary>
+    public FixedConditionSqlPlan BindAccount(Metarill.Core.Security.RuntimeActor actor)
+    {
+        if(Variables.Count==0)return this;
+        return BindVariables(Variables.ToDictionary(variable=>variable,variable=>(object?)Metarill.Core.Security.AccountConditionVariables.Require(actor,variable),StringComparer.Ordinal));
+    }
+
     /// <summary>页面条件与控件条件始终AND合并，保留各自类型和值，不允许同字段采用矛盾的发布类型。</summary>
     public FixedConditionSqlPlan And(FixedConditionSqlPlan other)
     {

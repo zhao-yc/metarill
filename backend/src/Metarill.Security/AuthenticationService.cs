@@ -126,10 +126,21 @@ public sealed partial class AuthenticationService(SqlRowStore store,IIdGenerator
         else if(grantId is not null)return null;
         var actor=new RuntimeActor(SqlRowStore.Id(account),SqlRowStore.Text(account,"name"),realm.IsPlatformAdministrator,project,realm.AdminTypeId)
         {
-            AccountRealName=SqlRowStore.Text(account,"real_name")
+            AccountRealName=SqlRowStore.Text(account,"real_name"),
+            MerchantId=ReadAccountScopeId(account,"merchant_id"),
+            DealerId=ReadAccountScopeId(account,"dealer_id"),
+            MainDealerId=ReadAccountScopeId(account,"main_dealer_id"),
+            StoreId=ReadAccountScopeId(account,"store_id")
         };
         return new AuthenticatedIdentity(actor,realm.Permissions,SqlRowStore.Id(session),grantId){PrincipalAdminTypeId=realm.AdminTypeId,PrincipalProjectId=realm.ProjectId,IsRealmSuper=realm.IsSuper}.WithPermissionContext(realm);
     }
+    /// <summary>从真实账号读可选归属，只接受规范正整数；旧库没有该列时保留缺省，由实际条件决定是否需要。</summary>
+    internal static long? ReadAccountScopeId(IReadOnlyDictionary<string,object?> row,string field)
+    {
+        var value=SqlRowStore.Text(row,field);
+        return long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0&&id.ToString(CultureInfo.InvariantCulture)==value?id:null;
+    }
+
     /// <summary>有效期与登录起止时间在每次请求重新检查，停用立即生效。</summary>
     public static bool AccountActive(IReadOnlyDictionary<string,object?> account)=>AccountActive(account,DateTimeOffset.UtcNow,TimeZoneInfo.Local);
     /// <summary>原账号字段是宿主日历时间；显式瞬时保留自身时区，绝不把这些字段和UTC会话期限混用。</summary>

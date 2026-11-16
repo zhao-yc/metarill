@@ -8,6 +8,7 @@ using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Metarill.Runtime.Persistence;
 
 namespace Metarill.Runtime.Files;
@@ -31,7 +32,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         if(columns.Any(column=>column.ColumnName=="delete_no"))throw new InvalidOperationException("逻辑删除不能获取物理删除证明。");
         if(context.Transaction is null||context.Transaction.Connection is null||!ReferenceEquals(context.Transaction,store.Session.CurrentTransaction))throw new InvalidOperationException("物理删除准备要求原业务连接及事务。");
         var actor=authorization.RequireActor();if(actor.ProjectId!=context.ProjectId||catalog.YzProjectId!=context.ProjectId||context.RecordId<=0)throw new UnauthorizedAccessException("物理删除项目范围无效。");RequireMutationPermission(context,authorization);
-        var scope=registry.PageScope(catalog,page);var record=await LockRecordAsync(context,columns,cancellationToken,scope);var parents=await LockParentsAsync(context,scope,record,cancellationToken);
+        var scope=registry.PageScope(catalog,page);var record=await LockRecordAsync(context,columns,cancellationToken,scope.Condition?.BindAccount(actor));var parents=await LockParentsAsync(context,scope,record,cancellationToken);
         var proofs=deletions.GetValue(context.Transaction,_=>new());if(!proofs.TryAdd((context.PageId,context.TableName,context.RecordId),new(actor,context.ProjectId,new ReadOnlyDictionary<string,object?>(record),Array.AsReadOnly(parents))))throw new InvalidOperationException("同一记录物理删除已经准备，不能覆盖证明。");
     }
 
@@ -212,7 +213,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     }
 
     /// <summary>实际记录读取使用上下文原事务，表和字段只允许发布元数据中的名称。</summary>
-    private async Task<Dictionary<string, object?>> LockRecordAsync(RecordMutationContext context, IReadOnlyList<ColumnMetadata> columns, CancellationToken token,FilePageScope? deletionScope=null)
+    private async Task<Dictionary<string, object?>> LockRecordAsync(RecordMutationContext context, IReadOnlyList<ColumnMetadata> columns, CancellationToken token,FixedConditionSqlPlan? deletionCondition=null)
     {
         var provider = store.Session.Provider;
         var names = columns.Select(c => c.ColumnName).ToHashSet(StringComparer.Ordinal);
@@ -220,7 +221,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         await using var command = provider.CreateCommand(context.Transaction.Connection!); command.Transaction = context.Transaction;
         var query = "SELECT " + string.Join(",", names.Select(provider.QuoteIdentifier)) + " FROM " + provider.QuoteIdentifier(context.TableName) + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "record_id", context.RecordId);
         if (names.Contains("yz_project_id")) query += " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, "project", FileReferenceScope.IdentityValue(columns.Single(column=>column.ColumnName=="yz_project_id"),FileReferenceScope.PositiveId(context.ProjectId)));
-        if(deletionScope?.Condition is{} condition)query+=" AND "+condition.BindConstants(command,store.Session,"physical_delete");
+        if(deletionCondition is{} condition)query+=" AND "+condition.BindConstants(command,store.Session,"physical_delete");
         if (!context.IsDelete && names.Contains("delete_no")) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
         command.CommandText = provider.BuildSelectForUpdate(query);
         await using var reader = await command.ExecuteReaderAsync(token);

@@ -9,7 +9,7 @@ internal static class DerivedCheckboxNamesRenderer
     {
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);var dependencies=DerivedCheckboxNamesCompilation.Require(model,table,def);
         var scopes=def.Scopes.Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"parentId!")+"));");
-        var variables=def.Conditions?.Syntax.Variables.Select(variable=>"["+Literal(variable)+"]="+(variable.StartsWith("formParameters.",StringComparison.Ordinal)?"Metarill.Core.Contracts.FixedConditionFormValue.Require(formValues,"+Literal(variable)+")":variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"actor.ProjectId":"parentId"))??[];
+        var variables=def.Conditions is{} condition?RelationConditionsCompilation.Variables(condition,"parentId"):"";
         return $$"""
     /// <summary>只在类型初始化时编译，候选、保存、Excel共用原固定目标和范围。</summary>
     private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{NonRedundantReadCompilation.RelationPlanStart(def.Target,def.GlobalPage)}},new string[]{"id",{{Literal(def.Name.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
@@ -21,7 +21,7 @@ internal static class DerivedCheckboxNamesRenderer
 {{string.Join("\n",scopes)}}
         if(ids is not null){if(ids.Length==0)return [];filters.Add(new("id",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray()));}
         if(matchName)filters.Add(new({{Literal(def.Name.Source.ColumnName)}},FixedReadComparison.Equal,name));
-        var condition={{(def.Conditions is null?"(FixedConditionSqlPlan?)null":"CheckboxCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+string.Join(",",variables)+"})")}};
+        var condition={{(def.Conditions is null?"(FixedConditionSqlPlan?)null":"CheckboxCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"})")}};
         var rows=await new NonRedundantReader(session).PageAsync(DerivedCheckboxPlan{{suffix}},filters,[{{string.Join(",",def.Order.Select(item=>"new("+Literal(item.Column.Source.ColumnName)+","+(item.Descending?"true":"false")+")"))}}],1,limit,cancellationToken,projectId:actor.ProjectId,condition:condition,currentRead:locking);
         return rows.Records.Select(row=>new GeneratedOption(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(def.Name.Source.ColumnName)}}),NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(def.Name.Source.ColumnName)}}))).ToArray();
     }

@@ -11,7 +11,7 @@ internal static class DerivedRelationNamesRenderer
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id).Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
         var same=relation.SourceParents.Count>0&&relation.SourceParents.Select(parent=>parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent=>parent.Source.Id).Order());
-        var variables=relation.Conditions is not{} condition?"":string.Join(",",condition.Syntax.Variables.Select(variable=>"["+Literal(variable)+"]="+(variable.StartsWith("formParameters.",StringComparison.Ordinal)?"Metarill.Core.Contracts.FixedConditionFormValue.Require(formValues,"+Literal(variable)+")":variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"actor.ProjectId":"targetParentId")));
+        var variables=relation.Conditions is not{} condition?"":RelationConditionsCompilation.Variables(condition,"targetParentId");
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";
         var result=new StringBuilder($$"""
     /// <summary>生成和静态装载时编译，普通请求不解析元数据；名称联接与物理身份一同固定。</summary>
@@ -23,7 +23,7 @@ internal static class DerivedRelationNamesRenderer
 {{(same?"        targetParentId??=parentId;":"")}}
         var filters=new List<FixedReadFilter>();
 {{filters}}
-        FixedConditionSqlPlan? condition={{(relation.TargetPage.Condition is null?"null":"OptionsPageCondition"+suffix)}};
+        FixedConditionSqlPlan? condition={{FixedPageConditionCompilation.Bound(relation.TargetPage,"OptionsPageCondition"+suffix)}};
 {{bind}}
         return(filters,condition);
     }

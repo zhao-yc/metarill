@@ -48,6 +48,7 @@ internal static class FixedPageQueryCompilation
                     if(term.Comparison!=Metarill.Core.Metadata.FixedConditionComparison.Equal||term.Values.Count!=1)throw new InvalidOperationException("未证明的附加变量。");
                     var source=term.Values[0].Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"project":term.Values[0].Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase)||term.Values[0].Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)?"parent":"";
                     var field=target.Table.Columns.Single(column=>column.Source.ColumnName==term.Field);
+                    if(Metarill.Core.Security.AccountConditionVariables.IsSupported(term.Values[0].Text)&&constants.Contains(FixedPageConditionCompilation.Term(term)))continue;
                     if(!allowed.Contains((field.Source.Id,source))){reason="选择控件附加范围未被目标固定查询约束。";return false;}
                 }
                 else if(!constants.Contains(FixedPageConditionCompilation.Term(term)))

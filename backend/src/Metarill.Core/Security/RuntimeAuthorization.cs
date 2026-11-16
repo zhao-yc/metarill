@@ -8,6 +8,10 @@ public sealed record RuntimeActor(long AccountId, string AccountName, bool IsAdm
     /// <summary>认证账号的真实姓名，用于管理员审计字段。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string AccountRealName { get; init; } = string.Empty;
+    [System.Text.Json.Serialization.JsonIgnore] public long? MerchantId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public long? DealerId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public long? MainDealerId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public long? StoreId { get; init; }
 }
 
 public interface IRuntimeAuthorization

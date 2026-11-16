@@ -42,6 +42,12 @@ internal static class RelationConditionsCompilation
                 if(Kind(column.Source.LogicalType)!=Kind(targetColumn.Source.LogicalType))throw new InvalidOperationException("表单依赖与候选字段逻辑类型不一致。");
                 forms.TryAdd(variable,new(variable,column,Array.AsReadOnly(path),Array.AsReadOnly(path.Length==1?new[]{GenerationModel.Camel(owner.Source.TableName),path[0]}:new[]{path[^1]})));continue;
             }
+            if(Metarill.Core.Security.AccountConditionVariables.IsSupported(variable))
+            {
+                if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||!FixedPageConditionCompilation.IsAccountColumn(target.Columns.Single(column=>column.Source.ColumnName==term.Field)))
+                    throw new InvalidOperationException("账号关系条件必须绑定已发布物理ID的等值。");
+                continue;
+            }
             if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1)
                 throw new InvalidOperationException("身份或父键变量只支持原等值绑定。");
             var source=variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"project"
@@ -52,7 +58,7 @@ internal static class RelationConditionsCompilation
             scopes.Add((scoped,source));
         }
         // 原简单范围继续走既有编译器，避免无配置项目的再生成和兼容边界发生变化。
-        if(forms.Count==0&&syntax.Terms.All(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
+        if(forms.Count==0&&!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported)&&syntax.Terms.All(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
             return (GenerationModel.CompileScopes(definition,target.Columns),null);
         var physical=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
         foreach(var field in syntax.Fields)
@@ -80,9 +86,19 @@ internal static class RelationConditionsCompilation
     internal static string Apply(RelationModel relation,string suffix)
     {
         if(relation.Conditions is not {} condition)return "";
-        var variables=string.Join(", ",condition.Syntax.Variables.Select(variable=>"["+JsonSerializer.Serialize(variable)+"] = "+(variable.StartsWith("formParameters.",StringComparison.Ordinal)?"Metarill.Core.Contracts.FixedConditionFormValue.Require(formValues, "+JsonSerializer.Serialize(variable)+")":variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"actor.ProjectId":"targetParentId")));
+        var variables=Variables(condition,"targetParentId");
         return $"        query = OptionsCondition{suffix}.Apply(query, session, new Dictionary<string, object?> {{ {variables} }}, \"options_{suffix}\");\n";
     }
+
+    /// <summary>原候选查询、导出和导入共用认证归属；父和表单变量只绑定各自已证明的值。</summary>
+    internal static string Variables(RelationConditionModel condition,string parent) => string.Join(", ",condition.Syntax.Variables.Select(variable =>
+    {
+        var name=JsonSerializer.Serialize(variable);
+        var value=variable.StartsWith("formParameters.",StringComparison.Ordinal)?"Metarill.Core.Contracts.FixedConditionFormValue.Require(formValues, "+name+")"
+            :variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"actor.ProjectId"
+            :Metarill.Core.Security.AccountConditionVariables.IsSupported(variable)?"Metarill.Core.Security.AccountConditionVariables.Require(actor, "+name+")":parent;
+        return "["+name+"] = "+value;
+    }));
 
     /// <summary>保存只从默认值及钩子处理后的真实实体读取父字段，不采用客户端候选请求上下文。</summary>
     internal static string WriteQuery(GenerationModel model,TableModel table,PageModel page,RelationModel relation,string number)

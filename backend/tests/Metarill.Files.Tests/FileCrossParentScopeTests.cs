@@ -16,6 +16,23 @@ public sealed class FileCrossParentScopeTests
         var catalog=Catalog("file_cross",type,parentType);var context=new FileMetadataContext([catalog]);var frozen=context.Catalogs.Single();var scope=context.PageScope(frozen,frozen.ConfigPages.Single(page=>page.Id=="101"));Assert.Empty(scope.Parents);var cross=Assert.Single(scope.Crosses);Assert.True(context.HasLogicalFileParents);Assert.Equal(0,cross.Level);Assert.Equal(new[]{"country_id","area_id","place_id"},cross.StorageNames);
         catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="invalid";Assert.Same(scope,context.PageScope(frozen,frozen.ConfigPages.Single(page=>page.Id=="101")));Assert.Throws<InvalidOperationException>(()=>context.PageScope(catalog,catalog.ConfigPages[0]));
     }
+    /// <summary>业务附件同时保留原逻辑父范围和已认证账号等值，缺少归属时不可生成无条件命令。</summary>
+    [Fact]
+    public void File_source_binds_the_same_account_values_as_the_parent_page()
+    {
+        var catalog=Catalog("file_account","string","int64");
+        catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+        catalog.ConfigPages[0].WhereSql+=" AND store_id=@current_store_id";
+        var scope=FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],catalog.ConfigPages[0]);
+        Assert.Single(scope.Crosses);
+        var actor=new Metarill.Core.Security.RuntimeActor(12,"账号",true,"1","3");
+        Assert.Throws<UnauthorizedAccessException>(()=>scope.Condition!.BindAccount(actor));
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});
+        using var command=new MySqlConnector.MySqlCommand();
+        var sql=scope.Condition!.BindAccount(actor with{StoreId=9007199254740993}).BindConstants(command,session,"file_page");
+        Assert.Contains("store_id",sql);
+        Assert.Equal(9007199254740993L,Assert.Single(command.Parameters.Cast<System.Data.Common.DbParameter>()).Value);
+    }
     /// <summary>页覆盖、目标动态条件／错误绑定、来源逻辑常量、目标隐藏字段不能被当作无范围。</summary>
     [Theory][InlineData("override")][InlineData("target")][InlineData("ambiguous")][InlineData("hidden")][InlineData("constant")][InlineData("exact")][InlineData("targetType")]
     public void Unproved_file_cross_scope_is_rejected_at_publication(string defect)

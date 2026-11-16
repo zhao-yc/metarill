@@ -57,7 +57,7 @@ internal static class DatabaseCheckboxRenderer
                 result.Append(FixedPageConditionCompilation.Apply(def.GlobalPage,"CheckboxGlobalCondition"+suffix,"checkbox_global_"+suffix));
             if(def.Conditions is {} condition)
             {
-                var variables=string.Join(", ",condition.Syntax.Variables.Select(variable=>"["+Literal(variable)+"] = "+(variable.StartsWith("formParameters.",StringComparison.Ordinal)?"Metarill.Core.Contracts.FixedConditionFormValue.Require(formValues,"+Literal(variable)+")":variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)?"actor.ProjectId":"parentId")));
+                var variables=RelationConditionsCompilation.Variables(condition,"parentId");
                 result.AppendLine($"        query=CheckboxCondition{suffix}.Apply(query,session,new Dictionary<string,object?> {{ {variables} }},\"checkbox_{suffix}\");");
             }
             result.AppendLine("        return locking?query.ForUpdate():query;").AppendLine("    }");

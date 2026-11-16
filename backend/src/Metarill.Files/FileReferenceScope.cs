@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 
 namespace Metarill.Runtime.Files;
 
@@ -43,6 +44,14 @@ internal static class FileReferenceScope
                 }
                 if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)throw Unsupported();
                 var variable=variables[0].Text;
+                if(AccountConditionVariables.IsSupported(variable))
+                {
+                    if(column.ColumnName=="yz_project_id"||!AccountConditionVariables.IsPageField(variable,column.ColumnName)||!IdentityType(column.LogicalType)||
+                        !GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,column)||
+                        FileCrossParentScope.Compile(catalog,table,page,column) is not null)throw Unsupported();
+                    constants.Add(term);
+                    continue;
+                }
                 var project=variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
                 if(!project&&!variable.Equals("parent_id",StringComparison.OrdinalIgnoreCase)&&!variable.Equals("parentId",StringComparison.OrdinalIgnoreCase))throw Unsupported();
                 if((column.ColumnName=="yz_project_id")!=project||!IdentityType(column.LogicalType))throw Unsupported();

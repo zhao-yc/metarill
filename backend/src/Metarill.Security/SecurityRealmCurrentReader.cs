@@ -68,6 +68,11 @@ public sealed class SecurityRealmCurrentReader
         else if(kind!="web"||request.GrantId is not null||OptionalId(session,"grant_id") is not null)throw InvalidIdentity();
         var account=(await store.ReadForUpdateAsync("yz_manager",new Dictionary<string,object?>{{"id",actor.AccountId}},token)).SingleOrDefault();
         if(account is null||!AuthenticationService.AccountActive(account)||SqlRowStore.Text(account,"yz_admin_type_id")!=request.PrincipalAdminTypeId||actor.AdminTypeId!=request.PrincipalAdminTypeId)throw InvalidIdentity();
+        // 已取得账号锁后，归属变化使旧请求失效，避免继续使用认证快照中的商户或门店。
+        if(actor.MerchantId!=AuthenticationService.ReadAccountScopeId(account,"merchant_id")||
+            actor.DealerId!=AuthenticationService.ReadAccountScopeId(account,"dealer_id")||
+            actor.MainDealerId!=AuthenticationService.ReadAccountScopeId(account,"main_dealer_id")||
+            actor.StoreId!=AuthenticationService.ReadAccountScopeId(account,"store_id"))throw InvalidIdentity();
         var admin=locks.Admins[adminId];
         if(SqlRowStore.Text(admin,"yz_project_id")!=request.PrincipalProjectId)throw InvalidIdentity();
         var ids=PrincipalRolePolicy.Identifiers(SqlRowStore.Text(account,"yz_role_ids")).Select(value=>long.Parse(value,CultureInfo.InvariantCulture)).Order().ToArray();

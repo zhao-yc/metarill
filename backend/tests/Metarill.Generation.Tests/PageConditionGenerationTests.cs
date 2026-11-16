@@ -34,7 +34,7 @@ public sealed class PageConditionGenerationTests
     }
     /// <summary>未知变量、原生代码、语句及越界类型仍原子拒绝，不能把新增支持当作任意SQL开关。</summary>
     [Theory]
-    [InlineData("status=1 OR id=1")][InlineData("status=@current_yz_manager_id")][InlineData("status=@formParameters.status")]
+    [InlineData("status=1 OR id=1")][InlineData("status=@current_unknown_id")][InlineData("status>@current_yz_manager_id")][InlineData("status=@current_store_id")][InlineData("status=@formParameters.status")]
     [InlineData("yz_project_id=@parentId")][InlineData("status=@current_yz_project_id")][InlineData("status IN (@parentId,1)")]
     [InlineData("missing=1")][InlineData("status=1.5")][InlineData("status=2147483648")][InlineData("name=1")]
     [InlineData("status=coalesce(1,2)")][InlineData("lqw.eq(1,1)")][InlineData("status=1;DELETE FROM customer")]
@@ -43,6 +43,34 @@ public sealed class PageConditionGenerationTests
         var catalog=Catalog();catalog.ConfigPages[0].WhereSql=definition;var directory=Path.Combine(Path.GetTempPath(),"metarill-page-rejected",Guid.NewGuid().ToString("N"));
         Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,directory,"Example.PageRejected"));Assert.False(Directory.Exists(directory));
     }
+    /// <summary>普通与非冗余应用实际编译，写入使用新归属保护，原读取仍按项目且不公开隐藏归属列。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Account_context_is_generated_for_reads_and_writes(int storage)
+    {
+        var catalog=Catalog();
+        catalog.ConfigTables[0].IsRongyu=storage;
+        catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+        catalog.ConfigPages[0].WhereSql+=" AND store_id=@current_store_id";
+        catalog.ConfigPages[0].IsNew=catalog.ConfigPages[0].IsSave=catalog.ConfigPages[0].IsDelete=catalog.ConfigPages[0].IsCopy=1;
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-account-page");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.AccountPage");
+            var code=File.ReadAllText(Path.Combine(directory,"generated/Services/CustomerService.g.cs"));
+            Assert.Contains("PageCondition101.BindAccount(actor)",code);
+            Assert.Contains("if (!submitted.Contains(\"store_id\")) entity.StoreId = ",code);
+            Assert.Contains("if (entity.StoreId != long.Parse(global::Metarill.Core.Security.AccountConditionVariables.Require(actor, \"current_store_id\")",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type=assembly.GetType("Example.AccountPage.Generated.Services.CustomerService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+            Assert.Null(assembly.GetType("Example.AccountPage.Generated.VOs.CustomerPage101Vo",true)!.GetProperty("StoreId"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>来源控件只可重复目标页已执行的常量，不能以相似字段或更窄来源条件扩大候选。</summary>
     [Theory]
     [InlineData("status=1",true)][InlineData("status=2",false)][InlineData("status>=1",false)]

@@ -13,6 +13,22 @@ public sealed partial class FixedConditionSqlTests
         using var session=Session();var sql=Compile("name=NULL AND id IN(NULL,9007199254740993) AND name LIKE 'A_%'").ApplyConstants(session.Select<Row>(),session,"page").ToSql();
         Assert.Contains("=NULL",sql);Assert.DoesNotContain("IS NULL",sql,StringComparison.OrdinalIgnoreCase);Assert.Contains("IN (NULL,@page_0)",sql);Assert.DoesNotContain("9007199254740993",sql);Assert.DoesNotContain("A_%",sql);
     }
+    /// <summary>账号及四种业务归属参数都来自已认证快照，高位ID精度和文本类型保持。</summary>
+    [Fact]
+    public void Account_conditions_bind_all_original_contexts_and_reject_missing_affiliations()
+    {
+        var types=new Dictionary<string,string>{{"id","int64"},{"merchant_id","string"},{"dealer_id","int64"},{"main_dealer_id","int64"},{"store_id","int64"}};
+        var plan=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(
+            "id=@current_yz_manager_id AND merchant_id=@current_merchant_id AND dealer_id=@current_dealer_id AND main_dealer_id=@current_main_dealer_id AND store_id=@current_store_id",types.Keys),types);
+        var actor=new Metarill.Core.Security.RuntimeActor(9007199254740993,"账号",true,"100","5"){MerchantId=9007199254740994,DealerId=8,MainDealerId=9,StoreId=10};
+        using var session=Session();using var command=new MySqlConnector.MySqlCommand();
+        var sql=plan.BindAccount(actor).BindConstants(command,session,"account");
+        Assert.DoesNotContain("9007199254740993",sql);
+        Assert.Equal(new object[]{9007199254740993L,"9007199254740994",8L,9L,10L},command.Parameters.Cast<System.Data.Common.DbParameter>().Select(item=>item.Value));
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+        Assert.DoesNotContain("9007199254740994",System.Text.Json.JsonSerializer.Serialize(actor));
+    }
+
     /// <summary>含变量的计划不能借无变量页面入口吞掉条件，失败前原查询保持不变。</summary>
     [Fact]
     public void Constant_only_entry_rejects_variables_before_mutating_query()
