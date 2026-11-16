@@ -21,10 +21,10 @@ namespace Metarill.Generation.Tests;
 public sealed class CrossTableExcelSharedGenerationTests
 {
     private const string Prefix="shared_excel",Namespace="Example.SharedExcel";
-    /// <summary>四个R1物理组合执行双路径聚合；物理R1和既有R0通过公开审计，R1派生目标继续拒绝。</summary>
+    /// <summary>物理R1实际执行路径往返；R1派生与全局物理混合目标另核对完整发布、固定名称计划及原生成编译。</summary>
     [Theory]
     [InlineData("shared-r1")][InlineData("shared-r1", " > ")][InlineData("short-r1")][InlineData("global-r1")][InlineData("global-no-project-r1")]
-    [InlineData("shared-r0")][InlineData("short-r0")][InlineData("derived-r1")][InlineData("derived-short-r0")]
+    [InlineData("shared-r0")][InlineData("short-r0")][InlineData("derived-r1")][InlineData("derived-global-r1")][InlineData("derived-short-r0")]
     public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile, string? displayJoiner = null)
     {
         var definition=Definition(profile);var catalog=Catalog(profile);
@@ -39,7 +39,8 @@ public sealed class CrossTableExcelSharedGenerationTests
         var before=JsonSerializer.Serialize(catalog);
         var model=GenerationModel.Create(catalog,Namespace);var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);
         var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,page).Groups);Assert.Equal(2,group.Plans.Count);
-        var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);var accepted=definition.Redundant==0||!definition.Derived;if(accepted)Assert.Empty(proof.Gaps);else Assert.NotEmpty(proof.Gaps);
+        var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);
+        Assert.Empty(proof.Gaps);
         Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(proof.Baseline,Namespace)));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-excel");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -49,7 +50,18 @@ public sealed class CrossTableExcelSharedGenerationTests
             Assert.NotNull(assembly.GetType(Namespace+".Generated.Controllers.SharedExcelSourcePage201Controller"));
             var partial=Path.Combine(generated,"Services/SharedExcelSourceService.cs");await File.AppendAllTextAsync(partial,"\n// 共享Excel保留的手写扩展。\n");var bytes=await File.ReadAllBytesAsync(partial);
             new CSharpGenerator().Generate(catalog,generated,Namespace);Assert.Equal(bytes,await File.ReadAllBytesAsync(partial));Assert.Equal(before,JsonSerializer.Serialize(catalog));
-            if(accepted)new FrontendPackager().Validate(catalog);else Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+            new FrontendPackager().Validate(catalog);
+            if (definition.Redundant == 1 && definition.Derived)
+            {
+                var service = assembly.GetType(Namespace + ".Generated.Services.SharedExcelSourceService", true)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+                Assert.NotNull(service.GetMethod("Import201Async"));
+                Assert.NotNull(service.GetMethod("Export201Async"));
+                var namePlan = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    service.GetField("CrossTargetPlan201_25_0", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                Assert.Equal("string", namePlan.OutputTypes["name"]);
+                Assert.Contains("共享级联", catalog.ConfigMenus.First(menu => menu.ConfigPageId == "201").Name);
+            }
             if(definition.Redundant==1&&!definition.Derived)await Exercise(assembly,catalog,definition.Shorter,definition.Global,definition.NoProject,displayJoiner ?? "/");
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
@@ -110,7 +122,7 @@ public sealed class CrossTableExcelSharedGenerationTests
     {
         var d=Definition(profile);var catalog=SharedCrossTableGenerationTests.Catalog(Prefix,d.Type,d.Parent,d.Shorter,d.Derived);
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=d.Redundant;
-        if(d.Global)GlobalSharedCrossGenerationTests.ApplyGlobals(catalog,15,d.NoProject);
+        if(d.Global)GlobalSharedCrossGenerationTests.ApplyGlobals(catalog,d.Derived?8:15,d.NoProject);
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");page.IsImport=1;page.IsExport=1;
         foreach(var (id,name) in new[]{("22","名称"),("25","主路径"),("80","仓库路径")})
         {catalog.ConfigColumns.Single(column=>column.Id==id).Name=name;var field=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==id);field.IsShow=1;field.IsEdit=1;}
@@ -122,7 +134,8 @@ public sealed class CrossTableExcelSharedGenerationTests
         "shared-r1"=>(1,"string","int64",false,false,false,false),"short-r1"=>(1,"int64","string",true,false,false,false),
         "global-r1"=>(1,"string","string",false,false,true,false),"global-no-project-r1"=>(1,"int64","int64",true,false,true,true),
         "shared-r0"=>(0,"string","int64",false,false,false,false),"short-r0"=>(0,"int64","string",true,false,false,false),
-        "derived-r1"=>(1,"string","int64",false,true,false,false),"derived-short-r0"=>(0,"int64","string",true,true,false,false),
+        "derived-r1"=>(1,"string","int64",false,true,false,false),
+        "derived-global-r1"=>(1,"int64","string",false,true,true,false),"derived-short-r0"=>(0,"int64","string",true,true,false,false),
         _=>throw new ArgumentOutOfRangeException(nameof(profile))
     };
     /// <summary>真实解析器处理两条共享路径，空单元格保留另一控件共享祖先，互斥选择整行拒绝。</summary>

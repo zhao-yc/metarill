@@ -48,12 +48,12 @@ internal static class RedundantCrossTableSubset
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "冗余跨表完整用途未通过："+error.Message;}
     }
-    /// <summary>正式 MySQL 路径单元格覆盖物理候选以及一条路径或经统一协调的双路径。父页、派生目标与重复角色单独验收。</summary>
+    /// <summary>Excel 共用已经证明的逐层名称读取与传播计划，覆盖单条路径或经统一协调的双路径。</summary>
     private static bool SupportsPathCells(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
     {
         if(model.Catalog.DatabaseProvider!="mysql"||page.Scopes.Any(scope=>scope.Source=="parent")||plans.Count>2)return false;
         if(plans.Any(plan=>plan.Levels.Count is <2 or >3||
-            plan.Levels.Any(level=>level.Read.Target.Source.IsRongyu!=1||level.Read.DerivedName||level.Read.Target.Source.Id==table.Source.Id)||
+            plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)||
             plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()!=plan.Levels.Count))return false;
         return plans.Count==1||SharedCrossTableCompilation.ForSource(model,table,page,plans[0].Read.Source.Source.Id)?.Plans.Count==plans.Count;
     }
