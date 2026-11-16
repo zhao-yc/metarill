@@ -421,14 +421,16 @@ public sealed class CrossTableExcelPublicationTests
         Assert.All(paths,row=>Assert.True(row.GetProperty("fullApplicationAccepted").GetBoolean()));
     }
 
-    /// <summary>只发布已验证的追加与列表路径导出，覆盖和详情导出仍须独立证明。</summary>
+    /// <summary>原追加、列表和详情导出仍拒绝未证明的覆盖及未知导出模式。</summary>
     [Theory]
     [InlineData("importMethod","OverWriteByFirstColumn",CrossTableExcelRenderer.ImportAcceptancePending)]
-    [InlineData("exportMethod","edit",CrossTableExcelRenderer.ExportAcceptancePending)]
+    [InlineData("exportMethod","unknown",CrossTableExcelRenderer.ExportAcceptancePending)]
     public void R1_cross_excel_keeps_unverified_publication_gaps(string method,string mode,string expected)
     {
         var catalog = GlobalCrossCachedTargetFixture.Create(1, 1, "string", "int64", false);
-        catalog.ConfigPages.Single(page=>page.Id=="30").Extra[method]=JsonSerializer.SerializeToElement(mode);
+        var page=catalog.ConfigPages.Single(page=>page.Id=="30");
+        page.Extra[method]=JsonSerializer.SerializeToElement(mode);
+        if(method=="exportMethod")page.IsExport=1;
         var gaps = GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, "Example.UnprovenR1Excel"));
         Assert.Contains(gaps, gap => gap.Reason == expected);
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));

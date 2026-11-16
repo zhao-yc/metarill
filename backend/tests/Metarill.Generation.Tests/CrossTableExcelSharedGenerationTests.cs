@@ -25,9 +25,12 @@ public sealed class CrossTableExcelSharedGenerationTests
     [Theory]
     [InlineData("shared-r1")][InlineData("shared-r1", " > ")][InlineData("short-r1")][InlineData("global-r1")][InlineData("global-no-project-r1")]
     [InlineData("shared-r0")][InlineData("short-r0")][InlineData("derived-r1")][InlineData("derived-global-r1")][InlineData("derived-short-r0")]
-    public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile, string? displayJoiner = null)
+    [InlineData("shared-r1",null,"edit")][InlineData("derived-global-r1",null,"edit")]
+    public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile, string? displayJoiner = null, string? exportMode = null)
     {
         var definition=Definition(profile);var catalog=Catalog(profile);
+        if(exportMode is not null)
+            catalog.ConfigPages.Single(page=>page.Id=="201").Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
         if (displayJoiner is not null)
         {
             var control = catalog.ConfigColumns.Single(column => column.Id == "25");
@@ -66,9 +69,11 @@ public sealed class CrossTableExcelSharedGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>冗余同页两种级联分别解析路径，原列表 Excel 导出后能按同一表头回读。</summary>
-    [Fact]
-    public async Task Redundant_mixed_cascades_publish_and_roundtrip_original_excel()
+    /// <summary>冗余同页两种级联在原列表或详情列下导出，隐藏祖先仅用于还原路径。</summary>
+    [Theory]
+    [InlineData("list")]
+    [InlineData("edit")]
+    public async Task Redundant_mixed_cascades_publish_and_roundtrip_original_excel(string exportMode)
     {
         const string prefix = "mixed_excel";
         const string ns = "Example.MixedRedundantExcel";
@@ -77,6 +82,15 @@ public sealed class CrossTableExcelSharedGenerationTests
         var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
         sourcePage.IsImport = 1;
         sourcePage.IsExport = 1;
+        sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        catalog.ConfigColumns.AddRange([
+            new() { Id="91", ConfigTableId="2", ColumnName="list_note", Name="仅列表列", LogicalType="string" },
+            new() { Id="92", ConfigTableId="2", ColumnName="detail_note", Name="仅详情列", LogicalType="string" }
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new() { Id="20191", ConfigPageId="201", ConfigColumnId="91", IsShow=1, IsEdit=0 },
+            new() { Id="20192", ConfigPageId="201", ConfigColumnId="92", IsShow=0, IsEdit=1 }
+        ]);
         foreach (var (id, title) in new[] { ("25", "地区路径"), ("81", "分类路径") })
             catalog.ConfigColumns.Single(column => column.Id == id).Name = title;
         Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, ns)));
@@ -88,6 +102,15 @@ public sealed class CrossTableExcelSharedGenerationTests
         {
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(exportMode=="edit")
+            {
+                var application=Path.Combine(directory,"application");
+                Assert.True(new ApplicationPackager().Create(catalog,application,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                var controller=await File.ReadAllTextAsync(Path.Combine(application,
+                    "backend/generated/Controllers/MixedExcelSourcePage201Controller.g.cs"));
+                Assert.Contains("[HttpPost(\"initExport\")]",controller);
+                Assert.Contains("Actor(\"export\")",controller);
+            }
             using var runtime = new SharedExcelReadTransport(assembly, ns, "MixedExcelSource");
             runtime.Add("MixedExcelCountry", new Dictionary<string, object?>
                 { ["Id"] = 11, ["Name"] = "国家", ["Status"] = 1, ["YzProjectId"] = 9007199254740993L });
@@ -100,10 +123,22 @@ public sealed class CrossTableExcelSharedGenerationTests
             runtime.Add("MixedExcelTree", new Dictionary<string, object?>
                 { ["Id"] = 42, ["Name"] = "子类", ["ParentMixedExcelTreeId"] = 41, ["Status"] = 1, ["YzProjectId"] = 9007199254740993L });
             runtime.Add("MixedExcelSource", new Dictionary<string, object?>
-                { ["Id"] = 101, ["CountryId"] = 11, ["AreaId"] = 21, ["PlaceId"] = 31, ["TreeId"] = 42, ["YzProjectId"] = 9007199254740993L });
+                { ["Id"] = 101, ["CountryId"] = 11, ["AreaId"] = 21, ["PlaceId"] = 31, ["TreeId"] = 42,
+                    ["ListNote"] = "列表值", ["DetailNote"] = "详情值", ["YzProjectId"] = 9007199254740993L });
+            runtime.Add("MixedExcelSource", new Dictionary<string, object?>
+                { ["Id"] = 102, ["CountryId"] = 11, ["DetailNote"] = "异项目", ["YzProjectId"] = 9007199254740994L });
 
             var excel = await runtime.Export();
             var row = Assert.Single(excel.Rows);
+            var detail = exportMode == "edit";
+            var header = detail ? "仅详情列" : "仅列表列";
+            Assert.DoesNotContain(detail ? "仅列表列" : "仅详情列", excel.Headers);
+            Assert.DoesNotContain("countryId",excel.Headers);
+            Assert.DoesNotContain("areaId",excel.Headers);
+            Assert.Contains(header, excel.Headers);
+            Assert.Equal(detail ? "详情值" : "列表值", row[excel.Headers.ToList().IndexOf(header)]);
+            Assert.Equal(1, runtime.Snapshots);
+            Assert.Equal(0, runtime.ExportLockCount);
             var cross = row[excel.Headers.ToList().IndexOf("地区路径")];
             var self = row[excel.Headers.ToList().IndexOf("分类路径")];
             Assert.Equal("国家/地区/地点", cross);

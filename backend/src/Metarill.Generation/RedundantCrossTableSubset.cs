@@ -40,7 +40,8 @@ internal static class RedundantCrossTableSubset
             if(exportedSlots.Length==0&&importedSlots.Length==0)return null;
             // 已逐个验证自树同伴的写入、名称缓存和传播。Excel 路径列分别复用各自的解析与导出。
             var supported=SupportsPathCells(model,table,page,plans);
-            if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list")||
+            // 列表与详情模式共用原快照和路径读取，祖先ID仍只作为内部投影依赖。
+            if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
                 exportedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ExportAcceptancePending;
             if(importedSlots.Length>0&&(!supported||ImportRenderer.Mode(page) is not ("" or "OnlyNew")||
                 importedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ImportAcceptancePending;
