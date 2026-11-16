@@ -32,6 +32,14 @@ internal static class NonRedundantCrossTableCompilation
     /// <summary>直接内联不可变条件表达式，避免ReadPlan先于目标条件字段初始化而丢失范围。</summary>
     internal static string BindingArgument(GenerationModel model,TableModel table,PageModel page)=>
         BindingArgument(CrossTableWriteCompilation.ForService(model,table,page));
+    /// <summary>仅有账号目标的执行入口绑定身份，既有静态查询生成代码保持原样。</summary>
+    internal static string BoundPlan(GenerationModel model,TableModel table,PageModel page,string name,string actor="actor")=>
+        BoundPlan(CrossTableWriteCompilation.ForService(model,table,page),name,actor);
+
+    internal static string BoundPlan(IReadOnlyList<CrossTableWriteModel>? plans,string name,string actor)=>
+        plans?.Any(plan=>plan.Read.Levels.Any(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page)))==true
+            ?name+".BindAccount("+actor+")":name;
+
     /// <summary>共享匹配与普通跨表读取使用同一固定目标页字面量。</summary>
     internal static string BindingArgument(IReadOnlyList<CrossTableWriteModel> plans)
     {

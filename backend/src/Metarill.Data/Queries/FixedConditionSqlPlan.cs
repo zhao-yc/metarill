@@ -106,9 +106,19 @@ public sealed class FixedConditionSqlPlan
         if(Variables.Count!=0)throw new InvalidOperationException("常量页面计划不能包含上下文变量。");
         return Render(provider,EmptyVariables,prefix,expression);
     }
+    /// <summary>跨表 JOIN 在发布时冻结 SQL 及类型；账号参数在实际读取前按认证身份赋值。</summary>
+    internal Clause RenderAccountProjection(IDatabaseProvider provider,string prefix,Func<string,string> expression)
+        => Render(provider,EmptyVariables,prefix,expression,deferAccount:true);
+
+    internal sealed record AccountParameter(string Variable,string Type)
+    {
+        internal object? Bind(Metarill.Core.Security.RuntimeActor actor) =>
+            BindScalar(Metarill.Core.Security.AccountConditionVariables.Require(actor,Variable),Type);
+    }
+
     internal sealed record Clause(string Sql,[property:JsonIgnore] IReadOnlyDictionary<string,object?> Parameters);
     /// <summary>物理或固定联接表达式由适配器提供；此入口不接受客户端SQL、列名或操作符。</summary>
-    internal Clause Render(IDatabaseProvider provider,IReadOnlyDictionary<string,object?> variables,string parameterPrefix,Func<string,string> expression)
+    internal Clause Render(IDatabaseProvider provider,IReadOnlyDictionary<string,object?> variables,string parameterPrefix,Func<string,string> expression,bool deferAccount=false)
     {
         ArgumentNullException.ThrowIfNull(variables);MetadataValidation.RequireIdentifier(parameterPrefix);
         var parameters=new Dictionary<string,object?>();var predicates=new List<string>();
@@ -122,7 +132,14 @@ public sealed class FixedConditionSqlPlan
             {
                 object? scalar=value.Literal;
                 if(value.Variable is {} variable)
-                {if(!variables.TryGetValue(variable,out var current))throw new ArgumentException("固定条件缺少明确的上下文变量。");scalar=Scalar(current,term.Type);}
+                {
+                    if(deferAccount)scalar=new AccountParameter(variable,term.Type);
+                    else
+                    {
+                        if(!variables.TryGetValue(variable,out var current))throw new ArgumentException("固定条件缺少明确的上下文变量。");
+                        scalar=Scalar(current,term.Type);
+                    }
+                }
                 // =NULL与IN(NULL)保持SQL三值语义，不能偷换成IS NULL；空值无须依赖ORM的空参数重写。
                 if(scalar is null){marks.Add("NULL");continue;}
                 if(scalar is TimeSpan time)provider.ValidateTimeValue(time);

@@ -53,7 +53,7 @@ internal static class NonRedundantCrossParentCompilation
         foreach(var column in parents)
         {
             var value=column.Type=="string?"?"parentId!":"long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture)";
-            result.AppendLine($"        query=NonRedundantCrossTableScopeSql.Apply(query,session,LogicalParentPlan{suffix},{Literal(column.Source.ColumnName)},{Literal("mt_parent_"+Array.IndexOf(parents,column))},{value},actor.ProjectId,locking);");
+            result.AppendLine($"        query=NonRedundantCrossTableScopeSql.Apply(query,session,{NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"LogicalParentPlan"+suffix)},{Literal(column.Source.ColumnName)},{Literal("mt_parent_"+Array.IndexOf(parents,column))},{value},actor.ProjectId,locking);");
         }
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>保留物理实体与字段存在性；钩子／数据库改写父链或稀疏位时在通知前拒绝整笔提交。</summary>")

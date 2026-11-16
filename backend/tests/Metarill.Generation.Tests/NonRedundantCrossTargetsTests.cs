@@ -19,6 +19,33 @@ public sealed class NonRedundantCrossTargetsTests
         try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),"Example.CrossTarget");await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.Equal(before,JsonSerializer.Serialize(c));Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(c,"Example.CrossTarget")));foreach(var target in c.ConfigTables.Where(x=>x.Id!="2"&&x.IsRongyu==0)){var storage=MetadataStoragePolicy.ForTable(c,target);Assert.Equal(scenario=="physical",storage.PhysicalColumns.Any(x=>x.ColumnName=="name"));}}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>账号范围的固定投影进入生成的查询、回执和导出，不能留到读取端才发现缺少账号。</summary>
+    [Fact]
+    public async Task Account_scoped_cross_target_generates_bound_projection_and_frozen_metadata()
+    {
+        const string ns="Example.CrossAccount";
+        var catalog=Catalog("nr_cross_target","string","int64","derived");
+        var target=catalog.ConfigPages.Single(page=>page.Id=="301");
+        catalog.ConfigColumns.Add(new(){Id="country_account",ConfigTableId=target.ConfigTableId,ColumnName="owner_id",LogicalType="int64"});
+        target.WhereSql+=" AND owner_id=@current_yz_manager_id";
+        catalog.ConfigPages.Single(page=>page.Id=="201").IsExport=1;
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-account");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var servicePath=Path.Combine(directory,"generated/Services/NrCrossTargetSourceService.g.cs");
+            var code=await File.ReadAllTextAsync(servicePath);
+            Assert.Contains("PageAsync(ReadPlan201.BindAccount(actor)",code);
+            Assert.Contains("KeyRowsAsync(ReadPlan201.BindAccount(actor)",code);
+            Assert.Contains("RowsAsync(ExportReadPlan201.BindAccount(actor)",code);
+            Assert.Contains("CrossCondition201_25_0.BindAccount(actor)",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.NrCrossTargetSourceService",true)!.TypeHandle);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>显式全局中层使用固定派生名称，来源自己的逻辑路径仍按原项目隔离。</summary>
     [Theory]
     [InlineData(false, false)]

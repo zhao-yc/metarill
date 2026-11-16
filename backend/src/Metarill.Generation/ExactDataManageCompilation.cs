@@ -52,7 +52,7 @@ internal static class ExactDataManageCompilation
         var definition=Resolve(model,table,page);if(definition is null)return "";
         var prefixHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(page.Source.Id+"|"+definition.Column.Source.ColumnName+"|"+prefix))).ToLowerInvariant()[..12];
         var call=definition.Derived
-            ? $"Metarill.Data.Queries.ExactDataManageSql.ApplyDerived({query}, session, ExactReadPlan{page.Source.Id}, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}), {actor}.ProjectId{(locking is null?"":",locking:"+locking)})"
+            ? $"Metarill.Data.Queries.ExactDataManageSql.ApplyDerived({query}, session, {NonRedundantCrossTableCompilation.BoundPlan(definition.SharedPlans,"ExactReadPlan"+page.Source.Id,actor)}, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}), {actor}.ProjectId{(locking is null?"":",locking:"+locking)})"
             : $"Metarill.Data.Queries.ExactDataManageSql.Apply({query}, session, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}))";
         return Authorization(page,definition,actor,operation,prefix,button)+$"        if ({prefix}Scope.IsRequired) {query} = {call};\n";
     }

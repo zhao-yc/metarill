@@ -8,6 +8,12 @@ public sealed class NonRedundantReadPlan
 {
     internal NonRedundantReadPlan(MySqlNonRedundantReadPlan mysql){MySql=mysql;}
     internal MySqlNonRedundantReadPlan MySql{get;}
+    /// <summary>按调用方已核验的身份绑定目标页账号条件，共享的发布计划保持不可变。</summary>
+    public NonRedundantReadPlan BindAccount(Metarill.Core.Security.RuntimeActor actor)
+    {
+        var bound=MySql.BindAccount(actor);
+        return ReferenceEquals(bound,MySql)?this:new(bound);
+    }
     public IReadOnlyDictionary<string,string> OutputTypes=>new System.Collections.ObjectModel.ReadOnlyDictionary<string,string>(MySql.Outputs.ToDictionary(name=>name,name=>MySql.Types[name],StringComparer.OrdinalIgnoreCase));
 }
 

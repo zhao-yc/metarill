@@ -36,11 +36,11 @@ public sealed class MySqlNonRedundantReadPlan
 {
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
         Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null,IReadOnlyList<MySqlCrossTableProjection>? crosses=null,IReadOnlyDictionary<string,object?>? constants=null,IReadOnlyList<string>? sourceDependencies=null,MySqlMaintenanceReadFrom? maintenanceFrom=null)
-    { MaintenanceFrom=maintenanceFrom; From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; SourceDependencies=sourceDependencies??[]; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];Constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); }
+    { MaintenanceFrom=maintenanceFrom; From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; SourceDependencies=sourceDependencies??[]; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];this.constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); hasAccountParameters=this.constants.Values.Any(value=>value is FixedConditionSqlPlan.AccountParameter); }
     /// <summary>投影视图复用不可变范围及依赖；执行时只选择预编译联接片段，不重新解析元数据。</summary>
-    private MySqlNonRedundantReadPlan(MySqlNonRedundantReadPlan plan,string[] outputs,IReadOnlyList<MySqlPhysicalReference>? physicalReferences=null)
+    private MySqlNonRedundantReadPlan(MySqlNonRedundantReadPlan plan,string[] outputs,IReadOnlyList<MySqlPhysicalReference>? physicalReferences=null,IReadOnlyDictionary<string,object?>? boundConstants=null)
     {
-        AggregateFrom=plan.AggregateFrom;ImportMatchLock=plan.ImportMatchLock;RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses;Constants=plan.Constants;ScalarCacheTarget=plan.ScalarCacheTarget;
+        AggregateFrom=plan.AggregateFrom;ImportMatchLock=plan.ImportMatchLock;RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses; constants=boundConstants??plan.constants; hasAccountParameters=boundConstants is null&&plan.hasAccountParameters; ScalarCacheTarget=plan.ScalarCacheTarget;
     }
     /// <summary>缓存传播只读取稳定主键和本次允许的输出，未知字段不能变成新的读取权限。</summary>
     internal MySqlNonRedundantReadPlan ForCacheFields(IReadOnlySet<string> fields)
@@ -71,7 +71,22 @@ public sealed class MySqlNonRedundantReadPlan
     }
     internal IReadOnlyList<MySqlReverseProjection> Reverse {get;}
     internal IReadOnlyList<MySqlCrossTableProjection> Crosses{get;}
-    internal IReadOnlyDictionary<string,object?> Constants{get;}
+    private readonly IReadOnlyDictionary<string,object?> constants;
+    private readonly bool hasAccountParameters;
+
+    /// <summary>任何执行入口都须先绑定账号参数，静态标记不能送入数据库。</summary>
+    internal IReadOnlyDictionary<string,object?> Constants => hasAccountParameters
+        ? throw new InvalidOperationException("跨表投影缺少已认证的账号参数。")
+        : constants;
+
+    /// <summary>沿用冻结的 SQL 与联接结构，为本次请求生成独立参数，不覆盖其它账号的计划。</summary>
+    internal MySqlNonRedundantReadPlan BindAccount(Metarill.Core.Security.RuntimeActor actor)
+    {
+        if(!hasAccountParameters)return this;
+        var bound=constants.ToDictionary(pair=>pair.Key,pair=>pair.Value is FixedConditionSqlPlan.AccountParameter parameter
+            ?parameter.Bind(actor):pair.Value,StringComparer.Ordinal);
+        return new(this,Outputs.ToArray(),boundConstants:bound.ToFrozenDictionary(StringComparer.Ordinal));
+    }
     internal IReadOnlyList<MySqlPhysicalReference> PhysicalReferences {get;}
     internal IReadOnlyList<string> SourceDependencies {get;}
     internal IReadOnlyDictionary<string,MySqlValueOrigin> Origins {get;}

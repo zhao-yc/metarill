@@ -31,6 +31,37 @@ public sealed class NonRedundantCrossTargetReadTests
         if(kind=="stringNameKey")c.ConfigColumns.Single(x=>x.Id=="29").LogicalType="string";
         Assert.ThrowsAny<Exception>(()=>NonRedundantReads.CompileWithCrossTables(c,"1",["country_name"],Scopes(c,true)));
     }
+    /// <summary>固定联接只绑定已认证账号的真实归属，不在两个请求中共享参数，也不能略过目标条件。</summary>
+    [Fact]
+    public void Fixed_cross_projection_binds_each_actor_without_mutating_its_published_plan()
+    {
+        var catalog=Catalog("string","int64",false);
+        var page=catalog.ConfigPages.Single(item=>item.Id=="21");
+        catalog.ConfigColumns.Add(new(){Id="owner_filter",ConfigTableId=page.ConfigTableId,ColumnName="owner_id",LogicalType="int64"});
+        page.WhereSql="yz_project_id=@current_yz_project_id AND is_enabled=1 AND owner_id=@current_yz_manager_id";
+        var condition=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile("is_enabled=1 AND owner_id=@current_yz_manager_id",["is_enabled","owner_id"]),
+            new Dictionary<string,string>{{"is_enabled","bool"},{"owner_id","int64"}});
+        var baseline=Scopes(catalog,false);
+        var scoped=baseline.Select(item=>new NonRedundantCrossTableScope(item.SourceColumnId,
+            item.Levels.Select(level=>level.PageId==page.Id?level with{Condition=condition}:level).ToArray())).ToArray();
+        Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileWithCrossTables(catalog,"1",["country_name"],baseline));
+        var plan=NonRedundantReads.CompileWithCrossTables(catalog,"1",["country_name"],scoped);
+        var keysOne=Constants(plan.BindAccount(new(9007199254740993,"甲",false,catalog.YzProjectId,"1")));
+        var keysTwo=Constants(plan.BindAccount(new(9007199254740994,"乙",false,catalog.YzProjectId,"1")));
+        Assert.Contains(9007199254740993L,keysOne.Values);
+        Assert.DoesNotContain(9007199254740994L,keysOne.Values);
+        Assert.Contains(9007199254740994L,keysTwo.Values);
+        var error=Assert.Throws<TargetInvocationException>(()=>Constants(plan));
+        Assert.IsType<InvalidOperationException>(error.InnerException);
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(new(0,"匿名",false,catalog.YzProjectId,"1")));
+
+        static IReadOnlyDictionary<string,object?> Constants(NonRedundantReadPlan value)
+        {
+            var adapter=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(value);
+            return (IReadOnlyDictionary<string,object?>)typeof(MySqlNonRedundantReadPlan).GetProperty("Constants",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(adapter)!;
+        }
+    }
+
     /// <summary>普通AllRows仍先检查冻结字段／值，不能为不分页而绕过参数验证。</summary>
     [Fact]
     public async Task All_rows_rejects_unknown_filter_before_connection()

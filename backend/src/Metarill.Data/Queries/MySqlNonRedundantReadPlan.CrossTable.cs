@@ -67,7 +67,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var scope=Scope(level.Table,alias,projectScoped:!GlobalCrossTableTarget.Declared(level.Table));
                     if(level.Scope.Condition is{} condition)
                     {
-                        var clause=condition.RenderConstants(new MySqlDatabaseProvider(),"mt_cross_scope_"+alias,field=>alias+"."+Q(field));foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);if(clause.Sql.Length>0)scope+=(scope.Length==0?"":" AND ")+clause.Sql;
+                        var clause=condition.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_cross_scope_"+alias,field=>alias+"."+Q(field));foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);if(clause.Sql.Length>0)scope+=(scope.Length==0?"":" AND ")+clause.Sql;
                     }
                     joins.Add(" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope));
                 }
@@ -102,18 +102,27 @@ public static partial class MySqlNonRedundantReadCompiler
         private void RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding)
         {
             var physical=columns[table.Id].Values.Where(column=>CrossPhysical(table,column)).ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);binding?.RequirePhysicalTypes(physical);
-            var syntax=FixedConditionPlan.Compile(page.WhereSql,physical.Keys);var constants=new List<FixedConditionTerm>();
+            var syntax=FixedConditionPlan.Compile(page.WhereSql,physical.Keys);var conditions=new List<FixedConditionTerm>();
             foreach(var term in syntax.Terms)
             {
-                var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();if(variables.Length==0){constants.Add(term);continue;}
-                if(term.Field!="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1||!variables[0].Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))throw new NotSupportedException("跨表目标的父上下文或未知变量范围不能忽略。");
+                var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
+                if(variables.Length==0){conditions.Add(term);continue;}
+                if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)
+                    throw new NotSupportedException("跨表目标的变量条件必须是物理列等值。");
+                var variable=variables[0].Text;
+                if(term.Field=="yz_project_id"&&variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))continue;
+                if(term.Field=="yz_project_id"||!AccountConditionVariables.IsPageField(variable,term.Field)||
+                    physical[term.Field] is not("string" or "int32" or "int64"))
+                    throw new NotSupportedException("跨表目标的父上下文或未知账号范围不能忽略。");
+                conditions.Add(term);
             }
-            if(constants.Count>0)
+            if(conditions.Count>0)
             {
-                var expected=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),physical.Keys),physical);
+                var expected=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",conditions.Select(term=>term.ToDefinition())),physical.Keys),physical);
                 if(binding is null||!binding.SameConstants(expected))throw new InvalidOperationException("跨表目标固定条件缺失或与发布目录不一致。");
             }
-            if(binding?.Variables.Count>0)throw new InvalidOperationException("跨表目标常量绑定不能包含请求上下文变量。");
+            if(binding?.Variables.Count>0&&conditions.Count==0)
+                throw new InvalidOperationException("跨表账号条件必须来自完整发布页。");
         }
         /// <summary>沿原整数1／布尔true合同判断开关，不额外解释文本true为启用。</summary>
         private static bool CrossEnabled(ColumnMetadata column,string key)=>column.Extra.TryGetValue(key,out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");
