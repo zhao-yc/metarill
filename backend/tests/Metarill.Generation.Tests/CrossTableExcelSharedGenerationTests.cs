@@ -69,6 +69,53 @@ public sealed class CrossTableExcelSharedGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>实际生成导入按表字段排序锁定匹配，首列留空时不能从另一条共享路径推断覆盖对象。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Redundant_cross_overwrite_uses_the_declared_first_cell(bool pathFirst)
+    {
+        var catalog=Catalog("short-r1");
+        catalog.ConfigPages.Single(page=>page.Id=="201").Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        catalog.ConfigColumns.Single(column=>column.Id==(pathFirst?"25":"22")).SortNo=-1;
+        var model=GenerationModel.Create(catalog,Namespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-overwrite");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),Namespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource");
+            const long project=9007199254740993;
+            runtime.Add("SharedExcelCountry",new Dictionary<string,object?>{{"Id",11L},{"Name","国甲"},{"Status",1},{"YzProjectId",project}});
+            runtime.Add("SharedExcelArea",new Dictionary<string,object?>{{"Id",21L},{"Name","区甲"},{"SharedExcelCountryId",11L},{"YzProjectId",project},{"Status",1}});
+            runtime.Add("SharedExcelWarehouse",new Dictionary<string,object?>{{"Id",41L},{"Name","仓甲"},{"SharedExcelAreaId",21L},{"YzProjectId",project},{"Status",1}});
+            foreach(var id in new[]{101L,102L,103L})
+                runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",id},{"Name","重名"},{"CountryId",11L},{"AreaId",21L},{"YzProjectId",id==103?project+1:project}});
+            var header=pathFirst?"主路径":"名称";
+            var row=new Dictionary<string,object?>{{"仓库路径","国甲/区甲/仓甲"},{header,pathFirst?"国甲/区甲":"重名"}};
+            var ambiguous=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([row]));
+            Assert.Equal((PageImportError.AmbiguousPageOverwrite,(int?)1,header),(ambiguous.Code!.Value,ambiguous.RowNumber,ambiguous.ColumnName));
+            Assert.Contains(("SharedExcelSource","ToListAsync",2),runtime.ReadCalls);
+            Assert.Contains("lock:SharedExcelSource",runtime.Reads);
+            foreach(var value in new object?[]{null,"  ",pathFirst?"国甲/":""})
+            {
+                row[header]=value;
+                var missing=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([row]));
+                Assert.Equal((PageImportError.MissingOverwriteKey,(int?)1,header),(missing.Code!.Value,missing.RowNumber,missing.ColumnName));
+            }
+            row.Remove(header);
+            var omitted=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([row]));
+            Assert.Equal(PageImportError.MissingOverwriteKey,omitted.Code);
+            Assert.Equal(5,runtime.Transport.Rollbacks);
+            Assert.Equal(0,runtime.Transport.Commits);
+            Assert.Empty(runtime.Transport.Commands);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>冗余同页两种级联在原列表或详情列下导出，隐藏祖先仅用于还原路径。</summary>
     [Theory]
     [InlineData("list")]
@@ -337,6 +384,16 @@ internal sealed class SharedExcelReadTransport:IDisposable
         try{return await (Task<Dictionary<string,JsonElement>>)method.Invoke(service,arguments)!;}
         catch(TargetInvocationException error)when(error.InnerException is not null){System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
     });
+    /// <summary>通过实际生成的公开入口调用整批导入，仍禁止替身执行未知写入。</summary>
+    internal async Task<string> Import(IReadOnlyList<Dictionary<string,object?>> rows,string? parentId=null)
+    {
+        var method=serviceType.GetMethod("Import"+pageId+"Async")!;
+        var requestType=method.GetParameters()[0].ParameterType;
+        var request=Activator.CreateInstance(requestType)!;
+        requestType.GetProperty("RequestJson")!.SetValue(request,JsonSerializer.SerializeToElement(rows));
+        requestType.GetProperty("ParentId")!.SetValue(request,parentId);
+        return await (Task<string>)method.Invoke(service,[request,actor,CancellationToken.None])!;
+    }
     /// <summary>公开导出方法实际产生原列及单元格，记录导出结束时的锁数。</summary>
     internal async Task<PageExportRequest> Export(PageRequest? request=null)
     {

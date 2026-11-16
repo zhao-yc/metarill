@@ -43,7 +43,7 @@ internal static class RedundantCrossTableSubset
             // 列表与详情模式共用原快照和路径读取，祖先ID仍只作为内部投影依赖。
             if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
                 exportedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ExportAcceptancePending;
-            if(importedSlots.Length>0&&(!supported||ImportRenderer.Mode(page) is not ("" or "OnlyNew")||
+            if(importedSlots.Length>0&&(!supported||!SupportsImport(model,table,page,plans,imports)||
                 importedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ImportAcceptancePending;
             return null;
         }
@@ -58,6 +58,20 @@ internal static class RedundantCrossTableSubset
             plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()!=plan.Levels.Count))return false;
         return plans.Count==1||SharedCrossTableCompilation.ForSource(model,table,page,plans[0].Read.Source.Source.Id)?.Plans.Count==plans.Count;
     }
+    /// <summary>覆盖键取原表排序中的首个导入字段，必须能在来源表上以物理标量匹配。</summary>
+    private static bool SupportsImport(GenerationModel model,TableModel table,PageModel page,
+        IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns)
+    {
+        var mode=ImportRenderer.Mode(page);
+        if(mode is "" or "OnlyNew")return true;
+        if(mode!="OverWriteByFirstColumn"||columns.Count==0)return false;
+        var key=table.Columns.First(columns.Contains);
+        if(key.IsJsonArray||key.IsManagedCascadeName||!NonRedundantReadCompilation.Physical(model,table,key))return false;
+        if(key.Source.ControlKind=="CascadeTree")
+            return (key.Type is "long?" or "string?")&&plans.Any(plan=>plan.Read.Source.Source.Id==key.Source.Id&&plan.Levels[^1].Id.Source.Id==key.Source.Id);
+        return (key.Type is "long?" or "int?" or "string?")&&key.Source.ControlKind is "" or "Text" or "Number";
+    }
+
     /// <summary>包内表、候选页及后台必须明确发布于同一项目，不能从空项目推断授权。</summary>
     private static void RequireRealm(GenerationModel model,TableModel table,PageModel page)
     {

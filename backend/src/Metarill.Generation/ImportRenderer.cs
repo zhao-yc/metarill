@@ -53,8 +53,10 @@ public sealed partial class {{page.Name}}ImportRequest
         if (columns.Select(Header).Distinct(StringComparer.Ordinal).Count() != columns.Count) throw new InvalidOperationException("导入列中文标题重复，无法明确解析。");
         var overwrite = Mode(page) == "OverWriteByFirstColumn";
         // 校验与下方实际选中的表级首列一致，避免页面排序不同漏过数组匹配门禁。
-        if (overwrite && columns.Count > 0 && table.Columns.First(column => columns.Contains(column)).IsJsonArray) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
         if (overwrite && columns.Count == 0) throw new InvalidOperationException("覆盖导入至少需要一个可导入字段。");
+        var overwriteKey = overwrite ? table.Columns.First(columns.Contains) : null;
+        if (overwriteKey?.IsJsonArray == true) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
+        var redundantCrossOverwrite = overwrite && hasCross && table.Source.IsRongyu == 1;
         var logicalMatch=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
         var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
@@ -80,16 +82,26 @@ public sealed partial class {{page.Name}}ImportRequest
         var parsed = contextual && overwrite ? "keyValues" : "values";
         var initialContext = contextual ? ", null, " + (overwrite ? "true" : "false") : "";
         result.AppendLine($"                var {parsed} = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor{initialContext}{fixedCrossParameter}, cancellationToken);");
-        if (overwrite)
+        if (overwriteKey is { } first)
         {
-            var first = table.Columns.First(column => columns.Contains(column));
-            result.AppendLine($"                if (!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null) throw new ArgumentException(\"覆盖匹配字段不能为空。\");")
+            var missingKey = redundantCrossOverwrite
+                ? $"!row.TryGetProperty({Literal(Header(first))}, out _) || "
+                : "";
+            var blankKey = redundantCrossOverwrite && first.Type == "string?"
+                ? " || matchValue.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(matchValue.GetString())"
+                : "";
+            var missingError = redundantCrossOverwrite
+                ? $"PageImportException.Input(PageImportError.MissingOverwriteKey, columnName: {Literal(Header(first))})"
+                : "new ArgumentException(\"覆盖匹配字段不能为空。\")";
+            result.AppendLine($"                if ({missingKey}!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null{blankKey}) throw {missingError};")
                 .AppendLine($"                var key = matchValue.Deserialize<{first.BoundaryType}>(JsonOptions);");
             if(logicalMatch is not null)result.Append(NonRedundantImportMatchRenderer.Match(model,table,page,logicalMatch));
             else result.AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync({OverwriteMatchProjection(table,page,dependency)}, cancellationToken);")
                 .AppendLine(NonRedundantCrossTableSubset.ReportsScopedOverwriteAmbiguity(model,table,page,columns)
                     ?$"                if (existing.Count > 1) throw PageImportException.Input(PageImportError.AmbiguousOverwrite, columnName: {Literal(Header(first))});"
-                    :"                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
+                    :redundantCrossOverwrite
+                        ?$"                if (existing.Count > 1) throw PageImportException.Input(PageImportError.AmbiguousPageOverwrite, columnName: {Literal(Header(first))});"
+                        :"                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
             if(contextual)
             {
                 if(logicalMatch is null)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];");
@@ -202,13 +214,14 @@ public sealed partial class {{page.Name}}ImportRequest
                 var parse=$"await ImportCascade{page.Source.Id}_{column.Source.Id}Async(cell.Value,actor,cancellationToken)";
                 if(cross is null)
                     result.AppendLine($"                        values[{Literal(column.JsonName)}]={parse};");
-                else if(fixedCross is null)
-                    result.AppendLine($"                        crossInputs.Add({Literal(Header(column))},{parse},cell.Value.ValueKind==JsonValueKind.Null||cell.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.Value.GetString()));");
                 else
                 {
-                    result.AppendLine($"                        var path={parse};")
-                        .AppendLine("                        var clear=cell.Value.ValueKind==JsonValueKind.Null||cell.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.Value.GetString());")
-                        .AppendLine($"                        crossInputs.Add({Literal(Header(column))},path,clear,await readFixedCrossParent());");
+                    result.AppendLine($"                        var path={parse};");
+                    // 共享路径可能也产生同一个祖先槽。覆盖必须由首列自己提供末级ID。
+                    if(redundantCrossOverwrite && column == overwriteKey)
+                        result.AppendLine($"                        if (!path.TryGetValue({Literal(column.JsonName)}, out var cellKey) || cellKey.ValueKind == JsonValueKind.Null) throw PageImportException.Input(PageImportError.MissingOverwriteKey);");
+                    result.AppendLine("                        var clear=cell.Value.ValueKind==JsonValueKind.Null||cell.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.Value.GetString());")
+                        .AppendLine($"                        crossInputs.Add({Literal(Header(column))},path,clear{(fixedCross is null?"":",await readFixedCrossParent()")});");
                 }
                 result.AppendLine("                    }").AppendLine("                    catch(PageImportException error) when(error.IsInputError)").AppendLine("                    {")
                     .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);").AppendLine("                    }");

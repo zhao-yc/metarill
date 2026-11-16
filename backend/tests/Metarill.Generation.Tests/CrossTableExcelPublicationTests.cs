@@ -421,9 +421,9 @@ public sealed class CrossTableExcelPublicationTests
         Assert.All(paths,row=>Assert.True(row.GetProperty("fullApplicationAccepted").GetBoolean()));
     }
 
-    /// <summary>原追加、列表和详情导出仍拒绝未证明的覆盖及未知导出模式。</summary>
+    /// <summary>原追加、覆盖、列表和详情仍拒绝未声明的导入或导出模式。</summary>
     [Theory]
-    [InlineData("importMethod","OverWriteByFirstColumn",CrossTableExcelRenderer.ImportAcceptancePending)]
+    [InlineData("importMethod","unknown",CrossTableExcelRenderer.ImportAcceptancePending)]
     [InlineData("exportMethod","unknown",CrossTableExcelRenderer.ExportAcceptancePending)]
     public void R1_cross_excel_keeps_unverified_publication_gaps(string method,string mode,string expected)
     {

@@ -29,7 +29,7 @@ public sealed class RedundantCrossFullTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>坏定义与未证明用途在任何stage创建前整体拒绝，隐藏字段也不能绕过。</summary>
-    [Theory][InlineData("unpublished")][InlineData("foreignRealm")][InlineData("global")][InlineData("invalidR0")][InlineData("badParent")][InlineData("pageOverride")][InlineData("idAlias")][InlineData("nameAlias")][InlineData("emptyPrefix")][InlineData("overwriteImport")][InlineData("auxiliaryExport")][InlineData("legacyExport")][InlineData("hiddenBad")][InlineData("virtual")][InlineData("hiddenVirtual")][InlineData("hiddenVirtualR0")][InlineData("badCompanion")][InlineData("sourceParent")]
+    [Theory][InlineData("unpublished")][InlineData("foreignRealm")][InlineData("global")][InlineData("invalidR0")][InlineData("badParent")][InlineData("pageOverride")][InlineData("idAlias")][InlineData("nameAlias")][InlineData("emptyPrefix")][InlineData("legacyImport")][InlineData("auxiliaryExport")][InlineData("legacyExport")][InlineData("hiddenBad")][InlineData("virtual")][InlineData("hiddenVirtual")][InlineData("hiddenVirtualR0")][InlineData("badCompanion")][InlineData("sourceParent")]
     public async Task Unproven_use_rejects_full_atomically(string kind)
     {
         var c=Catalog(kind=="badCompanion"?"double":"independent",false);var control=c.ConfigColumns.Single(x=>x.Id=="25");var json=JsonNode.Parse(control.ControlDetail)!;
@@ -41,14 +41,14 @@ public sealed class RedundantCrossFullTests
         if(kind=="idAlias")json["levels"]![0]!["idPropertyName"]="differentId";
         if(kind=="nameAlias")json["levels"]![0]!["namePropertyName"]="differentName";
         if(kind=="emptyPrefix")json["levels"]![1]!["columnPrefix"]="";
-        if(kind=="overwriteImport")c.ConfigPages.Single(x=>x.Id=="201").Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        if(kind=="legacyImport")c.ConfigPages.Single(x=>x.Id=="201").Extra["importMethod"]=JsonSerializer.SerializeToElement("unknown");
         if(kind=="auxiliaryExport")
         {
             c.ConfigPages.Single(x=>x.Id=="201").IsExport=1;
             c.ConfigColumns.Add(new(){Id="990001",ConfigTableId="2",ColumnName="country_id",Name="原始国家ID",LogicalType="string",ColumnLength="100",LinkConfigTableId="3",YzProjectId=c.YzProjectId});
             c.ConfigPageColumns.Add(new(){Id="990002",ConfigPageId="201",ConfigColumnId="990001",IsShow=1,YzProjectId=c.YzProjectId});
         }
-        if(kind=="legacyExport")c.ConfigPages.Single(x=>x.Id=="201").Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        if(kind=="legacyExport"){var page=c.ConfigPages.Single(x=>x.Id=="201");page.IsExport=1;page.Extra["exportMethod"]=JsonSerializer.SerializeToElement("unknown");c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="25").IsShow=1;}
         if(kind=="hiddenBad"){c.ConfigPageColumns.RemoveAll(x=>x.ConfigColumnId=="25");json["levels"]![1]!["whereSql"]="status=1";}
         if(kind is "virtual" or "hiddenVirtual" or "hiddenVirtualR0")control.IsVirtualColumn=1;if(kind is "hiddenVirtual" or "hiddenVirtualR0")c.ConfigPageColumns.RemoveAll(x=>x.ConfigColumnId=="25");if(kind=="hiddenVirtualR0")c.ConfigTables.Single(x=>x.Id=="2").IsRongyu=0;
         if(kind=="badCompanion"){var other=c.ConfigColumns.Single(x=>x.Id=="80");var second=JsonNode.Parse(other.ControlDetail)!;second["levels"]![1]!["whereSql"]="status=1";other.ControlDetail=second.ToJsonString();c.ConfigPageColumns.RemoveAll(x=>x.ConfigColumnId=="80");}
