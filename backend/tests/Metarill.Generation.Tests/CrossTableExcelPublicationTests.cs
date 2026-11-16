@@ -95,6 +95,38 @@ public sealed class CrossTableExcelPublicationTests
             Assert.Contains("PageImportError.AmbiguousOverwrite", ImportRenderer.Service(model, table, page));
     }
 
+    /// <summary>派生名称只参与路径转换，固定父范围仍由真实物理层级键绑定。</summary>
+    [Theory]
+    [InlineData("country_id", "OverWriteByFirstColumn", "edit", "mixed")]
+    [InlineData("area_id", "OnlyNew", "list", "derived")]
+    public async Task Derived_targets_publish_excel_in_fixed_logical_parent_scope(string parent, string importMode, string exportMode, string targets)
+    {
+        var catalog = ParentScopedCatalog(parent, importMode, exportMode);
+        NonRedundantCrossTargetsTests.Apply(catalog, "cx_parent_excel", targets);
+        const string ns = "Example.DerivedParentExcel";
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(source.Pages);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        Assert.True(NonRedundantCrossParentCompilation.Enabled(model, source, page));
+        Assert.Contains("CrossTargetRows201_25_1Async(actor,filters,2,currentRead,ct)", CrossTableExcelRenderer.Helpers(model, source, page));
+        Assert.Contains("ValidateParents201Async(request.ParentId, actor, cancellationToken,includeManaged:false)", ImportRenderer.Service(model, source, page));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-derived-parent-excel");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.CxParentExcelSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>详情导出复用原页父范围和权限，投影包含详情专用列而排除列表专用列。</summary>
     [Theory]
     [InlineData("country_id", "OverWriteByFirstColumn")]
