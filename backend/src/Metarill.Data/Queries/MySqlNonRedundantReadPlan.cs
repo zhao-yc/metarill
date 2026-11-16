@@ -299,7 +299,11 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(crossGlobal)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);
                     var pageId=refresh.SelfTreePageId??(crossGlobal&&target.IsRongyu==0?refresh.CrossTablePageId:null);
                     var publishedPage=pageId is null?null:catalog.ConfigPages.Single(page=>page.Id==pageId);
-                    var id=Resolve(table,alias,foreign.ColumnName);return Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage),value.ColumnName);
+                    var account=refresh.CrossTableAccountPageId is{} accountPage
+                        ?AccountScopedCrossCache.Compile(catalog,table,target,catalog.ConfigPages.Single(page=>page.Id==accountPage))
+                        :null;
+                    var id=Resolve(table,alias,foreign.ColumnName);
+                    return Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account),value.ColumnName);
                 }
                 foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"&&item.ColumnName.EndsWith("_id",StringComparison.Ordinal)))
                 {
@@ -454,7 +458,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var key=Column(target,"id");if(key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage[target.Id].IsPhysical(key))throw new InvalidOperationException("关联目标必须使用非空int64物理主键。");
         }
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
-        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null)
+        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null)
         {
             if(matching&&sourceType!="int64")throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var global=GlobalCrossTableTarget.Declared(target);
@@ -467,13 +471,14 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             // 混合文本或浮点键可能发生近似比较，同一源值可能匹配多个大整数主键。
             aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32";
-            var path=ownerAlias+":"+relation.Id+(cachePage is null?"":":"+cachePage.Id);
+            var path=ownerAlias+":"+relation.Id+(cachePage is null?"":":"+cachePage.Id)+(account is null?"":":account:"+account.PageId);
             var directSave=refreshFields is not null&&ordinaryRelation&&ownerAlias==rootAlias&&storage[root.Id].IsPhysical(relation)&&source==ownerAlias+"."+Q(relation.ColumnName);
             if(aliases.TryGetValue(path,out var existing))
             {
                 if(directSave)directSaveAliases.Add(existing);
                 Scope(target,existing,projectScoped:!global);
                 if(publishedPage is not null)_=PublishedCondition(target,existing,publishedPage);
+                if(account is not null)_=AccountCacheScope(account,target,existing,ownerAlias,render:false);
                 aggregateFields[existing].Add(output);
                 Touch(existing,"id");return existing;
             }
@@ -492,6 +497,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var lookup=$"CASE WHEN REGEXP_LIKE(CONCAT({source},'#'),'^(0|-?[1-9][0-9]{{0,18}})#$','c') THEN CAST({source} AS DECIMAL(20,0)) END";
                 equality=$"{alias}.`id`={lookup} AND {equality}";
             }
+            if(account is not null)scope+=(scope.Length==0?"":" AND ")+AccountCacheScope(account,target,alias,ownerAlias,render:true);
             var predicate=equality+(scope.Length==0?"":" AND "+scope);
             var sql=" LEFT JOIN "+Q(target.TableName)+" "+alias+" ON "+predicate;
             joins.Add(sql);

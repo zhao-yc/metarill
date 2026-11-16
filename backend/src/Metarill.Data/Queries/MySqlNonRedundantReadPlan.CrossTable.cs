@@ -96,6 +96,36 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         /// <summary>空文本与null是未选，空格不是规范ID，不依赖数据库忽略尾空格的比较。</summary>
         private static string Nonempty(string expression)=>"("+expression+" IS NOT NULL AND BINARY CAST("+expression+" AS CHAR)<>BINARY '')";
+        /// <summary>名称回填和传播用相同来源行范围，目标归属及常量列加入反向依赖。</summary>
+        private string AccountCacheScope(AccountScopedCrossCache account,TableMetadata target,string alias,string owner,bool render)
+        {
+            var predicates=new List<string>();
+            foreach(var (targetColumn,sourceColumn) in account.Ownership)
+            {
+                Use(target,targetColumn);Touch(alias,targetColumn.ColumnName);
+                Use(root,sourceColumn);
+                if(!render)continue;
+                // 文本和整数使用规范十进制字节，拒绝 NULL、前导零和相邻雪花 ID 的近似匹配。
+                var sourceText="CAST("+owner+"."+Q(sourceColumn.ColumnName)+" AS CHAR)";
+                var targetText="CAST("+alias+"."+Q(targetColumn.ColumnName)+" AS CHAR)";
+                predicates.Add("(BINARY "+targetText+"=BINARY "+sourceText+" AND BINARY "+sourceText+"=BINARY "+PositiveText(sourceText)+")");
+            }
+            if(account.Constants is{} constants)
+            {
+                var clause=constants.RenderConstants(new MySqlDatabaseProvider(),"mt_cross_cache_"+alias,field=>
+                {
+                    Use(target,Column(target,field));Touch(alias,field);
+                    return alias+"."+Q(field);
+                });
+                if(render)
+                {
+                    foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);
+                    predicates.Add(clause.Sql);
+                }
+            }
+            return string.Join(" AND ",predicates);
+        }
+
         /// <summary>真实物理标量与凭据排除共用发布类型，不把JSON或文件数组当作父键或名称。</summary>
         private bool CrossPhysical(TableMetadata table,ColumnMetadata column)=>storage[table.Id].IsPhysical(column)&&column.IsVirtualColumn==0&&!CrossEnabled(column,"isJoinColumn")&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList")&&column.LogicalType.ToLowerInvariant() is not("json" or "binary");
         /// <summary>完整元数据中的目标固定条件必须与绑定相符；精简发布目录也必须提供冻结的常量绑定。</summary>

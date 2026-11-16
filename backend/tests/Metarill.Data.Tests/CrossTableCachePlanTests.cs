@@ -14,6 +14,38 @@ public sealed class CrossTableCachePlanTests
     {
         var c=Catalog(type,field);var before=JsonSerializer.Serialize(c);var bindings=Definitions(c);var p=RelationMaintenanceCatalog.Compile(c,bindings);Assert.Equal(64,RelationMutationPlan.Compile(c,bindings).Fingerprint.Length);Assert.Contains(p.Tables,x=>x.Id=="source");Assert.DoesNotContain("source",p.MixedSourceColumns.Keys);Assert.Equal(before,JsonSerializer.Serialize(c));using var db=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Password=unused"});using var ct=new CancellationTokenSource();ct.Cancel();await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>new RelationMaintenanceExecutor(db).BackfillAsync(p,"source",ct.Token));
     }
+    /// <summary>维护 SQL 按每条来源的真实归属匹配目标，更新目标归属也要进入同一反向传播队列。</summary>
+    [Theory]
+    [InlineData("string")]
+    [InlineData("int64")]
+    public void Account_backfill_binds_row_ownership_and_preserves_other_caches(string ownerType)
+    {
+        var catalog=Catalog("string","caption");
+        catalog.ConfigColumns.Add(new(){Id="source_owner",ConfigTableId="source",ColumnName="record_owner_id",LogicalType=ownerType});
+        catalog.ConfigColumns.Add(new(){Id="country_owner",ConfigTableId="country",ColumnName="owner_id",LogicalType="int64"});
+        catalog.ConfigColumns.Add(new(){Id="country_state",ConfigTableId="country",ColumnName="enabled",LogicalType="bool"});
+        catalog.ConfigPages.Add(new(){Id="source_edit",ConfigTableId="source",WhereSql="record_owner_id=@current_yz_manager_id"});
+        catalog.ConfigPages.Add(new(){Id="country_list",ConfigTableId="country",WhereSql="owner_id=@current_yz_manager_id AND enabled=1"});
+        var definitions=Definitions(catalog);
+        var account=definitions[0] with{CrossTableAccountPageId="country_list"};
+        var result=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,definitions[1..],[account]);
+        Assert.Equal(new[]{"country_name"},result.MixedSourceColumns["cross_cache_source"]);
+        Assert.Contains("cross_cache_country",result.MixedTargets);
+        var adapter=typeof(RelationMaintenanceCatalog).GetProperty("Mixed",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(result)!;
+        var consumers=(System.Collections.IEnumerable)adapter.GetType().GetProperty("Consumers",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(adapter)!;
+        var consumer=Assert.Single(consumers.Cast<object>());
+        var plan=consumer.GetType().GetProperty("Read")!.GetValue(consumer)!;
+        var sql=(string)plan.GetType().GetProperty("From",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(plan)!;
+        Assert.Contains("BINARY CAST(b.`record_owner_id` AS CHAR)",sql);
+        Assert.Contains(".`owner_id` AS CHAR)=BINARY",sql);
+        Assert.Contains(".`enabled`=@mt_cross_cache_",sql);
+        Assert.DoesNotContain("current_yz_manager_id",sql);
+
+        catalog.ConfigPages.Add(new(){Id="source_unrestricted",ConfigTableId="source"});
+        Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,definitions[1..],[account]));
+        Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[account]));
+    }
+
     /// <summary>跨表缓存不能通过伪造字段、表、层、额外SQL或派生终点放宽普通标量合同。</summary>
     [Theory][InlineData("noControl")][InlineData("noLevel")][InlineData("wrongLevel")][InlineData("wrongTarget")][InlineData("wrongCache")][InlineData("multiple")][InlineData("extra")][InlineData("duplicateKey")][InlineData("global")][InlineData("derived")][InlineData("credential")][InlineData("parent")][InlineData("parentSystem")][InlineData("foreignControl")][InlineData("invalidR0")]
     public void Invalid_cross_proofs_fail_before_connection(string kind)

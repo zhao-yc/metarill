@@ -46,6 +46,35 @@ public sealed class NonRedundantCrossTargetsTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>冗余来源连接按行归属回填，真实冻结目录必须与生成服务一起初始化。</summary>
+    [Fact]
+    public async Task Account_scoped_cross_cache_generates_maintenance_and_scoped_paths()
+    {
+        const string ns="Example.CrossAccountCache";
+        var catalog=Catalog("nr_cross_target","string","int64","mixed");
+        var source=catalog.ConfigTables.Single(table=>table.Id=="2");
+        source.IsRongyu=1;
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        catalog.ConfigColumns.Add(new(){Id="source_account",ConfigTableId=source.Id,ColumnName="record_owner_id",LogicalType="int64"});
+        sourcePage.WhereSql+=" AND record_owner_id=@current_yz_manager_id";
+        var target=catalog.ConfigPages.Single(page=>page.Id=="401");
+        catalog.ConfigColumns.Add(new(){Id="area_account",ConfigTableId=target.ConfigTableId,ColumnName="owner_id",LogicalType="int64"});
+        target.WhereSql+=" AND owner_id=@current_yz_manager_id";
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-account-cache");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var model=GenerationModel.Create(catalog,ns);
+            var compiled=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("area_name",compiled.MixedSourceColumns[source.TableName]);
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var published=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+            Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(published.GetProperty("Catalog")!.GetValue(null));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>显式全局中层使用固定派生名称，来源自己的逻辑路径仍按原项目隔离。</summary>
     [Theory]
     [InlineData(false, false)]
