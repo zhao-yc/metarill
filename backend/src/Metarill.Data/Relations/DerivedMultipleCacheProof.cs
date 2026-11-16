@@ -22,7 +22,7 @@ internal static class DerivedMultipleCacheProof
     private static void RequireCheckbox(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,bool global)
     {
         var definition=DatabaseCheckboxDefinition.Parse(foreign.ControlDetail);
-        if(!global&&value.ColumnName!="name"||cache.ColumnName!=foreign.ColumnName[..^4]+"_"+(value.ColumnName.EndsWith('s')?value.ColumnName:value.ColumnName+"s"))throw Invalid();
+        if(definition.NameField!=value.ColumnName||cache.ColumnName!=foreign.ColumnName[..^4]+"_"+(value.ColumnName.EndsWith('s')?value.ColumnName:value.ColumnName+"s"))throw Invalid();
         if(foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||definition.TableId.Length>0&&definition.TableId!=target.Id||definition.Table.Length>0&&definition.Table!=target.TableName)throw Invalid();
         var joined=foreign.Extra.GetValueOrDefault("joinTable").ToString();var linked=foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString();
         if(joined.Length>0&&joined!=target.TableName||linked.Length>0&&definition.PageId.Length>0&&linked!=definition.PageId)throw Invalid();

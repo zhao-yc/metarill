@@ -76,7 +76,10 @@ public static class MetadataStoragePolicy
     /// <summary>原多值名称仅追加s，已有s后缀保持；id展示不创建辅助列。</summary>
     private static string Auxiliary(ColumnMetadata column)
     {
-        var name="name";if(column.ControlKind is "List" or "SelectPage" or "MultiSelectPage"){var declared=Value(Definition(column),"nameField");if(declared.Length>0)name=declared;}
+        // 数据库复选的辅助列和查询、导入及传播使用同一个表级名称定义。
+        var name=column.ControlKind=="MultiCheckBoxDatabase"&&column.ColumnName.EndsWith("_ids",StringComparison.Ordinal)
+            ?DatabaseCheckboxDefinition.Parse(column.ControlDetail).NameField:"name";
+        if(column.ControlKind is "List" or "SelectPage" or "MultiSelectPage"){var declared=Value(Definition(column),"nameField");if(declared.Length>0)name=declared;}
         if(name=="id")return "";MetadataValidation.RequireIdentifier(name);
         if(column.ColumnName.EndsWith("_id",StringComparison.Ordinal))return column.ColumnName[..^3]+"_"+name;
         if(column.ColumnName.EndsWith("_ids",StringComparison.Ordinal))return column.ColumnName[..^4]+"_"+(name.EndsWith('s')?name:name+"s");return "";

@@ -70,7 +70,6 @@ internal static class DatabaseCheckboxCompilation
                 if(NonRedundantReadCompilation.HasGlobalRowProject(target))globalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
             }
             if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
-            if(definition.NameField!="name"&&!target.IsGlobal)return Gap("自定义复选名称当前只开放已证明的全局目标。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
             if(name is null||name.Type!="string?"||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))return Gap("名称必须为已声明的非凭据字符串。");
             var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&(!target.IsGlobal||!GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source)))return Gap("物理Join名称仍需独立缓存证明。");

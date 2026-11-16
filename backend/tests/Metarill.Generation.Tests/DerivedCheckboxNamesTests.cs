@@ -20,6 +20,61 @@ public sealed class DerivedCheckboxNamesTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>非默认派生名称的候选、原导入导出和两种源存储使用同一固定字段。</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    public async Task Explicit_checkbox_label_uses_one_derived_field_in_generation_and_storage(int mode, bool automatic)
+    {
+        var catalog = Catalog("custom_checkbox", automatic);
+        var owner = catalog.ConfigTables.Single(table => table.Id == "2");
+        owner.IsRongyu = mode;
+        var field = catalog.ConfigColumns.Single(column => column.Id == "25");
+        field.ControlDetail = JsonSerializer.Serialize(new
+        {
+            tableId = "3", nameField = "caption",
+            whereSql = "parent_id=@parentId AND segment=@formParameters.segment AND status=1", orderBy = "caption desc"
+        });
+        catalog.ConfigColumns.Single(column => column.Id == "32").ColumnName = "caption";
+        if (!automatic)
+        {
+            var explicitNames = catalog.ConfigColumns.Single(column => column.Id == "27");
+            explicitNames.ColumnName = "target_captions";
+            explicitNames.Extra["columnFullName"] = JsonSerializer.SerializeToElement("target.caption");
+        }
+        catalog.ConfigColumns.Add(new() { Id = "ordinary_names", ConfigTableId = owner.Id, ColumnName = "target_names", LogicalType = "string" });
+        var model = GenerationModel.Create(catalog, "Example.CustomCheckbox");
+        var table = model.Tables.Single(candidate => candidate.Source.Id == owner.Id);
+        var page = table.Pages.Single(candidate => candidate.Source.Id == "201");
+        var checkbox = Assert.Single(DatabaseCheckboxCompilation.ForPage(model, table, page));
+        Assert.Equal("caption", checkbox.Name.Source.ColumnName);
+        Assert.Equal("target_captions", checkbox.Names.Source.ColumnName);
+        Assert.True(checkbox.DerivedName);
+        var physical = MetadataStoragePolicy.ForTable(catalog, owner).PhysicalColumns.Select(column => column.ColumnName);
+        Assert.Contains("target_names", physical);
+        Assert.Equal(mode == 1, physical.Contains("target_captions"));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if (mode == 1)
+            Assert.Contains("target_captions", MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns[owner.TableName]);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-custom-checkbox-label");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), model.Namespace);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(model.Namespace + ".Generated.Services.CustomCheckboxSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            catalog.ConfigPageColumns.Single(item => item.ConfigPageId == "201" && item.ConfigColumnId == field.Id)
+                .Extra["controlDetail"] = JsonSerializer.SerializeToElement(
+                    field.ControlDetail.Replace("\"caption\"", "\"name\"", StringComparison.Ordinal));
+            Assert.NotEmpty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, model.Namespace)));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>完整包从包内源码构建，并挂载原复选组件；重复更新保护手写partial。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Full_derived_checkbox_keeps_original_component_and_handwritten_code(bool automatic)
