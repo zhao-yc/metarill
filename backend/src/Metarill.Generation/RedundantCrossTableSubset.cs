@@ -52,7 +52,8 @@ internal static class RedundantCrossTableSubset
     /// <summary>Excel 共用已经证明的逐层名称读取与传播计划，覆盖单条路径或经统一协调的双路径。</summary>
     private static bool SupportsPathCells(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
     {
-        if(model.Catalog.DatabaseProvider!="mysql"||page.Scopes.Any(scope=>scope.Source=="parent")||plans.Count>2)return false;
+        // 来源父范围已由 Reason 中的共享物理父证明验证。路径仍须使用唯一目标角色。
+        if(model.Catalog.DatabaseProvider!="mysql"||plans.Count>2)return false;
         if(plans.Any(plan=>plan.Levels.Count is <2 or >3||
             plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)||
             plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()!=plan.Levels.Count))return false;

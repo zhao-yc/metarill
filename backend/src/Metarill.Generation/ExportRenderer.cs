@@ -43,7 +43,8 @@ internal static class ExportRenderer
     {
         if (!Enabled(page)) return "";
         var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);var checkboxes=table.Source.IsRongyu==0?DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>IncludesColumn(page,def.Source)).ToArray():[];
-        var snapshot=CascadeTreeQueryCompilation.Snapshot(model,table,page)||CrossTableExcelRenderer.ExportDependencies(model,table,page,columns).Count>0;
+        var crossDependencies=CrossTableExcelRenderer.ExportDependencies(model,table,page,columns);
+        var snapshot=CascadeTreeQueryCompilation.Snapshot(model,table,page)||crossDependencies.Count>0;
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
         var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).Concat(checkboxes.SelectMany(def=>def.Dependencies)).DistinctBy(column=>column.Source.Id);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
@@ -59,9 +60,12 @@ internal static class ExportRenderer
                 result.AppendLine($"        exportAuthorization.RequirePagePermission({Literal(targetPage)}, \"list\");");
             if (relations.Length > 0) result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);");
         }
+        // 即使来源没有匹配行，也必须在同一快照内核对固定父归属。导出采用普通读。
+        if(crossDependencies.Count>0&&SharedRedundantParentCompilation.Enabled(model,table,page))
+            result.AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken, locking: false);");
         if(NonRedundantReadCompilation.Requires(model,table))
         {
-            var projection=columns.Concat(dependencies).Concat(CrossTableExcelRenderer.ExportDependencies(model,table,page,columns)).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
+            var projection=columns.Concat(dependencies).Concat(crossDependencies).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
             var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).Concat(multis.Select(multi=>multi.Names!.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
             // 实际导出用途另编译窄投影，不能复用整页可读集合读取未导出列。
             NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,names,NonRedundantCrossTableCompilation.Bindings(model,table,page),plan.Dependencies,deferCascadeNames:true);
@@ -77,7 +81,7 @@ internal static class ExportRenderer
         result.AppendLine($"        var query = Order{page.Source.Id}({CascadeTreeQueryCompilation.Call(page,extra:ExactDataManageCompilation.Argument(page,"\"export\""))}, request);")
             .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.EntityType}").AppendLine("        {");
         // 目标父依赖只在已有可读字段中取固定列，不因此增加导出的表头或VO字段。
-        foreach (var column in columns.Concat(dependencies).Concat(CrossTableExcelRenderer.ExportDependencies(model,table,page,columns)).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
+        foreach (var column in columns.Concat(dependencies).Concat(crossDependencies).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
         result.AppendLine("        }, cancellationToken);")
             .AppendLine("        if (entities.Count > maxRows) throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         }

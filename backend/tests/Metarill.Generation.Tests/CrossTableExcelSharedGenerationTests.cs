@@ -116,6 +116,96 @@ public sealed class CrossTableExcelSharedGenerationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
+    /// <summary>原父范围的追加、覆盖和导出共用发布的物理父键，固定末级缺席时仍校验共享祖先。</summary>
+    [Fact]
+    public async Task Redundant_parent_cross_excel_uses_the_bound_source_scope()
+    {
+        var catalog=SharedRedundantParentGenerationTests.Catalog(Prefix,"string","int64",false,0,false);
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="91"))
+        {field.IsShow=0;field.IsEdit=0;}
+        foreach(var (id,name) in new[]{("22","名称"),("25","主路径"),("80","仓库路径")})
+        {
+            catalog.ConfigColumns.Single(column=>column.Id==id).Name=name;
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==id))
+            {field.IsShow=1;field.IsEdit=1;}
+        }
+        catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-1;
+        foreach(var (id,import,export) in new[]{("203","OverWriteByFirstColumn","list"),("204","OnlyNew","edit"),("206","OnlyNew","list")})
+        {
+            var page=catalog.ConfigPages.Single(page=>page.Id==id);
+            page.IsImport=1;page.IsExport=1;
+            page.Extra["importMethod"]=JsonSerializer.SerializeToElement(import);
+            page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(export);
+        }
+        var model=GenerationModel.Create(catalog,Namespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-parent-excel");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),Namespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var middle=Runtime(assembly,"203");
+            var stopped=new TimeoutException("测试在已匹配、写入前停止。");
+            middle.AfterRead=(entity,limit)=>{if(entity=="SharedExcelSource"&&limit==2)throw stopped;};
+            var sameName=new Dictionary<string,object?>{{"名称","同名"},{"主路径","国甲/区甲/城甲"}};
+            var match=await Assert.ThrowsAsync<PageImportException>(()=>middle.Import([sameName],"21"));
+            Assert.Same(stopped,match.InnerException);
+            Assert.Contains(("SharedExcelSource","ToListAsync",1),middle.ReadCalls);
+            Assert.Equal(1,middle.Transport.Rollbacks);
+            var export=await middle.Export(new PageRequest{ParentId="21"});
+            Assert.Equal("国甲/区甲/城甲",Assert.Single(export.Rows)[export.Headers.ToList().IndexOf("主路径")]);
+            Assert.Equal(1,middle.Snapshots);
+            var locks=middle.Reads.Count(read=>read.StartsWith("lock:",StringComparison.Ordinal));
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>middle.Export(new PageRequest{ParentId="99"}));
+            Assert.Equal(locks,middle.Reads.Count(read=>read.StartsWith("lock:",StringComparison.Ordinal)));
+
+            using var leaf=Runtime(assembly,"204");
+            var fixedField=await Assert.ThrowsAsync<PageImportException>(()=>leaf.Import([sameName],"31"));
+            Assert.Equal(PageImportError.UnknownHeader,fixedField.Code);
+            var conflict=await Assert.ThrowsAsync<PageImportException>(()=>leaf.Import([
+                new(){{"名称","越界"},{"仓库路径","国乙/区乙/仓乙"}}
+            ],"31"));
+            Assert.Equal((PageImportError.Relation,(int?)1,"仓库路径"),(conflict.Code!.Value,conflict.RowNumber,conflict.ColumnName));
+            Assert.Equal(2,leaf.Transport.Rollbacks);
+            export=await leaf.Export(new PageRequest{ParentId="31"});
+            Assert.Equal("国甲/区甲/城甲",Assert.Single(export.Rows)[export.Headers.ToList().IndexOf("主路径")]);
+
+            using var compound=Runtime(assembly,"206");
+            export=await compound.Export(new PageRequest{ParentId="11"});
+            Assert.Single(export.Rows);
+            Assert.Equal(0,compound.ExportLockCount);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        // 同名记录横跨不同源父；末级和复合来源条件使用相同数据，避免靠夹具过滤碰巧通过。
+        SharedExcelReadTransport Runtime(Assembly assembly,string pageId)
+        {
+            var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",pageId:pageId);
+            const long project=9007199254740993;
+            Seed("Country",11,"国甲");Seed("Country",12,"国乙");
+            Seed("Area",21,"区甲","SharedExcelCountryId",11);Seed("Area",22,"区乙","SharedExcelCountryId",12);
+            Seed("Place",31,"城甲","SharedExcelAreaId",21);Seed("Place",32,"城乙","SharedExcelAreaId",22);
+            Seed("Warehouse",41,"仓甲","SharedExcelAreaId",21);Seed("Warehouse",42,"仓乙","SharedExcelAreaId",22);
+            Source(101,11,21,31,41,11,project);
+            Source(102,12,22,32,42,12,project);
+            Source(103,11,21,31,41,11,project+1);
+            Source(104,11,22,32,42,12,project);
+            return runtime;
+
+            void Seed(string suffix,long id,string name,string? parent=null,long parentId=0)
+            {
+                var values=new Dictionary<string,object?>{{"Id",id},{"Name",name},{"Status",1},{"YzProjectId",project}};
+                if(parent is not null)values[parent]=parentId;
+                runtime.Add("SharedExcel"+suffix,values);
+            }
+            void Source(long id,long country,long area,long place,long warehouse,long owner,long projectId)
+                =>runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",id},{"Name","同名"},{"CountryId",country},
+                    {"AreaId",area},{"PlaceId",place},{"WarehouseId",warehouse},{"OwnerCountryId",owner},{"YzProjectId",projectId}});
+        }
+    }
+
     /// <summary>冗余同页两种级联在原列表或详情列下导出，隐藏祖先仅用于还原路径。</summary>
     [Theory]
     [InlineData("list")]

@@ -46,7 +46,9 @@ public sealed partial class {{page.Name}}ImportRequest
         var crosses=columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>CrossTableWriteCompilation.Resolve(model,table,page,column).Definition).OfType<CrossTableWriteModel>().ToArray();
         var hasCross=crosses.Length>0;
         var fixedCross=FixedSharedCrossParent(model,table,page,crosses);
-        var fixedCrossParameter=fixedCross is null?"":", ReadFixedCrossParent";
+        var fixedCrossReader=fixedCross is null?RedundantFixedCrossBatchReader(model,table,page,crosses):FixedCrossBatchReader(page,fixedCross);
+        var hasFixedCross=fixedCrossReader.Length>0;
+        var fixedCrossParameter=hasFixedCross?", ReadFixedCrossParent":"";
         var dependency = ImportDependencyCompilation.ForPage(model, table, page);
         var contextual = dependency.Contextual;
         var fileImport = BackendRenderer.HasPhysicalFileColumns(model, table)||ExactDataManageCompilation.Declared(page)||ImportRenderer.RelationOperationAware(model,table,page);
@@ -74,7 +76,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .Append(packedAppend?PackedAppendRenderer.ImportSetup(model,table,page,appendParent!):"")
             .AppendLine("        var rowBuffer = new global::System.Buffers.ArrayBufferWriter<byte>();")
             .AppendLine("        using var rowWriter = new Utf8JsonWriter(rowBuffer, new JsonWriterOptions { MaxDepth = 64 });")
-            .Append(fixedCross is null?"":FixedCrossBatchReader(page,fixedCross))
+            .Append(fixedCrossReader)
             .AppendLine("        var rowNumber = 0;")
             .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {");
         if (contextual && overwrite) result.AppendLine($"                {(logicalMatch is null?table.EntityType:"ImportExistingContext"+page.Source.Id)}? importExisting = null;");
@@ -150,7 +152,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("        }")
             .AppendLine("    }, cancellationToken);")
             .AppendLine("    /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>")
-            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+(logicalMatch is null?table.EntityType:"ImportExistingContext"+page.Source.Id)+"? existing, bool keyOnly":"")}{(fixedCross is null?"":", Func<Task<IReadOnlyDictionary<string,JsonElement>>> readFixedCrossParent")}, CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+(logicalMatch is null?table.EntityType:"ImportExistingContext"+page.Source.Id)+"? existing, bool keyOnly":"")}{(hasFixedCross?", Func<Task<IReadOnlyDictionary<string,JsonElement>>> readFixedCrossParent":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;")
             .AppendLine("        if (row.ValueKind != JsonValueKind.Object) throw PageImportException.Input(PageImportError.RowObject);")
             .AppendLine("        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);")
@@ -221,7 +223,7 @@ public sealed partial class {{page.Name}}ImportRequest
                     if(redundantCrossOverwrite && column == overwriteKey)
                         result.AppendLine($"                        if (!path.TryGetValue({Literal(column.JsonName)}, out var cellKey) || cellKey.ValueKind == JsonValueKind.Null) throw PageImportException.Input(PageImportError.MissingOverwriteKey);");
                     result.AppendLine("                        var clear=cell.Value.ValueKind==JsonValueKind.Null||cell.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.Value.GetString());")
-                        .AppendLine($"                        crossInputs.Add({Literal(Header(column))},path,clear{(fixedCross is null?"":",await readFixedCrossParent()")});");
+                        .AppendLine($"                        crossInputs.Add({Literal(Header(column))},path,clear{(hasFixedCross?",await readFixedCrossParent()":"")});");
                 }
                 result.AppendLine("                    }").AppendLine("                    catch(PageImportException error) when(error.IsInputError)").AppendLine("                    {")
                     .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);").AppendLine("                    }");
@@ -311,6 +313,44 @@ public sealed partial class {{page.Name}}ImportRequest
             {
 {{string.Join("\n",ancestors)}}
             };
+        }
+
+""";
+    }
+
+    /// <summary>从实际绑定的冗余路径父键读取同行约束。独立父外键只限制来源记录，不代替级联选择。</summary>
+    private static string RedundantFixedCrossBatchReader(GenerationModel model,TableModel table,PageModel page,
+        IReadOnlyList<CrossTableWriteModel> imported)
+    {
+        if(imported.Count==0||!SharedRedundantParentCompilation.Enabled(model,table,page))return "";
+        var slots=imported.SelectMany(plan=>plan.Levels.Select(level=>level.Id))
+            .DistinctBy(column=>column.Source.Id).ToDictionary(column=>column.Source.ColumnName,StringComparer.Ordinal);
+        var paths=page.Scopes.Where(scope=>scope.Source=="parent")
+            .SelectMany(scope=>SharedRedundantParentCompilation.ForColumn(model,table,page,scope.Column)
+                .Where(path=>scope.Column.Source.ColumnName==path.Level.Prefix+"_id"));
+        var body=new StringBuilder();
+        foreach(var path in paths)
+        {
+            var shared=path.Read.Levels.Take(path.Index+1).Select((level,index)=>(Name:level.Prefix+"_id",Index:index))
+                .Where(level=>slots.ContainsKey(level.Name)).ToArray();
+            if(shared.Length==0)continue;
+            var local="path"+path.Read.Source.Source.Id+"_"+path.Index;
+            body.AppendLine($"            var {local}=await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false).PathAsync({path.Index},SharedR1ParentKey{page.Source.Id}(request.ParentId),cancellationToken);");
+            foreach(var (column,index) in shared)
+            {
+                var key=Literal(slots[column].JsonName);
+                var value=$"{local}.Path[{index}].Id";
+                body.AppendLine($"            if(!fixedIds.TryAdd({key},JsonSerializer.SerializeToElement({value}))&&fixedIds[{key}].GetString()!={value})throw PageImportException.Input(PageImportError.Relation);");
+            }
+        }
+        if(body.Length==0)return "";
+        return $$"""
+        Task<IReadOnlyDictionary<string,JsonElement>>? fixedCrossParent = null;
+        Task<IReadOnlyDictionary<string,JsonElement>> ReadFixedCrossParent() => fixedCrossParent ??= LoadFixedCrossParentAsync();
+        async Task<IReadOnlyDictionary<string,JsonElement>> LoadFixedCrossParentAsync()
+        {
+            var fixedIds=new Dictionary<string,JsonElement>(StringComparer.Ordinal);
+{{body}}            return fixedIds;
         }
 
 """;
