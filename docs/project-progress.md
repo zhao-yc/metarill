@@ -232,9 +232,7 @@
 | B153 | ✅ 原页面账号上下文条件完成 | 当页账号、商户、经销商、上级经销商及门店 | 原五种 WhereSql 等值从认证账号取值，支持普通／非冗余查询、关系候选及文件来源。新增为省略归属补值，更新和复制检查最终归属，缺少配置值时拒绝访问。固定跨表目标同时用于静态投影或维护时仍需独立范围。数据 46、文件 34、生成 40 项隔离回归通过。 | [账号变量](../backend/src/Metarill.Core/Security/AccountConditionVariables.cs)，2026-11-16 |
 | B154 | ✅ 已完成 | 大整数、数字阈值与复合详情只读 | int64 字段的字符串传输按实际数值与数字常量或另一 int64 字段比较，区分相邻雪花 ID、负数和小数阈值。畸形已载入值保持只读。生成 57 项、数据规则 75 项隔离回归通过，包括实际生成 Vue。 | [只读编译](../backend/src/Metarill.Generation/PageReadOnlyCompilation.cs)，2026-11-16 |
 | B155 | ✅ 已完成 | 原页面新建初始值与 Excel 表单依赖 | 接回页面 initValue，支持服务端账号／项目值、当日日期及类型化常量。按原新增顺序在请求赋值后应用，更新及复制延续原流程；Excel 新建联动使用同一初始值解析候选。独立生成和完整应用包 32 项通过。 | [页面初始化](../backend/src/Metarill.Generation/BackendRenderer.PageInitialization.cs)，2026-11-16 |
-
 | B156 | ✅ 已完成 | 表单显示条件与必填组合 | 生成服务根据最终业务值执行原显示条件，可见字段按页面配置检查必填，隐藏字段仍执行自身数据库非空约束。支持已声明 JSON 对象子属性，沿用新增、修改、复制和导入的共享校验。实际生成及相邻规则 22 项隔离验证通过。 | [条件必填生成](../backend/src/Metarill.Generation/BackendRenderer.RequiredVisibility.cs)，2026-11-16 |
-
 | B157 | ✅ 已完成 | JSON 详情只读与 Agent／业务按钮组合 | Agent 修改、删除、复制及原 Web／Agent 可写按钮按已发布 JSON 列及服务端实际记录判定。字段缺失或畸形时拒绝写入。Agent 创建契约把页面初始值和条件必填交给生成服务。隔离验证 102 项通过。 | [Agent 发布目录](../backend/src/Metarill.Agent/AgentHostCatalog.cs)，2026-11-16 |
 
 ## 三、独立应用、初始化、助手与 Agent
