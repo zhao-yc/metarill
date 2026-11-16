@@ -45,7 +45,10 @@ public sealed class NonRedundantCrossTargetReadTests
         var scoped=baseline.Select(item=>new NonRedundantCrossTableScope(item.SourceColumnId,
             item.Levels.Select(level=>level.PageId==page.Id?level with{Condition=condition}:level).ToArray())).ToArray();
         Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileWithCrossTables(catalog,"1",["country_name"],baseline));
-        var plan=NonRedundantReads.CompileWithCrossTables(catalog,"1",["country_name"],scoped);
+        var plan=NonRedundantReads.CompileWithCrossTables(catalog,"1",["country_name","country_id"],scoped);
+        var adapter=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(plan);
+        var idSql=(string)typeof(MySqlNonRedundantReadPlan).GetMethod("Expression",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(adapter,["country_id"])!;
+        Assert.Contains(".`id` IS NOT NULL) THEN b.`country_id`",idSql);
         var keysOne=Constants(plan.BindAccount(new(9007199254740993,"甲",false,catalog.YzProjectId,"1")));
         var keysTwo=Constants(plan.BindAccount(new(9007199254740994,"乙",false,catalog.YzProjectId,"1")));
         Assert.Contains(9007199254740993L,keysOne.Values);
@@ -57,8 +60,8 @@ public sealed class NonRedundantCrossTargetReadTests
 
         static IReadOnlyDictionary<string,object?> Constants(NonRedundantReadPlan value)
         {
-            var adapter=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(value);
-            return (IReadOnlyDictionary<string,object?>)typeof(MySqlNonRedundantReadPlan).GetProperty("Constants",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(adapter)!;
+            var snapshot=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(value);
+            return (IReadOnlyDictionary<string,object?>)typeof(MySqlNonRedundantReadPlan).GetProperty("Constants",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(snapshot)!;
         }
     }
 

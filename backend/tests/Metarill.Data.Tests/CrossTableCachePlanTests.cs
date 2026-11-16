@@ -16,17 +16,24 @@ public sealed class CrossTableCachePlanTests
     }
     /// <summary>维护 SQL 按每条来源的真实归属匹配目标，更新目标归属也要进入同一反向传播队列。</summary>
     [Theory]
-    [InlineData("string")]
-    [InlineData("int64")]
-    public void Account_backfill_binds_row_ownership_and_preserves_other_caches(string ownerType)
+    [InlineData("string",false)]
+    [InlineData("int64",false)]
+    [InlineData("string",true)]
+    public void Account_backfill_binds_row_ownership_and_preserves_other_caches(string ownerType,bool global)
     {
         var catalog=Catalog("string","caption");
         catalog.ConfigColumns.Add(new(){Id="source_owner",ConfigTableId="source",ColumnName="record_owner_id",LogicalType=ownerType});
         catalog.ConfigColumns.Add(new(){Id="country_owner",ConfigTableId="country",ColumnName="owner_id",LogicalType="int64"});
         catalog.ConfigColumns.Add(new(){Id="country_state",ConfigTableId="country",ColumnName="enabled",LogicalType="bool"});
-        catalog.ConfigPages.Add(new(){Id="source_edit",ConfigTableId="source",WhereSql="record_owner_id=@current_yz_manager_id"});
-        catalog.ConfigPages.Add(new(){Id="country_list",ConfigTableId="country",WhereSql="owner_id=@current_yz_manager_id AND enabled=1"});
+        catalog.ConfigPages.Add(new(){Id="source_edit",ConfigTableId="source",WhereSql="record_owner_id=@current_yz_manager_id AND place_id IS NOT NULL"});
+        catalog.ConfigPages.Add(new(){Id="country_list",ConfigTableId="country",WhereSql="owner_id=@current_yz_manager_id AND enabled=1",YzProjectId=catalog.YzProjectId});
         var definitions=Definitions(catalog);
+        if(global)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="country").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            definitions=definitions.Select(item=>item with{CrossTableGlobalPages=new Dictionary<string,string>{{"country","country_list"}},
+                CrossTablePageId=item.TargetTableId=="country"?"country_list":null}).ToArray();
+        }
         var account=definitions[0] with{CrossTableAccountPageId="country_list"};
         var result=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,definitions[1..],[account]);
         Assert.Equal(new[]{"country_name"},result.MixedSourceColumns["cross_cache_source"]);

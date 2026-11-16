@@ -226,7 +226,7 @@ public static partial class MySqlNonRedundantReadCompiler
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
             if((refreshFields is null?root.IsRongyu!=0:root.IsRongyu!=1)||root.IsFunctionTable!=0||root.IsView!=0)throw new InvalidOperationException("固定非冗余读取源必须是非冗余实体表。");
-            if(candidatePage is not null)GlobalCrossTableTarget.RequireSingle(catalog,root,candidatePage);
+            if(candidatePage is not null)GlobalCrossTableTarget.RequireAccountCandidate(catalog,root,candidatePage);
             if(tables.Values.GroupBy(table=>table.TableName,StringComparer.OrdinalIgnoreCase).Any(group=>group.Count()!=1))throw new InvalidOperationException("项目表名重复。");
             if(catalog.ConfigColumns.Any(column=>tables.ContainsKey(column.ConfigTableId)&&column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw new InvalidOperationException("字段归属与发布项目不一致。");
             columns=tables.Values.ToDictionary(table=>table.Id,table=>RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
@@ -244,7 +244,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 带行归属的普通页可绑定自己的项目条件；候选计划仅证明实际发布的目标页。
                 GlobalDerivedRelationSource.RequireTable(catalog,root);
                 if(!HasGlobalRowProject(root))
-                    foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==root.Id))GlobalCrossTableTarget.RequireSingle(catalog,root,page);
+                    foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==root.Id))GlobalCrossTableTarget.RequireAccountCandidate(catalog,root,page);
                 foreach(var field in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
                     if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[root.Id],root,Column(root,field)))throw new NotSupportedException("全局R0读取只接受已证明的非凭据标量名称及物理列。");
             }
@@ -272,7 +272,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var importLock=" FOR UPDATE OF "+rootAlias+(aliases.Count==0?"":" FOR SHARE OF "+string.Join(",",aliases.Values));
             var scope=candidatePage is null
                 ?Scope(root,rootAlias,projectScoped:!globalSource&&(!globalDerivedSource||HasGlobalRowProject(root)))
-                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root");
+                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:true);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
             // 计数只能省去以整数键查找单列主键的 LEFT JOIN。跨表有效性校验和当前锁读沿用完整联接。
             var aggregateFrom = aggregateJoinsPreserveCardinality && refreshFields is null &&
@@ -297,7 +297,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
                     ValidateTarget(target);var crossGlobal=refresh.CrossTableColumnId is not null&&GlobalCrossTableTarget.Declared(target);
                     if(crossGlobal)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);
-                    var pageId=refresh.SelfTreePageId??(crossGlobal&&target.IsRongyu==0?refresh.CrossTablePageId:null);
+                    var pageId=refresh.SelfTreePageId??(crossGlobal&&target.IsRongyu==0&&refresh.CrossTableAccountPageId is null?refresh.CrossTablePageId:null);
                     var publishedPage=pageId is null?null:catalog.ConfigPages.Single(page=>page.Id==pageId);
                     var account=refresh.CrossTableAccountPageId is{} accountPage
                         ?AccountScopedCrossCache.Compile(catalog,table,target,catalog.ConfigPages.Single(page=>page.Id==accountPage))
@@ -514,20 +514,23 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool HasGlobalRowProject(TableMetadata table)=>table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&columns[table.Id].ContainsKey("yz_project_id");
 
         /// <summary>全局候选和联接用同一固定页面条件，逻辑删除仍由物理字段约束。</summary>
-        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey)
+        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false)
         {
             var scope=Scope(table,alias,projectScoped:false);
-            var condition=PublishedCondition(table,alias,page);
+            var condition=PublishedCondition(table,alias,page,allowAccount);
             if(condition is null)return scope;
-            var clause=condition.RenderConstants(new MySqlDatabaseProvider(),"mt_global_scope_"+parameterKey,field=>alias+"."+Q(field));
+            var provider=new MySqlDatabaseProvider();
+            var clause=allowAccount
+                ?condition.RenderAccountProjection(provider,"mt_global_scope_"+parameterKey,field=>alias+"."+Q(field))
+                :condition.RenderConstants(provider,"mt_global_scope_"+parameterKey,field=>alias+"."+Q(field));
             foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);
             return scope.Length==0?clause.Sql:scope+" AND "+clause.Sql;
         }
 
         /// <summary>候选固定条件只能读取真实非敏感列，并登记为改名传播和维护的依赖。</summary>
-        private FixedConditionSqlPlan? PublishedCondition(TableMetadata table,string alias,PageMetadata page)
+        private FixedConditionSqlPlan? PublishedCondition(TableMetadata table,string alias,PageMetadata page,bool allowAccount=false)
         {
-            var condition=MySqlPublishedRelationCondition.Compile(catalog,table,page);
+            var condition=MySqlPublishedRelationCondition.Compile(catalog,table,page,allowAccount);
             if(condition is null)return null;
             foreach(var field in condition.Fields){Use(table,Column(table,field));Touch(alias,field);}
             return condition.Plan;

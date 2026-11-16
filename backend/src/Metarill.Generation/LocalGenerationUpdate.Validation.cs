@@ -101,6 +101,8 @@ public sealed partial class LocalGenerationUpdater
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/BinaryFieldValue.cs","src/Metarill.Data/Schema/MySqlBinaryDefault.cs"});
         // 新级联导入/导出依赖整层路径及整行聚合；当前候选必须带齐，旧目标可预览完整运行时升级。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Cascades/CrossTableReader.Paths.cs", "src/Metarill.Core/Cascades/CrossTableExcelPath.cs","src/Metarill.Core/Cascades/CrossTableExcelRow.cs"});
+        // 当前回填编译器引用逐行归属证明，旧包通过同步运行时补齐。
+        if(candidate)bootstrap=bootstrap.Append("src/Metarill.Data/Queries/AccountScopedCrossCache.cs");
         // 公共JsonDefaults始终引用浮点转换器；无double业务列的当前候选也必须带齐其解析依赖。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs","src/Metarill.Core/Contracts/ExactNumericValue.cs"});
         // 浮点统计必须成套带上精确整数累加和分桶读取；旧目标允许明确同步后升级。

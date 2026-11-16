@@ -49,7 +49,8 @@ public sealed class AccountScopedCrossCache
         var pages = catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id).ToArray();
         if (account.Count == 0 || pages.Length == 0) throw Invalid();
         var ownership = new List<(ColumnMetadata, ColumnMetadata)>();
-        var sourceTerms = pages.Select(page => FixedConditionPlan.Compile(page.WhereSql, sources.Keys).Terms).ToArray();
+        var sourceFields = MetadataStoragePolicy.ForTable(catalog,source).PhysicalColumns.Select(column=>column.ColumnName).ToArray();
+        var sourceTerms = pages.Select(page => FixedConditionPlan.Compile(page.WhereSql, sourceFields).Terms).ToArray();
         foreach (var (field, variable) in account)
         {
             var fields = sourceTerms.Select(terms => terms.Where(term => term.Field != "yz_project_id" &&
@@ -59,8 +60,7 @@ public sealed class AccountScopedCrossCache
                 .Distinct(StringComparer.Ordinal).ToArray()).ToArray();
             if (fields.Any(set => set.Length != 1) || fields.Select(set => set[0]).Distinct(StringComparer.Ordinal).Count() != 1)
                 throw Invalid();
-            var owner = sources[fields[0][0]];
-            if (!AccountConditionVariables.IsPageField(variable, owner.ColumnName) ||
+            if (!sources.TryGetValue(fields[0][0],out var owner) || !AccountConditionVariables.IsPageField(variable, owner.ColumnName) ||
                 owner.LogicalType is not ("int32" or "int64" or "string")) throw Invalid();
             ownership.Add((field, owner));
         }

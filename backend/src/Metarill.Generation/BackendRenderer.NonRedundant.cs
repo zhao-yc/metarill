@@ -9,8 +9,7 @@ internal static partial class BackendRenderer
     /// <summary>项目元数据仅嵌入和反序列化一次；各页只持有自己的不可变固定计划。</summary>
     private static string NonRedundantCatalog(GenerationModel model)
     {
-        var accountPages=model.Tables.Where(table=>table.Source.IsRongyu==0)
-            .SelectMany(table=>table.Pages.SelectMany(page=>CrossTableWriteCompilation.ForService(model,table,page)))
+        var accountPages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CrossTableWriteCompilation.ForService(model,table,page)))
             .SelectMany(plan=>plan.Read.Levels).Where(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page))
             .Select(level=>level.Page.Source.Id).ToHashSet(StringComparer.Ordinal);
         var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages),new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -75,7 +74,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}":readPlan;
+        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         // 普通写范围默认维持真实事务锁；Agent原记录预检显式选择无锁派生匹配。
         var derivedExact=ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true};
@@ -183,7 +182,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var suffix=page.Source.Id;
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}":readPlan;
+        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
         if(definitions.Count==0)result.AppendLine("        await Task.CompletedTask;");

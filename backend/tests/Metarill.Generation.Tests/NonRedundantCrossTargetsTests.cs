@@ -77,11 +77,15 @@ public sealed class NonRedundantCrossTargetsTests
 
     /// <summary>显式全局中层使用固定派生名称，来源自己的逻辑路径仍按原项目隔离。</summary>
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task Independent_cross_tree_uses_published_global_derived_level(bool rowProject,bool redundantSource)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public async Task Independent_cross_tree_uses_published_global_derived_level(bool rowProject,bool redundantSource,bool accountScope)
     {
         const string ns = "Example.GlobalDerivedCross";
         var catalog = Catalog("nr_cross_target", "string", "int64", "mixed");
@@ -107,6 +111,16 @@ public sealed class NonRedundantCrossTargetsTests
         if(redundantSource)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
         var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
         sourcePage.IsImport = sourcePage.IsExport = 1;
+        if(accountScope)
+        {
+            catalog.ConfigColumns.Add(new(){Id="global_dealer",ConfigTableId=target.Id,ColumnName="dealer_id",LogicalType="string"});
+            targetPage.WhereSql+=" AND dealer_id=@current_dealer_id";
+            if(redundantSource)
+            {
+                catalog.ConfigColumns.Add(new(){Id="source_dealer",ConfigTableId="2",ColumnName="source_dealer_id",LogicalType="int64"});
+                sourcePage.WhereSql+=" AND source_dealer_id=@current_dealer_id";
+            }
+        }
         var model = GenerationModel.Create(catalog, ns);
         var source = model.Tables.Single(table => table.Source.Id == "2");
         var page = source.Pages.Single(item => item.Source.Id == "201");
@@ -129,8 +143,27 @@ public sealed class NonRedundantCrossTargetsTests
         {
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(accountScope&&rowProject&&redundantSource)
+            {
+                var packaged=Path.Combine(directory,"application");
+                var root=NonRedundantApplicationFixture.Root();
+                Assert.True(new ApplicationPackager().Create(catalog,packaged,ns,root).FrontendIncluded);
+                Assert.True(File.Exists(Path.Combine(packaged,"src/Metarill.Data/Queries/AccountScopedCrossCache.cs")));
+            }
             var service = assembly.GetType(ns + ".Generated.Services.NrCrossTargetSourceService", true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            if(accountScope)
+            {
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/NrCrossTargetSourceService.g.cs"));
+                Assert.Contains("CrossCondition201_25_1.BindAccount(actor)",code);
+                if(!redundantSource)Assert.Contains("ReadPlan201.BindAccount(actor)",code);
+                if(rowProject)Assert.Contains("CrossTargetPlan201_25_1.BindAccount(actor)",code);
+                if(redundantSource)
+                {
+                    var maintenance=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                    Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(maintenance.GetProperty("Catalog")!.GetValue(null));
+                }
+            }
             Assert.NotNull(service.GetMethod("Import201Async"));
             Assert.NotNull(service.GetMethod("Export201Async"));
         }

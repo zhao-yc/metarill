@@ -32,7 +32,7 @@ internal static class NonRedundantReadCompilation
     {
         // 固定候选约束实际发布页，普通业务页可使用自己的项目条件。
         if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
-        else if(table.IsGlobal)GlobalCrossTableTarget.RequireSingle(model.Catalog,table.Source,page.Source);
+        else if(table.IsGlobal)GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog,table.Source,page.Source);
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿原FileLibrary事务写入；其它多值、派生文件及布局仍须独立编译。

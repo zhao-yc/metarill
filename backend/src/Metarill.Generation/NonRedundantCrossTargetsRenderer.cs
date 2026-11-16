@@ -17,7 +17,9 @@ internal static class NonRedundantCrossTargetsRenderer
     {
         _=CrossScope{{suffix}}(actor,false);if(currentRead&&take is null)throw new InvalidOperationException("跨表当前路径要求明确的有界读取。");var bound=new List<FixedReadFilter>(filters);
 {{string.Join("\n",scopes)}}
-        var condition=(FixedConditionSqlPlan?){{FixedPageConditionCompilation.Bound(level.Page,"CrossCondition"+suffix)}};var reader=new NonRedundantReader(session);var rows=take is{} limit?(currentRead?await reader.CurrentRowsAsync(CrossTargetPlan{{suffix}},bound,CrossTargetOrder{{suffix}},limit,ct,actor.ProjectId,condition):await reader.RowsAsync(CrossTargetPlan{{suffix}},bound,CrossTargetOrder{{suffix}},limit,ct,actor.ProjectId,condition)):await reader.AllRowsAsync(CrossTargetPlan{{suffix}},bound,CrossTargetOrder{{suffix}},ct,actor.ProjectId,condition);
+        var condition=(FixedConditionSqlPlan?){{FixedPageConditionCompilation.Bound(level.Page,"CrossCondition"+suffix)}};
+        var plan=CrossTargetPlan{{suffix}}{{(level.Target.IsGlobal&&FixedPageConditionCompilation.HasAccountVariables(level.Page)?".BindAccount(actor)":"")}};
+        var reader=new NonRedundantReader(session);var rows=take is{} limit?(currentRead?await reader.CurrentRowsAsync(plan,bound,CrossTargetOrder{{suffix}},limit,ct,actor.ProjectId,condition):await reader.RowsAsync(plan,bound,CrossTargetOrder{{suffix}},limit,ct,actor.ProjectId,condition)):await reader.AllRowsAsync(plan,bound,CrossTargetOrder{{suffix}},ct,actor.ProjectId,condition);
         return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(level.Name.Source.ColumnName)}}),{{parent}})).ToArray();
     }
 

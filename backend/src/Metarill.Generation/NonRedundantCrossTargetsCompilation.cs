@@ -8,7 +8,7 @@ internal static class NonRedundantCrossTargetsCompilation
     internal static void Require(GenerationModel model,TableModel owner,CrossTableReadModel plan)
     {
         if(owner.Source.IsRongyu is not(0 or 1)||owner.IsGlobal||plan.Levels.Any(level=>level.Target.Source.IsView!=0||level.Target.Source.IsFunctionTable!=0))throw new InvalidOperationException("跨表目标要求普通实体来源及目标，R1缓存由独立完整依赖证明。");
-        foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSingle(model.Catalog,level.Target.Source,level.Page.Source);
+        foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))Metarill.Core.Metadata.GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog,level.Target.Source,level.Page.Source);
         foreach(var level in plan.Levels.Where(level=>level.Target.Source.IsRongyu==0))_=Dependencies(model,level);
     }
     /// <summary>名称可派生，父键、身份、条件及其它排序必须是已证明物理标量。</summary>

@@ -23,7 +23,8 @@ internal static class RelationPropagationCompilation
             // 完整写入链定义各级ID／名称归属；不按字段后缀猜目标，也不接受页间冲突定义。
             foreach(var page in table.Pages)foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page))
             {
-                var globalPages=plan.Read.Levels.Any(level=>level.Target.IsGlobal&&level.Target.Source.IsRongyu==0)||SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is not null?GlobalPages(plan):null;
+                var globalPages=plan.Read.Levels.Any(level=>level.Target.IsGlobal&&
+                    (level.Target.Source.IsRongyu==0||FixedPageConditionCompilation.HasAccountVariables(level.Page)))||SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is not null?GlobalPages(plan):null;
                 foreach(var level in plan.Levels)result.Add(new(table,level.Id,level.Read.Target,level.Read.Name,level.Name,false,plan.Read.Source.Source.Id,level.Read.Key,level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null){CrossTableGlobalPages=globalPages,CrossTableAccountPageId=FixedPageConditionCompilation.HasAccountVariables(level.Read.Page)?level.Read.Page.Source.Id:null});
             }
         }

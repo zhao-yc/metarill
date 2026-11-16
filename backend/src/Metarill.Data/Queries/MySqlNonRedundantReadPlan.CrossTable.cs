@@ -38,7 +38,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var global=GlobalCrossTableTarget.Declared(target);if(!global&&(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project)))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
                     if(display.LogicalType.ToLowerInvariant()!="string"||ExactDataManageValues.IsSensitiveField(display.ColumnName))throw new NotSupportedException("跨表名称须为非凭据单值字符串。");
-                    if(global)GlobalCrossTableTarget.RequireSingleName(catalog,target,page,display);
+                    if(global)GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page,display);
                     if(target.IsRongyu==0)
                     {
                         var proof=new Builder(catalog,target.Id,matching:!global).Compile([display.ColumnName],[]);if(proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
@@ -72,12 +72,15 @@ public static partial class MySqlNonRedundantReadCompiler
                     joins.Add(" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope));
                 }
                 var paths=Enumerable.Range(0,levels.Count).Select(deepest=>"("+selected[deepest]+" AND "+string.Join(" AND ",targetAliases.Take(deepest+1).Select(alias=>alias+".`id` IS NOT NULL"))+")").ToArray();
+                var accountScoped=levels.Any(level=>level.Scope.Condition?.Variables.Count>0);
                 var result=new Dictionary<string,(string Sql,string Type)>(StringComparer.OrdinalIgnoreCase);
                 for(var index=0;index<levels.Count;index++)
                 {
                     var slot=selection.Slots[index];var resolved=targetAliases[index]+".`id`";if(slot.LogicalType=="string")resolved="CAST("+resolved+" AS CHAR)";
                     var ancestors=index+1<levels.Count?string.Join(" OR ",paths.Skip(index+1)):"FALSE";
-                    var idExpression="CASE WHEN "+selected[index]+" THEN "+raw[slot.ColumnName]+" WHEN "+ancestors+" THEN "+resolved+" END";
+                    // 账号范围之外的目标不能借直接选择的物理ID参与公开投影、匹配或统计。
+                    var direct=accountScoped?paths[index]:selected[index];
+                    var idExpression="CASE WHEN "+direct+" THEN "+raw[slot.ColumnName]+" WHEN "+ancestors+" THEN "+resolved+" END";
                     // 来源varchar与目标CAST可能采用不同默认排序规则；逻辑ID显式保持二进制精确比较。
                     if(slot.LogicalType=="string")idExpression="CONVERT(("+idExpression+") USING utf8mb4) COLLATE utf8mb4_bin";
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
