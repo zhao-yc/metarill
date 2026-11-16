@@ -14,9 +14,11 @@ internal static class OriginalUniappDetailFields
     {
         var column = f.Column; var name = column.JsonName; var ro = name + "ReadOnly";
         var visible = Text(column.Source.Extra, "visibleCondition"); var description = Text(column.Source.Extra, "description");
+        var jsonFields = c.VisibilityJsonFields(visible);
+        var visibilityConfig = jsonFields.Length == 0 ? "" : ", jsonObjectFields: " + Html(Js(jsonFields));
         var span = f.Span > 1 ? $" style='grid-column: span {f.Span};'" : "";
         var grouped = tabs ? $" id='yzp-detail-field-{name}'" + (group.Length > 0 ? $" v-show='activeDetailGroupKey === {Html(Js(group))}'" : "") : "";
-        c.Fields.AppendLine($"<uni-forms-item label='{Html(column.Source.Name)}' name='{name}' {(f.Required && !f.ReadOnly ? "required" : "")}{span}{grouped} v-if='!loadEntitySuccess || $yzp.isColumnVisible({{visibleCondition: {Html(Js(visible))}}}, entity)'>");
+        c.Fields.AppendLine($"<uni-forms-item label='{Html(column.Source.Name)}' name='{name}' {(f.Required && !f.ReadOnly ? "required" : "")}{span}{grouped} v-if='!loadEntitySuccess || $yzp.isColumnVisible({{visibleCondition: {Html(Js(visible))}{visibilityConfig}}}, entity)'>");
         if(f.Derived)
         {
             c.Readonly.Append(name).Append(":true,");c.Defaults.Append(name).Append(":null,");c.Computed.AppendLine($"{ro}() {{ return true; }},");

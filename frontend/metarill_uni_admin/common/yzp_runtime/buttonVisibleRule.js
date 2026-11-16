@@ -129,21 +129,21 @@ function serializeRule(ruleLike) {
 	return JSON.stringify(rule)
 }
 
-function evaluateRule(ruleLike, entity) {
+function evaluateRule(ruleLike, entity, jsonObjectFields = []) {
 	const rule = normalizeRule(ruleLike)
 	if (!rule.conditions.length && !(rule.groups && rule.groups.length)) {
 		return true
 	}
-	return evaluateGroup(rule, entity || {})
+	return evaluateGroup(rule, entity || {}, jsonObjectFields)
 }
 
-function evaluateGroup(group, entity) {
+function evaluateGroup(group, entity, jsonObjectFields) {
 	const results = []
 	;(group.conditions || []).forEach((condition) => {
-		results.push(evaluateCondition(condition, entity))
+		results.push(evaluateCondition(condition, entity, jsonObjectFields))
 	})
 	;(group.groups || []).forEach((childGroup) => {
-		results.push(evaluateGroup(childGroup, entity))
+		results.push(evaluateGroup(childGroup, entity, jsonObjectFields))
 	})
 	if (!results.length) {
 		return true
@@ -154,9 +154,9 @@ function evaluateGroup(group, entity) {
 	return results.every(Boolean)
 }
 
-function evaluateCondition(condition, entity) {
+function evaluateCondition(condition, entity, jsonObjectFields) {
 	const operator = condition.operator || 'eq'
-	const actualValue = readFieldValue(entity, condition.field)
+	const actualValue = readFieldValue(entity, condition.field, jsonObjectFields)
 	switch (operator) {
 		case 'eq':
 			return compareValues(actualValue, condition.value) === 0
@@ -183,11 +183,32 @@ function evaluateCondition(condition, entity) {
 	}
 }
 
-function readFieldValue(entity, field) {
+function readFieldValue(entity, field, jsonObjectFields) {
 	if (!entity || utils.isBlank(field)) {
 		return null
 	}
-	return String(field).split('.').reduce((current, segment) => {
+	const segments = String(field).split('.')
+	if (segments.length > 1 && Array.isArray(jsonObjectFields) && jsonObjectFields.includes(segments[0])) {
+		// 只在生成器声明的详情 JSON 字段上解码原文本，保留表单和请求中的原值。
+		let value = entity[segments[0]]
+		if (typeof value === 'string') {
+			try {
+				value = JSON.parse(value)
+			} catch {
+				return null
+			}
+		}
+		for (const segment of segments.slice(1)) {
+			if (['__proto__', 'prototype', 'constructor'].includes(segment) ||
+				!value || typeof value !== 'object' || Array.isArray(value) ||
+				!Object.prototype.hasOwnProperty.call(value, segment)) {
+				return null
+			}
+			value = value[segment]
+		}
+		return value
+	}
+	return segments.reduce((current, segment) => {
 		if (current == null || typeof current !== 'object') {
 			return null
 		}

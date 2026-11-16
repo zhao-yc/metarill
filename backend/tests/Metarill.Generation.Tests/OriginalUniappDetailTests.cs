@@ -28,6 +28,41 @@ public sealed class OriginalUniappDetailTests
         try {await File.WriteAllTextAsync(Path.Combine(output,"detail.vue"),detail);await RunProbe(output);}
         finally {await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
+    /// <summary>详情字段和只含该字段的分组共同使用 JSON 子属性，原表单状态保持字符串。</summary>
+    [Fact]
+    public async Task Detail_json_visibility_preserves_fixed_projection_and_original_tabs()
+    {
+        var catalog = GeneratorTests.Catalog();
+        var source = catalog.ConfigPages.Single();
+        source.Extra["detailLayout"] = JsonSerializer.SerializeToElement(
+            "{\"version\":1,\"mode\":\"tabs\",\"groups\":[{\"key\":\"json\",\"name\":\"条件分组\"}]}");
+        var remark = catalog.ConfigColumns.Single(column => column.Id == "13");
+        catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == remark.Id)
+            .Extra["detailGroupKey"] = JsonSerializer.SerializeToElement("json");
+        catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "payload", Name = "规则来源", LogicalType = "json" });
+        catalog.ConfigPageColumns.Add(new() { Id = "116", ConfigPageId = source.Id, ConfigColumnId = "16", IsShow = 0, IsEdit = 1 });
+
+        var valid = Compile("payload.flags.state");
+        Assert.True(valid.Projection.Detail.CanCompile);
+        Assert.Contains(valid.Projection.Detail.Dependencies, item => item.ColumnId == "16" &&
+            item.Reasons.Contains("详情可见条件：remark", StringComparer.Ordinal));
+        Assert.DoesNotContain(valid.Projection.List.OutputFields, field => field.JsonName == "payload");
+        await Probe(OriginalUniappDetailRenderer.Render(valid.Model, valid.Table, valid.Page, []), "json-visibility");
+
+        Assert.False(Compile("name.flags.state").Projection.Detail.CanCompile);
+        Assert.False(Compile("payload.constructor").Projection.Detail.CanCompile);
+
+        (GenerationModel Model, TableModel Table, PageModel Page, PageReadProjections Projection) Compile(string path)
+        {
+            remark.Extra["visibleCondition"] = JsonSerializer.SerializeToElement(JsonSerializer.Serialize(
+                new { conditions = new[] { new { field = path, value = "approved" } } }));
+            var model = GenerationModel.Create(catalog, "Example.DetailJsonVisibility");
+            var table = model.Tables.Single();
+            var page = table.Pages.Single();
+            return (model, table, page, ReadProjectionCompilation.ForPage(model, table, page));
+        }
+    }
+
     /// <summary>损坏布局、未知控件/按钮或目标页缺失必须暴露，不能降级为另一套界面。</summary>
     [Theory]
     [InlineData("layoutVersion")] [InlineData("layoutKey")] [InlineData("layoutMissingGroup")] [InlineData("layoutHiddenGroup")] [InlineData("layoutMissingGroupNone")] [InlineData("control")] [InlineData("buttonAction")] [InlineData("buttonSave")]

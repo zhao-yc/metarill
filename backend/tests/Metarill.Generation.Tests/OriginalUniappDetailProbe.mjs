@@ -7,6 +7,9 @@ const {createRenderer,h,nextTick,compile,reactive}=require('vue')
 const {parse}=require('@vue/compiler-sfc')
 const scenario=await readFile(join(process.argv[2],'scenario.txt'),'utf8').catch(()=> 'standard')
 const multiSource=await readFile(new URL('../../../frontend/metarill_uni_admin/common/yzp_runtime/multiSelectFieldMixin.js',import.meta.url),'utf8')
+const visibleRuleSource=scenario==='json-visibility'
+ ? await readFile(new URL('../../../frontend/metarill_uni_admin/common/yzp_runtime/buttonVisibleRule.js',import.meta.url),'utf8')
+ : null
 const source=await readFile(join(process.argv[2],'detail.vue'),'utf8')
 const {descriptor,errors}=parse(source);assert.deepEqual(errors,[])
 const layoutSource=await readFile(new URL('../../../frontend/metarill_uni_admin/common/yzp_runtime/detailLayoutRuntime.js',import.meta.url),'utf8')
@@ -18,6 +21,10 @@ function fixture(loadOptions={id,parent_id:'9007199254742000'}){
  const uni={getStorageSync:key=>storage[key],setStorageSync:(key,value)=>storage[key]=value,$on(){},$off(){},$emit:(...args)=>events.push(args),navigateTo:options=>navigations.push(options),showModal:options=>modals.push(options),showToast(){},showActionSheet:options=>modals.push(options),navigateBack(){backs++}}
  const yzp={back(){backs++},refreshCurrentPermissions:done=>done(),hasPagePermission:()=>permission,isColumnVisible:()=>true,isButtonVisible:()=>permission,relationArray:value=>value==null||value===''?[]:typeof value==='string'?JSON.parse(value):value,request:options=>{requests.push(options);return{abort(){}}},uploadSelectedFiles(e,options,done){done([{url:'测试上传结果'}])},customButtonHandler(){}}
  const utils={isBlank:value=>value===null||value===undefined||value===''}
+ if(visibleRuleSource){
+  const evaluate=new Function('utils',visibleRuleSource.replace(/^import .*$/m,'').replace(/^export\s*\{[\s\S]*?\}\s*$/m,'')+';return evaluateRule')(utils)
+  yzp.isColumnVisible=(config,entity)=>evaluate(config.visibleCondition,entity,config.jsonObjectFields)
+ }
  const createDetailLayoutMixin=new Function('uni',layoutSource.replace('export function','function')+';return createDetailLayoutMixin')(uni)
  const createMultiSelectFieldMixin=new Function('uni',multiSource.replace('export function','function')+';return createMultiSelectFieldMixin')(uni)
  const linked=Object.fromEntries([...descriptor.script.content.matchAll(/^import (\w+) from [^\n]*pages\/yzp[^\n]*$/gm)].map(match=>[match[1],{props:['parent_id','parentReadOnlyCondition','parent_page_sn','is_son_page','child_page_open_type','selectedIds','selectedNames','selectedNameField'],emits:['onPopSelect','onPopClose'],methods:{refreshData(){childRefreshes++}},render(){return h('linked-page')}}]))
@@ -38,7 +45,28 @@ function fixture(loadOptions={id,parent_id:'9007199254742000'}){
  const row={id,name:'原记录',notes:null,amount:0,isEnabled:0,rtf:null,constant:'a',constantShow:'甲',dropdown:'b',dropdownShow:'乙',relationId:null,readOnlyEcho:'服务端只读回显',protectedFiles:null}
  return{state,app,tree,requests,modals,navigations,events,storage,options,row,loads,respond,setValid:value=>valid=value,setPermission:value=>permission=value,setParentReadonly:value=>inputProps.parentReadOnlyCondition=value,validations:()=>validations,backs:()=>backs,childRefreshes:()=>childRefreshes,async loaded(){respond(loads().at(-1),plain(row));await new Promise(resolve=>setTimeout(resolve,310));await nextTick()},async flush(){await nextTick();await Promise.resolve();await nextTick()}}
 }
-if(scenario!=='selection'){
+if(scenario==='json-visibility'){
+ const f=fixture({id});try{
+  const visiblePayload='{"flags":{"state":"approved"}}'
+  Object.assign(f.row,{id,name:'客户',remark:'受条件控制的备注',payload:visiblePayload})
+  await f.loaded()
+  assert.equal(f.state.loadEntitySuccess,true)
+  const hasRemark=node=>node.props.id==='yzp-detail-field-remark'||node.children.some(hasRemark)
+  assert.deepEqual(f.state.visibleDetailGroups.map(group=>group.key),['json'])
+  assert.equal(f.state.activeDetailGroupKey,'json')
+  assert.equal(f.state.entity.payload,visiblePayload)
+  assert.equal(hasRemark(f.tree),true)
+  f.state.entity.payload='{"flags":{"state":"draft"}}';await f.flush()
+  assert.equal(f.state.visibleDetailGroups.length,0)
+  assert.equal(hasRemark(f.tree),false)
+  f.state.entity.payload='{';await f.flush()
+  assert.equal(f.state.visibleDetailGroups.length,0)
+  f.state.entity.payload=visiblePayload;await f.flush()
+  assert.equal(f.state.visibleDetailGroups.length,1)
+  assert.equal(hasRemark(f.tree),true)
+ }finally{f.app.unmount()}
+}
+if(scenario!=='selection'&&scenario!=='json-visibility'){
 {
  const f=fixture();try{
  await f.loaded();assert.equal(f.state.originalChildrenReady,true);assert.equal(f.state.entity.rtf,null);assert.equal(f.state.entity.protectedFiles,null);f.state.receiveCascadeTree516({cascadeId:'9007199254746000',cascadeName:'原分类'});assert.equal(f.state.entity.cascadeId,'9007199254746000');assert.equal(f.state.entity.cascadeName,'原分类')

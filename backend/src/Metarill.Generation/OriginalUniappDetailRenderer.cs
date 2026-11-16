@@ -34,7 +34,15 @@ internal static class OriginalUniappDetailRenderer
         if(tabs)
         {
             c.Imports.AppendLine("import { createDetailLayoutMixin } from '@/common/yzp_runtime/detailLayoutRuntime';");
-            c.Mixins.Insert(0,"createDetailLayoutMixin("+layout.GetRawText()+","+Js(c.FieldsMetadata.Select(field=>new{name=field.Column.JsonName,groupKey=field.GroupKey,visibleCondition=Text(field.Column.Source.Extra,"visibleCondition")}))+")");
+            var layoutFields = c.FieldsMetadata.Select(field =>
+            {
+                var rule = Text(field.Column.Source.Extra, "visibleCondition");
+                var jsonFields = c.VisibilityJsonFields(rule);
+                var options = new Dictionary<string, object> { ["name"] = field.Column.JsonName, ["groupKey"] = field.GroupKey, ["visibleCondition"] = rule };
+                if (jsonFields.Length > 0) options.Add("jsonObjectFields", jsonFields);
+                return options;
+            });
+            c.Mixins.Insert(0, "createDetailLayoutMixin(" + layout.GetRawText() + "," + Js(layoutFields) + ")");
         }
         var custom=OriginalUniappDetailButtons.Render(c);var position=Integer(page.Source.Extra,"detailPageButtonsPosition",0);if(position is not(0 or 1))throw new InvalidOperationException("原详情按钮位置仅支持0（固定底部）或1（子表前）。");
         c.Computed.AppendLine($$"""

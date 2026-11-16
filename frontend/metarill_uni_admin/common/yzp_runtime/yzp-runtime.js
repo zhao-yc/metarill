@@ -525,7 +525,7 @@ var yzp = {
 	},
 	isColumnVisible(config, entity) {
 		const currentConfig = config || {};
-		return evaluateButtonVisibleRuleCore(currentConfig.visibleCondition, entity || {});
+		return evaluateButtonVisibleRuleCore(currentConfig.visibleCondition, entity || {}, currentConfig.jsonObjectFields);
 	},
 	showUploadSuccess: function () {
 		uni.hideLoading();

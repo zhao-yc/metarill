@@ -42,6 +42,17 @@ internal static class ReadProjectionCompilation
         return new(list.Finish(), detail.Finish(), selection.Finish());
     }
 
+    /// <summary>详情字段可见条件只允许访问本页可读的明确 JSON 对象，不遍历普通文本、数组或原型成员。</summary>
+    internal static ColumnModel? DetailVisibilityJsonRoot(PageModel page, string path)
+    {
+        var segments = path.Split('.');
+        if (segments.Length is < 2 or > 17 || path.Length > 512 ||
+            segments.Any(segment => string.IsNullOrWhiteSpace(segment) || segment is "__proto__" or "prototype" or "constructor"))
+            return null;
+        return page.Readable.SingleOrDefault(column => column.JsonName == segments[0] &&
+            column.Source.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) && !column.IsJsonArray);
+    }
+
     /// <summary>按稳定字段ID收集去重依赖，未知来源只留缺口，不能扩成全表或全Readable。</summary>
     private sealed class Builder(GenerationModel model, TableModel table, PageModel page, ReadProjectionPurpose purpose,
         NonRedundantPagePlan? published, string? rejection)
@@ -488,7 +499,7 @@ internal static class ReadProjectionCompilation
             }
             catch (InvalidOperationException error) { Gap("", error.Message); }
             foreach (var column in page.DetailColumns)
-                if (column.Source.Extra.TryGetValue("visibleCondition", out var rule)) Rule(rule, "详情可见条件：" + column.JsonName, column.Source.Id);
+                if (column.Source.Extra.TryGetValue("visibleCondition", out var rule)) Rule(rule, "详情可见条件：" + column.JsonName, column.Source.Id, detailField: true);
         }
 
         /// <summary>列表顶部按钮不按行判断；只有原Grid/Edit按钮实际使用的规则参与字段依赖。</summary>
@@ -510,7 +521,7 @@ internal static class ReadProjectionCompilation
         }
 
         /// <summary>仅收集原JSON规则明确读取的field；value/valueList始终是常量，不递归猜列。</summary>
-        private void Rule(JsonElement value, string reason, string owner)
+        private void Rule(JsonElement value, string reason, string owner, bool detailField = false)
         {
             if (value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.GetString())) return;
             try
@@ -535,7 +546,13 @@ internal static class ReadProjectionCompilation
                             if (field.ValueKind != JsonValueKind.String) throw new InvalidOperationException("条件字段必须为字符串。");
                             var key = field.GetString()!;
                             if (string.IsNullOrWhiteSpace(key)) continue;
-                            if (key.Contains('.')) throw new InvalidOperationException("JSON点路径尚未形成固定读取计划：" + key);
+                            if (key.Contains('.'))
+                            {
+                                var root = detailField ? DetailVisibilityJsonRoot(page, key) : null;
+                                if (root is null) throw new InvalidOperationException("JSON点路径必须绑定本页可读的详情 JSON 对象：" + key);
+                                Add(root, reason, false);
+                                continue;
+                            }
                             var column = page.Readable.SingleOrDefault(column => column.JsonName == key);
                             if (column is not null) { Add(column, reason, false); continue; }
                             var constant = page.Readable.SingleOrDefault(column => column.JsonName + "Show" == key && Kind(column) is "ConstList" or "ConstDownList");
