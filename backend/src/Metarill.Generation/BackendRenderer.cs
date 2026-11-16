@@ -209,6 +209,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    {(trustedSecurity ? "private " : "")}partial void BeforeDelete({table.EntityType} entity, RuntimeActor actor);");
         foreach (var page in table.Pages)
         {
+            result.Append(RequiredVisibilityDeclarations(model,table,page));
             result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(AgentRecordAccess(model,table,page)); result.Append(RuleRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
             result.Append(CascadeTreeReadRenderer.Service(model,table,page));
             result.Append(CascadeTreeWriteRenderer.Service(model,table,page));
@@ -610,10 +611,15 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var column in page.Writable)
         {
             // 页面必填只来自原显式可写字段；表单隐式级ID不能重新开放只读字段的必填规则。
-            var required=page.DeclaredWritable.Any(item=>item.Source.Id==column.Source.Id)&&model.Catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id&&(field.IsRequired==1||GenerationModel.Enabled(field.Extra,"isMust")));
+            var required=IsPageRequired(model,page,column);
             if(!required&&column.Source.IsDbNotNull!=1)continue;
             // 数据库NOT NULL只拒绝null；原页面必填另拒绝空白文本或空多选。
             var condition=required&&column.Type=="byte[]?"?$"entity.{column.Property} is null || entity.{column.Property}.Length==0":required&&column.IsJsonArray?$"Metarill.Core.Contracts.RequiredFieldValue.IsEmptyArray(entity.{column.Property})":required&&column.Type=="string?"?$"string.IsNullOrWhiteSpace(entity.{column.Property})":$"entity.{column.Property} is null";
+            if(required&&RequiredVisibility(model,table,page,column) is {} visibility)
+            {
+                condition=$"{visibility.Name}(entity) && ({condition})";
+                if(column.Source.IsDbNotNull==1)condition=$"entity.{column.Property} is null || ({condition})";
+            }
             var compatibility = updating ? PlatformColumnTypeCompatibilityCompilation.Exception(model, table, page, column) : "";
             if (compatibility.Length != 0) condition = $"({condition}) && !({compatibility})";
             result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");

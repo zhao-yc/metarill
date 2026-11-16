@@ -1,0 +1,47 @@
+using System.Reflection;
+using System.Text.Json;
+using Metarill.Core.Metadata;
+using Xunit;
+
+namespace Metarill.Generation.Tests;
+
+public sealed class PageConditionalRequiredTests
+{
+    /// <summary>显示条件读取最终实体的真实字段，JSON文本与对象一致，数据库非空仍独立约束。</summary>
+    [Fact]
+    public async Task Required_field_uses_original_visibility_rule_without_discarding_column_nullability()
+    {
+        var catalog=GeneratorTests.Catalog();
+        catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",ColumnName="payload",LogicalType="json"});
+        catalog.ConfigPageColumns.Add(new(){Id="117",ConfigPageId="101",ConfigColumnId="17",IsEdit=1});
+        var remark=catalog.ConfigColumns.Single(column=>column.Id=="13");
+        remark.IsDbNotNull=1;
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="13").IsRequired=1;
+        remark.Extra["visibleCondition"]=JsonSerializer.SerializeToElement("""
+{"logic":"AND","conditions":[{"field":"payload.flags.enabled","operator":"eq","value":true}]}
+""");
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-visible-required");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.RequiredVisibility");
+            var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/CustomerService.g.cs"));
+            Assert.Contains("entity.Remark is null || (RequiresVisible101_13(entity)",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var entityType=assembly.GetType("Example.RequiredVisibility.Generated.Entities.Customer",true)!;
+            var serviceType=assembly.GetType("Example.RequiredVisibility.Generated.Services.CustomerService",true)!;
+            var visible=serviceType.GetMethod("RequiresVisible101_13",BindingFlags.Static|BindingFlags.NonPublic)!;
+            var entity=Activator.CreateInstance(entityType)!;
+            var payload=entityType.GetProperty("Payload")!;
+            payload.SetValue(entity,JsonSerializer.Serialize(new{flags=new{enabled=true}}));
+            Assert.True((bool)visible.Invoke(null,[entity])!);
+            payload.SetValue(entity,"{\"flags\":{\"enabled\":false}}");
+            Assert.False((bool)visible.Invoke(null,[entity])!);
+            payload.SetValue(entity,"{\"flags\":{\"enabled\":true}}");
+            Assert.True((bool)visible.Invoke(null,[entity])!);
+            payload.SetValue(entity,"invalid");
+            Assert.False((bool)visible.Invoke(null,[entity])!);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+}
