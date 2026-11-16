@@ -302,6 +302,7 @@ namespace Metarill.Agent.Tests
                 Metadata.ConfigColumns.Add(new(){Id="15",ConfigTableId="11",ColumnName="HTTP_status",Name="大小写字段",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="14",ConfigTableId="11",ColumnName="computed_name",Name="派生名称",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="13",ConfigTableId="11",ColumnName="amount",Name="金额",LogicalType="decimal",YzProjectId="100"});
+                Metadata.ConfigColumns.Add(new(){Id="16",ConfigTableId="11",ColumnName="rule_payload",LogicalType="json",YzProjectId="100"});
                 if (variant == "unsupported-readonly-expression") Metadata.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("amount.toFixed(2)");
                 if(readOnly is not null)Metadata.ConfigPages[0].Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement(readOnly);
                 foreach (var (id, method, confirm) in new[] { ("31", "preview", 0), ("32", "complete", 1), ("33", "query", 0), ("34", "raw", 0), ("35", "ambiguous", 0) })
@@ -355,6 +356,7 @@ namespace Metarill.Agent.Tests
         [JsonPropertyName("id")]public long Id{get;set;}=7;
         [JsonPropertyName("realName")][FreeSql.DataAnnotations.Column(Name="real_name")]public string? RealName{get;set;}="允许";
         [JsonPropertyName("amount")]public decimal Amount{get;set;}=10m;
+        [JsonPropertyName("rulePayload")][FreeSql.DataAnnotations.Column(Name="rule_payload")]public string? RulePayload{get;set;}
         [JsonPropertyName("computedName")][FreeSql.DataAnnotations.Column(Name="computed_name",IsIgnore=true)]public string? ComputedName{get;set;}
         [JsonPropertyName("hTTPStatus")][FreeSql.DataAnnotations.Column(Name="HTTP_status")]public string? HTTPStatus{get=>RealName;set=>RealName=value;}
         public string Unpublished=>throw new InvalidOperationException("规则不得读取未发布属性。");

@@ -1,6 +1,7 @@
 using Metarill.Core.Contracts;
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 namespace Metarill.Runtime.Agent;
 
@@ -38,5 +39,21 @@ internal static class AgentRecordValues
                 values[name]=property.GetValue(record);
             }
         return values;
+    }
+
+    /// <summary>只读条件的点路径只解码已发布 JSON 列，普通按钮显示仍使用直接装载的值。</summary>
+    internal static IReadOnlyDictionary<string,object?> ForReadOnly(IReadOnlyDictionary<string,object?> values,
+        IReadOnlyDictionary<string,string> names, IEnumerable<string> fields, IReadOnlySet<string> jsonColumns)
+    {
+        Dictionary<string,object?>? result = null;
+        foreach (var root in fields.Where(field => field.Contains('.')).Select(field => field.Split('.')[0]).Distinct(StringComparer.Ordinal))
+        {
+            if (!names.TryGetValue(root, out var physical) || !jsonColumns.Contains(physical) || !values.TryGetValue(root, out var value)) continue;
+            var text = value switch { string scalar => scalar, JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(), _ => null };
+            if (text is null) continue;
+            result ??= new(values, StringComparer.Ordinal);
+            result[root] = RequiredFieldValue.VisibilityObject(text);
+        }
+        return result ?? values;
     }
 }

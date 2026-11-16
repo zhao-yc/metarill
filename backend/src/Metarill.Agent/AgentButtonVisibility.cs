@@ -9,7 +9,8 @@ internal static class AgentButtonVisibility
     {
         if(button.Rule is not{} rule)return;
         var values=AgentRecordValues.Read(record,entityType,button.RecordNames,rule.Fields.Concat(button.ReadOnlyRule?.Fields??[]));
-        if(button.ReadOnlyRule is{} readOnly&&readOnly.IsReadOnly(values))throw new BusinessRuleException("当前记录为只读，不能执行可写按钮");
+        if(button.ReadOnlyRule is{} readOnly&&readOnly.IsReadOnly(AgentRecordValues.ForReadOnly(values,button.RecordNames,readOnly.Fields,button.Page.RecordJsonColumns)))
+            throw new BusinessRuleException("当前记录为只读，不能执行可写按钮");
         if(!rule.Matches(values))throw new BusinessRuleException("当前记录不允许执行该按钮");
     }
 }

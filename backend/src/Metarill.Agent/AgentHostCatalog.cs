@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 using Metarill.Runtime.Security;
 
 namespace Metarill.Runtime.Agent;
@@ -23,6 +24,7 @@ public sealed record AgentPublishedPage(string ProjectId, string Id, string Name
     public string ReadOnlyCondition { get; init; } = "";
     public bool HasOwnedActionSource { get; init; }
     internal IReadOnlyDictionary<string,string>? RecordNames {get;init;}
+    internal IReadOnlySet<string> RecordJsonColumns { get; init; } = FrozenSet<string>.Empty;
 }
 
 /// <summary>按钮路径、确认与可见规则来自发布快照，不能被调用方元数据或请求覆盖。</summary>
@@ -55,13 +57,21 @@ public sealed class AgentHostCatalog
         var definitions = catalogs.SelectMany(catalog => catalog.ConfigPages.Select(page =>
         {
             var table = catalog.ConfigTables.Single(table => table.Id == page.ConfigTableId);
-            var required = catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Id && field.IsEdit == 1 && field.IsRequired == 1)
-                .Select(field => catalog.ConfigColumns.Single(column => column.Id == field.ConfigColumnId))
-                .Where(column => column.DefaultValue.Length == 0).Select(column => JsonName(column.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
+            var required = catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Id && field.IsEdit == 1 &&
+                    (field.IsRequired == 1 || field.Extra.GetValueOrDefault("isMust") is var must &&
+                        (must.ValueKind == JsonValueKind.True || must.ToString() == "1")))
+                .Select(field => (Field: field, Column: catalog.ConfigColumns.Single(column => column.Id == field.ConfigColumnId)))
+                .Where(entry => RequiresCreateInput(entry.Field, entry.Column)).Select(entry => JsonName(entry.Column.ColumnName))
+                .Distinct(StringComparer.Ordinal).ToArray();
             return new AgentPublishedPage(catalog.YzProjectId, page.Id, page.Name, table.TableName,
                 page.WhereSql.Contains("@parent", StringComparison.OrdinalIgnoreCase), Array.AsReadOnly(required))
             {
                 TableId = table.Id, IsFunctionTable = table.IsFunctionTable == 1, RecordNames=CompileRecordNames(catalog,table.Id),
+                RecordJsonColumns = catalog.ConfigColumns.Where(column => column.ConfigTableId == table.Id &&
+                        column.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) &&
+                        column.ControlKind is not ("FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage") &&
+                        !ExactDataManageValues.IsSensitiveField(column.ColumnName))
+                    .Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
                 CanUpdate = PageUpdatePolicy.CanUpdate(page),
                 ReadOnlyCondition = page.Extra.GetValueOrDefault("readOnlyCondition").ToString(),
                 HasOwnedActionSource = table.YzProjectId == catalog.YzProjectId && page.YzProjectId == catalog.YzProjectId
@@ -109,6 +119,18 @@ public sealed class AgentHostCatalog
         if(readOnly is not null&&readOnly.Fields.Any(field=>!names.ContainsKey(field.Split('.')[0])))return null;
         return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility){Rule=rule,ReadOnlyRule=readOnly,RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal)};
     }
+    /// <summary>Agent 仅预要求无默认、无初始值的固定必填字段，条件必填由实际生成服务判断。</summary>
+    private static bool RequiresCreateInput(PageColumnMetadata field, ColumnMetadata column)
+    {
+        if (column.DefaultValue.Length != 0) return false;
+        var initial = field.Extra.GetValueOrDefault("initValue");
+        if (initial.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False ||
+            initial.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(initial.GetString())) return false;
+        var visible = column.Extra.GetValueOrDefault("visibleCondition");
+        try { return ButtonVisibilityRule.Compile(visible.ToString()).Fields.Count == 0; }
+        catch (ArgumentException) { return true; }
+    }
+
     /// <summary>页面和按钮共用冻结的物理/JSON别名，只按真实元数据声明绑定，不读客户端字段定义。</summary>
     private static IReadOnlyDictionary<string,string>? CompileRecordNames(MetadataCatalog catalog,string tableId)
     {

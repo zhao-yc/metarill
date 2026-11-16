@@ -29,6 +29,29 @@ public sealed partial class AgentBusinessActionTests
         await executor.ExecuteAsync(request with{Entity=JsonSerializer.SerializeToElement(new{id="7",amount=-1})},context);
         Assert.Equal(1,handler.Calls);Assert.Equal(1,fixture.Guard.Calls);Assert.Equal(1,fixture.Guard.Released);
     }
+    /// <summary>Web 和 Agent 共用数据库 JSON 文本路径，按实际载入的锁定标志判断。</summary>
+    [Fact]
+    public async Task Writable_button_reads_declared_json_object_from_server_record()
+    {
+        using var fixture = new Fixture("writable", readOnly: "rulePayload.flags.locked === true && amount >= 0");
+        fixture.Authorization.AllowPage = true;
+        var context = fixture.Context("Preview");
+        var handler = new WebHandler();
+        var executor = new OriginalBusinessButtonExecutor(fixture.Resources, fixture.Authorization, fixture.Services,
+            fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>(), [handler], fixture.Guard);
+        var request = new OriginalBusinessButtonRequest("31", "7", JsonSerializer.SerializeToElement(new { id = "7" }), "Normal", "");
+        var agentBody = Encoding.UTF8.GetBytes("""{"recordKey":7}""");
+
+        fixture.Reader.Row.RulePayload = """{"flags":{"locked":true}}""";
+        await Assert.ThrowsAsync<BusinessRuleException>(() => executor.ExecuteAsync(request, context));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview", context, agentBody));
+
+        fixture.Reader.Row.RulePayload = """{"flags":{"locked":false}}""";
+        await fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview", context, agentBody);
+        await executor.ExecuteAsync(request, context);
+        Assert.Equal(1, handler.Calls);
+    }
+
     /// <summary>普通按钮保持自身授权，不因页面设置只读条件就被统一增加修改权限。</summary>
     [Fact]
     public async Task Normal_button_does_not_inherit_writable_visibility_condition()

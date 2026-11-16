@@ -85,6 +85,24 @@ namespace Metarill.Agent.Tests
             using var memory=new PrincipalRealmFixture();using var fixture=new Fixture(memory);var context=fixture.Context("Update","update","{\"id\":7}");context.Items.Remove(typeof(AgentRequestIdentity));fixture.Reader.Locked=true;var calls=0;
             await new AgentTaskMiddleware(_=>{calls++;return Task.CompletedTask;}).InvokeAsync(context);Assert.Equal(1,calls);Assert.Equal(0,fixture.Reader.Calls);Assert.Equal(0,TaskCount(memory));
         }
+        /// <summary>试图写入只读行或无效对象时，Agent 必须在创建任务前拒绝。</summary>
+        [Theory]
+        [InlineData("""{"flags":{"locked":true}}""", 403)]
+        [InlineData("""{"flags":{"locked":false}}""", 200)]
+        [InlineData("""{"flags":{}}""", 403)]
+        [InlineData("[]", 403)]
+        [InlineData("无效", 403)]
+        public async Task Page_write_checks_persisted_json_text_before_creating_a_task(string json, int status)
+        {
+            using var memory = new PrincipalRealmFixture();
+            using var fixture = new Fixture(memory, condition: "rulePayload.flags.locked === true");
+            fixture.Reader.RulePayload = json;
+            var context = fixture.Context("Update", "update", """{"id":"7"}""");
+            await new AgentTaskMiddleware(current => current.Response.WriteAsJsonAsync(R<object>.Success(new { id = "7" }), JsonDefaults.Options)).InvokeAsync(context);
+            Assert.Equal(status, context.Response.StatusCode);
+            Assert.Equal(status == 200 ? 1 : 0, TaskCount(memory));
+        }
+
         private static int TaskCount(PrincipalRealmFixture memory)=>memory.Provider.Rows.TryGetValue("sys_agent_task",out var rows)?rows.Count:0;
         private sealed class Fixture:IDisposable
         {
@@ -96,6 +114,7 @@ namespace Metarill.Agent.Tests
                 foreach(var(table,id)in new[]{("41000","41001"),("41100","41002")})source.ConfigPages.Add(new(){Id=id,ConfigTableId=table,YzProjectId="100",IsNew=1,IsDelete=1,IsCopy=1,WhereSql=parentRequired?"parent_id=@parentId":"",Extra=new(){["isUpdate"]=JsonSerializer.SerializeToElement(1),["readOnlyCondition"]=JsonSerializer.SerializeToElement(condition)}});
                 foreach(var(table,prefix)in new[]{("41000","42"),("41100","43")})
                 {source.ConfigColumns.Add(new(){Id=prefix+"01",ConfigTableId=table,ColumnName="id",LogicalType="int64"});source.ConfigColumns.Add(new(){Id=prefix+"02",ConfigTableId=table,ColumnName="name",LogicalType="string"});source.ConfigColumns.Add(new(){Id=prefix+"03",ConfigTableId=table,ColumnName="is_locked",LogicalType="bool"});}
+                source.ConfigColumns.Add(new(){Id="4204",ConfigTableId="41000",ColumnName="rule_payload",LogicalType="json"});
                 var services=new ServiceCollection();services.AddLogging();services.AddControllers().AddApplicationPart(typeof(Generated.Controllers.RecordWriteFixtureController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
                 services.AddSingleton<IAgentHostResources>(new Resources(source));services.AddSingleton<IRuntimeAuthorization>(Authorization);services.AddSingleton(Reader);services.AddSingleton<GeneratedCapabilityIndex>();services.AddSingleton<AgentCapabilityCatalog>();services.AddSingleton(new AgentTaskOptions());services.AddSingleton(new AgentTaskStore(memory.Store,memory.Ids,new()));
                 Services=services.BuildServiceProvider();Catalog=Services.GetRequiredService<AgentCapabilityCatalog>();actions=Services.GetRequiredService<IActionDescriptorCollectionProvider>();
@@ -119,15 +138,16 @@ namespace Metarill.Agent.Tests
     }
     public sealed class RecordWriteReader
     {
-        internal bool Locked,Visible=true,RequireParent;internal long VisibleId=7,Id;internal string? Parent,Operation;internal int Calls;
+        internal bool Locked,Visible=true,RequireParent;internal long VisibleId=7,Id;internal string? Parent,Operation,RulePayload;internal int Calls;
         /// <summary>仅用返回行替身证明绑定/时序，真实范围SQL由生成包验证。</summary>
         public Task<RecordWriteEntity?> ReadAgentRecord41001Async(long id,string? parent,string operation,RuntimeActor actor,IRuntimeAuthorization authorization,CancellationToken token)
-        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked}:null);}
+        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked,RulePayload=RulePayload}:null);}
     }
     public sealed class RecordWriteEntity
     {
         [JsonPropertyName("id")]public long Id{get;set;}
         [JsonPropertyName("isLocked")][FreeSql.DataAnnotations.Column(Name="is_locked")]public bool IsLocked{get;set;}
+        [JsonPropertyName("rulePayload")][FreeSql.DataAnnotations.Column(Name="rule_payload")]public string? RulePayload{get;set;}
         public string Unpublished=>throw new InvalidOperationException("不得读取未发布属性。");
     }
 }

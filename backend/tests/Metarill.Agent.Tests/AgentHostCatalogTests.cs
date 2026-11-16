@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Runtime.Agent;
 using Metarill.Runtime.Security;
@@ -61,6 +62,27 @@ public sealed class AgentHostCatalogTests
         var source = Catalog("100", "31", "21"); source.ConfigColumns.Single(column => column.Id == "12").DefaultValue = "默认";
         Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
         source.ConfigColumns.Single(column => column.Id == "12").DefaultValue = ""; source.ConfigPageColumns[0].IsEdit = 0;
+        Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+    }
+
+    /// <summary>发布的创建契约只要求固定必填，不能提前拦截初始值或条件必填。</summary>
+    [Fact]
+    public void Conditional_required_and_page_initial_value_are_left_to_generated_service()
+    {
+        var source = Catalog("100", "31", "21");
+        var field = source.ConfigPageColumns[0];
+        var column = source.ConfigColumns[1];
+        field.IsRequired = 0;
+        field.Extra["isMust"] = JsonSerializer.SerializeToElement(1);
+        Assert.Equal(new[] { "displayName" }, AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+
+        field.Extra["initValue"] = JsonSerializer.SerializeToElement("初始名称");
+        column.Extra["visibleCondition"] = JsonSerializer.SerializeToElement(new { conditions = Array.Empty<object>() });
+        Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+
+        field.Extra.Remove("initValue");
+        Assert.Equal(new[] { "displayName" }, AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
+        column.Extra["visibleCondition"] = JsonSerializer.SerializeToElement(new { conditions = new[] { new { field = "id", value = "7" } } });
         Assert.Empty(AgentHostCatalog.ForApplication(source).FindPage("21")!.RequiredCreateFields);
     }
 
