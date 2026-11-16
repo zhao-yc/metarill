@@ -16,6 +16,34 @@ public sealed class DerivedSelfTreeCacheTests
             var c=Catalog(type,parent);if(marker)c.ConfigColumns.Single(x=>x.Id=="cache").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);var before=JsonSerializer.Serialize(c);var d=SelfTreeCache.Compile(c,"source","foreign");DerivedCrossTableCaches.Validate(c,[d],[]);Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(c,[d]));var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(c,[],[d]);Assert.Contains("tree_name",plan.MixedSourceColumns["ds_source"]);Assert.Contains("ds_tree",plan.MixedTargets);Assert.Contains("ds_company",plan.MixedTargets);Assert.NotEmpty(plan.Fingerprint);Assert.Equal(before,JsonSerializer.Serialize(c));
         }
     }
+    /// <summary>改名与目标可见性进入同一反查计划；根只刷新当前项目，且回填沿用树目标的常量。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Global_derived_leaf_tracks_publisher_and_its_name_producer(bool hasRowProject)
+    {
+        var catalog=Catalog("string","int64");
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "tree" or "company"))
+            table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!hasRowProject)catalog.ConfigColumns.RemoveAll(column=>column.Id=="tree_project");
+        catalog.YzAdminTypes.Add(new(){Id="admin",YzProjectId=catalog.YzProjectId});
+        catalog.ConfigColumns.Add(new(){Id="status",ConfigTableId="tree",ColumnName="status",LogicalType="int32"});
+        catalog.ConfigPages.AddRange([
+            new(){Id="tree_page",ConfigTableId="tree",YzAdminTypeId="admin",YzProjectId=catalog.YzProjectId,WhereSql="status=1"},
+            new(){Id="company_page",ConfigTableId="company",YzAdminTypeId="admin",YzProjectId=catalog.YzProjectId}]);
+        var company=catalog.ConfigColumns.Single(column=>column.Id=="tree_company");
+        company.ControlKind="List";
+        company.ControlDetail="{\"tableId\":\"company\",\"pageId\":\"company_page\",\"nameField\":\"caption\"}";
+        var definition=SelfTreeCache.Compile(catalog,"source","foreign","tree_page");
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition]);
+        var propagation=Assert.Single(maintenance.Mixed.Consumers);
+        Assert.Contains("b.`yz_project_id`",propagation.Read.Scope);
+        Assert.DoesNotContain("r0.`yz_project_id`",propagation.Read.From);
+        Assert.Contains("status",propagation.Read.Reverse.Single(item=>item.TargetTable=="ds_tree").Outputs["tree_name"]);
+        Assert.Contains("caption",propagation.Read.Reverse.Single(item=>item.TargetTable=="ds_company").Outputs["tree_name"]);
+        Assert.Equal(propagation.Read.From,maintenance.Plans["source"].Read!.From);
+    }
     /// <summary>逻辑列需要真正的单值终点、物理父结构与固定缓存，不能借后缀取得权限。</summary>
     [Theory][InlineData("missingPath")][InlineData("array")][InlineData("credential")][InlineData("global")][InlineData("virtualParent")][InlineData("derivedParent")][InlineData("cachePath")][InlineData("foreignType")]
     public void Unproven_derived_name_or_topology_stays_closed(string kind)

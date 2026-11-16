@@ -40,6 +40,31 @@ public sealed class SelfTreeCacheTests
     {
         var c=Catalog("string","string");var d=SelfTreeCache.Compile(c,"source","foreign");var plan=RelationMutationPlan.Compile(c,[d]);var sha=plan.Fingerprint;c.ConfigColumns.Reverse();Assert.Equal(sha,RelationMutationPlan.Compile(c,[d]).Fingerprint);c.ConfigTables[1].TableName="edited_node";c.ConfigColumns.Single(x=>x.Id=="value").ColumnName="edited_name";Assert.Equal("target",d.TargetTableId);Assert.Equal("value",d.ValueColumnId);Assert.Equal(sha,plan.Fingerprint);
     }
+    /// <summary>实际传播与回填使用同一固定全局条件，消费者仍按项目读取和写入。</summary>
+    [Fact]
+    public void Global_leaf_uses_the_same_target_condition_for_rename_and_backfill()
+    {
+        var catalog=Catalog("string","int64");
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        catalog.ConfigTables[1].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.Add(new(){Id="status",ConfigTableId="target",ColumnName="status",LogicalType="int32"});
+        catalog.YzAdminTypes.Add(new(){Id="admin",YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPages.Add(new(){Id="tree_page",ConfigTableId="target",YzAdminTypeId="admin",YzProjectId=catalog.YzProjectId,WhereSql="status=1"});
+        var definition=SelfTreeCache.Compile(catalog,"source","foreign","tree_page");
+        var maintenance=RelationMaintenanceCatalog.Compile(catalog,[definition]);
+        var binding=Assert.Single(maintenance.Propagation.Bindings);
+        Assert.Equal("int64",binding.Source.ProjectType);
+        Assert.Empty(binding.Target.ProjectType);
+        Assert.Equal("status",Assert.Single(binding.PublishedCondition!.Fields));
+        var read=Assert.IsType<Metarill.Data.Queries.MySqlNonRedundantReadPlan>(maintenance.Plans["source"].Read);
+        Assert.Contains("b.`yz_project_id`",read.Scope);
+        Assert.Contains("r0.`status`",read.From);
+        Assert.DoesNotContain("r0.`yz_project_id`",read.From);
+        Assert.Contains(1,read.Constants.Values);
+        Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(catalog,[definition with{SelfTreePageId="missing"}]));
+        catalog.ConfigPages[0].WhereSql="yz_project_id=@current_yz_project_id";
+        Assert.Throws<NotSupportedException>(()=>RelationMutationPlan.Compile(catalog,[definition]));
+    }
     /// <summary>纯目录模型不需要数据库，固定实际父键和自定义物理名称。</summary>
     private static MetadataCatalog Catalog(string type,string parent)
     {

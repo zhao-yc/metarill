@@ -22,7 +22,7 @@ internal static class CrossTableCacheProof
             if(!storage.IsPhysical(name))
             {
                 if(node.IsRongyu!=0||storage.Kind(name)!=MetadataFieldStorage.Join)throw new InvalidOperationException("跨表派生名称只能来自R0固定单值路径。");
-                var read=Metarill.Data.Queries.NonRedundantReads.CompileMatch(catalog,node.Id,name.ColumnName);if(read.OutputTypes[name.ColumnName]!="string")throw new InvalidOperationException("跨表派生名称必须落到非凭据字符串终点。");
+                if(!GlobalCrossTableTarget.Declared(node)&&Metarill.Data.Queries.NonRedundantReads.CompileMatch(catalog,node.Id,name.ColumnName).OutputTypes[name.ColumnName]!="string")throw new InvalidOperationException("跨表派生名称必须落到非凭据字符串终点。");
             }
             if(GlobalCrossTableTarget.Declared(node))
             {
@@ -32,7 +32,7 @@ internal static class CrossTableCacheProof
                 // 当前定义携带完整控制列证明；直接层绑定与映射冲突时仍拒绝，不能以后值覆盖。
                 if(definition.CrossTableGlobalPages?.TryGetValue(key,out var mapped)==true)candidates=candidates.Append(mapped);var pages=candidates.Where(value=>value is not null).Distinct(StringComparer.Ordinal).ToArray();
                 if(pages.Length!=1||string.IsNullOrWhiteSpace(pages[0]))throw new InvalidOperationException("全局跨表缓存缺少唯一冻结目标页。");
-                var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pages[0])??throw new InvalidOperationException("全局跨表缓存目标页未发布。");GlobalCrossTableTarget.RequireName(catalog,node,page,name);
+                var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pages[0])??throw new InvalidOperationException("全局跨表缓存目标页未发布。");if(node.IsRongyu==0)GlobalCrossTableTarget.RequireSingleName(catalog,node,page,name);else GlobalCrossTableTarget.RequireName(catalog,node,page,name);
             }
             else if(key==definition.CrossTableLevelKey&&definition.CrossTablePageId is not null)throw new InvalidOperationException("普通跨表层不能冒用全局目标页证明。");
             if(previous is not null){var parent=columns.SingleOrDefault(x=>x.ColumnName==Text(level,"parentField",""));if(parent is null||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||parent.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||parent.LogicalType is not("string" or "int64")||!storage.IsPhysical(parent)||Enabled(parent)||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous.Id)throw new InvalidOperationException("跨表名称缓存父键不是已声明物理关系。");}

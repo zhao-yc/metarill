@@ -47,7 +47,6 @@ internal static class CrossTableReadCompilation
                 {
                     if(target.Source.IsRongyu==0)
                     {
-                        if(table.Source.IsRongyu!=0)return Gap("全局非冗余层暂只用于非冗余来源。");
                         Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSingleName(model.Catalog,target.Source,pages[0].Source,name.Source);
                     }
                     else Metarill.Core.Metadata.GlobalCrossTableTarget.RequireName(model.Catalog,target.Source,pages[0].Source,name.Source);

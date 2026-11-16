@@ -47,7 +47,7 @@ internal static class CascadeTreeReadCompilation
                 // 显式全局树只改变目标候选范围。来源仍按真实项目执行，目标页不能带项目或父变量。
                 if(target.Source.IsRongyu==0)
                 {
-                    if(table.Source.IsRongyu!=0||table.IsGlobal)return Gap("全局非冗余自树名称需要普通非冗余来源。");
+                    if(table.IsGlobal)return Gap("全局非冗余自树名称需要普通项目来源。");
                     Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSingleName(model.Catalog,target.Source,candidates[0].Source,name.Source);
                 }
                 else

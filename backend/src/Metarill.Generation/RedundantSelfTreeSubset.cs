@@ -12,8 +12,8 @@ internal static class RedundantSelfTreeSubset
     internal static bool FixedTarget(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.Source.ControlDetail)))return false;
-        var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null||plan.Read.Target.IsGlobal||plan.Read.Target.Source.IsView!=0||plan.Read.Target.Source.IsFunctionTable!=0)return false;
-        Realm(model,plan.Read.Target,plan.Read.TargetPage);return SelfTreePropagationCompilation.ForTable(model,table).Any(binding=>binding.Foreign.Source.Id==source.Source.Id&&binding.Target.Source.Id==plan.Read.Target.Source.Id&&binding.Value.Source.Id==plan.Read.Name.Source.Id&&binding.Cache.Source.Id==plan.Name.Source.Id);
+        var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null||plan.Read.Target.Source.IsView!=0||plan.Read.Target.Source.IsFunctionTable!=0)return false;
+        Realm(model,plan.Read.Target,plan.Read.TargetPage);return SelfTreePropagationCompilation.ForTable(model,table).Any(binding=>binding.Foreign.Source.Id==source.Source.Id&&binding.Target.Source.Id==plan.Read.Target.Source.Id&&binding.Value.Source.Id==plan.Read.Name.Source.Id&&binding.Cache.Source.Id==plan.Name.Source.Id&&binding.SelfTreePageId==(plan.Read.Target.IsGlobal?plan.Read.TargetPage.Source.Id:null));
     }
     /// <summary>完整包逐个证明自树、物理父及跨表同伴；未覆盖的精确、全局及自树父参数保持拒绝。</summary>
     internal static string? Reason(GenerationModel model,TableModel table,PageModel page)

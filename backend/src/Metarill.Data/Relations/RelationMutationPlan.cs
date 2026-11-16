@@ -18,6 +18,9 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
     /// <summary>只为全局跨表层固定已发布目标页，普通关系JSON形状保持。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CrossTablePageId{get;init;}
+    /// <summary>自树全局叶子缓存只读取生成时选定的目标页。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? SelfTreePageId{get;init;}
     /// <summary>共享缓存去重后仍保留当前控制列全部全局层的冻结目标页，不从另一控件推断范围。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyDictionary<string,string>? CrossTableGlobalPages{get;init;}
@@ -61,7 +64,7 @@ public sealed class RelationMutationPlan
             if(foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw new InvalidOperationException("传播外键目标与发布关系不一致。");
             var stem=foreign.ColumnName[..^suffix.Length];var expected=stem+"_"+(definition.Multiple&&!value.ColumnName.EndsWith('s')?value.ColumnName+"s":value.ColumnName);
             var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,definition,definitions);
-            var selfTree=!cross&&SelfTreeCache.Require(catalog,source,foreign,target,value,cache);
+            var selfTree=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,definition,cross);
             if((!cross&&!selfTree&&cache.ColumnName!=expected)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw new InvalidOperationException("传播字段不是同一关系的名称辅助列。");
             if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(!(selfTree&&path.Length==0)&&path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("传播缓存的联接路径不一致。");}
             foreach(var field in new[]{foreign,value,cache})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播字段超出发布项目。");
@@ -69,7 +72,12 @@ public sealed class RelationMutationPlan
             MySqlPublishedRelationCondition? publishedCondition=null;
             if(global)
             {
-                if(cross){if(definition.Multiple)throw new InvalidOperationException("跨表缓存不能冒充多值。");}
+                if(cross||selfTree)
+                {
+                    // 级联缓存和维护共用同一全局叶子／层的发布条件，避免目标改名时读到页面外记录。
+                    var pageId=definition.SelfTreePageId??(target.IsRongyu==0?definition.CrossTablePageId:null);
+                    if(pageId is not null)publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,catalog.ConfigPages.Single(page=>page.Id==pageId));
+                }
                 else
                 {
                     PageMetadata page;
@@ -89,7 +97,7 @@ public sealed class RelationMutationPlan
             }
             result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition});
         }
-        var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>binding.Target).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
+        var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>(binding.Target,binding.PublishedCondition?.Definition)).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
         // 拒绝字段级循环；普通自关联的物理名称不是派生列，不属于此循环。
         var byCache=sorted.ToDictionary(binding=>binding.Source.Name+"."+binding.Cache,StringComparer.Ordinal);var active=new HashSet<string>(StringComparer.Ordinal);var visited=new HashSet<string>(StringComparer.Ordinal);
         void Visit(string key){if(visited.Contains(key))return;if(!active.Add(key))throw new InvalidOperationException("传播派生字段存在循环依赖。");var binding=byCache[key];var dependency=binding.Target.Name+"."+binding.Value;if(byCache.ContainsKey(dependency))Visit(dependency);active.Remove(key);visited.Add(key);}

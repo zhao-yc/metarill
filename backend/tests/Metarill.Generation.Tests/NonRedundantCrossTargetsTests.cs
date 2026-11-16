@@ -21,9 +21,11 @@ public sealed class NonRedundantCrossTargetsTests
     }
     /// <summary>显式全局中层使用固定派生名称，来源自己的逻辑路径仍按原项目隔离。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Independent_cross_tree_uses_published_global_derived_level(bool rowProject)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Independent_cross_tree_uses_published_global_derived_level(bool rowProject,bool redundantSource)
     {
         const string ns = "Example.GlobalDerivedCross";
         var catalog = Catalog("nr_cross_target", "string", "int64", "mixed");
@@ -46,6 +48,7 @@ public sealed class NonRedundantCrossTargetsTests
             catalog.ConfigColumns.Remove(project);
             catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == project.Id);
         }
+        if(redundantSource)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
         var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
         sourcePage.IsImport = sourcePage.IsExport = 1;
         var model = GenerationModel.Create(catalog, ns);
@@ -53,6 +56,13 @@ public sealed class NonRedundantCrossTargetsTests
         var page = source.Pages.Single(item => item.Source.Id == "201");
         var plan = Assert.Single(CrossTableReadCompilation.ForService(model, source, page));
         Assert.True(plan.Levels[1].DerivedName);
+        if(redundantSource)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("area_name",maintenance.MixedSourceColumns[source.Source.TableName]);
+            Assert.Contains(target.TableName,maintenance.MixedTargets);
+            Assert.Contains(producer.TableName,maintenance.MixedTargets);
+        }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
         Assert.Contains(rowProject ? "CompileGlobalCandidate" : "CompileRelation", NonRedundantCrossTargetsRenderer.Service(model, source, page, plan, 1));

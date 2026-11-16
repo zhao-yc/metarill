@@ -32,9 +32,11 @@ public sealed class NonRedundantSelfTreeTests
     }
     /// <summary>全局树按固定目标条件发布，来源继续按项目；非物理名称和带项目变量的目标仍拒绝。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn,bool redundantSource)
     {
         var catalog = RedundantMultiNameCacheTests.Published(Catalog("nr_tree", automatic: true));
         var target = catalog.ConfigTables.Single(table => table.Id == "3");
@@ -49,6 +51,7 @@ public sealed class NonRedundantSelfTreeTests
         targetPage.WhereSql = "status=1";
         if (!catalog.ConfigColumns.Any(column => column.ConfigTableId == target.Id && column.ColumnName == "status"))
             catalog.ConfigColumns.Add(new() { Id = "global_tree_status", ConfigTableId = target.Id, ColumnName = "status", LogicalType = "int32" });
+        if(redundantSource)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
         var model = GenerationModel.Create(catalog, "Example.GlobalTree");
         var source = model.Tables.Single(table => table.Source.Id == "2");
         var page = Assert.Single(source.Pages);
@@ -56,6 +59,7 @@ public sealed class NonRedundantSelfTreeTests
         Assert.Contains("CascadeScope201_25", scope);
         Assert.Contains("RequirePagePermission(\"301\",\"list\")", scope);
         Assert.DoesNotContain("row.YzProjectId", scope);
+        if(redundantSource)Assert.Equal(targetPage.Id,Assert.Single(SelfTreePropagationCompilation.ForTable(model,source)).SelfTreePageId);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
 
