@@ -75,7 +75,7 @@ internal static class DatabaseCheckboxRenderer
                     .Append(def.DerivedName?"":"            if(request.Selected is {} selected){if(selected.Length==0)return [];query=query.Where(row=>selected.Contains(row.Id));}\n")
                     .AppendLine(def.DerivedName?$"            var rows=await DerivedCheckboxRows{suffix}Async(request.ParentId,actor,form,request.Selected,null,false,5001,false,cancellationToken);":$"            var rows=await query{string.Concat(def.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"))}.Limit(5001).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
                     .AppendLine("            if(rows.Count>DatabaseCheckboxValue.MaximumItems)throw new InvalidOperationException(\"复选候选超过5000项，全选不能使用截断结果。\");")
-                    .AppendLine("            return rows.Select(row=>{var id=row.Id.ToString(CultureInfo.InvariantCulture);return new DatabaseCheckboxOption(id,row.Name,id,row.Name);}).ToArray();")
+                    .AppendLine($"            return rows.Select(row=>{{var id=row.Id.ToString(CultureInfo.InvariantCulture);var label={LabelText(def,"row.Name")};return new DatabaseCheckboxOption(id,label,id,label);}}).ToArray();")
                     .AppendLine("        },cancellationToken);").AppendLine("    }");
             }
             result.AppendLine("    /// <summary>来源依赖变化重新校验完整所选集合，冗余名称仅在本事务派生；未提交无关字段不刷新。</summary>")
@@ -90,13 +90,17 @@ internal static class DatabaseCheckboxRenderer
                 .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({ParentValue(def,"entity")},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
                 .AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"复选项不存在、已删除或已离开当前固定候选范围，整笔未保存。\");");
             if(table.Source.IsRongyu==1)
-                result.AppendLine("        var names=rows.ToDictionary(row=>row.Id,row=>row.Name);")
+                result.AppendLine($"        var names=rows.ToDictionary(row=>row.Id,row=>{LabelText(def,"row.Name")});")
                     .AppendLine($"        entity.{def.Names.Property}=entity.{def.Source.Property} is null?null:JsonSerializer.Serialize(selected.Select(id=>names[id]).ToArray());submitted.Add({Literal(def.Names.Source.ColumnName)});");
             if(table.Source.IsRongyu==1&&int.TryParse(def.Names.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var nameLimit)&&nameLimit>0)result.AppendLine($"        if(entity.{def.Names.Property} is {{Length:>{nameLimit}}})throw new ArgumentException(\"复选名称数组超过已声明物理列长度。\");");
             result.AppendLine("    }");
         }
         return result.ToString();
     }
+    /// <summary>候选与名称数组都保留空值及十进制文本，避免 bigint 在 JavaScript 中丢失精度。</summary>
+    internal static string LabelText(DatabaseCheckboxModel def,string expression)=>
+        def.IntegerLabel?expression+"?.ToString(CultureInfo.InvariantCulture)":expression;
+
     /// <summary>已编译条件在类型加载时创建一次，候选请求只提供参数。</summary>
     private static string Declaration(DatabaseCheckboxModel def,string suffix)
     {

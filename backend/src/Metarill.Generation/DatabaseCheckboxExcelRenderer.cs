@@ -25,12 +25,16 @@ internal static class DatabaseCheckboxExcelRenderer
         {
             result.AppendLine("        if(cell.ValueKind==JsonValueKind.String){try{cell=JsonSerializer.Deserialize<JsonElement>(cell.GetString()!);}catch(JsonException error){throw PageImportException.Input(PageImportError.Array,inner:error);}}")
                 .AppendLine("        if(cell.ValueKind!=JsonValueKind.Array||cell.GetArrayLength()>DatabaseCheckboxValue.MaximumItems)throw PageImportException.Input(PageImportError.Array);");
+            // 原名称数组使用文本；整数反查绑定强类型值，拒绝溢出、前导零和浮点写法。
+            var parseLabel=def.IntegerLabel
+                ?$"var label=item.GetString();if(!{(def.Name.Type=="int?"?"int":"long")}.TryParse(label,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var name)||name.ToString(CultureInfo.InvariantCulture)!=label)throw PageImportException.Input(PageImportError.Relation);"
+                :"var name=item.GetString();";
             var form="new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+Literal(binding.Column.JsonName)+"],"+Literal(binding.Column.Source.LogicalType)+")"))+"}";
             result.AppendLine($"        var scope=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);")
                 .AppendLine("        var selected=new List<string>();")
                 .AppendLine("        foreach(var item in cell.EnumerateArray())")
                 .AppendLine("        {")
-                .AppendLine("            if(item.ValueKind!=JsonValueKind.String)throw PageImportException.Input(PageImportError.Relation);var name=item.GetString();")
+                .AppendLine("            if(item.ValueKind!=JsonValueKind.String)throw PageImportException.Input(PageImportError.Relation);"+parseLabel)
                 .AppendLine($"            var currentScope=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);")
                 .AppendLine(def.DerivedName?$"            var matches=await DerivedCheckboxRows{suffix}Async(parentId,actor,{form},null,name,true,2,true,cancellationToken);":$"            var matches=await currentScope.Where(row=>row.{def.Name.Property}==name).OrderBy(row=>row.Id).Limit(2).ToListAsync(row=>new{{row.Id}},cancellationToken);")
                 .AppendLine("            if(matches.Count!=1)throw PageImportException.Input(PageImportError.Relation);")
@@ -65,7 +69,7 @@ internal static class DatabaseCheckboxExcelRenderer
                 {{(def.DerivedName?"var matches=await DerivedCheckboxRows"+suffix+"Async("+DatabaseCheckboxRenderer.ParentValue(def,"entity")+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",null,name,true,2,false,cancellationToken);":"var matches=await nameScope.Where(row=>row."+def.Name.Property+"==name).Limit(2).ToListAsync(row=>new{row.Id},cancellationToken);")}}
                 if(matches.Count!=1||matches[0].Id!=id)throw new InvalidOperationException("复选名称导出存在歧义，名称数组不能唯一还原原ID。");
             }
-            values[entity.Id]=entity.{{def.Source.Property}} is null?null:JsonSerializer.Serialize(selected.Select(id=>names[id]).ToArray());
+            values[entity.Id]=entity.{{def.Source.Property}} is null?null:JsonSerializer.Serialize(selected.Select(id=>{{DatabaseCheckboxRenderer.LabelText(def,"names[id]")}}).ToArray());
         }
         return values;
     }

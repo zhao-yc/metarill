@@ -434,7 +434,7 @@ public static partial class MySqlNonRedundantReadCompiler
             multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope,NameExpression:integerLabel?label:null);
             // 名称筛选直接对目标做EXISTS，不先聚合整份名称数组，也不把根记录JOIN成多行。
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(targetScope.Length==0?"":" AND "+targetScope)+" AND "+label+" LIKE {parameter} ESCAPE '!')";
-            if(relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(targetScope.Length==0?"":" AND "+targetScope)+" AND multi_value."+Q(display)+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
+            if(relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(targetScope.Length==0?"":" AND "+targetScope)+" AND "+label+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             origin=new(target.TableName,value.ColumnName);return(expression,"string");
         }
         /// <summary>坏历史JSON不能使整页SQL失败，源数据不在读取时修补。</summary>

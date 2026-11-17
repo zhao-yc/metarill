@@ -39,6 +39,78 @@ public sealed class DatabaseCheckboxGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>整数业务名称在原复选中仍输出文本，Excel 与维护使用同一物理字段。</summary>
+    [Theory]
+    [InlineData(true,false,"int32","list")]
+    [InlineData(true,true,"int64","edit")]
+    [InlineData(false,false,"int64","list")]
+    [InlineData(false,true,"int32","edit")]
+    public async Task Integer_checkbox_labels_publish_original_candidate_workbook_and_maintenance(bool nonRedundant,bool automatic,string type,string exportMode)
+    {
+        var catalog=Published(Catalog(nonRedundant,automatic));
+        catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType=type;
+        var pageMetadata=catalog.ConfigPages.Single(page=>page.Id=="201");pageMetadata.IsImport=pageMetadata.IsExport=1;
+        pageMetadata.Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
+        var field=catalog.ConfigPageColumns.Single(item=>item.ConfigColumnId=="25");field.IsEdit=field.IsShow=1;
+        field.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+
+        const string ns="Example.IntegerCheckbox";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");var page=Assert.Single(table.Pages);
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));
+        Assert.True(checkbox.IntegerLabel);
+        Assert.Equal(automatic&&!nonRedundant,MultiNameStorageCompilation.IsImplicit(model,checkbox.Names));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+        var importer=ImportRenderer.Service(model,table,page);
+        var exporter=ExportRenderer.Service(model,table,page);
+        if(nonRedundant)
+        {
+            Assert.Equal("string",NonRedundantReads.Compile(catalog,"2",["target_names"]).OutputTypes["target_names"]);
+            Assert.Contains(type=="int32"?"int.TryParse(label":"long.TryParse(label",importer);
+            Assert.Contains("row.Name==name",importer);
+            Assert.Contains("names[id]?.ToString(CultureInfo.InvariantCulture)",exporter);
+        }
+        else
+        {
+            Assert.Contains("DatabaseCheckboxValue.ProjectIds",importer);
+            Assert.DoesNotContain("ExportCheckbox201_25Async",exporter);
+            Assert.Contains("entity.TargetIds,",exporter);
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-integer-checkbox-labels");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");new CSharpGenerator().Generate(catalog,output,ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetTypes().Single(item=>item.Name=="RelationSourceService");
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));Assert.NotNull(service.GetMethod("Export201Async"));
+            var generated=await File.ReadAllTextAsync(Path.Combine(output,"Services/RelationSourceService.g.cs"));
+            Assert.Contains("var label=row.Name?.ToString(CultureInfo.InvariantCulture)",generated);
+            Assert.Contains("new DatabaseCheckboxOption(id,label,id,label)",generated);
+            if(!nonRedundant)
+            {
+                Assert.Contains("row=>row.Name?.ToString(CultureInfo.InvariantCulture)",generated);
+                var maintenance=assembly.GetTypes().Single(item=>item.Name=="GeneratedRelationMaintenance").GetProperty("Catalog")!.GetValue(null)!;
+                var plans=(System.Collections.IDictionary)maintenance.GetType().GetProperty("Plans",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(maintenance)!;
+                var plan=plans["2"]!;
+                Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+                Assert.NotNull(plan.GetType().GetProperty("Read")!.GetValue(plan));
+            }
+            var probe=Path.Combine(NonRedundantApplicationFixture.Root(),"backend/tests/Metarill.Generation.Tests/DatabaseCheckboxVueProbe.mjs");
+            var start=new System.Diagnostics.ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};
+            foreach(var arg in new[]{probe,output,type})start.ArgumentList.Add(arg);
+            using var process=System.Diagnostics.Process.Start(start)!;
+            var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();
+            using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try{await process.WaitForExitAsync(timeout.Token);}
+            catch(Exception error){await SharedSourceBuildGate.StopOwnProcessAsync(process,stdout,stderr,error);throw;}
+            Assert.True(process.ExitCode==0,await stdout+await stderr);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>使用包内基础源码构建正式宿主，重复更新只替换归属产物，原复选组件与手写代码保持。</summary>
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(true,true)]
     public async Task Full_checkbox_package_builds_and_updates_original_frontend_without_replacing_handwritten_code(bool nonRedundant,bool automatic)
